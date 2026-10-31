@@ -1,34 +1,40 @@
-# ByteTrail
+# DiskUnfold
 
-Understand where your disk space goes.
+Understand what takes up your space.
 
-A full drive often starts with a simple question: "What is taking up all this
-space?" Finding the answer can mean opening folder after folder, trying to make
-sense of unfamiliar files, and wondering what you still need.
+A full drive often starts with a simple question: "Where did all my space go?"
+Finding the answer can mean opening folder after folder, trying to make sense
+of unfamiliar files, and wondering what you still need.
 
-ByteTrail is a project for making disk space easier to understand. Its role is
-to help people see how their storage is being used and make more informed
-decisions about their files.
+DiskUnfold is an open-source project being created to make disk space easier to
+understand. The idea behind the name is simple: unfold what is on your disk,
+make sense of it, and decide what matters to you.
 
-## Why ByteTrail?
+## Why DiskUnfold?
 
-We want to make storage problems easier to explore, even if you are not a
-technical expert. The purpose is to turn confusing disk usage into information
-you can understand and use, whether you are running out of room or simply want
-to know what is on your drive.
+Knowing that your drive is full is only part of the story. We want to help you
+understand how your storage is being used, so you can make informed decisions
+about your files.
+
+Whether you are running out of room or just curious about what is on your
+drive, the goal is to make that exploration approachable without requiring
+technical expertise.
 
 ```mermaid
 flowchart LR
-    Question["Where did my space go?"] --> Understand["Understand your storage"]
-    Understand --> Decide["Make informed decisions"]
+    Question["Where did my space go?"] --> Unfold["Unfold what is on your disk"]
+    Unfold --> Understand["Understand how space is used"]
+    Understand --> Decide["Decide what matters to you"]
 ```
 
 ## Project status
 
-ByteTrail is at the concept stage. The name and the role described above are
-established; specific features, supported platforms, and implementation details
-are still being explored. This repository does not yet provide a usable
-application.
+DiskUnfold is at the concept stage. Its name and purpose are established;
+specific features, supported platforms, and implementation details have not
+yet been decided. There is no usable application at this stage.
+
+Follow the project and share your storage questions on
+[GitHub](https://github.com/arikasalice/DiskUnfold).
 
 ## License
 
