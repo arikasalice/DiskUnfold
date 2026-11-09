@@ -1,0 +1,18 @@
+[package]
+name = "du-app-host"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[features]
+gui = ["dep:tauri", "dep:tauri-build"]
+
+[dependencies]
+tauri = { workspace = true, optional = true }
+
+[build-dependencies]
+tauri-build = { workspace = true, optional = true }
+
+[lints]
+workspace = true

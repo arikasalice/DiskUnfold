@@ -1,0 +1,44 @@
+{
+  "name": "diskunfold-gui",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": "26.13.0"
+  },
+  "scripts": {
+    "build": "vite build",
+    "check": "npm run typecheck && npm run lint && npm run format:check && npm run arch",
+    "typecheck": "node node_modules/typescript-compiler/bin/tsc --noEmit",
+    "lint": "eslint . --max-warnings 0",
+    "format:check": "prettier --check .",
+    "arch": "depcruise --config .dependency-cruiser.cjs src",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage --reporter=default --reporter=json --outputFile=../quality-output/gui-tests.json"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "2.12.4",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@testing-library/dom": "10.4.2",
+    "@testing-library/react": "16.3.3",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@types/node": "^26",
+    "@vitest/coverage-v8": "5.1.0",
+    "dependency-cruiser": "18.7.2",
+    "eslint": "10.14.0",
+    "happy-dom": "21.0.4",
+    "jscpd": "5.4.3",
+    "license-checker-rseidelsohn": "5.0.0",
+    "prettier": "3.9.10",
+    "typescript": "6.0.3",
+    "typescript-compiler": "npm:typescript@7.0.2",
+    "typescript-eslint": "8.72.1",
+    "vite": "8.3.6",
+    "vitest": "5.1.0"
+  }
+}

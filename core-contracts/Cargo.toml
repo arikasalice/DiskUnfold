@@ -1,0 +1,24 @@
+[package]
+name = "du-core-contracts"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[features]
+typescript = ["dep:ts-rs"]
+
+[dependencies]
+base64.workspace = true
+chrono.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+ts-rs = { workspace = true, optional = true }
+
+[lints]
+workspace = true
+
+[[example]]
+name = "export_types"
+required-features = ["typescript"]

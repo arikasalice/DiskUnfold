@@ -1,0 +1,83 @@
+#![allow(clippy::unwrap_used)]
+use du_core_contracts::*;
+use serde_json::{from_value, json, to_value};
+
+#[test]
+fn sizes_preserve_u64_and_reject_invalid_values() {
+    for value in ["0", "18446744073709551615"] {
+        let b: ByteSize = from_value(json!(value)).unwrap();
+        assert_eq!(to_value(b).unwrap(), json!(value));
+    }
+    for value in [
+        json!(0),
+        json!("18446744073709551616"),
+        json!("-1"),
+        json!("01"),
+    ] {
+        assert!(from_value::<ByteSize>(value).is_err());
+    }
+    let unknown = json!({"basis":"logical","evidence":"unknown","state":"unknown"});
+    assert!(from_value::<SizeValue>(unknown.clone()).is_ok());
+    assert!(
+        from_value::<SizeValue>(
+            json!({"basis":"logical","evidence":"unknown","state":"unknown","bytes":"0"})
+        )
+        .is_err()
+    );
+    assert_ne!(
+        unknown,
+        json!({"basis":"logical","evidence":"unknown","state":"exact","bytes":"0"})
+    );
+}
+#[test]
+fn ids_and_timestamps_validate_wire_input() {
+    assert!(Id::parse("018f5e7b-1234-7123-8123-123456789abc").is_ok());
+    assert!(Id::parse("018f5e7b-1234-4123-8123-123456789abc").is_err());
+    assert!(Timestamp::parse("2026-11-09T12:34:56.123Z").is_ok());
+    for value in [
+        "2026-11-09T12:34:56.123456Z",
+        "2026-11-09T12:34:56.123+00:00",
+        "2026-02-30T12:34:56.123Z",
+    ] {
+        assert!(Timestamp::parse(value).is_err());
+    }
+}
+#[test]
+fn paths_round_trip_raw_bytes() {
+    for bytes in [vec![0xff, b'/'], vec![0x00, 0xd8]] {
+        let raw = PathBytes::from_bytes(&bytes);
+        assert_eq!(raw.bytes().unwrap(), bytes);
+        let encoded = to_value(raw).unwrap();
+        assert_eq!(
+            from_value::<PathBytes>(encoded).unwrap().bytes().unwrap(),
+            bytes
+        );
+    }
+    assert!(from_value::<PathBytes>(json!("/w==")).is_err());
+}
+#[test]
+fn errors_and_event_bounds() {
+    let id = Id::parse("018f5e7b-1234-7123-8123-123456789abc").unwrap();
+    let error = ErrorEnvelope::from_reason("db.busy", id.clone(), vec![]).unwrap();
+    let wire = to_value(error).unwrap();
+    assert_eq!(wire["retryable"], true);
+    assert_eq!(wire["messageKey"], "db.busy");
+    assert_eq!(wire["reasonKey"], "db.busy");
+    assert_ne!(wire["reasonKey"], "support.internal_error");
+    assert!(wire.get("itemRefs").is_none());
+    let mut event = EventEnvelope {
+        topic: "job.finished".into(),
+        contract_version: 1,
+        seq: 1,
+        correlation_id: Some(id),
+        job_ref: None,
+        result_version: None,
+        occurred_at: Timestamp::parse("2026-11-09T12:34:56.123Z").unwrap(),
+        body: json!({}),
+    };
+    assert!(event.validate());
+    event.seq = 1 << 53;
+    assert!(!event.validate());
+    event.seq = 0;
+    assert!(!event.validate());
+}

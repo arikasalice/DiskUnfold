@@ -1,0 +1,16 @@
+export type Id = string;
+export type ByteSize = string;
+export type Timestamp = string;
+export type SizeBasis = "logical" | "allocated" | "unique_physical";
+export type SizeEvidence = "measured" | "os_reported" | "estimated" | "unknown";
+export type SizeAmount = { "state": "exact", bytes: ByteSize, } | { "state": "lower_bound", bytes: ByteSize, } | { "state": "unknown" };
+export type SizeValue = { basis: SizeBasis, evidence: SizeEvidence, } & ({ "state": "exact", bytes: ByteSize, } | { "state": "lower_bound", bytes: ByteSize, } | { "state": "unknown" });
+export type PathEncoding = "unix" | "windows_utf16le";
+export type PathBytes = string;
+export type OsPath = { encoding: PathEncoding, raw: PathBytes, display: string, lossy: boolean, };
+export type ItemRef = { resultVersion: Id, itemNo: number, };
+export type ErrorCode = "AUTH_REQUIRED" | "ORIGIN_DENIED" | "SCOPE_DENIED" | "INVALID_ARGUMENT" | "NOT_FOUND" | "STALE_VERSION" | "BUSY" | "INTERNAL";
+export type ErrorEnvelope = { code: ErrorCode, reasonKey: string, messageKey: string, correlationId: Id, itemRefs?: Array<ItemRef>, retryable: boolean, };
+export type CallEnvelope = { name: string, contractVersion: number, correlationId: Id, body: unknown, };
+export type ResultEnvelope = { name: string, contractVersion: number, correlationId: Id, body: unknown, error?: ErrorEnvelope, };
+export type EventEnvelope = { topic: string, contractVersion: number, seq: number, correlationId?: Id, jobRef?: Id, resultVersion?: Id, occurredAt: Timestamp, body: unknown, };

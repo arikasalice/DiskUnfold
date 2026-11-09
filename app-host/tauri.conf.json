@@ -1,0 +1,24 @@
+{
+  "productName": "DiskUnfold",
+  "version": "0.1.0",
+  "identifier": "io.github.arikasalice.diskunfold",
+  "build": {
+    "frontendDist": "../gui-web/dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "DiskUnfold",
+        "width": 900,
+        "height": 600
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost; object-src 'none'; base-uri 'none'; frame-src 'none'"
+    }
+  },
+  "bundle": {
+    "active": false
+  }
+}
