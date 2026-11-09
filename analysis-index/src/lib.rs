@@ -1,4 +1,5 @@
 //! In-memory result publication and conservative per-subtree space aggregation.
+pub mod browse;
 mod physical;
 pub mod query;
 mod space;
