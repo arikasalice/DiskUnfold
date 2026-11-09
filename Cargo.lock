@@ -232,6 +232,9 @@ version = "0.1.0"
 [[package]]
 name = "du-job-runtime"
 version = "0.1.0"
+dependencies = [
+ "du-core-contracts",
+]
 
 [[package]]
 name = "du-launcher"
