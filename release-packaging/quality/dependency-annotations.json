@@ -5,6 +5,12 @@
     "distributed": true,
     "reason": "SQLite persistence adapter"
   },
+  "cargo:du-platform-os:tempfile@3.27.0": {
+    "license": "MIT OR Apache-2.0",
+    "role": "test",
+    "distributed": false,
+    "reason": "Isolate Windows scan fixtures and replacement races from user data"
+  },
   "cargo:du-app-db:tempfile@3.27.0": {
     "license": "MIT OR Apache-2.0",
     "role": "test",
@@ -106,6 +112,12 @@
     "role": "runtime",
     "distributed": true,
     "reason": "Type bounds for registered use case requests and responses"
+  },
+  "cargo:du-engine-api:uuid@1.29.2": {
+    "license": "Apache-2.0 OR MIT",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Generate UUID v7 identifiers for local analysis jobs and result versions"
   },
   "cargo:du-engine-api:blake3@1.8.3": {
     "license": "CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception",

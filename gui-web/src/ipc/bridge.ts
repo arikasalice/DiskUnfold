@@ -1,4 +1,8 @@
-import type { CallEnvelope, ResultEnvelope } from "./generated/contracts";
+import type {
+  CallEnvelope,
+  EventEnvelope,
+  ResultEnvelope,
+} from "./generated/contracts";
 
 type NativeRequest = (payload: string) => Promise<string>;
 
@@ -7,6 +11,40 @@ interface NativeWindow extends Window {
   webkit?: {
     messageHandlers?: { diskunfold?: { postMessage: NativeRequest } };
   };
+}
+
+/** Detects the embedded desktop bridge before presenting native analysis controls. */
+export function hasWindowsAnalysisBridge(): boolean {
+  const host = window as NativeWindow;
+  return (
+    host.top === host &&
+    host.location.origin === "https://diskunfold.invalid" &&
+    typeof host.__diskunfoldRequest === "function"
+  );
+}
+
+/** Subscribes to validated event envelopes from the desktop host. */
+export function subscribeNative(
+  listener: (event: EventEnvelope) => void,
+): () => void {
+  const receive = (event: Event) => {
+    if (!(event instanceof CustomEvent)) return;
+    const envelope = event.detail as Partial<EventEnvelope> | null;
+    if (
+      envelope === null ||
+      typeof envelope !== "object" ||
+      envelope.contractVersion !== 1 ||
+      typeof envelope.topic !== "string" ||
+      typeof envelope.occurredAt !== "string" ||
+      typeof envelope.seq !== "number" ||
+      !Number.isSafeInteger(envelope.seq) ||
+      envelope.seq < 1
+    )
+      return;
+    listener(envelope as EventEnvelope);
+  };
+  window.addEventListener("du://event", receive);
+  return () => window.removeEventListener("du://event", receive);
 }
 
 export async function invokeNative(

@@ -37,6 +37,18 @@ string_value!(Id, |s: &str| uuid::Uuid::parse_str(s).is_ok_and(|v| v
     == 7
     && v.get_variant() == uuid::Variant::RFC4122
     && v.to_string() == s));
+impl Id {
+    /// Builds a UUID v7 from bytes with a supplied timestamp and random data.
+    pub fn from_v7_bytes(bytes: [u8; 16]) -> Self {
+        Self(
+            uuid::Builder::from_bytes(bytes)
+                .with_version(uuid::Version::SortRand)
+                .with_variant(uuid::Variant::RFC4122)
+                .into_uuid()
+                .to_string(),
+        )
+    }
+}
 string_value!(ByteSize, |s: &str| !s.is_empty()
     && s.bytes().all(|c| c.is_ascii_digit())
     && (s == "0" || !s.starts_with('0'))

@@ -21,10 +21,37 @@ fn asset(path: &str) -> Option<Asset> {
 }
 
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
-    let engine = EngineBuilder::default().build()?;
-    du_platform_os::webview::run(WebApp {
+    #[allow(unused_mut)]
+    let mut builder = EngineBuilder::default();
+    #[cfg(windows)]
+    let events = du_engine_api::desktop::register(
+        &mut builder,
+        Arc::new(du_platform_os::windows_observation::WindowsScopeRoots),
+        Arc::new(du_platform_os::volume::WindowsVolumes),
+        Arc::new(DeferredHistory),
+    )?;
+    let engine = builder.build()?;
+    let app = WebApp {
         asset,
         dispatch: Arc::new(move |message| crate::ipc::dispatch(&engine, message)),
         icon: include_bytes!("../icons/icon.png"),
-    })
+    };
+    #[cfg(windows)]
+    return du_platform_os::webview::run_with_events(app, Arc::new(move || events.next_json()));
+    #[cfg(not(windows))]
+    du_platform_os::webview::run(app)
+}
+
+/// Until the history repository is composed, report storage failure explicitly.
+#[cfg(windows)]
+struct DeferredHistory;
+
+#[cfg(windows)]
+impl du_core_contracts::job::JobHistory for DeferredHistory {
+    fn append(
+        &self,
+        _: &du_core_contracts::job::JobSummary,
+    ) -> Result<du_core_contracts::job::HistoryAppend, String> {
+        Err("history.write_deferred".into())
+    }
 }

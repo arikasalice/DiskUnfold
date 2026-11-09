@@ -100,7 +100,7 @@ fn validate(draft: &ScopeDraft) -> Result<OsPath, EngineError> {
     windows_path(path)
 }
 
-fn windows_path(path: &OsPath) -> Result<OsPath, EngineError> {
+pub(crate) fn windows_path(path: &OsPath) -> Result<OsPath, EngineError> {
     let invalid = || EngineError::reason("path.unresolvable");
     let raw = path.raw.bytes().map_err(|_| invalid())?;
     let (units, tail) = raw.as_chunks::<2>();

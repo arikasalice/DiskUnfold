@@ -210,6 +210,17 @@
   },
   {
     "ecosystem": "cargo",
+    "owner": "du-engine-api",
+    "name": "uuid",
+    "version": "1.29.2",
+    "source": "registry+https://github.com/rust-lang/crates.io-index",
+    "license": "Apache-2.0 OR MIT",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Generate UUID v7 identifiers for local analysis jobs and result versions"
+  },
+  {
+    "ecosystem": "cargo",
     "owner": "du-launcher",
     "name": "find-msvc-tools",
     "version": "0.1.15",
@@ -306,6 +317,17 @@
     "role": "runtime",
     "distributed": true,
     "reason": "Check Linux directory access without following symbolic links"
+  },
+  {
+    "ecosystem": "cargo",
+    "owner": "du-platform-os",
+    "name": "tempfile",
+    "version": "3.27.0",
+    "source": "registry+https://github.com/rust-lang/crates.io-index",
+    "license": "MIT OR Apache-2.0",
+    "role": "test",
+    "distributed": false,
+    "reason": "Isolate Windows scan fixtures and replacement races from user data"
   },
   {
     "ecosystem": "cargo",
