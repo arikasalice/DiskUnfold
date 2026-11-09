@@ -1,8 +1,12 @@
+<img src="gui-web/src/app/assets/diskunfold-icon.svg" width="96" height="96" alt="DiskUnfold app icon">
+
 # DiskUnfold
 
 Understand what takes up your space.
 
-DiskUnfold is an open-source desktop project that helps people understand how their storage is used. The current branch provides the development foundation for version 0.1: a Rust workspace, a Tauri and React shell, a command-line entry point, and shared contracts. Storage analysis, cleanup, MCP tools, and release packaging are planned feature work.
+DiskUnfold is an open-source desktop project for understanding where your disk space goes. The goal is to explore storage visually, see what changed between scans, and review cleanup plans before making changes to your files.
+
+Version 0.1 is in development. The current foundation includes a Tauri and React shell, a command-line entry point, and shared Rust contracts. Storage analysis, cleanup, MCP tools, and release packaging are planned.
 
 ## Run the foundation
 
