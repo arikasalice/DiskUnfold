@@ -35,12 +35,23 @@ pub struct MountTopology {
     pub root: Vec<u8>,
 }
 
+/// Role observed from a filesystem type with an explicit OS mapping.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VolumeRole {
+    VirtualFs,
+    MemoryTemp,
+}
+
 /// A mount observation, retaining the OS path bytes without loss.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VolumeMount {
     pub mount_path: Vec<u8>,
     pub display_path: String,
     pub filesystem: Vec<u8>,
+    /// mountinfo source, which may be a device, network source, or non-path label.
+    pub mount_source: Vec<u8>,
+    /// None means the available observation does not establish a role.
+    pub role: Option<VolumeRole>,
     pub topology: Option<MountTopology>,
 }
 

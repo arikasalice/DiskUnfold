@@ -2,7 +2,7 @@ use du_core_contracts::{
     ports::{PortError, PortErrorKind},
     volume::{
         Capability, CapabilityState, MountTopology, VolumeCapabilities, VolumeCapacity,
-        VolumeEnumeration, VolumeMount, VolumePort,
+        VolumeEnumeration, VolumeMount, VolumePort, VolumeRole,
     },
 };
 use rustix::{
@@ -91,6 +91,15 @@ fn topology(fields: &[&[u8]]) -> Result<MountTopology, io::Error> {
     })
 }
 
+// Only file system types with a direct, unambiguous mapping are classified.
+fn filesystem_role(filesystem: &[u8]) -> Option<VolumeRole> {
+    match filesystem {
+        b"tmpfs" => Some(VolumeRole::MemoryTemp),
+        b"proc" | b"sysfs" => Some(VolumeRole::VirtualFs),
+        _ => None,
+    }
+}
+
 fn parse_mounts(data: &[u8]) -> Result<Vec<VolumeMount>, io::Error> {
     data.split(|c| *c == b'\n')
         .filter(|line| !line.is_empty())
@@ -102,7 +111,10 @@ fn parse_mounts(data: &[u8]) -> Result<Vec<VolumeMount>, io::Error> {
                 .filter(|i| *i >= 6 && fields.len() >= *i + 4)
                 .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "invalid mountinfo"))?;
             let mount_path = decode(fields[4])?;
-            if !mount_path.starts_with(b"/")
+            let mount_source = decode(fields[separator + 2])?;
+            if mount_source.is_empty()
+                || mount_source.contains(&0)
+                || !mount_path.starts_with(b"/")
                 || mount_path.contains(&0)
                 || fields[separator + 1].is_empty()
             {
@@ -115,6 +127,8 @@ fn parse_mounts(data: &[u8]) -> Result<Vec<VolumeMount>, io::Error> {
                 display_path: String::from_utf8_lossy(&mount_path).into_owned(),
                 mount_path,
                 filesystem: fields[separator + 1].to_vec(),
+                mount_source,
+                role: filesystem_role(fields[separator + 1]),
                 topology: Some(topology(&fields)?),
             })
         })
@@ -243,9 +257,22 @@ mod tests {
         Ok(())
     }
     #[test]
+    fn preserves_source_and_reports_only_established_roles()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mounts = parse_mounts(b"1 0 0:1 / /m rw - tmpfs source\\040\\134\xff rw\n2 0 0:2 / /p rw - proc proc rw\n3 0 0:3 / /s rw - sysfs sysfs rw\n4 0 7:0 / /snap/example rw - squashfs /dev/loop0 ro\n5 0 8:1 / /disk rw - ext4 /dev/sda1 rw\n")?;
+        assert_eq!(mounts[0].mount_source, b"source \\\xff");
+        assert_eq!(mounts[0].role, Some(VolumeRole::MemoryTemp));
+        assert_eq!(mounts[1].role, Some(VolumeRole::VirtualFs));
+        assert_eq!(mounts[2].role, Some(VolumeRole::VirtualFs));
+        assert_eq!(mounts[3].role, None);
+        assert_eq!(mounts[4].role, None);
+        Ok(())
+    }
+    #[test]
     fn rejects_truncated_and_invalid_records() {
         assert!(parse_mounts(b"42 1 8:1 / /bad\\999 rw - ext4 /dev/a rw\n").is_err());
         assert!(parse_mounts(b"42 1 8:1 / / rw\n").is_err());
+        assert!(parse_mounts(b"42 1 8:1 / / rw - ext4 bad\\000source rw\n").is_err());
         assert!(parse_mounts(b"42 1 x:1 / / rw - ext4 /dev/a rw\n").is_err());
         assert!(parse_mounts(b"42 1 8:1 /bad\\000 / rw - ext4 /dev/a rw\n").is_err());
     }
@@ -275,6 +302,15 @@ mod tests {
         let result = LinuxVolumes.enumerate();
         let mounts = result.mounts.map_err(|e| format!("{e:?}"))?;
         assert!(mounts.iter().any(|mount| mount.mount_path == b"/"));
+        if let Some(proc_mount) = mounts
+            .iter()
+            .find(|mount| mount.mount_path == b"/proc" && mount.filesystem == b"proc")
+        {
+            assert_eq!(proc_mount.role, Some(VolumeRole::VirtualFs));
+        }
+        if let Some(tmpfs_mount) = mounts.iter().find(|mount| mount.filesystem == b"tmpfs") {
+            assert_eq!(tmpfs_mount.role, Some(VolumeRole::MemoryTemp));
+        }
         assert_eq!(
             result.capabilities.enumerate.state,
             CapabilityState::Supported
