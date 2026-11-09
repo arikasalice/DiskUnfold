@@ -9,6 +9,8 @@ use crate::{
     error::EngineError,
 };
 
+mod analysis;
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Request {

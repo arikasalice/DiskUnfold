@@ -63,10 +63,13 @@ impl ErrorEnvelope {
             | "command.channel_denied"
             | "cursor.invalid"
             | "cursor.limit_exceeded"
+            | "space.target_out_of_scope"
             | "path.unresolvable" => ErrorCode::InvalidArgument,
-            "cursor.stale" | "cursor.expired" | "result.version_released" => {
-                ErrorCode::StaleVersion
-            }
+            "cursor.stale"
+            | "cursor.expired"
+            | "result.version_released"
+            | "result.requery_required" => ErrorCode::StaleVersion,
+            "ref.unavailable" | "job.not_found" => ErrorCode::NotFound,
             "path.outside_scope" | "path.link_escape" => ErrorCode::ScopeDenied,
             "db.busy" => ErrorCode::Busy,
             "db.schema_mismatch" | "support.internal_error" => ErrorCode::Internal,

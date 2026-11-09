@@ -17,7 +17,7 @@ pub use model::FlowLimits;
 use model::*;
 pub use model::{
     CancelResult, DeduplicationKey, JobClock, JobEvent, JobEvents, JobIdentity, JobPriority,
-    JobRuntime, RuntimeError, Submission, SubmitResult,
+    JobRuntime, JobSnapshot, RuntimeError, Submission, SubmitResult,
 };
 pub use shutdown::{ShutdownStatus, ShutdownTicket};
 use std::sync::{
@@ -165,34 +165,56 @@ impl JobRuntime {
         Ok(SubmitResult::Created(id))
     }
     pub fn state(&self, id: &Id) -> Result<JobState, RuntimeError> {
+        self.read_entry(id, |job| job.state)
+    }
+
+    /// Reads the state and terminal fields under the same table lock.
+    pub fn snapshot(&self, id: &Id) -> Result<JobSnapshot, RuntimeError> {
+        self.read_entry(id, |job| JobSnapshot {
+            kind_id: job.descriptor.kind_id.clone(),
+            state: job.state,
+            sequence: job.sequence,
+            result_version_id: job
+                .summary
+                .as_ref()
+                .and_then(|summary| summary.result_version_id.clone()),
+            failure_reason_key: job
+                .summary
+                .as_ref()
+                .and_then(|summary| summary.failure_reason_key.clone()),
+        })
+    }
+
+    fn read_entry<T>(&self, id: &Id, read: impl FnOnce(&Entry) -> T) -> Result<T, RuntimeError> {
         let now = self.clock.now_ms();
         let mut table = self.table.lock().map_err(|_| RuntimeError::Poisoned)?;
         expire(&mut table, now);
-        table
-            .jobs
-            .get(id)
-            .map(|job| job.state)
-            .ok_or(RuntimeError::NotFound)
+        table.jobs.get(id).map(read).ok_or(RuntimeError::NotFound)
     }
     pub fn cancel(&self, id: &Id) -> Result<CancelResult, RuntimeError> {
+        self.cancel_with_sequence(id).map(|(result, _)| result)
+    }
+
+    /// Applies cancellation and returns the sequence of the acknowledged state.
+    pub fn cancel_with_sequence(&self, id: &Id) -> Result<(CancelResult, u64), RuntimeError> {
         let now = self.clock.now_ms();
         let mut table = self.table.lock().map_err(|_| RuntimeError::Poisoned)?;
         expire(&mut table, now);
         let job = table.jobs.get_mut(id).ok_or(RuntimeError::NotFound)?;
         if job.state.is_terminal() {
-            return Ok(CancelResult::AlreadyTerminal(job.state));
+            return Ok((CancelResult::AlreadyTerminal(job.state), job.sequence));
         }
         if !job.descriptor.controls.contains(&JobControl::Cancel) {
-            return Ok(CancelResult::Unsupported(job.state));
+            return Ok((CancelResult::Unsupported(job.state), job.sequence));
         }
         if job.state == JobState::CancelRequested {
-            return Ok(CancelResult::NoEffect(job.state));
+            return Ok((CancelResult::NoEffect(job.state), job.sequence));
         }
         job.cancel.0.store(true, Ordering::Release);
         if job.state == JobState::Queued {
             job.state = JobState::CancelRequested;
             drop(table);
-            self.finish(
+            let sequence = self.finish(
                 id,
                 JobOutcome {
                     counts: Default::default(),
@@ -202,18 +224,19 @@ impl JobRuntime {
                     result_version_id: None,
                 },
             )?;
-            return Ok(CancelResult::Accepted(JobState::Cancelled));
+            return Ok((CancelResult::Accepted(JobState::Cancelled), sequence));
         }
         job.state = JobState::CancelRequested;
         job.sequence += 1;
+        let sequence = job.sequence;
         let event = JobEvent::StateChanged {
             job_id: id.clone(),
             state: job.state,
-            sequence: job.sequence,
+            sequence,
         };
         enqueue(&table, Delivery::Event(event))?;
         drop(table);
-        Ok(CancelResult::Accepted(JobState::CancelRequested))
+        Ok((CancelResult::Accepted(JobState::CancelRequested), sequence))
     }
     /// Runs the oldest eligible queued job on the calling worker thread.
     pub fn run_next(&self) -> Result<Option<Id>, RuntimeError> {
@@ -305,12 +328,12 @@ impl JobRuntime {
         self.finish(&id, outcome)?;
         Ok(Some(id))
     }
-    fn finish(&self, id: &Id, outcome: JobOutcome) -> Result<(), RuntimeError> {
+    fn finish(&self, id: &Id, outcome: JobOutcome) -> Result<u64, RuntimeError> {
         let finished_at_ms = self.clock.now_ms();
         let mut table = self.table.lock().map_err(|_| RuntimeError::Poisoned)?;
         let job = table.jobs.get_mut(id).ok_or(RuntimeError::NotFound)?;
         if job.state.is_terminal() {
-            return Ok(());
+            return Ok(job.sequence);
         }
         let state = final_state(job, &outcome);
         job.state = state;
@@ -344,7 +367,7 @@ impl JobRuntime {
         );
         drop(table);
         drop(released_body);
-        delivery
+        delivery.map(|()| sequence)
     }
     #[cfg(test)]
     fn flush(&self) -> Result<(), RuntimeError> {

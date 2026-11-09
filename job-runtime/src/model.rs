@@ -67,6 +67,15 @@ pub enum CancelResult {
     Unsupported(JobState),
     AlreadyTerminal(JobState),
 }
+/// A consistent read of the job state and its published terminal result.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct JobSnapshot {
+    pub kind_id: String,
+    pub state: JobState,
+    pub sequence: u64,
+    pub result_version_id: Option<Id>,
+    pub failure_reason_key: Option<String>,
+}
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DeduplicationKey {
     pub scope: String,

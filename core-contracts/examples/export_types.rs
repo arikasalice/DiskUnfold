@@ -44,6 +44,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         JobState::decl(&config),
         AnalysisJobRequest::decl(&config),
         AnalysisJobStatus::decl(&config),
+        JobControlOutcome::decl(&config),
+        AnalysisJobControl::decl(&config),
         SpaceTarget::decl(&config),
         SpaceTotalRequest::decl(&config),
         ResultCompleteness::decl(&config),

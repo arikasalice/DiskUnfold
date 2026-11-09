@@ -180,8 +180,32 @@ pub struct AnalysisJobStatus {
     pub job_ref: Id,
     pub kind: String,
     pub state: crate::job::JobState,
+    #[cfg_attr(feature = "typescript", ts(type = "number"))]
+    pub sequence: u64,
     pub result_version: Option<Id>,
     pub reason_key: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum JobControlOutcome {
+    Accepted,
+    NoEffect,
+    Unsupported,
+    AlreadyTerminal,
+}
+
+/// A control acknowledgement. A separate status read reports eventual completion.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct AnalysisJobControl {
+    pub outcome: JobControlOutcome,
+    pub state: crate::job::JobState,
+    pub reason_key: Option<String>,
+    #[cfg_attr(feature = "typescript", ts(type = "number"))]
+    pub sequence: u64,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

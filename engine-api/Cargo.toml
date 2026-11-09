@@ -6,7 +6,9 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+du-analysis-index = { version = "0.1.0", path = "../analysis-index" }
 du-core-contracts = { version = "0.1.0", path = "../core-contracts" }
+du-job-runtime = { version = "0.1.0", path = "../job-runtime" }
 serde.workspace = true
 serde_json.workspace = true
 

@@ -28,9 +28,14 @@ pub(crate) fn dispatch(engine: &Engine, message: &str) -> Option<String> {
         "command.channel_denied"
     } else {
         match serde_json::from_value::<CallEnvelope>(request.args.envelope) {
-            Ok(envelope) => {
+            Ok(mut envelope) => {
+                if envelope.name == "job.get" {
+                    envelope.name = "job.status".into();
+                }
                 let caller = CallerCtx::new(Channel::Gui, address.correlation_id, None);
-                return serde_json::to_string(&engine.call(envelope, &caller)).ok();
+                let mut response = engine.call(envelope, &caller);
+                response.name = address.name;
+                return serde_json::to_string(&response).ok();
             }
             Err(_) => "command.envelope_invalid",
         }
@@ -87,7 +92,7 @@ mod tests {
     struct TestUseCase;
 
     impl UseCase for TestUseCase {
-        const NAME: &'static str = "test.count";
+        const NAME: &'static str = "job.status";
         const CHANNELS: &'static [Channel] = &[Channel::Gui];
         type Request = TestRequest;
         type Response = u32;
@@ -102,18 +107,20 @@ mod tests {
     }
 
     #[test]
-    fn routes_registered_use_case_through_du_call() -> Result<(), Box<dyn std::error::Error>> {
+    fn routes_job_get_to_engine_status_and_preserves_the_ipc_name()
+    -> Result<(), Box<dyn std::error::Error>> {
         let mut builder = EngineBuilder::default();
         builder.register(TestUseCase);
         let engine = builder.build()?;
         let id = "0195f856-ab83-7a59-9343-10d29775c9a9";
         let request = json!({"command": "du_call", "args": {"envelope": {
-            "name": "test.count", "contractVersion": 1, "correlationId": id, "body": {"count": 3},
+            "name": "job.get", "contractVersion": 1, "correlationId": id, "body": {"count": 3},
         }}});
         let reply: Value = serde_json::from_str(
             &dispatch(&engine, &request.to_string()).ok_or("missing response")?,
         )?;
         assert_eq!(reply["body"], 3);
+        assert_eq!(reply["name"], "job.get");
         assert_eq!(reply["correlationId"], id);
         assert!(reply.get("error").is_none());
         Ok(())
