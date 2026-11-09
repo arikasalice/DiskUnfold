@@ -103,3 +103,25 @@ test("failed producer or inconsistent baseline counts suppress only the affected
   assert.equal(failed.results.rust.comparisonEligible, false);
   assert.equal(failed.results.rust.lineDelta, null);
 });
+
+test("failed tests retain measured coverage and executed test counts", (t) => {
+  const { lcov, run, write } = fixture(t);
+  lcov(8, 6);
+  write("quality-output/rust-tests.log", [
+    "test result: FAILED. 0 passed; 1 failed; 1 ignored;",
+    "test result: ok. 1 passed; 0 failed; 0 ignored;",
+  ].join("\n"));
+  write("quality-output/gui-tests.json", '{"numTotalTests":2,"numPassedTests":0,"numPendingTests":1}');
+  const { results } = run(undefined, {
+    RUST_COVERAGE_SUCCEEDED: "false", GUI_COVERAGE_SUCCEEDED: "false",
+  });
+  assert.equal(results.rust.counts.tests, 2);
+  assert.equal(results.rust.tests, 0.5);
+  assert.equal(results.rust.tem, 1.25);
+  assert.equal(results.gui.counts.tests, 1);
+  assert.equal(results.gui.tem, 0);
+  for (const result of Object.values(results)) {
+    assert.equal(result.status, "measured");
+    assert.equal(result.comparisonEligible, false);
+  }
+});

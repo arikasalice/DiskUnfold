@@ -5,6 +5,7 @@ export default defineConfig({
     environment: "happy-dom",
     coverage: {
       provider: "v8",
+      reportOnFailure: true,
       reporter: ["text", "lcov", "json-summary"],
       include: ["src/**/*.{ts,tsx}"],
       exclude: ["src/ipc/generated/**"],
