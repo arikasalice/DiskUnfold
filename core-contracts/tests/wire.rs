@@ -81,3 +81,24 @@ fn errors_and_event_bounds() {
     event.seq = 0;
     assert!(!event.validate());
 }
+
+#[test]
+fn analysis_requests_reject_unknown_fields_and_keep_native_paths() {
+    use du_core_contracts::analysis_ipc::{ScopeDraft, ScopeReviewRequest, SpaceTotalRequest};
+    let draft = json!({
+        "includes": [{"encoding": "windows_utf16le", "raw": "ANg", "display": "�", "lossy": true}],
+        "exclusions": [], "boundary": "current_volume", "includedMounts": [], "source": "gui",
+    });
+    let parsed: ScopeDraft = from_value(draft.clone()).unwrap();
+    assert_eq!(parsed.includes[0].raw.bytes().unwrap(), [0, 0xd8]);
+    assert_eq!(to_value(parsed).unwrap(), draft);
+    assert!(
+        from_value::<ScopeReviewRequest>(json!({"draft":draft,"requestSeq":1,"typo":1})).is_err()
+    );
+    assert!(
+        from_value::<SpaceTotalRequest>(
+            json!({"target":{"kind":"scope_root","item":3},"requestSeq":1})
+        )
+        .is_err()
+    );
+}

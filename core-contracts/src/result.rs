@@ -9,7 +9,9 @@ pub struct ResultItem {
     pub size: Option<SizeValue>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
 pub enum ResultCompleteness {
     Partial,
     Complete,

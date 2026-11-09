@@ -1,4 +1,5 @@
 use du_core_contracts::*;
+use du_core_contracts::{analysis_ipc::*, job::JobState, result::ResultCompleteness};
 use std::{env, fs, io};
 use ts_rs::TS;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -24,6 +25,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         CallEnvelope::decl(&config),
         ResultEnvelope::decl(&config),
         EventEnvelope::decl(&config),
+        TargetKind::decl(&config),
+        IdentitySource::decl(&config),
+        TargetAccess::decl(&config),
+        TargetListRequest::decl(&config),
+        AnalysisTarget::decl(&config),
+        TargetList::decl(&config),
+        TargetStatusChanged::decl(&config),
+        ScopeSource::decl(&config),
+        ScopeBoundary::decl(&config),
+        ScopeExclusion::decl(&config),
+        ScopeDraft::decl(&config),
+        ScopeReviewRequest::decl(&config),
+        ScopeCorrespondence::decl(&config),
+        ScopeReview::decl(&config),
+        ScanStartRequest::decl(&config),
+        ScanStart::decl(&config),
+        JobState::decl(&config),
+        AnalysisJobRequest::decl(&config),
+        AnalysisJobStatus::decl(&config),
+        SpaceTarget::decl(&config),
+        SpaceTotalRequest::decl(&config),
+        ResultCompleteness::decl(&config),
+        SpaceTotalSize::decl(&config),
+        SpaceTotal::decl(&config),
     ];
     let output = declarations
         .into_iter()
