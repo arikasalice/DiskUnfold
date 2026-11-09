@@ -286,6 +286,7 @@ dependencies = [
 name = "du-scan-engine"
 version = "0.1.0"
 dependencies = [
+ "du-analysis-index",
  "du-core-contracts",
 ]
 

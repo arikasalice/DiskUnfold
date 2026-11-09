@@ -11,6 +11,15 @@ pub trait DirectoryObservationPort: Send + Sync {
     fn open(&self, absolute_path: &[u8]) -> Result<Box<dyn DirectoryObservations>, PortError>;
 }
 
+/// A directory already opened and verified by an operating-system adapter.
+///
+/// Child opens must be relative to this handle, without following links or
+/// reparse points. Implementations must reject a changed identity or volume.
+pub trait AnchoredDirectory: DirectoryObservations {
+    /// Opens the previously observed directory entry after revalidating it.
+    fn open_child(&self, entry: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError>;
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ObservedKind {
     File,
