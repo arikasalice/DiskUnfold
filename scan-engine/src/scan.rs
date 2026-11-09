@@ -1,4 +1,5 @@
 //! Sequential collection from already verified directory handles.
+mod parallel;
 use du_analysis_index::{
     BuildError, BuildHandle, FileIdentity, IngestSink, Observation, SharingEvidence,
     SpaceObservation,
@@ -9,6 +10,7 @@ use du_core_contracts::{
     result::ResultCompleteness,
     scan_observation::{AnchoredDirectory, MetadataObservation, ObservedEntry, ObservedKind},
 };
+pub use parallel::collect_parallel;
 use std::collections::VecDeque;
 
 /// Supplies distinct result identifiers for partial and terminal publications.

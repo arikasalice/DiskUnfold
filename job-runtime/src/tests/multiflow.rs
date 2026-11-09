@@ -113,6 +113,19 @@ fn slow_flow_does_not_block_other_result_or_allow_replacement()
 #[test]
 fn a_job_without_the_metadata_class_cannot_open_metadata_flows()
 -> Result<(), Box<dyn std::error::Error>> {
+    verify_metadata_is_unsupported(2, ResourceClass::Compute)
+}
+
+#[test]
+fn disabled_metadata_flows_are_unsupported_instead_of_busy()
+-> Result<(), Box<dyn std::error::Error>> {
+    verify_metadata_is_unsupported(0, ResourceClass::MetadataIo)
+}
+
+fn verify_metadata_is_unsupported(
+    limit: usize,
+    resource: ResourceClass,
+) -> Result<(), Box<dyn std::error::Error>> {
     let fallback = Id::parse("00000000-0000-7000-8000-000000000001")?;
     let runtime = JobRuntime::new_with_limits(
         Arc::new(SequentialIdentity {
@@ -123,13 +136,13 @@ fn a_job_without_the_metadata_class_cannot_open_metadata_flows()
         Arc::new(History::default()),
         Arc::new(Events::default()),
         FlowLimits {
-            metadata_io: 2,
+            metadata_io: limit,
             queued_items: 4,
             item_bytes: 32,
         },
     )?;
     let mut descriptor = descriptor();
-    descriptor.resource_classes = vec![ResourceClass::Compute];
+    descriptor.resource_classes = vec![resource];
     runtime.register(descriptor)?;
     let (sender, receiver) = mpsc::channel();
     let id = created(runtime.submit(sample_submission(Arc::new(MultiBody { sender }))?)?)?;

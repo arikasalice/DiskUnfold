@@ -83,10 +83,11 @@ impl JobContext for Context {
         if job.state != JobState::Running {
             return Err(JobFlowError::Closed);
         }
-        if !job
-            .descriptor
-            .resource_classes
-            .contains(&ResourceClass::MetadataIo)
+        if self.limits.config.metadata_io == 0
+            || !job
+                .descriptor
+                .resource_classes
+                .contains(&ResourceClass::MetadataIo)
         {
             return Err(JobFlowError::UnsupportedResource);
         }

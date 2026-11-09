@@ -114,6 +114,7 @@ pub trait JobFlow: Send {
 pub trait JobContext: Send + Sync {
     fn checkpoint(&self) -> Checkpoint;
     /// Returns Busy rather than spawning or waiting when no metadata I/O permit is available.
+    /// Returns UnsupportedResource when metadata I/O is disabled or not declared for the job.
     fn try_start_flow(&self) -> Result<Box<dyn JobFlow>, JobFlowError>;
 }
 /// The body can return while registered flows finish; the runtime waits for them.

@@ -11,9 +11,11 @@ use du_core_contracts::{
     scan_observation::AnchoredDirectory,
 };
 
-use crate::scan::{ResultIds, collect};
+use crate::scan::{ResultIds, collect_parallel};
 
 const KIND: &str = "scan.metadata";
+// Conservative starting concurrency until device-specific policy is composed.
+const DEFAULT_SCAN_WORKERS: usize = 4;
 
 /// Describes the base metadata collection job.
 pub fn descriptor() -> JobDescriptor {
@@ -61,13 +63,14 @@ impl JobBody for MetadataScan {
     fn run(&self, context: Arc<dyn JobContext>) -> JobOutcome {
         let root = self.root.lock().ok().and_then(|mut root| root.take());
         match root {
-            Some(root) => collect(
+            Some(root) => collect_parallel(
                 &self.store,
                 self.scope.clone(),
                 root,
                 &*self.ids,
-                || context.checkpoint(),
-                |_| true,
+                &*context,
+                DEFAULT_SCAN_WORKERS,
+                &|_| true,
             ),
             None => JobOutcome {
                 counts: Default::default(),

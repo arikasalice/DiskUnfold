@@ -9,7 +9,7 @@ use du_core_contracts::{
         OpenedScopeRoot, ScopeRootPort,
     },
 };
-use du_job_runtime::{JobClock, JobEvent, JobEvents, JobIdentity, JobRuntime};
+use du_job_runtime::{FlowLimits, JobClock, JobEvent, JobEvents, JobIdentity, JobRuntime};
 use std::{
     sync::{Arc, Mutex, mpsc},
     time::Duration,
@@ -141,11 +141,16 @@ fn reviewed_identity_is_rechecked_and_one_job_publishes_the_requested_result()
         release: Arc::new(Mutex::new(blocked)),
     });
     let clock = Arc::new(Clock);
-    let runtime = Arc::new(JobRuntime::new(
+    let runtime = Arc::new(JobRuntime::new_with_limits(
         ids.clone(),
         clock.clone(),
         Arc::new(History),
         Arc::new(Events(send)),
+        FlowLimits {
+            metadata_io: 2,
+            queued_items: 4,
+            item_bytes: 1024,
+        },
     )?);
     let mut builder = EngineBuilder::default();
     crate::jobs::register(&mut builder, runtime.clone());
