@@ -1,2 +1,3 @@
-//! Read-only target discovery and single-target probe conversion.
+//! Read-only target discovery, scope normalization and scan orchestration.
+pub mod scope;
 pub mod target;
