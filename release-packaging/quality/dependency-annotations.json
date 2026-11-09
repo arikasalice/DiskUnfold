@@ -11,6 +11,12 @@
     "distributed": false,
     "reason": "isolated temporary files for tests"
   },
+  "cargo:du-app-db:serde_json@1.0.154": {
+    "license": "MIT OR Apache-2.0",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Encode and decode SQLite setting values"
+  },
   "cargo:du-app-host:serde_json@1.0.154": {
     "license": "MIT OR Apache-2.0",
     "role": "runtime",
@@ -100,6 +106,18 @@
     "role": "runtime",
     "distributed": true,
     "reason": "Type bounds for registered use case requests and responses"
+  },
+  "cargo:du-user-env:blake3@1.8.3": {
+    "license": "CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Fingerprint the canonical settings review batch"
+  },
+  "cargo:du-user-env:serde_json@1.0.154": {
+    "license": "MIT OR Apache-2.0",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Validate setting values and encode review inputs"
   },
   "cargo:du-platform-os:block2@0.6.2": {
     "license": "MIT",

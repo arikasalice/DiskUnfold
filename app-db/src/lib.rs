@@ -1,11 +1,18 @@
 //! Implement SQLite storage ports.
 
-use std::{path::Path, time::Duration};
+use std::{
+    fs::{self, OpenOptions},
+    path::{Path, PathBuf},
+    sync::atomic::{AtomicU64, Ordering},
+    time::Duration,
+};
 
-use rusqlite::{Connection, TransactionBehavior};
+use rusqlite::{Connection, OpenFlags, TransactionBehavior};
+
+mod settings;
 
 const APPLICATION_ID: u32 = 0x4455_4442;
-const SCHEMA_VERSION: u32 = 0;
+const SCHEMA_VERSION: u32 = 1;
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// A configured app database. Feature-owned repositories keep SQL inside this adapter.
@@ -18,7 +25,11 @@ pub enum OpenError {
     Sqlite(rusqlite::Error),
     ForeignDatabase,
     UnsupportedSchema(u32),
+    MigrationRequired,
+    Io(std::io::Error),
     WalUnavailable,
+    /// The initialized database was published. Retry by opening it, not creating it.
+    CreatedButOpenFailed(Box<OpenError>),
 }
 
 impl From<rusqlite::Error> for OpenError {
@@ -52,7 +63,7 @@ impl AppDb {
             }
             _ => return Err(OpenError::ForeignDatabase),
         }
-        if schema != SCHEMA_VERSION {
+        if schema != 0 {
             return Err(OpenError::UnsupportedSchema(schema));
         }
         transaction.commit()?;
@@ -66,9 +77,119 @@ impl AppDb {
         Ok(Self { connection })
     }
 
+    /// Read without creating a file, changing pragmas or running migrations.
+    pub fn open_read_only(path: &Path) -> Result<Self, OpenError> {
+        let connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        connection.busy_timeout(BUSY_TIMEOUT)?;
+        check_existing(&connection, true)?;
+        Ok(Self { connection })
+    }
+
+    /// Open an already-current database for GUI writes. Older databases require
+    /// a future backup-and-migration runner and are never modified here.
+    pub fn open_gui(path: &Path) -> Result<Self, OpenError> {
+        let connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
+        connection.busy_timeout(BUSY_TIMEOUT)?;
+        check_existing(&connection, false)?;
+        connection.pragma_update(None, "foreign_keys", true)?;
+        let journal: String =
+            connection.pragma_update_and_check(None, "journal_mode", "WAL", |row| row.get(0))?;
+        if !journal.eq_ignore_ascii_case("wal") {
+            return Err(OpenError::WalUnavailable);
+        }
+        connection.pragma_update(None, "synchronous", "NORMAL")?;
+        Ok(Self { connection })
+    }
+
+    /// Create a new current-format database; never overwrites an existing file.
+    pub fn create_gui(path: &Path) -> Result<Self, OpenError> {
+        create_gui_with(path, settings::SCHEMA, || Ok(()), Self::open_gui)
+    }
+
     pub fn schema_version(&self) -> rusqlite::Result<u32> {
         self.connection
             .pragma_query_value(None, "user_version", |row| row.get(0))
+    }
+}
+
+static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
+
+struct PendingFile {
+    path: PathBuf,
+    cleaned: bool,
+}
+impl Drop for PendingFile {
+    fn drop(&mut self) {
+        if !self.cleaned {
+            let _ = fs::remove_file(&self.path);
+        }
+    }
+}
+
+fn reserve_temporary(path: &Path) -> Result<PendingFile, OpenError> {
+    let parent = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    loop {
+        let id = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
+        let candidate = parent.join(format!(
+            ".diskunfold-create-{}-{id}.tmp",
+            std::process::id()
+        ));
+        match OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&candidate)
+        {
+            Ok(_) => {
+                return Ok(PendingFile {
+                    path: candidate,
+                    cleaned: false,
+                });
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(OpenError::Io(error)),
+        }
+    }
+}
+
+fn create_gui_with(
+    path: &Path,
+    schema: &str,
+    before_publish: impl FnOnce() -> Result<(), OpenError>,
+    open: impl FnOnce(&Path) -> Result<AppDb, OpenError>,
+) -> Result<AppDb, OpenError> {
+    let mut pending = reserve_temporary(path)?;
+    let mut connection =
+        Connection::open_with_flags(&pending.path, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
+    connection.busy_timeout(BUSY_TIMEOUT)?;
+    let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    tx.pragma_update(None, "application_id", APPLICATION_ID)?;
+    tx.execute_batch(schema)?;
+    tx.pragma_update(None, "user_version", SCHEMA_VERSION)?;
+    tx.commit()?;
+    drop(connection);
+    before_publish()?;
+    fs::hard_link(&pending.path, path).map_err(OpenError::Io)?;
+    fs::remove_file(&pending.path)
+        .map_err(|error| OpenError::CreatedButOpenFailed(Box::new(OpenError::Io(error))))?;
+    pending.cleaned = true;
+    open(path).map_err(|error| OpenError::CreatedButOpenFailed(Box::new(error)))
+}
+
+fn check_existing(connection: &Connection, read_only: bool) -> Result<(), OpenError> {
+    let application_id: u32 =
+        connection.pragma_query_value(None, "application_id", |row| row.get(0))?;
+    if application_id != APPLICATION_ID {
+        return Err(OpenError::ForeignDatabase);
+    }
+    let schema: u32 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
+    match schema {
+        SCHEMA_VERSION => Ok(()),
+        0 if read_only => Err(OpenError::UnsupportedSchema(0)),
+        0 => Err(OpenError::MigrationRequired),
+        other => Err(OpenError::UnsupportedSchema(other)),
     }
 }
 
