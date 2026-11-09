@@ -150,7 +150,8 @@ fn reviewed_identity_is_rechecked_and_one_job_publishes_the_requested_result()
     let mut builder = EngineBuilder::default();
     crate::jobs::register(&mut builder, runtime.clone());
     crate::scope::register_review(&mut builder, roots.clone(), clock);
-    crate::scan::register(&mut builder, runtime, roots.clone(), ids)?;
+    let workers = Arc::new(crate::workers::Workers::start(runtime)?);
+    crate::scan::register(&mut builder, workers, roots.clone(), ids)?;
     let engine = builder.build()?;
     let gui = |name, body| call(&engine, name, Channel::Gui, ENVELOPE_VERSION, body);
     let path: Vec<u8> = "C:\\Fixture"

@@ -9,7 +9,7 @@ use du_core_contracts::{
     scan_observation::ScopeRootPort,
 };
 use du_job_runtime::{
-    DeduplicationKey, JobIdentity, JobPriority, JobRuntime, RuntimeError, Submission, SubmitResult,
+    DeduplicationKey, JobIdentity, JobPriority, RuntimeError, Submission, SubmitResult,
 };
 use du_scan_engine::{scan::ResultIds, scan_job::MetadataScan};
 
@@ -21,14 +21,15 @@ use crate::{
 };
 
 /// Registers the metadata job and the query sharing its immutable result store.
-pub fn register(
+pub(crate) fn register(
     builder: &mut EngineBuilder,
-    runtime: Arc<JobRuntime>,
+    workers: Arc<Workers>,
     roots: Arc<dyn ScopeRootPort>,
     ids: Arc<dyn JobIdentity>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    runtime.register(du_scan_engine::scan_job::descriptor())?;
-    let workers = Workers::start(runtime)?;
+) -> Result<(), RuntimeError> {
+    workers
+        .runtime
+        .register(du_scan_engine::scan_job::descriptor())?;
     let store = IngestSink::default();
     space::register_total(builder, store.clone());
     builder.register(StartScan {
@@ -52,7 +53,7 @@ impl ResultIds for ScanIds {
 struct StartScan {
     roots: Arc<dyn ScopeRootPort>,
     ids: Arc<ScanIds>,
-    workers: Workers,
+    workers: Arc<Workers>,
     store: IngestSink,
     admitted: Mutex<Option<ScanStart>>,
 }

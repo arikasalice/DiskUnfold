@@ -15,7 +15,7 @@ use du_core_contracts::{
 use du_job_runtime::{FlowLimits, JobClock, JobEvent, JobEvents, JobIdentity, JobRuntime};
 use serde_json::json;
 
-use crate::{api::EngineBuilder, jobs, scan, scope, targets};
+use crate::{api::EngineBuilder, jobs, scan, scope, targets, workers::Workers};
 
 const EVENT_LIMIT: usize = 1_024;
 const EVENT_INTERVAL: Duration = Duration::from_millis(100);
@@ -44,7 +44,8 @@ pub fn register(
     jobs::register(builder, runtime.clone());
     scope::register_review(builder, roots.clone(), clock.clone());
     targets::register(builder, volumes, clock);
-    scan::register(builder, runtime, roots, ids)?;
+    let workers = Arc::new(Workers::start(runtime)?);
+    scan::register(builder, workers, roots, ids)?;
     Ok(events)
 }
 
