@@ -193,6 +193,7 @@ name = "du-cli"
 version = "0.1.0"
 dependencies = [
  "du-platform-os",
+ "du-user-env",
 ]
 
 [[package]]

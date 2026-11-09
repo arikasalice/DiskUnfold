@@ -8,6 +8,9 @@ license.workspace = true
 [features]
 windows-console = ["dep:du-platform-os", "du-platform-os/windows-console"]
 
+[dependencies]
+du-user-env = { version = "0.1.0", path = "../user-env" }
+
 [target.'cfg(windows)'.dependencies]
 du-platform-os = { version = "0.1.0", path = "../platform-os", optional = true }
 
