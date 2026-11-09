@@ -1,15 +1,18 @@
 use du_core_contracts::{
     ports::{PortError, PortErrorKind},
     volume::{
-        Capability, CapabilityState, MountTopology, VolumeCapabilities, VolumeEnumeration,
-        VolumeMount, VolumePort,
+        Capability, CapabilityState, MountTopology, VolumeCapabilities, VolumeCapacity,
+        VolumeEnumeration, VolumeMount, VolumePort,
     },
 };
 use rustix::{
+    fd::OwnedFd,
     fs::{CWD, Mode, OFlags, ResolveFlags, openat2},
     io::Errno,
 };
 use std::{fs, io, os::unix::ffi::OsStrExt, path::Path};
+
+mod capacity;
 
 /// Reads the current process mount namespace without changing mounts.
 pub struct LinuxVolumes;
@@ -147,7 +150,7 @@ impl VolumePort for LinuxVolumes {
             capabilities: VolumeCapabilities {
                 enumerate,
                 identity: unsupported("os.unsupported"),
-                capacity: unsupported("os.unsupported"),
+                capacity: supported(),
                 path_access: supported(),
                 path_compare_rule: unsupported("os.unsupported"),
                 mount_boundary: unsupported("os.unsupported"),
@@ -157,34 +160,42 @@ impl VolumePort for LinuxVolumes {
     }
 
     fn path_access(&self, path: &[u8]) -> Result<(), PortError> {
-        if !path.starts_with(b"/") || path.contains(&0) {
-            return Err(PortError {
-                kind: PortErrorKind::Unsupported,
-                reason_key: "path.unresolvable".into(),
-                os_code: None,
-            });
-        }
-        let path = Path::new(std::ffi::OsStr::from_bytes(path));
-        let directory = openat2(
-            CWD,
-            path,
-            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
-            Mode::empty(),
-            ResolveFlags::NO_SYMLINKS,
-        )
-        .map_err(access_error)?;
-        // Resolving dot against the opened descriptor verifies search permission
-        // on that same directory, without reading its entries.
-        openat2(
-            &directory,
-            ".",
-            OFlags::PATH | OFlags::DIRECTORY | OFlags::CLOEXEC,
-            Mode::empty(),
-            ResolveFlags::NO_SYMLINKS,
-        )
-        .map(|_| ())
-        .map_err(access_error)
+        open_directory(path).map(|_| ())
     }
+
+    fn capacity(&self, path: &[u8]) -> Result<VolumeCapacity, PortError> {
+        let directory = open_directory(path)?;
+        capacity::read(&directory)
+    }
+}
+
+fn open_directory(path: &[u8]) -> Result<OwnedFd, PortError> {
+    if !path.starts_with(b"/") || path.contains(&0) {
+        return Err(PortError {
+            kind: PortErrorKind::Unsupported,
+            reason_key: "path.unresolvable".into(),
+            os_code: None,
+        });
+    }
+    let path = Path::new(std::ffi::OsStr::from_bytes(path));
+    let directory = openat2(
+        CWD,
+        path,
+        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
+        Mode::empty(),
+        ResolveFlags::NO_SYMLINKS,
+    )
+    .map_err(access_error)?;
+    // Verify search permission on the same directory without reading entries.
+    openat2(
+        &directory,
+        ".",
+        OFlags::PATH | OFlags::DIRECTORY | OFlags::CLOEXEC,
+        Mode::empty(),
+        ResolveFlags::NO_SYMLINKS,
+    )
+    .map_err(access_error)?;
+    Ok(directory)
 }
 
 fn access_error(error: Errno) -> PortError {

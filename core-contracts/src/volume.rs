@@ -51,8 +51,16 @@ pub struct VolumeEnumeration {
     pub capabilities: VolumeCapabilities,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VolumeCapacity {
+    pub total_bytes: u64,
+    pub available_bytes: u64,
+}
+
 pub trait VolumePort: Send + Sync {
     fn enumerate(&self) -> VolumeEnumeration;
     /// Verify read and search access to a directory without listing its entries.
     fn path_access(&self, path: &[u8]) -> Result<(), PortError>;
+    /// Read current capacity for the requested directory, without caching observations.
+    fn capacity(&self, path: &[u8]) -> Result<VolumeCapacity, PortError>;
 }
