@@ -16,6 +16,10 @@ pub struct Asset {
 
 pub type Dispatch = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
 
+/// Non-blocking source of serialized application event envelopes.
+#[cfg(target_os = "windows")]
+pub type Events = Arc<dyn Fn() -> Option<String> + Send + Sync>;
+
 pub struct WebApp {
     pub asset: fn(&str) -> Option<Asset>,
     pub dispatch: Dispatch,
@@ -48,10 +52,14 @@ pub(super) fn message(
     url: &str,
     data: &str,
 ) -> Option<String> {
-    if !from_main_frame || url != entry() || data.len() > MAX_MESSAGE {
+    if !from_main_frame || !trusted_message(url, data) {
         return None;
     }
     dispatch(data)
+}
+
+pub(super) fn trusted_message(url: &str, data: &str) -> bool {
+    url == entry() && data.len() <= MAX_MESSAGE
 }
 
 #[cfg(test)]

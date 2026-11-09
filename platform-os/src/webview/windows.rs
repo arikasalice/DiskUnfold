@@ -1,6 +1,8 @@
 mod icon;
+mod messages;
 
-use super::contract::{Asset, CSP, Dispatch, WebApp, entry, message, resource};
+use super::contract::{Asset, CSP, Events, WebApp, entry, resource};
+use messages::{Bridge, RequestQueue, WindowTimer};
 use std::{
     cell::{Cell, RefCell},
     error::Error,
@@ -34,7 +36,14 @@ const BRIDGE: &str = r#"(() => {
     channel.addEventListener('message', ({data}) => {
         if (typeof data !== 'string') return;
         const split = data.indexOf('\n');
+        if (split < 0) return;
         const id = data.slice(0, split);
+        if (id === 'event') {
+            let detail;
+            try { detail = JSON.parse(data.slice(split + 1)); } catch { return; }
+            window.dispatchEvent(new CustomEvent('du://event', { detail }));
+            return;
+        }
         const request = pending.get(id);
         if (!request) return;
         pending.delete(id);
@@ -145,12 +154,14 @@ fn bounds(width: i32, height: i32) -> RECT {
     }
 }
 
-pub(super) fn run(app: WebApp) -> Result<(), Box<dyn Error>> {
+pub(super) fn run(app: WebApp, events: Option<Events>) -> Result<(), Box<dyn Error>> {
     // SAFETY: The launcher calls the GUI on its main thread.
     unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED).ok()? };
     let _apartment = Apartment;
     let current = Rc::new(RefCell::new(None::<ICoreWebView2Controller>));
     let resize = current.clone();
+    let bridge = Rc::new(RefCell::new(None::<Bridge>));
+    let window_bridge = bridge.clone();
     let icons = icon::WindowIcons::load()?;
     let window = windows_window::Window::new("DiskUnfold")
         .size(900, 600)
@@ -160,9 +171,14 @@ pub(super) fn run(app: WebApp) -> Result<(), Box<dyn Error>> {
                 let _ = unsafe { controller.SetBounds(bounds(w, h)) };
             }
         })
-        .on_message(|_, kind, _, _| {
+        .on_message(move |_, kind, wparam, _| {
             if kind == WM_CLOSE {
                 windows_window::quit();
+                Some(0)
+            } else if messages::is_tick(kind, wparam) {
+                if let Some(bridge) = window_bridge.borrow().as_ref() {
+                    bridge.flush();
+                }
                 Some(0)
             } else {
                 None
@@ -191,7 +207,18 @@ pub(super) fn run(app: WebApp) -> Result<(), Box<dyn Error>> {
         view
     };
     let failed = Rc::new(Cell::new(false));
-    subscribe(&view, environment, app, failed.clone())?;
+    let ready = Rc::new(Cell::new(false));
+    let requests = Bridge::start(view.clone(), app.dispatch, events, ready.clone())?;
+    subscribe(
+        &view,
+        environment,
+        app.asset,
+        &requests,
+        ready,
+        failed.clone(),
+    )?;
+    bridge.replace(Some(requests));
+    let _timer = WindowTimer::start(HWND(window.hwnd()))?;
     let bootstrap_view = view.clone();
     AddScriptToExecuteOnDocumentCreatedCompletedHandler::wait_for_async_operation(
         Box::new(move |handler| {
@@ -213,6 +240,7 @@ pub(super) fn run(app: WebApp) -> Result<(), Box<dyn Error>> {
     }
     current.replace(Some(native.0.clone()));
     windows_window::run();
+    bridge.take();
     current.take();
     if failed.get() {
         return Err("DiskUnfold webview could not load the embedded page".into());
@@ -223,12 +251,12 @@ pub(super) fn run(app: WebApp) -> Result<(), Box<dyn Error>> {
 fn subscribe(
     view: &ICoreWebView2,
     environment: ICoreWebView2Environment,
-    app: WebApp,
+    asset: fn(&str) -> Option<Asset>,
+    requests: &Bridge,
+    ready: Rc<Cell<bool>>,
     failed: Rc<Cell<bool>>,
 ) -> windows::core::Result<()> {
-    let WebApp {
-        asset, dispatch, ..
-    } = app;
+    let requests = requests.requests();
     // SAFETY: All callbacks run on the view's STA. Closing its controller releases the registrations.
     unsafe {
         let mut token = 0;
@@ -258,7 +286,6 @@ fn subscribe(
             })),
             &mut token,
         )?;
-        let ready = Cell::new(false);
         view.add_NavigationCompleted(
             &NavigationCompletedEventHandler::create(Box::new(move |_, args| {
                 if let Some(args) = args {
@@ -305,7 +332,7 @@ fn subscribe(
         view.add_WebMessageReceived(
             &WebMessageReceivedEventHandler::create(Box::new(move |view, args| {
                 if let (Some(view), Some(args)) = (view, args) {
-                    reply(&view, &dispatch, &args)?;
+                    receive(&view, &requests, &args)?;
                 }
                 Ok(())
             })),
@@ -348,9 +375,9 @@ unsafe fn serve(
     }
 }
 
-unsafe fn reply(
+unsafe fn receive(
     view: &ICoreWebView2,
-    dispatch: &Dispatch,
+    requests: &RequestQueue,
     args: &ICoreWebView2WebMessageReceivedEventArgs,
 ) -> windows::core::Result<()> {
     // SAFETY: This is the top-level WebView2 event. Frame events are not registered.
@@ -368,8 +395,6 @@ unsafe fn reply(
         };
         let mut source = PWSTR::null();
         args.Source(&mut source)?;
-        let response = message(dispatch, true, &take_pwstr(source), data).unwrap_or_default();
-        let reply = HSTRING::from(format!("{id}\n{response}"));
-        view.PostWebMessageAsString(PCWSTR(reply.as_ptr()))
+        requests.submit(view, &take_pwstr(source), id, data)
     }
 }
