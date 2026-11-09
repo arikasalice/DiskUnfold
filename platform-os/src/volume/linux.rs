@@ -130,6 +130,8 @@ fn parse_mounts(data: &[u8]) -> Result<Vec<VolumeMount>, io::Error> {
                 mount_source,
                 role: filesystem_role(fields[separator + 1]),
                 topology: Some(topology(&fields)?),
+                target_kind: None,
+                volume_id: None,
             })
         })
         .collect()

@@ -34,6 +34,8 @@ fn mount(path: &[u8]) -> VolumeMount {
         mount_source: vec![],
         role: None,
         topology: None,
+        target_kind: None,
+        volume_id: None,
     }
 }
 fn error(kind: PortErrorKind, reason: &str) -> PortError {

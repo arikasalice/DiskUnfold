@@ -42,6 +42,15 @@ pub enum VolumeRole {
     MemoryTemp,
 }
 
+/// The target kind established by an operating-system observation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VolumeTargetKind {
+    Internal,
+    External,
+    NetworkMount,
+    FolderMount,
+}
+
 /// A mount observation, retaining the OS path bytes without loss.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VolumeMount {
@@ -53,6 +62,11 @@ pub struct VolumeMount {
     /// None means the available observation does not establish a role.
     pub role: Option<VolumeRole>,
     pub topology: Option<MountTopology>,
+    /// None when the operating system did not establish the target kind.
+    pub target_kind: Option<VolumeTargetKind>,
+    /// Confirmed OS volume identity, never a path-derived substitute. Windows
+    /// volume GUID names are encoded as UTF-16LE without a terminating NUL.
+    pub volume_id: Option<Vec<u8>>,
 }
 
 /// One observation: a failed enumeration is not an empty successful list.
