@@ -1,1 +1,2 @@
-//! Own filesystem metadata collection.
+//! Read-only target discovery and single-target probe conversion.
+pub mod target;

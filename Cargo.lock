@@ -280,6 +280,9 @@ dependencies = [
 [[package]]
 name = "du-scan-engine"
 version = "0.1.0"
+dependencies = [
+ "du-core-contracts",
+]
 
 [[package]]
 name = "du-share-policy"
