@@ -27,6 +27,8 @@ node release-packaging/quality/coverage.mjs
 
 To compare runs, give the coverage script a previous `coverage-summary.json` as its first argument. The new report records each line coverage delta and whether coverage decreased.
 
+The quality workflow publishes a small coverage baseline artifact on main pushes. A PR compares with its exact base commit, and a main push compares with its previous commit. The lookup is restricted to completed push runs of this repository's quality workflow. The report checks the source commit, run, platform and measurement settings, and compares each language only when both coverage commands and their tests succeeded. A missing, expired or incompatible baseline gives N/A. The Actions job summary shows changes in percentage points, and declines remain informational.
+
 The foundation uses cargo-deny 0.20.2 and cargo-llvm-cov 0.6.21 in CI. The current Rust gate flags the Tauri dependency graph's MPL-2.0 packages (`cssparser`, `cssparser-macros`, `dtoa-short`, `option-ext`, `selectors`) and the unmaintained `proc-macro-error` dependency brought in through GTK tooling. These findings require a dependency change or a recorded project decision before the gate can turn green. The Rust source and package ban checks pass. SQLite uses bundled 3.54.1 via rusqlite 0.41.1 and libsqlite3-sys 0.39.1.
 
 In the verified Linux desktop graph, the CSS parser and selector crates enter through Tauri code generation. `option-ext` 0.2.0 is reachable through the runtime `tauri → dirs → dirs-sys` chain. `proc-macro-error` 1.0.4 enters through `tauri → gtk → glib → glib-macros` (RUSTSEC-2024-0370). Disabling optional GUI features in the audit would miss these paths.

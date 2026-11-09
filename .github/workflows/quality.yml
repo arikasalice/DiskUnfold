@@ -75,6 +75,11 @@ jobs:
           if-no-files-found: warn
   reports:
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+    env:
+      CARGO_LLVM_COV_VERSION: "0.6.21"
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -97,18 +102,64 @@ jobs:
       - if: success() || failure()
         run: node release-packaging/quality/dependency-register.mjs
       - if: success() || failure()
-        run: cargo install --locked cargo-llvm-cov --version 0.6.21
-      - if: success() || failure()
+        run: cargo install --locked cargo-llvm-cov --version "$CARGO_LLVM_COV_VERSION"
+      - id: rust_coverage
+        if: success() || failure()
         run: node release-packaging/quality/rust-coverage.mjs
       - if: success() || failure()
         run: node -e "require('fs').rmSync('gui-web/coverage', {recursive:true, force:true}); require('fs').rmSync('quality-output/gui-tests.json', {force:true})"
-      - if: success() || failure()
+      - id: gui_coverage
+        if: success() || failure()
         working-directory: gui-web
         run: npm run test:coverage
+      - id: coverage_base
+        name: Download coverage for the exact base commit
+        if: success() || failure()
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_BRANCH: ${{ github.event.pull_request.base.ref || github.ref_name }}
+          BASE_COMMIT: ${{ github.event.pull_request.base.sha || github.event.before }}
+        shell: bash
+        run: |
+          if [[ "$BASE_BRANCH" != main || ! "$BASE_COMMIT" =~ ^[a-f0-9]{40}$ || "$BASE_COMMIT" =~ ^0+$ ]]; then
+            exit 0
+          fi
+          if ! runs="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow quality.yml --branch main \
+              --commit "$BASE_COMMIT" --event push --status completed --limit 5 --json databaseId --jq '.[].databaseId')"; then
+            echo "Coverage baseline lookup unavailable."
+            exit 0
+          fi
+          while IFS= read -r run; do
+            [[ "$run" =~ ^[0-9]+$ ]] || continue
+            dir="$(mktemp -d "$RUNNER_TEMP/diskunfold-coverage.XXXXXXXX")"
+            if gh run download "$run" --repo "$GITHUB_REPOSITORY" --name coverage-baseline --dir "$dir" >/dev/null 2>&1 &&
+                [[ -f "$dir/coverage-summary.json" && ! -L "$dir/coverage-summary.json" ]]; then
+              echo "path=$dir/coverage-summary.json" >> "$GITHUB_OUTPUT"
+              echo "run=$run" >> "$GITHUB_OUTPUT"
+              break
+            fi
+          done <<< "$runs"
       - if: success() || failure()
-        run: node release-packaging/quality/coverage.mjs
+        name: Report coverage and change
+        env:
+          COVERAGE_BASELINE: ${{ steps.coverage_base.outputs.path }}
+          COVERAGE_BASE_RUN: ${{ steps.coverage_base.outputs.run }}
+          COVERAGE_BASE_COMMIT: ${{ github.event.pull_request.base.sha || github.event.before }}
+          RUST_COVERAGE_SUCCEEDED: ${{ steps.rust_coverage.outcome == 'success' }}
+          GUI_COVERAGE_SUCCEEDED: ${{ steps.gui_coverage.outcome == 'success' }}
+        run: node release-packaging/quality/coverage.mjs "$COVERAGE_BASELINE"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always() && github.event_name == 'push'
+        with:
+          name: coverage-baseline
+          path: quality-output/coverage-summary.json
+          if-no-files-found: warn
+          overwrite: true
       - if: success() || failure()
         run: |
+          node --test release-packaging/quality/coverage.test.mjs
           node --test release-packaging/quality/fuzz.test.mjs
           node release-packaging/quality/fuzz.mjs --check
       - name: Duplication report (50 tokens)
