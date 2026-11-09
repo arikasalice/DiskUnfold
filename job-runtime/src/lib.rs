@@ -1,5 +1,6 @@
 //! Job registration, cooperative cancellation, and terminal handoff.
 mod delivery;
+mod flows;
 mod model;
 mod shutdown;
 use delivery::{consume, enqueue};
@@ -12,6 +13,7 @@ use du_core_contracts::{
         ResourceClass,
     },
 };
+pub use model::FlowLimits;
 use model::*;
 pub use model::{
     CancelResult, DeduplicationKey, JobClock, JobEvent, JobEvents, JobIdentity, JobPriority,
@@ -31,6 +33,16 @@ impl JobRuntime {
         history: Arc<dyn JobHistory>,
         events: Arc<dyn JobEvents>,
     ) -> Result<Self, RuntimeError> {
+        Self::new_with_limits(identity, clock, history, events, FlowLimits::disabled())
+    }
+    pub fn new_with_limits(
+        identity: Arc<dyn JobIdentity>,
+        clock: Arc<dyn JobClock>,
+        history: Arc<dyn JobHistory>,
+        events: Arc<dyn JobEvents>,
+        limits: FlowLimits,
+    ) -> Result<Self, RuntimeError> {
+        let flow_limits = Arc::new(Limits::new(limits));
         let (sender, receiver) = mpsc::channel();
         let table = Arc::new(Mutex::new(Table {
             sender: Some(sender),
@@ -60,6 +72,7 @@ impl JobRuntime {
             queue_limit: 64,
             consumer: Mutex::new(Some(consumer)),
             outstanding,
+            flow_limits,
         })
     }
 
@@ -265,18 +278,30 @@ impl JobRuntime {
         job.state = JobState::Running;
         job.started_at_ms = Some(now);
         job.sequence = sequence;
-        let context = job.cancel.clone();
+        let cancellation = job.cancel.clone();
         let body = job.body.take().ok_or(RuntimeError::InvalidState)?;
         drop(table);
-        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| body.run(context)))
-            .unwrap_or_else(|_| JobOutcome {
-                counts: Default::default(),
-                completed_scope: false,
-                failure_reason_key: Some("support.internal_error".into()),
-                unprocessed_summary: None,
-                result_version_id: None,
-            });
+        let context = Arc::new(flows::Context::new(
+            id.clone(),
+            self.table.clone(),
+            cancellation,
+            self.flow_limits.clone(),
+        ));
+        let body_context = context.clone();
+        let mut outcome =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| body.run(body_context)))
+                .unwrap_or_else(|_| JobOutcome {
+                    counts: Default::default(),
+                    completed_scope: false,
+                    failure_reason_key: Some("support.internal_error".into()),
+                    unprocessed_summary: None,
+                    result_version_id: None,
+                });
         drop(body);
+        if !context.seal_and_wait(&mut outcome.counts) {
+            outcome.completed_scope = false;
+            outcome.failure_reason_key = Some("support.internal_error".into());
+        }
         self.finish(&id, outcome)?;
         Ok(Some(id))
     }

@@ -95,10 +95,26 @@ pub enum Checkpoint {
     Continue,
     Cancel,
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum JobFlowError {
+    Busy,
+    Cancelled,
+    Closed,
+    UnsupportedResource,
+    PayloadTooLarge,
+    DeliveryUnavailable,
+}
+/// One registered metadata I/O flow. Dropping it releases its permit.
+pub trait JobFlow: Send {
+    fn report_item(&self, payload: &[u8]) -> Result<(), JobFlowError>;
+    fn finish(self: Box<Self>, counts: JobCounts);
+}
 pub trait JobContext: Send + Sync {
     fn checkpoint(&self) -> Checkpoint;
+    /// Returns Busy rather than spawning or waiting when no metadata I/O permit is available.
+    fn try_start_flow(&self) -> Result<Box<dyn JobFlow>, JobFlowError>;
 }
-/// A single-flow body. It must return only after its work and in-flight I/O have ended.
+/// The body can return while registered flows finish; the runtime waits for them.
 pub trait JobBody: Send + Sync {
     fn kind_id(&self) -> &str;
     fn run(&self, context: Arc<dyn JobContext>) -> JobOutcome;

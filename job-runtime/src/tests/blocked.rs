@@ -69,9 +69,9 @@ fn cancellation_returns_while_event_sink_is_blocked() -> Result<(), Box<dyn std:
     let sequences: Vec<_> = events
         .iter()
         .map(|event| match event {
-            JobEvent::StateChanged { sequence, .. } | JobEvent::Finished { sequence, .. } => {
-                *sequence
-            }
+            JobEvent::StateChanged { sequence, .. }
+            | JobEvent::ItemResult { sequence, .. }
+            | JobEvent::Finished { sequence, .. } => *sequence,
         })
         .collect();
     assert_eq!(sequences, vec![2, 3, 4, 5]);

@@ -1,12 +1,12 @@
 use du_core_contracts::{
     Id,
-    job::{Checkpoint, JobBody, JobContext, JobDescriptor, JobState, JobSummary},
+    job::{JobBody, JobDescriptor, JobState, JobSummary},
 };
 use std::{
     collections::HashMap,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize},
         mpsc,
     },
     thread::JoinHandle,
@@ -27,6 +27,11 @@ pub enum JobEvent {
         job_id: Id,
         state: JobState,
         sequence: u64,
+    },
+    ItemResult {
+        job_id: Id,
+        sequence: u64,
+        payload: Vec<u8>,
     },
     Finished {
         summary: Box<JobSummary>,
@@ -86,15 +91,6 @@ pub struct Submission {
     pub sample: bool,
 }
 pub(crate) struct Cancellation(pub(crate) AtomicBool);
-impl JobContext for Cancellation {
-    fn checkpoint(&self) -> Checkpoint {
-        if self.0.load(Ordering::Acquire) {
-            Checkpoint::Cancel
-        } else {
-            Checkpoint::Continue
-        }
-    }
-}
 pub(crate) struct StoredSubmission {
     pub(crate) kind_id: String,
     pub(crate) deduplication_key: Option<DeduplicationKey>,
@@ -130,10 +126,12 @@ pub struct JobRuntime {
     pub(crate) queue_limit: usize,
     pub(crate) consumer: Mutex<Option<JoinHandle<()>>>,
     pub(crate) outstanding: Arc<AtomicUsize>,
+    pub(crate) flow_limits: Arc<Limits>,
 }
 
 pub(crate) enum Delivery {
     Event(JobEvent),
+    Item(JobEvent, Arc<AtomicUsize>),
     Terminal {
         summary: Box<JobSummary>,
         sequence: u64,
@@ -150,4 +148,35 @@ pub(crate) fn expire(table: &mut Table, now: i64) {
             .as_ref()
             .is_none_or(|summary| now.saturating_sub(summary.finished_at_ms) < 600_000)
     });
+}
+
+/// Limits are supplied by the composition point; zero disables that facility.
+#[derive(Clone, Copy, Debug)]
+pub struct FlowLimits {
+    pub metadata_io: usize,
+    pub queued_items: usize,
+    pub item_bytes: usize,
+}
+impl FlowLimits {
+    pub const fn disabled() -> Self {
+        Self {
+            metadata_io: 0,
+            queued_items: 0,
+            item_bytes: 0,
+        }
+    }
+}
+pub(crate) struct Limits {
+    pub(crate) config: FlowLimits,
+    pub(crate) active: AtomicUsize,
+    pub(crate) pending: Arc<AtomicUsize>,
+}
+impl Limits {
+    pub(crate) fn new(config: FlowLimits) -> Self {
+        Self {
+            config,
+            active: AtomicUsize::new(0),
+            pending: Arc::new(AtomicUsize::new(0)),
+        }
+    }
 }

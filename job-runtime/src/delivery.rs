@@ -46,6 +46,10 @@ pub(super) fn consume(
                 let _ = sender.send(());
             }
             Delivery::Event(event) => events.publish(event),
+            Delivery::Item(event, pending) => {
+                events.publish(event);
+                pending.fetch_sub(1, Ordering::AcqRel);
+            }
             Delivery::Terminal {
                 summary,
                 sequence,
