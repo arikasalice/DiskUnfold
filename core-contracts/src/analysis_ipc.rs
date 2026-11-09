@@ -79,6 +79,17 @@ pub struct TargetStatusChanged {
     pub aggregation_uncertain: bool,
 }
 
+/// One observed target, ordered within its probe job.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct TargetProbeEvent {
+    #[serde(flatten)]
+    pub observation: TargetStatusChanged,
+    #[cfg_attr(feature = "typescript", ts(type = "number"))]
+    pub sequence: u64,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]

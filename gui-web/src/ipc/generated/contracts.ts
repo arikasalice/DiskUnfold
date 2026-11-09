@@ -21,6 +21,7 @@ export type TargetListRequest = { refresh: boolean, };
 export type AnalysisTarget = { kind: TargetKind, path: OsPath, connected: boolean, volumeId: string | null, identitySource: IdentitySource, access: TargetAccess, reasonKey: string | null, };
 export type TargetList = { targets: Array<AnalysisTarget>, probeJobRef: Id | null, observedAt: Timestamp, unavailableReason: string | null, };
 export type TargetStatusChanged = { target: OsPath, access: TargetAccess, reasonKey: string | null, totalBytes: ByteSize | null, availableBytes: ByteSize | null, capacityReason: string | null, aggregationUncertain: boolean, };
+export type TargetProbeEvent = { sequence: number, target: OsPath, access: TargetAccess, reasonKey: string | null, totalBytes: ByteSize | null, availableBytes: ByteSize | null, capacityReason: string | null, aggregationUncertain: boolean, };
 export type ScopeSource = "gui" | "recent" | "catalog" | "cli" | "mcp";
 export type ScopeBoundary = "current_volume" | "include_selected";
 export type ScopeExclusion = { "kind": "path", path: OsPath, } | { "kind": "name_pattern", pattern: string, };

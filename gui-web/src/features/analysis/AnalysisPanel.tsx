@@ -52,6 +52,10 @@ function TargetPicker({
   choose: (path: OsPath | undefined) => void;
 }) {
   const error = targets.error ?? targets.list?.unavailableReason;
+  const notice =
+    error === "os.unsupported"
+      ? "Automatic target listing is unavailable. Enter a local folder path."
+      : error;
   return (
     <>
       <button
@@ -62,7 +66,7 @@ function TargetPicker({
         Refresh targets
       </button>
       {targets.loading && <p role="status">Loading targets…</p>}
-      {error && <p role="alert">{error}</p>}
+      {notice && <p role="alert">{notice}</p>}
       <fieldset disabled={disabled}>
         <legend>Choose a target</legend>
         {targets.list?.targets.map((target) => {

@@ -30,6 +30,7 @@ export type {
   SpaceTotal,
   SpaceTotalSize,
   TargetList,
+  TargetProbeEvent,
   TargetStatusChanged,
 } from "./generated/contracts";
 

@@ -32,6 +32,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         AnalysisTarget::decl(&config),
         TargetList::decl(&config),
         TargetStatusChanged::decl(&config),
+        TargetProbeEvent::decl(&config),
         ScopeSource::decl(&config),
         ScopeBoundary::decl(&config),
         ScopeExclusion::decl(&config),

@@ -1,4 +1,5 @@
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -13,6 +14,7 @@ import type {
   EventEnvelope,
   SpaceTotal,
   TargetList,
+  TargetProbeEvent,
 } from "../src/ipc";
 
 afterEach(cleanup);
@@ -36,7 +38,7 @@ const targets: TargetList = {
   unavailableReason: null,
 };
 
-function fixture(stale = false) {
+function fixture(stale = false, earlyProbe?: EventEnvelope) {
   const listeners = new Set<(event: EventEnvelope) => void>();
   const calls: { name: string; body: unknown }[] = [];
   const client: AnalysisClient = {
@@ -44,6 +46,8 @@ function fixture(stale = false) {
       calls.push({ name, body });
       switch (name) {
         case "target.list":
+          if (earlyProbe)
+            for (const listener of listeners) listener(earlyProbe);
           return targets;
         case "scope.review": {
           const request = body as { draft: unknown; requestSeq: number };
@@ -117,6 +121,46 @@ function fixture(stale = false) {
   };
   return { client, calls, listeners };
 }
+
+function probe(
+  jobRef: string,
+  sequence: number,
+  access: TargetProbeEvent["access"],
+): EventEnvelope {
+  const body: TargetProbeEvent = {
+    sequence,
+    access,
+    target: path,
+    reasonKey: null,
+    totalBytes: null,
+    availableBytes: null,
+    capacityReason: null,
+    aggregationUncertain: true,
+  };
+  return {
+    topic: "target.status_changed",
+    contractVersion: 1,
+    seq: sequence,
+    jobRef,
+    occurredAt: timestamp,
+    body,
+  };
+}
+
+test("F01: an early probe is applied and older or unrelated probes are ignored", async () => {
+  const { client, listeners } = fixture(false, probe("probe", 3, "accessible"));
+  render(<App analysis={client} />);
+  await screen.findByText("accessible");
+  act(() => {
+    for (const listener of listeners) {
+      listener(probe("prior-job", 4, "missing"));
+      listener(probe("probe", 2, "denied"));
+    }
+  });
+  expect(screen.getByText("accessible")).toBeDefined();
+  expect(screen.queryByText("missing")).toBeNull();
+  expect(screen.queryByText("denied")).toBeNull();
+});
 
 test("F01–F03: reviewed scope starts a scan and reads its pinned partial result", async () => {
   const { client, calls } = fixture();

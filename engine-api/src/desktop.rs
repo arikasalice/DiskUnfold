@@ -2,17 +2,23 @@
 use std::{
     collections::VecDeque,
     sync::{Arc, Mutex},
-    time::UNIX_EPOCH,
+    time::{Duration, Instant, UNIX_EPOCH},
 };
 
 use du_core_contracts::{
-    ENVELOPE_VERSION, EventEnvelope, Id, Timestamp, job::JobHistory,
-    scan_observation::ScopeRootPort, volume::VolumePort,
+    ENVELOPE_VERSION, EventEnvelope, Id, Timestamp,
+    analysis_ipc::{TargetProbeEvent, TargetStatusChanged},
+    job::JobHistory,
+    scan_observation::ScopeRootPort,
+    volume::VolumePort,
 };
-use du_job_runtime::{JobClock, JobEvent, JobEvents, JobIdentity, JobRuntime};
+use du_job_runtime::{FlowLimits, JobClock, JobEvent, JobEvents, JobIdentity, JobRuntime};
 use serde_json::json;
 
 use crate::{api::EngineBuilder, jobs, scan, scope, targets};
+
+const EVENT_LIMIT: usize = 1_024;
+const EVENT_INTERVAL: Duration = Duration::from_millis(100);
 
 /// Registers the Windows desktop analysis flow and returns its event source.
 pub fn register(
@@ -24,11 +30,16 @@ pub fn register(
     let ids = Arc::new(SystemIdentity);
     let clock = Arc::new(SystemClock);
     let events = Arc::new(DesktopEvents::default());
-    let runtime = Arc::new(JobRuntime::new(
+    let runtime = Arc::new(JobRuntime::new_with_limits(
         ids.clone(),
         clock.clone(),
         history,
         events.clone(),
+        FlowLimits {
+            metadata_io: 16,
+            queued_items: 64,
+            item_bytes: 256 * 1024,
+        },
     )?);
     jobs::register(builder, runtime.clone());
     scope::register_review(builder, roots.clone(), clock.clone());
@@ -62,7 +73,46 @@ struct Pending {
     queue: VecDeque<EventEnvelope>,
     sequence: u64,
     overflow: bool,
+    release_at: Option<Instant>,
+    ready_count: usize,
 }
+
+impl Pending {
+    fn push(&mut self, mut event: EventEnvelope, now: Instant) {
+        if self.overflow {
+            return;
+        }
+        self.sequence += 1;
+        event.seq = self.sequence;
+        if self.queue.len() == EVENT_LIMIT {
+            self.queue.clear();
+            self.ready_count = 0;
+            self.overflow = true;
+            event.topic = "job.resync_required".into();
+            event.job_ref = None;
+            event.correlation_id = None;
+            event.result_version = None;
+            event.body = json!({});
+        }
+        self.release_at.get_or_insert(now + EVENT_INTERVAL);
+        self.queue.push_back(event);
+    }
+
+    fn take(&mut self, now: Instant) -> Option<EventEnvelope> {
+        if self.ready_count == 0 {
+            self.release_at.filter(|deadline| now >= *deadline)?;
+            self.ready_count = self.queue.len();
+            self.release_at = None;
+        }
+        let event = self.queue.pop_front()?;
+        self.ready_count -= 1;
+        self.overflow = false;
+        Some(event)
+    }
+}
+
+#[cfg(test)]
+mod tests;
 
 /// A bounded, nonblocking event source for the desktop window.
 #[derive(Default)]
@@ -71,11 +121,7 @@ pub struct DesktopEvents(Mutex<Pending>);
 impl DesktopEvents {
     /// Returns the next serialized envelope without waiting for any job.
     pub fn next_json(&self) -> Option<String> {
-        let event = {
-            let mut pending = self.0.try_lock().ok()?;
-            pending.overflow = false;
-            pending.queue.pop_front()?
-        };
+        let event = self.0.try_lock().ok()?.take(Instant::now())?;
         serde_json::to_string(&event).ok()
     }
 }
@@ -85,27 +131,13 @@ impl JobEvents for DesktopEvents {
         let Some(occurred_at) = Timestamp::from_unix_millis(SystemClock.now_ms()) else {
             return;
         };
-        let Some(mut event) = envelope(event, occurred_at) else {
+        let Some(event) = envelope(event, occurred_at) else {
             return;
         };
         let Ok(mut pending) = self.0.lock() else {
             return;
         };
-        if pending.overflow {
-            return;
-        }
-        pending.sequence += 1;
-        event.seq = pending.sequence;
-        if pending.queue.len() == 1024 {
-            pending.queue.clear();
-            pending.overflow = true;
-            event.topic = "job.resync_required".into();
-            event.job_ref = None;
-            event.correlation_id = None;
-            event.result_version = None;
-            event.body = json!({});
-        }
-        pending.queue.push_back(event);
+        pending.push(event, Instant::now());
     }
 }
 
@@ -146,7 +178,24 @@ fn envelope(event: JobEvent, occurred_at: Timestamp) -> Option<EventEnvelope> {
                 "warning": warning,
             }),
         ),
-        JobEvent::ItemResult { .. } => return None,
+        JobEvent::ItemResult {
+            job_id,
+            sequence,
+            payload,
+        } => {
+            let observation: TargetStatusChanged = serde_json::from_slice(&payload).ok()?;
+            (
+                "target.status_changed",
+                job_id,
+                None,
+                None,
+                serde_json::to_value(TargetProbeEvent {
+                    observation,
+                    sequence,
+                })
+                .ok()?,
+            )
+        }
     };
     Some(EventEnvelope {
         topic: topic.into(),
