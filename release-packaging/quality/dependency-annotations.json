@@ -1,0 +1,212 @@
+{
+  "cargo:du-app-db:rusqlite@0.41.1": {
+    "license": "MIT",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "SQLite persistence adapter"
+  },
+  "cargo:du-app-db:tempfile@3.27.0": {
+    "license": "MIT OR Apache-2.0",
+    "role": "test",
+    "distributed": false,
+    "reason": "isolated temporary files for tests"
+  },
+  "cargo:du-app-host:tauri-build@2.7.4": {
+    "license": "Apache-2.0 OR MIT",
+    "role": "build",
+    "distributed": false,
+    "reason": "Tauri build integration"
+  },
+  "cargo:du-app-host:tauri@2.12.5": {
+    "license": "Apache-2.0 OR MIT",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "desktop host and webview integration"
+  },
+  "cargo:du-arch-check:proc-macro2@1.0.107": {
+    "license": "MIT OR Apache-2.0",
+    "role": "build",
+    "distributed": false,
+    "reason": "Rust syntax source locations"
+  },
+  "cargo:du-arch-check:serde_json@1.0.154": {
+    "license": "MIT OR Apache-2.0",
+    "role": "build",
+    "distributed": false,
+    "reason": "JSON serialization"
+  },
+  "cargo:du-arch-check:serde@1.0.229": {
+    "license": "MIT OR Apache-2.0",
+    "role": "build",
+    "distributed": false,
+    "reason": "serialization contracts"
+  },
+  "cargo:du-arch-check:syn@2.0.119": {
+    "license": "MIT OR Apache-2.0",
+    "role": "build",
+    "distributed": false,
+    "reason": "Rust syntax parsing for architecture checks"
+  },
+  "cargo:du-arch-check:toml@1.2.1+spec-1.1.0": {
+    "license": "MIT OR Apache-2.0",
+    "role": "build",
+    "distributed": false,
+    "reason": "architecture policy parsing"
+  },
+  "cargo:du-core-contracts:base64@0.22.1": {
+    "license": "MIT OR Apache-2.0",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "binary path encoding"
+  },
+  "cargo:du-core-contracts:chrono@0.4.45": {
+    "license": "MIT OR Apache-2.0",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "UTC timestamp representation"
+  },
+  "cargo:du-core-contracts:serde_json@1.0.154": {
+    "license": "MIT OR Apache-2.0",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "JSON serialization"
+  },
+  "cargo:du-core-contracts:serde@1.0.229": {
+    "license": "MIT OR Apache-2.0",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "serialization contracts"
+  },
+  "cargo:du-core-contracts:ts-rs@12.0.1": {
+    "license": "MIT",
+    "role": "build",
+    "distributed": false,
+    "reason": "generate TypeScript contracts"
+  },
+  "cargo:du-core-contracts:uuid@1.29.2": {
+    "license": "Apache-2.0 OR MIT",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "identifier representation"
+  },
+  "npm:diskunfold-gui:@tauri-apps/api@2.12.4": {
+    "license": "Apache-2.0 OR MIT",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "desktop IPC client"
+  },
+  "npm:diskunfold-gui:@testing-library/dom@10.4.2": {
+    "license": "MIT",
+    "role": "build",
+    "distributed": false,
+    "reason": "DOM behavior tests"
+  },
+  "npm:diskunfold-gui:@testing-library/react@16.3.3": {
+    "license": "MIT",
+    "role": "build",
+    "distributed": false,
+    "reason": "React component tests"
+  },
+  "npm:diskunfold-gui:@types/node@26.6.6": {
+    "license": "MIT",
+    "role": "build",
+    "distributed": false,
+    "reason": "Node type declarations"
+  },
+  "npm:diskunfold-gui:@types/react-dom@19.3.0": {
+    "license": "MIT",
+    "role": "build",
+    "distributed": false,
+    "reason": "React DOM type declarations"
+  },
+  "npm:diskunfold-gui:@types/react@19.3.0": {
+    "license": "MIT",
+    "role": "build",
+    "distributed": false,
+    "reason": "React type declarations"
+  },
+  "npm:diskunfold-gui:@vitest/coverage-v8@5.1.0": {
+    "license": "MIT",
+    "role": "build",
+    "distributed": false,
+    "reason": "GUI coverage measurement"
+  },
+  "npm:diskunfold-gui:dependency-cruiser@18.7.2": {
+    "license": "MIT",
+    "role": "build",
+    "distributed": false,
+    "reason": "GUI dependency boundary checks"
+  },
+  "npm:diskunfold-gui:eslint@10.14.0": {
+    "license": "MIT",
+    "role": "build",
+    "distributed": false,
+    "reason": "GUI static lint checks"
+  },
+  "npm:diskunfold-gui:happy-dom@21.0.4": {
+    "license": "MIT",
+    "role": "build",
+    "distributed": false,
+    "reason": "DOM environment for tests"
+  },
+  "npm:diskunfold-gui:jscpd@5.4.3": {
+    "license": "MIT",
+    "role": "build",
+    "distributed": false,
+    "reason": "duplicate code reporting"
+  },
+  "npm:diskunfold-gui:license-checker-rseidelsohn@5.0.0": {
+    "license": "BSD-3-Clause",
+    "role": "build",
+    "distributed": false,
+    "reason": "dependency license inventory"
+  },
+  "npm:diskunfold-gui:prettier@3.9.10": {
+    "license": "MIT",
+    "role": "build",
+    "distributed": false,
+    "reason": "GUI format checks"
+  },
+  "npm:diskunfold-gui:react-dom@19.3.1": {
+    "license": "MIT",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "render UI in webview"
+  },
+  "npm:diskunfold-gui:react@19.3.1": {
+    "license": "MIT",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "UI component runtime"
+  },
+  "npm:diskunfold-gui:typescript-compiler@7.0.2": {
+    "license": "Apache-2.0",
+    "role": "build",
+    "distributed": false,
+    "reason": "TypeScript compiler"
+  },
+  "npm:diskunfold-gui:typescript-eslint@8.72.1": {
+    "license": "MIT",
+    "role": "build",
+    "distributed": false,
+    "reason": "TypeScript lint integration"
+  },
+  "npm:diskunfold-gui:typescript@6.0.3": {
+    "license": "Apache-2.0",
+    "role": "build",
+    "distributed": false,
+    "reason": "ESLint parser compatible TypeScript"
+  },
+  "npm:diskunfold-gui:vite@8.3.6": {
+    "license": "MIT",
+    "role": "build",
+    "distributed": false,
+    "reason": "build static GUI assets"
+  },
+  "npm:diskunfold-gui:vitest@5.1.0": {
+    "license": "MIT",
+    "role": "build",
+    "distributed": false,
+    "reason": "execute GUI tests"
+  }
+}
