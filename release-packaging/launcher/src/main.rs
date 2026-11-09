@@ -1,3 +1,5 @@
+#![cfg_attr(all(windows, feature = "gui"), windows_subsystem = "windows")]
+
 use std::process::ExitCode;
 
 fn main() -> ExitCode {

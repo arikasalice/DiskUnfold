@@ -147,6 +147,9 @@ version = "0.1.0"
 [[package]]
 name = "du-cli"
 version = "0.1.0"
+dependencies = [
+ "du-platform-os",
+]
 
 [[package]]
 name = "du-core-contracts"
@@ -186,6 +189,7 @@ version = "0.1.0"
 dependencies = [
  "du-app-host",
  "du-cli",
+ "find-msvc-tools",
 ]
 
 [[package]]

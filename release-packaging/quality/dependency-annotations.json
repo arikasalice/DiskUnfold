@@ -143,6 +143,12 @@
     "distributed": true,
     "reason": "Use WebView2 COM with the MSVC static loader for one executable"
   },
+  "cargo:du-launcher:find-msvc-tools@0.1.15": {
+    "license": "MIT OR Apache-2.0",
+    "role": "build",
+    "distributed": false,
+    "reason": "Locate the Windows SDK resource compiler for the executable icon"
+  },
   "cargo:du-platform-os:windows@0.62.2": {
     "license": "MIT OR Apache-2.0",
     "role": "runtime",

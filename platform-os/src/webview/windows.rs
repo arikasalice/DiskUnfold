@@ -1,3 +1,5 @@
+mod icon;
+
 use super::contract::{CSP, WebApp, entry, message, resource};
 use std::{
     cell::{Cell, RefCell},
@@ -149,6 +151,7 @@ pub(super) fn run(app: WebApp) -> Result<(), Box<dyn Error>> {
     let _apartment = Apartment;
     let current = Rc::new(RefCell::new(None::<ICoreWebView2Controller>));
     let resize = current.clone();
+    let icons = icon::WindowIcons::load()?;
     let window = windows_window::Window::new("DiskUnfold")
         .size(900, 600)
         .on_resize(move |w, h| {
@@ -167,6 +170,7 @@ pub(super) fn run(app: WebApp) -> Result<(), Box<dyn Error>> {
         })
         .create()
         .map_err(|error| std::io::Error::other(error.to_string()))?;
+    icons.install(&window);
     let environment = environment()?;
     let native = create_controller(&window, &environment)?;
     let (w, h) = window.client_size();

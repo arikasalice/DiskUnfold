@@ -11,11 +11,14 @@ path = "src/main.rs"
 
 [features]
 default = ["gui"]
-gui = ["dep:du-app-host", "du-app-host/gui"]
+gui = ["dep:du-app-host", "du-app-host/gui", "du-cli/windows-console"]
 
 [dependencies]
 du-cli = { version = "0.1.0", path = "../../cli" }
 du-app-host = { version = "0.1.0", path = "../../app-host", optional = true }
+
+[target.'cfg(windows)'.build-dependencies]
+find-msvc-tools = "=0.1.15"
 
 [lints]
 workspace = true

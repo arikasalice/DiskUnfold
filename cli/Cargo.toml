@@ -5,5 +5,11 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[features]
+windows-console = ["dep:du-platform-os", "du-platform-os/windows-console"]
+
+[target.'cfg(windows)'.dependencies]
+du-platform-os = { version = "0.1.0", path = "../platform-os", optional = true }
+
 [lints]
 workspace = true

@@ -10,7 +10,7 @@ Version 0.1 is in development. The foundation includes a Rust desktop shell with
 
 ## Run the foundation
 
-Use the Rust toolchain from `rust-toolchain.toml` and Node.js from `.node-version`. Windows needs MSVC build tools, the Microsoft Visual C++ runtime and the system WebView2 runtime. The executable links the WebView2 loader statically. macOS needs Xcode Command Line Tools and uses system WKWebView. On Ubuntu 24.04, install `build-essential pkg-config libgtk-4-dev libwebkitgtk-6.0-dev`. The Linux bindings require GTK 4.10 or newer and dynamically link the system libraries.
+Use the Rust toolchain from `rust-toolchain.toml` and Node.js from `.node-version`. Windows needs MSVC build tools with the Windows SDK resource compiler, the Microsoft Visual C++ runtime and the system WebView2 runtime. The executable links the WebView2 loader statically. macOS needs Xcode Command Line Tools and uses system WKWebView. On Ubuntu 24.04, install `build-essential pkg-config libgtk-4-dev libwebkitgtk-6.0-dev`. The Linux bindings require GTK 4.10 or newer and dynamically link the system libraries.
 
 ```sh
 npm --prefix gui-web ci --ignore-scripts
@@ -21,6 +21,8 @@ cargo run --locked -p du-launcher -- --version
 ```
 
 The same executable opens the GUI without arguments and prints help or version information when requested. Use `--no-default-features` on the Cargo command for a development build that exercises only the CLI.
+
+The Windows GUI build embeds the app icon and opens without a console window. When invoking this executable directly, use `& .\diskunfold.exe --version | Write-Output` in PowerShell or `start "" /b /wait diskunfold.exe --version` in Command Prompt to wait for CLI output and an exit code. The CLI-only development build uses the Windows console subsystem.
 
 ## Verify changes
 
@@ -63,6 +65,6 @@ The DiskUnfold 0.1 foundation started from AIDA architecture HLD revision 191 an
 
 `app-host` embeds and serves the Vite assets and routes typed IPC. `platform-os` owns native windowing and WebView callbacks. The webview accepts embedded resources from its assigned origin. Only the trusted top-level document can send IPC. Feature development starts with a published feature design and passing foundation checks. The AIDA version currently has no configured code sources.
 
-Ubuntu 24.04 x64 is the local native verification environment. Windows and macOS x64 and ARM64 adapters passed cross-target static checks. The Windows x64 executable was also linked and inspected for DLL imports. Windows and macOS native execution, Linux ARM64, and hosted CI require their own runner or device verification.
+Ubuntu 24.04 x64 is the local Linux verification environment. Windows and macOS x64 and ARM64 adapters passed cross-target static checks. The Windows x64 executable was linked, inspected for DLL imports, and smoke-tested on Windows 11. Windows ARM64, macOS native execution, Linux ARM64, and hosted CI require their own runner or device verification.
 
 DiskUnfold is [MIT licensed](LICENSE).

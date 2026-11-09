@@ -166,6 +166,17 @@
   },
   {
     "ecosystem": "cargo",
+    "owner": "du-launcher",
+    "name": "find-msvc-tools",
+    "version": "0.1.15",
+    "source": "registry+https://github.com/rust-lang/crates.io-index",
+    "license": "MIT OR Apache-2.0",
+    "role": "build",
+    "distributed": false,
+    "reason": "Locate the Windows SDK resource compiler for the executable icon"
+  },
+  {
+    "ecosystem": "cargo",
     "owner": "du-platform-os",
     "name": "block2",
     "version": "0.6.2",

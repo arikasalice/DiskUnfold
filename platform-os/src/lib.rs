@@ -3,3 +3,6 @@
 pub mod fake;
 #[cfg(feature = "webview")]
 pub mod webview;
+#[cfg(all(windows, feature = "windows-console"))]
+#[allow(unsafe_code)]
+pub mod windows_console;
