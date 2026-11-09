@@ -1,9 +1,9 @@
-use super::contract::{CSP, ORIGIN, WebApp, entry, message, resource};
+use super::contract::{Asset, CSP, Dispatch, ORIGIN, WebApp, entry, message, resource};
 use gtk4::{gio, glib, prelude::*};
 use std::{cell::RefCell, error::Error, fmt::Write, rc::Rc};
 use webkit6::{prelude::*, soup};
 
-fn serve(context: &webkit6::WebContext, app: WebApp) {
+fn serve(context: &webkit6::WebContext, asset: fn(&str) -> Option<Asset>) {
     if let Some(security) = context.security_manager() {
         security.register_uri_scheme_as_secure("diskunfold");
         security.register_uri_scheme_as_cors_enabled("diskunfold");
@@ -11,7 +11,7 @@ fn serve(context: &webkit6::WebContext, app: WebApp) {
     context.register_uri_scheme("diskunfold", move |request| {
         let uri = request.uri().unwrap_or_default();
         let method = request.http_method().unwrap_or_default();
-        let asset = resource(app, method.as_str(), uri.as_str());
+        let asset = resource(asset, method.as_str(), uri.as_str());
         let bytes = asset.map_or(b"".as_slice(), |a| a.bytes);
         let input = gio::MemoryInputStream::from_bytes(&glib::Bytes::from_static(bytes));
         let response =
@@ -31,7 +31,7 @@ fn serve(context: &webkit6::WebContext, app: WebApp) {
 fn bridge(
     manager: &webkit6::UserContentManager,
     view: &webkit6::WebView,
-    app: WebApp,
+    dispatch: Dispatch,
 ) -> Result<(), Box<dyn Error>> {
     let mut random = [0_u8; 32];
     getrandom::fill(&mut random).map_err(|error| std::io::Error::other(error.to_string()))?;
@@ -67,7 +67,7 @@ fn bridge(
             let input = value.to_str();
             let result = input.split_once('\n').and_then(|(key, data)| {
                 let uri = view.upgrade()?.uri()?;
-                message(app, key == token, uri.as_str(), data)
+                message(&dispatch, key == token, uri.as_str(), data)
             });
             if let (Some(result), Some(context)) = (result, value.context()) {
                 reply.return_value(&webkit6::javascriptcore::Value::new_string(
@@ -95,8 +95,8 @@ fn webview(app: WebApp) -> Result<(webkit6::WebView, webkit6::UserContentManager
         .network_session(&session)
         .user_content_manager(&manager)
         .build();
-    serve(&context, app);
-    bridge(&manager, &view, app)?;
+    serve(&context, app.asset);
+    bridge(&manager, &view, app.dispatch)?;
     view.connect_decide_policy(|_, decision, kind| {
         let allowed = kind == webkit6::PolicyDecisionType::NavigationAction
             && decision
@@ -201,7 +201,7 @@ mod tests {
                 }),
                 _ => None,
             },
-            dispatch: |payload| (payload == "ping").then(|| "pong".to_owned()),
+            dispatch: std::sync::Arc::new(|payload| (payload == "ping").then(|| "pong".to_owned())),
             icon: &[],
         })?;
         let window = gtk4::Window::builder().child(&view).build();

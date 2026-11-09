@@ -1,3 +1,6 @@
+use std::sync::Arc;
+
+use du_engine_api::api::EngineBuilder;
 use du_platform_os::webview::{Asset, WebApp};
 
 static MANIFEST: &str = include_str!(concat!(env!("OUT_DIR"), "/assets.txt"));
@@ -18,9 +21,10 @@ fn asset(path: &str) -> Option<Asset> {
 }
 
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
+    let engine = EngineBuilder::default().build()?;
     du_platform_os::webview::run(WebApp {
         asset,
-        dispatch: crate::ipc::dispatch,
+        dispatch: Arc::new(move |message| crate::ipc::dispatch(&engine, message)),
         icon: include_bytes!("../icons/icon.png"),
     })
 }

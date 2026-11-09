@@ -1,6 +1,6 @@
 mod icon;
 
-use super::contract::{CSP, WebApp, entry, message, resource};
+use super::contract::{Asset, CSP, Dispatch, WebApp, entry, message, resource};
 use std::{
     cell::{Cell, RefCell},
     error::Error,
@@ -226,6 +226,9 @@ fn subscribe(
     app: WebApp,
     failed: Rc<Cell<bool>>,
 ) -> windows::core::Result<()> {
+    let WebApp {
+        asset, dispatch, ..
+    } = app;
     // SAFETY: All callbacks run on the view's STA. Closing its controller releases the registrations.
     unsafe {
         let mut token = 0;
@@ -238,7 +241,7 @@ fn subscribe(
         view.add_WebResourceRequested(
             &WebResourceRequestedEventHandler::create(Box::new(move |_, args| {
                 if let Some(args) = args {
-                    serve(&environment, app, &args)?;
+                    serve(&environment, asset, &args)?;
                 }
                 Ok(())
             })),
@@ -302,7 +305,7 @@ fn subscribe(
         view.add_WebMessageReceived(
             &WebMessageReceivedEventHandler::create(Box::new(move |view, args| {
                 if let (Some(view), Some(args)) = (view, args) {
-                    reply(&view, app, &args)?;
+                    reply(&view, &dispatch, &args)?;
                 }
                 Ok(())
             })),
@@ -313,7 +316,7 @@ fn subscribe(
 
 unsafe fn serve(
     environment: &ICoreWebView2Environment,
-    app: WebApp,
+    asset: fn(&str) -> Option<Asset>,
     args: &ICoreWebView2WebResourceRequestedEventArgs,
 ) -> windows::core::Result<()> {
     // SAFETY: The request arguments are valid during this synchronous STA callback.
@@ -327,7 +330,7 @@ unsafe fn serve(
         let method = take_pwstr(method);
         let mut uri = PWSTR::null();
         request.Uri(&mut uri)?;
-        let Some(asset) = resource(app, &method, &take_pwstr(uri)) else {
+        let Some(asset) = resource(asset, &method, &take_pwstr(uri)) else {
             return Ok(());
         };
         let stream = SHCreateMemStream(Some(asset.bytes)).ok_or(E_POINTER)?;
@@ -347,7 +350,7 @@ unsafe fn serve(
 
 unsafe fn reply(
     view: &ICoreWebView2,
-    app: WebApp,
+    dispatch: &Dispatch,
     args: &ICoreWebView2WebMessageReceivedEventArgs,
 ) -> windows::core::Result<()> {
     // SAFETY: This is the top-level WebView2 event. Frame events are not registered.
@@ -365,7 +368,7 @@ unsafe fn reply(
         };
         let mut source = PWSTR::null();
         args.Source(&mut source)?;
-        let response = message(app, true, &take_pwstr(source), data).unwrap_or_default();
+        let response = message(dispatch, true, &take_pwstr(source), data).unwrap_or_default();
         let reply = HSTRING::from(format!("{id}\n{response}"));
         view.PostWebMessageAsString(PCWSTR(reply.as_ptr()))
     }

@@ -1,4 +1,4 @@
-use super::contract::{CSP, WebApp, entry, message, resource};
+use super::contract::{Asset, CSP, WebApp, entry, message, resource};
 use block2::DynBlock;
 use objc2::{
     AnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, define_class,
@@ -52,7 +52,7 @@ define_class!(
         ) {
             // SAFETY: These objects and the synchronously completed task remain valid in this callback.
             unsafe {
-                serve(self.ivars().app, task);
+                serve(self.ivars().app.asset, task);
             }
         }
 
@@ -109,7 +109,7 @@ define_class!(
                 let body = request.body();
                 request_url(&frame.request()).and_then(|url| {
                     let data = body.downcast_ref::<NSString>()?.to_string();
-                    message(self.ivars().app, frame.isMainFrame(), &url, &data)
+                    message(&self.ivars().app.dispatch, frame.isMainFrame(), &url, &data)
                 })
             };
             match result {
@@ -133,7 +133,7 @@ fn request_url(request: &NSURLRequest) -> Option<String> {
     Some(request.URL()?.absoluteString()?.to_string())
 }
 
-unsafe fn serve(app: WebApp, task: &ProtocolObject<dyn WKURLSchemeTask>) {
+unsafe fn serve(asset: fn(&str) -> Option<Asset>, task: &ProtocolObject<dyn WKURLSchemeTask>) {
     // SAFETY: Called only during startURLSchemeTask; complete synchronously before returning.
     unsafe {
         let request = task.request();
@@ -151,7 +151,7 @@ unsafe fn serve(app: WebApp, task: &ProtocolObject<dyn WKURLSchemeTask>) {
         let absolute = url
             .absoluteString()
             .map_or_else(String::new, |x| x.to_string());
-        let asset = resource(app, &method, &absolute);
+        let asset = resource(asset, &method, &absolute);
         let keys = [
             NSString::from_str("Content-Type"),
             NSString::from_str("Content-Security-Policy"),

@@ -9,6 +9,14 @@ pub struct BuildError {
     pub duplicate_name: &'static str,
 }
 
+impl std::fmt::Display for BuildError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "duplicate use case: {}", self.duplicate_name)
+    }
+}
+
+impl std::error::Error for BuildError {}
+
 #[derive(Default)]
 pub struct EngineBuilder {
     registry: Registry,
