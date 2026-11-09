@@ -48,6 +48,20 @@ pub struct MetadataObservation {
     pub device: u64,
     pub inode: u64,
     pub size: Result<u64, PortError>,
+    /// OS-reported allocation for the observed file, or `None` when unverified.
+    pub allocated: Option<u64>,
+    /// OS-reported total hard-link count, or `None` when unverified.
+    /// This does not establish whether physical extents are shared.
+    pub link_count: Option<u64>,
+    /// OS-provided identity for physical accounting, when independently available.
+    pub space_identity: Option<SpaceIdentity>,
+}
+
+/// An operating-system volume and file identity, scoped to the observation.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SpaceIdentity {
+    pub volume: Vec<u8>,
+    pub file: Vec<u8>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

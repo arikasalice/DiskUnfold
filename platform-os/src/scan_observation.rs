@@ -62,6 +62,9 @@ fn observe(dir: &Dir, entry: DirEntry) -> ObservedEntry {
                 reason_key: "os.query_failed".into(),
                 os_code: None,
             }),
+            allocated: None,
+            link_count: None,
+            space_identity: None,
         })
         .map_err(errno);
     ObservedEntry {

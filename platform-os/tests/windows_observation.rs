@@ -133,3 +133,83 @@ fn scope_identity_is_anchored_to_the_real_volume_and_directory()
     assert_ne!(first.file_id, second.file_id);
     Ok(())
 }
+
+#[test]
+fn hard_links_have_the_same_identity_and_reported_allocation()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    fs::write(fixture.path().join("original"), vec![42u8; 8192])?;
+    fs::hard_link(
+        fixture.path().join("original"),
+        fixture.path().join("alias"),
+    )?;
+    let mut root = open_verified(fixture.path()).map_err(|e| format!("{e:?}"))?;
+    let found = entries(&mut root)?;
+    let first = found
+        .iter()
+        .find(|e| e.name == name("original"))
+        .ok_or("original missing")?
+        .metadata
+        .as_ref()
+        .map_err(|e| format!("{e:?}"))?;
+    let second = found
+        .iter()
+        .find(|e| e.name == name("alias"))
+        .ok_or("alias missing")?
+        .metadata
+        .as_ref()
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(first.size, Ok(8192));
+    assert!(first.allocated.is_some_and(|n| n >= 8192));
+    assert_eq!(first.allocated, second.allocated);
+    assert_eq!(first.link_count, Some(2));
+    assert_eq!(first.link_count, second.link_count);
+    assert!(first.space_identity.is_some());
+    assert_eq!(first.space_identity, second.space_identity);
+    Ok(())
+}
+
+#[test]
+#[allow(unsafe_code)]
+fn sparse_file_reports_physical_allocation_without_reading_content()
+-> Result<(), Box<dyn std::error::Error>> {
+    use std::os::windows::io::AsRawHandle;
+    use windows::Win32::{
+        Foundation::HANDLE,
+        System::{IO::DeviceIoControl, Ioctl::FSCTL_SET_SPARSE},
+    };
+    let fixture = tempfile::tempdir()?;
+    let path = fixture.path().join("sparse");
+    let file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)?;
+    let mut returned = 0u32;
+    // SAFETY: the fixture file handle and return pointer are valid for this synchronous call.
+    unsafe {
+        DeviceIoControl(
+            HANDLE(file.as_raw_handle()),
+            FSCTL_SET_SPARSE,
+            None,
+            0,
+            None,
+            0,
+            Some(&mut returned),
+            None,
+        )?;
+    }
+    file.set_len(1024 * 1024)?;
+    drop(file);
+    let mut root = open_verified(fixture.path()).map_err(|e| format!("{e:?}"))?;
+    let found = entries(&mut root)?;
+    let meta = found
+        .iter()
+        .find(|e| e.name == name("sparse"))
+        .ok_or("missing")?
+        .metadata
+        .as_ref()
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(meta.size, Ok(1024 * 1024));
+    assert_eq!(meta.allocated, Some(0));
+    Ok(())
+}

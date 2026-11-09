@@ -1,10 +1,13 @@
 //! Sequential collection from already verified directory handles.
-use du_analysis_index::{BuildError, BuildHandle, IngestSink, Observation};
+use du_analysis_index::{
+    BuildError, BuildHandle, FileIdentity, IngestSink, Observation, SharingEvidence,
+    SpaceObservation,
+};
 use du_core_contracts::{
     Id, SizeAmount, SizeBasis, SizeEvidence, SizeValue,
     job::{Checkpoint, JobCounts, JobOutcome},
     result::ResultCompleteness,
-    scan_observation::{AnchoredDirectory, ObservedEntry, ObservedKind},
+    scan_observation::{AnchoredDirectory, MetadataObservation, ObservedEntry, ObservedKind},
 };
 use std::collections::VecDeque;
 
@@ -71,7 +74,7 @@ fn run(
     counts: &mut JobCounts,
 ) -> Result<(Id, bool), BuildError> {
     let mut build = sink.open(scope)?;
-    build.add_structure(Vec::new())?;
+    build.add_directory(Vec::new())?;
     let first_batch = record_root_batch(&mut build, &mut *root, checkpoint, include, counts)?;
     let cancelled = match first_batch {
         RootBatch::Cancelled => true,
@@ -215,34 +218,65 @@ fn record(
             return Ok(false);
         }
     };
-    if matches!(
-        meta.kind,
-        ObservedKind::File | ObservedKind::Unknown | ObservedKind::Other
-    ) {
-        let size = meta.size.as_ref().ok().map(|size| SizeValue {
-            basis: SizeBasis::Logical,
-            evidence: SizeEvidence::OsReported,
-            amount: SizeAmount::Exact {
-                bytes: (*size).into(),
-            },
-        });
-        let size = if meta.kind == ObservedKind::File {
-            size
-        } else {
-            None
-        };
-        if size.is_none() {
+    match meta.kind {
+        ObservedKind::Directory => build.add_directory(path.to_vec())?,
+        ObservedKind::Link => build.add_untraversed_link(path.to_vec())?,
+        ObservedKind::File => record_file(build, meta, path.to_vec(), counts)?,
+        ObservedKind::Unknown | ObservedKind::Other => {
             counts.failed += 1;
+            build.add(Observation {
+                path: path.to_vec(),
+                size: None,
+            })?;
         }
-        build.add(Observation {
-            path: path.to_vec(),
-            size,
-        })?;
-    } else {
-        build.add_structure(path.to_vec())?;
     }
     counts.completed += 1;
     Ok(meta.kind == ObservedKind::Directory)
+}
+
+/// Records only facts observed from the file handle retained by the adapter.
+fn record_file(
+    build: &mut BuildHandle,
+    meta: &MetadataObservation,
+    path: Vec<Vec<u8>>,
+    counts: &mut JobCounts,
+) -> Result<(), BuildError> {
+    let size = meta
+        .size
+        .as_ref()
+        .ok()
+        .map(|&bytes| os_size(SizeBasis::Logical, bytes));
+    if size.is_none() {
+        counts.failed += 1;
+    }
+    let observation = Observation { path, size };
+    if meta.allocated.is_none() && meta.space_identity.is_none() && meta.link_count.is_none() {
+        return build.add_file(observation);
+    }
+    build.add_with_space(
+        observation,
+        SpaceObservation {
+            allocated: meta
+                .allocated
+                .map(|bytes| os_size(SizeBasis::Allocated, bytes)),
+            identity: meta.space_identity.as_ref().map(|id| FileIdentity {
+                volume: id.volume.clone(),
+                file: id.file.clone(),
+            }),
+            link_count: meta.link_count,
+            sharing: SharingEvidence::Unknown,
+        },
+    )
+}
+
+fn os_size(basis: SizeBasis, bytes: u64) -> SizeValue {
+    SizeValue {
+        basis,
+        evidence: SizeEvidence::OsReported,
+        amount: SizeAmount::Exact {
+            bytes: bytes.into(),
+        },
+    }
 }
 
 fn open_child(

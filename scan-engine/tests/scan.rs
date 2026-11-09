@@ -1,11 +1,12 @@
 use du_analysis_index::IngestSink;
 use du_core_contracts::{
-    Id,
+    Id, SizeAmount,
     job::Checkpoint,
     ports::{PortError, PortErrorKind},
-    result::{ResultCompleteness, ResultVersionRead},
+    result::{ResultCompleteness, ResultItemKind, ResultVersionRead},
     scan_observation::{
         AnchoredDirectory, DirectoryObservations, MetadataObservation, ObservedEntry, ObservedKind,
+        SpaceIdentity,
     },
 };
 use du_scan_engine::scan::{ResultIds, collect};
@@ -58,6 +59,9 @@ fn entry(name: &[u8], kind: ObservedKind, size: Result<u64, PortError>) -> Obser
             device: 1,
             inode: 1,
             size,
+            allocated: None,
+            link_count: None,
+            space_identity: None,
         }),
     }
 }
@@ -96,6 +100,10 @@ fn publishes_tree_and_records_failures_without_zeroing() -> Result<(), Box<dyn s
         .ok_or("no result")?;
     assert_eq!(result.completeness(), ResultCompleteness::Missing);
     assert_eq!(result.items().len(), 5);
+    assert_eq!(result.items()[0].kind, ResultItemKind::Directory);
+    let totals = result.space(0).ok_or("missing totals")?;
+    assert_eq!(totals.missing_items, 1);
+    assert_eq!(totals.untraversed_links, 1);
     assert!(
         result
             .items()
@@ -221,5 +229,78 @@ fn collection_stops_at_the_first_end_of_directory() -> Result<(), Box<dyn std::e
     assert_eq!(result.completeness(), ResultCompleteness::Complete);
     assert_eq!(outcome.counts.failed, 0);
     assert_eq!(result.items().len(), 1);
+    Ok(())
+}
+
+#[test]
+fn allocation_deduplicates_hard_links_without_assuming_unshared_extents()
+-> Result<(), Box<dyn std::error::Error>> {
+    let sink = IngestSink::default();
+    let ids = ids();
+    let mut first = file(b"first", 10);
+    if let Ok(m) = &mut first.metadata {
+        m.allocated = Some(4096);
+        m.link_count = Some(2);
+        m.space_identity = Some(SpaceIdentity {
+            volume: vec![1],
+            file: vec![2],
+        });
+    }
+    let mut second = first.clone();
+    second.name = b"second".to_vec();
+    let outcome = collect(
+        &sink,
+        ids.next_id(),
+        Box::new(Directory {
+            entries: Some(vec![first, second]),
+            fail: false,
+        }),
+        &ids,
+        || Checkpoint::Continue,
+        |_| true,
+    );
+    assert_eq!(outcome.counts.failed, 0);
+    let result = sink.pin().map_err(|e| format!("{e:?}"))?.ok_or("missing")?;
+    let aggregate = result.space(0).ok_or("missing aggregate")?;
+    assert_eq!(
+        aggregate.logical.amount,
+        SizeAmount::Exact {
+            bytes: 20u64.into()
+        }
+    );
+    assert_eq!(
+        aggregate.allocated.amount,
+        SizeAmount::Exact {
+            bytes: 4096u64.into()
+        }
+    );
+    assert_eq!(aggregate.unique_physical.amount, SizeAmount::Unknown);
+    Ok(())
+}
+
+#[test]
+fn missing_allocation_is_not_zero_or_exact() -> Result<(), Box<dyn std::error::Error>> {
+    let sink = IngestSink::default();
+    let ids = ids();
+    let root = Directory {
+        entries: Some(vec![file(b"unknown", 7)]),
+        fail: false,
+    };
+    collect(
+        &sink,
+        ids.next_id(),
+        Box::new(root),
+        &ids,
+        || Checkpoint::Continue,
+        |_| true,
+    );
+    let result = sink.pin().map_err(|e| format!("{e:?}"))?.ok_or("missing")?;
+    let aggregate = result.space(0).ok_or("missing aggregate")?;
+    assert_eq!(
+        aggregate.logical.amount,
+        SizeAmount::Exact { bytes: 7u64.into() }
+    );
+    assert_eq!(aggregate.allocated.amount, SizeAmount::Unknown);
+    assert_eq!(aggregate.unique_physical.amount, SizeAmount::Unknown);
     Ok(())
 }

@@ -104,6 +104,9 @@ impl DirectoryObservations for Directory {
                 device: 1,
                 inode: 2,
                 size: Ok(64),
+                allocated: None,
+                link_count: None,
+                space_identity: None,
             }),
         }])
     }

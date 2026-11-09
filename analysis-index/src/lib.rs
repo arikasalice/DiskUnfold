@@ -225,6 +225,18 @@ impl BuildHandle {
             },
         )
     }
+
+    /// Adds a confirmed file even if its logical size could not be read.
+    pub fn add_file(&mut self, observation: Observation) -> Result<(), BuildError> {
+        self.insert(
+            observation.path,
+            StoredObservation {
+                size: observation.size,
+                kind: ResultItemKind::File,
+                physical: None,
+            },
+        )
+    }
     /// Adds a root, directory, or deliberately excluded link with no logical byte contribution.
     ///
     /// This does not indicate that an unread directory was successfully enumerated;

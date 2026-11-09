@@ -1,5 +1,6 @@
 //! Handle-relative, read-only observations on a local NTFS volume.
 mod scope;
+mod space;
 
 use du_core_contracts::{
     ports::{PortError, PortErrorKind},
@@ -323,11 +324,19 @@ impl WindowsDirectory {
                     return Err(invalid());
                 }
                 let size = (u64::from(value.nFileSizeHigh) << 32) | u64::from(value.nFileSizeLow);
+                let facts = if kind(value.dwFileAttributes) == ObservedKind::File {
+                    space::read(&file, &value)?
+                } else {
+                    space::Facts::default()
+                };
                 Ok(MetadataObservation {
                     kind: kind(value.dwFileAttributes),
                     device: self.volume,
                     inode: identity(&value),
                     size: Ok(size),
+                    allocated: facts.allocated,
+                    link_count: facts.link_count,
+                    space_identity: facts.identity,
                 })
             });
         ObservedEntry {
