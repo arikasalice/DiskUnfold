@@ -245,37 +245,19 @@ impl<'ast> Visit<'ast> for Scan<'_> {
             self.path(&path, i.use_token.span);
         }
     }
-    fn visit_expr_path(&mut self, i: &'ast syn::ExprPath) {
-        let p = i
-            .path
-            .segments
-            .iter()
-            .map(|s| s.ident.to_string())
-            .collect::<Vec<_>>();
-        self.path(
-            &p,
-            i.path
+    fn visit_path(&mut self, path: &'ast syn::Path) {
+        if let Some(first) = path.segments.first() {
+            let segments = path
                 .segments
-                .first()
-                .map_or(proc_macro2::Span::call_site(), |s| s.ident.span()),
-        );
-        visit::visit_expr_path(self, i);
+                .iter()
+                .map(|segment| segment.ident.to_string())
+                .collect::<Vec<_>>();
+            self.path(&segments, first.ident.span());
+        }
+        visit::visit_path(self, path);
     }
-    fn visit_type_path(&mut self, i: &'ast syn::TypePath) {
-        let p = i
-            .path
-            .segments
-            .iter()
-            .map(|s| s.ident.to_string())
-            .collect::<Vec<_>>();
-        self.path(
-            &p,
-            i.path
-                .segments
-                .first()
-                .map_or(proc_macro2::Span::call_site(), |s| s.ident.span()),
-        );
-        visit::visit_type_path(self, i);
+    fn visit_vis_restricted(&mut self, _: &'ast syn::VisRestricted) {
+        // The path in pub(in ...) controls visibility without referencing an item.
     }
     fn visit_item_fn(&mut self, i: &'ast syn::ItemFn) {
         if self.crate_name == "core-contracts" && matches!(i.vis, Visibility::Public(_)) {

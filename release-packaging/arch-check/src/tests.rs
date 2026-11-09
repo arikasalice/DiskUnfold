@@ -38,9 +38,24 @@ fn catches_adversarial_rust_syntax() {
     }
 }
 #[test]
+fn rejects_reverse_dependencies_in_trait_and_struct_paths() {
+    for source in [
+        "impl crate::api::Service for Local {}",
+        "fn register<T: crate::api::Service>() {}",
+        "fn make() { let _ = crate::api::Request { value: 0 }; }",
+        "fn read(value: crate::ports::Request) { let crate::api::Request { value } = value; }",
+    ] {
+        let report = inspect(source, "engine-api", &["domain"]);
+        assert!(
+            report.diagnostics.iter().any(|d| d.rule == "layer"),
+            "missed reverse dependency in {source}"
+        );
+    }
+}
+#[test]
 fn platform_unsafe_and_allowed_layers_pass() {
     let report = inspect(
-        "use crate::ports::Thing; unsafe fn permitted() {}",
+        "use crate::ports::Thing; impl crate::ports::Service for Local {} unsafe fn permitted() {}",
         "platform-os",
         &["domain"],
     );
