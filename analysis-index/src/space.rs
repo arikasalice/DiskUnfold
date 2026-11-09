@@ -68,6 +68,9 @@ impl Accumulator {
             ResultCompleteness::Complete => ResultCompleteness::Complete,
         };
         let amount = match (self.bytes, self.overflow, completeness) {
+            (None, false, ResultCompleteness::Complete) => SizeAmount::Exact {
+                bytes: ByteSize::from(0),
+            },
             (_, true, _) | (None, _, _) => SizeAmount::Unknown,
             (Some(bytes), false, ResultCompleteness::Complete) => SizeAmount::Exact {
                 bytes: ByteSize::from(bytes),
@@ -79,17 +82,21 @@ impl Accumulator {
         let evidence = if matches!(amount, SizeAmount::Unknown) {
             SizeEvidence::Unknown
         } else {
-            self.evidence.clone().unwrap_or(SizeEvidence::Unknown)
+            self.evidence.clone().unwrap_or(SizeEvidence::Measured)
         };
-        let mut limitations = vec![
+        const LIMITATIONS: &[&str] = &[
             "space.allocated_not_collected",
             "space.sharing_not_collected",
             "space.aux_not_included",
             "space.observation_detail_insufficient",
         ];
-        if self.overflow {
-            limitations.push("space.aggregation_overflow");
-        }
+        const OVERFLOW_LIMITATIONS: &[&str] = &[
+            "space.allocated_not_collected",
+            "space.sharing_not_collected",
+            "space.aux_not_included",
+            "space.observation_detail_insufficient",
+            "space.aggregation_overflow",
+        ];
         SpaceAggregate {
             logical: SizeValue {
                 basis: SizeBasis::Logical,
@@ -100,7 +107,11 @@ impl Accumulator {
             unique_physical: unknown(SizeBasis::UniquePhysical),
             completeness,
             missing_items: self.missing,
-            limitations,
+            limitations: if self.overflow {
+                OVERFLOW_LIMITATIONS
+            } else {
+                LIMITATIONS
+            },
         }
     }
 }
@@ -130,12 +141,15 @@ fn weaker(left: Option<SizeEvidence>, right: SizeEvidence) -> SizeEvidence {
 
 pub(crate) fn aggregate(
     items: &[ResultItem],
+    structures: &[bool],
     completeness: ResultCompleteness,
 ) -> Vec<SpaceAggregate> {
     let mut sums = vec![Accumulator::default(); items.len()];
     for item in items.iter().rev() {
         let index = item.item_no as usize;
-        sums[index].observe(item.size.as_ref());
+        if !structures[index] {
+            sums[index].observe(item.size.as_ref());
+        }
         if let Some(parent) = item.parent {
             let child = sums[index].clone();
             sums[parent as usize].merge(&child);

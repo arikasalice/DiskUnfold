@@ -160,3 +160,83 @@ fn weakest_evidence_and_input_lower_bound_survive() -> Result<(), Box<dyn std::e
     assert_eq!(root.completeness, ResultCompleteness::Missing);
     Ok(())
 }
+
+#[test]
+fn structures_distinguish_empty_directory_excluded_link_and_unknown_file()
+-> Result<(), Box<dyn std::error::Error>> {
+    let sink = IngestSink::default();
+    let mut build = sink.open(id(1)?).map_err(err)?;
+    build.add_structure(vec![]).map_err(err)?;
+    build.add_structure(vec![b"empty".to_vec()]).map_err(err)?;
+    build.add_structure(vec![b"link".to_vec()]).map_err(err)?;
+    let empty = build.publish_partial(id(2)?).map_err(err)?;
+    assert_eq!(
+        empty.space(0).ok_or("root")?.logical.amount,
+        SizeAmount::Unknown
+    );
+    add(&mut build, &["unknown"], None).map_err(err)?;
+    add(&mut build, &["known"], Some(value(7))).map_err(err)?;
+    let result = build
+        .seal(id(3)?, ResultCompleteness::Complete)
+        .map_err(err)?;
+    for name in [b"empty".as_slice(), b"link".as_slice()] {
+        let item = result
+            .items()
+            .iter()
+            .find(|item| item.name == name)
+            .ok_or("item")?;
+        let space = result.space(item.item_no).ok_or("space")?;
+        assert_eq!(
+            space.logical.amount,
+            SizeAmount::Exact {
+                bytes: ByteSize::from(0)
+            }
+        );
+        assert_eq!(space.completeness, ResultCompleteness::Complete);
+    }
+    let unknown = result
+        .items()
+        .iter()
+        .find(|item| item.name == b"unknown")
+        .ok_or("unknown")?;
+    assert_eq!(
+        result.space(unknown.item_no).ok_or("space")?.logical.amount,
+        SizeAmount::Unknown
+    );
+    let root = result.space(0).ok_or("root")?;
+    assert_eq!(
+        root.logical.amount,
+        SizeAmount::LowerBound {
+            bytes: ByteSize::from(7)
+        }
+    );
+    assert_eq!(root.missing_items, 1);
+    assert_eq!(root.allocated.amount, SizeAmount::Unknown);
+    Ok(())
+}
+
+#[test]
+fn duplicate_structure_aborts_and_restores_previous_version()
+-> Result<(), Box<dyn std::error::Error>> {
+    let sink = IngestSink::default();
+    let mut first = sink.open(id(1)?).map_err(err)?;
+    first.add_structure(vec![]).map_err(err)?;
+    let previous = first
+        .seal(id(2)?, ResultCompleteness::Complete)
+        .map_err(err)?;
+    assert_eq!(
+        previous.space(0).ok_or("root")?.logical.amount,
+        SizeAmount::Exact {
+            bytes: ByteSize::from(0)
+        }
+    );
+    let mut next = sink.open(id(1)?).map_err(err)?;
+    next.add_structure(vec![]).map_err(err)?;
+    next.publish_partial(id(3)?).map_err(err)?;
+    assert_eq!(next.add_structure(vec![]), Err(BuildError::InvalidTree));
+    assert_eq!(
+        sink.pin().map_err(err)?.ok_or("current")?.version_id(),
+        previous.version_id()
+    );
+    Ok(())
+}

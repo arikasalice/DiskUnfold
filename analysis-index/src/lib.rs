@@ -83,6 +83,7 @@ impl IngestSink {
             baseline: state.current.clone(),
             scope_version_id,
             observations: BTreeMap::new(),
+            structures: HashSet::new(),
             finished: false,
         })
     }
@@ -94,9 +95,23 @@ pub struct BuildHandle {
     baseline: Option<Arc<ResultVersion>>,
     scope_version_id: Id,
     observations: BTreeMap<Vec<Vec<u8>>, Option<SizeValue>>,
+    structures: HashSet<Vec<Vec<u8>>>,
     finished: bool,
 }
 impl BuildHandle {
+    /// Adds a root, directory, or deliberately excluded link with no logical byte contribution.
+    ///
+    /// This does not indicate that an unread directory was successfully enumerated;
+    /// the caller must preserve any omitted work in the result completeness.
+    pub fn add_structure(&mut self, path: Vec<Vec<u8>>) -> Result<(), BuildError> {
+        self.add(Observation {
+            path: path.clone(),
+            size: None,
+        })?;
+        self.structures.insert(path);
+        Ok(())
+    }
+
     pub fn add(&mut self, observation: Observation) -> Result<(), BuildError> {
         if self.finished {
             return Err(BuildError::Unavailable);
@@ -129,14 +144,14 @@ impl BuildHandle {
         if self.finished {
             return Err(BuildError::Unavailable);
         }
-        let items = match build_items(&self.observations) {
+        let (items, structures) = match build_items(&self.observations, &self.structures) {
             Ok(items) => items,
             Err(error) => {
                 self.abort();
                 return Err(error);
             }
         };
-        let aggregates = space::aggregate(&items, completeness);
+        let aggregates = space::aggregate(&items, &structures, completeness);
         let result = Arc::new(ResultVersion {
             version_id,
             scope_version_id: self.scope_version_id.clone(),
@@ -178,7 +193,8 @@ impl Drop for BuildHandle {
 
 fn build_items(
     observations: &BTreeMap<Vec<Vec<u8>>, Option<SizeValue>>,
-) -> Result<Vec<ResultItem>, BuildError> {
+    structures: &HashSet<Vec<Vec<u8>>>,
+) -> Result<(Vec<ResultItem>, Vec<bool>), BuildError> {
     u32::try_from(observations.len()).map_err(|_| BuildError::CapacityExceeded)?;
     let root = observations
         .get(&Vec::new())
@@ -197,6 +213,7 @@ fn build_items(
         size: root.clone(),
     }];
     let mut paths = vec![Vec::<Vec<u8>>::new()];
+    let mut structure_flags = vec![structures.contains(&Vec::new())];
     let mut cursor = 0;
     while cursor < paths.len() {
         let path = &paths[cursor];
@@ -210,11 +227,12 @@ fn build_items(
                 size: size.clone(),
             });
             paths.push(child.clone());
+            structure_flags.push(structures.contains(child));
         }
         cursor += 1;
     }
     if items.len() != observations.len() {
         return Err(BuildError::InvalidTree);
     }
-    Ok(items)
+    Ok((items, structure_flags))
 }

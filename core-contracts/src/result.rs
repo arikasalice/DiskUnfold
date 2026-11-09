@@ -31,7 +31,7 @@ pub struct SpaceAggregate {
     pub completeness: ResultCompleteness,
     pub missing_items: u64,
     /// Machine-readable limits on what the observation input can establish.
-    pub limitations: Vec<&'static str>,
+    pub limitations: &'static [&'static str],
 }
 
 /// An immutable snapshot held by the reader independently of later publications.
