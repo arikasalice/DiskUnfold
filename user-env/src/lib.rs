@@ -9,6 +9,7 @@ pub use du_core_contracts::settings::{
 use serde_json::Value;
 
 pub mod i18n;
+pub mod locale;
 pub mod settings;
 
 fn accepts(kind: &ValueKind, value: &Value) -> bool {
