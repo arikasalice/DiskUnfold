@@ -64,9 +64,9 @@ jobs:
       - name: Check generated contracts
         shell: bash
         run: |
-          cargo run --locked -p du-core-contracts --features typescript --example export_types -- gui-web/src/ipc/generated
-          git diff --exit-code -- gui-web/src/ipc/generated
-          test -z "$(git ls-files --others --exclude-standard -- gui-web/src/ipc/generated)"
+          generated_dir=$(mktemp -d)
+          cargo run --locked -p du-core-contracts --features typescript --example export_types -- "$generated_dir"
+          git diff --no-index --no-ext-diff -- gui-web/src/ipc/generated "$generated_dir"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
