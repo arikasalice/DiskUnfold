@@ -147,6 +147,9 @@ dependencies = [
 [[package]]
 name = "du-analysis-index"
 version = "0.1.0"
+dependencies = [
+ "du-core-contracts",
+]
 
 [[package]]
 name = "du-app-db"
