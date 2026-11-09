@@ -267,7 +267,7 @@ impl<'ast> Visit<'ast> for Scan<'_> {
                 "public free function in core-contracts",
             );
         }
-        if i.sig.unsafety.is_some() && self.crate_name != "platform-os" {
+        if matches!(i.sig.safety, syn::Safety::Unsafe(_)) && self.crate_name != "platform-os" {
             self.report.add(
                 "unsafe",
                 self.location(i.sig.ident.span()),
@@ -278,7 +278,7 @@ impl<'ast> Visit<'ast> for Scan<'_> {
         visit::visit_item_fn(self, i);
     }
     fn visit_impl_item_fn(&mut self, i: &'ast syn::ImplItemFn) {
-        if i.sig.unsafety.is_some() && self.crate_name != "platform-os" {
+        if matches!(i.sig.safety, syn::Safety::Unsafe(_)) && self.crate_name != "platform-os" {
             self.report.add(
                 "unsafe",
                 self.location(i.sig.ident.span()),
@@ -289,7 +289,7 @@ impl<'ast> Visit<'ast> for Scan<'_> {
         visit::visit_impl_item_fn(self, i);
     }
     fn visit_trait_item_fn(&mut self, i: &'ast syn::TraitItemFn) {
-        if i.sig.unsafety.is_some() && self.crate_name != "platform-os" {
+        if matches!(i.sig.safety, syn::Safety::Unsafe(_)) && self.crate_name != "platform-os" {
             self.report.add(
                 "unsafe",
                 self.location(i.sig.ident.span()),
@@ -302,7 +302,7 @@ impl<'ast> Visit<'ast> for Scan<'_> {
         visit::visit_trait_item_fn(self, i);
     }
     fn visit_foreign_item_fn(&mut self, i: &'ast syn::ForeignItemFn) {
-        if i.sig.unsafety.is_some() && self.crate_name != "platform-os" {
+        if matches!(i.sig.safety, syn::Safety::Unsafe(_)) && self.crate_name != "platform-os" {
             self.report.add(
                 "unsafe",
                 self.location(i.sig.ident.span()),

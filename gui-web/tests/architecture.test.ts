@@ -44,14 +44,15 @@ test("rejects forbidden dependencies while accepting a local IPC client", () => 
       return { status: result.status, output: result.stdout + result.stderr };
     }
 
-    write("src/ipc/index.ts", 'export { invoke } from "@tauri-apps/api/core";');
+    write("src/ipc/bridge.ts", "export const invoke = () => undefined;");
+    write("src/ipc/index.ts", 'export { invoke } from "./bridge";');
     write("src/features/a/entry.ts", 'export { invoke } from "../../ipc";');
     write("src/features/b/entry.ts", "export const value = 1;");
     expect(check().status).toBe(0);
 
     write(
       "src/features/a/entry.ts",
-      'export { invoke } from "@tauri-apps/api/core";\nexport { value } from "../b/entry";',
+      'export { invoke } from "../../ipc/bridge";\nexport { value } from "../b/entry";',
     );
     write(
       "src/features/b/entry.ts",
@@ -60,7 +61,7 @@ test("rejects forbidden dependencies while accepting a local IPC client", () => 
     const failed = check();
     expect(failed.status).not.toBe(0);
     for (const rule of [
-      "tauri-only-in-ipc",
+      "native-bridge-only-in-ipc",
       "feature-isolation",
       "no-circular",
     ]) {

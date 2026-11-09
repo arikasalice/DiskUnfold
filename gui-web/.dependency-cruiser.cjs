@@ -27,15 +27,15 @@ module.exports = {
       to: { path: zone("(features|app|state|ipc)") },
     },
     {
-      name: "tauri-only-in-ipc",
+      name: "native-bridge-only-in-ipc",
       severity: "error",
       from: { pathNot: zone("ipc") },
-      to: { path: "(^|/)@tauri-apps/" },
+      to: { path: "^src/ipc/bridge\\.ts$" },
     },
     {
       name: "generated-via-ipc-index",
       severity: "error",
-      from: { pathNot: "^src/ipc/(index\\.ts$|generated/)" },
+      from: { pathNot: "^src/ipc/(index\\.ts$|bridge\\.ts$|generated/)" },
       to: { path: zone("ipc/generated") },
     },
     {

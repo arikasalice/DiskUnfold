@@ -15,7 +15,7 @@ for (const path of [
 for (const tool of ["vitest", "@vitest/coverage-v8"]) {
   method.update(guiLock[`node_modules/${tool}`].version).update("\0");
 }
-method.update(process.env.CARGO_LLVM_COV_VERSION ?? "0.6.21");
+method.update(process.env.CARGO_LLVM_COV_VERSION ?? "0.9.1");
 const source = {
   commit: commitPattern.test(process.env.GITHUB_SHA ?? "") ? process.env.GITHUB_SHA : null,
   run: process.env.GITHUB_RUN_ID ?? null,

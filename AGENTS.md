@@ -6,7 +6,7 @@ This is the shared repository guide for coding agents and contributors. Update t
 
 DiskUnfold is an offline desktop application for understanding disk use and reviewing user-controlled cleanup. The 0.1 design covers Windows, macOS and Linux. The current foundation has a runnable GUI shell and CLI help/version, shared contracts, isolated tests and build checks. The analysis, cleanup and MCP use cases require their own implementation work.
 
-- Use the published AIDA DiskUnfold 0.1 architecture HLD and DLD as design sources. The foundation was based on HLD revision 191 and DLD revision 1234, including the interim decisions in DLD section 3.4. Verify the relevant published revision before changing a contract.
+- Use the published AIDA DiskUnfold 0.1 architecture HLD and DLD as design sources. The foundation started from HLD revision 191 and DLD revision 1234, including the interim decisions in DLD section 3.4. The native desktop and quality gate migration follows DLD revision 1286 and the approved architecture revision work described in the README. Verify the relevant published revision before changing a contract.
 - Before starting a feature, check its published HLD/DLD and required foundation gates. Map its design item IDs to the owning modules and tests. Keep draft design text in AIDA. If a required contract is missing or conflicts with the implementation, surface the gap before choosing new public behavior.
 - The repository is a Cargo workspace with a separately locked npm UI. The deployment unit is one executable per platform. GUI and CLI are execution modes of that executable. The eventual MCP gateway runs inside the GUI process.
 - Begin with `git status --short --branch`. Preserve existing work and isolate implementation changes from `main`. Keep commits focused and include the relevant AIDA item IDs when available.
@@ -16,7 +16,7 @@ DiskUnfold is an offline desktop application for understanding disk use and revi
 | Path | Responsibility |
 | --- | --- |
 | `gui-web/` | React shell, view state, accessible controls and the typed IPC client |
-| `app-host/` | Tauri lifecycle, GUI composition, IPC dispatch and app-only session/approval state |
+| `app-host/` | GUI lifecycle, embedded assets, IPC dispatch and app-only session/approval state |
 | `cli/` | Argument parsing, read/plan entry points, output and exit codes |
 | `mcp-gateway/` | Local MCP transport, request checks and delegation to the engine |
 | `core-contracts/` | Shared value types, errors, envelopes and ports |
@@ -30,7 +30,7 @@ DiskUnfold is an offline desktop application for understanding disk use and revi
 | `change-executor/` | Revalidate and apply explicitly approved file changes |
 | `share-policy/` | Decide what data can leave the application |
 | `export-render/` | Render outputs using the applicable sharing policy |
-| `platform-os/` | OS-specific ports and the development-only `fake` implementation |
+| `platform-os/` | OS-specific ports, native webview adapters and the development-only `fake` implementation |
 | `guidance-rules/` | Offline interpretation and item management guidance |
 | `user-env/` | Settings, workspaces, localization and display preferences |
 | `app-db/` | SQLite storage adapter and database connection policy |
@@ -52,16 +52,16 @@ app-host -> change-executor
 - Use `release-packaging/allowed-deps.toml` for the exact allowed crate edges, including optional, build and development dependencies. Keep the graph acyclic. Only `app-host` may directly depend on `change-executor`.
 - Keep one reason to change per module. Split transport, orchestration, business policy and I/O. Define narrow ports at the contract boundary and inject OS or storage implementations at composition points. Keep business policy and I/O out of `core-contracts`.
 - Inside Rust crates, keep `api` depending inward on `domain`, and `domain` depending on `ports` where needed. Keep domain code independent of registry, strategy implementations and adapters. Place reusable behavior with its actual owner. The architecture checker rejects `common`, `util`, `helpers` and `misc` module names.
-- Keep feature screens under `gui-web/src/features/<area>/` as they are introduced. Keep UI primitives in `components/`, view state in `state/`, and Tauri imports in `ipc/`. Features stay independent of other feature areas. Access generated contracts through the IPC entry point.
+- Keep feature screens under `gui-web/src/features/<area>/` as they are introduced. Keep UI primitives in `components/`, view state in `state/`, and direct native messaging in `ipc/bridge.ts`. Features stay independent of other feature areas. Access generated contracts through the IPC entry point.
 - Treat the GUI as the approval boundary for file changes. CLI and MCP can use published analysis and planning contracts when implemented. Keep network and filesystem access in the designated adapters.
 
 ## Toolchains and build order
 
-Work from the repository root. Read `rust-toolchain.toml` and `.node-version` for the pinned versions. Install platform prerequisites from the [Tauri prerequisite guide](https://v2.tauri.app/start/prerequisites/). Use a permitted development environment for native toolchains. If Windows Application Control blocks generated binaries or native modules, record the failed native check and use an approved runner or Linux environment for supported checks.
+Work from the repository root. Read `rust-toolchain.toml` and `.node-version` for the pinned versions. Follow the [README](README.md) for the native platform prerequisites. Use a permitted development environment for native toolchains. If Windows Application Control blocks generated binaries or native modules, record the failed native check and use an approved runner or Linux environment for supported checks.
 
 1. Install web dependencies from the lockfile with lifecycle scripts disabled.
 2. Generate TypeScript bindings from Rust when shared contracts change. Review and commit the resulting diff.
-3. Build the web assets before building or testing the Tauri workspace. The application embeds `gui-web/dist/`.
+3. Build the web assets before building or testing the native workspace with GUI support. `app-host` embeds `gui-web/dist/`.
 4. Build and exercise the launcher. The no-argument path opens the GUI.
 
 ```sh

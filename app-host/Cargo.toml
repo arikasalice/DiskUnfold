@@ -6,13 +6,13 @@ rust-version.workspace = true
 license.workspace = true
 
 [features]
-gui = ["dep:tauri", "dep:tauri-build"]
+gui = ["dep:du-core-contracts", "dep:du-platform-os", "dep:serde", "dep:serde_json", "du-platform-os/webview"]
 
 [dependencies]
-tauri = { workspace = true, optional = true }
-
-[build-dependencies]
-tauri-build = { workspace = true, optional = true }
+du-core-contracts = { version = "0.1.0", path = "../core-contracts", optional = true }
+du-platform-os = { version = "0.1.0", path = "../platform-os", optional = true }
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
 
 [lints]
 workspace = true

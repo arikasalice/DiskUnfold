@@ -32,7 +32,7 @@ jobs:
           node-version: 26.13.0
       - name: Linux native prerequisites
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev patchelf xvfb openbox xdotool dbus-x11
+        run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev build-essential pkg-config xvfb openbox xdotool dbus-x11
       - name: Install pinned Rust
         shell: bash
         run: rustup toolchain install 1.99.1 --profile minimal --component rustfmt --component clippy --component llvm-tools-preview && rustup default 1.99.1
@@ -57,6 +57,7 @@ jobs:
         run: |
           cargo build --locked -p du-launcher
           bash release-packaging/launcher/smoke-linux.sh target/debug/diskunfold
+          xvfb-run -a dbus-run-session cargo test --locked -p du-platform-os --features webview linux_webview_smoke -- --ignored
       - run: cargo run --locked -p du-arch-check --
       - name: GUI checks
         working-directory: gui-web
@@ -79,14 +80,14 @@ jobs:
       contents: read
       actions: read
     env:
-      CARGO_LLVM_COV_VERSION: "0.6.21"
+      CARGO_LLVM_COV_VERSION: "0.9.1"
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 26.13.0
       - name: Linux native prerequisites
-        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev patchelf xvfb openbox xdotool dbus-x11
+        run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev build-essential pkg-config
       - run: rustup toolchain install 1.99.1 --profile minimal --component llvm-tools-preview && rustup default 1.99.1
       - working-directory: gui-web
         run: npm ci --ignore-scripts
@@ -96,7 +97,7 @@ jobs:
       - if: success() || failure()
         run: cargo deny --locked --all-features check advisories licenses sources bans
       - if: success() || failure()
-        run: node release-packaging/quality/license-policy.test.mjs
+        run: node --test release-packaging/quality/npm-licenses.test.mjs
       - if: success() || failure()
         run: node release-packaging/quality/npm-licenses.mjs
       - if: success() || failure()

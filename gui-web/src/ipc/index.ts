@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invokeNative } from "./bridge";
 import type { CallEnvelope, ResultEnvelope } from "./generated/contracts";
 
 export type { CallEnvelope, ResultEnvelope } from "./generated/contracts";
@@ -8,7 +8,7 @@ type Transport = (
   args: { envelope: CallEnvelope },
 ) => Promise<ResultEnvelope>;
 
-export function createIpcClient(transport: Transport = invoke) {
+export function createIpcClient(transport: Transport = invokeNative) {
   return {
     call(envelope: CallEnvelope) {
       return transport("du_call", { envelope });

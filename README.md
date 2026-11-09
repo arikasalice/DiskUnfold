@@ -6,11 +6,11 @@ Understand what takes up your space.
 
 DiskUnfold is an open-source desktop project for understanding where your disk space goes. The goal is to explore storage visually, see what changed between scans, and review cleanup plans before making changes to your files.
 
-Version 0.1 is in development. The current foundation includes a Tauri and React shell, a command-line entry point, and shared Rust contracts. Storage analysis, cleanup, MCP tools, and release packaging are planned.
+Version 0.1 is in development. The foundation includes a Rust desktop shell with an embedded React interface, a command-line entry point, and shared Rust contracts. Storage analysis, cleanup, MCP tools, and release packaging are planned.
 
 ## Run the foundation
 
-Use the Rust toolchain from `rust-toolchain.toml` and Node.js from `.node-version`. Install the native prerequisites for your platform: MSVC and WebView2 on Windows, Xcode Command Line Tools on macOS, and the WebKitGTK 4.1 and GTK development packages on Linux. See [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/).
+Use the Rust toolchain from `rust-toolchain.toml` and Node.js from `.node-version`. Windows needs MSVC build tools, the Microsoft Visual C++ runtime and the system WebView2 runtime. The executable links the WebView2 loader statically. macOS needs Xcode Command Line Tools and uses system WKWebView. On Ubuntu 24.04, install `build-essential pkg-config libgtk-4-dev libwebkitgtk-6.0-dev`. The Linux bindings require GTK 4.10 or newer and dynamically link the system libraries.
 
 ```sh
 npm --prefix gui-web ci --ignore-scripts
@@ -50,19 +50,19 @@ The quality workflow publishes test, structure, duplication, and coverage report
 
 ## Architecture and feature handoff
 
-The foundation follows the DiskUnfold 0.1 published AIDA architecture HLD revision 191 and DLD revision 1234. Cargo crates correspond to the design targets. Entry points and composition are separate from domain logic. OS and storage adapters implement contracts at their boundaries. The DLD 3.4 placement decisions apply to the storage adapters and launcher.
+The DiskUnfold 0.1 foundation started from AIDA architecture HLD revision 191 and DLD revision 1234. The native webview and license gate changes follow DLD revision 1286 and the approved implementation plan based on the HLD revision 202 draft. The Windows static loader choice is recorded in the subsequent AIDA drafts. Cargo crates correspond to the design targets. Entry points and composition are separate from domain logic. The DLD 3.4 placement decisions apply to the storage adapters and launcher.
 
 | AIDA design items | Foundation location |
 | --- | --- |
-| AFR1.gui-web.ADD1, AFR2.app-host.ADD1, AFR4.cli.ADD1 | GUI, Tauri lifecycle, CLI mode and launcher |
+| AFR1.gui-web.ADD1, AFR2.app-host.ADD1, AFR4.cli.ADD1 | GUI, native webview lifecycle, typed IPC, CLI mode and launcher |
 | AFR5.core-contracts.ADD1, AFR27.core-contracts.ADD1, AFR31.core-contracts.ADD1, AFR32.core-contracts.ADD1 | Value types, port definitions and common envelopes |
 | AFR26.app-db.ADD1 | SQLite connection configuration and temporary database tests |
 | AFR34.release-packaging.ADD1 | Cargo dependency and Rust source checks, GUI import rules |
 | AFR35.platform-os.ADD1 | Development-only fake filesystem, time, random bytes and faults |
 | AFR22.release-packaging.ADD1, AFR33.release-packaging.ADD1, AFR35.release-packaging.ADD1 | Locked toolchains, CI and quality reports |
 
-Each module should have one reason to change. Use a published feature DLD to map a feature's ADD or DD items to its owner, contract and tests. Run the foundation checks before adding feature behavior. The AIDA code profile for the repository has not been verified.
+`app-host` embeds and serves the Vite assets and routes typed IPC. `platform-os` owns native windowing and WebView callbacks. The webview accepts embedded resources from its assigned origin. Only the trusted top-level document can send IPC. Feature development starts with a published feature design and passing foundation checks. The AIDA version currently has no configured code sources.
 
-The Linux x64 container was used for the initial build and GUI startup check. Windows Application Control blocked native build artifacts on the development host. Other operating system and CPU combinations require their own CI or device verification.
+Ubuntu 24.04 x64 is the local native verification environment. Windows and macOS x64 and ARM64 adapters passed cross-target static checks. The Windows x64 executable was also linked and inspected for DLL imports. Windows and macOS native execution, Linux ARM64, and hosted CI require their own runner or device verification.
 
 DiskUnfold is [MIT licensed](LICENSE).
