@@ -2,7 +2,7 @@
   "en", "1", {}, "en", "en",
   [
     ["ui.product.name", "DiskUnfold", []],
-    ["cli.help.usage", "Usage: diskunfold [--help | --version]", []],
+    ["cli.help.usage", "Usage: diskunfold [--lang LANGUAGE] [--help | --version]", []],
     ["cli.help.unsupported", "DiskUnfold: unsupported arguments. See --help.", []],
     ["locale.registration_failed", "Language bundle registration failed.", []],
     ["i18n.bundle_integrity_failed", "A language bundle failed its integrity check.", []]

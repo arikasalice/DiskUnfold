@@ -5,7 +5,7 @@ use std::process::ExitCode;
 fn main() -> ExitCode {
     let mut args = std::env::args_os().skip(1);
     match args.next() {
-        Some(arg) => du_cli::run(&arg, args.next().is_some()),
+        Some(arg) => du_cli::run(std::iter::once(arg).chain(args)),
         None => launch_gui(),
     }
 }

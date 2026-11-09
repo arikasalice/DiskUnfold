@@ -42,7 +42,7 @@ fn built_in_resources_register_with_exact_declared_keys_and_parameters()
             .messages
             .iter()
             .any(|(key, message)| key == "cli.help.usage"
-                && message.text == "Usage: diskunfold [--help | --version]")
+                && message.text == "Usage: diskunfold [--lang LANGUAGE] [--help | --version]")
     );
     Ok(())
 }

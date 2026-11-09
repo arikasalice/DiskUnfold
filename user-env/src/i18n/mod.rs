@@ -91,6 +91,10 @@ impl Registry {
         self.bundles.get(language)
     }
 
+    pub fn languages(&self) -> impl Iterator<Item = &str> {
+        self.bundles.keys().map(String::as_str)
+    }
+
     pub fn integrity_warnings(&self) -> &[String] {
         &self.integrity_warnings
     }
