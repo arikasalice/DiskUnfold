@@ -38,7 +38,10 @@ jobs:
         run: rustup toolchain install 1.99.1 --profile minimal --component rustfmt --component clippy --component llvm-tools-preview && rustup default 1.99.1
       - name: Confirm native architecture
         shell: bash
-        run: rustc -vV | grep -F 'host: ${{ matrix.rustTarget }}'
+        env:
+          EXPECTED_RUST_TARGET: ${{ matrix.rustTarget }}
+        run: |
+          rustc -vV | grep -Fx "host: $EXPECTED_RUST_TARGET"
       - name: Install GUI dependencies
         working-directory: gui-web
         run: npm ci --ignore-scripts
@@ -105,7 +108,9 @@ jobs:
       - if: success() || failure()
         run: node release-packaging/quality/coverage.mjs
       - if: success() || failure()
-        run: node release-packaging/quality/fuzz.mjs
+        run: |
+          node --test release-packaging/quality/fuzz.test.mjs
+          node release-packaging/quality/fuzz.mjs --check
       - name: Duplication report (50 tokens)
         if: success() || failure()
         run: gui-web/node_modules/.bin/jscpd --min-tokens 50 --reporters json,html --output quality-output/jscpd --ignore '**/node_modules/**,**/target/**,**/gen/**,**/dist/**,**/generated/**,**/coverage/**,**/quality-output/**' .

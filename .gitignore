@@ -7,3 +7,5 @@
 *.db-shm
 /app-host/gen/
 /gui-web/.arch-fixture-*/
+**/fuzz/artifacts/
+**/fuzz/target/
