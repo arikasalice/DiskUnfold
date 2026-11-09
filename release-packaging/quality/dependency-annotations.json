@@ -143,6 +143,12 @@
     "distributed": true,
     "reason": "Manage Objective-C object lifetimes and main-thread callbacks"
   },
+  "cargo:du-platform-os:rustix@1.1.6": {
+    "license": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Check Linux directory access without following symbolic links"
+  },
   "cargo:du-platform-os:webkit6@0.6.1": {
     "license": "MIT",
     "role": "runtime",

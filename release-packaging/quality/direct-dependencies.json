@@ -277,6 +277,17 @@
   {
     "ecosystem": "cargo",
     "owner": "du-platform-os",
+    "name": "rustix",
+    "version": "1.1.6",
+    "source": "registry+https://github.com/rust-lang/crates.io-index",
+    "license": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Check Linux directory access without following symbolic links"
+  },
+  {
+    "ecosystem": "cargo",
+    "owner": "du-platform-os",
     "name": "webkit6",
     "version": "0.6.1",
     "source": "registry+https://github.com/rust-lang/crates.io-index",

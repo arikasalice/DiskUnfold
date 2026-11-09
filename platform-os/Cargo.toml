@@ -14,6 +14,7 @@ windows-console = ["dep:windows", "windows/Win32_System_Console"]
 du-core-contracts = { version = "0.1.0", path = "../core-contracts" }
 
 [target.'cfg(target_os = "linux")'.dependencies]
+rustix = { version = "=1.1.6", features = ["fs"] }
 getrandom = { version = "=0.4.3", optional = true }
 gtk4 = { version = "=0.11.5", optional = true, features = ["v4_10"] }
 webkit6 = { version = "=0.6.1", optional = true }
