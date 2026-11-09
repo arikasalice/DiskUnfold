@@ -1,5 +1,6 @@
 //! In-memory result publication and conservative per-subtree space aggregation.
 mod physical;
+pub mod query;
 mod space;
 use du_core_contracts::result::{
     ResultCompleteness, ResultItem, ResultItemKind, ResultVersionRead, SpaceAggregate,
