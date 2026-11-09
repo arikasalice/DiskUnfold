@@ -60,11 +60,10 @@ export function TargetPicker({
         <Action
           variant="quiet"
           icon="refresh"
+          aria-label="Refresh targets"
           isDisabled={targets.loading || disabled}
           onPress={() => void targets.refresh(true)}
-        >
-          Refresh targets
-        </Action>
+        />
       </div>
       {targets.loading && <Progress label="Loading targets" />}
       {notice && (
@@ -108,7 +107,7 @@ export function TargetPicker({
       <PathField
         label="Windows folder path"
         description="Enter a local folder, then review the scope before scanning."
-        placeholder="C:\\Folder"
+        placeholder={"C:\\Folder"}
         isDisabled={disabled}
         value={selected?.display ?? ""}
         onChange={(path) => choose(path ? windowsPath(path) : undefined)}

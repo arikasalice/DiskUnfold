@@ -15,7 +15,7 @@ body {
 .du-app {
   width: min(100%, 1240px);
   margin-inline: auto;
-  padding: 22px clamp(16px, 4vw, 40px) 40px;
+  padding: 18px clamp(16px, 4vw, 40px) 32px;
 }
 
 .du-app-header,
@@ -46,7 +46,7 @@ body {
 .du-analysis__header {
   display: grid;
   gap: 4px;
-  margin-block: 24px 18px;
+  margin-block: 20px 16px;
 }
 
 .du-analysis__grid {
@@ -146,6 +146,11 @@ body {
 .du-action--quiet {
   border-color: transparent;
   color: var(--du-info-text);
+}
+
+.du-action--icon {
+  min-width: 42px;
+  padding-inline: 8px;
 }
 
 .du-action--primary {

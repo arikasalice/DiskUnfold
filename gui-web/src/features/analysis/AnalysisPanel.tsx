@@ -116,8 +116,8 @@ export function AnalysisPanel({ client }: { client: AnalysisClient }) {
           Disk analysis
         </Heading>
         <Text kind="muted">
-          Review a scope before scanning. Explore the size of the folders and
-          files it contains.
+          Review a scope before scanning. See how much space the selected scope
+          uses.
         </Text>
       </header>
       <div className="du-analysis__grid">
@@ -128,23 +128,6 @@ export function AnalysisPanel({ client }: { client: AnalysisClient }) {
             selected={selected}
             choose={choose}
           />
-          {review && (
-            <Readout
-              label="Reviewed scope"
-              rows={[
-                {
-                  label: "Reviewed scope",
-                  value: review.scope.includes
-                    .map((path) => path.display)
-                    .join(", "),
-                },
-                { label: "Boundary", value: "Current volume" },
-              ]}
-            />
-          )}
-          {review?.notices.map((notice) => (
-            <Notice key={notice}>{notice}</Notice>
-          ))}
           <footer className="du-card__actions">
             <Action
               icon="folder"
@@ -169,6 +152,23 @@ export function AnalysisPanel({ client }: { client: AnalysisClient }) {
               Start scan
             </Action>
           </footer>
+          {review && (
+            <Readout
+              label="Reviewed scope"
+              rows={[
+                {
+                  label: "Reviewed scope",
+                  value: review.scope.includes
+                    .map((path) => path.display)
+                    .join(", "),
+                },
+                { label: "Boundary", value: "Current volume" },
+              ]}
+            />
+          )}
+          {review?.notices.map((notice) => (
+            <Notice key={notice}>{notice}</Notice>
+          ))}
         </section>
         <section className="du-card" aria-label="Scan and results">
           <ScanOutput

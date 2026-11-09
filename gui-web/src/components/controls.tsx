@@ -13,14 +13,12 @@ import type { ButtonProps } from "react-aria-components";
 import { Icon, StatusBadge } from "./presentation";
 import type { IconName } from "./presentation";
 
-type ActionProps = Pick<
-  ButtonProps,
-  "onPress" | "isDisabled" | "aria-label"
-> & {
-  children: ReactNode;
+type ActionProps = Pick<ButtonProps, "onPress" | "isDisabled"> & {
   variant?: "primary" | "secondary" | "quiet";
-  icon?: IconName;
-};
+} & (
+    | { children: ReactNode; icon?: IconName; "aria-label"?: string }
+    | { children?: never; icon: IconName; "aria-label": string }
+  );
 
 /** A keyboard-accessible action with a consistent treatment for disabled state. */
 export function Action({
@@ -30,7 +28,10 @@ export function Action({
   ...props
 }: ActionProps) {
   return (
-    <Button {...props} className={`du-action du-action--${variant}`}>
+    <Button
+      {...props}
+      className={`du-action du-action--${variant}${children == null ? " du-action--icon" : ""}`}
+    >
       {icon && <Icon name={icon} />}
       {children}
     </Button>
