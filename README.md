@@ -52,7 +52,7 @@ The quality workflow publishes test, structure, duplication, and coverage report
 
 ## Architecture and feature handoff
 
-The DiskUnfold 0.1 development baseline is AIDA architecture BL-HLD-1.15 (revision 214) and BL-DLD-1.5 (revision 1321). It records the native webview, Windows launcher and license gate decisions against the foundation at commit `4cfb134`. Cargo crates correspond to the design targets. Entry points and composition are separate from domain logic. DLD sections 3.2 and 3.4 record the implementation and verification scope.
+DiskUnfold 0.1 feature integration starts from AIDA architecture BL-HLD-1.17 (revision 220) and BL-DLD-1.6 (revision 1335). The native webview, Windows launcher and license gate decisions were recorded against the foundation at commit `4cfb134` in BL-HLD-1.15 and BL-DLD-1.5. Cargo crates correspond to the design targets. Entry points and composition are separate from domain logic. DLD sections 3.2 and 3.4 record the implementation and verification scope.
 
 | AIDA design items | Foundation location |
 | --- | --- |
