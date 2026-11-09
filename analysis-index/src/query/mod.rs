@@ -1,5 +1,6 @@
 //! In-memory, pinned-result query primitives. Text normalization and IPC belong to callers.
 mod condition;
+pub mod page;
 mod plan;
 pub use condition::{Basis, Boundary, Condition, Kind, NameEncoding, NameTest, Predicate, Truth};
 
@@ -170,6 +171,9 @@ pub struct QueryResult {
     pub predicate_strategies: Vec<(String, u32)>,
     /// Sort-key ID and revision pinned for the evaluation.
     pub sort_strategy: (String, u32),
+    /// Size basis and direction used to evaluate the selected sort strategy.
+    pub sort_basis: Basis,
+    pub sort_descending: bool,
     /// Comparison metadata not available in the current result source.
     pub limitations: &'static [&'static str],
 }
@@ -242,6 +246,8 @@ pub fn run(
         condition,
         predicate_strategies: strategies.into_iter().collect(),
         sort_strategy: (sort.id.to_owned(), sort.revision),
+        sort_basis: sort.basis,
+        sort_descending: sort.descending,
         limitations: &[
             "query.volume_name_comparison_unavailable",
             "query.raw_path_order",
