@@ -1,5 +1,8 @@
-//! In-memory result publication. Space aggregation and query evaluation are not implemented.
-use du_core_contracts::result::{ResultCompleteness, ResultItem, ResultVersionRead};
+//! In-memory result publication and conservative per-subtree space aggregation.
+mod space;
+use du_core_contracts::result::{
+    ResultCompleteness, ResultItem, ResultVersionRead, SpaceAggregate,
+};
 use du_core_contracts::{Id, SizeValue};
 use std::collections::{BTreeMap, HashSet};
 use std::sync::{Arc, Mutex};
@@ -26,6 +29,13 @@ pub struct ResultVersion {
     scope_version_id: Id,
     completeness: ResultCompleteness,
     items: Vec<ResultItem>,
+    aggregates: Vec<SpaceAggregate>,
+}
+impl ResultVersion {
+    /// Returns the aggregate for an item in this pinned version, or `None` for an invalid number.
+    pub fn space(&self, item_no: u32) -> Option<&SpaceAggregate> {
+        self.aggregates.get(item_no as usize)
+    }
 }
 impl ResultVersionRead for ResultVersion {
     fn version_id(&self) -> &Id {
@@ -126,11 +136,13 @@ impl BuildHandle {
                 return Err(error);
             }
         };
+        let aggregates = space::aggregate(&items, completeness);
         let result = Arc::new(ResultVersion {
             version_id,
             scope_version_id: self.scope_version_id.clone(),
             completeness,
             items,
+            aggregates,
         });
         let mut state = self.state.lock().map_err(|_| BuildError::Unavailable)?;
         if !state.used_versions.insert(result.version_id.clone()) {

@@ -1,4 +1,4 @@
-//! Read-only, pinned result versions. Aggregation and query contracts follow separately.
+//! Read-only, pinned result versions and their conservative space aggregates.
 use crate::{Id, SizeValue};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -17,6 +17,21 @@ pub enum ResultCompleteness {
     Complete,
     Missing,
     Cancelled,
+}
+
+/// Space information derived solely from observations in one immutable result version.
+///
+/// `missing_items` counts observations lacking a usable logical value; it does not
+/// include unobserved entries. The latter are represented by `completeness`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SpaceAggregate {
+    pub logical: SizeValue,
+    pub allocated: SizeValue,
+    pub unique_physical: SizeValue,
+    pub completeness: ResultCompleteness,
+    pub missing_items: u64,
+    /// Machine-readable limits on what the observation input can establish.
+    pub limitations: Vec<&'static str>,
 }
 
 /// An immutable snapshot held by the reader independently of later publications.
