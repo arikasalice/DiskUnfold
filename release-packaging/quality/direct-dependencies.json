@@ -382,7 +382,7 @@
     "license": "CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception",
     "role": "runtime",
     "distributed": true,
-    "reason": "Fingerprint the canonical settings review batch"
+    "reason": "Fingerprint settings reviews and compute and verify embedded language bundle digests"
   },
   {
     "ecosystem": "cargo",

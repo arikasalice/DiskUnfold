@@ -2,6 +2,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+pub mod embedded;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Message {
     pub text: String,

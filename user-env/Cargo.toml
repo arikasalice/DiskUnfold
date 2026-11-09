@@ -10,5 +10,8 @@ blake3 = "=1.8.3"
 du-core-contracts = { version = "0.1.0", path = "../core-contracts" }
 serde_json.workspace = true
 
+[build-dependencies]
+blake3 = "=1.8.3"
+
 [lints]
 workspace = true

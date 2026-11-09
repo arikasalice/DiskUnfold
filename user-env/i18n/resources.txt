@@ -1,0 +1,2 @@
+en|1|i18n/en.json
+ko|1|i18n/ko.json
