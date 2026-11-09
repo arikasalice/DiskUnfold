@@ -1,9 +1,11 @@
 //! Read space totals from the immutable version pinned at request admission.
-use du_analysis_index::{IngestSink, ResultVersion};
+use std::sync::Arc;
+
+use du_analysis_index::{IngestSink, QueryError, ResultVersion};
 use du_core_contracts::{
-    ByteSize, SizeAmount, SizeBasis, SizeValue,
+    ByteSize, Id, SizeAmount, SizeBasis, SizeValue,
     analysis_ipc::{SpaceTarget, SpaceTotal, SpaceTotalRequest, SpaceTotalSize},
-    result::{ResultCompleteness, ResultVersionRead},
+    result::{ResultCompleteness, ResultItemKind, ResultVersionRead},
 };
 
 use crate::{
@@ -34,28 +36,45 @@ impl UseCase for Total {
         request: SpaceTotalRequest,
         _: &CallerCtx,
     ) -> Result<SpaceTotal, EngineError> {
-        let version = self
-            .0
-            .pin()
-            .map_err(|_| EngineError::reason("support.internal_error"))?
-            .ok_or_else(|| EngineError::reason("ref.unavailable"))?;
-        if request
-            .result_version
-            .as_ref()
-            .is_some_and(|id| id != version.version_id())
-        {
-            return Err(EngineError::reason("result.requery_required"));
-        }
+        let version = pin(&self.0, request.result_version.as_ref())?;
         total(&version, request)
     }
+}
+
+fn pin(store: &IngestSink, id: Option<&Id>) -> Result<Arc<ResultVersion>, EngineError> {
+    match id {
+        Some(id) => store.pin_current(id).map_err(query_error),
+        None => store
+            .pin()
+            .map_err(|_| EngineError::reason("support.internal_error"))?
+            .ok_or_else(|| EngineError::reason("ref.unavailable")),
+    }
+}
+
+fn query_error(error: QueryError) -> EngineError {
+    EngineError::reason(match error {
+        QueryError::NotFound => "ref.unavailable",
+        QueryError::StaleVersion => "result.requery_required",
+        QueryError::InvalidPath | QueryError::NotDirectory | QueryError::KindUnknown => {
+            "space.target_out_of_scope"
+        }
+        QueryError::Unavailable => "support.internal_error",
+    })
 }
 
 fn total(version: &ResultVersion, request: SpaceTotalRequest) -> Result<SpaceTotal, EngineError> {
     let item_no = match request.target {
         SpaceTarget::ScopeRoot {} => 0,
-        // The current index cannot yet distinguish folders from skipped links.
-        // An item number alone is insufficient evidence for a folder query.
-        _ => return Err(EngineError::reason("space.target_out_of_scope")),
+        SpaceTarget::Folder { item } => {
+            let detail = version.detail(&item).map_err(query_error)?;
+            if detail.item.kind != ResultItemKind::Directory {
+                return Err(EngineError::reason("space.target_out_of_scope"));
+            }
+            detail.item.item_no
+        }
+        SpaceTarget::QueryResult { .. } => {
+            return Err(EngineError::reason("space.target_out_of_scope"));
+        }
     };
     let aggregate = version
         .space(item_no)
@@ -82,8 +101,8 @@ fn total(version: &ResultVersion, request: SpaceTotalRequest) -> Result<SpaceTot
         ],
         completeness: version.completeness(),
         missing_items: Some(ByteSize::from(aggregate.missing_items)),
-        inaccessible_ranges: None,
-        untraversed_links: None,
+        inaccessible_ranges: aggregate.inaccessible_ranges.map(ByteSize::from),
+        untraversed_links: Some(ByteSize::from(aggregate.untraversed_links)),
     })
 }
 

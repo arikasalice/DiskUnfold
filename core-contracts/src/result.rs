@@ -8,6 +8,18 @@ pub struct ResultItem {
     pub parent: Option<u32>,
     pub name: Vec<u8>,
     pub size: Option<SizeValue>,
+    /// Kind established by the source, or an explicit unknown for legacy observations.
+    pub kind: ResultItemKind,
+}
+
+/// The observed kind of a result item; legacy structure records are intentionally ambiguous.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ResultItemKind {
+    Directory,
+    File,
+    UntraversedLink,
+    Unknown,
+    UnknownStructure,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -22,8 +34,8 @@ pub enum ResultCompleteness {
 
 /// Space information derived solely from observations in one immutable result version.
 ///
-/// `missing_items` counts observations lacking a usable logical value; it does not
-/// include unobserved entries. The latter are represented by `completeness`.
+/// `missing_items` counts observed non-link entries lacking a usable logical value.
+/// Untraversed links are counted separately; neither count includes unobserved entries.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SpaceAggregate {
     pub logical: SizeValue,
@@ -35,6 +47,10 @@ pub struct SpaceAggregate {
     /// Completeness of the unique-physical-space evidence.
     pub unique_physical_completeness: ResultCompleteness,
     pub missing_items: u64,
+    /// Number of observed links whose targets were not traversed in this subtree.
+    pub untraversed_links: u64,
+    /// Access failures are not supplied by the current ingest contract.
+    pub inaccessible_ranges: Option<u64>,
     /// Machine-readable limits on what the observation input can establish.
     pub limitations: Cow<'static, [&'static str]>,
 }

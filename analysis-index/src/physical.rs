@@ -371,6 +371,7 @@ mod tests {
             parent: None,
             name: vec![],
             size: None,
+            kind: du_core_contracts::result::ResultItemKind::Directory,
         };
         let mut aggregates =
             crate::space::aggregate(&[item], &[true], ResultCompleteness::Complete);

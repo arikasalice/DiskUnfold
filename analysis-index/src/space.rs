@@ -1,10 +1,11 @@
-use du_core_contracts::result::{ResultCompleteness, ResultItem, SpaceAggregate};
+use du_core_contracts::result::{ResultCompleteness, ResultItem, ResultItemKind, SpaceAggregate};
 use du_core_contracts::{ByteSize, SizeAmount, SizeBasis, SizeEvidence, SizeValue};
 
 #[derive(Clone, Default)]
 struct Accumulator {
     bytes: Option<u64>,
     missing: u64,
+    untraversed_links: u64,
     lower_bound: bool,
     overflow: bool,
     evidence: Option<SizeEvidence>,
@@ -48,6 +49,7 @@ impl Accumulator {
     fn merge(&mut self, other: &Self) {
         self.merge_bytes(other.bytes);
         self.missing += other.missing;
+        self.untraversed_links += other.untraversed_links;
         self.lower_bound |= other.lower_bound;
         self.overflow |= other.overflow;
         if let Some(evidence) = &other.evidence {
@@ -61,7 +63,10 @@ impl Accumulator {
             ResultCompleteness::Partial => ResultCompleteness::Partial,
             ResultCompleteness::Missing => ResultCompleteness::Missing,
             ResultCompleteness::Complete
-                if self.missing > 0 || self.overflow || self.lower_bound =>
+                if self.missing > 0
+                    || self.untraversed_links > 0
+                    || self.overflow
+                    || self.lower_bound =>
             {
                 ResultCompleteness::Missing
             }
@@ -109,6 +114,8 @@ impl Accumulator {
             allocated_completeness: ResultCompleteness::Missing,
             unique_physical_completeness: ResultCompleteness::Missing,
             missing_items: self.missing,
+            untraversed_links: self.untraversed_links,
+            inaccessible_ranges: None,
             limitations: if self.overflow {
                 std::borrow::Cow::Borrowed(OVERFLOW_LIMITATIONS)
             } else {
@@ -149,7 +156,9 @@ pub(crate) fn aggregate(
     let mut sums = vec![Accumulator::default(); items.len()];
     for item in items.iter().rev() {
         let index = item.item_no as usize;
-        if !structures[index] {
+        if item.kind == ResultItemKind::UntraversedLink {
+            sums[index].untraversed_links += 1;
+        } else if !structures[index] {
             sums[index].observe(item.size.as_ref());
         }
         if let Some(parent) = item.parent {

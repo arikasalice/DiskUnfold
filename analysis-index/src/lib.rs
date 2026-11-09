@@ -2,9 +2,9 @@
 mod physical;
 mod space;
 use du_core_contracts::result::{
-    ResultCompleteness, ResultItem, ResultVersionRead, SpaceAggregate,
+    ResultCompleteness, ResultItem, ResultItemKind, ResultVersionRead, SpaceAggregate,
 };
-use du_core_contracts::{Id, SizeValue};
+use du_core_contracts::{Id, ItemRef, SizeValue};
 pub use physical::{FileIdentity, SharingEvidence, SpaceObservation};
 use std::collections::{BTreeMap, HashSet};
 use std::sync::{Arc, Mutex};
@@ -32,11 +32,80 @@ pub struct ResultVersion {
     completeness: ResultCompleteness,
     items: Vec<ResultItem>,
     aggregates: Vec<SpaceAggregate>,
+    physical: Option<Vec<Option<SpaceObservation>>>,
 }
+
+/// Failure to resolve an item or a current version without changing the pinned result.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum QueryError {
+    NotFound,
+    StaleVersion,
+    InvalidPath,
+    NotDirectory,
+    KindUnknown,
+    Unavailable,
+}
+
+/// Original observations for one item in a pinned result, without inferring missing values.
+pub struct ItemDetail<'a> {
+    pub item: &'a ResultItem,
+    pub physical: Option<&'a SpaceObservation>,
+}
+
 impl ResultVersion {
     /// Returns the aggregate for an item in this pinned version, or `None` for an invalid number.
     pub fn space(&self, item_no: u32) -> Option<&SpaceAggregate> {
         self.aggregates.get(item_no as usize)
+    }
+
+    /// Resolves an item reference against this snapshot, including an older snapshot held open.
+    pub fn detail(&self, item: &ItemRef) -> Result<ItemDetail<'_>, QueryError> {
+        if item.result_version != self.version_id {
+            return Err(QueryError::StaleVersion);
+        }
+        let index = item.item_no as usize;
+        let item = self.items.get(index).ok_or(QueryError::NotFound)?;
+        let physical = self
+            .physical
+            .as_ref()
+            .and_then(|values| values.get(index))
+            .and_then(Option::as_ref);
+        Ok(ItemDetail { item, physical })
+    }
+
+    /// Resolves a raw root-relative path to a confirmed directory's aggregate in this snapshot.
+    pub fn folder(&self, version: &Id, path: &[Vec<u8>]) -> Result<&SpaceAggregate, QueryError> {
+        if version != &self.version_id {
+            return Err(QueryError::StaleVersion);
+        }
+        if path.iter().any(Vec::is_empty) {
+            return Err(QueryError::InvalidPath);
+        }
+        let mut index = 0usize;
+        for component in path {
+            ensure_directory(self.items[index].kind)?;
+            let parent = u32::try_from(index).map_err(|_| QueryError::NotFound)?;
+            let first = self
+                .items
+                .partition_point(|item| item.parent < Some(parent));
+            let end = self
+                .items
+                .partition_point(|item| item.parent <= Some(parent));
+            let offset = self.items[first..end]
+                .binary_search_by(|item| item.name.cmp(component))
+                .map_err(|_| QueryError::NotFound)?;
+            index = first + offset;
+        }
+        ensure_directory(self.items[index].kind)?;
+        self.aggregates.get(index).ok_or(QueryError::NotFound)
+    }
+}
+
+fn ensure_directory(kind: ResultItemKind) -> Result<(), QueryError> {
+    match kind {
+        ResultItemKind::Directory => Ok(()),
+        ResultItemKind::Unknown | ResultItemKind::UnknownStructure => Err(QueryError::KindUnknown),
+        ResultItemKind::File | ResultItemKind::UntraversedLink => Err(QueryError::NotDirectory),
     }
 }
 impl ResultVersionRead for ResultVersion {
@@ -66,6 +135,15 @@ pub struct IngestSink {
     state: Arc<Mutex<State>>,
 }
 impl IngestSink {
+    /// Pins the current version only if its identifier still matches the admitted request.
+    pub fn pin_current(&self, expected: &Id) -> Result<Arc<ResultVersion>, QueryError> {
+        let state = self.state.lock().map_err(|_| QueryError::Unavailable)?;
+        let current = state.current.as_ref().ok_or(QueryError::NotFound)?;
+        if current.version_id != *expected {
+            return Err(QueryError::StaleVersion);
+        }
+        Ok(Arc::clone(current))
+    }
     pub fn pin(&self) -> Result<Option<Arc<ResultVersion>>, BuildError> {
         Ok(self
             .state
@@ -85,8 +163,6 @@ impl IngestSink {
             baseline: state.current.clone(),
             scope_version_id,
             observations: BTreeMap::new(),
-            structures: HashSet::new(),
-            space_observations: BTreeMap::new(),
             finished: false,
         })
     }
@@ -97,12 +173,40 @@ pub struct BuildHandle {
     state: Arc<Mutex<State>>,
     baseline: Option<Arc<ResultVersion>>,
     scope_version_id: Id,
-    observations: BTreeMap<Vec<Vec<u8>>, Option<SizeValue>>,
-    structures: HashSet<Vec<Vec<u8>>>,
-    space_observations: BTreeMap<Vec<Vec<u8>>, SpaceObservation>,
+    observations: BTreeMap<Vec<Vec<u8>>, StoredObservation>,
     finished: bool,
 }
+
+struct StoredObservation {
+    size: Option<SizeValue>,
+    kind: ResultItemKind,
+    physical: Option<Box<SpaceObservation>>,
+}
+
 impl BuildHandle {
+    /// Adds a confirmed directory with no independent logical-size contribution.
+    pub fn add_directory(&mut self, path: Vec<Vec<u8>>) -> Result<(), BuildError> {
+        self.insert(
+            path,
+            StoredObservation {
+                size: None,
+                kind: ResultItemKind::Directory,
+                physical: None,
+            },
+        )
+    }
+
+    /// Adds a link whose target was not traversed; its unknown contribution propagates as missing.
+    pub fn add_untraversed_link(&mut self, path: Vec<Vec<u8>>) -> Result<(), BuildError> {
+        self.insert(
+            path,
+            StoredObservation {
+                size: None,
+                kind: ResultItemKind::UntraversedLink,
+                physical: None,
+            },
+        )
+    }
     /// Adds a file and its separately observed physical-space evidence.
     ///
     /// Identity must be an OS-provided volume/file pair, never a path or content hash.
@@ -112,35 +216,59 @@ impl BuildHandle {
         observation: Observation,
         space: SpaceObservation,
     ) -> Result<(), BuildError> {
-        let path = observation.path.clone();
-        self.add(observation)?;
-        self.space_observations.insert(path, space);
-        Ok(())
+        self.insert(
+            observation.path,
+            StoredObservation {
+                size: observation.size,
+                kind: ResultItemKind::File,
+                physical: Some(Box::new(space)),
+            },
+        )
     }
     /// Adds a root, directory, or deliberately excluded link with no logical byte contribution.
     ///
     /// This does not indicate that an unread directory was successfully enumerated;
     /// the caller must preserve any omitted work in the result completeness.
     pub fn add_structure(&mut self, path: Vec<Vec<u8>>) -> Result<(), BuildError> {
-        self.add(Observation {
-            path: path.clone(),
-            size: None,
-        })?;
-        self.structures.insert(path);
-        Ok(())
+        self.insert(
+            path,
+            StoredObservation {
+                size: None,
+                kind: ResultItemKind::UnknownStructure,
+                physical: None,
+            },
+        )
     }
 
     pub fn add(&mut self, observation: Observation) -> Result<(), BuildError> {
+        let kind = if observation.size.is_some() {
+            ResultItemKind::File
+        } else {
+            ResultItemKind::Unknown
+        };
+        self.insert(
+            observation.path,
+            StoredObservation {
+                size: observation.size,
+                kind,
+                physical: None,
+            },
+        )
+    }
+
+    fn insert(
+        &mut self,
+        path: Vec<Vec<u8>>,
+        observation: StoredObservation,
+    ) -> Result<(), BuildError> {
         if self.finished {
             return Err(BuildError::Unavailable);
         }
-        if observation.path.iter().any(Vec::is_empty)
-            || self.observations.contains_key(&observation.path)
-        {
+        if path.iter().any(Vec::is_empty) || self.observations.contains_key(&path) {
             self.abort();
             return Err(BuildError::InvalidTree);
         }
-        self.observations.insert(observation.path, observation.size);
+        self.observations.insert(path, observation);
         Ok(())
     }
     pub fn publish_partial(&mut self, version_id: Id) -> Result<Arc<ResultVersion>, BuildError> {
@@ -162,11 +290,7 @@ impl BuildHandle {
         if self.finished {
             return Err(BuildError::Unavailable);
         }
-        let built = match build_items(
-            &self.observations,
-            &self.structures,
-            &self.space_observations,
-        ) {
+        let built = match build_items(&self.observations) {
             Ok(items) => items,
             Err(error) => {
                 self.abort();
@@ -186,6 +310,7 @@ impl BuildHandle {
             scope_version_id: self.scope_version_id.clone(),
             completeness,
             items: built.items,
+            physical: built.physical,
             aggregates,
         });
         let mut state = self.state.lock().map_err(|_| BuildError::Unavailable)?;
@@ -227,47 +352,49 @@ struct BuiltItems {
 }
 
 fn build_items(
-    observations: &BTreeMap<Vec<Vec<u8>>, Option<SizeValue>>,
-    structures: &HashSet<Vec<Vec<u8>>>,
-    physical: &BTreeMap<Vec<Vec<u8>>, SpaceObservation>,
+    observations: &BTreeMap<Vec<Vec<u8>>, StoredObservation>,
 ) -> Result<BuiltItems, BuildError> {
     u32::try_from(observations.len()).map_err(|_| BuildError::CapacityExceeded)?;
     let root = observations
         .get(&Vec::new())
         .ok_or(BuildError::InvalidTree)?;
     let mut by_parent: BTreeMap<Vec<Vec<u8>>, Vec<_>> = BTreeMap::new();
-    for (path, size) in observations.iter().filter(|(path, _)| !path.is_empty()) {
+    for (path, observation) in observations.iter().filter(|(path, _)| !path.is_empty()) {
         by_parent
             .entry(path[..path.len() - 1].to_vec())
             .or_default()
-            .push((path, size));
+            .push((path, observation));
     }
     let mut items = vec![ResultItem {
         item_no: 0,
         parent: None,
         name: Vec::new(),
-        size: root.clone(),
+        size: root.size.clone(),
+        kind: root.kind,
     }];
     let mut paths = vec![Vec::<Vec<u8>>::new()];
-    let mut structure_flags = vec![structures.contains(&Vec::new())];
-    let mut physical_values =
-        (!physical.is_empty()).then(|| vec![physical.get(&Vec::new()).cloned()]);
+    let mut structure_flags = vec![is_structure(root.kind)];
+    let mut physical_values = observations
+        .values()
+        .any(|v| v.physical.is_some())
+        .then(|| vec![root.physical.as_deref().cloned()]);
     let mut cursor = 0;
     while cursor < paths.len() {
         let path = &paths[cursor];
         let parent = u32::try_from(cursor).map_err(|_| BuildError::CapacityExceeded)?;
-        for (child, size) in by_parent.remove(path).unwrap_or_default() {
+        for (child, observation) in by_parent.remove(path).unwrap_or_default() {
             let item_no = u32::try_from(items.len()).map_err(|_| BuildError::CapacityExceeded)?;
             items.push(ResultItem {
                 item_no,
                 parent: Some(parent),
                 name: child.last().cloned().ok_or(BuildError::InvalidTree)?,
-                size: size.clone(),
+                size: observation.size.clone(),
+                kind: observation.kind,
             });
             paths.push(child.clone());
-            structure_flags.push(structures.contains(child));
+            structure_flags.push(is_structure(observation.kind));
             if let Some(values) = &mut physical_values {
-                values.push(physical.get(child.as_slice()).cloned());
+                values.push(observation.physical.as_deref().cloned());
             }
         }
         cursor += 1;
@@ -280,4 +407,11 @@ fn build_items(
         structures: structure_flags,
         physical: physical_values,
     })
+}
+
+fn is_structure(kind: ResultItemKind) -> bool {
+    matches!(
+        kind,
+        ResultItemKind::Directory | ResultItemKind::UnknownStructure
+    )
 }

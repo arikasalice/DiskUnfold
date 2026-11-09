@@ -213,3 +213,67 @@ fn space_total_honors_admission_version_and_preserves_unknown_basis()
     assert_eq!(response.body["sizes"][2]["size"]["state"], "unknown");
     Ok(())
 }
+
+#[test]
+fn folder_total_accepts_only_directory_references_from_the_requested_version()
+-> Result<(), Box<dyn std::error::Error>> {
+    let scope = Id::parse("0195f856-ab83-7a59-9343-10d29775c9a9")?;
+    let version = Id::parse("0195f856-ab83-7a59-9343-10d29775c9aa")?;
+    let store = IngestSink::default();
+    let mut ingest = store.open(scope.clone()).map_err(|e| format!("{e:?}"))?;
+    let dir = b"folder".to_vec();
+    ingest.add_directory(vec![]).map_err(|e| format!("{e:?}"))?;
+    ingest
+        .add_directory(vec![dir.clone()])
+        .map_err(|e| format!("{e:?}"))?;
+    ingest
+        .add(Observation {
+            path: vec![dir, b"file".to_vec()],
+            size: Some(SizeValue {
+                basis: SizeBasis::Logical,
+                evidence: SizeEvidence::OsReported,
+                amount: SizeAmount::Exact {
+                    bytes: ByteSize::from(53),
+                },
+            }),
+        })
+        .map_err(|e| format!("{e:?}"))?;
+    ingest
+        .seal(version.clone(), ResultCompleteness::Complete)
+        .map_err(|e| format!("{e:?}"))?;
+
+    let mut builder = EngineBuilder::default();
+    crate::space::register_total(&mut builder, store);
+    let engine = builder.build()?;
+    let read = |item_version: &Id, item_no| {
+        call(
+            &engine,
+            "space.total",
+            Channel::Gui,
+            ENVELOPE_VERSION,
+            json!({
+                "resultVersion": version,
+                "target": {
+                    "kind": "folder",
+                    "item": {"resultVersion": item_version, "itemNo": item_no}
+                },
+                "requestSeq": 10
+            }),
+        )
+    };
+    assert_eq!(read(&version, 1)?.body["sizes"][0]["size"]["bytes"], "53");
+    for (item_version, item_no, reason) in [
+        (&version, 2, "space.target_out_of_scope"),
+        (&scope, 1, "result.requery_required"),
+        (&version, 3, "ref.unavailable"),
+    ] {
+        assert_eq!(
+            read(item_version, item_no)?
+                .error
+                .ok_or("expected rejection")?
+                .reason_key,
+            reason
+        );
+    }
+    Ok(())
+}
