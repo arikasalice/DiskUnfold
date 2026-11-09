@@ -497,6 +497,17 @@
   {
     "ecosystem": "npm",
     "owner": "diskunfold-gui",
+    "name": "axe-core",
+    "version": "4.14.0",
+    "source": "https://registry.npmjs.org/axe-core/-/axe-core-4.14.0.tgz",
+    "license": "MPL-2.0",
+    "role": "test",
+    "distributed": false,
+    "reason": "Check accessibility semantics in shared controls and the analysis workspace"
+  },
+  {
+    "ecosystem": "npm",
+    "owner": "diskunfold-gui",
     "name": "dependency-cruiser",
     "version": "18.7.2",
     "source": "https://registry.npmjs.org/dependency-cruiser/-/dependency-cruiser-18.7.2.tgz",
@@ -541,6 +552,17 @@
   {
     "ecosystem": "npm",
     "owner": "diskunfold-gui",
+    "name": "lucide-react",
+    "version": "1.69.0",
+    "source": "https://registry.npmjs.org/lucide-react/-/lucide-react-1.69.0.tgz",
+    "license": "ISC",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Supply consistent decorative icons through the common component registry"
+  },
+  {
+    "ecosystem": "npm",
+    "owner": "diskunfold-gui",
     "name": "prettier",
     "version": "3.9.10",
     "source": "https://registry.npmjs.org/prettier/-/prettier-3.9.10.tgz",
@@ -548,6 +570,17 @@
     "role": "build",
     "distributed": false,
     "reason": "GUI format checks"
+  },
+  {
+    "ecosystem": "npm",
+    "owner": "diskunfold-gui",
+    "name": "react-aria-components",
+    "version": "1.22.1",
+    "source": "https://registry.npmjs.org/react-aria-components/-/react-aria-components-1.22.1.tgz",
+    "license": "Apache-2.0",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Supply keyboard interaction and accessible semantics in common UI components"
   },
   {
     "ecosystem": "npm",

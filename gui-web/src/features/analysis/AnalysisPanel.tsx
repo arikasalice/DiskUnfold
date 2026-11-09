@@ -1,54 +1,22 @@
 import { useRef, useState } from "react";
-import { AnalysisError, windowsPath } from "../../ipc";
+import { Action, Heading, Notice, Readout, Text } from "../../components";
+import { AnalysisError } from "../../ipc";
 import type {
   AnalysisClient,
   OsPath,
   ScanStart,
   ScopeDraft,
   ScopeReview,
-  SpaceTotal,
-  SpaceTotalSize,
 } from "../../ipc";
 import { isRunning, useScanResult } from "../../state/analysis-scan";
 import { useTargets } from "../../state/analysis-targets";
+import { ScanOutput, TargetPicker } from "./AnalysisViews";
 
 function errorText(error: unknown): string {
   if (error instanceof AnalysisError && error.code === "STALE_VERSION") {
     return "The target or result changed. Review the scope again.";
   }
   return error instanceof Error ? error.message : "The operation failed";
-}
-
-const sizes = {
-  logical: "Logical size",
-  allocated: "Allocated size",
-  unique_physical: "Unique physical size",
-};
-
-function displaySize({ size }: SpaceTotalSize): string {
-  if (size.state === "unknown") return "Unavailable";
-  const bytes = BigInt(size.bytes).toLocaleString();
-  return `${size.state === "lower_bound" ? "At least " : ""}${bytes} bytes`;
-}
-
-/** Shows the distinct kinds of known gaps in this pinned result. */
-function Coverage({ total }: { total: SpaceTotal }) {
-  const counters = [
-    { label: "Missing items", count: total.missingItems },
-    { label: "Inaccessible ranges", count: total.inaccessibleRanges },
-    { label: "Untraversed links", count: total.untraversedLinks },
-  ];
-  const present = counters.filter(({ count }) => count !== "0");
-  return (
-    <ul aria-label="Coverage limits">
-      {present.map(({ label, count }) => (
-        <li key={label}>
-          {label}:{" "}
-          {count === null ? "Not recorded" : BigInt(count).toLocaleString()}
-        </li>
-      ))}
-    </ul>
-  );
 }
 
 function draft(path: OsPath): ScopeDraft {
@@ -59,116 +27,6 @@ function draft(path: OsPath): ScopeDraft {
     includedMounts: [],
     source: "gui",
   };
-}
-
-function TargetPicker({
-  targets,
-  disabled,
-  selected,
-  choose,
-}: {
-  targets: ReturnType<typeof useTargets>;
-  disabled: boolean;
-  selected: OsPath | undefined;
-  choose: (path: OsPath | undefined) => void;
-}) {
-  const error = targets.error ?? targets.list?.unavailableReason;
-  const notice =
-    error === "os.unsupported"
-      ? "Automatic target listing is unavailable. Enter a local folder path."
-      : error;
-  return (
-    <>
-      <button
-        type="button"
-        disabled={targets.loading || disabled}
-        onClick={() => void targets.refresh(true)}
-      >
-        Refresh targets
-      </button>
-      {targets.loading && <p role="status">Loading targets…</p>}
-      {notice && <p role="alert">{notice}</p>}
-      <fieldset disabled={disabled}>
-        <legend>Choose a target</legend>
-        {targets.list?.targets.map((target) => {
-          const probe = targets.probes[target.path.raw];
-          const capacity = probe?.totalBytes;
-          const access =
-            probe?.access ??
-            (targets.finished && target.access === "checking"
-              ? "unknown"
-              : target.access);
-          return (
-            <div key={target.path.raw}>
-              <label>
-                <input
-                  type="radio"
-                  name="analysis-target"
-                  checked={selected?.raw === target.path.raw}
-                  onChange={() => choose(target.path)}
-                />
-                {target.path.display}
-              </label>{" "}
-              <span>{access}</span>
-              {capacity && (
-                <span> · {BigInt(capacity).toLocaleString()} bytes total</span>
-              )}
-            </div>
-          );
-        })}
-        <label>
-          Windows folder path
-          <input
-            type="text"
-            value={selected?.display ?? ""}
-            onChange={(event) =>
-              choose(
-                event.target.value
-                  ? windowsPath(event.target.value)
-                  : undefined,
-              )
-            }
-          />
-        </label>
-      </fieldset>
-    </>
-  );
-}
-
-function ScanOutput({
-  scan,
-  started,
-  problem,
-}: {
-  scan: ReturnType<typeof useScanResult>;
-  started: boolean;
-  problem: string | undefined;
-}) {
-  const error = problem ?? scan.error ?? scan.status?.reasonKey;
-  const state = scan.unavailable
-    ? "unavailable"
-    : (scan.status?.state ?? "queued");
-  return (
-    <>
-      {started && <p role="status">Scan status: {state}</p>}
-      {error && <p role="alert">{error}</p>}
-      {scan.total && (
-        <section aria-label="Space totals">
-          <h3>Space totals</h3>
-          <p>Result completeness: {scan.total.completeness}</p>
-          <Coverage total={scan.total} />
-          <dl>
-            {scan.total.sizes.map((value) => (
-              <div key={value.size.basis}>
-                <dt>{sizes[value.size.basis]}</dt>
-                <dd>{displaySize(value)}</dd>
-              </div>
-            ))}
-          </dl>
-        </section>
-      )}
-    </>
-  );
 }
 
 /** Presents target selection, scope review, background collection and pinned totals. */
@@ -251,52 +109,86 @@ export function AnalysisPanel({ client }: { client: AnalysisClient }) {
   }
 
   return (
-    <section aria-labelledby="analysis-heading">
-      <h2 id="analysis-heading">Disk analysis</h2>
-      <TargetPicker
-        targets={targets}
-        disabled={working || running}
-        selected={selected}
-        choose={choose}
-      />
-      <button
-        type="button"
-        disabled={!selected || working || running}
-        onClick={() => void reviewScope()}
-      >
-        Review scope
-      </button>{" "}
-      <button
-        type="button"
-        disabled={
-          !review ||
-          review.targets.some((target) => target.access !== "accessible") ||
-          working ||
-          running
-        }
-        onClick={() => void start()}
-      >
-        Start scan
-      </button>{" "}
-      {running && (
-        <button
-          type="button"
-          disabled={cancelRequested}
-          onClick={() => void cancel()}
-        >
-          Cancel scan
-        </button>
-      )}
-      {review && (
-        <p>
-          Reviewed scope:{" "}
-          {review.scope.includes.map((path) => path.display).join(", ")}
-        </p>
-      )}
-      {review?.notices.map((notice) => (
-        <p key={notice}>{notice}</p>
-      ))}
-      <ScanOutput scan={scan} started={receipt !== null} problem={error} />
+    <section className="du-analysis" aria-labelledby="analysis-heading">
+      <header className="du-analysis__header">
+        <Text kind="eyebrow">Analysis workspace</Text>
+        <Heading level={2} id="analysis-heading">
+          Disk analysis
+        </Heading>
+        <Text kind="muted">
+          Review a scope before scanning. Explore the size of the folders and
+          files it contains.
+        </Text>
+      </header>
+      <div className="du-analysis__grid">
+        <section className="du-card" aria-label="Target and scope">
+          <TargetPicker
+            targets={targets}
+            disabled={working || running}
+            selected={selected}
+            choose={choose}
+          />
+          {review && (
+            <Readout
+              label="Reviewed scope"
+              rows={[
+                {
+                  label: "Reviewed scope",
+                  value: review.scope.includes
+                    .map((path) => path.display)
+                    .join(", "),
+                },
+                { label: "Boundary", value: "Current volume" },
+              ]}
+            />
+          )}
+          {review?.notices.map((notice) => (
+            <Notice key={notice}>{notice}</Notice>
+          ))}
+          <footer className="du-card__actions">
+            <Action
+              icon="folder"
+              isDisabled={!selected || working || running}
+              onPress={() => void reviewScope()}
+            >
+              Review scope
+            </Action>
+            <Action
+              icon="scan"
+              variant="primary"
+              isDisabled={
+                !review ||
+                review.targets.some(
+                  (target) => target.access !== "accessible",
+                ) ||
+                working ||
+                running
+              }
+              onPress={() => void start()}
+            >
+              Start scan
+            </Action>
+          </footer>
+        </section>
+        <section className="du-card" aria-label="Scan and results">
+          <ScanOutput
+            scan={scan}
+            started={receipt !== null}
+            running={running}
+            problem={error}
+          />
+          {running && (
+            <footer className="du-card__actions">
+              <Action
+                isDisabled={cancelRequested}
+                onPress={() => void cancel()}
+              >
+                Cancel scan
+              </Action>
+            </footer>
+          )}
+        </section>
+      </div>
     </section>
   );
 }

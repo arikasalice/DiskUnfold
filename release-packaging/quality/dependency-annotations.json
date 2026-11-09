@@ -233,6 +233,24 @@
     "distributed": false,
     "reason": "Validate SPDX expressions and evaluate the license allowlists"
   },
+  "npm:diskunfold-gui:react-aria-components@1.22.1": {
+    "license": "Apache-2.0",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Supply keyboard interaction and accessible semantics in common UI components"
+  },
+  "npm:diskunfold-gui:lucide-react@1.69.0": {
+    "license": "ISC",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Supply consistent decorative icons through the common component registry"
+  },
+  "npm:diskunfold-gui:axe-core@4.14.0": {
+    "license": "MPL-2.0",
+    "role": "test",
+    "distributed": false,
+    "reason": "Check accessibility semantics in shared controls and the analysis workspace"
+  },
   "npm:diskunfold-gui:@testing-library/dom@10.4.2": {
     "license": "MIT",
     "role": "build",

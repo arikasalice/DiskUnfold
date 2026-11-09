@@ -5,7 +5,9 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
+import axe from "axe-core";
 import { afterEach, expect, test } from "vitest";
 import { App } from "../src/app/App";
 import { AnalysisError, windowsPath } from "../src/ipc";
@@ -202,9 +204,16 @@ test("F01–F03: reviewed scope starts a scan and reads its pinned partial resul
   fireEvent.click(start);
   expect(await screen.findByText("At least 42 bytes")).toBeDefined();
   expect(screen.getByText("Unavailable")).toBeDefined();
-  expect(screen.getByText("Missing items: 1")).toBeDefined();
-  expect(screen.getByText("Untraversed links: 2")).toBeDefined();
-  expect(screen.getByText("Inaccessible ranges: Not recorded")).toBeDefined();
+  const coverage = within(screen.getByLabelText("Coverage limits"));
+  expect(
+    coverage.getByText("Missing items").nextElementSibling?.textContent,
+  ).toBe("1");
+  expect(
+    coverage.getByText("Untraversed links").nextElementSibling?.textContent,
+  ).toBe("2");
+  expect(
+    coverage.getByText("Inaccessible ranges").nextElementSibling?.textContent,
+  ).toBe("Not recorded");
   expect(calls.find((call) => call.name === "scan.start")?.body).toMatchObject({
     reviewFingerprint: "verified",
   });
@@ -244,4 +253,26 @@ test("F24: an expired job releases the scan controls without inventing a result"
   expect(start.disabled).toBe(false);
   expect(screen.queryByRole("button", { name: "Cancel scan" })).toBeNull();
   expect(calls.some((call) => call.name === "space.total")).toBe(false);
+});
+
+test("ANFR5: the analysis workspace exposes labelled controls and valid ARIA roles", async () => {
+  const { client } = fixture();
+  const { container } = render(<App analysis={client} />);
+  await screen.findByRole("radio", { name: path.display });
+  expect(
+    screen.getByRole("textbox", { name: "Windows folder path" }),
+  ).toBeDefined();
+  const result = await axe.run(container, {
+    runOnly: {
+      type: "rule",
+      values: [
+        "label",
+        "button-name",
+        "aria-valid-attr",
+        "aria-allowed-role",
+        "aria-required-attr",
+      ],
+    },
+  });
+  expect(result.violations).toEqual([]);
 });

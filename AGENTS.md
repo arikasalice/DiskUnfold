@@ -53,6 +53,7 @@ app-host -> change-executor
 - Keep one reason to change per module. Split transport, orchestration, business policy and I/O. Define narrow ports at the contract boundary and inject OS or storage implementations at composition points. Keep business policy and I/O out of `core-contracts`.
 - Inside Rust crates, keep `api` depending inward on `domain`, and `domain` depending on `ports` where needed. Keep domain code independent of registry, strategy implementations and adapters. Place reusable behavior with its actual owner. The architecture checker rejects `common`, `util`, `helpers` and `misc` module names.
 - Keep feature screens under `gui-web/src/features/<area>/` as they are introduced. Keep UI primitives in `components/`, view state in `state/`, and direct native messaging in `ipc/bridge.ts`. Features stay independent of other feature areas. Access generated contracts through the IPC entry point.
+- Register all non-layout UI elements in `gui-web/src/components/index.ts` and use that common component entry point in app and feature views. Wrap interactive controls with React Aria inside the component layer. Keep theme tokens in `gui-web/src/theme/`. The GUI lint gate rejects raw non-layout JSX and direct UI library imports outside the component layer.
 - Treat the GUI as the approval boundary for file changes. CLI and MCP can use published analysis and planning contracts when implemented. Keep network and filesystem access in the designated adapters.
 
 ## Toolchains and build order

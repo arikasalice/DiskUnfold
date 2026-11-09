@@ -1,0 +1,137 @@
+import { useId } from "react";
+import type { ReactNode } from "react";
+import {
+  Button,
+  Input,
+  Label,
+  Radio,
+  RadioGroup,
+  Text,
+  TextField,
+} from "react-aria-components";
+import type { ButtonProps } from "react-aria-components";
+import { Icon, StatusBadge } from "./presentation";
+import type { IconName } from "./presentation";
+
+type ActionProps = Pick<
+  ButtonProps,
+  "onPress" | "isDisabled" | "aria-label"
+> & {
+  children: ReactNode;
+  variant?: "primary" | "secondary" | "quiet";
+  icon?: IconName;
+};
+
+/** A keyboard-accessible action with a consistent treatment for disabled state. */
+export function Action({
+  children,
+  variant = "secondary",
+  icon,
+  ...props
+}: ActionProps) {
+  return (
+    <Button {...props} className={`du-action du-action--${variant}`}>
+      {icon && <Icon name={icon} />}
+      {children}
+    </Button>
+  );
+}
+
+/** A labelled native-path input. Display text is passed through without rewriting it. */
+export function PathField({
+  label,
+  description,
+  placeholder,
+  value,
+  onChange,
+  isDisabled,
+}: {
+  label: string;
+  description: string;
+  placeholder?: string;
+  value: string;
+  onChange: (value: string) => void;
+  isDisabled: boolean;
+}) {
+  return (
+    <TextField
+      value={value}
+      onChange={onChange}
+      isDisabled={isDisabled}
+      className="du-field"
+    >
+      <Label>{label}</Label>
+      <Input
+        placeholder={placeholder ?? ""}
+        spellCheck={false}
+        autoComplete="off"
+      />
+      <Text slot="description">{description}</Text>
+    </TextField>
+  );
+}
+
+/** A labelled list of choices with arrow-key selection and shared focus styling. */
+export function ChoiceGroup({
+  label,
+  value,
+  onChange,
+  isDisabled,
+  children,
+}: {
+  label: string;
+  value: string | null;
+  onChange: (value: string) => void;
+  isDisabled: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <RadioGroup
+      aria-label={label}
+      value={value}
+      onChange={onChange}
+      isDisabled={isDisabled}
+      className="du-choices"
+    >
+      {children}
+    </RadioGroup>
+  );
+}
+
+/** One choice row. The visual marker shares the radio's focus and selected state. */
+export function Choice({
+  value,
+  label,
+  description,
+  status,
+  icon,
+}: {
+  value: string;
+  label: string;
+  description: string;
+  status: { text: string; tone: "neutral" | "good" };
+  icon: IconName;
+}) {
+  const descriptionId = useId();
+  const statusId = useId();
+  return (
+    <Radio
+      value={value}
+      aria-label={label}
+      aria-describedby={`${descriptionId} ${statusId}`}
+      className="du-choice"
+    >
+      <span className="du-choice__indicator" aria-hidden />
+      <Icon name={icon} />
+      <span className="du-choice__details">
+        <span className="du-text--path">{label}</span>
+        <span className="du-text--muted" id={descriptionId}>
+          {description}
+        </span>
+      </span>
+      <span id={statusId}>
+        <StatusBadge tone={status.tone}>{status.text}</StatusBadge>
+      </span>
+    </Radio>
+  );
+}

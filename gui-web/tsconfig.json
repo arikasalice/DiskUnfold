@@ -6,6 +6,7 @@
     "jsx": "react-jsx",
     "types": ["node", "vite/client"],
     "strict": true,
+    "skipLibCheck": true,
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
     "noEmit": true

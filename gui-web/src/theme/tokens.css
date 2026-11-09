@@ -1,0 +1,56 @@
+:root {
+  color-scheme: light dark;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  --du-page: #f2f5fa;
+  --du-surface: #ffffff;
+  --du-subtle: #f5f8fc;
+  --du-text: #172438;
+  --du-muted: #4b5d75;
+  --du-border: #d1dce8;
+  --du-accent: #2257b7;
+  --du-accent-text: #ffffff;
+  --du-info-surface: #eaf2fe;
+  --du-info-text: #184681;
+  --du-good-surface: #e2f5ed;
+  --du-good-text: #115c46;
+  --du-alert-surface: #fff0e9;
+  --du-alert-text: #843520;
+  --du-focus: #2f66d1;
+  --du-shadow: 0 8px 24px #233d5d0c;
+  --du-radius: 16px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --du-page: #0f1624;
+    --du-surface: #182335;
+    --du-subtle: #202e43;
+    --du-text: #edf3fd;
+    --du-muted: #b2c0d4;
+    --du-border: #3c506c;
+    --du-accent: #8bb7ff;
+    --du-accent-text: #14283e;
+    --du-info-surface: #213858;
+    --du-info-text: #c2dcff;
+    --du-good-surface: #173d36;
+    --du-good-text: #a4e9d3;
+    --du-alert-surface: #492d31;
+    --du-alert-text: #ffc9b3;
+    --du-focus: #adceff;
+    --du-shadow: 0 8px 24px #0002;
+  }
+}
+
+@media (forced-colors: active) {
+  :root {
+    --du-page: Canvas;
+    --du-surface: Canvas;
+    --du-subtle: Canvas;
+    --du-text: CanvasText;
+    --du-muted: CanvasText;
+    --du-border: ButtonText;
+    --du-accent: Highlight;
+    --du-accent-text: HighlightText;
+    --du-focus: Highlight;
+  }
+}
