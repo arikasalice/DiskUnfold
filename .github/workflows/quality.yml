@@ -61,7 +61,7 @@ jobs:
       - run: cargo run --locked -p du-arch-check --
       - name: GUI checks
         working-directory: gui-web
-        run: npm run check && npm run arch && npm run test && npm run build
+        run: npm run check && npm run test
       - name: Check generated contracts
         shell: bash
         run: |

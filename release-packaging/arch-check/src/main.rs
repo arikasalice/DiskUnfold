@@ -229,6 +229,18 @@ fn analyze(root: &Path) -> Result<Report, String> {
             }
         }
     }
+    check_module_graph(edges, &modules, &mut report);
+    report.diagnostics.sort_by(|a, b| {
+        (&a.rule, &a.location, &a.message).cmp(&(&b.rule, &b.location, &b.message))
+    });
+    Ok(report)
+}
+
+fn check_module_graph(
+    edges: BTreeSet<(String, String)>,
+    modules: &BTreeSet<String>,
+    report: &mut Report,
+) {
     // An imported symbol belongs to the longest declared module prefix.
     let resolved: BTreeSet<_> = edges
         .into_iter()
@@ -273,10 +285,6 @@ fn analyze(root: &Path) -> Result<Report, String> {
             );
         }
     }
-    report.diagnostics.sort_by(|a, b| {
-        (&a.rule, &a.location, &a.message).cmp(&(&b.rule, &b.location, &b.message))
-    });
-    Ok(report)
 }
 fn main() {
     let root = env::args_os()

@@ -54,10 +54,8 @@ test("rejects forbidden dependencies while accepting a local IPC client", () => 
       "src/features/a/entry.ts",
       'export { invoke } from "../../ipc/bridge";\nexport { value } from "../b/entry";',
     );
-    write(
-      "src/features/b/entry.ts",
-      'export { invoke } from "../a/entry";\nexport const value = 1;',
-    );
+    write("src/features/a/cycle-a.ts", 'import "./cycle-b";');
+    write("src/features/a/cycle-b.ts", 'import "./cycle-a";');
     const failed = check();
     expect(failed.status).not.toBe(0);
     for (const rule of [

@@ -21,8 +21,49 @@ fn inspect(source: &str, krate: &str, module: &[&str]) -> Report {
     for item in &file.items {
         scan.visit_item(item);
     }
+    check_module_graph(edges, &modules, &mut report);
     report
 }
+
+#[test]
+fn accepts_acyclic_module_imports() {
+    let report = inspect(
+        "
+        mod first { use crate::second::Marker; }
+        mod second { use crate::third::Marker; struct Marker; }
+        mod third { struct Marker; }
+        ",
+        "engine-api",
+        &[],
+    );
+    assert_eq!(report.metrics.module_edges, 2);
+    assert!(report.diagnostics.is_empty());
+}
+
+#[test]
+fn rejects_transitive_module_cycles() {
+    let report = inspect(
+        "
+        mod first { use crate::second::Marker; struct Marker; }
+        mod second { use crate::third::Marker; struct Marker; }
+        mod third { use crate::first::Marker; struct Marker; }
+        ",
+        "engine-api",
+        &[],
+    );
+    assert_eq!(report.diagnostics.len(), 3);
+    for module in ["first", "second", "third"] {
+        let location = format!("engine-api::{module}");
+        assert!(
+            report
+                .diagnostics
+                .iter()
+                .any(|d| d.rule == "module-cycle" && d.location == location),
+            "missing cycle diagnostic for {module}"
+        );
+    }
+}
+
 #[test]
 fn catches_adversarial_rust_syntax() {
     let report = inspect(
