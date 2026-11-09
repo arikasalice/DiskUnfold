@@ -30,7 +30,32 @@ pub struct ErrorEnvelope {
 }
 impl ErrorEnvelope {
     pub fn from_reason(reason: &str, correlation_id: Id, item_refs: Vec<ItemRef>) -> Option<Self> {
-        let code = match reason {
+        Some(Self::new(
+            reason,
+            Self::code_for(reason)?,
+            correlation_id,
+            item_refs,
+        ))
+    }
+
+    pub fn from_reason_or_internal(
+        reason: &str,
+        correlation_id: Id,
+        item_refs: Vec<ItemRef>,
+    ) -> Self {
+        match Self::code_for(reason) {
+            Some(code) => Self::new(reason, code, correlation_id, item_refs),
+            None => Self::new(
+                "support.internal_error",
+                ErrorCode::Internal,
+                correlation_id,
+                Vec::new(),
+            ),
+        }
+    }
+
+    fn code_for(reason: &str) -> Option<ErrorCode> {
+        Some(match reason {
             "command.not_provided"
             | "tool.not_provided"
             | "command.envelope_invalid"
@@ -46,16 +71,19 @@ impl ErrorEnvelope {
             "db.busy" => ErrorCode::Busy,
             "db.schema_mismatch" | "support.internal_error" => ErrorCode::Internal,
             _ => return None,
-        };
+        })
+    }
+
+    fn new(reason: &str, code: ErrorCode, correlation_id: Id, item_refs: Vec<ItemRef>) -> Self {
         let retryable = code == ErrorCode::Busy;
-        Some(Self {
+        Self {
             code,
             reason_key: reason.to_owned(),
             message_key: reason.to_owned(),
             correlation_id,
             item_refs,
             retryable,
-        })
+        }
     }
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

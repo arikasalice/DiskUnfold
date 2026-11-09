@@ -166,6 +166,28 @@
   },
   {
     "ecosystem": "cargo",
+    "owner": "du-engine-api",
+    "name": "serde_json",
+    "version": "1.0.154",
+    "source": "registry+https://github.com/rust-lang/crates.io-index",
+    "license": "MIT OR Apache-2.0",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Convert registered use case requests and responses at the engine boundary"
+  },
+  {
+    "ecosystem": "cargo",
+    "owner": "du-engine-api",
+    "name": "serde",
+    "version": "1.0.229",
+    "source": "registry+https://github.com/rust-lang/crates.io-index",
+    "license": "MIT OR Apache-2.0",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Type bounds for registered use case requests and responses"
+  },
+  {
+    "ecosystem": "cargo",
     "owner": "du-launcher",
     "name": "find-msvc-tools",
     "version": "0.1.15",

@@ -89,6 +89,18 @@
     "distributed": true,
     "reason": "identifier representation"
   },
+  "cargo:du-engine-api:serde_json@1.0.154": {
+    "license": "MIT OR Apache-2.0",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Convert registered use case requests and responses at the engine boundary"
+  },
+  "cargo:du-engine-api:serde@1.0.229": {
+    "license": "MIT OR Apache-2.0",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Type bounds for registered use case requests and responses"
+  },
   "cargo:du-platform-os:block2@0.6.2": {
     "license": "MIT",
     "role": "runtime",

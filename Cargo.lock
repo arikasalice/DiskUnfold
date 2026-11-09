@@ -170,6 +170,11 @@ version = "0.1.0"
 [[package]]
 name = "du-engine-api"
 version = "0.1.0"
+dependencies = [
+ "du-core-contracts",
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "du-export-render"
