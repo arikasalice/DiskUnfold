@@ -106,7 +106,7 @@ export function TargetPicker({
       )}
       <PathField
         label="Windows folder path"
-        description="Enter a local folder, then review the scope before scanning."
+        description="Review this path before scanning."
         placeholder={"C:\\Folder"}
         isDisabled={disabled}
         value={selected?.display ?? ""}

@@ -80,6 +80,29 @@ body {
   padding-top: 14px;
 }
 
+@media (min-width: 780px) and (max-height: 640px) {
+  .du-app {
+    padding-block: 12px 16px;
+  }
+
+  .du-app-header {
+    padding-bottom: 12px;
+  }
+
+  .du-analysis__header {
+    margin-block: 14px 12px;
+  }
+
+  .du-card {
+    gap: 12px;
+    padding: 16px;
+  }
+
+  .du-card__actions {
+    padding-top: 10px;
+  }
+}
+
 .du-heading,
 .du-text {
   margin: 0;
