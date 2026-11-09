@@ -30,6 +30,7 @@ pub enum JobEvent {
     },
     ItemResult {
         job_id: Id,
+        kind_id: String,
         sequence: u64,
         payload: Vec<u8>,
     },

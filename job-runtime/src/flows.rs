@@ -145,6 +145,7 @@ impl Flow {
         let sequence = job.sequence + 1;
         let event = JobEvent::ItemResult {
             job_id: self.id.clone(),
+            kind_id: job.descriptor.kind_id.clone(),
             sequence,
             payload: payload.to_vec(),
         };

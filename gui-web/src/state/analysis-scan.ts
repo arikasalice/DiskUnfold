@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { AnalysisError } from "../ipc";
 import type {
   AnalysisClient,
   AnalysisJobStatus,
@@ -19,7 +20,11 @@ export function useScanResult(
 ) {
   const [status, setStatus] = useState<AnalysisJobStatus>();
   const [total, setTotal] = useState<{ jobRef: string; value: SpaceTotal }>();
-  const [error, setError] = useState<{ jobRef: string; message: string }>();
+  const [error, setError] = useState<{
+    jobRef: string;
+    message: string;
+    unavailable: boolean;
+  }>();
   const sequence = useRef(0);
 
   useEffect(() => {
@@ -54,14 +59,21 @@ export function useScanResult(
           setTotal({ jobRef: receipt.jobRef, value: result });
         }
       } catch (failure) {
-        if (current)
+        if (current) {
+          const unavailable =
+            !complete &&
+            failure instanceof AnalysisError &&
+            failure.code === "NOT_FOUND";
+          if (unavailable) complete = true;
           setError({
             jobRef: receipt.jobRef,
+            unavailable,
             message:
               failure instanceof Error
                 ? failure.message
                 : "Analysis could not be read",
           });
+        }
       } finally {
         inFlight = false;
       }
@@ -83,9 +95,11 @@ export function useScanResult(
     };
   }, [client, receipt]);
 
+  const currentError = error?.jobRef === receipt?.jobRef ? error : undefined;
   return {
     status: status?.jobRef === receipt?.jobRef ? status : undefined,
     total: total?.jobRef === receipt?.jobRef ? total?.value : undefined,
-    error: error?.jobRef === receipt?.jobRef ? error?.message : undefined,
+    error: currentError?.message,
+    unavailable: currentError?.unavailable ?? false,
   };
 }

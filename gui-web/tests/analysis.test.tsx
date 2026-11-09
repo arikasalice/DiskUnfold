@@ -38,7 +38,11 @@ const targets: TargetList = {
   unavailableReason: null,
 };
 
-function fixture(stale = false, earlyProbe?: EventEnvelope) {
+function fixture({
+  stale = false,
+  earlyProbe,
+  missingJob = false,
+}: { stale?: boolean; earlyProbe?: EventEnvelope; missingJob?: boolean } = {}) {
   const listeners = new Set<(event: EventEnvelope) => void>();
   const calls: { name: string; body: unknown }[] = [];
   const client: AnalysisClient = {
@@ -69,6 +73,7 @@ function fixture(stale = false, earlyProbe?: EventEnvelope) {
             scopeFingerprint: "verified",
           };
         case "job.get":
+          if (missingJob) throw new AnalysisError("NOT_FOUND", "job.not_found");
           return {
             jobRef: "scan",
             kind: "scan.metadata",
@@ -106,7 +111,7 @@ function fixture(stale = false, earlyProbe?: EventEnvelope) {
             ],
             missingItems: "1",
             inaccessibleRanges: null,
-            untraversedLinks: null,
+            untraversedLinks: "2",
           };
           return result;
         }
@@ -148,7 +153,9 @@ function probe(
 }
 
 test("F01: an early probe is applied and older or unrelated probes are ignored", async () => {
-  const { client, listeners } = fixture(false, probe("probe", 3, "accessible"));
+  const { client, listeners } = fixture({
+    earlyProbe: probe("probe", 3, "accessible"),
+  });
   render(<App analysis={client} />);
   await screen.findByText("accessible");
   act(() => {
@@ -160,6 +167,26 @@ test("F01: an early probe is applied and older or unrelated probes are ignored",
   expect(screen.getByText("accessible")).toBeDefined();
   expect(screen.queryByText("missing")).toBeNull();
   expect(screen.queryByText("denied")).toBeNull();
+});
+
+test("F01: a probe that finishes before publishing an observation leaves the target unknown", async () => {
+  const { client, listeners } = fixture({
+    earlyProbe: {
+      topic: "job.finished",
+      contractVersion: 1,
+      seq: 5,
+      jobRef: "probe",
+      occurredAt: timestamp,
+      body: { state: "failed", sequence: 5 },
+    },
+  });
+  render(<App analysis={client} />);
+  await screen.findByText("unknown");
+  act(() => {
+    for (const listener of listeners) listener(probe("probe", 6, "accessible"));
+  });
+  expect(screen.getByText("unknown")).toBeDefined();
+  expect(screen.queryByText("accessible")).toBeNull();
 });
 
 test("F01–F03: reviewed scope starts a scan and reads its pinned partial result", async () => {
@@ -175,6 +202,9 @@ test("F01–F03: reviewed scope starts a scan and reads its pinned partial resul
   fireEvent.click(start);
   expect(await screen.findByText("At least 42 bytes")).toBeDefined();
   expect(screen.getByText("Unavailable")).toBeDefined();
+  expect(screen.getByText("Missing items: 1")).toBeDefined();
+  expect(screen.getByText("Untraversed links: 2")).toBeDefined();
+  expect(screen.getByText("Inaccessible ranges: Not recorded")).toBeDefined();
   expect(calls.find((call) => call.name === "scan.start")?.body).toMatchObject({
     reviewFingerprint: "verified",
   });
@@ -184,7 +214,7 @@ test("F01–F03: reviewed scope starts a scan and reads its pinned partial resul
 });
 
 test("F01: stale scope disables start and requires review again", async () => {
-  const { client, calls } = fixture(true);
+  const { client, calls } = fixture({ stale: true });
   render(<App analysis={client} />);
   fireEvent.click(await screen.findByRole("radio", { name: path.display }));
   fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
@@ -197,5 +227,21 @@ test("F01: stale scope disables start and requires review again", async () => {
     "The target or result changed. Review the scope again.",
   );
   expect(start.disabled).toBe(true);
+  expect(calls.some((call) => call.name === "space.total")).toBe(false);
+});
+
+test("F24: an expired job releases the scan controls without inventing a result", async () => {
+  const { client, calls } = fixture({ missingJob: true });
+  render(<App analysis={client} />);
+  fireEvent.click(await screen.findByRole("radio", { name: path.display }));
+  fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
+  const start = screen.getByRole("button", {
+    name: "Start scan",
+  }) as HTMLButtonElement;
+  await waitFor(() => expect(start.disabled).toBe(false));
+  fireEvent.click(start);
+  await screen.findByText("Scan status: unavailable");
+  expect(start.disabled).toBe(false);
+  expect(screen.queryByRole("button", { name: "Cancel scan" })).toBeNull();
   expect(calls.some((call) => call.name === "space.total")).toBe(false);
 });

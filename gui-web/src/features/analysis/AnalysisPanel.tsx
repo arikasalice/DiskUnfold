@@ -6,6 +6,7 @@ import type {
   ScanStart,
   ScopeDraft,
   ScopeReview,
+  SpaceTotal,
   SpaceTotalSize,
 } from "../../ipc";
 import { isRunning, useScanResult } from "../../state/analysis-scan";
@@ -28,6 +29,26 @@ function displaySize({ size }: SpaceTotalSize): string {
   if (size.state === "unknown") return "Unavailable";
   const bytes = BigInt(size.bytes).toLocaleString();
   return `${size.state === "lower_bound" ? "At least " : ""}${bytes} bytes`;
+}
+
+/** Shows the distinct kinds of known gaps in this pinned result. */
+function Coverage({ total }: { total: SpaceTotal }) {
+  const counters = [
+    { label: "Missing items", count: total.missingItems },
+    { label: "Inaccessible ranges", count: total.inaccessibleRanges },
+    { label: "Untraversed links", count: total.untraversedLinks },
+  ];
+  const present = counters.filter(({ count }) => count !== "0");
+  return (
+    <ul aria-label="Coverage limits">
+      {present.map(({ label, count }) => (
+        <li key={label}>
+          {label}:{" "}
+          {count === null ? "Not recorded" : BigInt(count).toLocaleString()}
+        </li>
+      ))}
+    </ul>
+  );
 }
 
 function draft(path: OsPath): ScopeDraft {
@@ -72,6 +93,11 @@ function TargetPicker({
         {targets.list?.targets.map((target) => {
           const probe = targets.probes[target.path.raw];
           const capacity = probe?.totalBytes;
+          const access =
+            probe?.access ??
+            (targets.finished && target.access === "checking"
+              ? "unknown"
+              : target.access);
           return (
             <div key={target.path.raw}>
               <label>
@@ -83,7 +109,7 @@ function TargetPicker({
                 />
                 {target.path.display}
               </label>{" "}
-              <span>{probe?.access ?? target.access}</span>
+              <span>{access}</span>
               {capacity && (
                 <span> · {BigInt(capacity).toLocaleString()} bytes total</span>
               )}
@@ -119,16 +145,18 @@ function ScanOutput({
   problem: string | undefined;
 }) {
   const error = problem ?? scan.error ?? scan.status?.reasonKey;
+  const state = scan.unavailable
+    ? "unavailable"
+    : (scan.status?.state ?? "queued");
   return (
     <>
-      {started && (
-        <p role="status">Scan status: {scan.status?.state ?? "queued"}</p>
-      )}
+      {started && <p role="status">Scan status: {state}</p>}
       {error && <p role="alert">{error}</p>}
       {scan.total && (
         <section aria-label="Space totals">
           <h3>Space totals</h3>
           <p>Result completeness: {scan.total.completeness}</p>
+          <Coverage total={scan.total} />
           <dl>
             {scan.total.sizes.map((value) => (
               <div key={value.size.basis}>
@@ -155,7 +183,9 @@ export function AnalysisPanel({ client }: { client: AnalysisClient }) {
   const request = useRef(0);
   const scan = useScanResult(client, receipt);
   const running =
-    receipt !== null && (!scan.status || isRunning(scan.status.state));
+    receipt !== null &&
+    !scan.unavailable &&
+    (!scan.status || isRunning(scan.status.state));
 
   function choose(path: OsPath | undefined) {
     request.current += 1;

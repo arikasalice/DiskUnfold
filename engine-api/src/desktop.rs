@@ -19,6 +19,8 @@ use crate::{api::EngineBuilder, jobs, scan, scope, targets, workers::Workers};
 
 const EVENT_LIMIT: usize = 1_024;
 const EVENT_INTERVAL: Duration = Duration::from_millis(100);
+// Provisional until the target probe deadline is measured across supported devices.
+const TARGET_PROBE_DEADLINE: Duration = Duration::from_secs(2);
 
 /// Registers the Windows desktop analysis flow and returns its event source.
 pub fn register(
@@ -41,10 +43,16 @@ pub fn register(
             item_bytes: 256 * 1024,
         },
     )?);
+    let workers = Arc::new(Workers::start(runtime.clone())?);
     jobs::register(builder, runtime.clone());
     scope::register_review(builder, roots.clone(), clock.clone());
-    targets::register(builder, volumes, clock);
-    let workers = Arc::new(Workers::start(runtime)?);
+    targets::register_with_probe(
+        builder,
+        volumes,
+        clock,
+        workers.clone(),
+        TARGET_PROBE_DEADLINE,
+    )?;
     scan::register(builder, workers, roots, ids)?;
     Ok(events)
 }
@@ -181,9 +189,10 @@ fn envelope(event: JobEvent, occurred_at: Timestamp) -> Option<EventEnvelope> {
         ),
         JobEvent::ItemResult {
             job_id,
+            kind_id,
             sequence,
             payload,
-        } => {
+        } if kind_id == du_scan_engine::target_probe::TARGET_PROBE_KIND => {
             let observation: TargetStatusChanged = serde_json::from_slice(&payload).ok()?;
             (
                 "target.status_changed",
@@ -197,6 +206,7 @@ fn envelope(event: JobEvent, occurred_at: Timestamp) -> Option<EventEnvelope> {
                 .ok()?,
             )
         }
+        JobEvent::ItemResult { .. } => return None,
     };
     Some(EventEnvelope {
         topic: topic.into(),

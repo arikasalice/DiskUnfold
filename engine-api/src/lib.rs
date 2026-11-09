@@ -10,6 +10,7 @@ mod registry;
 pub mod scan;
 pub mod scope;
 pub mod space;
+mod target_probe;
 mod targets;
 mod workers;
 

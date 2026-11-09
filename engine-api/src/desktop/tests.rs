@@ -23,14 +23,17 @@ fn probe_event_preserves_job_order_and_only_accepts_typed_results()
 -> Result<(), Box<dyn std::error::Error>> {
     let job = Id::parse("0195f856-ab83-7a59-9343-10d29775c9a9")?;
     let now = Timestamp::from_unix_millis(1000).ok_or("invalid time")?;
-    let input = |payload| JobEvent::ItemResult {
+    let input = |kind_id: &str, payload| JobEvent::ItemResult {
         job_id: job.clone(),
+        kind_id: kind_id.into(),
         sequence: 7,
         payload,
     };
-    assert!(envelope(input(b"{}".to_vec()), now.clone()).is_none());
-    let event = envelope(input(serde_json::to_vec(&observation())?), now.clone())
-        .ok_or("missing probe event")?;
+    let kind = du_scan_engine::target_probe::TARGET_PROBE_KIND;
+    assert!(envelope(input(kind, b"{}".to_vec()), now.clone()).is_none());
+    let payload = serde_json::to_vec(&observation())?;
+    assert!(envelope(input("scan.metadata", payload.clone()), now.clone()).is_none());
+    let event = envelope(input(kind, payload), now.clone()).ok_or("missing probe event")?;
     assert_eq!(event.topic, "target.status_changed");
     assert_eq!(event.job_ref, Some(job));
     assert_eq!(event.occurred_at, now);
