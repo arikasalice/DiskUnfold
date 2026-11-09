@@ -1,5 +1,5 @@
 //! Read-only directory observations. Names are native bytes, not display strings.
-use crate::ports::PortError;
+use crate::{OsPath, ports::PortError};
 
 /// A bounded pull interface; an empty batch marks the end of this directory.
 /// An error terminates the stream; callers must record the unread remainder.
@@ -18,6 +18,19 @@ pub trait DirectoryObservationPort: Send + Sync {
 pub trait AnchoredDirectory: DirectoryObservations {
     /// Opens the previously observed directory entry after revalidating it.
     fn open_child(&self, entry: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError>;
+}
+
+/// The identity and canonical path of a scope root obtained from its open handle.
+pub struct OpenedScopeRoot {
+    pub canonical_path: OsPath,
+    pub volume_id: Vec<u8>,
+    pub file_id: Vec<u8>,
+    pub directory: Box<dyn AnchoredDirectory>,
+}
+
+/// Opens a verified read-only directory for review or later collection.
+pub trait ScopeRootPort: Send + Sync {
+    fn open_root(&self, absolute_path: &[u8]) -> Result<OpenedScopeRoot, PortError>;
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

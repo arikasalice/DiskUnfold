@@ -10,6 +10,7 @@ use crate::{
 };
 
 mod analysis;
+mod scan_flow;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]

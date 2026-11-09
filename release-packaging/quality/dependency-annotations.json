@@ -107,6 +107,12 @@
     "distributed": true,
     "reason": "Type bounds for registered use case requests and responses"
   },
+  "cargo:du-engine-api:blake3@1.8.3": {
+    "license": "CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Fingerprint a verified analysis scope for scan admission"
+  },
   "cargo:du-user-env:blake3@1.8.3": {
     "license": "CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception",
     "role": "runtime",

@@ -219,9 +219,11 @@ version = "0.1.0"
 name = "du-engine-api"
 version = "0.1.0"
 dependencies = [
+ "blake3",
  "du-analysis-index",
  "du-core-contracts",
  "du-job-runtime",
+ "du-scan-engine",
  "serde",
  "serde_json",
 ]

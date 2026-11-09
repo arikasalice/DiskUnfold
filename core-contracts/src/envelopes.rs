@@ -64,14 +64,18 @@ impl ErrorEnvelope {
             | "cursor.invalid"
             | "cursor.limit_exceeded"
             | "space.target_out_of_scope"
+            | "scope.empty"
+            | "scope.target_unavailable"
+            | "scope.exclude_invalid"
             | "path.unresolvable" => ErrorCode::InvalidArgument,
             "cursor.stale"
             | "cursor.expired"
             | "result.version_released"
+            | "scope.changed"
             | "result.requery_required" => ErrorCode::StaleVersion,
             "ref.unavailable" | "job.not_found" => ErrorCode::NotFound,
             "path.outside_scope" | "path.link_escape" => ErrorCode::ScopeDenied,
-            "db.busy" => ErrorCode::Busy,
+            "db.busy" | "job.queue_full" | "job.shutting_down" => ErrorCode::Busy,
             "db.schema_mismatch" | "support.internal_error" => ErrorCode::Internal,
             _ => return None,
         })

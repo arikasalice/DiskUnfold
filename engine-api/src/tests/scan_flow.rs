@@ -1,0 +1,233 @@
+use super::*;
+use du_core_contracts::{
+    OsPath, PathBytes, PathEncoding,
+    analysis_ipc::{ScanStart, ScopeReview},
+    job::{HistoryAppend, JobHistory, JobSummary},
+    ports::{PortError, PortErrorKind},
+    scan_observation::{
+        AnchoredDirectory, DirectoryObservations, MetadataObservation, ObservedEntry, ObservedKind,
+        OpenedScopeRoot, ScopeRootPort,
+    },
+};
+use du_job_runtime::{JobClock, JobEvent, JobEvents, JobIdentity, JobRuntime};
+use std::{
+    sync::{Arc, Mutex, mpsc},
+    time::Duration,
+};
+
+struct Ids {
+    next: AtomicUsize,
+    fallback: Id,
+}
+
+impl JobIdentity for Ids {
+    fn next_id(&self) -> Id {
+        let next = self.next.fetch_add(1, Ordering::Relaxed);
+        Id::parse(&format!("018f0000-0000-7000-8000-{next:012x}"))
+            .unwrap_or_else(|_| self.fallback.clone())
+    }
+}
+
+struct Clock;
+
+impl JobClock for Clock {
+    fn now_ms(&self) -> i64 {
+        1_000
+    }
+}
+
+struct History;
+
+impl JobHistory for History {
+    fn append(&self, _: &JobSummary) -> Result<HistoryAppend, String> {
+        Ok(HistoryAppend::Added)
+    }
+}
+
+struct Events(mpsc::Sender<JobEvent>);
+
+impl JobEvents for Events {
+    fn publish(&self, event: JobEvent) {
+        if matches!(event, JobEvent::Finished { .. }) {
+            let _ = self.0.send(event);
+        }
+    }
+}
+
+struct Roots {
+    file_id: AtomicUsize,
+    reads: Arc<AtomicUsize>,
+    release: Arc<Mutex<mpsc::Receiver<()>>>,
+}
+
+impl ScopeRootPort for Roots {
+    fn open_root(&self, path: &[u8]) -> Result<OpenedScopeRoot, PortError> {
+        Ok(OpenedScopeRoot {
+            canonical_path: OsPath {
+                encoding: PathEncoding::WindowsUtf16le,
+                raw: PathBytes::from_bytes(path),
+                display: "C:\\Fixture".into(),
+                lossy: false,
+            },
+            volume_id: vec![1],
+            file_id: self.file_id.load(Ordering::Acquire).to_le_bytes().to_vec(),
+            directory: Box::new(Directory {
+                reads: self.reads.clone(),
+                release: Some(self.release.clone()),
+            }),
+        })
+    }
+}
+
+struct Directory {
+    reads: Arc<AtomicUsize>,
+    release: Option<Arc<Mutex<mpsc::Receiver<()>>>>,
+}
+
+impl DirectoryObservations for Directory {
+    fn next_batch(&mut self) -> Result<Vec<ObservedEntry>, PortError> {
+        self.reads.fetch_add(1, Ordering::Relaxed);
+        let Some(release) = self.release.take() else {
+            return Ok(Vec::new());
+        };
+        release
+            .lock()
+            .map_err(|_| io_error())?
+            .recv_timeout(Duration::from_secs(5))
+            .map_err(|_| io_error())?;
+        Ok(vec![ObservedEntry {
+            name: b"f".to_vec(),
+            enumerated_inode: 2,
+            enumerated_kind: ObservedKind::File,
+            metadata: Ok(MetadataObservation {
+                kind: ObservedKind::File,
+                device: 1,
+                inode: 2,
+                size: Ok(64),
+            }),
+        }])
+    }
+}
+
+impl AnchoredDirectory for Directory {
+    fn open_child(&self, _: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError> {
+        Err(io_error())
+    }
+}
+
+fn io_error() -> PortError {
+    PortError {
+        kind: PortErrorKind::Io,
+        reason_key: "os.query_failed".into(),
+        os_code: None,
+    }
+}
+
+#[test]
+fn reviewed_identity_is_rechecked_and_one_job_publishes_the_requested_result()
+-> Result<(), Box<dyn std::error::Error>> {
+    let ids = Arc::new(Ids {
+        next: AtomicUsize::new(1),
+        fallback: Id::parse("018f0000-0000-7000-8000-000000000000")?,
+    });
+    let (release, blocked) = mpsc::channel();
+    let (send, terminal) = mpsc::channel();
+    let roots = Arc::new(Roots {
+        file_id: AtomicUsize::new(1),
+        reads: Arc::new(AtomicUsize::new(0)),
+        release: Arc::new(Mutex::new(blocked)),
+    });
+    let clock = Arc::new(Clock);
+    let runtime = Arc::new(JobRuntime::new(
+        ids.clone(),
+        clock.clone(),
+        Arc::new(History),
+        Arc::new(Events(send)),
+    )?);
+    let mut builder = EngineBuilder::default();
+    crate::jobs::register(&mut builder, runtime.clone());
+    crate::scope::register_review(&mut builder, roots.clone(), clock);
+    crate::scan::register(&mut builder, runtime, roots.clone(), ids)?;
+    let engine = builder.build()?;
+    let gui = |name, body| call(&engine, name, Channel::Gui, ENVELOPE_VERSION, body);
+    let path: Vec<u8> = "C:\\Fixture"
+        .encode_utf16()
+        .flat_map(u16::to_le_bytes)
+        .collect();
+    let draft = json!({
+        "includes": [{
+            "encoding": "windows_utf16le",
+            "raw": PathBytes::from_bytes(&path),
+            "display": "untrusted label",
+            "lossy": true
+        }],
+        "exclusions": [],
+        "boundary": "current_volume",
+        "includedMounts": [],
+        "source": "gui"
+    });
+    let review = |seq| -> Result<ScopeReview, Box<dyn std::error::Error>> {
+        Ok(serde_json::from_value(
+            gui(
+                "scope.review",
+                json!({
+                    "draft": draft, "requestSeq": seq
+                }),
+            )?
+            .body,
+        )?)
+    };
+    let first = review(1)?;
+    assert_eq!(first.scope.includes[0].display, "C:\\Fixture");
+    assert_eq!(first.review_fingerprint, review(2)?.review_fingerprint);
+    assert_eq!(first.review_fingerprint.len(), 64);
+    let start = |fingerprint: &str| {
+        gui(
+            "scan.start",
+            json!({
+                "draft": draft, "reviewFingerprint": fingerprint
+            }),
+        )
+    };
+    roots.file_id.store(3, Ordering::Release);
+    assert_eq!(
+        start(&first.review_fingerprint)?
+            .error
+            .ok_or("expected stale error")?
+            .reason_key,
+        "scope.changed"
+    );
+    assert_eq!(roots.reads.load(Ordering::Acquire), 0);
+
+    let second = review(3)?;
+    let receipt: ScanStart = serde_json::from_value(start(&second.review_fingerprint)?.body)?;
+    let duplicate: ScanStart = serde_json::from_value(start(&second.review_fingerprint)?.body)?;
+    assert!(!receipt.existing);
+    assert!(duplicate.existing);
+    assert_eq!(receipt.job_ref, duplicate.job_ref);
+    assert_eq!(receipt.scope_version, duplicate.scope_version);
+    release.send(())?;
+    let JobEvent::Finished {
+        summary,
+        history_recorded,
+        ..
+    } = terminal.recv_timeout(Duration::from_secs(5))?
+    else {
+        return Err("missing terminal event".into());
+    };
+    assert_eq!(summary.job_id, receipt.job_ref);
+    assert!(history_recorded);
+    let version = summary.result_version_id.ok_or("missing result version")?;
+    let response = gui(
+        "space.total",
+        json!({
+            "resultVersion": version,
+            "target": {"kind": "scope_root"},
+            "requestSeq": 6
+        }),
+    )?;
+    assert_eq!(response.body["resultVersion"], json!(version));
+    assert_eq!(response.body["sizes"][0]["size"]["bytes"], "64");
+    assert_eq!(roots.reads.load(Ordering::Acquire), 2);
+    Ok(())
+}

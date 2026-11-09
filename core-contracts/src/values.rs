@@ -45,6 +45,13 @@ string_value!(Timestamp, |s: &str| s.len() == 24
     && s.ends_with('Z')
     && s.as_bytes().get(19) == Some(&b'.')
     && chrono::DateTime::parse_from_rfc3339(s).is_ok());
+impl Timestamp {
+    /// Encodes an injected epoch timestamp in the fixed UTC wire format.
+    pub fn from_unix_millis(millis: i64) -> Option<Self> {
+        let time = chrono::DateTime::from_timestamp_millis(millis)?;
+        Self::parse(&time.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)).ok()
+    }
+}
 impl From<u64> for ByteSize {
     fn from(value: u64) -> Self {
         Self(value.to_string())

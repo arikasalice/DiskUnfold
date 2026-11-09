@@ -178,6 +178,17 @@
   {
     "ecosystem": "cargo",
     "owner": "du-engine-api",
+    "name": "blake3",
+    "version": "1.8.3",
+    "source": "registry+https://github.com/rust-lang/crates.io-index",
+    "license": "CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Fingerprint a verified analysis scope for scan admission"
+  },
+  {
+    "ecosystem": "cargo",
+    "owner": "du-engine-api",
     "name": "serde_json",
     "version": "1.0.154",
     "source": "registry+https://github.com/rust-lang/crates.io-index",
