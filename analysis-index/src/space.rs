@@ -106,11 +106,13 @@ impl Accumulator {
             allocated: unknown(SizeBasis::Allocated),
             unique_physical: unknown(SizeBasis::UniquePhysical),
             completeness,
+            allocated_completeness: ResultCompleteness::Missing,
+            unique_physical_completeness: ResultCompleteness::Missing,
             missing_items: self.missing,
             limitations: if self.overflow {
-                OVERFLOW_LIMITATIONS
+                std::borrow::Cow::Borrowed(OVERFLOW_LIMITATIONS)
             } else {
-                LIMITATIONS
+                std::borrow::Cow::Borrowed(LIMITATIONS)
             },
         }
     }

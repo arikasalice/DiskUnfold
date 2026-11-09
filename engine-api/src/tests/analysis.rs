@@ -1,5 +1,5 @@
 use super::*;
-use du_analysis_index::{IngestSink, Observation};
+use du_analysis_index::{FileIdentity, IngestSink, Observation, SharingEvidence, SpaceObservation};
 use du_core_contracts::{
     ByteSize, SizeAmount, SizeBasis, SizeEvidence, SizeValue, result::ResultCompleteness,
 };
@@ -178,5 +178,38 @@ fn space_total_honors_admission_version_and_preserves_unknown_basis()
         read(&scope)?.error.ok_or("missing stale error")?.reason_key,
         "result.requery_required"
     );
+    let allocated = Id::parse("0195f856-ab83-7a59-9343-10d29775c9ab")?;
+    let mut ingest = store.open(scope).map_err(|e| format!("{e:?}"))?;
+    ingest.add_structure(vec![]).map_err(|e| format!("{e:?}"))?;
+    ingest
+        .add_with_space(
+            Observation {
+                path: vec![b"file".to_vec()],
+                size: None,
+            },
+            SpaceObservation {
+                allocated: Some(SizeValue {
+                    basis: SizeBasis::Allocated,
+                    evidence: SizeEvidence::OsReported,
+                    amount: SizeAmount::Exact {
+                        bytes: ByteSize::from(4096),
+                    },
+                }),
+                identity: Some(FileIdentity {
+                    volume: vec![1],
+                    file: vec![2],
+                }),
+                link_count: Some(1),
+                sharing: SharingEvidence::Unknown,
+            },
+        )
+        .map_err(|e| format!("{e:?}"))?;
+    ingest
+        .seal(allocated.clone(), ResultCompleteness::Complete)
+        .map_err(|e| format!("{e:?}"))?;
+    let response = read(&allocated)?;
+    assert_eq!(response.body["sizes"][1]["size"]["bytes"], "4096");
+    assert_eq!(response.body["sizes"][1]["completeness"], "complete");
+    assert_eq!(response.body["sizes"][2]["size"]["state"], "unknown");
     Ok(())
 }

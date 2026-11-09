@@ -1,7 +1,7 @@
 //! Read space totals from the immutable version pinned at request admission.
 use du_analysis_index::{IngestSink, ResultVersion};
 use du_core_contracts::{
-    ByteSize, SizeValue,
+    ByteSize, SizeAmount, SizeBasis, SizeValue,
     analysis_ipc::{SpaceTarget, SpaceTotal, SpaceTotalRequest, SpaceTotalSize},
     result::{ResultCompleteness, ResultVersionRead},
 };
@@ -60,31 +60,51 @@ fn total(version: &ResultVersion, request: SpaceTotalRequest) -> Result<SpaceTot
     let aggregate = version
         .space(item_no)
         .ok_or_else(|| EngineError::reason("space.target_out_of_scope"))?;
-    let logical = SpaceTotalSize {
-        size: aggregate.logical.clone(),
-        completeness: aggregate.completeness,
-        measurement_limits: aggregate
-            .limitations
-            .iter()
-            .map(|key| (*key).to_owned())
-            .collect(),
-    };
-    let unavailable = |size: &SizeValue| SpaceTotalSize {
-        size: size.clone(),
-        completeness: ResultCompleteness::Missing,
-        measurement_limits: vec!["space.data_insufficient".into()],
-    };
     Ok(SpaceTotal {
         result_version: version.version_id().clone(),
         request_seq: request.request_seq,
         sizes: vec![
-            logical,
-            unavailable(&aggregate.allocated),
-            unavailable(&aggregate.unique_physical),
+            basis(
+                &aggregate.logical,
+                aggregate.completeness,
+                &aggregate.limitations,
+            ),
+            basis(
+                &aggregate.allocated,
+                aggregate.allocated_completeness,
+                &aggregate.limitations,
+            ),
+            basis(
+                &aggregate.unique_physical,
+                aggregate.unique_physical_completeness,
+                &aggregate.limitations,
+            ),
         ],
         completeness: version.completeness(),
         missing_items: Some(ByteSize::from(aggregate.missing_items)),
         inaccessible_ranges: None,
         untraversed_links: None,
     })
+}
+
+fn basis(size: &SizeValue, completeness: ResultCompleteness, limits: &[&str]) -> SpaceTotalSize {
+    let mut measurement_limits: Vec<_> = limits
+        .iter()
+        .filter(|&&key| match key {
+            "space.sharing_not_collected" => size.basis == SizeBasis::UniquePhysical,
+            "space.allocated_not_collected"
+            | "space.hardlink_identity_unknown"
+            | "space.dedup_capacity" => size.basis != SizeBasis::Logical,
+            _ => true,
+        })
+        .map(|key| (*key).to_owned())
+        .collect();
+    if size.amount == SizeAmount::Unknown {
+        measurement_limits.push("space.data_insufficient".into());
+    }
+    SpaceTotalSize {
+        size: size.clone(),
+        completeness,
+        measurement_limits,
+    }
 }

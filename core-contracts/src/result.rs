@@ -1,5 +1,6 @@
 //! Read-only, pinned result versions and their conservative space aggregates.
 use crate::{Id, SizeValue};
+use std::borrow::Cow;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ResultItem {
@@ -29,9 +30,13 @@ pub struct SpaceAggregate {
     pub allocated: SizeValue,
     pub unique_physical: SizeValue,
     pub completeness: ResultCompleteness,
+    /// Completeness of the allocated-size observations and deduplication evidence.
+    pub allocated_completeness: ResultCompleteness,
+    /// Completeness of the unique-physical-space evidence.
+    pub unique_physical_completeness: ResultCompleteness,
     pub missing_items: u64,
     /// Machine-readable limits on what the observation input can establish.
-    pub limitations: &'static [&'static str],
+    pub limitations: Cow<'static, [&'static str]>,
 }
 
 /// An immutable snapshot held by the reader independently of later publications.

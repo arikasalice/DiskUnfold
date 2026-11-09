@@ -1,9 +1,11 @@
 //! In-memory result publication and conservative per-subtree space aggregation.
+mod physical;
 mod space;
 use du_core_contracts::result::{
     ResultCompleteness, ResultItem, ResultVersionRead, SpaceAggregate,
 };
 use du_core_contracts::{Id, SizeValue};
+pub use physical::{FileIdentity, SharingEvidence, SpaceObservation};
 use std::collections::{BTreeMap, HashSet};
 use std::sync::{Arc, Mutex};
 
@@ -84,6 +86,7 @@ impl IngestSink {
             scope_version_id,
             observations: BTreeMap::new(),
             structures: HashSet::new(),
+            space_observations: BTreeMap::new(),
             finished: false,
         })
     }
@@ -96,9 +99,24 @@ pub struct BuildHandle {
     scope_version_id: Id,
     observations: BTreeMap<Vec<Vec<u8>>, Option<SizeValue>>,
     structures: HashSet<Vec<Vec<u8>>>,
+    space_observations: BTreeMap<Vec<Vec<u8>>, SpaceObservation>,
     finished: bool,
 }
 impl BuildHandle {
+    /// Adds a file and its separately observed physical-space evidence.
+    ///
+    /// Identity must be an OS-provided volume/file pair, never a path or content hash.
+    /// Missing or inconsistent evidence is retained as unknown during aggregation.
+    pub fn add_with_space(
+        &mut self,
+        observation: Observation,
+        space: SpaceObservation,
+    ) -> Result<(), BuildError> {
+        let path = observation.path.clone();
+        self.add(observation)?;
+        self.space_observations.insert(path, space);
+        Ok(())
+    }
     /// Adds a root, directory, or deliberately excluded link with no logical byte contribution.
     ///
     /// This does not indicate that an unread directory was successfully enumerated;
@@ -144,19 +162,30 @@ impl BuildHandle {
         if self.finished {
             return Err(BuildError::Unavailable);
         }
-        let (items, structures) = match build_items(&self.observations, &self.structures) {
+        let built = match build_items(
+            &self.observations,
+            &self.structures,
+            &self.space_observations,
+        ) {
             Ok(items) => items,
             Err(error) => {
                 self.abort();
                 return Err(error);
             }
         };
-        let aggregates = space::aggregate(&items, &structures, completeness);
+        let mut aggregates = space::aggregate(&built.items, &built.structures, completeness);
+        physical::apply(
+            &built.items,
+            &built.structures,
+            built.physical.as_deref(),
+            completeness,
+            &mut aggregates,
+        );
         let result = Arc::new(ResultVersion {
             version_id,
             scope_version_id: self.scope_version_id.clone(),
             completeness,
-            items,
+            items: built.items,
             aggregates,
         });
         let mut state = self.state.lock().map_err(|_| BuildError::Unavailable)?;
@@ -191,10 +220,17 @@ impl Drop for BuildHandle {
     }
 }
 
+struct BuiltItems {
+    items: Vec<ResultItem>,
+    structures: Vec<bool>,
+    physical: Option<Vec<Option<SpaceObservation>>>,
+}
+
 fn build_items(
     observations: &BTreeMap<Vec<Vec<u8>>, Option<SizeValue>>,
     structures: &HashSet<Vec<Vec<u8>>>,
-) -> Result<(Vec<ResultItem>, Vec<bool>), BuildError> {
+    physical: &BTreeMap<Vec<Vec<u8>>, SpaceObservation>,
+) -> Result<BuiltItems, BuildError> {
     u32::try_from(observations.len()).map_err(|_| BuildError::CapacityExceeded)?;
     let root = observations
         .get(&Vec::new())
@@ -214,6 +250,8 @@ fn build_items(
     }];
     let mut paths = vec![Vec::<Vec<u8>>::new()];
     let mut structure_flags = vec![structures.contains(&Vec::new())];
+    let mut physical_values =
+        (!physical.is_empty()).then(|| vec![physical.get(&Vec::new()).cloned()]);
     let mut cursor = 0;
     while cursor < paths.len() {
         let path = &paths[cursor];
@@ -228,11 +266,18 @@ fn build_items(
             });
             paths.push(child.clone());
             structure_flags.push(structures.contains(child));
+            if let Some(values) = &mut physical_values {
+                values.push(physical.get(child.as_slice()).cloned());
+            }
         }
         cursor += 1;
     }
     if items.len() != observations.len() {
         return Err(BuildError::InvalidTree);
     }
-    Ok((items, structure_flags))
+    Ok(BuiltItems {
+        items,
+        structures: structure_flags,
+        physical: physical_values,
+    })
 }
