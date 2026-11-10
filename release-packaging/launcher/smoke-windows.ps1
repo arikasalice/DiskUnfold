@@ -81,6 +81,32 @@ function Invoke-UI($item) {
   $pattern = $item.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern)
   $pattern.Invoke()
 }
+# Open the observed file inspector through its real WebView2 action.
+function Test-FileInspection($name, $size) {
+  $file = Wait-VisibleAction $name
+  $file.SetFocus()
+  Invoke-UI $file
+  $null = Wait-UI "file attributes for $name" {
+    $details = Find-UI 'Observed file attributes' $null
+    if ($details) { Find-UI $name $null $details }
+  }
+  $null = Wait-UI "pinned space for $name" {
+    $details = Find-UI 'Observed item space' $null
+    if ($details -and (Find-UI 'Observed logical size' $null $details)) {
+      $details.FindAll($scopeTree, [Windows.Automation.Condition]::TrueCondition) |
+        Where-Object { $_.Current.Name -eq $size -or $_.Current.Name.StartsWith("$size ·") } |
+        Select-Object -First 1
+    }
+  }
+  Invoke-UI (Wait-VisibleAction 'Close details')
+  $null = Wait-UI "focus returned to $name" {
+    $focused = $ae::FocusedElement
+    if ($focused -and ($focused.Current.Name -eq $name -or (Find-UI $name $button $focused))) {
+      -not (Find-UI 'Close details' $button)
+    }
+  }
+  "F05/F03 native file inspection: $name, $size, focus restored"
+}
 function Set-Scope($path, $fieldName = 'Windows folder path') {
   $item = Wait-UI $fieldName { Find-UI $fieldName $edit }
   $pattern = $item.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern)
@@ -186,6 +212,7 @@ function Test-PopulatedWorkspace {
   }
   Invoke-UI $firstRoot
   $null = Wait-UI 'first observed file' { Find-UI 'entry-000.bin' $null }
+  Test-FileInspection 'entry-000.bin' '1 bytes'
   $more = Wait-Enabled 'Load more' $true
   Invoke-UI $more
   $null = Wait-UI 'second page loaded' {
@@ -330,6 +357,7 @@ try {
   Invoke-UI (Wait-Enabled 'Browse folders' $true)
   $null = Wait-UI 'root.bin' { Find-UI 'root.bin' $null }
   $null = Wait-UI '11-byte root row' { Find-UI '11 bytes' $null }
+  Test-FileInspection 'root.bin' '11 bytes'
   $nested = Wait-UI 'nested folder button' { Find-UI 'nested' $button }
   Invoke-UI $nested
   $null = Wait-UI 'nested.bin' { Find-UI 'nested.bin' $null }

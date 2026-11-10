@@ -58,11 +58,20 @@ export function Heading({
 export function Text({
   children,
   kind = "body",
+  focusable = false,
 }: {
   children: ReactNode;
   kind?: "body" | "muted" | "eyebrow" | "path";
+  focusable?: boolean;
 }) {
-  return <p className={`du-text du-text--${kind}`}>{children}</p>;
+  return (
+    <p
+      className={`du-text du-text--${kind}`}
+      tabIndex={focusable ? 0 : undefined}
+    >
+      {children}
+    </p>
+  );
 }
 
 export function StatusBadge({

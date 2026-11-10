@@ -1,10 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { KeyboardEvent } from "react";
+import type { KeyboardEvent, ReactNode } from "react";
 import {
   Action,
   Breadcrumbs,
   canHandleBrowseKey,
   Heading,
+  InspectionDialog,
   Notice,
   Progress,
   Text,
@@ -12,12 +13,13 @@ import {
 import type {
   BrowseOpenRequest,
   BrowseOpenResponse,
+  FolderQueryRow,
   ItemRef,
   QueryPageRequest,
   QueryPageResponse,
 } from "../../ipc";
 import { BROWSE_PAGE_SIZE, BrowsePages } from "../../state/browse-pages";
-import { folderPath, rowKey } from "./browse-display";
+import { browseDisplayName, folderPath, rowKey } from "./browse-display";
 import { BrowseResults } from "./BrowseResults";
 
 /** Injected boundary for opening folders and paging through a pinned result. */
@@ -32,6 +34,39 @@ export interface BrowsePort {
 type Opened = Extract<BrowseOpenResponse, { kind: "opened" }>;
 type View = { opened: Opened; pages: BrowsePages };
 type ParentLocation = { item?: ItemRef };
+type InspectedFile = { item: ItemRef; name: string };
+
+function pinnedInspection(
+  inspection: InspectedFile | undefined,
+  shownVersion: string | undefined,
+  requestedVersion: string | undefined,
+) {
+  if (requestedVersion !== undefined && shownVersion !== requestedVersion)
+    return undefined;
+  return inspection?.item.resultVersion === shownVersion
+    ? inspection
+    : undefined;
+}
+
+function BrowseFileDialog({
+  inspection,
+  inspectFile,
+  close,
+}: {
+  inspection: InspectedFile | undefined;
+  inspectFile: ((item: ItemRef) => ReactNode) | undefined;
+  close: () => void;
+}) {
+  if (!inspection || !inspectFile) return null;
+  return (
+    <InspectionDialog
+      title={`File details — ${inspection.name}`}
+      onClose={close}
+    >
+      {inspectFile(inspection.item)}
+    </InspectionDialog>
+  );
+}
 
 function parentLocation(
   opened: Opened,
@@ -54,13 +89,16 @@ function parentLocation(
 export function BrowsePanel({
   port,
   resultVersion,
+  inspectFile,
 }: {
   port: BrowsePort;
   resultVersion?: string;
+  inspectFile?: (item: ItemRef) => ReactNode;
 }) {
   const [view, setView] = useState<View>();
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<"error" | "job">();
+  const [inspection, setInspection] = useState<InspectedFile>();
   const sequence = useRef(0);
   const opening = useRef<AbortController | undefined>(undefined);
   const lastAttempt = useRef<{
@@ -132,6 +170,7 @@ export function BrowsePanel({
   }
 
   useEffect(() => {
+    setInspection(undefined);
     virtualRootVersion.current = undefined;
     navigate(undefined, resultVersion);
     return () => {
@@ -156,6 +195,14 @@ export function BrowsePanel({
   const hasVirtualRoot =
     page !== undefined && virtualRootVersion.current === page.resultVersion;
   const parent = view && parentLocation(view.opened, hasVirtualRoot);
+
+  function openFile(row: FolderQueryRow) {
+    if (!opening.current && row.item.resultVersion === page?.resultVersion)
+      setInspection({
+        item: row.item,
+        name: browseDisplayName(row.displayName),
+      });
+  }
 
   function goUp() {
     if (parent && page && !opening.current)
@@ -244,6 +291,7 @@ export function BrowsePanel({
             canRead={() => opening.current === undefined}
             focusPanel={() => panel.current?.focus({ preventScroll: true })}
             openFolder={(item) => navigate(item, page.resultVersion)}
+            openFile={inspectFile ? openFile : undefined}
             reopen={() =>
               navigate(
                 view.opened.location ?? undefined,
@@ -254,6 +302,15 @@ export function BrowsePanel({
           />
         </>
       )}
+      <BrowseFileDialog
+        inspection={pinnedInspection(
+          inspection,
+          page?.resultVersion,
+          resultVersion,
+        )}
+        inspectFile={inspectFile}
+        close={() => setInspection(undefined)}
+      />
     </section>
   );
 }

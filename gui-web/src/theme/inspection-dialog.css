@@ -1,0 +1,59 @@
+.du-inspection-overlay {
+  position: fixed;
+  z-index: 10;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 12px;
+  background: color-mix(in srgb, #000 38%, transparent);
+}
+
+.du-inspection-modal {
+  inline-size: min(100%, 44rem);
+  min-inline-size: 0;
+}
+
+.du-inspection-dialog {
+  display: flex;
+  flex-direction: column;
+  max-block-size: calc(100dvh - 24px);
+  min-inline-size: 0;
+  border: 1px solid var(--du-border);
+  border-radius: var(--du-radius);
+  background: var(--du-surface);
+  color: var(--du-text);
+  box-shadow: var(--du-shadow);
+}
+
+.du-inspection-dialog__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 16px;
+  border-block-end: 1px solid var(--du-border);
+}
+
+.du-inspection-dialog__header .du-heading {
+  flex: 1 1 12rem;
+  min-inline-size: 0;
+  max-block-size: 3.6em;
+  overflow: clip;
+  overflow-wrap: anywhere;
+}
+
+.du-inspection-dialog__body {
+  display: grid;
+  gap: 12px;
+  min-block-size: 0;
+  padding: 12px 16px 16px;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+  overscroll-behavior: contain;
+}
+
+.du-inspection-dialog__body .du-text--path:focus-visible {
+  outline: 2px solid var(--du-focus);
+  outline-offset: -2px;
+}

@@ -2,6 +2,7 @@ import diskUnfoldIcon from "./assets/diskunfold-icon.svg";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Action, BrandMark, Heading } from "../components";
 import { AnalysisPanel } from "../features/analysis/AnalysisPanel";
+import { FileInspection } from "../features/analysis/FileInspection";
 import { BrowsePanel } from "../features/browse/BrowsePanel";
 import { HistoryPanel } from "../features/history/HistoryPanel";
 import { createAnalysisClient, hasWindowsAnalysisBridge } from "../ipc";
@@ -68,7 +69,7 @@ export function App({ analysis }: { analysis?: AnalysisClient } = {}) {
           />
         </div>
       )}
-      {browsePort && browseVersion && (
+      {client && browsePort && browseVersion && (
         <div className="du-browse-shell">
           <Action
             variant="quiet"
@@ -81,7 +82,17 @@ export function App({ analysis }: { analysis?: AnalysisClient } = {}) {
           >
             Back to analysis
           </Action>
-          <BrowsePanel port={browsePort} resultVersion={browseVersion} />
+          <BrowsePanel
+            port={browsePort}
+            resultVersion={browseVersion}
+            inspectFile={(item) => (
+              <FileInspection
+                key={`${item.resultVersion}:${item.itemNo}`}
+                client={client}
+                item={item}
+              />
+            )}
+          />
         </div>
       )}
       {client && history && (

@@ -142,7 +142,7 @@ export function ItemSpaceDetails({
           response.item.resultVersion !== resultVersion ||
           response.item.itemNo !== itemNo
         ) {
-          setProblem("The space details do not match this folder.");
+          setProblem("The space details do not match this item.");
           return;
         }
         setDetail(response);

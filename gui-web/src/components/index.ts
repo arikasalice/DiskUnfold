@@ -26,6 +26,7 @@ export { BrowseGrid } from "./browse-grid";
 export type { BrowseGridFocus } from "./browse-grid";
 export { canHandleBrowseKey } from "./browse-keys";
 export { DataTable } from "./data-table";
+export { InspectionDialog } from "./inspection-dialog";
 
 export { createChartRenderers } from "./chart-renderers";
 export { GeometryRenderer } from "./geometry-renderer";
