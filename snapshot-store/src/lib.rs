@@ -1,4 +1,5 @@
 //! Own snapshot format, comparison and catalog policy.
+pub mod comparison;
 pub mod envelope;
 mod record_framing;
 pub mod records;
