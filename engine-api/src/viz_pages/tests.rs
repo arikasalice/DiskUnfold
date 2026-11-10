@@ -343,3 +343,5 @@ fn admitted_group_page_survives_eviction_and_replacement() -> Result<(), String>
     assert_eq!(page.result_revision, *a.version_id());
     Ok(())
 }
+
+mod cache_cancellation;

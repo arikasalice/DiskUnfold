@@ -98,6 +98,9 @@ impl ModelPages {
         let fingerprint = fingerprint(&request, &descriptor.strategy, &normalized, cancelled)?;
         check(cancelled)?;
         if let Some(cached) = self.cached_render(source.version(), &fingerprint, cancelled)? {
+            // Cache admission may wait for source publication; observe cancellation again
+            // after its locks are released and before returning the model.
+            check(cancelled)?;
             return Ok(cached);
         }
         let mut keys = Vec::with_capacity(normalized.len());
