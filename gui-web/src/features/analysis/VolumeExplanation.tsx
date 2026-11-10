@@ -17,7 +17,7 @@ import type {
 } from "../../ipc";
 import {
   displayMeasurement,
-  displaySize,
+  displaySizeWithBytes,
   evidenceLabels,
   formatBytes,
   formatSizeBytes,
@@ -204,11 +204,11 @@ export function VolumeExplanation({
               },
               {
                 label: "Scoped allocated size",
-                value: `${displaySize(report.allocated.size, display)} · ${displayMeasurement(report.allocated.size, report.allocated.completeness)}`,
+                value: `${displaySizeWithBytes(report.allocated.size, display)} · ${displayMeasurement(report.allocated.size, report.allocated.completeness)}`,
               },
               {
                 label: "Scoped unique physical size",
-                value: `${displaySize(report.uniquePhysical.size, display)} · ${displayMeasurement(report.uniquePhysical.size, report.uniquePhysical.completeness)}`,
+                value: `${displaySizeWithBytes(report.uniquePhysical.size, display)} · ${displayMeasurement(report.uniquePhysical.size, report.uniquePhysical.completeness)}`,
               },
               ...report.factors.map(({ key, value }) => ({
                 label: factorLabels[key] ?? key,

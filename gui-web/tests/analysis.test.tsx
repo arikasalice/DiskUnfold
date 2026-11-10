@@ -271,7 +271,18 @@ function fixture({
               },
             },
             allocated: unknown,
-            uniquePhysical: unknown,
+            uniquePhysical: {
+              state: "present",
+              value: {
+                size: {
+                  basis: "unique_physical",
+                  evidence: "estimated",
+                  state: "lower_bound",
+                  bytes: "1100",
+                },
+                measurementLimits: ["space.dedup_capacity"],
+              },
+            },
             exclusive: unknown,
             shared: unknown,
             linkGroup: { state: "absent" },
@@ -613,6 +624,11 @@ test("F01–F03: reviewed scope starts a scan and reads its pinned partial resul
   expect(
     space.getByText("At least 42 bytes · Reported by the file system"),
   ).toBeDefined();
+  expect(
+    space.getByText("Unique physical space").nextElementSibling?.textContent,
+  ).toBe(
+    "At least 1.0 KiB · At least 1,100 bytes · Estimated · The file identity limit was reached",
+  );
   expect(space.getByText("Sharing evidence was not collected")).toBeDefined();
   expect(space.getByText("Auxiliary data was not collected")).toBeDefined();
   expect(

@@ -113,6 +113,27 @@ function Test-FileInspection($name, $size) {
   }
   "F05/F03 native file inspection: $name, $size, focus restored"
 }
+# Scan an isolated file whose IEC representation differs from its original byte count.
+function Test-ScaledFileInspection {
+  $scaledScope = Join-Path $root 'scaled-scope'
+  [IO.Directory]::CreateDirectory($scaledScope) | Out-Null
+  [IO.File]::WriteAllBytes((Join-Path $scaledScope 'scaled.bin'), [byte[]]::new(1100))
+  Invoke-UI (Wait-Enabled 'Back to analysis' $true)
+  Invoke-UI (Wait-Enabled 'Cancel selection' $true)
+  Set-Scope $scaledScope
+  Invoke-UI (Wait-Enabled 'Review scope' $true)
+  Invoke-UI (Wait-Enabled 'Start scan' $true)
+  $result = Wait-UI 'scaled final result or manual result switch' {
+    if (Find-UI 'Scan finished' $textType) {
+      $switch = Find-UI 'Show latest result' $button
+      if ($switch -and $switch.Current.IsEnabled) { return 'switch' }
+      if (Find-UI '1.1 KiB' $textType) { return 'shown' }
+    }
+  }
+  if ($result -eq 'switch') { Invoke-UI (Wait-Enabled 'Show latest result' $true) }
+  Invoke-UI (Wait-Enabled 'Browse folders' $true)
+  Test-FileInspection 'scaled.bin' '1.1 KiB · 1,100 bytes'
+}
 function Set-Scope($path, $fieldName = 'Windows folder path') {
   $item = Wait-UI $fieldName { Find-UI $fieldName $edit }
   $pattern = $item.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern)
@@ -372,6 +393,7 @@ try {
   $null = Wait-UI 'returned to pinned folder' { Find-UI 'root.bin' $null }
   'F05 native browse: root.bin 11 bytes, nested.bin 7 bytes, Up returns to the pinned scope'
   if ($VerifyPopulatedWorkspace) { Test-PopulatedWorkspace }
+  Test-ScaledFileInspection
 } catch {
   Write-Warning "Native smoke failed. Isolated fixture and logs: $root"
   throw

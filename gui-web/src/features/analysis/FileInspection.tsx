@@ -8,7 +8,7 @@ import type {
   ItemRef,
 } from "../../ipc";
 import { ItemSpaceDetails } from "./ItemSpaceDetails";
-import { displaySize, formatBytes, windowsSizeDisplay } from "./space-format";
+import { displaySizeWithBytes, windowsSizeDisplay } from "./space-format";
 
 function attribute<T>(
   field: BrowseValue<T>,
@@ -21,12 +21,9 @@ function attribute<T>(
 
 function attributes(detail: BrowseDetail) {
   const size = (value: BrowseDetail["logicalSize"]) =>
-    attribute(value, (observed) => {
-      const display = displaySize(observed, windowsSizeDisplay);
-      if (observed.state === "unknown") return display;
-      const raw = `${observed.state === "lower_bound" ? "At least " : ""}${formatBytes(observed.bytes)}`;
-      return raw === display ? display : `${display} · ${raw}`;
-    });
+    attribute(value, (observed) =>
+      displaySizeWithBytes(observed, windowsSizeDisplay),
+    );
   return [
     { label: "File name", value: attribute(detail.displayName) },
     {

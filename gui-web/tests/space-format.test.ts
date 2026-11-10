@@ -1,5 +1,8 @@
 import { expect, test } from "vitest";
-import { displaySize } from "../src/features/analysis/space-format";
+import {
+  displaySize,
+  displaySizeWithBytes,
+} from "../src/features/analysis/space-format";
 import type { SizeValue } from "../src/ipc";
 
 function exact(bytes: string): SizeValue {
@@ -28,4 +31,27 @@ test("F03: a displayed lower bound stays at or below the raw byte count", () => 
   expect(
     displaySize({ ...exactSize, state: "lower_bound", bytes: "1100" }),
   ).toBe("At least 1.0 KiB");
+});
+
+test("F03 FR12: inspection retains original byte counts and value states", () => {
+  const display = { system: "iec", unit: "auto" } as const;
+  expect(displaySizeWithBytes(exact("1100"), display)).toBe(
+    "1.1 KiB · 1,100 bytes",
+  );
+  expect(displaySizeWithBytes(exact("0"), display)).toBe("0 bytes");
+  expect(
+    displaySizeWithBytes(
+      { ...exact("1100"), state: "lower_bound", bytes: "1100" },
+      display,
+    ),
+  ).toBe("At least 1.0 KiB · At least 1,100 bytes");
+  expect(
+    displaySizeWithBytes(
+      { basis: "allocated", evidence: "unknown", state: "unknown" },
+      display,
+    ),
+  ).toBe("Unavailable");
+  expect(
+    displaySizeWithBytes(exact("18446744073709551615"), display),
+  ).toContain("18,446,744,073,709,551,615 bytes");
 });

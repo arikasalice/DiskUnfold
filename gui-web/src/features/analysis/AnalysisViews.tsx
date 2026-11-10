@@ -28,6 +28,7 @@ import { VolumeExplanation } from "./VolumeExplanation";
 import {
   displayMeasurement,
   displaySize,
+  displaySizeWithBytes,
   formatBytes,
   sizeLabels,
   windowsSizeDisplay,
@@ -427,13 +428,13 @@ function ScopeDetails({
               {
                 label: "Logical size",
                 value: attribute(detail.logicalSize, (value) =>
-                  displaySize(value, display),
+                  displaySizeWithBytes(value, display),
                 ),
               },
               {
                 label: "Allocated size",
                 value: attribute(detail.allocatedSize, (value) =>
-                  displaySize(value, display),
+                  displaySizeWithBytes(value, display),
                 ),
               },
               { label: "Modified", value: attribute(detail.modifiedAt) },

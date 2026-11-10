@@ -7,7 +7,7 @@ import type {
   SpaceDetail,
   SpaceDetailSize,
 } from "../../ipc";
-import { displaySize, evidenceLabels } from "./space-format";
+import { displaySizeWithBytes, evidenceLabels } from "./space-format";
 import type { SizeDisplay } from "./space-format";
 
 const reasonText: Readonly<Record<string, string>> = {
@@ -33,7 +33,7 @@ function describe<T>(field: BrowseValue<T>, present: (value: T) => string) {
 
 function sizeText(value: SpaceDetailSize, display: SizeDisplay): string {
   return [
-    displaySize(value.size, display),
+    displaySizeWithBytes(value.size, display),
     evidenceLabels[value.size.evidence],
     ...value.measurementLimits.map((key) => reasonText[key]).filter(Boolean),
   ]
@@ -90,7 +90,13 @@ function rows(detail: SpaceDetail, display: SizeDisplay) {
             : auxiliary.includedInAllocated
               ? "included in allocation"
               : "separate from allocation";
-        return `${displaySize(auxiliary.size, display)} · ${inclusion}`;
+        return [
+          displaySizeWithBytes(auxiliary.size, display),
+          evidenceLabels[auxiliary.size.evidence],
+          inclusion,
+        ]
+          .filter(Boolean)
+          .join(" · ");
       }),
     },
     { label: "Item observed at", value: describe(detail.observedAt, String) },

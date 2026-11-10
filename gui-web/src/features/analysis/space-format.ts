@@ -71,3 +71,15 @@ export function displaySize(
   const formatted = formatSizeBytes(size.bytes, display, lowerBound);
   return lowerBound ? `At least ${formatted}` : formatted;
 }
+
+/** Shows the original byte count in details without upgrading a lower bound. */
+export function displaySizeWithBytes(
+  size: SizeValue,
+  display: SizeDisplay,
+): string {
+  const formatted = displaySize(size, display);
+  if (size.state === "unknown") return formatted;
+  const rawBytes = formatBytes(size.bytes);
+  const raw = size.state === "lower_bound" ? `At least ${rawBytes}` : rawBytes;
+  return formatted === raw ? raw : `${formatted} · ${raw}`;
+}
