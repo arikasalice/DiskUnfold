@@ -369,12 +369,15 @@ fn observes_current_system_drive() -> Result<(), Box<dyn std::error::Error>> {
     assert!(without_capacity.capacity.is_none());
     let mut different = expected;
     different.push(0);
+    let attempted = std::cell::Cell::new(false);
     let replacement = WindowsVolumes.observe(&path, Some(&different), &|| {
-        panic!("must not request capacity for a different volume")
+        attempted.set(true);
+        true
     });
     assert_eq!(
         replacement.err().map(|e| e.kind),
         Some(PortErrorKind::IdentityChanged)
     );
+    assert!(!attempted.get());
     Ok(())
 }
