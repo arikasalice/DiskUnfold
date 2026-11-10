@@ -305,6 +305,14 @@ try {
   Invoke-UI (Wait-Enabled 'Hide volume explanation' $true)
   $null = Wait-UI 'closed volume explanation' { -not (Find-UI 'Selected scanned folder' $textType) }
   'F03 native volume explanation: scoped allocation and unique physical evidence, then closed'
+  Invoke-UI (Wait-Enabled 'View folder details' $true)
+  $null = Wait-UI 'pinned folder space detail' {
+    $details = Find-UI 'Observed item space' $null
+    if ($details) { Find-UI 'Observed logical size' $null $details }
+  }
+  Invoke-UI (Wait-Enabled 'Hide folder details' $true)
+  $null = Wait-UI 'closed pinned folder details' { -not (Find-UI 'Observed item space' $null) }
+  'F03 native item space: opened and closed the pinned folder observations'
   Invoke-UI (Wait-Enabled 'Browse folders' $true)
   $null = Wait-UI 'root.bin' { Find-UI 'root.bin' $null }
   $null = Wait-UI '11-byte root row' { Find-UI '11 bytes' $null }

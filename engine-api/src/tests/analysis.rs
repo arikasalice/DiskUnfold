@@ -76,37 +76,18 @@ fn space_detail_preserves_observation_time_and_leaves_legacy_time_unknown()
     crate::browse::register(&mut builder, store.clone());
     crate::space::detail::register(&mut builder, store);
     let engine = builder.build()?;
-    let read_command = |command, body| call(&engine, command, Channel::Gui, ENVELOPE_VERSION, body);
     let read = |item_version: &Id, item_no: u32| {
-        read_command(
+        call(
+            &engine,
             "space.detail",
+            Channel::Gui,
+            ENVELOPE_VERSION,
             json!({"resultVersion":version,"item":{"resultVersion":item_version,"itemNo":item_no}}),
         )
     };
     let file = read(&version, 1)?;
     assert!(file.error.is_none(), "{:?}", file.error);
-    let extended = json!({
-        "resultVersion":version, "futureRequestField":true,
-        "item":{"resultVersion":version,"itemNo":1,"futureItemField":"ignored"}
-    });
-    let compatible = read_command("space.detail", extended.clone())?;
-    assert!(compatible.error.is_none(), "{:?}", compatible.error);
-    assert_eq!(compatible.body, file.body);
-    for (command, malformed) in [
-        ("browse.detail", extended),
-        (
-            "space.detail",
-            json!({"resultVersion":version,"item":{"resultVersion":version,"futureItemField":1}}),
-        ),
-    ] {
-        assert_eq!(
-            read_command(command, malformed)?
-                .error
-                .ok_or("malformed detail request accepted")?
-                .reason_key,
-            "command.body_invalid"
-        );
-    }
+    assert_space_detail_extensions(&engine, &version, &file.body)?;
     assert_eq!(file.body["logical"]["value"]["size"]["bytes"], "0");
     assert_eq!(file.body["shared"]["value"]["size"]["bytes"], "0");
     assert_eq!(file.body["exclusiveDecision"]["confirmed"], true);
@@ -148,6 +129,38 @@ fn space_detail_preserves_observation_time_and_leaves_legacy_time_unknown()
             .reason_key,
         "result.requery_required"
     );
+    Ok(())
+}
+
+/// Verifies F03's additive contract independently of F05's strict browse request.
+fn assert_space_detail_extensions(
+    engine: &Engine,
+    version: &Id,
+    expected: &Value,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let read = |command, body| call(engine, command, Channel::Gui, ENVELOPE_VERSION, body);
+    let extended = json!({
+        "resultVersion":version, "futureRequestField":true,
+        "item":{"resultVersion":version,"itemNo":1,"futureItemField":"ignored"}
+    });
+    let compatible = read("space.detail", extended.clone())?;
+    assert!(compatible.error.is_none(), "{:?}", compatible.error);
+    assert_eq!(&compatible.body, expected);
+    for (command, malformed) in [
+        ("browse.detail", extended),
+        (
+            "space.detail",
+            json!({"resultVersion":version,"item":{"resultVersion":version,"futureItemField":1}}),
+        ),
+    ] {
+        assert_eq!(
+            read(command, malformed)?
+                .error
+                .ok_or("malformed detail request accepted")?
+                .reason_key,
+            "command.body_invalid"
+        );
+    }
     Ok(())
 }
 
