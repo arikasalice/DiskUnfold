@@ -122,11 +122,11 @@ struct PinnedModel {
     reference: String,
     source: Arc<ResultVersion>,
     rows: Arc<[VizRow]>,
-    layout: Arc<projection::Model>,
+    layout: Option<Arc<projection::Model>>,
 }
 
 impl Session {
-    /// Retains exactly one current rendered model until explicitly released.
+    /// Retains exactly one current rendered or table-only model until explicitly released.
     /// An existing pin must be released before another can be retained.
     pub fn pin_model(&self, model_ref: &str, revision: &Id) -> Result<(), Error> {
         if model_ref.is_empty() {
@@ -150,7 +150,7 @@ impl Session {
         if !Arc::ptr_eq(&source, &registered) {
             return Err(Error::StaleVersion);
         }
-        let layout = entry.layout.clone().ok_or(Error::InvalidModel)?;
+        let layout = entry.layout.clone();
         let rows = source.pin_viz_rows(model_ref).map_err(super::model_error)?;
         *slot = Some(PinnedModel {
             reference: model_ref.to_owned(),
@@ -202,6 +202,7 @@ impl Session {
     }
 
     /// Locates an item in the exact retained source and layout.
+    /// Table-only models return `InvalidModel` because they have no layout.
     pub fn pinned_locate(&self, model_ref: &str, item: &ItemRef) -> Result<Location, Error> {
         let slot = self.pinned.lock().map_err(|_| Error::Unavailable)?;
         let pin = slot
@@ -212,7 +213,7 @@ impl Session {
             return Err(Error::StaleVersion);
         }
         let source = pin.source.clone();
-        let layout = pin.layout.clone();
+        let layout = pin.layout.clone().ok_or(Error::InvalidModel)?;
         drop(slot);
         layout.locate(&source, item).map_err(|error| match error {
             QueryError::NotFound => Error::ItemUnavailable,
