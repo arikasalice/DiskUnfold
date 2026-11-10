@@ -5,8 +5,8 @@
 use crate::candidates::{
     self, Exclusion, FileIdentity, Placeholder, PrepareError, SampleRange, Size, Target,
 };
+pub use crate::read_measurement::ReadMeasurement;
 use std::collections::BTreeMap;
-
 /// State observed before a file is selected for verification.
 ///
 /// `modified` is an adapter-defined timestamp value that must use the same resolution
@@ -18,14 +18,12 @@ pub struct Snapshot {
     pub modified: u64,
     pub change_stamp: Option<u64>,
 }
-
 /// An approved target and its pre-observed state. Missing state is never opened.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VerificationTarget {
     pub target: Target,
     pub snapshot: Option<Snapshot>,
 }
-
 /// Purpose-separated hash invocations must not reuse each other's digest domain.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HashPurpose {
@@ -117,6 +115,10 @@ pub struct Outcome {
     pub states: BTreeMap<u32, State>,
     pub groups: Vec<VerifiedGroup>,
     pub cancelled: bool,
+    /// Bytes returned by sample reads, including discarded in-flight work.
+    pub sample_reads: ReadMeasurement,
+    /// Bytes returned by full reads and EOF probes, including discarded work.
+    pub full_reads: ReadMeasurement,
     pub algorithm_id: String,
     pub algorithm_revision: u32,
     pub sample_algorithm_id: String,
@@ -169,6 +171,8 @@ pub fn verify(
             .collect(),
         groups: Vec::new(),
         cancelled: false,
+        sample_reads: ReadMeasurement::default(),
+        full_reads: ReadMeasurement::default(),
         algorithm_id: strategies.full.id().to_owned(),
         algorithm_revision: strategies.full.revision(),
         sample_algorithm_id: strategies.sample.id().to_owned(),
@@ -244,7 +248,6 @@ pub fn verify(
     });
     Ok(output)
 }
-
 fn initial_state(item: &VerificationTarget) -> State {
     match (&item.target.identity, item.target.size) {
         (Some(identity), Size::Exact(size)) if valid_approval(item, identity, size) => {
@@ -253,7 +256,6 @@ fn initial_state(item: &VerificationTarget) -> State {
         _ => State::Unchecked,
     }
 }
-
 fn valid_approval(item: &VerificationTarget, identity: &FileIdentity, size: u64) -> bool {
     item.target.placeholder == Placeholder::Local
         && item.target.size == Size::Exact(size)
@@ -263,13 +265,11 @@ fn valid_approval(item: &VerificationTarget, identity: &FileIdentity, size: u64)
             .as_ref()
             .is_some_and(|snapshot| snapshot.identity == *identity && snapshot.size == size)
 }
-
 fn set_state(output: &mut Outcome, items: &[u32], state: State) {
     for item in items {
         output.states.insert(*item, state);
     }
 }
-
 fn process_group(
     targets: &[Candidate<'_>],
     size: u64,
@@ -285,7 +285,13 @@ fn process_group(
             if cancelled() {
                 return false;
             }
-            let digest = read_digest(target, HashPurpose::Sample, reader, strategies.sample);
+            let digest = read_digest(
+                target,
+                HashPurpose::Sample,
+                reader,
+                strategies.sample,
+                &mut output.sample_reads,
+            );
             if cancelled() {
                 return false;
             }
@@ -322,7 +328,6 @@ fn process_group(
     }
     true
 }
-
 fn verify_full(
     targets: &[&Candidate<'_>],
     size: u64,
@@ -337,7 +342,13 @@ fn verify_full(
         if cancelled() {
             return false;
         }
-        let digest = read_digest(target, HashPurpose::Full, reader, hasher);
+        let digest = read_digest(
+            target,
+            HashPurpose::Full,
+            reader,
+            hasher,
+            &mut output.full_reads,
+        );
         if cancelled() {
             return false;
         }
@@ -390,12 +401,12 @@ fn mark_distinct(
         }
     }
 }
-
 fn read_digest(
     target: &Candidate<'_>,
     purpose: HashPurpose,
     reader: &mut impl ReadPort,
     hasher: &dyn HashStrategy,
+    measurement: &mut ReadMeasurement,
 ) -> Result<Vec<u8>, State> {
     let expected = target.approved.snapshot.as_ref().ok_or(State::Unchecked)?;
     let mut file = reader
@@ -409,7 +420,7 @@ fn read_digest(
         HashPurpose::Sample => {
             let ranges = candidates::sample_ranges(expected.size).ok_or(State::ReadFailed)?;
             for range in ranges {
-                read_range(&mut *file, range, &mut *digest)?;
+                read_range(&mut *file, range, &mut *digest, measurement)?;
             }
         }
         HashPurpose::Full => {
@@ -420,13 +431,10 @@ fn read_digest(
                     length: expected.size,
                 },
                 &mut *digest,
+                measurement,
             )?;
             let mut probe = [0_u8; 1];
-            if file
-                .read_at(expected.size, &mut probe)
-                .map_err(read_error)?
-                != 0
-            {
+            if measured_read(&mut *file, expected.size, &mut probe, measurement)? != 0 {
                 return Err(State::Changed);
             }
         }
@@ -440,11 +448,11 @@ fn read_digest(
     }
     Ok(digest)
 }
-
 fn read_range(
     file: &mut dyn OpenFile,
     range: SampleRange,
     digest: &mut dyn Digest,
+    measurement: &mut ReadMeasurement,
 ) -> Result<(), State> {
     let mut remaining = range.length;
     let mut offset = range.offset;
@@ -452,10 +460,8 @@ fn read_range(
     while remaining > 0 {
         let limit =
             usize::try_from(remaining.min(buffer.len() as u64)).map_err(|_| State::ReadFailed)?;
-        let count = file
-            .read_at(offset, &mut buffer[..limit])
-            .map_err(read_error)?;
-        if count == 0 || count > limit {
+        let count = measured_read(file, offset, &mut buffer[..limit], measurement)?;
+        if count == 0 {
             return Err(State::ReadFailed);
         }
         digest.update(&buffer[..count]);
@@ -465,7 +471,27 @@ fn read_range(
     }
     Ok(())
 }
-
+fn measured_read(
+    file: &mut dyn OpenFile,
+    offset: u64,
+    buffer: &mut [u8],
+    measurement: &mut ReadMeasurement,
+) -> Result<usize, State> {
+    match file.read_at(offset, buffer) {
+        Ok(count) => {
+            measurement.record(count, buffer.len());
+            if count > buffer.len() {
+                Err(State::ReadFailed)
+            } else {
+                Ok(count)
+            }
+        }
+        Err(error) => {
+            measurement.exact = false;
+            Err(read_error(error))
+        }
+    }
+}
 fn read_error(error: ReadError) -> State {
     match error {
         ReadError::Failed => State::ReadFailed,

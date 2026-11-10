@@ -7,3 +7,5 @@ pub mod content_port;
 mod content_hash;
 pub use content_hash::{RegisteredHash, RegisteredOutcome};
 pub mod verification;
+
+mod read_measurement;

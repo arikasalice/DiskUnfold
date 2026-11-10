@@ -156,6 +156,8 @@ fn registered_verifier_consumes_the_shared_port_and_only_verifies_stable_files()
         .verify(&[target(1), target(2)], &mut adapter, || false)
         .map_err(|e| format!("{e:?}"))?;
     assert_eq!(result.evidence().groups.len(), 1);
+    assert_eq!(result.evidence().full_reads.observed, 6);
+    assert!(result.evidence().full_reads.exact);
     assert_eq!(result.evidence().states[&1], State::Verified);
     drop(adapter);
     assert_eq!(port.opens, 2);

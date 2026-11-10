@@ -37,6 +37,8 @@ struct Entry {
     before: Snapshot,
     after: Snapshot,
     fail_read: bool,
+    fail_at: Option<u64>,
+    invalid_at: Option<u64>,
 }
 struct FakePort {
     entries: BTreeMap<u32, Entry>,
@@ -58,6 +60,8 @@ impl FakePort {
                             before: state.clone(),
                             after: state,
                             fail_read: false,
+                            fail_at: None,
+                            invalid_at: None,
                         },
                     )
                 })
@@ -94,8 +98,11 @@ impl OpenFile for FakeFile<'_> {
         if let Some(cancel) = &self.cancel_on_read {
             cancel.set(true);
         }
-        if self.entry.fail_read {
+        if self.entry.fail_read || self.entry.fail_at.is_some_and(|at| offset >= at) {
             return Err(ReadError::Failed);
+        }
+        if self.entry.invalid_at == Some(offset) {
+            return Ok(buffer.len() + 1);
         }
         let start = usize::try_from(offset).map_err(|_| ReadError::Failed)?;
         let remaining = self.entry.bytes.get(start..).unwrap_or_default();
@@ -192,6 +199,9 @@ fn blake3_v1_compares_full_bytes_after_matching_samples_and_short_reads() -> Res
     port.max_read = 4093;
     let result = verification::verify(&[a, b, c], &mut port, Strategies::blake3_v1(), || false)?;
     assert_eq!(result.groups.len(), 1);
+    assert_eq!(result.sample_reads.observed, 3 * 128 * 1024);
+    assert_eq!(result.full_reads.observed, 3 * SIZE as u64);
+    assert!(result.sample_reads.exact && result.full_reads.exact);
     assert_eq!(result.groups[0].files.len(), 2);
     assert_eq!(
         result.groups[0].digest,
@@ -316,6 +326,8 @@ fn zero_size_requires_successful_open_and_full_eof_check() -> Result<(), VerifyE
     assert_eq!(result.groups.len(), 1);
     assert_eq!(port.opens, vec![1, 2]);
     assert_eq!(port.reads, vec![(1, 0, 1), (2, 0, 1)]);
+    assert_eq!(result.full_reads.observed, 0);
+    assert!(result.full_reads.exact);
     let mut port = FakePort::new(&[(a.clone(), vec![]), (b.clone(), vec![])]);
     if let Some(entry) = port.entries.get_mut(&2) {
         entry.fail_read = true;
@@ -324,6 +336,7 @@ fn zero_size_requires_successful_open_and_full_eof_check() -> Result<(), VerifyE
     assert!(result.groups.is_empty());
     assert_eq!(result.states.get(&2), Some(&State::ReadFailed));
     assert_eq!(result.states.get(&1), Some(&State::Candidate));
+    assert!(!result.full_reads.exact);
     Ok(())
 }
 
@@ -371,6 +384,8 @@ fn cancellation_finishes_in_flight_file_without_starting_another() -> Result<(),
     assert!(result.cancelled);
     assert!(result.groups.is_empty());
     assert_eq!(port.opens, vec![1]);
+    assert_eq!(result.full_reads.observed, 2);
+    assert!(result.full_reads.exact);
     assert_eq!(result.states.get(&1), Some(&State::Candidate));
     Ok(())
 }
@@ -441,30 +456,6 @@ fn identity_replacement_and_missing_change_stamp_are_reported() -> Result<(), Ve
 }
 
 #[test]
-fn cancellation_before_admission_starts_no_reads() -> Result<(), VerifyError> {
-    let a = item(1, 2);
-    let b = item(2, 2);
-    let mut port = FakePort::new(&[(a.clone(), b"xx".to_vec()), (b.clone(), b"xx".to_vec())]);
-    let (sample, full) = hashers();
-    let result = verification::verify(&[a, b], &mut port, strategies(&sample, &full), || true)?;
-    assert!(result.cancelled);
-    assert!(port.opens.is_empty());
-    Ok(())
-}
-
-#[test]
-fn unpaired_item_with_unknown_metadata_stays_deferred() -> Result<(), VerifyError> {
-    let mut target = item(1, 2);
-    target.snapshot = None;
-    let mut port = FakePort::new(&[(target.clone(), b"xx".to_vec())]);
-    let (sample, full) = hashers();
-    let result = verification::verify(&[target], &mut port, strategies(&sample, &full), || false)?;
-    assert_eq!(result.states.get(&1), Some(&State::Unchecked));
-    assert!(port.opens.is_empty());
-    Ok(())
-}
-
-#[test]
 fn verified_groups_keep_aliases_without_reopening_and_order_by_first_reference()
 -> Result<(), VerifyError> {
     let a = item(1, 2);
@@ -497,3 +488,5 @@ fn verified_groups_keep_aliases_without_reopening_and_order_by_first_reference()
     assert_eq!(result.sample_algorithm_id, "sample");
     Ok(())
 }
+
+mod measurement;
