@@ -141,3 +141,52 @@ fn parent_and_source_are_admitted_together() -> Result<(), String> {
     ));
     Ok(())
 }
+
+#[test]
+fn refinement_cannot_publish_rows_outside_the_admitted_parent() -> Result<(), String> {
+    let (_, sets) = fixture()?;
+    let registry = Registry::baseline();
+    let source = sets
+        .admit_search(None, None)
+        .map_err(|error| format!("{error:?}"))?;
+    let empty_parent = query::run(
+        &registry,
+        source.version(),
+        &Condition::Any(vec![]),
+        sort(),
+        || false,
+    )
+    .map_err(|error| format!("{error:?}"))?;
+    let parent_ref = id(5)?;
+    sets.register(parent_ref.clone(), empty_parent)
+        .map_err(|error| format!("{error:?}"))?;
+    let child = sets
+        .admit_search(None, Some(&parent_ref))
+        .map_err(|error| format!("{error:?}"))?;
+    let all = Condition::All(vec![]);
+    let widened = query::run(&registry, child.version(), &all, sort(), || false)
+        .map_err(|error| format!("{error:?}"))?;
+    assert!(matches!(
+        sets.validate_search_candidate(child.clone(), widened, None),
+        Err(PageError::InvalidResult)
+    ));
+
+    sets.release(&parent_ref)
+        .map_err(|error| format!("{error:?}"))?;
+    assert!(matches!(
+        sets.admit_search(None, Some(&parent_ref)),
+        Err(PageError::StaleVersion)
+    ));
+    let parent = child.parent().ok_or("missing admitted parent")?;
+    let empty_child = query::run_in_result(&registry, parent, &all, sort(), || false)
+        .map_err(|error| format!("{error:?}"))?;
+    let candidate = sets
+        .validate_search_candidate(child, empty_child, None)
+        .map_err(|error| format!("{error:?}"))?;
+    let page = sets
+        .register_admitted_search(id(6)?, candidate)
+        .map_err(|error| format!("{error:?}"))?;
+    assert!(page.items().is_empty());
+    assert!(!page.has_next());
+    Ok(())
+}
