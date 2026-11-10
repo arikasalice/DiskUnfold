@@ -78,6 +78,16 @@ struct Shared {
     wake: Condvar,
     abort: AtomicBool,
 }
+impl Shared {
+    fn abort(&self) {
+        let _queue = self
+            .queue
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        self.abort.store(true, Ordering::Release);
+        self.wake.notify_all();
+    }
+}
 enum Event {
     Item(u32, Vec<Vec<u8>>, Box<ObservedEntry>),
     Failure {
@@ -257,8 +267,7 @@ fn run(
         drop(sender);
         if let Err(error) = spawned {
             failure = Some(error);
-            shared.abort.store(true, Ordering::Release);
-            shared.wake.notify_all();
+            shared.abort();
             drop(receiver);
             return;
         }
@@ -266,8 +275,7 @@ fn run(
             let result = progress.record(event, &mut build, counts, context, ids);
             if let Err(error) = result {
                 failure = Some(error);
-                shared.abort.store(true, Ordering::Release);
-                shared.wake.notify_all();
+                shared.abort();
                 break;
             }
         }
@@ -422,8 +430,7 @@ fn spawn_workers<'scope, 'env>(
                 if let Some(flow) = flow {
                     worker(shared, sender, context, include, flow);
                 } else {
-                    shared.abort.store(true, Ordering::Release);
-                    shared.wake.notify_all();
+                    shared.abort();
                 }
             })
         };
@@ -440,8 +447,7 @@ fn spawn_workers<'scope, 'env>(
             for flow in flows {
                 flow.finish(JobCounts::default());
             }
-            shared.abort.store(true, Ordering::Release);
-            shared.wake.notify_all();
+            shared.abort();
             return Err(BuildError::Unavailable);
         }
     }

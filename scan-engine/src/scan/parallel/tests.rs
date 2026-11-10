@@ -434,6 +434,7 @@ fn ready_roots_take_turns_even_when_one_has_many_frames() {
 }
 
 mod device;
+mod panic_boundary;
 
 #[test]
 fn failed_second_spawn_closes_channels_and_finishes_all_flows()

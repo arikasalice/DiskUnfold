@@ -8,6 +8,21 @@ pub(super) fn worker(
     include: &(dyn Fn(&[Vec<u8>]) -> bool + Sync),
     flow: Box<dyn JobFlow>,
 ) {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        worker_loop(shared, &sender, context, include)
+    }));
+    if !matches!(result, Ok(true)) {
+        shared.abort();
+    }
+    flow.finish(JobCounts::default());
+}
+
+fn worker_loop(
+    shared: &Shared,
+    sender: &SyncSender<Event>,
+    context: &dyn JobContext,
+    include: &(dyn Fn(&[Vec<u8>]) -> bool + Sync),
+) -> bool {
     let mut local = Vec::new();
     let mut prefer_shared = true;
     while context.checkpoint() != Checkpoint::Cancel && !shared.abort.load(Ordering::Acquire) {
@@ -20,13 +35,11 @@ pub(super) fn worker(
         else {
             break;
         };
-        if !process(frame, shared, &sender, context, include, &mut local) {
-            shared.abort.store(true, Ordering::Release);
-            shared.wake.notify_all();
-            break;
+        if !process(frame, shared, sender, context, include, &mut local) {
+            return false;
         }
     }
-    flow.finish(JobCounts::default());
+    true
 }
 
 struct Permit<'a> {
@@ -49,8 +62,7 @@ struct Claim<'a> {
     permit: Permit<'a>,
 }
 
-fn take_ready(shared: &Shared) -> Option<Claim<'_>> {
-    let mut queue = shared.queue.lock().ok()?;
+fn claim_ready<'a>(shared: &'a Shared, queue: &mut Queue) -> Option<Claim<'a>> {
     if queue.started {
         let (frame, group) = queue.pop_fair()?;
         Some(Claim {
@@ -62,8 +74,11 @@ fn take_ready(shared: &Shared) -> Option<Claim<'_>> {
     }
 }
 
-fn take_local<'a>(shared: &'a Shared, local: &mut Vec<Frame>) -> Option<Claim<'a>> {
-    let mut queue = shared.queue.lock().ok()?;
+fn claim_local<'a>(
+    shared: &'a Shared,
+    queue: &mut Queue,
+    local: &mut Vec<Frame>,
+) -> Option<Claim<'a>> {
     if !queue.started {
         return None;
     }
@@ -86,28 +101,27 @@ fn take<'a>(
     local: &mut Vec<Frame>,
     prefer_shared: bool,
 ) -> Option<Claim<'a>> {
+    let mut queue = shared.queue.lock().ok()?;
     loop {
         if context.checkpoint() == Checkpoint::Cancel || shared.abort.load(Ordering::Acquire) {
             return None;
         }
         let claim = if prefer_shared {
-            take_ready(shared).or_else(|| take_local(shared, local))
+            claim_ready(shared, &mut queue).or_else(|| claim_local(shared, &mut queue, local))
         } else {
-            take_local(shared, local).or_else(|| take_ready(shared))
+            claim_local(shared, &mut queue, local).or_else(|| claim_ready(shared, &mut queue))
         };
         if claim.is_some() {
             return claim;
         }
-        let queue = shared.queue.lock().ok()?;
         if queue.remaining == 0 {
             return None;
         }
-        drop(
-            shared
-                .wake
-                .wait_timeout(queue, Duration::from_millis(25))
-                .ok()?,
-        );
+        queue = shared
+            .wake
+            .wait_timeout(queue, Duration::from_millis(25))
+            .ok()?
+            .0;
     }
 }
 
@@ -250,15 +264,20 @@ fn process_entry(
     }
 }
 fn requeue(shared: &Shared, frame: Frame, local: &mut Vec<Frame>) {
-    if let Ok(mut queue) = shared.queue.lock() {
-        if queue.ready.len() < QUEUED_DIRECTORIES {
-            queue.ready.push_back(frame);
-            shared.wake.notify_one();
+    let mut queue = match shared.queue.lock() {
+        Ok(queue) => queue,
+        Err(error) => {
+            let _queue = error.into_inner();
+            shared.abort.store(true, Ordering::Release);
+            shared.wake.notify_all();
+            local.push(frame);
             return;
         }
-    } else {
-        shared.abort.store(true, Ordering::Release);
-        shared.wake.notify_all();
+    };
+    if queue.ready.len() < QUEUED_DIRECTORIES {
+        queue.ready.push_back(frame);
+        shared.wake.notify_one();
+        return;
     }
     local.push(frame);
 }
@@ -272,16 +291,21 @@ fn eligible_directory(entry: &ObservedEntry) -> bool {
     })
 }
 fn schedule(shared: &Shared, frame: Frame) -> Option<Frame> {
-    if let Ok(mut queue) = shared.queue.lock() {
-        queue.remaining += 1;
-        queue.root_remaining[frame.root_index as usize] += 1;
-        if queue.ready.len() < QUEUED_DIRECTORIES {
-            queue.ready.push_back(frame);
-            shared.wake.notify_one();
-            return None;
+    let mut queue = match shared.queue.lock() {
+        Ok(queue) => queue,
+        Err(error) => {
+            let _queue = error.into_inner();
+            shared.abort.store(true, Ordering::Release);
+            shared.wake.notify_all();
+            return Some(frame);
         }
-    } else {
-        shared.abort.store(true, Ordering::Release);
+    };
+    queue.remaining += 1;
+    queue.root_remaining[frame.root_index as usize] += 1;
+    if queue.ready.len() < QUEUED_DIRECTORIES {
+        queue.ready.push_back(frame);
+        shared.wake.notify_one();
+        return None;
     }
     Some(frame)
 }
@@ -343,7 +367,13 @@ mod permit_tests {
             abort: AtomicBool::new(false),
         };
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let _claim = take_ready(&shared);
+            let mut queue = shared
+                .queue
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let claim = claim_ready(&shared, &mut queue);
+            drop(queue);
+            let _claim = claim;
             assert!(
                 shared
                     .queue
