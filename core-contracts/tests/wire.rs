@@ -83,8 +83,8 @@ fn errors_and_event_bounds() {
 }
 
 #[test]
-fn analysis_requests_reject_unknown_fields_and_keep_native_paths() {
-    use du_core_contracts::analysis_ipc::{ScopeDraft, ScopeReviewRequest, SpaceTotalRequest};
+fn scope_review_rejects_unknown_fields_and_keeps_native_paths() {
+    use du_core_contracts::analysis_ipc::{ScopeDraft, ScopeReviewRequest};
     let draft = json!({
         "includes": [{"encoding": "windows_utf16le", "raw": "ANg", "display": "�", "lossy": true}],
         "exclusions": [], "boundary": "current_volume", "includedMounts": [], "source": "gui",
@@ -95,12 +95,41 @@ fn analysis_requests_reject_unknown_fields_and_keep_native_paths() {
     assert!(
         from_value::<ScopeReviewRequest>(json!({"draft":draft,"requestSeq":1,"typo":1})).is_err()
     );
-    assert!(
-        from_value::<SpaceTotalRequest>(
-            json!({"target":{"kind":"scope_root","item":3},"requestSeq":1})
-        )
-        .is_err()
-    );
+}
+
+#[test]
+fn space_total_accepts_extensions_without_accepting_conflicting_selectors()
+-> Result<(), Box<dyn std::error::Error>> {
+    use du_core_contracts::analysis_ipc::SpaceTotalRequest;
+    let version = "018f0000-0000-7000-8000-000000000002";
+    let item = json!({"resultVersion":version,"itemNo":7});
+    for target in [
+        json!({"kind":"scope_root"}),
+        json!({"kind":"folder","item":item}),
+        json!({"kind":"query_result","queryRef":version}),
+    ] {
+        let expected = json!({"target":target,"requestSeq":1});
+        let mut extended = expected.clone();
+        extended["futureRequestField"] = json!(true);
+        extended["target"]["futureTargetField"] = json!({"data":3});
+        assert_eq!(
+            to_value(from_value::<SpaceTotalRequest>(extended)?)?,
+            expected
+        );
+    }
+    for target in [
+        json!({"kind":"scope_root","item":item}),
+        json!({"kind":"scope_root","queryRef":null}),
+        json!({"kind":"folder","item":null}),
+        json!({"kind":"folder","item":item,"queryRef":version}),
+        json!({"kind":"query_result","queryRef":version,"item":item}),
+        json!({"kind":"query_result","futureTargetField":version}),
+        json!({"kind":"future_kind"}),
+        json!(["scope_root"]),
+    ] {
+        assert!(from_value::<SpaceTotalRequest>(json!({"target":target,"requestSeq":1})).is_err());
+    }
+    Ok(())
 }
 
 #[test]

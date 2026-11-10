@@ -139,18 +139,13 @@ fn space_total_honors_admission_version_and_preserves_unknown_basis()
     let mut builder = EngineBuilder::default();
     crate::space::register_total(&mut builder, store.clone());
     let engine = builder.build()?;
+    let read_request = |body| call(&engine, "space.total", Channel::Gui, ENVELOPE_VERSION, body);
     let read = |result: &Id| {
-        call(
-            &engine,
-            "space.total",
-            Channel::Gui,
-            ENVELOPE_VERSION,
-            json!({
-                "resultVersion": result,
-                "target": {"kind": "scope_root"},
-                "requestSeq": 9
-            }),
-        )
+        read_request(json!({
+            "resultVersion": result,
+            "target": {"kind": "scope_root"},
+            "requestSeq": 9
+        }))
     };
     assert_eq!(
         read(&version)?.error.ok_or("missing error")?.reason_key,
@@ -184,6 +179,23 @@ fn space_total_honors_admission_version_and_preserves_unknown_basis()
     assert_eq!(response.body["sizes"][0]["size"]["bytes"], "47");
     assert_eq!(response.body["sizes"][1]["size"]["state"], "unknown");
     assert_eq!(response.body["sizes"][2]["size"]["state"], "unknown");
+    let extended = read_request(json!({
+        "resultVersion":version, "requestSeq":9, "futureRequestField":true,
+        "target":{"kind":"scope_root","futureTargetField":"ignored"}
+    }))?;
+    assert!(extended.error.is_none(), "{:?}", extended.error);
+    assert_eq!(extended.body, response.body);
+    let conflicting = read_request(json!({
+        "resultVersion":version, "requestSeq":9,
+        "target":{"kind":"scope_root","item":{"resultVersion":version,"itemNo":0}}
+    }))?;
+    assert_eq!(
+        conflicting
+            .error
+            .ok_or("conflicting target accepted")?
+            .reason_key,
+        "command.body_invalid"
+    );
     assert_eq!(
         read(&scope)?.error.ok_or("missing stale error")?.reason_key,
         "result.requery_required"

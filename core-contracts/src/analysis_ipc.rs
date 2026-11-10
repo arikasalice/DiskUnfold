@@ -245,13 +245,13 @@ pub struct AnalysisJobControl {
     pub sequence: u64,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+/// Selects a scope root, one folder, or one already-admitted search result.
+#[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[serde(
     rename_all = "snake_case",
     rename_all_fields = "camelCase",
-    tag = "kind",
-    deny_unknown_fields
+    tag = "kind"
 )]
 pub enum SpaceTarget {
     ScopeRoot {},
@@ -259,9 +259,64 @@ pub enum SpaceTarget {
     QueryResult { query_ref: Id },
 }
 
+impl<'de> Deserialize<'de> for SpaceTarget {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "snake_case")]
+        enum Kind {
+            ScopeRoot,
+            Folder,
+            QueryResult,
+        }
+
+        fn present<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
+            deserializer: D,
+        ) -> Result<Option<T>, D::Error> {
+            T::deserialize(deserializer).map(Some)
+        }
+
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Selector {
+            kind: Kind,
+            #[serde(default, deserialize_with = "present")]
+            item: Option<ItemRef>,
+            #[serde(default, deserialize_with = "present")]
+            query_ref: Option<Id>,
+        }
+
+        struct SelectorObject;
+        impl<'de> serde::de::Visitor<'de> for SelectorObject {
+            type Value = Selector;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("a space target object")
+            }
+
+            fn visit_map<A: serde::de::MapAccess<'de>>(
+                self,
+                map: A,
+            ) -> Result<Self::Value, A::Error> {
+                Selector::deserialize(serde::de::value::MapAccessDeserializer::new(map))
+            }
+        }
+
+        // Ignore additive IPC fields while still rejecting a known selector
+        // that contradicts the requested kind, including an explicit null.
+        let selector = deserializer.deserialize_map(SelectorObject)?;
+        match (selector.kind, selector.item, selector.query_ref) {
+            (Kind::ScopeRoot, None, None) => Ok(Self::ScopeRoot {}),
+            (Kind::Folder, Some(item), None) => Ok(Self::Folder { item }),
+            (Kind::QueryResult, None, Some(query_ref)) => Ok(Self::QueryResult { query_ref }),
+            _ => Err(serde::de::Error::custom("invalid space target selectors")),
+        }
+    }
+}
+
+/// Requests a total from one pinned result, tolerating additive IPC fields.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct SpaceTotalRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "typescript", ts(optional))]
