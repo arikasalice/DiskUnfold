@@ -14,12 +14,17 @@ use du_core_contracts::{
 use du_platform_os::windows_observation::WindowsScopeRoots;
 use std::{
     fs,
-    sync::{Mutex, mpsc},
+    sync::{
+        Mutex,
+        atomic::{AtomicUsize, Ordering},
+        mpsc,
+    },
 };
 
 struct GatedRoots {
     waiting: mpsc::Sender<()>,
     resume: Arc<Mutex<mpsc::Receiver<()>>>,
+    batches: Arc<AtomicUsize>,
 }
 
 impl ScopeRootPort for GatedRoots {
@@ -29,7 +34,7 @@ impl ScopeRootPort for GatedRoots {
             inner: root.directory,
             waiting: self.waiting.clone(),
             resume: self.resume.clone(),
-            batches: 0,
+            batches: self.batches.clone(),
         });
         Ok(root)
     }
@@ -39,7 +44,7 @@ struct GatedDirectory {
     inner: Box<dyn AnchoredDirectory>,
     waiting: mpsc::Sender<()>,
     resume: Arc<Mutex<mpsc::Receiver<()>>>,
-    batches: usize,
+    batches: Arc<AtomicUsize>,
 }
 
 impl DirectoryObservations for GatedDirectory {
@@ -52,9 +57,10 @@ impl DirectoryObservations for GatedDirectory {
         &mut self,
         clock: &dyn Fn() -> Option<Timestamp>,
     ) -> Result<Vec<TimedObservedEntry>, PortError> {
-        self.batches += 1;
-        if self.batches == 2 {
-            // Hold the second read while the caller sends control through IPC.
+        let batch_number = self.batches.fetch_add(1, Ordering::SeqCst) + 1;
+        let entries = self.inner.next_batch_timed(clock)?;
+        if batch_number == 2 {
+            // Keep real NTFS observations in the in-flight port call until IPC accepts cancellation.
             self.waiting.send(()).map_err(|_| gate_failed())?;
             self.resume
                 .lock()
@@ -62,7 +68,7 @@ impl DirectoryObservations for GatedDirectory {
                 .recv_timeout(Duration::from_secs(10))
                 .map_err(|_| gate_failed())?;
         }
-        self.inner.next_batch_timed(clock)
+        Ok(entries)
     }
 }
 
@@ -96,7 +102,7 @@ fn gate_failed() -> PortError {
 }
 
 #[test]
-fn accepts_cancellation_before_native_enumeration_can_resume()
+fn cancellation_drains_the_inflight_native_batch_without_a_new_read()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     for file in 0..300 {
@@ -106,6 +112,7 @@ fn accepts_cancellation_before_native_enumeration_can_resume()
     let database = crate::startup_database::open(profile.path())?;
     let (waiting, reached) = mpsc::channel();
     let (release, resume) = mpsc::channel();
+    let batches = Arc::new(AtomicUsize::new(0));
     let mut builder = EngineBuilder::default();
     let random = &du_platform_os::entropy::OsRandom;
     let events = du_engine_api::desktop::register(
@@ -113,6 +120,7 @@ fn accepts_cancellation_before_native_enumeration_can_resume()
         Arc::new(GatedRoots {
             waiting,
             resume: Arc::new(Mutex::new(resume)),
+            batches: batches.clone(),
         }),
         Arc::new(du_platform_os::volume::WindowsVolumes),
         Arc::new(database.history(|| 400)),
@@ -152,6 +160,7 @@ fn accepts_cancellation_before_native_enumeration_can_resume()
         .as_ref()
         .ok_or("cancelled result version missing")?;
     verify_cancelled_result(&engine, &scan.job_ref, version)?;
+    assert_eq!(batches.load(Ordering::SeqCst), 2);
     assert_eq!(
         cancel(&engine, &scan.job_ref)?.outcome,
         JobControlOutcome::AlreadyTerminal,
@@ -208,7 +217,7 @@ fn verify_cancelled_result(
     assert_eq!(
         logical.size.amount,
         SizeAmount::LowerBound {
-            bytes: 256_u64.into()
+            bytes: 300_u64.into()
         }
     );
     let history: HistoryListResponse = read(engine, "history.list", json!({}))?;
