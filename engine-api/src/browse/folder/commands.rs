@@ -53,7 +53,7 @@ pub(crate) fn register(
         session: session.clone(),
         jobs,
         workers,
-        admission: Mutex::new(None),
+        admission: Mutex::new(Admission::default()),
     });
     builder.register(Page(session));
     Ok(())
@@ -64,7 +64,14 @@ struct Open {
     session: Arc<Session>,
     jobs: FolderJobs,
     workers: Arc<Workers>,
-    admission: Mutex<Option<Arc<AtomicBool>>>,
+    admission: Mutex<Admission>,
+}
+
+#[derive(Default)]
+struct Admission {
+    reserved: u64,
+    promoted: u64,
+    current: Option<Arc<AtomicBool>>,
 }
 
 impl UseCase for Open {
@@ -84,14 +91,15 @@ impl UseCase for Open {
     ) -> Result<Self::Response, EngineError> {
         let start = Instant::now();
         let (request_seq, request, sorts) = lower_live(request).map_err(admission_error)?;
-        let token = self.admit()?;
+        let reservation = self.reserve()?;
         #[cfg(test)]
         tests::pause_at(request_seq, 1);
         let prepared = self.browse.prepare(request, &sorts).map_err(folder_error)?;
+        let token = self.promote(reservation, caller)?;
         if let Some(page) = self.browse.cached(&prepared).map_err(folder_error)? {
             #[cfg(test)]
             tests::pause_at(request_seq, 2);
-            return self.with_current(&token, || self.opened(request_seq, page));
+            return self.with_current(&token, caller, || self.opened(request_seq, page));
         }
         if prepared.estimated_work() <= SYNC_WORK && start.elapsed() < SYNC_LIMIT {
             let ended = || {
@@ -103,7 +111,7 @@ impl UseCase for Open {
                 Ok(candidate) if !ended() => {
                     #[cfg(test)]
                     tests::pause_at(request_seq, 3);
-                    return self.with_current(&token, || {
+                    return self.with_current(&token, caller, || {
                         if caller.is_cancelled() {
                             return Err(folder_error(Error::Cancelled));
                         }
@@ -123,37 +131,60 @@ impl UseCase for Open {
         }
         #[cfg(test)]
         tests::pause_at(request_seq, 4);
-        self.with_current(&token, || self.enqueue(request_seq, caller, prepared))
+        self.with_current(&token, caller, || {
+            self.enqueue(request_seq, caller, prepared)
+        })
     }
 }
 
 impl Open {
-    fn admit(&self) -> Result<Arc<AtomicBool>, EngineError> {
-        let mut current = self
+    fn reserve(&self) -> Result<u64, EngineError> {
+        let mut state = self
             .admission
             .lock()
             .map_err(|_| folder_error(Error::Internal))?;
+        state.reserved = state
+            .reserved
+            .checked_add(1)
+            .ok_or_else(|| folder_error(Error::Internal))?;
+        Ok(state.reserved)
+    }
+
+    fn promote(
+        &self,
+        reservation: u64,
+        caller: &CallerCtx,
+    ) -> Result<Arc<AtomicBool>, EngineError> {
+        let mut state = self
+            .admission
+            .lock()
+            .map_err(|_| folder_error(Error::Internal))?;
+        if caller.is_cancelled() || reservation < state.promoted {
+            return Err(folder_error(Error::Cancelled));
+        }
         self.jobs
             .cancel_channel(BROWSE_CHANNEL)
             .map_err(job_error)?;
-        if let Some(previous) = current.as_ref() {
+        if let Some(previous) = &state.current {
             previous.store(true, Ordering::Release);
         }
         let token = Arc::new(AtomicBool::new(false));
-        *current = Some(token.clone());
+        state.promoted = reservation;
+        state.current = Some(token.clone());
         Ok(token)
     }
 
     fn with_current<T>(
         &self,
         token: &AtomicBool,
+        caller: &CallerCtx,
         action: impl FnOnce() -> Result<T, EngineError>,
     ) -> Result<T, EngineError> {
         let _guard = self
             .admission
             .lock()
             .map_err(|_| folder_error(Error::Internal))?;
-        if token.load(Ordering::Acquire) {
+        if token.load(Ordering::Acquire) || caller.is_cancelled() {
             return Err(folder_error(Error::Cancelled));
         }
         action()

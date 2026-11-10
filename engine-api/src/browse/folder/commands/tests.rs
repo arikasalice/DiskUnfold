@@ -224,6 +224,117 @@ fn late_preparation_cannot_supersede_newer_open() -> Result<(), Box<dyn std::err
             retry.error
         );
     }
+    // A later rejected reservation must not displace an earlier valid preparation.
+    let (engine, _, version) = fixture(2)?;
+    let engine = Arc::new(engine);
+    PAUSE_STAGE.store(1, std::sync::atomic::Ordering::Release);
+    let prior_engine = engine.clone();
+    let prior_version = version.clone();
+    let prior = std::thread::spawn(move || {
+        call(
+            &prior_engine,
+            "browse.open",
+            json!({"viewKind":"list","requestSeq":90001,"resultVersion":prior_version}),
+            Channel::Gui,
+        )
+    });
+    entered.wait();
+    let invalid = call(
+        &engine,
+        "browse.open",
+        json!({"viewKind":"list","requestSeq":2,"resultVersion":version,"pageSize":0}),
+        Channel::Gui,
+    );
+    release.wait();
+    assert!(invalid.error.is_some());
+    assert!(
+        prior
+            .join()
+            .map_err(|_| "old thread panicked")?
+            .error
+            .is_none()
+    );
+
+    // Cancellation between evaluation and return/queue submission must be observed.
+    for stage in [2, 4] {
+        let (engine, _, version) = fixture(if stage == 4 { SYNC_WORK } else { 2 })?;
+        let engine = Arc::new(engine);
+        if stage == 2 {
+            let prime = call(
+                &engine,
+                "browse.open",
+                json!({"viewKind":"list","requestSeq":1,"resultVersion":version}),
+                Channel::Gui,
+            );
+            assert!(prime.error.is_none());
+        }
+        PAUSE_STAGE.store(stage, std::sync::atomic::Ordering::Release);
+        let correlation_id = Ids.next_id();
+        let caller = CallerCtx::new(Channel::Gui, correlation_id.clone(), None);
+        let other = caller.clone();
+        let engine_clone = engine.clone();
+        let prior_version = version.clone();
+        let pending = std::thread::spawn(move || {
+            engine_clone.call(CallEnvelope {
+            name: "browse.open".into(), contract_version: ENVELOPE_VERSION, correlation_id,
+            body: json!({"viewKind":"list","requestSeq":90001,"resultVersion":prior_version}),
+        }, &other)
+        });
+        entered.wait();
+        caller.cancel();
+        release.wait();
+        assert!(
+            pending
+                .join()
+                .map_err(|_| "cancelled thread panicked")?
+                .error
+                .is_some(),
+            "stage {stage}"
+        );
+        let retry = call(
+            &engine,
+            "browse.open",
+            json!({"viewKind":"list","requestSeq":3,"resultVersion":version}),
+            Channel::Gui,
+        );
+        assert!(retry.error.is_none(), "stage {stage}: {:?}", retry.error);
+    }
     PAUSE_STAGE.store(0, std::sync::atomic::Ordering::Release);
+    Ok(())
+}
+
+#[test]
+fn rejected_open_preserves_running_job() -> Result<(), Box<dyn std::error::Error>> {
+    let (engine, runtime, version) = fixture(SYNC_WORK)?;
+    let entered = Arc::new(std::sync::Barrier::new(2));
+    let release = Arc::new(std::sync::Barrier::new(2));
+    super::super::test_gate::set(Some((version.clone(), entered.clone(), release.clone())))?;
+    let opened = call(
+        &engine,
+        "browse.open",
+        json!({"viewKind":"list","requestSeq":1,"resultVersion":version}),
+        Channel::Gui,
+    );
+    let job: Id = serde_json::from_value(opened.body["jobRef"].clone())?;
+    entered.wait();
+    let requests = [
+        json!({"viewKind":"list","requestSeq":2,"resultVersion":Ids.next_id()}),
+        json!({"viewKind":"list","requestSeq":3,"resultVersion":version,"location":{"resultVersion":version,"itemNo":99999999}}),
+        json!({"viewKind":"list","requestSeq":4,"resultVersion":version,"pageSize":0}),
+    ];
+    let rejected: Vec<_> = requests
+        .into_iter()
+        .map(|body| call(&engine, "browse.open", body, Channel::Gui))
+        .collect();
+    let state = runtime.state(&job)?;
+    super::super::test_gate::set(None)?;
+    release.wait();
+    assert!(rejected.iter().all(|response| response.error.is_some()));
+    assert_eq!(
+        state,
+        JobState::Running,
+        "invalid requests cancelled the running job"
+    );
+    await_query(&runtime, &job)?;
     Ok(())
 }

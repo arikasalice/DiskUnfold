@@ -6,6 +6,8 @@ pub(crate) mod commands;
 pub mod cursor;
 pub mod job;
 mod rows;
+#[cfg(test)]
+mod test_gate;
 use rows::project;
 mod wire;
 pub use admission::{AdmissionError, LiveOpen};

@@ -261,6 +261,8 @@ impl JobBody for Evaluate {
             .and_then(|mut prepared| prepared.take())
             .ok_or(Error::Internal)
             .and_then(|prepared| {
+                #[cfg(test)]
+                super::test_gate::pause_worker(&prepared.key.version);
                 self.browse
                     .evaluate(prepared, || context.checkpoint() == Checkpoint::Cancel)
             });
