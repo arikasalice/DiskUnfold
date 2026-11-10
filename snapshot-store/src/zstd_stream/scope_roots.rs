@@ -49,6 +49,15 @@ pub(super) fn parse(metadata: &str) -> Result<ScopeRoots, ()> {
     Ok(ScopeRoots { encoding, roots })
 }
 
+pub(super) fn volume_descriptor(metadata: &str) -> Result<(), ()> {
+    let json: Value = serde_json::from_str(metadata).map_err(|_| ())?;
+    let descriptor = json.get("volume").and_then(Value::as_object).ok_or(())?;
+    if descriptor.get("recordKind").and_then(Value::as_u64) != Some(1) {
+        return Err(());
+    }
+    Ok(())
+}
+
 fn absolute(encoding: NameEncoding, bytes: &[u8]) -> bool {
     match encoding {
         NameEncoding::Bytes => {

@@ -123,7 +123,7 @@ pub fn validate_and_decode_sealed<S: SealedSpool, W: StagingSink>(
     sink: W,
     cancelled: impl FnMut() -> bool,
 ) -> Result<W, Error> {
-    decode_sealed(spool, sink, None, None, cancelled)
+    decode_sealed(spool, sink, None, None, false, cancelled)
 }
 
 /// Stages records after checking framing and Item bodies against the verified spool.
@@ -137,7 +137,7 @@ pub fn validate_items_in_sealed<S: SealedSpool, W: StagingSink>(
     encoding: crate::records::NameEncoding,
     cancelled: impl FnMut() -> bool,
 ) -> Result<W, Error> {
-    decode_sealed(spool, sink, Some(encoding), None, cancelled)
+    decode_sealed(spool, sink, Some(encoding), None, false, cancelled)
 }
 
 /// Checks framing and Item and Gap bodies using the verified sealed spool.
@@ -168,6 +168,42 @@ pub fn validate_items_and_gaps_in_sealed<S: SealedSpool, W: StagingSink>(
         sink,
         Some(roots.encoding()),
         Some(roots.roots().len()),
+        false,
+        cancelled,
+    )?;
+    Ok((sink, roots))
+}
+
+/// Validate Volume, Item and Gap bodies using metadata from the same sealed copy.
+/// The returned sink is staged only; all other metadata and publication checks remain.
+/// Any error or cancellation discards the staging sink.
+pub fn validate_records_in_sealed<S: SealedSpool, W: StagingSink>(
+    spool: &mut VerifiedSpool<S>,
+    sink: W,
+    cancelled: impl FnMut() -> bool,
+) -> Result<(W, ScopeRoots), Error> {
+    let metadata = scope_roots::parse(spool.metadata()).and_then(|roots| {
+        scope_roots::volume_descriptor(spool.metadata())?;
+        Ok(roots)
+    });
+    let roots = match metadata {
+        Ok(roots) => roots,
+        Err(()) => {
+            return match sink.discard() {
+                Ok(()) => Err(Error::Metadata),
+                Err(cleanup) => Err(Error::Discard {
+                    failure: Box::new(Error::Metadata),
+                    cleanup,
+                }),
+            };
+        }
+    };
+    let sink = decode_sealed(
+        spool,
+        sink,
+        Some(roots.encoding()),
+        Some(roots.roots().len()),
+        true,
         cancelled,
     )?;
     Ok((sink, roots))
@@ -178,6 +214,7 @@ fn decode_sealed<S: SealedSpool, W: StagingSink>(
     mut sink: W,
     encoding: Option<crate::records::NameEncoding>,
     root_count: Option<usize>,
+    validate_volume: bool,
     mut cancelled: impl FnMut() -> bool,
 ) -> Result<W, Error> {
     let result = (|| {
@@ -189,6 +226,9 @@ fn decode_sealed<S: SealedSpool, W: StagingSink>(
         let mut records = record_framing::Validator::new(spool.record_count());
         let mut items =
             encoding.map(|encoding| item_validation::Validator::new(encoding, root_count));
+        if validate_volume && let Some(items) = &mut items {
+            items.require_volume();
+        }
         let reader = spool.compressed_reader().map_err(Error::Decode)?;
         decode_reader(
             reader,
@@ -203,7 +243,11 @@ fn decode_sealed<S: SealedSpool, W: StagingSink>(
                 sink.write_all(chunk).map_err(Error::Sink)
             },
         )?;
-        records.finish().map_err(|()| Error::Records)
+        records.finish().map_err(|()| Error::Records)?;
+        if let Some(items) = items {
+            items.finish().map_err(|()| Error::Records)?;
+        }
+        Ok(())
     })();
     match result {
         Ok(()) => Ok(sink),

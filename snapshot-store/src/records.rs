@@ -4,6 +4,7 @@
 
 pub mod gap;
 pub mod item;
+pub mod volume;
 
 /// Maximum metadata and declared record length in bytes.
 pub const MAX_FIELD_BYTES: u64 = 65_536;

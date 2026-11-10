@@ -448,3 +448,5 @@ fn sealed_item_validation_rejects_bad_payload_and_discards_stage() -> Result<(),
 }
 
 mod gap;
+
+mod volume;
