@@ -211,4 +211,6 @@ fn check_existing(connection: &Connection, read_only: bool) -> Result<(), OpenEr
 }
 
 #[cfg(test)]
+mod recovery_tests;
+#[cfg(test)]
 mod tests;

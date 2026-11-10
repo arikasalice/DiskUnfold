@@ -1,4 +1,16 @@
 {
+  "cargo:du-app-host:rusqlite@0.41.1": {
+    "license": "MIT",
+    "role": "test",
+    "distributed": false,
+    "reason": "Inspect isolated SQLite settings recovery fixtures"
+  },
+  "cargo:du-app-host:tempfile@3.27.0": {
+    "license": "MIT OR Apache-2.0",
+    "role": "test",
+    "distributed": false,
+    "reason": "Isolate desktop settings startup fixtures"
+  },
   "cargo:du-app-db:rusqlite@0.41.1": {
     "license": "MIT",
     "role": "runtime",
@@ -22,6 +34,12 @@
     "role": "runtime",
     "distributed": true,
     "reason": "Encode and decode SQLite setting values"
+  },
+  "cargo:du-app-db:uuid@1.29.2": {
+    "license": "Apache-2.0 OR MIT",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Allocate UUID v7 identifiers for quarantined settings"
   },
   "cargo:du-app-host:serde_json@1.0.154": {
     "license": "MIT OR Apache-2.0",

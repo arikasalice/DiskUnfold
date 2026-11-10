@@ -59,6 +59,95 @@ fn store_error(error: Error) -> SettingsStoreError {
     }
 }
 
+impl AppDb {
+    /// Reads the category revision, schema and raw rows from one database snapshot.
+    /// Raw values allow the policy layer to isolate a malformed registered row.
+    pub fn load_settings_for_restore(
+        &mut self,
+    ) -> Result<(u64, u32, BTreeMap<String, String>), SettingsStoreError> {
+        let tx = self.connection.transaction().map_err(store_error)?;
+        let (revision, schema): (i64, u32) = tx.query_row("SELECT settings_version, schema_version FROM user_env_setting_version WHERE version_key = 'settings'", [], |row| Ok((row.get(0)?, row.get(1)?))).map_err(store_error)?;
+        let rows = if schema != 1 {
+            BTreeMap::new()
+        } else {
+            let mut statement = tx
+                .prepare(
+                    "SELECT setting_key, value_json FROM user_env_setting ORDER BY setting_key",
+                )
+                .map_err(store_error)?;
+            let mapped = statement
+                .query_map([], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })
+                .map_err(store_error)?;
+            mapped
+                .collect::<Result<BTreeMap<_, _>, _>>()
+                .map_err(store_error)?
+        };
+        tx.commit().map_err(store_error)?;
+        Ok((
+            u64::try_from(revision).map_err(|_| SettingsStoreError::Storage)?,
+            schema,
+            rows,
+        ))
+    }
+
+    /// Moves the supplied invalid settings into quarantine in one transaction.
+    ///
+    /// Both the settings revision and every observed value must still match;
+    /// otherwise no rows are moved. Unspecified settings are left untouched.
+    pub fn quarantine_settings(
+        &mut self,
+        expected: u64,
+        invalid: &BTreeMap<String, String>,
+        timestamp_ms: i64,
+    ) -> Result<u64, SettingsStoreError> {
+        if invalid.is_empty() {
+            return Ok(expected);
+        }
+        let expected = i64::try_from(expected).map_err(|_| SettingsStoreError::Conflict)?;
+        let next = expected.checked_add(1).ok_or(SettingsStoreError::Storage)?;
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(store_error)?;
+        let (revision, schema): (i64, u32) = tx.query_row(
+            "SELECT settings_version, schema_version FROM user_env_setting_version WHERE version_key = 'settings'", [], |row| Ok((row.get(0)?, row.get(1)?))
+        ).map_err(store_error)?;
+        if revision != expected || schema != 1 {
+            return Err(SettingsStoreError::Conflict);
+        }
+        for (key, expected_value) in invalid {
+            let raw: String = tx
+                .query_row(
+                    "SELECT value_json FROM user_env_setting WHERE setting_key = ?1",
+                    [key],
+                    |row| row.get(0),
+                )
+                .map_err(|error| match error {
+                    Error::QueryReturnedNoRows => SettingsStoreError::Conflict,
+                    other => store_error(other),
+                })?;
+            if &raw != expected_value {
+                return Err(SettingsStoreError::Conflict);
+            }
+            let id = uuid::Uuid::now_v7();
+            tx.execute(
+                "INSERT INTO user_env_setting_quarantine
+                 (quarantine_id, setting_key, raw_value_json, reason_key, quarantined_at_ms)
+                 VALUES (?1, ?2, ?3, 'settings.value_invalid', ?4)",
+                params![id.as_bytes().as_slice(), key, raw, timestamp_ms],
+            )
+            .map_err(store_error)?;
+            tx.execute("DELETE FROM user_env_setting WHERE setting_key = ?1", [key])
+                .map_err(store_error)?;
+        }
+        tx.execute("UPDATE user_env_setting_version SET settings_version = ?1, updated_at_ms = ?2 WHERE version_key = 'settings'", params![next, timestamp_ms]).map_err(store_error)?;
+        tx.commit().map_err(store_error)?;
+        u64::try_from(next).map_err(|_| SettingsStoreError::Storage)
+    }
+}
+
 impl SettingsStore for AppDb {
     fn load(&mut self) -> Result<SettingsSnapshot, SettingsStoreError> {
         let tx = self.connection.transaction().map_err(store_error)?;
@@ -111,7 +200,7 @@ impl SettingsStore for AppDb {
             .map_err(store_error)?;
         if tx
             .execute(
-                "UPDATE user_env_setting_version SET settings_version = ?1, updated_at_ms = ?2 WHERE version_key = 'settings' AND settings_version = ?3",
+                "UPDATE user_env_setting_version SET settings_version = ?1, updated_at_ms = ?2 WHERE version_key = 'settings' AND settings_version = ?3 AND schema_version = 1",
                 params![next, context.timestamp_ms, expected],
             )
             .map_err(store_error)?

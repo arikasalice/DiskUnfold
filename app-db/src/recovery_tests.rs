@@ -1,0 +1,152 @@
+use super::*;
+use du_core_contracts::settings::{
+    SettingsChanges, SettingsCommit, SettingsSource, SettingsStore, SettingsStoreError,
+};
+use serde_json::json;
+use std::collections::BTreeMap;
+
+#[test]
+fn commit_rejects_schema_or_revision_changes_without_touching_rows()
+-> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("app.db");
+    let mut first = AppDb::create_gui(&path).map_err(|e| format!("{e:?}"))?;
+    let mut other = AppDb::open_gui(&path).map_err(|e| format!("{e:?}"))?;
+    let ctx = SettingsCommit {
+        source: SettingsSource::Screen,
+        timestamp_ms: 7,
+    };
+    let changes = SettingsChanges::from([("key".into(), Some(json!(3)))]);
+    other
+        .commit(0, &changes, ctx)
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(
+        first.commit(0, &changes, ctx),
+        Err(SettingsStoreError::Conflict)
+    );
+    other
+        .connection
+        .execute_batch("UPDATE user_env_setting_version SET schema_version = 2;")?;
+    assert_eq!(
+        first.commit(1, &changes, ctx),
+        Err(SettingsStoreError::Conflict)
+    );
+    let version: (i64, i64) = first.connection.query_row(
+        "SELECT settings_version, schema_version FROM user_env_setting_version",
+        [],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )?;
+    assert_eq!(version, (1, 2));
+    let raw: String = first.connection.query_row(
+        "SELECT value_json FROM user_env_setting WHERE setting_key = 'key'",
+        [],
+        |r| r.get(0),
+    )?;
+    assert_eq!(raw, "3");
+    Ok(())
+}
+
+#[test]
+fn database_open_and_settings_category_failures_are_separate()
+-> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempfile::tempdir()?;
+    assert!(AppDb::open_read_only(&dir.path().join("missing.db")).is_err());
+    let mut db = AppDb::create_gui(&dir.path().join("app.db")).map_err(|e| format!("{e:?}"))?;
+    db.connection
+        .execute_batch("DROP TABLE user_env_setting;")?;
+    assert_eq!(
+        db.load_settings_for_restore(),
+        Err(SettingsStoreError::Storage)
+    );
+    db.connection
+        .execute_batch("UPDATE user_env_setting_version SET schema_version = 2;")?;
+    let (revision, schema, rows) = db
+        .load_settings_for_restore()
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!((revision, schema, rows.len()), (0, 2, 0));
+    Ok(())
+}
+
+#[test]
+fn quarantine_is_atomic_and_preserves_unselected_rows() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempfile::tempdir()?;
+    let mut db = AppDb::create_gui(&dir.path().join("app.db")).map_err(|e| format!("{e:?}"))?;
+    let changes = SettingsChanges::from([
+        ("bad".into(), Some(json!(1))),
+        ("good".into(), Some(json!(2))),
+        ("future".into(), Some(json!(3))),
+    ]);
+    db.commit(
+        0,
+        &changes,
+        SettingsCommit {
+            source: SettingsSource::Screen,
+            timestamp_ms: 1,
+        },
+    )
+    .map_err(|e| format!("{e:?}"))?;
+    let mismatch = BTreeMap::from([("bad".into(), "1".into()), ("good".into(), "99".into())]);
+    assert_eq!(
+        db.quarantine_settings(1, &mismatch, 2),
+        Err(SettingsStoreError::Conflict)
+    );
+    assert_eq!(db.load().map_err(|e| format!("{e:?}"))?.values.len(), 3);
+    let count: i64 = db.connection.query_row(
+        "SELECT count(*) FROM user_env_setting_quarantine",
+        [],
+        |row| row.get(0),
+    )?;
+    assert_eq!(count, 0);
+    assert_eq!(
+        db.quarantine_settings(0, &BTreeMap::from([("bad".into(), "1".into())]), 2),
+        Err(SettingsStoreError::Conflict)
+    );
+    assert_eq!(
+        db.quarantine_settings(1, &BTreeMap::from([("bad".into(), "1".into())]), 2),
+        Ok(2)
+    );
+    let snapshot = db.load().map_err(|e| format!("{e:?}"))?;
+    assert_eq!(snapshot.values.get("good"), Some(&json!(2)));
+    assert_eq!(snapshot.values.get("future"), Some(&json!(3)));
+    assert!(!snapshot.values.contains_key("bad"));
+    let entry: (String, String, String) = db.connection.query_row(
+        "SELECT setting_key, raw_value_json, reason_key FROM user_env_setting_quarantine",
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    )?;
+    assert_eq!(
+        entry,
+        ("bad".into(), "1".into(), "settings.value_invalid".into())
+    );
+    let id: Vec<u8> = db.connection.query_row(
+        "SELECT quarantine_id FROM user_env_setting_quarantine",
+        [],
+        |row| row.get(0),
+    )?;
+    let id = uuid::Uuid::from_slice(&id)?;
+    assert_eq!(id.get_version_num(), 7);
+    assert_eq!(id.get_variant(), uuid::Variant::RFC4122);
+    Ok(())
+}
+
+#[test]
+fn raw_restore_retains_malformed_rows_and_can_quarantine_them()
+-> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempfile::tempdir()?;
+    let mut db = AppDb::create_gui(&dir.path().join("app.db")).map_err(|e| format!("{e:?}"))?;
+    db.connection.execute_batch("PRAGMA ignore_check_constraints=ON; INSERT INTO user_env_setting VALUES ('bad', '{bad', 'screen', 0, 0, 1); PRAGMA ignore_check_constraints=OFF;")?;
+    assert_eq!(db.load(), Err(SettingsStoreError::Storage));
+    let (revision, schema, rows) = db
+        .load_settings_for_restore()
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!((revision, schema), (0, 1));
+    assert_eq!(rows.get("bad").map(String::as_str), Some("{bad"));
+    assert_eq!(db.quarantine_settings(0, &rows, 5), Ok(1));
+    let raw: String = db.connection.query_row(
+        "SELECT raw_value_json FROM user_env_setting_quarantine",
+        [],
+        |row| row.get(0),
+    )?;
+    assert_eq!(raw, "{bad");
+    Ok(())
+}

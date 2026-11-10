@@ -17,6 +17,7 @@ pub enum SettingsError {
     SchemaNewer,
     SchemaUnsupported,
     InvalidStoredValue,
+    RestoreLocked,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -29,6 +30,18 @@ pub struct SettingsService<S> {
     registry: Registry,
     store: S,
     snapshot: SettingsSnapshot,
+    restore_status: RestoreStatus,
+}
+
+/// The startup outcome, separate from the application database open result.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RestoreStatus {
+    /// Registered keys whose invalid stored values were quarantined.
+    pub invalid_keys: Vec<String>,
+    /// Reason the settings category could not be restored, if any.
+    pub failure_reason: Option<&'static str>,
+    /// Whether changes are blocked for this service instance.
+    pub write_locked: bool,
 }
 
 impl<S: SettingsStore> SettingsService<S> {
@@ -53,7 +66,101 @@ impl<S: SettingsStore> SettingsService<S> {
             registry,
             store,
             snapshot,
+            restore_status: RestoreStatus::default(),
         })
+    }
+
+    /// Restores known keys and atomically quarantines invalid known values.
+    ///
+    /// The caller opens the application database first; an open failure is not
+    /// converted into a settings-category failure here. `quarantine` must
+    /// compare the revision and values, move all supplied rows atomically, and
+    /// return the new revision. Unknown keys are preserved without validation.
+    pub fn restore<L, F>(registry: Registry, mut store: S, load: L, quarantine: F) -> Self
+    where
+        L: FnOnce(
+            &mut S,
+        ) -> Result<
+            (u64, u32, std::collections::BTreeMap<String, String>),
+            SettingsStoreError,
+        >,
+        F: FnOnce(
+            &mut S,
+            u64,
+            &std::collections::BTreeMap<String, String>,
+        ) -> Result<u64, SettingsStoreError>,
+    {
+        let mut status = RestoreStatus::default();
+        let mut invalid = std::collections::BTreeMap::new();
+        let mut snapshot = match load(&mut store) {
+            Ok((revision, 1, rows)) => {
+                let mut values = std::collections::BTreeMap::new();
+                for (key, raw) in rows {
+                    let value = serde_json::from_str::<serde_json::Value>(&raw);
+                    if let Some(descriptor) = registry.descriptors.get(&key)
+                        && value
+                            .as_ref()
+                            .map_or(true, |v| !crate::accepts(&descriptor.kind, v))
+                    {
+                        invalid.insert(key, raw);
+                    } else if let Ok(value) = value {
+                        values.insert(key, value);
+                    }
+                }
+                SettingsSnapshot {
+                    revision,
+                    schema_version: 1,
+                    values,
+                }
+            }
+            Ok((_, schema_version, _)) => {
+                status.write_locked = true;
+                status.failure_reason = Some(if schema_version > 1 {
+                    "settings.schema_newer"
+                } else {
+                    "settings.schema_unsupported"
+                });
+                SettingsSnapshot {
+                    schema_version: 1,
+                    ..SettingsSnapshot::default()
+                }
+            }
+            Err(_) => {
+                status.write_locked = true;
+                status.failure_reason = Some("settings.restore_failed");
+                SettingsSnapshot {
+                    schema_version: 1,
+                    ..SettingsSnapshot::default()
+                }
+            }
+        };
+        if !status.write_locked && !invalid.is_empty() {
+            match quarantine(&mut store, snapshot.revision, &invalid) {
+                Ok(revision) => {
+                    snapshot.revision = revision;
+                    status.invalid_keys = invalid.keys().cloned().collect();
+                }
+                Err(_) => {
+                    status.write_locked = true;
+                    status.failure_reason = Some("settings.restore_failed");
+                    snapshot = SettingsSnapshot {
+                        schema_version: 1,
+                        ..SettingsSnapshot::default()
+                    };
+                }
+            }
+        }
+        Self {
+            registry,
+            store,
+            snapshot,
+            restore_status: status,
+        }
+    }
+
+    /// Returns the immutable startup restoration outcome.
+    pub fn restore_status(&self) -> &RestoreStatus {
+        &self.restore_status
     }
 
     pub fn snapshot(&self) -> &SettingsSnapshot {
@@ -65,6 +172,9 @@ impl<S: SettingsStore> SettingsService<S> {
         revision: u64,
         changes: &SettingsChanges,
     ) -> Result<[u8; 32], SettingsError> {
+        if self.restore_status.write_locked {
+            return Err(SettingsError::RestoreLocked);
+        }
         if revision != self.snapshot.revision {
             return Err(SettingsError::StaleVersion);
         }
@@ -79,6 +189,9 @@ impl<S: SettingsStore> SettingsService<S> {
         reviewed: [u8; 32],
         context: SettingsCommit,
     ) -> Result<Changed, SettingsError> {
+        if self.restore_status.write_locked {
+            return Err(SettingsError::RestoreLocked);
+        }
         if revision != self.snapshot.revision {
             return Err(SettingsError::StaleVersion);
         }
@@ -151,6 +264,9 @@ fn fingerprint(revision: u64, changes: &SettingsChanges) -> Result<[u8; 32], Set
     let bytes = serde_json::to_vec(&(revision, changes)).map_err(|_| SettingsError::Encoding)?;
     Ok(*blake3::hash(&bytes).as_bytes())
 }
+
+#[cfg(test)]
+mod restore_tests;
 
 #[cfg(test)]
 mod tests {

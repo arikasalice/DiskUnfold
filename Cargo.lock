@@ -161,6 +161,7 @@ dependencies = [
  "rusqlite",
  "serde_json",
  "tempfile",
+ "uuid",
 ]
 
 [[package]]
@@ -172,8 +173,10 @@ dependencies = [
  "du-engine-api",
  "du-platform-os",
  "du-user-env",
+ "rusqlite",
  "serde",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]

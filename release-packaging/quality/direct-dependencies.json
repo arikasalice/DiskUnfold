@@ -34,6 +34,28 @@
   },
   {
     "ecosystem": "cargo",
+    "owner": "du-app-db",
+    "name": "uuid",
+    "version": "1.29.2",
+    "source": "registry+https://github.com/rust-lang/crates.io-index",
+    "license": "Apache-2.0 OR MIT",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Allocate UUID v7 identifiers for quarantined settings"
+  },
+  {
+    "ecosystem": "cargo",
+    "owner": "du-app-host",
+    "name": "rusqlite",
+    "version": "0.41.1",
+    "source": "registry+https://github.com/rust-lang/crates.io-index",
+    "license": "MIT",
+    "role": "test",
+    "distributed": false,
+    "reason": "Inspect isolated SQLite settings recovery fixtures"
+  },
+  {
+    "ecosystem": "cargo",
     "owner": "du-app-host",
     "name": "serde_json",
     "version": "1.0.154",
@@ -53,6 +75,17 @@
     "role": "runtime",
     "distributed": true,
     "reason": "Decode the local IPC request envelope"
+  },
+  {
+    "ecosystem": "cargo",
+    "owner": "du-app-host",
+    "name": "tempfile",
+    "version": "3.27.0",
+    "source": "registry+https://github.com/rust-lang/crates.io-index",
+    "license": "MIT OR Apache-2.0",
+    "role": "test",
+    "distributed": false,
+    "reason": "Isolate desktop settings startup fixtures"
   },
   {
     "ecosystem": "cargo",

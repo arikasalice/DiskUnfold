@@ -9,6 +9,7 @@ license.workspace = true
 du-core-contracts = { version = "0.1.0", path = "../core-contracts" }
 rusqlite.workspace = true
 serde_json.workspace = true
+uuid = { workspace = true, features = ["v7"] }
 
 [dev-dependencies]
 tempfile.workspace = true
