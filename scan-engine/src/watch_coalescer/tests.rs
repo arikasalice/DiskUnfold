@@ -32,6 +32,7 @@ fn stream(cfg: Config, sequence: u64, gaps: Vec<Gap>) -> Coalescer {
         cfg,
         Cursor {
             sequence,
+            change_sequence: sequence,
             last_gap_id: 4,
         },
         gaps,
@@ -436,4 +437,52 @@ fn rollback_restores_parent_counts_after_promotion() {
     actual.push(&second, cfg);
     expected.push(&second, cfg);
     assert_eq!(actual.take(), expected.take());
+}
+#[test]
+fn compaction_handoff_flushes_buffer_before_summary_without_losing_order() {
+    let mut s = stream(config(), 7, vec![]);
+    assert!(
+        s.signal(7, &signal(&["a", "f"], ChangeKind::Modify, false, 1))
+            .is_ok()
+    );
+    let summary = Gap {
+        id: 5,
+        reason: GapReason::Overflow,
+        path: None,
+        start: Some(1),
+        end: Some(2),
+    };
+    let Ok(out) = s.compacted_gap(&summary, &[1, 2], 2) else {
+        panic!("compaction")
+    };
+    let [first, second] = &out[..] else {
+        panic!("ordered batches")
+    };
+    assert_eq!((first.sequence, second.sequence), (8, 9));
+    assert_eq!(first.changes.len(), 1);
+    assert_eq!(second.gaps, vec![summary]);
+    assert_eq!((s.sequence(), s.last_gap_id(), s.buffered_len()), (9, 5, 0));
+}
+#[test]
+fn compaction_preflight_failure_preserves_buffer_and_gap_counter() {
+    let mut s = stream(config(), u64::MAX - 1, vec![]);
+    assert!(
+        s.signal(7, &signal(&["a", "f"], ChangeKind::Modify, false, 1))
+            .is_ok()
+    );
+    let summary = Gap {
+        id: 5,
+        reason: GapReason::Overflow,
+        path: None,
+        start: Some(1),
+        end: Some(2),
+    };
+    assert_eq!(
+        s.compacted_gap(&summary, &[1, 2], 2),
+        Err(Error::SequenceExhausted)
+    );
+    assert_eq!(
+        (s.sequence(), s.last_gap_id(), s.buffered_len()),
+        (u64::MAX - 1, 4, 1)
+    );
 }

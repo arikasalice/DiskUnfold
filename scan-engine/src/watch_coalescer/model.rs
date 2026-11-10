@@ -91,6 +91,10 @@ pub struct Batch {
     pub context: Context,
     /// Per-unit sequence shared with status events.
     pub sequence: u64,
+    /// Sequence of change batches, independent of status events and generations.
+    pub change_sequence: u64,
+    /// Closed gaps replaced by this summary; empty for ordinary batches.
+    pub replaced_gap_ids: Vec<u64>,
     /// Observation interval in injected-clock milliseconds.
     pub interval_start: u64,
     pub interval_end: u64,
@@ -106,6 +110,8 @@ pub struct Batch {
 pub struct Cursor {
     /// Last sequence shared by status events and change batches.
     pub sequence: u64,
+    /// Last change-batch sequence across the unit lifetime.
+    pub change_sequence: u64,
     /// Last gap identifier, including gaps no longer open.
     pub last_gap_id: u64,
 }

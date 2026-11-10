@@ -8,7 +8,7 @@ pub(super) struct Undo {
     opened: Option<u64>,
     last: Option<u64>,
 }
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub(super) struct Buffer {
     entries: BTreeMap<Key, Change>,
     /// Number of immediate keys under each parent, updated with the entries.

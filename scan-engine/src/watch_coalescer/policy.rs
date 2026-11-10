@@ -7,6 +7,7 @@ use std::collections::BTreeSet;
 /// Methods require exclusive access. Errors leave all buffered evidence, gap
 /// identifiers, timestamps, and watch sequence unchanged. The caller must
 /// deliver every returned batch in order and must not call an OS adapter here.
+#[derive(Clone)]
 pub struct Coalescer {
     context: Context,
     config: Config,
@@ -14,6 +15,7 @@ pub struct Coalescer {
     open_gaps: Vec<Gap>,
     next_gap: u64,
     sequence: u64,
+    change_sequence: u64,
     last_time: Option<u64>,
     last_normal: Option<u64>,
 }
@@ -63,6 +65,7 @@ impl Coalescer {
             open_gaps,
             next_gap,
             sequence: cursor.sequence,
+            change_sequence: cursor.change_sequence,
             last_time: None,
             last_normal: None,
         })
@@ -71,6 +74,18 @@ impl Coalescer {
     pub fn sequence(&self) -> u64 {
         self.sequence
     }
+    /// Last allocated change-only sequence, shared across watch generations.
+    pub fn change_sequence(&self) -> u64 {
+        self.change_sequence
+    }
+    /// Reserves a change-only number for a lifecycle-produced change batch.
+    pub(crate) fn reserve_change_sequence(&mut self) -> Result<u64, Error> {
+        self.change_sequence = self
+            .change_sequence
+            .checked_add(1)
+            .ok_or(Error::SequenceExhausted)?;
+        Ok(self.change_sequence)
+    }
     /// Last allocated per-unit gap identifier, for session registry handoff.
     pub fn last_gap_id(&self) -> u64 {
         self.next_gap - 1
@@ -78,6 +93,29 @@ impl Coalescer {
     /// Number of currently buffered, coalesced directory ranges.
     pub fn buffered_len(&self) -> usize {
         self.buffer.len()
+    }
+    /// Flushes pending signals before emitting an ordered compacted gap.
+    /// The lifecycle owner delivers the returned batches in order.
+    pub(crate) fn compacted_gap(
+        &mut self,
+        gap: &Gap,
+        replaced: &[u64],
+        at: u64,
+    ) -> Result<Vec<Batch>, Error> {
+        self.check_time(at)?;
+        if gap.id != self.next_gap || gap.path.is_some() || gap.end.is_none() {
+            return Err(Error::InvalidConfig);
+        }
+        self.preflight(self.buffer.len().div_ceil(32) + 1, true)?;
+        let mut batches = self.flush_buffer(at)?;
+        let generated = self.new_gap(gap.reason, None, gap.start, gap.end)?;
+        let mut summary = self.make_batches(Vec::new(), vec![generated], at, at)?;
+        if let Some(batch) = summary.last_mut() {
+            batch.replaced_gap_ids = replaced.to_vec();
+        }
+        batches.extend(summary);
+        self.last_time = Some(at);
+        Ok(batches)
     }
     /// Changes only the explicit gap budget. Existing evidence is never dropped.
     pub fn set_gap_limit(&mut self, limit: usize) -> Result<(), Error> {
@@ -229,6 +267,9 @@ impl Coalescer {
         self.sequence
             .checked_add(count)
             .ok_or(Error::SequenceExhausted)?;
+        self.change_sequence
+            .checked_add(count)
+            .ok_or(Error::SequenceExhausted)?;
         Ok(())
     }
     fn checked_flush(&mut self, at: u64) -> Result<Vec<Batch>, Error> {
@@ -293,9 +334,12 @@ impl Coalescer {
                 return Ok(batches);
             }
             let sequence = self.next_sequence()?;
+            let change_sequence = self.reserve_change_sequence()?;
             batches.push(Batch {
                 context: self.context.clone(),
                 sequence,
+                change_sequence,
+                replaced_gap_ids: Vec::new(),
                 interval_start: start,
                 interval_end: end,
                 changes,
@@ -306,9 +350,12 @@ impl Coalescer {
         }
         for (index, chunk) in changes.chunks(32).enumerate() {
             let sequence = self.next_sequence()?;
+            let change_sequence = self.reserve_change_sequence()?;
             batches.push(Batch {
                 context: self.context.clone(),
                 sequence,
+                change_sequence,
+                replaced_gap_ids: Vec::new(),
                 interval_start: start,
                 interval_end: end,
                 changes: chunk.to_vec(),

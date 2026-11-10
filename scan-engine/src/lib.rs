@@ -5,3 +5,4 @@ pub mod scope;
 pub mod target;
 pub mod target_probe;
 pub mod watch_coalescer;
+pub mod watch_lifecycle;
