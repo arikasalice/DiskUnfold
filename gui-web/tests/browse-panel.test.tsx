@@ -4,7 +4,9 @@ import {
   fireEvent,
   render,
   screen,
+  within,
 } from "@testing-library/react";
+import axe from "axe-core";
 import { afterEach, expect, test, vi } from "vitest";
 import { BrowsePanel } from "../src/features/browse/BrowsePanel";
 import type { BrowsePort } from "../src/features/browse/BrowsePanel";
@@ -172,12 +174,37 @@ test("keyboard opens a folder and breadcrumbs return to the virtual root", async
   };
   render(<BrowsePanel port={port} resultVersion={id} />);
   const alpha = await screen.findByRole("button", { name: "Alpha" });
+  const path = screen.getByRole("navigation", { name: "Folder path" });
+  expect(path.tagName).toBe("NAV");
+  expect(
+    within(path).getByText("Scope roots").getAttribute("aria-current"),
+  ).toBe("location");
+  expect(within(path).queryByRole("button", { name: "Up" })).toBeNull();
   alpha.focus();
   fireEvent.keyDown(alpha, { key: "Enter", code: "Enter" });
   fireEvent.keyUp(alpha, { key: "Enter", code: "Enter" });
   expect(
     await screen.findByRole("button", { name: "Scope roots" }),
   ).toBeDefined();
+  const current = within(path).getByText("Alpha");
+  expect(current.getAttribute("aria-current")).toBe("location");
+  expect(path.querySelectorAll("[aria-current]")).toHaveLength(1);
+  expect(within(path).queryByRole("button", { name: "Alpha" })).toBeNull();
+  const accessibility = await axe.run(path, {
+    runOnly: {
+      type: "rule",
+      values: [
+        "aria-valid-attr",
+        "aria-valid-attr-value",
+        "button-name",
+        "list",
+        "listitem",
+      ],
+    },
+  });
+  expect(accessibility.violations).toEqual([]);
+  fireEvent.click(current);
+  expect(port.open).toHaveBeenCalledTimes(2);
   expect(document.activeElement).toBe(
     screen.getByRole("region", { name: "Folder navigation" }),
   );
@@ -410,7 +437,9 @@ test("keeps location and focus through an unsuccessful Up and suppresses duplica
   expect(document.activeElement).toBe(child);
   await act(async () => pending.reject(new Error("unavailable")));
   expect(screen.getByRole("alert").textContent).toContain("Could not open");
-  expect(screen.getByRole("button", { name: "Crumb 22" })).toBeDefined();
+  expect(screen.getByText("Crumb 22").getAttribute("aria-current")).toBe(
+    "location",
+  );
   expect(document.activeElement).toBe(child);
 });
 
@@ -449,6 +478,92 @@ test.each(["parent version", "current crumb"] as const)(
       true,
     );
     expect(port.open).toHaveBeenCalledTimes(1);
+  },
+);
+
+test.each(["parent version", "current version", "current item"] as const)(
+  "never makes an unverified breadcrumb current or actionable (%s)",
+  async (mismatch) => {
+    const response = openedAt(1, [11, 22], [row(33, "Child")]);
+    const [parent, current] = response.breadcrumbs;
+    if (!parent || !current) throw new Error("wrong fixture");
+    if (mismatch === "parent version") parent.item.resultVersion = "other";
+    else if (mismatch === "current version")
+      current.item.resultVersion = "other";
+    else current.item = ref(99);
+    const port: BrowsePort = {
+      open: vi.fn().mockResolvedValue(response),
+      page: vi.fn(),
+    };
+    const { container } = render(
+      <BrowsePanel port={port} resultVersion={id} />,
+    );
+    await screen.findByRole("button", { name: "Child" });
+    const path = screen.getByRole("navigation", { name: "Folder path" });
+    expect(within(path).getByText("Folder path unavailable")).toBeDefined();
+    const marked = container.querySelectorAll("[aria-current]");
+    if (mismatch === "parent version") {
+      expect(marked).toHaveLength(1);
+      expect(marked[0]?.textContent).toBe("Crumb 22");
+    } else {
+      expect(marked).toHaveLength(0);
+    }
+    expect(screen.queryByRole("button", { name: "Crumb 11" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Crumb 22" })).toBeNull();
+    expect(port.open).toHaveBeenCalledTimes(1);
+  },
+);
+
+test.each(["success", "moved focus", "failure"] as const)(
+  "keeps the old breadcrumb while opening an ancestor and respects focus (%s)",
+  async (outcome) => {
+    const pending = deferred<BrowseOpenResponse>();
+    const port: BrowsePort = {
+      open: vi
+        .fn()
+        .mockResolvedValueOnce(openedAt(1, [11, 22], [row(33, "Child")]))
+        .mockImplementationOnce(() => pending.promise),
+      page: vi.fn(),
+    };
+    render(
+      <>
+        <button>Elsewhere</button>
+        <BrowsePanel port={port} resultVersion={id} />
+      </>,
+    );
+    const path = await screen.findByRole("navigation", { name: "Folder path" });
+    const ancestor = within(path).getByRole("button", { name: "Crumb 11" });
+    const current = within(path).getByText("Crumb 22");
+    ancestor.focus();
+    fireEvent.keyDown(ancestor, { key: "Enter", code: "Enter" });
+    fireEvent.keyUp(ancestor, { key: "Enter", code: "Enter" });
+    expect(port.open).toHaveBeenLastCalledWith(
+      expect.objectContaining({ location: ref(11), resultVersion: id }),
+      expect.any(AbortSignal),
+    );
+    expect(within(path).getByText("Crumb 22")).toBe(current);
+    expect(document.activeElement).toBe(ancestor);
+    if (outcome === "failure") {
+      await act(async () => pending.reject(new Error("unavailable")));
+      expect(screen.getByRole("alert").textContent).toContain("Could not open");
+      expect(within(path).getByText("Crumb 22")).toBe(current);
+      expect(document.activeElement).toBe(ancestor);
+      return;
+    }
+    const elsewhere = screen.getByRole("button", { name: "Elsewhere" });
+    if (outcome === "moved focus") elsewhere.focus();
+    await act(async () =>
+      pending.resolve(openedAt(2, [11], [row(22, "Nested")])),
+    );
+    expect(ancestor.isConnected).toBe(false);
+    expect(
+      within(path).getByText("Crumb 11").getAttribute("aria-current"),
+    ).toBe("location");
+    expect(document.activeElement).toBe(
+      outcome === "moved focus"
+        ? elsewhere
+        : screen.getByRole("region", { name: "Folder navigation" }),
+    );
   },
 );
 

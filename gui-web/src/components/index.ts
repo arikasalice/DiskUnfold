@@ -20,6 +20,8 @@ export {
   Text,
 } from "./presentation";
 
+export { Breadcrumbs } from "./breadcrumbs";
+export type { BreadcrumbEntry } from "./breadcrumbs";
 export { BrowseTable } from "./browse-table";
 export type { BrowsePageFocus, PageViewport } from "./browse-table";
 export { canHandleBrowseKey } from "./browse-keys";

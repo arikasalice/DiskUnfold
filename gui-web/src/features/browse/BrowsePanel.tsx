@@ -8,6 +8,7 @@ import {
 import type { KeyboardEvent } from "react";
 import {
   Action,
+  Breadcrumbs,
   BrowseTable,
   canHandleBrowseKey,
   Heading,
@@ -27,6 +28,7 @@ import type {
   QueryPageResponse,
   SizeValue,
 } from "../../ipc";
+import { browseDisplayName, folderPath, rowKey } from "./browse-display";
 
 /** Injected boundary for opening folders and paging through a pinned result. */
 export interface BrowsePort {
@@ -45,13 +47,6 @@ type View = {
   pageFocus?: BrowsePageFocus | undefined;
 };
 
-function name(value: BrowseValue<string>): string {
-  return value.state === "present"
-    ? value.value
-    : value.state === "absent"
-      ? "Not recorded"
-      : "Unavailable";
-}
 function size(value: BrowseValue<SizeValue>): string {
   if (value.state === "absent") return "Not recorded";
   if (value.state !== "present" || value.value.state === "unknown")
@@ -68,10 +63,6 @@ function availability(row: FolderQueryRow): string {
     found.push("Availability unknown");
   return found.join(" · ") || "Not reported";
 }
-function rowKey(item: ItemRef): string {
-  return `${item.resultVersion}:${item.itemNo}`;
-}
-
 const pageScrollKeys = new Set([
   "ArrowUp",
   "ArrowDown",
@@ -363,27 +354,16 @@ export function BrowsePanel({
             Source: {view.opened.origin} · Observed:{" "}
             {page.observedAt ?? "Unavailable"}
           </Text>
-          <div className="du-card__actions" aria-label="Folder path">
+          <div className="du-card__actions">
             <Action onPress={goUp} isDisabled={!parent}>
               Up
             </Action>
-            {view.opened.rootKind === "virtual_root" ? (
-              <Text>Scope roots</Text>
-            ) : (
-              hasVirtualRoot && (
-                <Action onPress={() => navigate(undefined, page.resultVersion)}>
-                  Scope roots
-                </Action>
-              )
-            )}
-            {view.opened.breadcrumbs.map((crumb) => (
-              <Action
-                key={rowKey(crumb.item)}
-                onPress={() => navigate(crumb.item, page.resultVersion)}
-              >
-                {name(crumb.displayName)}
-              </Action>
-            ))}
+            <Breadcrumbs
+              label="Folder path"
+              entries={folderPath(view.opened, hasVirtualRoot, (item) =>
+                navigate(item, page.resultVersion),
+              )}
+            />
           </div>
           {page.completeness !== "complete" && (
             <Notice>
@@ -422,10 +402,10 @@ export function BrowsePanel({
             renderCells={(row) => [
               row.kind === "directory" ? (
                 <Action onPress={() => navigate(row.item, page.resultVersion)}>
-                  {name(row.displayName)}
+                  {browseDisplayName(row.displayName)}
                 </Action>
               ) : (
-                <Text>{name(row.displayName)}</Text>
+                <Text>{browseDisplayName(row.displayName)}</Text>
               ),
               <Text>
                 {row.kind === "unknown" || row.kind === "unknown_structure"
