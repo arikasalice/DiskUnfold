@@ -17,7 +17,7 @@ pub struct ItemDetail<'a> {
 impl ResultVersion {
     /// The scope-wide aggregate, deduplicated across all observed roots.
     pub fn scope_total(&self) -> &SpaceAggregate {
-        &self.scope_total
+        self.scope_total.as_ref().unwrap_or(&self.aggregates[0])
     }
 
     /// Actual scope-root items, in the producer's root order.
@@ -161,7 +161,10 @@ impl ResultVersionRead for ResultVersion {
     }
 
     fn observed_root(&self) -> Option<&ResultScopeRoot> {
-        self.observed_root.as_deref()
+        match self.roots.as_slice() {
+            [root] => Some(root),
+            _ => None,
+        }
     }
 
     fn observed_roots(&self) -> &[ResultScopeRoot] {

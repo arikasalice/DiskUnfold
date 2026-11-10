@@ -1,9 +1,52 @@
 //! Forest-scoped observation ingestion.
-use crate::{BuildError, BuildHandle, Observation, SpaceObservation, StoredObservation};
+use crate::{
+    BuildError, BuildHandle, Observation, SpaceObservation, StoredObservation, space,
+    tree::BuiltItems,
+};
 use du_core_contracts::{
     Timestamp,
-    result::{ResultItemKind, ResultScopeGap},
+    result::{ResultItemKind, ResultScopeGap, SpaceAggregate},
 };
+
+/// Marks only ancestors of unread ranges; no index or count map is made without gaps.
+pub(crate) fn mark_gaps(
+    built: &BuiltItems,
+    gaps: &[ResultScopeGap],
+    aggregates: &mut [SpaceAggregate],
+) -> Result<(), BuildError> {
+    if gaps.is_empty() {
+        return Ok(());
+    }
+    let key_indices: std::collections::HashMap<_, _> = built
+        .keys
+        .iter()
+        .cloned()
+        .enumerate()
+        .map(|(index, key)| (key, index))
+        .collect();
+    let mut counts = std::collections::HashMap::<usize, u64>::new();
+    for gap in gaps {
+        let mut path = gap.path.clone();
+        let index = loop {
+            if let Some(&index) = key_indices.get(&(gap.root_index, path.clone())) {
+                break index;
+            }
+            if path.pop().is_none() {
+                return Err(BuildError::InvalidTree);
+            }
+        };
+        let mut current = Some(index);
+        while let Some(index) = current {
+            let count = counts.entry(index).or_default();
+            *count = count.saturating_add(1);
+            current = built.items[index].parent.map(|parent| parent as usize);
+        }
+    }
+    for (index, count) in counts {
+        space::mark_inaccessible(&mut aggregates[index], count);
+    }
+    Ok(())
+}
 
 impl BuildHandle {
     /// Adds an observation using the same kind inference as legacy `add`.

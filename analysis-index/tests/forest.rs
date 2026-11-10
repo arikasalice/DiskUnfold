@@ -214,6 +214,133 @@ fn one_root_forest_preserves_existing_root_and_default_browse() -> Result<(), St
         0
     );
     assert_eq!(result.scope_total(), result.space(0).ok_or("root")?);
+    assert!(std::ptr::eq(
+        result.scope_total(),
+        result.space(0).ok_or("root")?
+    ));
+    Ok(())
+}
+
+#[test]
+fn invalid_forest_gap_and_unknown_insertion_preserve_prior_publication() -> Result<(), String> {
+    let sink = IngestSink::default();
+    let mut baseline = sink
+        .open_observed(id(1)?, root("C:\\Before", 1))
+        .map_err(|e| format!("{e:?}"))?;
+    baseline
+        .add_directory(vec![])
+        .map_err(|e| format!("{e:?}"))?;
+    let original = baseline
+        .seal(id(2)?, ResultCompleteness::Complete)
+        .map_err(|e| format!("{e:?}"))?;
+    let roots = vec![root("C:\\A", 1), root("D:\\B", 2)];
+    let mut build = sink
+        .open_forest(id(3)?, roots.clone())
+        .map_err(|e| format!("{e:?}"))?;
+    for index in 0..2 {
+        build
+            .add_directory_at(index, vec![])
+            .map_err(|e| format!("{e:?}"))?;
+    }
+    build
+        .add_at(
+            0,
+            Observation {
+                path: path(),
+                size: None,
+            },
+        )
+        .map_err(|e| format!("{e:?}"))?;
+    let partial = build
+        .publish_partial(id(4)?)
+        .map_err(|e| format!("{e:?}"))?;
+    assert!(
+        build
+            .record_gap_at(2, vec![], "scan.path_denied".into(), None)
+            .is_err()
+    );
+    build.abort();
+    assert_eq!(
+        sink.pin()
+            .map_err(|e| format!("{e:?}"))?
+            .ok_or("missing baseline")?
+            .version_id(),
+        original.version_id()
+    );
+    assert_eq!(partial.completeness(), ResultCompleteness::Partial);
+
+    let mut build = sink
+        .open_forest(id(5)?, roots)
+        .map_err(|e| format!("{e:?}"))?;
+    for index in 0..2 {
+        build
+            .add_directory_at(index, vec![])
+            .map_err(|e| format!("{e:?}"))?;
+    }
+    build
+        .add_at(
+            0,
+            Observation {
+                path: path(),
+                size: None,
+            },
+        )
+        .map_err(|e| format!("{e:?}"))?;
+    build
+        .publish_partial(id(6)?)
+        .map_err(|e| format!("{e:?}"))?;
+    assert!(
+        build
+            .add_at(
+                0,
+                Observation {
+                    path: path(),
+                    size: None
+                }
+            )
+            .is_err()
+    );
+    assert_eq!(
+        sink.pin()
+            .map_err(|e| format!("{e:?}"))?
+            .ok_or("missing baseline")?
+            .version_id(),
+        original.version_id()
+    );
+    Ok(())
+}
+
+#[test]
+fn one_root_gap_is_included_in_the_reused_scope_aggregate() -> Result<(), String> {
+    let sink = IngestSink::default();
+    let mut build = sink
+        .open_forest(id(1)?, vec![root("C:\\A", 1)])
+        .map_err(|e| format!("{e:?}"))?;
+    build
+        .add_directory_at(0, vec![])
+        .map_err(|e| format!("{e:?}"))?;
+    add_file(&mut build, 0, 1)?;
+    build
+        .record_gap_at(0, vec![], "scan.path_denied".into(), None)
+        .map_err(|e| format!("{e:?}"))?;
+    let result = build
+        .seal(id(2)?, ResultCompleteness::Complete)
+        .map_err(|e| format!("{e:?}"))?;
+    assert!(std::ptr::eq(
+        result.scope_total(),
+        result.space(0).ok_or("root")?
+    ));
+    assert_eq!(
+        result.scope_total().logical.amount,
+        SizeAmount::LowerBound {
+            bytes: ByteSize::from(10)
+        }
+    );
+    assert_eq!(result.scope_total().inaccessible_ranges, Some(1));
+    assert_eq!(
+        result.scope_total().completeness,
+        ResultCompleteness::Missing
+    );
     Ok(())
 }
 

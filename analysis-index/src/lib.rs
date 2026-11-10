@@ -42,11 +42,10 @@ pub struct ResultVersion {
     items: Vec<ResultItem>,
     aggregates: Vec<SpaceAggregate>,
     physical: Option<Vec<Option<SpaceObservation>>>,
-    observed_root: Option<Arc<ResultScopeRoot>>,
     roots: Vec<ResultScopeRoot>,
     root_indices: Vec<u32>,
     gaps: Vec<ResultScopeGap>,
-    scope_total: SpaceAggregate,
+    scope_total: Option<SpaceAggregate>,
     observed_at: Option<Timestamp>,
 }
 
@@ -92,7 +91,7 @@ impl IngestSink {
             .clone())
     }
     pub fn open(&self, scope_version_id: Id) -> Result<BuildHandle, BuildError> {
-        self.begin(scope_version_id, None, Vec::new())
+        self.begin(scope_version_id, Vec::new())
     }
 
     /// Opens a build whose publications all retain the same verified root evidence.
@@ -101,7 +100,7 @@ impl IngestSink {
         scope_version_id: Id,
         root: ResultScopeRoot,
     ) -> Result<BuildHandle, BuildError> {
-        self.begin(scope_version_id, Some(Arc::new(root.clone())), vec![root])
+        self.begin(scope_version_id, vec![root])
     }
 
     /// Opens one build for actual roots in producer order, without a synthetic item.
@@ -114,14 +113,12 @@ impl IngestSink {
         if roots.is_empty() || u32::try_from(roots.len()).is_err() {
             return Err(BuildError::InvalidTree);
         }
-        let single = (roots.len() == 1).then(|| Arc::new(roots[0].clone()));
-        self.begin(scope_version_id, single, roots)
+        self.begin(scope_version_id, roots)
     }
 
     fn begin(
         &self,
         scope_version_id: Id,
-        observed_root: Option<Arc<ResultScopeRoot>>,
         roots: Vec<ResultScopeRoot>,
     ) -> Result<BuildHandle, BuildError> {
         let mut state = self.state.lock().map_err(|_| BuildError::Unavailable)?;
@@ -133,7 +130,6 @@ impl IngestSink {
             state: Arc::clone(&self.state),
             baseline: state.current.clone(),
             scope_version_id,
-            observed_root,
             roots,
             gaps: Vec::new(),
             observations: BTreeMap::new(),
@@ -147,7 +143,6 @@ pub struct BuildHandle {
     state: Arc<Mutex<State>>,
     baseline: Option<Arc<ResultVersion>>,
     scope_version_id: Id,
-    observed_root: Option<Arc<ResultScopeRoot>>,
     roots: Vec<ResultScopeRoot>,
     gaps: Vec<ResultScopeGap>,
     observations: BTreeMap<(u32, Vec<Vec<u8>>), StoredObservation>,
@@ -338,39 +333,9 @@ impl BuildHandle {
             completeness,
             &mut aggregates,
         );
-        let mut gap_counts = vec![0u64; built.items.len()];
-        let key_indices: std::collections::HashMap<_, _> = if self.gaps.is_empty() {
-            std::collections::HashMap::new()
-        } else {
-            built
-                .keys
-                .iter()
-                .cloned()
-                .enumerate()
-                .map(|(index, key)| (key, index))
-                .collect()
-        };
-        for gap in &self.gaps {
-            let mut path = gap.path.clone();
-            let index = loop {
-                if let Some(&index) = key_indices.get(&(gap.root_index, path.clone())) {
-                    break index;
-                }
-                if path.pop().is_none() {
-                    self.abort();
-                    return Err(BuildError::InvalidTree);
-                }
-            };
-            let mut current = Some(index);
-            while let Some(index) = current {
-                gap_counts[index] = gap_counts[index].saturating_add(1);
-                current = built.items[index].parent.map(|p| p as usize);
-            }
-        }
-        for (aggregate, count) in aggregates.iter_mut().zip(gap_counts) {
-            if count > 0 {
-                space::mark_inaccessible(aggregate, count);
-            }
+        if let Err(error) = forest::mark_gaps(&built, &self.gaps, &mut aggregates) {
+            self.abort();
+            return Err(error);
         }
         let result_completeness =
             if !self.gaps.is_empty() && completeness == ResultCompleteness::Complete {
@@ -378,18 +343,23 @@ impl BuildHandle {
             } else {
                 completeness
             };
-        let mut scope_total =
-            space::scope_total(&built.items, &built.structures, result_completeness);
-        physical::scope_total(
-            &built.items,
-            &built.structures,
-            built.physical.as_deref(),
-            result_completeness,
-            &mut scope_total,
-        );
-        if !self.gaps.is_empty() {
-            space::mark_inaccessible(&mut scope_total, self.gaps.len() as u64);
-        }
+        let scope_total = if self.roots.len() <= 1 {
+            None
+        } else {
+            let mut total =
+                space::scope_total(&built.items, &built.structures, result_completeness);
+            physical::scope_total(
+                &built.items,
+                &built.structures,
+                built.physical.as_deref(),
+                result_completeness,
+                &mut total,
+            );
+            if !self.gaps.is_empty() {
+                space::mark_inaccessible(&mut total, self.gaps.len() as u64);
+            }
+            Some(total)
+        };
         let result = Arc::new(ResultVersion {
             version_id,
             scope_version_id: self.scope_version_id.clone(),
@@ -397,7 +367,6 @@ impl BuildHandle {
             items: built.items,
             physical: built.physical,
             aggregates,
-            observed_root: self.observed_root.clone(),
             roots: self.roots.clone(),
             root_indices: built.keys.into_iter().map(|(root, _)| root).collect(),
             gaps: self.gaps.clone(),
