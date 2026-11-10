@@ -3,7 +3,7 @@ use std::{
     num::NonZeroUsize,
     sync::{
         Arc,
-        atomic::{AtomicU8, Ordering},
+        atomic::{AtomicBool, AtomicU8, Ordering},
     },
 };
 
@@ -29,6 +29,21 @@ struct Identity(AtomicU8);
 impl JobIdentity for Identity {
     fn next_id(&self) -> Id {
         id(self.0.fetch_add(1, Ordering::SeqCst))
+    }
+}
+
+struct CancelOnNextId {
+    ids: Identity,
+    armed: AtomicBool,
+    cancelled: AtomicBool,
+}
+
+impl JobIdentity for CancelOnNextId {
+    fn next_id(&self) -> Id {
+        if self.armed.swap(false, Ordering::SeqCst) {
+            self.cancelled.store(true, Ordering::SeqCst);
+        }
+        self.ids.next_id()
     }
 }
 fn id(value: u8) -> Id {
@@ -211,6 +226,56 @@ fn selected_render_rejects_replaced_or_mismatched_sources() -> Result<(), String
             )
             .err(),
         Some(Error::Source(current_analysis::Error::StaleVersion))
+    );
+    Ok(())
+}
+
+#[test]
+fn cancelled_model_registration_keeps_the_previous_geometry_and_page() -> Result<(), String> {
+    let sink = IngestSink::default();
+    publish(&sink, id(2), id(3))?;
+    let parent = ItemRef {
+        result_version: id(3),
+        item_no: 0,
+    };
+    let identity = Arc::new(CancelOnNextId {
+        ids: Identity(AtomicU8::new(11)),
+        armed: AtomicBool::new(false),
+        cancelled: AtomicBool::new(false),
+    });
+    let pages = ModelPages::new(sink, NonZeroUsize::MIN, identity.clone());
+    let dispatcher = bundle::implemented_dispatcher().map_err(|error| format!("{error:?}"))?;
+    let render = |width| {
+        pages.render_selected(
+            &dispatcher,
+            request(&parent, width),
+            |source, _| Ok(evidence(source.version(), source.result_version())),
+            &mut || identity.cancelled.load(Ordering::SeqCst),
+        )
+    };
+    let first = render(1_000_000).map_err(|error| format!("{error:?}"))?;
+
+    identity.armed.store(true, Ordering::SeqCst);
+    assert_eq!(render(500_000).err(), Some(Error::Cancelled));
+    identity.cancelled.store(false, Ordering::SeqCst);
+
+    let fallback = first.fallback();
+    let page = pages
+        .rows(&VizRowsRequest {
+            model_ref: fallback.model_ref,
+            result_revision: fallback.result_revision,
+            start: 0,
+            count: 10,
+        })
+        .map_err(|error| format!("{error:?}"))?;
+    assert_eq!(page.rows.len(), first.model.rows.len());
+    let reused = render(1_000_000).map_err(|error| format!("{error:?}"))?;
+    assert!(Arc::ptr_eq(&first.model, &reused.model));
+    assert_ne!(
+        render(500_000)
+            .map_err(|error| format!("{error:?}"))?
+            .model_ref,
+        id(12).as_str()
     );
     Ok(())
 }

@@ -70,6 +70,7 @@ pub enum Error {
 impl ModelPages {
     /// Pins the selected live revision, renders via the strategy registry, and registers its rows.
     /// The evidence callback must use the supplied pinned source and trusted in-process policies.
+    /// The cancellation callback must be nonblocking and must not reenter the model registry.
     pub fn render_selected(
         &self,
         dispatcher: &Dispatcher,
@@ -96,7 +97,7 @@ impl ModelPages {
         let normalized = normalize(evidence, source.result_version(), cancelled)?;
         let fingerprint = fingerprint(&request, &descriptor.strategy, &normalized, cancelled)?;
         check(cancelled)?;
-        if let Some(cached) = self.cached_render(source.version(), &fingerprint)? {
+        if let Some(cached) = self.cached_render(source.version(), &fingerprint, cancelled)? {
             return Ok(cached);
         }
         let mut keys = Vec::with_capacity(normalized.len());
@@ -134,8 +135,11 @@ impl ModelPages {
         .map_err(Error::Registration)?;
         check(cancelled)?;
         let (model_ref, model) = self
-            .register_with_layout(input, Some(Arc::new(model)))
-            .map_err(|error| Error::Registration(production::Error::Pages(error)))?;
+            .register_with_layout(input, Some(Arc::new(model)), cancelled)
+            .map_err(|error| match error {
+                super::Error::Cancelled => Error::Cancelled,
+                _ => Error::Registration(production::Error::Pages(error)),
+            })?;
         let model = model.ok_or(Error::Cache(super::Error::InvalidModel))?;
         Ok(Rendered { model_ref, model })
     }
@@ -144,6 +148,7 @@ impl ModelPages {
         &self,
         version: &Arc<du_analysis_index::ResultVersion>,
         fingerprint: &str,
+        cancelled: &mut dyn FnMut() -> bool,
     ) -> Result<Option<Rendered>, Error> {
         use du_core_contracts::result::ResultVersionRead;
         let mut state = self
@@ -174,6 +179,7 @@ impl ModelPages {
             .layout
             .clone()
             .ok_or(Error::Cache(super::Error::InvalidModel))?;
+        check(cancelled)?;
         super::touch(&mut state.lru, &model_ref);
         Ok(Some(Rendered { model_ref, model }))
     }

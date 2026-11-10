@@ -67,7 +67,7 @@ impl ModelPages {
     }
     /// Pins and registers only a still-current live result. Cancelled results must not be supplied.
     pub fn register(&self, input: ModelInput) -> Result<String, Error> {
-        self.register_with_layout(input, None)
+        self.register_with_layout(input, None, &mut || false)
             .map(|(reference, _)| reference)
     }
 
@@ -75,6 +75,7 @@ impl ModelPages {
         &self,
         input: ModelInput,
         layout: Option<Arc<projection::Model>>,
+        cancelled: &mut dyn FnMut() -> bool,
     ) -> Result<(String, Option<Arc<projection::Model>>), Error> {
         validate_input(&input)?;
         let mut state = self.state.lock().map_err(|_| Error::Unavailable)?;
@@ -85,12 +86,10 @@ impl ModelPages {
         if !Arc::ptr_eq(&current, &input.version) {
             return Err(Error::StaleVersion);
         }
-        let reference = self.ids.next_id().as_str().to_owned();
         let key = (
             input.version.version_id().clone(),
             input.condition_fingerprint.clone(),
         );
-        prune(&mut state);
         if let Some(existing) = state.conditions.get(&key).cloned() {
             let entry = state.entries.get(&existing).ok_or(Error::Unavailable)?;
             if !entry
@@ -103,10 +102,19 @@ impl ModelPages {
             if layout.is_some() && entry.layout.is_none() {
                 return Err(Error::InvalidModel);
             }
+            if cancelled() {
+                return Err(Error::Cancelled);
+            }
             let layout = entry.layout.clone();
             touch(&mut state.lru, &existing);
             return Ok((existing, layout));
         }
+        let reference = self.ids.next_id().as_str().to_owned();
+        // Commit only after the last cancellation check, before evicting any live model.
+        if cancelled() {
+            return Err(Error::Cancelled);
+        }
+        prune(&mut state);
         if state.entries.contains_key(&reference) {
             return Err(Error::ReferenceCollision);
         }
