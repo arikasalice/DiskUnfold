@@ -17,6 +17,7 @@ use std::{
 };
 
 mod items;
+mod scope_replacement;
 
 fn append(database: &SharedDatabase, n: u8, time: i64) -> Result<(), String> {
     let id = Id::from_v7_bytes([n; 16]);
