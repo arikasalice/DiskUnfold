@@ -9,6 +9,7 @@ pub mod result_events;
 pub mod scan_failures;
 pub mod scan_observation;
 pub mod settings;
+pub mod snapshot_spool;
 mod values;
 pub mod visualization;
 pub mod volume;

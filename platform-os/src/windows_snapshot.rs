@@ -1,6 +1,10 @@
 //! Handle-relative snapshot staging, registration, and capture on local NTFS.
 use crate::windows_observation::{WindowsDirectory, open_verified_stable};
-use du_core_contracts::{Id, ports::PortError};
+use du_core_contracts::{
+    Id,
+    ports::PortError,
+    snapshot_spool::{CaptureSpool, SealedSpool},
+};
 use std::{
     fs::File,
     io::{self, Read, Seek, SeekFrom, Write},
@@ -222,9 +226,11 @@ pub struct SnapshotCapture<'a> {
     directory: &'a SnapshotDirectory,
 }
 
-impl<'a> SnapshotCapture<'a> {
+impl<'a> CaptureSpool for SnapshotCapture<'a> {
+    type Sealed = SealedSnapshot<'a>;
+
     /// Consumes the writer and rewinds the same locked handle for read-only access.
-    pub fn seal(mut self) -> io::Result<SealedSnapshot<'a>> {
+    fn seal(mut self) -> io::Result<Self::Sealed> {
         self.file.flush()?;
         self.file.rewind()?;
         Ok(SealedSnapshot {
@@ -261,6 +267,8 @@ impl Seek for SealedSnapshot<'_> {
         self.file.seek(position)
     }
 }
+
+impl SealedSpool for SealedSnapshot<'_> {}
 
 #[cfg(test)]
 mod tests {

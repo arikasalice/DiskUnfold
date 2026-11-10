@@ -1,5 +1,5 @@
 #![cfg(windows)]
-use du_core_contracts::Id;
+use du_core_contracts::{Id, snapshot_spool::CaptureSpool};
 use du_platform_os::windows_snapshot::SnapshotDirectory;
 use std::{
     fs,

@@ -7,23 +7,8 @@ use super::{
     MAX_METADATA_BYTES, check_file_length, layout, read_u16, read_u32, read_u64,
 };
 use crate::zstd_frame::Error as FrameError;
+pub use du_core_contracts::snapshot_spool::{CaptureSpool, SealedSpool};
 use std::io::{self, Read, Seek, SeekFrom, Write};
-
-/// A private, exclusive capture destination removed on every drop or failure.
-///
-/// `seal` must revoke all writers and return the same captured bytes in a locked
-/// immutable spool. No other request or process may change them until drop.
-/// Implementations must clean up on drop, including when `seal` fails.
-pub trait CaptureSpool: Write {
-    type Sealed: SealedSpool;
-    fn seal(self) -> io::Result<Self::Sealed>;
-}
-
-/// A locked immutable captured byte sequence, removed when this value is dropped.
-///
-/// Every read and seek must refer to the same exact bytes captured at sealing;
-/// implementations must not expose a writer or release their lock before drop.
-pub trait SealedSpool: Read + Seek {}
 
 /// Failure while capturing or inspecting; no verified spool is returned.
 #[derive(Debug)]

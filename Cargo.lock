@@ -312,6 +312,7 @@ name = "du-snapshot-store"
 version = "0.1.0"
 dependencies = [
  "blake3",
+ "du-core-contracts",
  "zstd",
 ]
 
