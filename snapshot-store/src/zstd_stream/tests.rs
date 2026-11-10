@@ -390,3 +390,59 @@ fn shared_decoder_accepts_repeated_short_reads_and_cancels_midstream() -> io::Re
     ));
     Ok(())
 }
+
+#[test]
+fn sealed_item_validation_rejects_bad_payload_and_discards_stage() -> Result<(), String> {
+    use crate::records::{
+        NameEncoding,
+        item::{Item, Kind, Size},
+    };
+    let item = Item {
+        number: 1,
+        parent: 0,
+        kind: Kind::File,
+        flags: 0,
+        name: b"x",
+        sizes: [Size::Unknown; 3],
+        modified_ms: None,
+        identity: &[],
+        link_count: 0,
+    };
+    let body = item
+        .encode(NameEncoding::Bytes)
+        .map_err(|e| format!("{e:?}"))?;
+    let make = |body: &[u8]| {
+        let mut records = vec![1, 0, 0, 0, 1];
+        records.extend_from_slice(&((body.len() + 1) as u32).to_le_bytes());
+        records.push(2);
+        records.extend_from_slice(body);
+        records.extend_from_slice(&[1, 0, 0, 0, 127]);
+        records
+    };
+    let records = make(&body);
+    let compressed = frame(&records, true).map_err(|e| e.to_string())?;
+    let mut spool = sealed(&envelope_with_count(&compressed, records.len() as u64, 3))?;
+    let stage =
+        validate_items_in_sealed(&mut spool, Stage::default(), NameEncoding::Bytes, || false)
+            .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(stage.bytes, records);
+    for mutation in [0, 1, 2] {
+        let mut invalid = body.clone();
+        match mutation {
+            0 => invalid[8] = 0,
+            1 => invalid[0] = 2,
+            _ => invalid[13] = b'/',
+        }
+        let records = make(&invalid);
+        let compressed = frame(&records, true).map_err(|e| e.to_string())?;
+        let mut spool = sealed(&envelope_with_count(&compressed, records.len() as u64, 3))?;
+        let stage = Stage::default();
+        let discarded = stage.discarded.clone();
+        assert!(matches!(
+            validate_items_in_sealed(&mut spool, stage, NameEncoding::Bytes, || false),
+            Err(Error::Records)
+        ));
+        assert_eq!(discarded.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+    Ok(())
+}

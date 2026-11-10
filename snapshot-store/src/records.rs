@@ -2,6 +2,8 @@
 //!
 //! This module does not encode files or infer missing snapshot metadata.
 
+pub mod item;
+
 /// Maximum metadata and declared record length in bytes.
 pub const MAX_FIELD_BYTES: u64 = 65_536;
 /// Maximum decoded record stream size, in bytes.

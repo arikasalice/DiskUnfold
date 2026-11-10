@@ -8,6 +8,7 @@ use crate::envelope::spool::{SealedSpool, VerifiedSpool};
 use std::io::{self, BufRead, BufReader, Read, Write};
 
 use crate::{envelope, record_framing, zstd_frame};
+mod item_validation;
 
 /// A failure while verifying or streaming a DUSNAP frame.
 #[derive(Debug)]
@@ -115,7 +116,30 @@ pub trait StagingSink: Write {
 /// record payloads still require validation. The verified spool remains open.
 pub fn validate_and_decode_sealed<S: SealedSpool, W: StagingSink>(
     spool: &mut VerifiedSpool<S>,
+    sink: W,
+    cancelled: impl FnMut() -> bool,
+) -> Result<W, Error> {
+    decode_sealed(spool, sink, None, cancelled)
+}
+
+/// Stages records after checking framing and Item bodies against the verified spool.
+///
+/// Use the path encoding established by the sealed metadata validator. The
+/// caller still needs to validate Volume and Gap bodies before publication.
+/// On failure or cancellation, this consumes and discards the staging sink.
+pub fn validate_items_in_sealed<S: SealedSpool, W: StagingSink>(
+    spool: &mut VerifiedSpool<S>,
+    sink: W,
+    encoding: crate::records::NameEncoding,
+    cancelled: impl FnMut() -> bool,
+) -> Result<W, Error> {
+    decode_sealed(spool, sink, Some(encoding), cancelled)
+}
+
+fn decode_sealed<S: SealedSpool, W: StagingSink>(
+    spool: &mut VerifiedSpool<S>,
     mut sink: W,
+    encoding: Option<crate::records::NameEncoding>,
     mut cancelled: impl FnMut() -> bool,
 ) -> Result<W, Error> {
     let result = (|| {
@@ -125,6 +149,7 @@ pub fn validate_and_decode_sealed<S: SealedSpool, W: StagingSink>(
         let compressed_length = spool.compressed_length();
         let decoded_length = spool.decoded_length();
         let mut records = record_framing::Validator::new(spool.record_count());
+        let mut items = encoding.map(item_validation::Validator::new);
         let reader = spool.compressed_reader().map_err(Error::Decode)?;
         decode_reader(
             reader,
@@ -133,6 +158,9 @@ pub fn validate_and_decode_sealed<S: SealedSpool, W: StagingSink>(
             &mut cancelled,
             &mut |chunk| {
                 records.push(chunk).map_err(|()| Error::Records)?;
+                if let Some(items) = &mut items {
+                    items.push(chunk).map_err(|()| Error::Records)?;
+                }
                 sink.write_all(chunk).map_err(Error::Sink)
             },
         )?;
