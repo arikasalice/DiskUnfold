@@ -1,3 +1,4 @@
+use du_core_contracts::query_page_ipc::*;
 use du_core_contracts::result_events::{
     PublishedCompleteness, ResultVersionChange, ResultVersionChanged,
 };
@@ -101,6 +102,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         BrowseOrigin::decl(&config),
         BrowseDetailRequest::decl(&config),
         BrowseDetail::decl(&config),
+        QueryPagePosition::decl(&config),
+        QueryPageContinuation::decl(&config),
+        QueryPageRequest::decl(&config),
         SpaceDetailSize::decl(&config),
         SpaceLinkGroup::decl(&config),
         SpaceExclusiveDecision::decl(&config),

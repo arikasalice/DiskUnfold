@@ -101,6 +101,9 @@ export type BrowseValue<T> = { "state": "present", value: T, } | { "state": "abs
 export type BrowseOrigin = "scan";
 export type BrowseDetailRequest = { resultVersion: Id, item: ItemRef, };
 export type BrowseDetail = { item: ItemRef, displayPath: BrowseValue<string>, displayName: BrowseValue<string>, kind: BrowseValue<ResultItemKind>, logicalSize: BrowseValue<SizeValue>, allocatedSize: BrowseValue<SizeValue>, modifiedAt: BrowseValue<Timestamp>, createdAt: BrowseValue<Timestamp>, observedAt: BrowseValue<Timestamp>, origin: BrowseOrigin, completeness: ResultCompleteness, currentCorrespondence: boolean, observationOnly: boolean, };
+export type QueryPagePosition = { queryRef: Id, resultVersion: Id, start: number, count: number, };
+export type QueryPageContinuation = { nextCursor: string, count?: number | null, };
+export type QueryPageRequest = QueryPagePosition | QueryPageContinuation;
 export type SpaceDetailSize = { size: SizeValue, measurementLimits: Array<string>, };
 export type SpaceLinkGroup = {
 /**

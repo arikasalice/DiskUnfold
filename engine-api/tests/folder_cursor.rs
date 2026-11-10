@@ -87,6 +87,39 @@ impl Random for FailingRandom {
 }
 
 #[test]
+fn positional_page_emits_a_bound_cursor_and_checks_bounds() -> Result<(), String> {
+    let (_, api) = fixture(false)?;
+    let session = Session::new(Arc::new(api), [7; 32]);
+    let opened = session
+        .open(request(None), &[], || false)
+        .map_err(|e| format!("{e:?}"))?;
+    let q = &opened.opened.page.query_ref;
+    let version = &opened.opened.page.result_version;
+    let first = session
+        .page_at(q, version, 0, Some(1))
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(first.page, opened.opened.page);
+    let token = first.next_cursor.ok_or("missing cursor")?;
+    let next = session
+        .page(&token, Some(1))
+        .map_err(|e| format!("{e:?}"))?;
+    let direct = session
+        .page_at(q, version, 1, Some(1))
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(next.page, direct.page);
+    assert!(matches!(
+        session.page_at(q, version, 0, Some(1001)),
+        Err(CursorError::InvalidPage)
+    ));
+    assert!(matches!(
+        session.page_at(q, version, 999, Some(1)),
+        Err(CursorError::Invalid)
+    ));
+    assert!(session.page_at(q, &id(99)?, 0, Some(1)).is_err());
+    Ok(())
+}
+
+#[test]
 fn session_generation_fails_closed_and_fresh_sessions_reject_prior_cursors() -> Result<(), String> {
     let (_, api) = fixture(false)?;
     let shared = Arc::new(api);

@@ -103,6 +103,25 @@ impl Session {
         self.read_page(fields, count)
     }
 
+    /// Reads an explicit position and binds the next cursor to the registered query.
+    pub fn page_at(
+        &self,
+        query: &Id,
+        version: &Id,
+        start: u64,
+        count: Option<u32>,
+    ) -> Result<CursorPage, CursorError> {
+        validate_count(count).map_err(|_| CursorError::InvalidPage)?;
+        let admitted = self.admit(query, version, start, count)?;
+        let condition = self.condition(&admitted)?;
+        let page = project(query.clone(), admitted).map_err(CursorError::Folder)?;
+        let next_cursor = page
+            .next_position
+            .map(|next| self.encode(query, version, condition, next))
+            .transpose()?;
+        Ok(CursorPage { page, next_cursor })
+    }
+
     /// Reads a cursor while requiring the caller's expected query and result version.
     /// A valid cursor for another context is invalid, even if that query still exists.
     pub fn page_for(

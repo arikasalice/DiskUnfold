@@ -4,6 +4,7 @@ pub mod browse_ipc;
 mod envelopes;
 pub mod job;
 pub mod ports;
+pub mod query_page_ipc;
 pub mod result;
 pub mod result_events;
 pub mod scan_failures;
