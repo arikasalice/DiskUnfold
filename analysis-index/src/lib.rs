@@ -9,6 +9,7 @@ pub mod query;
 mod result_path;
 mod result_read;
 mod space;
+pub mod space_detail;
 mod tree;
 mod version_store;
 pub mod visualization;
