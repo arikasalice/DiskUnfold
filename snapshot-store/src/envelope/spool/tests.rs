@@ -241,6 +241,86 @@ fn metadata_validator_is_required_before_compression_and_digest() {
 }
 
 #[test]
+fn cancellation_at_verified_spool_return_drops_capture() {
+    struct TrackedCapture {
+        inner: Capture,
+        milestone: Arc<AtomicUsize>,
+    }
+    struct TrackedSealed {
+        inner: Sealed,
+        milestone: Arc<AtomicUsize>,
+        zero_seeks: usize,
+        digest_read: bool,
+    }
+    impl Write for TrackedCapture {
+        fn write(&mut self, b: &[u8]) -> io::Result<usize> {
+            self.inner.write(b)
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            self.inner.flush()
+        }
+    }
+    impl CaptureSpool for TrackedCapture {
+        type Sealed = TrackedSealed;
+        fn seal(self) -> io::Result<Self::Sealed> {
+            Ok(TrackedSealed {
+                inner: self.inner.seal()?,
+                milestone: self.milestone,
+                zero_seeks: 0,
+                digest_read: false,
+            })
+        }
+    }
+    impl Read for TrackedSealed {
+        fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
+            let count = self.inner.read(bytes)?;
+            if self.digest_read
+                && self.inner.bytes.position() == (self.inner.bytes.get_ref().len() - 32) as u64
+            {
+                self.milestone.store(1, Ordering::SeqCst);
+            }
+            Ok(count)
+        }
+    }
+    impl Seek for TrackedSealed {
+        fn seek(&mut self, from: SeekFrom) -> io::Result<u64> {
+            if matches!(from, SeekFrom::Start(0)) {
+                self.zero_seeks += 1;
+                self.digest_read = self.zero_seeks == 2;
+            }
+            self.inner.seek(from)
+        }
+    }
+    impl SealedSpool for TrackedSealed {}
+
+    let cleanup = Arc::new(AtomicUsize::new(0));
+    let data = fixture(&frame());
+    let milestone = Arc::new(AtomicUsize::new(0));
+    let capture = TrackedCapture {
+        inner: capture(&cleanup),
+        milestone: milestone.clone(),
+    };
+    let mut polls_after_digest = 0;
+    let result = capture_v1(
+        &mut Cursor::new(&data),
+        capture,
+        None,
+        |_, _| true,
+        || {
+            if milestone.load(Ordering::SeqCst) == 0 {
+                return false;
+            }
+            polls_after_digest += 1;
+            // First poll precedes digest comparison; second is the handoff boundary.
+            polls_after_digest == 2
+        },
+    );
+    assert!(matches!(result, Err(Error::Cancelled)));
+    assert_eq!(polls_after_digest, 2);
+    assert_eq!(cleanup.load(Ordering::SeqCst), 1);
+}
+
+#[test]
 fn unknown_version_precedes_v1_fields_and_never_calls_metadata() {
     let cleanup = Arc::new(AtomicUsize::new(0));
     let mut data = fixture(&frame());

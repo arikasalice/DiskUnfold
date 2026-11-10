@@ -193,6 +193,8 @@ fn verify<S: SealedSpool>(
         crate::zstd_frame::ReadError::Io(error) => Error::Io(error),
     })?;
     digest(&mut spool, len, &footer[24..], index_digest, cancelled)?;
+    // Do not return the sealed handle if cancellation arrived during final verification.
+    check_cancel(cancelled)?;
     Ok(VerifiedSpool {
         spool,
         metadata,

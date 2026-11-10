@@ -212,6 +212,32 @@ fn sealed_capture_reads_the_same_bytes_while_excluding_other_writers()
 }
 
 #[test]
+fn sealed_capture_is_independent_of_source_replacement_and_is_removed()
+-> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempfile::tempdir()?;
+    let source = dir.path().join("source.bin");
+    fs::write(&source, b"original")?;
+    let snapshots = dir.path().join("snapshots");
+    fs::create_dir(&snapshots)?;
+    let root = SnapshotDirectory::open(&snapshots).map_err(|e| format!("{e:?}"))?;
+    let temp = id(93)?;
+    let path = temp_path(&snapshots, &temp);
+    let mut capture = root.capture(&temp)?;
+    std::io::copy(&mut fs::File::open(&source)?, &mut capture)?;
+    let mut sealed = capture.seal()?;
+    fs::remove_file(&source)?;
+    fs::write(&source, b"replacement")?;
+    assert!(fs::remove_file(&path).is_err());
+    let mut actual = Vec::new();
+    sealed.read_to_end(&mut actual)?;
+    assert_eq!(actual, b"original");
+    assert_eq!(fs::read(&source)?, b"replacement");
+    drop(sealed);
+    assert!(!path.exists());
+    Ok(())
+}
+
+#[test]
 fn abandoning_a_capture_removes_it_and_allows_name_reuse() -> Result<(), Box<dyn std::error::Error>>
 {
     let dir = tempfile::tempdir()?;
