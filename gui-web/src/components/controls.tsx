@@ -15,7 +15,7 @@ import type { IconName } from "./presentation";
 
 type ActionProps = Pick<
   ButtonProps,
-  "onPress" | "isDisabled" | "isPending" | "autoFocus"
+  "onPress" | "isDisabled" | "isPending" | "autoFocus" | "excludeFromTabOrder"
 > & {
   variant?: "primary" | "secondary" | "quiet";
   ref?: Ref<HTMLButtonElement>;

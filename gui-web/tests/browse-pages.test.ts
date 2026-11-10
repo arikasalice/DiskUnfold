@@ -86,6 +86,35 @@ describe("fixed query pages", () => {
     }
   });
 
+  it("rejects malformed first pages and changes to cached absolute row identities", () => {
+    const first = page(201);
+    expect(
+      () => new BrowsePages({ ...first, rows: first.rows.slice(1) }),
+    ).toThrow();
+    expect(
+      () =>
+        new BrowsePages({
+          ...first,
+          rows: first.rows.map((row) => ({
+            ...row,
+            item: { ...row.item, resultVersion: "other" },
+          })),
+        }),
+    ).toThrow();
+    expect(
+      () =>
+        new BrowsePages({
+          ...first,
+          rows: first.rows.map(() => first.rows[0]!),
+        }),
+    ).toThrow();
+    const cache = new BrowsePages(first);
+    expect(
+      cache.accept(0, { ...first, rows: [...first.rows].reverse() }, new Set()),
+    ).toBe(false);
+    expect(cache.row(0)?.item.itemNo).toBe(0);
+  });
+
   it("evicts the least recently used unprotected page at the ten-page limit", () => {
     const pages = new BrowsePages(page(2400));
     const focus = new Set([0]);

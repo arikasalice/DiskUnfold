@@ -20,6 +20,18 @@ import { useBrowseGridViewport } from "./browse-grid-viewport";
 import "../theme/browse-grid.css";
 
 const virtualRows = { ...DefaultCollectionRenderer, isVirtualized: true };
+const gridKeys = new Set([
+  "ArrowUp",
+  "ArrowDown",
+  "ArrowLeft",
+  "ArrowRight",
+  "Home",
+  "End",
+  "PageUp",
+  "PageDown",
+  "Enter",
+  " ",
+]);
 
 export type BrowseGridFocus = {
   index: number;
@@ -49,16 +61,28 @@ function rowIndex(target: Element | null): number | undefined {
   return value === undefined ? undefined : Number(value);
 }
 
+function guardedKeys(handler: ComponentProps<"div">["onKeyDown"]) {
+  return (event: KeyboardEvent<HTMLDivElement>) => {
+    if (
+      !gridKeys.has(event.key) ||
+      (canHandleBrowseKey(event) && !event.altKey)
+    )
+      handler?.(event);
+  };
+}
+
 function GridSurface({
   element,
   body,
   request,
   reveal,
+  rowTop,
 }: {
   element: ComponentProps<"div">;
   body: RefObject<HTMLDivElement | null>;
   request: BrowseGridFocus | undefined;
   reveal: (index: number) => boolean;
+  rowTop: (index: number) => number;
 }) {
   const handled = useRef<BrowseGridFocus>(undefined);
   const [revealed, setRevealed] = useState<BrowseGridFocus>();
@@ -68,12 +92,23 @@ function GridSurface({
       `[data-row="${request.index}"]`,
     );
     if (!target) return;
-    if (request.eligible() && revealed !== request && reveal(request.index)) {
+    const eligible = request.eligible();
+    if (eligible && revealed !== request && reveal(request.index)) {
       setRevealed(request);
       return;
     }
+    // React Aria's collection can commit its new row styles after the
+    // document has scrolled. Keep the origin until the row is positioned.
+    if (
+      eligible &&
+      revealed === request &&
+      Math.abs(
+        Number.parseFloat(target.style.insetBlockStart) - rowTop(request.index),
+      ) >= 0.5
+    )
+      return;
     handled.current = request;
-    if (request.eligible()) {
+    if (eligible && request.eligible()) {
       target.focus({ preventScroll: true });
     }
     request.finish();
@@ -113,11 +148,18 @@ export function BrowseGrid<Item>({
     onFocusRow(index);
   }
 
-  function handleKey(event: KeyboardEvent<HTMLDivElement>) {
+  function handleKey(
+    event: KeyboardEvent<HTMLDivElement>,
+    toggle: (key: string) => void,
+  ) {
+    if (
+      !gridKeys.has(event.key) ||
+      !(event.target instanceof Element) ||
+      !event.currentTarget.contains(event.target)
+    )
+      return;
+    const index = rowIndex(event.target);
     if (!canHandleBrowseKey(event) || event.altKey) return;
-    const index = rowIndex(
-      event.target instanceof Element ? event.target : null,
-    );
     const moves = {
       ArrowUp: Math.max(0, (index ?? 1) - 1),
       ArrowDown: Math.min(count - 1, (index ?? -1) + 1),
@@ -131,18 +173,22 @@ export function BrowseGrid<Item>({
       event.preventDefault();
       event.stopPropagation();
       onMove(target, event.key === "End");
-    } else if (event.key === "Enter" && index !== undefined) {
+    } else if (
+      (event.key === "Enter" || event.key === " ") &&
+      index !== undefined
+    ) {
       event.preventDefault();
       event.stopPropagation();
       const item = getRow(index);
-      if (!event.repeat && item !== undefined) onOpen(item);
+      if (event.repeat || item === undefined) return;
+      if (event.key === " ") toggle(getKey(item));
+      else onOpen(item);
     }
   }
 
   return (
     <div
       className="du-browse-grid-frame"
-      onKeyDownCapture={handleKey}
       onFocusCapture={(event) => trackFocus(rowIndex(event.target))}
       onBlurCapture={(event) => {
         if (
@@ -159,22 +205,46 @@ export function BrowseGrid<Item>({
           className="du-browse-grid"
           selectionMode="multiple"
           selectionBehavior="toggle"
-          render={(props) => (
-            <GridSurface
-              element={{
-                ...(props as ComponentProps<"div">),
-                "aria-rowcount": rowCount,
-                "aria-busy": busy || undefined,
-              }}
-              body={viewport.body}
-              request={focusRequest}
-              reveal={viewport.reveal}
-            />
-          )}
+          render={(props, { state }) => {
+            const element = props as ComponentProps<"div">;
+            return (
+              <GridSurface
+                element={{
+                  ...element,
+                  "aria-rowcount": rowCount,
+                  "aria-busy": busy || undefined,
+                  onKeyDown: guardedKeys(element.onKeyDown),
+                  onKeyDownCapture: (event) => {
+                    element.onKeyDownCapture?.(event);
+                    handleKey(event, (key) =>
+                      state.selectionManager.toggleSelection(key),
+                    );
+                  },
+                }}
+                body={viewport.body}
+                request={focusRequest}
+                reveal={viewport.reveal}
+                rowTop={viewport.rowTop}
+              />
+            );
+          }}
         >
           <TableHeader className="du-browse-grid__header">
             {columns.map((column, index) => (
-              <Column id={column} key={column} isRowHeader={index === 0}>
+              <Column
+                id={column}
+                key={column}
+                isRowHeader={index === 0}
+                render={(props) => {
+                  const element = props as ComponentProps<"div">;
+                  return (
+                    <div
+                      {...element}
+                      onKeyDown={guardedKeys(element.onKeyDown)}
+                    />
+                  );
+                }}
+              >
                 {column}
               </Column>
             ))}
@@ -195,16 +265,32 @@ export function BrowseGrid<Item>({
                   ref={viewport.watchRow}
                   className="du-browse-grid__row"
                   style={{ insetBlockStart: viewport.rowTop(index) }}
-                  render={(props) => (
-                    <div
-                      {...(props as ComponentProps<"div">)}
-                      aria-rowindex={index + 2}
-                      data-row={index}
-                    />
-                  )}
+                  render={(props) => {
+                    const element = props as ComponentProps<"div">;
+                    return (
+                      <div
+                        {...element}
+                        onKeyDown={guardedKeys(element.onKeyDown)}
+                        aria-rowindex={index + 2}
+                        data-row={index}
+                      />
+                    );
+                  }}
                 >
                   {renderCells(item).map((cell, column) => (
-                    <Cell key={columns[column]} focusMode="cell">
+                    <Cell
+                      key={columns[column]}
+                      focusMode="cell"
+                      render={(props) => {
+                        const element = props as ComponentProps<"div">;
+                        return (
+                          <div
+                            {...element}
+                            onKeyDown={guardedKeys(element.onKeyDown)}
+                          />
+                        );
+                      }}
+                    >
                       <span
                         className="du-browse-grid__label"
                         aria-hidden="true"

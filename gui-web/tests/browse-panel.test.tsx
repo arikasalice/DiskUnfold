@@ -10,6 +10,7 @@ import axe from "axe-core";
 import { afterEach, expect, test, vi } from "vitest";
 import { BrowsePanel } from "../src/features/browse/BrowsePanel";
 import type { BrowsePort } from "../src/features/browse/BrowsePanel";
+import { AnalysisError } from "../src/ipc";
 import type {
   BrowseOpenResponse,
   FolderQueryPage,
@@ -36,12 +37,14 @@ const row = (n: number, label: string): FolderQueryRow => ({
 const page = (
   rows: FolderQueryRow[],
   cursor: string | null = null,
+  count = rows.length,
+  state: FolderQueryPage["total"]["state"] = "exact",
 ): FolderQueryPage => ({
   rowKind: "folder",
   queryRef: id,
   resultVersion: id,
   rows,
-  total: { state: "exact", count: rows.length },
+  total: { state, count },
   unknownCount: 0,
   observedAt: null,
   completeness: "complete",
@@ -63,6 +66,27 @@ const opened = (
   sortStrategies: [],
   predicateStrategies: [],
 });
+function openingPage(
+  first: FolderQueryRow[],
+  count = 201,
+  state: FolderQueryPage["total"]["state"] = "exact",
+  cursor = "next",
+) {
+  const rows = [...first];
+  while (rows.length < Math.min(200, count)) {
+    const index = rows.length;
+    rows.push({ ...row(index + 1, "Entry " + index), kind: "file" });
+  }
+  const result = opened(1, rows, cursor);
+  if (result.kind !== "opened") throw new Error("wrong fixture");
+  result.page = page(rows, cursor, count, state);
+  return result;
+}
+
+function gridRow(name: string) {
+  return screen.getByText(name).closest<HTMLElement>('[role="row"]')!;
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void;
   let reject!: (reason?: unknown) => void;
@@ -82,17 +106,24 @@ test("shows initial loading, virtual root, partial data and next page", async ()
   };
   render(<BrowsePanel port={port} resultVersion={id} />);
   expect(screen.getByLabelText("Opening folder")).toBeDefined();
-  const first = opened(1, [row(1, "Alpha")], "token");
-  if (first.kind !== "opened") throw new Error("wrong fixture");
+  const first = openingPage([row(1, "Alpha")], 201, "lower_bound", "token");
   first.page.completeness = "partial";
-  first.page.total = { state: "lower_bound", count: 1 };
   await act(async () => initial.resolve(first));
   expect(screen.getByText("Scope roots")).toBeDefined();
   expect(screen.getByText(/Results are incomplete/)).toBeDefined();
-  expect(screen.getByRole("table").getAttribute("aria-rowcount")).toBe("-1");
-  fireEvent.click(screen.getByRole("button", { name: "Load more" }));
-  expect(port.page).toHaveBeenCalledWith({ nextCursor: "token", count: 200 });
-  await act(async () => later.resolve(page([row(2, "Beta")])));
+  expect(screen.getByRole("grid").getAttribute("aria-rowcount")).toBe("-1");
+  const load = screen.getByRole("button", { name: "Load more" });
+  act(() => load.focus());
+  pressLoadMore(load);
+  expect(port.page).toHaveBeenCalledWith({
+    queryRef: id,
+    resultVersion: id,
+    start: 200,
+    count: 200,
+  });
+  await act(async () =>
+    later.resolve(page([row(201, "Beta")], null, 201, "lower_bound")),
+  );
   expect(screen.getByRole("button", { name: "Beta" })).toBeDefined();
 });
 
@@ -220,7 +251,7 @@ test("rejects a page from another result without discarding visible rows", async
   const bad = page([row(2, "Wrong")]);
   bad.resultVersion = "other";
   const port: BrowsePort = {
-    open: vi.fn().mockResolvedValue(opened(1, [row(1, "Alpha")], "next")),
+    open: vi.fn().mockResolvedValue(openingPage([row(1, "Alpha")])),
     page: vi.fn().mockResolvedValue(bad),
   };
   render(<BrowsePanel port={port} resultVersion={id} />);
@@ -237,7 +268,7 @@ test("discards a late page after navigating to another folder", async () => {
   const port: BrowsePort = {
     open: vi
       .fn()
-      .mockResolvedValueOnce(opened(1, [row(1, "Alpha")], "next"))
+      .mockResolvedValueOnce(openingPage([row(1, "Alpha")]))
       .mockResolvedValueOnce(opened(2, [row(3, "Current")])),
     page: vi.fn(() => late.promise),
   };
@@ -277,16 +308,11 @@ test.each(["directory", "file"] as const)(
     fireEvent.click(load);
     expect(port.page).toHaveBeenCalledTimes(1);
     await act(async () =>
-      pending.resolve(page([{ ...row(201, "New item"), kind }])),
+      pending.resolve(page([{ ...row(201, "New item"), kind }], null, 201)),
     );
-    const newItem = screen.getByText("New item");
     expect(load.isConnected).toBe(false);
-    expect(document.activeElement).toBe(
-      kind === "directory"
-        ? screen.getByRole("button", { name: "New item" })
-        : newItem.closest("tr"),
-    );
-    expect(newItem.closest("tr")?.getAttribute("aria-rowindex")).toBe("202");
+    expect(document.activeElement).toBe(gridRow("New item"));
+    expect(gridRow("New item").getAttribute("aria-rowindex")).toBe("202");
     expect(screen.queryByText("Existing 199")).toBeNull();
   },
 );
@@ -294,25 +320,25 @@ test.each(["directory", "file"] as const)(
 test("keyboard paging leaves focus where the user moved it before the final response", async () => {
   const pending = deferred<FolderQueryPage>();
   const port: BrowsePort = {
-    open: vi.fn().mockResolvedValue(opened(1, [row(1, "Alpha")], "next")),
+    open: vi.fn().mockResolvedValue(openingPage([row(1, "Alpha")])),
     page: vi.fn(() => pending.promise),
   };
   render(<BrowsePanel port={port} resultVersion={id} />);
   const load = await screen.findByRole("button", { name: "Load more" });
-  const folder = screen.getByRole("button", { name: "Alpha" });
+  const folder = gridRow("Alpha");
   act(() => load.focus());
   fireEvent.keyDown(load, { key: "Enter", code: "Enter" });
   fireEvent.keyUp(load, { key: "Enter", code: "Enter" });
   act(() => folder.focus());
-  await act(async () => pending.resolve(page([row(2, "Beta")])));
+  await act(async () => pending.resolve(page([row(201, "Beta")], null, 201)));
   expect(load.isConnected).toBe(false);
   expect(document.activeElement).toBe(folder);
 });
 
 test("keyboard paging restores panel focus if the final page has no rows", async () => {
   const port: BrowsePort = {
-    open: vi.fn().mockResolvedValue(opened(1, [row(1, "Alpha")], "next")),
-    page: vi.fn().mockResolvedValue(page([])),
+    open: vi.fn().mockResolvedValue(openingPage([row(1, "Alpha")], 1)),
+    page: vi.fn().mockResolvedValue(page([], null, 1)),
   };
   render(<BrowsePanel port={port} resultVersion={id} />);
   const load = await screen.findByRole("button", { name: "Load more" });
@@ -358,7 +384,8 @@ test("uses the pinned immediate parent for both Alt+Up and the Up button", async
   expect(fireEvent.keyDown(scope, { key: "ArrowUp", altKey: true })).toBe(true);
   fireEvent.click(scope);
   fireEvent.click(await screen.findByRole("button", { name: "Nested" }));
-  const child = await screen.findByRole("button", { name: "Child" });
+  await screen.findByRole("button", { name: "Child" });
+  const child = gridRow("Child");
   act(() => child.focus());
   expect(fireEvent.keyDown(child, { key: "ArrowUp", altKey: true })).toBe(
     false,
@@ -402,7 +429,8 @@ test("keeps location and focus through an unsuccessful Up and suppresses duplica
       </div>
     </>,
   );
-  const child = await screen.findByRole("button", { name: "Child" });
+  await screen.findByRole("button", { name: "Child" });
+  const child = gridRow("Child");
   act(() => child.focus());
   const altUp = { key: "ArrowUp", altKey: true };
   for (const extra of [
@@ -585,6 +613,7 @@ function delayedPage() {
       kind: "file" as const,
     })),
     "more",
+    2200,
   );
   const port: BrowsePort = {
     open: vi.fn().mockResolvedValue(first),
@@ -607,9 +636,7 @@ test("keyboard paging continues at the first new row even when the button remain
   pressLoadMore(load);
   await act(async () => pending.resolve(next));
   expect(screen.getByRole("button", { name: "Load more" })).toBe(load);
-  expect(document.activeElement).toBe(
-    screen.getByText("Entry 200").closest("tr"),
-  );
+  expect(document.activeElement).toBe(gridRow("Entry 200"));
   expect(screen.queryByText("Entry 399")).toBeNull();
 });
 
@@ -648,7 +675,7 @@ test("pointer paging leaves the old viewport and focus alone when 200 rows are a
   const rect = vi
     .spyOn(HTMLElement.prototype, "getBoundingClientRect")
     .mockImplementation(function (this: HTMLElement) {
-      if (this.tagName === "TBODY")
+      if (this.classList.contains("du-browse-grid__body"))
         return DOMRect.fromRect({ y: -window.scrollY });
       if (this.hasAttribute("data-row"))
         return DOMRect.fromRect({ height: 64 });
@@ -691,10 +718,12 @@ function clickLoadMore(button: HTMLElement) {
   fireEvent.click(button, { detail: 1 });
 }
 
-test.each([0, 1])(
+test.each([0, 1, 200])(
   "pointer terminal page (%i rows) restores focus without scrolling",
   async (count) => {
     const { pending, port } = delayedPage();
+    const initial = count === 0 ? 200 : 200 + count;
+    vi.mocked(port.open).mockResolvedValue(openingPage([], initial));
     const previous = window.scrollY;
     const focus = vi.spyOn(HTMLElement.prototype, "focus");
     try {
@@ -704,8 +733,10 @@ test.each([0, 1])(
       act(() => load.focus());
       clickLoadMore(load);
       focus.mockClear();
-      const rows = count === 0 ? [] : [row(201, "Added")];
-      await act(async () => pending.resolve(page(rows)));
+      const rows = Array.from({ length: count }, (_, index) =>
+        row(201 + index, "Added " + index),
+      );
+      await act(async () => pending.resolve(page(rows, null, initial)));
       const panel = screen.getByRole("region", { name: "Folder navigation" });
       expect(load.isConnected).toBe(false);
       expect(window.scrollY).toBe(600);
@@ -747,7 +778,8 @@ test.each(["layout only", "user before layout", "user after layout"] as const)(
     const rect = vi
       .spyOn(HTMLElement.prototype, "getBoundingClientRect")
       .mockImplementation(function (this: HTMLElement) {
-        if (this.tagName === "TBODY") return DOMRect.fromRect({ y: -viewport });
+        if (this.classList.contains("du-browse-grid__body"))
+          return DOMRect.fromRect({ y: -viewport });
         if (this.hasAttribute("data-row")) {
           return DOMRect.fromRect({
             height: this.dataset.row === "0" ? firstHeight : 64,
@@ -779,9 +811,7 @@ test.each(["layout only", "user before layout", "user after layout"] as const)(
       fireEvent.scroll(window);
       await act(async () => pending.resolve(next));
       if (motion === "layout only") {
-        expect(document.activeElement).toBe(
-          screen.getByText("Entry 200").closest("tr"),
-        );
+        expect(document.activeElement).toBe(gridRow("Entry 200"));
       } else {
         expect(document.activeElement).toBe(load);
         expect(screen.queryByText("Entry 200")).toBeNull();
@@ -797,58 +827,22 @@ test.each(["layout only", "user before layout", "user after layout"] as const)(
   },
 );
 
-test.each(["browser layout", "wheel", "scroll key", "pointer"] as const)(
-  "distinguishes the browser's append commit scroll from intervening input (%s)",
+test.each(["wheel", "touchstart", "scroll key", "pointer"] as const)(
+  "cancels a pending focus intent on %s even if the viewport stays put",
   async (motion) => {
     const { pending, next, port } = delayedPage();
-    let viewport = 12_264;
-    let mounted = false;
-    const scrollY = vi
-      .spyOn(window, "scrollY", "get")
-      .mockImplementation(() => viewport);
-    vi.stubGlobal(
-      "ResizeObserver",
-      class {
-        observe(node: HTMLElement) {
-          if (mounted || node.dataset.row !== "200") return;
-          mounted = true;
-          // WebView can adjust scroll as the appended row enters the DOM, before a scroll event.
-          viewport += 180;
-          if (motion === "wheel")
-            window.dispatchEvent(new WheelEvent("wheel", { deltaY: -120 }));
-          if (motion === "scroll key")
-            window.dispatchEvent(
-              new KeyboardEvent("keydown", { key: "PageUp" }),
-            );
-          if (motion === "pointer")
-            window.dispatchEvent(
-              new PointerEvent("pointerdown", { pointerType: "mouse" }),
-            );
-        }
-        unobserve() {}
-        disconnect() {}
-      },
-    );
-    try {
-      render(<BrowsePanel port={port} resultVersion={id} />);
-      const load = await screen.findByRole("button", { name: "Load more" });
-      act(() => load.focus());
-      pressLoadMore(load);
-      await act(async () => pending.resolve(next));
-      expect(mounted).toBe(true);
-      expect(window.scrollY).toBe(12_444);
-      if (motion === "browser layout") {
-        expect(document.activeElement).toBe(
-          screen.getByText("Entry 200").closest("tr"),
-        );
-      } else {
-        expect(document.activeElement).toBe(load);
-      }
-    } finally {
-      cleanup();
-      scrollY.mockRestore();
-      vi.unstubAllGlobals();
-    }
+    render(<BrowsePanel port={port} resultVersion={id} />);
+    const load = await screen.findByRole("button", { name: "Load more" });
+    act(() => load.focus());
+    pressLoadMore(load);
+    if (motion === "scroll key") fireEvent.keyDown(load, { key: "PageUp" });
+    else
+      window.dispatchEvent(
+        new Event(motion === "pointer" ? "pointerdown" : motion),
+      );
+    await act(async () => pending.resolve(next));
+    expect(document.activeElement).toBe(load);
+    expect(screen.queryByText("Entry 200")).toBeNull();
   },
 );
 
@@ -869,7 +863,7 @@ test("keeps the previous result and focus on failure, and retries the pinned loc
   expect(screen.getByLabelText("Opening folder")).toBeDefined();
   expect(screen.getByRole("button", { name: "Alpha" })).toBeDefined();
   await act(async () => pending.reject(new Error("failed")));
-  expect(document.activeElement).toBe(alpha);
+  expect(document.activeElement).toBe(gridRow("Alpha"));
   expect(screen.getByRole("button", { name: "Alpha" })).toBeDefined();
   fireEvent.click(screen.getByRole("button", { name: "Retry" }));
   expect(port.open).toHaveBeenLastCalledWith(
@@ -986,5 +980,359 @@ test("a stale failure cannot change the latest result or focus", async () => {
   await act(async () => stale.reject(new Error("late failure")));
   expect(screen.queryByRole("alert")).toBeNull();
   expect(screen.getByRole("button", { name: "Latest" })).toBe(latestRow);
-  expect(document.activeElement).toBe(latestRow);
+  expect(document.activeElement).toBe(gridRow("Latest"));
+});
+
+function syntheticPage(
+  count: number,
+  start: number,
+  state: FolderQueryPage["total"]["state"] = "exact",
+) {
+  const rows = Array.from(
+    { length: Math.min(200, count - start) },
+    (_, index) => ({
+      ...row(start + index + 1, "Entry " + (start + index)),
+      kind: "file" as const,
+    }),
+  );
+  const cursor =
+    start + rows.length < count ? "next-" + (start + rows.length) : null;
+  return page(rows, cursor, count, state);
+}
+
+function syntheticPort(
+  count: number,
+  state: FolderQueryPage["total"]["state"] = "exact",
+) {
+  return {
+    open: vi.fn<BrowsePort["open"]>(async () => ({
+      ...openingPage([], count, state),
+      page: syntheticPage(count, 0, state),
+    })),
+    page: vi.fn<BrowsePort["page"]>(async (request) => {
+      if (!("start" in request)) throw new Error("Expected a position read");
+      return syntheticPage(count, request.start, state);
+    }),
+  };
+}
+
+test.each([0, 1, 200, 201, 2001, 1_000_000])(
+  "End focuses the exact registered end of %i items",
+  async (count) => {
+    const port = syntheticPort(count);
+    render(<BrowsePanel port={port} resultVersion={id} />);
+    const grid = await screen.findByRole("grid", { name: "Folder items" });
+    const start = count === 0 ? grid : gridRow("Entry 0");
+    act(() => start.focus());
+    await act(async () => undefined);
+    const callsBeforeEnd = port.page.mock.calls.length;
+    await act(async () => fireEvent.keyDown(start, { key: "End" }));
+    if (count === 0) {
+      expect(document.activeElement).toBe(start);
+    } else {
+      expect(document.activeElement).toBe(gridRow("Entry " + (count - 1)));
+      expect(document.activeElement?.getAttribute("aria-rowindex")).toBe(
+        String(count + 1),
+      );
+    }
+    expect(grid.getAttribute("aria-rowcount")).toBe(String(count + 1));
+    const direct = port.page.mock.calls.slice(callsBeforeEnd);
+    expect(direct).toEqual(
+      count <= 201
+        ? []
+        : [
+            [
+              {
+                queryRef: id,
+                resultVersion: id,
+                start: Math.floor((count - 1) / 200) * 200,
+                count: 200,
+              },
+            ],
+          ],
+    );
+    expect(port.open).toHaveBeenCalledTimes(1);
+  },
+);
+
+test.each([0, 2001])(
+  "End announces the unconfirmed list end for a lower bound of %i",
+  async (count) => {
+    const port = syntheticPort(count, "lower_bound");
+    render(<BrowsePanel port={port} resultVersion={id} />);
+    const grid = await screen.findByRole("grid", { name: "Folder items" });
+    const start = count === 0 ? grid : gridRow("Entry 0");
+    act(() => start.focus());
+    await act(async () => fireEvent.keyDown(start, { key: "End" }));
+    expect(grid.getAttribute("aria-rowcount")).toBe("-1");
+    expect(screen.getByText(/The end of the list is unknown/)).toBeDefined();
+    expect(document.activeElement).toBe(
+      count === 0 ? start : gridRow("Entry 2000"),
+    );
+    expect(
+      port.page.mock.calls.filter(
+        ([request]) => "start" in request && request.start === 2000,
+      ),
+    ).toHaveLength(count === 0 ? 0 : 1);
+    expect(port.open).toHaveBeenCalledTimes(1);
+  },
+);
+
+test.each([
+  "failure",
+  "version",
+  "query",
+  "focus away and back",
+  "unmount",
+] as const)(
+  "a pending End read preserves the existing focus after %s",
+  async (outcome) => {
+    const count = 2001;
+    const port = syntheticPort(count, "lower_bound");
+    const pending = deferred<FolderQueryPage>();
+    port.page.mockImplementation(async (request) =>
+      "start" in request && request.start === 2000
+        ? pending.promise
+        : syntheticPage(count, 200, "lower_bound"),
+    );
+    const { unmount } = render(<BrowsePanel port={port} resultVersion={id} />);
+    await screen.findByRole("grid");
+    const start = gridRow("Entry 0");
+    act(() => start.focus());
+    await act(async () => fireEvent.keyDown(start, { key: "End" }));
+    expect(screen.getByText("Loading folder items…")).toBeDefined();
+    expect(document.activeElement).toBe(start);
+    if (outcome === "focus away and back") {
+      act(() => gridRow("Entry 1").focus());
+      act(() => start.focus());
+    }
+    if (outcome === "unmount") unmount();
+    await act(async () => {
+      const result = syntheticPage(count, 2000, "lower_bound");
+      if (outcome === "failure") pending.reject(new Error("no page"));
+      else {
+        if (outcome === "version") result.resultVersion = "another version";
+        if (outcome === "query") result.queryRef = "another query";
+        pending.resolve(result);
+      }
+    });
+    expect(document.activeElement).toBe(
+      outcome === "unmount" ? document.body : start,
+    );
+    expect(screen.queryByText("Entry 2000")).toBeNull();
+    expect(port.open).toHaveBeenCalledTimes(1);
+  },
+);
+
+test("the latest request alone moves focus when End and ArrowDown resolve out of order", async () => {
+  const port = syntheticPort(2001);
+  const final = deferred<FolderQueryPage>();
+  const adjacent = deferred<FolderQueryPage>();
+  port.page.mockImplementation(async (request) =>
+    "start" in request && request.start === 2000
+      ? final.promise
+      : adjacent.promise,
+  );
+  const original = window.scrollY;
+  const rect = vi
+    .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+    .mockImplementation(function (this: HTMLElement) {
+      return this.classList.contains("du-browse-grid__body")
+        ? DOMRect.fromRect({ y: -window.scrollY })
+        : DOMRect.fromRect({ width: 800 });
+    });
+  try {
+    window.scrollTo(0, 64 * 191);
+    render(<BrowsePanel port={port} resultVersion={id} />);
+    await screen.findByText("Entry 199");
+    const current = gridRow("Entry 199");
+    act(() => current.focus());
+    await act(async () => fireEvent.keyDown(current, { key: "End" }));
+    await act(async () => fireEvent.keyDown(current, { key: "ArrowDown" }));
+    await act(async () => final.resolve(syntheticPage(2001, 2000)));
+    expect(document.activeElement).toBe(current);
+    expect(screen.getByText("Loading folder items…")).toBeDefined();
+    await act(async () => adjacent.resolve(syntheticPage(2001, 200)));
+    expect(document.activeElement).toBe(gridRow("Entry 200"));
+    expect(
+      port.page.mock.calls.filter(
+        ([request]) => "start" in request && request.start === 200,
+      ),
+    ).toHaveLength(1);
+  } finally {
+    cleanup();
+    rect.mockRestore();
+    window.scrollTo(0, original);
+  }
+});
+
+test("page Retry keeps the same focused control across a repeated failure", async () => {
+  const port = syntheticPort(2001);
+  const firstRetry = deferred<FolderQueryPage>();
+  let attempts = 0;
+  port.page.mockImplementation(async (request) => {
+    if (!("start" in request)) throw new Error("Expected a position read");
+    if (request.start !== 2000) return syntheticPage(2001, request.start);
+    attempts += 1;
+    if (attempts === 1) throw new Error("initial page failure");
+    if (attempts === 2) return firstRetry.promise;
+    return syntheticPage(2001, 2000);
+  });
+  render(<BrowsePanel port={port} resultVersion={id} />);
+  await screen.findByRole("grid");
+  const initial = gridRow("Entry 0");
+  act(() => initial.focus());
+  await act(async () => fireEvent.keyDown(initial, { key: "End" }));
+  expect(document.activeElement).toBe(initial);
+  const retry = screen.getByRole("button", { name: "Retry page" });
+  act(() => retry.focus());
+  await act(async () => pressLoadMore(retry));
+  expect(document.activeElement).toBe(retry);
+  expect(screen.getByRole("button", { name: "Retrying page…" })).toBe(retry);
+  await act(async () => pressLoadMore(retry));
+  expect(attempts).toBe(2);
+  await act(async () => firstRetry.reject(new Error("again")));
+  expect(document.activeElement).toBe(retry);
+  expect(screen.getByRole("button", { name: "Retry page" })).toBe(retry);
+  await act(async () => pressLoadMore(retry));
+  expect(document.activeElement).toBe(gridRow("Entry 2000"));
+  expect(screen.queryByRole("button", { name: "Retry page" })).toBeNull();
+});
+
+test("stale position pages offer reopening the same folder and pinned result", async () => {
+  const port = syntheticPort(2001);
+  port.page.mockRejectedValue(
+    new AnalysisError("STALE_VERSION", "query.stale"),
+  );
+  render(<BrowsePanel port={port} resultVersion={id} />);
+  const reopen = await screen.findByRole("button", { name: "Reopen folder" });
+  const first = gridRow("Entry 0");
+  expect(first).toBeDefined();
+  fireEvent.click(reopen);
+  expect(port.open).toHaveBeenLastCalledWith(
+    expect.objectContaining({ resultVersion: id, requestSeq: 2 }),
+    expect.any(AbortSignal),
+  );
+});
+
+test("folder activation restores the panel when the active button normalizes to its grid row", async () => {
+  const pending = deferred<BrowseOpenResponse>();
+  const port: BrowsePort = {
+    open: vi
+      .fn()
+      .mockResolvedValueOnce(opened(1, [row(1, "Alpha")]))
+      .mockImplementationOnce(() => pending.promise),
+    page: vi.fn(),
+  };
+  render(<BrowsePanel port={port} resultVersion={id} />);
+  const alpha = await screen.findByRole("button", { name: "Alpha" });
+  act(() => {
+    alpha.focus();
+    fireEvent.click(alpha);
+  });
+  expect(document.activeElement).toBe(gridRow("Alpha"));
+  await act(async () => pending.resolve(opened(2, [row(2, "New location")])));
+  expect(document.activeElement).toBe(
+    screen.getByRole("region", { name: "Folder navigation" }),
+  );
+});
+
+test("assistive-technology-style activation of Load more focuses the first new file", async () => {
+  const { pending, next, port } = delayedPage();
+  render(<BrowsePanel port={port} resultVersion={id} />);
+  const load = await screen.findByRole("button", { name: "Load more" });
+  act(() => load.focus());
+  fireEvent.click(load, { detail: 0 });
+  await act(async () => pending.resolve(next));
+  expect(document.activeElement).toBe(gridRow("Entry 200"));
+});
+
+test("terminal pointer paging does not revive its focus intent after the user leaves and returns", async () => {
+  const pending = deferred<FolderQueryPage>();
+  const port: BrowsePort = {
+    open: vi.fn().mockResolvedValue(openingPage([row(1, "Alpha")], 1)),
+    page: vi.fn(() => pending.promise),
+  };
+  render(
+    <>
+      <BrowsePanel port={port} resultVersion={id} />
+      <button>Outside browse</button>
+    </>,
+  );
+  const load = await screen.findByRole("button", { name: "Load more" });
+  act(() => load.focus());
+  clickLoadMore(load);
+  act(() => screen.getByRole("button", { name: "Outside browse" }).focus());
+  act(() => load.focus());
+  await act(async () => pending.resolve(page([], null, 1)));
+  expect(load.isConnected).toBe(false);
+  expect(document.activeElement).toBe(document.body);
+});
+
+test("page Retry does not restore row or panel focus after the user leaves and returns", async () => {
+  const port = syntheticPort(2001);
+  const pending = deferred<FolderQueryPage>();
+  let attempts = 0;
+  port.page.mockImplementation(async (request) => {
+    if (!("start" in request)) throw new Error("Expected a position read");
+    if (request.start !== 2000) return syntheticPage(2001, request.start);
+    if (++attempts === 1) throw new Error("page failure");
+    return pending.promise;
+  });
+  render(
+    <>
+      <BrowsePanel port={port} resultVersion={id} />
+      <button>Outside browse</button>
+    </>,
+  );
+  await screen.findByRole("grid");
+  const first = gridRow("Entry 0");
+  act(() => first.focus());
+  await act(async () => fireEvent.keyDown(first, { key: "End" }));
+  const retry = screen.getByRole("button", { name: "Retry page" });
+  act(() => retry.focus());
+  pressLoadMore(retry);
+  act(() => screen.getByRole("button", { name: "Outside browse" }).focus());
+  act(() => retry.focus());
+  await act(async () => pending.resolve(syntheticPage(2001, 2000)));
+  expect(retry.isConnected).toBe(false);
+  expect(document.activeElement).toBe(document.body);
+});
+
+test("the sparse grid exposes valid row, header and selection semantics", async () => {
+  const port = syntheticPort(2001, "lower_bound");
+  render(<BrowsePanel port={port} resultVersion={id} />);
+  const grid = await screen.findByRole("grid", { name: "Folder items" });
+  expect(
+    within(grid)
+      .getAllByRole("columnheader")
+      .map((header) => header.textContent),
+  ).toEqual([
+    "Name",
+    "Type",
+    "Logical size",
+    "Allocated size",
+    "Modified",
+    "Availability",
+  ]);
+  const first = gridRow("Entry 0");
+  act(() => first.focus());
+  fireEvent.keyDown(first, { key: " " });
+  expect(first.getAttribute("aria-selected")).toBe("true");
+  expect(first.querySelectorAll("[aria-colindex]")).toHaveLength(6);
+  expect(first.querySelectorAll('span[aria-hidden="true"]')).toHaveLength(6);
+  const result = await axe.run(grid, {
+    runOnly: {
+      type: "rule",
+      values: [
+        "aria-required-children",
+        "aria-required-parent",
+        "aria-roles",
+        "aria-valid-attr",
+        "aria-valid-attr-value",
+        "nested-interactive",
+      ],
+    },
+  });
+  expect(result.violations).toEqual([]);
 });

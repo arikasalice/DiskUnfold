@@ -1,34 +1,24 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 import {
   Action,
   Breadcrumbs,
-  BrowseTable,
   canHandleBrowseKey,
   Heading,
   Notice,
   Progress,
   Text,
 } from "../../components";
-import type { BrowsePageFocus, PageViewport } from "../../components";
 import type {
   BrowseOpenRequest,
   BrowseOpenResponse,
-  BrowseValue,
-  FolderQueryPage,
-  FolderQueryRow,
   ItemRef,
   QueryPageRequest,
   QueryPageResponse,
-  SizeValue,
 } from "../../ipc";
-import { browseDisplayName, folderPath, rowKey } from "./browse-display";
+import { BROWSE_PAGE_SIZE, BrowsePages } from "../../state/browse-pages";
+import { folderPath, rowKey } from "./browse-display";
+import { BrowseResults } from "./BrowseResults";
 
 /** Injected boundary for opening folders and paging through a pinned result. */
 export interface BrowsePort {
@@ -40,39 +30,7 @@ export interface BrowsePort {
 }
 
 type Opened = Extract<BrowseOpenResponse, { kind: "opened" }>;
-type View = {
-  opened: Opened;
-  rows: FolderQueryRow[];
-  nextCursor: string | null;
-  pageFocus?: BrowsePageFocus | undefined;
-};
-
-function size(value: BrowseValue<SizeValue>): string {
-  if (value.state === "absent") return "Not recorded";
-  if (value.state !== "present" || value.value.state === "unknown")
-    return "Unavailable";
-  return `${value.value.state === "lower_bound" ? "At least " : ""}${value.value.bytes} bytes`;
-}
-function availability(row: FolderQueryRow): string {
-  const flags = [row.flags.unenumerated, row.flags.excluded];
-  const found: string[] = [];
-  if (flags[0]?.state === "present" && flags[0].value)
-    found.push("Not enumerated");
-  if (flags[1]?.state === "present" && flags[1].value) found.push("Excluded");
-  if (flags.some((flag) => flag.state === "unknown"))
-    found.push("Availability unknown");
-  return found.join(" · ") || "Not reported";
-}
-const pageScrollKeys = new Set([
-  "ArrowUp",
-  "ArrowDown",
-  "PageUp",
-  "PageDown",
-  "Home",
-  "End",
-  " ",
-]);
-
+type View = { opened: Opened; pages: BrowsePages };
 type ParentLocation = { item?: ItemRef };
 
 function parentLocation(
@@ -102,30 +60,16 @@ export function BrowsePanel({
 }) {
   const [view, setView] = useState<View>();
   const [busy, setBusy] = useState(false);
-  const [loadingPage, setLoadingPage] = useState(false);
-  const [message, setMessage] = useState<"error" | "job" | "page-error">();
+  const [message, setMessage] = useState<"error" | "job">();
   const sequence = useRef(0);
   const opening = useRef<AbortController | undefined>(undefined);
   const lastAttempt = useRef<{
     location: ItemRef | undefined;
     pinned: string | undefined;
   }>(undefined);
-  const pageActive = useRef<PageViewport>(undefined);
-  const pageViewport = useRef<PageViewport>(undefined);
   const virtualRootVersion = useRef<string>(undefined);
   const panel = useRef<HTMLElement>(null);
-  const loadMoreButton = useRef<HTMLButtonElement>(null);
-  const focusAfterUpdate = useRef<"navigation" | "page-end">(undefined);
-  const current = useRef<View | undefined>(undefined);
-  current.current = view;
-
-  const recordLayoutScroll = useCallback((before: number, after: number) => {
-    const viewport = pageViewport.current;
-    // Only compensate for the movement produced by this layout operation.
-    if (viewport && !viewport.scrolled && viewport.scrollY === before) {
-      viewport.scrollY = after;
-    }
-  }, []);
+  const focusAfterUpdate = useRef<Element>(undefined);
 
   function navigate(
     location?: ItemRef,
@@ -138,12 +82,10 @@ export function BrowsePanel({
     const active = document.activeElement;
     const restoreFocus =
       active !== panel.current && panel.current?.contains(active);
+
     opening.current?.abort();
     const controller = new AbortController();
     opening.current = controller;
-    pageActive.current = undefined;
-    pageViewport.current = undefined;
-    setLoadingPage(false);
     setBusy(true);
     if (!retrying) setMessage(undefined);
     void port
@@ -153,7 +95,7 @@ export function BrowsePanel({
           requestSeq,
           ...(pinned ? { resultVersion: pinned } : {}),
           ...(location ? { location } : {}),
-          pageSize: 200,
+          pageSize: BROWSE_PAGE_SIZE,
         },
         controller.signal,
       )
@@ -167,18 +109,18 @@ export function BrowsePanel({
           return;
         }
         if (pinned && response.page.resultVersion !== pinned) return;
+        const pages = new BrowsePages(response.page);
         if (response.rootKind === "virtual_root") {
           virtualRootVersion.current = response.page.resultVersion;
         }
         focusAfterUpdate.current =
           restoreFocus && document.activeElement === active
-            ? "navigation"
+            ? (active ?? undefined)
             : undefined;
         setMessage(undefined);
         setView({
-          opened: response,
-          rows: response.page.rows,
-          nextCursor: response.page.nextCursor,
+          opened: { ...response, page: { ...response.page, rows: [] } },
+          pages,
         });
       })
       .catch(() => {
@@ -202,108 +144,15 @@ export function BrowsePanel({
   useLayoutEffect(() => {
     const focus = focusAfterUpdate.current;
     focusAfterUpdate.current = undefined;
-    if (focus === "navigation") panel.current?.focus();
-    if (focus === "page-end" && document.activeElement === document.body) {
-      panel.current?.focus({ preventScroll: true });
-    }
+    if (
+      focus &&
+      (document.activeElement === focus ||
+        (!focus.isConnected && document.activeElement === document.body))
+    )
+      panel.current?.focus();
   }, [view]);
 
-  useEffect(() => {
-    const request = pageViewport.current;
-    if (!loadingPage || !request) return;
-    const trackScroll = () => {
-      if (window.scrollY !== request.scrollY) request.scrolled = true;
-    };
-    const interruptFocus = () => {
-      request.scrolled = true;
-    };
-    const trackScrollKey = (event: globalThis.KeyboardEvent) => {
-      if (!event.isComposing && pageScrollKeys.has(event.key)) interruptFocus();
-    };
-    const scrollInputs = ["wheel", "touchmove", "pointerdown"] as const;
-    window.addEventListener("scroll", trackScroll, { passive: true });
-    window.addEventListener("keydown", trackScrollKey, true);
-    for (const event of scrollInputs) {
-      window.addEventListener(event, interruptFocus, {
-        capture: true,
-        passive: true,
-      });
-    }
-    return () => {
-      window.removeEventListener("scroll", trackScroll);
-      window.removeEventListener("keydown", trackScrollKey, true);
-      for (const event of scrollInputs) {
-        window.removeEventListener(event, interruptFocus, true);
-      }
-      if (pageViewport.current === request) pageViewport.current = undefined;
-    };
-  }, [loadingPage]);
-
-  function loadMore(keyboard: boolean) {
-    const snapshot = current.current;
-    if (!snapshot?.nextCursor || pageActive.current || busy) return;
-    const cursor = snapshot.nextCursor;
-    const requestSeq = sequence.current;
-    const request = { scrollY: window.scrollY, scrolled: false };
-    pageActive.current = request;
-    pageViewport.current = request;
-    setLoadingPage(true);
-    setMessage(undefined);
-    void port
-      .page({ nextCursor: cursor, count: 200 })
-      .then((page) => {
-        if (sequence.current !== requestSeq) return;
-        const active = current.current;
-        if (!active || active.nextCursor !== cursor) return;
-        if (
-          page.rowKind !== "folder" ||
-          page.resultVersion !== active.opened.page.resultVersion ||
-          page.queryRef !== active.opened.page.queryRef
-        ) {
-          setMessage("page-error");
-          return;
-        }
-        const known = new Set(active.rows.map((row) => rowKey(row.item)));
-        if (page.rows.some((row) => known.has(rowKey(row.item)))) {
-          setMessage("page-error");
-          return;
-        }
-        const buttonFocused = document.activeElement === loadMoreButton.current;
-        const focusNewRow =
-          keyboard &&
-          buttonFocused &&
-          page.rows.length > 0 &&
-          !request.scrolled &&
-          window.scrollY === request.scrollY;
-        focusAfterUpdate.current =
-          buttonFocused && page.nextCursor === null && !focusNewRow
-            ? "page-end"
-            : undefined;
-        setView({
-          ...active,
-          rows: [...active.rows, ...page.rows],
-          nextCursor: page.nextCursor,
-          pageFocus: focusNewRow
-            ? {
-                index: active.rows.length,
-                viewport: request,
-                button: loadMoreButton,
-              }
-            : undefined,
-        });
-      })
-      .catch(() => {
-        if (sequence.current === requestSeq) setMessage("page-error");
-      })
-      .finally(() => {
-        if (sequence.current === requestSeq) {
-          pageActive.current = undefined;
-          setLoadingPage(false);
-        }
-      });
-  }
-
-  const page: FolderQueryPage | undefined = view?.opened.page;
+  const page = view?.opened.page;
   const hasVirtualRoot =
     page !== undefined && virtualRootVersion.current === page.resultVersion;
   const parent = view && parentLocation(view.opened, hasVirtualRoot);
@@ -331,7 +180,7 @@ export function BrowsePanel({
       tabIndex={-1}
       className="du-results du-browse-panel"
       aria-label="Folder navigation"
-      onKeyDown={handleBrowseKey}
+      onKeyDownCapture={handleBrowseKey}
     >
       <Heading level={2}>Folders and files</Heading>
       {busy && <Progress label="Opening folder" />}
@@ -351,9 +200,6 @@ export function BrowsePanel({
             {busy ? "Retrying…" : "Retry"}
           </Action>
         </Notice>
-      )}
-      {message === "page-error" && (
-        <Notice tone="error">Could not load the next page.</Notice>
       )}
       {message === "job" && <Notice>Folder results are being prepared.</Notice>}
       {view && page && (
@@ -387,67 +233,25 @@ export function BrowsePanel({
               {page.unknownCount} items could not be evaluated.
             </Text>
           )}
-          {view.rows.length === 0 && (
-            <Text>No observed items in this folder.</Text>
-          )}
-          <BrowseTable
+          <BrowseResults
             key={view.opened.requestSeq}
-            label="Folder items"
-            columns={[
-              "Name",
-              "Type",
-              "Logical size",
-              "Allocated size",
-              "Modified",
-              "Availability",
-            ]}
-            rows={view.rows}
-            pageFocus={view.pageFocus}
-            scrollFooter={loadMoreButton}
-            onLayoutScroll={recordLayoutScroll}
-            getRowKey={(row) => rowKey(row.item)}
-            totalRows={page.total.state === "exact" ? page.total.count : -1}
-            renderCells={(row) => [
-              row.kind === "directory" ? (
-                <Action onPress={() => navigate(row.item, page.resultVersion)}>
-                  {browseDisplayName(row.displayName)}
-                </Action>
-              ) : (
-                <Text>{browseDisplayName(row.displayName)}</Text>
-              ),
-              <Text>
-                {row.kind === "unknown" || row.kind === "unknown_structure"
-                  ? "Unavailable"
-                  : row.kind}
-              </Text>,
-              <Text>{size(row.logicalSize)}</Text>,
-              <Text>{size(row.allocatedSize)}</Text>,
-              <Text>
-                {row.modifiedAt.state === "present"
-                  ? row.modifiedAt.value
-                  : row.modifiedAt.state === "absent"
-                    ? "Not recorded"
-                    : "Unavailable"}
-              </Text>,
-              <Text>{availability(row)}</Text>,
-            ]}
+            pages={view.pages}
+            initialCursor={page.nextCursor}
+            readPage={(request) => port.page(request)}
+            busy={busy}
+            navigationEpoch={sequence.current}
+            navigationSeq={() => sequence.current}
+            canRead={() => opening.current === undefined}
+            focusPanel={() => panel.current?.focus({ preventScroll: true })}
+            openFolder={(item) => navigate(item, page.resultVersion)}
+            reopen={() =>
+              navigate(
+                view.opened.location ?? undefined,
+                page.resultVersion,
+                true,
+              )
+            }
           />
-          {view.nextCursor && (
-            <div className="du-browse-more">
-              <Action
-                ref={loadMoreButton}
-                onPress={(event) =>
-                  loadMore(
-                    event.pointerType === "keyboard" ||
-                      event.pointerType === "virtual",
-                  )
-                }
-                isDisabled={busy}
-              >
-                {loadingPage ? "Loading…" : "Load more"}
-              </Action>
-            </div>
-          )}
         </>
       )}
     </section>
