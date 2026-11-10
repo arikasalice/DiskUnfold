@@ -8,10 +8,16 @@ export function createBrowsePort(client: AnalysisClient): BrowsePort {
   return {
     page: (request) => client.call("query.page", request),
     async open(request, signal) {
+      signal?.throwIfAborted();
       const response = await client.call("browse.open", request);
-      if (response.kind === "opened") return response;
+      if (response.kind === "opened") {
+        signal?.throwIfAborted();
+        return response;
+      }
       const jobRef = response.jobRef;
       try {
+        // A late receipt still owns its job, even if navigation was aborted.
+        signal?.throwIfAborted();
         if (
           response.requestSeq !== request.requestSeq ||
           !request.resultVersion
@@ -21,6 +27,7 @@ export function createBrowsePort(client: AnalysisClient): BrowsePort {
           );
         }
         const queryRef = await waitForQuery(client, jobRef, signal);
+        signal?.throwIfAborted();
         const page = await client.call("query.page", {
           queryRef,
           resultVersion: request.resultVersion,
@@ -69,6 +76,7 @@ async function waitForQuery(
   for (;;) {
     signal?.throwIfAborted();
     const status = await client.call("job.get", { jobRef });
+    signal?.throwIfAborted();
     if (status.jobRef !== jobRef || status.kind !== "query.evaluate") {
       throw new Error("The folder query status could not be verified.");
     }

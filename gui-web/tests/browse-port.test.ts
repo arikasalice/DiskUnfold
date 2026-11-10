@@ -107,3 +107,59 @@ test("leaving a pending folder stops polling and cancels only its job", async ()
   ).rejects.toMatchObject({ name: "AbortError" });
   expect(calls).toEqual(["browse.open", "job.get", "job.cancel"]);
 });
+
+test("an aborted folder never dispatches an open or returns a late immediate page", async () => {
+  const calls: string[] = [];
+  const controller = new AbortController();
+  const client = createAnalysisClient(async (_, { envelope }) => {
+    calls.push(envelope.name);
+    controller.abort();
+    return reply(envelope, { kind: "opened", requestSeq: 3, page });
+  });
+  const port = createBrowsePort(client);
+
+  await expect(port.open(request, AbortSignal.abort())).rejects.toMatchObject({
+    name: "AbortError",
+  });
+  expect(calls).toEqual([]);
+  await expect(port.open(request, controller.signal)).rejects.toMatchObject({
+    name: "AbortError",
+  });
+  expect(calls).toEqual(["browse.open"]);
+});
+
+test("a finished job from a superseded folder does not read a page or reopen", async () => {
+  const controller = new AbortController();
+  const calls: string[] = [];
+  const client = createAnalysisClient(async (_, { envelope }) => {
+    calls.push(envelope.name);
+    switch (envelope.name) {
+      case "browse.open":
+        return reply(envelope, {
+          kind: "job",
+          requestSeq: 3,
+          jobRef: "superseded-job",
+        });
+      case "job.get":
+        controller.abort();
+        return reply(envelope, {
+          jobRef: "superseded-job",
+          kind: "query.evaluate",
+          state: "done",
+          resultVersion: page.queryRef,
+        });
+      case "query.page":
+        return reply(envelope, page);
+      case "job.cancel":
+        expect(envelope.body).toEqual({ jobRef: "superseded-job" });
+        return reply(envelope, { outcome: "already_terminal" });
+      default:
+        throw new Error(`Unexpected command ${envelope.name}`);
+    }
+  });
+
+  await expect(
+    createBrowsePort(client).open(request, controller.signal),
+  ).rejects.toMatchObject({ name: "AbortError" });
+  expect(calls).toEqual(["browse.open", "job.get", "job.cancel"]);
+});
