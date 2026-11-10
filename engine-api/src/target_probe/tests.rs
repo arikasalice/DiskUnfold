@@ -86,6 +86,12 @@ fn path(name: &str) -> OsPath {
         lossy: false,
     }
 }
+fn probe_target(name: &str) -> ProbeTarget {
+    ProbeTarget {
+        path: path(name),
+        volume_id: None,
+    }
+}
 fn release(gate: &Arc<(Mutex<bool>, Condvar)>) {
     let (lock, cv) = &**gate;
     if let Ok(mut value) = lock.lock() {
@@ -152,7 +158,7 @@ fn blocked_call_times_out_without_delaying_fast_target_or_emitting_late_result()
     });
     let body = TargetProbe {
         clock: Arc::new(FixedClock),
-        paths: vec![path("slow"), path("fast")],
+        targets: vec![probe_target("slow"), probe_target("fast")],
         volumes: Arc::new(Port(gate.clone())),
         capacity: Capability {
             state: CapabilityState::Supported,
@@ -188,7 +194,7 @@ fn cancellation_reports_unknown_without_waiting_for_blocked_call() {
     });
     let body = TargetProbe {
         clock: Arc::new(FixedClock),
-        paths: vec![path("slow")],
+        targets: vec![probe_target("slow")],
         volumes: Arc::new(Port(gate.clone())),
         capacity: Capability {
             state: CapabilityState::Supported,
@@ -265,7 +271,11 @@ fn actual_runtime_reuses_single_permit_for_three_targets() -> Result<(), Box<dyn
     };
     let body = TargetProbe {
         clock: Arc::new(FixedClock),
-        paths: vec![path("delay"), path("fast"), path("third")],
+        targets: vec![
+            probe_target("delay"),
+            probe_target("fast"),
+            probe_target("third"),
+        ],
         volumes: Arc::new(Port(gate)),
         capacity: cap.clone(),
         path_access: cap,
@@ -328,7 +338,7 @@ fn actual_runtime_timeout_retains_permit_and_suppresses_late_result()
     };
     let body = TargetProbe {
         clock: Arc::new(FixedClock),
-        paths: vec![path("slow"), path("fast")],
+        targets: vec![probe_target("slow"), probe_target("fast")],
         volumes: Arc::new(Port(gate.clone())),
         capacity: cap.clone(),
         path_access: cap,
@@ -438,7 +448,7 @@ fn actual_runtime_foreign_permit_saturation_ends_with_reason()
     };
     runtime.submit(submit(TargetProbe {
         clock: Arc::new(FixedClock),
-        paths: vec![path("slow")],
+        targets: vec![probe_target("slow")],
         volumes: Arc::new(SignalPort {
             gate: gate.clone(),
             started,
@@ -452,7 +462,7 @@ fn actual_runtime_foreign_permit_saturation_ends_with_reason()
     wait_started.recv_timeout(Duration::from_secs(2))?;
     let second = match runtime.submit(submit(TargetProbe {
         clock: Arc::new(FixedClock),
-        paths: vec![path("fast")],
+        targets: vec![probe_target("fast")],
         volumes: Arc::new(Port(gate.clone())),
         capacity: cap.clone(),
         path_access: cap,

@@ -138,6 +138,19 @@ impl VolumePort for Volumes {
             available_bytes: 50,
         })
     }
+
+    fn observe(
+        &self,
+        path: &[u8],
+        expected: Option<&[u8]>,
+        should_read_capacity: &dyn Fn() -> bool,
+    ) -> Result<du_core_contracts::volume::VolumeProbe, PortError> {
+        assert_eq!(expected, Some([1u8, 2].as_slice()));
+        self.path_access(path)?;
+        Ok(du_core_contracts::volume::VolumeProbe {
+            capacity: should_read_capacity().then(|| self.capacity(path)),
+        })
+    }
 }
 
 struct NoRoots;

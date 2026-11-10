@@ -45,7 +45,7 @@ fn confirmed_replacement_supersedes_earlier_access_but_uncertainty_does_not() {
                 reason_key: reason.into(),
                 os_code: None,
             }),
-            &path("drive"),
+            &probe_target("drive"),
             &supported,
             &supported,
             &context,

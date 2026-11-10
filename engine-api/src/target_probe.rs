@@ -1,12 +1,13 @@
 //! Bounded execution of target observations and delivery as F01 item events.
 use du_core_contracts::{
-    OsPath,
+    OsPath, PathBytes,
+    analysis_ipc::AnalysisTarget,
     job::{Checkpoint, JobBody, JobContext, JobCounts, JobFlow, JobFlowError, JobOutcome},
-    volume::{Capability, VolumePort},
+    volume::{Capability, CapabilityState, VolumePort},
 };
 use du_job_runtime::JobClock;
 use du_scan_engine::{
-    target::{self, AccessObservation, AccessResult, AccessStatus, ProbeResult, Target},
+    target::{self, AccessObservation, AccessResult, AccessStatus, ProbeResult},
     target_probe::{self, TARGET_PROBE_KIND},
 };
 use std::{
@@ -22,12 +23,38 @@ type Flow = Arc<Mutex<Option<Box<dyn JobFlow>>>>;
 
 /// A target probe whose deadline is supplied by the composition point.
 pub(crate) struct TargetProbe {
-    pub paths: Vec<OsPath>,
+    pub targets: Vec<ProbeTarget>,
     pub volumes: Arc<dyn VolumePort>,
     pub capacity: Capability,
     pub path_access: Capability,
     pub timeout: Duration,
     pub clock: Arc<dyn JobClock>,
+}
+
+/// The path and confirmed identity from the same discovery observation.
+#[derive(Clone)]
+pub(crate) struct ProbeTarget {
+    path: OsPath,
+    volume_id: Option<Vec<u8>>,
+}
+
+impl ProbeTarget {
+    pub(crate) fn from_discovery(
+        target: &AnalysisTarget,
+    ) -> Result<Self, crate::error::EngineError> {
+        let volume_id = target
+            .volume_id
+            .as_deref()
+            .map(|value| {
+                PathBytes::parse(value).and_then(|id| id.bytes().map_err(|e| e.to_string()))
+            })
+            .transpose()
+            .map_err(|_| crate::error::EngineError::reason("support.internal_error"))?;
+        Ok(Self {
+            path: target.path.clone(),
+            volume_id,
+        })
+    }
 }
 
 struct Pending {
@@ -46,46 +73,50 @@ struct TimedOut {
 
 fn observation(
     port: &dyn VolumePort,
-    path: &OsPath,
+    target: &ProbeTarget,
     capacity: &Capability,
     path_access: &Capability,
     context: &dyn JobContext,
     deadline: Instant,
 ) -> ProbeResult {
-    let raw = path.raw.bytes().unwrap_or_default();
-    let target = Target {
-        path: raw,
-        display_path: path.display.clone(),
-    };
     if context.checkpoint() == Checkpoint::Cancel {
         return unavailable("job.cancelled", AccessStatus::Unknown);
     }
     if Instant::now() >= deadline {
         return unavailable("os.call_slow", AccessStatus::Unresponsive);
     }
-    if path_access.state == du_core_contracts::volume::CapabilityState::Unsupported {
+    if path_access.state == CapabilityState::Unsupported {
         return unavailable(
             path_access.reason_key.unwrap_or("os.unsupported"),
             AccessStatus::Unknown,
         );
     }
-    let mut access =
-        target::access_result(AccessObservation::Completed(port.path_access(&target.path)));
+    let Ok(raw) = target.path.raw.bytes() else {
+        return unavailable("path.unresolvable", AccessStatus::Unknown);
+    };
+    let observation = port.observe(&raw, target.volume_id.as_deref(), &|| {
+        capacity.state != CapabilityState::Unsupported
+            && context.checkpoint() != Checkpoint::Cancel
+            && Instant::now() < deadline
+    });
     if context.checkpoint() == Checkpoint::Cancel {
         return unavailable("job.cancelled", AccessStatus::Unknown);
     }
     if Instant::now() >= deadline {
         return unavailable("os.call_slow", AccessStatus::Unresponsive);
     }
-    let capacity = if access.status != AccessStatus::Accessible {
-        Err(access
-            .reason
-            .clone()
-            .unwrap_or_else(|| "os.query_failed".into()))
-    } else if capacity.state == du_core_contracts::volume::CapabilityState::Unsupported {
-        Err(capacity.reason_key.unwrap_or("os.unsupported").into())
-    } else {
-        port.capacity(&target.path).map_err(|error| {
+    let (mut access, capacity_result) = match observation {
+        Ok(observation) => (
+            target::access_result(AccessObservation::Completed(Ok(()))),
+            observation.capacity,
+        ),
+        Err(error) => (
+            target::access_result(AccessObservation::Completed(Err(error))),
+            None,
+        ),
+    };
+    let capacity = if let Some(result) = capacity_result {
+        result.map_err(|error| {
             let reason = error.reason_key.clone();
             let latest = target::access_result(AccessObservation::Completed(Err(error)));
             if latest.status == AccessStatus::Disconnected {
@@ -93,6 +124,13 @@ fn observation(
             }
             reason
         })
+    } else if access.status != AccessStatus::Accessible {
+        Err(access
+            .reason
+            .clone()
+            .unwrap_or_else(|| "os.query_failed".into()))
+    } else {
+        Err(capacity.reason_key.unwrap_or("os.unsupported").into())
     };
     ProbeResult {
         access,
@@ -135,7 +173,7 @@ fn report(flow: &Flow, path: OsPath, mut result: ProbeResult, clock: &dyn JobClo
 fn start(
     context: &Arc<dyn JobContext>,
     body: &TargetProbe,
-    path: OsPath,
+    target: ProbeTarget,
 ) -> Result<Pending, JobFlowError> {
     let flow = Arc::new(Mutex::new(Some(context.try_start_flow()?)));
     let (send, receiver) = mpsc::sync_channel(1);
@@ -147,7 +185,7 @@ fn start(
     let capability = body.capacity.clone();
     let path_access = body.path_access.clone();
     let clock = body.clock.clone();
-    let thread_path = path.clone();
+    let path = target.path.clone();
     let thread_context = context.clone();
     let now = Instant::now();
     let deadline = now.checked_add(body.timeout).unwrap_or(now);
@@ -156,7 +194,7 @@ fn start(
         .spawn(move || {
             let mut result = observation(
                 &*port,
-                &thread_path,
+                &target,
                 &capability,
                 &path_access,
                 &*thread_context,
@@ -199,7 +237,7 @@ impl JobBody for TargetProbe {
         let mut pending: Vec<Pending> = Vec::new();
         let mut timed_out: Vec<TimedOut> = Vec::new();
         let mut waiting = self
-            .paths
+            .targets
             .iter()
             .cloned()
             .collect::<std::collections::VecDeque<_>>();
@@ -215,10 +253,10 @@ impl JobBody for TargetProbe {
                     .map(|task| &task.flow)
                     .or_else(|| timed_out.first().map(|task| &task.flow))
                 {
-                    for path in waiting.drain(..) {
+                    for target in waiting.drain(..) {
                         failed |= !report(
                             flow,
-                            path,
+                            target.path,
                             unavailable("job.cancelled", AccessStatus::Unknown),
                             &*self.clock,
                         );
@@ -226,8 +264,8 @@ impl JobBody for TargetProbe {
                 } else {
                     waiting.clear();
                 }
-            } else if let Some(path) = waiting.front().cloned() {
-                match start(&context, self, path) {
+            } else if let Some(target) = waiting.front().cloned() {
+                match start(&context, self, target) {
                     Ok(task) => {
                         waiting.pop_front();
                         pending.push(task);
@@ -238,10 +276,10 @@ impl JobBody for TargetProbe {
                         no_flow_since = None;
                     }
                     Err(JobFlowError::Busy) if !timed_out.is_empty() => {
-                        for path in waiting.drain(..) {
+                        for target in waiting.drain(..) {
                             failed |= !report(
                                 &timed_out[0].flow,
-                                path,
+                                target.path,
                                 unavailable("os.call_slow", AccessStatus::Unresponsive),
                                 &*self.clock,
                             );

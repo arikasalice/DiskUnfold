@@ -3,7 +3,7 @@ use du_core_contracts::{
     ports::{PortError, PortErrorKind},
     volume::{
         Capability, CapabilityState, VolumeCapabilities, VolumeCapacity, VolumeEnumeration,
-        VolumeMount, VolumePort, VolumeTargetKind,
+        VolumeMount, VolumePort, VolumeProbe, VolumeTargetKind,
     },
 };
 use std::{
@@ -147,16 +147,27 @@ fn enumerate_mask(
     }
     mounts
 }
-fn open_root(path: &[u8]) -> Result<(std::fs::File, Vec<u8>), PortError> {
+fn open_root(
+    drive: &[u16],
+    expected: Option<&[u8]>,
+) -> Result<(std::fs::File, Vec<u8>), PortError> {
     use std::{
         ffi::OsString,
         os::windows::{ffi::OsStringExt, io::AsRawHandle},
         path::PathBuf,
     };
-    let drive = root(path)?;
     // A drive mapping without a confirmed volume GUID may be SUBST or network.
-    let before = identity(&drive)?;
-    let path = PathBuf::from(OsString::from_wide(&drive));
+    let before = identity(drive).map_err(|failure| {
+        if expected.is_some() && failure.kind == PortErrorKind::NotFound {
+            disconnected(failure.os_code)
+        } else {
+            failure
+        }
+    })?;
+    if expected.is_some_and(|expected| expected != before) {
+        return Err(disconnected(None));
+    }
+    let path = PathBuf::from(OsString::from_wide(drive));
     let file = OpenOptions::new()
         .access_mode(FILE_LIST_DIRECTORY.0 | FILE_TRAVERSE.0)
         .share_mode(1 | 2 | 4)
@@ -176,40 +187,74 @@ fn open_root(path: &[u8]) -> Result<(std::fs::File, Vec<u8>), PortError> {
             VOLUME_NAME_GUID,
         )
     } as usize;
-    if length == 0
-        || length >= final_path.len()
-        || bytes(&final_path[..length]) != before
-        || identity(&drive).as_ref() != Ok(&before)
-    {
-        return Err(PortError {
-            kind: PortErrorKind::IdentityChanged,
-            reason_key: "scan.disconnected".into(),
-            os_code: None,
-        });
+    if length == 0 {
+        return Err(error(io::Error::last_os_error()));
     }
+    if length >= final_path.len() {
+        return Err(invalid());
+    }
+    if bytes(&final_path[..length]) != before {
+        return Err(disconnected(None));
+    }
+    check_mapping(&before, || identity(drive))?;
     Ok((file, before))
 }
 
+fn disconnected(os_code: Option<i32>) -> PortError {
+    PortError {
+        kind: PortErrorKind::IdentityChanged,
+        reason_key: "scan.disconnected".into(),
+        os_code,
+    }
+}
+
 /// Discards a capacity observation if the drive changed or could not be revalidated.
+fn check_mapping(
+    expected: &[u8],
+    current_identity: impl FnOnce() -> Result<Vec<u8>, PortError>,
+) -> Result<(), PortError> {
+    match current_identity() {
+        Ok(identity) if identity == expected => Ok(()),
+        Ok(_) => Err(disconnected(None)),
+        Err(error) if error.kind == PortErrorKind::NotFound => Err(disconnected(error.os_code)),
+        Err(error) => Err(error),
+    }
+}
+
 fn checked_capacity(
     expected: &[u8],
     observation: Result<VolumeCapacity, PortError>,
     current_identity: impl FnOnce() -> Result<Vec<u8>, PortError>,
 ) -> Result<VolumeCapacity, PortError> {
-    match current_identity() {
-        Ok(identity) if identity == expected => observation,
-        Ok(_) => Err(PortError {
-            kind: PortErrorKind::IdentityChanged,
-            reason_key: "scan.disconnected".into(),
-            os_code: None,
-        }),
-        Err(error) if error.kind == PortErrorKind::NotFound => Err(PortError {
-            kind: PortErrorKind::IdentityChanged,
-            reason_key: "scan.disconnected".into(),
-            os_code: error.os_code,
-        }),
-        Err(error) => Err(error),
+    check_mapping(expected, current_identity)?;
+    observation
+}
+
+fn volume_capacity(drive: &[u16], volume: &[u8]) -> Result<VolumeCapacity, PortError> {
+    let wide = terminated(
+        &volume
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|c| u16::from_le_bytes([c[0], c[1]]))
+            .collect::<Vec<_>>(),
+    );
+    let (mut available, mut total) = (0, 0);
+    // SAFETY: path is NUL-terminated and output pointers are valid.
+    let observation = unsafe {
+        GetDiskFreeSpaceExW(
+            PCWSTR(wide.as_ptr()),
+            Some(&mut available),
+            Some(&mut total),
+            None,
+        )
     }
+    .map(|()| VolumeCapacity {
+        total_bytes: total,
+        available_bytes: available,
+    })
+    .map_err(|e| error(io::Error::from_raw_os_error(e.code().0 & 0xffff)));
+    checked_capacity(volume, observation, || identity(drive))
 }
 
 impl VolumePort for WindowsVolumes {
@@ -234,35 +279,25 @@ impl VolumePort for WindowsVolumes {
         }
     }
     fn path_access(&self, path: &[u8]) -> Result<(), PortError> {
-        open_root(path).map(|_| ())
+        open_root(&root(path)?, None).map(|_| ())
     }
     fn capacity(&self, path: &[u8]) -> Result<VolumeCapacity, PortError> {
-        let (_handle, volume) = open_root(path)?;
         let drive = root(path)?;
-        let wide = terminated(
-            &volume
-                .as_chunks::<2>()
-                .0
-                .iter()
-                .map(|c| u16::from_le_bytes([c[0], c[1]]))
-                .collect::<Vec<_>>(),
-        );
-        let (mut available, mut total) = (0, 0);
-        // SAFETY: path is NUL-terminated and output pointers are valid.
-        let observation = unsafe {
-            GetDiskFreeSpaceExW(
-                PCWSTR(wide.as_ptr()),
-                Some(&mut available),
-                Some(&mut total),
-                None,
-            )
-        }
-        .map(|()| VolumeCapacity {
-            total_bytes: total,
-            available_bytes: available,
+        let (_handle, volume) = open_root(&drive, None)?;
+        volume_capacity(&drive, &volume)
+    }
+
+    fn observe(
+        &self,
+        path: &[u8],
+        expected_volume: Option<&[u8]>,
+        should_read_capacity: &dyn Fn() -> bool,
+    ) -> Result<VolumeProbe, PortError> {
+        let drive = root(path)?;
+        let (_handle, volume) = open_root(&drive, expected_volume)?;
+        Ok(VolumeProbe {
+            capacity: should_read_capacity().then(|| volume_capacity(&drive, &volume)),
         })
-        .map_err(|e| error(io::Error::from_raw_os_error(e.code().0 & 0xffff)));
-        checked_capacity(&volume, observation, || identity(&drive))
     }
 }
 
@@ -436,20 +471,36 @@ mod tests {
         wide.push(92);
         let path = bytes(&wide);
         let result = WindowsVolumes.enumerate();
-        assert!(
-            result
-                .mounts
-                .map_err(|e| format!("{e:?}"))?
-                .iter()
-                .any(|m| m.mount_path == path)
-        );
+        let expected = result
+            .mounts
+            .map_err(|e| format!("{e:?}"))?
+            .into_iter()
+            .find(|m| m.mount_path == path)
+            .and_then(|m| m.volume_id)
+            .ok_or("missing system drive identity")?;
         WindowsVolumes
             .path_access(&path)
             .map_err(|e| format!("{e:?}"))?;
         let capacity = WindowsVolumes
-            .capacity(&path)
+            .observe(&path, Some(&expected), &|| true)
+            .map_err(|e| format!("{e:?}"))?
+            .capacity
+            .ok_or("missing capacity observation")?
             .map_err(|e| format!("{e:?}"))?;
         assert!(capacity.total_bytes >= capacity.available_bytes);
+        let without_capacity = WindowsVolumes
+            .observe(&path, Some(&expected), &|| false)
+            .map_err(|e| format!("{e:?}"))?;
+        assert!(without_capacity.capacity.is_none());
+        let mut different = expected;
+        different.push(0);
+        let replacement = WindowsVolumes.observe(&path, Some(&different), &|| {
+            panic!("must not request capacity for a different volume")
+        });
+        assert_eq!(
+            replacement.err().map(|e| e.kind),
+            Some(PortErrorKind::IdentityChanged)
+        );
         Ok(())
     }
 }

@@ -143,7 +143,10 @@ impl UseCase for List {
         let mut probe_job_ref = None;
         if !targets.is_empty() {
             let body = Arc::new(crate::target_probe::TargetProbe {
-                paths: targets.iter().map(|target| target.path.clone()).collect(),
+                targets: targets
+                    .iter()
+                    .map(crate::target_probe::ProbeTarget::from_discovery)
+                    .collect::<Result<_, _>>()?,
                 volumes: self.volumes.clone(),
                 capacity,
                 path_access,

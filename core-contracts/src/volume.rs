@@ -1,5 +1,5 @@
 //! Read-only volume discovery contracts.
-use crate::ports::PortError;
+use crate::ports::{PortError, PortErrorKind};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CapabilityState {
@@ -82,10 +82,38 @@ pub struct VolumeCapacity {
     pub available_bytes: u64,
 }
 
+/// A successful access check and the capacity observation, if requested.
+pub struct VolumeProbe {
+    pub capacity: Option<Result<VolumeCapacity, PortError>>,
+}
+
 pub trait VolumePort: Send + Sync {
     fn enumerate(&self) -> VolumeEnumeration;
     /// Verify read and search access to a directory without listing its entries.
     fn path_access(&self, path: &[u8]) -> Result<(), PortError>;
     /// Read current capacity for the requested directory, without caching observations.
     fn capacity(&self, path: &[u8]) -> Result<VolumeCapacity, PortError>;
+
+    /// Checks access and, when allowed by the caller's checkpoint, reads capacity.
+    ///
+    /// A supplied identity must be verified against the volume being observed.
+    /// Adapters that cannot verify it must decline the observation.
+    fn observe(
+        &self,
+        path: &[u8],
+        expected_volume: Option<&[u8]>,
+        should_read_capacity: &dyn Fn() -> bool,
+    ) -> Result<VolumeProbe, PortError> {
+        if expected_volume.is_some() {
+            return Err(PortError {
+                kind: PortErrorKind::Unsupported,
+                reason_key: "os.unsupported".into(),
+                os_code: None,
+            });
+        }
+        self.path_access(path)?;
+        Ok(VolumeProbe {
+            capacity: should_read_capacity().then(|| self.capacity(path)),
+        })
+    }
 }
