@@ -211,3 +211,83 @@ fn frozen_catalog_selects_extension_and_explicit_versions_into_common_model() ->
     ));
     Ok(())
 }
+
+/// Records invocation while preserving a strategy's behavior.
+struct Counting<S>(S, Arc<std::sync::atomic::AtomicUsize>);
+impl<S: Strategy> Strategy for Counting<S> {
+    fn layout(
+        &self,
+        input: &Input,
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<Output, LayoutError> {
+        self.1.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.0.layout(input, cancelled)
+    }
+}
+#[test]
+fn selection_failures_never_invoke_a_registered_strategy() -> Result<(), String> {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let first = treemap_descriptor();
+    let extension = descriptor(1);
+    let treemap_calls = Arc::new(AtomicUsize::new(0));
+    let extension_calls = Arc::new(AtomicUsize::new(0));
+    let mut builder = registry::Builder::<Box<dyn Strategy>>::default();
+    builder
+        .register(
+            first.clone(),
+            Box::new(Counting(Treemap, treemap_calls.clone())),
+        )
+        .map_err(|e| format!("{e:?}"))?;
+    builder
+        .register(
+            extension.clone(),
+            Box::new(Counting(Extension(7), extension_calls.clone())),
+        )
+        .map_err(|e| format!("{e:?}"))?;
+    let dispatcher = Dispatcher::new(builder.build(&[first]).map_err(|e| format!("{e:?}"))?);
+    let (version, parent, keys) = source()?;
+    let unknown_format = project(
+        &version,
+        &parent,
+        &keys,
+        &dispatcher,
+        "fixture.missing",
+        None,
+    );
+    assert!(matches!(
+        unknown_format,
+        Err(projection::Error::Dispatch(
+            super::DispatchError::Selection(registry::SelectionError::UnknownFormat)
+        ))
+    ));
+    let unknown_revision = project(
+        &version,
+        &parent,
+        &keys,
+        &dispatcher,
+        &extension.format,
+        Some(&descriptor(99).strategy),
+    );
+    assert!(matches!(
+        unknown_revision,
+        Err(projection::Error::Dispatch(
+            super::DispatchError::Selection(registry::SelectionError::UnknownStrategy)
+        ))
+    ));
+    assert_eq!(treemap_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(extension_calls.load(Ordering::SeqCst), 0);
+    let output = project(
+        &version,
+        &parent,
+        &keys,
+        &dispatcher,
+        &extension.format,
+        None,
+    )
+    .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(output.strategy, extension);
+    assert_eq!(output.shapes[0].geometry.primitive(), "point");
+    assert_eq!(treemap_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(extension_calls.load(Ordering::SeqCst), 1);
+    Ok(())
+}
