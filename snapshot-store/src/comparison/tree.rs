@@ -185,7 +185,7 @@ fn inherited_location(location: Location, inherited: Option<Gap>) -> Location {
     }
 }
 
-fn stronger(a: Gap, b: Gap) -> Gap {
+pub(super) fn stronger(a: Gap, b: Gap) -> Gap {
     fn priority(gap: Gap) -> u8 {
         match gap {
             Gap::DifferentStorage => 6,
