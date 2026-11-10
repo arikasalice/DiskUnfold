@@ -1,5 +1,4 @@
 //! Exercise live model registration from the selected scan through the strategy registry.
-#[path = "viz_render_selected/locate.rs"]
 mod locate;
 
 use std::{
