@@ -8,6 +8,8 @@ use rusqlite::{Error, ErrorCode, TransactionBehavior, params};
 
 use crate::AppDb;
 
+pub mod read;
+
 impl AppDb {
     /// Atomically appends the path-free terminal summary, its local history link,
     /// and the next history sequence for a metadata scan.

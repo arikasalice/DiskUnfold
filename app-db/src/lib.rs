@@ -15,6 +15,7 @@ pub mod migration;
 mod settings;
 
 pub use history_schema::{HISTORY_DEFINITIONS, HISTORY_SCHEMA_VERSION};
+pub use job_history::read as history_read;
 
 const APPLICATION_ID: u32 = 0x4455_4442;
 const SCHEMA_VERSION: u32 = 1;
