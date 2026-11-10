@@ -87,7 +87,14 @@ impl Sink {
 fn ledger() -> Ledger {
     let mut l = Ledger::new([1; 16]);
     l.register::<()>(definition(3)).unwrap();
+    bootstrap(&mut l, 3);
     l
+}
+fn bootstrap(l: &mut Ledger, id: u8) {
+    let mut initial = snapshot(id, 0, 0);
+    initial.sequence = 0;
+    l.apply_snapshot(&initial, &mut |_| Ok::<(), ()>(()))
+        .unwrap();
 }
 fn apply(l: &mut Ledger, b: &Batch, s: &mut Sink) -> Result<Outcome, Error<&'static str>> {
     l.apply(b, &mut |u| s.apply(u))
@@ -103,6 +110,45 @@ fn change(at: u64) -> Change {
         first: at,
         last: at,
     }
+}
+
+#[test]
+fn batch_waits_for_a_successfully_applied_initial_snapshot() {
+    let mut l = Ledger::new([1; 16]);
+    l.register::<()>(definition(3)).unwrap();
+    let mut sink = Sink::default();
+    assert_eq!(apply(&mut l, &batch(3, 1), &mut sink), Ok(Outcome::Resync));
+    assert_eq!(sink.count, 0);
+    assert_eq!(l.unit(&[3; 16]).unwrap().last_change_sequence, 0);
+    sink.fail = true;
+    assert_eq!(
+        snap(&mut l, &snapshot(3, 0, 0), &mut sink),
+        Err(Error::Apply("failed"))
+    );
+    sink.fail = false;
+    assert_eq!(apply(&mut l, &batch(3, 1), &mut sink), Ok(Outcome::Resync));
+    assert_eq!(
+        snap(&mut l, &snapshot(3, 0, 0), &mut sink),
+        Ok(Outcome::Applied)
+    );
+    assert_eq!(apply(&mut l, &batch(3, 1), &mut sink), Ok(Outcome::Applied));
+}
+
+#[test]
+fn initial_snapshot_cut_sets_the_first_permitted_change_sequence() {
+    let mut l = Ledger::new([1; 16]);
+    l.register::<()>(definition(3)).unwrap();
+    let mut sink = Sink::default();
+    assert_eq!(
+        snap(&mut l, &snapshot(3, 5, 10), &mut sink),
+        Ok(Outcome::Applied)
+    );
+    assert_eq!(
+        apply(&mut l, &batch(3, 5), &mut sink),
+        Ok(Outcome::Duplicate)
+    );
+    assert_eq!(apply(&mut l, &batch(3, 6), &mut sink), Ok(Outcome::Applied));
+    assert_eq!(l.unit(&[3; 16]).unwrap().last_change_sequence, 6);
 }
 
 #[test]
@@ -138,6 +184,7 @@ fn apply_failure_keeps_cursor_and_evidence_until_snapshot_retry() {
 fn scope_window_count_eviction_preserves_both_units_and_committed_evidence() {
     let mut l = ledger();
     l.register::<()>(definition(4)).unwrap();
+    bootstrap(&mut l, 4);
     let mut sink = Sink::default();
     let mut first = batch(3, 1);
     first.changes.push(change(1));
@@ -214,6 +261,7 @@ fn replay_keeps_only_gap_metadata_and_preserves_committed_changes() {
 fn release_reclaims_unit_and_scope_without_touching_other_evidence() {
     let mut l = ledger();
     l.register::<()>(definition(4)).unwrap();
+    bootstrap(&mut l, 4);
     let mut sink = Sink::default();
     let mut a = batch(3, 1);
     a.changes.push(change(1));
@@ -306,7 +354,8 @@ fn volume_mismatch_does_not_send_change_ranges_to_sink() {
 
 #[test]
 fn a_new_generation_does_not_inherit_snapshot_status() {
-    let mut ledger = ledger();
+    let mut ledger = Ledger::new([1; 16]);
+    ledger.register::<()>(definition(3)).unwrap();
     let mut sink = Sink::default();
     assert_eq!(
         snap(&mut ledger, &snapshot(3, 0, 0), &mut sink),

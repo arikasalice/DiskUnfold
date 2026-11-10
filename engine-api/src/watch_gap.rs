@@ -130,7 +130,11 @@ impl Ledger {
             }
         }
     }
-    /// Consume a batch only after its complete IF-17 transaction succeeds.
+    /// Consume a batch only after an initial snapshot and its IF-17 transaction succeed.
+    ///
+    /// A newly registered unit has no trusted change-sequence baseline. Until
+    /// its snapshot callback succeeds, batches request resynchronization and
+    /// neither the sink nor the consumer cursor is advanced.
     pub fn apply<E>(
         &mut self,
         batch: &Batch,
@@ -143,6 +147,10 @@ impl Ledger {
             .units
             .get_mut(&batch.context.watch_ref)
             .ok_or(Error::UnknownUnit)?;
+        if unit.snapshot.is_none() {
+            unit.needs_resync = true;
+            return Ok(Outcome::Resync);
+        }
         if batch.change_sequence <= unit.last_change_sequence {
             return Ok(Outcome::Duplicate);
         }
