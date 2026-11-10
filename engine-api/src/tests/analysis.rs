@@ -108,6 +108,7 @@ fn job_commands_report_the_committed_state_and_reject_unknown_references()
     assert_eq!(queued["state"], "queued");
     assert_eq!(queued["sequence"], 1);
     assert!(queued["resultVersion"].is_null());
+    assert!(queued.get("scanResult").is_none());
 
     assert_eq!(runtime.run_next()?, Some(job.clone()));
     let finished = command("job.status", &job)?.body;

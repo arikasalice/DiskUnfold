@@ -51,6 +51,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ScanStart::decl(&config),
         JobState::decl(&config),
         AnalysisJobRequest::decl(&config),
+        ScanResult::decl(&config),
         AnalysisJobStatus::decl(&config),
         JobControlOutcome::decl(&config),
         AnalysisJobControl::decl(&config),

@@ -1,4 +1,5 @@
 //! Job query and control use cases for the desktop analysis flow.
+use du_analysis_index::IngestSink;
 use std::sync::Arc;
 
 use du_core_contracts::analysis_ipc::{
@@ -13,11 +14,34 @@ use crate::{
 
 /// Registers job status and cooperative cancellation for the composed GUI runtime.
 pub fn register(builder: &mut EngineBuilder, runtime: Arc<JobRuntime>) {
-    builder.register(Status(runtime.clone()));
+    register_inner(builder, runtime, None);
+}
+
+/// Registers job queries with access to the desktop scan result store.
+pub fn register_with_scan_store(
+    builder: &mut EngineBuilder,
+    runtime: Arc<JobRuntime>,
+    store: IngestSink,
+) {
+    register_inner(builder, runtime, Some(store));
+}
+
+fn register_inner(
+    builder: &mut EngineBuilder,
+    runtime: Arc<JobRuntime>,
+    store: Option<IngestSink>,
+) {
+    builder.register(Status {
+        runtime: runtime.clone(),
+        store,
+    });
     builder.register(Cancel(runtime));
 }
 
-struct Status(Arc<JobRuntime>);
+struct Status {
+    runtime: Arc<JobRuntime>,
+    store: Option<IngestSink>,
+}
 
 impl UseCase for Status {
     const NAME: &'static str = "job.status";
@@ -34,7 +58,22 @@ impl UseCase for Status {
         request: Self::Request,
         _: &CallerCtx,
     ) -> Result<Self::Response, EngineError> {
-        let snapshot = self.0.snapshot(&request.job_ref).map_err(runtime_error)?;
+        let snapshot = self
+            .runtime
+            .snapshot(&request.job_ref)
+            .map_err(runtime_error)?;
+        let scan_result = match (
+            &self.store,
+            &snapshot.result_binding,
+            snapshot.kind_id.as_str(),
+        ) {
+            (Some(store), Some(binding), "scan.metadata") => Some(
+                store
+                    .scan_result(&binding.lineage_id, &binding.scope_version)
+                    .map_err(|_| EngineError::reason("support.internal_error"))?,
+            ),
+            _ => None,
+        };
         Ok(AnalysisJobStatus {
             job_ref: request.job_ref,
             kind: snapshot.kind_id,
@@ -42,6 +81,7 @@ impl UseCase for Status {
             sequence: snapshot.sequence,
             result_version: snapshot.result_version_id,
             reason_key: snapshot.failure_reason_key,
+            scan_result,
         })
     }
 }

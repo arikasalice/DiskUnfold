@@ -23,10 +23,17 @@ fn terminal_body_is_released_and_entry_expires_after_ten_minutes()
     runtime.register(descriptor())?;
     let body = Arc::new(InstantBody);
     let weak = Arc::downgrade(&body);
-    let id = created(runtime.submit(sample_submission(body.clone())?)?)?;
+    let binding = ResultBinding {
+        lineage_id: Id::parse("018f0000-0000-7000-8000-000000000002")?,
+        scope_version: Id::parse("018f0000-0000-7000-8000-000000000003")?,
+    };
+    let id = created(
+        runtime.submit_with_result_binding(sample_submission(body.clone())?, binding.clone())?,
+    )?;
     let queued = runtime.snapshot(&id)?;
     assert_eq!(queued.state, JobState::Queued);
     assert_eq!(queued.sequence, 1);
+    assert_eq!(queued.result_binding.as_ref(), Some(&binding));
     drop(body);
     assert!(weak.upgrade().is_some());
     runtime.cancel(&id)?;
@@ -38,6 +45,7 @@ fn terminal_body_is_released_and_entry_expires_after_ten_minutes()
     assert_eq!(snapshot.kind_id, "scan.metadata");
     assert!(snapshot.sequence > queued.sequence);
     assert_eq!(snapshot.result_version_id, None);
+    assert_eq!(snapshot.result_binding.as_ref(), Some(&binding));
     clock.0.store(600_000, Ordering::SeqCst);
     assert_eq!(runtime.state(&id), Err(RuntimeError::NotFound));
     assert_eq!(runtime.snapshot(&id), Err(RuntimeError::NotFound));
@@ -45,6 +53,7 @@ fn terminal_body_is_released_and_entry_expires_after_ten_minutes()
     let weak = Arc::downgrade(&body);
     let second = created(runtime.submit(sample_submission(body.clone())?)?)?;
     drop(body);
+    assert_eq!(runtime.snapshot(&second)?.result_binding, None);
     assert_eq!(runtime.run_next()?, Some(second));
     assert!(weak.upgrade().is_none());
     Ok(())

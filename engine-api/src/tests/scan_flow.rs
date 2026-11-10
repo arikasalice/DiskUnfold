@@ -64,6 +64,7 @@ struct Roots {
     opens: AtomicUsize,
     reads: Arc<AtomicUsize>,
     release: Arc<Mutex<mpsc::Receiver<()>>>,
+    finish_gate: Option<Arc<Mutex<mpsc::Receiver<()>>>>,
 }
 
 impl ScopeRootPort for Roots {
@@ -94,6 +95,7 @@ impl ScopeRootPort for Roots {
             directory: Box::new(Directory {
                 reads: self.reads.clone(),
                 release: Some(self.release.clone()),
+                finish_gate: self.finish_gate.clone(),
             }),
         })
     }
@@ -102,12 +104,19 @@ impl ScopeRootPort for Roots {
 struct Directory {
     reads: Arc<AtomicUsize>,
     release: Option<Arc<Mutex<mpsc::Receiver<()>>>>,
+    finish_gate: Option<Arc<Mutex<mpsc::Receiver<()>>>>,
 }
 
 impl DirectoryObservations for Directory {
     fn next_batch(&mut self) -> Result<Vec<ObservedEntry>, PortError> {
         self.reads.fetch_add(1, Ordering::Relaxed);
         let Some(release) = self.release.take() else {
+            if let Some(gate) = self.finish_gate.take() {
+                gate.lock()
+                    .map_err(|_| io_error())?
+                    .recv_timeout(Duration::from_secs(5))
+                    .map_err(|_| io_error())?;
+            }
             return Ok(Vec::new());
         };
         release
@@ -155,43 +164,11 @@ struct ScanHarness {
 }
 
 fn scan_harness() -> Result<ScanHarness, Box<dyn std::error::Error>> {
-    let ids = Arc::new(Ids {
-        next: AtomicUsize::new(1),
-        fallback: Id::parse("018f0000-0000-7000-8000-000000000000")?,
-    });
-    let (release, blocked) = mpsc::channel();
-    let (send, terminal) = mpsc::channel();
-    let roots = Arc::new(Roots {
-        file_id: AtomicUsize::new(1),
-        opens: AtomicUsize::new(0),
-        reads: Arc::new(AtomicUsize::new(0)),
-        release: Arc::new(Mutex::new(blocked)),
-    });
-    let clock = Arc::new(Clock);
-    let runtime = Arc::new(JobRuntime::new_with_limits(
-        ids.clone(),
-        clock.clone(),
-        Arc::new(History),
-        Arc::new(Events(send)),
-        FlowLimits {
-            metadata_io: 2,
-            queued_items: 4,
-            item_bytes: 1024,
-        },
-    )?);
-    let mut builder = EngineBuilder::default();
-    crate::jobs::register(&mut builder, runtime.clone());
-    crate::scope::register_review(&mut builder, roots.clone(), clock);
-    let workers = Arc::new(crate::workers::Workers::start(runtime)?);
-    let versions = crate::scan::register(&mut builder, workers, roots.clone(), ids)?;
-    Ok(ScanHarness {
-        engine: builder.build()?,
-        roots,
-        release,
-        terminal,
-        versions,
-    })
+    scan_harness_with_gate(None)
 }
+
+mod fixture;
+use fixture::scan_harness_with_gate;
 
 #[test]
 fn reviewed_identity_is_rechecked_and_one_job_publishes_the_requested_result()
@@ -496,3 +473,5 @@ fn check_observed_details(
 }
 
 mod multiple;
+
+mod partial_status;

@@ -9,7 +9,8 @@ use du_core_contracts::{
     scan_observation::ScopeRootPort,
 };
 use du_job_runtime::{
-    DeduplicationKey, JobIdentity, JobPriority, RuntimeError, Submission, SubmitResult,
+    DeduplicationKey, JobIdentity, JobPriority, ResultBinding, RuntimeError, Submission,
+    SubmitResult,
 };
 use du_scan_engine::{scan::ResultIds, scan_job::MetadataScan};
 
@@ -96,7 +97,7 @@ impl UseCase for StartScan {
                 scope_version.clone(),
                 self.ids.clone(),
             )
-            .with_lineage(lineage),
+            .with_lineage(lineage.clone()),
         );
         let submission = Submission {
             kind_id: body.kind_id().into(),
@@ -119,6 +120,7 @@ impl UseCase for StartScan {
         self.admit(
             submission,
             scope_version,
+            lineage,
             verified.scope_fingerprint,
             request.review_fingerprint,
         )
@@ -130,6 +132,7 @@ impl StartScan {
         &self,
         submission: Submission,
         scope_version: Id,
+        lineage: Id,
         scope_fingerprint: String,
         review_fingerprint: String,
     ) -> Result<ScanStart, EngineError> {
@@ -146,7 +149,13 @@ impl StartScan {
         match self
             .workers
             .runtime
-            .submit(submission)
+            .submit_with_result_binding(
+                submission,
+                ResultBinding {
+                    lineage_id: lineage.clone(),
+                    scope_version: scope_version.clone(),
+                },
+            )
             .map_err(submit_error)?
         {
             SubmitResult::Created(job_ref) => {
@@ -155,6 +164,7 @@ impl StartScan {
                     existing: false,
                     scope_version,
                     scope_fingerprint,
+                    lineage_id: Some(lineage),
                 };
                 *admitted = Some(Admitted {
                     receipt: receipt.clone(),

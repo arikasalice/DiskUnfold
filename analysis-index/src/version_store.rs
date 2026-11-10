@@ -1,6 +1,6 @@
 //! Session result lineages and current-version ownership.
-use crate::{BuildError, QueryError, ResultVersion};
-use du_core_contracts::Id;
+use crate::{BuildError, IngestSink, QueryError, ResultVersion};
+use du_core_contracts::{Id, analysis_ipc::ScanResult};
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
@@ -113,5 +113,27 @@ impl State {
         } else {
             self.current.remove(lineage)
         }
+    }
+}
+
+impl IngestSink {
+    /// Reads a lineage sequence and this scope version's current result atomically.
+    pub fn scan_result(
+        &self,
+        lineage_id: &Id,
+        scope_version: &Id,
+    ) -> Result<ScanResult, BuildError> {
+        let state = self.state.lock().map_err(|_| BuildError::Unavailable)?;
+        let sequence = state.event_sequences.get(lineage_id).copied().unwrap_or(0);
+        let result_version = state
+            .current
+            .get(&Some(lineage_id.clone()))
+            .filter(|entry| entry.result.scope_version_id == *scope_version)
+            .map(|entry| entry.result.version_id.clone());
+        Ok(ScanResult {
+            lineage_id: lineage_id.clone(),
+            sequence,
+            result_version,
+        })
     }
 }

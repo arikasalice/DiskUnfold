@@ -178,6 +178,22 @@ pub struct ScanStart {
     pub existing: bool,
     pub scope_version: Id,
     pub scope_fingerprint: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub lineage_id: Option<Id>,
+}
+
+/// A scan job's lineage and current publication, observed together.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct ScanResult {
+    pub lineage_id: Id,
+    #[cfg_attr(feature = "typescript", ts(type = "number"))]
+    pub sequence: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub result_version: Option<Id>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -198,6 +214,9 @@ pub struct AnalysisJobStatus {
     pub sequence: u64,
     pub result_version: Option<Id>,
     pub reason_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub scan_result: Option<ScanResult>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

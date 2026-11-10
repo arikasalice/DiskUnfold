@@ -46,7 +46,6 @@ pub fn register(
         },
     )?);
     let workers = Arc::new(Workers::start(runtime.clone())?);
-    jobs::register(builder, runtime.clone());
     scope::register_review(builder, roots.clone(), clock.clone());
     targets::register_with_probe(
         builder,
@@ -58,7 +57,8 @@ pub fn register(
             probe: TARGET_PROBE_DEADLINE,
         },
     )?;
-    scan::register(builder, workers, roots, ids)?;
+    let store = scan::register(builder, workers, roots, ids)?;
+    jobs::register_with_scan_store(builder, runtime, store);
     Ok(events)
 }
 

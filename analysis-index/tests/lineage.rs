@@ -295,3 +295,60 @@ fn restored_baseline_keeps_its_original_publication_order() -> Result<(), String
     assert!(sink.pin_current(&id(20)?).is_ok());
     Ok(())
 }
+
+#[test]
+fn scan_result_never_reports_a_prior_or_restored_run_as_current() -> Result<(), String> {
+    let sink = IngestSink::default();
+    let lineage = sink
+        .bind_current_analysis("a", id(1)?)
+        .map_err(|e| format!("{e:?}"))?;
+    let other = sink
+        .bind_current_analysis("b", id(2)?)
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(
+        sink.scan_result(&lineage, &id(10)?)
+            .map_err(|e| format!("{e:?}"))?
+            .sequence,
+        0
+    );
+    build(&sink, &lineage, 10)?
+        .seal(id(20)?, ResultCompleteness::Complete)
+        .map_err(|e| format!("{e:?}"))?;
+    build(&sink, &other, 12)?
+        .seal(id(22)?, ResultCompleteness::Complete)
+        .map_err(|e| format!("{e:?}"))?;
+    let prior = sink
+        .scan_result(&lineage, &id(11)?)
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(prior.sequence, 1);
+    assert_eq!(prior.result_version, None);
+    let mut failed = build(&sink, &lineage, 11)?;
+    failed
+        .publish_partial(id(21)?)
+        .map_err(|e| format!("{e:?}"))?;
+    let partial = sink
+        .scan_result(&lineage, &id(11)?)
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(
+        (partial.sequence, partial.result_version),
+        (2, Some(id(21)?))
+    );
+    drop(failed);
+    let restored = sink
+        .scan_result(&lineage, &id(11)?)
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!((restored.sequence, restored.result_version), (3, None));
+    assert_eq!(
+        sink.scan_result(&lineage, &id(10)?)
+            .map_err(|e| format!("{e:?}"))?
+            .result_version,
+        Some(id(20)?)
+    );
+    assert_eq!(
+        sink.scan_result(&other, &id(12)?)
+            .map_err(|e| format!("{e:?}"))?
+            .result_version,
+        Some(id(22)?)
+    );
+    Ok(())
+}

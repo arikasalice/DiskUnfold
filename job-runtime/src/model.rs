@@ -74,6 +74,13 @@ pub enum CancelResult {
     Unsupported(JobState),
     AlreadyTerminal(JobState),
 }
+/// Identifies the lineage and scope associated with a result-producing job.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ResultBinding {
+    pub lineage_id: Id,
+    pub scope_version: Id,
+}
+
 /// A consistent read of the job state and its published terminal result.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct JobSnapshot {
@@ -82,6 +89,7 @@ pub struct JobSnapshot {
     pub sequence: u64,
     pub result_version_id: Option<Id>,
     pub failure_reason_key: Option<String>,
+    pub result_binding: Option<ResultBinding>,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DeduplicationKey {
@@ -117,6 +125,7 @@ pub(crate) struct StoredSubmission {
 }
 pub(crate) struct Entry {
     pub(crate) descriptor: JobDescriptor,
+    pub(crate) result_binding: Option<ResultBinding>,
     pub(crate) submission: StoredSubmission,
     pub(crate) body: Option<Arc<dyn JobBody>>,
     pub(crate) state: JobState,

@@ -18,7 +18,7 @@ pub use model::FlowLimits;
 use model::*;
 pub use model::{
     CancelResult, DeduplicationKey, JobClock, JobEvent, JobEvents, JobIdentity, JobPriority,
-    JobRuntime, JobSnapshot, RuntimeError, Submission, SubmitResult,
+    JobRuntime, JobSnapshot, ResultBinding, RuntimeError, Submission, SubmitResult,
 };
 pub use shutdown::{ShutdownStatus, ShutdownTicket};
 use std::sync::{
@@ -109,6 +109,23 @@ impl JobRuntime {
         Ok(())
     }
     pub fn submit(&self, submission: Submission) -> Result<SubmitResult, RuntimeError> {
+        self.submit_inner(submission, None)
+    }
+
+    /// Submits a job with a result binding stored for the job entry lifetime.
+    pub fn submit_with_result_binding(
+        &self,
+        submission: Submission,
+        binding: ResultBinding,
+    ) -> Result<SubmitResult, RuntimeError> {
+        self.submit_inner(submission, Some(binding))
+    }
+
+    fn submit_inner(
+        &self,
+        submission: Submission,
+        result_binding: Option<ResultBinding>,
+    ) -> Result<SubmitResult, RuntimeError> {
         let now = self.clock.now_ms();
         let body_kind = submission.body.kind_id().to_owned();
         let candidate_id = self.identity.next_id();
@@ -166,6 +183,7 @@ impl JobRuntime {
             id.clone(),
             Entry {
                 descriptor,
+                result_binding,
                 submission: StoredSubmission {
                     kind_id,
                     deduplication_key,
@@ -193,6 +211,7 @@ impl JobRuntime {
     pub fn snapshot(&self, id: &Id) -> Result<JobSnapshot, RuntimeError> {
         self.read_entry(id, |job| JobSnapshot {
             kind_id: job.descriptor.kind_id.clone(),
+            result_binding: job.result_binding.clone(),
             state: job.state,
             sequence: job.sequence,
             result_version_id: job
