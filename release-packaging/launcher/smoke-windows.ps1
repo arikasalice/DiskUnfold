@@ -4,7 +4,8 @@
 [CmdletBinding()]
 param(
   [Parameter(Mandatory)][string]$Binary,
-  [switch]$VerifyWorkspaceLayout
+  [switch]$VerifyWorkspaceLayout,
+  [switch]$VerifyCancellation
 )
 
 $ErrorActionPreference = 'Stop'
@@ -17,6 +18,18 @@ $child = Join-Path $scanRoot 'nested'
 New-Item -ItemType Directory -Path $child -Force | Out-Null
 [IO.File]::WriteAllBytes((Join-Path $scanRoot 'root.bin'), [byte[]]::new(11))
 [IO.File]::WriteAllBytes((Join-Path $child 'nested.bin'), [byte[]]::new(7))
+if ($VerifyCancellation) {
+  $cancelScope = Join-Path $root 'cancel-scope'
+  # Give the real filesystem scan enough work to observe its Cancel action.
+  $contents = [byte[]]::new(1)
+  for ($group = 0; $group -lt 32; $group++) {
+    $folder = Join-Path $cancelScope "group-$group"
+    [IO.Directory]::CreateDirectory($folder) | Out-Null
+    for ($index = 0; $index -lt 800; $index++) {
+      [IO.File]::WriteAllBytes((Join-Path $folder "file-$index.bin"), $contents)
+    }
+  }
+}
 $profile = Join-Path $root 'profile'
 New-Item -ItemType Directory -Path $profile | Out-Null
 $process = Start-Process -FilePath $exe -PassThru -Environment @{ LOCALAPPDATA = $profile } -RedirectStandardError (Join-Path $root 'stderr.txt') -RedirectStandardOutput (Join-Path $root 'stdout.txt')
@@ -68,6 +81,31 @@ function Set-Scope($path) {
     $current.Current.Value -eq $path
   }
 }
+# Exercise F02 cancellation while preserving the F03 user's pinned result.
+function Test-ScanCancellation($path) {
+  Set-Scope $path
+  Invoke-UI (Wait-Enabled 'Review scope' $true)
+  Invoke-UI (Wait-Enabled 'Start scan' $true)
+  Invoke-UI (Wait-Enabled 'Cancel scan' $true)
+  $null = Wait-UI 'cancelled scan state' { Find-UI 'Scan status: cancelled' $textType }
+  $available = Wait-UI 'cancelled result or user-controlled result switch' {
+    $switch = Find-UI 'Show latest result' $button
+    if ($switch -and $switch.Current.IsEnabled) { return 'switch' }
+    if (Find-UI 'Cancelled' $textType) { return 'shown' }
+  }
+  if ($available -eq 'switch') {
+    $null = Wait-UI 'existing interim result still pinned' { Find-UI 'Interim' $textType }
+    'F03 pinned result: cancellation kept the interim result until a manual switch'
+    Invoke-UI (Wait-Enabled 'Show latest result' $true)
+  }
+  $null = Wait-UI 'cancelled result version' { Find-UI 'Cancelled' $textType }
+  $null = Wait-UI 'interrupted measurement evidence' {
+    $window.FindAll($scopeTree, [Windows.Automation.Condition]::TrueCondition) |
+      Where-Object { $_.Current.Name -like 'Measurement interrupted*' } |
+      Select-Object -First 1
+  }
+  'F02 native cancel: cancelled terminal state and interrupted result evidence'
+}
 try {
   $window = Wait-UI 'main window' {
     $process.Refresh()
@@ -75,6 +113,7 @@ try {
   }
   $null = Wait-UI 'path field' { Find-UI 'Windows folder path' $edit }
   $null = Wait-Enabled 'Start scan' $false
+  if ($VerifyCancellation) { Test-ScanCancellation $cancelScope }
   Set-Scope (Join-Path $root 'missing')
   Invoke-UI (Wait-Enabled 'Review scope' $true)
   $null = Wait-UI 'invalid folder notice' {
