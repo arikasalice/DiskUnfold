@@ -218,6 +218,8 @@ pub enum BrowseOpenResponse {
     Job {
         request_seq: u32,
         job_ref: Id,
+        /// Source result version pinned when the request was admitted.
+        result_version: Id,
     },
 }
 

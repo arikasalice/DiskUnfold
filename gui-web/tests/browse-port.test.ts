@@ -53,14 +53,16 @@ test("a finished folder job uses context from its pinned page", async () => {
           kind: "job",
           requestSeq: 3,
           jobRef: "folder-job",
+          resultVersion: request.resultVersion,
         });
       case "job.get":
         expect(envelope.body).toEqual({ jobRef: "folder-job" });
         return reply(envelope, {
           jobRef: "folder-job",
+          resultVersion: request.resultVersion,
           kind: "query.evaluate",
           state: "done",
-          resultVersion: page.queryRef,
+          queryRef: page.queryRef,
         });
       case "query.page":
         expect(envelope.body).toEqual({
@@ -100,13 +102,14 @@ test("a completed page without location context fails without reopening", async 
         kind: "job",
         requestSeq: 3,
         jobRef: "folder-job",
+        resultVersion: request.resultVersion,
       });
     if (envelope.name === "job.get")
       return reply(envelope, {
         jobRef: "folder-job",
         kind: "query.evaluate",
         state: "done",
-        resultVersion: page.queryRef,
+        queryRef: page.queryRef,
       });
     if (envelope.name === "query.page")
       return reply(envelope, { ...page, browseContext: undefined });
@@ -136,6 +139,7 @@ test("leaving a pending folder stops polling and cancels only its job", async ()
           kind: "job",
           requestSeq: 3,
           jobRef: "pending-job",
+          resultVersion: request.resultVersion,
         });
       case "job.get":
         controller.abort();
@@ -205,6 +209,7 @@ test("a finished job from a superseded folder does not read a page or reopen", a
           kind: "job",
           requestSeq: 3,
           jobRef: "superseded-job",
+          resultVersion: request.resultVersion,
         });
       case "job.get":
         controller.abort();
@@ -212,7 +217,7 @@ test("a finished job from a superseded folder does not read a page or reopen", a
           jobRef: "superseded-job",
           kind: "query.evaluate",
           state: "done",
-          resultVersion: page.queryRef,
+          queryRef: page.queryRef,
         });
       case "query.page":
         return reply(envelope, page);
@@ -257,14 +262,19 @@ test("aborting a completed query during page retrieval leaves a new navigation a
       if ((envelope.body as BrowseOpenRequest).requestSeq === 4) {
         return reply(envelope, { kind: "opened", requestSeq: 4, page });
       }
-      return reply(envelope, { kind: "job", requestSeq: 3, jobRef: "old-job" });
+      return reply(envelope, {
+        kind: "job",
+        requestSeq: 3,
+        jobRef: "old-job",
+        resultVersion: request.resultVersion,
+      });
     }
     if (envelope.name === "job.get")
       return reply(envelope, {
         jobRef: "old-job",
         kind: "query.evaluate",
         state: "done",
-        resultVersion: page.queryRef,
+        queryRef: page.queryRef,
       });
     if (envelope.name === "query.page") {
       pageStarted?.();
@@ -405,7 +415,12 @@ test("a job received after region close is cancelled by its exact reference", as
     name: "browse.open",
     correlationId: "unused",
     contractVersion: 1,
-    body: { kind: "job", requestSeq: 3, jobRef: "late-job" },
+    body: {
+      kind: "job",
+      requestSeq: 3,
+      jobRef: "late-job",
+      resultVersion: request.resultVersion,
+    },
   });
   await expect(pending).rejects.toMatchObject({ name: "AbortError" });
   expect(calls.filter((call) => call.name === "job.cancel")).toEqual([
@@ -438,6 +453,7 @@ test.each([
           kind: "job",
           requestSeq: 3,
           jobRef: "target-job",
+          resultVersion: request.resultVersion,
         });
       if (envelope.name === delayedCommand) {
         markStarted?.();
@@ -448,7 +464,7 @@ test.each([
           jobRef: "target-job",
           kind: "query.evaluate",
           state,
-          ...(state === "done" ? { resultVersion: page.queryRef } : {}),
+          ...(state === "done" ? { queryRef: page.queryRef } : {}),
         });
       if (envelope.name === "query.page") return reply(envelope, page);
       if (
@@ -477,5 +493,72 @@ test.each([
     expect(
       calls.filter(({ name }) => name === "query.region.open"),
     ).toHaveLength(1);
+  },
+);
+
+test("an omitted requested version uses the admitted job version", async () => {
+  const withoutVersion = {
+    viewKind: request.viewKind,
+    requestSeq: request.requestSeq,
+    pageSize: request.pageSize,
+  };
+  const client = createAnalysisClient(async (_, { envelope }) => {
+    if (envelope.name === "query.region.open")
+      return reply(envelope, { regionRef: "region" });
+    if (envelope.name === "browse.open")
+      return reply(envelope, {
+        kind: "job",
+        requestSeq: 3,
+        jobRef: "job",
+        resultVersion: page.resultVersion,
+      });
+    if (envelope.name === "job.get")
+      return reply(envelope, {
+        jobRef: "job",
+        kind: "query.evaluate",
+        state: "done",
+        queryRef: page.queryRef,
+      });
+    if (envelope.name === "query.page") {
+      expect(envelope.body).toMatchObject({
+        resultVersion: page.resultVersion,
+        queryRef: page.queryRef,
+      });
+      return reply(envelope, page);
+    }
+    throw new Error(`Unexpected command ${envelope.name}`);
+  });
+  await expect(
+    createBrowsePort(client).open(withoutVersion),
+  ).resolves.toMatchObject({ page: { resultVersion: page.resultVersion } });
+});
+
+test.each(["different version", "different job"])(
+  "rejects %s before reading the page",
+  async (failure) => {
+    const calls: string[] = [];
+    const client = createAnalysisClient(async (_, { envelope }) => {
+      calls.push(envelope.name);
+      if (envelope.name === "query.region.open")
+        return reply(envelope, { regionRef: "region" });
+      if (envelope.name === "browse.open")
+        return reply(envelope, {
+          kind: "job",
+          requestSeq: 3,
+          jobRef: "job",
+          resultVersion:
+            failure === "different version" ? "other" : request.resultVersion,
+        });
+      if (envelope.name === "job.get")
+        return reply(envelope, {
+          jobRef: "other-job",
+          kind: "query.evaluate",
+          state: "done",
+          queryRef: page.queryRef,
+        });
+      throw new Error(`Unexpected command ${envelope.name}`);
+    });
+    await expect(createBrowsePort(client).open(request)).rejects.toThrow();
+    expect(calls).not.toContain("query.page");
   },
 );

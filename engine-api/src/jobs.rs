@@ -74,12 +74,18 @@ impl UseCase for Status {
             ),
             _ => None,
         };
+        let (result_version, query_ref) = query_completion(
+            &snapshot.kind_id,
+            snapshot.state,
+            snapshot.result_version_id,
+        );
         Ok(AnalysisJobStatus {
             job_ref: request.job_ref,
             kind: snapshot.kind_id,
             state: snapshot.state,
             sequence: snapshot.sequence,
-            result_version: snapshot.result_version_id,
+            result_version,
+            query_ref,
             reason_key: snapshot.failure_reason_key,
             scan_result,
         })
@@ -130,4 +136,24 @@ fn runtime_error(error: RuntimeError) -> EngineError {
         RuntimeError::NotFound => "job.not_found",
         _ => "support.internal_error",
     })
+}
+
+/// Separates the legacy query result slot at the IPC boundary from actual result versions.
+pub(crate) fn query_completion(
+    kind: &str,
+    state: du_core_contracts::job::JobState,
+    value: Option<du_core_contracts::Id>,
+) -> (Option<du_core_contracts::Id>, Option<du_core_contracts::Id>) {
+    if kind == "query.evaluate" {
+        (
+            None,
+            if state == du_core_contracts::job::JobState::Done {
+                value
+            } else {
+                None
+            },
+        )
+    } else {
+        (value, None)
+    }
 }

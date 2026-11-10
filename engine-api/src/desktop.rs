@@ -264,25 +264,28 @@ fn envelope(event: JobEvent, occurred_at: Timestamp) -> Option<EventEnvelope> {
             sequence,
             history_recorded,
             warning,
-        } => (
-            "job.finished",
-            Some(summary.job_id),
-            Some(summary.correlation_id),
-            summary.result_version_id,
-            json!({
-                "state": summary.state,
-                "sequence": sequence,
-                "completed": summary.counts.completed,
-                "overwritten": summary.counts.overwritten,
-                "failed": summary.counts.failed,
-                "skipped": summary.counts.skipped,
-                "unprocessed": summary.counts.unprocessed,
-                "reasonKey": summary.failure_reason_key,
+        } => {
+            let (result_version, query_ref) =
+                jobs::query_completion(&summary.kind_id, summary.state, summary.result_version_id);
+            let mut body = json!({
+                "state": summary.state, "sequence": sequence,
+                "completed": summary.counts.completed, "overwritten": summary.counts.overwritten,
+                "failed": summary.counts.failed, "skipped": summary.counts.skipped,
+                "unprocessed": summary.counts.unprocessed, "reasonKey": summary.failure_reason_key,
                 "unprocessedSummary": summary.unprocessed_summary,
-                "historyRecorded": history_recorded,
-                "warning": warning,
-            }),
-        ),
+                "historyRecorded": history_recorded, "warning": warning,
+            });
+            if let Some(query_ref) = query_ref {
+                body["queryRef"] = json!(query_ref);
+            }
+            (
+                "job.finished",
+                Some(summary.job_id),
+                Some(summary.correlation_id),
+                result_version,
+                body,
+            )
+        }
         JobEvent::ItemResult {
             job_id,
             kind_id,

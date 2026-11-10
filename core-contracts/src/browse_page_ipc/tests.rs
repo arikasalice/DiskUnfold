@@ -21,7 +21,13 @@ fn opened_and_job_are_distinct_and_round_trip() -> Result<(), Box<dyn std::error
     let mut future = opened.clone();
     future["origin"] = json!("future_origin");
     assert!(serde_json::from_value::<BrowseOpenResponse>(future).is_ok());
-    let job = json!({"kind":"job","requestSeq":1,"jobRef":id});
+    let job = json!({"kind":"job","requestSeq":1,"jobRef":id,"resultVersion":id});
+    assert!(
+        serde_json::from_value::<BrowseOpenResponse>(
+            json!({"kind":"job","requestSeq":1,"jobRef":id})
+        )
+        .is_err()
+    );
     assert_eq!(
         serde_json::to_value(serde_json::from_value::<BrowseOpenResponse>(job.clone())?)?,
         job

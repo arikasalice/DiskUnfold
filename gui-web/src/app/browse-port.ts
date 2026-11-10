@@ -99,7 +99,11 @@ export function createBrowsePort(
       try {
         // A late receipt still owns its job, even if navigation was aborted.
         checkLive();
-        if (response.requestSeq !== wireSeq || !request.resultVersion) {
+        if (
+          response.requestSeq !== wireSeq ||
+          (request.resultVersion != null &&
+            response.resultVersion !== request.resultVersion)
+        ) {
           throw new Error(
             "The folder query does not match the selected result.",
           );
@@ -108,7 +112,7 @@ export function createBrowsePort(
         checkLive();
         const page = await client.call("query.page", {
           queryRef,
-          resultVersion: request.resultVersion,
+          resultVersion: response.resultVersion,
           start: 0,
           count: request.pageSize ?? 200,
         });
@@ -116,7 +120,7 @@ export function createBrowsePort(
         if (
           page.rowKind !== "folder" ||
           page.queryRef !== queryRef ||
-          page.resultVersion !== request.resultVersion
+          page.resultVersion !== response.resultVersion
         ) {
           throw new Error("The completed query returned a different result.");
         }
@@ -163,8 +167,7 @@ async function waitForQuery(
     if (status.jobRef !== jobRef || status.kind !== "query.evaluate") {
       throw new Error("The folder query status could not be verified.");
     }
-    if (status.state === "done" && status.resultVersion)
-      return status.resultVersion;
+    if (status.state === "done" && status.queryRef) return status.queryRef;
     if (
       status.state === "done" ||
       status.state === "partial" ||

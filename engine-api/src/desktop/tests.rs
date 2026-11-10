@@ -249,3 +249,53 @@ fn preserves_lineage_sequence_and_withdrawal_without_a_replacement()
     assert!(wire["body"].get("observedAt").is_none());
     Ok(())
 }
+
+#[test]
+fn terminal_query_and_scan_results_are_distinct_on_wire() -> Result<(), Box<dyn std::error::Error>>
+{
+    use du_core_contracts::job::{JobCounts, JobState, JobSummary};
+    let job = Id::parse("018f0000-0000-7000-8000-000000000001")?;
+    let result = Id::parse("018f0000-0000-7000-8000-000000000002")?;
+    let when = Timestamp::from_unix_millis(0).ok_or("invalid time")?;
+    for (kind, state, expected_query, expected_version) in [
+        ("query.evaluate", JobState::Done, true, false),
+        ("query.evaluate", JobState::Cancelled, false, false),
+        ("query.evaluate", JobState::Failed, false, false),
+        ("scan.metadata", JobState::Done, false, true),
+    ] {
+        let event = envelope(
+            JobEvent::Finished {
+                summary: Box::new(JobSummary {
+                    job_id: job.clone(),
+                    kind_id: kind.into(),
+                    kind_version: 1,
+                    scope_summary: String::new(),
+                    state,
+                    counts: JobCounts::default(),
+                    failure_reason_key: None,
+                    unprocessed_summary: None,
+                    result_version_id: Some(result.clone()),
+                    started_at_ms: None,
+                    finished_at_ms: 0,
+                    correlation_id: job.clone(),
+                }),
+                sequence: 4,
+                history_recorded: false,
+                warning: None,
+            },
+            when.clone(),
+        )
+        .ok_or("missing event")?;
+        let wire = serde_json::to_value(event)?;
+        assert_eq!(wire["body"].get("queryRef").is_some(), expected_query);
+        assert_eq!(wire.get("resultVersion").is_some(), expected_version);
+        if expected_query {
+            assert_eq!(wire["body"]["queryRef"], result.as_str());
+        }
+        if expected_version {
+            assert_eq!(wire["resultVersion"], result.as_str());
+        }
+        assert_eq!(wire["body"]["sequence"], 4);
+    }
+    Ok(())
+}

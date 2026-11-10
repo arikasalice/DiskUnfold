@@ -10,6 +10,7 @@ use du_core_contracts::{
 use du_job_runtime::{JobClock, JobRuntime};
 use serde_json::{Value, json};
 
+mod completion;
 mod search;
 
 struct Ids;
@@ -68,6 +69,7 @@ fn register_fixture(
     let workers = Arc::new(Workers::start(runtime.clone())?);
     let mut builder = EngineBuilder::default();
     crate::space::register_total_with_queries(&mut builder, sets.clone());
+    crate::jobs::register(&mut builder, runtime.clone());
     register(&mut builder, sets, Arc::new(Ids), workers, &Entropy)?;
     Ok((builder.build()?, runtime))
 }
@@ -126,43 +128,6 @@ fn registered_gui_commands_open_and_continue_with_the_same_registry()
     assert_ne!(next.body["rows"][0]["item"], first["rows"][0]["item"]);
     assert_eq!(next.body["nextCursor"], Value::Null);
     assert!(next.body.get("browseContext").is_none());
-    Ok(())
-}
-
-#[test]
-fn large_folder_returns_a_job_whose_reference_reads_the_original_result()
--> Result<(), Box<dyn std::error::Error>> {
-    let (engine, runtime, version) = fixture(SYNC_WORK)?;
-    let region_ref = region(&engine);
-    let open = call(
-        &engine,
-        "browse.open",
-        json!({"regionRef":region_ref,"viewKind":"list","requestSeq":8,"resultVersion":version}),
-        Channel::Gui,
-    );
-    assert!(open.error.is_none(), "{:?}", open.error);
-    assert_eq!(open.body["kind"], "job");
-    assert_eq!(open.body["requestSeq"], 8);
-    let job: Id = serde_json::from_value(open.body["jobRef"].clone())?;
-    let query_ref = await_query(&runtime, &job)?;
-    let first = call(
-        &engine,
-        "query.page",
-        json!({"queryRef":query_ref,"resultVersion":version,"start":0,"count":200}),
-        Channel::Gui,
-    );
-    assert!(first.error.is_none(), "{:?}", first.error);
-    assert_eq!(first.body["queryRef"], json!(query_ref));
-    assert_eq!(first.body["resultVersion"], json!(version));
-    let context = &first.body["browseContext"];
-    assert_eq!(context["rootKind"], "scope_root");
-    assert_eq!(context["origin"], "scan");
-    assert_eq!(context["location"]["resultVersion"], json!(version));
-    assert_eq!(context["breadcrumbs"][0]["item"], context["location"]);
-    assert_eq!(
-        first.body["rows"].as_array().ok_or("missing rows")?.len(),
-        200
-    );
     Ok(())
 }
 

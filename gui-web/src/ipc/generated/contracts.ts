@@ -151,7 +151,11 @@ export type ScanFailures = { resultVersion: Id, rows: Array<ScanFailureRow>, tot
 export type JobState = "queued" | "running" | "pause_requested" | "paused" | "cancel_requested" | "done" | "partial" | "failed" | "cancelled";
 export type AnalysisJobRequest = { jobRef: Id, };
 export type ScanResult = { lineageId: Id, sequence: number, resultVersion?: Id, };
-export type AnalysisJobStatus = { jobRef: Id, kind: string, state: JobState, sequence: number, resultVersion: Id | null, reasonKey: string | null, scanResult?: ScanResult, };
+export type AnalysisJobStatus = { jobRef: Id, kind: string, state: JobState, sequence: number, resultVersion: Id | null,
+/**
+ * Published query result for a successfully completed query evaluation.
+ */
+queryRef?: Id, reasonKey: string | null, scanResult?: ScanResult, };
 export type JobControlOutcome = "accepted" | "no_effect" | "unsupported" | "already_terminal";
 export type AnalysisJobControl = { outcome: JobControlOutcome, state: JobState, reasonKey: string | null, sequence: number, };
 export type SpaceTarget = { "kind": "scope_root", } | { "kind": "folder", item: ItemRef, } | { "kind": "query_result", queryRef: Id, };
@@ -203,7 +207,11 @@ export type QueryPageResponse = FolderQueryPage | SearchQueryPage;
 export type BrowseBreadcrumb = { item: ItemRef, displayName: BrowseValue<string>, };
 export type BrowseRootKind = "virtual_root" | "scope_root" | "folder";
 export type BrowseContext = { origin: ResultOrigin, location: ItemRef | null, breadcrumbs: Array<BrowseBreadcrumb>, rootKind: BrowseRootKind, currentCorrespondence: boolean, sortStrategies: Array<QueryStrategy>, predicateStrategies: Array<QueryStrategy>, };
-export type BrowseOpenResponse = { "kind": "opened", requestSeq: number, origin: ResultOrigin, location: ItemRef | null, breadcrumbs: Array<BrowseBreadcrumb>, rootKind: BrowseRootKind, currentCorrespondence: boolean, page: FolderQueryPage, sortStrategies: Array<QueryStrategy>, predicateStrategies: Array<QueryStrategy>, } | { "kind": "job", requestSeq: number, jobRef: Id, };
+export type BrowseOpenResponse = { "kind": "opened", requestSeq: number, origin: ResultOrigin, location: ItemRef | null, breadcrumbs: Array<BrowseBreadcrumb>, rootKind: BrowseRootKind, currentCorrespondence: boolean, page: FolderQueryPage, sortStrategies: Array<QueryStrategy>, predicateStrategies: Array<QueryStrategy>, } | { "kind": "job", requestSeq: number, jobRef: Id,
+/**
+ * Source result version pinned when the request was admitted.
+ */
+resultVersion: Id, };
 export type BrowseDetailRequest = { resultVersion: Id, item: ItemRef, };
 export type BrowseDetail = { item: ItemRef, displayPath: BrowseValue<string>, displayName: BrowseValue<string>, kind: BrowseValue<ResultItemKind>, logicalSize: BrowseValue<SizeValue>, allocatedSize: BrowseValue<SizeValue>, modifiedAt: BrowseValue<Timestamp>, createdAt: BrowseValue<Timestamp>, observedAt: BrowseValue<Timestamp>, origin: BrowseOrigin, completeness: ResultCompleteness, currentCorrespondence: boolean, observationOnly: boolean, };
 export type QueryPagePosition = { queryRef: Id, resultVersion: Id, start: number, count: number, };

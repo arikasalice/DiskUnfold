@@ -213,6 +213,10 @@ pub struct AnalysisJobStatus {
     #[cfg_attr(feature = "typescript", ts(type = "number"))]
     pub sequence: u64,
     pub result_version: Option<Id>,
+    /// Published query result for a successfully completed query evaluation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub query_ref: Option<Id>,
     pub reason_key: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "typescript", ts(optional))]

@@ -198,6 +198,7 @@ impl Open {
         if caller.is_cancelled() || token.is_stopped() {
             return Err(folder_error(Error::Cancelled));
         }
+        let result_version = prepared.key.version.clone();
         let ticket = self
             .jobs
             .submit_region(caller.correlation_id.clone(), prepared, token.clone())
@@ -210,6 +211,7 @@ impl Open {
         Ok(BrowseOpenResponse::Job {
             request_seq,
             job_ref: ticket.id().clone(),
+            result_version,
         })
     }
 }

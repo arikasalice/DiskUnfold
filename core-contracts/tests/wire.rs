@@ -102,3 +102,22 @@ fn analysis_requests_reject_unknown_fields_and_keep_native_paths() {
         .is_err()
     );
 }
+
+#[test]
+fn job_status_serializes_query_reference_separately_from_result_version()
+-> Result<(), Box<dyn std::error::Error>> {
+    use du_core_contracts::analysis_ipc::AnalysisJobStatus;
+    let job = "018f0000-0000-7000-8000-000000000001";
+    let query = "018f0000-0000-7000-8000-000000000002";
+    let input = serde_json::json!({"jobRef":job,"kind":"query.evaluate","state":"done","sequence":2,"resultVersion":null,"queryRef":query,"reasonKey":null});
+    let status: AnalysisJobStatus = serde_json::from_value(input.clone())?;
+    assert_eq!(serde_json::to_value(status)?, input);
+    let mut without = input;
+    without
+        .as_object_mut()
+        .ok_or("not an object")?
+        .remove("queryRef");
+    let status: AnalysisJobStatus = serde_json::from_value(without.clone())?;
+    assert_eq!(serde_json::to_value(status)?, without);
+    Ok(())
+}
