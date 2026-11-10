@@ -321,6 +321,34 @@ fn closed_replacement_and_snapshot_order_are_fenced() {
 }
 
 #[test]
+fn snapshot_gap_order_does_not_change_identity_but_changed_evidence_does() {
+    let mut ledger = ledger();
+    let mut sink = Sink::default();
+    let mut cut = snapshot(3, 0, 1);
+    cut.gaps = vec![gap(1), gap(2)];
+    assert_eq!(snap(&mut ledger, &cut, &mut sink), Ok(Outcome::Applied));
+    let count = sink.count;
+
+    let mut reordered = cut.clone();
+    reordered.gaps.reverse();
+    assert_eq!(
+        snap(&mut ledger, &reordered, &mut sink),
+        Ok(Outcome::Duplicate)
+    );
+    assert_eq!(sink.count, count);
+    assert!(!ledger.unit(&[3; 16]).unwrap().needs_resync);
+
+    reordered.gaps[0].end = Some(3);
+    assert_eq!(
+        snap(&mut ledger, &reordered, &mut sink),
+        Ok(Outcome::Resync)
+    );
+    assert_eq!(sink.count, count);
+    assert_eq!(sink.gaps[&3][&2], gap(2));
+    assert!(ledger.unit(&[3; 16]).unwrap().needs_resync);
+}
+
+#[test]
 fn bad_replacements_and_generation_regression_do_not_commit() {
     for replacement in [vec![1, 99], vec![1, 1], vec![2]] {
         let mut l = ledger();

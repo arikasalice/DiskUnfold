@@ -282,7 +282,10 @@ impl Ledger {
 
 fn snapshot_cut(s: &Snapshot) -> SnapshotCut {
     // Excludes last_observed: buffered signals may update it without a published sequence.
-    let state = format!("{:?}|{}|{:?}", s.state, s.generation, s.gaps);
+    // Gap evidence is keyed by ID, so its enumeration order is not content.
+    let mut ordered_gaps: Vec<_> = s.gaps.iter().collect();
+    ordered_gaps.sort_by_key(|gap| gap.id);
+    let state = format!("{:?}|{}|{:?}", s.state, s.generation, ordered_gaps);
     SnapshotCut {
         cut: s.last_change_sequence,
         observed_at: s.observed_at,
