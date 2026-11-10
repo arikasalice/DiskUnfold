@@ -83,9 +83,9 @@ function Invoke-UI($item) {
 }
 # Open the observed file inspector through its real WebView2 action.
 function Test-FileInspection($name, $size) {
-  $file = Wait-VisibleAction $name
+  $file = Wait-Enabled $name $true
   $file.SetFocus()
-  Invoke-UI $file
+  Invoke-UI (Wait-VisibleAction $name)
   $null = Wait-UI "file attributes for $name" {
     $details = Find-UI 'Observed file attributes' $null
     if ($details) { Find-UI $name $null $details }
