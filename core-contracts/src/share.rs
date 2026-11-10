@@ -26,3 +26,28 @@ pub struct ExportField {
 pub trait Exportable {
     const FIELDS: &'static [ExportField];
 }
+
+/// A secret check returns only whether text is clean, contains a secret, or
+/// could not be checked. It never returns secrets or their verifiers.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SecretCheck {
+    Clean,
+    Contains,
+    Unavailable,
+}
+
+/// Fixed secret set for one export; implementers clear it when dropped.
+pub trait SecretCheckSnapshot: Send {
+    /// Checks one free-text value against this export's fixed secret set.
+    fn check(&self, text: &str) -> SecretCheck;
+}
+
+/// Opens one secret snapshot for an export operation.
+pub trait SecretCheckPort: Send + Sync {
+    /// Creates a fixed snapshot, or indicates that checking is unavailable.
+    fn open_snapshot(&self) -> Result<Box<dyn SecretCheckSnapshot>, SecretCheckUnavailable>;
+}
+
+/// A secret snapshot could not be opened.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SecretCheckUnavailable;

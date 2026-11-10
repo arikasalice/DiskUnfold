@@ -1,7 +1,7 @@
 //! Initial classification and fixed exclusion, before any release decision.
 use du_core_contracts::share::{Exportable, FieldClass};
 use serde::Serialize;
-use serde_json::{Map, Value};
+use serde_json::Value;
 use std::collections::BTreeMap;
 
 /// Invalid input is rejected without returning candidate values or paths.
@@ -18,8 +18,13 @@ pub enum Error {
 /// Scope, mode transformation, free-text secret checks, sealing and rendered
 /// output checks must still run; no accessor exposes the retained data.
 pub struct Intermediate {
-    _fields: Map<String, Value>,
-    _excluded: usize,
+    pub(crate) fields: BTreeMap<String, Classified>,
+    pub(crate) excluded: usize,
+}
+
+pub(crate) struct Classified {
+    pub(crate) class: FieldClass,
+    pub(crate) value: Value,
 }
 
 /// Serializes once and applies the first two F37 filter stages.
@@ -54,7 +59,7 @@ pub fn begin_json<T: Exportable>(bytes: &[u8]) -> Result<Intermediate, Error> {
             return Err(Error::DeclarationMismatch);
         }
     }
-    let mut retained = Map::new();
+    let mut retained = BTreeMap::new();
     let mut excluded = 0;
     for (key, value) in object {
         let path = format!("/{}", key.replace('~', "~0").replace('/', "~1"));
@@ -67,15 +72,21 @@ pub fn begin_json<T: Exportable>(bytes: &[u8]) -> Result<Intermediate, Error> {
         {
             excluded += 1;
         } else {
-            retained.insert(key.clone(), value.clone());
+            retained.insert(
+                key.clone(),
+                Classified {
+                    class,
+                    value: value.clone(),
+                },
+            );
         }
     }
     if !declared.is_empty() {
         return Err(Error::DeclarationMismatch);
     }
     Ok(Intermediate {
-        _fields: retained,
-        _excluded: excluded,
+        fields: retained,
+        excluded,
     })
 }
 

@@ -47,11 +47,14 @@ fn candidate<'a>(note: &'a str) -> Candidate<'a> {
 #[test]
 fn actual_serialization_is_classified_before_fixed_exclusion() -> Result<(), Error> {
     let result = begin(&candidate("ordinary free text"))?;
-    assert_eq!(result._excluded, 3);
-    assert_eq!(result._fields.len(), 2);
+    assert_eq!(result.excluded, 3);
+    assert_eq!(result.fields.len(), 2);
     assert_eq!(
-        result._fields.get("note"),
+        result.fields.get("note").map(|entry| &entry.value),
         Some(&Value::from("ordinary free text"))
+    );
+    assert!(
+        matches!(result.fields.get("note"), Some(entry) if entry.class == FieldClass::FreeText)
     );
     // Retention here is not a secret check or an export permission.
     Ok(())
@@ -61,8 +64,8 @@ fn actual_serialization_is_classified_before_fixed_exclusion() -> Result<(), Err
 fn fixed_secret_patterns_are_excluded_independently_of_declared_class() -> Result<(), Error> {
     for text in ["before du_mcp_test", "before BEARER token"] {
         let result = begin(&candidate(text))?;
-        assert_eq!(result._excluded, 4);
-        assert!(!result._fields.contains_key("note"));
+        assert_eq!(result.excluded, 4);
+        assert!(!result.fields.contains_key("note"));
     }
     Ok(())
 }
@@ -136,7 +139,7 @@ fn duplicate_declarations_are_rejected_and_empty_object_is_supported() {
         Err(Error::DeclarationMismatch)
     ));
     assert!(
-        matches!(begin_json::<Empty>(b"{}"), Ok(value) if value._fields.is_empty() && value._excluded == 0)
+        matches!(begin_json::<Empty>(b"{}"), Ok(value) if value.fields.is_empty() && value.excluded == 0)
     );
     assert!(matches!(
         begin(&DuplicateSerialized),
