@@ -5,7 +5,8 @@
 param(
   [Parameter(Mandatory)][string]$Binary,
   [switch]$VerifyWorkspaceLayout,
-  [switch]$VerifyCancellation
+  [switch]$VerifyCancellation,
+  [switch]$VerifyPopulatedWorkspace
 )
 
 $ErrorActionPreference = 'Stop'
@@ -72,14 +73,71 @@ function Invoke-UI($item) {
   $pattern = $item.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern)
   $pattern.Invoke()
 }
-function Set-Scope($path) {
-  $item = Find-UI 'Windows folder path' $edit
+function Set-Scope($path, $fieldName = 'Windows folder path') {
+  $item = Wait-UI $fieldName { Find-UI $fieldName $edit }
   $pattern = $item.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern)
   $pattern.SetValue($path)
   $null = Wait-UI "scope input update" {
-    $current = (Find-UI 'Windows folder path' $edit).GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern)
-    $current.Current.Value -eq $path
+    $field = Find-UI $fieldName $edit
+    if ($field) {
+      $current = $field.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern)
+      $current.Current.Value -eq $path
+    }
   }
+}
+# Verify the scope editor and paging in a small native window with real NTFS data.
+function Test-PopulatedWorkspace {
+  $transform = $window.GetCurrentPattern([Windows.Automation.TransformPattern]::Pattern)
+  $transform.Resize(640, 460)
+  $null = Wait-UI 'small window' {
+    $bounds = $window.Current.BoundingRectangle
+    $bounds.Width -le 650 -and $bounds.Height -le 470
+  }
+  Invoke-UI (Wait-Enabled 'Back to analysis' $true)
+
+  $roots = for ($index = 1; $index -le 6; $index++) {
+    $name = "drive-content-$index-" + ('long-segment-' * 6)
+    $path = Join-Path $root $name
+    [IO.Directory]::CreateDirectory($path) | Out-Null
+    $last = if ($index -eq 1) { 239 } else { 0 }
+    for ($file = 0; $file -le $last; $file++) {
+      [IO.File]::WriteAllBytes((Join-Path $path ('entry-{0:D3}.bin' -f $file)), [byte[]]::new(1))
+    }
+    $path
+  }
+  Set-Scope $roots[0]
+  for ($index = 1; $index -lt $roots.Count; $index++) {
+    Invoke-UI (Wait-Enabled 'Add path' $true)
+    Set-Scope $roots[$index] "Additional folder path $($index + 1)"
+    Wait-ScopeActionsVisible
+  }
+  Invoke-UI (Wait-Enabled 'Review scope' $true)
+  $null = Wait-Enabled 'Start scan' $true
+  Wait-ScopeActionsVisible
+  Invoke-UI (Wait-Enabled 'Start scan' $true)
+  $null = Wait-UI '245-byte aggregate from all six roots' {
+    $metric = Find-UI 'Logical size' ([Windows.Automation.ControlType]::Group)
+    if ($metric -and (Find-UI 'Scan finished' $textType)) { Find-UI '245 bytes' $textType $metric }
+  }
+  'F01–F03 populated workspace: six long paths, visible scope actions, 245-byte native scan total in a 640x460 window'
+
+  Invoke-UI (Wait-Enabled 'Browse folders' $true)
+  $firstRoot = Wait-UI 'large root in the result' {
+    $window.FindAll($scopeTree, [Windows.Automation.PropertyCondition]::new($ae::ControlTypeProperty, $button)) |
+      Where-Object { $_.Current.Name -like '*drive-content-1-*' } |
+      Select-Object -First 1
+  }
+  Invoke-UI $firstRoot
+  $null = Wait-UI 'first observed file' { Find-UI 'entry-000.bin' $null }
+  $more = Wait-Enabled 'Load more' $true
+  Invoke-UI $more
+  $null = Wait-UI 'second page loaded' {
+    (Find-UI 'Folder items' $null) -and
+      -not (Find-UI 'Load more' $button) -and
+      -not (Find-UI 'Loading…' $button) -and
+      -not (Find-UI 'Retry page' $button)
+  }
+  'F05 populated workspace: browsed 240 native files and loaded the second page'
 }
 # Exercise F02 cancellation while preserving the F03 user's pinned result.
 function Test-ScanCancellation($path) {
@@ -167,6 +225,7 @@ try {
   Invoke-UI (Wait-Enabled 'Up' $true)
   $null = Wait-UI 'returned to pinned folder' { Find-UI 'root.bin' $null }
   'F05 native browse: root.bin 11 bytes, nested.bin 7 bytes, Up returns to the pinned scope'
+  if ($VerifyPopulatedWorkspace) { Test-PopulatedWorkspace }
 } catch {
   Write-Warning "Native smoke failed. Isolated fixture and logs: $root"
   throw
