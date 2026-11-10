@@ -2,6 +2,7 @@
 use crate::records::NameEncoding;
 use du_core_contracts::PathBytes;
 use serde_json::Value;
+mod source_metadata;
 mod unique;
 
 /// Native scope roots in source order, without a display-string conversion.
@@ -39,6 +40,9 @@ pub(super) fn parse(metadata: &str, require_volume: bool) -> Result<ScopeRoots, 
         .and_then(|v| v.get("scopeRoots"))
         .and_then(Value::as_array)
         .ok_or(())?;
+    if require_volume {
+        source_metadata::validate(&json, encoding, entries.len())?;
+    }
     let mut roots = Vec::with_capacity(entries.len());
     for entry in entries {
         let encoded = entry.as_str().ok_or(())?;

@@ -4,6 +4,7 @@ use crate::records::{
     item::{Item, Kind, Size},
 };
 use std::sync::atomic::Ordering;
+mod source_metadata_tests;
 fn record(kind: u8, body: &[u8], into: &mut Vec<u8>) {
     into.extend(((body.len() + 1) as u32).to_le_bytes());
     into.push(kind);
@@ -48,7 +49,7 @@ fn input(
 }
 #[test]
 fn sealed_volume_semantics_and_discard() -> Result<(), String> {
-    let metadata = r#"{"formatId":"dusnap","formatVersion":1,"snapshotId":"018f0000-0000-7000-8000-000000000001","createdAt":"2026-11-10T00:00:00.000Z","appVersion":"0.1.0","pathEncoding":"bytes","source":{"resultVersionId":"018f0000-0000-7000-8000-000000000002","scopeVersionId":null,"lineageId":null,"observedAt":null,"scopeRoots":["Lw"]},"volume":{"recordKind":1}}"#;
+    let metadata = r#"{"formatId":"dusnap","formatVersion":1,"snapshotId":"018f0000-0000-7000-8000-000000000001","createdAt":"2026-11-10T00:00:00.000Z","appVersion":"0.1.0","pathEncoding":"bytes","source":{"resultVersionId":"018f0000-0000-7000-8000-000000000002","scopeVersionId":null,"lineageId":null,"observedAt":null,"scopeMarker":null,"conditionSummary":{"state":"unknown"},"completeness":null,"algorithms":{"state":"unknown"},"pathRules":[{"separator":"/","caseSensitivity":null,"normalization":null}],"scopeRoots":["Lw"]},"volume":{"recordKind":1}}"#;
     let volume = [1, 1, 0, 0, 0, 255, 255, 1, 0, 0, 0];
     let mut spool = input(&volume, Some((0, Kind::Folder, b"@")), metadata)?;
     validate_records_in_sealed(&mut spool, Stage::default(), || false)
@@ -68,7 +69,7 @@ fn sealed_volume_semantics_and_discard() -> Result<(), String> {
         (
             &volume[..],
             Some((0, Kind::Folder, b"@".as_slice())),
-            r#"{"formatId":"dusnap","formatVersion":1,"snapshotId":"018f0000-0000-7000-8000-000000000001","createdAt":"2026-11-10T00:00:00.000Z","appVersion":"0.1.0","pathEncoding":"bytes","source":{"resultVersionId":"018f0000-0000-7000-8000-000000000002","scopeVersionId":null,"lineageId":null,"observedAt":null,"scopeRoots":["Lw"]},"volume":{"recordKind":2}}"#,
+            r#"{"formatId":"dusnap","formatVersion":1,"snapshotId":"018f0000-0000-7000-8000-000000000001","createdAt":"2026-11-10T00:00:00.000Z","appVersion":"0.1.0","pathEncoding":"bytes","source":{"resultVersionId":"018f0000-0000-7000-8000-000000000002","scopeVersionId":null,"lineageId":null,"observedAt":null,"scopeMarker":null,"conditionSummary":{"state":"unknown"},"completeness":null,"algorithms":{"state":"unknown"},"pathRules":[{"separator":"/","caseSensitivity":null,"normalization":null}],"scopeRoots":["Lw"]},"volume":{"recordKind":2}}"#,
         ),
         (&volume[..volume.len() - 1], None, metadata),
     ] {
@@ -83,8 +84,8 @@ fn sealed_volume_semantics_and_discard() -> Result<(), String> {
 #[test]
 fn duplicate_volume_descriptor_keys_are_rejected_before_staging() -> Result<(), String> {
     for metadata in [
-        r#"{"formatId":"dusnap","formatVersion":1,"snapshotId":"018f0000-0000-7000-8000-000000000001","createdAt":"2026-11-10T00:00:00.000Z","appVersion":"0.1.0","pathEncoding":"bytes","source":{"resultVersionId":"018f0000-0000-7000-8000-000000000002","scopeVersionId":null,"lineageId":null,"observedAt":null,"scopeRoots":[]},"volume":{"recordKind":2},"volume":{"recordKind":1}}"#,
-        r#"{"formatId":"dusnap","formatVersion":1,"snapshotId":"018f0000-0000-7000-8000-000000000001","createdAt":"2026-11-10T00:00:00.000Z","appVersion":"0.1.0","pathEncoding":"bytes","source":{"resultVersionId":"018f0000-0000-7000-8000-000000000002","scopeVersionId":null,"lineageId":null,"observedAt":null,"scopeRoots":[]},"volume":{"recordKind":2,"recordKind":1}}"#,
+        r#"{"formatId":"dusnap","formatVersion":1,"snapshotId":"018f0000-0000-7000-8000-000000000001","createdAt":"2026-11-10T00:00:00.000Z","appVersion":"0.1.0","pathEncoding":"bytes","source":{"resultVersionId":"018f0000-0000-7000-8000-000000000002","scopeVersionId":null,"lineageId":null,"observedAt":null,"scopeMarker":null,"conditionSummary":{"state":"unknown"},"completeness":null,"algorithms":{"state":"unknown"},"pathRules":[],"scopeRoots":[]},"volume":{"recordKind":2},"volume":{"recordKind":1}}"#,
+        r#"{"formatId":"dusnap","formatVersion":1,"snapshotId":"018f0000-0000-7000-8000-000000000001","createdAt":"2026-11-10T00:00:00.000Z","appVersion":"0.1.0","pathEncoding":"bytes","source":{"resultVersionId":"018f0000-0000-7000-8000-000000000002","scopeVersionId":null,"lineageId":null,"observedAt":null,"scopeMarker":null,"conditionSummary":{"state":"unknown"},"completeness":null,"algorithms":{"state":"unknown"},"pathRules":[],"scopeRoots":[]},"volume":{"recordKind":2,"recordKind":1}}"#,
     ] {
         let mut spool = input(&[1, 0, 0, 0, 0], None, metadata)?;
         let stage = Stage::default();
@@ -100,7 +101,7 @@ fn duplicate_volume_descriptor_keys_are_rejected_before_staging() -> Result<(), 
 
 #[test]
 fn volume_rejects_duplicate_and_invalid_links_with_valid_envelope_hash() -> Result<(), String> {
-    let metadata = r#"{"formatId":"dusnap","formatVersion":1,"snapshotId":"018f0000-0000-7000-8000-000000000001","createdAt":"2026-11-10T00:00:00.000Z","appVersion":"0.1.0","pathEncoding":"bytes","source":{"resultVersionId":"018f0000-0000-7000-8000-000000000002","scopeVersionId":null,"lineageId":null,"observedAt":null,"scopeRoots":["Lw","L2E"]},"volume":{"recordKind":1}}"#;
+    let metadata = r#"{"formatId":"dusnap","formatVersion":1,"snapshotId":"018f0000-0000-7000-8000-000000000001","createdAt":"2026-11-10T00:00:00.000Z","appVersion":"0.1.0","pathEncoding":"bytes","source":{"resultVersionId":"018f0000-0000-7000-8000-000000000002","scopeVersionId":null,"lineageId":null,"observedAt":null,"scopeMarker":null,"conditionSummary":{"state":"unknown"},"completeness":null,"algorithms":{"state":"unknown"},"pathRules":[{"separator":"/","caseSensitivity":null,"normalization":null},{"separator":"/","caseSensitivity":null,"normalization":null}],"scopeRoots":["Lw","L2E"]},"volume":{"recordKind":1}}"#;
     let cases: &[&[u8]] = &[
         &[1, 2, 0, 0, 0, 255, 255, 1, 0, 0, 0, 255, 255, 1, 0, 0, 0], // duplicate item
         &[1, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 0, 0, 0, 0],     // volume out of range
@@ -127,7 +128,7 @@ fn volume_rejects_duplicate_and_invalid_links_with_valid_envelope_hash() -> Resu
 }
 #[test]
 fn cancelled_semantic_validation_discards_stage() -> Result<(), String> {
-    let meta = r#"{"formatId":"dusnap","formatVersion":1,"snapshotId":"018f0000-0000-7000-8000-000000000001","createdAt":"2026-11-10T00:00:00.000Z","appVersion":"0.1.0","pathEncoding":"bytes","source":{"resultVersionId":"018f0000-0000-7000-8000-000000000002","scopeVersionId":null,"lineageId":null,"observedAt":null,"scopeRoots":[]},"volume":{"recordKind":1}}"#;
+    let meta = r#"{"formatId":"dusnap","formatVersion":1,"snapshotId":"018f0000-0000-7000-8000-000000000001","createdAt":"2026-11-10T00:00:00.000Z","appVersion":"0.1.0","pathEncoding":"bytes","source":{"resultVersionId":"018f0000-0000-7000-8000-000000000002","scopeVersionId":null,"lineageId":null,"observedAt":null,"scopeMarker":null,"conditionSummary":{"state":"unknown"},"completeness":null,"algorithms":{"state":"unknown"},"pathRules":[],"scopeRoots":[]},"volume":{"recordKind":1}}"#;
     let mut spool = input(&[1, 0, 0, 0, 0], None, meta)?;
     let stage = Stage::default();
     let discarded = stage.discarded.clone();
@@ -394,6 +395,7 @@ fn windows_root_placeholder_is_exact_utf16le() -> Result<(), String> {
     let mut metadata: serde_json::Value =
         serde_json::from_str(&example_metadata(&[&encoded])?).map_err(|e| e.to_string())?;
     metadata["pathEncoding"] = "utf16le".into();
+    metadata["source"]["pathRules"][0]["separator"] = "\\".into();
     for (name, accepted) in [(&[b'@', 0][..], true), (&[b'x', 0][..], false)] {
         let mut records = Vec::new();
         record(1, &[1, 1, 0, 0, 0, 255, 255, 1, 0, 0, 0], &mut records);
