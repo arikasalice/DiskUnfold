@@ -1,4 +1,5 @@
 //! Scan-lifetime volume observations from retained verified root handles.
+use super::disconnect::{self, Disconnects};
 use du_analysis_index::{VolumeReport, VolumeReportPoint};
 use du_core_contracts::{
     job::{Checkpoint, JobContext, JobCounts, JobFlow, JobFlowError},
@@ -43,10 +44,11 @@ impl Reports {
         &mut self,
         roots: &[Box<dyn AnchoredDirectory>],
         context: &dyn JobContext,
+        disconnects: &Disconnects,
     ) -> Result<(), JobFlowError> {
         let mut flows = super::acquire_flows(context, 1)?;
         if let Some(flow) = flows.pop() {
-            self.start(roots, context, &*flow);
+            self.start(roots, context, &*flow, disconnects);
             flow.finish(JobCounts::default());
         }
         Ok(())
@@ -56,6 +58,7 @@ impl Reports {
         roots: &[Box<dyn AnchoredDirectory>],
         context: &dyn JobContext,
         flow: &dyn JobFlow,
+        disconnects: &Disconnects,
     ) {
         for slot in &mut self.0 {
             if context.checkpoint() == Checkpoint::Cancel || flow.safe_point() == Checkpoint::Cancel
@@ -71,17 +74,33 @@ impl Reports {
             } else {
                 roots[slot.root].volume_space_reader().and_then(|reader| {
                     let result = reader.read(&slot.report.volume_id);
-                    slot.reader = Some(reader);
+                    if !result.as_ref().is_err_and(disconnect::is_error) {
+                        slot.reader = Some(reader);
+                    }
                     result
                 })
             };
+            if result.as_ref().is_err_and(disconnect::is_error) {
+                disconnects.close(slot.root as u32);
+            }
             slot.report.start = Some(point(context, result));
             if flow.safe_point() == Checkpoint::Cancel {
                 break;
             }
         }
     }
-    pub(super) fn finish(&mut self, context: &dyn JobContext, cancelled: bool) {
+    /// Skips final reads for explicitly disconnected roots and their known volume peers.
+    pub(super) fn finish(
+        &mut self,
+        context: &dyn JobContext,
+        cancelled: bool,
+        disconnects: &Disconnects,
+    ) {
+        for slot in &mut self.0 {
+            if disconnects.closed(slot.root as u32) {
+                slot.reader = None;
+            }
+        }
         if !cancelled
             && self.0.iter().any(|slot| slot.reader.is_some())
             && let Ok(mut flows) = super::acquire_flows(context, 1)

@@ -277,7 +277,8 @@ fn run(
     }
     let root_count = roots.len();
     let volumes = build.root_volumes();
-    let mut reports = volume_reports::Reports::new(volumes.clone());
+    let disconnects = disconnect::Disconnects::new(root_count, &volumes);
+    let mut reports = volume_reports::Reports::new(volumes);
     build.set_volume_reports(reports.snapshot())?;
     for index in 0..root_count {
         build.add_directory_at(index as u32, Vec::new())?;
@@ -287,7 +288,7 @@ fn run(
         build.seal(id.clone(), ResultCompleteness::Cancelled)?;
         return Ok((id, true, root_count));
     }
-    match reports.prepare_start(&roots, context) {
+    match reports.prepare_start(&roots, context, &disconnects) {
         Ok(()) => {}
         Err(JobFlowError::Cancelled) => {
             let id = ids.next_id();
@@ -333,7 +334,7 @@ fn run(
         }),
         wake: Condvar::new(),
         abort: AtomicBool::new(false),
-        disconnects: disconnect::Disconnects::new(&volumes),
+        disconnects,
     };
     let (sender, receiver) = mpsc::sync_channel(BUFFERED_OBSERVATIONS);
     let mut progress = Progress {
@@ -371,10 +372,10 @@ fn run(
         return Err(BuildError::Unavailable);
     }
     let was_cancelled = context.checkpoint() == Checkpoint::Cancel;
-    if progress.failed_roots.iter().all(|failed| *failed) && !was_cancelled {
+    if !was_cancelled && !progress.has_usable_result(&shared.disconnects) {
         return Err(BuildError::Unavailable);
     }
-    reports.finish(context, was_cancelled);
+    reports.finish(context, was_cancelled, &shared.disconnects);
     let cancelled = was_cancelled || context.checkpoint() == Checkpoint::Cancel;
     let unprocessed_roots = if cancelled {
         shared

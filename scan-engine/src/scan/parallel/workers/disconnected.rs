@@ -2,13 +2,7 @@
 use super::*;
 
 pub(super) fn observe_batch(shared: &Shared, root: u32, batch: &[TimedObservedEntry]) {
-    if batch.iter().any(|timed| {
-        timed
-            .entry
-            .metadata
-            .as_ref()
-            .is_err_and(|error| reason(error) == "scan.disconnected")
-    }) {
+    if batch.iter().any(|timed| disconnect::is_entry(&timed.entry)) {
         shared.disconnects.close(root);
     }
 }
@@ -24,7 +18,7 @@ pub(super) fn close_frame(
         root_index: frame.root_index,
         path: frame.path.clone(),
         root: frame.root,
-        reason: "scan.disconnected",
+        reason: disconnect::REASON,
         stage: du_core_contracts::scan_failures::ScanFailureStage::Enumerate,
         observed_at: context.utc_now(),
     };

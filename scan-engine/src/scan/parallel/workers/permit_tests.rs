@@ -44,7 +44,7 @@ fn permit_is_released_during_panic_unwind() {
         }),
         wake: Condvar::new(),
         abort: AtomicBool::new(false),
-        disconnects: disconnect::Disconnects::new(&[Vec::new()]),
+        disconnects: disconnect::Disconnects::new(1, &[]),
     };
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let mut queue = shared

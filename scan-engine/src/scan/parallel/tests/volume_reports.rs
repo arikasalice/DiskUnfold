@@ -441,3 +441,5 @@ fn cancellation_while_waiting_for_end_flow_seals_cancelled()
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     Ok(())
 }
+
+mod disconnect;

@@ -58,6 +58,11 @@ pub(super) fn consume(
 }
 
 impl Progress {
+    /// Keep observations and explicit disconnection evidence even without a successful root batch.
+    pub(super) fn has_usable_result(&self, disconnects: &disconnect::Disconnects) -> bool {
+        self.failed_roots.contains(&false) || disconnects.any_closed()
+    }
+
     pub(super) fn record(
         &mut self,
         event: Event,
