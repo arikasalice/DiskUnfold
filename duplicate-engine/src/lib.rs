@@ -11,3 +11,6 @@ pub mod verification;
 mod read_measurement;
 
 mod verification_result;
+
+/// Session-owned immutable duplicate verification results.
+pub mod result_store;
