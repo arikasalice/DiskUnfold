@@ -4,7 +4,7 @@ use du_analysis_index::{IngestSink, QueryError, ResultVersion};
 use du_core_contracts::{
     PathEncoding, SizeAmount, SizeBasis, SizeEvidence, SizeValue,
     browse_ipc::{BrowseDetail, BrowseDetailRequest, BrowseOrigin, BrowseValue},
-    result::{ResultItemKind, ResultVersionRead},
+    result::{ResultItem, ResultItemKind, ResultVersionRead},
 };
 
 use crate::{
@@ -53,10 +53,7 @@ fn project(
     });
     let display_name = match detail.item.parent {
         None => display_path.clone(),
-        Some(_) => version
-            .observed_root_for(&request.item)
-            .ok()
-            .and_then(|(_, root)| display(&root.path.encoding, &detail.item.name)),
+        Some(_) => item_display_name(version, &request.item, detail.item),
     };
     let kind = match detail.item.kind {
         ResultItemKind::Unknown | ResultItemKind::UnknownStructure => unknown("ref.unavailable"),
@@ -116,6 +113,18 @@ fn size(value: Option<&SizeValue>) -> BrowseValue<SizeValue> {
             .cloned(),
         "space.data_insufficient",
     )
+}
+
+fn item_display_name(
+    version: &ResultVersion,
+    reference: &du_core_contracts::ItemRef,
+    item: &ResultItem,
+) -> Option<String> {
+    let (_, root) = version.observed_root_for(reference).ok()?;
+    if item.parent.is_none() {
+        return display(&root.path.encoding, &root.path.raw.bytes().ok()?);
+    }
+    display(&root.path.encoding, &item.name)
 }
 
 pub(crate) fn display(encoding: &PathEncoding, bytes: &[u8]) -> Option<String> {

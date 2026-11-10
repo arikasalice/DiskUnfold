@@ -165,7 +165,7 @@ fn tie_uses_native_path_and_pages_retain_all_keys() -> Result<(), String> {
     let sets = ResultSets::new(sink);
     let key = MultiFolderKey {
         version: id(2)?,
-        folder: 0,
+        folder: query::FolderLocation::Item(0),
         tree: false,
         condition: condition.clone(),
         sorts: result.sorts.clone(),

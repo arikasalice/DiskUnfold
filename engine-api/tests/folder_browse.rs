@@ -2,8 +2,13 @@ use du_analysis_index::{
     IngestSink, Observation,
     query::{self, page::Total},
 };
-use du_core_contracts::{Id, ItemRef, result::ResultCompleteness};
-use du_engine_api::browse::folder::{Error, FolderBrowse, OpenRequest, Sort, View};
+use du_core_contracts::{
+    Id, ItemRef, PathBytes, PathEncoding,
+    result::{ResultCompleteness, ResultNativePath, ResultScopeRoot},
+};
+use du_engine_api::browse::folder::{
+    Error, FolderBrowse, OpenRequest, Sort, View, cursor::Session,
+};
 use du_job_runtime::JobIdentity;
 use std::sync::{
     Arc,
@@ -70,6 +75,65 @@ fn open(
     req: OpenRequest,
 ) -> Result<du_engine_api::browse::folder::Opened, String> {
     api.open(req, || false).map_err(|e| format!("{e:?}"))
+}
+
+#[test]
+fn forest_top_pages_only_real_roots_and_opens_each_root_independently() -> Result<(), String> {
+    let sink = IngestSink::default();
+    let roots = [(b"/z".as_slice(), 1), (b"/a", 2)].map(|(path, identity)| ResultScopeRoot {
+        path: ResultNativePath {
+            encoding: PathEncoding::Unix,
+            raw: PathBytes::from_bytes(path),
+        },
+        volume_id: vec![identity],
+        file_id: vec![identity],
+    });
+    let mut build = sink
+        .open_forest(id(1)?, roots.to_vec())
+        .map_err(|e| format!("{e:?}"))?;
+    for (index, name) in [(0, b"z-child"), (1, b"a-child")] {
+        build
+            .add_directory_at(index, vec![])
+            .map_err(|e| format!("{e:?}"))?;
+        build
+            .add_directory_at(index, vec![name.to_vec()])
+            .map_err(|e| format!("{e:?}"))?;
+    }
+    build
+        .seal(id(2)?, ResultCompleteness::Complete)
+        .map_err(|e| format!("{e:?}"))?;
+    let api = Arc::new(FolderBrowse::new(sink, Arc::new(Ids(AtomicU8::new(1)))));
+    let session = Session::new(Arc::clone(&api), [7; 32]);
+    let first = session
+        .open(request(None), &[], || false)
+        .map_err(|e| format!("{e:?}"))?;
+    let top = first.opened;
+    assert!(top.location.is_none());
+    assert!(top.breadcrumbs.is_empty());
+    assert_eq!(top.page.total, Total::Exact(2));
+    assert_eq!(top.page.rows[0].display_name.as_deref(), Some("/a"));
+    assert_eq!(top.page.rows[0].item.item_no, 1);
+    let cursor = first.next_cursor.ok_or("missing forest cursor")?;
+    let next = session
+        .page(&cursor, Some(1))
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(next.page.rows[0].display_name.as_deref(), Some("/z"));
+    assert_eq!(next.page.rows[0].item.item_no, 0);
+    assert!(next.next_cursor.is_none());
+
+    let a = open(&api, request(Some(top.page.rows[0].item.clone())))?;
+    assert_eq!(a.location.as_ref(), Some(&top.page.rows[0].item));
+    assert_eq!(a.breadcrumbs[0].display_name.as_deref(), Some("/a"));
+    assert_eq!(a.page.rows[0].display_name.as_deref(), Some("a-child"));
+    assert_ne!(a.page.query_ref, top.page.query_ref);
+    let z = open(&api, request(Some(next.page.rows[0].item.clone())))?;
+    assert_eq!(z.page.rows[0].display_name.as_deref(), Some("z-child"));
+    assert_ne!(z.page.query_ref, a.page.query_ref);
+    assert_eq!(
+        open(&api, request(None))?.page.query_ref,
+        top.page.query_ref
+    );
+    Ok(())
 }
 
 #[test]

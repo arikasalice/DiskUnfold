@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use du_core_contracts::result::{ResultCompleteness, ResultVersionRead};
 use du_core_contracts::{Id, ItemRef, Timestamp};
 
-use super::{Basis, Condition, QueryResult};
+use super::{Basis, Condition, FolderLocation, QueryResult};
 use crate::{IngestSink, QueryError};
 
 /// Default page size and maximum accepted page size.
@@ -79,7 +79,7 @@ pub struct FolderKey {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MultiFolderKey {
     pub version: Id,
-    pub folder: u32,
+    pub folder: FolderLocation,
     pub tree: bool,
     pub condition: Condition,
     pub sorts: Vec<super::SortSpec>,
@@ -89,7 +89,7 @@ impl From<&FolderKey> for MultiFolderKey {
     fn from(key: &FolderKey) -> Self {
         Self {
             version: key.version.clone(),
-            folder: key.folder,
+            folder: FolderLocation::Item(key.folder),
             tree: key.tree,
             condition: key.condition.clone(),
             sorts: vec![super::SortSpec {
@@ -308,7 +308,7 @@ fn validate_result(result: &QueryResult) -> Result<(), PageError> {
             || row.is_none()
             || result
                 .folder
-                .is_some_and(|parent| row.is_some_and(|row| row.parent != Some(parent)))
+                .is_some_and(|folder| row.is_some_and(|row| row.parent != folder.parent_item()))
             || !seen.insert(item.item_no)
         {
             return Err(PageError::InvalidResult);
@@ -373,7 +373,7 @@ impl Page {
         Metadata {
             version: self.result.version.version_id(),
             observed_at: self.result.version.observed_at(),
-            folder: self.result.folder,
+            folder: self.result.folder.and_then(FolderLocation::parent_item),
             total,
             unknown_count: self.result.unknown_count,
             inherited_uncertainty: self.result.inherited_uncertainty,
@@ -393,7 +393,7 @@ impl Page {
 pub struct Metadata<'a> {
     pub version: &'a Id,
     pub observed_at: Option<&'a Timestamp>,
-    /// Immediate-child scope, or `None` for a full-version search.
+    /// Real parent item, when the result represents one directory's children.
     pub folder: Option<u32>,
     pub total: Total,
     pub unknown_count: u64,

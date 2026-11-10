@@ -7,7 +7,7 @@ pub mod cursor;
 use std::sync::Arc;
 
 use du_analysis_index::{
-    IngestSink, QueryError, browse,
+    IngestSink, QueryError, ResultVersion, browse,
     query::{
         self,
         page::{MultiFolderKey, Page, PageError, ResultSets, Total},
@@ -51,6 +51,8 @@ pub struct OpenRequest {
 pub struct Breadcrumb {
     pub item: ItemRef,
     pub name: Vec<u8>,
+    /// Uses the observed absolute path for a real scope root.
+    pub display_name: Option<String>,
 }
 
 /// A returned observation and its independently observed size states.
@@ -58,6 +60,8 @@ pub struct Breadcrumb {
 pub struct Row {
     pub item: ItemRef,
     pub observation: ResultItem,
+    /// Name decoded using the observed root's native encoding.
+    pub display_name: Option<String>,
     pub logical_size: Option<SizeValue>,
     pub allocated_size: Option<SizeValue>,
 }
@@ -78,7 +82,8 @@ pub struct FolderPage {
 /// Opened location and first page of its immediate-child result set.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Opened {
-    pub location: ItemRef,
+    /// Absent at the virtual top of a multi-root result.
+    pub location: Option<ItemRef>,
     pub breadcrumbs: Vec<Breadcrumb>,
     pub page: FolderPage,
 }
@@ -107,7 +112,7 @@ pub struct FolderBrowse {
 }
 
 struct AdmittedOpen {
-    location: ItemRef,
+    location: Option<ItemRef>,
     breadcrumbs: Vec<Breadcrumb>,
     query_ref: Id,
     page: Page,
@@ -174,22 +179,7 @@ impl FolderBrowse {
                 .map_err(|_| Error::Internal)?
                 .ok_or(Error::MissingVersion)?,
         };
-        let view = browse::open(&version, request.location.as_ref()).map_err(folder_error)?;
-        let location = ItemRef {
-            result_version: version.version_id().clone(),
-            item_no: view.location.item_no,
-        };
-        let breadcrumbs = view
-            .breadcrumbs
-            .iter()
-            .map(|item| Breadcrumb {
-                item: ItemRef {
-                    result_version: version.version_id().clone(),
-                    item_no: item.item_no,
-                },
-                name: item.name.clone(),
-            })
-            .collect();
+        let (location, breadcrumbs) = open_location(&version, request.location.as_ref())?;
         let condition = match request.view {
             View::List => request.condition,
             View::Tree => query::Condition::All(vec![
@@ -211,7 +201,11 @@ impl FolderBrowse {
             .collect();
         let key = MultiFolderKey {
             version: version.version_id().clone(),
-            folder: location.item_no,
+            folder: location
+                .as_ref()
+                .map_or(query::FolderLocation::ScopeRoots, |item| {
+                    query::FolderLocation::Item(item.item_no)
+                }),
             tree: request.view == View::Tree,
             condition,
             sorts,
@@ -242,7 +236,7 @@ impl FolderBrowse {
         let result = query::run_folder_with_sorts(
             &query::Registry::baseline(),
             version,
-            Some(&location),
+            location.as_ref(),
             &key.condition,
             query::Sort {
                 id: &request.sort.id,
@@ -286,6 +280,37 @@ impl FolderBrowse {
     }
 }
 
+fn open_location(
+    version: &ResultVersion,
+    requested: Option<&ItemRef>,
+) -> Result<(Option<ItemRef>, Vec<Breadcrumb>), Error> {
+    let view = if let Some(requested) = requested {
+        browse::open(version, Some(requested)).map_err(folder_error)?
+    } else {
+        match browse::open_scope(version).map_err(folder_error)? {
+            browse::ScopeView::Single(view) => view,
+            browse::ScopeView::Forest { .. } => return Ok((None, Vec::new())),
+        }
+    };
+    let reference = |item_no| ItemRef {
+        result_version: version.version_id().clone(),
+        item_no,
+    };
+    let breadcrumbs = view
+        .breadcrumbs
+        .into_iter()
+        .map(|item| {
+            let item_ref = reference(item.item_no);
+            Breadcrumb {
+                display_name: super::item_display_name(version, &item_ref, item),
+                item: item_ref,
+                name: item.name.clone(),
+            }
+        })
+        .collect();
+    Ok((Some(reference(view.location.item_no)), breadcrumbs))
+}
+
 fn validate_count(count: Option<u32>) -> Result<(), Error> {
     if count.is_some_and(|n| n == 0 || n > query::page::MAX_PAGE_SIZE) {
         Err(Error::InvalidPage)
@@ -303,6 +328,7 @@ fn project(query_ref: Id, page: Page) -> Result<FolderPage, Error> {
             let item = version.detail(reference).map_err(folder_error)?.item;
             Ok(Row {
                 item: reference.clone(),
+                display_name: super::item_display_name(version, reference, item),
                 observation: item.clone(),
                 logical_size: version.item_size(item.item_no, SizeBasis::Logical).cloned(),
                 allocated_size: version

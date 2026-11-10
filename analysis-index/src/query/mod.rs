@@ -26,6 +26,16 @@ pub struct Record<'a> {
 }
 
 impl<'a> Record<'a> {
+    /// Returns the native display name used by query strategies.
+    pub fn name(&self) -> &[u8] {
+        if self.item.parent.is_none()
+            && let Some(root) = self.path.first()
+        {
+            return root;
+        }
+        &self.item.name
+    }
+
     /// Reads the item's observed size, or its subtree aggregate for a directory.
     pub fn size(&self, basis: Basis) -> Option<&'a SizeValue> {
         self.version.item_size(
@@ -117,7 +127,7 @@ impl Registry {
 
 fn builtin(record: &Record<'_>, predicate: &Predicate) -> Truth {
     match predicate {
-        Predicate::Name(test, encoding) => condition::name(&record.item.name, test, *encoding),
+        Predicate::Name(test, encoding) => condition::name(record.name(), test, *encoding),
         Predicate::Kind(kind) => condition::kind(record.item.kind, *kind),
         Predicate::Size(basis, boundary) => condition::size(record.size(*basis), *basis, *boundary),
         Predicate::Registered { .. } => Truth::Unknown,
@@ -125,7 +135,7 @@ fn builtin(record: &Record<'_>, predicate: &Predicate) -> Truth {
 }
 
 fn sort_name(record: &Record<'_>, _: Basis) -> SortValue {
-    SortValue::Bytes(record.item.name.clone())
+    SortValue::Bytes(record.name().to_vec())
 }
 fn sort_path(record: &Record<'_>, _: Basis) -> SortValue {
     SortValue::Path(record.path.to_vec())
@@ -167,8 +177,8 @@ pub struct QueryResult {
     pub sort_descending: bool,
     /// All resolved sort keys, in evaluation priority order.
     pub sorts: Vec<SortSpec>,
-    /// The folder whose immediate children supplied the candidates, if scoped.
-    folder: Option<u32>,
+    /// The navigation location that supplied candidates, if scoped.
+    folder: Option<FolderLocation>,
     /// Whether an earlier search excluded candidates it could not determine.
     inherited_uncertainty: bool,
     /// Comparison metadata not available in the current result source.
@@ -183,8 +193,24 @@ struct Row {
 
 enum Selection<'a> {
     Version,
-    Folder(u32),
+    Folder(FolderLocation),
     Parent(&'a QueryResult),
+}
+
+/// A real directory or the virtual top of a result with several observed roots.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FolderLocation {
+    Item(u32),
+    ScopeRoots,
+}
+
+impl FolderLocation {
+    fn parent_item(self) -> Option<u32> {
+        match self {
+            Self::Item(item) => Some(item),
+            Self::ScopeRoots => None,
+        }
+    }
 }
 
 /// Evaluates a condition against one pinned version. Cancellation returns no result set.
@@ -227,8 +253,8 @@ pub fn run_with_sorts(
 
 /// Evaluates only immediate children of one confirmed folder on the pinned version.
 ///
-/// A missing location selects the scope root. This uses the same condition and sort
-/// registries as a full search, including the path tie-breaker and unknown handling.
+/// A missing location selects the scope root, or the virtual top of a forest. Both
+/// use the same condition and sort registries as a full search.
 pub fn run_folder(
     registry: &Registry,
     version: Arc<ResultVersion>,
@@ -250,15 +276,22 @@ pub fn run_folder_with_sorts(
     additional: &[Sort<'_>],
     cancelled: impl FnMut() -> bool,
 ) -> Result<QueryResult, Error> {
-    let folder = browse::directory(&version, location).map_err(Error::Folder)?;
-    let item_no = folder.item_no;
+    let folder = if location.is_none() && version.scope_roots().len() > 1 {
+        FolderLocation::ScopeRoots
+    } else {
+        FolderLocation::Item(
+            browse::directory(&version, location)
+                .map_err(Error::Folder)?
+                .item_no,
+        )
+    };
     let sorts: Vec<_> = std::iter::once(first)
         .chain(additional.iter().copied())
         .collect();
     evaluate(
         registry,
         version,
-        Selection::Folder(item_no),
+        Selection::Folder(folder),
         condition,
         &sorts,
         cancelled,
@@ -321,7 +354,13 @@ fn evaluate(
     let mut unknown_count = 0;
     let (ordinary, parent, folder) = match selection {
         Selection::Version => (version.items(), None, None),
-        Selection::Folder(item) => (version.children(item), None, Some(item)),
+        Selection::Folder(location) => {
+            let rows = match location {
+                FolderLocation::Item(item) => version.children(item),
+                FolderLocation::ScopeRoots => version.scope_roots(),
+            };
+            (rows, None, Some(location))
+        }
         Selection::Parent(parent) => (&[][..], Some(parent), parent.folder),
     };
     let admitted = parent
@@ -338,7 +377,7 @@ fn evaluate(
             return Err(Error::Cancelled);
         }
         let item = item?;
-        let path = item_path(&version, item);
+        let path = navigation_path(&version, item, folder);
         let record = Record {
             item,
             path: &path,
@@ -406,7 +445,23 @@ fn collect_strategies(condition: &Condition, result: &mut BTreeSet<(String, u32)
     }
 }
 
-fn item_path(version: &ResultVersion, item: &ResultItem) -> Vec<Vec<u8>> {
+fn navigation_path(
+    version: &ResultVersion,
+    item: &ResultItem,
+    folder: Option<FolderLocation>,
+) -> Vec<Vec<u8>> {
+    if folder == Some(FolderLocation::ScopeRoots) {
+        let reference = ItemRef {
+            result_version: version.version_id().clone(),
+            item_no: item.item_no,
+        };
+        return version
+            .native_path(&reference)
+            .ok()
+            .and_then(|path| path.raw.bytes().ok())
+            .into_iter()
+            .collect();
+    }
     let mut path = Vec::new();
     let mut current = item;
     while let Some(parent) = current.parent {
