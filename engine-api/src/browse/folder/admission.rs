@@ -9,11 +9,12 @@ use du_core_contracts::{
         BrowseOpenRequest, BrowseSortKey, BrowseViewKind, QueryCondition, QueryItemType,
         QueryNameEncoding, QueryNameOp, QueryPredicate, QuerySizeBasis, QuerySizeOp,
     },
+    query_page_ipc::QueryPageRequest,
 };
 
 use super::{
     OpenRequest, Sort, View,
-    cursor::{CursorError, OpenedPage, Session},
+    cursor::{CursorError, CursorPage, OpenedPage, Session},
 };
 
 /// Failure adapting a published request to the current-analysis source.
@@ -32,6 +33,21 @@ pub struct LiveOpen {
 }
 
 impl Session {
+    /// Reads a page from the same folder registry using either published request form.
+    pub fn read_request(&self, request: QueryPageRequest) -> Result<CursorPage, CursorError> {
+        match request {
+            QueryPageRequest::Position(position) => self.page_at(
+                &position.query_ref,
+                &position.result_version,
+                u64::from(position.start),
+                Some(position.count),
+            ),
+            QueryPageRequest::Continuation(continuation) => {
+                self.page(&continuation.next_cursor, continuation.count)
+            }
+        }
+    }
+
     /// Opens the implicit current-analysis source and binds its continuation cursor.
     /// Explicit source references require the owning result-source resolver.
     pub fn open_live(

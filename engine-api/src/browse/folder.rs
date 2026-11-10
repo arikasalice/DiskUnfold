@@ -88,6 +88,8 @@ pub struct FolderPage {
     pub result_version: Id,
     pub rows: Vec<Row>,
     pub total: Total,
+    /// Observed candidates for which the pinned condition could not be decided.
+    pub unknown_count: u64,
     pub completeness: ResultCompleteness,
     pub observed_at: Option<Timestamp>,
     /// Next position within this query, absent when no observed rows remain.
@@ -100,6 +102,10 @@ pub struct Opened {
     /// Absent at the virtual top of a multi-root result.
     pub location: Option<ItemRef>,
     pub breadcrumbs: Vec<Breadcrumb>,
+    /// Sort strategies pinned to the query in priority order.
+    pub sort_strategies: Vec<query::SortSpec>,
+    /// Registered predicate strategies used to evaluate the pinned condition.
+    pub predicate_strategies: Vec<(String, u32)>,
     pub page: FolderPage,
 }
 
@@ -135,9 +141,12 @@ struct AdmittedOpen {
 
 impl AdmittedOpen {
     fn project(self) -> Result<Opened, Error> {
+        let metadata = self.page.metadata();
         Ok(Opened {
             location: self.location,
             breadcrumbs: self.breadcrumbs,
+            sort_strategies: metadata.sorts.to_vec(),
+            predicate_strategies: metadata.predicate_strategies.to_vec(),
             page: project(self.query_ref, self.page)?,
         })
     }
@@ -381,6 +390,7 @@ fn project(query_ref: Id, page: Page) -> Result<FolderPage, Error> {
         result_version: metadata.version.clone(),
         rows,
         total: metadata.total,
+        unknown_count: metadata.unknown_count,
         completeness: metadata.completeness,
         observed_at: metadata.observed_at.cloned(),
         next_position: (next < known_count).then_some(next),

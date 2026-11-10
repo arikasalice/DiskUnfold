@@ -47,27 +47,44 @@ fn filters_and_continues_on_the_admitted_version() -> Result<(), String> {
     );
     let request: BrowseOpenRequest = serde_json::from_value(json!({
         "viewKind": "list", "requestSeq": 9, "pageSize": 1,
-        "condition": { "kind": "predicate", "predicate": { "kind": "type", "value": "directory" } }
+        "condition": { "kind": "any", "children": [
+            { "kind": "predicate", "predicate": { "kind": "type", "value": "directory" } },
+            { "kind": "predicate", "predicate": { "kind": "size", "basis": "logical", "op": "at_least", "bytes": "1" } }
+        ] }
     }))
     .map_err(|error| error.to_string())?;
     let open = session
         .open_live(request, || false)
         .map_err(|error| format!("{error:?}"))?;
     assert_eq!(open.request_seq, 9);
+    assert_eq!(open.page.opened.sort_strategies[0].id, "sort.path");
+    assert_eq!(open.page.opened.sort_strategies[0].revision, 1);
     let first = open.page.opened.page;
     assert_eq!(first.result_version, id(2));
     assert_eq!(first.completeness, ResultCompleteness::Partial);
+    assert_eq!(first.unknown_count, 1);
     assert_eq!(first.rows[0].observation.name, b"a");
     let cursor = open
         .page
         .next_cursor
         .ok_or("missing cursor for second folder")?;
+    let continuation = serde_json::from_value(json!({ "nextCursor": cursor, "count": 1 }))
+        .map_err(|error| error.to_string())?;
     let next = session
-        .page_for(&cursor, &first.query_ref, &first.result_version, Some(1))
+        .read_request(continuation)
         .map_err(|error| format!("{error:?}"))?;
     assert_eq!(next.page.rows[0].observation.name, b"b");
     assert_eq!(next.page.result_version, first.result_version);
+    assert_eq!(next.page.unknown_count, 1);
     assert!(next.next_cursor.is_none());
+    let position = serde_json::from_value(json!({
+        "queryRef": first.query_ref, "resultVersion": first.result_version, "start": 1, "count": 1
+    }))
+    .map_err(|error| error.to_string())?;
+    let same = session
+        .read_request(position)
+        .map_err(|error| format!("{error:?}"))?;
+    assert_eq!(same.page, next.page);
     Ok(())
 }
 
