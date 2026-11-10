@@ -455,6 +455,11 @@ fn observes_current_system_drive() -> Result<(), Box<dyn std::error::Error>> {
         .find(|m| m.mount_path == path)
         .and_then(|m| m.volume_id)
         .ok_or("missing system drive identity")?;
+    use du_core_contracts::scan_observation::ScopeRootPort;
+    let opened = du_platform_os::windows_observation::WindowsScopeRoots
+        .open_root(&path)
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(expected, opened.volume_id);
     WindowsVolumes
         .path_access(&path)
         .map_err(|e| format!("{e:?}"))?;

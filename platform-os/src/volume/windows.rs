@@ -86,10 +86,7 @@ fn identity(path: &[u16]) -> Result<Vec<u8>, PortError> {
     unsafe { GetVolumeNameForVolumeMountPointW(PCWSTR(name.as_ptr()), &mut buffer) }
         .map_err(|e| error(io::Error::from_raw_os_error(e.code().0 & 0xffff)))?;
     let end = buffer.iter().position(|u| *u == 0).ok_or_else(invalid)?;
-    if end == 0 {
-        return Err(invalid());
-    }
-    Ok(bytes(&buffer[..end]))
+    crate::windows_observation::volume_name(&buffer[..end])
 }
 fn enumerate() -> Result<Vec<VolumeMount>, PortError> {
     // SAFETY: no pointers or caller-owned buffers are passed.
@@ -193,9 +190,7 @@ fn open_root(
     if length >= final_path.len() {
         return Err(invalid());
     }
-    if bytes(&final_path[..length]) != before {
-        return Err(disconnected(None));
-    }
+    check_opened_root(&final_path[..length], &before)?;
     check_mapping(&before, || identity(drive))?;
     Ok((file, before))
 }
@@ -206,6 +201,15 @@ fn disconnected(os_code: Option<i32>) -> PortError {
         reason_key: "scan.disconnected".into(),
         os_code,
     }
+}
+
+/// Ensure the opened handle names the volume root, not a directory on that volume.
+fn check_opened_root(opened: &[u16], expected_volume: &[u8]) -> Result<(), PortError> {
+    let path = volume_root_path(expected_volume).map_err(|_| disconnected(None))?;
+    if path.strip_suffix(&[0]) != Some(opened) {
+        return Err(disconnected(None));
+    }
+    Ok(())
 }
 
 /// Discards a capacity observation if the drive changed or could not be revalidated.
@@ -230,15 +234,23 @@ fn checked_capacity(
     observation
 }
 
+/// Convert a canonical GUID identity to the trailing-backslash OS root path.
+fn volume_root_path(volume: &[u8]) -> Result<Vec<u16>, PortError> {
+    let (pairs, tail) = volume.as_chunks::<2>();
+    if !tail.is_empty() {
+        return Err(invalid());
+    }
+    let mut wide: Vec<_> = pairs.iter().copied().map(u16::from_le_bytes).collect();
+    wide.push(u16::from(b'\\'));
+    if crate::windows_observation::volume_name(&wide)? != volume {
+        return Err(invalid());
+    }
+    wide.push(0);
+    Ok(wide)
+}
+
 fn volume_capacity(drive: &[u16], volume: &[u8]) -> Result<VolumeCapacity, PortError> {
-    let wide = terminated(
-        &volume
-            .as_chunks::<2>()
-            .0
-            .iter()
-            .map(|c| u16::from_le_bytes([c[0], c[1]]))
-            .collect::<Vec<_>>(),
-    );
+    let wide = volume_root_path(volume)?;
     let (mut available, mut total) = (0, 0);
     // SAFETY: path is NUL-terminated and output pointers are valid.
     let observation = unsafe {
@@ -430,6 +442,23 @@ mod tests {
         Ok(())
     }
     #[test]
+    fn guid_identity_is_not_a_volume_root_path() -> Result<(), Box<dyn std::error::Error>> {
+        let identity: Vec<u16> = r"\\?\Volume{01234567-89ab-cdef-0123-456789abcdef}"
+            .encode_utf16()
+            .collect();
+        let id = bytes(&identity);
+        let mut expected = identity;
+        expected.extend([u16::from(b'\\'), 0]);
+        assert_eq!(
+            volume_root_path(&id).map_err(|e| format!("{e:?}"))?,
+            expected
+        );
+        assert!(volume_root_path(&id[..id.len() - 1]).is_err());
+        assert!(volume_root_path(&bytes(&expected[..expected.len() - 1])).is_err());
+        assert!(volume_root_path(&[]).is_err());
+        Ok(())
+    }
+    #[test]
     fn root_path_boundary_and_encoding() {
         assert_eq!(root(&bytes(&[67, 58, 92])).ok(), Some(vec![67, 58, 92]));
         for path in [
@@ -464,3 +493,6 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod root_tests;
