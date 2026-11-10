@@ -54,6 +54,12 @@ pub trait AnchoredDirectory: DirectoryObservations {
     /// Opens the previously observed directory entry after revalidating it.
     fn open_child(&self, entry: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError>;
 
+    /// Reads the last-write time from this verified handle without reopening it.
+    /// Missing permissions or unsupported or invalid observations return `None`.
+    fn observed_modified_at(&self) -> Option<Timestamp> {
+        None
+    }
+
     /// IDs of verified same-volume ancestors, excluding this directory.
     /// `None` means unavailable; `Some(&[])` confirms a volume root. Evidence
     /// applies only while this anchored directory and its supporting handles live.

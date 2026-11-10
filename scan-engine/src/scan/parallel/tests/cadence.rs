@@ -69,7 +69,7 @@ fn timed_publications_pin_independent_versions_and_failed_build_rolls_back()
     };
     progress
         .record(
-            Event::RootBatch(0),
+            Event::RootBatch(0, None),
             &mut build,
             &mut JobCounts::default(),
             &context,
@@ -208,7 +208,9 @@ fn publishes_after_deadline_without_another_observation() -> Result<(), Box<dyn 
             .map_err(|e| format!("{e:?}"))?;
         Ok::<(), String>(())
     });
-    sender.send(Event::RootBatch(0)).map_err(|_| "send root")?;
+    sender
+        .send(Event::RootBatch(0, None))
+        .map_err(|_| "send root")?;
     let path = vec![native("later")];
     sender
         .send(Event::Item(
@@ -277,7 +279,9 @@ fn abort_and_cancel_do_not_publish_queued_batches() -> Result<(), Box<dyn std::e
             cadence: PublicationCadence::default(),
         };
         let (sender, receiver) = mpsc::channel();
-        sender.send(Event::RootBatch(0)).map_err(|_| "send root")?;
+        sender
+            .send(Event::RootBatch(0, None))
+            .map_err(|_| "send root")?;
         drop(sender);
         let abort = AtomicBool::new(aborted);
         let services = Services {

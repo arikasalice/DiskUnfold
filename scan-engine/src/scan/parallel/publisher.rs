@@ -101,7 +101,11 @@ impl Progress {
                 self.cadence.changed();
                 Ok(())
             }
-            Event::RootBatch(root_index) => {
+            Event::RootBatch(root_index, modified_at) => {
+                if let Some(time) = modified_at {
+                    build.set_modified_at(root_index, &[], time)?;
+                    self.cadence.changed();
+                }
                 self.root_published[root_index as usize] = true;
                 if !self.published && context.checkpoint() != Checkpoint::Cancel {
                     self.publish(build, context, ids, clock)?;

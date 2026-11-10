@@ -98,7 +98,7 @@ enum Event {
         stage: du_core_contracts::scan_failures::ScanFailureStage,
         observed_at: Option<du_core_contracts::Timestamp>,
     },
-    RootBatch(u32),
+    RootBatch(u32, Option<du_core_contracts::Timestamp>),
 }
 struct Control<'a> {
     ids: &'a dyn ResultIds,

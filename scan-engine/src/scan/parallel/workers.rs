@@ -196,7 +196,7 @@ fn process(
 }
 
 fn finish_directory(frame: &Frame, sender: &SyncSender<Event>, shared: &Shared) -> bool {
-    if frame.root && sender.send(Event::RootBatch(frame.root_index)).is_err() {
+    if frame.root && !frame.root_published && !send_root_batch(frame, sender) {
         return false;
     }
     complete(shared, frame.root_index);
@@ -252,12 +252,19 @@ fn next_entries(
 fn publish_first_batch(frame: &mut Frame, sender: &SyncSender<Event>) -> bool {
     if frame.root && frame.first_batch {
         frame.first_batch = false;
-        if sender.send(Event::RootBatch(frame.root_index)).is_err() {
+        if !send_root_batch(frame, sender) {
             return false;
         }
         frame.root_published = true;
     }
     true
+}
+
+fn send_root_batch(frame: &Frame, sender: &SyncSender<Event>) -> bool {
+    let modified_at = frame.directory.observed_modified_at();
+    sender
+        .send(Event::RootBatch(frame.root_index, modified_at))
+        .is_ok()
 }
 
 fn process_entry(

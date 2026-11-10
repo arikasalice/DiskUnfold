@@ -411,6 +411,10 @@ impl WindowsDirectory {
     }
 }
 impl AnchoredDirectory for WindowsDirectory {
+    fn observed_modified_at(&self) -> Option<du_core_contracts::Timestamp> {
+        timestamps::modified_at(&self.handle)
+    }
+
     fn open_child(&self, entry: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError> {
         let meta = entry.metadata.as_ref().map_err(|e| e.clone())?;
         if meta.kind != ObservedKind::Directory
