@@ -153,3 +153,77 @@ fn await_query(runtime: &JobRuntime, job: &Id) -> Result<Id, Box<dyn std::error:
     }
     Err("folder job did not finish before the test deadline".into())
 }
+
+static PREPARE_GATE: std::sync::OnceLock<(std::sync::Barrier, std::sync::Barrier)> =
+    std::sync::OnceLock::new();
+static PAUSE_STAGE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+pub(super) fn pause_at(sequence: u32, stage: usize) {
+    if sequence == 90001
+        && PAUSE_STAGE.load(std::sync::atomic::Ordering::Acquire) == stage
+        && let Some((entered, release)) = PREPARE_GATE.get()
+    {
+        entered.wait();
+        release.wait();
+    }
+}
+
+#[test]
+fn late_preparation_cannot_supersede_newer_open() -> Result<(), Box<dyn std::error::Error>> {
+    let (entered, release) =
+        PREPARE_GATE.get_or_init(|| (std::sync::Barrier::new(2), std::sync::Barrier::new(2)));
+    for stage in 1..=4 {
+        let (engine, runtime, version) = fixture(if stage == 4 { SYNC_WORK } else { 2 })?;
+        let engine = Arc::new(engine);
+        if stage == 2 {
+            let prime = call(
+                &engine,
+                "browse.open",
+                json!({"viewKind":"list","requestSeq":1,"resultVersion":version}),
+                Channel::Gui,
+            );
+            assert!(prime.error.is_none(), "cache setup: {:?}", prime.error);
+        }
+        PAUSE_STAGE.store(stage, std::sync::atomic::Ordering::Release);
+        let prior_engine = engine.clone();
+        let prior_version = version.clone();
+        let prior = std::thread::spawn(move || {
+            call(
+                &prior_engine,
+                "browse.open",
+                json!({"viewKind":"list","requestSeq":90001,"resultVersion":prior_version}),
+                Channel::Gui,
+            )
+        });
+        entered.wait();
+        let newer = call(
+            &engine,
+            "browse.open",
+            json!({"viewKind":"list","requestSeq":2,"resultVersion":version}),
+            Channel::Gui,
+        );
+        release.wait();
+        let old = prior.join().map_err(|_| "old thread panicked")?;
+        assert!(newer.error.is_none(), "stage {stage}: {:?}", newer.error);
+        assert!(
+            old.error.is_some(),
+            "stage {stage}: superseded request was accepted"
+        );
+        if stage == 4 {
+            let job: Id = serde_json::from_value(newer.body["jobRef"].clone())?;
+            await_query(&runtime, &job)?;
+        }
+        let retry = call(
+            &engine,
+            "browse.open",
+            json!({"viewKind":"list","requestSeq":3,"resultVersion":version}),
+            Channel::Gui,
+        );
+        assert!(
+            retry.error.is_none(),
+            "stage {stage}: retry failed: {:?}",
+            retry.error
+        );
+    }
+    PAUSE_STAGE.store(0, std::sync::atomic::Ordering::Release);
+    Ok(())
+}

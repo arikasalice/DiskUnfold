@@ -1,7 +1,10 @@
 //! GUI-only folder commands over the desktop scan store and F24 workers.
 
 use std::{
-    sync::Arc,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant},
 };
 
@@ -50,6 +53,7 @@ pub(crate) fn register(
         session: session.clone(),
         jobs,
         workers,
+        admission: Mutex::new(None),
     });
     builder.register(Page(session));
     Ok(())
@@ -60,6 +64,7 @@ struct Open {
     session: Arc<Session>,
     jobs: FolderJobs,
     workers: Arc<Workers>,
+    admission: Mutex<Option<Arc<AtomicBool>>>,
 }
 
 impl UseCase for Open {
@@ -79,22 +84,35 @@ impl UseCase for Open {
     ) -> Result<Self::Response, EngineError> {
         let start = Instant::now();
         let (request_seq, request, sorts) = lower_live(request).map_err(admission_error)?;
+        let token = self.admit()?;
+        #[cfg(test)]
+        tests::pause_at(request_seq, 1);
         let prepared = self.browse.prepare(request, &sorts).map_err(folder_error)?;
-        self.jobs
-            .cancel_channel(BROWSE_CHANNEL)
-            .map_err(job_error)?;
         if let Some(page) = self.browse.cached(&prepared).map_err(folder_error)? {
-            return self.opened(request_seq, page);
+            #[cfg(test)]
+            tests::pause_at(request_seq, 2);
+            return self.with_current(&token, || self.opened(request_seq, page));
         }
         if prepared.estimated_work() <= SYNC_WORK && start.elapsed() < SYNC_LIMIT {
-            let ended = || caller.is_cancelled() || start.elapsed() >= SYNC_LIMIT;
+            let ended = || {
+                token.load(Ordering::Acquire)
+                    || caller.is_cancelled()
+                    || start.elapsed() >= SYNC_LIMIT
+            };
             match self.browse.evaluate_uncached(prepared.clone(), ended) {
                 Ok(candidate) if !ended() => {
-                    let page = self
-                        .browse
-                        .publish_candidate(candidate)
-                        .map_err(folder_error)?;
-                    return self.opened(request_seq, page);
+                    #[cfg(test)]
+                    tests::pause_at(request_seq, 3);
+                    return self.with_current(&token, || {
+                        if caller.is_cancelled() {
+                            return Err(folder_error(Error::Cancelled));
+                        }
+                        let page = self
+                            .browse
+                            .publish_candidate(candidate)
+                            .map_err(folder_error)?;
+                        self.opened(request_seq, page)
+                    });
                 }
                 Ok(_) | Err(Error::Cancelled) => {}
                 Err(error) => return Err(folder_error(error)),
@@ -103,11 +121,44 @@ impl UseCase for Open {
         if caller.is_cancelled() {
             return Err(folder_error(Error::Cancelled));
         }
-        self.enqueue(request_seq, caller, prepared)
+        #[cfg(test)]
+        tests::pause_at(request_seq, 4);
+        self.with_current(&token, || self.enqueue(request_seq, caller, prepared))
     }
 }
 
 impl Open {
+    fn admit(&self) -> Result<Arc<AtomicBool>, EngineError> {
+        let mut current = self
+            .admission
+            .lock()
+            .map_err(|_| folder_error(Error::Internal))?;
+        self.jobs
+            .cancel_channel(BROWSE_CHANNEL)
+            .map_err(job_error)?;
+        if let Some(previous) = current.as_ref() {
+            previous.store(true, Ordering::Release);
+        }
+        let token = Arc::new(AtomicBool::new(false));
+        *current = Some(token.clone());
+        Ok(token)
+    }
+
+    fn with_current<T>(
+        &self,
+        token: &AtomicBool,
+        action: impl FnOnce() -> Result<T, EngineError>,
+    ) -> Result<T, EngineError> {
+        let _guard = self
+            .admission
+            .lock()
+            .map_err(|_| folder_error(Error::Internal))?;
+        if token.load(Ordering::Acquire) {
+            return Err(folder_error(Error::Cancelled));
+        }
+        action()
+    }
+
     fn opened(
         &self,
         request_seq: u32,
