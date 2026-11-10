@@ -19,6 +19,18 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : "The operation failed";
 }
 
+function reviewErrorText(error: unknown): string {
+  if (error instanceof AnalysisError) {
+    switch (error.reasonKey) {
+      case "scope.target_unavailable":
+        return "Check that every selected path is an accessible local folder, then review the scope again.";
+      case "path.unresolvable":
+        return "Enter a valid local folder path, then review the scope again.";
+    }
+  }
+  return errorText(error);
+}
+
 function draft(paths: OsPath[]): ScopeDraft {
   return {
     includes: paths,
@@ -59,10 +71,13 @@ function noticeText(key: string): string {
 function ReviewNotices({
   review,
   input,
+  problem,
 }: {
   review: ScopeReview | undefined;
   input: ScopeDraft | undefined;
+  problem: string | undefined;
 }) {
+  if (problem) return <Notice tone="error">{problem}</Notice>;
   if (!review) return null;
   return (
     <>
@@ -88,6 +103,7 @@ export function AnalysisPanel({ client }: { client: AnalysisClient }) {
   const [working, setWorking] = useState(false);
   const [reviewing, setReviewing] = useState(false);
   const [multiRootResult, setMultiRootResult] = useState(false);
+  const [reviewProblem, setReviewProblem] = useState<string>();
   const [error, setError] = useState<string>();
   const [receipt, setReceipt] = useState<ScanStart | null>(null);
   const [cancelRequested, setCancelRequested] = useState(false);
@@ -116,6 +132,7 @@ export function AnalysisPanel({ client }: { client: AnalysisClient }) {
       setReview(undefined);
       setReviewedDraft(undefined);
       setReviewing(false);
+      setReviewProblem(undefined);
       setError(undefined);
       setDropMessage(undefined);
     },
@@ -172,7 +189,7 @@ export function AnalysisPanel({ client }: { client: AnalysisClient }) {
     setReview(undefined);
     setReviewedDraft(undefined);
     setReviewing(true);
-    setError(undefined);
+    setReviewProblem(undefined);
     try {
       const submittedDraft = draft(paths);
       const response = await client.call("scope.review", {
@@ -187,7 +204,8 @@ export function AnalysisPanel({ client }: { client: AnalysisClient }) {
         setReviewedDraft(submittedDraft);
       }
     } catch (failure) {
-      if (request.current === requestSeq) setError(errorText(failure));
+      if (request.current === requestSeq)
+        setReviewProblem(reviewErrorText(failure));
     } finally {
       if (request.current === requestSeq) setReviewing(false);
     }
@@ -298,7 +316,11 @@ export function AnalysisPanel({ client }: { client: AnalysisClient }) {
               ]}
             />
           )}
-          <ReviewNotices review={review} input={reviewedDraft} />
+          <ReviewNotices
+            review={review}
+            input={reviewedDraft}
+            problem={reviewProblem}
+          />
         </section>
         <section className="du-card" aria-label="Scan and results">
           <ScanOutput

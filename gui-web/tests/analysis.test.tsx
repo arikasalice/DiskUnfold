@@ -690,7 +690,16 @@ test("F01 FR3: failed multi-path review retains input and rejects start", async 
     { target: { value: "D:\\Denied" } },
   );
   fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
-  await screen.findByText("scope.target_unavailable");
+  const message =
+    "Check that every selected path is an accessible local folder, then review the scope again.";
+  await within(
+    screen.getByRole("region", { name: "Target and scope" }),
+  ).findByText(message);
+  expect(
+    within(
+      screen.getByRole("region", { name: "Scan and results" }),
+    ).queryByText(message),
+  ).toBeNull();
   expect(
     screen.getByRole<HTMLInputElement>("textbox", {
       name: "Additional folder path 2",
