@@ -1,4 +1,6 @@
-use du_analysis_index::volume_gap::{Factor, FactorValue, RemainderUnavailable, VolumeGap};
+use du_analysis_index::volume_gap::{
+    Factor, FactorValue, GapRemainder, RemainderUnavailable, VolumeGap,
+};
 use du_core_contracts::{SizeAmount, SizeBasis, SizeEvidence, SizeValue};
 use std::collections::BTreeMap;
 
@@ -38,8 +40,22 @@ fn observed() -> BTreeMap<Factor, FactorValue> {
 
 #[test]
 fn preserves_factor_evidence_and_calculates_in_published_order() {
-    let gap = VolumeGap::calculate(Some(100), &allocated(75), &observed());
-    assert_eq!(gap.remainder, Ok(5.into()));
+    let mut factors = observed();
+    factors.insert(
+        Factor::Excluded,
+        FactorValue::Exact {
+            bytes: 1,
+            evidence: SizeEvidence::Estimated,
+        },
+    );
+    let gap = VolumeGap::calculate(Some(100), &allocated(75), &factors);
+    assert_eq!(
+        gap.remainder,
+        Ok(GapRemainder {
+            bytes: 5.into(),
+            evidence: SizeEvidence::Estimated
+        })
+    );
     assert_eq!(
         gap.factors.each_ref().map(|row| row.key),
         [
@@ -101,7 +117,10 @@ fn exact_zero_missing_report_and_negative_difference_are_distinct() {
     let mut factors = observed();
     assert_eq!(
         VolumeGap::calculate(Some(95), &allocated(75), &factors).remainder,
-        Ok(0.into())
+        Ok(GapRemainder {
+            bytes: 0.into(),
+            evidence: SizeEvidence::OsReported
+        })
     );
     assert_eq!(
         VolumeGap::calculate(None, &allocated(75), &factors).remainder,

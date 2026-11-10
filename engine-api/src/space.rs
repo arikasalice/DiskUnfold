@@ -1,4 +1,5 @@
 //! Read space totals from the immutable version pinned at request admission.
+pub(crate) mod volume_gap;
 use std::sync::Arc;
 
 use du_analysis_index::{IngestSink, QueryError, ResultVersion};

@@ -13,5 +13,6 @@ pub mod snapshot_spool;
 mod values;
 pub mod visualization;
 pub mod volume;
+pub mod volume_gap_ipc;
 pub use envelopes::*;
 pub use values::*;

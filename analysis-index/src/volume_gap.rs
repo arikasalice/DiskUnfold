@@ -64,11 +64,18 @@ pub enum RemainderUnavailable {
     NegativeDifference,
 }
 
+/// Exact unaccounted bytes and the weakest contributing evidence.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GapRemainder {
+    pub bytes: ByteSize,
+    pub evidence: SizeEvidence,
+}
+
 /// The factor table and the unaccounted bytes, if every operand is exact.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VolumeGap {
     pub factors: [FactorRow; FACTORS.len()],
-    pub remainder: Result<ByteSize, RemainderUnavailable>,
+    pub remainder: Result<GapRemainder, RemainderUnavailable>,
 }
 
 impl VolumeGap {
@@ -99,7 +106,7 @@ fn remainder(
     used_bytes: Option<u64>,
     scoped: &SizeValue,
     factors: &[FactorRow; FACTORS.len()],
-) -> Result<ByteSize, RemainderUnavailable> {
+) -> Result<GapRemainder, RemainderUnavailable> {
     use RemainderUnavailable::{InexactInput, NegativeDifference, VolumeReportUnavailable};
 
     let used_bytes = used_bytes.ok_or(VolumeReportUnavailable)?;
@@ -110,14 +117,27 @@ fn remainder(
         return Err(InexactInput);
     }
     let mut known = [0; FACTORS.len()];
+    let mut evidence =
+        crate::space::weaker(Some(SizeEvidence::OsReported), scoped.evidence.clone());
     for (bytes, row) in known.iter_mut().zip(factors) {
-        *bytes = row.value.exact_bytes().ok_or(InexactInput)?;
+        let FactorValue::Exact {
+            bytes: value,
+            evidence: source,
+        } = &row.value
+        else {
+            return Err(InexactInput);
+        };
+        *bytes = *value;
+        evidence = crate::space::weaker(Some(evidence), source.clone());
     }
     let allocated = bytes.as_str().parse::<u64>().map_err(|_| InexactInput)?;
     std::iter::once(allocated)
         .chain(known)
         .try_fold(used_bytes, u64::checked_sub)
-        .map(ByteSize::from)
+        .map(|bytes| GapRemainder {
+            bytes: bytes.into(),
+            evidence,
+        })
         .ok_or(NegativeDifference)
 }
 

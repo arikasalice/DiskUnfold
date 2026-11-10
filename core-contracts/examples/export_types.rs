@@ -8,6 +8,7 @@ use du_core_contracts::visualization::quantity::{VizAmount, VizDecimal, VizQuant
 use du_core_contracts::visualization::rows::{
     VizDenominator, VizDenominatorBasis, VizRatio, VizRow, VizRows, VizRowsRequest,
 };
+use du_core_contracts::volume_gap_ipc::*;
 use du_core_contracts::*;
 use du_core_contracts::{analysis_ipc::*, job::JobState, result::ResultCompleteness};
 use du_core_contracts::{browse_ipc::*, result::ResultItemKind};
@@ -86,6 +87,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ResultCompleteness::decl(&config),
         SpaceTotalSize::decl(&config),
         SpaceTotal::decl(&config),
+        VolumeGapSelection::decl(&config),
+        VolumeGapRequest::decl(&config),
+        VolumeGapObservation::decl(&config),
+        VolumeGapSize::decl(&config),
+        VolumeGapAmount::decl(&config),
+        VolumeGapRow::decl(&config),
+        VolumeGapCategories::decl(&config),
+        VolumeGapResponse::decl(&config),
         ResultItemKind::decl(&config),
         BrowseValue::<String>::decl(&config),
         BrowseOrigin::decl(&config),

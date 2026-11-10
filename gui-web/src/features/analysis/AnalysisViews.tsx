@@ -20,12 +20,13 @@ import type {
   BrowseDetail,
   BrowseValue,
   OsPath,
-  SizeValue,
   SpaceTotal,
 } from "../../ipc";
 import type { useScanResult } from "../../state/analysis-scan";
 import type { useTargets } from "../../state/analysis-targets";
 import { ScanIssues } from "./ScanIssues";
+import { VolumeExplanation } from "./VolumeExplanation";
+import { displayMeasurement, displaySize, formatBytes } from "./space-format";
 
 const sizeLabels = {
   logical: "Logical size",
@@ -39,29 +40,6 @@ const resultVersionLabels = {
   missing: "Final with scan gaps",
   cancelled: "Cancelled",
 } satisfies Record<SpaceTotal["completeness"], string>;
-
-const measurementLabels = {
-  complete: "Complete measurement",
-  partial: "Partial measurement",
-  missing: "Incomplete measurement",
-  cancelled: "Measurement interrupted",
-} satisfies Record<SpaceTotal["completeness"], string>;
-
-const evidenceLabels = {
-  measured: "Measured",
-  os_reported: "Reported by the file system",
-  estimated: "Estimated",
-  unknown: undefined,
-} satisfies Record<SizeValue["evidence"], string | undefined>;
-
-function formatBytes(bytes: string): string {
-  return `${BigInt(bytes).toLocaleString()} bytes`;
-}
-
-function displaySize(size: SizeValue): string {
-  if (size.state === "unknown") return "Unavailable";
-  return `${size.state === "lower_bound" ? "At least " : ""}${formatBytes(size.bytes)}`;
-}
 
 /** Presents discovered drives and the direct path entry defined for scope review. */
 export function TargetPicker({
@@ -236,14 +214,14 @@ export function ScanOutput({
   started,
   running,
   problem,
-  multiRoot,
+  roots,
 }: {
   client: AnalysisClient;
   scan: ReturnType<typeof useScanResult>;
   started: boolean;
   running: boolean;
   problem: string | undefined;
-  multiRoot: boolean;
+  roots: readonly OsPath[];
 }) {
   const error = problem ?? scan.error ?? scan.status?.reasonKey;
   const state = scan.unavailable
@@ -274,7 +252,7 @@ export function ScanOutput({
         <PinnedResult
           client={client}
           total={scan.total}
-          multiRoot={multiRoot}
+          roots={roots}
           hasNewResult={scan.hasNewResult}
           showLatest={scan.showLatest}
         />
@@ -299,13 +277,13 @@ export function ScanOutput({
 function PinnedResult({
   client,
   total,
-  multiRoot,
+  roots,
   hasNewResult,
   showLatest,
 }: {
   client: AnalysisClient;
   total: SpaceTotal;
-  multiRoot: boolean;
+  roots: readonly OsPath[];
   hasNewResult: boolean;
   showLatest: () => void;
 }) {
@@ -325,18 +303,19 @@ function PinnedResult({
           <Metric
             key={value.size.basis}
             label={sizeLabels[value.size.basis]}
-            detail={[
-              measurementLabels[value.completeness],
-              evidenceLabels[value.size.evidence],
-            ]
-              .filter(Boolean)
-              .join(" · ")}
+            detail={displayMeasurement(value.size, value.completeness)}
           >
             {displaySize(value.size)}
           </Metric>
         ))}
       </div>
       <Coverage total={total} />
+      <VolumeExplanation
+        key={`volume:${total.resultVersion}`}
+        client={client}
+        resultVersion={total.resultVersion}
+        roots={roots}
+      />
       <ScanIssues
         key={`issues:${total.resultVersion}`}
         client={client}
@@ -346,7 +325,7 @@ function PinnedResult({
         key={total.resultVersion}
         client={client}
         resultVersion={total.resultVersion}
-        multiRoot={multiRoot}
+        multiRoot={roots.length > 1}
       />
     </div>
   );

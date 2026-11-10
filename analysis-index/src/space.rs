@@ -133,7 +133,7 @@ fn unknown(basis: SizeBasis) -> SizeValue {
     }
 }
 
-fn weaker(left: Option<SizeEvidence>, right: SizeEvidence) -> SizeEvidence {
+pub(crate) fn weaker(left: Option<SizeEvidence>, right: SizeEvidence) -> SizeEvidence {
     fn rank(value: &SizeEvidence) -> u8 {
         match value {
             SizeEvidence::Measured => 0,

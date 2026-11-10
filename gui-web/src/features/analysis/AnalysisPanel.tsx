@@ -106,7 +106,7 @@ export function AnalysisPanel({ client }: { client: AnalysisClient }) {
   const [reviewedDraft, setReviewedDraft] = useState<ScopeDraft>();
   const [working, setWorking] = useState(false);
   const [reviewing, setReviewing] = useState(false);
-  const [multiRootResult, setMultiRootResult] = useState(false);
+  const [resultRoots, setResultRoots] = useState<OsPath[]>([]);
   const [reviewProblem, setReviewProblem] = useState<string>();
   const [error, setError] = useState<string>();
   const [receipt, setReceipt] = useState<ScanStart | null>(null);
@@ -237,7 +237,7 @@ export function AnalysisPanel({ client }: { client: AnalysisClient }) {
         draft: reviewedDraft,
         reviewFingerprint: review.reviewFingerprint,
       });
-      setMultiRootResult(review.scope.includes.length > 1);
+      setResultRoots(review.scope.includes);
       setReceipt(result);
     } catch (failure) {
       if (failure instanceof AnalysisError && failure.code === "STALE_VERSION")
@@ -345,7 +345,7 @@ export function AnalysisPanel({ client }: { client: AnalysisClient }) {
             started={receipt !== null}
             running={running}
             problem={error}
-            multiRoot={multiRootResult}
+            roots={resultRoots}
           />
           {running && (
             <footer className="du-card__actions">

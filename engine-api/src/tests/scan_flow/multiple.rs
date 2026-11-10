@@ -77,6 +77,68 @@ fn two_reviewed_paths_publish_one_result_and_denied_paths_never_start()
         }),
     )?;
     assert_eq!(total.body["sizes"][0]["size"]["bytes"], "128");
+    let volume_id = PathBytes::from_bytes(&[1]);
+    let root = json!({"resultVersion":version,"itemNo":1});
+    for target in [json!({"root":root}), json!({"volumeId":volume_id})] {
+        let report = gui(
+            "space.volume_gap",
+            json!({"resultVersion":version,"target":target,"requestSeq":13}),
+        )?;
+        assert!(report.error.is_none(), "{:?}", report.error);
+        assert_eq!(report.body["requestSeq"], 13);
+        assert_eq!(report.body["volumeId"], volume_id.as_str());
+        assert_eq!(report.body["start"]["state"], "unavailable");
+        assert_eq!(report.body["end"]["state"], "not_attempted");
+        assert_eq!(report.body["factors"].as_array().map(Vec::len), Some(8));
+        assert_eq!(
+            report.body["remainder"]["reasonKey"],
+            "space.volume_report_unavailable"
+        );
+        assert_eq!(report.body["osCategories"]["state"], "unavailable");
+    }
+    for (target, reason) in [
+        (
+            json!({"root":root,"volumeId":volume_id}),
+            "space.target_out_of_scope",
+        ),
+        (json!({}), "space.target_out_of_scope"),
+        (
+            json!({"root":{"resultVersion":version,"itemNo":u32::MAX}}),
+            "space.target_out_of_scope",
+        ),
+        (
+            json!({"root":{"resultVersion":receipt.scope_version,"itemNo":0}}),
+            "result.requery_required",
+        ),
+        (
+            json!({"root":root,"path":"ignored"}),
+            "command.body_invalid",
+        ),
+    ] {
+        assert_eq!(
+            gui(
+                "space.volume_gap",
+                json!({"resultVersion":version,"target":target,"requestSeq":14}),
+            )?
+            .error
+            .ok_or("invalid volume request was accepted")?
+            .reason_key,
+            reason
+        );
+    }
+    assert_eq!(
+        call(
+            &engine,
+            "space.volume_gap",
+            Channel::Mcp,
+            ENVELOPE_VERSION,
+            json!({"resultVersion":version,"target":{"root":root},"requestSeq":15})
+        )?
+        .error
+        .ok_or("volume query was exposed to MCP")?
+        .reason_key,
+        "command.not_provided"
+    );
     assert_eq!(roots.reads.load(Ordering::Acquire), 4);
     Ok(())
 }

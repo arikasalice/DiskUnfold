@@ -22,6 +22,8 @@ import type {
   SpaceTotal,
   TargetList,
   TargetProbeEvent,
+  VolumeGapRequest,
+  VolumeGapResponse,
 } from "../src/ipc";
 
 afterEach(cleanup);
@@ -54,6 +56,7 @@ function fixture({
   readReview = (result) => result,
   readStatus = (result) => result,
   readFailures,
+  readVolume,
   lineageId,
 }: {
   stale?: boolean;
@@ -66,6 +69,9 @@ function fixture({
   readFailures?: (
     request: ScanFailuresRequest,
   ) => ScanFailures | Promise<ScanFailures>;
+  readVolume?: (
+    request: VolumeGapRequest,
+  ) => VolumeGapResponse | Promise<VolumeGapResponse>;
   lineageId?: string;
 } = {}) {
   const listeners = new Set<(event: EventEnvelope) => void>();
@@ -151,6 +157,9 @@ function fixture({
         case "scan.failures":
           if (readFailures) return readFailures(body as ScanFailuresRequest);
           throw new Error("Scan issues unavailable");
+        case "space.volume_gap":
+          if (readVolume) return readVolume(body as VolumeGapRequest);
+          throw new Error("Volume explanation unavailable");
         case "browse.detail": {
           const unavailable = {
             state: "unknown",
@@ -764,7 +773,53 @@ test("F01 FR3: a delayed folder verification cannot undo a newer edit or drop", 
 });
 
 test("F01 FR3: multiple paths are reviewed together and the exact reviewed input starts the scan", async () => {
-  const { client, calls } = fixture();
+  const { client, calls } = fixture({
+    readVolume: ({ resultVersion, requestSeq }) => ({
+      resultVersion,
+      requestSeq,
+      volumeId: "AQ",
+      start: {
+        state: "available",
+        observedAt: timestamp,
+        totalBytes: "10",
+        usedBytes: "10",
+        freeBytes: "0",
+        evidence: "os_reported",
+      },
+      end: { state: "not_attempted" },
+      allocated: {
+        size: {
+          basis: "allocated",
+          evidence: "os_reported",
+          state: "lower_bound",
+          bytes: "2",
+        },
+        completeness: "missing",
+      },
+      uniquePhysical: {
+        size: {
+          basis: "unique_physical",
+          evidence: "unknown",
+          state: "unknown",
+        },
+        completeness: "missing",
+      },
+      factors: [
+        {
+          key: "gap.inaccessible",
+          value: { state: "unknown", reasonKey: "space.data_insufficient" },
+        },
+      ],
+      remainder: {
+        state: "unknown",
+        reasonKey: "space.volume_report_unavailable",
+      },
+      osCategories: {
+        state: "unavailable",
+        reasonKey: "space.volume_report_unavailable",
+      },
+    }),
+  });
   render(<App analysis={client} />);
   fireEvent.click(await screen.findByRole("radio", { name: path.display }));
   fireEvent.click(screen.getByRole("button", { name: "Add path" }));
@@ -795,6 +850,33 @@ test("F01 FR3: multiple paths are reviewed together and the exact reviewed input
     screen.queryByRole("button", { name: "View folder details" }),
   ).toBeNull();
   expect(calls.some((call) => call.name === "browse.detail")).toBe(false);
+  fireEvent.change(screen.getByRole("combobox", { name: "Scanned folder" }), {
+    target: { value: "1" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Explain volume usage" }));
+  const observations = within(
+    await screen.findByLabelText("Volume observations"),
+  );
+  expect(observations.getByText("0 bytes")).toBeDefined();
+  expect(observations.getByText("Not attempted")).toBeDefined();
+  expect(
+    calls.find((call) => call.name === "space.volume_gap")?.body,
+  ).toMatchObject({
+    resultVersion: "result",
+    target: { root: { resultVersion: "result", itemNo: 1 } },
+  });
+  fireEvent.click(
+    screen.getByRole("button", {
+      name: "Compare all scanned folders on this volume",
+    }),
+  );
+  await screen.findByText("All scanned folders on this volume");
+  expect(
+    calls.filter((call) => call.name === "space.volume_gap").at(-1)?.body,
+  ).toMatchObject({
+    resultVersion: "result",
+    target: { volumeId: "AQ" },
+  });
 });
 
 test("F01 FR3: normalized review preserves original selections for scan admission", async () => {
