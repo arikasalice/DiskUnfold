@@ -18,7 +18,7 @@ use du_core_contracts::{
     ports::{PortError, PortErrorKind},
     scan_observation::{
         AnchoredDirectory, DirectoryObservations, FilterDecision, FilteredBatch,
-        MetadataObservation, ObservedEntry, ObservedKind,
+        MetadataObservation, ObservedEntry, ObservedKind, TimedObservedEntry,
     },
 };
 pub use scope::WindowsScopeRoots;
@@ -68,7 +68,7 @@ pub struct WindowsDirectory {
     volume: u64,
     volume_guid: Arc<[u8]>,
     restart: bool,
-    pending: VecDeque<ObservedEntry>,
+    pending: VecDeque<TimedObservedEntry>,
     filtered: Option<bool>,
     filter_failed: bool,
     finished: bool,
@@ -315,7 +315,11 @@ impl WindowsDirectory {
         }
     }
 
-    fn fill(&mut self, include: &mut dyn FnMut(&[u8]) -> FilterDecision) -> Result<(), PortError> {
+    fn fill(
+        &mut self,
+        include: &mut dyn FnMut(&[u8]) -> FilterDecision,
+        clock: &dyn Fn() -> Option<du_core_contracts::Timestamp>,
+    ) -> Result<(), PortError> {
         // u64 backing storage provides the alignment required by the Windows records.
         let mut buffer = vec![0u64; BUFFER_SIZE / size_of::<u64>()];
         let class = if self.restart {
@@ -387,11 +391,16 @@ impl WindowsDirectory {
             if name != [46] && name != [46, 46] {
                 let name = bytes(&name);
                 match include(&name) {
-                    FilterDecision::Admit => self.pending.push_back(self.observe(
-                        name,
-                        item.FileId as u64,
-                        item.FileAttributes,
-                    )),
+                    FilterDecision::Admit => {
+                        let entry = self.observe(name, item.FileId as u64, item.FileAttributes);
+                        let observed_at = if entry.metadata.is_ok() {
+                            clock()
+                        } else {
+                            None
+                        };
+                        self.pending
+                            .push_back(TimedObservedEntry { entry, observed_at });
+                    }
                     FilterDecision::Exclude => {}
                     FilterDecision::Undecidable => {
                         self.pending.clear();
@@ -435,6 +444,18 @@ impl AnchoredDirectory for WindowsDirectory {
 
     fn observed_modified_at(&self) -> Option<du_core_contracts::Timestamp> {
         timestamps::modified_at(&self.handle)
+    }
+
+    fn observed_modified_at_timed(
+        &self,
+        clock: &dyn Fn() -> Option<du_core_contracts::Timestamp>,
+    ) -> (
+        Option<du_core_contracts::Timestamp>,
+        Option<du_core_contracts::Timestamp>,
+    ) {
+        let modified_at = timestamps::modified_at(&self.handle);
+        let observed_at = modified_at.as_ref().and_then(|_| clock());
+        (modified_at, observed_at)
     }
 
     fn open_child(&self, entry: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError> {

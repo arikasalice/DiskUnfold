@@ -26,24 +26,14 @@ use result_read::ensure_directory;
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 use version_store::{Entry, State};
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum BuildError {
-    Busy,
-    InvalidTree,
-    DuplicateVersion,
-    CapacityExceeded,
-    Unavailable,
-}
+mod build_error;
+pub use build_error::BuildError;
 
 mod volume_reports;
 pub use volume_reports::{VolumeReport, VolumeReportPoint};
 
-/// Raw component names relative to the root; the root path is empty.
-#[derive(Clone, Debug)]
-pub struct Observation {
-    pub path: Vec<Vec<u8>>,
-    pub size: Option<SizeValue>,
-}
+mod observation;
+pub use observation::Observation;
 #[derive(Debug)]
 pub struct ResultVersion {
     version_id: Id,
@@ -61,6 +51,7 @@ pub struct ResultVersion {
     volume_reports: Vec<VolumeReport>,
     observed_at: Option<Timestamp>,
     modified_times: Option<Vec<Option<Timestamp>>>,
+    item_observed_times: Option<Vec<Option<Timestamp>>>,
     issues: Vec<du_core_contracts::scan_failures::ScanIssue>,
 }
 
@@ -202,6 +193,7 @@ struct StoredObservation {
     kind: ResultItemKind,
     physical: Option<Box<SpaceObservation>>,
     modified_at: Option<Timestamp>,
+    observed_at: Option<Timestamp>,
 }
 impl BuildHandle {
     /// Adds a confirmed directory with no independent logical-size contribution.
@@ -213,6 +205,7 @@ impl BuildHandle {
                 kind: ResultItemKind::Directory,
                 physical: None,
                 modified_at: None,
+                observed_at: None,
             },
         )
     }
@@ -226,6 +219,7 @@ impl BuildHandle {
                 kind: ResultItemKind::UntraversedLink,
                 physical: None,
                 modified_at: None,
+                observed_at: None,
             },
         )
     }
@@ -245,6 +239,7 @@ impl BuildHandle {
                 kind: ResultItemKind::File,
                 physical: Some(Box::new(space)),
                 modified_at: None,
+                observed_at: None,
             },
         )
     }
@@ -258,6 +253,7 @@ impl BuildHandle {
                 kind: ResultItemKind::File,
                 physical: None,
                 modified_at: None,
+                observed_at: None,
             },
         )
     }
@@ -273,6 +269,7 @@ impl BuildHandle {
                 kind: ResultItemKind::UnknownStructure,
                 physical: None,
                 modified_at: None,
+                observed_at: None,
             },
         )
     }
@@ -290,6 +287,7 @@ impl BuildHandle {
                 kind,
                 physical: None,
                 modified_at: None,
+                observed_at: None,
             },
         )
     }
@@ -423,6 +421,7 @@ impl BuildHandle {
             physical: built.physical,
             identity_groups: std::sync::OnceLock::new(),
             modified_times: built.modified_times,
+            item_observed_times: built.item_observed_times,
             issues: issues::ordered(&self.issues),
             aggregates,
             roots: self.roots.clone(),

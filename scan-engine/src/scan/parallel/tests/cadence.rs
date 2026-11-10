@@ -69,7 +69,7 @@ fn timed_publications_pin_independent_versions_and_failed_build_rolls_back()
     };
     progress
         .record(
-            Event::RootBatch(0, None),
+            Event::RootBatch(0, None, None),
             &mut build,
             &mut JobCounts::default(),
             &context,
@@ -85,7 +85,7 @@ fn timed_publications_pin_independent_versions_and_failed_build_rolls_back()
     let path = vec![native("same")];
     progress
         .record(
-            Event::Item(0, path.clone(), Box::new(file_entry(&path[0], 7))),
+            Event::Item(0, path.clone(), Box::new(file_entry(&path[0], 7).into())),
             &mut build,
             &mut JobCounts::default(),
             &context,
@@ -124,7 +124,7 @@ fn timed_publications_pin_independent_versions_and_failed_build_rolls_back()
     assert!(
         progress
             .record(
-                Event::Item(0, path.clone(), Box::new(file_entry(&path[0], 7))),
+                Event::Item(0, path.clone(), Box::new(file_entry(&path[0], 7).into())),
                 &mut build,
                 &mut JobCounts::default(),
                 &context,
@@ -209,14 +209,14 @@ fn publishes_after_deadline_without_another_observation() -> Result<(), Box<dyn 
         Ok::<(), String>(())
     });
     sender
-        .send(Event::RootBatch(0, None))
+        .send(Event::RootBatch(0, None, None))
         .map_err(|_| "send root")?;
     let path = vec![native("later")];
     sender
         .send(Event::Item(
             0,
             path.clone(),
-            Box::new(file_entry(&path[0], 7)),
+            Box::new(file_entry(&path[0], 7).into()),
         ))
         .map_err(|_| "send item")?;
     assert_eq!(signal_rx.recv_timeout(Duration::from_secs(2))?, 4);
@@ -280,7 +280,7 @@ fn abort_and_cancel_do_not_publish_queued_batches() -> Result<(), Box<dyn std::e
         };
         let (sender, receiver) = mpsc::channel();
         sender
-            .send(Event::RootBatch(0, None))
+            .send(Event::RootBatch(0, None, None))
             .map_err(|_| "send root")?;
         drop(sender);
         let abort = AtomicBool::new(aborted);

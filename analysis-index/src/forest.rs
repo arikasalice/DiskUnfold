@@ -66,6 +66,24 @@ impl BuildHandle {
         observation.modified_at = Some(time);
         Ok(())
     }
+    /// Retains a time captured by the adapter immediately after item observation.
+    pub fn set_item_observed_at(
+        &mut self,
+        root: u32,
+        path: &[Vec<u8>],
+        time: Timestamp,
+    ) -> Result<(), BuildError> {
+        if self.finished {
+            return Err(BuildError::InvalidTree);
+        }
+        let observation = self
+            .observations
+            .get_mut(&(root, path.to_vec()))
+            .ok_or(BuildError::InvalidTree)?;
+        observation.observed_at = Some(time);
+        Ok(())
+    }
+
     /// Adds an observation using the same kind inference as legacy `add`.
     /// An unavailable size remains an unknown kind, not a confirmed file.
     pub fn add_at(&mut self, root_index: u32, observation: Observation) -> Result<(), BuildError> {
@@ -82,6 +100,7 @@ impl BuildHandle {
                 kind,
                 physical: None,
                 modified_at: None,
+                observed_at: None,
             },
         )
     }
@@ -100,6 +119,7 @@ impl BuildHandle {
                 kind: ResultItemKind::Directory,
                 physical: None,
                 modified_at: None,
+                observed_at: None,
             },
         )
     }
@@ -118,6 +138,7 @@ impl BuildHandle {
                 kind: ResultItemKind::File,
                 physical: None,
                 modified_at: None,
+                observed_at: None,
             },
         )
     }
@@ -137,6 +158,7 @@ impl BuildHandle {
                 kind: ResultItemKind::File,
                 physical: Some(Box::new(space)),
                 modified_at: None,
+                observed_at: None,
             },
         )
     }
@@ -155,6 +177,7 @@ impl BuildHandle {
                 kind: ResultItemKind::UntraversedLink,
                 physical: None,
                 modified_at: None,
+                observed_at: None,
             },
         )
     }

@@ -13,6 +13,30 @@ pub enum FilteredBatch {
     Undecidable,
 }
 
+/// An entry and the time its metadata was actually observed, when supplied.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TimedObservedEntry {
+    pub entry: ObservedEntry,
+    pub observed_at: Option<Timestamp>,
+}
+
+impl From<ObservedEntry> for TimedObservedEntry {
+    fn from(entry: ObservedEntry) -> Self {
+        Self {
+            entry,
+            observed_at: None,
+        }
+    }
+}
+
+/// Filtered batch with optional per-entry observation times.
+pub enum TimedFilteredBatch {
+    Entries(Vec<TimedObservedEntry>),
+    Progress,
+    End,
+    Undecidable,
+}
+
 /// A decision made before opening the enumerated item.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FilterDecision {
@@ -25,6 +49,44 @@ pub enum FilterDecision {
 /// An error terminates the stream; callers must record the unread remainder.
 pub trait DirectoryObservations: Send {
     fn next_batch(&mut self) -> Result<Vec<ObservedEntry>, PortError>;
+
+    /// Optional timed variant. Legacy adapters preserve unknown times without calling the clock.
+    fn next_batch_timed(
+        &mut self,
+        _clock: &dyn Fn() -> Option<Timestamp>,
+    ) -> Result<Vec<TimedObservedEntry>, PortError> {
+        self.next_batch().map(|entries| {
+            entries
+                .into_iter()
+                .map(|entry| TimedObservedEntry {
+                    entry,
+                    observed_at: None,
+                })
+                .collect()
+        })
+    }
+
+    /// Optional timed filtered variant, retaining the original pre-metadata boundary.
+    fn next_filtered_timed(
+        &mut self,
+        include: &mut dyn FnMut(&[u8]) -> FilterDecision,
+        _clock: &dyn Fn() -> Option<Timestamp>,
+    ) -> Result<TimedFilteredBatch, PortError> {
+        self.next_filtered(include).map(|batch| match batch {
+            FilteredBatch::Entries(entries) => TimedFilteredBatch::Entries(
+                entries
+                    .into_iter()
+                    .map(|entry| TimedObservedEntry {
+                        entry,
+                        observed_at: None,
+                    })
+                    .collect(),
+            ),
+            FilteredBatch::Progress => TimedFilteredBatch::Progress,
+            FilteredBatch::End => TimedFilteredBatch::End,
+            FilteredBatch::Undecidable => TimedFilteredBatch::Undecidable,
+        })
+    }
 
     /// Applies a stable raw-name decision before opening any item metadata handle.
     /// Each call processes bounded work; `Progress` requires another call. The
@@ -81,6 +143,15 @@ pub trait AnchoredDirectory: DirectoryObservations {
     /// Missing permissions or unsupported or invalid observations return `None`.
     fn observed_modified_at(&self) -> Option<Timestamp> {
         None
+    }
+
+    /// Optional timed metadata read. Existing adapters return their modification
+    /// time without invoking the clock or claiming a new observation time.
+    fn observed_modified_at_timed(
+        &self,
+        _clock: &dyn Fn() -> Option<Timestamp>,
+    ) -> (Option<Timestamp>, Option<Timestamp>) {
+        (self.observed_modified_at(), None)
     }
 
     /// IDs of verified same-volume ancestors, excluding this directory.

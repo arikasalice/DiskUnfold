@@ -152,7 +152,7 @@ fn process(
             }
             continue;
         }
-        if !publish_first_batch(&mut frame, sender) {
+        if !publish_first_batch(&mut frame, sender, context) {
             return false;
         }
         if frame.batch_pending {
@@ -167,7 +167,7 @@ fn process(
                 return context.checkpoint() == Checkpoint::Cancel;
             }
             Ok(Some(batch)) if batch.is_empty() => {
-                return finish_directory(&frame, sender, shared);
+                return finish_directory(&frame, sender, shared, context);
             }
             Ok(Some(batch)) if batch.len() <= 8192 => {
                 frame.first_batch |= frame.root && !frame.root_published;
@@ -195,8 +195,13 @@ fn process(
     true
 }
 
-fn finish_directory(frame: &Frame, sender: &SyncSender<Event>, shared: &Shared) -> bool {
-    if frame.root && !frame.root_published && !send_root_batch(frame, sender) {
+fn finish_directory(
+    frame: &Frame,
+    sender: &SyncSender<Event>,
+    shared: &Shared,
+    context: &dyn JobContext,
+) -> bool {
+    if frame.root && !frame.root_published && !send_root_batch(frame, sender, context) {
         return false;
     }
     complete(shared, frame.root_index);
@@ -212,11 +217,11 @@ fn next_entries(
     frame: &mut Frame,
     context: &dyn JobContext,
     policy: Policy<'_>,
-) -> Result<Option<Vec<ObservedEntry>>, ReadFailure> {
+) -> Result<Option<Vec<TimedObservedEntry>>, ReadFailure> {
     let Policy::BeforeMetadata(include) = policy else {
         return frame
             .directory
-            .next_batch()
+            .next_batch_timed(&|| context.utc_now())
             .map(Some)
             .map_err(ReadFailure::Observation);
     };
@@ -229,7 +234,7 @@ fn next_entries(
     };
     let batch = frame
         .directory
-        .next_filtered(&mut decide)
+        .next_filtered_timed(&mut decide, &|| context.utc_now())
         .map_err(|error| {
             if error.kind == PortErrorKind::Unsupported {
                 ReadFailure::Filter
@@ -238,21 +243,25 @@ fn next_entries(
             }
         })?;
     match batch {
-        du_core_contracts::scan_observation::FilteredBatch::Entries(entries)
+        du_core_contracts::scan_observation::TimedFilteredBatch::Entries(entries)
             if !entries.is_empty() =>
         {
             Ok(Some(entries))
         }
-        du_core_contracts::scan_observation::FilteredBatch::Progress => Ok(None),
-        du_core_contracts::scan_observation::FilteredBatch::End => Ok(Some(Vec::new())),
+        du_core_contracts::scan_observation::TimedFilteredBatch::Progress => Ok(None),
+        du_core_contracts::scan_observation::TimedFilteredBatch::End => Ok(Some(Vec::new())),
         _ => Err(ReadFailure::Filter),
     }
 }
 
-fn publish_first_batch(frame: &mut Frame, sender: &SyncSender<Event>) -> bool {
+fn publish_first_batch(
+    frame: &mut Frame,
+    sender: &SyncSender<Event>,
+    context: &dyn JobContext,
+) -> bool {
     if frame.root && frame.first_batch {
         frame.first_batch = false;
-        if !send_root_batch(frame, sender) {
+        if !send_root_batch(frame, sender, context) {
             return false;
         }
         frame.root_published = true;
@@ -260,22 +269,25 @@ fn publish_first_batch(frame: &mut Frame, sender: &SyncSender<Event>) -> bool {
     true
 }
 
-fn send_root_batch(frame: &Frame, sender: &SyncSender<Event>) -> bool {
-    let modified_at = frame.directory.observed_modified_at();
+fn send_root_batch(frame: &Frame, sender: &SyncSender<Event>, context: &dyn JobContext) -> bool {
+    let (modified_at, observed_at) = frame
+        .directory
+        .observed_modified_at_timed(&|| context.utc_now());
     sender
-        .send(Event::RootBatch(frame.root_index, modified_at))
+        .send(Event::RootBatch(frame.root_index, modified_at, observed_at))
         .is_ok()
 }
 
 fn process_entry(
     frame: &mut Frame,
-    entry: ObservedEntry,
+    timed: TimedObservedEntry,
     recorded: bool,
     shared: &Shared,
     sender: &SyncSender<Event>,
     context: &dyn JobContext,
     policy: Policy<'_>,
 ) -> Result<Option<Frame>, ()> {
+    let entry = &timed.entry;
     let mut path = frame.path.clone();
     path.push(entry.name.clone());
     if !recorded
@@ -289,18 +301,18 @@ fn process_entry(
             .send(Event::Item(
                 frame.root_index,
                 path.clone(),
-                Box::new(entry.clone()),
+                Box::new(timed.clone()),
             ))
             .map_err(|_| ())?;
     }
-    if !eligible_directory(&entry) || context.checkpoint() == Checkpoint::Cancel {
+    if !eligible_directory(entry) || context.checkpoint() == Checkpoint::Cancel {
         return Ok(None);
     }
     if frame.root && !frame.root_published {
-        frame.deferred.push_back(entry);
+        frame.deferred.push_back(timed);
         return Ok(None);
     }
-    match frame.directory.open_child(&entry) {
+    match frame.directory.open_child(entry) {
         Ok(directory) => Ok(schedule(
             shared,
             Frame {
@@ -349,7 +361,7 @@ fn requeue(shared: &Shared, frame: Frame, local: &mut Vec<Frame>) {
     local.push(frame);
 }
 
-fn eligible_directory(entry: &ObservedEntry) -> bool {
+fn eligible_directory(entry: &du_core_contracts::scan_observation::ObservedEntry) -> bool {
     entry.metadata.as_ref().is_ok_and(|m| {
         m.kind == ObservedKind::Directory
             && m.inode != 0

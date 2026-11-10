@@ -68,9 +68,15 @@ impl Progress {
         clock: &dyn MonotonicClock,
     ) -> Result<(), BuildError> {
         match event {
-            Event::Item(root_index, path, entry) => {
-                let gap = entry_gap(&entry);
-                record_at(build, root_index, &entry, &path, counts)?;
+            Event::Item(root_index, path, timed) => {
+                let entry = &timed.entry;
+                let gap = entry_gap(entry);
+                record_at(build, root_index, entry, &path, counts)?;
+                if gap.is_none()
+                    && let Some(time) = &timed.observed_at
+                {
+                    build.set_item_observed_at(root_index, &path, time.clone())?;
+                }
                 if let Some(reason) = gap {
                     build.record_gap_at(root_index, path, reason.into(), context.utc_now())?;
                 }
@@ -101,7 +107,10 @@ impl Progress {
                 self.cadence.changed();
                 Ok(())
             }
-            Event::RootBatch(root_index, modified_at) => {
+            Event::RootBatch(root_index, modified_at, observed_at) => {
+                if let Some(time) = observed_at {
+                    build.set_item_observed_at(root_index, &[], time)?;
+                }
                 if let Some(time) = modified_at {
                     build.set_modified_at(root_index, &[], time)?;
                     self.cadence.changed();

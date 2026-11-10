@@ -10,6 +10,7 @@ use du_core_contracts::{
 };
 use std::sync::{Arc, atomic::AtomicUsize};
 mod filtered;
+mod item_times;
 mod root_times;
 mod volume_reports;
 

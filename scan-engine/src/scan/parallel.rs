@@ -6,7 +6,7 @@ use du_core_contracts::{
     job::{Checkpoint, JobContext, JobCounts, JobFlow, JobFlowError, JobOutcome},
     ports::{PortError, PortErrorKind},
     result::ResultCompleteness,
-    scan_observation::{AnchoredDirectory, ObservedEntry, ObservedKind},
+    scan_observation::{AnchoredDirectory, ObservedEntry, ObservedKind, TimedObservedEntry},
 };
 use std::{
     collections::VecDeque,
@@ -34,8 +34,8 @@ struct Frame {
     root_index: u32,
     path: Vec<Vec<u8>>,
     directory: Box<dyn AnchoredDirectory>,
-    entries: VecDeque<ObservedEntry>,
-    deferred: VecDeque<ObservedEntry>,
+    entries: VecDeque<TimedObservedEntry>,
+    deferred: VecDeque<TimedObservedEntry>,
     root: bool,
     first_batch: bool,
     root_published: bool,
@@ -91,7 +91,7 @@ impl Shared {
     }
 }
 enum Event {
-    Item(u32, Vec<Vec<u8>>, Box<ObservedEntry>),
+    Item(u32, Vec<Vec<u8>>, Box<TimedObservedEntry>),
     Failure {
         root_index: u32,
         path: Vec<Vec<u8>>,
@@ -100,7 +100,11 @@ enum Event {
         stage: du_core_contracts::scan_failures::ScanFailureStage,
         observed_at: Option<du_core_contracts::Timestamp>,
     },
-    RootBatch(u32, Option<du_core_contracts::Timestamp>),
+    RootBatch(
+        u32,
+        Option<du_core_contracts::Timestamp>,
+        Option<du_core_contracts::Timestamp>,
+    ),
 }
 struct Control<'a> {
     ids: &'a dyn ResultIds,
