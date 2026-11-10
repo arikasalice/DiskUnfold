@@ -89,6 +89,13 @@ describe("fixed query pages", () => {
   it("rejects malformed first pages and changes to cached absolute row identities", () => {
     const first = page(201);
     expect(
+      () =>
+        new BrowsePages({
+          ...first,
+          rowKind: "search",
+        } as unknown as FolderQueryPage),
+    ).toThrow();
+    expect(
       () => new BrowsePages({ ...first, rows: first.rows.slice(1) }),
     ).toThrow();
     expect(

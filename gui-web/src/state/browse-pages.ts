@@ -28,7 +28,7 @@ export function visibleBrowsePages(
   return pages;
 }
 
-/** The cache is scoped to one opened query and its pinned result version. */
+/** Validates folder pages for one opened query and its pinned result version. */
 export class BrowsePages {
   readonly count: number;
   readonly rowCount: number;
@@ -44,6 +44,7 @@ export class BrowsePages {
     this.resultVersion = first.resultVersion;
     this.totalState = first.total.state;
     if (
+      first.rowKind !== "folder" ||
       !Number.isSafeInteger(this.count) ||
       this.count < 0 ||
       this.count > MAX_QUERY_POSITION + 1 ||

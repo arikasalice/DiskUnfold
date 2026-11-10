@@ -97,6 +97,22 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
+test("rejects a search page returned as an initial folder result", async () => {
+  const response = opened(1, [row(1, "Unexpected search row")]);
+  if (response.kind !== "opened") throw new Error("wrong fixture");
+  const malformed = {
+    ...response,
+    page: { ...response.page, rowKind: "search" },
+  } as unknown as BrowseOpenResponse;
+  const port: BrowsePort = {
+    open: vi.fn().mockResolvedValue(malformed),
+    page: vi.fn(),
+  };
+  render(<BrowsePanel port={port} resultVersion={id} />);
+  expect(await screen.findByText("Could not open this folder.")).toBeDefined();
+  expect(screen.queryByText("Unexpected search row")).toBeNull();
+});
+
 test("shows initial loading, virtual root, partial data and next page", async () => {
   const initial = deferred<BrowseOpenResponse>();
   const later = deferred<FolderQueryPage>();
