@@ -1,6 +1,6 @@
 //! Bounded handle-based workers and a single result publisher.
 use super::{ResultIds, record};
-use du_analysis_index::{BuildError, IngestSink};
+use du_analysis_index::{BuildError, BuildHandle};
 use du_core_contracts::{
     Id,
     job::{Checkpoint, JobContext, JobCounts, JobFlow, JobFlowError, JobOutcome},
@@ -58,20 +58,9 @@ struct Control<'a> {
     include: &'a (dyn Fn(&[Vec<u8>]) -> bool + Sync),
 }
 
-/// Collects a verified root using at most `limit` JobContext metadata flows.
-///
-/// Each worker retains its flow permit through every in-flight OS call. The
-/// caller thread alone writes and publishes the result build. The metadata flow
-/// limit and `limit` must be nonzero; no unpermitted fallback I/O is performed.
-/// A root handle must already be validated and must not be reopened by path.
-/// A busy runtime is retried with cancellation checks until the first permit is
-/// available. An unsupported flow or a zero worker limit fails without OS calls.
-/// Cancellation is checked before each open and enumeration call. `JobContext`
-/// does not atomically couple that check to issuing the call, so a cancellation
-/// racing between those operations can still allow one call to start.
-pub fn collect_parallel(
-    sink: &IngestSink,
-    scope: Id,
+/// Runs the same collector against a build prepared with source evidence.
+pub(crate) fn collect_open_build(
+    build: Result<BuildHandle, BuildError>,
     root: Box<dyn AnchoredDirectory>,
     ids: &dyn ResultIds,
     context: &dyn JobContext,
@@ -79,18 +68,13 @@ pub fn collect_parallel(
     include: &(dyn Fn(&[Vec<u8>]) -> bool + Sync),
 ) -> JobOutcome {
     let mut counts = JobCounts::default();
-    let result = run(
-        sink,
-        scope,
-        root,
-        Control {
-            ids,
-            context,
-            limit,
-            include,
-        },
-        &mut counts,
-    );
+    let control = Control {
+        ids,
+        context,
+        limit,
+        include,
+    };
+    let result = build.and_then(|build| run(build, root, control, &mut counts));
     match result {
         Ok((id, cancelled)) => JobOutcome {
             counts,
@@ -110,8 +94,7 @@ pub fn collect_parallel(
 }
 
 fn run(
-    sink: &IngestSink,
-    scope: Id,
+    mut build: BuildHandle,
     root: Box<dyn AnchoredDirectory>,
     control: Control<'_>,
     counts: &mut JobCounts,
@@ -122,7 +105,6 @@ fn run(
         limit,
         include,
     } = control;
-    let mut build = sink.open(scope)?;
     build.add_directory(Vec::new())?;
     if context.checkpoint() == Checkpoint::Cancel {
         let id = ids.next_id();

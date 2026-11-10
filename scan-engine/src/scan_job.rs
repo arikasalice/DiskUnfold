@@ -8,10 +8,11 @@ use du_core_contracts::{
         HistoryMode, JobBody, JobContext, JobControl, JobDescriptor, JobOutcome, ProgressUnit,
         ResourceClass,
     },
-    scan_observation::AnchoredDirectory,
+    result::{ResultNativePath, ResultScopeRoot},
+    scan_observation::OpenedScopeRoot,
 };
 
-use crate::scan::{ResultIds, collect_parallel};
+use crate::scan::{ResultIds, collect_open_build};
 
 const KIND: &str = "scan.metadata";
 // Conservative starting concurrency until device-specific policy is composed.
@@ -33,15 +34,16 @@ pub fn descriptor() -> JobDescriptor {
 
 /// Collects from the handle established during scan admission.
 pub struct MetadataScan {
-    root: Mutex<Option<Box<dyn AnchoredDirectory>>>,
+    root: Mutex<Option<OpenedScopeRoot>>,
     store: IngestSink,
     scope: Id,
     ids: Arc<dyn ResultIds>,
 }
 
 impl MetadataScan {
+    /// Transfers the reviewed handle and its root evidence together to the worker.
     pub fn new(
-        root: Box<dyn AnchoredDirectory>,
+        root: OpenedScopeRoot,
         store: IngestSink,
         scope: Id,
         ids: Arc<dyn ResultIds>,
@@ -63,15 +65,25 @@ impl JobBody for MetadataScan {
     fn run(&self, context: Arc<dyn JobContext>) -> JobOutcome {
         let root = self.root.lock().ok().and_then(|mut root| root.take());
         match root {
-            Some(root) => collect_parallel(
-                &self.store,
-                self.scope.clone(),
-                root,
-                &*self.ids,
-                &*context,
-                DEFAULT_SCAN_WORKERS,
-                &|_| true,
-            ),
+            Some(root) => {
+                let observed = ResultScopeRoot {
+                    path: ResultNativePath {
+                        encoding: root.canonical_path.encoding,
+                        raw: root.canonical_path.raw,
+                    },
+                    volume_id: root.volume_id,
+                    file_id: root.file_id,
+                };
+                let build = self.store.open_observed(self.scope.clone(), observed);
+                collect_open_build(
+                    build,
+                    root.directory,
+                    &*self.ids,
+                    &*context,
+                    DEFAULT_SCAN_WORKERS,
+                    &|_| true,
+                )
+            }
             None => JobOutcome {
                 counts: Default::default(),
                 completed_scope: false,

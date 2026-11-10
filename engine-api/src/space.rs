@@ -53,7 +53,7 @@ fn pin(store: &IngestSink, id: Option<&Id>) -> Result<Arc<ResultVersion>, Engine
 
 fn query_error(error: QueryError) -> EngineError {
     EngineError::reason(match error {
-        QueryError::NotFound => "ref.unavailable",
+        QueryError::NotFound | QueryError::PathUnavailable => "ref.unavailable",
         QueryError::StaleVersion => "result.requery_required",
         QueryError::InvalidPath | QueryError::NotDirectory | QueryError::KindUnknown => {
             "space.target_out_of_scope"

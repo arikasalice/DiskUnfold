@@ -22,22 +22,9 @@ pub fn open<'a>(
     location: Option<&ItemRef>,
 ) -> Result<FolderView<'a>, QueryError> {
     let item = directory(version, location)?;
-    let mut breadcrumbs = Vec::new();
-    let mut current = item;
-    loop {
-        breadcrumbs.push(current);
-        let Some(parent) = current.parent else {
-            break;
-        };
-        current = version
-            .items
-            .get(parent as usize)
-            .ok_or(QueryError::NotFound)?;
-    }
-    breadcrumbs.reverse();
     Ok(FolderView {
         location: item,
-        breadcrumbs,
+        breadcrumbs: version.ancestors(item)?,
         children: version.children(item.item_no),
     })
 }

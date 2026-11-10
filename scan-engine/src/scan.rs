@@ -6,16 +6,39 @@ use du_analysis_index::{
 };
 use du_core_contracts::{
     Id, SizeAmount, SizeBasis, SizeEvidence, SizeValue,
-    job::{Checkpoint, JobCounts, JobOutcome},
+    job::{Checkpoint, JobContext, JobCounts, JobOutcome},
     result::ResultCompleteness,
     scan_observation::{AnchoredDirectory, MetadataObservation, ObservedEntry, ObservedKind},
 };
-pub use parallel::collect_parallel;
+pub(crate) use parallel::collect_open_build;
 use std::collections::VecDeque;
 
 /// Supplies distinct result identifiers for partial and terminal publications.
 pub trait ResultIds: Send + Sync {
     fn next_id(&self) -> Id;
+}
+
+/// Collects a verified root using at most `limit` JobContext metadata flows.
+///
+/// Each worker retains its flow permit through every in-flight OS call. The
+/// caller thread alone writes and publishes the result build. The metadata flow
+/// limit and `limit` must be nonzero; no unpermitted fallback I/O is performed.
+/// A root handle must already be validated and must not be reopened by path.
+/// A busy runtime is retried with cancellation checks until the first permit is
+/// available. An unsupported flow or a zero worker limit fails without OS calls.
+/// Cancellation is checked before each open and enumeration call. `JobContext`
+/// does not atomically couple that check to issuing the call, so a cancellation
+/// racing between those operations can still allow one call to start.
+pub fn collect_parallel(
+    sink: &IngestSink,
+    scope: Id,
+    root: Box<dyn AnchoredDirectory>,
+    ids: &dyn ResultIds,
+    context: &dyn JobContext,
+    limit: usize,
+    include: &(dyn Fn(&[Vec<u8>]) -> bool + Sync),
+) -> JobOutcome {
+    collect_open_build(sink.open(scope), root, ids, context, limit, include)
 }
 
 struct Frame {

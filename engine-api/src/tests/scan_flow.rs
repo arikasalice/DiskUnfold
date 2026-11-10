@@ -1,9 +1,10 @@
 use super::*;
 use du_core_contracts::{
-    OsPath, PathBytes, PathEncoding,
+    ItemRef, OsPath, PathBytes, PathEncoding,
     analysis_ipc::{ScanStart, ScopeReview},
     job::{HistoryAppend, JobHistory, JobSummary},
     ports::{PortError, PortErrorKind},
+    result::ResultVersionRead,
     scan_observation::{
         AnchoredDirectory, DirectoryObservations, MetadataObservation, ObservedEntry, ObservedKind,
         OpenedScopeRoot, ScopeRootPort,
@@ -96,7 +97,7 @@ impl DirectoryObservations for Directory {
             .recv_timeout(Duration::from_secs(5))
             .map_err(|_| io_error())?;
         Ok(vec![ObservedEntry {
-            name: b"f".to_vec(),
+            name: vec![b'f', 0],
             enumerated_inode: 2,
             enumerated_kind: ObservedKind::File,
             metadata: Ok(MetadataObservation {
@@ -156,7 +157,7 @@ fn reviewed_identity_is_rechecked_and_one_job_publishes_the_requested_result()
     crate::jobs::register(&mut builder, runtime.clone());
     crate::scope::register_review(&mut builder, roots.clone(), clock);
     let workers = Arc::new(crate::workers::Workers::start(runtime)?);
-    crate::scan::register(&mut builder, workers, roots.clone(), ids)?;
+    let versions = crate::scan::register(&mut builder, workers, roots.clone(), ids)?;
     let engine = builder.build()?;
     let gui = |name, body| call(&engine, name, Channel::Gui, ENVELOPE_VERSION, body);
     let path: Vec<u8> = "C:\\Fixture"
@@ -237,6 +238,20 @@ fn reviewed_identity_is_rechecked_and_one_job_publishes_the_requested_result()
     )?;
     assert_eq!(response.body["resultVersion"], json!(version));
     assert_eq!(response.body["sizes"][0]["size"]["bytes"], "64");
+    let pinned = versions
+        .pin_current(&version)
+        .map_err(|error| format!("{error:?}"))?;
+    let observed = pinned.observed_root().ok_or("missing observed root")?;
+    assert_eq!(observed.path.raw.bytes()?, path);
+    assert_eq!(observed.volume_id, [1]);
+    assert_eq!(observed.file_id, 3usize.to_le_bytes());
+    let child = pinned
+        .native_path(&ItemRef {
+            result_version: version,
+            item_no: 1,
+        })
+        .map_err(|error| format!("{error:?}"))?;
+    assert_eq!(child.raw.bytes()?, [path, vec![b'\\', 0, b'f', 0]].concat());
     assert_eq!(roots.reads.load(Ordering::Acquire), 2);
     Ok(())
 }

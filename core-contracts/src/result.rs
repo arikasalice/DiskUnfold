@@ -1,5 +1,5 @@
 //! Read-only, pinned result versions and their conservative space aggregates.
-use crate::{Id, SizeValue};
+use crate::{Id, PathBytes, PathEncoding, SizeValue};
 use std::borrow::Cow;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -55,10 +55,30 @@ pub struct SpaceAggregate {
     pub limitations: Cow<'static, [&'static str]>,
 }
 
+/// An operating-system path with its native encoding and no display representation.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ResultNativePath {
+    pub encoding: PathEncoding,
+    pub raw: PathBytes,
+}
+
+/// Root path and identity observed on the same verified handle used for collection.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ResultScopeRoot {
+    pub path: ResultNativePath,
+    pub volume_id: Vec<u8>,
+    pub file_id: Vec<u8>,
+}
+
 /// An immutable snapshot held by the reader independently of later publications.
 pub trait ResultVersionRead: Send + Sync {
     fn version_id(&self) -> &Id;
     fn scope_version_id(&self) -> &Id;
     fn completeness(&self) -> ResultCompleteness;
     fn items(&self) -> &[ResultItem];
+
+    /// Returns verified root evidence when the source retained it at collection time.
+    fn observed_root(&self) -> Option<&ResultScopeRoot> {
+        None
+    }
 }

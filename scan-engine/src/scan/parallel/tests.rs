@@ -1,4 +1,6 @@
+use super::super::collect_parallel;
 use super::*;
+use du_analysis_index::IngestSink;
 use du_core_contracts::{
     job::JobFlowError,
     ports::{PortError, PortErrorKind},

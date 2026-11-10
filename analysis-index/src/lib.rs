@@ -2,9 +2,11 @@
 pub mod browse;
 mod physical;
 pub mod query;
+mod result_path;
 mod space;
 use du_core_contracts::result::{
-    ResultCompleteness, ResultItem, ResultItemKind, ResultVersionRead, SpaceAggregate,
+    ResultCompleteness, ResultItem, ResultItemKind, ResultScopeRoot, ResultVersionRead,
+    SpaceAggregate,
 };
 use du_core_contracts::{Id, ItemRef, SizeValue};
 pub use physical::{FileIdentity, SharingEvidence, SpaceObservation};
@@ -35,6 +37,7 @@ pub struct ResultVersion {
     items: Vec<ResultItem>,
     aggregates: Vec<SpaceAggregate>,
     physical: Option<Vec<Option<SpaceObservation>>>,
+    observed_root: Option<Arc<ResultScopeRoot>>,
 }
 
 /// Failure to resolve an item or a current version without changing the pinned result.
@@ -43,6 +46,7 @@ pub enum QueryError {
     NotFound,
     StaleVersion,
     InvalidPath,
+    PathUnavailable,
     NotDirectory,
     KindUnknown,
     Unavailable,
@@ -81,6 +85,24 @@ impl ResultVersion {
         let start = self.items.partition_point(|item| item.parent < parent);
         let end = self.items.partition_point(|item| item.parent <= parent);
         &self.items[start..end]
+    }
+
+    /// Returns the root-to-item chain in the same immutable hierarchy.
+    fn ancestors<'a>(&'a self, item: &'a ResultItem) -> Result<Vec<&'a ResultItem>, QueryError> {
+        let mut chain = Vec::new();
+        let mut current = item;
+        loop {
+            chain.push(current);
+            let Some(parent) = current.parent else {
+                break;
+            };
+            current = self
+                .items
+                .get(parent as usize)
+                .ok_or(QueryError::NotFound)?;
+        }
+        chain.reverse();
+        Ok(chain)
     }
 
     /// Resolves a raw root-relative path to a confirmed directory's aggregate in this snapshot.
@@ -126,6 +148,10 @@ impl ResultVersionRead for ResultVersion {
     fn items(&self) -> &[ResultItem] {
         &self.items
     }
+
+    fn observed_root(&self) -> Option<&ResultScopeRoot> {
+        self.observed_root.as_deref()
+    }
 }
 
 #[derive(Default)]
@@ -158,6 +184,23 @@ impl IngestSink {
             .clone())
     }
     pub fn open(&self, scope_version_id: Id) -> Result<BuildHandle, BuildError> {
+        self.begin(scope_version_id, None)
+    }
+
+    /// Opens a build whose publications all retain the same verified root evidence.
+    pub fn open_observed(
+        &self,
+        scope_version_id: Id,
+        root: ResultScopeRoot,
+    ) -> Result<BuildHandle, BuildError> {
+        self.begin(scope_version_id, Some(Arc::new(root)))
+    }
+
+    fn begin(
+        &self,
+        scope_version_id: Id,
+        observed_root: Option<Arc<ResultScopeRoot>>,
+    ) -> Result<BuildHandle, BuildError> {
         let mut state = self.state.lock().map_err(|_| BuildError::Unavailable)?;
         if state.active {
             return Err(BuildError::Busy);
@@ -167,6 +210,7 @@ impl IngestSink {
             state: Arc::clone(&self.state),
             baseline: state.current.clone(),
             scope_version_id,
+            observed_root,
             observations: BTreeMap::new(),
             finished: false,
         })
@@ -178,6 +222,7 @@ pub struct BuildHandle {
     state: Arc<Mutex<State>>,
     baseline: Option<Arc<ResultVersion>>,
     scope_version_id: Id,
+    observed_root: Option<Arc<ResultScopeRoot>>,
     observations: BTreeMap<Vec<Vec<u8>>, StoredObservation>,
     finished: bool,
 }
@@ -329,6 +374,7 @@ impl BuildHandle {
             items: built.items,
             physical: built.physical,
             aggregates,
+            observed_root: self.observed_root.clone(),
         });
         let mut state = self.state.lock().map_err(|_| BuildError::Unavailable)?;
         if !state.used_versions.insert(result.version_id.clone()) {

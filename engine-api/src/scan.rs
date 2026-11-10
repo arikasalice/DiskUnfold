@@ -26,7 +26,7 @@ pub(crate) fn register(
     workers: Arc<Workers>,
     roots: Arc<dyn ScopeRootPort>,
     ids: Arc<dyn JobIdentity>,
-) -> Result<(), RuntimeError> {
+) -> Result<IngestSink, RuntimeError> {
     workers
         .runtime
         .register(du_scan_engine::scan_job::descriptor())?;
@@ -36,10 +36,10 @@ pub(crate) fn register(
         roots,
         ids: Arc::new(ScanIds(ids)),
         workers,
-        store,
+        store: store.clone(),
         admitted: Mutex::new(None),
     });
-    Ok(())
+    Ok(store)
 }
 
 struct ScanIds(Arc<dyn JobIdentity>);
@@ -76,8 +76,9 @@ impl UseCase for StartScan {
     ) -> Result<Self::Response, EngineError> {
         let root = scope::verify(&request.draft, &request.review_fingerprint, &*self.roots)?;
         let scope_version = self.ids.next_id();
+        let scope_summary = root.canonical_path.display.clone();
         let body = Arc::new(MetadataScan::new(
-            root.directory,
+            root,
             self.store.clone(),
             scope_version.clone(),
             self.ids.clone(),
@@ -92,7 +93,7 @@ impl UseCase for StartScan {
             }),
             body,
             priority: JobPriority::Normal,
-            scope_summary: root.canonical_path.display,
+            scope_summary,
             correlation_id: caller.correlation_id.clone(),
             sample: false,
         };
