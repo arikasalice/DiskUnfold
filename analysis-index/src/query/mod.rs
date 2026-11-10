@@ -1,4 +1,5 @@
 //! In-memory, pinned-result query primitives. Text normalization and IPC belong to callers.
+pub mod boundary;
 mod condition;
 pub mod page;
 mod plan;
