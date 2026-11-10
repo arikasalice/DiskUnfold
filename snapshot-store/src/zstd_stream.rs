@@ -6,7 +6,7 @@
 
 use std::io::{self, Read, Write};
 
-use crate::{envelope, zstd_frame};
+use crate::{envelope, record_framing, zstd_frame};
 
 /// A failure while verifying or streaming a DUSNAP frame.
 #[derive(Debug)]
@@ -23,6 +23,8 @@ pub enum Error {
     Sink(io::Error),
     /// Decoded output exceeded the footer's declared upper bound.
     DecodedLimit,
+    /// The decoded record boundaries, order or count are invalid.
+    Records,
 }
 
 /// Decode the single frame into a caller-supplied bounded sink.
@@ -43,18 +45,44 @@ pub fn decode_v1<W: Write>(
         return Err(Error::Cancelled);
     }
     let envelope = envelope::verify_v1(bytes).map_err(Error::Envelope)?;
-    zstd_frame::inspect_frame_cancellable(
-        envelope.compressed,
-        envelope.decoded_length,
-        &mut cancelled,
-    )
-    .map_err(|e| {
-        if e == zstd_frame::Error::Cancelled {
-            Error::Cancelled
-        } else {
-            Error::Frame(e)
-        }
+    decode_verified(&envelope, &mut cancelled, |chunk| {
+        sink.write_all(chunk).map_err(Error::Sink)
+    })
+}
+
+/// Check a v1 envelope, zstd frame and record boundaries, order, and count.
+///
+/// Record payloads and metadata are not interpreted. A successful result is
+/// not sufficient to accept or publish a snapshot. No partial records escape
+/// on error or cancellation. Input is borrowed and the hash is computed once.
+pub fn validate_record_framing_v1(
+    bytes: &[u8],
+    mut cancelled: impl FnMut() -> bool,
+) -> Result<(), Error> {
+    if cancelled() {
+        return Err(Error::Cancelled);
+    }
+    let envelope = envelope::verify_v1(bytes).map_err(Error::Envelope)?;
+    let mut records = record_framing::Validator::new(envelope.record_count);
+    decode_verified(&envelope, &mut cancelled, |chunk| {
+        records.push(chunk).map_err(|()| Error::Records)
     })?;
+    records.finish().map_err(|()| Error::Records)
+}
+
+fn decode_verified(
+    envelope: &envelope::Envelope<'_>,
+    cancelled: &mut impl FnMut() -> bool,
+    mut consume: impl FnMut(&[u8]) -> Result<(), Error>,
+) -> Result<u64, Error> {
+    zstd_frame::inspect_frame_cancellable(envelope.compressed, envelope.decoded_length, cancelled)
+        .map_err(|e| {
+            if e == zstd_frame::Error::Cancelled {
+                Error::Cancelled
+            } else {
+                Error::Frame(e)
+            }
+        })?;
     let mut decoder = zstd::stream::read::Decoder::with_buffer(envelope.compressed)
         .map_err(Error::Decode)?
         .single_frame();
@@ -80,7 +108,7 @@ pub fn decode_v1<W: Write>(
         if available == 0 {
             return Err(Error::DecodedLimit);
         }
-        sink.write_all(&buffer[..count]).map_err(Error::Sink)?;
+        consume(&buffer[..count])?;
         total += count as u64;
     }
     decoder.finish_frame().map_err(Error::Decode)?;
