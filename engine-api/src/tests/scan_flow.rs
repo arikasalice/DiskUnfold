@@ -270,28 +270,11 @@ fn reviewed_identity_is_rechecked_and_one_job_publishes_the_requested_result()
         .ok_or("replacement reused the active job")?;
     assert_eq!(busy.reason_key, "job.queue_full");
     release.send(())?;
-    let (summary, history_recorded, notices) = scan_delivery(&terminal)?;
+    let (summary, history_recorded) = scan_finished_with_publications(&terminal)?;
     assert_eq!(summary.job_id, receipt.job_ref);
     assert_eq!(summary.scope_summary, "metadata: 1 root");
     assert!(history_recorded);
     let version = summary.result_version_id.ok_or("missing result version")?;
-    assert_eq!(notices.len(), 2);
-    assert_eq!(notices[0].body.sequence, 1);
-    assert_eq!(
-        notices[0].body.completeness,
-        Some(PublishedCompleteness::Partial)
-    );
-    assert_eq!(notices[1].body.sequence, 2);
-    assert_eq!(
-        notices[1].body.completeness,
-        Some(PublishedCompleteness::Complete)
-    );
-    assert_eq!(notices[0].body.lineage_id, notices[1].body.lineage_id);
-    assert_eq!(
-        notices[0].result_version,
-        notices[1].body.previous_result_version
-    );
-    assert_eq!(notices[1].result_version.as_ref(), Some(&version));
     let response = gui(
         "space.total",
         json!({
@@ -349,13 +332,48 @@ fn check_replacement_submission(
 fn scan_finished(
     terminal: &mpsc::Receiver<JobEvent>,
 ) -> Result<(Box<JobSummary>, bool), Box<dyn std::error::Error>> {
-    let (summary, history_recorded, _) = scan_delivery(terminal)?;
-    Ok((summary, history_recorded))
+    let delivery = scan_delivery(terminal)?;
+    Ok((delivery.summary, delivery.history_recorded))
+}
+
+fn scan_finished_with_publications(
+    terminal: &mpsc::Receiver<JobEvent>,
+) -> Result<(Box<JobSummary>, bool), Box<dyn std::error::Error>> {
+    let delivery = scan_delivery(terminal)?;
+    let [partial, final_result] = delivery.notices.as_slice() else {
+        return Err("expected one partial and one final publication before completion".into());
+    };
+    assert_eq!(partial.body.sequence, 1);
+    assert_eq!(
+        partial.body.completeness,
+        Some(PublishedCompleteness::Partial)
+    );
+    assert_eq!(final_result.body.sequence, 2);
+    assert_eq!(
+        final_result.body.completeness,
+        Some(PublishedCompleteness::Complete)
+    );
+    assert_eq!(partial.body.lineage_id, final_result.body.lineage_id);
+    assert_eq!(
+        partial.result_version,
+        final_result.body.previous_result_version
+    );
+    assert_eq!(
+        final_result.result_version,
+        delivery.summary.result_version_id
+    );
+    Ok((delivery.summary, delivery.history_recorded))
+}
+
+struct ScanDelivery {
+    summary: Box<JobSummary>,
+    history_recorded: bool,
+    notices: Vec<ResultVersionNotice>,
 }
 
 fn scan_delivery(
     terminal: &mpsc::Receiver<JobEvent>,
-) -> Result<(Box<JobSummary>, bool, Vec<ResultVersionNotice>), Box<dyn std::error::Error>> {
+) -> Result<ScanDelivery, Box<dyn std::error::Error>> {
     let mut notices = Vec::new();
     loop {
         match terminal.recv_timeout(Duration::from_secs(5))? {
@@ -364,7 +382,13 @@ fn scan_delivery(
                 summary,
                 history_recorded,
                 ..
-            } => return Ok((summary, history_recorded, notices)),
+            } => {
+                return Ok(ScanDelivery {
+                    summary,
+                    history_recorded,
+                    notices,
+                });
+            }
             _ => return Err("missing terminal event".into()),
         }
     }
