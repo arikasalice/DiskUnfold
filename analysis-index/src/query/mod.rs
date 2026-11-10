@@ -67,6 +67,7 @@ pub type SortEvaluator = for<'a> fn(&Record<'a>, Basis) -> SortValue;
 pub struct Registry {
     predicates: BTreeMap<(String, u32), PredicateEvaluator>,
     sorts: BTreeMap<(String, u32), SortEvaluator>,
+    operand_validators: BTreeMap<(String, u32), plan::OperandValidator>,
 }
 
 /// Invalid registration, unknown strategy, or an interrupted evaluation.

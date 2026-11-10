@@ -109,3 +109,157 @@ fn first_page(query: Id, result: Arc<QueryResult>, count: u32) -> Page {
         range: 0..end,
     }
 }
+
+/// One registry-bound admission of a source and optional parent search.
+/// Both snapshots remain immutable even if the source is subsequently replaced.
+#[derive(Clone)]
+pub struct SearchAdmission {
+    source: SourceAdmission,
+    parent: Option<Arc<QueryResult>>,
+}
+
+impl SearchAdmission {
+    /// Returns the pinned source selected for the search.
+    pub fn version(&self) -> Arc<crate::ResultVersion> {
+        self.source.version()
+    }
+    /// Returns the admitted parent, if refinement was requested.
+    pub fn parent(&self) -> Option<&Arc<QueryResult>> {
+        self.parent.as_ref()
+    }
+}
+
+/// A fully checked immutable candidate. Its contents cannot be changed after validation.
+pub struct ValidatedSearch {
+    admission: SearchAdmission,
+    result: QueryResult,
+    count: u32,
+}
+
+impl ResultSets {
+    /// Atomically admits a current source and an optional search parent from this registry.
+    /// An explicit expected version must agree with the parent's version.
+    pub fn admit_search(
+        &self,
+        expected: Option<&Id>,
+        parent: Option<&Id>,
+    ) -> Result<SearchAdmission, PageError> {
+        let mut state = self.state.lock().map_err(|_| PageError::Unavailable)?;
+        let parent_result = if let Some(id) = parent {
+            let entry = state.entries.get(id).ok_or(PageError::StaleVersion)?;
+            let version = entry.result.version.version_id();
+            if expected.is_some_and(|expected| expected != version) {
+                return Err(PageError::StaleVersion);
+            }
+            let result = self.pin_entry(&state, id, version)?;
+            if result.row_kind != RowKind::Search {
+                return Err(PageError::InvalidResult);
+            }
+            touch(&mut state.lru, id);
+            Some(result)
+        } else {
+            None
+        };
+        let version = if let Some(parent) = &parent_result {
+            Arc::clone(&parent.version)
+        } else {
+            match expected {
+                Some(id) => self.source.pin_current(id).map_err(|e| match e {
+                    QueryError::NotFound => PageError::NoSource,
+                    other => source_error(other),
+                })?,
+                None => self
+                    .source
+                    .pin()
+                    .map_err(|_| PageError::Unavailable)?
+                    .ok_or(PageError::NoSource)?,
+            }
+        };
+        if state.released_sources.contains(version.version_id()) {
+            return Err(PageError::StaleVersion);
+        }
+        Ok(SearchAdmission {
+            source: SourceAdmission {
+                owner: self.identity.clone(),
+                version,
+            },
+            parent: parent_result,
+        })
+    }
+
+    /// Checks the entire candidate before entering a region's publication lock.
+    /// This also prevents a refinement from adding rows outside its admitted parent.
+    pub fn validate_search_candidate(
+        &self,
+        admission: SearchAdmission,
+        result: QueryResult,
+        count: Option<u32>,
+    ) -> Result<ValidatedSearch, PageError> {
+        if !Arc::ptr_eq(&admission.source.owner, &self.identity)
+            || !Arc::ptr_eq(&admission.source.version, &result.version)
+            || result.row_kind != RowKind::Search
+        {
+            return Err(PageError::InvalidResult);
+        }
+        let count = count.unwrap_or(DEFAULT_PAGE_SIZE);
+        if count == 0 || count > MAX_PAGE_SIZE {
+            return Err(PageError::InvalidRange);
+        }
+        validate_result(&result)?;
+        if let Some(parent) = &admission.parent {
+            let allowed: HashSet<_> = parent.items.iter().map(|item| item.item_no).collect();
+            if result
+                .items
+                .iter()
+                .any(|item| !allowed.contains(&item.item_no))
+            {
+                return Err(PageError::InvalidResult);
+            }
+        }
+        Ok(ValidatedSearch {
+            admission,
+            result,
+            count,
+        })
+    }
+
+    /// Publishes a previously checked candidate and returns its already-admitted first page.
+    /// The caller must serialize this operation with region replacement, close and cancellation.
+    /// If the source has retired, the page remains readable but is not registered; subsequent
+    /// page admissions for its reference fail as stale. This operation does not deduplicate.
+    pub fn register_admitted_search(
+        &self,
+        id: Id,
+        candidate: ValidatedSearch,
+    ) -> Result<Page, PageError> {
+        let ValidatedSearch {
+            admission,
+            result,
+            count,
+        } = candidate;
+        if !Arc::ptr_eq(&admission.source.owner, &self.identity) {
+            return Err(PageError::InvalidResult);
+        }
+        let mut state = self.state.lock().map_err(|_| PageError::Unavailable)?;
+        if state.used.contains(&id) {
+            return Err(PageError::DuplicateId);
+        }
+        let version = admission.source.version.version_id();
+        let current = if state.released_sources.contains(version) {
+            false
+        } else {
+            match self.source.pin_current(version) {
+                Ok(current) => Arc::ptr_eq(&current, &admission.source.version),
+                Err(QueryError::Unavailable) => return Err(PageError::Unavailable),
+                Err(_) => false,
+            }
+        };
+        let result = if current {
+            state.insert(id.clone(), result, None)
+        } else {
+            state.used.insert(id.clone());
+            Arc::new(result)
+        };
+        Ok(first_page(id, result, count))
+    }
+}

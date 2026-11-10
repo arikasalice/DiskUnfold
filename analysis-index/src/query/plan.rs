@@ -1,5 +1,8 @@
 use super::{Condition, Error, Predicate, PredicateEvaluator, Record, Registry, Truth};
 
+/// Validates a registered predicate operand without accessing result items.
+pub type OperandValidator = fn(&[u8]) -> bool;
+
 const MAX_DEPTH: usize = 64;
 const MAX_CHILDREN: usize = 256;
 
@@ -59,6 +62,33 @@ pub(crate) fn prepare<'a>(
     }
 }
 
+/// Checks registered operands through the exact selected revision's validator.
+pub(super) fn validate_operands(registry: &Registry, condition: &Condition) -> Result<(), Error> {
+    match condition {
+        Condition::Predicate(Predicate::Registered {
+            id,
+            revision,
+            operand,
+        }) => {
+            let validator = registry
+                .operand_validators
+                .get(&(id.clone(), *revision))
+                .ok_or(Error::InvalidCondition)?;
+            if !validator(operand) {
+                return Err(Error::InvalidCondition);
+            }
+        }
+        Condition::All(children) | Condition::Any(children) => {
+            for child in children {
+                validate_operands(registry, child)?;
+            }
+        }
+        Condition::Not(child) => validate_operands(registry, child)?,
+        Condition::Predicate(_) => {}
+    }
+    Ok(())
+}
+
 fn prepare_children<'a>(
     registry: &Registry,
     children: &'a [Condition],
@@ -104,6 +134,41 @@ fn combine(children: &[Plan<'_>], item: &Record<'_>, all: bool) -> Truth {
         Truth::Match
     } else {
         Truth::NoMatch
+    }
+}
+
+impl Registry {
+    /// Registers a predicate with its operand validator for pre-admission preparation.
+    pub fn register_checked_predicate(
+        &mut self,
+        id: &str,
+        revision: u32,
+        evaluator: PredicateEvaluator,
+        validator: OperandValidator,
+    ) -> Result<(), Error> {
+        self.register_predicate(id, revision, evaluator)?;
+        self.operand_validators
+            .insert((id.to_owned(), revision), validator);
+        Ok(())
+    }
+
+    /// Validates a normalized query before promotion without visiting result items.
+    /// Registered predicates without a validator fail closed. This checks the supplied
+    /// model only; syntax conversion, channel policy and source resolution belong to callers.
+    pub fn prepare_search(
+        &self,
+        condition: &Condition,
+        sorts: &[super::Sort<'_>],
+    ) -> Result<(), Error> {
+        check_shape(condition, 0)?;
+        let normalized = condition.clone().normalize();
+        check_shape(&normalized, 0)?;
+        prepare(self, &normalized, 0)?;
+        validate_operands(self, &normalized)?;
+        if sorts.is_empty() {
+            return Err(Error::UnknownSort);
+        }
+        self.validate_sorts(sorts)
     }
 }
 
