@@ -12,6 +12,7 @@ mod space;
 mod tree;
 mod version_store;
 pub mod visualization;
+pub mod volume_gap;
 use du_core_contracts::result::{
     ResultCompleteness, ResultItem, ResultItemKind, ResultScopeGap, ResultScopeRoot, SpaceAggregate,
 };
