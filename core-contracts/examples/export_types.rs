@@ -32,6 +32,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         HistoryListFilter::decl(&config),
         HistoryListRequest::decl(&config),
         HistoryListRevision::decl(&config),
+        HistoryChangedBody::decl(&config),
         HistoryListCounts::decl(&config),
         HistoryListSummary::decl(&config),
         HistoryListRow::decl(&config),

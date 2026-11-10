@@ -1,5 +1,7 @@
 use crate::model::*;
-use du_core_contracts::job::{HistoryAppend, JobHistory};
+use du_core_contracts::job::{
+    HistoryAppendOutcome, HistoryChangeReason, HistoryChanged, JobHistory,
+};
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicUsize, Ordering},
@@ -55,13 +57,14 @@ pub(super) fn consume(
                 sequence,
                 record,
             } => {
-                let (history_recorded, warning) = if record {
-                    match history.append(&summary) {
-                        Ok(HistoryAppend::Added | HistoryAppend::Duplicate) => (true, None),
-                        Err(error) => (false, Some(error)),
+                let (history_recorded, warning, receipt) = if record {
+                    match history.append_with_receipt(&summary) {
+                        Ok(HistoryAppendOutcome::Added(receipt)) => (true, None, receipt),
+                        Ok(HistoryAppendOutcome::Duplicate) => (true, None, None),
+                        Err(error) => (false, Some(error), None),
                     }
                 } else {
-                    (false, None)
+                    (false, None, None)
                 };
                 events.publish(JobEvent::StateChanged {
                     job_id: summary.job_id.clone(),
@@ -74,6 +77,15 @@ pub(super) fn consume(
                     history_recorded,
                     warning,
                 });
+                if let Some(receipt) = receipt {
+                    events.publish_history_changed(HistoryChanged {
+                        revision: receipt.revision,
+                        reason: HistoryChangeReason::Appended,
+                        count: 1,
+                        observed_at_ms: receipt.observed_at_ms,
+                        deleted_job_ids: Vec::new(),
+                    });
+                }
                 outstanding.fetch_sub(1, Ordering::AcqRel);
             }
         }

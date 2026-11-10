@@ -89,8 +89,77 @@ pub enum HistoryAppend {
     Added,
     Duplicate,
 }
+
+/// The history revision committed by an append transaction.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HistoryRevision {
+    /// The deletion generation visible to the committing transaction.
+    pub delete_generation: u64,
+    /// The maximum committed record sequence at that revision.
+    pub max_record_seq: u64,
+}
+
+/// Evidence captured by the same transaction that inserted a terminal record.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HistoryAppendReceipt {
+    /// The revision committed with the new record.
+    pub revision: HistoryRevision,
+    /// The UTC observation time associated with the committed append.
+    pub observed_at_ms: i64,
+}
+
+/// An append result, with a receipt only when one can be proven by the store.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HistoryAppendOutcome {
+    /// A new record was inserted; legacy stores may omit its receipt.
+    Added(Option<HistoryAppendReceipt>),
+    /// The record already existed and no new change was committed.
+    Duplicate,
+}
+
+impl HistoryAppendOutcome {
+    /// Returns the append status for callers that do not need a receipt.
+    pub fn status(self) -> HistoryAppend {
+        match self {
+            Self::Added(_) => HistoryAppend::Added,
+            Self::Duplicate => HistoryAppend::Duplicate,
+        }
+    }
+}
+
+/// A committed change that invalidates a previously read history revision.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HistoryChanged {
+    /// The newly committed history revision.
+    pub revision: HistoryRevision,
+    /// The kind of history change.
+    pub reason: HistoryChangeReason,
+    /// The number of records affected by the change.
+    pub count: u64,
+    /// The UTC observation time, in milliseconds since the Unix epoch.
+    pub observed_at_ms: i64,
+    /// References removed by the change, for in-process consumers only.
+    pub deleted_job_ids: Vec<Id>,
+}
+
+/// History change reasons supported by this in-process notification.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HistoryChangeReason {
+    /// A terminal history record was appended.
+    Appended,
+}
+
 pub trait JobHistory: Send + Sync {
     fn append(&self, summary: &JobSummary) -> Result<HistoryAppend, String>;
+
+    /// Append and return a transaction receipt when supported by the adapter.
+    /// Legacy adapters report their result without inventing a revision.
+    fn append_with_receipt(&self, summary: &JobSummary) -> Result<HistoryAppendOutcome, String> {
+        self.append(summary).map(|result| match result {
+            HistoryAppend::Added => HistoryAppendOutcome::Added(None),
+            HistoryAppend::Duplicate => HistoryAppendOutcome::Duplicate,
+        })
+    }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Checkpoint {

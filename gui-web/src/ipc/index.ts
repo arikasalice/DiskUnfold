@@ -39,6 +39,7 @@ export type {
   BrowseDetail,
   BrowseValue,
   EventEnvelope,
+  HistoryChangedBody,
   HistoryEndState,
   HistoryListCounts,
   HistoryListFilter,

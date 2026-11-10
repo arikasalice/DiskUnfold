@@ -350,6 +350,7 @@ fn file_change_class_has_single_active_job() -> Result<(), Box<dyn std::error::E
 
 mod blocked;
 mod history_boundary;
+mod history_receipt;
 mod lifecycle;
 mod multiflow;
 mod publication;

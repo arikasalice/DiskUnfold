@@ -8,7 +8,8 @@ use std::{
 use du_core_contracts::{
     ENVELOPE_VERSION, EventEnvelope, Id, Timestamp,
     analysis_ipc::{TargetProbeEvent, TargetStatusChanged},
-    job::JobHistory,
+    history_ipc::{HISTORY_CHANGED, HistoryChangedBody},
+    job::{HistoryChangeReason, HistoryChanged, JobHistory},
     ports::Random,
     result_events::RESULT_VERSION_CHANGED,
     scan_observation::ScopeRootPort,
@@ -171,6 +172,12 @@ impl DesktopEvents {
         let event = self.0.try_lock().ok()?.take(Instant::now())?;
         serde_json::to_string(&event).ok()
     }
+
+    fn enqueue(&self, event: EventEnvelope) {
+        if let Ok(mut pending) = self.0.lock() {
+            pending.push(event, Instant::now());
+        }
+    }
 }
 
 impl JobEvents for DesktopEvents {
@@ -181,11 +188,38 @@ impl JobEvents for DesktopEvents {
         let Some(event) = envelope(event, occurred_at) else {
             return;
         };
-        let Ok(mut pending) = self.0.lock() else {
+        self.enqueue(event);
+    }
+
+    fn publish_history_changed(&self, change: HistoryChanged) {
+        let Some(event) = history_envelope(change) else {
             return;
         };
-        pending.push(event, Instant::now());
+        self.enqueue(event);
     }
+}
+
+fn history_envelope(change: HistoryChanged) -> Option<EventEnvelope> {
+    let observed_at = Timestamp::from_unix_millis(change.observed_at_ms)?;
+    let reason = match change.reason {
+        HistoryChangeReason::Appended => "appended",
+    };
+    Some(EventEnvelope {
+        topic: HISTORY_CHANGED.into(),
+        contract_version: ENVELOPE_VERSION,
+        seq: 0,
+        correlation_id: None,
+        job_ref: None,
+        result_version: None,
+        occurred_at: observed_at.clone(),
+        body: serde_json::to_value(HistoryChangedBody {
+            revision: change.revision.into(),
+            reason: reason.into(),
+            count: change.count.to_string(),
+            observed_at,
+        })
+        .ok()?,
+    })
 }
 
 fn envelope(event: JobEvent, occurred_at: Timestamp) -> Option<EventEnvelope> {

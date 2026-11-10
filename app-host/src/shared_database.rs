@@ -8,7 +8,7 @@ use std::{
 
 use du_app_db::AppDb;
 use du_core_contracts::{
-    job::{HistoryAppend, JobHistory, JobSummary},
+    job::{HistoryAppend, HistoryAppendOutcome, JobHistory, JobSummary},
     settings::{
         SettingsChanges, SettingsCommit, SettingsSnapshot, SettingsStore, SettingsStoreError,
     },
@@ -127,13 +127,18 @@ pub(super) struct SharedHistory {
 
 impl JobHistory for SharedHistory {
     fn append(&self, summary: &JobSummary) -> Result<HistoryAppend, String> {
+        self.append_with_receipt(summary)
+            .map(HistoryAppendOutcome::status)
+    }
+
+    fn append_with_receipt(&self, summary: &JobSummary) -> Result<HistoryAppendOutcome, String> {
         let now_ms = (self.now_ms)();
         self.database
             .0
             .connection
             .lock()
             .map_err(|_| "history.record_failed".to_owned())?
-            .append_scan_history(summary, now_ms)
+            .append_scan_history_with_receipt(summary, now_ms)
             .map_err(|reason| {
                 eprintln!("history.record_failed: {reason}");
                 "history.record_failed".to_owned()

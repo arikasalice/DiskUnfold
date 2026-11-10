@@ -1,7 +1,10 @@
 //! GUI history list request and response contracts.
 
-use crate::Id;
+use crate::{Id, Timestamp, job::HistoryRevision};
 use serde::{Deserialize, Serialize};
+
+/// Notifies the main window that a history transaction committed.
+pub const HISTORY_CHANGED: &str = "history.changed";
 
 /// A terminal outcome or a persisted interruption marker.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -87,6 +90,30 @@ pub struct HistoryListRequest {
 pub struct HistoryListRevision {
     pub delete_generation: String,
     pub max_record_seq: String,
+}
+
+impl From<HistoryRevision> for HistoryListRevision {
+    fn from(revision: HistoryRevision) -> Self {
+        Self {
+            delete_generation: revision.delete_generation.to_string(),
+            max_record_seq: revision.max_record_seq.to_string(),
+        }
+    }
+}
+
+/// Public history change notification. Deleted references stay in the process.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryChangedBody {
+    /// The committed revision, encoded in the same form as a list page.
+    pub revision: HistoryListRevision,
+    /// Open reason key for consumers that may lag behind the producer.
+    pub reason: String,
+    /// The number of affected records as a decimal string.
+    pub count: String,
+    /// The UTC time observed for the committed change.
+    pub observed_at: Timestamp,
 }
 
 /// Terminal counts represented as decimal strings without JavaScript rounding.

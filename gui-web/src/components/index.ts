@@ -2,12 +2,14 @@ export {
   Action,
   Choice,
   ChoiceGroup,
+  DateField,
   FolderDropSurface,
   PathField,
   SelectField,
 } from "./controls";
 export {
   BrandMark,
+  DataTable,
   Heading,
   Icon,
   Metric,

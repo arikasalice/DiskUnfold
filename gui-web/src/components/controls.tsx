@@ -1,5 +1,5 @@
 import { useId, useState } from "react";
-import type { ReactNode } from "react";
+import type { ReactNode, Ref } from "react";
 import {
   Button,
   Input,
@@ -13,8 +13,9 @@ import type { ButtonProps } from "react-aria-components";
 import { Icon, StatusBadge } from "./presentation";
 import type { IconName } from "./presentation";
 
-type ActionProps = Pick<ButtonProps, "onPress" | "isDisabled"> & {
+type ActionProps = Pick<ButtonProps, "onPress" | "isDisabled" | "autoFocus"> & {
   variant?: "primary" | "secondary" | "quiet";
+  ref?: Ref<HTMLButtonElement>;
 } & (
     | { children: ReactNode; icon?: IconName; "aria-label"?: string }
     | { children?: never; icon: IconName; "aria-label": string }
@@ -35,6 +36,24 @@ export function Action({
       {icon && <Icon name={icon} />}
       {children}
     </Button>
+  );
+}
+
+/** A labelled date input using the browser's local calendar. */
+export function DateField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <TextField value={value} onChange={onChange} className="du-field">
+      <Label>{label}</Label>
+      <Input type="date" />
+    </TextField>
   );
 }
 

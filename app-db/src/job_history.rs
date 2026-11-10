@@ -2,7 +2,10 @@
 
 use du_core_contracts::{
     Id,
-    job::{HistoryAppend, JobState, JobSummary},
+    job::{
+        HistoryAppend, HistoryAppendOutcome, HistoryAppendReceipt, HistoryRevision, JobState,
+        JobSummary,
+    },
 };
 use rusqlite::{Error, ErrorCode, TransactionBehavior, params};
 
@@ -23,6 +26,17 @@ impl AppDb {
         summary: &JobSummary,
         now_ms: i64,
     ) -> Result<HistoryAppend, String> {
+        self.append_scan_history_with_receipt(summary, now_ms)
+            .map(HistoryAppendOutcome::status)
+    }
+
+    /// Returns the revision assigned by the same transaction as the new record.
+    /// A duplicate or failed write cannot produce an append receipt.
+    pub fn append_scan_history_with_receipt(
+        &mut self,
+        summary: &JobSummary,
+        now_ms: i64,
+    ) -> Result<HistoryAppendOutcome, String> {
         let prepared = Prepared::new(summary).ok_or("history.record_failed")?;
         let tx = self
             .connection
@@ -72,22 +86,26 @@ impl AppDb {
                 )
                 .map_err(map_error)?;
             return if complete {
-                Ok(HistoryAppend::Duplicate)
+                Ok(HistoryAppendOutcome::Duplicate)
             } else {
                 Err("history.record_failed".into())
             };
         }
-        let sequence: i64 = tx
+        let (generation, sequence): (i64, i64) = tx
             .query_row(
                 "UPDATE job_runtime_history_state
                 SET last_record_seq = last_record_seq + 1,
                     row_version = row_version + 1, updated_at_ms = ?1
                 WHERE state_key = 'history'
-                RETURNING last_record_seq",
+                RETURNING delete_generation, last_record_seq",
                 [now_ms],
-                |row| row.get(0),
+                |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .map_err(map_error)?;
+        let revision = HistoryRevision {
+            delete_generation: u64::try_from(generation).map_err(|_| "history.record_failed")?,
+            max_record_seq: u64::try_from(sequence).map_err(|_| "history.record_failed")?,
+        };
         tx.execute(
             "INSERT INTO job_runtime_job_link
                  (job_id, record_origin, reckon_at_ms, record_seq, created_at_ms)
@@ -101,7 +119,10 @@ impl AppDb {
         )
         .map_err(map_error)?;
         tx.commit().map_err(map_error)?;
-        Ok(HistoryAppend::Added)
+        Ok(HistoryAppendOutcome::Added(Some(HistoryAppendReceipt {
+            revision,
+            observed_at_ms: now_ms,
+        })))
     }
 }
 

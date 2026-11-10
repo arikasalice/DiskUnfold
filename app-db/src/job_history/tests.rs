@@ -143,7 +143,7 @@ fn rolls_back_all_history_on_link_failure_and_leaves_busy_to_caller() -> TestRes
          BEGIN SELECT RAISE(ABORT, 'injected'); END;",
     )?;
     assert_eq!(
-        db.append_scan_history(&summary(1), 250),
+        db.append_scan_history_with_receipt(&summary(1), 250),
         Err("history.record_failed".into())
     );
     assert_eq!(counts(&db)?, (0, 0, 0));
@@ -194,7 +194,12 @@ fn refuses_partial_history_and_sequence_exhaustion() -> TestResult {
 fn concurrent_connections_allocate_one_sequence_per_job() -> TestResult {
     let dir = tempfile::tempdir()?;
     let path = dir.path().join("concurrent.db");
-    drop(installed(&path)?);
+    let db = installed(&path)?;
+    db.connection.execute(
+        "UPDATE job_runtime_history_state SET delete_generation=7",
+        [],
+    )?;
+    drop(db);
     let gate = Arc::new(Barrier::new(3));
     let mut workers = Vec::new();
     for n in [1, 2, 1] {
@@ -202,17 +207,25 @@ fn concurrent_connections_allocate_one_sequence_per_job() -> TestResult {
         let gate = gate.clone();
         workers.push(std::thread::spawn(move || {
             gate.wait();
-            db.append_scan_history(&summary(n), 250)
+            db.append_scan_history_with_receipt(&summary(n), 250)
         }));
     }
     let mut duplicates = 0;
+    let mut sequences = Vec::new();
     for worker in workers {
         match worker.join().map_err(|_| "writer panicked")?? {
-            HistoryAppend::Added => {}
-            HistoryAppend::Duplicate => duplicates += 1,
+            HistoryAppendOutcome::Added(Some(receipt)) => {
+                assert_eq!(receipt.revision.delete_generation, 7);
+                assert_eq!(receipt.observed_at_ms, 250);
+                sequences.push(receipt.revision.max_record_seq);
+            }
+            HistoryAppendOutcome::Added(None) => return Err("append without receipt".into()),
+            HistoryAppendOutcome::Duplicate => duplicates += 1,
         }
     }
     assert_eq!(duplicates, 1);
+    sequences.sort_unstable();
+    assert_eq!(sequences, [1, 2]);
     let db = AppDb::open_read_only(&path).map_err(|error| format!("{error:?}"))?;
     assert_eq!(counts(&db)?, (2, 2, 2));
     Ok(())

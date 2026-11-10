@@ -1,6 +1,6 @@
 use du_core_contracts::{
     Id,
-    job::{JobBody, JobDescriptor, JobState, JobSummary},
+    job::{HistoryChanged, JobBody, JobDescriptor, JobState, JobSummary},
     result_events::ResultVersionNotice,
 };
 use std::{
@@ -25,6 +25,9 @@ pub trait JobClock: Send + Sync {
 }
 pub trait JobEvents: Send + Sync {
     fn publish(&self, event: JobEvent);
+
+    /// Deliver a committed history invalidation to interested subscribers.
+    fn publish_history_changed(&self, _event: HistoryChanged) {}
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum JobEvent {

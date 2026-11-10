@@ -99,6 +99,55 @@ fn batches_events_without_dropping_order_and_coalesces_overflow_into_resync()
 }
 
 #[test]
+fn history_change_uses_the_public_revision_and_omits_internal_references()
+-> Result<(), Box<dyn std::error::Error>> {
+    use du_core_contracts::job::HistoryRevision;
+
+    let job = Id::from_v7_bytes([42; 16]);
+    let events = DesktopEvents::default();
+    events.publish(JobEvent::StateChanged {
+        job_id: job.clone(),
+        state: du_core_contracts::job::JobState::Done,
+        sequence: 7,
+    });
+    events.publish_history_changed(HistoryChanged {
+        revision: HistoryRevision {
+            delete_generation: 2,
+            max_record_seq: 9_007_199_254_740_993,
+        },
+        reason: HistoryChangeReason::Appended,
+        count: 1,
+        observed_at_ms: 42,
+        deleted_job_ids: vec![job.clone()],
+    });
+    let mut pending = events.0.lock().map_err(|_| "pending lock failed")?;
+    let after_batch = Instant::now() + EVENT_INTERVAL;
+    assert_eq!(
+        pending
+            .take(after_batch)
+            .ok_or("missing prior event")?
+            .topic,
+        "job.state_changed"
+    );
+    let envelope = pending.take(after_batch).ok_or("missing history event")?;
+    assert_eq!(envelope.topic, HISTORY_CHANGED);
+    assert_eq!(envelope.seq, 2);
+    let wire = serde_json::to_value(envelope)?;
+    assert_eq!(
+        wire["body"],
+        json!({
+            "revision": {"deleteGeneration": "2", "maxRecordSeq": "9007199254740993"},
+            "reason": "appended",
+            "count": "1",
+            "observedAt": wire["occurredAt"],
+        })
+    );
+    assert!(!wire.to_string().contains(job.as_str()));
+    assert!(pending.take(after_batch).is_none());
+    Ok(())
+}
+
+#[test]
 fn preserves_lineage_sequence_and_withdrawal_without_a_replacement()
 -> Result<(), Box<dyn std::error::Error>> {
     let lineage_id = Id::parse("0195f856-ab83-7a59-9343-10d29775c9a9")?;

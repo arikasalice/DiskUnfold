@@ -1,11 +1,17 @@
 use super::*;
 use du_core_contracts::{
-    CallEnvelope, ErrorCode, ResultEnvelope,
-    history_ipc::HistoryListResponse,
+    CallEnvelope, ErrorCode, EventEnvelope, PathBytes, ResultEnvelope,
+    analysis_ipc::{ScanStart, ScopeReview},
+    history_ipc::{HISTORY_CHANGED, HistoryChangedBody, HistoryListResponse},
     job::{HistoryAppend, JobHistory, JobState, JobSummary},
 };
 use du_engine_api::api::{CallerCtx, Channel, Engine, EngineBuilder};
 use serde_json::{Value, json};
+use std::{
+    os::windows::ffi::OsStrExt,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 fn append(database: &SharedDatabase, n: u8, time: i64) -> Result<(), String> {
     let id = Id::from_v7_bytes([n; 16]);
@@ -28,17 +34,137 @@ fn append(database: &SharedDatabase, n: u8, time: i64) -> Result<(), String> {
 }
 
 fn call(engine: &Engine, body: Value) -> Result<ResultEnvelope, Box<dyn std::error::Error>> {
+    ipc(engine, "history.list", body)
+}
+
+fn ipc(
+    engine: &Engine,
+    name: &str,
+    body: Value,
+) -> Result<ResultEnvelope, Box<dyn std::error::Error>> {
     let id = Id::from_v7_bytes([42; 16]);
     let message = json!({
         "command": "du_call",
         "args": {"envelope": {
-            "name": "history.list", "contractVersion": 1, "correlationId": id, "body": body
+            "name": name, "contractVersion": 1, "correlationId": id, "body": body
         }}
     });
     let response = crate::ipc::dispatch(engine, &message.to_string()).ok_or("no response")?;
     let envelope: ResultEnvelope = serde_json::from_str(&response)?;
     assert_eq!(envelope.correlation_id, id);
     Ok(envelope)
+}
+
+#[test]
+fn windows_scan_delivers_a_history_change_only_for_a_committed_revision()
+-> Result<(), Box<dyn std::error::Error>> {
+    let profile = tempfile::tempdir()?;
+    let target = tempfile::tempdir()?;
+    std::fs::write(target.path().join("test.txt"), b"history event fixture")?;
+    let database = crate::startup_database::open(profile.path())?;
+    let reader = HistoryReader::open(profile.path(), database.clone())?;
+    let mut builder = EngineBuilder::default();
+    let random = &du_platform_os::entropy::OsRandom;
+    let events = du_engine_api::desktop::register(
+        &mut builder,
+        Arc::new(du_platform_os::windows_observation::WindowsScopeRoots),
+        Arc::new(du_platform_os::volume::WindowsVolumes),
+        Arc::new(database.history(|| 400)),
+        random,
+    )?;
+    du_engine_api::history::register(&mut builder, reader, random)
+        .map_err(|error| format!("{error:?}"))?;
+    let engine = builder.build()?;
+    let bytes: Vec<_> = target
+        .path()
+        .as_os_str()
+        .encode_wide()
+        .flat_map(u16::to_le_bytes)
+        .collect();
+    let draft = json!({
+        "includes": [{
+            "encoding": "windows_utf16le", "raw": PathBytes::from_bytes(&bytes),
+            "display": target.path(), "lossy": false
+        }],
+        "exclusions": [], "boundary": "current_volume", "includedMounts": [], "source": "gui"
+    });
+    let start = |request_seq| -> Result<ScanStart, Box<dyn std::error::Error>> {
+        let review = ipc(
+            &engine,
+            "scope.review",
+            json!({"draft": draft, "requestSeq": request_seq}),
+        )?;
+        assert!(review.error.is_none(), "{:?}", review.error);
+        let review: ScopeReview = serde_json::from_value(review.body)?;
+        let scan = ipc(
+            &engine,
+            "scan.start",
+            json!({"draft": draft, "reviewFingerprint": review.review_fingerprint}),
+        )?;
+        assert!(scan.error.is_none(), "{:?}", scan.error);
+        Ok(serde_json::from_value(scan.body)?)
+    };
+    let sql = rusqlite::Connection::open(profile.path().join("diskunfold.db"))?;
+    sql.execute_batch("CREATE TRIGGER reject_link BEFORE INSERT ON job_runtime_job_link BEGIN SELECT RAISE(ABORT, 'fixture'); END;")?;
+    let rejected = start(1)?;
+    let failed_events = terminal_batch(&events, &rejected.job_ref)?;
+    assert!(
+        !failed_events
+            .iter()
+            .any(|event| event.topic == HISTORY_CHANGED)
+    );
+    let finished = failed_events
+        .last()
+        .ok_or("missing failed-write terminal")?;
+    assert_eq!(finished.body["state"], "done");
+    assert_eq!(finished.body["historyRecorded"], false);
+    let before: HistoryListResponse = serde_json::from_value(call(&engine, json!({}))?.body)?;
+    assert!(before.rows.is_empty());
+
+    sql.execute_batch("DROP TRIGGER reject_link")?;
+    let saved = start(2)?;
+    assert_ne!(saved.job_ref, rejected.job_ref);
+    let committed = terminal_batch(&events, &saved.job_ref)?;
+    let finished = committed
+        .iter()
+        .find(|event| event.topic == "job.finished")
+        .ok_or("missing terminal")?;
+    let changes: Vec<_> = committed
+        .iter()
+        .filter(|event| event.topic == HISTORY_CHANGED)
+        .collect();
+    assert_eq!(changes.len(), 1);
+    assert!(finished.seq < changes[0].seq);
+    assert_eq!(finished.body["historyRecorded"], true);
+    let changed: HistoryChangedBody = serde_json::from_value(changes[0].body.clone())?;
+    let after: HistoryListResponse = serde_json::from_value(call(&engine, json!({}))?.body)?;
+    assert_eq!(changed.revision, after.revision);
+    assert_eq!(after.revision.max_record_seq, "1");
+    assert_eq!(after.rows[0].job_ref.as_ref(), Some(&saved.job_ref));
+    Ok(())
+}
+
+fn terminal_batch(
+    source: &du_engine_api::desktop::DesktopEvents,
+    job: &Id,
+) -> Result<Vec<EventEnvelope>, Box<dyn std::error::Error>> {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut terminal_seen = None;
+    let mut events = Vec::new();
+    while Instant::now() < deadline {
+        if let Some(json) = source.next_json() {
+            let event: EventEnvelope = serde_json::from_str(&json)?;
+            if event.topic == "job.finished" && event.job_ref.as_ref() == Some(job) {
+                terminal_seen = Some(Instant::now());
+            }
+            events.push(event);
+        } else if terminal_seen.is_some_and(|at| at.elapsed() >= Duration::from_millis(250)) {
+            return Ok(events);
+        } else {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+    Err("timed out waiting for scan completion".into())
 }
 
 #[test]

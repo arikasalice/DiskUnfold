@@ -3,6 +3,23 @@ export type HistoryRelation = "retry" | "restore" | "move_undo" | "effect_check"
 export type HistoryListFilter = { finishedFromMs: number | null, finishedBeforeMs: number | null, kinds: Array<string>, states: Array<HistoryEndState>, relations: Array<HistoryRelation>, };
 export type HistoryListRequest = { filter: HistoryListFilter | null, cursor: string | null, count: number | null, };
 export type HistoryListRevision = { deleteGeneration: string, maxRecordSeq: string, };
+export type HistoryChangedBody = {
+/**
+ * The committed revision, encoded in the same form as a list page.
+ */
+revision: HistoryListRevision,
+/**
+ * Open reason key for consumers that may lag behind the producer.
+ */
+reason: string,
+/**
+ * The number of affected records as a decimal string.
+ */
+count: string,
+/**
+ * The UTC time observed for the committed change.
+ */
+observedAt: Timestamp, };
 export type HistoryListCounts = { completed: string, overwritten: string, failed: string, skipped: string, unprocessed: string, };
 export type HistoryListSummary = { kindId: string, kindVersion: number, scopeSummary: string | null, state: HistoryEndState, counts: HistoryListCounts | null, startedAtMs: number | null, finishedAtMs: number | null, predecessorJobRef: Id | null, relation: HistoryRelation | null, sessionRestoreAvailable: boolean | null, };
 export type HistoryListRow = { jobRef: Id | null, summary: HistoryListSummary | null,
