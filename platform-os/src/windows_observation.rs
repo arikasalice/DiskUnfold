@@ -1,4 +1,5 @@
 //! Handle-relative, read-only observations on a local NTFS volume.
+mod recall;
 mod scope;
 mod space;
 
@@ -24,7 +25,7 @@ use windows::{
     Wdk::{
         Foundation::OBJECT_ATTRIBUTES,
         Storage::FileSystem::{
-            FILE_DIRECTORY_FILE, FILE_OPEN, FILE_OPEN_REPARSE_POINT, FILE_SYNCHRONOUS_IO_NONALERT,
+            FILE_OPEN, FILE_OPEN_NO_RECALL, FILE_OPEN_REPARSE_POINT, FILE_SYNCHRONOUS_IO_NONALERT,
             NtCreateFile,
         },
     },
@@ -32,12 +33,13 @@ use windows::{
         Foundation::{HANDLE, OBJ_CASE_INSENSITIVE, RtlNtStatusToDosError, UNICODE_STRING},
         Storage::FileSystem::{
             BY_HANDLE_FILE_INFORMATION, CreateFileW, FILE_ATTRIBUTE_DIRECTORY,
-            FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
-            FILE_ID_BOTH_DIR_INFO, FILE_LIST_DIRECTORY, FILE_NAME_NORMALIZED, FILE_READ_ATTRIBUTES,
-            FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, FileIdBothDirectoryInfo,
-            FileIdBothDirectoryRestartInfo, GETFINALPATHNAMEBYHANDLE_FLAGS, GetDriveTypeW,
-            GetFileInformationByHandle, GetFileInformationByHandleEx, GetFinalPathNameByHandleW,
-            GetVolumeInformationByHandleW, OPEN_EXISTING, SYNCHRONIZE,
+            FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_NO_RECALL,
+            FILE_FLAG_OPEN_REPARSE_POINT, FILE_ID_BOTH_DIR_INFO, FILE_LIST_DIRECTORY,
+            FILE_NAME_NORMALIZED, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ,
+            FILE_SHARE_WRITE, FileIdBothDirectoryInfo, FileIdBothDirectoryRestartInfo,
+            GETFINALPATHNAMEBYHANDLE_FLAGS, GetDriveTypeW, GetFileInformationByHandle,
+            GetFileInformationByHandleEx, GetFinalPathNameByHandleW, GetVolumeInformationByHandleW,
+            OPEN_EXISTING, SYNCHRONIZE,
         },
         System::IO::IO_STATUS_BLOCK,
     },
@@ -171,13 +173,9 @@ fn relative(parent: &File, name: &[u16], directory: bool) -> Result<File, PortEr
         } else {
             Default::default()
         };
-    let options = FILE_OPEN_REPARSE_POINT
-        | FILE_SYNCHRONOUS_IO_NONALERT
-        | if directory {
-            FILE_DIRECTORY_FILE
-        } else {
-            Default::default()
-        };
+    // FILE_DIRECTORY_FILE and FILE_OPEN_NO_RECALL are not a documented
+    // compatible combination. Verify directory kind from the opened handle.
+    let options = FILE_OPEN_REPARSE_POINT | FILE_OPEN_NO_RECALL | FILE_SYNCHRONOUS_IO_NONALERT;
     // SAFETY: attributes references a valid name and live parent; NtCreateFile writes
     // the handle and status synchronously. Only read-attribute/list access is requested.
     let result = unsafe {
@@ -211,6 +209,7 @@ fn verified_directory(
 ) -> Result<File, PortError> {
     let file = relative(parent, name, true)?;
     let value = info(&file)?;
+    recall::check_handle_attributes(value.dwFileAttributes)?;
     if kind(value.dwFileAttributes) != ObservedKind::Directory
         || u64::from(value.dwVolumeSerialNumber) != volume
         || identity(&value) == 0
@@ -248,7 +247,7 @@ pub fn open_verified(path: &Path) -> Result<WindowsDirectory, PortError> {
             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
             None,
             OPEN_EXISTING,
-            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_OPEN_NO_RECALL,
             None,
         )
     }
@@ -256,6 +255,7 @@ pub fn open_verified(path: &Path) -> Result<WindowsDirectory, PortError> {
     // SAFETY: CreateFileW succeeded and transferred ownership of this handle.
     let mut file = unsafe { File::from_raw_handle(handle.0) };
     let root_info = info(&file)?;
+    recall::check_handle_attributes(root_info.dwFileAttributes)?;
     if kind(root_info.dwFileAttributes) != ObservedKind::Directory || identity(&root_info) == 0 {
         return Err(invalid());
     }
@@ -293,7 +293,10 @@ pub fn open_verified(path: &Path) -> Result<WindowsDirectory, PortError> {
         };
         let name: Vec<_> = OsStr::new(name).encode_wide().collect();
         wide(&bytes(&name))?;
-        file = verified_directory(&file, &name, volume, None)?;
+        let observed = recall::lookup(&file, &name)?;
+        file = recall::observe_if_safe(observed.attributes, || {
+            verified_directory(&file, &name, volume, Some(observed.inode))
+        })?;
     }
     Ok(WindowsDirectory {
         handle: file,
@@ -315,34 +318,38 @@ impl WindowsDirectory {
         })
     }
 
-    fn observe(&self, name: Vec<u16>, inode: u64, enumerated_kind: ObservedKind) -> ObservedEntry {
-        let metadata = wide(&bytes(&name))
-            .and_then(|name| relative(&self.handle, &name, false))
-            .and_then(|file| {
-                let value = info(&file)?;
-                if u64::from(value.dwVolumeSerialNumber) != self.volume {
-                    return Err(invalid());
-                }
-                let size = (u64::from(value.nFileSizeHigh) << 32) | u64::from(value.nFileSizeLow);
-                let facts = if kind(value.dwFileAttributes) == ObservedKind::File {
-                    space::read(&file, &value)?
-                } else {
-                    space::Facts::default()
-                };
-                Ok(MetadataObservation {
-                    kind: kind(value.dwFileAttributes),
-                    device: self.volume,
-                    inode: identity(&value),
-                    size: Ok(size),
-                    allocated: facts.allocated,
-                    link_count: facts.link_count,
-                    space_identity: facts.identity,
+    fn observe(&self, name: Vec<u16>, inode: u64, attributes: u32) -> ObservedEntry {
+        let metadata = recall::observe_if_safe(attributes, || {
+            wide(&bytes(&name))
+                .and_then(|name| relative(&self.handle, &name, false))
+                .and_then(|file| {
+                    let value = info(&file)?;
+                    recall::check_handle_attributes(value.dwFileAttributes)?;
+                    if u64::from(value.dwVolumeSerialNumber) != self.volume {
+                        return Err(invalid());
+                    }
+                    let size =
+                        (u64::from(value.nFileSizeHigh) << 32) | u64::from(value.nFileSizeLow);
+                    let facts = if kind(value.dwFileAttributes) == ObservedKind::File {
+                        space::read(&file, &value)?
+                    } else {
+                        space::Facts::default()
+                    };
+                    Ok(MetadataObservation {
+                        kind: kind(value.dwFileAttributes),
+                        device: self.volume,
+                        inode: identity(&value),
+                        size: Ok(size),
+                        allocated: facts.allocated,
+                        link_count: facts.link_count,
+                        space_identity: facts.identity,
+                    })
                 })
-            });
+        });
         ObservedEntry {
             name: bytes(&name),
             enumerated_inode: inode,
-            enumerated_kind,
+            enumerated_kind: kind(attributes),
             metadata,
         }
     }
@@ -417,11 +424,8 @@ impl WindowsDirectory {
                 name.push(value);
             }
             if name != [46] && name != [46, 46] {
-                self.pending.push_back(self.observe(
-                    name,
-                    item.FileId as u64,
-                    kind(item.FileAttributes),
-                ));
+                self.pending
+                    .push_back(self.observe(name, item.FileId as u64, item.FileAttributes));
             }
             if item.NextEntryOffset == 0 {
                 break;

@@ -171,6 +171,82 @@ fn hard_links_have_the_same_identity_and_reported_allocation()
 
 #[test]
 #[allow(unsafe_code)]
+fn offline_fixture_is_reported_unavailable_without_metadata()
+-> Result<(), Box<dyn std::error::Error>> {
+    use windows::{
+        Win32::Storage::FileSystem::{
+            FILE_ATTRIBUTE_NORMAL, FILE_ATTRIBUTE_OFFLINE, SetFileAttributesW,
+        },
+        core::PCWSTR,
+    };
+    let fixture = tempfile::tempdir()?;
+    let path = fixture.path().join("offline");
+    fs::write(&path, b"fixture")?;
+    let wide: Vec<u16> = path.as_os_str().encode_wide().chain([0]).collect();
+    // SAFETY: the temporary fixture path is NUL-terminated and remains alive.
+    unsafe {
+        SetFileAttributesW(PCWSTR(wide.as_ptr()), FILE_ATTRIBUTE_OFFLINE)?;
+    }
+    let result = (|| -> Result<(), Box<dyn std::error::Error>> {
+        let mut root = open_verified(fixture.path()).map_err(|e| format!("{e:?}"))?;
+        let found = entries(&mut root)?;
+        let entry = found
+            .iter()
+            .find(|e| e.name == name("offline"))
+            .ok_or("missing offline entry")?;
+        let failure = entry
+            .metadata
+            .as_ref()
+            .err()
+            .ok_or("offline entry was observed")?;
+        assert_eq!(
+            failure.kind,
+            du_core_contracts::ports::PortErrorKind::Unsupported
+        );
+        assert_eq!(failure.reason_key, "os.unsupported");
+        Ok(())
+    })();
+    // SAFETY: restore the attribute on the same isolated fixture for cleanup.
+    unsafe {
+        SetFileAttributesW(PCWSTR(wide.as_ptr()), FILE_ATTRIBUTE_NORMAL)?;
+    }
+    result
+}
+
+#[test]
+#[allow(unsafe_code)]
+fn offline_scope_component_is_rejected_before_directory_open()
+-> Result<(), Box<dyn std::error::Error>> {
+    use windows::{
+        Win32::Storage::FileSystem::{
+            FILE_ATTRIBUTE_NORMAL, FILE_ATTRIBUTE_OFFLINE, SetFileAttributesW,
+        },
+        core::PCWSTR,
+    };
+    let fixture = tempfile::tempdir()?;
+    let path = fixture.path().join("offline-dir");
+    fs::create_dir(&path)?;
+    let wide: Vec<u16> = path.as_os_str().encode_wide().chain([0]).collect();
+    // SAFETY: the temporary fixture path is NUL-terminated and remains alive.
+    unsafe {
+        SetFileAttributesW(PCWSTR(wide.as_ptr()), FILE_ATTRIBUTE_OFFLINE)?;
+    }
+    let result = open_verified(&path);
+    // SAFETY: restore the attribute on the same isolated fixture for cleanup.
+    unsafe {
+        SetFileAttributesW(PCWSTR(wide.as_ptr()), FILE_ATTRIBUTE_NORMAL)?;
+    }
+    let failure = result.err().ok_or("offline scope accepted")?;
+    assert_eq!(
+        failure.kind,
+        du_core_contracts::ports::PortErrorKind::Unsupported
+    );
+    assert!(open_verified(&path).is_ok());
+    Ok(())
+}
+
+#[test]
+#[allow(unsafe_code)]
 fn sparse_file_reports_physical_allocation_without_reading_content()
 -> Result<(), Box<dyn std::error::Error>> {
     use std::os::windows::io::AsRawHandle;
