@@ -12,7 +12,7 @@ use du_core_contracts::{
     scan_observation::OpenedScopeRoot,
 };
 
-use crate::scan::{ResultIds, collect_open_build};
+use crate::scan::{ResultIds, collect_open_forest};
 
 const KIND: &str = "scan.metadata";
 // Conservative starting concurrency until device-specific policy is composed.
@@ -34,7 +34,7 @@ pub fn descriptor() -> JobDescriptor {
 
 /// Collects from the handle established during scan admission.
 pub struct MetadataScan {
-    root: Mutex<Option<OpenedScopeRoot>>,
+    roots: Mutex<Option<Vec<OpenedScopeRoot>>>,
     store: IngestSink,
     scope: Id,
     ids: Arc<dyn ResultIds>,
@@ -48,8 +48,18 @@ impl MetadataScan {
         scope: Id,
         ids: Arc<dyn ResultIds>,
     ) -> Self {
+        Self::new_roots(vec![root], store, scope, ids)
+    }
+
+    /// Transfers all reviewed roots in normalized producer order to one job.
+    pub fn new_roots(
+        roots: Vec<OpenedScopeRoot>,
+        store: IngestSink,
+        scope: Id,
+        ids: Arc<dyn ResultIds>,
+    ) -> Self {
         Self {
-            root: Mutex::new(Some(root)),
+            roots: Mutex::new(Some(roots)),
             store,
             scope,
             ids,
@@ -63,28 +73,36 @@ impl JobBody for MetadataScan {
     }
 
     fn run(&self, context: Arc<dyn JobContext>) -> JobOutcome {
-        let root = self.root.lock().ok().and_then(|mut root| root.take());
-        match root {
-            Some(root) => {
-                let observed = ResultScopeRoot {
-                    path: ResultNativePath {
-                        encoding: root.canonical_path.encoding,
-                        raw: root.canonical_path.raw,
-                    },
-                    volume_id: root.volume_id,
-                    file_id: root.file_id,
-                };
-                let build = self.store.open_observed(self.scope.clone(), observed);
-                collect_open_build(
+        let roots = self.roots.lock().ok().and_then(|mut roots| roots.take());
+        match roots {
+            Some(roots) if !roots.is_empty() => {
+                let (observed, directories): (Vec<_>, Vec<_>) = roots
+                    .into_iter()
+                    .map(|root| {
+                        (
+                            ResultScopeRoot {
+                                path: ResultNativePath {
+                                    encoding: root.canonical_path.encoding,
+                                    raw: root.canonical_path.raw,
+                                },
+                                volume_id: root.volume_id,
+                                file_id: root.file_id,
+                            },
+                            root.directory,
+                        )
+                    })
+                    .unzip();
+                let build = self.store.open_forest(self.scope.clone(), observed);
+                collect_open_forest(
                     build,
-                    root.directory,
+                    directories,
                     &*self.ids,
                     &*context,
                     DEFAULT_SCAN_WORKERS,
                     &|_| true,
                 )
             }
-            None => JobOutcome {
+            _ => JobOutcome {
                 counts: Default::default(),
                 completed_scope: false,
                 failure_reason_key: Some("support.internal_error".into()),

@@ -10,7 +10,7 @@ use du_core_contracts::{
     result::ResultCompleteness,
     scan_observation::{AnchoredDirectory, MetadataObservation, ObservedEntry, ObservedKind},
 };
-pub(crate) use parallel::collect_open_build;
+pub(crate) use parallel::{collect_open_build, collect_open_forest};
 use std::collections::VecDeque;
 
 /// Supplies distinct result identifiers for partial and terminal publications.
@@ -225,6 +225,16 @@ fn record(
     path: &[Vec<u8>],
     counts: &mut JobCounts,
 ) -> Result<bool, BuildError> {
+    record_at(build, 0, entry, path, counts)
+}
+
+fn record_at(
+    build: &mut BuildHandle,
+    root_index: u32,
+    entry: &ObservedEntry,
+    path: &[Vec<u8>],
+    counts: &mut JobCounts,
+) -> Result<bool, BuildError> {
     let meta = match &entry.metadata {
         Ok(meta)
             if entry.enumerated_inode != 0
@@ -236,23 +246,29 @@ fn record(
         }
         _ => {
             counts.failed += 1;
-            build.add(Observation {
-                path: path.to_vec(),
-                size: None,
-            })?;
+            build.add_at(
+                root_index,
+                Observation {
+                    path: path.to_vec(),
+                    size: None,
+                },
+            )?;
             return Ok(false);
         }
     };
     match meta.kind {
-        ObservedKind::Directory => build.add_directory(path.to_vec())?,
-        ObservedKind::Link => build.add_untraversed_link(path.to_vec())?,
-        ObservedKind::File => record_file(build, meta, path.to_vec(), counts)?,
+        ObservedKind::Directory => build.add_directory_at(root_index, path.to_vec())?,
+        ObservedKind::Link => build.add_untraversed_link_at(root_index, path.to_vec())?,
+        ObservedKind::File => record_file(build, root_index, meta, path.to_vec(), counts)?,
         ObservedKind::Unknown | ObservedKind::Other => {
             counts.failed += 1;
-            build.add(Observation {
-                path: path.to_vec(),
-                size: None,
-            })?;
+            build.add_at(
+                root_index,
+                Observation {
+                    path: path.to_vec(),
+                    size: None,
+                },
+            )?;
         }
     }
     counts.completed += 1;
@@ -262,6 +278,7 @@ fn record(
 /// Records only facts observed from the file handle retained by the adapter.
 fn record_file(
     build: &mut BuildHandle,
+    root_index: u32,
     meta: &MetadataObservation,
     path: Vec<Vec<u8>>,
     counts: &mut JobCounts,
@@ -276,9 +293,10 @@ fn record_file(
     }
     let observation = Observation { path, size };
     if meta.allocated.is_none() && meta.space_identity.is_none() && meta.link_count.is_none() {
-        return build.add_file(observation);
+        return build.add_file_at(root_index, observation);
     }
-    build.add_with_space(
+    build.add_with_space_at(
+        root_index,
         observation,
         SpaceObservation {
             allocated: meta

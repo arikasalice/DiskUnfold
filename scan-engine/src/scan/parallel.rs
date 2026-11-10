@@ -1,9 +1,10 @@
 //! Bounded handle-based workers and a single result publisher.
-use super::{ResultIds, record};
+use super::{ResultIds, record_at};
 use du_analysis_index::{BuildError, BuildHandle};
 use du_core_contracts::{
     Id,
     job::{Checkpoint, JobContext, JobCounts, JobFlow, JobFlowError, JobOutcome},
+    ports::{PortError, PortErrorKind},
     result::ResultCompleteness,
     scan_observation::{AnchoredDirectory, ObservedEntry, ObservedKind},
 };
@@ -28,6 +29,7 @@ static FAIL_SPAWN_AT: std::sync::atomic::AtomicUsize =
 static TEST_WORKER_STARTED: AtomicBool = AtomicBool::new(false);
 
 struct Frame {
+    root_index: u32,
     path: Vec<Vec<u8>>,
     directory: Box<dyn AnchoredDirectory>,
     entries: VecDeque<ObservedEntry>,
@@ -35,11 +37,33 @@ struct Frame {
     root: bool,
     first_batch: bool,
     root_published: bool,
+    batch_pending: bool,
 }
 struct Queue {
     ready: VecDeque<Frame>,
+    last_root: Option<u32>,
     remaining: usize,
+    root_remaining: Vec<usize>,
     started: bool,
+}
+impl Queue {
+    fn pop_fair(&mut self) -> Option<Frame> {
+        let last = self.last_root;
+        let index = self
+            .ready
+            .iter()
+            .enumerate()
+            .min_by_key(|(_, frame)| {
+                (
+                    last.is_some_and(|value| frame.root_index <= value),
+                    frame.root_index,
+                )
+            })
+            .map(|(index, _)| index)?;
+        let frame = self.ready.remove(index)?;
+        self.last_root = Some(frame.root_index);
+        Some(frame)
+    }
 }
 struct Shared {
     queue: Mutex<Queue>,
@@ -47,9 +71,14 @@ struct Shared {
     abort: AtomicBool,
 }
 enum Event {
-    Item(Vec<Vec<u8>>, Box<ObservedEntry>),
-    Failure { root: bool },
-    RootBatch,
+    Item(u32, Vec<Vec<u8>>, Box<ObservedEntry>),
+    Failure {
+        root_index: u32,
+        path: Vec<Vec<u8>>,
+        root: bool,
+        reason: &'static str,
+    },
+    RootBatch(u32),
 }
 struct Control<'a> {
     ids: &'a dyn ResultIds,
@@ -57,11 +86,28 @@ struct Control<'a> {
     limit: usize,
     include: &'a (dyn Fn(&[Vec<u8>]) -> bool + Sync),
 }
+struct Progress {
+    failed_roots: Vec<bool>,
+    root_published: Vec<bool>,
+    published: bool,
+}
 
 /// Runs the same collector against a build prepared with source evidence.
 pub(crate) fn collect_open_build(
     build: Result<BuildHandle, BuildError>,
     root: Box<dyn AnchoredDirectory>,
+    ids: &dyn ResultIds,
+    context: &dyn JobContext,
+    limit: usize,
+    include: &(dyn Fn(&[Vec<u8>]) -> bool + Sync),
+) -> JobOutcome {
+    collect_open_forest(build, vec![root], ids, context, limit, include)
+}
+
+/// Collect all roots into the same already opened forest build.
+pub(crate) fn collect_open_forest(
+    build: Result<BuildHandle, BuildError>,
+    roots: Vec<Box<dyn AnchoredDirectory>>,
     ids: &dyn ResultIds,
     context: &dyn JobContext,
     limit: usize,
@@ -74,13 +120,14 @@ pub(crate) fn collect_open_build(
         limit,
         include,
     };
-    let result = build.and_then(|build| run(build, root, control, &mut counts));
+    let result = build.and_then(|build| run(build, roots, control, &mut counts));
     match result {
-        Ok((id, cancelled)) => JobOutcome {
+        Ok((id, cancelled, unprocessed_roots)) => JobOutcome {
             counts,
             completed_scope: !cancelled,
             failure_reason_key: None,
-            unprocessed_summary: None,
+            unprocessed_summary: cancelled
+                .then(|| format!("unprocessed_roots={unprocessed_roots}")),
             result_version_id: Some(id),
         },
         Err(_) => JobOutcome {
@@ -95,51 +142,68 @@ pub(crate) fn collect_open_build(
 
 fn run(
     mut build: BuildHandle,
-    root: Box<dyn AnchoredDirectory>,
+    roots: Vec<Box<dyn AnchoredDirectory>>,
     control: Control<'_>,
     counts: &mut JobCounts,
-) -> Result<(Id, bool), BuildError> {
+) -> Result<(Id, bool, usize), BuildError> {
     let Control {
         ids,
         context,
         limit,
         include,
     } = control;
-    build.add_directory(Vec::new())?;
+    if roots.is_empty() || u32::try_from(roots.len()).is_err() {
+        return Err(BuildError::Unavailable);
+    }
+    let root_count = roots.len();
+    for index in 0..root_count {
+        build.add_directory_at(index as u32, Vec::new())?;
+    }
     if context.checkpoint() == Checkpoint::Cancel {
         let id = ids.next_id();
         build.seal(id.clone(), ResultCompleteness::Cancelled)?;
-        return Ok((id, true));
+        return Ok((id, true, root_count));
     }
     let flows = match acquire_flows(context, limit) {
         Ok(flows) => flows,
         Err(JobFlowError::Cancelled) => {
             let id = ids.next_id();
             build.seal(id.clone(), ResultCompleteness::Cancelled)?;
-            return Ok((id, true));
+            return Ok((id, true, root_count));
         }
         Err(_) => return Err(BuildError::Unavailable),
     };
     let shared = Shared {
         queue: Mutex::new(Queue {
-            ready: VecDeque::from([Frame {
-                path: Vec::new(),
-                directory: root,
-                entries: VecDeque::new(),
-                deferred: VecDeque::new(),
-                root: true,
-                first_batch: false,
-                root_published: false,
-            }]),
-            remaining: 1,
+            ready: roots
+                .into_iter()
+                .enumerate()
+                .map(|(index, root)| Frame {
+                    root_index: index as u32,
+                    path: Vec::new(),
+                    directory: root,
+                    entries: VecDeque::new(),
+                    deferred: VecDeque::new(),
+                    root: true,
+                    first_batch: false,
+                    root_published: false,
+                    batch_pending: false,
+                })
+                .collect(),
+            remaining: root_count,
+            root_remaining: vec![1; root_count],
+            last_root: None,
             started: false,
         }),
         wake: Condvar::new(),
         abort: AtomicBool::new(false),
     };
     let (sender, receiver) = mpsc::sync_channel(BUFFERED_OBSERVATIONS);
-    let mut failed_root = false;
-    let mut published = false;
+    let mut progress = Progress {
+        failed_roots: vec![false; root_count],
+        root_published: vec![false; root_count],
+        published: false,
+    };
     let mut failure = None;
     thread::scope(|scope| {
         let spawned = spawn_workers(scope, flows, &shared, &sender, context, include)
@@ -153,21 +217,7 @@ fn run(
             return;
         }
         while let Ok(event) = receiver.recv() {
-            let result = match event {
-                Event::Item(path, entry) => record(&mut build, &entry, &path, counts).map(|_| ()),
-                Event::Failure { root } => {
-                    counts.failed += 1;
-                    failed_root |= root && !published;
-                    Ok(())
-                }
-                Event::RootBatch if !published => {
-                    published = true;
-                    build
-                        .publish_partial_at(ids.next_id(), context.utc_now())
-                        .map(|_| ())
-                }
-                Event::RootBatch => Ok(()),
-            };
+            let result = progress.record(event, &mut build, counts, context, ids);
             if let Err(error) = result {
                 failure = Some(error);
                 shared.abort.store(true, Ordering::Release);
@@ -184,7 +234,19 @@ fn run(
         return Err(BuildError::Unavailable);
     }
     let cancelled = context.checkpoint() == Checkpoint::Cancel;
-    if failed_root && !cancelled {
+    let unprocessed_roots = if cancelled {
+        shared
+            .queue
+            .lock()
+            .map_err(|_| BuildError::Unavailable)?
+            .root_remaining
+            .iter()
+            .filter(|&&count| count != 0)
+            .count()
+    } else {
+        0
+    };
+    if progress.failed_roots.iter().all(|failed| *failed) && !cancelled {
         return Err(BuildError::Unavailable);
     }
     let completeness = if cancelled {
@@ -196,7 +258,76 @@ fn run(
     };
     let id = ids.next_id();
     build.seal_at(id.clone(), completeness, context.utc_now())?;
-    Ok((id, cancelled))
+    Ok((id, cancelled, unprocessed_roots))
+}
+
+impl Progress {
+    fn record(
+        &mut self,
+        event: Event,
+        build: &mut BuildHandle,
+        counts: &mut JobCounts,
+        context: &dyn JobContext,
+        ids: &dyn ResultIds,
+    ) -> Result<(), BuildError> {
+        match event {
+            Event::Item(root_index, path, entry) => {
+                let gap = entry_gap(&entry);
+                record_at(build, root_index, &entry, &path, counts)?;
+                if let Some(reason) = gap {
+                    build.record_gap_at(root_index, path, reason.into(), context.utc_now())?;
+                }
+                Ok(())
+            }
+            Event::Failure {
+                root_index,
+                path,
+                root,
+                reason,
+            } => {
+                counts.failed += 1;
+                if root && !self.root_published[root_index as usize] {
+                    self.failed_roots[root_index as usize] = true;
+                }
+                build.record_gap_at(root_index, path, reason.into(), context.utc_now())
+            }
+            Event::RootBatch(root_index) => {
+                self.root_published[root_index as usize] = true;
+                if !self.published {
+                    self.published = true;
+                    build.publish_partial_at(ids.next_id(), context.utc_now())?;
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
+fn reason(error: &PortError) -> &'static str {
+    match error.kind {
+        PortErrorKind::PermissionDenied => "scan.path_denied",
+        PortErrorKind::NotFound => "scan.path_vanished",
+        _ => "scan.unclassified",
+    }
+}
+
+fn entry_gap(entry: &ObservedEntry) -> Option<&'static str> {
+    match &entry.metadata {
+        Err(error) => Some(reason(error)),
+        Ok(meta)
+            if entry.enumerated_inode == 0
+                || entry.enumerated_inode != meta.inode
+                || (entry.enumerated_kind != ObservedKind::Unknown
+                    && entry.enumerated_kind != meta.kind) =>
+        {
+            Some("scan.unclassified")
+        }
+        Ok(meta) if matches!(meta.kind, ObservedKind::Unknown | ObservedKind::Other) => {
+            Some("scan.unclassified")
+        }
+        Ok(meta) if meta.kind == ObservedKind::File => meta.size.as_ref().err().map(reason),
+        _ => None,
+    }
 }
 
 /// Releases the initial directory only after all workers were successfully started.
@@ -303,181 +434,5 @@ fn acquire_flows(
     Ok(flows)
 }
 
-fn worker(
-    shared: &Shared,
-    sender: SyncSender<Event>,
-    context: &dyn JobContext,
-    include: &(dyn Fn(&[Vec<u8>]) -> bool + Sync),
-    flow: Box<dyn JobFlow>,
-) {
-    let mut local = Vec::new();
-    while context.checkpoint() != Checkpoint::Cancel && !shared.abort.load(Ordering::Acquire) {
-        let frame = local.pop().or_else(|| take(shared, context));
-        let Some(frame) = frame else {
-            break;
-        };
-        if !process(frame, shared, &sender, context, include, &mut local) {
-            shared.abort.store(true, Ordering::Release);
-            shared.wake.notify_all();
-            break;
-        }
-    }
-    flow.finish(JobCounts::default());
-}
-
-fn take(shared: &Shared, context: &dyn JobContext) -> Option<Frame> {
-    let mut queue = shared.queue.lock().ok()?;
-    loop {
-        if queue.remaining == 0
-            || context.checkpoint() == Checkpoint::Cancel
-            || shared.abort.load(Ordering::Acquire)
-        {
-            return None;
-        }
-        if queue.started
-            && let Some(frame) = queue.ready.pop_front()
-        {
-            return Some(frame);
-        }
-        queue = shared
-            .wake
-            .wait_timeout(queue, Duration::from_millis(25))
-            .ok()?
-            .0;
-    }
-}
-
-fn process(
-    mut frame: Frame,
-    shared: &Shared,
-    sender: &SyncSender<Event>,
-    context: &dyn JobContext,
-    include: &(dyn Fn(&[Vec<u8>]) -> bool + Sync),
-    local: &mut Vec<Frame>,
-) -> bool {
-    while context.checkpoint() != Checkpoint::Cancel && !shared.abort.load(Ordering::Acquire) {
-        let recorded = frame.root_published && !frame.deferred.is_empty();
-        let next = if recorded {
-            frame.deferred.pop_front()
-        } else {
-            frame.entries.pop_front()
-        };
-        if let Some(entry) = next {
-            match process_entry(
-                &mut frame, entry, recorded, shared, sender, context, include,
-            ) {
-                Ok(Some(child)) => {
-                    local.push(frame);
-                    local.push(child);
-                    return true;
-                }
-                Ok(None) => {}
-                Err(()) => return false,
-            }
-            continue;
-        }
-        if frame.root && frame.first_batch {
-            frame.first_batch = false;
-            if sender.send(Event::RootBatch).is_err() {
-                return false;
-            }
-            frame.root_published = true;
-            continue;
-        }
-        match frame.directory.next_batch() {
-            Ok(batch) if batch.is_empty() => {
-                if frame.root && sender.send(Event::RootBatch).is_err() {
-                    return false;
-                }
-                complete(shared);
-                return true;
-            }
-            Ok(batch) if batch.len() <= 8192 => {
-                frame.first_batch |= frame.root && !frame.root_published;
-                frame.entries = batch.into();
-            }
-            _ => {
-                let _ = sender.send(Event::Failure { root: frame.root });
-                complete(shared);
-                return true;
-            }
-        }
-    }
-    true
-}
-
-fn process_entry(
-    frame: &mut Frame,
-    entry: ObservedEntry,
-    recorded: bool,
-    shared: &Shared,
-    sender: &SyncSender<Event>,
-    context: &dyn JobContext,
-    include: &(dyn Fn(&[Vec<u8>]) -> bool + Sync),
-) -> Result<Option<Frame>, ()> {
-    let mut path = frame.path.clone();
-    path.push(entry.name.clone());
-    if !recorded && !include(&path) {
-        return Ok(None);
-    }
-    if !recorded {
-        sender
-            .send(Event::Item(path.clone(), Box::new(entry.clone())))
-            .map_err(|_| ())?;
-    }
-    if !eligible_directory(&entry) || context.checkpoint() == Checkpoint::Cancel {
-        return Ok(None);
-    }
-    if frame.root && !frame.root_published {
-        frame.deferred.push_back(entry);
-        return Ok(None);
-    }
-    match frame.directory.open_child(&entry) {
-        Ok(directory) => Ok(schedule(
-            shared,
-            Frame {
-                path,
-                directory,
-                entries: VecDeque::new(),
-                deferred: VecDeque::new(),
-                root: false,
-                first_batch: false,
-                root_published: false,
-            },
-        )),
-        Err(_) => {
-            sender
-                .send(Event::Failure { root: false })
-                .map_err(|_| ())?;
-            Ok(None)
-        }
-    }
-}
-
-fn eligible_directory(entry: &ObservedEntry) -> bool {
-    entry.metadata.as_ref().is_ok_and(|m| {
-        m.kind == ObservedKind::Directory
-            && m.inode != 0
-            && m.inode == entry.enumerated_inode
-            && (entry.enumerated_kind == ObservedKind::Unknown || entry.enumerated_kind == m.kind)
-    })
-}
-fn schedule(shared: &Shared, frame: Frame) -> Option<Frame> {
-    if let Ok(mut queue) = shared.queue.lock() {
-        queue.remaining += 1;
-        if queue.ready.len() < QUEUED_DIRECTORIES {
-            queue.ready.push_back(frame);
-            shared.wake.notify_one();
-            return None;
-        }
-    } else {
-        shared.abort.store(true, Ordering::Release);
-    }
-    Some(frame)
-}
-fn complete(shared: &Shared) {
-    if let Ok(mut queue) = shared.queue.lock() {
-        queue.remaining -= 1;
-        shared.wake.notify_all();
-    }
-}
+mod workers;
+use workers::worker;
