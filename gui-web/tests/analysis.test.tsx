@@ -293,6 +293,7 @@ function probe(
   jobRef: string,
   sequence: number,
   access: TargetProbeEvent["access"],
+  observation: Partial<TargetProbeEvent> = {},
 ): EventEnvelope {
   const body: TargetProbeEvent = {
     sequence,
@@ -304,6 +305,7 @@ function probe(
     capacityReason: null,
     aggregationUncertain: true,
     observedAt: timestamp,
+    ...observation,
   };
   return {
     topic: "target.status_changed",
@@ -332,6 +334,150 @@ test("F01: an early probe is applied and older or unrelated probes are ignored",
   expect(screen.queryByText("denied")).toBeNull();
 });
 
+test("F01 capacity: current observations preserve zero, time, and selection", async () => {
+  const checkedAt = "2026-11-10T01:02:03.000Z";
+  const { client, listeners } = fixture({
+    earlyProbe: probe("probe", 3, "accessible", {
+      totalBytes: "2048",
+      availableBytes: "0",
+      observedAt: checkedAt,
+    }),
+  });
+  render(<App analysis={client} />);
+  const choice = await screen.findByRole<HTMLInputElement>("radio", {
+    name: path.display,
+    description: /Total: 2,048 bytes · Available: 0 bytes/,
+  });
+  choice.focus();
+  fireEvent.click(choice);
+  const description = screen.getByText(
+    /Total: 2,048 bytes · Available: 0 bytes/,
+  );
+  const current = description.textContent;
+  expect(current).toContain("Combined capacity unverified");
+  expect(current).toContain("Paths may share a volume.");
+  expect(current).toContain(`Checked: ${checkedAt}`);
+  expect(current).not.toContain(timestamp);
+
+  act(() => {
+    for (const listener of listeners) {
+      listener(
+        probe("probe", 2, "accessible", {
+          totalBytes: "10",
+          availableBytes: "5",
+          aggregationUncertain: false,
+        }),
+      );
+      listener(
+        probe("prior-job", 4, "accessible", {
+          capacityReason: "os.unsupported",
+          aggregationUncertain: false,
+        }),
+      );
+    }
+  });
+  expect(description.textContent).toBe(current);
+  expect(choice.checked).toBe(true);
+  expect(document.activeElement).toBe(choice);
+  expect(screen.getByText("accessible")).toBeDefined();
+});
+
+// Individual null fields are possible on the wire even though the current
+// producer emits both values together or neither.
+test.each([
+  ["0", null, /Total: 0 bytes · Available: Could not verify/],
+  [null, "0", /Total: Could not verify · Available: 0 bytes/],
+] as const)(
+  "F01 capacity: preserves a single reported value (%s, %s)",
+  async (totalBytes, availableBytes, description) => {
+    const { client } = fixture({
+      earlyProbe: probe("probe", 1, "accessible", {
+        totalBytes,
+        availableBytes,
+        aggregationUncertain: false,
+      }),
+    });
+    render(<App analysis={client} />);
+    await screen.findByRole("radio", { name: path.display, description });
+    expect(
+      screen.getByText(
+        /No explanation is available for the unverified capacity/,
+      ),
+    ).toBeDefined();
+    expect(screen.queryByText(/Combined capacity unverified/)).toBeNull();
+  },
+);
+
+test.each([
+  ["os.unsupported", "Capacity reporting is unavailable for this target."],
+  ["os.query_failed", "The capacity check failed."],
+  ["os.call_slow", "The capacity check did not finish in time."],
+  ["scan.path_denied", "Access to this target was denied."],
+  ["scan.path_vanished", "The path was no longer available."],
+  ["scan.disconnected", "The target was disconnected."],
+  ["path.unresolvable", "The path could not be resolved."],
+  ["job.cancelled", "The capacity check was cancelled."],
+  [
+    "unknown.capacity",
+    "No explanation is available for the unverified capacity.",
+  ],
+  [null, "No explanation is available for the unverified capacity."],
+] as const)(
+  "F01 capacity: explains unavailable observations for %s",
+  async (capacityReason, explanation) => {
+    const { client } = fixture({
+      earlyProbe: probe("probe", 1, "accessible", {
+        reasonKey: "access.internal_reason",
+        capacityReason,
+        aggregationUncertain: false,
+      }),
+    });
+    render(<App analysis={client} />);
+    const description = await screen.findByText(
+      /Total: Could not verify · Available: Could not verify/,
+    );
+    expect(description.textContent).toContain(explanation);
+    if (capacityReason)
+      expect(description.textContent).not.toContain(capacityReason);
+    expect(description.textContent).not.toContain("access.internal_reason");
+    expect(screen.getByText("accessible")).toBeDefined();
+  },
+);
+
+test.each(["probe", null])(
+  "F01 capacity: distinguishes checking from no observation for job %s",
+  async (probeJobRef) => {
+    const { client, listeners } = fixture({
+      targetList: { ...targets, probeJobRef },
+    });
+    render(<App analysis={client} />);
+    await screen.findByRole("radio", { name: path.display });
+    if (probeJobRef) {
+      expect(screen.getByText(/Checking capacity…/)).toBeDefined();
+      act(() => {
+        for (const listener of listeners) {
+          listener({
+            topic: "job.finished",
+            contractVersion: 1,
+            seq: 5,
+            jobRef: probeJobRef,
+            occurredAt: timestamp,
+            body: { state: "failed", sequence: 5 },
+          });
+        }
+      });
+    }
+    const description = screen.getByText(
+      /Total: Could not verify · Available: Could not verify/,
+    );
+    expect(description.textContent).toContain(
+      "No capacity check was reported.",
+    );
+    expect(description.textContent).not.toContain("Checked:");
+    expect(screen.queryByText(/Checking capacity…/)).toBeNull();
+  },
+);
+
 test("F01: a target with an unavailable type can be selected and reviewed", async () => {
   const { client, calls } = fixture({
     targetList: {
@@ -342,7 +488,7 @@ test("F01: a target with an unavailable type can be selected and reviewed", asyn
   });
   render(<App analysis={client} />);
   const choice = await screen.findByRole("radio", { name: path.display });
-  expect(screen.getByText("Type unavailable")).toBeDefined();
+  expect(screen.getByText(/^Type unavailable/)).toBeDefined();
   expect(screen.getByText("accessible")).toBeDefined();
   fireEvent.click(choice);
   fireEvent.click(screen.getByRole("button", { name: "Review scope" }));

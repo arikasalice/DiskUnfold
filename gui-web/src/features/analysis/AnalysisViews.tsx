@@ -39,6 +39,7 @@ import {
   windowsSizeDisplay,
 } from "./space-format";
 import type { SizeBasisFilter, SizeDisplay } from "./space-format";
+import { describeTargetCapacity } from "./target-capacity";
 
 const resultVersionLabels = {
   complete: "Final",
@@ -69,14 +70,19 @@ export function TargetPicker({
   dropError: string | undefined;
   pathDescription: string;
 }) {
-  const error = targets.error ?? targets.list?.unavailableReason;
+  const {
+    targets: entries = [],
+    probeJobRef,
+    unavailableReason,
+  } = targets.list ?? {};
+  const error = targets.error ?? unavailableReason;
+  const checkingCapacity = Boolean(probeJobRef) && !targets.finished;
   const notice =
     error === "os.unsupported"
       ? "Automatic drive listing is unavailable. You can still enter a folder below."
       : error === "os.call_slow"
         ? "Drive listing is taking longer than expected. Refresh later or enter a folder below."
         : error;
-  const entries = targets.list?.targets ?? [];
   const pathField = (
     <PathField
       label="Windows folder path"
@@ -130,7 +136,7 @@ export function TargetPicker({
               (targets.finished && target.access === "checking"
                 ? "unknown"
                 : target.access);
-            const capacity = probe?.totalBytes;
+            const capacity = describeTargetCapacity(probe, checkingCapacity);
             const kind =
               target.kind?.replaceAll("_", " ") ?? "Type unavailable";
             return (
@@ -139,7 +145,7 @@ export function TargetPicker({
                 value={target.path.raw}
                 label={target.path.display}
                 icon="drive"
-                description={`${kind}${capacity ? ` · ${formatBytes(capacity)} total` : ""}`}
+                description={`${kind} · ${capacity}`}
                 status={{
                   text: access,
                   tone: access === "accessible" ? "good" : "neutral",
