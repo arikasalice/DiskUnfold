@@ -62,8 +62,11 @@ export interface AnalysisClient {
   subscribeFolderDrop?(listener: (drop: FolderDrop) => void): () => void;
 }
 
-export type FolderDrop =
-  { path: OsPath } | { reason: "invalid_target" | "unsupported" };
+export type FolderDrop = { seq: number } & (
+  | { pending: true }
+  | { path: OsPath }
+  | { reason: "invalid_target" | "unsupported" }
+);
 
 export class AnalysisError extends Error {
   constructor(
@@ -125,7 +128,11 @@ export function createAnalysisClient(
     subscribe: subscribeNative,
     subscribeFolderDrop: (listener) =>
       subscribeNativeFolderDrop((drop) =>
-        listener("path" in drop ? { path: windowsPath(drop.path) } : drop),
+        listener(
+          "path" in drop
+            ? { seq: drop.seq, path: windowsPath(drop.path) }
+            : drop,
+        ),
       ),
   };
 }

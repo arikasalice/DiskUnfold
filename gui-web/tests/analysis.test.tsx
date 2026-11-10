@@ -435,6 +435,16 @@ test("ANFR5: the analysis workspace exposes labelled controls and valid ARIA rol
   expect(result.violations).toEqual([]);
 });
 
+function folderDrop(
+  detail: { seq: number } & (
+    { pending: true } | { path: string } | { reason: "invalid_target" }
+  ),
+) {
+  act(() => {
+    window.dispatchEvent(new CustomEvent("du://folder-drop", { detail }));
+  });
+}
+
 test("F01: a dropped folder replaces the selection and requires a fresh scope review", async () => {
   const { client, calls } = fixture();
   const nativeDrop = createAnalysisClient().subscribeFolderDrop;
@@ -448,11 +458,8 @@ test("F01: a dropped folder replaces the selection and requires a fresh scope re
   fireEvent.click(review);
   await waitFor(() => expect(start.disabled).toBe(false));
   const dropped = "D:\\한글 폴더";
-  act(() => {
-    window.dispatchEvent(
-      new CustomEvent("du://folder-drop", { detail: { path: dropped } }),
-    );
-  });
+  folderDrop({ seq: 1, pending: true });
+  folderDrop({ seq: 1, path: dropped });
   expect(
     (
       screen.getByRole("textbox", {
@@ -477,13 +484,8 @@ test("F01: an invalid drop gives guidance without replacing the chosen folder", 
   if (!nativeDrop) throw new Error("Expected native drop subscription");
   render(<App analysis={{ ...client, subscribeFolderDrop: nativeDrop }} />);
   fireEvent.click(await screen.findByRole("radio", { name: path.display }));
-  act(() => {
-    window.dispatchEvent(
-      new CustomEvent("du://folder-drop", {
-        detail: { reason: "invalid_target" },
-      }),
-    );
-  });
+  folderDrop({ seq: 1, pending: true });
+  folderDrop({ seq: 1, reason: "invalid_target" });
   expect(screen.getByText("Drop one accessible local folder.")).toBeDefined();
   expect(
     (
@@ -492,6 +494,29 @@ test("F01: an invalid drop gives guidance without replacing the chosen folder", 
       }) as HTMLInputElement
     ).value,
   ).toBe(path.display);
+});
+
+test("F01 FR3: a delayed folder verification cannot undo a newer edit or drop", async () => {
+  const { client, calls } = fixture();
+  const nativeDrop = createAnalysisClient().subscribeFolderDrop;
+  if (!nativeDrop) throw new Error("Expected native drop subscription");
+  render(<App analysis={{ ...client, subscribeFolderDrop: nativeDrop }} />);
+  fireEvent.click(await screen.findByRole("radio", { name: path.display }));
+  const input = screen.getByRole<HTMLInputElement>("textbox", {
+    name: "Windows folder path",
+  });
+  folderDrop({ seq: 1, pending: true });
+  fireEvent.change(input, { target: { value: "D:\\Manual" } });
+  folderDrop({ seq: 1, path: "D:\\Late" });
+  expect(input.value).toBe("D:\\Manual");
+
+  folderDrop({ seq: 2, pending: true });
+  folderDrop({ seq: 3, pending: true });
+  folderDrop({ seq: 2, reason: "invalid_target" });
+  expect(screen.queryByText("Drop one accessible local folder.")).toBeNull();
+  folderDrop({ seq: 3, path: "D:\\Newest" });
+  expect(input.value).toBe("D:\\Newest");
+  expect(calls.some(({ name }) => name === "scan.start")).toBe(false);
 });
 
 test("F01 FR3: multiple paths are reviewed together and the exact reviewed input starts the scan", async () => {
@@ -728,11 +753,8 @@ test("F01 FR3: multi-path controls have accessible labels and preserve the drop 
     screen.getByRole("textbox", { name: "Additional folder path 2" }),
     { target: { value: "D:\\Kept" } },
   );
-  act(() =>
-    window.dispatchEvent(
-      new CustomEvent("du://folder-drop", { detail: { path: "C:\\Dropped" } }),
-    ),
-  );
+  folderDrop({ seq: 1, pending: true });
+  folderDrop({ seq: 1, path: "C:\\Dropped" });
   expect(
     screen.getByRole<HTMLInputElement>("textbox", {
       name: "Windows folder path",

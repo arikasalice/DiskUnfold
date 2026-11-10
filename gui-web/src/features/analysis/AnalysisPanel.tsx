@@ -112,6 +112,9 @@ export function AnalysisPanel({ client }: { client: AnalysisClient }) {
     tone: "info" | "error";
   }>();
   const request = useRef(0);
+  const pendingDrop = useRef<{ seq: number; request: number } | undefined>(
+    undefined,
+  );
   const scan = useScanResult(client, receipt);
   const running =
     receipt !== null &&
@@ -162,6 +165,14 @@ export function AnalysisPanel({ client }: { client: AnalysisClient }) {
     () =>
       client.subscribeFolderDrop?.((drop) => {
         if (working || running) return;
+        if ("pending" in drop) {
+          pendingDrop.current = { seq: drop.seq, request: request.current };
+          return;
+        }
+        const pending = pendingDrop.current;
+        if (pending?.seq !== drop.seq) return;
+        pendingDrop.current = undefined;
+        if (pending.request !== request.current) return;
         if ("path" in drop) {
           choose(drop.path);
           setDropMessage({
@@ -213,6 +224,7 @@ export function AnalysisPanel({ client }: { client: AnalysisClient }) {
 
   async function start() {
     if (!review || !reviewedDraft || !canStart(review, reviewedDraft)) return;
+    pendingDrop.current = undefined;
     setWorking(true);
     setCancelRequested(false);
     setError(undefined);

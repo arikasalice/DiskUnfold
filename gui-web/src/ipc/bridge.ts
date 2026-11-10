@@ -47,8 +47,11 @@ export function subscribeNative(
   return () => window.removeEventListener("du://event", receive);
 }
 
-type NativeFolderDrop =
-  { path: string } | { reason: "invalid_target" | "unsupported" };
+type NativeFolderDrop = { seq: number } & (
+  | { pending: true }
+  | { path: string }
+  | { reason: "invalid_target" | "unsupported" }
+);
 
 /** Reads a local folder selection from the top-level native drop bridge. */
 export function subscribeNativeFolderDrop(
@@ -57,7 +60,20 @@ export function subscribeNativeFolderDrop(
   const receive = (event: Event) => {
     if (!(event instanceof CustomEvent)) return;
     const detail: unknown = event.detail;
-    if (typeof detail !== "object" || detail === null) return;
+    if (
+      typeof detail !== "object" ||
+      detail === null ||
+      !("seq" in detail) ||
+      typeof detail.seq !== "number" ||
+      !Number.isSafeInteger(detail.seq) ||
+      detail.seq < 1
+    )
+      return;
+    const { seq } = detail;
+    if ("pending" in detail && detail.pending === true) {
+      listener({ seq, pending: true });
+      return;
+    }
     if (
       "path" in detail &&
       typeof detail.path === "string" &&
@@ -65,12 +81,12 @@ export function subscribeNativeFolderDrop(
       detail.path.length <= 32_767 &&
       !detail.path.includes("\0")
     ) {
-      listener({ path: detail.path });
+      listener({ seq, path: detail.path });
     } else if (
       "reason" in detail &&
       (detail.reason === "invalid_target" || detail.reason === "unsupported")
     ) {
-      listener({ reason: detail.reason });
+      listener({ seq, reason: detail.reason });
     }
   };
   window.addEventListener("du://folder-drop", receive);

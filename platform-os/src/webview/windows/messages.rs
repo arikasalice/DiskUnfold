@@ -79,7 +79,7 @@ fn worker(
 #[derive(Clone)]
 pub(super) struct RequestQueue {
     ipc: IpcQueues,
-    folders: mpsc::SyncSender<Vec<u16>>,
+    folders: mpsc::SyncSender<(u64, Vec<u16>)>,
 }
 
 impl RequestQueue {
@@ -100,12 +100,13 @@ impl RequestQueue {
     pub(super) fn submit_folder(
         &self,
         view: &ICoreWebView2,
+        id: u64,
         path: Vec<u16>,
     ) -> windows::core::Result<()> {
-        if self.folders.try_send(path).is_ok() {
+        if self.folders.try_send((id, path)).is_ok() {
             return Ok(());
         }
-        post(view, folder_drop::reason_message(Reason::Unsupported))
+        post(view, &folder_drop::reason_message(id, Reason::Unsupported))
     }
 }
 
@@ -124,15 +125,18 @@ impl Bridge {
         events: Option<Events>,
         ready: Rc<Cell<bool>>,
     ) -> io::Result<Self> {
-        let (folders, incoming_folders) = mpsc::sync_channel::<Vec<u16>>(4);
+        let (folders, incoming_folders) = mpsc::sync_channel::<(u64, Vec<u16>)>(4);
         let (outgoing, replies) = mpsc::sync_channel(QUEUE_LIMIT);
         let requests = IpcQueues::start(app, outgoing.clone())?;
         let folder_replies = outgoing.clone();
         std::thread::Builder::new()
             .name("diskunfold-folder-drop".into())
             .spawn(move || {
-                while let Ok(path) = incoming_folders.recv() {
-                    if folder_replies.send(folder_drop::response(&path)).is_err() {
+                while let Ok((id, path)) = incoming_folders.recv() {
+                    if folder_replies
+                        .send(folder_drop::response(id, &path))
+                        .is_err()
+                    {
                         break;
                     }
                 }

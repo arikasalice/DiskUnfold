@@ -14,11 +14,12 @@ pub(super) enum Reason {
     Unsupported,
 }
 
-pub(super) fn reason_message(reason: Reason) -> &'static str {
-    match reason {
-        Reason::InvalidTarget => "folder-drop\n{\"reason\":\"invalid_target\"}",
-        Reason::Unsupported => "folder-drop\n{\"reason\":\"unsupported\"}",
-    }
+pub(super) fn reason_message(id: u64, reason: Reason) -> String {
+    let key = match reason {
+        Reason::InvalidTarget => "invalid_target",
+        Reason::Unsupported => "unsupported",
+    };
+    format!("folder-drop:{id}\n{{\"reason\":\"{key}\"}}")
 }
 
 /// Extracts exactly one DOM File's OS path; this does not access file contents.
@@ -55,18 +56,18 @@ pub(super) unsafe fn path(
 }
 
 /// Applies the local directory boundary before presenting the selected path.
-pub(super) fn response(path: &[u16]) -> String {
+pub(super) fn response(id: u64, path: &[u16]) -> String {
     use std::{ffi::OsString, os::windows::ffi::OsStringExt, path::Path};
     let native = OsString::from_wide(path);
     if path.contains(&0) || crate::windows_observation::open_verified(Path::new(&native)).is_err() {
-        return reason_message(Reason::InvalidTarget).into();
+        return reason_message(id, Reason::InvalidTarget);
     }
-    path_message(path)
+    path_message(id, path)
 }
 
-fn path_message(path: &[u16]) -> String {
+fn path_message(id: u64, path: &[u16]) -> String {
     use std::fmt::Write;
-    let mut result = String::from("folder-drop\n{\"path\":\"");
+    let mut result = format!("folder-drop:{id}\n{{\"path\":\"");
     for unit in path {
         let _ = write!(result, "\\u{unit:04x}");
     }
@@ -81,8 +82,8 @@ mod tests {
     #[test]
     fn preserves_raw_utf16_including_unpaired_surrogates() {
         assert_eq!(
-            path_message(&[0x43, 0x3a, 0x5c, 0xd800, 0x22, 0xdc00]),
-            "folder-drop\n{\"path\":\"\\u0043\\u003a\\u005c\\ud800\\u0022\\udc00\"}"
+            path_message(42, &[0x43, 0x3a, 0x5c, 0xd800, 0x22, 0xdc00]),
+            "folder-drop:42\n{\"path\":\"\\u0043\\u003a\\u005c\\ud800\\u0022\\udc00\"}"
         );
     }
 
@@ -92,31 +93,37 @@ mod tests {
         let dir = tempfile::tempdir()?;
         let file = dir.path().join("file");
         std::fs::write(&file, b"fixture")?;
+        let id = 43;
+        let rejected = reason_message(id, Reason::InvalidTarget);
         assert_eq!(
-            response(&file.as_os_str().encode_wide().collect::<Vec<_>>()),
-            reason_message(Reason::InvalidTarget)
+            response(id, &file.as_os_str().encode_wide().collect::<Vec<_>>()),
+            rejected
         );
         assert_eq!(
             response(
+                id,
                 &dir.path()
                     .join("absent")
                     .as_os_str()
                     .encode_wide()
                     .collect::<Vec<_>>()
             ),
-            reason_message(Reason::InvalidTarget)
+            rejected
         );
         assert!(
-            response(&dir.path().as_os_str().encode_wide().collect::<Vec<_>>())
-                .starts_with("folder-drop\n{\"path\":\"")
+            response(
+                id,
+                &dir.path().as_os_str().encode_wide().collect::<Vec<_>>()
+            )
+            .starts_with("folder-drop:43\n{\"path\":\"")
         );
         let mut with_nul = dir.path().as_os_str().encode_wide().collect::<Vec<_>>();
         with_nul.extend([0, 65]);
-        assert_eq!(response(&with_nul), reason_message(Reason::InvalidTarget));
+        assert_eq!(response(id, &with_nul), rejected);
         let unc: Vec<_> = "\\\\example.invalid\\share\\folder"
             .encode_utf16()
             .collect();
-        assert_eq!(response(&unc), reason_message(Reason::InvalidTarget));
+        assert_eq!(response(id, &unc), rejected);
         Ok(())
     }
 }
