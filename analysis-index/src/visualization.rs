@@ -3,6 +3,7 @@
 //! This module supplies rows and visibility facts, not layout coordinates,
 //! serialized IPC contracts, cached models, or geometry totals.
 pub mod bar;
+pub mod bundle;
 pub mod geometry;
 pub mod group_page;
 pub mod histogram;

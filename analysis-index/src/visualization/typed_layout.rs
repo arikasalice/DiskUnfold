@@ -205,6 +205,30 @@ impl Dispatcher {
     pub fn catalog(&self) -> impl Iterator<Item = &LayoutDescriptor> {
         self.0.catalog()
     }
+    /// Resolves a descriptor without invoking its layout implementation.
+    ///
+    /// Omitted keys select the highest registered revision for the format;
+    /// explicit keys must match exactly. Format keys remain open strings.
+    pub fn resolve(
+        &self,
+        format: &str,
+        key: Option<&LayoutStrategyKey>,
+    ) -> Result<&LayoutDescriptor, registry::SelectionError> {
+        self.resolve_entry(format, key)
+            .map(|entry| &entry.descriptor)
+    }
+
+    fn resolve_entry(
+        &self,
+        format: &str,
+        key: Option<&LayoutStrategyKey>,
+    ) -> Result<&registry::Registered<Box<dyn Strategy>>, registry::SelectionError> {
+        match key {
+            Some(key) => self.0.resolve(format, key),
+            None => self.0.latest(format),
+        }
+    }
+
     pub fn execute(
         &self,
         format: &str,
@@ -212,11 +236,9 @@ impl Dispatcher {
         input: &Input,
         cancelled: &mut dyn FnMut() -> bool,
     ) -> Result<Selected, DispatchError> {
-        let entry = match key {
-            Some(key) => self.0.resolve(format, key),
-            None => self.0.latest(format),
-        }
-        .map_err(DispatchError::Selection)?;
+        let entry = self
+            .resolve_entry(format, key)
+            .map_err(DispatchError::Selection)?;
         let output = entry
             .implementation
             .layout(input, cancelled)

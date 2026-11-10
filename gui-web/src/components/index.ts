@@ -21,6 +21,7 @@ export {
 
 export { DataTable } from "./data-table";
 
+export { createChartRenderers } from "./chart-renderers";
 export { GeometryRenderer } from "./geometry-renderer";
 export type {
   DisplayGeometry,

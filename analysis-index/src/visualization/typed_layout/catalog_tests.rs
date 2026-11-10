@@ -178,6 +178,12 @@ fn frozen_catalog_selects_extension_and_explicit_versions_into_common_model() ->
     assert_eq!(newest.strategy, v2);
     assert_eq!(original.strategy, v1);
     assert_eq!(tree.strategy, first);
+    assert_resolve_matches(
+        &dispatcher,
+        &newest.strategy,
+        &original.strategy,
+        &tree.strategy,
+    );
     assert_eq!(newest.rows, original.rows);
     assert_eq!(newest.rows, tree.rows);
     assert_eq!(newest.shapes[0].geometry.points()[0].x, 20);
@@ -210,6 +216,31 @@ fn frozen_catalog_selects_extension_and_explicit_versions_into_common_model() ->
         ))
     ));
     Ok(())
+}
+
+fn assert_resolve_matches(
+    dispatcher: &Dispatcher,
+    newest: &LayoutDescriptor,
+    original: &LayoutDescriptor,
+    tree: &LayoutDescriptor,
+) {
+    assert_eq!(dispatcher.resolve(&original.format, None), Ok(newest));
+    assert_eq!(
+        dispatcher.resolve(&original.format, Some(&original.strategy)),
+        Ok(original)
+    );
+    assert_eq!(
+        dispatcher.resolve(&tree.format, Some(&tree.strategy)),
+        Ok(tree)
+    );
+    assert_eq!(
+        dispatcher.resolve("unknown", None),
+        Err(registry::SelectionError::UnknownFormat)
+    );
+    assert_eq!(
+        dispatcher.resolve(&original.format, Some(&descriptor(9).strategy)),
+        Err(registry::SelectionError::UnknownStrategy)
+    );
 }
 
 /// Records invocation while preserving a strategy's behavior.
@@ -246,6 +277,9 @@ fn selection_failures_never_invoke_a_registered_strategy() -> Result<(), String>
         .map_err(|e| format!("{e:?}"))?;
     let dispatcher = Dispatcher::new(builder.build(&[first]).map_err(|e| format!("{e:?}"))?);
     let (version, parent, keys) = source()?;
+    assert_eq!(dispatcher.resolve(&extension.format, None), Ok(&extension));
+    assert_eq!(treemap_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(extension_calls.load(Ordering::SeqCst), 0);
     let unknown_format = project(
         &version,
         &parent,

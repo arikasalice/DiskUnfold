@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import axe from "axe-core";
 import { useState } from "react";
 import { afterEach, expect, test, vi } from "vitest";
+import { createChartRenderers } from "../src/components/chart-renderers";
 import { GeometryRenderer } from "../src/components/geometry-renderer";
 import type { GeometryRendererProps } from "../src/components/geometry-renderer";
 
@@ -119,16 +120,14 @@ test("renders all common geometry and leaves same-model rows readable", async ()
 });
 
 test("future format geometry uses the same rendering, clipping and selection", () => {
+  const resolve = createChartRenderers([]);
+  const Renderer = resolve("fixture.future");
   function Harness() {
     const [selected, setSelected] = useState<string | null>(null);
     const input = props();
     input.viewport = { left: 0, top: 0, right: 500_000, bottom: 1_000_000 };
     return (
-      <GeometryRenderer
-        {...input}
-        selectedRowRef={selected}
-        onSelect={setSelected}
-      />
+      <Renderer {...input} selectedRowRef={selected} onSelect={setSelected} />
     );
   }
   const { container } = render(<Harness />);
@@ -146,7 +145,21 @@ test("future format geometry uses the same rendering, clipping and selection", (
   expect(screen.getByRole("table", { name: "Same model rows" })).toBeTruthy();
 });
 
+test("a dedicated display can be registered without changing common fallback", () => {
+  function DedicatedRenderer(input: GeometryRendererProps) {
+    return <GeometryRenderer {...input} label="Dedicated graph" />;
+  }
+  const registrations = [["fixture.future", DedicatedRenderer]] as const;
+  const resolve = createChartRenderers(registrations);
+  expect(resolve("fixture.future")).toBe(DedicatedRenderer);
+  expect(resolve("fixture.other")).toBe(GeometryRenderer);
+  expect(() =>
+    createChartRenderers([...registrations, ...registrations]),
+  ).toThrow("Invalid chart renderer registration: fixture.future");
+});
+
 test("unknown or malformed geometry and invalid viewport render no partial graph", () => {
+  const Renderer = createChartRenderers([])("fixture.future");
   for (const mutate of [
     (p: GeometryRendererProps) => {
       p.shapes = p.shapes.map((shape, i) =>
@@ -177,7 +190,7 @@ test("unknown or malformed geometry and invalid viewport render no partial graph
   ]) {
     const input = props();
     mutate(input);
-    const result = render(<GeometryRenderer {...input} />);
+    const result = render(<Renderer {...input} />);
     expect(result.container.querySelector("svg.du-geometry")).toBeNull();
     expect(screen.getByText("Graph unavailable")).toBeTruthy();
     expect(screen.getByText("Original row A")).toBeTruthy();
