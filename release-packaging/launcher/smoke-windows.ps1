@@ -245,6 +245,15 @@ try {
     if ($metric) { Find-UI '18 bytes' $textType $metric }
   }
   'F02/F03 native scan: Scan finished, Result version: Final, 18 bytes'
+  Invoke-UI (Wait-Enabled 'Explain volume usage' $true)
+  $null = Wait-UI 'volume explanation for the selected root' {
+    Find-UI 'Selected scanned folder' $textType
+  }
+  $null = Wait-UI 'scoped allocated size' { Find-UI 'Scoped allocated size' $null }
+  $null = Wait-UI 'scoped unique physical size' { Find-UI 'Scoped unique physical size' $null }
+  Invoke-UI (Wait-Enabled 'Hide volume explanation' $true)
+  $null = Wait-UI 'closed volume explanation' { -not (Find-UI 'Selected scanned folder' $textType) }
+  'F03 native volume explanation: scoped allocation and unique physical evidence, then closed'
   Invoke-UI (Wait-Enabled 'Browse folders' $true)
   $null = Wait-UI 'root.bin' { Find-UI 'root.bin' $null }
   $null = Wait-UI '11-byte root row' { Find-UI '11 bytes' $null }

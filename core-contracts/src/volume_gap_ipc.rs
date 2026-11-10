@@ -4,9 +4,10 @@ use crate::{ByteSize, Id, ItemRef, PathBytes, SizeEvidence, SizeValue, Timestamp
 use serde::{Deserialize, Serialize};
 
 /// Selects one observed volume or one actual result root.
+/// The use case validates that exactly one of these selectors is present.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct VolumeGapSelection {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "typescript", ts(optional = nullable))]
@@ -17,9 +18,10 @@ pub struct VolumeGapSelection {
 }
 
 /// Requests a volume explanation for one pinned scan result.
+/// Unknown fields in the request and its target are ignored for IPC compatibility.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct VolumeGapRequest {
     pub result_version: Id,
     pub request_seq: u32,

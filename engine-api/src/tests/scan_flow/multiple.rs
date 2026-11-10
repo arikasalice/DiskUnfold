@@ -91,10 +91,8 @@ fn verify_volume_gap_queries(
     let volume_id = PathBytes::from_bytes(&[1]);
     let root = json!({"resultVersion":version,"itemNo":1});
     for target in [json!({"root":root}), json!({"volumeId":volume_id})] {
-        let report = gui(
-            "space.volume_gap",
-            json!({"resultVersion":version,"target":target,"requestSeq":13}),
-        )?;
+        let request = json!({"resultVersion":version,"target":target,"requestSeq":13});
+        let report = gui("space.volume_gap", request.clone())?;
         assert!(report.error.is_none(), "{:?}", report.error);
         assert_eq!(report.body["requestSeq"], 13);
         assert_eq!(report.body["volumeId"], volume_id.as_str());
@@ -106,13 +104,23 @@ fn verify_volume_gap_queries(
             "space.volume_report_unavailable"
         );
         assert_eq!(report.body["osCategories"]["state"], "unavailable");
+
+        let mut extended = request;
+        extended["futureRequestField"] = json!({"enabled": true});
+        extended["target"]["futureSelectorField"] = json!("unused");
+        let compatible = gui("space.volume_gap", extended)?;
+        assert!(compatible.error.is_none(), "{:?}", compatible.error);
+        assert_eq!(compatible.body, report.body);
     }
     for (target, reason) in [
         (
             json!({"root":root,"volumeId":volume_id}),
             "space.target_out_of_scope",
         ),
-        (json!({}), "space.target_out_of_scope"),
+        (
+            json!({"futureSelectorField": true}),
+            "space.target_out_of_scope",
+        ),
         (
             json!({"root":{"resultVersion":version,"itemNo":u32::MAX}}),
             "space.target_out_of_scope",
@@ -122,7 +130,7 @@ fn verify_volume_gap_queries(
             "result.requery_required",
         ),
         (
-            json!({"root":root,"path":"ignored"}),
+            json!({"root":{"resultVersion":version,"itemNo":"1"}}),
             "command.body_invalid",
         ),
     ] {
@@ -137,6 +145,16 @@ fn verify_volume_gap_queries(
             reason
         );
     }
+    assert_eq!(
+        gui(
+            "space.volume_gap",
+            json!({"resultVersion":version,"target":{"root":root},"futureRequestField":13}),
+        )?
+        .error
+        .ok_or("volume query accepted a missing request sequence")?
+        .reason_key,
+        "command.body_invalid"
+    );
     assert_eq!(
         call(
             engine,
