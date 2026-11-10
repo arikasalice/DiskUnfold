@@ -8,7 +8,7 @@ use du_core_contracts::{
 };
 use du_job_runtime::JobIdentity;
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{HashMap, VecDeque},
     num::NonZeroUsize,
     sync::{Arc, Mutex, Weak},
 };
@@ -17,6 +17,7 @@ use std::{
 pub enum Error {
     InvalidModel,
     InvalidRange,
+    InvalidGroup,
     ModelExpired,
     StaleVersion,
     ReferenceCollision,
@@ -27,7 +28,7 @@ pub struct ModelInput {
     pub version: Arc<ResultVersion>,
     pub condition_fingerprint: String,
     pub rows: Vec<VizRow>,
-    pub groups: HashSet<String>,
+    pub groups: HashMap<String, live_models::GroupRows>,
 }
 struct Entry {
     source: Weak<ResultVersion>,
@@ -39,6 +40,17 @@ struct State {
     entries: HashMap<String, Entry>,
     conditions: HashMap<(Id, String), String>,
     lru: VecDeque<String>,
+}
+/// Internal group page; this is not an IPC response type.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GroupPage {
+    pub rows: Vec<VizRow>,
+    pub total_count: u64,
+    pub group_total: du_core_contracts::SizeValue,
+    pub size_range: live_models::SizeRange,
+    pub result_revision: Id,
+    pub observed_at: Option<du_core_contracts::Timestamp>,
+    pub completeness: du_core_contracts::result::ResultCompleteness,
 }
 /// Bounded session index. IDs supplied by the identity port must never be reused in this session.
 pub struct ModelPages {
@@ -93,7 +105,7 @@ impl ModelPages {
             remove(&mut state, &oldest)?;
         }
         current
-            .insert_viz_rows(reference.clone(), input.rows)
+            .insert_viz_rows(reference.clone(), input.rows, input.groups)
             .map_err(model_error)?;
         state.entries.insert(
             reference.clone(),
@@ -152,6 +164,59 @@ impl ModelPages {
             completeness: current.completeness(),
         })
     }
+    /// Reads a model-local group's ordered members and unchanged aggregate evidence.
+    pub fn group_rows(
+        &self,
+        model_ref: &str,
+        group_ref: &str,
+        start: u32,
+        count: u32,
+    ) -> Result<GroupPage, Error> {
+        self.group_rows_at_admission(model_ref, group_ref, start, count, || {})
+    }
+    fn group_rows_at_admission(
+        &self,
+        model_ref: &str,
+        group_ref: &str,
+        start: u32,
+        count: u32,
+        after_pin: impl FnOnce(),
+    ) -> Result<GroupPage, Error> {
+        if model_ref.is_empty() || group_ref.is_empty() || count == 0 || count > 1000 {
+            return Err(Error::InvalidRange);
+        }
+        let mut state = self.state.lock().map_err(|_| Error::Unavailable)?;
+        let entry = state.entries.get(model_ref).ok_or(Error::ModelExpired)?;
+        let current = self
+            .source
+            .pin_current(&entry.revision)
+            .map_err(source_error)?;
+        let pinned = entry.source.upgrade().ok_or(Error::StaleVersion)?;
+        if !Arc::ptr_eq(&pinned, &current) {
+            return Err(Error::StaleVersion);
+        }
+        let group = current
+            .pin_viz_group(model_ref, group_ref)
+            .map_err(model_error)?
+            .ok_or(Error::InvalidGroup)?;
+        let start = start as usize;
+        if start > group.rows.len() {
+            return Err(Error::InvalidRange);
+        }
+        touch(&mut state.lru, model_ref);
+        drop(state);
+        after_pin();
+        let end = start.saturating_add(count as usize).min(group.rows.len());
+        Ok(GroupPage {
+            rows: group.rows[start..end].to_vec(),
+            total_count: group.rows.len() as u64,
+            group_total: group.total.clone(),
+            size_range: group.size_range.clone(),
+            result_revision: current.version_id().clone(),
+            observed_at: current.observed_at().cloned(),
+            completeness: current.completeness(),
+        })
+    }
     /// Evicts this model even if its source remains alive.
     pub fn release_model(&self, reference: &str) -> Result<(), Error> {
         let mut state = self.state.lock().map_err(|_| Error::Unavailable)?;
@@ -171,7 +236,7 @@ impl Drop for ModelPages {
 }
 fn validate_input(input: &ModelInput) -> Result<(), Error> {
     if input.condition_fingerprint.is_empty()
-        || input.groups.iter().any(String::is_empty)
+        || input.groups.keys().any(String::is_empty)
         || input.rows.len() as u64 >= (1_u64 << 53)
     {
         return Err(Error::InvalidModel);
@@ -191,9 +256,34 @@ fn validate_input(input: &ModelInput) -> Result<(), Error> {
         if row
             .group_ref
             .as_ref()
-            .is_some_and(|group| !input.groups.contains(group))
+            .is_some_and(|group| !input.groups.contains_key(group))
         {
             return Err(Error::InvalidModel);
+        }
+    }
+    for group in input.groups.values() {
+        if group.rows.len() as u64 >= (1_u64 << 53) {
+            return Err(Error::InvalidModel);
+        }
+        for row in &group.rows {
+            row.validate_revision(input.version.version_id())
+                .map_err(|_| Error::InvalidModel)?;
+            if let Some(item) = &row.item_ref
+                && input
+                    .version
+                    .items()
+                    .get(item.item_no as usize)
+                    .is_none_or(|found| found.item_no != item.item_no)
+            {
+                return Err(Error::InvalidModel);
+            }
+            if row
+                .group_ref
+                .as_ref()
+                .is_some_and(|key| !input.groups.contains_key(key))
+            {
+                return Err(Error::InvalidModel);
+            }
         }
     }
     Ok(())

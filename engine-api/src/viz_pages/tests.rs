@@ -43,7 +43,7 @@ fn admitted_page_survives_model_eviction_and_source_replacement() -> Result<(), 
             version: a.clone(),
             condition_fingerprint: "a".into(),
             rows: vec![expected.clone()],
-            groups: HashSet::new(),
+            groups: Default::default(),
         })
         .map_err(|e| format!("{e:?}"))?;
     let start = Arc::new(Barrier::new(2));
@@ -97,5 +97,68 @@ fn admitted_page_survives_model_eviction_and_source_replacement() -> Result<(), 
             .err(),
         Some(Error::StaleVersion)
     );
+    Ok(())
+}
+
+#[test]
+fn admitted_group_page_survives_eviction_and_replacement() -> Result<(), String> {
+    use du_analysis_index::visualization::live_models::{GroupRows, SizeRange};
+    let source = IngestSink::default();
+    let mut b = source.open(id(1)?).map_err(|e| format!("{e:?}"))?;
+    b.add_directory(vec![]).map_err(|e| format!("{e:?}"))?;
+    let a = b
+        .seal(id(2)?, ResultCompleteness::Complete)
+        .map_err(|e| format!("{e:?}"))?;
+    let pages = Arc::new(ModelPages::new(
+        source.clone(),
+        NonZeroUsize::new(2).ok_or("zero")?,
+        Arc::new(Ids(AtomicU64::new(1))),
+    ));
+    let expected: VizRow = serde_json::from_value(serde_json::json!({"itemRef":{"resultVersion":a.version_id(),"itemNo":0},"groupRef":null,"displayName":"member","size":{"basis":"logical","evidence":"measured","state":"exact","bytes":"5"},"ratio":null,"denominator":{"basis":"scope","value":{"unit":"bytes","state":"exact","value":"5"}},"legendClassKey":"x","displayFlags":[]})).map_err(|e| e.to_string())?;
+    let group = GroupRows {
+        rows: vec![expected.clone()],
+        total: expected.size.clone(),
+        size_range: SizeRange::Unknown,
+    };
+    let model = pages
+        .register(ModelInput {
+            version: a.clone(),
+            condition_fingerprint: "a".into(),
+            rows: vec![],
+            groups: HashMap::from([("g".into(), group)]),
+        })
+        .map_err(|e| format!("{e:?}"))?;
+    let start = Arc::new(Barrier::new(2));
+    let resume = Arc::new(Barrier::new(2));
+    let thread = {
+        let p = pages.clone();
+        let s = start.clone();
+        let r = resume.clone();
+        let m = model.clone();
+        std::thread::spawn(move || {
+            p.group_rows_at_admission(&m, "g", 0, 1, || {
+                s.wait();
+                r.wait();
+            })
+        })
+    };
+    start.wait();
+    pages.release_model(&model).map_err(|e| format!("{e:?}"))?;
+    assert_eq!(
+        pages.group_rows(&model, "g", 0, 1).err(),
+        Some(Error::ModelExpired)
+    );
+    let mut b = source.open(id(3)?).map_err(|e| format!("{e:?}"))?;
+    b.add_directory(vec![]).map_err(|e| format!("{e:?}"))?;
+    let _ = b
+        .seal(id(4)?, ResultCompleteness::Complete)
+        .map_err(|e| format!("{e:?}"))?;
+    resume.wait();
+    let page = thread
+        .join()
+        .map_err(|_| "panic")?
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(page.rows, vec![expected]);
+    assert_eq!(page.result_revision, *a.version_id());
     Ok(())
 }

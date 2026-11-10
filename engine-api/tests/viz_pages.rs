@@ -7,7 +7,6 @@ use du_core_contracts::{
 use du_engine_api::viz_pages::{Error, ModelInput, ModelPages};
 use du_job_runtime::JobIdentity;
 use std::{
-    collections::HashSet,
     num::NonZeroUsize,
     sync::{
         Arc,
@@ -55,7 +54,7 @@ fn register(p: &ModelPages, v: &Arc<ResultVersion>, key: &str) -> Result<String,
         version: v.clone(),
         condition_fingerprint: key.into(),
         rows: vec![make_row(v)?],
-        groups: HashSet::new(),
+        groups: Default::default(),
     })
     .map_err(|e| format!("{e:?}"))
 }
@@ -92,7 +91,7 @@ fn current_replacement_restore_and_model_expiry_are_distinct() -> Result<(), Str
             version: a.clone(),
             condition_fingerprint: "late".into(),
             rows: vec![],
-            groups: HashSet::new()
+            groups: Default::default()
         })
         .err(),
         Some(Error::StaleVersion)
@@ -162,7 +161,7 @@ fn same_id_from_another_store_cannot_be_admitted() -> Result<(), String> {
             version: impostor,
             condition_fingerprint: "x".into(),
             rows: vec![],
-            groups: HashSet::new()
+            groups: Default::default()
         })
         .err(),
         Some(Error::StaleVersion)
@@ -232,5 +231,111 @@ fn repeated_source_replacements_release_each_source() -> Result<(), String> {
     }
     assert!(weak[..11].iter().all(|w| w.upgrade().is_none()));
     assert!(weak[11].upgrade().is_some());
+    Ok(())
+}
+
+#[test]
+fn group_rows_keep_order_and_producer_evidence_and_reject_other_model_group() -> Result<(), String>
+{
+    use du_analysis_index::visualization::live_models::{GroupRows, SizeRange};
+    use std::collections::HashMap;
+    let sink = IngestSink::default();
+    let mut b = sink.open(id(1)?).map_err(|e| format!("{e:?}"))?;
+    add(&mut b, 5)?;
+    let a = b
+        .seal(id(2)?, ResultCompleteness::Complete)
+        .map_err(|e| format!("{e:?}"))?;
+    let pages = pages(sink.clone())?;
+    let mut first = make_row(&a)?;
+    first.display_name = "first".into();
+    let mut second = first.clone();
+    second.display_name = "second".into();
+    let mut total = first.size.clone();
+    total.amount = SizeAmount::LowerBound {
+        bytes: 99_u64.into(),
+    };
+    let range = SizeRange::Known {
+        min: first.size.clone(),
+        max: total.clone(),
+    };
+    let group = GroupRows {
+        rows: vec![first.clone(), second.clone()],
+        total: total.clone(),
+        size_range: range.clone(),
+    };
+    let groups = HashMap::from([("group-a".into(), group)]);
+    let model = pages
+        .register(ModelInput {
+            version: a.clone(),
+            condition_fingerprint: "a".into(),
+            rows: vec![],
+            groups,
+        })
+        .map_err(|e| format!("{e:?}"))?;
+    let other = pages
+        .register(ModelInput {
+            version: a.clone(),
+            condition_fingerprint: "b".into(),
+            rows: vec![],
+            groups: HashMap::from([(
+                "group-b".into(),
+                GroupRows {
+                    rows: vec![],
+                    total: total.clone(),
+                    size_range: SizeRange::Unknown,
+                },
+            )]),
+        })
+        .map_err(|e| format!("{e:?}"))?;
+    let page = pages
+        .group_rows(&model, "group-a", 1, 1)
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(page.rows, vec![second]);
+    assert_eq!(page.total_count, 2);
+    assert_eq!(page.group_total, total);
+    assert_eq!(page.size_range, range);
+    assert_eq!(page.result_revision, *a.version_id());
+    assert_eq!(
+        pages.group_rows(&other, "group-a", 0, 1).err(),
+        Some(Error::InvalidGroup)
+    );
+    assert_eq!(
+        pages.group_rows(&model, "group-a", 3, 1).err(),
+        Some(Error::InvalidRange)
+    );
+    assert_eq!(
+        pages.group_rows(&model, "group-a", 0, 1001).err(),
+        Some(Error::InvalidRange)
+    );
+    assert!(
+        pages
+            .group_rows(&model, "group-a", 2, 1)
+            .map_err(|e| format!("{e:?}"))?
+            .rows
+            .is_empty()
+    );
+    assert_eq!(
+        pages
+            .group_rows(&other, "group-b", 0, 1)
+            .map_err(|e| format!("{e:?}"))?
+            .size_range,
+        SizeRange::Unknown
+    );
+    let mut replacing = sink.open(id(8)?).map_err(|e| format!("{e:?}"))?;
+    add(&mut replacing, 9)?;
+    let _partial = replacing
+        .publish_partial(id(9)?)
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(
+        pages.group_rows(&model, "group-a", 0, 1).err(),
+        Some(Error::StaleVersion)
+    );
+    replacing.abort();
+    assert!(pages.group_rows(&model, "group-a", 0, 1).is_ok());
+    pages.release_model(&model).map_err(|e| format!("{e:?}"))?;
+    assert_eq!(
+        pages.group_rows(&model, "group-a", 0, 1).err(),
+        Some(Error::ModelExpired)
+    );
     Ok(())
 }
