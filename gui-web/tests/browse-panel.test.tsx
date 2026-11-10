@@ -180,6 +180,7 @@ test("keyboard opens a folder and breadcrumbs return to the virtual root", async
   ).toBeDefined();
   expect(port.open).toHaveBeenLastCalledWith(
     expect.objectContaining({ location: ref(1), resultVersion: id }),
+    expect.any(AbortSignal),
   );
   fireEvent.click(screen.getByRole("button", { name: "Scope roots" }));
   expect(await screen.findByRole("button", { name: "Alpha" })).toBeDefined();

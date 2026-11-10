@@ -99,6 +99,29 @@ function ReviewNotices({
   );
 }
 
+function BrowseResultsAction({
+  version,
+  onBrowse,
+  trigger,
+}: {
+  version: string | undefined;
+  onBrowse: ((version: string) => void) | undefined;
+  trigger: Ref<HTMLButtonElement> | undefined;
+}) {
+  if (!version || !onBrowse) return null;
+  return (
+    <div className="du-card__actions">
+      <Action
+        ref={trigger ?? null}
+        icon="folder"
+        onPress={() => onBrowse(version)}
+      >
+        Browse folders
+      </Action>
+    </div>
+  );
+}
+
 /** Presents target selection, scope review, background collection and pinned totals. */
 export function AnalysisPanel({
   client,
@@ -129,7 +152,6 @@ export function AnalysisPanel({
     undefined,
   );
   const scan = useScanResult(client, receipt);
-  const browsableVersion = scan.total?.resultVersion;
   const running =
     receipt !== null &&
     !scan.unavailable &&
@@ -359,17 +381,11 @@ export function AnalysisPanel({
             problem={error}
             roots={resultRoots}
           />
-          {browsableVersion && onBrowse && (
-            <div className="du-card__actions">
-              <Action
-                ref={browseTrigger ?? null}
-                icon="folder"
-                onPress={() => onBrowse(browsableVersion)}
-              >
-                Browse folders
-              </Action>
-            </div>
-          )}
+          <BrowseResultsAction
+            version={scan.total?.resultVersion}
+            onBrowse={onBrowse}
+            trigger={browseTrigger}
+          />
           {running && (
             <footer className="du-card__actions">
               <Action
