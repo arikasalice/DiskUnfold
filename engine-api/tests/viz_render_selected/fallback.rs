@@ -35,7 +35,7 @@ fn unavailable_geometry_keeps_the_original_partial_rows_and_denominator() -> Res
     })
     .map_err(|error| format!("{error:?}"))?;
     let pinned = scan
-        .seal(id(3), ResultCompleteness::Partial)
+        .publish_partial(id(3))
         .map_err(|error| format!("{error:?}"))?;
     let parent = ItemRef {
         result_version: pinned.version_id().clone(),
@@ -87,10 +87,53 @@ fn unavailable_geometry_keeps_the_original_partial_rows_and_denominator() -> Res
         SizeAmount::LowerBound { bytes: 25.into() }
     );
     assert_eq!(page.rows[1].size.amount, SizeAmount::Unknown);
-    publish(&sink, id(2), id(4))?;
+    scan.add_file(Observation {
+        path: vec![b"later".to_vec()],
+        size: Some(SizeValue {
+            basis: SizeBasis::Logical,
+            evidence: SizeEvidence::Measured,
+            amount: SizeAmount::Exact { bytes: 100.into() },
+        }),
+    })
+    .map_err(|error| format!("{error:?}"))?;
+    let later = scan
+        .publish_partial(id(4))
+        .map_err(|error| format!("{error:?}"))?;
     assert_eq!(
         session.rows(&rows_request),
         Err(viz_pages::Error::StaleVersion)
     );
+    let later_parent = ItemRef {
+        result_version: id(4),
+        item_no: 0,
+    };
+    let later_fallback = match session.render_selected(
+        request(&later_parent, 1_000_000),
+        |_, item, _| Ok(policy(item)),
+        &mut || false,
+    ) {
+        Err(Error::NoAttribution(fallback)) => fallback,
+        _ => return Err("expected later partial fallback".into()),
+    };
+    let later_page = session
+        .rows(&VizRowsRequest {
+            model_ref: later_fallback.model_ref,
+            result_revision: later_fallback.result_revision,
+            start: 0,
+            count: 10,
+        })
+        .map_err(|error| format!("{error:?}"))?;
+    assert_eq!(later_page.result_revision, id(4));
+    assert_eq!(later_page.total_count, 3);
+    assert_eq!(later_page.completeness, ResultCompleteness::Partial);
+    for row in &later_page.rows {
+        assert_eq!(
+            row.denominator.size.as_ref(),
+            later.space(0).map(|a| &a.logical)
+        );
+        assert!(
+            matches!(row.denominator.value.amount(), VizAmount::LowerBound { value } if value.get() == 125)
+        );
+    }
     Ok(())
 }
