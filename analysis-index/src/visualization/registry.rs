@@ -1,5 +1,7 @@
 //! Composition-time registration and exact selection of visualization strategies.
-use du_core_contracts::visualization::{LayoutDescriptor as Descriptor, LayoutStrategyKey as StrategyKey};
+use du_core_contracts::visualization::{
+    LayoutDescriptor as Descriptor, LayoutStrategyKey as StrategyKey,
+};
 use std::collections::{BTreeMap, btree_map::Entry};
 
 /// Invalid or missing configuration at composition time.
