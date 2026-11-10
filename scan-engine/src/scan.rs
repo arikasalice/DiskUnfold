@@ -186,6 +186,9 @@ fn record_root_batch(
     if checkpoint() == Checkpoint::Cancel {
         return Ok(RootBatch::Cancelled);
     }
+    if let Some(evidence) = root.observe_directory_case(&|| None) {
+        build.set_directory_case_evidence(0, &[], evidence)?;
+    }
     let entries = match root.next_batch() {
         Ok(entries) if entries.len() <= 8192 => entries,
         _ => {
@@ -224,7 +227,7 @@ fn walk(
         }
         if let Some(entry) = frame.recorded_directories.pop_front() {
             let path = vec![entry.name.clone()];
-            if let Some(child) = open_child(build, &*frame.dir, &entry, path, counts)? {
+            if let Some(child) = open_child(build, &*frame.dir, &entry, path, counts, checkpoint)? {
                 stack.push(child);
             }
             continue;
@@ -236,7 +239,8 @@ fn walk(
                 continue;
             }
             if record(build, &entry, &path, counts)?
-                && let Some(child) = open_child(build, &*frame.dir, &entry, path, counts)?
+                && let Some(child) =
+                    open_child(build, &*frame.dir, &entry, path, counts, checkpoint)?
             {
                 stack.push(child);
             }
@@ -394,14 +398,22 @@ fn open_child(
     entry: &ObservedEntry,
     path: Vec<Vec<u8>>,
     counts: &mut JobCounts,
+    checkpoint: &mut dyn FnMut() -> Checkpoint,
 ) -> Result<Option<Frame>, BuildError> {
     match parent.open_child(entry) {
-        Ok(dir) => Ok(Some(Frame {
-            path,
-            dir,
-            entries: VecDeque::new(),
-            recorded_directories: VecDeque::new(),
-        })),
+        Ok(dir) => {
+            if checkpoint() != Checkpoint::Cancel
+                && let Some(evidence) = dir.observe_directory_case(&|| None)
+            {
+                build.set_directory_case_evidence(0, &path, evidence)?;
+            }
+            Ok(Some(Frame {
+                path,
+                dir,
+                entries: VecDeque::new(),
+                recorded_directories: VecDeque::new(),
+            }))
+        }
         Err(error) => {
             counts.failed += 1;
             issues::unread(

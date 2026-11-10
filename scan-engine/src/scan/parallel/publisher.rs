@@ -73,6 +73,11 @@ impl Progress {
         clock: &dyn MonotonicClock,
     ) -> Result<(), BuildError> {
         match event {
+            Event::DirectoryCase(root, path, evidence) => {
+                build.set_directory_case_evidence(root, &path, evidence)?;
+                self.cadence.changed();
+                Ok(())
+            }
             Event::Item(root_index, path, timed) => {
                 let entry = &timed.entry;
                 let gap = entry_gap(entry);

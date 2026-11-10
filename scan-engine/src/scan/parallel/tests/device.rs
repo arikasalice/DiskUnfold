@@ -16,6 +16,7 @@ fn default_four_per_key_does_not_block_a_distinct_key() {
         first_batch: false,
         root_published: false,
         batch_pending: false,
+        case_observed: false,
     };
     let mut queue = Queue {
         ready: (0..6).map(frame).collect(),

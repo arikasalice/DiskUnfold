@@ -211,6 +211,7 @@ fn a_batch_already_in_flight_is_drained_after_another_root_disconnects()
                     first_batch: false,
                     root_published: false,
                     batch_pending: false,
+                    case_observed: false,
                 })
                 .collect(),
             last_root: None,

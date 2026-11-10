@@ -179,6 +179,30 @@ fn process(
     if context.checkpoint() == Checkpoint::Cancel {
         return cancel_drain::frame(frame, sender, policy);
     }
+    if !frame.case_observed {
+        frame.case_observed = true;
+        if let Some(evidence) = frame
+            .directory
+            .observe_directory_case(&|| context.utc_now())
+        {
+            if sender
+                .send(Event::DirectoryCase(
+                    frame.root_index,
+                    frame.path.clone(),
+                    evidence,
+                ))
+                .is_err()
+            {
+                return false;
+            }
+            if context.checkpoint() == Checkpoint::Cancel {
+                return cancel_drain::frame(frame, sender, policy);
+            }
+            if shared.disconnects.closed(frame.root_index) {
+                return disconnected::close_frame(frame, shared, sender, context, policy);
+            }
+        }
+    }
     let recorded = frame.root_published && !frame.deferred.is_empty();
     let next = if recorded {
         frame.deferred.pop_front()
@@ -415,6 +439,7 @@ fn process_entry(
                 first_batch: false,
                 root_published: false,
                 batch_pending: false,
+                case_observed: false,
             },
         )),
         Err(error) => {

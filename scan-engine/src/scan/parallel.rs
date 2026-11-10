@@ -6,7 +6,9 @@ use du_core_contracts::{
     job::{Checkpoint, JobContext, JobCounts, JobFlow, JobFlowError, JobOutcome},
     ports::{PortError, PortErrorKind},
     result::ResultCompleteness,
-    scan_observation::{AnchoredDirectory, ObservedEntry, ObservedKind, TimedObservedEntry},
+    scan_observation::{
+        AnchoredDirectory, DirectoryCaseEvidence, ObservedEntry, ObservedKind, TimedObservedEntry,
+    },
 };
 use std::{
     collections::VecDeque,
@@ -41,6 +43,7 @@ struct Frame {
     first_batch: bool,
     root_published: bool,
     batch_pending: bool,
+    case_observed: bool,
 }
 struct Queue {
     ready: VecDeque<Frame>,
@@ -93,6 +96,7 @@ impl Shared {
 }
 enum Event {
     Item(u32, Vec<Vec<u8>>, Box<TimedObservedEntry>),
+    DirectoryCase(u32, Vec<Vec<u8>>, DirectoryCaseEvidence),
     Failure {
         root_index: u32,
         path: Vec<Vec<u8>>,
@@ -322,6 +326,7 @@ fn run(
                     first_batch: false,
                     root_published: false,
                     batch_pending: false,
+                    case_observed: false,
                 })
                 .collect(),
             remaining: root_count,

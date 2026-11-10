@@ -9,6 +9,7 @@ use du_core_contracts::{
     scan_observation::{DirectoryObservations, MetadataObservation, OpenedScopeRoot},
 };
 use std::sync::{Arc, atomic::AtomicUsize};
+mod directory_case;
 mod disconnect;
 mod filtered;
 mod item_times;
@@ -429,6 +430,7 @@ fn ready_roots_take_turns_even_when_one_has_many_frames() {
         first_batch: false,
         root_published: false,
         batch_pending: false,
+        case_observed: false,
     };
     let mut queue = Queue {
         ready: VecDeque::from([frame(0), frame(0), frame(1), frame(2), frame(0), frame(1)]),

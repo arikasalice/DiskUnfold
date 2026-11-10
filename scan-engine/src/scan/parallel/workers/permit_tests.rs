@@ -30,6 +30,7 @@ fn permit_is_released_during_panic_unwind() {
         first_batch: false,
         root_published: false,
         batch_pending: false,
+        case_observed: false,
     };
     let shared = Shared {
         queue: Mutex::new(Queue {

@@ -116,6 +116,7 @@ mod tests {
             first_batch: false,
             root_published: false,
             batch_pending: false,
+            case_observed: false,
         };
         let shared = Shared {
             queue: Mutex::new(Queue {
@@ -184,6 +185,7 @@ mod tests {
             first_batch: false,
             root_published: false,
             batch_pending: false,
+            case_observed: false,
         };
         assert!(frame(pending, &sender, Policy::Legacy(&|_| true)));
         assert!(receiver.try_recv().is_err());
@@ -218,6 +220,7 @@ mod tests {
             first_batch: false,
             root_published: false,
             batch_pending: false,
+            case_observed: false,
         };
         let (done_tx, done_rx) = mpsc::channel();
         let worker = std::thread::spawn(move || {
