@@ -77,6 +77,17 @@ fn two_reviewed_paths_publish_one_result_and_denied_paths_never_start()
         }),
     )?;
     assert_eq!(total.body["sizes"][0]["size"]["bytes"], "128");
+    verify_volume_gap_queries(&engine, &version, &receipt.scope_version)?;
+    assert_eq!(roots.reads.load(Ordering::Acquire), 4);
+    Ok(())
+}
+
+fn verify_volume_gap_queries(
+    engine: &Engine,
+    version: &Id,
+    scope_version: &Id,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let gui = |name, body| call(engine, name, Channel::Gui, ENVELOPE_VERSION, body);
     let volume_id = PathBytes::from_bytes(&[1]);
     let root = json!({"resultVersion":version,"itemNo":1});
     for target in [json!({"root":root}), json!({"volumeId":volume_id})] {
@@ -107,7 +118,7 @@ fn two_reviewed_paths_publish_one_result_and_denied_paths_never_start()
             "space.target_out_of_scope",
         ),
         (
-            json!({"root":{"resultVersion":receipt.scope_version,"itemNo":0}}),
+            json!({"root":{"resultVersion":scope_version,"itemNo":0}}),
             "result.requery_required",
         ),
         (
@@ -128,7 +139,7 @@ fn two_reviewed_paths_publish_one_result_and_denied_paths_never_start()
     }
     assert_eq!(
         call(
-            &engine,
+            engine,
             "space.volume_gap",
             Channel::Mcp,
             ENVELOPE_VERSION,
@@ -139,6 +150,5 @@ fn two_reviewed_paths_publish_one_result_and_denied_paths_never_start()
         .reason_key,
         "command.not_provided"
     );
-    assert_eq!(roots.reads.load(Ordering::Acquire), 4);
     Ok(())
 }
