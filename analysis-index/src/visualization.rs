@@ -8,6 +8,7 @@ pub mod histogram;
 pub mod registry;
 pub mod sankey;
 pub mod squarify;
+pub mod treemap;
 pub mod trend;
 pub mod waterfall;
 use crate::ResultVersion;
