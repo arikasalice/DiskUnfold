@@ -179,39 +179,7 @@ fn reviewed_identity_is_rechecked_and_one_job_publishes_the_requested_result()
         "includedMounts": [],
         "source": "gui"
     });
-    // Until multi-root collection and result identity are composed, reject the
-    // entire scope before opening any path or submitting a partial scan.
-    let mut other = draft["includes"][0].clone();
-    let other_path: Vec<u8> = "D:\\Other"
-        .encode_utf16()
-        .flat_map(u16::to_le_bytes)
-        .collect();
-    other["raw"] = json!(PathBytes::from_bytes(&other_path));
-    for second in [draft["includes"][0].clone(), other] {
-        let mut multi = draft.clone();
-        multi["includes"] = json!([draft["includes"][0], second]);
-        let rejected_review = gui("scope.review", json!({"draft": multi, "requestSeq": 0}))?;
-        assert_eq!(
-            rejected_review
-                .error
-                .ok_or("multi-root review unexpectedly succeeded")?
-                .reason_key,
-            "scope.target_unavailable"
-        );
-        let rejected_start = gui(
-            "scan.start",
-            json!({"draft": multi, "reviewFingerprint": "unreviewed"}),
-        )?;
-        assert_eq!(
-            rejected_start
-                .error
-                .ok_or("multi-root scan unexpectedly started")?
-                .reason_key,
-            "scope.target_unavailable"
-        );
-    }
-    assert_eq!(roots.reads.load(Ordering::Acquire), 0);
-    assert_eq!(roots.opens.load(Ordering::Acquire), 0);
+    check_uncomposed_scope_fails_closed(&engine, &roots, &draft)?;
     let review = |seq| -> Result<ScopeReview, Box<dyn std::error::Error>> {
         Ok(serde_json::from_value(
             gui(
@@ -295,6 +263,48 @@ fn reviewed_identity_is_rechecked_and_one_job_publishes_the_requested_result()
         return Err("missing replacement terminal event".into());
     };
     assert_eq!(summary.job_id, next.job_ref);
+    Ok(())
+}
+
+fn check_uncomposed_scope_fails_closed(
+    engine: &Engine,
+    roots: &Roots,
+    draft: &serde_json::Value,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let gui = |name, body| call(engine, name, Channel::Gui, ENVELOPE_VERSION, body);
+    // Until multi-root collection and result identity are composed, reject the
+    // entire scope before opening any path or submitting a partial scan.
+    let mut other = draft["includes"][0].clone();
+    let other_path: Vec<u8> = "D:\\Other"
+        .encode_utf16()
+        .flat_map(u16::to_le_bytes)
+        .collect();
+    other["raw"] = json!(PathBytes::from_bytes(&other_path));
+    for second in [draft["includes"][0].clone(), other] {
+        let mut multi = draft.clone();
+        multi["includes"] = json!([draft["includes"][0], second]);
+        let rejected_review = gui("scope.review", json!({"draft": multi, "requestSeq": 0}))?;
+        assert_eq!(
+            rejected_review
+                .error
+                .ok_or("multi-root review unexpectedly succeeded")?
+                .reason_key,
+            "scope.target_unavailable"
+        );
+        let rejected_start = gui(
+            "scan.start",
+            json!({"draft": multi, "reviewFingerprint": "unreviewed"}),
+        )?;
+        assert_eq!(
+            rejected_start
+                .error
+                .ok_or("multi-root scan unexpectedly started")?
+                .reason_key,
+            "scope.target_unavailable"
+        );
+    }
+    assert_eq!(roots.reads.load(Ordering::Acquire), 0);
+    assert_eq!(roots.opens.load(Ordering::Acquire), 0);
     Ok(())
 }
 
