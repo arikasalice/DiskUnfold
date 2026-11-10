@@ -1,10 +1,4 @@
 {
-  "cargo:du-platform-os:notify@8.2.1": {
-    "license": "CC0-1.0",
-    "role": "runtime",
-    "distributed": true,
-    "reason": "Native Windows file change notifications for F18"
-  },
   "cargo:du-app-host:rusqlite@0.41.1": {
     "license": "MIT",
     "role": "test",
