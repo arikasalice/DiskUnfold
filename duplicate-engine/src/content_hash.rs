@@ -5,6 +5,8 @@ use crate::verification::{
     VerifyError,
 };
 
+use du_core_contracts::job::{Checkpoint, JobContext};
+
 const SAMPLE_CONTEXT: &str = "com.github.arikasalice.diskunfold.f09.blake3.v1.sample";
 const FULL_CONTEXT: &str = "com.github.arikasalice.diskunfold.f09.blake3.v1.full";
 
@@ -41,6 +43,25 @@ impl RegisteredHash {
             return Err(VerifyError::UnsupportedHash);
         }
         Ok(Self(strategy))
+    }
+
+    /// Verifies selected targets while observing the job cancellation checkpoint.
+    ///
+    /// An in-flight file attempt reaches its boundary before cancellation returns;
+    /// no new file is admitted after a checkpoint reports cancellation. This does
+    /// not provide pause or content-I/O scheduling, which require runtime support.
+    ///
+    /// # Errors
+    /// Returns `VerifyError` when targets or the selected strategy are invalid.
+    pub fn verify_with_context(
+        &self,
+        approved: &[VerificationTarget],
+        reader: &mut impl ReadPort,
+        context: &dyn JobContext,
+    ) -> Result<RegisteredOutcome, VerifyError> {
+        self.verify(approved, reader, || {
+            context.checkpoint() == Checkpoint::Cancel
+        })
     }
 
     /// Verifies approved targets using the pinned strategy for sampling and confirmation.
