@@ -118,15 +118,23 @@ impl State {
 
 impl IngestSink {
     /// Runs an in-memory operation while the exact result remains current.
-    /// The callback must not reenter this store or perform blocking I/O.
+    /// The callback must not reenter this store or perform blocking I/O. The
+    /// pinned result identifies its lineage, so admission does not scan other
+    /// lineages. The map lookup is not a worst-case constant-time guarantee.
     pub fn with_current<T>(
         &self,
         expected: &Arc<ResultVersion>,
         operation: impl FnOnce() -> T,
     ) -> Result<T, QueryError> {
         let state = self.state.lock().map_err(|_| QueryError::Unavailable)?;
-        let current = state.pin_current(&expected.version_id)?;
-        if !Arc::ptr_eq(&current, expected) {
+        let entry = state.current.get(&expected.lineage_id).ok_or_else(|| {
+            if state.current.is_empty() {
+                QueryError::NotFound
+            } else {
+                QueryError::StaleVersion
+            }
+        })?;
+        if !Arc::ptr_eq(&entry.result, expected) {
             return Err(QueryError::StaleVersion);
         }
         Ok(operation())
