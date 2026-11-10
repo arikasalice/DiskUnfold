@@ -63,6 +63,10 @@ export function useTargets(client: AnalysisClient) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>();
   const [finished, setFinished] = useState(false);
+  const enabled = useRef(true);
+  const terminal = useRef(new Set<string>());
+  const pendingLists = useRef(0);
+  const probesInFlight = useRef(new Set<string>());
   const active = useRef<ProbeWindow>({
     request: 0,
     job: null,
@@ -75,17 +79,31 @@ export function useTargets(client: AnalysisClient) {
   const refresh = useCallback(
     async (requested: boolean) => {
       const state = active.current;
+      enabled.current = true;
       const request = ++state.request;
       state.job = null;
-      state.early = [];
+      const earlyUpdates: ProbeUpdate[] = [];
+      state.early = earlyUpdates;
       setError(undefined);
       setLoading(true);
+      pendingLists.current += 1;
       try {
         const response = await client.call("target.list", {
           refresh: requested,
         });
-        if (state.request !== request) return;
+        if (state.request !== request) {
+          if (
+            response.probeJobRef &&
+            !terminal.current.has(response.probeJobRef)
+          )
+            void client
+              .call("job.cancel", { jobRef: response.probeJobRef })
+              .catch(() => {});
+          return;
+        }
         state.job = response.probeJobRef;
+        if (response.probeJobRef && !terminal.current.has(response.probeJobRef))
+          probesInFlight.current.add(response.probeJobRef);
         state.sequence = 0;
         state.finished = false;
         state.targets = new Set(response.targets.map(({ path }) => path.raw));
@@ -108,21 +126,43 @@ export function useTargets(client: AnalysisClient) {
           );
         }
       } finally {
+        pendingLists.current -= 1;
+        if (pendingLists.current === 0) terminal.current.clear();
         if (state.request === request) setLoading(false);
       }
     },
     [client],
   );
 
+  const cancel = useCallback(() => {
+    const state = active.current;
+    enabled.current = false;
+    state.request += 1;
+    for (const jobRef of probesInFlight.current)
+      void client.call("job.cancel", { jobRef }).catch(() => {});
+    probesInFlight.current.clear();
+    state.job = null;
+    state.early = null;
+    state.targets.clear();
+    // Keep already observed drives selectable after the draft is discarded.
+    setFinished(true);
+    setLoading(false);
+    setError(undefined);
+  }, [client]);
+
   useEffect(() => {
     const state = active.current;
     const unsubscribe = client.subscribe((event) => {
       if (event.topic === "job.resync_required") {
-        void refresh(true);
+        if (enabled.current) void refresh(true);
         return;
       }
       const update = decode(event);
       if (!update) return;
+      if (!update.observation) {
+        if (pendingLists.current > 0) terminal.current.add(update.job);
+        probesInFlight.current.delete(update.job);
+      }
       if (state.early) {
         if (state.early.length < 1_024) state.early.push(update);
         return;
@@ -146,5 +186,5 @@ export function useTargets(client: AnalysisClient) {
     };
   }, [client, refresh]);
 
-  return { list, probes, loading, error, finished, refresh };
+  return { list, probes, loading, error, finished, refresh, cancel };
 }

@@ -70,7 +70,7 @@ function Wait-VisibleAction($actionName) {
 }
 # Inspect the UIA viewport before invoking a button, since Invoke can reach clipped controls.
 function Wait-ScopeActionsVisible {
-  foreach ($name in @('Review scope', 'Start scan')) {
+  foreach ($name in @('Cancel selection', 'Review scope', 'Start scan')) {
     $null = Wait-UI "$name in view" {
       $item = Find-UI $name $button
       if ($item -and -not $item.Current.IsOffscreen) { $item }
@@ -296,6 +296,20 @@ try {
     if ($metric) { Find-UI '18 bytes' $textType $metric }
   }
   'F02/F03 native scan: Scan finished, Result version: Final, 18 bytes'
+  Set-Scope $child
+  Invoke-UI (Wait-VisibleAction 'Review scope')
+  $null = Wait-Enabled 'Start scan' $true
+  Invoke-UI (Wait-VisibleAction 'Cancel selection')
+  $null = Wait-UI 'discarded scope and retained final total' {
+    $field = Find-UI 'Windows folder path' $edit
+    $metric = Find-UI 'Logical size' ([Windows.Automation.ControlType]::Group)
+    if ($field -and $metric -and (Find-UI 'Final' $textType) -and
+        $field.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern).Current.Value -eq '') {
+      Find-UI '18 bytes' $textType $metric
+    }
+  }
+  $null = Wait-Enabled 'Start scan' $false
+  'F01 native selection cancellation: discarded reviewed scope and retained the final 18-byte result'
   Invoke-UI (Wait-Enabled 'Explain volume usage' $true)
   $null = Wait-UI 'volume explanation for the selected root' {
     Find-UI 'Selected scanned folder' $textType

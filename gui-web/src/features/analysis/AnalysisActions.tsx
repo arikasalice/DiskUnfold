@@ -135,6 +135,7 @@ export function ScopeActions({
   startEnabled,
   onReview,
   onStart,
+  onCancel,
 }: {
   checkingDrop: boolean;
   reviewing: boolean;
@@ -144,6 +145,7 @@ export function ScopeActions({
   startEnabled: boolean;
   onReview: () => void;
   onStart: () => void;
+  onCancel: () => void;
 }) {
   const blocked = reviewing || working || running;
   const starting = working && !running;
@@ -155,6 +157,9 @@ export function ScopeActions({
       {reviewing && <Progress label="Reviewing scope" />}
       {starting && <Progress label="Starting scan" />}
       <div className="du-target-editor__actions">
+        <Action isDisabled={working || running} onPress={onCancel}>
+          Cancel selection
+        </Action>
         <Action
           icon="folder"
           variant={startEnabled ? "secondary" : "primary"}

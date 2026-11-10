@@ -70,7 +70,7 @@ function fixture({
   stale?: boolean;
   earlyProbe?: EventEnvelope;
   missingJob?: boolean;
-  targetList?: TargetList;
+  targetList?: TargetList | Promise<TargetList>;
   readTotals?: (result: SpaceTotal) => SpaceTotal | Promise<SpaceTotal>;
   readReview?: (result: ScopeReview) => ScopeReview | Promise<ScopeReview>;
   beforeStart?: () => Promise<void>;
@@ -1849,6 +1849,117 @@ function folderDrop(
     window.dispatchEvent(new CustomEvent("du://folder-drop", { detail }));
   });
 }
+
+test("F01: cancelling selection discards late review and drop while cancelling only its probe", async () => {
+  let resolveReview: ((value: ScopeReview) => void) | undefined;
+  const { client, calls, listeners } = fixture({
+    readReview: (value) =>
+      new Promise((resolve) => {
+        resolveReview = () => resolve(value);
+      }),
+  });
+  const nativeDrop = createAnalysisClient().subscribeFolderDrop;
+  if (!nativeDrop) throw new Error("Expected native drop subscription");
+  render(<App analysis={{ ...client, subscribeFolderDrop: nativeDrop }} />);
+  fireEvent.click(await screen.findByRole("radio", { name: path.display }));
+  fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
+  await waitFor(() => expect(resolveReview).toBeDefined());
+  folderDrop({ seq: 1, pending: true });
+  const cancel = screen.getByRole("button", { name: "Cancel selection" });
+  cancel.focus();
+  fireEvent.click(cancel);
+  expect(document.activeElement).toBe(cancel);
+  folderDrop({ seq: 1, path: "D:\\late" });
+  await act(async () => {
+    resolveReview?.({} as ScopeReview);
+  });
+  act(() => {
+    for (const listener of listeners) listener(probe("probe", 2, "accessible"));
+  });
+  expect(screen.getByRole("radio", { name: path.display })).toBeTruthy();
+  expect(
+    (
+      screen.getByRole("textbox", {
+        name: "Windows folder path",
+      }) as HTMLInputElement
+    ).value,
+  ).toBe("");
+  expect(
+    (screen.getByRole("button", { name: "Start scan" }) as HTMLButtonElement)
+      .disabled,
+  ).toBe(true);
+  expect(calls.filter(({ name }) => name === "scan.start")).toHaveLength(0);
+  expect(
+    calls.filter(({ name }) => name === "job.cancel").map(({ body }) => body),
+  ).toEqual([{ jobRef: "probe" }]);
+});
+
+test("F01: cancelling before target list returns cancels its late probe and ignores its list", async () => {
+  let resolveTargets: ((value: TargetList) => void) | undefined;
+  const pending = new Promise<TargetList>((resolve) => {
+    resolveTargets = resolve;
+  });
+  const { client, calls } = fixture({ targetList: pending });
+  render(<App analysis={client} />);
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Cancel selection" }),
+  );
+  await act(async () => {
+    resolveTargets?.(targets);
+  });
+  await waitFor(() =>
+    expect(
+      calls.filter(({ name }) => name === "job.cancel").map(({ body }) => body),
+    ).toEqual([{ jobRef: "probe" }]),
+  );
+  expect(screen.queryByRole("radio", { name: path.display })).toBeNull();
+  expect(calls.some(({ name }) => name === "scan.start")).toBe(false);
+});
+
+test("F01: cancelling a new selection preserves the prior scan and its result", async () => {
+  const { client, calls } = fixture();
+  await startFixtureScan(client);
+  const total = await screen.findByText("At least 42 bytes");
+  fireEvent.change(
+    screen.getByRole("textbox", { name: "Windows folder path" }),
+    { target: { value: "D:\\new" } },
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Cancel selection" }));
+  expect(screen.getByText("At least 42 bytes")).toBe(total);
+  expect(calls.filter(({ name }) => name === "scan.start")).toHaveLength(1);
+  expect(
+    calls.filter(({ name }) => name === "job.cancel").map(({ body }) => body),
+  ).toEqual([{ jobRef: "probe" }]);
+});
+
+test("F01: a probe finished before its delayed list is not cancelled", async () => {
+  let resolveTargets: ((value: TargetList) => void) | undefined;
+  const { client, calls, listeners } = fixture({
+    targetList: new Promise<TargetList>((resolve) => {
+      resolveTargets = resolve;
+    }),
+  });
+  render(<App analysis={client} />);
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Cancel selection" }),
+  );
+  act(() => {
+    for (const listener of listeners)
+      listener({
+        topic: "job.finished",
+        contractVersion: 1,
+        seq: 2,
+        jobRef: "probe",
+        occurredAt: timestamp,
+        body: { sequence: 2 },
+      });
+  });
+  await act(async () => {
+    resolveTargets?.(targets);
+  });
+  expect(calls.filter(({ name }) => name === "job.cancel")).toHaveLength(0);
+  expect(calls.filter(({ name }) => name === "scan.start")).toHaveLength(0);
+});
 
 test("F01: a dropped folder replaces the selection and requires a fresh scope review", async () => {
   const { client, calls } = fixture();

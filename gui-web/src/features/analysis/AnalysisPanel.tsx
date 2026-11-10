@@ -155,6 +155,12 @@ export function AnalysisPanel({
     [editPaths],
   );
 
+  function cancelSelection() {
+    if (working || running) return;
+    editPaths(() => [undefined]);
+    targets.cancel();
+  }
+
   useEffect(
     () =>
       client.subscribeFolderDrop?.((drop) => {
@@ -309,6 +315,7 @@ export function AnalysisPanel({
             startEnabled={ready}
             onReview={() => void reviewScope()}
             onStart={() => void start()}
+            onCancel={cancelSelection}
           />
         </section>
         <section className="du-analysis__result" aria-label="Scan and results">
