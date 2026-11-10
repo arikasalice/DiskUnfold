@@ -16,6 +16,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+mod items;
+
 fn append(database: &SharedDatabase, n: u8, time: i64) -> Result<(), String> {
     let id = Id::from_v7_bytes([n; 16]);
     let result = database.history(|| 400).append(&JobSummary {

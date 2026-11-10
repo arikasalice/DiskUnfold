@@ -150,6 +150,7 @@ fn history_id(bytes: [u8; 16]) -> Option<Id> {
 }
 
 mod detail;
+mod items;
 
 #[cfg(test)]
 mod tests;

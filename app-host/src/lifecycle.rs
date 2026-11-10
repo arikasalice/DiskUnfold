@@ -59,6 +59,13 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(windows)]
     du_engine_api::history::detail::register(&mut builder, history_reader.clone());
     #[cfg(windows)]
+    du_engine_api::history::items::register(
+        &mut builder,
+        history_reader.clone(),
+        &du_platform_os::entropy::OsRandom,
+    )
+    .map_err(|error| std::io::Error::other(format!("history.storage_unavailable: {error:?}")))?;
+    #[cfg(windows)]
     du_engine_api::history::register(
         &mut builder,
         history_reader,
