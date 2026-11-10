@@ -58,7 +58,8 @@ export function BrowseResults({
   canRead: () => boolean;
   focusPanel: () => void;
   openFolder: (item: ItemRef) => void;
-  openFile: ((row: FolderQueryRow) => void) | undefined;
+  openFile:
+    ((row: FolderQueryRow, trigger: Element | null) => void) | undefined;
   reopen: () => void;
 }) {
   const paging = useBrowsePaging({
@@ -138,7 +139,7 @@ export function BrowseResults({
         onMove={paging.move}
         onOpen={(row) => {
           if (row.kind === "directory") openFolder(row.item);
-          if (row.kind === "file") openFile?.(row);
+          if (row.kind === "file") openFile?.(row, document.activeElement);
         }}
         onFocusRow={paging.trackFocus}
         onVisible={paging.show}
@@ -154,7 +155,7 @@ export function BrowseResults({
             <Action
               excludeFromTabOrder
               isDisabled={busy}
-              onPress={() => openFile(row)}
+              onPress={(event) => openFile(row, event.target)}
             >
               {browseDisplayName(row.displayName)}
             </Action>

@@ -19,8 +19,10 @@ import type {
   QueryPageResponse,
 } from "../../ipc";
 import { BROWSE_PAGE_SIZE, BrowsePages } from "../../state/browse-pages";
-import { browseDisplayName, folderPath, rowKey } from "./browse-display";
+import { folderPath, rowKey } from "./browse-display";
 import { BrowseResults } from "./BrowseResults";
+import { useFileInspection } from "./use-file-inspection";
+import type { InspectedFile } from "./use-file-inspection";
 
 /** Injected boundary for opening folders and paging through a pinned result. */
 export interface BrowsePort {
@@ -34,20 +36,6 @@ export interface BrowsePort {
 type Opened = Extract<BrowseOpenResponse, { kind: "opened" }>;
 type View = { opened: Opened; pages: BrowsePages };
 type ParentLocation = { item?: ItemRef };
-type InspectedFile = { item: ItemRef; name: string };
-
-function pinnedInspection(
-  inspection: InspectedFile | undefined,
-  shownVersion: string | undefined,
-  requestedVersion: string | undefined,
-) {
-  if (requestedVersion !== undefined && shownVersion !== requestedVersion)
-    return undefined;
-  return inspection?.item.resultVersion === shownVersion
-    ? inspection
-    : undefined;
-}
-
 function BrowseFileDialog({
   inspection,
   inspectFile,
@@ -98,7 +86,6 @@ export function BrowsePanel({
   const [view, setView] = useState<View>();
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<"error" | "job">();
-  const [inspection, setInspection] = useState<InspectedFile>();
   const sequence = useRef(0);
   const opening = useRef<AbortController | undefined>(undefined);
   const lastAttempt = useRef<{
@@ -108,6 +95,10 @@ export function BrowsePanel({
   const virtualRootVersion = useRef<string>(undefined);
   const panel = useRef<HTMLElement>(null);
   const focusAfterUpdate = useRef<Element>(undefined);
+  const inspection = useFileInspection(
+    resultVersion ?? view?.opened.page.resultVersion,
+    panel,
+  );
 
   function navigate(
     location?: ItemRef,
@@ -170,7 +161,7 @@ export function BrowsePanel({
   }
 
   useEffect(() => {
-    setInspection(undefined);
+    inspection.reset();
     virtualRootVersion.current = undefined;
     navigate(undefined, resultVersion);
     return () => {
@@ -196,12 +187,8 @@ export function BrowsePanel({
     page !== undefined && virtualRootVersion.current === page.resultVersion;
   const parent = view && parentLocation(view.opened, hasVirtualRoot);
 
-  function openFile(row: FolderQueryRow) {
-    if (!opening.current && row.item.resultVersion === page?.resultVersion)
-      setInspection({
-        item: row.item,
-        name: browseDisplayName(row.displayName),
-      });
+  function openFile(row: FolderQueryRow, trigger: Element | null) {
+    if (!opening.current) inspection.open(row, trigger);
   }
 
   function goUp() {
@@ -303,13 +290,9 @@ export function BrowsePanel({
         </>
       )}
       <BrowseFileDialog
-        inspection={pinnedInspection(
-          inspection,
-          page?.resultVersion,
-          resultVersion,
-        )}
+        inspection={inspection.selected}
         inspectFile={inspectFile}
-        close={() => setInspection(undefined)}
+        close={inspection.close}
       />
     </section>
   );

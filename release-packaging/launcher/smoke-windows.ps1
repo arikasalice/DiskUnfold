@@ -99,11 +99,17 @@ function Test-FileInspection($name, $size) {
     }
   }
   Invoke-UI (Wait-VisibleAction 'Close details')
-  $null = Wait-UI "focus returned to $name" {
-    $focused = $ae::FocusedElement
-    if ($focused -and ($focused.Current.Name -eq $name -or (Find-UI $name $button $focused))) {
-      -not (Find-UI 'Close details' $button)
+  try {
+    $null = Wait-UI "focus returned to $name" {
+      $focused = $ae::FocusedElement
+      if ($focused -and ($focused.Current.Name -eq $name -or (Find-UI $name $button $focused))) {
+        -not (Find-UI 'Close details' $button)
+      }
     }
+  } catch {
+    $focused = $ae::FocusedElement
+    if ($focused) { Write-Warning "Focused element after close: $($focused.Current.ControlType.ProgrammaticName), $($focused.Current.Name)" }
+    throw
   }
   "F05/F03 native file inspection: $name, $size, focus restored"
 }
