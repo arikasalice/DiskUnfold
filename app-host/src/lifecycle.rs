@@ -82,7 +82,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             crate::ipc::dispatch(&dispatch_engine, message)
         }),
         #[cfg(windows)]
-        isolate: crate::ipc::isolates_volume_enumeration,
+        route: crate::ipc::dispatch_lane,
         icon: include_bytes!("../icons/icon.png"),
     };
     #[cfg(windows)]

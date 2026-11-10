@@ -1,5 +1,5 @@
 //! Deliver WebView2 messages on the STA while application handlers use bounded lanes.
-use super::super::contract::{Dispatch, Events, WebApp, message, trusted_message};
+use super::super::contract::{Dispatch, DispatchLane, Events, WebApp, message, trusted_message};
 use super::folder_drop::{self, Reason};
 use std::{cell::Cell, io, rc::Rc, sync::mpsc};
 use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2;
@@ -24,15 +24,25 @@ struct Request {
 struct IpcQueues {
     ordered: mpsc::SyncSender<Request>,
     isolated: mpsc::SyncSender<Request>,
-    isolate: fn(&str) -> bool,
+    control: mpsc::SyncSender<Request>,
+    route: fn(&str) -> DispatchLane,
 }
 
 impl IpcQueues {
     fn start(app: &WebApp, replies: mpsc::SyncSender<String>) -> io::Result<Self> {
         Ok(Self {
             ordered: worker("diskunfold-ipc", app.dispatch.clone(), replies.clone())?,
-            isolated: worker("diskunfold-ipc-isolated", app.dispatch.clone(), replies)?,
-            isolate: app.isolate,
+            isolated: worker(
+                "diskunfold-ipc-isolated",
+                app.dispatch.clone(),
+                replies.clone(),
+            )?,
+            control: worker(
+                "diskunfold-ipc-query-control",
+                app.dispatch.clone(),
+                replies,
+            )?,
+            route: app.route,
         })
     }
 
@@ -40,10 +50,10 @@ impl IpcQueues {
         if !trusted_message(origin, data) {
             return false;
         }
-        let lane = if (self.isolate)(data) {
-            &self.isolated
-        } else {
-            &self.ordered
+        let lane = match (self.route)(data) {
+            DispatchLane::Ordered => &self.ordered,
+            DispatchLane::Volume => &self.isolated,
+            DispatchLane::QueryControl => &self.control,
         };
         lane.try_send(Request {
             id: id.to_owned(),
@@ -226,7 +236,13 @@ mod tests {
                 }
                 Some(command.to_owned())
             }),
-            isolate: |command| command == "list",
+            route: |command| {
+                if command == "list" {
+                    DispatchLane::Volume
+                } else {
+                    DispatchLane::Ordered
+                }
+            },
             icon: &[],
         };
         let (send, replies) = mpsc::sync_channel(2);
@@ -238,6 +254,118 @@ mod tests {
         assert_eq!(replies.recv_timeout(deadline)?, "2\nreview");
         release.send(())?;
         assert_eq!(replies.recv_timeout(deadline)?, "1\nlist");
+        Ok(())
+    }
+    #[test]
+    fn original_ordered_lane_blocks_close_behind_open() -> Result<(), Box<dyn std::error::Error>> {
+        let (entered, started) = mpsc::channel();
+        let (release, gate) = mpsc::channel();
+        let gate = Mutex::new(gate);
+        let deadline = Duration::from_secs(5);
+        let app = WebApp {
+            asset: |_| None,
+            dispatch: Arc::new(move |command| {
+                if command == "browse.open" {
+                    entered.send(()).ok()?;
+                    gate.lock().ok()?.recv_timeout(deadline).ok()?;
+                }
+                Some(command.to_owned())
+            }),
+            // This reproduces the original app-host classification.
+            route: |command| {
+                if command == "target.list" {
+                    DispatchLane::Volume
+                } else {
+                    DispatchLane::Ordered
+                }
+            },
+            icon: &[],
+        };
+        let (send, replies) = mpsc::sync_channel(4);
+        let queues = IpcQueues::start(&app, send)?;
+        assert!(queues.enqueue(&entry(), "1", "browse.open"));
+        started.recv_timeout(deadline)?;
+        assert!(queues.enqueue(&entry(), "2", "query.region.close"));
+        assert!(matches!(
+            replies.recv_timeout(Duration::from_millis(100)),
+            Err(mpsc::RecvTimeoutError::Timeout)
+        ));
+        release.send(())?;
+        assert_eq!(replies.recv_timeout(deadline)?, "1\nbrowse.open");
+        assert_eq!(replies.recv_timeout(deadline)?, "2\nquery.region.close");
+        Ok(())
+    }
+
+    #[test]
+    fn query_controls_overtake_blocked_open_and_volume_without_reordering_normal_requests()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let (entered, started) = mpsc::channel();
+        let (release_open, open_gate) = mpsc::channel();
+        let (release_volume, volume_gate) = mpsc::channel();
+        let open_gate = Mutex::new(open_gate);
+        let volume_gate = Mutex::new(volume_gate);
+        let closed = Arc::new(AtomicBool::new(false));
+        let state = closed.clone();
+        let deadline = Duration::from_secs(5);
+        let app = WebApp {
+            asset: |_| None,
+            dispatch: Arc::new(move |command| match command {
+                "browse.open" => {
+                    entered.send("open").ok()?;
+                    open_gate.lock().ok()?.recv_timeout(deadline).ok()?;
+                    Some(
+                        if state.load(Ordering::Acquire) {
+                            "ref.unavailable"
+                        } else {
+                            "published"
+                        }
+                        .to_owned(),
+                    )
+                }
+                "target.list" => {
+                    entered.send("volume").ok()?;
+                    volume_gate.lock().ok()?.recv_timeout(deadline).ok()?;
+                    Some("volume".into())
+                }
+                "query.cancel" => Some("ref.unavailable".into()),
+                "query.region.close" => {
+                    state.store(true, Ordering::Release);
+                    Some("closed".into())
+                }
+                other => Some(other.to_owned()),
+            }),
+            route: |command| match command {
+                "target.list" => DispatchLane::Volume,
+                "query.cancel" | "query.region.close" => DispatchLane::QueryControl,
+                _ => DispatchLane::Ordered,
+            },
+            icon: &[],
+        };
+        let (send, replies) = mpsc::sync_channel(16);
+        let queues = IpcQueues::start(&app, send)?;
+        assert!(queues.enqueue(&entry(), "1", "browse.open"));
+        assert!(queues.enqueue(&entry(), "2", "target.list"));
+        let mut both = vec![
+            started.recv_timeout(deadline)?,
+            started.recv_timeout(deadline)?,
+        ];
+        both.sort();
+        assert_eq!(both, ["open", "volume"]);
+        assert!(queues.enqueue(&entry(), "3", "normal.first"));
+        assert!(queues.enqueue(&entry(), "4", "normal.second"));
+        assert!(!queues.enqueue("https://example.invalid", "untrusted", "query.region.close"));
+        assert!(queues.enqueue(&entry(), "5", "query.cancel"));
+        assert_eq!(replies.recv_timeout(deadline)?, "5\nref.unavailable");
+        assert!(!closed.load(Ordering::Acquire));
+        assert!(queues.enqueue(&entry(), "6", "query.region.close"));
+        assert_eq!(replies.recv_timeout(deadline)?, "6\nclosed");
+        release_open.send(())?;
+        assert_eq!(replies.recv_timeout(deadline)?, "1\nref.unavailable");
+        assert_eq!(replies.recv_timeout(deadline)?, "3\nnormal.first");
+        assert_eq!(replies.recv_timeout(deadline)?, "4\nnormal.second");
+        release_volume.send(())?;
+        assert_eq!(replies.recv_timeout(deadline)?, "2\nvolume");
         Ok(())
     }
 }

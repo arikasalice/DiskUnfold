@@ -21,10 +21,11 @@ struct Address {
     correlation_id: Id,
 }
 
-/// Target listing may wait for the OS independently of the ordered command lane.
-/// Full command validation still happens in dispatch after admission.
+/// Route potentially blocking enumeration and query control independently.
+/// The dispatcher still validates the entire envelope and channel.
 #[cfg(windows)]
-pub(crate) fn isolates_volume_enumeration(message: &str) -> bool {
+pub(crate) fn dispatch_lane(message: &str) -> du_platform_os::webview::DispatchLane {
+    use du_platform_os::webview::DispatchLane;
     use std::borrow::Cow;
 
     #[derive(Deserialize)]
@@ -47,8 +48,14 @@ pub(crate) fn isolates_volume_enumeration(message: &str) -> bool {
         name: Cow<'a, str>,
     }
 
-    serde_json::from_str::<Route<'_>>(message)
-        .is_ok_and(|route| route.command == "du_call" && route.args.envelope.name == "target.list")
+    match serde_json::from_str::<Route<'_>>(message) {
+        Ok(route) if route.command == "du_call" => match route.args.envelope.name.as_ref() {
+            "target.list" => DispatchLane::Volume,
+            "query.cancel" | "query.region.close" => DispatchLane::QueryControl,
+            _ => DispatchLane::Ordered,
+        },
+        _ => DispatchLane::Ordered,
+    }
 }
 
 pub(crate) fn dispatch(engine: &Engine, message: &str) -> Option<String> {
@@ -92,27 +99,36 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    fn only_target_listing_uses_the_isolated_ipc_lane() {
-        for (body, isolated) in [
+    fn selects_only_exact_valid_route_names() {
+        use du_platform_os::webview::DispatchLane::{Ordered, QueryControl, Volume};
+        for (body, expected) in [
             (
                 r#"{"command":"du_call","args":{"envelope":{"name":"target.list"}}}"#,
-                true,
+                Volume,
             ),
             (
                 r#"{"command":"du_call","args":{"envelope":{"name":"target\u002elist"}}}"#,
-                true,
+                Volume,
             ),
             (
-                r#"{"command":"du_call","args":{"envelope":{"name":"scope.review"}}}"#,
-                false,
+                r#"{"command":"du_call","args":{"envelope":{"name":"query.cancel"}}}"#,
+                QueryControl,
             ),
             (
-                r#"{"command":"other","args":{"envelope":{"name":"target.list"}}}"#,
-                false,
+                r#"{"command":"du_call","args":{"envelope":{"name":"query.region.close"}}}"#,
+                QueryControl,
             ),
-            (r#"{"name":"target.list"}"#, false),
+            (
+                r#"{"command":"du_call","args":{"envelope":{"name":"browse.open"}}}"#,
+                Ordered,
+            ),
+            (
+                r#"{"command":"other","args":{"envelope":{"name":"query.cancel"}}}"#,
+                Ordered,
+            ),
+            (r#"{"name":"query.cancel"}"#, Ordered),
         ] {
-            assert_eq!(isolates_volume_enumeration(body), isolated);
+            assert_eq!(dispatch_lane(body), expected);
         }
     }
 

@@ -10,9 +10,9 @@ mod macos;
 #[allow(unsafe_code)]
 mod windows;
 
-#[cfg(target_os = "windows")]
-pub use contract::Events;
 pub use contract::{Asset, WebApp};
+#[cfg(target_os = "windows")]
+pub use contract::{DispatchLane, Events};
 
 /// Runs the Windows webview and delivers events to its trusted top-level page.
 #[cfg(target_os = "windows")]

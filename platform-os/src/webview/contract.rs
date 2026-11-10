@@ -20,12 +20,21 @@ pub type Dispatch = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
 #[cfg(target_os = "windows")]
 pub type Events = Arc<dyn Fn() -> Option<String> + Send + Sync>;
 
+/// Windows dispatch lane selected by the application after parsing the request.
+#[cfg(target_os = "windows")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DispatchLane {
+    Ordered,
+    Volume,
+    QueryControl,
+}
+
 pub struct WebApp {
     pub asset: fn(&str) -> Option<Asset>,
     pub dispatch: Dispatch,
-    /// Routes independently waitable requests away from the ordered command lane.
+    /// Selects a bounded Windows queue; the dispatch callback still validates every request.
     #[cfg(target_os = "windows")]
-    pub isolate: fn(&str) -> bool,
+    pub route: fn(&str) -> DispatchLane,
     pub icon: &'static [u8],
 }
 
