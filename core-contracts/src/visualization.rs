@@ -1,5 +1,7 @@
 //! Open keys shared by visualization strategy registration and its consumers.
 
+pub mod geometry;
+
 /// Versioned key used to select an algorithm and identify its output.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct LayoutStrategyKey {

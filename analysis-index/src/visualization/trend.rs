@@ -56,6 +56,45 @@ pub struct SeriesLayout {
     pub segments: Vec<LineSegment>,
 }
 
+/// Point geometries retain their sample index; lines connect only observed runs.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SeriesGeometry {
+    pub points: Vec<(usize, du_core_contracts::visualization::geometry::Geometry)>,
+    pub lines: Vec<du_core_contracts::visualization::geometry::Geometry>,
+}
+
+impl SeriesLayout {
+    /// Converts existing samples and line segments to geometry v1.
+    /// Coordinates must already be on the normalized grid. Unknown samples
+    /// have no point and the original line gaps are preserved.
+    pub fn geometry_v1(
+        &self,
+    ) -> Result<SeriesGeometry, du_core_contracts::visualization::geometry::GeometryError> {
+        use du_core_contracts::visualization::geometry::{Geometry, Point};
+        let convert = |coordinate: Coordinate| Point {
+            x: coordinate.x,
+            y: coordinate.y,
+        };
+        let points = self
+            .samples
+            .iter()
+            .enumerate()
+            .filter_map(|(index, sample)| sample.coordinate.map(|coordinate| (index, coordinate)))
+            .map(|(index, coordinate)| {
+                Ok((index, Geometry::new("point", vec![convert(coordinate)])?))
+            })
+            .collect::<Result<_, _>>()?;
+        let lines = self
+            .segments
+            .iter()
+            .map(|segment| {
+                Geometry::new("polyline", vec![convert(segment.from), convert(segment.to)])
+            })
+            .collect::<Result<_, _>>()?;
+        Ok(SeriesGeometry { points, lines })
+    }
+}
+
 /// Inclusive numeric extent used for the shared vertical axis.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ValueRange {

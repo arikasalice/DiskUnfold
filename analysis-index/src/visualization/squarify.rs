@@ -38,6 +38,44 @@ pub struct Layout {
     pub skipped: Vec<Skipped>,
 }
 
+impl Layout {
+    /// Converts drawn rectangles to geometry v1 without changing coordinates.
+    ///
+    /// Coordinates must already be in the normalized 0..=1,000,000 grid.
+    /// The returned index identifies the original ordered input. Skipped items
+    /// remain in `skipped` and are not converted to fabricated shapes.
+    pub fn geometry_v1(
+        &self,
+    ) -> Result<
+        Vec<(usize, du_core_contracts::visualization::geometry::Geometry)>,
+        du_core_contracts::visualization::geometry::GeometryError,
+    > {
+        use du_core_contracts::visualization::geometry::{Geometry, Point};
+        self.shapes
+            .iter()
+            .map(|shape| {
+                let rect = shape.rect;
+                Ok((
+                    shape.input_index,
+                    Geometry::new(
+                        "rect",
+                        vec![
+                            Point {
+                                x: rect.left,
+                                y: rect.top,
+                            },
+                            Point {
+                                x: rect.right,
+                                y: rect.bottom,
+                            },
+                        ],
+                    )?,
+                ))
+            })
+            .collect()
+    }
+}
+
 /// Input or arithmetic failure. No partial layout is returned on failure.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LayoutError {
