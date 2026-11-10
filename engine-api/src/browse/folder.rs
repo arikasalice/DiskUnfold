@@ -15,7 +15,7 @@ use du_analysis_index::{
 };
 use du_core_contracts::{
     Id, ItemRef, SizeBasis, SizeValue, Timestamp,
-    result::{ResultCompleteness, ResultItem, ResultVersionRead},
+    result::{ResultCompleteness, ResultItem, ResultItemKind, ResultVersionRead},
 };
 use du_job_runtime::JobIdentity;
 
@@ -64,6 +64,10 @@ pub struct Row {
     pub display_name: Option<String>,
     pub logical_size: Option<SizeValue>,
     pub allocated_size: Option<SizeValue>,
+    /// Modification time retained for this item in the pinned observation.
+    pub modified_at: Option<Timestamp>,
+    /// Evidence that an immediate child folder was observed; absence is unknown.
+    pub has_observed_child_folder: Option<bool>,
 }
 
 /// One page from a registered, pinned folder query.
@@ -337,6 +341,14 @@ fn project(query_ref: Id, page: Page) -> Result<FolderPage, Error> {
                 allocated_size: version
                     .item_size(item.item_no, SizeBasis::Allocated)
                     .cloned(),
+                modified_at: version.item_modified_at(item.item_no).cloned(),
+                has_observed_child_folder: if item.kind == ResultItemKind::Directory {
+                    browse::has_observed_child_directory(version, reference)
+                        .map_err(folder_error)?
+                        .then_some(true)
+                } else {
+                    None
+                },
             })
         })
         .collect::<Result<Vec<_>, Error>>()?;

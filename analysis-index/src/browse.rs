@@ -1,6 +1,9 @@
 //! Pinned, read-only hierarchy access for folder browsing.
 use crate::{QueryError, ResultVersion, ensure_directory};
-use du_core_contracts::{ItemRef, result::ResultItem};
+use du_core_contracts::{
+    ItemRef,
+    result::{ResultItem, ResultItemKind},
+};
 
 /// A directory and its immediate children in one immutable result version.
 ///
@@ -50,6 +53,19 @@ pub fn open<'a>(
         breadcrumbs: version.ancestors(item)?,
         children: version.children(item.item_no),
     })
+}
+
+/// Reports whether the immutable hierarchy contains an observed child directory.
+/// A false result alone does not establish that the folder was fully enumerated.
+pub fn has_observed_child_directory(
+    version: &ResultVersion,
+    folder: &ItemRef,
+) -> Result<bool, QueryError> {
+    let item = directory(version, Some(folder))?;
+    Ok(version
+        .children(item.item_no)
+        .iter()
+        .any(|child| child.kind == ResultItemKind::Directory))
 }
 
 /// Resolves a browse location without computing its breadcrumb list.
