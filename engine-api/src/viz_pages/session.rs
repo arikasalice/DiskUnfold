@@ -2,7 +2,10 @@
 //!
 //! This internal composition does not implement the public `viz.render` wire
 //! contract. The caller supplies trusted evidence from the pinned result.
-use std::{num::NonZeroUsize, sync::Arc};
+use std::{
+    num::NonZeroUsize,
+    sync::{Arc, Mutex},
+};
 
 use du_analysis_index::{
     IngestSink,
@@ -26,8 +29,9 @@ use crate::current_analysis::CurrentAnalysis;
 /// Keeping these together prevents a cached model from being reused with a
 /// different implementation registered under the same strategy identity.
 pub struct Session {
-    pages: ModelPages,
+    pub(super) pages: ModelPages,
     dispatcher: Dispatcher,
+    pub(super) pinned: Mutex<Option<super::pinned::PinnedModel>>,
 }
 
 /// Policy-owned values for one actual child of the pinned folder.
@@ -51,6 +55,7 @@ impl Session {
         Self {
             pages: ModelPages::new(source, capacity, ids),
             dispatcher,
+            pinned: Mutex::new(None),
         }
     }
 

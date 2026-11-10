@@ -2,6 +2,7 @@
 mod fallback;
 mod locate;
 mod pinned_children;
+mod retained;
 
 use std::{
     num::NonZeroUsize,

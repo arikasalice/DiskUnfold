@@ -1,6 +1,7 @@
 //! Live-scan F06 model admission and row paging, without IPC registration.
 //! A session index owns only weak source references; source results own row data.
 mod locate;
+mod pinned;
 pub mod production;
 pub mod render;
 pub mod session;
