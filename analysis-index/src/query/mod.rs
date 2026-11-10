@@ -111,6 +111,11 @@ impl Registry {
         Ok(())
     }
 
+    /// Validates sort strategies through the same registry lookup used by evaluation.
+    pub fn validate_sorts(&self, sorts: &[Sort<'_>]) -> Result<(), Error> {
+        sorting::prepare(self, sorts).map(|_| ())
+    }
+
     /// Registers one sort-key revision; duplicate keys are rejected without replacement.
     pub fn register_sort(
         &mut self,

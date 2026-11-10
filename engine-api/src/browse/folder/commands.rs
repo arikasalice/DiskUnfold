@@ -101,11 +101,15 @@ impl UseCase for Open {
             tests::pause_at(request_seq, 2);
             return self.with_current(&token, caller, || self.opened(request_seq, page));
         }
-        if prepared.estimated_work() <= SYNC_WORK && start.elapsed() < SYNC_LIMIT {
+        #[cfg(test)]
+        let force_sync = tests::force_sync(request_seq);
+        #[cfg(not(test))]
+        let force_sync = false;
+        if prepared.estimated_work() <= SYNC_WORK && (force_sync || start.elapsed() < SYNC_LIMIT) {
             let ended = || {
                 token.load(Ordering::Acquire)
                     || caller.is_cancelled()
-                    || start.elapsed() >= SYNC_LIMIT
+                    || (!force_sync && start.elapsed() >= SYNC_LIMIT)
             };
             match self.browse.evaluate_uncached(prepared.clone(), ended) {
                 Ok(candidate) if !ended() => {

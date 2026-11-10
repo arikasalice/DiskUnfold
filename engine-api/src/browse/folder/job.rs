@@ -262,7 +262,8 @@ impl JobBody for Evaluate {
             .ok_or(Error::Internal)
             .and_then(|prepared| {
                 #[cfg(test)]
-                super::test_gate::pause_worker(&prepared.key.version);
+                super::test_gate::pause_worker(&prepared.key.version)
+                    .map_err(|_| Error::Internal)?;
                 self.browse
                     .evaluate(prepared, || context.checkpoint() == Checkpoint::Cancel)
             });

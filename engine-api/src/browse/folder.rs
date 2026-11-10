@@ -234,6 +234,18 @@ impl FolderBrowse {
         query::validate_condition(&condition).map_err(query_error)?;
         let condition = condition.normalize();
         query::validate_condition(&condition).map_err(query_error)?;
+        let validated_sorts: Vec<_> = std::iter::once(&request.sort)
+            .chain(additional)
+            .map(|sort| query::Sort {
+                id: &sort.id,
+                revision: sort.revision,
+                basis: sort.basis,
+                descending: sort.descending,
+            })
+            .collect();
+        query::Registry::baseline()
+            .validate_sorts(&validated_sorts)
+            .map_err(query_error)?;
         let sorts = std::iter::once(&request.sort)
             .chain(additional)
             .map(|sort| query::SortSpec {
