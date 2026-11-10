@@ -114,12 +114,7 @@ impl Session {
         validate_count(count).map_err(|_| CursorError::InvalidPage)?;
         let admitted = self.admit(query, version, start, count)?;
         let condition = self.condition(&admitted)?;
-        let page = project(query.clone(), admitted).map_err(CursorError::Folder)?;
-        let next_cursor = page
-            .next_position
-            .map(|next| self.encode(query, version, condition, next))
-            .transpose()?;
-        Ok(CursorPage { page, next_cursor })
+        self.finish_page(admitted, query, version, condition)
     }
 
     /// Reads a cursor while requiring the caller's expected query and result version.
@@ -144,10 +139,20 @@ impl Session {
         if self.condition(&page)? != fields.condition {
             return Err(CursorError::Invalid);
         }
-        let page = project(fields.query.clone(), page).map_err(CursorError::Folder)?;
+        self.finish_page(page, &fields.query, &fields.version, fields.condition)
+    }
+
+    fn finish_page(
+        &self,
+        page: Page,
+        query: &Id,
+        version: &Id,
+        condition: [u8; 16],
+    ) -> Result<CursorPage, CursorError> {
+        let page = project(query.clone(), page).map_err(CursorError::Folder)?;
         let next_cursor = page
             .next_position
-            .map(|next| self.encode(&fields.query, &fields.version, fields.condition, next))
+            .map(|next| self.encode(query, version, condition, next))
             .transpose()?;
         Ok(CursorPage { page, next_cursor })
     }

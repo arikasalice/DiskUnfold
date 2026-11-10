@@ -1,5 +1,6 @@
 //! GUI query page admission forms shared by search and folder browsing.
 use crate::Id;
+use serde::Deserialize;
 
 /// A position within a registered, version-pinned query result.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -18,8 +19,18 @@ pub struct QueryPagePosition {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct QueryPageContinuation {
     pub next_cursor: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "provided_count",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub count: Option<u32>,
+}
+
+fn provided_count<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<u32>, D::Error> {
+    u32::deserialize(deserializer).map(Some)
 }
 
 /// Exactly one of positional admission or authenticated continuation.
@@ -65,6 +76,12 @@ mod tests {
         assert!(
             serde_json::from_value::<QueryPageRequest>(
                 json!({"nextCursor":"s1.token.mac","rowKind":"folder"})
+            )
+            .is_err()
+        );
+        assert!(
+            serde_json::from_value::<QueryPageRequest>(
+                json!({"nextCursor":"s1.token.mac","count":null})
             )
             .is_err()
         );
