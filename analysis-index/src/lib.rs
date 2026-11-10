@@ -1,6 +1,7 @@
 //! In-memory result publication and conservative per-subtree space aggregation.
 pub mod browse;
 mod forest;
+pub mod group;
 mod issues;
 mod physical;
 pub mod publication_cadence;

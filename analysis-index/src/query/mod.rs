@@ -2,7 +2,7 @@
 pub mod boundary;
 mod condition;
 pub mod page;
-mod plan;
+pub(crate) mod plan;
 mod sorting;
 pub use condition::{Basis, Boundary, Condition, Kind, NameEncoding, NameTest, Predicate, Truth};
 
@@ -463,7 +463,7 @@ fn collect_strategies(condition: &Condition, result: &mut BTreeSet<(String, u32)
     }
 }
 
-fn navigation_path(
+pub(crate) fn navigation_path(
     version: &ResultVersion,
     item: &ResultItem,
     folder: Option<FolderLocation>,

@@ -23,7 +23,7 @@ pub(super) fn check_shape(condition: &Condition, depth: usize) -> Result<(), Err
     }
 }
 
-pub(super) enum Plan<'a> {
+pub(crate) enum Plan<'a> {
     Leaf(&'a Predicate, PredicateEvaluator),
     All(Vec<Plan<'a>>),
     Any(Vec<Plan<'a>>),
@@ -31,7 +31,7 @@ pub(super) enum Plan<'a> {
 }
 
 /// Resolves strategy revisions once, before any item is evaluated.
-pub(super) fn prepare<'a>(
+pub(crate) fn prepare<'a>(
     registry: &Registry,
     condition: &'a Condition,
     depth: usize,
@@ -74,7 +74,7 @@ fn prepare_children<'a>(
 }
 
 impl Plan<'_> {
-    pub(super) fn evaluate(&self, item: &Record<'_>) -> Truth {
+    pub(crate) fn evaluate(&self, item: &Record<'_>) -> Truth {
         match self {
             Self::Leaf(predicate, evaluate) => evaluate(item, predicate),
             Self::Not(child) => match child.evaluate(item) {
