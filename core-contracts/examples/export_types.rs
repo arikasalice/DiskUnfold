@@ -162,6 +162,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         QueryPageResponse::decl(&config),
         BrowseBreadcrumb::decl(&config),
         BrowseRootKind::decl(&config),
+        BrowseContext::decl(&config),
         BrowseOpenResponse::decl(&config),
         BrowseDetailRequest::decl(&config),
         BrowseDetail::decl(&config),

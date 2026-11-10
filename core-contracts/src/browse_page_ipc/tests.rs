@@ -82,3 +82,18 @@ fn page_discriminates_rows_and_requires_nullable_fields() -> Result<(), Box<dyn 
     );
     Ok(())
 }
+
+#[test]
+fn folder_context_round_trips_and_requires_its_nullable_location()
+-> Result<(), Box<dyn std::error::Error>> {
+    let mut page = folder_page();
+    page["browseContext"] = json!({"origin":"scan", "location":null, "breadcrumbs":[], "rootKind":"virtual_root", "currentCorrespondence":false, "sortStrategies":[], "predicateStrategies":[]});
+    let parsed: QueryPageResponse = serde_json::from_value(page.clone())?;
+    assert_eq!(serde_json::to_value(parsed)?, page);
+    page["browseContext"]
+        .as_object_mut()
+        .ok_or("not an object")?
+        .remove("location");
+    assert!(serde_json::from_value::<QueryPageResponse>(page).is_err());
+    Ok(())
+}

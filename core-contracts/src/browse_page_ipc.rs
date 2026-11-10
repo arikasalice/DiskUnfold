@@ -137,6 +137,10 @@ pub struct FolderQueryPage {
     pub row_kind: FolderRowKind,
     #[serde(flatten)]
     pub page: QueryPage<FolderQueryRow>,
+    /// Location context for a directly requested first page, when available.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub browse_context: Option<BrowseContext>,
 }
 /// A search-only page.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -172,6 +176,21 @@ pub enum BrowseRootKind {
     VirtualRoot,
     ScopeRoot,
     Folder,
+}
+
+/// Location and strategy evidence from the same pinned folder query as its page.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BrowseContext {
+    pub origin: ResultOrigin,
+    #[serde(deserialize_with = "required_nullable")]
+    pub location: Option<ItemRef>,
+    pub breadcrumbs: Vec<BrowseBreadcrumb>,
+    pub root_kind: BrowseRootKind,
+    pub current_correspondence: bool,
+    pub sort_strategies: Vec<QueryStrategy>,
+    pub predicate_strategies: Vec<QueryStrategy>,
 }
 
 /// Immediate browse result or the job evaluating the request.

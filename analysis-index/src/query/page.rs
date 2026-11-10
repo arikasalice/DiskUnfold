@@ -353,6 +353,10 @@ pub struct Page {
 }
 
 impl Page {
+    /// Returns the exact folder location of this admitted query, or None for search.
+    pub fn folder_location(&self) -> Option<FolderLocation> {
+        self.result.folder
+    }
     /// Returns the source pinned when this page was admitted.
     pub fn version(&self) -> &Arc<crate::ResultVersion> {
         &self.result.version

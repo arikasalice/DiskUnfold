@@ -59,7 +59,9 @@ impl LiveOpen {
 impl CursorPage {
     /// Converts a subsequent page using the same folder-row projection as open.
     pub fn into_response(self) -> Result<QueryPageResponse, EngineError> {
-        folder_page(self.page, self.next_cursor).map(QueryPageResponse::Folder)
+        let mut page = folder_page(self.page, self.next_cursor)?;
+        page.browse_context = self.browse_context;
+        Ok(QueryPageResponse::Folder(page))
     }
 }
 
@@ -78,6 +80,7 @@ fn folder_page(
     let unknown_count = count(page.unknown_count)?;
     Ok(FolderQueryPage {
         row_kind: FolderRowKind::Folder,
+        browse_context: None,
         page: QueryPage {
             query_ref: page.query_ref,
             result_version: page.result_version,

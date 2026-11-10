@@ -193,11 +193,16 @@ export type QueryTotal = { "state": "exact", count: number, } | { "state": "lowe
 export type FolderRowKind = "folder";
 export type SearchRowKind = "search";
 export type QueryPage<R> = { queryRef: Id, resultVersion: Id, rows: Array<R>, total: QueryTotal, unknownCount: number, observedAt: Timestamp | null, completeness: ResultCompleteness, nextCursor: string | null, };
-export type FolderQueryPage = { rowKind: FolderRowKind, queryRef: Id, resultVersion: Id, rows: Array<FolderQueryRow>, total: QueryTotal, unknownCount: number, observedAt: Timestamp | null, completeness: ResultCompleteness, nextCursor: string | null, };
+export type FolderQueryPage = { rowKind: FolderRowKind,
+/**
+ * Location context for a directly requested first page, when available.
+ */
+browseContext?: BrowseContext, queryRef: Id, resultVersion: Id, rows: Array<FolderQueryRow>, total: QueryTotal, unknownCount: number, observedAt: Timestamp | null, completeness: ResultCompleteness, nextCursor: string | null, };
 export type SearchQueryPage = { rowKind: SearchRowKind, queryRef: Id, resultVersion: Id, rows: Array<SearchQueryRow>, total: QueryTotal, unknownCount: number, observedAt: Timestamp | null, completeness: ResultCompleteness, nextCursor: string | null, };
 export type QueryPageResponse = FolderQueryPage | SearchQueryPage;
 export type BrowseBreadcrumb = { item: ItemRef, displayName: BrowseValue<string>, };
 export type BrowseRootKind = "virtual_root" | "scope_root" | "folder";
+export type BrowseContext = { origin: ResultOrigin, location: ItemRef | null, breadcrumbs: Array<BrowseBreadcrumb>, rootKind: BrowseRootKind, currentCorrespondence: boolean, sortStrategies: Array<QueryStrategy>, predicateStrategies: Array<QueryStrategy>, };
 export type BrowseOpenResponse = { "kind": "opened", requestSeq: number, origin: ResultOrigin, location: ItemRef | null, breadcrumbs: Array<BrowseBreadcrumb>, rootKind: BrowseRootKind, currentCorrespondence: boolean, page: FolderQueryPage, sortStrategies: Array<QueryStrategy>, predicateStrategies: Array<QueryStrategy>, } | { "kind": "job", requestSeq: number, jobRef: Id, };
 export type BrowseDetailRequest = { resultVersion: Id, item: ItemRef, };
 export type BrowseDetail = { item: ItemRef, displayPath: BrowseValue<string>, displayName: BrowseValue<string>, kind: BrowseValue<ResultItemKind>, logicalSize: BrowseValue<SizeValue>, allocatedSize: BrowseValue<SizeValue>, modifiedAt: BrowseValue<Timestamp>, createdAt: BrowseValue<Timestamp>, observedAt: BrowseValue<Timestamp>, origin: BrowseOrigin, completeness: ResultCompleteness, currentCorrespondence: boolean, observationOnly: boolean, };

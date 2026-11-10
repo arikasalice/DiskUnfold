@@ -3,6 +3,7 @@
 //! The session composition supplies the key. This module has no random fallback
 //! or IPC registration.
 mod condition;
+mod context;
 pub use condition::CanonicalCondition;
 use std::sync::Arc;
 
@@ -42,6 +43,7 @@ pub struct OpenedPage {
 pub struct CursorPage {
     pub page: FolderPage,
     pub next_cursor: Option<String>,
+    pub(super) browse_context: Option<du_core_contracts::browse_page_ipc::BrowseContext>,
 }
 
 /// One immutable session key and result registry. Retiring this value retires its key.
@@ -118,7 +120,7 @@ impl Session {
         validate_count(count).map_err(|_| CursorError::InvalidPage)?;
         let admitted = self.admit(query, version, start, count)?;
         let condition = self.condition(&admitted)?;
-        self.finish_page(admitted, query, version, condition)
+        self.finish_page(admitted, query, version, condition, start == 0)
     }
 
     /// Reads a cursor while requiring the caller's expected query and result version.
@@ -143,7 +145,13 @@ impl Session {
         if self.condition(&page)? != fields.condition {
             return Err(CursorError::Invalid);
         }
-        self.finish_page(page, &fields.query, &fields.version, fields.condition)
+        self.finish_page(
+            page,
+            &fields.query,
+            &fields.version,
+            fields.condition,
+            false,
+        )
     }
 
     fn finish_page(
@@ -152,13 +160,23 @@ impl Session {
         query: &Id,
         version: &Id,
         condition: [u8; 16],
+        first_position: bool,
     ) -> Result<CursorPage, CursorError> {
+        let browse_context = if first_position {
+            context::page_context(&page).map_err(CursorError::Folder)?
+        } else {
+            None
+        };
         let page = project(query.clone(), page).map_err(CursorError::Folder)?;
         let next_cursor = page
             .next_position
             .map(|next| self.encode(query, version, condition, next))
             .transpose()?;
-        Ok(CursorPage { page, next_cursor })
+        Ok(CursorPage {
+            page,
+            next_cursor,
+            browse_context,
+        })
     }
 
     fn admit(
@@ -277,6 +295,61 @@ mod tests {
         fn next_id(&self) -> Id {
             Id::from_v7_bytes([1, 2, 3, 4, 5, 6, 0x70, 1, 0x80, 0, 0, 0, 0, 0, 0, 1])
         }
+    }
+
+    #[test]
+    fn admitted_page_context_survives_source_replacement() -> Result<(), String> {
+        let id = |n: u8| Id::parse(&format!("018f0000-0000-7000-8000-{n:012x}"));
+        let sink = IngestSink::default();
+        let mut build = sink.open(id(1)?).map_err(|e| format!("{e:?}"))?;
+        build.add_directory(vec![]).map_err(|e| format!("{e:?}"))?;
+        build
+            .seal(id(2)?, ResultCompleteness::Complete)
+            .map_err(|e| format!("{e:?}"))?;
+        let browse = Arc::new(FolderBrowse::new(sink.clone(), Arc::new(Identity)));
+        let session = Session::new(browse, [3; 32]);
+        let opened = session
+            .open(
+                OpenRequest {
+                    result_version: Some(id(2)?),
+                    location: None,
+                    view: View::List,
+                    condition: query::Condition::All(vec![]),
+                    sort: Sort {
+                        id: "sort.path".into(),
+                        revision: 1,
+                        basis: query::Basis::Logical,
+                        descending: false,
+                    },
+                    page_size: Some(1),
+                },
+                &[],
+                || false,
+            )
+            .map_err(|e| format!("{e:?}"))?;
+        let query = &opened.opened.page.query_ref;
+        let page = session
+            .admit(query, &id(2)?, 0, Some(1))
+            .map_err(|e| format!("{e:?}"))?;
+        let mut replacement = sink.open(id(1)?).map_err(|e| format!("{e:?}"))?;
+        replacement
+            .add_directory(vec![])
+            .map_err(|e| format!("{e:?}"))?;
+        replacement
+            .seal(id(3)?, ResultCompleteness::Complete)
+            .map_err(|e| format!("{e:?}"))?;
+        let context = context::page_context(&page)
+            .map_err(|e| format!("{e:?}"))?
+            .ok_or("no context")?;
+        assert_eq!(
+            context.location.ok_or("no location")?.result_version,
+            id(2)?
+        );
+        assert!(matches!(
+            session.page_at(query, &id(2)?, 0, Some(1)),
+            Err(CursorError::Stale)
+        ));
+        Ok(())
     }
 
     #[test]

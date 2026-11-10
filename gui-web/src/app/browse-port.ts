@@ -42,23 +42,18 @@ export function createBrowsePort(client: AnalysisClient): BrowsePort {
         ) {
           throw new Error("The completed query returned a different result.");
         }
-        // The cached open supplies the location and breadcrumbs omitted from a page.
-        const opened = await client.call("browse.open", request);
-        if (opened.kind === "job") {
-          void client
-            .call("job.cancel", { jobRef: opened.jobRef })
-            .catch(() => {});
-          throw new Error("The completed folder query expired.");
+        const { browseContext: context, ...folderPage } = page;
+        if (!context) {
+          throw new Error(
+            "The completed folder query has no location context.",
+          );
         }
-        signal?.throwIfAborted();
-        if (
-          opened.requestSeq !== request.requestSeq ||
-          opened.page.queryRef !== queryRef ||
-          opened.page.resultVersion !== page.resultVersion
-        ) {
-          throw new Error("The completed folder query changed before opening.");
-        }
-        return { ...opened, page };
+        return {
+          kind: "opened",
+          requestSeq: request.requestSeq,
+          ...context,
+          page: folderPage,
+        };
       } finally {
         if (signal?.aborted) {
           void client.call("job.cancel", { jobRef }).catch(() => {});
