@@ -314,6 +314,11 @@ dependencies = [
 [[package]]
 name = "du-share-policy"
 version = "0.1.0"
+dependencies = [
+ "du-core-contracts",
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "du-snapshot-files"
