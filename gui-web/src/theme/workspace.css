@@ -183,8 +183,8 @@ body {
 .du-field input,
 .du-field select,
 .du-choice {
-  border: 1px solid var(--du-border);
-  border-radius: 9px;
+  border: 1px solid var(--du-control-border);
+  border-radius: var(--du-radius);
 }
 
 .du-action {
@@ -212,23 +212,25 @@ body {
 }
 
 .du-action--primary {
+  --du-action-hover: var(--du-accent-hover);
+  --du-action-pressed: var(--du-accent-pressed);
   border-color: var(--du-accent);
   background: var(--du-accent);
   color: var(--du-accent-text);
 }
 
-.du-action[data-hovered]:not([data-disabled]),
-.du-choice[data-hovered]:not([data-disabled]) {
-  border-color: var(--du-focus);
+.du-action[data-hovered]:not([data-disabled]) {
+  border-color: var(--du-action-hover, currentColor);
+  background: var(--du-action-hover, var(--du-hover-surface));
 }
 
 .du-action[data-pressed]:not([data-disabled]) {
+  border-color: var(--du-action-pressed, currentColor);
+  background: var(--du-action-pressed, var(--du-pressed-surface));
   transform: translateY(1px);
 }
 
-.du-action[data-disabled],
-.du-choice[data-disabled] {
-  opacity: 0.58;
+.du-action[data-disabled] {
   cursor: default;
 }
 
@@ -269,6 +271,32 @@ label.du-field > span {
   font: inherit;
 }
 
+.du-field input::placeholder {
+  color: var(--du-muted);
+  opacity: 1;
+}
+
+.du-field :is(input, select):hover:enabled {
+  background: var(--du-hover-surface);
+}
+
+.du-field :is(input, select):active:enabled {
+  background: var(--du-pressed-surface);
+}
+
+.du-action[data-disabled],
+.du-field :is(input, select):disabled,
+.du-choice[data-disabled] {
+  border-color: var(--du-disabled-border);
+  background: var(--du-disabled-surface);
+  color: var(--du-disabled-text);
+}
+
+.du-field input:disabled::placeholder,
+.du-choice[data-disabled] .du-choice__description {
+  color: var(--du-disabled-text);
+}
+
 .du-drop-surface[data-diskunfold-dropzone] .du-field input {
   border-style: dashed;
 }
@@ -292,6 +320,7 @@ label.du-field > span {
   align-items: center;
   gap: 0 9px;
   padding: 4px 10px;
+  background: var(--du-surface);
   cursor: pointer;
 }
 
@@ -325,17 +354,46 @@ label.du-field > span {
   width: 16px;
   height: 16px;
   flex: none;
-  border: 1px solid var(--du-muted);
+  border: 1px solid var(--du-control-border);
   border-radius: 50%;
 }
 
-.du-choice[data-selected] {
-  border-color: var(--du-accent);
-  background: var(--du-info-surface);
+.du-choice[data-hovered]:not([data-disabled], [data-selected]) {
+  background: var(--du-hover-surface);
+}
+
+.du-choice[data-pressed]:not([data-disabled], [data-selected]) {
+  background: var(--du-pressed-surface);
+}
+
+.du-choice[data-selected]:not([data-disabled]) {
+  border-color: var(--du-selected-border);
+  background: var(--du-selected-surface);
+  color: var(--du-selected-text);
+}
+
+.du-choice[data-selected]:not([data-disabled]) .du-choice__description {
+  color: var(--du-selected-text);
+}
+
+.du-choice[data-hovered]:not([data-disabled]) .du-choice__label {
+  text-decoration: underline;
+}
+
+.du-choice[data-pressed]:not([data-disabled]) {
+  border-style: dashed;
+}
+
+.du-choice[data-disabled] {
+  cursor: default;
 }
 
 .du-choice[data-selected] .du-choice__indicator {
-  border: 5px solid var(--du-accent);
+  border: 5px solid currentColor;
+}
+
+.du-choice[data-disabled] .du-choice__indicator {
+  border-color: var(--du-disabled-border);
 }
 
 .du-badge {
@@ -364,10 +422,14 @@ label.du-field > span {
   color: var(--du-good-text);
 }
 
-.du-badge--warning,
+.du-badge--warning {
+  background: var(--du-warning-surface);
+  color: var(--du-warning-text);
+}
+
 .du-notice--error {
-  background: var(--du-alert-surface);
-  color: var(--du-alert-text);
+  background: var(--du-danger-surface);
+  color: var(--du-danger-text);
 }
 
 .du-notice {
@@ -375,7 +437,7 @@ label.du-field > span {
   align-items: flex-start;
   gap: 8px;
   padding: 10px 12px;
-  border-radius: 9px;
+  border-radius: var(--du-radius);
   overflow-wrap: anywhere;
 }
 
@@ -484,6 +546,38 @@ label.du-field > span {
 @media (prefers-reduced-motion: reduce) {
   .du-progress__indicator {
     animation: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .du-action,
+  .du-choice,
+  .du-field :is(input, select),
+  .du-badge,
+  .du-notice,
+  .du-progress__track {
+    forced-color-adjust: none;
+  }
+
+  .du-action[data-hovered]:not([data-disabled]) {
+    text-decoration: underline;
+  }
+
+  .du-field :is(input, select):hover:enabled {
+    border-style: dashed;
+  }
+
+  .du-field :is(input, select):active:enabled {
+    border-style: solid;
+  }
+
+  .du-badge {
+    border-color: currentColor;
+  }
+
+  .du-notice,
+  .du-progress__track {
+    outline: 1px solid var(--du-control-border);
   }
 }
 

@@ -1,56 +1,138 @@
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
   font-family: "Segoe UI", system-ui, sans-serif;
-  --du-page: #f2f5fa;
+  --du-page: #f4f5f7;
   --du-surface: #ffffff;
-  --du-subtle: #f5f8fc;
-  --du-text: #172438;
-  --du-muted: #4b5d75;
-  --du-border: #d1dce8;
-  --du-accent: #2257b7;
+  --du-subtle: #eef1f4;
+  --du-text: #202631;
+  --du-muted: #526071;
+  --du-border: #c8ced7;
+  --du-control-border: #718096;
+  --du-accent: #2159b8;
   --du-accent-text: #ffffff;
+  --du-accent-hover: #194a9d;
+  --du-accent-pressed: #163d7d;
+  --du-hover-surface: #e9edf3;
+  --du-pressed-surface: #dce4ee;
+  --du-selected-surface: #e2edff;
+  --du-selected-text: #184681;
+  --du-selected-border: var(--du-accent);
+  --du-focus: var(--du-accent);
+  --du-disabled-surface: #e9ebef;
+  --du-disabled-text: #596575;
+  --du-disabled-border: #778496;
   --du-info-surface: #eaf2fe;
   --du-info-text: #184681;
-  --du-good-surface: #e2f5ed;
-  --du-good-text: #115c46;
-  --du-alert-surface: #fff0e9;
-  --du-alert-text: #843520;
-  --du-focus: #2f66d1;
-  --du-shadow: 0 8px 24px #233d5d0c;
-  --du-radius: 16px;
+  --du-success-surface: #e2f5ed;
+  --du-success-text: #115c46;
+  --du-warning-surface: #fff0e9;
+  --du-warning-text: #843520;
+  --du-danger-surface: #ffebeb;
+  --du-danger-text: #9c252b;
+  --du-good-surface: var(--du-success-surface);
+  --du-good-text: var(--du-success-text);
+  --du-alert-surface: var(--du-danger-surface);
+  --du-alert-text: var(--du-danger-text);
+  --du-shadow: none;
+  --du-radius: 6px;
+}
+
+:root:where([data-theme="light"]) {
+  color-scheme: light;
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
-    --du-page: #0f1624;
-    --du-surface: #182335;
-    --du-subtle: #202e43;
-    --du-text: #edf3fd;
-    --du-muted: #b2c0d4;
-    --du-border: #3c506c;
-    --du-accent: #8bb7ff;
-    --du-accent-text: #14283e;
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --du-page: #16191f;
+    --du-surface: #1e232b;
+    --du-subtle: #272e38;
+    --du-text: #edf1f7;
+    --du-muted: #b1bdcc;
+    --du-border: #4b596d;
+    --du-control-border: #8b9bb2;
+    --du-accent: #95bfff;
+    --du-accent-text: #14243a;
+    --du-accent-hover: #a9cbff;
+    --du-accent-pressed: #bdd7ff;
+    --du-hover-surface: #333d4b;
+    --du-pressed-surface: #3d4857;
+    --du-selected-surface: #253956;
+    --du-selected-text: #c2dcff;
+    --du-disabled-surface: #282e36;
+    --du-disabled-text: #a4aebc;
+    --du-disabled-border: #758398;
     --du-info-surface: #213858;
     --du-info-text: #c2dcff;
-    --du-good-surface: #173d36;
-    --du-good-text: #a4e9d3;
-    --du-alert-surface: #492d31;
-    --du-alert-text: #ffc9b3;
-    --du-focus: #adceff;
-    --du-shadow: 0 8px 24px #0002;
+    --du-success-surface: #173d36;
+    --du-success-text: #a4e9d3;
+    --du-warning-surface: #47361d;
+    --du-warning-text: #ffda9c;
+    --du-danger-surface: #492d31;
+    --du-danger-text: #ffc6c9;
   }
+}
+
+:root:where([data-theme="dark"]) {
+  color-scheme: dark;
+  --du-page: #16191f;
+  --du-surface: #1e232b;
+  --du-subtle: #272e38;
+  --du-text: #edf1f7;
+  --du-muted: #b1bdcc;
+  --du-border: #4b596d;
+  --du-control-border: #8b9bb2;
+  --du-accent: #95bfff;
+  --du-accent-text: #14243a;
+  --du-accent-hover: #a9cbff;
+  --du-accent-pressed: #bdd7ff;
+  --du-hover-surface: #333d4b;
+  --du-pressed-surface: #3d4857;
+  --du-selected-surface: #253956;
+  --du-selected-text: #c2dcff;
+  --du-disabled-surface: #282e36;
+  --du-disabled-text: #a4aebc;
+  --du-disabled-border: #758398;
+  --du-info-surface: #213858;
+  --du-info-text: #c2dcff;
+  --du-success-surface: #173d36;
+  --du-success-text: #a4e9d3;
+  --du-warning-surface: #47361d;
+  --du-warning-text: #ffda9c;
+  --du-danger-surface: #492d31;
+  --du-danger-text: #ffc6c9;
 }
 
 @media (forced-colors: active) {
   :root {
+    color-scheme: light dark;
     --du-page: Canvas;
     --du-surface: Canvas;
     --du-subtle: Canvas;
     --du-text: CanvasText;
     --du-muted: CanvasText;
     --du-border: ButtonText;
+    --du-control-border: ButtonText;
     --du-accent: Highlight;
     --du-accent-text: HighlightText;
+    --du-accent-hover: Highlight;
+    --du-accent-pressed: Highlight;
+    --du-hover-surface: ButtonFace;
+    --du-pressed-surface: ButtonFace;
+    --du-selected-surface: Highlight;
+    --du-selected-text: HighlightText;
+    --du-selected-border: Highlight;
     --du-focus: Highlight;
+    --du-disabled-surface: ButtonFace;
+    --du-disabled-text: GrayText;
+    --du-disabled-border: GrayText;
+    --du-info-surface: Canvas;
+    --du-info-text: CanvasText;
+    --du-success-surface: Canvas;
+    --du-success-text: CanvasText;
+    --du-warning-surface: Canvas;
+    --du-warning-text: CanvasText;
+    --du-danger-surface: Canvas;
+    --du-danger-text: CanvasText;
   }
 }
