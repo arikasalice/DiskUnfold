@@ -38,6 +38,15 @@ pub enum SearchReadError {
     Unavailable,
 }
 
+/// The row contract selected by the query producer, independent of navigation context.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RowKind {
+    /// Immediate children produced for folder navigation.
+    Folder,
+    /// A search or a refinement of an earlier result set.
+    Search,
+}
+
 #[derive(Default)]
 struct State {
     entries: HashMap<Id, Entry>,
@@ -205,7 +214,8 @@ impl ResultSets {
         result: QueryResult,
     ) -> Result<Id, PageError> {
         validate_result(&result)?;
-        if result.version.version_id() != &key.version
+        if result.row_kind != RowKind::Folder
+            || result.version.version_id() != &key.version
             || result.folder != Some(key.folder)
             || result.condition != key.condition
             || result.sorts != key.sorts
@@ -297,7 +307,7 @@ impl ResultSets {
                 PageError::Unavailable => SearchReadError::Unavailable,
                 _ => SearchReadError::StaleVersion,
             })?;
-        if result.folder.is_some() {
+        if result.row_kind != RowKind::Search {
             return Err(SearchReadError::NotSearch);
         }
         touch(&mut state.lru, id);
@@ -397,7 +407,11 @@ pub struct Page {
 }
 
 impl Page {
-    /// Returns the exact folder location of this admitted query, or None for search.
+    /// Returns the row contract fixed by the producer for this admitted page.
+    pub fn row_kind(&self) -> RowKind {
+        self.result.row_kind
+    }
+    /// Returns the inherited navigation location, if the query has one.
     pub fn folder_location(&self) -> Option<FolderLocation> {
         self.result.folder
     }

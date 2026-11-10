@@ -50,6 +50,7 @@ impl ResultSets {
         validate_result(&result)?;
         if !Arc::ptr_eq(&admission.owner, &self.identity)
             || !Arc::ptr_eq(&admission.version, &result.version)
+            || result.row_kind != RowKind::Folder
             || result.version.version_id() != &key.version
             || result.folder != Some(key.folder)
             || result.condition != key.condition

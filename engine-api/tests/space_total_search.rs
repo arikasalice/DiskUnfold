@@ -2,7 +2,10 @@ use std::sync::Arc;
 
 use du_analysis_index::{
     IngestSink, Observation,
-    query::{self, Basis, Condition, Predicate, Registry, Sort, page::ResultSets},
+    query::{
+        self, Basis, Condition, Predicate, Registry, Sort,
+        page::{MultiFolderKey, PageError, ResultSets, RowKind},
+    },
 };
 use du_core_contracts::{
     CallEnvelope, ENVELOPE_VERSION, Id, SizeAmount, SizeBasis, SizeEvidence, SizeValue,
@@ -25,6 +28,24 @@ fn sort() -> Sort<'static> {
         basis: Basis::Logical,
         descending: false,
     }
+}
+
+fn refine(parent: &query::QueryResult, condition: Condition) -> Result<query::QueryResult, String> {
+    query::run_in_result(&Registry::baseline(), parent, &condition, sort(), || false)
+        .map_err(|e| format!("{e:?}"))
+}
+
+fn check_page_kinds(sets: &ResultSets) -> Result<(), String> {
+    let parent = sets
+        .open_page(&id(4)?, &id(2)?, 0, None)
+        .map_err(|e| format!("{e:?}"))?;
+    let search = sets
+        .open_page(&id(6)?, &id(2)?, 0, None)
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(parent.row_kind(), RowKind::Folder);
+    assert_eq!(search.row_kind(), RowKind::Search);
+    assert_eq!(parent.folder_location(), search.folder_location());
+    Ok(())
 }
 
 #[test]
@@ -70,6 +91,15 @@ fn registered_total_consumes_only_the_admitted_search_snapshot()
         || false,
     )
     .map_err(|e| format!("{e:?}"))?;
+    let refined = refine(
+        &folder,
+        Condition::Predicate(Predicate::Name(
+            query::NameTest::Equal(b"one".to_vec()),
+            query::NameEncoding::Bytes,
+        )),
+    )?;
+    let empty = refine(&folder, Condition::Any(vec![]))?;
+    let relabelled = refine(&folder, Condition::All(vec![]))?;
     let unknown = query::run(
         &Registry::baseline(),
         version,
@@ -79,10 +109,25 @@ fn registered_total_consumes_only_the_admitted_search_snapshot()
     )
     .map_err(|e| format!("{e:?}"))?;
     let sets = Arc::new(ResultSets::new(store.clone()));
+    let folder_key = MultiFolderKey {
+        version: id(2)?,
+        folder: query::FolderLocation::Item(0),
+        tree: false,
+        condition: relabelled.condition.clone(),
+        sorts: relabelled.sorts.clone(),
+    };
+    assert_eq!(
+        sets.register_multi_folder(folder_key, id(12)?, relabelled),
+        Err(PageError::InvalidResult)
+    );
     sets.register(id(3)?, selected)
         .map_err(|e| format!("{e:?}"))?;
     sets.register(id(4)?, folder)
         .map_err(|e| format!("{e:?}"))?;
+    sets.register(id(6)?, refined)
+        .map_err(|e| format!("{e:?}"))?;
+    sets.register(id(7)?, empty).map_err(|e| format!("{e:?}"))?;
+    check_page_kinds(&sets)?;
     sets.register(id(5)?, unknown)
         .map_err(|e| format!("{e:?}"))?;
     let mut builder = EngineBuilder::default();
@@ -108,6 +153,12 @@ fn registered_total_consumes_only_the_admitted_search_snapshot()
     assert_eq!(response.body["requestSeq"], 9);
     assert_eq!(response.body["resultVersion"], json!(id(2)?));
     assert_eq!(response.body["sizes"][0]["size"]["bytes"], "7");
+    let refined_total = call(id(6)?, Some(id(2)?), &caller);
+    assert!(refined_total.error.is_none(), "{:?}", refined_total.error);
+    assert_eq!(refined_total.body["sizes"][0]["size"]["bytes"], "7");
+    let empty_total = call(id(7)?, None, &caller);
+    assert!(empty_total.error.is_none(), "{:?}", empty_total.error);
+    assert_eq!(empty_total.body["sizes"][0]["size"]["bytes"], "0");
     assert_eq!(
         call(id(4)?, None, &caller)
             .error

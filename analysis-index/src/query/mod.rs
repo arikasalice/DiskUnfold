@@ -5,16 +5,14 @@ pub mod page;
 pub(crate) mod plan;
 mod sorting;
 pub use condition::{Basis, Boundary, Condition, Kind, NameEncoding, NameTest, Predicate, Truth};
-
 /// Checks condition depth and group sizes before recursive normalization.
 pub fn validate_condition(condition: &Condition) -> Result<(), Error> {
     plan::check_shape(condition, 0)
 }
-pub use sorting::{Sort, SortSpec};
-
 use crate::{QueryError, ResultVersion, browse};
 use du_core_contracts::result::{ResultItem, ResultVersionRead};
 use du_core_contracts::{ItemRef, SizeAmount, SizeValue};
+pub use sorting::{Sort, SortSpec};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
@@ -186,6 +184,7 @@ pub struct QueryResult {
     pub sorts: Vec<SortSpec>,
     /// The navigation location that supplied candidates, if scoped.
     folder: Option<FolderLocation>,
+    row_kind: page::RowKind,
     /// Whether an earlier search excluded candidates it could not determine.
     inherited_uncertainty: bool,
     /// Comparison metadata not available in the current result source.
@@ -375,16 +374,16 @@ fn evaluate(
     let (first_key, other_keys) = prepared.split_first().ok_or(Error::UnknownSort)?;
     let mut rows = Vec::new();
     let mut unknown_count = 0;
-    let (ordinary, parent, folder) = match selection {
-        Selection::Version => (version.items(), None, None),
+    let (ordinary, parent, folder, row_kind) = match selection {
+        Selection::Version => (version.items(), None, None, page::RowKind::Search),
         Selection::Folder(location) => {
             let rows = match location {
                 FolderLocation::Item(item) => version.children(item),
                 FolderLocation::ScopeRoots => version.scope_roots(),
             };
-            (rows, None, Some(location))
+            (rows, None, Some(location), page::RowKind::Folder)
         }
-        Selection::Parent(parent) => (&[][..], Some(parent), parent.folder),
+        Selection::Parent(parent) => (&[][..], Some(parent), parent.folder, page::RowKind::Search),
     };
     let admitted = parent
         .into_iter()
@@ -444,6 +443,7 @@ fn evaluate(
         sort_descending: first.descending,
         sorts: sorts.iter().map(SortSpec::from).collect(),
         folder,
+        row_kind,
         inherited_uncertainty: parent
             .is_some_and(|parent| parent.unknown_count > 0 || parent.inherited_uncertainty),
         limitations: &[
