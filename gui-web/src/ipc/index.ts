@@ -46,6 +46,10 @@ import type {
   TargetListRequest,
   VolumeGapRequest,
   VolumeGapResponse,
+  VizLocate,
+  VizLocateRequest,
+  VizRows,
+  VizRowsRequest,
 } from "./generated/contracts";
 
 export { SIZE_UNIT_RULES } from "./generated/contracts";
@@ -103,6 +107,11 @@ export type {
   VolumeGapObservation,
   VolumeGapRequest,
   VolumeGapResponse,
+  VizLocate,
+  VizLocateRequest,
+  VizRow,
+  VizRows,
+  VizRowsRequest,
 } from "./generated/contracts";
 
 type Commands = {
@@ -127,6 +136,8 @@ type Commands = {
   "query.region.close": [QueryRegionCloseRequest, QueryRegionClosed];
   "query.cancel": [QueryCancelRequest, QueryCancelled];
   "query.page": [QueryPageRequest, QueryPageResponse];
+  "viz.rows": [VizRowsRequest, VizRows];
+  "viz.locate": [VizLocateRequest, VizLocate];
 };
 
 export interface AnalysisClient {
@@ -190,15 +201,31 @@ export function createAnalysisClient(
       name: K,
       body: Commands[K][0],
     ): Promise<Commands[K][1]> {
+      // Preserve the requested revision even if the caller reuses its object.
+      const requestedRevision =
+        name === "viz.rows"
+          ? (body as VizRowsRequest).resultRevision
+          : undefined;
+      const requestBody =
+        name === "viz.rows" ? { ...(body as VizRowsRequest) } : body;
       const envelope = {
         name,
-        body,
+        body: requestBody,
         correlationId: requestId(),
         contractVersion: 1,
       };
       const result = await transport("du_call", { envelope });
       if (result.error)
         throw new AnalysisError(result.error.code, result.error.reasonKey);
+      if (
+        requestedRevision !== undefined &&
+        (typeof result.body !== "object" ||
+          result.body === null ||
+          !("resultRevision" in result.body) ||
+          result.body.resultRevision !== requestedRevision)
+      ) {
+        throw new Error("DiskUnfold IPC returned a mismatched result revision");
+      }
       return result.body as Commands[K][1];
     },
     subscribe: subscribeNative,
