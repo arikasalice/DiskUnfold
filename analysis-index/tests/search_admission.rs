@@ -301,3 +301,117 @@ fn combined_parent_depth_is_rejected_before_evaluation() -> Result<(), String> {
     ));
     Ok(())
 }
+
+#[test]
+fn prepared_refinement_retains_parent_membership_and_pinned_version() -> Result<(), String> {
+    use du_analysis_index::query::{
+        NameEncoding, NameTest, SortSpec,
+        prepared::{PreparedSearch, SearchInput},
+    };
+    let store = IngestSink::default();
+    let mut scan = store.open(id(1)?).map_err(|e| format!("{e:?}"))?;
+    scan.add_directory(vec![]).map_err(|e| format!("{e:?}"))?;
+    for name in [b"alpha".as_slice(), b"beta".as_slice()] {
+        scan.add_file(Observation {
+            path: vec![name.to_vec()],
+            size: None,
+        })
+        .map_err(|e| format!("{e:?}"))?;
+    }
+    scan.seal(id(2)?, ResultCompleteness::Complete)
+        .map_err(|e| format!("{e:?}"))?;
+    let sets = Arc::new(ResultSets::new(store));
+    let registry = Registry::baseline();
+    let parent_condition = Condition::Predicate(Predicate::Name(
+        NameTest::StartsWith(b"a".to_vec()),
+        NameEncoding::Bytes,
+    ));
+    let source = sets
+        .admit_search(None, None)
+        .map_err(|e| format!("{e:?}"))?;
+    let parent = query::run(
+        &registry,
+        source.version(),
+        &parent_condition,
+        sort(),
+        || false,
+    )
+    .map_err(|e| format!("{e:?}"))?;
+    let checked = sets
+        .validate_search_candidate(source, parent, None)
+        .map_err(|e| format!("{e:?}"))?;
+    sets.register_admitted_search(id(5)?, checked)
+        .map_err(|e| format!("{e:?}"))?;
+    let admission = sets
+        .admit_search(Some(&id(2)?), Some(&id(5)?))
+        .map_err(|e| format!("{e:?}"))?;
+    let prepared = PreparedSearch::new(
+        sets.clone(),
+        admission,
+        &registry,
+        SearchInput {
+            condition: Condition::All(vec![]),
+            sorts: vec![SortSpec::from(&sort())],
+            count: None,
+        },
+    )
+    .map_err(|e| format!("{e:?}"))?;
+    let candidate = prepared.evaluate(|| false).map_err(|e| format!("{e:?}"))?;
+    let page = sets
+        .register_admitted_search(id(6)?, candidate)
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(page.metadata().version, &id(2)?);
+    assert_eq!(page.items().len(), 1);
+    assert_eq!(page.items()[0].item_no, 1);
+    Ok(())
+}
+
+#[test]
+fn cancelled_prepared_refinement_produces_no_publishable_candidate() -> Result<(), String> {
+    use du_analysis_index::query::{
+        SortSpec,
+        prepared::{PreparedSearch, PreparedSearchError, SearchInput},
+    };
+    let (_, sets) = fixture()?;
+    let registry = Registry::baseline();
+    let source = sets
+        .admit_search(None, None)
+        .map_err(|e| format!("{e:?}"))?;
+    let result = query::run(
+        &registry,
+        source.version(),
+        &Condition::All(vec![]),
+        sort(),
+        || false,
+    )
+    .map_err(|e| format!("{e:?}"))?;
+    let checked = sets
+        .validate_search_candidate(source, result, None)
+        .map_err(|e| format!("{e:?}"))?;
+    sets.register_admitted_search(id(5)?, checked)
+        .map_err(|e| format!("{e:?}"))?;
+    let parent = sets
+        .admit_search(None, Some(&id(5)?))
+        .map_err(|e| format!("{e:?}"))?;
+    let prepared = PreparedSearch::new(
+        sets.clone(),
+        parent,
+        &registry,
+        SearchInput {
+            condition: Condition::All(vec![]),
+            sorts: vec![SortSpec::from(&sort())],
+            count: None,
+        },
+    )
+    .map_err(|e| format!("{e:?}"))?;
+    assert!(matches!(
+        prepared.evaluate(|| true),
+        Err(PreparedSearchError::Query(Error::Cancelled))
+    ));
+    assert!(matches!(
+        sets.open_page(&id(6)?, &id(2)?, 0, None),
+        Err(PageError::StaleVersion)
+    ));
+    assert!(sets.open_page(&id(5)?, &id(2)?, 0, None).is_ok());
+    Ok(())
+}
