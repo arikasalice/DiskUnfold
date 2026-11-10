@@ -1,6 +1,8 @@
 use super::*;
 use std::sync::atomic::AtomicBool;
 
+mod subscriptions;
+
 struct QueryBody {
     kind: &'static str,
     entered: Arc<Barrier>,

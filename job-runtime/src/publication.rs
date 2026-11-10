@@ -1,8 +1,8 @@
 //! Serializes publication of prepared results with cancellation and terminal state.
-use crate::{JobRuntime, Publication, RuntimeError, Submission, SubmitResult};
+use crate::{CancelResult, JobRuntime, Publication, RuntimeError, Submission, SubmitResult};
 use du_core_contracts::{
     Id,
-    job::{HistoryMode, JobDescriptor, JobOutcome, ResourceClass},
+    job::{HistoryMode, JobDescriptor, JobOutcome, JobState, ResourceClass},
 };
 use std::sync::{Arc, Mutex};
 
@@ -55,6 +55,58 @@ impl JobRuntime {
             None,
             Some(Publication::Visualization(Box::new(publish))),
         )
+    }
+
+    /// Serializes a subscriber admission decision with model publication and cancellation.
+    /// The caller must admit a subscriber only while the supplied state permits it.
+    /// The callback must be bounded and in-memory and must not call the runtime.
+    pub fn inspect_viz_gate<T>(
+        &self,
+        id: &Id,
+        inspect: impl FnOnce(JobState) -> T,
+    ) -> Result<T, RuntimeError> {
+        self.with_viz_gate(id, |state, _| Ok(inspect(state)))
+    }
+
+    /// Detaches a subscriber under the same gate as model publication.
+    /// The callback returns true only when it removed the final active subscriber.
+    /// It must be bounded and in-memory and must not call the runtime. If the job
+    /// has already finished, the callback is skipped and the terminal state is returned.
+    pub fn cancel_viz_if(
+        &self,
+        id: &Id,
+        detach: impl FnOnce() -> Result<bool, RuntimeError>,
+    ) -> Result<Option<(CancelResult, u64)>, RuntimeError> {
+        self.with_viz_gate(id, |state, sequence| {
+            if state.is_terminal() {
+                return Ok(Some((CancelResult::AlreadyTerminal(state), sequence)));
+            }
+            if detach()? {
+                self.cancel_under_gate(id).map(Some)
+            } else {
+                Ok(None)
+            }
+        })
+    }
+
+    fn with_viz_gate<T>(
+        &self,
+        id: &Id,
+        operation: impl FnOnce(JobState, u64) -> Result<T, RuntimeError>,
+    ) -> Result<T, RuntimeError> {
+        let gate = self
+            .publication_gate(id)?
+            .ok_or(RuntimeError::InvalidState)?;
+        let _guard = gate.lock().map_err(|_| RuntimeError::Poisoned)?;
+        let (state, sequence) = {
+            let table = self.table.lock().map_err(|_| RuntimeError::Poisoned)?;
+            let job = table.jobs.get(id).ok_or(RuntimeError::NotFound)?;
+            if job.descriptor.kind_id != "viz.compute" {
+                return Err(RuntimeError::InvalidDescriptor);
+            }
+            (job.state, job.sequence)
+        };
+        operation(state, sequence)
     }
 
     pub(super) fn publication_gate(&self, id: &Id) -> Result<Option<Arc<Mutex<()>>>, RuntimeError> {

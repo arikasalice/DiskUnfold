@@ -277,6 +277,10 @@ impl JobRuntime {
             .map(|g| g.lock())
             .transpose()
             .map_err(|_| RuntimeError::Poisoned)?;
+        self.cancel_under_gate(id)
+    }
+
+    fn cancel_under_gate(&self, id: &Id) -> Result<(CancelResult, u64), RuntimeError> {
         let now = self.clock.now_ms();
         let mut table = self.table.lock().map_err(|_| RuntimeError::Poisoned)?;
         expire(&mut table, now);
