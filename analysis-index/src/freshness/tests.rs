@@ -192,3 +192,58 @@ fn summary_preserves_the_published_order() {
         assert_eq!(worst(states[..=index].iter().copied()), Some(expected));
     }
 }
+
+#[test]
+fn partial_refresh_keeps_unprocessed_ranges_and_marks_inaccessible_ranges() {
+    let ranges = [
+        (Settled::GapUnknown, evidence(), Settled::Observed),
+        (
+            Settled::ChangeNotified,
+            Reobservation {
+                processed: false,
+                ..evidence()
+            },
+            Settled::ChangeNotified,
+        ),
+        (
+            Settled::Observed,
+            Reobservation {
+                failed: true,
+                ..evidence()
+            },
+            Settled::Unverifiable,
+        ),
+    ];
+    for (previous, observation, expected) in ranges {
+        assert_eq!(
+            transition(
+                State::Refreshing { previous },
+                Event::CompleteRefresh(observation),
+            ),
+            Ok(State::Settled(expected))
+        );
+    }
+}
+
+#[test]
+fn terminal_events_cannot_be_applied_twice() {
+    let refreshing = State::Refreshing {
+        previous: Settled::GapUnknown,
+    };
+    // Abort covers cancellation, failure, and a superseded base result.
+    for terminal in [Event::AbortRefresh, Event::CompleteRefresh(evidence())] {
+        let settled = transition(refreshing, terminal);
+        assert!(settled.is_ok());
+        if let Ok(state) = settled {
+            assert_eq!(transition(state, terminal), Err(InvalidTransition));
+            assert_eq!(
+                transition(state, Event::AbortRefresh),
+                Err(InvalidTransition)
+            );
+            assert_eq!(
+                transition(state, Event::CompleteRefresh(evidence())),
+                Err(InvalidTransition)
+            );
+        }
+    }
+}
