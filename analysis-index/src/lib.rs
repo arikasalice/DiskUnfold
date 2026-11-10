@@ -1,5 +1,6 @@
 //! In-memory result publication and conservative per-subtree space aggregation.
 pub mod browse;
+mod directory_case;
 mod forest;
 pub mod freshness;
 pub mod group;
@@ -54,6 +55,7 @@ pub struct ResultVersion {
     root_indices: Vec<u32>,
     gaps: Vec<ResultScopeGap>,
     exact_gaps: BTreeMap<u32, Vec<usize>>,
+    directory_case: BTreeMap<u32, du_core_contracts::scan_observation::DirectoryCaseEvidence>,
     scope_total: Option<SpaceAggregate>,
     volume_reports: Vec<VolumeReport>,
     observed_at: Option<Timestamp>,
@@ -159,6 +161,7 @@ impl IngestSink {
             roots,
             gaps: Vec::new(),
             observations: BTreeMap::new(),
+            directory_case: BTreeMap::new(),
             issues: Vec::new(),
             volume_reports: Vec::new(),
             finished: false,
@@ -178,6 +181,8 @@ pub struct BuildHandle {
     roots: Vec<ResultScopeRoot>,
     gaps: Vec<ResultScopeGap>,
     observations: BTreeMap<(u32, Vec<Vec<u8>>), StoredObservation>,
+    directory_case:
+        BTreeMap<(u32, Vec<Vec<u8>>), du_core_contracts::scan_observation::DirectoryCaseEvidence>,
     issues: Vec<du_core_contracts::scan_failures::ScanIssue>,
     volume_reports: Vec<VolumeReport>,
     finished: bool,
@@ -251,23 +256,6 @@ impl BuildHandle {
             },
         )
     }
-    /// Adds a root, directory, or deliberately excluded link with no logical byte contribution.
-    ///
-    /// This does not indicate that an unread directory was successfully enumerated;
-    /// the caller must preserve any omitted work in the result completeness.
-    pub fn add_structure(&mut self, path: Vec<Vec<u8>>) -> Result<(), BuildError> {
-        self.insert(
-            path,
-            StoredObservation {
-                size: None,
-                kind: ResultItemKind::UnknownStructure,
-                physical: None,
-                modified_at: None,
-                observed_at: None,
-            },
-        )
-    }
-
     pub fn add(&mut self, observation: Observation) -> Result<(), BuildError> {
         let kind = if observation.size.is_some() {
             ResultItemKind::File
@@ -411,6 +399,7 @@ impl BuildHandle {
             }
             Some(total)
         };
+        let directory_case = directory_case::bind(&built, &self.directory_case);
         let result = Arc::new(ResultVersion {
             version_id,
             viz_models: Mutex::default(),
@@ -429,6 +418,7 @@ impl BuildHandle {
             root_indices: built.keys.into_iter().map(|(root, _)| root).collect(),
             gaps: self.gaps.clone(),
             exact_gaps,
+            directory_case,
             scope_total,
             volume_reports: self.volume_reports.clone(),
             observed_at,

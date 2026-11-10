@@ -56,6 +56,23 @@ pub(crate) fn mark_gaps(
 }
 
 impl BuildHandle {
+    /// Adds a root, directory, or deliberately excluded link with no logical byte contribution.
+    ///
+    /// This does not indicate that an unread directory was successfully enumerated;
+    /// the caller must preserve any omitted work in the result completeness.
+    pub fn add_structure(&mut self, path: Vec<Vec<u8>>) -> Result<(), BuildError> {
+        self.insert(
+            path,
+            StoredObservation {
+                size: None,
+                kind: ResultItemKind::UnknownStructure,
+                physical: None,
+                modified_at: None,
+                observed_at: None,
+            },
+        )
+    }
+
     /// Retains an observed modification time for an already admitted item.
     pub fn set_modified_at(
         &mut self,

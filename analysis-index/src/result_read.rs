@@ -217,6 +217,16 @@ pub(crate) fn ensure_directory(kind: ResultItemKind) -> Result<(), QueryError> {
     }
 }
 impl ResultVersionRead for ResultVersion {
+    fn directory_case_evidence(
+        &self,
+        item: &ItemRef,
+    ) -> Option<&du_core_contracts::scan_observation::DirectoryCaseEvidence> {
+        if item.result_version != self.version_id {
+            return None;
+        }
+        self.directory_case.get(&item.item_no)
+    }
+
     fn version_id(&self) -> &Id {
         &self.version_id
     }
