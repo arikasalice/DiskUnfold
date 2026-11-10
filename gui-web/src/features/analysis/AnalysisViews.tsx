@@ -1,4 +1,5 @@
 import { useState } from "react";
+import type { ReactNode } from "react";
 import {
   Action,
   Choice,
@@ -221,6 +222,7 @@ export function ScanOutput({
   cancelRequested,
   problem,
   roots,
+  actions,
 }: {
   client: AnalysisClient;
   scan: ReturnType<typeof useScanResult>;
@@ -229,6 +231,7 @@ export function ScanOutput({
   cancelRequested: boolean;
   problem: string | undefined;
   roots: readonly OsPath[];
+  actions: ReactNode;
 }) {
   const error = problem ?? scan.error ?? scan.status?.reasonKey;
   const awaitingTotals =
@@ -250,6 +253,7 @@ export function ScanOutput({
           />
         )}
       </div>
+      {actions}
       {running && <Progress label="Scanning folder" />}
       {error && <Notice tone="error">{error}</Notice>}
       {awaitingTotals && <Progress label="Reading space totals" />}

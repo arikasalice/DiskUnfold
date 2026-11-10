@@ -16,6 +16,8 @@ import type {
   AnalysisJobControl,
   AnalysisJobStatus,
   BrowseDetail,
+  BrowseOpenRequest,
+  BrowseOpenResponse,
   EventEnvelope,
   ScanFailures,
   ScanFailuresRequest,
@@ -56,6 +58,7 @@ function fixture({
   targetList = targets,
   readTotals = (result) => result,
   readReview = (result) => result,
+  beforeStart,
   readStatus = (result) => result,
   cancelJob,
   readFailures,
@@ -68,6 +71,7 @@ function fixture({
   targetList?: TargetList;
   readTotals?: (result: SpaceTotal) => SpaceTotal | Promise<SpaceTotal>;
   readReview?: (result: ScopeReview) => ScopeReview | Promise<ScopeReview>;
+  beforeStart?: () => Promise<void>;
   readStatus?: (result: AnalysisJobStatus) => AnalysisJobStatus;
   cancelJob?: () => AnalysisJobControl | Promise<AnalysisJobControl>;
   readFailures?: (
@@ -107,6 +111,7 @@ function fixture({
           });
         }
         case "scan.start":
+          if (beforeStart) await beforeStart();
           if (stale) throw new AnalysisError("STALE_VERSION", "scope.changed");
           return {
             jobRef: "scan",
@@ -167,6 +172,31 @@ function fixture({
         case "space.volume_gap":
           if (readVolume) return readVolume(body as VolumeGapRequest);
           throw new Error("Volume explanation unavailable");
+        case "browse.open": {
+          const request = body as BrowseOpenRequest;
+          return {
+            kind: "opened",
+            requestSeq: request.requestSeq,
+            origin: "scan",
+            location: { resultVersion: "result", itemNo: 0 },
+            breadcrumbs: [],
+            rootKind: "scope_root",
+            currentCorrespondence: false,
+            page: {
+              rowKind: "folder",
+              queryRef: "folder-query",
+              resultVersion: "result",
+              rows: [],
+              total: { state: "exact", count: 0 },
+              unknownCount: 0,
+              observedAt: timestamp,
+              completeness: "missing",
+              nextCursor: null,
+            },
+            sortStrategies: [],
+            predicateStrategies: [],
+          } satisfies BrowseOpenResponse;
+        }
         case "browse.detail": {
           const unavailable = {
             state: "unknown",
@@ -558,6 +588,66 @@ async function startFixtureScan(client: AnalysisClient) {
   await waitFor(() => expect(start.disabled).toBe(false));
   fireEvent.click(start);
 }
+
+test("F02: starting progress hands off to the scan receipt and its cancel action", async () => {
+  let release = () => {};
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const { client } = fixture({
+    beforeStart: () => pending,
+    readStatus: (base) => ({
+      ...base,
+      state: "running",
+      resultVersion: null,
+    }),
+  });
+  await startFixtureScan(client);
+  expect(
+    screen.getByRole("progressbar", { name: "Starting scan" }),
+  ).toBeDefined();
+  expect(
+    screen.getByRole<HTMLButtonElement>("button", { name: "Starting scan…" })
+      .disabled,
+  ).toBe(true);
+  expect(
+    screen.queryByRole("progressbar", { name: "Scanning folder" }),
+  ).toBeNull();
+  release();
+  const progress = await screen.findByRole("progressbar", {
+    name: "Scanning folder",
+  });
+  const cancel = screen.getByRole("button", { name: "Cancel scan" });
+  expect(cancel.compareDocumentPosition(progress)).toBe(
+    Node.DOCUMENT_POSITION_FOLLOWING,
+  );
+  expect(
+    screen.queryByRole("progressbar", { name: "Starting scan" }),
+  ).toBeNull();
+});
+
+test("F03: browse precedes result evidence and returning restores focus", async () => {
+  const { client, calls } = fixture();
+  await startFixtureScan(client);
+  const evidence = await screen.findByText("At least 42 bytes");
+  const browse = screen.getByRole("button", { name: "Browse folders" });
+  expect(browse.compareDocumentPosition(evidence)).toBe(
+    Node.DOCUMENT_POSITION_FOLLOWING,
+  );
+  fireEvent.click(browse);
+  await waitFor(() =>
+    expect(
+      calls.find(({ name }) => name === "browse.open")?.body,
+    ).toMatchObject({
+      resultVersion: "result",
+    }),
+  );
+  const back = screen.getByRole("button", { name: "Back to analysis" });
+  expect(document.activeElement).toBe(back);
+  fireEvent.click(back);
+  expect(document.activeElement).toBe(browse);
+  expect(screen.getByText("At least 42 bytes")).toBe(evidence);
+});
 
 function notifyResult(
   listeners: Set<(event: EventEnvelope) => void>,
@@ -1132,7 +1222,17 @@ test("F01 FR3: editing or removing a path rejects a late review and requires ano
   });
   fireEvent.change(input, { target: { value: "D:\\First" } });
   fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
+  expect(
+    screen.getByRole("progressbar", { name: "Reviewing scope" }),
+  ).toBeDefined();
+  expect(
+    screen.getByRole<HTMLButtonElement>("button", { name: "Reviewing scope…" })
+      .disabled,
+  ).toBe(true);
   fireEvent.change(input, { target: { value: "D:\\Changed" } });
+  expect(
+    screen.queryByRole("progressbar", { name: "Reviewing scope" }),
+  ).toBeNull();
   if (!release || !captured) throw new Error("Review was not started");
   await act(async () => release?.(captured as ScopeReview));
   const start = screen.getByRole<HTMLButtonElement>("button", {
@@ -1141,6 +1241,13 @@ test("F01 FR3: editing or removing a path rejects a late review and requires ano
   expect(start.disabled).toBe(true);
   fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
   await waitFor(() => expect(start.disabled).toBe(false));
+  const summary = screen.getByLabelText("Reviewed scope");
+  expect(input.compareDocumentPosition(summary)).toBe(
+    Node.DOCUMENT_POSITION_FOLLOWING,
+  );
+  expect(summary.compareDocumentPosition(start)).toBe(
+    Node.DOCUMENT_POSITION_FOLLOWING,
+  );
   fireEvent.click(screen.getByRole("button", { name: "Remove path 2" }));
   expect(start.disabled).toBe(true);
   expect(
@@ -1214,9 +1321,13 @@ test("F01 FR3: failed multi-path review retains input and rejects start", async 
   fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
   const message =
     "Check that every selected path is an accessible local folder, then review the scope again.";
-  await within(
+  const problem = await within(
     screen.getByRole("region", { name: "Target and scope" }),
   ).findByText(message);
+  const review = screen.getByRole("button", { name: "Review scope" });
+  expect(problem.compareDocumentPosition(review)).toBe(
+    Node.DOCUMENT_POSITION_FOLLOWING,
+  );
   expect(
     within(
       screen.getByRole("region", { name: "Scan and results" }),

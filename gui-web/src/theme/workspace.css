@@ -116,15 +116,19 @@ body {
 
 @media (min-width: 780px) and (max-height: 640px) {
   .du-app {
-    padding-block: 12px 4px;
+    padding-block: 10px 4px;
   }
 
   .du-app-header {
-    padding-bottom: 12px;
+    padding-bottom: 10px;
   }
 
   .du-analysis__header {
-    margin-block: 8px;
+    margin-block: 6px;
+  }
+
+  .du-analysis__grid {
+    gap: 12px;
   }
 
   .du-card {

@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Ref } from "react";
-import { Action, Heading, Notice, Readout, Text } from "../../components";
+import {
+  Action,
+  Heading,
+  Notice,
+  Progress,
+  Readout,
+  Text,
+} from "../../components";
 import { AnalysisError } from "../../ipc";
 import type {
   AnalysisClient,
@@ -99,25 +106,83 @@ function ReviewNotices({
   );
 }
 
-function BrowseResultsAction({
+function ScopeActions({
+  reviewing,
+  working,
+  running,
+  reviewEnabled,
+  startEnabled,
+  onReview,
+  onStart,
+}: {
+  reviewing: boolean;
+  working: boolean;
+  running: boolean;
+  reviewEnabled: boolean;
+  startEnabled: boolean;
+  onReview: () => void;
+  onStart: () => void;
+}) {
+  const blocked = reviewing || working || running;
+  const starting = working && !running;
+  return (
+    <>
+      {reviewing && <Progress label="Reviewing scope" />}
+      {starting && <Progress label="Starting scan" />}
+      <footer className="du-card__actions">
+        <Action
+          icon="folder"
+          isDisabled={blocked || !reviewEnabled}
+          onPress={onReview}
+        >
+          {reviewing ? "Reviewing scope…" : "Review scope"}
+        </Action>
+        <Action
+          icon="scan"
+          variant="primary"
+          isDisabled={blocked || !startEnabled}
+          onPress={onStart}
+        >
+          {starting ? "Starting scan…" : "Start scan"}
+        </Action>
+      </footer>
+    </>
+  );
+}
+
+function ResultActions({
   version,
   onBrowse,
   trigger,
+  running,
+  cancelRequested,
+  onCancel,
 }: {
   version: string | undefined;
   onBrowse: ((version: string) => void) | undefined;
   trigger: Ref<HTMLButtonElement> | undefined;
+  running: boolean;
+  cancelRequested: boolean;
+  onCancel: () => void;
 }) {
-  if (!version || !onBrowse) return null;
+  const browse = version && onBrowse && (
+    <Action
+      ref={trigger ?? null}
+      icon="folder"
+      onPress={() => onBrowse(version)}
+    >
+      Browse folders
+    </Action>
+  );
+  if (!browse && !running) return null;
   return (
     <div className="du-card__actions">
-      <Action
-        ref={trigger ?? null}
-        icon="folder"
-        onPress={() => onBrowse(version)}
-      >
-        Browse folders
-      </Action>
+      {browse}
+      {running && (
+        <Action isDisabled={cancelRequested} onPress={onCancel}>
+          Cancel scan
+        </Action>
+      )}
     </div>
   );
 }
@@ -300,13 +365,11 @@ export function AnalysisPanel({
   return (
     <section className="du-analysis" aria-labelledby="analysis-heading">
       <header className="du-analysis__header">
-        <Text kind="eyebrow">Analysis workspace</Text>
         <Heading level={2} id="analysis-heading">
           Disk analysis
         </Heading>
         <Text kind="muted">
-          Review a scope before scanning. See how much space the selected scope
-          uses.
+          Review a scope, then scan it to see its space totals.
         </Text>
       </header>
       <div className="du-analysis__grid">
@@ -324,33 +387,6 @@ export function AnalysisPanel({
             }
             pathDescription={pathDescription}
           />
-          <footer className="du-card__actions">
-            <Action
-              icon="folder"
-              isDisabled={
-                selected.some((path) => !path) ||
-                reviewing ||
-                working ||
-                running
-              }
-              onPress={() => void reviewScope()}
-            >
-              Review scope
-            </Action>
-            <Action
-              icon="scan"
-              variant="primary"
-              isDisabled={
-                !canStart(review, reviewedDraft) ||
-                reviewing ||
-                working ||
-                running
-              }
-              onPress={() => void start()}
-            >
-              Start scan
-            </Action>
-          </footer>
           {review && (
             <Readout
               label="Reviewed scope"
@@ -370,6 +406,15 @@ export function AnalysisPanel({
             input={reviewedDraft}
             problem={reviewProblem}
           />
+          <ScopeActions
+            reviewing={reviewing}
+            working={working}
+            running={running}
+            reviewEnabled={selected.every(Boolean)}
+            startEnabled={canStart(review, reviewedDraft)}
+            onReview={() => void reviewScope()}
+            onStart={() => void start()}
+          />
         </section>
         <section className="du-card" aria-label="Scan and results">
           <ScanOutput
@@ -380,22 +425,17 @@ export function AnalysisPanel({
             cancelRequested={cancelRequested}
             problem={error}
             roots={resultRoots}
+            actions={
+              <ResultActions
+                version={scan.total?.resultVersion}
+                onBrowse={onBrowse}
+                trigger={browseTrigger}
+                running={running}
+                cancelRequested={cancelRequested}
+                onCancel={() => void cancel()}
+              />
+            }
           />
-          <BrowseResultsAction
-            version={scan.total?.resultVersion}
-            onBrowse={onBrowse}
-            trigger={browseTrigger}
-          />
-          {running && (
-            <footer className="du-card__actions">
-              <Action
-                isDisabled={cancelRequested}
-                onPress={() => void cancel()}
-              >
-                Cancel scan
-              </Action>
-            </footer>
-          )}
         </section>
       </div>
     </section>
