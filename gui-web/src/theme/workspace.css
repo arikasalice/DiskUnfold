@@ -124,7 +124,12 @@ body {
   }
 
   .du-analysis__header {
-    margin-block: 6px;
+    gap: 2px;
+    margin-block: 4px;
+  }
+
+  .du-analysis__header .du-heading--2 {
+    font-size: 22px;
   }
 
   .du-analysis__grid {
@@ -138,6 +143,15 @@ body {
 
   .du-card__actions {
     padding-top: 10px;
+  }
+
+  .du-analysis__grid > .du-card {
+    gap: 8px;
+    padding-block: 12px;
+  }
+
+  .du-analysis__grid > .du-card > .du-card__actions {
+    padding-top: 8px;
   }
 }
 
