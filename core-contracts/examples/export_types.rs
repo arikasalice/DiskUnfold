@@ -1,4 +1,5 @@
 use du_core_contracts::browse_open_ipc::*;
+use du_core_contracts::browse_page_ipc::*;
 use du_core_contracts::history_ipc::*;
 use du_core_contracts::query_page_ipc::*;
 use du_core_contracts::result_events::{
@@ -141,6 +142,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         QueryPredicate::decl(&config),
         QueryCondition::decl(&config),
         BrowseOpenRequest::decl(&config),
+        ResultOrigin::decl(&config),
+        QueryStrategy::decl(&config),
+        IdentityCapability::decl(&config),
+        CorrespondenceKey::decl(&config),
+        FolderFlags::decl(&config),
+        FolderQueryRow::decl(&config),
+        SearchQueryRow::decl(&config),
+        QueryTotal::decl(&config),
+        FolderRowKind::decl(&config),
+        SearchRowKind::decl(&config),
+        QueryPage::<FolderQueryRow>::decl(&config),
+        FolderQueryPage::decl(&config),
+        SearchQueryPage::decl(&config),
+        QueryPageResponse::decl(&config),
+        BrowseBreadcrumb::decl(&config),
+        BrowseRootKind::decl(&config),
+        BrowseOpenResponse::decl(&config),
         BrowseDetailRequest::decl(&config),
         BrowseDetail::decl(&config),
         QueryPagePosition::decl(&config),

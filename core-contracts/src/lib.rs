@@ -2,6 +2,7 @@
 pub mod analysis_ipc;
 pub mod browse_ipc;
 pub mod browse_open_ipc;
+pub mod browse_page_ipc;
 pub mod change_notify;
 mod envelopes;
 pub mod history_ipc;

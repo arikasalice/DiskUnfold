@@ -3,7 +3,10 @@
 use std::sync::Arc;
 
 use du_analysis_index::{IngestSink, Observation};
-use du_core_contracts::{Id, browse_open_ipc::BrowseOpenRequest, result::ResultCompleteness};
+use du_core_contracts::{
+    Id, browse_open_ipc::BrowseOpenRequest, browse_page_ipc::ResultOrigin,
+    result::ResultCompleteness,
+};
 use du_engine_api::browse::folder::{
     AdmissionError, Error, FolderBrowse,
     cursor::{CursorError, Session},
@@ -59,7 +62,7 @@ fn filters_and_continues_on_the_admitted_version() -> Result<(), String> {
     assert_eq!(open.request_seq, 9);
     assert_eq!(open.page.opened.sort_strategies[0].id, "sort.path");
     assert_eq!(open.page.opened.sort_strategies[0].revision, 1);
-    let first = open.page.opened.page;
+    let first = open.page.opened.page.clone();
     assert_eq!(first.result_version, id(2));
     assert_eq!(first.completeness, ResultCompleteness::Partial);
     assert_eq!(first.unknown_count, 1);
@@ -67,7 +70,20 @@ fn filters_and_continues_on_the_admitted_version() -> Result<(), String> {
     let cursor = open
         .page
         .next_cursor
+        .clone()
         .ok_or("missing cursor for second folder")?;
+    let wire = open
+        .into_response(ResultOrigin("scan".into()))
+        .map_err(|error| format!("{error:?}"))?;
+    let body = serde_json::to_value(wire).map_err(|error| error.to_string())?;
+    assert_eq!(body["requestSeq"], 9);
+    assert_eq!(body["rootKind"], "scope_root");
+    assert_eq!(body["origin"], "scan");
+    assert_eq!(body["page"]["unknownCount"], 1);
+    let row = &body["page"]["rows"][0];
+    assert_eq!(row["flags"]["unenumerated"]["state"], "unknown");
+    assert_eq!(row["flags"]["excluded"]["state"], "unknown");
+    assert_eq!(row["correspondence"]["state"], "unknown");
     let continuation = serde_json::from_value(json!({ "nextCursor": cursor, "count": 1 }))
         .map_err(|error| error.to_string())?;
     let next = session
@@ -85,6 +101,11 @@ fn filters_and_continues_on_the_admitted_version() -> Result<(), String> {
         .read_request(position)
         .map_err(|error| format!("{error:?}"))?;
     assert_eq!(same.page, next.page);
+    let wire = next.into_response().map_err(|error| format!("{error:?}"))?;
+    let body = serde_json::to_value(wire).map_err(|error| error.to_string())?;
+    assert_eq!(body["rowKind"], "folder");
+    assert_eq!(body["resultVersion"], json!(first.result_version));
+    assert_eq!(body["unknownCount"], 1);
     Ok(())
 }
 

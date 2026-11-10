@@ -5,6 +5,7 @@
 //! transport, session composition and result-source resolution.
 mod admission;
 pub mod cursor;
+mod wire;
 pub use admission::{AdmissionError, LiveOpen};
 use std::sync::Arc;
 
