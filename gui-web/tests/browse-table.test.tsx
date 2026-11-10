@@ -1,3 +1,5 @@
+import { createRef } from "react";
+import type { RefObject } from "react";
 import {
   act,
   cleanup,
@@ -26,7 +28,11 @@ const fixture = [
   "Not enumerated · Excluded · Availability unknown",
 ] as const;
 
-function browseTable(count: number, query = "first") {
+function browseTable(
+  count: number,
+  query = "first",
+  scrollFooter?: RefObject<HTMLButtonElement | null>,
+) {
   return (
     <BrowseTable
       key={query}
@@ -34,6 +40,7 @@ function browseTable(count: number, query = "first") {
       columns={columns}
       rows={Array.from({ length: count }, (_, index) => index)}
       totalRows={count}
+      {...(scrollFooter ? { scrollFooter } : {})}
       getRowKey={(index) => "result:" + index}
       renderCells={(index) => [
         <Action onPress={() => undefined}>
@@ -54,7 +61,19 @@ afterEach(() => {
 function fakeGeometry() {
   let callback: FrameRequestCallback | undefined;
   let onResize: ResizeObserverCallback | undefined;
-  const values = { top: 0, width: 800, firstHeight: 64 };
+  const values = {
+    top: 0,
+    width: 800,
+    firstHeight: 64,
+    scrollY: 0,
+    footerBottom: window.innerHeight - 4,
+    documentHeight: 0,
+  };
+  vi.spyOn(window, "scrollY", "get").mockImplementation(() => values.scrollY);
+  const documentRoot = document.scrollingElement ?? document.documentElement;
+  vi.spyOn(documentRoot, "scrollHeight", "get").mockImplementation(
+    () => values.documentHeight,
+  );
   vi.spyOn(window, "requestAnimationFrame").mockImplementation((next) => {
     callback = next;
     return 1;
@@ -63,7 +82,11 @@ function fakeGeometry() {
     callback = undefined;
   });
   const scrollBy = vi.spyOn(window, "scrollBy").mockImplementation((_x, y) => {
-    if (typeof y === "number") values.top -= y;
+    if (typeof y === "number") {
+      values.top -= y;
+      values.scrollY += y;
+      values.footerBottom -= y;
+    }
   });
   vi.stubGlobal(
     "ResizeObserver",
@@ -78,6 +101,9 @@ function fakeGeometry() {
   );
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
     function (this: HTMLElement) {
+      if (this.dataset.footer !== undefined) {
+        return DOMRect.fromRect({ y: values.footerBottom - 42, height: 42 });
+      }
       if (this.tagName === "TBODY") return DOMRect.fromRect({ y: values.top });
       if (this.hasAttribute("data-row")) {
         return DOMRect.fromRect({
@@ -189,4 +215,73 @@ test("page append retains measurements and a new query resets the render window"
   expect(gap()).toBeUndefined();
   expect(screen.getByRole("button", { name: fixture[0] })).toBeDefined();
   expect(screen.queryByRole("button", { name: "Row 100" })).toBeNull();
+});
+
+test.each(["keyboard", "wheel", "pointer"] as const)(
+  "remeasurement reveals the footer only for current keyboard focus intent (%s)",
+  (intent) => {
+    const { values, flush, resized, scrollBy } = fakeGeometry();
+    const footerRef = createRef<HTMLButtonElement>();
+    render(
+      <>
+        {browseTable(200, "first", footerRef)}
+        <button ref={footerRef} data-footer>
+          Load more
+        </button>
+      </>,
+    );
+    flush();
+    const footer = screen.getByRole("button", { name: "Load more" });
+    vi.spyOn(footer, "matches").mockImplementation(
+      (selector) => selector === ":focus-visible" && intent !== "pointer",
+    );
+    act(() => footer.focus());
+    if (intent === "wheel") fireEvent.wheel(footer, { deltaY: -120 });
+
+    values.firstHeight += 80;
+    values.footerBottom += 80;
+    resized();
+
+    expect(document.activeElement).toBe(footer);
+    if (intent === "keyboard") {
+      expect(scrollBy).toHaveBeenCalledExactlyOnceWith(0, 80);
+      expect(footer.getBoundingClientRect().bottom).toBe(
+        window.innerHeight - 4,
+      );
+      fireEvent.scroll(window);
+      flush();
+      resized();
+      expect(scrollBy).toHaveBeenCalledTimes(1);
+    } else {
+      expect(scrollBy).not.toHaveBeenCalled();
+    }
+  },
+);
+
+test("a document-end scroll stays at the end while rows remeasure, but does not follow appended rows", () => {
+  const { values, flush, resized, scrollBy } = fakeGeometry();
+  const footer = createRef<HTMLButtonElement>();
+  const { rerender } = render(browseTable(200, "first", footer));
+  flush();
+  values.scrollY = 900;
+  values.documentHeight = window.innerHeight + values.scrollY;
+  fireEvent.scroll(window);
+
+  values.firstHeight += 80;
+  values.documentHeight += 80;
+  resized();
+  expect(scrollBy).toHaveBeenCalledExactlyOnceWith(0, 80);
+  expect(values.scrollY).toBe(980);
+
+  fireEvent.scroll(window);
+  flush();
+  resized();
+  expect(scrollBy).toHaveBeenCalledTimes(1);
+
+  fireEvent.scroll(window);
+  values.documentHeight += 200 * 64;
+  rerender(browseTable(400, "first", footer));
+  flush();
+  expect(values.scrollY).toBe(980);
+  expect(scrollBy).toHaveBeenCalledTimes(1);
 });

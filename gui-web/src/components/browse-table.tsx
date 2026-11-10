@@ -8,6 +8,7 @@ export function BrowseTable<Row>({
   columns,
   rows,
   pageFocus,
+  scrollFooter,
   totalRows,
   getRowKey,
   renderCells,
@@ -22,12 +23,16 @@ export function BrowseTable<Row>({
         button: RefObject<HTMLButtonElement | null>;
       }
     | undefined;
+  scrollFooter?: RefObject<HTMLButtonElement | null>;
   totalRows: number;
   getRowKey: (row: Row) => string;
   renderCells: (row: Row) => readonly ReactNode[];
 }) {
   const id = useId();
-  const { frame, body, watchRow, layout } = useDocumentRows(rows.length);
+  const { frame, body, watchRow, layout } = useDocumentRows(
+    rows.length,
+    scrollFooter,
+  );
   const [focusedRow, setFocusedRow] = useState<{
     index: number;
     key: string;

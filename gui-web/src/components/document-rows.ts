@@ -1,4 +1,5 @@
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import type { RefObject } from "react";
 
 const OVERSCAN = 10;
 const INITIAL_ROWS = 10;
@@ -64,8 +65,32 @@ function readRows(body: HTMLTableSectionElement, sizes: Map<number, number>) {
   return changed;
 }
 
+type ScrollIntent = "footer" | "end";
+
+function distanceToDocumentEnd() {
+  const documentRoot = document.scrollingElement ?? document.documentElement;
+  return documentRoot.scrollHeight - window.innerHeight - window.scrollY;
+}
+
+function scrollIntentDistance(
+  intent: ScrollIntent,
+  footer: HTMLButtonElement | null,
+) {
+  if (intent === "end") return Math.max(0, distanceToDocumentEnd());
+  if (!footer || document.activeElement !== footer) return 0;
+  const { top, bottom } = footer.getBoundingClientRect();
+  const margin = 4;
+  if (bottom > window.innerHeight - margin) {
+    return bottom - window.innerHeight + margin;
+  }
+  return Math.min(0, top - margin);
+}
+
 /** Virtualizes only the loaded rows in the document's existing scroll area. */
-export function useDocumentRows(count: number) {
+export function useDocumentRows(
+  count: number,
+  scrollFooter?: RefObject<HTMLButtonElement | null>,
+) {
   const frame = useRef<HTMLDivElement>(null);
   const body = useRef<HTMLTableSectionElement>(null);
   const observer = useRef<ResizeObserver>(null);
@@ -74,6 +99,18 @@ export function useDocumentRows(count: number) {
   const sizes = useRef(new Map<number, number>());
   const width = useRef(0);
   const anchor = useRef<{ position: number; scrollY: number }>(undefined);
+  const scrollIntent = useRef<ScrollIntent>(undefined);
+
+  function applyScrollIntent() {
+    if (!scrollIntent.current) return false;
+    const distance = scrollIntentDistance(
+      scrollIntent.current,
+      scrollFooter?.current ?? null,
+    );
+    if (Math.abs(distance) < 1) return false;
+    window.scrollBy(0, distance);
+    return true;
+  }
 
   const watchRow = useCallback((row: HTMLTableRowElement | null) => {
     if (!row) return;
@@ -86,6 +123,7 @@ export function useDocumentRows(count: number) {
     const section = body.current;
     if (!root || !section) return;
     let request: number | undefined;
+    scrollIntent.current = undefined;
 
     function refresh() {
       request = undefined;
@@ -111,9 +149,9 @@ export function useDocumentRows(count: number) {
       const index = rowAt(before.offsets, top);
       const canAnchor =
         changed &&
+        !scrollIntent.current &&
         top > 0 &&
-        index < count &&
-        index < before.offsets.length - 1;
+        index < Math.min(count, before.offsets.length - 1);
       const correction = canAnchor
         ? (offsets[index] ?? 0) - (before.offsets[index] ?? 0)
         : 0;
@@ -126,6 +164,8 @@ export function useDocumentRows(count: number) {
       if (changed || before.start !== next.start || before.end !== next.end) {
         current.current = next;
         setLayout(next);
+      } else if (!applyScrollIntent()) {
+        scrollIntent.current = undefined;
       }
     }
 
@@ -133,6 +173,31 @@ export function useDocumentRows(count: number) {
       if (request === undefined)
         request = window.requestAnimationFrame(refresh);
     };
+    function cancelScrollIntent() {
+      scrollIntent.current = undefined;
+    }
+
+    function onFocus(event: FocusEvent) {
+      const footer = scrollFooter?.current;
+      scrollIntent.current =
+        footer && event.target === footer && footer.matches(":focus-visible")
+          ? "footer"
+          : undefined;
+      if (scrollIntent.current) schedule();
+    }
+
+    function onScroll() {
+      if (
+        scrollFooter &&
+        scrollIntent.current !== "footer" &&
+        window.scrollY > 0 &&
+        Math.abs(distanceToDocumentEnd()) < 1
+      ) {
+        scrollIntent.current = "end";
+      }
+      schedule();
+    }
+
     if (typeof ResizeObserver !== "undefined") {
       observer.current = new ResizeObserver(schedule);
       observer.current.observe(root);
@@ -140,22 +205,46 @@ export function useDocumentRows(count: number) {
         observer.current.observe(row);
       }
     }
-    window.addEventListener("scroll", schedule, { passive: true });
+    window.addEventListener("scroll", onScroll, { passive: true });
     window.addEventListener("resize", schedule);
+    if (scrollFooter) {
+      window.addEventListener("focusin", onFocus);
+      window.addEventListener("focusout", cancelScrollIntent);
+      window.addEventListener("keydown", cancelScrollIntent, true);
+      window.addEventListener("pointerdown", cancelScrollIntent, true);
+      window.addEventListener("wheel", cancelScrollIntent, {
+        capture: true,
+        passive: true,
+      });
+      window.addEventListener("touchstart", cancelScrollIntent, {
+        capture: true,
+        passive: true,
+      });
+    }
     schedule();
     return () => {
-      window.removeEventListener("scroll", schedule);
+      window.removeEventListener("scroll", onScroll);
       window.removeEventListener("resize", schedule);
+      window.removeEventListener("focusin", onFocus);
+      window.removeEventListener("focusout", cancelScrollIntent);
+      window.removeEventListener("keydown", cancelScrollIntent, true);
+      window.removeEventListener("pointerdown", cancelScrollIntent, true);
+      window.removeEventListener("wheel", cancelScrollIntent, true);
+      window.removeEventListener("touchstart", cancelScrollIntent, true);
       observer.current?.disconnect();
       observer.current = null;
       if (request !== undefined) window.cancelAnimationFrame(request);
     };
-  }, [count]);
+  }, [count, scrollFooter]);
 
   useLayoutEffect(() => {
     const section = body.current;
     const pending = anchor.current;
     anchor.current = undefined;
+    if (scrollIntent.current) {
+      applyScrollIntent();
+      return;
+    }
     if (section && pending && window.scrollY === pending.scrollY) {
       const distance = pending.position + section.getBoundingClientRect().top;
       if (Math.abs(distance) >= 1) window.scrollBy(0, distance);

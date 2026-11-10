@@ -356,6 +356,7 @@ export function BrowsePanel({
             ]}
             rows={view.rows}
             pageFocus={view.pageFocus}
+            scrollFooter={loadMoreButton}
             getRowKey={(row) => rowKey(row.item)}
             totalRows={page.total.state === "exact" ? page.total.count : -1}
             renderCells={(row) => [
