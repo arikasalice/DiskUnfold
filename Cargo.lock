@@ -250,6 +250,9 @@ version = "0.1.0"
 [[package]]
 name = "du-guidance-rules"
 version = "0.1.0"
+dependencies = [
+ "du-core-contracts",
+]
 
 [[package]]
 name = "du-job-runtime"
