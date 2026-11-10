@@ -13,7 +13,8 @@ import { expect, test } from "vitest";
 
 const web = fileURLToPath(new URL("../", import.meta.url));
 
-test("rejects forbidden dependencies while accepting a local IPC client", () => {
+// Both fixtures start a separate dependency-cruiser process.
+test("enforces GUI dependency boundaries", { timeout: 20_000 }, () => {
   const sandbox = mkdtempSync(join(web, ".arch-fixture-"));
   try {
     for (const config of [".dependency-cruiser.cjs", "tsconfig.json"]) {
