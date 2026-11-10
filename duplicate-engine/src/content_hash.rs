@@ -1,11 +1,21 @@
 //! Purpose-separated BLAKE3 revision 1 for approved content observations.
 
-use crate::verification::{Digest, HashPurpose, HashStrategy};
+use crate::verification::{Digest, HashPurpose, HashStrategy, Strategies};
 
 const SAMPLE_CONTEXT: &str = "com.github.arikasalice.diskunfold.f09.blake3.v1.sample";
 const FULL_CONTEXT: &str = "com.github.arikasalice.diskunfold.f09.blake3.v1.full";
 
-pub(crate) struct Blake3V1;
+struct Blake3V1;
+
+impl Strategies<'static> {
+    /// Selects the published default for both filtering and full-file verification.
+    pub fn blake3_v1() -> Self {
+        Self {
+            sample: &Blake3V1,
+            full: &Blake3V1,
+        }
+    }
+}
 
 impl HashStrategy for Blake3V1 {
     fn id(&self) -> &str {

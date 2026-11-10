@@ -81,16 +81,6 @@ pub struct Strategies<'a> {
     pub full: &'a dyn HashStrategy,
 }
 
-impl Strategies<'static> {
-    /// Selects the published default for both filtering and full-file verification.
-    pub fn blake3_v1() -> Self {
-        Self {
-            sample: &crate::content_hash::Blake3V1,
-            full: &crate::content_hash::Blake3V1,
-        }
-    }
-}
-
 /// Item disposition. Candidates and deferred items are not verified duplicates.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum State {
