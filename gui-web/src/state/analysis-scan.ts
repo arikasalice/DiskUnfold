@@ -51,13 +51,14 @@ export function useScanResult(
           target: { kind: "scope_root" },
           requestSeq,
         });
+        if (!current) return;
         if (
-          current &&
-          result.requestSeq === requestSeq &&
-          result.resultVersion === next.resultVersion
+          result.requestSeq !== requestSeq ||
+          result.resultVersion !== next.resultVersion
         ) {
-          setTotal({ jobRef: receipt.jobRef, value: result });
+          throw new Error("The space totals do not match this scan's result.");
         }
+        setTotal({ jobRef: receipt.jobRef, value: result });
       } catch (failure) {
         if (current) {
           const unavailable =

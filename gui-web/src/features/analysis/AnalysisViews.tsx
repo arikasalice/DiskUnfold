@@ -187,6 +187,11 @@ export function ScanOutput({
   const state = scan.unavailable
     ? "unavailable"
     : (scan.status?.state ?? "queued");
+  const awaitingTotals =
+    !running &&
+    Boolean(scan.status?.resultVersion) &&
+    !scan.total &&
+    !scan.error;
   return (
     <>
       <div className="du-card__header">
@@ -202,6 +207,7 @@ export function ScanOutput({
       </div>
       {running && <Progress label="Scanning folder" />}
       {error && <Notice tone="error">{error}</Notice>}
+      {awaitingTotals && <Progress label="Reading space totals" />}
       {scan.total ? (
         <div className="du-results">
           <Text kind="muted">
@@ -229,7 +235,7 @@ export function ScanOutput({
             resultVersion={scan.total.resultVersion}
           />
         </div>
-      ) : (
+      ) : !awaitingTotals ? (
         <div className="du-empty">
           <Icon name="layers" />
           <Text>
@@ -241,7 +247,7 @@ export function ScanOutput({
               : "Review a folder and start a scan to see its space totals."}
           </Text>
         </div>
-      )}
+      ) : null}
     </>
   );
 }

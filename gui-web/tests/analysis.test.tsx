@@ -46,11 +46,13 @@ function fixture({
   earlyProbe,
   missingJob = false,
   targetList = targets,
+  readTotals = (result) => result,
 }: {
   stale?: boolean;
   earlyProbe?: EventEnvelope;
   missingJob?: boolean;
   targetList?: TargetList;
+  readTotals?: (result: SpaceTotal) => SpaceTotal | Promise<SpaceTotal>;
 } = {}) {
   const listeners = new Set<(event: EventEnvelope) => void>();
   const calls: { name: string; body: unknown }[] = [];
@@ -122,7 +124,7 @@ function fixture({
             inaccessibleRanges: null,
             untraversedLinks: "2",
           };
-          return result;
+          return readTotals(result);
         }
         case "browse.detail": {
           const unavailable = {
@@ -336,6 +338,53 @@ test("F01: stale scope disables start and requires review again", async () => {
   );
   expect(start.disabled).toBe(true);
   expect(calls.some((call) => call.name === "space.total")).toBe(false);
+});
+
+test("F03 IF-01: a pinned result shows loading before reading totals", async () => {
+  let release = () => {};
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const { client } = fixture({
+    readTotals: async (result) => {
+      await pending;
+      return result;
+    },
+  });
+  render(<App analysis={client} />);
+  fireEvent.click(await screen.findByRole("radio", { name: path.display }));
+  fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
+  const start = screen.getByRole<HTMLButtonElement>("button", {
+    name: "Start scan",
+  });
+  await waitFor(() => expect(start.disabled).toBe(false));
+  fireEvent.click(start);
+  await screen.findByRole("progressbar", { name: "Reading space totals" });
+  expect(screen.queryByText("No result to display")).toBeNull();
+  release();
+  expect(await screen.findByText("At least 42 bytes")).toBeDefined();
+  expect(
+    screen.queryByRole("progressbar", { name: "Reading space totals" }),
+  ).toBeNull();
+});
+
+test("F03 IF-01: a totals response for a different result version is rejected", async () => {
+  const { client } = fixture({
+    readTotals: (result) => ({ ...result, resultVersion: "stale" }),
+  });
+  render(<App analysis={client} />);
+  fireEvent.click(await screen.findByRole("radio", { name: path.display }));
+  fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
+  const start = screen.getByRole<HTMLButtonElement>("button", {
+    name: "Start scan",
+  });
+  await waitFor(() => expect(start.disabled).toBe(false));
+  fireEvent.click(start);
+  await screen.findByText("The space totals do not match this scan's result.");
+  expect(screen.queryByText("At least 42 bytes")).toBeNull();
+  expect(
+    screen.queryByRole("progressbar", { name: "Reading space totals" }),
+  ).toBeNull();
 });
 
 test("F24: an expired job releases the scan controls without inventing a result", async () => {
