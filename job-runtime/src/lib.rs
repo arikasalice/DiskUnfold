@@ -2,6 +2,7 @@
 mod delivery;
 mod flows;
 mod model;
+mod publication;
 mod shutdown;
 use delivery::{consume, enqueue};
 #[cfg(test)]
@@ -109,7 +110,7 @@ impl JobRuntime {
         Ok(())
     }
     pub fn submit(&self, submission: Submission) -> Result<SubmitResult, RuntimeError> {
-        self.submit_inner(submission, None)
+        self.submit_inner(submission, None, None)
     }
 
     /// Submits a job with a result binding stored for the job entry lifetime.
@@ -118,13 +119,14 @@ impl JobRuntime {
         submission: Submission,
         binding: ResultBinding,
     ) -> Result<SubmitResult, RuntimeError> {
-        self.submit_inner(submission, Some(binding))
+        self.submit_inner(submission, Some(binding), None)
     }
 
     fn submit_inner(
         &self,
         submission: Submission,
         result_binding: Option<ResultBinding>,
+        publication: Option<Publication>,
     ) -> Result<SubmitResult, RuntimeError> {
         let now = self.clock.now_ms();
         let body_kind = submission.body.kind_id().to_owned();
@@ -140,6 +142,13 @@ impl JobRuntime {
             .cloned()
             .ok_or(RuntimeError::KindUnknown)?;
         if body_kind != submission.kind_id {
+            return Err(RuntimeError::InvalidDescriptor);
+        }
+        if (descriptor.kind_id == "query.evaluate") != publication.is_some()
+            || (publication.is_some()
+                && (descriptor.history != HistoryMode::None
+                    || descriptor.resource_classes.as_slice() != [ResourceClass::Compute]))
+        {
             return Err(RuntimeError::InvalidDescriptor);
         }
         if let Some(key) = &submission.deduplication_key
@@ -179,6 +188,7 @@ impl JobRuntime {
             sample,
         } = submission;
         self.outstanding.fetch_add(1, Ordering::AcqRel);
+        let publication_gate = publication.as_ref().map(|_| Arc::new(Mutex::new(())));
         table.jobs.insert(
             id.clone(),
             Entry {
@@ -193,6 +203,8 @@ impl JobRuntime {
                     sample,
                 },
                 body: Some(body),
+                publication,
+                publication_gate,
                 state: JobState::Queued,
                 sequence: 1,
                 cancel: Arc::new(Cancellation(AtomicBool::new(false))),
@@ -237,6 +249,12 @@ impl JobRuntime {
 
     /// Applies cancellation and returns the sequence of the acknowledged state.
     pub fn cancel_with_sequence(&self, id: &Id) -> Result<(CancelResult, u64), RuntimeError> {
+        let gate = self.publication_gate(id)?;
+        let _publication_guard = gate
+            .as_ref()
+            .map(|g| g.lock())
+            .transpose()
+            .map_err(|_| RuntimeError::Poisoned)?;
         let now = self.clock.now_ms();
         let mut table = self.table.lock().map_err(|_| RuntimeError::Poisoned)?;
         expire(&mut table, now);
@@ -343,6 +361,8 @@ impl JobRuntime {
         job.sequence = sequence;
         let cancellation = job.cancel.clone();
         let body = job.body.take().ok_or(RuntimeError::InvalidState)?;
+        let publication = job.publication.take();
+        let gate = job.publication_gate.clone();
         drop(table);
         let context = Arc::new(flows::Context::new(
             id.clone(),
@@ -368,7 +388,7 @@ impl JobRuntime {
             outcome.completed_scope = false;
             outcome.failure_reason_key = Some("support.internal_error".into());
         }
-        self.finish(&id, outcome)?;
+        self.finish_with_publication(&id, outcome, gate, publication)?;
         Ok(Some(id))
     }
     fn finish(&self, id: &Id, outcome: JobOutcome) -> Result<u64, RuntimeError> {
@@ -396,6 +416,7 @@ impl JobRuntime {
             correlation_id: job.submission.correlation_id.clone(),
         };
         let released_body = job.body.take();
+        let released_publication = job.publication.take();
         job.submission.deduplication_key = None;
         job.summary = Some(summary.clone());
         let record = job.descriptor.history != HistoryMode::None && !job.submission.sample;
@@ -410,6 +431,7 @@ impl JobRuntime {
         );
         drop(table);
         drop(released_body);
+        drop(released_publication);
         delivery.map(|()| sequence)
     }
     #[cfg(test)]

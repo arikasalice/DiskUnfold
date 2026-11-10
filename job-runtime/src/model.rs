@@ -115,6 +115,7 @@ pub struct Submission {
     pub sample: bool,
 }
 pub(crate) struct Cancellation(pub(crate) AtomicBool);
+pub(crate) type Publication = Box<dyn FnOnce() -> Result<Id, String> + Send>;
 pub(crate) struct StoredSubmission {
     pub(crate) kind_id: String,
     pub(crate) deduplication_key: Option<DeduplicationKey>,
@@ -128,6 +129,8 @@ pub(crate) struct Entry {
     pub(crate) result_binding: Option<ResultBinding>,
     pub(crate) submission: StoredSubmission,
     pub(crate) body: Option<Arc<dyn JobBody>>,
+    pub(crate) publication: Option<Publication>,
+    pub(crate) publication_gate: Option<Arc<Mutex<()>>>,
     pub(crate) state: JobState,
     pub(crate) sequence: u64,
     pub(crate) cancel: Arc<Cancellation>,
