@@ -10,40 +10,6 @@ import {
 } from "lucide-react";
 import { ProgressBar } from "react-aria-components";
 
-/** A labelled table for non-interactive paged records. */
-export function DataTable({
-  label,
-  columns,
-  rows,
-}: {
-  label: string;
-  columns: string[];
-  rows: ReactNode[][];
-}) {
-  return (
-    <table aria-label={label}>
-      <thead>
-        <tr>
-          {columns.map((column) => (
-            <th scope="col" key={column}>
-              {column}
-            </th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row, index) => (
-          <tr key={index}>
-            {row.map((cell, column) => (
-              <td key={column}>{cell}</td>
-            ))}
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
-}
-
 const icons = {
   activity: Activity,
   alert: CircleAlert,

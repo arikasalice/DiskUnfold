@@ -9,7 +9,6 @@ export {
 } from "./controls";
 export {
   BrandMark,
-  DataTable,
   Heading,
   Icon,
   Metric,
@@ -19,6 +18,8 @@ export {
   StatusBadge,
   Text,
 } from "./presentation";
+
+export { DataTable } from "./data-table";
 
 export { GeometryRenderer } from "./geometry-renderer";
 export type {

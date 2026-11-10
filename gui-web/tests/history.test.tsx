@@ -5,6 +5,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { HistoryPanel } from "../src/features/history/HistoryPanel";
@@ -27,7 +28,7 @@ const response = (
   rows,
   nextCursor,
 });
-const row: HistoryListResponse["rows"][number] = {
+const row = {
   jobRef: "one",
   missingReasons: [],
   summary: {
@@ -42,7 +43,7 @@ const row: HistoryListResponse["rows"][number] = {
     relation: null,
     sessionRestoreAvailable: null,
   },
-};
+} satisfies HistoryListResponse["rows"][number];
 
 test("loads history, filters, and preserves opaque paging cursors", async () => {
   const call = vi
@@ -99,6 +100,29 @@ test("ignores a late response when filters change", async () => {
     finish?.(response([row]));
   });
   expect(screen.queryByRole("table", { name: "Operation history" })).toBeNull();
+});
+
+test("keeps each recorded count visible without numeric rounding", async () => {
+  const maximum = "9223372036854775807";
+  const sample = {
+    ...row,
+    summary: {
+      ...row.summary,
+      counts: {
+        completed: maximum,
+        overwritten: "0",
+        failed: "1",
+        skipped: "2",
+        unprocessed: "3",
+      },
+    },
+  };
+  const call = vi.fn().mockResolvedValue(response([sample]));
+  const client = historyEvents(call).client;
+  render(<HistoryPanel client={client} onClose={() => {}} />);
+  const counts = within(await screen.findByLabelText("Result counts"));
+  for (const value of [maximum, "0", "1", "2", "3"])
+    expect(counts.getByText(value)).toBeDefined();
 });
 
 test("restarts a stale page", async () => {

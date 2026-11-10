@@ -486,3 +486,52 @@ label.du-field > span {
     animation: none;
   }
 }
+
+.du-table-viewport {
+  max-block-size: min(624px, 58vh);
+  max-inline-size: 100%;
+  overflow: auto;
+}
+
+.du-data-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+  inline-size: 100%;
+}
+
+.du-data-table th,
+.du-data-table td {
+  padding: 0;
+  text-align: start;
+  vertical-align: top;
+}
+
+.du-data-table th {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 1;
+  background: var(--du-page);
+}
+
+.du-data-table th > div {
+  block-size: 48px;
+  padding: 12px 8px;
+}
+
+.du-table-cell {
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  padding: 8px;
+  border-block-start: 1px solid var(--du-border);
+}
+
+.du-table-viewport:focus-visible {
+  outline: 2px solid var(--du-focus);
+  outline-offset: -2px;
+}
+
+.du-table-spacer td {
+  padding: 0;
+  border: 0;
+}

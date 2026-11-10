@@ -6,6 +6,7 @@ import {
   Heading,
   Notice,
   Progress,
+  Readout,
   SelectField,
   Text,
 } from "../../components";
@@ -130,7 +131,9 @@ function HistoryPages({
         <DataTable
           label="Operation history"
           columns={["Job", "Scope", "State", "Counts", "Finished", "Details"]}
-          rows={page.rows.map(rowCells)}
+          columnWidths={[95, 100, 100, 240, 110, 145]}
+          rows={page.rows}
+          renderCells={rowCells}
         />
       )}
       {page?.nextCursor && (
@@ -164,9 +167,20 @@ function rowCells(row: HistoryListRow) {
     summary.kindId === "scan.metadata" ? "Disk analysis" : summary.kindId,
     summary.scopeSummary ?? "Unavailable",
     states.find(({ value }) => value === summary.state)?.label ?? "Unavailable",
-    counts
-      ? `Completed ${counts.completed} · Overwritten ${counts.overwritten} · Failed ${counts.failed} · Skipped ${counts.skipped} · Unprocessed ${counts.unprocessed}`
-      : "Unavailable",
+    counts ? (
+      <Readout
+        label="Result counts"
+        rows={[
+          { label: "Completed", value: counts.completed },
+          { label: "Overwritten", value: counts.overwritten },
+          { label: "Failed", value: counts.failed },
+          { label: "Skipped", value: counts.skipped },
+          { label: "Unprocessed", value: counts.unprocessed },
+        ]}
+      />
+    ) : (
+      "Unavailable"
+    ),
     time,
     [
       summary.relation ? `Follow-up: ${summary.relation}` : "",
