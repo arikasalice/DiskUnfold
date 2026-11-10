@@ -1,6 +1,7 @@
 //! In-memory result publication and conservative per-subtree space aggregation.
 pub mod browse;
 mod forest;
+pub mod freshness;
 pub mod group;
 mod issues;
 mod physical;
@@ -87,7 +88,6 @@ impl IngestSink {
             .map_err(|_| BuildError::Unavailable)?
             .pin())
     }
-
     /// Returns the stable current-analysis lineage for a canonical scope fingerprint.
     /// The caller supplies a unique candidate ID; an existing binding is reused.
     pub fn bind_current_analysis(
