@@ -1,3 +1,4 @@
+use du_core_contracts::history_ipc::*;
 use du_core_contracts::query_page_ipc::*;
 use du_core_contracts::result_events::{
     PublishedCompleteness, ResultVersionChange, ResultVersionChanged,
@@ -26,6 +27,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     fs::create_dir_all(&dir)?;
     let config = ts_rs::Config::default();
     let declarations = [
+        HistoryEndState::decl(&config),
+        HistoryRelation::decl(&config),
+        HistoryListFilter::decl(&config),
+        HistoryListRequest::decl(&config),
+        HistoryListRevision::decl(&config),
+        HistoryListCounts::decl(&config),
+        HistoryListSummary::decl(&config),
+        HistoryListRow::decl(&config),
+        HistoryListResponse::decl(&config),
         Id::decl(&config),
         ByteSize::decl(&config),
         Timestamp::decl(&config),

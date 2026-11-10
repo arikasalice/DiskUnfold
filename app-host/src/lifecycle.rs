@@ -22,7 +22,7 @@ fn asset(path: &str) -> Option<Asset> {
 
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(windows)]
-    let (locale, settings, history) = {
+    let (locale, settings, history, history_reader) = {
         let bundles = crate::locale::register()?;
         let configured = bundles.configured_languages().collect::<Vec<_>>();
         let data_dir = du_platform_os::application_data::directory().ok_or_else(|| {
@@ -31,10 +31,12 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         let database = crate::startup_database::open(&data_dir)?;
         let settings = crate::settings::StartupSettings::load(&database, &configured)?;
         let stored = settings.stored_language()?;
+        let reader = crate::history::HistoryReader::open(&data_dir, database.clone())?;
         (
             crate::locale::initialize(bundles, stored.as_deref())?,
             settings,
             database.history(crate::settings::current_time_ms),
+            reader,
         )
     };
     #[allow(unused_mut)]
@@ -48,6 +50,13 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         &du_platform_os::entropy::OsRandom,
         settings.scan_limit_source(),
     )?;
+    #[cfg(windows)]
+    du_engine_api::history::register(
+        &mut builder,
+        history_reader,
+        &du_platform_os::entropy::OsRandom,
+    )
+    .map_err(|error| std::io::Error::other(format!("history.storage_unavailable: {error:?}")))?;
     let engine = builder.build()?;
     let app = WebApp {
         asset,

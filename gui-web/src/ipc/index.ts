@@ -11,6 +11,8 @@ import type {
   BrowseDetailRequest,
   CallEnvelope,
   EventEnvelope,
+  HistoryListRequest,
+  HistoryListResponse,
   Id,
   OsPath,
   ResultEnvelope,
@@ -37,6 +39,15 @@ export type {
   BrowseDetail,
   BrowseValue,
   EventEnvelope,
+  HistoryEndState,
+  HistoryListCounts,
+  HistoryListFilter,
+  HistoryListRequest,
+  HistoryListResponse,
+  HistoryListRevision,
+  HistoryListRow,
+  HistoryListSummary,
+  HistoryRelation,
   JobState,
   OsPath,
   ScanFailureKind,
@@ -68,6 +79,7 @@ type Commands = {
   "scan.failures": [ScanFailuresRequest, ScanFailures];
   "job.get": [AnalysisJobRequest, AnalysisJobStatus];
   "job.cancel": [AnalysisJobRequest, AnalysisJobControl];
+  "history.list": [HistoryListRequest, HistoryListResponse];
   "space.total": [SpaceTotalRequest, SpaceTotal];
   "space.detail": [BrowseDetailRequest, SpaceDetail];
   "space.volume_gap": [VolumeGapRequest, VolumeGapResponse];

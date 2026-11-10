@@ -1,5 +1,7 @@
 //! Assemble the GUI and own its lifecycle.
 
+#[cfg(all(feature = "gui", windows))]
+mod history;
 #[cfg(feature = "gui")]
 mod ipc;
 #[cfg(feature = "gui")]

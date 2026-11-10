@@ -3,6 +3,7 @@ pub mod analysis_ipc;
 pub mod browse_ipc;
 pub mod change_notify;
 mod envelopes;
+pub mod history_ipc;
 pub mod job;
 pub mod ports;
 pub mod query_page_ipc;

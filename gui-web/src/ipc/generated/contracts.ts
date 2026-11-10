@@ -1,3 +1,16 @@
+export type HistoryEndState = "done" | "partial" | "failed" | "cancelled" | "interrupted";
+export type HistoryRelation = "retry" | "restore" | "move_undo" | "effect_check";
+export type HistoryListFilter = { finishedFromMs: number | null, finishedBeforeMs: number | null, kinds: Array<string>, states: Array<HistoryEndState>, relations: Array<HistoryRelation>, };
+export type HistoryListRequest = { filter: HistoryListFilter | null, cursor: string | null, count: number | null, };
+export type HistoryListRevision = { deleteGeneration: string, maxRecordSeq: string, };
+export type HistoryListCounts = { completed: string, overwritten: string, failed: string, skipped: string, unprocessed: string, };
+export type HistoryListSummary = { kindId: string, kindVersion: number, scopeSummary: string | null, state: HistoryEndState, counts: HistoryListCounts | null, startedAtMs: number | null, finishedAtMs: number | null, predecessorJobRef: Id | null, relation: HistoryRelation | null, sessionRestoreAvailable: boolean | null, };
+export type HistoryListRow = { jobRef: Id | null, summary: HistoryListSummary | null,
+/**
+ * Empty when complete. Each entry is a published omission reason.
+ */
+missingReasons: Array<string>, };
+export type HistoryListResponse = { revision: HistoryListRevision, rows: Array<HistoryListRow>, nextCursor: string | null, };
 export type Id = string;
 export type ByteSize = string;
 export type Timestamp = string;

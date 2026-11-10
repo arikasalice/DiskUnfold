@@ -78,10 +78,7 @@ fn decode<const N: usize>(part: Option<&str>) -> Result<[u8; N], EngineError> {
 }
 
 fn mac(key: &[u8; 32], payload: &[u8; PAYLOAD_LEN]) -> blake3::Hash {
-    let mut hasher = blake3::Hasher::new_keyed(key);
-    hasher.update(DOMAIN);
-    hasher.update(payload);
-    hasher.finalize()
+    crate::cursor_mac::mac(key, DOMAIN, payload)
 }
 
 fn invalid() -> EngineError {

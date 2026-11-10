@@ -237,10 +237,7 @@ impl Session {
     }
 
     fn mac(&self, payload: &[u8]) -> blake3::Hash {
-        let mut hash = blake3::Hasher::new_keyed(&self.key);
-        hash.update(DOMAIN);
-        hash.update(payload);
-        hash.finalize()
+        crate::cursor_mac::mac(&self.key, DOMAIN, payload)
     }
 }
 

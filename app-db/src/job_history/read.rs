@@ -3,6 +3,9 @@
 use rusqlite::{TransactionBehavior, params};
 
 use crate::AppDb;
+pub use du_core_contracts::history_ipc::{
+    HistoryEndState as EndState, HistoryListFilter as Filter, HistoryRelation as Relation,
+};
 
 /// The insertion bound and deletion generation captured on the first page.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -16,75 +19,6 @@ pub struct Revision {
 pub struct Position {
     pub reckon_at_ms: i64,
     pub record_seq: i64,
-}
-
-/// Terminal states and the interruption marker used by the history store.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum EndState {
-    Done,
-    Partial,
-    Failed,
-    Cancelled,
-    Interrupted,
-}
-
-impl EndState {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::Done => "done",
-            Self::Partial => "partial",
-            Self::Failed => "failed",
-            Self::Cancelled => "cancelled",
-            Self::Interrupted => "interrupted",
-        }
-    }
-}
-
-impl TryFrom<&str> for EndState {
-    type Error = ();
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        match value {
-            "done" => Ok(Self::Done),
-            "partial" => Ok(Self::Partial),
-            "failed" => Ok(Self::Failed),
-            "cancelled" => Ok(Self::Cancelled),
-            "interrupted" => Ok(Self::Interrupted),
-            _ => Err(()),
-        }
-    }
-}
-
-/// The registered relationship between a job and its predecessor.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum Relation {
-    Retry,
-    Restore,
-    MoveUndo,
-    EffectCheck,
-}
-
-impl Relation {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::Retry => "retry",
-            Self::Restore => "restore",
-            Self::MoveUndo => "move_undo",
-            Self::EffectCheck => "effect_check",
-        }
-    }
-}
-
-/// Storage filters. Kind groups are resolved to exact IDs by the caller.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct Filter {
-    /// Inclusive lower bound on the history ordering time.
-    pub from_ms: Option<i64>,
-    /// Exclusive upper bound on the history ordering time.
-    pub before_ms: Option<i64>,
-    /// Empty means any kind.
-    pub kind_ids: Vec<String>,
-    pub state: Option<EndState>,
-    pub relation: Option<Relation>,
 }
 
 /// Internal page position and original filter. Transport code authenticates it.
@@ -107,6 +41,7 @@ pub struct Summary {
     pub started_at_ms: Option<i64>,
     pub finished_at_ms: Option<i64>,
     pub predecessor_job_id: Option<[u8; 16]>,
+    pub relation: Option<Relation>,
 }
 
 /// A linked row. A missing or unreadable summary remains visible as an omission.
@@ -162,7 +97,7 @@ impl AppDb {
         after_state: impl FnOnce(),
     ) -> Result<Page, Error> {
         if !(1..=1000).contains(&limit)
-            || matches!((filter.from_ms, filter.before_ms), (Some(a), Some(b)) if a >= b)
+            || matches!((filter.finished_from_ms, filter.finished_before_ms), (Some(a), Some(b)) if a >= b)
             || continuation.as_ref().is_some_and(|cursor| {
                 cursor.filter != filter
                     || cursor.position.record_seq <= 0
@@ -200,21 +135,18 @@ impl AppDb {
         }
         after_state();
         let position = continuation.map(|cursor| cursor.position);
-        let kind_ids =
-            serde_json::to_string(&filter.kind_ids).map_err(|_| Error::InvalidRequest)?;
+        let categories = serde_json::to_string(&filter).map_err(|_| Error::InvalidRequest)?;
         let mut result = {
             let mut statement = tx.prepare(include_str!("read_page.sql"))?;
             statement
                 .query_map(
                     params![
                         revision.max_record_seq,
-                        filter.from_ms,
-                        filter.before_ms,
+                        filter.finished_from_ms,
+                        filter.finished_before_ms,
                         position.map(|key| key.reckon_at_ms),
                         position.map(|key| key.record_seq),
-                        kind_ids,
-                        filter.state.map(EndState::as_str),
-                        filter.relation.map(Relation::as_str),
+                        categories,
                         (limit + 1) as i64,
                     ],
                     |row| {
@@ -272,6 +204,12 @@ fn read_summary(row: &rusqlite::Row<'_>) -> rusqlite::Result<Summary> {
             unprocessed: count(11)?,
         })
     };
+    let relation: Option<String> = row.get(15)?;
+    let relation = relation
+        .as_deref()
+        .map(Relation::try_from)
+        .transpose()
+        .map_err(|()| rusqlite::Error::InvalidQuery)?;
     Ok(Summary {
         scope_summary: scope.filter(|scope| {
             kind_id == "scan.metadata" && kind_version == 1 && super::valid_scope(scope)
@@ -283,6 +221,7 @@ fn read_summary(row: &rusqlite::Row<'_>) -> rusqlite::Result<Summary> {
         started_at_ms: row.get(12)?,
         finished_at_ms: row.get(13)?,
         predecessor_job_id: row.get(14)?,
+        relation,
     })
 }
 

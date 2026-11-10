@@ -3,8 +3,10 @@
 pub mod api;
 pub mod browse;
 mod contracts;
+mod cursor_mac;
 pub mod desktop;
 pub mod error;
+pub mod history;
 pub mod jobs;
 mod pipeline;
 mod registry;

@@ -95,10 +95,10 @@ fn filter_and_read_connection_are_enforced() -> TestResult {
         append(&mut writer, n, i64::from(n) * 10)?;
     }
     let filter = Filter {
-        from_ms: Some(10),
-        before_ms: Some(30),
-        kind_ids: vec!["scan.metadata".into()],
-        state: Some(EndState::Done),
+        finished_from_ms: Some(10),
+        finished_before_ms: Some(30),
+        kinds: vec!["scan.metadata".into()],
+        states: vec![EndState::Done],
         ..Filter::default()
     };
     assert!(matches!(
@@ -125,7 +125,7 @@ fn filter_and_read_connection_are_enforced() -> TestResult {
         read(
             &mut reader,
             Filter {
-                relation: Some(Relation::Retry),
+                relations: vec![Relation::Retry],
                 ..filter
             },
             None,
@@ -172,8 +172,8 @@ fn interrupted_and_missing_summaries_preserve_sequence_without_leaking_paths() -
     let only_interrupted = read(
         &mut reader,
         Filter {
-            state: Some(EndState::Interrupted),
-            relation: Some(Relation::Retry),
+            states: vec![EndState::Interrupted],
+            relations: vec![Relation::Retry],
             ..Filter::default()
         },
         None,

@@ -21,10 +21,13 @@ WITH entries AS (
 )
 SELECT job_id, reckon_at_ms, record_seq, kind_id, kind_version, final_state, scope_summary,
        completed_count, overwritten_count, failed_count, skipped_count, unprocessed_count,
-       started_at_ms, finished_at_ms, predecessor_job_id
+       started_at_ms, finished_at_ms, predecessor_job_id, relation_kind
 FROM entries
-WHERE (?6 = '[]' OR kind_id IN (SELECT value FROM json_each(?6)))
-  AND (?7 IS NULL OR final_state = ?7)
-  AND (?8 IS NULL OR relation_kind = ?8)
+WHERE (json_array_length(?6, '$.kinds') = 0
+       OR kind_id IN (SELECT value FROM json_each(?6, '$.kinds')))
+  AND (json_array_length(?6, '$.states') = 0
+       OR final_state IN (SELECT value FROM json_each(?6, '$.states')))
+  AND (json_array_length(?6, '$.relations') = 0
+       OR relation_kind IN (SELECT value FROM json_each(?6, '$.relations')))
 ORDER BY reckon_at_ms DESC, record_seq DESC
-LIMIT ?9;
+LIMIT ?7;
