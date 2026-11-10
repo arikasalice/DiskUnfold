@@ -14,7 +14,15 @@ impl ResultVersion {
     /// cannot be displayed losslessly. This is not a current identity check.
     pub fn native_path(&self, item: &ItemRef) -> Result<ResultNativePath, QueryError> {
         let detail = self.detail(item)?;
-        let root = self.observed_root().ok_or(QueryError::PathUnavailable)?;
+        let root_index = *self
+            .root_indices
+            .get(detail.item.item_no as usize)
+            .ok_or(QueryError::PathUnavailable)? as usize;
+        let root = self
+            .roots
+            .get(root_index)
+            .or_else(|| self.observed_root())
+            .ok_or(QueryError::PathUnavailable)?;
         let mut raw = root.path.raw.bytes().map_err(|_| QueryError::InvalidPath)?;
         let separator = match root.path.encoding {
             PathEncoding::Unix if raw.starts_with(b"/") && !raw.contains(&0) => b"/".as_slice(),

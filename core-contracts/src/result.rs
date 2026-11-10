@@ -72,6 +72,15 @@ pub struct ResultScopeRoot {
     pub file_id: Vec<u8>,
 }
 
+/// An unread range relative to one verified scope root.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ResultScopeGap {
+    pub root_index: u32,
+    pub path: Vec<Vec<u8>>,
+    pub reason_key: String,
+    pub observed_at: Option<Timestamp>,
+}
+
 /// An immutable snapshot held by the reader independently of later publications.
 pub trait ResultVersionRead: Send + Sync {
     fn version_id(&self) -> &Id;
@@ -82,6 +91,16 @@ pub trait ResultVersionRead: Send + Sync {
     /// Returns verified root evidence when the source retained it at collection time.
     fn observed_root(&self) -> Option<&ResultScopeRoot> {
         None
+    }
+
+    /// Root evidence in producer order; empty for legacy results without evidence.
+    fn observed_roots(&self) -> &[ResultScopeRoot] {
+        &[]
+    }
+
+    /// Unread ranges explicitly reported by the collector.
+    fn scope_gaps(&self) -> &[ResultScopeGap] {
+        &[]
     }
 
     /// UTC when the collector submitted the observations retained by this version.

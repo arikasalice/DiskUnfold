@@ -12,6 +12,29 @@ pub struct FolderView<'a> {
     pub children: &'a [ResultItem],
 }
 
+/// Default navigation without inventing an item for a forest's virtual top.
+pub enum ScopeView<'a> {
+    /// A single actual root retains the existing folder view.
+    Single(FolderView<'a>),
+    /// Multiple actual roots are children of a separate virtual location.
+    Forest {
+        roots: &'a [ResultItem],
+        total: &'a du_core_contracts::result::SpaceAggregate,
+    },
+}
+
+/// Opens the default navigation location for a single root or a forest.
+pub fn open_scope(version: &ResultVersion) -> Result<ScopeView<'_>, QueryError> {
+    match version.scope_roots().len() {
+        0 => Err(QueryError::NotFound),
+        1 => open(version, None).map(ScopeView::Single),
+        _ => Ok(ScopeView::Forest {
+            roots: version.scope_roots(),
+            total: version.scope_total(),
+        }),
+    }
+}
+
 /// Opens a confirmed directory in an already pinned result version.
 ///
 /// `None` selects the scope root. A reference from another version fails with
@@ -36,7 +59,10 @@ pub(crate) fn directory<'a>(
 ) -> Result<&'a ResultItem, QueryError> {
     let item = match location {
         Some(reference) => version.detail(reference)?.item,
-        None => version.items.first().ok_or(QueryError::NotFound)?,
+        None if version.scope_roots().len() == 1 => {
+            version.items.first().ok_or(QueryError::NotFound)?
+        }
+        None => return Err(QueryError::PathUnavailable),
     };
     ensure_directory(item.kind)?;
     Ok(item)

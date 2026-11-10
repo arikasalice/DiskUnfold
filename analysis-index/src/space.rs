@@ -168,3 +168,51 @@ pub(crate) fn aggregate(
     }
     sums.iter().map(|sum| sum.finish(completeness)).collect()
 }
+
+/// Computes a forest-wide total directly from observations, not subtree totals.
+pub(crate) fn scope_total(
+    items: &[ResultItem],
+    structures: &[bool],
+    completeness: ResultCompleteness,
+) -> SpaceAggregate {
+    let mut sum = Accumulator::default();
+    for item in items {
+        let index = item.item_no as usize;
+        if item.kind == ResultItemKind::UntraversedLink {
+            sum.untraversed_links += 1;
+        } else if !structures[index] {
+            sum.observe(item.size.as_ref());
+        }
+    }
+    sum.finish(completeness)
+}
+
+/// Marks known unread ranges without converting unknown data into zero.
+pub(crate) fn mark_inaccessible(aggregate: &mut SpaceAggregate, count: u64) {
+    fn mark(value: &mut SizeValue) {
+        if let SizeAmount::Exact { bytes } = &value.amount {
+            value.amount = if bytes.as_str() == "0" {
+                SizeAmount::Unknown
+            } else {
+                SizeAmount::LowerBound {
+                    bytes: bytes.clone(),
+                }
+            };
+            if value.amount == SizeAmount::Unknown {
+                value.evidence = SizeEvidence::Unknown;
+            }
+        }
+    }
+    fn state(value: &mut ResultCompleteness) {
+        if *value == ResultCompleteness::Complete {
+            *value = ResultCompleteness::Missing;
+        }
+    }
+    mark(&mut aggregate.logical);
+    mark(&mut aggregate.allocated);
+    mark(&mut aggregate.unique_physical);
+    state(&mut aggregate.completeness);
+    state(&mut aggregate.allocated_completeness);
+    state(&mut aggregate.unique_physical_completeness);
+    aggregate.inaccessible_ranges = Some(count);
+}

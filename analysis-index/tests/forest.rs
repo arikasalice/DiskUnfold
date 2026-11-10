@@ -1,0 +1,272 @@
+use du_analysis_index::{
+    FileIdentity, IngestSink, Observation, QueryError, SharingEvidence, SpaceObservation, browse,
+};
+use du_core_contracts::{
+    ByteSize, Id, ItemRef, PathBytes, PathEncoding, SizeAmount, SizeBasis, SizeEvidence, SizeValue,
+    result::{ResultCompleteness, ResultNativePath, ResultScopeRoot, ResultVersionRead},
+};
+
+fn id(n: u8) -> Result<Id, String> {
+    Id::parse(&format!("018f0000-0000-7000-8000-{n:012x}"))
+}
+fn bytes(path: &str) -> Vec<u8> {
+    path.encode_utf16().flat_map(u16::to_le_bytes).collect()
+}
+fn root(path: &str, volume: u8) -> ResultScopeRoot {
+    ResultScopeRoot {
+        path: ResultNativePath {
+            encoding: PathEncoding::WindowsUtf16le,
+            raw: PathBytes::from_bytes(&bytes(path)),
+        },
+        volume_id: vec![volume],
+        file_id: vec![9],
+    }
+}
+fn amount(value: u64, basis: SizeBasis, evidence: SizeEvidence) -> SizeValue {
+    SizeValue {
+        basis,
+        evidence,
+        amount: SizeAmount::Exact {
+            bytes: ByteSize::from(value),
+        },
+    }
+}
+fn path() -> Vec<Vec<u8>> {
+    vec![bytes("same.txt")]
+}
+fn physical(volume: u8) -> SpaceObservation {
+    SpaceObservation {
+        allocated: Some(amount(10, SizeBasis::Allocated, SizeEvidence::OsReported)),
+        identity: Some(FileIdentity {
+            volume: vec![volume],
+            file: vec![1],
+        }),
+        link_count: Some(2),
+        sharing: SharingEvidence::None,
+    }
+}
+fn add_file(
+    build: &mut du_analysis_index::BuildHandle,
+    index: u32,
+    volume: u8,
+) -> Result<(), String> {
+    build
+        .add_with_space_at(
+            index,
+            Observation {
+                path: path(),
+                size: Some(amount(10, SizeBasis::Logical, SizeEvidence::Measured)),
+            },
+            physical(volume),
+        )
+        .map_err(|e| format!("{e:?}"))
+}
+
+#[test]
+fn forest_roots_keep_identity_and_scope_deduplicates_across_volumes() -> Result<(), String> {
+    let sink = IngestSink::default();
+    let roots = vec![
+        root("C:\\First\\Same", 1),
+        root("C:\\Second\\Same", 1),
+        root("D:\\Same", 2),
+    ];
+    let mut build = sink
+        .open_forest(id(1)?, roots.clone())
+        .map_err(|e| format!("{e:?}"))?;
+    for index in 0..3 {
+        build
+            .add_directory_at(index, vec![])
+            .map_err(|e| format!("{e:?}"))?;
+    }
+    add_file(&mut build, 0, 1)?;
+    add_file(&mut build, 1, 1)?;
+    add_file(&mut build, 2, 2)?;
+    let result = build
+        .seal(id(2)?, ResultCompleteness::Complete)
+        .map_err(|e| format!("{e:?}"))?;
+    assert!(result.observed_root().is_none());
+    assert_eq!(result.observed_roots(), roots);
+    assert_eq!(result.scope_roots().len(), 3);
+    assert!(
+        result
+            .scope_roots()
+            .iter()
+            .all(|item| item.parent.is_none())
+    );
+    assert!(matches!(
+        browse::open(&result, None),
+        Err(QueryError::PathUnavailable)
+    ));
+    match browse::open_scope(&result).map_err(|e| format!("{e:?}"))? {
+        browse::ScopeView::Forest { roots, total } => {
+            assert_eq!(roots.len(), 3);
+            assert_eq!(total, result.scope_total());
+        }
+        browse::ScopeView::Single(_) => return Err("forest exposed as a single root".into()),
+    }
+    assert_eq!(
+        result.scope_total().logical.amount,
+        SizeAmount::Exact {
+            bytes: ByteSize::from(30)
+        }
+    );
+    assert_eq!(
+        result.scope_total().allocated.amount,
+        SizeAmount::Exact {
+            bytes: ByteSize::from(20)
+        }
+    );
+    assert_eq!(
+        result.scope_total().unique_physical.amount,
+        SizeAmount::Exact {
+            bytes: ByteSize::from(20)
+        }
+    );
+    for (index, prefix) in ["C:\\First\\Same", "C:\\Second\\Same", "D:\\Same"]
+        .into_iter()
+        .enumerate()
+    {
+        let item = ItemRef {
+            result_version: id(2)?,
+            item_no: (index + 3) as u32,
+        };
+        let native = result.native_path(&item).map_err(|e| format!("{e:?}"))?;
+        assert_eq!(
+            result
+                .observed_root_for(&item)
+                .map_err(|e| format!("{e:?}"))?
+                .0,
+            index as u32
+        );
+        assert_eq!(
+            native.raw.bytes().map_err(|e| e.to_string())?,
+            bytes(&format!("{prefix}\\same.txt"))
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn gaps_are_pinned_per_root_and_never_become_zero_or_complete() -> Result<(), String> {
+    let sink = IngestSink::default();
+    let mut build = sink
+        .open_forest(id(1)?, vec![root("C:\\A", 1), root("D:\\B", 2)])
+        .map_err(|e| format!("{e:?}"))?;
+    build
+        .add_directory_at(0, vec![])
+        .map_err(|e| format!("{e:?}"))?;
+    build
+        .add_directory_at(1, vec![])
+        .map_err(|e| format!("{e:?}"))?;
+    add_file(&mut build, 0, 1)?;
+    build
+        .record_gap_at(1, vec![], "scan.path_denied".into(), None)
+        .map_err(|e| format!("{e:?}"))?;
+    let partial = build
+        .publish_partial(id(2)?)
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(partial.completeness(), ResultCompleteness::Partial);
+    let result = build
+        .seal(id(3)?, ResultCompleteness::Complete)
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(result.completeness(), ResultCompleteness::Missing);
+    assert_eq!(result.scope_gaps().len(), 1);
+    assert_eq!(result.scope_total().inaccessible_ranges, Some(1));
+    assert_eq!(
+        result.scope_total().logical.amount,
+        SizeAmount::LowerBound {
+            bytes: ByteSize::from(10)
+        }
+    );
+    assert_eq!(
+        result.space(1).ok_or("root")?.logical.amount,
+        SizeAmount::Unknown
+    );
+    assert_eq!(
+        result.space(0).ok_or("root")?.logical.amount,
+        SizeAmount::Exact {
+            bytes: ByteSize::from(10)
+        }
+    );
+    assert_eq!(partial.scope_gaps(), result.scope_gaps());
+    Ok(())
+}
+
+#[test]
+fn one_root_forest_preserves_existing_root_and_default_browse() -> Result<(), String> {
+    let sink = IngestSink::default();
+    let evidence = root("C:\\Only", 1);
+    let mut build = sink
+        .open_forest(id(1)?, vec![evidence.clone()])
+        .map_err(|e| format!("{e:?}"))?;
+    build
+        .add_directory_at(0, vec![])
+        .map_err(|e| format!("{e:?}"))?;
+    let result = build
+        .seal(id(2)?, ResultCompleteness::Complete)
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(result.observed_root(), Some(&evidence));
+    assert_eq!(
+        browse::open(&result, None)
+            .map_err(|e| format!("{e:?}"))?
+            .location
+            .item_no,
+        0
+    );
+    assert_eq!(result.scope_total(), result.space(0).ok_or("root")?);
+    Ok(())
+}
+
+#[test]
+fn unknown_observation_and_cancelled_root_gap_remain_incomplete() -> Result<(), String> {
+    use du_core_contracts::result::ResultItemKind;
+    let sink = IngestSink::default();
+    let mut build = sink
+        .open_forest(id(1)?, vec![root("C:\\A", 1), root("D:\\B", 2)])
+        .map_err(|e| format!("{e:?}"))?;
+    for index in 0..2 {
+        build
+            .add_directory_at(index, vec![])
+            .map_err(|e| format!("{e:?}"))?;
+    }
+    build
+        .add_at(
+            0,
+            Observation {
+                path: path(),
+                size: None,
+            },
+        )
+        .map_err(|e| format!("{e:?}"))?;
+    build
+        .record_gap_at(1, vec![], "scan.path_denied".into(), None)
+        .map_err(|e| format!("{e:?}"))?;
+    let result = build
+        .seal(id(2)?, ResultCompleteness::Cancelled)
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(result.items()[2].kind, ResultItemKind::Unknown);
+    assert_eq!(result.scope_total().logical.amount, SizeAmount::Unknown);
+    assert_eq!(
+        result.scope_total().completeness,
+        ResultCompleteness::Cancelled
+    );
+    assert_eq!(result.scope_total().inaccessible_ranges, Some(1));
+    Ok(())
+}
+
+#[test]
+fn missing_root_cannot_be_published_as_an_empty_success() -> Result<(), String> {
+    let sink = IngestSink::default();
+    let mut build = sink
+        .open_forest(id(1)?, vec![root("C:\\A", 1), root("D:\\B", 2)])
+        .map_err(|e| format!("{e:?}"))?;
+    build
+        .add_directory_at(0, vec![])
+        .map_err(|e| format!("{e:?}"))?;
+    assert!(matches!(
+        build.publish_partial(id(2)?),
+        Err(du_analysis_index::BuildError::InvalidTree)
+    ));
+    assert!(sink.pin().map_err(|e| format!("{e:?}"))?.is_none());
+    Ok(())
+}

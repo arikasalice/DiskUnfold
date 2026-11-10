@@ -1,13 +1,15 @@
 //! In-memory result publication and conservative per-subtree space aggregation.
 pub mod browse;
+mod forest;
 mod physical;
 pub mod query;
 mod result_path;
 mod result_read;
 mod space;
+mod tree;
 pub mod visualization;
 use du_core_contracts::result::{
-    ResultCompleteness, ResultItem, ResultItemKind, ResultScopeRoot, SpaceAggregate,
+    ResultCompleteness, ResultItem, ResultItemKind, ResultScopeGap, ResultScopeRoot, SpaceAggregate,
 };
 use du_core_contracts::{Id, SizeValue, Timestamp};
 pub use physical::{FileIdentity, SharingEvidence, SpaceObservation};
@@ -41,6 +43,10 @@ pub struct ResultVersion {
     aggregates: Vec<SpaceAggregate>,
     physical: Option<Vec<Option<SpaceObservation>>>,
     observed_root: Option<Arc<ResultScopeRoot>>,
+    roots: Vec<ResultScopeRoot>,
+    root_indices: Vec<u32>,
+    gaps: Vec<ResultScopeGap>,
+    scope_total: SpaceAggregate,
     observed_at: Option<Timestamp>,
 }
 
@@ -86,7 +92,7 @@ impl IngestSink {
             .clone())
     }
     pub fn open(&self, scope_version_id: Id) -> Result<BuildHandle, BuildError> {
-        self.begin(scope_version_id, None)
+        self.begin(scope_version_id, None, Vec::new())
     }
 
     /// Opens a build whose publications all retain the same verified root evidence.
@@ -95,13 +101,28 @@ impl IngestSink {
         scope_version_id: Id,
         root: ResultScopeRoot,
     ) -> Result<BuildHandle, BuildError> {
-        self.begin(scope_version_id, Some(Arc::new(root)))
+        self.begin(scope_version_id, Some(Arc::new(root.clone())), vec![root])
+    }
+
+    /// Opens one build for actual roots in producer order, without a synthetic item.
+    /// Root indices are zero-based positions in `roots` and stay fixed during the build.
+    pub fn open_forest(
+        &self,
+        scope_version_id: Id,
+        roots: Vec<ResultScopeRoot>,
+    ) -> Result<BuildHandle, BuildError> {
+        if roots.is_empty() || u32::try_from(roots.len()).is_err() {
+            return Err(BuildError::InvalidTree);
+        }
+        let single = (roots.len() == 1).then(|| Arc::new(roots[0].clone()));
+        self.begin(scope_version_id, single, roots)
     }
 
     fn begin(
         &self,
         scope_version_id: Id,
         observed_root: Option<Arc<ResultScopeRoot>>,
+        roots: Vec<ResultScopeRoot>,
     ) -> Result<BuildHandle, BuildError> {
         let mut state = self.state.lock().map_err(|_| BuildError::Unavailable)?;
         if state.active {
@@ -113,6 +134,8 @@ impl IngestSink {
             baseline: state.current.clone(),
             scope_version_id,
             observed_root,
+            roots,
+            gaps: Vec::new(),
             observations: BTreeMap::new(),
             finished: false,
         })
@@ -125,7 +148,9 @@ pub struct BuildHandle {
     baseline: Option<Arc<ResultVersion>>,
     scope_version_id: Id,
     observed_root: Option<Arc<ResultScopeRoot>>,
-    observations: BTreeMap<Vec<Vec<u8>>, StoredObservation>,
+    roots: Vec<ResultScopeRoot>,
+    gaps: Vec<ResultScopeGap>,
+    observations: BTreeMap<(u32, Vec<Vec<u8>>), StoredObservation>,
     finished: bool,
 }
 
@@ -225,14 +250,34 @@ impl BuildHandle {
         path: Vec<Vec<u8>>,
         observation: StoredObservation,
     ) -> Result<(), BuildError> {
+        self.insert_at(0, path, observation)
+    }
+
+    fn valid_root(&self, root_index: u32) -> bool {
+        if self.roots.is_empty() {
+            root_index == 0
+        } else {
+            (root_index as usize) < self.roots.len()
+        }
+    }
+
+    fn insert_at(
+        &mut self,
+        root_index: u32,
+        path: Vec<Vec<u8>>,
+        observation: StoredObservation,
+    ) -> Result<(), BuildError> {
         if self.finished {
             return Err(BuildError::Unavailable);
         }
-        if path.iter().any(Vec::is_empty) || self.observations.contains_key(&path) {
+        if !self.valid_root(root_index)
+            || path.iter().any(Vec::is_empty)
+            || self.observations.contains_key(&(root_index, path.clone()))
+        {
             self.abort();
             return Err(BuildError::InvalidTree);
         }
-        self.observations.insert(path, observation);
+        self.observations.insert((root_index, path), observation);
         Ok(())
     }
     pub fn publish_partial(&mut self, version_id: Id) -> Result<Arc<ResultVersion>, BuildError> {
@@ -274,7 +319,11 @@ impl BuildHandle {
         if self.finished {
             return Err(BuildError::Unavailable);
         }
-        let built = match build_items(&self.observations) {
+        let built = match tree::build_items(
+            &self.observations,
+            self.roots.len().max(1),
+            self.roots.len() > 1,
+        ) {
             Ok(items) => items,
             Err(error) => {
                 self.abort();
@@ -289,14 +338,70 @@ impl BuildHandle {
             completeness,
             &mut aggregates,
         );
+        let mut gap_counts = vec![0u64; built.items.len()];
+        let key_indices: std::collections::HashMap<_, _> = if self.gaps.is_empty() {
+            std::collections::HashMap::new()
+        } else {
+            built
+                .keys
+                .iter()
+                .cloned()
+                .enumerate()
+                .map(|(index, key)| (key, index))
+                .collect()
+        };
+        for gap in &self.gaps {
+            let mut path = gap.path.clone();
+            let index = loop {
+                if let Some(&index) = key_indices.get(&(gap.root_index, path.clone())) {
+                    break index;
+                }
+                if path.pop().is_none() {
+                    self.abort();
+                    return Err(BuildError::InvalidTree);
+                }
+            };
+            let mut current = Some(index);
+            while let Some(index) = current {
+                gap_counts[index] = gap_counts[index].saturating_add(1);
+                current = built.items[index].parent.map(|p| p as usize);
+            }
+        }
+        for (aggregate, count) in aggregates.iter_mut().zip(gap_counts) {
+            if count > 0 {
+                space::mark_inaccessible(aggregate, count);
+            }
+        }
+        let result_completeness =
+            if !self.gaps.is_empty() && completeness == ResultCompleteness::Complete {
+                ResultCompleteness::Missing
+            } else {
+                completeness
+            };
+        let mut scope_total =
+            space::scope_total(&built.items, &built.structures, result_completeness);
+        physical::scope_total(
+            &built.items,
+            &built.structures,
+            built.physical.as_deref(),
+            result_completeness,
+            &mut scope_total,
+        );
+        if !self.gaps.is_empty() {
+            space::mark_inaccessible(&mut scope_total, self.gaps.len() as u64);
+        }
         let result = Arc::new(ResultVersion {
             version_id,
             scope_version_id: self.scope_version_id.clone(),
-            completeness,
+            completeness: result_completeness,
             items: built.items,
             physical: built.physical,
             aggregates,
             observed_root: self.observed_root.clone(),
+            roots: self.roots.clone(),
+            root_indices: built.keys.into_iter().map(|(root, _)| root).collect(),
+            gaps: self.gaps.clone(),
+            scope_total,
             observed_at,
         });
         let mut state = self.state.lock().map_err(|_| BuildError::Unavailable)?;
@@ -329,75 +434,4 @@ impl Drop for BuildHandle {
     fn drop(&mut self) {
         self.abort();
     }
-}
-
-struct BuiltItems {
-    items: Vec<ResultItem>,
-    structures: Vec<bool>,
-    physical: Option<Vec<Option<SpaceObservation>>>,
-}
-
-fn build_items(
-    observations: &BTreeMap<Vec<Vec<u8>>, StoredObservation>,
-) -> Result<BuiltItems, BuildError> {
-    u32::try_from(observations.len()).map_err(|_| BuildError::CapacityExceeded)?;
-    let root = observations
-        .get(&Vec::new())
-        .ok_or(BuildError::InvalidTree)?;
-    let mut by_parent: BTreeMap<Vec<Vec<u8>>, Vec<_>> = BTreeMap::new();
-    for (path, observation) in observations.iter().filter(|(path, _)| !path.is_empty()) {
-        by_parent
-            .entry(path[..path.len() - 1].to_vec())
-            .or_default()
-            .push((path, observation));
-    }
-    let mut items = vec![ResultItem {
-        item_no: 0,
-        parent: None,
-        name: Vec::new(),
-        size: root.size.clone(),
-        kind: root.kind,
-    }];
-    let mut paths = vec![Vec::<Vec<u8>>::new()];
-    let mut structure_flags = vec![is_structure(root.kind)];
-    let mut physical_values = observations
-        .values()
-        .any(|v| v.physical.is_some())
-        .then(|| vec![root.physical.as_deref().cloned()]);
-    let mut cursor = 0;
-    while cursor < paths.len() {
-        let path = &paths[cursor];
-        let parent = u32::try_from(cursor).map_err(|_| BuildError::CapacityExceeded)?;
-        for (child, observation) in by_parent.remove(path).unwrap_or_default() {
-            let item_no = u32::try_from(items.len()).map_err(|_| BuildError::CapacityExceeded)?;
-            items.push(ResultItem {
-                item_no,
-                parent: Some(parent),
-                name: child.last().cloned().ok_or(BuildError::InvalidTree)?,
-                size: observation.size.clone(),
-                kind: observation.kind,
-            });
-            paths.push(child.clone());
-            structure_flags.push(is_structure(observation.kind));
-            if let Some(values) = &mut physical_values {
-                values.push(observation.physical.as_deref().cloned());
-            }
-        }
-        cursor += 1;
-    }
-    if items.len() != observations.len() {
-        return Err(BuildError::InvalidTree);
-    }
-    Ok(BuiltItems {
-        items,
-        structures: structure_flags,
-        physical: physical_values,
-    })
-}
-
-fn is_structure(kind: ResultItemKind) -> bool {
-    matches!(
-        kind,
-        ResultItemKind::Directory | ResultItemKind::UnknownStructure
-    )
 }

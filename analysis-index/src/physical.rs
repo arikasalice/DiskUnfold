@@ -295,6 +295,24 @@ fn amount(
     }
 }
 
+/// Computes the scope-wide physical total with one shared identity table.
+pub(crate) fn scope_total(
+    items: &[ResultItem],
+    structures: &[bool],
+    observations: Option<&[Option<SpaceObservation>]>,
+    completeness: ResultCompleteness,
+    output: &mut SpaceAggregate,
+) {
+    let mut sum = Physical::default();
+    for item in items {
+        let index = item.item_no as usize;
+        if !structures[index] {
+            sum.observe(observations.and_then(|values| values[index].as_ref()));
+        }
+    }
+    sum.finish(completeness, output);
+}
+
 pub(crate) fn apply(
     items: &[ResultItem],
     structures: &[bool],

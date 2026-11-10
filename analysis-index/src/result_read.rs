@@ -15,6 +15,31 @@ pub struct ItemDetail<'a> {
 }
 
 impl ResultVersion {
+    /// The scope-wide aggregate, deduplicated across all observed roots.
+    pub fn scope_total(&self) -> &SpaceAggregate {
+        &self.scope_total
+    }
+
+    /// Actual scope-root items, in the producer's root order.
+    pub fn scope_roots(&self) -> &[ResultItem] {
+        let count = self.items.partition_point(|item| item.parent.is_none());
+        &self.items[..count]
+    }
+
+    /// Returns the producer root index and its observed evidence for an item.
+    pub fn observed_root_for(&self, item: &ItemRef) -> Result<(u32, &ResultScopeRoot), QueryError> {
+        let detail = self.detail(item)?;
+        let root = *self
+            .root_indices
+            .get(detail.item.item_no as usize)
+            .ok_or(QueryError::PathUnavailable)?;
+        let evidence = self
+            .roots
+            .get(root as usize)
+            .ok_or(QueryError::PathUnavailable)?;
+        Ok((root, evidence))
+    }
+
     /// Returns the aggregate for an item in this pinned version, or `None` for an invalid number.
     pub fn space(&self, item_no: u32) -> Option<&SpaceAggregate> {
         self.aggregates.get(item_no as usize)
@@ -96,6 +121,9 @@ impl ResultVersion {
         if path.iter().any(Vec::is_empty) {
             return Err(QueryError::InvalidPath);
         }
+        if self.scope_roots().len() != 1 {
+            return Err(QueryError::PathUnavailable);
+        }
         let mut index = 0usize;
         for component in path {
             ensure_directory(self.items[index].kind)?;
@@ -134,6 +162,14 @@ impl ResultVersionRead for ResultVersion {
 
     fn observed_root(&self) -> Option<&ResultScopeRoot> {
         self.observed_root.as_deref()
+    }
+
+    fn observed_roots(&self) -> &[ResultScopeRoot] {
+        &self.roots
+    }
+
+    fn scope_gaps(&self) -> &[du_core_contracts::result::ResultScopeGap] {
+        &self.gaps
     }
 
     fn observed_at(&self) -> Option<&Timestamp> {
