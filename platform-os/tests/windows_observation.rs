@@ -336,3 +336,45 @@ fn sparse_file_reports_physical_allocation_without_reading_content()
     assert_eq!(meta.allocated, Some(0));
     Ok(())
 }
+
+#[test]
+fn observes_current_system_drive() -> Result<(), Box<dyn std::error::Error>> {
+    use du_core_contracts::{ports::PortErrorKind, volume::VolumePort};
+    use du_platform_os::volume::WindowsVolumes;
+    let system = std::env::var_os("SystemDrive").ok_or("missing SystemDrive")?;
+    let mut wide: Vec<u16> = system.encode_wide().collect();
+    wide.push(92);
+    let path: Vec<u8> = wide.into_iter().flat_map(u16::to_le_bytes).collect();
+    let result = WindowsVolumes.enumerate();
+    let expected = result
+        .mounts
+        .map_err(|e| format!("{e:?}"))?
+        .into_iter()
+        .find(|m| m.mount_path == path)
+        .and_then(|m| m.volume_id)
+        .ok_or("missing system drive identity")?;
+    WindowsVolumes
+        .path_access(&path)
+        .map_err(|e| format!("{e:?}"))?;
+    let capacity = WindowsVolumes
+        .observe(&path, Some(&expected), &|| true)
+        .map_err(|e| format!("{e:?}"))?
+        .capacity
+        .ok_or("missing capacity observation")?
+        .map_err(|e| format!("{e:?}"))?;
+    assert!(capacity.total_bytes >= capacity.available_bytes);
+    let without_capacity = WindowsVolumes
+        .observe(&path, Some(&expected), &|| false)
+        .map_err(|e| format!("{e:?}"))?;
+    assert!(without_capacity.capacity.is_none());
+    let mut different = expected;
+    different.push(0);
+    let replacement = WindowsVolumes.observe(&path, Some(&different), &|| {
+        panic!("must not request capacity for a different volume")
+    });
+    assert_eq!(
+        replacement.err().map(|e| e.kind),
+        Some(PortErrorKind::IdentityChanged)
+    );
+    Ok(())
+}
