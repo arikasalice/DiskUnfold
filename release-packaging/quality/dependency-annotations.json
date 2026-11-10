@@ -137,6 +137,12 @@
     "distributed": true,
     "reason": "Fingerprint settings reviews and compute and verify embedded language bundle digests"
   },
+  "cargo:du-snapshot-store:blake3@1.8.3": {
+    "license": "CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Verify the DUSNAP v1 envelope integrity digest"
+  },
   "cargo:du-user-env:serde_json@1.0.154": {
     "license": "MIT OR Apache-2.0",
     "role": "runtime",

@@ -419,6 +419,17 @@
   },
   {
     "ecosystem": "cargo",
+    "owner": "du-snapshot-store",
+    "name": "blake3",
+    "version": "1.8.3",
+    "source": "registry+https://github.com/rust-lang/crates.io-index",
+    "license": "CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Verify the DUSNAP v1 envelope integrity digest"
+  },
+  {
+    "ecosystem": "cargo",
     "owner": "du-user-env",
     "name": "blake3",
     "version": "1.8.3",
