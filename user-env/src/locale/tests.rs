@@ -292,3 +292,51 @@ fn gui_startup_is_blocked_when_the_english_baseline_is_not_registered() {
 
     assert_eq!(decide(&inputs), Err(DecisionError::RegistrationFailed));
 }
+
+#[test]
+fn embedded_korean_integrity_failure_preserves_the_configured_language() -> Result<(), String> {
+    use crate::i18n::{self, embedded};
+
+    let mut resources = embedded::resources().map_err(|e| format!("{e:?}"))?;
+    let korean = resources
+        .iter_mut()
+        .find(|resource| resource.language == "ko")
+        .ok_or("missing Korean resource")?;
+    korean.expected_hash[0] ^= 1;
+    let declared = embedded::DECLARED_KEYS
+        .iter()
+        .map(|key| (*key).to_owned())
+        .collect::<Vec<_>>();
+    let bundles = i18n::Registry::register(&resources, &declared, &[], embedded::parse_bundle)
+        .map_err(|e| format!("{e:?}"))?;
+    let configured = bundles.configured_languages().collect::<Vec<_>>();
+    let registered = bundles.languages().collect::<Vec<_>>();
+    assert_eq!(registered, ["en"]);
+    let warnings = bundles.integrity_warnings();
+    assert_eq!(warnings, ["i18n.bundle_integrity_failed"]);
+
+    let snapshot = SettingsSnapshot {
+        schema_version: 1,
+        revision: 7,
+        values: [(DISPLAY_LANGUAGE_KEY.into(), json!("ko"))].into(),
+    };
+    let service = SettingsService::open(registry(&configured)?, MemoryStore(snapshot.clone()))
+        .map_err(|e| format!("{e:?}"))?;
+    let decision = decide(&Inputs {
+        registered: &registered,
+        stored: service
+            .snapshot()
+            .values
+            .get(DISPLAY_LANGUAGE_KEY)
+            .and_then(Value::as_str),
+        os: OsLanguage::Supported(&["ko-KR"]),
+        korean_integrity_failed: !warnings.is_empty(),
+    })
+    .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(
+        (decision.language.as_str(), decision.source),
+        ("en", Source::Baseline)
+    );
+    assert_eq!(service.snapshot(), &snapshot);
+    Ok(())
+}
