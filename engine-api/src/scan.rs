@@ -57,7 +57,13 @@ struct StartScan {
     ids: Arc<ScanIds>,
     workers: Arc<Workers>,
     store: IngestSink,
-    admitted: Mutex<Option<ScanStart>>,
+    admitted: Mutex<Option<Admitted>>,
+}
+
+/// Retains the review identity alongside the reusable receipt while a scan is active.
+struct Admitted {
+    receipt: ScanStart,
+    review_fingerprint: String,
 }
 
 impl UseCase for StartScan {
@@ -76,11 +82,10 @@ impl UseCase for StartScan {
         request: Self::Request,
         caller: &CallerCtx,
     ) -> Result<Self::Response, EngineError> {
-        let root = scope::verify(&request.draft, &request.review_fingerprint, &*self.roots)?;
+        let verified = scope::verify(&request.draft, &request.review_fingerprint, &*self.roots)?;
         let scope_version = self.ids.next_id();
-        let scope_summary = root.canonical_path.display.clone();
         let body = Arc::new(MetadataScan::new(
-            root,
+            verified.root,
             self.store.clone(),
             scope_version.clone(),
             self.ids.clone(),
@@ -88,18 +93,23 @@ impl UseCase for StartScan {
         let submission = Submission {
             kind_id: body.kind_id().into(),
             deduplication_key: Some(DeduplicationKey {
-                scope: request.review_fingerprint.clone(),
+                scope: verified.scope_fingerprint.clone(),
                 input: "metadata-default".into(),
                 channel: "gui".into(),
                 key: String::new(),
             }),
             body,
             priority: JobPriority::Normal,
-            scope_summary,
+            scope_summary: "metadata: 1 root".into(),
             correlation_id: caller.correlation_id.clone(),
             sample: false,
         };
-        self.admit(submission, scope_version, request.review_fingerprint)
+        self.admit(
+            submission,
+            scope_version,
+            verified.scope_fingerprint,
+            request.review_fingerprint,
+        )
     }
 }
 
@@ -109,13 +119,15 @@ impl StartScan {
         submission: Submission,
         scope_version: Id,
         scope_fingerprint: String,
+        review_fingerprint: String,
     ) -> Result<ScanStart, EngineError> {
         let mut admitted = self.admitted.lock().map_err(|_| internal())?;
-        // The current store permits one active builder. A retry for the same
-        // fingerprint is admitted so the runtime can return its existing job.
+        // A stable scope key can outlive a replaced root. Reuse is allowed only
+        // if the caller reviewed the same actual roots as the active job.
         if let Some(active) = admitted.as_ref()
-            && active.scope_fingerprint != scope_fingerprint
-            && self.active(&active.job_ref)?
+            && (active.receipt.scope_fingerprint != scope_fingerprint
+                || active.review_fingerprint != review_fingerprint)
+            && self.active(&active.receipt.job_ref)?
         {
             return Err(EngineError::reason("job.queue_full"));
         }
@@ -132,15 +144,19 @@ impl StartScan {
                     scope_version,
                     scope_fingerprint,
                 };
-                *admitted = Some(receipt.clone());
+                *admitted = Some(Admitted {
+                    receipt: receipt.clone(),
+                    review_fingerprint,
+                });
                 self.workers.notify();
                 Ok(receipt)
             }
             SubmitResult::Existing(job_ref) => {
                 let mut receipt = admitted
                     .as_ref()
-                    .filter(|receipt| receipt.job_ref == job_ref)
+                    .filter(|active| active.receipt.job_ref == job_ref)
                     .ok_or_else(internal)?
+                    .receipt
                     .clone();
                 receipt.existing = true;
                 Ok(receipt)

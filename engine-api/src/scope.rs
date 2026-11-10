@@ -1,4 +1,6 @@
 //! Review a desktop scope using evidence obtained from the opened directory.
+mod digest;
+
 use std::sync::Arc;
 
 use du_core_contracts::{
@@ -53,19 +55,14 @@ impl UseCase for Review {
             .bytes()
             .map_err(|_| EngineError::reason("path.unresolvable"))?;
         let opened = self.roots.open_root(&raw);
-        let (review_fingerprint, access, reason_key) = match opened {
-            Ok(root) => {
-                let digest = fingerprint(&root)?;
-                path = root.canonical_path;
-                (digest, TargetAccess::Accessible, None)
-            }
-            Err(error) => {
-                let digest = hash_fields(&[&raw, &[], &[]]);
-                let result = access_result(AccessObservation::Completed(Err(error)));
-                (digest, target_access(result.status), result.reason)
-            }
-        };
+        if let Ok(root) = &opened {
+            path = windows_path(&root.canonical_path)?;
+        }
         draft.includes = vec![path.clone()];
+        let (_, review_fingerprint) = fingerprints(&draft, &path, opened.as_ref().ok())?;
+        let result = access_result(AccessObservation::Completed(opened.map(|_| ())));
+        let access = target_access(result.status);
+        let reason_key = result.reason;
         let observed_at = Timestamp::from_unix_millis(self.clock.now_ms())
             .ok_or_else(|| EngineError::reason("support.internal_error"))?;
         Ok(ScopeReview {
@@ -120,12 +117,18 @@ pub(crate) fn windows_path(path: &OsPath) -> Result<OsPath, EngineError> {
     })
 }
 
+/// An anchored scope and its identity-independent fingerprint.
+pub(crate) struct VerifiedScope {
+    pub root: OpenedScopeRoot,
+    pub scope_fingerprint: String,
+}
+
 /// Revalidates the review against fresh handle evidence before starting work.
 pub(crate) fn verify(
     draft: &ScopeDraft,
     expected: &str,
     roots: &dyn ScopeRootPort,
-) -> Result<OpenedScopeRoot, EngineError> {
+) -> Result<VerifiedScope, EngineError> {
     let path = validate(draft)?;
     let raw = path
         .raw
@@ -134,33 +137,36 @@ pub(crate) fn verify(
     let root = roots
         .open_root(&raw)
         .map_err(|_| EngineError::reason("scope.changed"))?;
-    if fingerprint(&root)? != expected {
+    let mut normalized = draft.clone();
+    let canonical = windows_path(&root.canonical_path)?;
+    normalized.includes = vec![canonical.clone()];
+    let (scope_fingerprint, review) = fingerprints(&normalized, &canonical, Some(&root))?;
+    if review != expected {
         return Err(EngineError::reason("scope.changed"));
     }
-    Ok(root)
+    Ok(VerifiedScope {
+        root,
+        scope_fingerprint: scope_fingerprint.to_hex().to_string(),
+    })
 }
 
-fn fingerprint(root: &OpenedScopeRoot) -> Result<String, EngineError> {
-    let path = windows_path(&root.canonical_path)?;
-    let raw = path
-        .raw
-        .bytes()
-        .map_err(|_| EngineError::reason("path.unresolvable"))?;
-    if root.volume_id.is_empty() || root.file_id.is_empty() {
+fn fingerprints(
+    normalized: &ScopeDraft,
+    path: &OsPath,
+    observed: Option<&OpenedScopeRoot>,
+) -> Result<(blake3::Hash, String), EngineError> {
+    if observed.is_some_and(|root| root.volume_id.is_empty() || root.file_id.is_empty()) {
         return Err(EngineError::reason("scope.target_unavailable"));
     }
-    Ok(hash_fields(&[&raw, &root.volume_id, &root.file_id]))
-}
-
-fn hash_fields(fields: &[&[u8]]) -> String {
-    // This wire subset has one inclusion and no exclusions or selected mounts.
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(b"diskunfold.scope.v1\0current_volume\0");
-    for bytes in fields {
-        hasher.update(&(bytes.len() as u64).to_le_bytes());
-        hasher.update(bytes);
-    }
-    hasher.finalize().to_hex().to_string()
+    let scope = digest::scope(normalized)?;
+    let review = digest::review(
+        &scope,
+        &[digest::ReviewRoot {
+            path,
+            identity: observed.map(|root| (root.volume_id.as_slice(), root.file_id.as_slice())),
+        }],
+    )?;
+    Ok((scope, review.to_hex().to_string()))
 }
 
 pub(crate) fn target_access(status: AccessStatus) -> TargetAccess {

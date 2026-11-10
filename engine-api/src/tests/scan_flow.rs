@@ -252,6 +252,14 @@ fn reviewed_identity_is_rechecked_and_one_job_publishes_the_requested_result()
     assert!(duplicate.existing);
     assert_eq!(receipt.job_ref, duplicate.job_ref);
     assert_eq!(receipt.scope_version, duplicate.scope_version);
+    assert_ne!(receipt.scope_fingerprint, second.review_fingerprint);
+    roots.file_id.store(4, Ordering::Release);
+    let replacement = review(4)?;
+    assert_ne!(second.review_fingerprint, replacement.review_fingerprint);
+    let busy = start(&replacement.review_fingerprint)?
+        .error
+        .ok_or("replacement reused the active job")?;
+    assert_eq!(busy.reason_key, "job.queue_full");
     release.send(())?;
     let JobEvent::Finished {
         summary,
@@ -262,6 +270,7 @@ fn reviewed_identity_is_rechecked_and_one_job_publishes_the_requested_result()
         return Err("missing terminal event".into());
     };
     assert_eq!(summary.job_id, receipt.job_ref);
+    assert_eq!(summary.scope_summary, "metadata: 1 root");
     assert!(history_recorded);
     let version = summary.result_version_id.ok_or("missing result version")?;
     let response = gui(
@@ -276,6 +285,16 @@ fn reviewed_identity_is_rechecked_and_one_job_publishes_the_requested_result()
     assert_eq!(response.body["sizes"][0]["size"]["bytes"], "64");
     check_observed_details(&engine, &versions, version, path)?;
     assert_eq!(roots.reads.load(Ordering::Acquire), 2);
+
+    let next: ScanStart = serde_json::from_value(start(&replacement.review_fingerprint)?.body)?;
+    assert!(!next.existing);
+    assert_ne!(receipt.job_ref, next.job_ref);
+    assert_eq!(receipt.scope_fingerprint, next.scope_fingerprint);
+    release.send(())?;
+    let JobEvent::Finished { summary, .. } = terminal.recv_timeout(Duration::from_secs(5))? else {
+        return Err("missing replacement terminal event".into());
+    };
+    assert_eq!(summary.job_id, next.job_ref);
     Ok(())
 }
 
