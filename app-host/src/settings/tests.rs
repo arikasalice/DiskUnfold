@@ -7,6 +7,7 @@ use du_engine_api::{
     error::EngineError,
 };
 use du_user_env::settings::SettingsError;
+use du_user_env::{scope, space};
 use rusqlite::Connection;
 use serde_json::json;
 use std::path::Path;

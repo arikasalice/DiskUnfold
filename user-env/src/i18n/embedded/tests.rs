@@ -106,12 +106,8 @@ fn registration_rejects_duplicate_keys_and_wrong_metadata() -> Result<(), Regist
 fn setting_presentations_cover_eight_descriptors_in_both_bundles()
 -> Result<(), Box<dyn std::error::Error>> {
     let registry = register(&[]).map_err(|e| format!("{e:?}"))?;
-    let descriptors: Vec<_> = crate::locale::descriptors(&["en", "ko"])
-        .map_err(|e| format!("{e:?}"))?
-        .into_iter()
-        .chain(crate::scope::descriptors())
-        .chain(crate::space::descriptors())
-        .collect();
+    let descriptors =
+        crate::settings::builtin_descriptors(&["en", "ko"]).map_err(|e| format!("{e:?}"))?;
     assert_eq!(descriptors.len(), 8);
     validate_setting_presentation(&registry, descriptors.clone()).map_err(|e| format!("{e:?}"))?;
     for language in ["en", "ko"] {

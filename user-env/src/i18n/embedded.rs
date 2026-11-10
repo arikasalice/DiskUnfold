@@ -133,11 +133,8 @@ pub fn register(metadata_keys: &[String]) -> Result<Registry, RegistrationError>
         .collect::<Vec<_>>();
     let registry = Registry::register(&resources()?, &declared, metadata_keys, parse_bundle)?;
     let languages: Vec<_> = registry.configured_languages().collect();
-    let descriptors = crate::locale::descriptors(&languages)
-        .map_err(|_| RegistrationError)?
-        .into_iter()
-        .chain(crate::scope::descriptors())
-        .chain(crate::space::descriptors());
+    let descriptors =
+        crate::settings::builtin_descriptors(&languages).map_err(|_| RegistrationError)?;
     validate_setting_presentation(&registry, descriptors)?;
     Ok(registry)
 }

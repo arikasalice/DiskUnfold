@@ -7,6 +7,17 @@ use crate::{CatalogEntry, Registry};
 mod restore_status;
 pub use restore_status::{RestoreItem, RestoreSource, RestoreStatus};
 
+/// Builds the shared startup catalog from each feature's registered descriptors.
+pub fn builtin_descriptors(
+    configured_languages: &[&str],
+) -> Result<Vec<crate::Descriptor>, crate::locale::DecisionError> {
+    Ok(crate::locale::descriptors(configured_languages)?
+        .into_iter()
+        .chain(crate::scope::descriptors())
+        .chain(crate::space::descriptors())
+        .collect())
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum SettingsError {
     UnknownKey,
