@@ -19,6 +19,7 @@ export {
   Text,
 } from "./presentation";
 
+export { BrowseTable } from "./browse-table";
 export { DataTable } from "./data-table";
 
 export { createChartRenderers } from "./chart-renderers";

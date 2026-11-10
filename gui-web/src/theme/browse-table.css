@@ -1,0 +1,119 @@
+.du-browse-table-frame {
+  container-type: inline-size;
+  min-inline-size: 0;
+  overflow-anchor: none;
+}
+
+.du-browse-table {
+  border-spacing: 0;
+  inline-size: 100%;
+  table-layout: fixed;
+}
+
+.du-browse-table :is(th, td) {
+  min-inline-size: 0;
+  padding: 6px 8px;
+  text-align: start;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.du-browse-table th {
+  background: var(--du-subtle);
+}
+
+.du-browse-table th:nth-child(1) {
+  inline-size: 25%;
+}
+.du-browse-table th:nth-child(2) {
+  inline-size: 10%;
+}
+.du-browse-table th:nth-child(3),
+.du-browse-table th:nth-child(4) {
+  inline-size: 13%;
+}
+.du-browse-table th:nth-child(5) {
+  inline-size: 18%;
+}
+.du-browse-table th:nth-child(6) {
+  inline-size: 21%;
+}
+
+.du-browse-table [data-row] td {
+  border-block-end: 1px solid var(--du-border);
+}
+
+.du-browse-table td .du-action {
+  max-inline-size: 100%;
+  min-inline-size: 0;
+  text-align: start;
+  overflow-wrap: anywhere;
+  display: inline-block;
+}
+
+.du-browse-table__label {
+  display: none;
+}
+
+.du-browse-table .du-browse-table__gap td {
+  padding: 0;
+  border: 0;
+}
+
+.du-browse-panel {
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+
+.du-browse-panel .du-card__actions .du-action {
+  max-inline-size: 100%;
+  display: inline-block;
+}
+
+@container (max-width: 640px) {
+  .du-browse-table,
+  .du-browse-table tbody {
+    display: block;
+  }
+
+  .du-browse-table thead {
+    position: absolute;
+    inline-size: 1px;
+    block-size: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+
+  .du-browse-table [data-row] {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding-block: 4px;
+    border-block-end: 1px solid var(--du-border);
+  }
+
+  .du-browse-table [data-row] td {
+    display: block;
+    border: 0;
+  }
+
+  .du-browse-table [data-row] :is(td:first-child, td:last-child) {
+    grid-column: 1 / -1;
+  }
+
+  .du-browse-table__label {
+    display: block;
+    color: var(--du-muted);
+    font-size: 0.875em;
+  }
+
+  .du-browse-table .du-browse-table__gap,
+  .du-browse-table .du-browse-table__gap td {
+    display: block;
+  }
+}
+
+@container (max-width: 300px) {
+  .du-browse-table [data-row] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

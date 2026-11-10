@@ -178,6 +178,9 @@ test("keyboard opens a folder and breadcrumbs return to the virtual root", async
   expect(
     await screen.findByRole("button", { name: "Scope roots" }),
   ).toBeDefined();
+  expect(document.activeElement).toBe(
+    screen.getByRole("region", { name: "Folder navigation" }),
+  );
   expect(port.open).toHaveBeenLastCalledWith(
     expect.objectContaining({ location: ref(1), resultVersion: id }),
     expect.any(AbortSignal),
@@ -218,3 +221,30 @@ test("discards a late page after navigating to another folder", async () => {
   await act(async () => late.resolve(page([row(4, "Stale")])));
   expect(screen.queryByRole("button", { name: "Stale" })).toBeNull();
 });
+
+test.each([true, false])(
+  "preserves focus when the last page removes Load more (focus on button: %s)",
+  async (keepsFocus) => {
+    const pending = deferred<FolderQueryPage>();
+    const port: BrowsePort = {
+      open: vi.fn().mockResolvedValue(opened(1, [row(1, "Alpha")], "next")),
+      page: vi.fn(() => pending.promise),
+    };
+    render(<BrowsePanel port={port} resultVersion={id} />);
+    const load = await screen.findByRole("button", { name: "Load more" });
+    const folder = screen.getByRole("button", { name: "Alpha" });
+    act(() => load.focus());
+    fireEvent.click(load);
+    expect(document.activeElement).toBe(load);
+    fireEvent.click(load);
+    expect(port.page).toHaveBeenCalledTimes(1);
+    if (!keepsFocus) act(() => folder.focus());
+    await act(async () => pending.resolve(page([row(2, "Beta")])));
+    expect(load.isConnected).toBe(false);
+    expect(document.activeElement).toBe(
+      keepsFocus
+        ? screen.getByRole("region", { name: "Folder navigation" })
+        : folder,
+    );
+  },
+);

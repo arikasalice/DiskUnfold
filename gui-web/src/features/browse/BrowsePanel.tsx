@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   Action,
-  DataTable,
+  BrowseTable,
   Heading,
   Notice,
   Progress,
@@ -78,11 +78,17 @@ export function BrowsePanel({
   const opening = useRef<AbortController | undefined>(undefined);
   const pageActive = useRef(false);
   const hasVirtualRoot = useRef(false);
+  const panel = useRef<HTMLElement>(null);
+  const loadMoreButton = useRef<HTMLButtonElement>(null);
+  const focusAfterUpdate = useRef(false);
   const current = useRef<View | undefined>(undefined);
   current.current = view;
 
   function navigate(location?: ItemRef, pinned = resultVersion) {
     const requestSeq = ++sequence.current;
+    const active = document.activeElement;
+    const restoreFocus =
+      active !== panel.current && panel.current?.contains(active);
     opening.current?.abort();
     const controller = new AbortController();
     opening.current = controller;
@@ -111,6 +117,9 @@ export function BrowsePanel({
         }
         if (pinned && response.page.resultVersion !== pinned) return;
         if (response.rootKind === "virtual_root") hasVirtualRoot.current = true;
+        focusAfterUpdate.current = Boolean(
+          restoreFocus && document.activeElement === active,
+        );
         setView({
           opened: response,
           rows: response.page.rows,
@@ -133,6 +142,13 @@ export function BrowsePanel({
     };
     // The injected port and requested result identify a new browser session.
   }, [port, resultVersion]);
+
+  useLayoutEffect(() => {
+    if (focusAfterUpdate.current) {
+      focusAfterUpdate.current = false;
+      panel.current?.focus();
+    }
+  }, [view]);
 
   function loadMore() {
     const snapshot = current.current;
@@ -161,6 +177,9 @@ export function BrowsePanel({
           setMessage("page-error");
           return;
         }
+        focusAfterUpdate.current =
+          page.nextCursor === null &&
+          document.activeElement === loadMoreButton.current;
         setView({
           ...active,
           rows: [...active.rows, ...page.rows],
@@ -180,7 +199,12 @@ export function BrowsePanel({
 
   const page: FolderQueryPage | undefined = view?.opened.page;
   return (
-    <section className="du-results" aria-label="Folder navigation">
+    <section
+      ref={panel}
+      tabIndex={-1}
+      className="du-results du-browse-panel"
+      aria-label="Folder navigation"
+    >
       <Heading level={2}>Folders and files</Heading>
       {busy && <Progress label="Opening folder" />}
       {message === "error" && (
@@ -232,8 +256,8 @@ export function BrowsePanel({
           {view.rows.length === 0 && (
             <Text>No observed items in this folder.</Text>
           )}
-          <DataTable
-            density="compact"
+          <BrowseTable
+            key={view.opened.requestSeq}
             label="Folder items"
             columns={[
               "Name",
@@ -272,7 +296,7 @@ export function BrowsePanel({
             ]}
           />
           {view.nextCursor && (
-            <Action onPress={loadMore} isDisabled={loadingPage || busy}>
+            <Action ref={loadMoreButton} onPress={loadMore} isDisabled={busy}>
               {loadingPage ? "Loading…" : "Load more"}
             </Action>
           )}
