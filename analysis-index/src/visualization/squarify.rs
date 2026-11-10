@@ -88,8 +88,8 @@ pub fn layout(parent: Rect, ordered: &[Weight]) -> Result<Layout, LayoutError> {
 }
 
 /// Calculates the same layout with cancellation checkpoints in each traversal.
-/// Sorting skipped indices is not interruptible; cancellation is checked on
-/// both sides of the sort, and no partial result is returned.
+/// Skipped indices are merged with a cancellation check per element; no
+/// partial result is returned. Allocation cannot be interrupted.
 pub fn layout_cancellable(
     parent: Rect,
     ordered: &[Weight],
@@ -132,6 +132,7 @@ pub fn layout_cancellable(
             }
         }
     }
+    let initially_skipped = result.skipped.len();
     let mut remaining_weight = items.iter().try_fold(0_u128, |sum, item| {
         check(cancelled)?;
         sum.checked_add(u128::from(item.amount.get()))
@@ -161,7 +162,7 @@ pub fn layout_cancellable(
         start = end;
     }
     check(cancelled)?;
-    result.skipped.sort_by_key(|entry| entry.input_index);
+    merge_skipped(&mut result.skipped, initially_skipped, cancelled)?;
     check(cancelled)?;
     Ok(result)
 }
@@ -302,4 +303,32 @@ fn check(cancelled: &mut dyn FnMut() -> bool) -> Result<(), LayoutError> {
     } else {
         Ok(())
     }
+}
+
+// Both runs follow input order: initially skipped values, then positive values
+// omitted for coordinate precision. Merge without an uninterruptible sort.
+fn merge_skipped(
+    skipped: &mut Vec<Skipped>,
+    split: usize,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<(), LayoutError> {
+    if split == 0 || split == skipped.len() {
+        return Ok(());
+    }
+    let mut merged = Vec::with_capacity(skipped.len());
+    let (mut left, mut right) = (0, split);
+    while left < split || right < skipped.len() {
+        check(cancelled)?;
+        if right == skipped.len()
+            || (left < split && skipped[left].input_index < skipped[right].input_index)
+        {
+            merged.push(skipped[left]);
+            left += 1;
+        } else {
+            merged.push(skipped[right]);
+            right += 1;
+        }
+    }
+    *skipped = merged;
+    Ok(())
 }

@@ -229,3 +229,54 @@ fn cancellable_layout_preserves_results_and_never_returns_partial_at_any_checkpo
     }
     Ok(())
 }
+
+#[test]
+fn cancellation_interrupts_large_skipped_ordering() {
+    use du_analysis_index::visualization::squarify::layout_cancellable;
+    let mut weights = vec![Weight::Exact(0); 8192];
+    weights[0] = Weight::Exact(1);
+    weights[4096] = Weight::Exact(1);
+    let mut checks = 0;
+    let result = layout_cancellable(rectangle(0, 0, 1, 1), &weights, &mut || {
+        checks += 1;
+        checks == weights.len() + 100
+    });
+    assert!(matches!(result, Err(LayoutError::Cancelled)));
+}
+
+#[test]
+fn skipped_zero_and_precision_entries_merge_in_original_order() -> Result<(), LayoutError> {
+    let input = [
+        Weight::Exact(5),
+        Weight::Exact(0),
+        Weight::Exact(4),
+        Weight::Unknown,
+        Weight::Exact(3),
+        Weight::LowerBound(0),
+        Weight::Exact(2),
+        Weight::Exact(1),
+    ];
+    let result = layout(rectangle(0, 0, 1, 1), &input)?;
+    let indices: Vec<_> = result.skipped.iter().map(|s| s.input_index).collect();
+    assert!(indices.windows(2).all(|pair| pair[0] < pair[1]));
+    assert!(
+        result
+            .skipped
+            .iter()
+            .any(|s| s.reason == SkipReason::CoordinatePrecision)
+    );
+    assert!(
+        result
+            .skipped
+            .iter()
+            .any(|s| s.reason == SkipReason::ExactZero)
+    );
+    assert!(
+        result
+            .skipped
+            .iter()
+            .any(|s| s.reason == SkipReason::Unknown)
+    );
+    assert_eq!(result.skipped.len() + result.shapes.len(), input.len());
+    Ok(())
+}
