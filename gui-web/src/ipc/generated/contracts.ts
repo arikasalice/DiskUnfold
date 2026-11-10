@@ -149,6 +149,16 @@ export type VizDenominator = { basis: VizDenominatorBasis, value: VizQuantity, s
 export type VizRow = { itemRef: ItemRef | null, groupRef: string | null, displayName: string, size: SizeValue, quantity?: VizQuantity, ratio: VizRatio | null, denominator: VizDenominator, legendClassKey: string, displayFlags: Array<string>, };
 export type VizRowsRequest = { modelRef: string, resultRevision: Id, start: number, count: number, };
 export type VizRows = { rows: Array<VizRow>, totalCount: number, resultRevision: Id, observedAt: Timestamp | null, completeness: ResultCompleteness, };
+export type VizLocateRequest = {
+/**
+ * Opaque reference returned by rendering the model.
+ */
+modelRef: string,
+/**
+ * Item to locate, bound to its original result revision.
+ */
+itemRef: ItemRef, };
+export type VizLocate = { "location": "shape", shapeIndex: number, } | { "location": "group", groupRef: string, } | { "location": "outside_view", } | { "location": "outside_scope", };
 export type PathEncoding = "unix" | "windows_utf16le";
 export type PathBytes = string;
 export type OsPath = { encoding: PathEncoding, raw: PathBytes, display: string, lossy: boolean, };

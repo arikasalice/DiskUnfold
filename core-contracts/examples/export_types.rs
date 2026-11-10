@@ -13,6 +13,7 @@ use du_core_contracts::size_units::{
 };
 use du_core_contracts::space_detail_ipc::*;
 use du_core_contracts::visualization::geometry::{Geometry, Point};
+use du_core_contracts::visualization::locate::{VizLocate, VizLocateRequest};
 use du_core_contracts::visualization::model::{ShapeMeta, VizRelationship};
 use du_core_contracts::visualization::quantity::{VizAmount, VizDecimal, VizQuantity};
 use du_core_contracts::visualization::render::{VizColorMode, VizFallback, VizLabelMode};
@@ -83,6 +84,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         VizRow::decl(&config),
         VizRowsRequest::decl(&config),
         VizRows::decl(&config),
+        VizLocateRequest::decl(&config),
+        VizLocate::decl(&config),
         PathEncoding::decl(&config),
         PathBytes::decl(&config),
         OsPath::decl(&config),

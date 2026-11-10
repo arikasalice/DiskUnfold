@@ -74,12 +74,15 @@ impl ErrorEnvelope {
             "cursor.stale"
             | "cursor.expired"
             | "result.version_released"
+            | "result.version_stale"
             | "scope.changed"
             | "result.requery_required"
             | "history.version_changed" => ErrorCode::StaleVersion,
-            "ref.unavailable" | "browse.location_missing" | "job.not_found" | "history.removed" => {
-                ErrorCode::NotFound
-            }
+            "ref.unavailable"
+            | "browse.location_missing"
+            | "job.not_found"
+            | "history.removed"
+            | "viz.model_expired" => ErrorCode::NotFound,
             "path.outside_scope" | "path.link_escape" => ErrorCode::ScopeDenied,
             "db.busy" | "job.queue_full" | "job.shutting_down" | "query.busy" => ErrorCode::Busy,
             "db.schema_mismatch" | "support.internal_error" | "history.storage_unavailable" => {
