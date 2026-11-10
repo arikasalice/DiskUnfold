@@ -66,13 +66,10 @@ export function BrowseTable<Row>({
   useLayoutEffect(() => {
     if (pendingFocus === undefined) return;
     setCompletedFocus(pendingFocus.index);
-    // The button remains for another page, or was removed by a terminal response.
+    // Mounting the appended rows can shift the browser's scroll position before this effect.
+    // The response already checked the viewport; honor input observed since then.
     const expected = pendingFocus.button.current ?? document.body;
-    if (
-      document.activeElement !== expected ||
-      pendingFocus.viewport.scrolled ||
-      window.scrollY !== pendingFocus.viewport.scrollY
-    )
+    if (document.activeElement !== expected || pendingFocus.viewport.scrolled)
       return;
     const row = body.current?.querySelector<HTMLElement>(
       `[data-row="${pendingFocus.index}"]`,

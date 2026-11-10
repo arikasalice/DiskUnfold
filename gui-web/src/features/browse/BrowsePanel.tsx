@@ -72,6 +72,16 @@ function rowKey(item: ItemRef): string {
   return `${item.resultVersion}:${item.itemNo}`;
 }
 
+const pageScrollKeys = new Set([
+  "ArrowUp",
+  "ArrowDown",
+  "PageUp",
+  "PageDown",
+  "Home",
+  "End",
+  " ",
+]);
+
 type ParentLocation = { item?: ItemRef };
 
 function parentLocation(
@@ -202,9 +212,27 @@ export function BrowsePanel({
     const trackScroll = () => {
       if (window.scrollY !== request.scrollY) request.scrolled = true;
     };
+    const interruptFocus = () => {
+      request.scrolled = true;
+    };
+    const trackScrollKey = (event: globalThis.KeyboardEvent) => {
+      if (!event.isComposing && pageScrollKeys.has(event.key)) interruptFocus();
+    };
+    const scrollInputs = ["wheel", "touchmove", "pointerdown"] as const;
     window.addEventListener("scroll", trackScroll, { passive: true });
+    window.addEventListener("keydown", trackScrollKey, true);
+    for (const event of scrollInputs) {
+      window.addEventListener(event, interruptFocus, {
+        capture: true,
+        passive: true,
+      });
+    }
     return () => {
       window.removeEventListener("scroll", trackScroll);
+      window.removeEventListener("keydown", trackScrollKey, true);
+      for (const event of scrollInputs) {
+        window.removeEventListener(event, interruptFocus, true);
+      }
       if (pageViewport.current === request) pageViewport.current = undefined;
     };
   }, [loadingPage]);

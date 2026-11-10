@@ -681,3 +681,58 @@ test.each(["layout only", "user before layout", "user after layout"] as const)(
     }
   },
 );
+
+test.each(["browser layout", "wheel", "scroll key", "pointer"] as const)(
+  "distinguishes the browser's append commit scroll from intervening input (%s)",
+  async (motion) => {
+    const { pending, next, port } = delayedPage();
+    let viewport = 12_264;
+    let mounted = false;
+    const scrollY = vi
+      .spyOn(window, "scrollY", "get")
+      .mockImplementation(() => viewport);
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe(node: HTMLElement) {
+          if (mounted || node.dataset.row !== "200") return;
+          mounted = true;
+          // WebView can adjust scroll as the appended row enters the DOM, before a scroll event.
+          viewport += 180;
+          if (motion === "wheel")
+            window.dispatchEvent(new WheelEvent("wheel", { deltaY: -120 }));
+          if (motion === "scroll key")
+            window.dispatchEvent(
+              new KeyboardEvent("keydown", { key: "PageUp" }),
+            );
+          if (motion === "pointer")
+            window.dispatchEvent(
+              new PointerEvent("pointerdown", { pointerType: "mouse" }),
+            );
+        }
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    try {
+      render(<BrowsePanel port={port} resultVersion={id} />);
+      const load = await screen.findByRole("button", { name: "Load more" });
+      act(() => load.focus());
+      pressLoadMore(load);
+      await act(async () => pending.resolve(next));
+      expect(mounted).toBe(true);
+      expect(window.scrollY).toBe(12_444);
+      if (motion === "browser layout") {
+        expect(document.activeElement).toBe(
+          screen.getByText("Entry 200").closest("tr"),
+        );
+      } else {
+        expect(document.activeElement).toBe(load);
+      }
+    } finally {
+      cleanup();
+      scrollY.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  },
+);
