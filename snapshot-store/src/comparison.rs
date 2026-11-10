@@ -1,5 +1,6 @@
 //! F08 change classification for one normalized path in two pinned results.
 
+pub mod f03;
 pub mod folder;
 pub mod range;
 pub mod summary;

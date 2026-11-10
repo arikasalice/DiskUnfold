@@ -199,8 +199,7 @@ impl QueryResult {
         &self,
         cancelled: impl FnMut() -> bool,
     ) -> Result<du_core_contracts::result::SpaceAggregate, SpaceTotalError> {
-        crate::space::selection::sum(
-            &self.version,
+        self.version.selection_total(
             &self.items,
             self.unknown_count == 0 && !self.inherited_uncertainty,
             cancelled,

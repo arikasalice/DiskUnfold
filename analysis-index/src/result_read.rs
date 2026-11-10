@@ -27,6 +27,24 @@ pub struct ItemDetail<'a> {
 }
 
 impl ResultVersion {
+    /// Calculates the F03 set total for file references in this pinned version.
+    ///
+    /// The caller must establish whether membership is complete. Incomplete
+    /// membership or a partial source never becomes an exact total. Duplicate
+    /// references and shared file identities are handled by the F03 rule.
+    ///
+    /// # Errors
+    /// Returns an item error for a missing or differently pinned reference, or
+    /// cancellation without exposing a partial aggregate.
+    pub fn selection_total(
+        &self,
+        items: &[ItemRef],
+        membership_complete: bool,
+        cancelled: impl FnMut() -> bool,
+    ) -> Result<SpaceAggregate, crate::query::SpaceTotalError> {
+        crate::space::selection::sum(self, items, membership_complete, cancelled)
+    }
+
     /// Reads reported gaps for the item's exact observed path in this immutable version.
     /// An empty iterator establishes only the absence of a report at that path.
     pub fn item_scope_gaps(
