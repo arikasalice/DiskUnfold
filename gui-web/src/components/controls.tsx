@@ -156,13 +156,14 @@ export function Choice({
     >
       <span className="du-choice__indicator" aria-hidden />
       <Icon name={icon} />
-      <span className="du-choice__details">
-        <span className="du-text--path">{label}</span>
-        <span className="du-text--muted" id={descriptionId}>
-          {description}
-        </span>
+      <span className="du-choice__label du-text--path">{label}</span>
+      <span
+        className="du-choice__description du-text--muted"
+        id={descriptionId}
+      >
+        {description}
       </span>
-      <span id={statusId}>
+      <span className="du-choice__status" id={statusId}>
         <StatusBadge tone={status.tone}>{status.text}</StatusBadge>
       </span>
     </Radio>
