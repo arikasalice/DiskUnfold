@@ -5,9 +5,11 @@ use du_analysis_index::{
 };
 use du_core_contracts::{
     SizeAmount, SizeBasis, SizeEvidence, SizeValue,
-    browse_ipc::{BrowseDetailRequest, BrowseValue},
+    browse_ipc::BrowseValue,
     result::SpaceAggregate,
-    space_detail_ipc::{SpaceDetail, SpaceDetailSize, SpaceExclusiveDecision, SpaceLinkGroup},
+    space_detail_ipc::{
+        SpaceDetail, SpaceDetailRequest, SpaceDetailSize, SpaceExclusiveDecision, SpaceLinkGroup,
+    },
 };
 
 use crate::{
@@ -25,7 +27,7 @@ struct Query(IngestSink);
 impl UseCase for Query {
     const NAME: &'static str = "space.detail";
     const CHANNELS: &'static [Channel] = &[Channel::Gui];
-    type Request = BrowseDetailRequest;
+    type Request = SpaceDetailRequest;
     type Response = SpaceDetail;
 
     fn check_scope(&self, request: &Self::Request, _: &CallerCtx) -> Result<(), EngineError> {

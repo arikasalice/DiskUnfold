@@ -37,6 +37,7 @@ import type {
   ScopeReview,
   ScopeReviewRequest,
   SpaceDetail,
+  SpaceDetailRequest,
   SpaceTotal,
   SpaceTotalRequest,
   TargetList,
@@ -114,7 +115,7 @@ type Commands = {
   "history.get": [HistoryDetailRequest, HistoryDetail];
   "history.items": [HistoryItemsRequest, HistoryItemsResponse];
   "space.total": [SpaceTotalRequest, SpaceTotal];
-  "space.detail": [BrowseDetailRequest, SpaceDetail];
+  "space.detail": [SpaceDetailRequest, SpaceDetail];
   "space.volume_gap": [VolumeGapRequest, VolumeGapResponse];
   "browse.detail": [BrowseDetailRequest, BrowseDetail];
   "browse.open": [BrowseOpenRequest, BrowseOpenResponse];

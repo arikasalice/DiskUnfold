@@ -1,6 +1,16 @@
 //! F03 item-space observations from one pinned analysis result.
-use crate::{ItemRef, SizeValue, Timestamp, browse_ipc::BrowseValue};
+use crate::{Id, ItemRef, SizeValue, Timestamp, browse_ipc::BrowseValue};
 use serde::{Deserialize, Serialize};
+
+/// Requests space evidence for an item in one pinned result version.
+/// Additional GUI IPC fields do not affect the item or version being read.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct SpaceDetailRequest {
+    pub result_version: Id,
+    pub item: ItemRef,
+}
 
 /// Preserves the original size and the limits on its measurement.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

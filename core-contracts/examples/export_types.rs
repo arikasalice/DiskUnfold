@@ -179,6 +179,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         QueryCancelRequest::decl(&config),
         QueryCancelOutcome::decl(&config),
         QueryCancelled::decl(&config),
+        SpaceDetailRequest::decl(&config),
         SpaceDetailSize::decl(&config),
         SpaceLinkGroup::decl(&config),
         SpaceExclusiveDecision::decl(&config),

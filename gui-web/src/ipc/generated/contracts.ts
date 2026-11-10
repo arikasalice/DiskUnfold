@@ -226,6 +226,7 @@ export type QueryCancelTarget = { "kind": "request", requestSeq: number, } | { "
 export type QueryCancelRequest = { regionRef: Id, target: QueryCancelTarget, };
 export type QueryCancelOutcome = "accepted" | "no_effect" | "already_terminal";
 export type QueryCancelled = { outcome: QueryCancelOutcome, };
+export type SpaceDetailRequest = { resultVersion: Id, item: ItemRef, };
 export type SpaceDetailSize = { size: SizeValue, measurementLimits: Array<string>, };
 export type SpaceLinkGroup = {
 /**

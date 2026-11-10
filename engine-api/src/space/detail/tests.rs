@@ -91,7 +91,7 @@ fn multi_root_file_projection_uses_pinned_item_and_keeps_missing_evidence_unknow
     );
     let query = Query(store.clone());
     let caller = CallerCtx::new(Channel::Gui, id(9)?, None);
-    let request = BrowseDetailRequest {
+    let request = SpaceDetailRequest {
         result_version: old_id.clone(),
         item: second.clone(),
     };
@@ -119,7 +119,7 @@ fn multi_root_file_projection_uses_pinned_item_and_keeps_missing_evidence_unknow
         query.execute(request, &caller).err(),
         Some(EngineError::reason("result.requery_required"))
     );
-    let mismatch = BrowseDetailRequest {
+    let mismatch = SpaceDetailRequest {
         result_version: new_id.clone(),
         item: first.clone(),
     };
