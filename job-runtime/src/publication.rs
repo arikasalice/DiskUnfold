@@ -1,7 +1,22 @@
-//! Serializes query-result publication with cancellation and terminal state.
+//! Serializes publication of prepared results with cancellation and terminal state.
 use crate::{JobRuntime, Publication, RuntimeError, Submission, SubmitResult};
-use du_core_contracts::{Id, job::JobOutcome};
+use du_core_contracts::{
+    Id,
+    job::{HistoryMode, JobDescriptor, JobOutcome, ResourceClass},
+};
 use std::sync::{Arc, Mutex};
+
+pub(super) fn valid(descriptor: &JobDescriptor, publication: Option<&Publication>) -> bool {
+    match (descriptor.kind_id.as_str(), publication) {
+        ("query.evaluate", Some(Publication::Query(_)))
+        | ("viz.compute", Some(Publication::Visualization(_))) => {
+            descriptor.history == HistoryMode::None
+                && descriptor.resource_classes.as_slice() == [ResourceClass::Compute]
+        }
+        ("query.evaluate" | "viz.compute", _) => false,
+        (_, publication) => publication.is_none(),
+    }
+}
 
 impl JobRuntime {
     /// Submits a query evaluation whose candidate is published only at completion.
@@ -17,7 +32,29 @@ impl JobRuntime {
         submission: Submission,
         publish: impl FnOnce() -> Result<Id, String> + Send + 'static,
     ) -> Result<SubmitResult, RuntimeError> {
-        self.submit_inner(submission, None, Some(Box::new(publish)))
+        self.submit_inner(
+            submission,
+            None,
+            Some(Publication::Query(Box::new(publish))),
+        )
+    }
+
+    /// Submits a visualization computation whose model is committed on completion.
+    ///
+    /// The callback commits a prepared model in a bounded in-memory transaction. It
+    /// must publish nothing on error or panic and must not call the job runtime.
+    /// Cancellation that wins the gate skips the commit. The model reference remains
+    /// in the owning cache and is recovered by repeating the fixed render request.
+    pub fn submit_viz_with_publication(
+        &self,
+        submission: Submission,
+        publish: impl FnOnce() -> Result<(), String> + Send + 'static,
+    ) -> Result<SubmitResult, RuntimeError> {
+        self.submit_inner(
+            submission,
+            None,
+            Some(Publication::Visualization(Box::new(publish))),
+        )
     }
 
     pub(super) fn publication_gate(&self, id: &Id) -> Result<Option<Arc<Mutex<()>>>, RuntimeError> {
@@ -52,8 +89,12 @@ impl JobRuntime {
             && outcome.completed_scope
             && let Some(publish) = publication.take()
         {
-            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(publish)) {
-                Ok(Ok(reference)) => outcome.result_version_id = Some(reference),
+            let commit = move || match publish {
+                Publication::Query(commit) => commit().map(Some),
+                Publication::Visualization(commit) => commit().map(|()| None),
+            };
+            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(commit)) {
+                Ok(Ok(reference)) => outcome.result_version_id = reference,
                 Ok(Err(reason)) => {
                     outcome.completed_scope = false;
                     outcome.failure_reason_key = Some(reason);

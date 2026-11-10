@@ -2,12 +2,14 @@ use super::*;
 use std::sync::atomic::AtomicBool;
 
 struct QueryBody {
+    kind: &'static str,
     entered: Arc<Barrier>,
     release: Arc<Barrier>,
+    proposed_result: Option<Id>,
 }
 impl JobBody for QueryBody {
     fn kind_id(&self) -> &str {
-        "query.evaluate"
+        self.kind
     }
     fn run(&self, _: Arc<dyn JobContext>) -> JobOutcome {
         self.entered.wait();
@@ -17,22 +19,29 @@ impl JobBody for QueryBody {
             completed_scope: true,
             failure_reason_key: None,
             unprocessed_summary: None,
-            result_version_id: None,
+            result_version_id: self.proposed_result.clone(),
         }
     }
 }
 fn setup() -> Result<(Arc<JobRuntime>, Id), Box<dyn std::error::Error>> {
+    setup_kind("query.evaluate", Arc::new(Events::default()))
+}
+
+fn setup_kind(
+    kind: &str,
+    events: Arc<Events>,
+) -> Result<(Arc<JobRuntime>, Id), Box<dyn std::error::Error>> {
     let id = Id::parse("00000000-0000-7000-8000-000000000001")?;
     let runtime = Arc::new(JobRuntime::new(
         Arc::new(Identity(id.clone())),
         Arc::new(Clock),
         Arc::new(History::default()),
-        Arc::new(Events::default()),
+        events,
     )?);
     runtime.register(JobDescriptor {
-        kind_id: "query.evaluate".into(),
+        kind_id: kind.into(),
         version: 1,
-        display_name_key: "query.evaluate".into(),
+        display_name_key: kind.into(),
         controls: vec![JobControl::Cancel],
         safe_points: vec!["item".into()],
         progress_unit: ProgressUnit::Items,
@@ -42,15 +51,116 @@ fn setup() -> Result<(Arc<JobRuntime>, Id), Box<dyn std::error::Error>> {
     Ok((runtime, id))
 }
 fn submission(entered: Arc<Barrier>, release: Arc<Barrier>, correlation: Id) -> Submission {
+    controlled_submission("query.evaluate", entered, release, correlation)
+}
+
+fn controlled_submission(
+    kind: &'static str,
+    entered: Arc<Barrier>,
+    release: Arc<Barrier>,
+    correlation: Id,
+) -> Submission {
     Submission {
-        kind_id: "query.evaluate".into(),
+        kind_id: kind.into(),
         deduplication_key: None,
-        body: Arc::new(QueryBody { entered, release }),
+        body: Arc::new(QueryBody {
+            kind,
+            entered,
+            release,
+            proposed_result: (kind == "viz.compute").then(|| correlation.clone()),
+        }),
         priority: JobPriority::Normal,
         scope_summary: "query".into(),
         correlation_id: correlation,
         sample: false,
     }
+}
+
+#[test]
+fn visualization_requires_its_own_publication_boundary() -> Result<(), Box<dyn std::error::Error>> {
+    let (runtime, id) = setup_kind("viz.compute", Arc::new(Events::default()))?;
+    let job = controlled_submission(
+        "viz.compute",
+        Arc::new(Barrier::new(1)),
+        Arc::new(Barrier::new(1)),
+        id.clone(),
+    );
+    assert_eq!(
+        runtime.submit(job.clone()),
+        Err(RuntimeError::InvalidDescriptor)
+    );
+    assert_eq!(
+        runtime.submit_with_publication(job, || Ok(id)),
+        Err(RuntimeError::InvalidDescriptor)
+    );
+    Ok(())
+}
+
+#[test]
+fn visualization_commit_is_private_and_cancelled_work_never_commits()
+-> Result<(), Box<dyn std::error::Error>> {
+    for cancel in [false, true] {
+        let events = Arc::new(Events::default());
+        let (runtime, id) = setup_kind("viz.compute", events.clone())?;
+        let entered = Arc::new(Barrier::new(2));
+        let release = Arc::new(Barrier::new(2));
+        let commits = Arc::new(AtomicUsize::new(0));
+        let counter = commits.clone();
+        let mut submission =
+            controlled_submission("viz.compute", entered.clone(), release.clone(), id.clone());
+        submission.deduplication_key = Some(DeduplicationKey {
+            scope: "pinned-result".into(),
+            input: "fixed-visualization-condition".into(),
+            channel: "gui".into(),
+            key: "strategy-revision".into(),
+        });
+        let result = runtime.submit_viz_with_publication(submission.clone(), move || {
+            counter.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        })?;
+        assert_eq!(result, SubmitResult::Created(id.clone()));
+        let counter = commits.clone();
+        assert_eq!(
+            runtime.submit_viz_with_publication(submission, move || {
+                counter.fetch_add(10, Ordering::SeqCst);
+                Ok(())
+            })?,
+            SubmitResult::Existing(id.clone())
+        );
+        let worker = {
+            let runtime = runtime.clone();
+            std::thread::spawn(move || runtime.run_next())
+        };
+        entered.wait();
+        assert_eq!(commits.load(Ordering::SeqCst), 0);
+        let expected = if cancel {
+            assert_eq!(
+                runtime.cancel(&id)?,
+                CancelResult::Accepted(JobState::CancelRequested)
+            );
+            JobState::Cancelled
+        } else {
+            JobState::Done
+        };
+        release.wait();
+        worker.join().map_err(|_| "worker panicked")??;
+        runtime.flush()?;
+        assert_eq!(commits.load(Ordering::SeqCst), usize::from(!cancel));
+        let snapshot = runtime.snapshot(&id)?;
+        assert_eq!(snapshot.state, expected);
+        assert_eq!(snapshot.result_version_id, None);
+        let events = events.0.lock().map_err(|_| "events poisoned")?;
+        let finished = events
+            .iter()
+            .filter(|event| matches!(event, JobEvent::Finished { .. }))
+            .count();
+        assert_eq!(finished, 1);
+        assert!(
+            matches!(events.last(), Some(JobEvent::Finished { summary, history_recorded: false, .. })
+            if summary.state == expected && summary.result_version_id.is_none())
+        );
+    }
+    Ok(())
 }
 
 #[test]

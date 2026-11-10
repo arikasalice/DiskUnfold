@@ -166,11 +166,7 @@ impl JobRuntime {
         if body_kind != submission.kind_id {
             return Err(RuntimeError::InvalidDescriptor);
         }
-        if (descriptor.kind_id == "query.evaluate") != publication.is_some()
-            || (publication.is_some()
-                && (descriptor.history != HistoryMode::None
-                    || descriptor.resource_classes.as_slice() != [ResourceClass::Compute]))
-        {
+        if !publication::valid(&descriptor, publication.as_ref()) {
             return Err(RuntimeError::InvalidDescriptor);
         }
         if let Some(key) = &submission.deduplication_key

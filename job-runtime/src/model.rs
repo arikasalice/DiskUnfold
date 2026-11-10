@@ -118,7 +118,10 @@ pub struct Submission {
     pub sample: bool,
 }
 pub(crate) struct Cancellation(pub(crate) AtomicBool);
-pub(crate) type Publication = Box<dyn FnOnce() -> Result<Id, String> + Send>;
+pub(crate) enum Publication {
+    Query(Box<dyn FnOnce() -> Result<Id, String> + Send>),
+    Visualization(Box<dyn FnOnce() -> Result<(), String> + Send>),
+}
 pub(crate) struct StoredSubmission {
     pub(crate) kind_id: String,
     pub(crate) deduplication_key: Option<DeduplicationKey>,
