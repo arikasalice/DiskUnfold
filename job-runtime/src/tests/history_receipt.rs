@@ -184,3 +184,58 @@ fn legacy_store_returns_no_receipt() -> Result<(), Box<dyn std::error::Error>> {
     );
     Ok(())
 }
+
+struct PanicsOnce(AtomicUsize);
+impl JobHistory for PanicsOnce {
+    fn append(&self, _: &JobSummary) -> Result<HistoryAppend, String> {
+        if self.0.fetch_add(1, Ordering::SeqCst) == 0 {
+            std::panic::resume_unwind(Box::new("history port failed"));
+        }
+        Ok(HistoryAppend::Added)
+    }
+}
+
+#[test]
+fn history_panic_preserves_cancelled_result_and_subsequent_deliveries()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fallback = Id::parse("00000000-0000-7000-8000-000000000001")?;
+    let history = Arc::new(PanicsOnce(AtomicUsize::new(0)));
+    let events = Arc::new(Collector::default());
+    let runtime = JobRuntime::new(
+        Arc::new(SequentialIdentity {
+            next: AtomicUsize::new(1),
+            fallback,
+        }),
+        Arc::new(Clock),
+        history.clone(),
+        events.clone(),
+    )?;
+    runtime.register(descriptor())?;
+    let cancelled = created(runtime.submit(sample_submission(Arc::new(InstantBody))?)?)?;
+    assert_eq!(
+        runtime.cancel(&cancelled)?,
+        CancelResult::Accepted(JobState::Cancelled)
+    );
+    runtime.flush()?;
+    assert_eq!(runtime.state(&cancelled)?, JobState::Cancelled);
+    {
+        let observed = events.0.lock().map_err(|_| "events poisoned")?;
+        assert!(
+            matches!(observed.last(), Some(Delivered::Job(JobEvent::Finished { summary, history_recorded: false, warning: Some(reason), .. })) if summary.job_id == cancelled && summary.state == JobState::Cancelled && reason == "history.record_failed")
+        );
+    }
+    let next = created(runtime.submit(sample_submission(Arc::new(InstantBody))?)?)?;
+    assert_eq!(runtime.run_next()?, Some(next.clone()));
+    runtime.flush()?;
+    let observed = events.0.lock().map_err(|_| "events poisoned")?;
+    assert!(
+        matches!(observed.last(), Some(Delivered::Job(JobEvent::Finished { summary, history_recorded: true, warning: None, .. })) if summary.job_id == next && summary.state == JobState::Done)
+    );
+    assert!(
+        !observed
+            .iter()
+            .any(|event| matches!(event, Delivered::History(_)))
+    );
+    assert_eq!(history.0.load(Ordering::SeqCst), 2);
+    Ok(())
+}

@@ -58,10 +58,13 @@ pub(super) fn consume(
                 record,
             } => {
                 let (history_recorded, warning, receipt) = if record {
-                    match history.append_with_receipt(&summary) {
-                        Ok(HistoryAppendOutcome::Added(receipt)) => (true, None, receipt),
-                        Ok(HistoryAppendOutcome::Duplicate) => (true, None, None),
-                        Err(error) => (false, Some(error), None),
+                    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        history.append_with_receipt(&summary)
+                    })) {
+                        Ok(Ok(HistoryAppendOutcome::Added(receipt))) => (true, None, receipt),
+                        Ok(Ok(HistoryAppendOutcome::Duplicate)) => (true, None, None),
+                        Ok(Err(error)) => (false, Some(error), None),
+                        Err(_) => (false, Some("history.record_failed".into()), None),
                     }
                 } else {
                     (false, None, None)
