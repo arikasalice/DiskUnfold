@@ -22,22 +22,69 @@ use crate::{
     workers::Workers,
 };
 
+/// A validated F03 identity-table capacity, frozen when a scan is admitted.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SharedTableLimit(usize);
+
+impl SharedTableLimit {
+    /// Accepts only the inclusive range defined by the F03 setting.
+    pub fn new(entries: usize) -> Option<Self> {
+        (100_000..=10_000_000)
+            .contains(&entries)
+            .then_some(Self(entries))
+    }
+
+    /// Returns the validated number of entries.
+    pub fn entries(self) -> usize {
+        self.0
+    }
+}
+
+impl Default for SharedTableLimit {
+    fn default() -> Self {
+        Self(1_000_000)
+    }
+}
+
+/// Reads an already validated setting snapshot when a new scan is admitted.
+pub type SharedTableLimitSource = Arc<dyn Fn() -> SharedTableLimit + Send + Sync>;
+
 /// Registers the metadata job and the query sharing its immutable result store.
-pub(crate) fn register(
+pub(crate) fn register_with_limit(
     builder: &mut EngineBuilder,
     workers: Arc<Workers>,
     roots: Arc<dyn ScopeRootPort>,
     ids: Arc<dyn JobIdentity>,
+    limit: SharedTableLimitSource,
 ) -> Result<IngestSink, RuntimeError> {
-    register_with_comparison(builder, workers, roots, ids, None)
+    register_with_options(builder, workers, roots, ids, None, limit)
 }
 
+#[cfg(test)]
 pub(crate) fn register_with_comparison(
     builder: &mut EngineBuilder,
     workers: Arc<Workers>,
     roots: Arc<dyn ScopeRootPort>,
     ids: Arc<dyn JobIdentity>,
     comparison: Option<Arc<dyn scope::exclusion::PathComparison>>,
+) -> Result<IngestSink, RuntimeError> {
+    register_with_options(
+        builder,
+        workers,
+        roots,
+        ids,
+        comparison,
+        Arc::new(SharedTableLimit::default),
+    )
+}
+
+fn register_with_options(
+    builder: &mut EngineBuilder,
+    workers: Arc<Workers>,
+    roots: Arc<dyn ScopeRootPort>,
+    ids: Arc<dyn JobIdentity>,
+    comparison: Option<Arc<dyn scope::exclusion::PathComparison>>,
+    limit: SharedTableLimitSource,
 ) -> Result<IngestSink, RuntimeError> {
     workers
         .runtime
@@ -54,6 +101,7 @@ pub(crate) fn register_with_comparison(
         store: store.clone(),
         admitted: Mutex::new(None),
         comparison,
+        limit,
     });
     Ok(store)
 }
@@ -73,6 +121,7 @@ struct StartScan {
     store: IngestSink,
     admitted: Mutex<Option<Admitted>>,
     comparison: Option<Arc<dyn scope::exclusion::PathComparison>>,
+    limit: SharedTableLimitSource,
 }
 
 /// Retains the review identity alongside the reusable receipt while a scan is active.
@@ -115,7 +164,8 @@ impl UseCase for StartScan {
             scope_version.clone(),
             self.ids.clone(),
         )
-        .with_lineage(lineage.clone());
+        .with_lineage(lineage.clone())
+        .with_shared_table_limit((self.limit)().entries());
         if let Some(filter) = verified.filter {
             job = job.with_pre_metadata_filter(filter);
         }

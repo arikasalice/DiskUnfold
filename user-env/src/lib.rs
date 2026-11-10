@@ -11,6 +11,7 @@ use serde_json::Value;
 pub mod i18n;
 pub mod locale;
 pub mod settings;
+pub mod space;
 
 fn accepts(kind: &ValueKind, value: &Value) -> bool {
     match kind {

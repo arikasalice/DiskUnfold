@@ -10,6 +10,14 @@ pub(super) fn scan_harness_with_comparison(
     finish_gate: Option<Arc<Mutex<mpsc::Receiver<()>>>>,
     comparison: Option<Arc<dyn crate::scope::exclusion::PathComparison>>,
 ) -> Result<ScanHarness, Box<dyn std::error::Error>> {
+    scan_harness_with_options(finish_gate, comparison, None)
+}
+
+pub(super) fn scan_harness_with_options(
+    finish_gate: Option<Arc<Mutex<mpsc::Receiver<()>>>>,
+    comparison: Option<Arc<dyn crate::scope::exclusion::PathComparison>>,
+    limit: Option<crate::desktop::SharedTableLimitSource>,
+) -> Result<ScanHarness, Box<dyn std::error::Error>> {
     let ids = Arc::new(Ids {
         next: AtomicUsize::new(1),
         fallback: Id::parse("018f0000-0000-7000-8000-000000000000")?,
@@ -47,13 +55,18 @@ pub(super) fn scan_harness_with_comparison(
         crate::scope::register_review(&mut builder, roots.clone(), clock);
     }
     let workers = Arc::new(crate::workers::Workers::start(runtime.clone())?);
-    let versions = crate::scan::register_with_comparison(
-        &mut builder,
-        workers,
-        roots.clone(),
-        ids,
-        comparison,
-    )?;
+    let versions = match limit {
+        Some(limit) => {
+            crate::scan::register_with_limit(&mut builder, workers, roots.clone(), ids, limit)?
+        }
+        None => crate::scan::register_with_comparison(
+            &mut builder,
+            workers,
+            roots.clone(),
+            ids,
+            comparison,
+        )?,
+    };
     crate::jobs::register_with_scan_store(&mut builder, runtime, versions.clone());
     Ok(ScanHarness {
         engine: builder.build()?,

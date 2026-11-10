@@ -17,6 +17,7 @@ use du_core_contracts::{
 use du_job_runtime::{FlowLimits, JobClock, JobEvent, JobEvents, JobIdentity, JobRuntime};
 use serde_json::json;
 
+pub use crate::scan::{SharedTableLimit, SharedTableLimitSource};
 use crate::{api::EngineBuilder, jobs, scan, scope, targets, workers::Workers};
 
 const EVENT_LIMIT: usize = 1_024;
@@ -32,6 +33,27 @@ pub fn register(
     volumes: Arc<dyn VolumePort>,
     history: Arc<dyn JobHistory>,
     random: &dyn Random,
+) -> Result<Arc<DesktopEvents>, Box<dyn std::error::Error>> {
+    register_with_shared_table_limit(
+        builder,
+        roots,
+        volumes,
+        history,
+        random,
+        Arc::new(SharedTableLimit::default),
+    )
+}
+
+/// Registers the desktop flow with a source of validated settings for future scans.
+///
+/// The source is read at each scan-start attempt; an admitted job retains its value.
+pub fn register_with_shared_table_limit(
+    builder: &mut EngineBuilder,
+    roots: Arc<dyn ScopeRootPort>,
+    volumes: Arc<dyn VolumePort>,
+    history: Arc<dyn JobHistory>,
+    random: &dyn Random,
+    shared_table_limit: SharedTableLimitSource,
 ) -> Result<Arc<DesktopEvents>, Box<dyn std::error::Error>> {
     let ids = Arc::new(SystemIdentity);
     let clock = Arc::new(SystemClock(Instant::now()));
@@ -59,7 +81,7 @@ pub fn register(
             probe: TARGET_PROBE_DEADLINE,
         },
     )?;
-    let store = scan::register(builder, workers, roots, ids)?;
+    let store = scan::register_with_limit(builder, workers, roots, ids, shared_table_limit)?;
     crate::scan_failures::register(builder, store.clone(), random);
     jobs::register_with_scan_store(builder, runtime, store);
     Ok(events)

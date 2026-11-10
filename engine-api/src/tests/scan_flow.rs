@@ -186,6 +186,7 @@ fn scan_harness() -> Result<ScanHarness, Box<dyn std::error::Error>> {
 }
 
 mod fixture;
+mod settings;
 use fixture::scan_harness_with_gate;
 
 #[test]
