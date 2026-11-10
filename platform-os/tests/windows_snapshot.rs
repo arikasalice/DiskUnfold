@@ -185,3 +185,43 @@ fn competing_nt_renames_preserve_exactly_one_result() -> Result<(), Box<dyn std:
     assert!(bytes == b"one" || bytes == b"two");
     Ok(())
 }
+
+#[test]
+fn sealed_capture_reads_the_same_bytes_while_excluding_other_writers()
+-> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempfile::tempdir()?;
+    let root = SnapshotDirectory::open(dir.path()).map_err(|e| format!("{e:?}"))?;
+    let temp = id(91)?;
+    let path = temp_path(dir.path(), &temp);
+    let mut capture = root.capture(&temp)?;
+    capture.write_all(b"sealed")?;
+    let mut sealed = capture.seal()?;
+    assert!(fs::OpenOptions::new().write(true).open(&path).is_err());
+    assert!(root.create(&temp).is_err());
+    assert!(root.capture(&temp).is_err());
+    let mut bytes = Vec::new();
+    sealed.read_to_end(&mut bytes)?;
+    assert_eq!(bytes, b"sealed");
+    sealed.seek(SeekFrom::Start(2))?;
+    let mut tail = [0; 4];
+    sealed.read_exact(&mut tail)?;
+    assert_eq!(&tail, b"aled");
+    drop(sealed);
+    assert_eq!(fs::read_dir(dir.path())?.count(), 0);
+    Ok(())
+}
+
+#[test]
+fn abandoning_a_capture_removes_it_and_allows_name_reuse() -> Result<(), Box<dyn std::error::Error>>
+{
+    let dir = tempfile::tempdir()?;
+    let root = SnapshotDirectory::open(dir.path()).map_err(|e| format!("{e:?}"))?;
+    let temp = id(92)?;
+    let mut capture = root.capture(&temp)?;
+    capture.write_all(b"partial")?;
+    drop(capture);
+    assert_eq!(fs::read_dir(dir.path())?.count(), 0);
+    drop(root.capture(&temp)?);
+    assert_eq!(fs::read_dir(dir.path())?.count(), 0);
+    Ok(())
+}

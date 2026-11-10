@@ -1,4 +1,4 @@
-//! Handle-relative snapshot staging and non-replacing registration on local NTFS.
+//! Handle-relative snapshot staging, registration, and capture on local NTFS.
 use crate::windows_observation::{WindowsDirectory, open_verified_stable};
 use du_core_contracts::{Id, ports::PortError};
 use std::{
@@ -12,9 +12,9 @@ use windows::{
     Wdk::{
         Foundation::OBJECT_ATTRIBUTES,
         Storage::FileSystem::{
-            FILE_CREATE, FILE_NON_DIRECTORY_FILE, FILE_OPEN_REPARSE_POINT, FILE_RENAME_INFORMATION,
-            FILE_RENAME_INFORMATION_0, FILE_SYNCHRONOUS_IO_NONALERT, FileRenameInformation,
-            NtCreateFile, NtSetInformationFile,
+            FILE_CREATE, FILE_DELETE_ON_CLOSE, FILE_NON_DIRECTORY_FILE, FILE_OPEN_REPARSE_POINT,
+            FILE_RENAME_INFORMATION, FILE_RENAME_INFORMATION_0, FILE_SYNCHRONOUS_IO_NONALERT,
+            FileRenameInformation, NTCREATEFILE_CREATE_OPTIONS, NtCreateFile, NtSetInformationFile,
         },
     },
     Win32::{
@@ -38,7 +38,29 @@ impl SnapshotDirectory {
     }
     /// Exclusively creates and locks an identifier-derived temporary file in this directory.
     pub fn create(&self, temporary_id: &Id) -> io::Result<TemporarySnapshot<'_>> {
-        let name = format!(".tmp-{}.dusnap.part", temporary_id.as_str());
+        let temporary = TemporarySnapshot {
+            _directory: self,
+            file: self.create_file(temporary_id, NTCREATEFILE_CREATE_OPTIONS(0))?,
+            registered: false,
+        };
+        temporary.file.try_lock().map_err(io::Error::from)?;
+        Ok(temporary)
+    }
+
+    /// Creates a private capture that the OS removes when the last handle closes.
+    ///
+    /// The caller must bound the bytes written and validate the sealed contents.
+    pub fn capture(&self, temporary_id: &Id) -> io::Result<SnapshotCapture<'_>> {
+        let file = self.create_file(temporary_id, FILE_DELETE_ON_CLOSE)?;
+        file.try_lock().map_err(io::Error::from)?;
+        Ok(SnapshotCapture {
+            directory: self,
+            file,
+        })
+    }
+
+    fn create_file(&self, id: &Id, options: NTCREATEFILE_CREATE_OPTIONS) -> io::Result<File> {
+        let name = format!(".tmp-{}.dusnap.part", id.as_str());
         let wide: Vec<u16> = name.encode_utf16().collect();
         let length = u16::try_from(wide.len() * 2).map_err(|_| io::ErrorKind::InvalidInput)?;
         let object_name = UNICODE_STRING {
@@ -68,7 +90,10 @@ impl SnapshotDirectory {
                 FILE_ATTRIBUTE_NORMAL,
                 FILE_SHARE_MODE(0),
                 FILE_CREATE,
-                FILE_NON_DIRECTORY_FILE | FILE_OPEN_REPARSE_POINT | FILE_SYNCHRONOUS_IO_NONALERT,
+                FILE_NON_DIRECTORY_FILE
+                    | FILE_OPEN_REPARSE_POINT
+                    | FILE_SYNCHRONOUS_IO_NONALERT
+                    | options,
                 None,
                 0,
             )
@@ -80,16 +105,7 @@ impl SnapshotDirectory {
             ));
         }
         // SAFETY: successful creation transfers ownership of a valid handle.
-        let file = unsafe { File::from_raw_handle(handle.0) };
-        let temporary = TemporarySnapshot {
-            _directory: self,
-            file,
-            registered: false,
-        };
-        if let Err(error) = temporary.file.try_lock() {
-            return Err(error.into());
-        }
-        Ok(temporary)
+        Ok(unsafe { File::from_raw_handle(handle.0) })
     }
 }
 
@@ -107,8 +123,8 @@ impl TemporarySnapshot<'_> {
     }
     /// Synchronizes and renames the held file within its current parent, without replacement.
     ///
-    /// The temporary file and verified directory remain exclusively held until the
-    /// native rename completes. No path-based source reopen or copy fallback is used.
+    /// The source remains exclusively held and the verified directory chain stays
+    /// open until the native rename completes. The operation uses the staged handle.
     pub fn register(mut self, snapshot_id: &Id) -> io::Result<()> {
         self.sync()?;
         let name: Vec<u16> = format!("{}.dusnap", snapshot_id.as_str())
@@ -197,6 +213,52 @@ impl Drop for TemporarySnapshot<'_> {
         if !self.registered {
             self.remove_on_close();
         }
+    }
+}
+
+/// A write-only capture retained under a verified directory with exclusive access.
+pub struct SnapshotCapture<'a> {
+    file: File,
+    directory: &'a SnapshotDirectory,
+}
+
+impl<'a> SnapshotCapture<'a> {
+    /// Consumes the writer and rewinds the same locked handle for read-only access.
+    pub fn seal(mut self) -> io::Result<SealedSnapshot<'a>> {
+        self.file.flush()?;
+        self.file.rewind()?;
+        Ok(SealedSnapshot {
+            file: self.file,
+            _directory: self.directory,
+        })
+    }
+}
+
+impl Write for SnapshotCapture<'_> {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        self.file.write(bytes)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.file.flush()
+    }
+}
+
+/// Read-only access to the exact captured bytes, locked until automatic removal.
+pub struct SealedSnapshot<'a> {
+    file: File,
+    _directory: &'a SnapshotDirectory,
+}
+
+impl Read for SealedSnapshot<'_> {
+    fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
+        self.file.read(bytes)
+    }
+}
+
+impl Seek for SealedSnapshot<'_> {
+    fn seek(&mut self, position: SeekFrom) -> io::Result<u64> {
+        self.file.seek(position)
     }
 }
 
