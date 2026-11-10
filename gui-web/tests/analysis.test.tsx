@@ -1343,7 +1343,9 @@ test("F01: an invalid drop gives guidance without replacing the chosen folder", 
   fireEvent.click(await screen.findByRole("radio", { name: path.display }));
   folderDrop({ seq: 1, pending: true });
   folderDrop({ seq: 1, reason: "invalid_target" });
-  expect(screen.getByText("Drop one accessible local folder.")).toBeDefined();
+  expect(
+    screen.getByText("Drop one accessible local folder. No path was changed."),
+  ).toBeDefined();
   expect(
     (
       screen.getByRole("textbox", {
@@ -1352,6 +1354,61 @@ test("F01: an invalid drop gives guidance without replacing the chosen folder", 
     ).value,
   ).toBe(path.display);
 });
+
+test.each([
+  ["Review scope", "scope.review", 1],
+  ["Start scan", "scan.start", 0],
+] as const)(
+  "F01: a pending folder verification blocks %s without losing focus",
+  async (label, command, previousCalls) => {
+    const { client, calls } = fixture();
+    const nativeDrop = createAnalysisClient().subscribeFolderDrop;
+    if (!nativeDrop) throw new Error("Expected native drop subscription");
+    render(<App analysis={{ ...client, subscribeFolderDrop: nativeDrop }} />);
+    fireEvent.click(await screen.findByRole("radio", { name: path.display }));
+    fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
+    const start = screen.getByRole<HTMLButtonElement>("button", {
+      name: "Start scan",
+    });
+    await waitFor(() => expect(start.disabled).toBe(false));
+    const action = screen.getByRole("button", { name: label });
+    action.focus();
+    act(() => {
+      folderDrop({ seq: 1, pending: true });
+      fireEvent.click(action);
+    });
+    expect(calls.filter(({ name }) => name === command)).toHaveLength(
+      previousCalls,
+    );
+    expect(
+      screen.getByText("Checking dropped folder…").closest('[role="status"]'),
+    ).not.toBeNull();
+    expect(document.activeElement).toBe(action);
+    expect(action.getAttribute("aria-disabled")).toBe("true");
+
+    folderDrop({ seq: 1, reason: "invalid_target" });
+    expect(screen.queryByText("Checking dropped folder…")).toBeNull();
+    expect(screen.getByRole("alert").textContent).toContain(
+      "No path was changed.",
+    );
+    expect(screen.getByLabelText("Reviewed scope").textContent).toContain(
+      path.display,
+    );
+    expect(start.disabled).toBe(false);
+    expect(action.hasAttribute("aria-disabled")).toBe(false);
+    expect(document.activeElement).toBe(action);
+
+    folderDrop({ seq: 2, pending: true });
+    folderDrop({ seq: 2, path: "D:\\Retry" });
+    expect(
+      screen.getByRole<HTMLInputElement>("textbox", {
+        name: "Windows folder path",
+      }).value,
+    ).toBe("D:\\Retry");
+    expect(start.disabled).toBe(true);
+    expect(calls.some(({ name }) => name === "scan.start")).toBe(false);
+  },
+);
 
 test("F01 FR3: a delayed folder verification cannot undo a newer edit or drop", async () => {
   const { client, calls } = fixture();
@@ -1363,16 +1420,20 @@ test("F01 FR3: a delayed folder verification cannot undo a newer edit or drop", 
     name: "Windows folder path",
   });
   folderDrop({ seq: 1, pending: true });
+  expect(screen.getByText("Checking dropped folder…")).toBeDefined();
   fireEvent.change(input, { target: { value: "D:\\Manual" } });
   folderDrop({ seq: 1, path: "D:\\Late" });
   expect(input.value).toBe("D:\\Manual");
+  expect(screen.queryByText("Checking dropped folder…")).toBeNull();
 
   folderDrop({ seq: 2, pending: true });
   folderDrop({ seq: 3, pending: true });
   folderDrop({ seq: 2, reason: "invalid_target" });
-  expect(screen.queryByText("Drop one accessible local folder.")).toBeNull();
+  expect(screen.queryByText(/^Drop one accessible local folder/)).toBeNull();
+  expect(screen.getByText("Checking dropped folder…")).toBeDefined();
   folderDrop({ seq: 3, path: "D:\\Newest" });
   expect(input.value).toBe("D:\\Newest");
+  expect(screen.queryByText("Checking dropped folder…")).toBeNull();
   expect(calls.some(({ name }) => name === "scan.start")).toBe(false);
 });
 

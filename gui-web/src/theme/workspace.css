@@ -45,6 +45,10 @@ body {
   outline-offset: 2px;
 }
 
+.du-live-status:empty {
+  position: absolute;
+}
+
 .du-primary-path {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

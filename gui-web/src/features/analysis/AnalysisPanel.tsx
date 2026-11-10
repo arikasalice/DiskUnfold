@@ -9,6 +9,7 @@ import type { Ref } from "react";
 import {
   Action,
   Heading,
+  LiveStatus,
   Notice,
   Progress,
   Readout,
@@ -113,6 +114,7 @@ function ReviewNotices({
 }
 
 function ScopeActions({
+  checkingDrop,
   reviewing,
   working,
   running,
@@ -121,6 +123,7 @@ function ScopeActions({
   onReview,
   onStart,
 }: {
+  checkingDrop: boolean;
   reviewing: boolean;
   working: boolean;
   running: boolean;
@@ -133,12 +136,16 @@ function ScopeActions({
   const starting = working && !running;
   return (
     <>
+      <LiveStatus>
+        {checkingDrop && <Text>Checking dropped folder…</Text>}
+      </LiveStatus>
       {reviewing && <Progress label="Reviewing scope" />}
       {starting && <Progress label="Starting scan" />}
       <footer className="du-card__actions">
         <Action
           icon="folder"
           isDisabled={blocked || !reviewEnabled}
+          isPending={checkingDrop && !blocked && reviewEnabled}
           onPress={onReview}
         >
           {reviewing ? "Reviewing scope…" : "Review scope"}
@@ -147,6 +154,7 @@ function ScopeActions({
           icon="scan"
           variant="primary"
           isDisabled={blocked || !startEnabled}
+          isPending={checkingDrop && !blocked && startEnabled}
           onPress={onStart}
         >
           {starting ? "Starting scan…" : "Start scan"}
@@ -214,6 +222,7 @@ export function AnalysisPanel({
   const [error, setError] = useState<string>();
   const [receipt, setReceipt] = useState<ScanStart | null>(null);
   const [cancelRequested, setCancelRequested] = useState(false);
+  const [checkingDrop, setCheckingDrop] = useState(false);
   const [dropMessage, setDropMessage] = useState<{
     text: string;
     tone: "info" | "error";
@@ -246,6 +255,8 @@ export function AnalysisPanel({
   const editPaths = useCallback(
     (update: (current: (OsPath | undefined)[]) => (OsPath | undefined)[]) => {
       request.current += 1;
+      pendingDrop.current = undefined;
+      setCheckingDrop(false);
       setSelected(update);
       setReview(undefined);
       setReviewedDraft(undefined);
@@ -282,11 +293,14 @@ export function AnalysisPanel({
         if (working || running) return;
         if ("pending" in drop) {
           pendingDrop.current = { seq: drop.seq, request: request.current };
+          setCheckingDrop(true);
+          setDropMessage(undefined);
           return;
         }
         const pending = pendingDrop.current;
         if (pending?.seq !== drop.seq) return;
         pendingDrop.current = undefined;
+        setCheckingDrop(false);
         if (pending.request !== request.current) return;
         if ("path" in drop) {
           choose(drop.path);
@@ -298,8 +312,8 @@ export function AnalysisPanel({
           setDropMessage({
             text:
               drop.reason === "invalid_target"
-                ? "Drop one accessible local folder."
-                : "Folder drop is unavailable. Enter its path instead.",
+                ? "Drop one accessible local folder. No path was changed."
+                : "Folder drop is unavailable. Enter its path instead. No path was changed.",
             tone: "error",
           });
         }
@@ -308,7 +322,7 @@ export function AnalysisPanel({
   );
 
   async function reviewScope() {
-    if (selected.some((path) => !path)) return;
+    if (pendingDrop.current || selected.some((path) => !path)) return;
     const paths = selected.filter((path): path is OsPath => path !== undefined);
     if (paths.length === 0) return;
     const requestSeq = ++request.current;
@@ -338,9 +352,9 @@ export function AnalysisPanel({
   }
 
   async function start() {
+    if (pendingDrop.current) return;
     if (!review || !reviewedDraft || !canStart(review, reviewedDraft)) return;
     cancelOwner.current = undefined;
-    pendingDrop.current = undefined;
     setWorking(true);
     setCancelRequested(false);
     setError(undefined);
@@ -426,6 +440,7 @@ export function AnalysisPanel({
             problem={reviewProblem}
           />
           <ScopeActions
+            checkingDrop={checkingDrop}
             reviewing={reviewing}
             working={working}
             running={running}
