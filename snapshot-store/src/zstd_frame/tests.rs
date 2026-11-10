@@ -112,3 +112,52 @@ fn rejects_reserved_block_and_missing_checksum() {
     checksum.extend_from_slice(&[0, 0, 0, 0]);
     assert!(inspect_frame(&checksum, 3).is_ok()); // The checksum is not verified here.
 }
+
+#[test]
+fn shared_slice_and_reader_parser_match_frame_boundaries() {
+    use std::io::Read;
+    let valid = raw_frame(b"abc");
+    let mut trailing = valid.clone();
+    trailing.push(0);
+    let mut dictionary = valid.clone();
+    dictionary[4] |= 1;
+    dictionary.insert(5, 1);
+    for bytes in [
+        valid.clone(),
+        valid[..valid.len() - 1].to_vec(),
+        trailing,
+        dictionary,
+        vec![0; 5],
+    ] {
+        let slice = inspect_frame_cancellable(&bytes, 100, &mut || false);
+        let mut input = bytes.as_slice().take(bytes.len() as u64);
+        let stream = inspect_reader(&mut input, 100, &mut || false).map_err(|error| match error {
+            ReadError::Frame(e) => e,
+            ReadError::Io(_) => Error::InvalidFrame,
+        });
+        assert_eq!(slice, stream);
+    }
+}
+
+#[test]
+fn reader_parser_preserves_io_and_cancellation() {
+    use std::io::Read;
+    struct Broken;
+    impl Read for Broken {
+        fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::other("broken"))
+        }
+    }
+    assert!(matches!(
+        inspect_reader(&mut Broken.take(100), 100, &mut || false),
+        Err(ReadError::Io(_))
+    ));
+    assert!(matches!(
+        inspect_reader(
+            &mut raw_frame(b"abc").as_slice().take(100),
+            100,
+            &mut || true
+        ),
+        Err(ReadError::Frame(Error::Cancelled))
+    ));
+}

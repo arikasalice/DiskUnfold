@@ -4,6 +4,7 @@
 //! that a frame with no dictionary identifier needs no external dictionary.
 
 use crate::envelope;
+use std::io::Read;
 
 const MAGIC: [u8; 4] = [0x28, 0xb5, 0x2f, 0xfd];
 const MAX_WINDOW: u64 = 1 << 27;
@@ -51,37 +52,149 @@ fn inspect_frame(bytes: &[u8], decoded_limit: u64) -> Result<FrameInfo, Error> {
     inspect_frame_cancellable(bytes, decoded_limit, &mut || false)
 }
 
+/// Read failures remain distinct from malformed or cancelled frames.
+#[derive(Debug)]
+pub(crate) enum ReadError {
+    Frame(Error),
+    Io(std::io::Error),
+}
+
+trait Input {
+    fn read(
+        &mut self,
+        bytes: &mut [u8],
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<(), ReadError>;
+    fn skip(&mut self, length: usize, cancelled: &mut dyn FnMut() -> bool)
+    -> Result<(), ReadError>;
+    fn remaining(&self) -> u64;
+}
+
+struct SliceInput<'a>(&'a [u8]);
+impl Input for SliceInput<'_> {
+    fn read(
+        &mut self,
+        bytes: &mut [u8],
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<(), ReadError> {
+        checkpoint(cancelled)?;
+        let source = self
+            .0
+            .get(..bytes.len())
+            .ok_or(ReadError::Frame(Error::InvalidFrame))?;
+        bytes.copy_from_slice(source);
+        self.0 = &self.0[bytes.len()..];
+        Ok(())
+    }
+    fn skip(
+        &mut self,
+        length: usize,
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<(), ReadError> {
+        checkpoint(cancelled)?;
+        self.0 = self
+            .0
+            .get(length..)
+            .ok_or(ReadError::Frame(Error::InvalidFrame))?;
+        Ok(())
+    }
+    fn remaining(&self) -> u64 {
+        self.0.len() as u64
+    }
+}
+
+struct ReaderInput<'a, R>(&'a mut std::io::Take<R>);
+impl<R: std::io::Read> Input for ReaderInput<'_, R> {
+    fn read(
+        &mut self,
+        mut bytes: &mut [u8],
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<(), ReadError> {
+        while !bytes.is_empty() {
+            checkpoint(cancelled)?;
+            match self.0.read(bytes) {
+                Ok(0) => return Err(ReadError::Frame(Error::InvalidFrame)),
+                Ok(n) => bytes = &mut bytes[n..],
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(error) => return Err(ReadError::Io(error)),
+            }
+        }
+        Ok(())
+    }
+    fn skip(
+        &mut self,
+        mut length: usize,
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<(), ReadError> {
+        let mut buffer = [0; 16 * 1024];
+        while length > 0 {
+            let n = length.min(buffer.len());
+            self.read(&mut buffer[..n], cancelled)?;
+            length -= n;
+        }
+        Ok(())
+    }
+    fn remaining(&self) -> u64 {
+        self.0.limit()
+    }
+}
+
+fn checkpoint(cancelled: &mut dyn FnMut() -> bool) -> Result<(), ReadError> {
+    if cancelled() {
+        Err(ReadError::Frame(Error::Cancelled))
+    } else {
+        Ok(())
+    }
+}
+
 pub(crate) fn inspect_frame_cancellable(
     bytes: &[u8],
     decoded_limit: u64,
     cancelled: &mut impl FnMut() -> bool,
 ) -> Result<FrameInfo, Error> {
-    if cancelled() {
-        return Err(Error::Cancelled);
+    match inspect(&mut SliceInput(bytes), decoded_limit, cancelled) {
+        Ok(info) => Ok(info),
+        Err(ReadError::Frame(error)) => Err(error),
+        Err(ReadError::Io(_)) => Err(Error::InvalidFrame),
     }
-    if bytes.get(..4) != Some(MAGIC.as_slice()) {
-        return Err(Error::InvalidFrame);
+}
+
+pub(crate) fn inspect_reader<R: std::io::Read>(
+    reader: &mut std::io::Take<R>,
+    decoded_limit: u64,
+    cancelled: &mut impl FnMut() -> bool,
+) -> Result<FrameInfo, ReadError> {
+    inspect(&mut ReaderInput(reader), decoded_limit, cancelled)
+}
+
+fn inspect(
+    input: &mut impl Input,
+    decoded_limit: u64,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<FrameInfo, ReadError> {
+    let mut fixed = [0; 5];
+    input.read(&mut fixed, cancelled)?;
+    if fixed[..4] != MAGIC || fixed[4] & 0x08 != 0 {
+        return Err(ReadError::Frame(Error::InvalidFrame));
     }
-    let mut pos = 4;
-    let descriptor = take(bytes, &mut pos, 1)?[0];
-    if descriptor & 0x08 != 0 {
-        return Err(Error::InvalidFrame);
-    }
+    let descriptor = fixed[4];
     let single = descriptor & 0x20 != 0;
     let window = if single {
         None
     } else {
-        let value = take(bytes, &mut pos, 1)?[0];
-        let shift = 10 + u32::from(value >> 3);
-        let base = 1u64.checked_shl(shift).ok_or(Error::WindowLimit)?;
-        Some(base + (base / 8) * u64::from(value & 7))
+        let mut raw = [0];
+        input.read(&mut raw, cancelled)?;
+        let shift = 10 + u32::from(raw[0] >> 3);
+        let base = 1u64
+            .checked_shl(shift)
+            .ok_or(ReadError::Frame(Error::WindowLimit))?;
+        Some(base + (base / 8) * u64::from(raw[0] & 7))
     };
     let dictionary_len = [0, 1, 2, 4][usize::from(descriptor & 3)];
-    if take(bytes, &mut pos, dictionary_len)?
-        .iter()
-        .any(|&v| v != 0)
-    {
-        return Err(Error::Dictionary);
+    let mut dictionary = [0; 4];
+    input.read(&mut dictionary[..dictionary_len], cancelled)?;
+    if dictionary[..dictionary_len].iter().any(|v| *v != 0) {
+        return Err(ReadError::Frame(Error::Dictionary));
     }
     let content_len = match descriptor >> 6 {
         0 if single => 1,
@@ -90,28 +203,25 @@ pub(crate) fn inspect_frame_cancellable(
         2 => 4,
         _ => 8,
     };
-    let content_size = if content_len == 0 {
-        None
-    } else {
-        let raw = take(bytes, &mut pos, content_len)?;
-        let mut value = [0u8; 8];
-        value[..content_len].copy_from_slice(raw);
-        let size = u64::from_le_bytes(value) + if content_len == 2 { 256 } else { 0 };
-        Some(size)
-    };
+    let mut raw = [0; 8];
+    input.read(&mut raw[..content_len], cancelled)?;
+    let content_size = (content_len != 0)
+        .then(|| u64::from_le_bytes(raw) + if content_len == 2 { 256 } else { 0 });
     if content_size.is_some_and(|size| size > decoded_limit) {
-        return Err(Error::DecodedLimit);
+        return Err(ReadError::Frame(Error::DecodedLimit));
     }
-    let window_size = window.or(content_size).ok_or(Error::InvalidFrame)?;
+    let window_size = window
+        .or(content_size)
+        .ok_or(ReadError::Frame(Error::InvalidFrame))?;
     if window_size > MAX_WINDOW {
-        return Err(Error::WindowLimit);
+        return Err(ReadError::Frame(Error::WindowLimit));
     }
-    blocks(bytes, &mut pos, window_size, cancelled)?;
+    blocks(input, window_size, cancelled)?;
     if descriptor & 4 != 0 {
-        take(bytes, &mut pos, 4)?;
+        input.skip(4, cancelled)?;
     }
-    if pos != bytes.len() {
-        return Err(Error::TrailingData);
+    if input.remaining() != 0 {
+        return Err(ReadError::Frame(Error::TrailingData));
     }
     Ok(FrameInfo {
         window_size,
@@ -120,36 +230,25 @@ pub(crate) fn inspect_frame_cancellable(
 }
 
 fn blocks(
-    bytes: &[u8],
-    pos: &mut usize,
+    input: &mut impl Input,
     window: u64,
-    cancelled: &mut impl FnMut() -> bool,
-) -> Result<(), Error> {
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<(), ReadError> {
     loop {
-        if cancelled() {
-            return Err(Error::Cancelled);
-        }
-        let raw = take(bytes, pos, 3)?;
+        let mut raw = [0; 3];
+        input.read(&mut raw, cancelled)?;
         let header = u32::from_le_bytes([raw[0], raw[1], raw[2], 0]);
-        let last = header & 1 != 0;
         let kind = (header >> 1) & 3;
         let length = u64::from(header >> 3);
         if kind == 3 || length > window.min(MAX_BLOCK) {
-            return Err(Error::InvalidFrame);
+            return Err(ReadError::Frame(Error::InvalidFrame));
         }
         let stored = if kind == 1 { 1 } else { length as usize };
-        take(bytes, pos, stored)?;
-        if last {
+        input.skip(stored, cancelled)?;
+        if header & 1 != 0 {
             return Ok(());
         }
     }
-}
-
-fn take<'a>(bytes: &'a [u8], pos: &mut usize, count: usize) -> Result<&'a [u8], Error> {
-    let end = pos.checked_add(count).ok_or(Error::InvalidFrame)?;
-    let value = bytes.get(*pos..end).ok_or(Error::InvalidFrame)?;
-    *pos = end;
-    Ok(value)
 }
 
 #[cfg(test)]
