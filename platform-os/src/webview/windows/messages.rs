@@ -24,7 +24,8 @@ struct Request {
 struct IpcQueues {
     ordered: mpsc::SyncSender<Request>,
     isolated: mpsc::SyncSender<Request>,
-    control: mpsc::SyncSender<Request>,
+    query_control: mpsc::SyncSender<Request>,
+    job_control: mpsc::SyncSender<Request>,
     route: fn(&str) -> DispatchLane,
 }
 
@@ -37,11 +38,12 @@ impl IpcQueues {
                 app.dispatch.clone(),
                 replies.clone(),
             )?,
-            control: worker(
+            query_control: worker(
                 "diskunfold-ipc-query-control",
                 app.dispatch.clone(),
-                replies,
+                replies.clone(),
             )?,
+            job_control: worker("diskunfold-ipc-job-control", app.dispatch.clone(), replies)?,
             route: app.route,
         })
     }
@@ -53,7 +55,8 @@ impl IpcQueues {
         let lane = match (self.route)(data) {
             DispatchLane::Ordered => &self.ordered,
             DispatchLane::Volume => &self.isolated,
-            DispatchLane::QueryControl => &self.control,
+            DispatchLane::QueryControl => &self.query_control,
+            DispatchLane::JobControl => &self.job_control,
         };
         lane.try_send(Request {
             id: id.to_owned(),
@@ -366,6 +369,61 @@ mod tests {
         assert_eq!(replies.recv_timeout(deadline)?, "4\nnormal.second");
         release_volume.send(())?;
         assert_eq!(replies.recv_timeout(deadline)?, "2\nvolume");
+        Ok(())
+    }
+
+    #[test]
+    fn job_controls_keep_order_while_review_and_query_control_are_blocked()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let (entered, started) = mpsc::channel();
+        let (release_review, review_gate) = mpsc::channel();
+        let (release_query, query_gate) = mpsc::channel();
+        let review_gate = Mutex::new(review_gate);
+        let query_gate = Mutex::new(query_gate);
+        let deadline = Duration::from_secs(5);
+        let app = WebApp {
+            asset: |_| None,
+            dispatch: Arc::new(move |command| {
+                let gate = match command {
+                    "scope.review" => Some(&review_gate),
+                    "query.region.close" => Some(&query_gate),
+                    _ => None,
+                };
+                if let Some(gate) = gate {
+                    entered.send(command.to_owned()).ok()?;
+                    gate.lock().ok()?.recv_timeout(deadline).ok()?;
+                }
+                Some(command.to_owned())
+            }),
+            route: |command| match command {
+                "job.pause" | "job.resume" | "job.cancel" => DispatchLane::JobControl,
+                "query.region.close" => DispatchLane::QueryControl,
+                _ => DispatchLane::Ordered,
+            },
+            icon: &[],
+        };
+        let (send, replies) = mpsc::sync_channel(8);
+        let queues = IpcQueues::start(&app, send)?;
+        assert!(queues.enqueue(&entry(), "1", "scope.review"));
+        assert!(queues.enqueue(&entry(), "2", "query.region.close"));
+        let mut both = [
+            started.recv_timeout(deadline)?,
+            started.recv_timeout(deadline)?,
+        ];
+        both.sort();
+        assert_eq!(both, ["query.region.close", "scope.review"]);
+
+        assert!(!queues.enqueue("https://example.invalid", "foreign", "job.cancel"));
+        assert!(queues.enqueue(&entry(), "3", "job.pause"));
+        assert!(queues.enqueue(&entry(), "4", "job.resume"));
+        assert!(queues.enqueue(&entry(), "5", "job.cancel"));
+        for expected in ["3\njob.pause", "4\njob.resume", "5\njob.cancel"] {
+            assert_eq!(replies.recv_timeout(deadline)?, expected);
+        }
+        release_query.send(())?;
+        assert_eq!(replies.recv_timeout(deadline)?, "2\nquery.region.close");
+        release_review.send(())?;
+        assert_eq!(replies.recv_timeout(deadline)?, "1\nscope.review");
         Ok(())
     }
 }

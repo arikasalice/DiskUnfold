@@ -21,7 +21,7 @@ struct Address {
     correlation_id: Id,
 }
 
-/// Route potentially blocking enumeration and query control independently.
+/// Keeps query and job controls independent of potentially blocking requests.
 /// The dispatcher still validates the entire envelope and channel.
 #[cfg(windows)]
 pub(crate) fn dispatch_lane(message: &str) -> du_platform_os::webview::DispatchLane {
@@ -52,6 +52,7 @@ pub(crate) fn dispatch_lane(message: &str) -> du_platform_os::webview::DispatchL
         Ok(route) if route.command == "du_call" => match route.args.envelope.name.as_ref() {
             "target.list" => DispatchLane::Volume,
             "query.cancel" | "query.region.close" => DispatchLane::QueryControl,
+            "job.cancel" | "job.pause" | "job.resume" => DispatchLane::JobControl,
             _ => DispatchLane::Ordered,
         },
         _ => DispatchLane::Ordered,
@@ -100,7 +101,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn selects_only_exact_valid_route_names() {
-        use du_platform_os::webview::DispatchLane::{Ordered, QueryControl, Volume};
+        use du_platform_os::webview::DispatchLane::{JobControl, Ordered, QueryControl, Volume};
         for (body, expected) in [
             (
                 r#"{"command":"du_call","args":{"envelope":{"name":"target.list"}}}"#,
@@ -120,6 +121,26 @@ mod tests {
             ),
             (
                 r#"{"command":"du_call","args":{"envelope":{"name":"browse.open"}}}"#,
+                Ordered,
+            ),
+            (
+                r#"{"command":"du_call","args":{"envelope":{"name":"job.cancel"}}}"#,
+                JobControl,
+            ),
+            (
+                r#"{"command":"du_call","args":{"envelope":{"name":"job.pause"}}}"#,
+                JobControl,
+            ),
+            (
+                r#"{"command":"du_call","args":{"envelope":{"name":"job.resume"}}}"#,
+                JobControl,
+            ),
+            (
+                r#"{"command":"du_call","args":{"envelope":{"name":"job.pause.extra"}}}"#,
+                Ordered,
+            ),
+            (
+                r#"{"command":"other","args":{"envelope":{"name":"job.cancel"}}}"#,
                 Ordered,
             ),
             (

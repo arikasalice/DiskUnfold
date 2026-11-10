@@ -27,6 +27,8 @@ pub enum DispatchLane {
     Ordered,
     Volume,
     QueryControl,
+    /// FIFO delivery for pause, resume and cancellation of admitted jobs.
+    JobControl,
 }
 
 pub struct WebApp {
