@@ -9,6 +9,32 @@ pub struct Rect {
     pub bottom: u32,
 }
 
+// Conversion preserves the existing layout and never creates geometry for None.
+pub(super) fn rect_geometry(
+    rect: Option<Rect>,
+) -> Result<
+    Option<du_core_contracts::visualization::geometry::Geometry>,
+    du_core_contracts::visualization::geometry::GeometryError,
+> {
+    use du_core_contracts::visualization::geometry::{Geometry, Point};
+    rect.map(|rect| {
+        Geometry::new(
+            "rect",
+            vec![
+                Point {
+                    x: rect.left,
+                    y: rect.top,
+                },
+                Point {
+                    x: rect.right,
+                    y: rect.bottom,
+                },
+            ],
+        )
+    })
+    .transpose()
+}
+
 /// A source value; a lower bound remains distinguishable from an exact value.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Weight {

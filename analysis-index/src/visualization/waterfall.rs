@@ -3,7 +3,7 @@
 //! The caller supplies the comparison start and end values, ordered signed
 //! changes, and values that could not be compared. This module does not infer
 //! comparison sources or reconcile missing values.
-use super::geometry::{NoArea, Rect, Scale, Weight, valid_bounds};
+use super::geometry::{NoArea, Rect, Scale, Weight, rect_geometry, valid_bounds};
 
 /// Direction of an exact comparison change.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -41,6 +41,36 @@ pub struct Waterfall {
     pub uncertain_changes: Vec<Change>,
     /// The established vertical axis maximum, or `None` if values are uncertain.
     pub axis_max: Option<u64>,
+}
+
+/// Rectangles aligned with the original start, ordered changes, and end bars.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WaterfallGeometry {
+    pub start: Option<du_core_contracts::visualization::geometry::Geometry>,
+    pub changes: Vec<Option<du_core_contracts::visualization::geometry::Geometry>>,
+    pub end: Option<du_core_contracts::visualization::geometry::Geometry>,
+}
+
+impl Waterfall {
+    /// Converts calculated bar rectangles to geometry v1 without changing them.
+    ///
+    /// Every change slot maps to `changes` in the same order, and `None` keeps
+    /// non-drawn bars distinct. Original directions, values, and uncertain
+    /// changes remain in this result. Coordinates must already be on the
+    /// normalized 0..=1,000,000 grid.
+    pub fn geometry_v1(
+        &self,
+    ) -> Result<WaterfallGeometry, du_core_contracts::visualization::geometry::GeometryError> {
+        Ok(WaterfallGeometry {
+            start: rect_geometry(self.start.rect)?,
+            changes: self
+                .changes
+                .iter()
+                .map(|bar| rect_geometry(bar.rect))
+                .collect::<Result<_, _>>()?,
+            end: rect_geometry(self.end.rect)?,
+        })
+    }
 }
 
 /// Invalid geometry, duplicate change identity, or a fixed axis below a value.

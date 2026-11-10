@@ -2,7 +2,9 @@
 //!
 //! Boundary generation, attribution, and the source of observations belong to
 //! the caller and F26/F03; this module does not infer a missing boundary table.
-use super::geometry::{NoArea, Rect, Scale, Sum, Weight, resolve_axis, row_rect, valid_bounds};
+use super::geometry::{
+    NoArea, Rect, Scale, Sum, Weight, rect_geometry, resolve_axis, row_rect, valid_bounds,
+};
 use du_core_contracts::result::ResultCompleteness;
 use std::collections::HashSet;
 
@@ -55,6 +57,25 @@ pub struct Histogram {
     pub axis_max: Option<u64>,
     pub source_completeness: ResultCompleteness,
     pub total_bytes_overflowed: bool,
+}
+
+impl Histogram {
+    /// Converts the calculated bin rectangles to geometry v1 in bin order.
+    ///
+    /// Each slot corresponds to `bins`; `None` preserves a bin without area.
+    /// Bin boundaries, values, and uncertain items remain in this result.
+    /// Coordinates must already be on the normalized 0..=1,000,000 grid.
+    pub fn geometry_v1(
+        &self,
+    ) -> Result<
+        Vec<Option<du_core_contracts::visualization::geometry::Geometry>>,
+        du_core_contracts::visualization::geometry::GeometryError,
+    > {
+        self.bins
+            .iter()
+            .map(|bin| rect_geometry(bin.rect))
+            .collect()
+    }
 }
 
 /// Invalid boundaries or input identity. Overflow in a bin remains unknown.

@@ -3,8 +3,8 @@
 //! These local models are not the serialized F06 contract. The caller owns the
 //! pinned source, size basis, shared-space attribution, and legend definitions.
 use super::geometry::{
-    NoArea, Rect, Scale, Sum, Weight, amount, positive_amount, resolve_axis, row_rect, scale,
-    valid_bounds,
+    NoArea, Rect, Scale, Sum, Weight, amount, positive_amount, rect_geometry, resolve_axis,
+    row_rect, scale, valid_bounds,
 };
 use du_core_contracts::result::ResultCompleteness;
 use std::collections::{BTreeMap, HashSet};
@@ -46,6 +46,25 @@ pub struct Ranking {
     /// Completeness supplied by the pinned source for this input scope.
     pub source_completeness: ResultCompleteness,
     pub total_overflowed: bool,
+}
+
+impl Ranking {
+    /// Converts existing bar rectangles to geometry v1 in the same bar order.
+    ///
+    /// Each slot corresponds to `bars`; `None` preserves a bar without an
+    /// area. Unknown items remain separately available in `unknown_items`.
+    /// Coordinates must already be on the normalized 0..=1,000,000 grid.
+    pub fn geometry_v1(
+        &self,
+    ) -> Result<
+        Vec<Option<du_core_contracts::visualization::geometry::Geometry>>,
+        du_core_contracts::visualization::geometry::GeometryError,
+    > {
+        self.bars
+            .iter()
+            .map(|bar| rect_geometry(bar.rect))
+            .collect()
+    }
 }
 
 /// Invalid calculation inputs. Arithmetic overflow in observed values is instead
@@ -180,6 +199,25 @@ pub struct Stack {
     pub segments: Vec<SegmentLayout>,
     pub total: Weight,
     pub total_overflowed: bool,
+}
+
+impl Stack {
+    /// Converts existing rectangles in `segments` legend order to geometry v1.
+    ///
+    /// Each slot corresponds to its source segment, including `None` for zero,
+    /// unknown, or unrepresentable geometry. Coordinates must already be on the
+    /// normalized 0..=1,000,000 grid. Values and category keys stay in `segments`.
+    pub fn geometry_v1(
+        &self,
+    ) -> Result<
+        Vec<Option<du_core_contracts::visualization::geometry::Geometry>>,
+        du_core_contracts::visualization::geometry::GeometryError,
+    > {
+        self.segments
+            .iter()
+            .map(|segment| rect_geometry(segment.rect))
+            .collect()
+    }
 }
 
 /// Orders every supplied segment by `legend` and uses the caller's fixed axis.
