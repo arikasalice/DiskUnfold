@@ -1,0 +1,100 @@
+.du-browse-grid-frame {
+  container-type: inline-size;
+  min-inline-size: 0;
+}
+
+.du-browse-grid {
+  overflow-anchor: none;
+  border: 1px solid var(--du-border);
+  border-radius: 6px;
+}
+
+.du-browse-grid__header {
+  background: var(--du-subtle);
+}
+
+.du-browse-grid__header [role="row"],
+.du-browse-grid__row {
+  display: grid;
+  grid-template-columns:
+    minmax(0, 25fr) minmax(0, 10fr) repeat(2, minmax(0, 13fr))
+    minmax(0, 18fr) minmax(0, 21fr);
+}
+
+.du-browse-grid__body {
+  position: relative;
+  overflow: clip;
+}
+
+.du-browse-grid__row {
+  position: absolute;
+  inset-inline: 0;
+  min-block-size: 40px;
+  border-block-end: 1px solid var(--du-border);
+}
+
+.du-browse-grid
+  :is([role="columnheader"], [role="rowheader"], [role="gridcell"]) {
+  min-inline-size: 0;
+  padding: 6px 8px;
+  overflow-wrap: anywhere;
+}
+
+.du-browse-grid [aria-selected="true"] {
+  background: var(--du-selected-surface);
+  color: var(--du-selected-text);
+  box-shadow: inset 3px 0 var(--du-selected-border);
+}
+
+.du-browse-grid [aria-selected="true"] [role="rowheader"] {
+  font-weight: 700;
+}
+
+.du-browse-grid:focus-visible,
+.du-browse-grid :focus-visible {
+  outline: 2px solid var(--du-focus);
+  outline-offset: -2px;
+}
+
+.du-browse-grid .du-action {
+  display: inline-block;
+  max-inline-size: 100%;
+  min-inline-size: 0;
+  text-align: start;
+  overflow-wrap: anywhere;
+}
+
+.du-browse-grid__label {
+  display: none;
+}
+
+@container (max-width: 640px) {
+  .du-browse-grid__header {
+    position: absolute;
+    inline-size: 1px;
+    block-size: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+
+  .du-browse-grid__row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .du-browse-grid__row
+    :is(:first-child, :last-child):is([role="rowheader"], [role="gridcell"]) {
+    grid-column: 1 / -1;
+  }
+
+  .du-browse-grid__label {
+    display: block;
+    color: var(--du-muted);
+    font-size: 0.875em;
+  }
+}
+
+@container (max-width: 300px) {
+  .du-browse-grid__row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

@@ -53,12 +53,14 @@ export class BrowseRowPositions {
       bottom > Math.max(0, top) && visibleStart < this.count
         ? lowerBound(this.count, (index) => this.offset(index) >= bottom)
         : visibleStart;
-    const outside = [...new Set(pins)].filter(
-      (index) =>
-        index >= 0 &&
-        index < this.count &&
-        (index < visibleStart || index >= visibleEnd),
-    );
+    const outside = [...new Set(pins)]
+      .slice(0, 2)
+      .filter(
+        (index) =>
+          index >= 0 &&
+          index < this.count &&
+          (index < visibleStart || index >= visibleEnd),
+      );
     const indexes = new Set(outside);
     const start = Math.max(0, visibleStart - OVERSCAN);
     const end = Math.min(this.count, visibleEnd + OVERSCAN);

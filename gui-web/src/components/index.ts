@@ -24,6 +24,8 @@ export { Breadcrumbs } from "./breadcrumbs";
 export type { BreadcrumbEntry } from "./breadcrumbs";
 export { BrowseTable } from "./browse-table";
 export type { BrowsePageFocus, PageViewport } from "./browse-table";
+export { BrowseGrid } from "./browse-grid";
+export type { BrowseGridFocus } from "./browse-grid";
 export { canHandleBrowseKey } from "./browse-keys";
 export { DataTable } from "./data-table";
 
