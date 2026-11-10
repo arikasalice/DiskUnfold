@@ -97,21 +97,42 @@ fn enumerate() -> Result<Vec<VolumeMount>, PortError> {
     if mask == 0 {
         return Err(error(io::Error::last_os_error()));
     }
+    Ok(enumerate_mask(
+        mask,
+        |drive| {
+            let name = terminated(drive);
+            // SAFETY: name is NUL-terminated and lives throughout the call.
+            unsafe { GetDriveTypeW(PCWSTR(name.as_ptr())) }
+        },
+        identity,
+    ))
+}
+
+/// Classifies only the Windows remote-drive observation. Fixed or removable
+/// media, a device bus, and a drive letter do not establish physical location.
+fn target_kind(drive_type: u32) -> Option<VolumeTargetKind> {
+    (drive_type == 4).then_some(VolumeTargetKind::NetworkMount)
+}
+
+// Both callbacks may block. This models existing synchronous enumeration;
+// it does not start additional device or network queries.
+fn enumerate_mask(
+    mask: u32,
+    drive_type: impl Fn(&[u16]) -> u32,
+    identify: impl Fn(&[u16]) -> Result<Vec<u8>, PortError>,
+) -> Vec<VolumeMount> {
     let mut mounts = Vec::new();
     for index in 0..26 {
         if mask & (1 << index) == 0 {
             continue;
         }
         let drive = [u16::from(b'A') + index as u16, 58, 92];
-        let name = terminated(&drive);
-        // SAFETY: name is NUL-terminated and lives throughout the call.
-        let drive_type = unsafe { GetDriveTypeW(PCWSTR(name.as_ptr())) };
-        // A fixed/removable drive type does not prove whether the device is internal.
-        let target_kind = (drive_type == 4).then_some(VolumeTargetKind::NetworkMount);
-        let volume_id = if drive_type == 4 {
+        let observed_type = drive_type(&drive);
+        let target_kind = target_kind(observed_type);
+        let volume_id = if observed_type == 4 {
             None
         } else {
-            identity(&drive).ok()
+            identify(&drive).ok()
         };
         mounts.push(VolumeMount {
             mount_path: bytes(&drive),
@@ -124,7 +145,7 @@ fn enumerate() -> Result<Vec<VolumeMount>, PortError> {
             volume_id,
         });
     }
-    Ok(mounts)
+    mounts
 }
 fn open_root(path: &[u8]) -> Result<(std::fs::File, Vec<u8>), PortError> {
     use std::{
@@ -231,6 +252,65 @@ impl VolumePort for WindowsVolumes {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn only_remote_drive_type_establishes_network_target() {
+        for drive_type in [0, 1, 2, 3, 5, 6, u32::MAX] {
+            assert_eq!(target_kind(drive_type), None);
+        }
+        assert_eq!(target_kind(4), Some(VolumeTargetKind::NetworkMount));
+    }
+
+    #[test]
+    fn enumeration_preserves_unidentified_drives_and_skips_remote_identity() {
+        use std::cell::Cell;
+        let calls = Cell::new(0);
+        let mounts = enumerate_mask(
+            (1 << 2) | (1 << 3) | (1 << 4),
+            |drive| if drive[0] == u16::from(b'C') { 4 } else { 3 },
+            |drive| {
+                calls.set(calls.get() + 1);
+                Err(error(io::Error::from_raw_os_error(
+                    if drive[0] == u16::from(b'D') { 5 } else { 1167 },
+                )))
+            },
+        );
+        assert_eq!(calls.get(), 2);
+        assert_eq!(mounts.len(), 3);
+        assert_eq!(mounts[0].target_kind, Some(VolumeTargetKind::NetworkMount));
+        assert!(mounts.iter().all(|mount| mount.volume_id.is_none()));
+        assert!(mounts[1..].iter().all(|mount| mount.target_kind.is_none()));
+        assert_eq!(mounts[1].display_path, "D:\\");
+        assert_eq!(mounts[2].display_path, "E:\\");
+    }
+
+    #[test]
+    fn enumeration_waits_for_drive_observation() -> Result<(), Box<dyn std::error::Error>> {
+        use std::{sync::mpsc, thread, time::Duration};
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let (done_tx, done_rx) = mpsc::channel();
+        let worker = thread::spawn(move || {
+            let mounts = enumerate_mask(
+                1,
+                |_| {
+                    let _ = entered_tx.send(());
+                    let _ = release_rx.recv();
+                    4
+                },
+                |_| Err(invalid()),
+            );
+            let _ = done_tx.send(mounts.len());
+        });
+        let entered = entered_rx.recv_timeout(Duration::from_secs(2));
+        let early = done_rx.recv_timeout(Duration::from_millis(50));
+        release_tx.send(())?;
+        let completed = done_rx.recv_timeout(Duration::from_secs(2));
+        worker.join().map_err(|_| "enumeration worker panicked")?;
+        assert!(entered.is_ok());
+        assert!(matches!(early, Err(mpsc::RecvTimeoutError::Timeout)));
+        assert_eq!(completed?, 1);
+        Ok(())
+    }
     #[test]
     fn root_path_boundary_and_encoding() {
         assert_eq!(root(&bytes(&[67, 58, 92])).ok(), Some(vec![67, 58, 92]));
