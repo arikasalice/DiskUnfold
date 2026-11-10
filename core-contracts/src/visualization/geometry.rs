@@ -6,6 +6,7 @@ pub const COORDINATE_MAX: u32 = 1_000_000;
 
 /// A point on the normalized coordinate grid.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS), ts(rename = "VizPoint"))]
 pub struct Point {
     pub x: u32,
     pub y: u32,
@@ -25,6 +26,7 @@ pub enum GeometryError {
 /// Unknown primitive identifiers are preserved for forward-compatible fallback.
 /// Consumers must check [`Geometry::is_supported`] before drawing.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS), ts(rename = "VizGeometry"))]
 pub struct Geometry {
     primitive: String,
     points: Vec<Point>,
