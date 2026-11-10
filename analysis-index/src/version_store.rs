@@ -10,7 +10,7 @@ type Lineage = Option<Id>;
 
 #[derive(Clone)]
 pub(super) struct Entry {
-    result: Arc<ResultVersion>,
+    pub(super) result: Arc<ResultVersion>,
     order: u64,
 }
 
@@ -19,10 +19,20 @@ pub(super) struct State {
     lineages: HashMap<String, Id>,
     current: HashMap<Lineage, Entry>,
     next_order: u64,
+    event_sequences: HashMap<Id, u64>,
     active: HashSet<Lineage>,
     used_versions: HashSet<Id>,
 }
 impl State {
+    pub(super) fn next_event_sequence(&mut self, lineage: Option<&Id>) -> Option<u64> {
+        let sequence = self.event_sequences.entry(lineage?.clone()).or_default();
+        let next = sequence
+            .checked_add(1)
+            .filter(|next| *next < (1_u64 << 53))?;
+        *sequence = next;
+        Some(next)
+    }
+
     pub(super) fn bind(&mut self, fingerprint: &str, candidate: Id) -> Result<Id, BuildError> {
         if let Some(id) = self.lineages.get(fingerprint) {
             return Ok(id.clone());

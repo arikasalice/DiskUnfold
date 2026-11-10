@@ -5,6 +5,7 @@ use du_core_contracts::{
     job::{HistoryAppend, JobHistory, JobSummary},
     ports::{PortError, PortErrorKind},
     result::ResultVersionRead,
+    result_events::{PublishedCompleteness, ResultVersionNotice},
     scan_observation::{
         AnchoredDirectory, DirectoryObservations, MetadataObservation, ObservedEntry, ObservedKind,
         OpenedScopeRoot, ScopeRootPort,
@@ -49,7 +50,10 @@ struct Events(mpsc::Sender<JobEvent>);
 
 impl JobEvents for Events {
     fn publish(&self, event: JobEvent) {
-        if matches!(event, JobEvent::Finished { .. }) {
+        if matches!(
+            event,
+            JobEvent::Finished { .. } | JobEvent::ResultVersionChanged(_)
+        ) {
             let _ = self.0.send(event);
         }
     }
@@ -266,11 +270,28 @@ fn reviewed_identity_is_rechecked_and_one_job_publishes_the_requested_result()
         .ok_or("replacement reused the active job")?;
     assert_eq!(busy.reason_key, "job.queue_full");
     release.send(())?;
-    let (summary, history_recorded) = scan_finished(&terminal)?;
+    let (summary, history_recorded, notices) = scan_delivery(&terminal)?;
     assert_eq!(summary.job_id, receipt.job_ref);
     assert_eq!(summary.scope_summary, "metadata: 1 root");
     assert!(history_recorded);
     let version = summary.result_version_id.ok_or("missing result version")?;
+    assert_eq!(notices.len(), 2);
+    assert_eq!(notices[0].body.sequence, 1);
+    assert_eq!(
+        notices[0].body.completeness,
+        Some(PublishedCompleteness::Partial)
+    );
+    assert_eq!(notices[1].body.sequence, 2);
+    assert_eq!(
+        notices[1].body.completeness,
+        Some(PublishedCompleteness::Complete)
+    );
+    assert_eq!(notices[0].body.lineage_id, notices[1].body.lineage_id);
+    assert_eq!(
+        notices[0].result_version,
+        notices[1].body.previous_result_version
+    );
+    assert_eq!(notices[1].result_version.as_ref(), Some(&version));
     let response = gui(
         "space.total",
         json!({
@@ -328,13 +349,24 @@ fn check_replacement_submission(
 fn scan_finished(
     terminal: &mpsc::Receiver<JobEvent>,
 ) -> Result<(Box<JobSummary>, bool), Box<dyn std::error::Error>> {
-    match terminal.recv_timeout(Duration::from_secs(5))? {
-        JobEvent::Finished {
-            summary,
-            history_recorded,
-            ..
-        } => Ok((summary, history_recorded)),
-        _ => Err("missing terminal event".into()),
+    let (summary, history_recorded, _) = scan_delivery(terminal)?;
+    Ok((summary, history_recorded))
+}
+
+fn scan_delivery(
+    terminal: &mpsc::Receiver<JobEvent>,
+) -> Result<(Box<JobSummary>, bool, Vec<ResultVersionNotice>), Box<dyn std::error::Error>> {
+    let mut notices = Vec::new();
+    loop {
+        match terminal.recv_timeout(Duration::from_secs(5))? {
+            JobEvent::ResultVersionChanged(notice) => notices.push(*notice),
+            JobEvent::Finished {
+                summary,
+                history_recorded,
+                ..
+            } => return Ok((summary, history_recorded, notices)),
+            _ => return Err("missing terminal event".into()),
+        }
     }
 }
 

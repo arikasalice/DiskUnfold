@@ -27,10 +27,14 @@ use std::sync::{
     mpsc,
 };
 
-impl ResultVersionPublisher for JobRuntime {
+struct ResultPublisher(std::sync::Weak<Mutex<Table>>);
+
+impl ResultVersionPublisher for ResultPublisher {
     fn publish_result_version(&self, notice: ResultVersionNotice) {
         if notice.validate()
-            && let Ok(table) = self.table.lock()
+            && let Some(table) = self.0.upgrade()
+            && let Ok(table) = table.lock()
+            && !table.shutting_down
         {
             let event = JobEvent::ResultVersionChanged(Box::new(notice));
             let _ = enqueue(&table, Delivery::Event(event));
@@ -39,6 +43,11 @@ impl ResultVersionPublisher for JobRuntime {
 }
 
 impl JobRuntime {
+    /// Shares the event lane without giving queued job bodies ownership of their runtime.
+    pub fn result_version_publisher(&self) -> Arc<dyn ResultVersionPublisher> {
+        Arc::new(ResultPublisher(Arc::downgrade(&self.table)))
+    }
+
     pub fn new(
         identity: Arc<dyn JobIdentity>,
         clock: Arc<dyn JobClock>,

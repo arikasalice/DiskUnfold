@@ -31,7 +31,7 @@ pub(crate) fn register(
     workers
         .runtime
         .register(du_scan_engine::scan_job::descriptor())?;
-    let store = IngestSink::default();
+    let store = IngestSink::with_version_publisher(workers.runtime.result_version_publisher());
     space::register_total(builder, store.clone());
     browse::register(builder, store.clone());
     builder.register(StartScan {

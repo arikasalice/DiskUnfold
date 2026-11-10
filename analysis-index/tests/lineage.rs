@@ -2,8 +2,9 @@ use du_analysis_index::{BuildHandle, IngestSink, QueryError};
 use du_core_contracts::{
     Id, PathBytes, PathEncoding,
     result::{ResultCompleteness, ResultNativePath, ResultScopeRoot, ResultVersionRead},
+    result_events::{ResultVersionChange, ResultVersionNotice, ResultVersionPublisher},
 };
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 fn id(n: u32) -> Result<Id, String> {
     Id::parse(&format!("018f0000-0000-7000-8000-{n:012x}"))
@@ -30,6 +31,64 @@ fn current(sink: &IngestSink) -> Result<Option<Id>, String> {
         .pin()
         .map_err(|e| format!("{e:?}"))?
         .map(|r| r.version_id().clone()))
+}
+
+#[derive(Default)]
+struct Notices(Mutex<Vec<ResultVersionNotice>>);
+
+impl ResultVersionPublisher for Notices {
+    fn publish_result_version(&self, notice: ResultVersionNotice) {
+        if let Ok(mut notices) = self.0.lock() {
+            notices.push(notice);
+        }
+    }
+}
+
+#[test]
+fn notices_report_each_commit_and_withdraw_only_within_its_lineage() -> Result<(), String> {
+    let notices = Arc::new(Notices::default());
+    let sink = IngestSink::with_version_publisher(notices.clone());
+    let a = sink
+        .bind_current_analysis("a", id(1)?)
+        .map_err(|e| format!("{e:?}"))?;
+    let b = sink
+        .bind_current_analysis("b", id(2)?)
+        .map_err(|e| format!("{e:?}"))?;
+    build(&sink, &a, 10)?
+        .seal(id(20)?, ResultCompleteness::Complete)
+        .map_err(|e| format!("{e:?}"))?;
+    let mut replaces_a = build(&sink, &a, 11)?;
+    replaces_a
+        .publish_partial(id(21)?)
+        .map_err(|e| format!("{e:?}"))?;
+    let mut opens_b = build(&sink, &b, 12)?;
+    opens_b
+        .publish_partial(id(22)?)
+        .map_err(|e| format!("{e:?}"))?;
+    drop(opens_b);
+    drop(replaces_a);
+    drop(build(&sink, &a, 13)?);
+
+    let notices = notices.0.lock().map_err(|_| "notice lock poisoned")?;
+    assert_eq!(notices.len(), 5);
+    use ResultVersionChange::{Published, Withdrawn};
+    let expected = [
+        (&a, 1, Published, None, Some(id(20)?)),
+        (&a, 2, Published, Some(id(20)?), Some(id(21)?)),
+        (&b, 1, Published, None, Some(id(22)?)),
+        (&b, 2, Withdrawn, Some(id(22)?), None),
+        (&a, 3, Withdrawn, Some(id(21)?), Some(id(20)?)),
+    ];
+    for (notice, (lineage, sequence, change, previous, current)) in notices.iter().zip(expected) {
+        assert!(notice.validate());
+        assert_eq!(&notice.body.lineage_id, lineage);
+        assert_eq!(&notice.body.source_ref, lineage);
+        assert_eq!(notice.body.sequence, sequence);
+        assert_eq!(notice.body.change, change);
+        assert_eq!(notice.body.previous_result_version, previous);
+        assert_eq!(notice.result_version, current);
+    }
+    Ok(())
 }
 
 #[test]

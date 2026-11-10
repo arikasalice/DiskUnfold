@@ -3,6 +3,7 @@ pub mod browse;
 mod forest;
 mod physical;
 pub mod publication_cadence;
+mod publication_events;
 pub mod query;
 mod result_path;
 mod result_read;
@@ -13,8 +14,10 @@ pub mod visualization;
 use du_core_contracts::result::{
     ResultCompleteness, ResultItem, ResultItemKind, ResultScopeGap, ResultScopeRoot, SpaceAggregate,
 };
+use du_core_contracts::result_events::{ResultVersionChange, ResultVersionPublisher};
 use du_core_contracts::{Id, SizeValue, Timestamp};
 pub use physical::{FileIdentity, SharingEvidence, SpaceObservation};
+use publication_events::PublicationEvents;
 pub use result_read::ItemDetail;
 use result_read::ensure_directory;
 use std::collections::BTreeMap;
@@ -69,8 +72,17 @@ pub enum QueryError {
 #[derive(Clone, Default)]
 pub struct IngestSink {
     state: Arc<Mutex<State>>,
+    events: Arc<PublicationEvents>,
 }
 impl IngestSink {
+    /// Creates the result store and binds it to the runtime notification channel.
+    pub fn with_version_publisher(publisher: Arc<dyn ResultVersionPublisher>) -> Self {
+        Self {
+            state: Arc::default(),
+            events: Arc::new(PublicationEvents::new(publisher)),
+        }
+    }
+
     /// Pins the current version only if its identifier still matches the admitted request.
     pub fn pin_current(&self, expected: &Id) -> Result<Arc<ResultVersion>, QueryError> {
         let state = self.state.lock().map_err(|_| QueryError::Unavailable)?;
@@ -147,6 +159,7 @@ impl IngestSink {
         let baseline = state.begin(&lineage)?;
         Ok(BuildHandle {
             state: Arc::clone(&self.state),
+            events: Arc::clone(&self.events),
             baseline,
             lineage,
             published: false,
@@ -162,6 +175,7 @@ impl IngestSink {
 /// Dropping or aborting an unfinished build withdraws its partial publications.
 pub struct BuildHandle {
     state: Arc<Mutex<State>>,
+    events: Arc<PublicationEvents>,
     baseline: Option<Entry>,
     lineage: Option<Id>,
     published: bool,
@@ -397,11 +411,17 @@ impl BuildHandle {
             scope_total,
             observed_at,
         });
+        let order = self
+            .events
+            .order
+            .lock()
+            .map_err(|_| BuildError::Unavailable)?;
         let mut state = self.state.lock().map_err(|_| BuildError::Unavailable)?;
         let previous = match state.publish(&self.lineage, Arc::clone(&result), finish) {
-            Ok(focus) => focus,
+            Ok(previous) => previous,
             Err(error) => {
                 drop(state);
+                drop(order);
                 self.abort();
                 return Err(error);
             }
@@ -410,17 +430,44 @@ impl BuildHandle {
         if finish {
             self.finished = true;
         }
+        let sequence = state.next_event_sequence(self.lineage.as_ref());
         drop(state);
+        self.events.notify(
+            self.lineage.as_ref(),
+            sequence,
+            ResultVersionChange::Published,
+            previous.as_ref().map(|entry| entry.result.as_ref()),
+            Some(&result),
+        );
+        drop(order);
         drop(previous);
         Ok(result)
     }
     pub fn abort(&mut self) {
         if !self.finished {
-            let withdrawn = self.state.lock().ok().and_then(|mut state| {
-                state.abort(&self.lineage, self.baseline.clone(), self.published)
-            });
-            drop(withdrawn);
             self.finished = true;
+            let order = self
+                .events
+                .order
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let Ok(mut state) = self.state.lock() else {
+                return;
+            };
+            let withdrawn = state.abort(&self.lineage, self.baseline.clone(), self.published);
+            let sequence = withdrawn
+                .as_ref()
+                .and_then(|_| state.next_event_sequence(self.lineage.as_ref()));
+            drop(state);
+            self.events.notify(
+                self.lineage.as_ref(),
+                sequence,
+                ResultVersionChange::Withdrawn,
+                withdrawn.as_ref().map(|entry| entry.result.as_ref()),
+                self.baseline.as_ref().map(|entry| entry.result.as_ref()),
+            );
+            drop(order);
+            drop(withdrawn);
         }
     }
 }
