@@ -137,12 +137,13 @@ pub fn project(
             .checked_add(row.bytes())
             .ok_or(Error::InvalidLayout)?;
         let kind = &version.items()[row.item().item_no as usize].kind;
+        let visible_depth = 1;
         shapes.push(Shape {
             row_index: shape.row_index,
             meta: ShapeMeta {
-                shape_ref: format!("item:{}", row.item().item_no),
+                shape_ref: format!("s{:x}-{visible_depth}", row.item().item_no),
                 parent_shape_ref: None,
-                visible_depth: 1,
+                visible_depth,
                 root_branch_ref: (*kind == ResultItemKind::Directory).then(|| row.item().clone()),
             },
             geometry: shape.geometry,

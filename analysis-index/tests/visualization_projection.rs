@@ -134,6 +134,7 @@ fn projection_keeps_source_rows_and_verified_totals() -> Result<(), String> {
         assert_eq!(row.size, *source.size.as_ref().ok_or("missing size")?);
         assert_eq!(row.item.result_version, *version.version_id());
         assert_eq!(shape.meta.visible_depth, 1);
+        assert_eq!(shape.meta.shape_ref, format!("s{:x}-1", row.item.item_no));
         assert_eq!(shape.meta.root_branch_ref, None);
     }
     assert_eq!(model.strategy, typed_layout::treemap_descriptor());
