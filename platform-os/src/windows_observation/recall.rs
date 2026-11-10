@@ -1,14 +1,23 @@
 //! Conservative pre-open checks for offline and virtualized Windows entries.
-use super::{BUFFER_SIZE, error, invalid, raw, win_error};
+use super::{BUFFER_SIZE, error, invalid, raw};
 use du_core_contracts::ports::{PortError, PortErrorKind};
 use std::{
     fs::File,
     mem::{offset_of, size_of},
 };
-use windows::Win32::Storage::FileSystem::{
-    FILE_ATTRIBUTE_OFFLINE, FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS, FILE_ATTRIBUTE_RECALL_ON_OPEN,
-    FILE_ID_BOTH_DIR_INFO, FileIdBothDirectoryInfo, FileIdBothDirectoryRestartInfo,
-    GetFileInformationByHandleEx,
+use windows::{
+    Wdk::Storage::FileSystem::{
+        FILE_ID_BOTH_DIR_INFORMATION, FileIdBothDirectoryInformation, NtQueryDirectoryFile,
+    },
+    Win32::{
+        Foundation::{RtlNtStatusToDosError, UNICODE_STRING},
+        Storage::FileSystem::{
+            FILE_ATTRIBUTE_OFFLINE, FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS,
+            FILE_ATTRIBUTE_RECALL_ON_OPEN,
+        },
+        System::IO::IO_STATUS_BLOCK,
+    },
+    core::PWSTR,
 };
 
 fn unsafe_observation() -> PortError {
@@ -18,7 +27,6 @@ fn unsafe_observation() -> PortError {
         os_code: None,
     }
 }
-
 /// Rejects known recall indicators from a directory enumeration record.
 pub(super) fn check_enumerated_attributes(attributes: u32) -> Result<(), PortError> {
     let mask = (FILE_ATTRIBUTE_RECALL_ON_OPEN
@@ -31,7 +39,6 @@ pub(super) fn check_enumerated_attributes(attributes: u32) -> Result<(), PortErr
         Ok(())
     }
 }
-
 /// Checks handle attributes without interpreting the enumeration-only bit.
 pub(super) fn check_handle_attributes(attributes: u32) -> Result<(), PortError> {
     let mask = (FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS | FILE_ATTRIBUTE_OFFLINE).0;
@@ -41,7 +48,6 @@ pub(super) fn check_handle_attributes(attributes: u32) -> Result<(), PortError> 
         Ok(())
     }
 }
-
 /// Ensures the supplied open operation is not called for a known-risk entry.
 pub(super) fn observe_if_safe<T>(
     attributes: u32,
@@ -50,128 +56,85 @@ pub(super) fn observe_if_safe<T>(
     check_enumerated_attributes(attributes)?;
     open()
 }
-
 pub(super) struct Entry {
     pub attributes: u32,
     pub inode: u64,
 }
 
-// Exact UTF-16 matches are accepted; ASCII-only case differences are also
-// considered. Other case variants fail closed rather than guessing NTFS rules.
-fn name_matches(a: &[u16], b: &[u16]) -> bool {
-    a.len() == b.len()
-        && a.iter().zip(b).all(|(&x, &y)| {
-            x == y || (x <= 127 && y <= 127 && (x as u8).eq_ignore_ascii_case(&(y as u8)))
-        })
-}
-
-/// Finds a scope component in its already-open parent before opening it.
-/// Ambiguous matches or missing file IDs fail closed. Enumeration and the
-/// later open are not atomic; the open must still verify the returned ID.
+/// Finds one literal scope component on a fresh, already-open parent handle.
+/// The first query fixes the search expression for this handle, so a handle
+/// used here must never subsequently be used to enumerate a different name.
+/// The later open must revalidate the file ID because this lookup is not atomic.
 pub(super) fn lookup(parent: &File, wanted: &[u16]) -> Result<Entry, PortError> {
-    let mut buffer = vec![0u64; BUFFER_SIZE / size_of::<u64>()];
-    let mut restart = true;
-    let mut found = None;
-    loop {
-        let class = if restart {
-            FileIdBothDirectoryRestartInfo
-        } else {
-            FileIdBothDirectoryInfo
-        };
-        restart = false;
-        // SAFETY: buffer is aligned and writable, and parent owns a live handle.
-        let result = unsafe {
-            GetFileInformationByHandleEx(
-                raw(parent),
-                class,
-                buffer.as_mut_ptr().cast(),
-                BUFFER_SIZE as u32,
-            )
-        };
-        if let Err(e) = result {
-            let failure = win_error(e);
-            if failure.os_code == Some(18) {
-                break;
-            }
-            return Err(failure);
-        }
-        scan_buffer(&buffer, wanted, &mut found)?;
-    }
-    let result: Entry = found.ok_or_else(|| error(2))?;
-    if result.inode == 0 {
+    // NT directory search accepts DOS wildcard tokens as well as * and ?.
+    // Refuse them instead of treating a pattern result as an exact name.
+    if wanted.is_empty()
+        || wanted
+            .iter()
+            .any(|unit| matches!(*unit, 34 | 42 | 60 | 62 | 63))
+    {
         return Err(invalid());
     }
-    Ok(result)
-}
-
-fn scan_buffer(buffer: &[u64], wanted: &[u16], found: &mut Option<Entry>) -> Result<(), PortError> {
-    let mut offset = 0usize;
-    loop {
-        let header = offset_of!(FILE_ID_BOTH_DIR_INFO, FileName);
-        if offset
-            .checked_add(size_of::<FILE_ID_BOTH_DIR_INFO>())
-            .is_none_or(|end| end > BUFFER_SIZE)
-        {
-            return Err(invalid());
-        }
-        // SAFETY: the fixed structure fits in the aligned buffer; use an
-        // unaligned read because subsequent offsets are supplied by the OS.
-        let item = unsafe {
-            std::ptr::read_unaligned(
-                buffer
-                    .as_ptr()
-                    .cast::<u8>()
-                    .add(offset)
-                    .cast::<FILE_ID_BOTH_DIR_INFO>(),
-            )
-        };
-        let len = usize::try_from(item.FileNameLength).map_err(|_| invalid())?;
-        if len % 2 != 0
-            || offset
-                .checked_add(header)
-                .and_then(|v| v.checked_add(len))
-                .is_none_or(|end| end > BUFFER_SIZE)
-        {
-            return Err(invalid());
-        }
-        let mut name = Vec::with_capacity(len / 2);
-        for position in (0..len).step_by(2) {
-            // SAFETY: the entire name range was checked above.
-            name.push(unsafe {
-                std::ptr::read_unaligned(
-                    buffer
-                        .as_ptr()
-                        .cast::<u8>()
-                        .add(offset + header + position)
-                        .cast::<u16>(),
-                )
-            });
-        }
-        if name_matches(&name, wanted) {
-            if found.is_some() {
-                return Err(invalid());
-            }
-            *found = Some(Entry {
-                attributes: item.FileAttributes,
-                inode: item.FileId as u64,
-            });
-        }
-        if item.NextEntryOffset == 0 {
-            break;
-        }
-        let next = usize::try_from(item.NextEntryOffset).map_err(|_| invalid())?;
-        if next < header + len {
-            return Err(invalid());
-        }
-        offset = offset.checked_add(next).ok_or_else(invalid)?;
+    let length =
+        u16::try_from(wanted.len().checked_mul(2).ok_or_else(invalid)?).map_err(|_| invalid())?;
+    let name = UNICODE_STRING {
+        Length: length,
+        MaximumLength: length,
+        Buffer: PWSTR(wanted.as_ptr().cast_mut()),
+    };
+    let mut buffer = vec![0u64; BUFFER_SIZE / size_of::<u64>()];
+    let mut status = IO_STATUS_BLOCK::default();
+    // SAFETY: the parent is a live synchronous handle, name and output buffer
+    // are valid for the call, and no callback or asynchronous event is used.
+    let result = unsafe {
+        NtQueryDirectoryFile(
+            raw(parent),
+            None,
+            None,
+            None,
+            &mut status,
+            buffer.as_mut_ptr().cast(),
+            BUFFER_SIZE as u32,
+            FileIdBothDirectoryInformation,
+            true,
+            Some(&name),
+            true,
+        )
+    };
+    if result.0 < 0 {
+        // SAFETY: status conversion does not dereference pointers.
+        return Err(error(unsafe { RtlNtStatusToDosError(result) } as i32));
     }
-    Ok(())
+    let header = offset_of!(FILE_ID_BOTH_DIR_INFORMATION, FileName);
+    if status.Information < header || status.Information > BUFFER_SIZE {
+        return Err(invalid());
+    }
+    // SAFETY: buffer holds a complete fixed prefix, and read_unaligned permits
+    // alignment-independent parsing of the OS-provided record.
+    let item =
+        unsafe { std::ptr::read_unaligned(buffer.as_ptr().cast::<FILE_ID_BOTH_DIR_INFORMATION>()) };
+    let length = usize::try_from(item.FileNameLength).map_err(|_| invalid())?;
+    if length == 0
+        || length % 2 != 0
+        || header
+            .checked_add(length)
+            .is_none_or(|end| end > status.Information)
+        || item.NextEntryOffset != 0
+        || item.FileId == 0
+    {
+        return Err(invalid());
+    }
+    Ok(Entry {
+        attributes: item.FileAttributes,
+        inode: item.FileId as u64,
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::cell::Cell;
+    use std::os::windows::ffi::OsStrExt;
     #[test]
     fn risk_flags_and_combinations_never_invoke_the_open_closure() {
         let flags = [
@@ -208,14 +171,103 @@ mod tests {
         });
         assert_eq!(result.ok(), Some(42));
         assert_eq!(calls.get(), 1);
-        // The same bit has another meaning outside directory enumeration.
         assert!(check_handle_attributes(FILE_ATTRIBUTE_RECALL_ON_OPEN.0).is_ok());
         assert!(check_handle_attributes(FILE_ATTRIBUTE_OFFLINE.0).is_err());
     }
+
     #[test]
-    fn scope_name_matching_does_not_guess_non_ascii_case_rules() {
-        assert!(name_matches(&[65, 0xd800], &[97, 0xd800]));
-        assert!(!name_matches(&[0x00c9], &[0x00e9]));
-        assert!(!name_matches(&[65], &[65, 66]));
+    fn filtered_query_reuse_is_not_used_for_production() -> Result<(), Box<dyn std::error::Error>> {
+        use crate::windows_observation::open_verified;
+        let fixture = tempfile::tempdir()?;
+        std::fs::create_dir(fixture.path().join("alpha"))?;
+        std::fs::create_dir(fixture.path().join("beta"))?;
+        let parent = open_verified(fixture.path()).map_err(|e| format!("{e:?}"))?;
+        let alpha: Vec<u16> = std::ffi::OsStr::new("alpha").encode_wide().collect();
+        let beta: Vec<u16> = std::ffi::OsStr::new("beta").encode_wide().collect();
+        let first = lookup(&parent.handle, &alpha).map_err(|e| format!("{e:?}"))?;
+        let second = lookup(&parent.handle, &beta).map_err(|e| format!("{e:?}"))?;
+        let fresh = open_verified(fixture.path()).map_err(|e| format!("{e:?}"))?;
+        let actual_beta = lookup(&fresh.handle, &beta).map_err(|e| format!("{e:?}"))?;
+        assert_ne!(first.inode, actual_beta.inode);
+        // Windows implementations can differ from the documented capture rule.
+        // Production therefore does not reuse this handle for another query.
+        assert!(second.inode == first.inode || second.inode == actual_beta.inode);
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_wildcard_tokens_before_querying_the_handle() -> Result<(), Box<dyn std::error::Error>>
+    {
+        use crate::windows_observation::open_verified;
+        let fixture = tempfile::tempdir()?;
+        std::fs::create_dir(fixture.path().join("alpha"))?;
+        let parent = open_verified(fixture.path()).map_err(|e| format!("{e:?}"))?;
+        for token in [34, 42, 60, 62, 63] {
+            assert!(lookup(&parent.handle, &[token]).is_err());
+        }
+        let alpha: Vec<u16> = std::ffi::OsStr::new("alpha").encode_wide().collect();
+        assert!(lookup(&parent.handle, &alpha).is_ok());
+        Ok(())
+    }
+
+    #[test]
+    fn query_requires_directory_list_access() -> Result<(), Box<dyn std::error::Error>> {
+        use std::{fs::OpenOptions, os::windows::fs::OpenOptionsExt};
+        use windows::Win32::Storage::FileSystem::{
+            FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_NO_RECALL, FILE_READ_ATTRIBUTES, SYNCHRONIZE,
+        };
+        let fixture = tempfile::tempdir()?;
+        std::fs::create_dir(fixture.path().join("alpha"))?;
+        let handle = OpenOptions::new()
+            .access_mode((FILE_READ_ATTRIBUTES | SYNCHRONIZE).0)
+            .share_mode(7)
+            .custom_flags((FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_NO_RECALL).0)
+            .open(fixture.path())?;
+        let name: Vec<u16> = std::ffi::OsStr::new("alpha").encode_wide().collect();
+        assert_eq!(
+            lookup(&handle, &name).err().map(|e| e.kind),
+            Some(PortErrorKind::PermissionDenied)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn replacing_a_filtered_match_fails_the_handle_identity_check()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use crate::windows_observation::{open_verified, verified_directory};
+        let fixture = tempfile::tempdir()?;
+        let original = fixture.path().join("child");
+        std::fs::create_dir(&original)?;
+        let parent = open_verified(fixture.path()).map_err(|e| format!("{e:?}"))?;
+        let name: Vec<u16> = std::ffi::OsStr::new("child").encode_wide().collect();
+        let observed = lookup(&parent.handle, &name).map_err(|e| format!("{e:?}"))?;
+        std::fs::rename(&original, fixture.path().join("old"))?;
+        std::fs::create_dir(&original)?;
+        assert!(
+            verified_directory(&parent.handle, &name, parent.volume, Some(observed.inode)).is_err()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn filtered_scope_open_matches_direct_relative_open() -> Result<(), Box<dyn std::error::Error>>
+    {
+        use crate::windows_observation::{identity, info, open_verified, verified_directory};
+        let fixture = tempfile::tempdir()?;
+        std::fs::create_dir(fixture.path().join("École"))?;
+        let parent = open_verified(fixture.path()).map_err(|e| format!("{e:?}"))?;
+        let requested: Vec<u16> = std::ffi::OsStr::new("éCOLE").encode_wide().collect();
+        let direct = verified_directory(&parent.handle, &requested, parent.volume, None)
+            .map_err(|e| format!("{e:?}"))?;
+        let expected = identity(&info(&direct).map_err(|e| format!("{e:?}"))?);
+        let seen = lookup(&parent.handle, &requested).map_err(|e| format!("{e:?}"))?;
+        let checked =
+            verified_directory(&parent.handle, &requested, parent.volume, Some(seen.inode))
+                .map_err(|e| format!("{e:?}"))?;
+        assert_eq!(
+            expected,
+            identity(&info(&checked).map_err(|e| format!("{e:?}"))?)
+        );
+        Ok(())
     }
 }

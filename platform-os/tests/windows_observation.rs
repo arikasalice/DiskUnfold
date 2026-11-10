@@ -247,6 +247,53 @@ fn offline_scope_component_is_rejected_before_directory_open()
 
 #[test]
 #[allow(unsafe_code)]
+fn scope_non_ascii_case_and_available_short_alias_resolve_to_same_id()
+-> Result<(), Box<dyn std::error::Error>> {
+    use std::{ffi::OsString, os::windows::ffi::OsStringExt, path::PathBuf};
+    use windows::{Win32::Storage::FileSystem::GetShortPathNameW, core::PCWSTR};
+    let fixture = tempfile::tempdir()?;
+    let actual = fixture.path().join("ÉcoleLongDirectoryName");
+    fs::create_dir(&actual)?;
+    let expected = open_verified(&actual)
+        .map_err(|e| format!("{e:?}"))?
+        .identity()
+        .map_err(|e| format!("{e:?}"))?;
+    let case_variant = fixture.path().join("éCOLELONGDIRECTORYNAME");
+    let varied = open_verified(&case_variant)
+        .map_err(|e| format!("{e:?}"))?
+        .identity()
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(
+        (expected.volume, expected.file_id),
+        (varied.volume, varied.file_id)
+    );
+    let wide: Vec<u16> = actual.as_os_str().encode_wide().chain([0]).collect();
+    let mut buffer = vec![0u16; 32768];
+    // SAFETY: input is NUL-terminated and the output buffer is writable.
+    let size = unsafe { GetShortPathNameW(PCWSTR(wide.as_ptr()), Some(&mut buffer)) } as usize;
+    if size > 0 && size < buffer.len() {
+        let short = PathBuf::from(OsString::from_wide(&buffer[..size]));
+        let short_component = short.file_name().map(|name| name.to_string_lossy());
+        eprintln!(
+            "short final component uses tilde: {}",
+            short_component.is_some_and(|name| name.contains('~'))
+        );
+        let short_id = open_verified(&short)
+            .map_err(|e| format!("{e:?}"))?
+            .identity()
+            .map_err(|e| format!("{e:?}"))?;
+        assert_eq!(
+            (expected.volume, expected.file_id),
+            (short_id.volume, short_id.file_id)
+        );
+    } else {
+        eprintln!("short-path lookup unavailable");
+    }
+    Ok(())
+}
+
+#[test]
+#[allow(unsafe_code)]
 fn sparse_file_reports_physical_allocation_without_reading_content()
 -> Result<(), Box<dyn std::error::Error>> {
     use std::os::windows::io::AsRawHandle;
