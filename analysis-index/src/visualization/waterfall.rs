@@ -25,6 +25,8 @@ pub struct Change {
 pub struct Bar {
     /// `None` identifies the start or end total; changes carry their item number.
     pub item_no: Option<u32>,
+    /// Changes retain their sign even when no rectangle can be established.
+    pub direction: Option<Direction>,
     pub value: Weight,
     pub rect: Option<Rect>,
     pub no_area: Option<NoArea>,
@@ -107,18 +109,11 @@ pub fn layout(
     let mut bars = Vec::with_capacity(changes.len());
     for (index, change) in changes.iter().enumerate() {
         let x = column(bounds, index + 1, count);
-        let (before, after) = levels[index];
-        let value = change.value;
-        let (rect, no_area) = match (before, after, axis, value) {
-            (Some(a), Some(b), Some(max), Weight::Exact(delta)) => {
-                change_rect(bounds, x, max, a, b, delta)
-            }
-            (_, _, _, Weight::Exact(0)) => (None, Some(NoArea::ExactZero)),
-            _ => (None, Some(NoArea::UncertainOffset)),
-        };
+        let (rect, no_area) = change_rect(bounds, x, levels[index], axis, change.value);
         bars.push(Bar {
             item_no: Some(change.item_no),
-            value,
+            direction: Some(change.direction),
+            value: change.value,
             rect,
             no_area,
         });
@@ -179,11 +174,14 @@ fn total_bar(bounds: Rect, index: usize, count: usize, value: Weight, axis: Opti
                 )
             }
         }
+        (Some(_), Some(_)) => (None, Some(NoArea::CoordinatePrecision)),
         (Some(_), None) => (None, Some(NoArea::UncertainScale)),
+        (None, _) if value == Weight::LowerBound(0) => (None, Some(NoArea::LowerBoundZero)),
         _ => (None, Some(NoArea::Unknown)),
     };
     Bar {
         item_no: None,
+        direction: None,
         value,
         rect,
         no_area,
@@ -193,14 +191,18 @@ fn total_bar(bounds: Rect, index: usize, count: usize, value: Weight, axis: Opti
 fn change_rect(
     bounds: Rect,
     (left, right): (u32, u32),
-    axis: u64,
-    before: u64,
-    after: u64,
-    delta: u64,
+    (before, after): (Option<u64>, Option<u64>),
+    axis: Option<u64>,
+    value: Weight,
 ) -> (Option<Rect>, Option<NoArea>) {
-    if delta == 0 {
-        return (None, Some(NoArea::ExactZero));
-    }
+    let (before, after, axis) = match (before, after, axis, value) {
+        (_, _, _, Weight::Exact(0)) => return (None, Some(NoArea::ExactZero)),
+        (_, _, _, Weight::LowerBound(0)) => return (None, Some(NoArea::LowerBoundZero)),
+        (_, _, _, Weight::Unknown) => return (None, Some(NoArea::Unknown)),
+        (Some(before), Some(after), Some(axis), Weight::Exact(_)) => (before, after, axis),
+        (Some(_), Some(_), None, Weight::Exact(_)) => return (None, Some(NoArea::UncertainScale)),
+        _ => return (None, Some(NoArea::UncertainOffset)),
+    };
     if axis == 0 || right <= left {
         return (None, Some(NoArea::CoordinatePrecision));
     }

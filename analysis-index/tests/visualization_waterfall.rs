@@ -45,6 +45,8 @@ fn lays_out_start_ordered_changes_and_end_on_a_shared_axis() -> Result<(), Error
         })
     );
     assert_eq!(result.changes[0].item_no, Some(10));
+    assert_eq!(result.start.direction, None);
+    assert_eq!(result.changes[0].direction, Some(Direction::Increase));
     assert_eq!(
         result.changes[0].rect,
         Some(Rect {
@@ -55,6 +57,7 @@ fn lays_out_start_ordered_changes_and_end_on_a_shared_axis() -> Result<(), Error
         })
     );
     assert_eq!(result.changes[1].item_no, Some(11));
+    assert_eq!(result.changes[1].direction, Some(Direction::Decrease));
     assert_eq!(
         result.changes[1].rect,
         Some(Rect {
@@ -102,7 +105,8 @@ fn unknown_change_is_reported_and_makes_later_offsets_uncertain() -> Result<(), 
             bottom: 50
         })
     );
-    assert_eq!(result.changes[1].no_area, Some(NoArea::UncertainOffset));
+    assert_eq!(result.changes[1].no_area, Some(NoArea::Unknown));
+    assert_eq!(result.changes[1].direction, Some(Direction::Decrease));
     assert_eq!(result.changes[2].no_area, Some(NoArea::UncertainOffset));
     assert_eq!(result.uncertain_changes, vec![changes[1]]);
     assert!(result.end.rect.is_some());
