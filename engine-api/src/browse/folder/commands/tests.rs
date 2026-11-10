@@ -90,6 +90,7 @@ fn registered_gui_commands_open_and_continue_with_the_same_registry()
     assert_eq!(opened.body["kind"], "opened");
     assert_eq!(opened.body["requestSeq"], 4);
     let first = &opened.body["page"];
+    assert!(first.get("browseContext").is_none());
     let next = call(
         &engine,
         "query.page",
@@ -101,6 +102,7 @@ fn registered_gui_commands_open_and_continue_with_the_same_registry()
     assert_eq!(next.body["resultVersion"], first["resultVersion"]);
     assert_ne!(next.body["rows"][0]["item"], first["rows"][0]["item"]);
     assert_eq!(next.body["nextCursor"], Value::Null);
+    assert!(next.body.get("browseContext").is_none());
     Ok(())
 }
 
@@ -126,7 +128,13 @@ fn large_folder_returns_a_job_whose_reference_reads_the_original_result()
         Channel::Gui,
     );
     assert!(first.error.is_none(), "{:?}", first.error);
+    assert_eq!(first.body["queryRef"], json!(query_ref));
     assert_eq!(first.body["resultVersion"], json!(version));
+    let context = &first.body["browseContext"];
+    assert_eq!(context["rootKind"], "scope_root");
+    assert_eq!(context["origin"], "scan");
+    assert_eq!(context["location"]["resultVersion"], json!(version));
+    assert_eq!(context["breadcrumbs"][0]["item"], context["location"]);
     assert_eq!(
         first.body["rows"].as_array().ok_or("missing rows")?.len(),
         200
