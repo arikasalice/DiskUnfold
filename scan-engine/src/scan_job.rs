@@ -32,7 +32,7 @@ pub fn descriptor() -> JobDescriptor {
         kind_id: KIND.into(),
         version: 1,
         display_name_key: KIND.into(),
-        controls: vec![JobControl::Cancel],
+        controls: vec![JobControl::Pause, JobControl::Resume, JobControl::Cancel],
         safe_points: vec!["item".into()],
         progress_unit: ProgressUnit::Items,
         resource_classes: vec![ResourceClass::MetadataIo],

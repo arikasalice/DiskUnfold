@@ -107,6 +107,8 @@ type Commands = {
   "scan.start": [ScanStartRequest, ScanStart];
   "scan.failures": [ScanFailuresRequest, ScanFailures];
   "job.get": [AnalysisJobRequest, AnalysisJobStatus];
+  "job.pause": [AnalysisJobRequest, AnalysisJobControl];
+  "job.resume": [AnalysisJobRequest, AnalysisJobControl];
   "job.cancel": [AnalysisJobRequest, AnalysisJobControl];
   "history.list": [HistoryListRequest, HistoryListResponse];
   "history.get": [HistoryDetailRequest, HistoryDetail];

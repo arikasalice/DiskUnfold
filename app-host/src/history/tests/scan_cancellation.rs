@@ -1,4 +1,4 @@
-//! Exercises the F02 cancellation checkpoint through desktop IPC and NTFS.
+//! Exercises F02 cooperative controls through desktop IPC and real NTFS batches.
 
 use super::*;
 use du_core_contracts::{
@@ -60,7 +60,7 @@ impl DirectoryObservations for GatedDirectory {
         let batch_number = self.batches.fetch_add(1, Ordering::SeqCst) + 1;
         let entries = self.inner.next_batch_timed(clock)?;
         if batch_number == 2 {
-            // Keep real NTFS observations in the in-flight port call until IPC accepts cancellation.
+            // Hold real NTFS observations in the port until IPC acknowledges the control.
             self.waiting.send(()).map_err(|_| gate_failed())?;
             self.resume
                 .lock()
@@ -101,9 +101,17 @@ fn gate_failed() -> PortError {
     }
 }
 
-#[test]
-fn cancellation_drains_the_inflight_native_batch_without_a_new_read()
--> Result<(), Box<dyn std::error::Error>> {
+struct BlockedScan {
+    _fixture: tempfile::TempDir,
+    _profile: tempfile::TempDir,
+    engine: Engine,
+    events: Arc<du_engine_api::desktop::DesktopEvents>,
+    job: Id,
+    release: mpsc::Sender<()>,
+    batches: Arc<AtomicUsize>,
+}
+
+fn blocked_scan() -> Result<BlockedScan, Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     for file in 0..300 {
         fs::write(fixture.path().join(format!("file-{file:03}")), [1_u8])?;
@@ -134,24 +142,36 @@ fn cancellation_drains_the_inflight_native_batch_without_a_new_read()
     .map_err(|error| format!("{error:?}"))?;
     let engine = builder.build()?;
     let scan = start_scan(&engine, fixture.path())?;
-
     reached.recv_timeout(Duration::from_secs(10))?;
-    let accepted = cancel(&engine, &scan.job_ref)?;
+    Ok(BlockedScan {
+        _fixture: fixture,
+        _profile: profile,
+        engine,
+        events,
+        job: scan.job_ref,
+        release,
+        batches,
+    })
+}
+
+#[test]
+fn cancellation_drains_the_inflight_native_batch_without_a_new_read()
+-> Result<(), Box<dyn std::error::Error>> {
+    let test = blocked_scan()?;
+    let accepted = control(&test, "job.cancel")?;
     assert_eq!(accepted.outcome, JobControlOutcome::Accepted);
     assert_eq!(accepted.state, JobState::CancelRequested);
-    let repeated = cancel(&engine, &scan.job_ref)?;
+    let repeated = control(&test, "job.cancel")?;
     assert_eq!(repeated.outcome, JobControlOutcome::NoEffect);
-    let requested: AnalysisJobStatus = read(&engine, "job.get", json!({"jobRef": scan.job_ref}))?;
+    let requested = status(&test)?;
     assert_eq!(requested.state, JobState::CancelRequested);
     assert!(requested.result_version.is_none());
-    release.send(())?;
+    test.release.send(())?;
 
-    let events = terminal_batch(&events, &scan.job_ref)?;
+    let events = terminal_batch(&test.events, &test.job)?;
     let finished: Vec<_> = events
         .iter()
-        .filter(|event| {
-            event.topic == "job.finished" && event.job_ref.as_ref() == Some(&scan.job_ref)
-        })
+        .filter(|event| event.topic == "job.finished" && event.job_ref.as_ref() == Some(&test.job))
         .collect();
     assert_eq!(finished.len(), 1);
     assert_eq!(finished[0].body["state"], "cancelled");
@@ -159,11 +179,75 @@ fn cancellation_drains_the_inflight_native_batch_without_a_new_read()
         .result_version
         .as_ref()
         .ok_or("cancelled result version missing")?;
-    verify_cancelled_result(&engine, &scan.job_ref, version)?;
-    assert_eq!(batches.load(Ordering::SeqCst), 2);
+    verify_cancelled_result(&test.engine, &test.job, version)?;
+    assert_eq!(test.batches.load(Ordering::SeqCst), 2);
     assert_eq!(
-        cancel(&engine, &scan.job_ref)?.outcome,
+        control(&test, "job.cancel")?.outcome,
         JobControlOutcome::AlreadyTerminal,
+    );
+    Ok(())
+}
+
+#[test]
+fn pause_acknowledges_the_request_then_resumes_the_same_native_scan()
+-> Result<(), Box<dyn std::error::Error>> {
+    let test = blocked_scan()?;
+    let request = control(&test, "job.pause")?;
+    assert_eq!(request.outcome, JobControlOutcome::Accepted);
+    assert_eq!(request.state, JobState::PauseRequested);
+    let inflight = status(&test)?;
+    assert_eq!(inflight.state, JobState::PauseRequested);
+    assert_eq!(inflight.sequence, request.sequence);
+    assert_eq!(
+        control(&test, "job.pause")?.outcome,
+        JobControlOutcome::NoEffect
+    );
+    test.release.send(())?;
+
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    let paused = loop {
+        let observed = status(&test)?;
+        if observed.state == JobState::Paused {
+            break observed;
+        }
+        if std::time::Instant::now() >= deadline || observed.state.is_terminal() {
+            return Err(format!("scan did not park: {:?}", observed.state).into());
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    };
+    assert!(paused.sequence > request.sequence);
+    assert_eq!(test.batches.load(Ordering::SeqCst), 2);
+    let resumed = control(&test, "job.resume")?;
+    assert_eq!(resumed.outcome, JobControlOutcome::Accepted);
+    assert_eq!(resumed.state, JobState::Running);
+    assert!(resumed.sequence > paused.sequence);
+    let events = terminal_batch(&test.events, &test.job)?;
+    let finished = events
+        .iter()
+        .find(|event| event.topic == "job.finished" && event.job_ref.as_ref() == Some(&test.job))
+        .ok_or("missing completion")?;
+    assert_eq!(finished.body["state"], "done");
+    let result = finished.result_version.as_ref().ok_or("missing result")?;
+    let total: SpaceTotal = read(
+        &test.engine,
+        "space.total",
+        json!({"resultVersion": result, "requestSeq": 2, "target": {"kind": "scope_root"}}),
+    )?;
+    assert_eq!(total.completeness, ResultCompleteness::Complete);
+    assert!(
+        total
+            .sizes
+            .iter()
+            .any(|entry| entry.size.basis == SizeBasis::Logical
+                && entry.size.amount
+                    == SizeAmount::Exact {
+                        bytes: 300_u64.into()
+                    })
+    );
+    assert_eq!(test.batches.load(Ordering::SeqCst), 3);
+    assert_eq!(
+        control(&test, "job.resume")?.outcome,
+        JobControlOutcome::AlreadyTerminal
     );
     Ok(())
 }
@@ -191,8 +275,15 @@ fn start_scan(engine: &Engine, path: &Path) -> Result<ScanStart, Box<dyn std::er
     )
 }
 
-fn cancel(engine: &Engine, job: &Id) -> Result<AnalysisJobControl, Box<dyn std::error::Error>> {
-    read(engine, "job.cancel", json!({"jobRef": job}))
+fn control(
+    test: &BlockedScan,
+    name: &str,
+) -> Result<AnalysisJobControl, Box<dyn std::error::Error>> {
+    read(&test.engine, name, json!({"jobRef": test.job}))
+}
+
+fn status(test: &BlockedScan) -> Result<AnalysisJobStatus, Box<dyn std::error::Error>> {
+    read(&test.engine, "job.get", json!({"jobRef": test.job}))
 }
 
 fn verify_cancelled_result(

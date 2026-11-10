@@ -12,7 +12,9 @@ use crate::{
     error::EngineError,
 };
 
-/// Registers job status and cooperative cancellation for the composed GUI runtime.
+mod suspension;
+
+/// Registers job status and cooperative controls for the composed GUI runtime.
 pub fn register(builder: &mut EngineBuilder, runtime: Arc<JobRuntime>) {
     register_inner(builder, runtime, None);
 }
@@ -35,6 +37,8 @@ fn register_inner(
         runtime: runtime.clone(),
         store,
     });
+    builder.register(suspension::Suspension::<true>(runtime.clone()));
+    builder.register(suspension::Suspension::<false>(runtime.clone()));
     builder.register(Cancel(runtime));
 }
 
@@ -109,26 +113,30 @@ impl UseCase for Cancel {
         request: Self::Request,
         _: &CallerCtx,
     ) -> Result<Self::Response, EngineError> {
-        let (result, sequence) = self
-            .0
-            .cancel_with_sequence(&request.job_ref)
-            .map_err(runtime_error)?;
-        use JobControlOutcome::{Accepted, AlreadyTerminal, NoEffect, Unsupported};
-        let (outcome, state, reason_key) = match result {
-            CancelResult::Accepted(state) => (Accepted, state, None),
-            CancelResult::NoEffect(state) => (NoEffect, state, None),
-            CancelResult::Unsupported(state) => {
-                (Unsupported, state, Some("job.control_unsupported".into()))
-            }
-            CancelResult::AlreadyTerminal(state) => (AlreadyTerminal, state, None),
-        };
-        Ok(AnalysisJobControl {
-            outcome,
-            state,
-            reason_key,
-            sequence,
-        })
+        control_response(self.0.cancel_with_sequence(&request.job_ref))
     }
+}
+
+/// Preserves the sequence and state of the acknowledgement rather than rereading the job.
+fn control_response(
+    result: Result<(CancelResult, u64), RuntimeError>,
+) -> Result<AnalysisJobControl, EngineError> {
+    let (result, sequence) = result.map_err(runtime_error)?;
+    use JobControlOutcome::{Accepted, AlreadyTerminal, NoEffect, Unsupported};
+    let (outcome, state, reason_key) = match result {
+        CancelResult::Accepted(state) => (Accepted, state, None),
+        CancelResult::NoEffect(state) => (NoEffect, state, None),
+        CancelResult::Unsupported(state) => {
+            (Unsupported, state, Some("job.control_unsupported".into()))
+        }
+        CancelResult::AlreadyTerminal(state) => (AlreadyTerminal, state, None),
+    };
+    Ok(AnalysisJobControl {
+        outcome,
+        state,
+        reason_key,
+        sequence,
+    })
 }
 
 fn runtime_error(error: RuntimeError) -> EngineError {
