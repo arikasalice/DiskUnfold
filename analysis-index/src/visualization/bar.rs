@@ -7,7 +7,10 @@ use super::geometry::{
     row_rect, scale, valid_bounds,
 };
 use du_core_contracts::result::ResultCompleteness;
-use std::collections::{BTreeMap, HashSet};
+use std::{
+    cmp::Ordering,
+    collections::{BTreeMap, HashSet},
+};
 
 /// An item with its source value; `item_no` is unique within the input.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -65,6 +68,22 @@ impl Ranking {
             .map(|bar| rect_geometry(bar.rect))
             .collect()
     }
+
+    /// Converts existing rectangles while allowing cancellation between rows.
+    pub fn geometry_v1_cancellable(
+        &self,
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<Vec<Option<du_core_contracts::visualization::geometry::Geometry>>, GeometryError>
+    {
+        convert_geometry(self.bars.iter().map(|bar| bar.rect), cancelled)
+    }
+}
+
+/// Geometry conversion failure, separate from layout calculation errors.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum GeometryError {
+    Cancelled,
+    Invalid(du_core_contracts::visualization::geometry::GeometryError),
 }
 
 /// Invalid calculation inputs. Arithmetic overflow in observed values is instead
@@ -76,6 +95,8 @@ pub enum Error {
     DuplicateLegend,
     LegendMismatch,
     InvalidAxis,
+    /// The calculation was cancelled; no partial layout is returned.
+    Cancelled,
 }
 
 /// Ranks known items descending by their reported numeric value, breaking ties by
@@ -90,6 +111,37 @@ pub fn ranking(
     scale: Scale,
     completeness: ResultCompleteness,
 ) -> Result<Ranking, Error> {
+    rank(bounds, input, top, scale, completeness, None)
+}
+
+/// Calculates the same ranking while polling cancellation throughout the work.
+///
+/// Sorting uses a stable merge with a check per output element. Allocation and
+/// an individual comparison, hash operation, or rectangle calculation cannot be
+/// interrupted. Cancellation discards the partially constructed result.
+pub fn ranking_cancellable(
+    bounds: Rect,
+    input: &[Item],
+    top: usize,
+    scale: Scale,
+    completeness: ResultCompleteness,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<Ranking, Error> {
+    rank(bounds, input, top, scale, completeness, Some(cancelled))
+}
+
+fn rank(
+    bounds: Rect,
+    input: &[Item],
+    top: usize,
+    scale: Scale,
+    completeness: ResultCompleteness,
+    cancelled: Option<&mut dyn FnMut() -> bool>,
+) -> Result<Ranking, Error> {
+    let cancellable_sort = cancelled.is_some();
+    let mut never_cancel = || false;
+    let cancelled = cancelled.unwrap_or(&mut never_cancel);
+    check(cancelled)?;
     if !valid_bounds(bounds) {
         return Err(Error::InvalidBounds);
     }
@@ -102,6 +154,7 @@ pub fn ranking(
         total.add(Weight::Unknown);
     }
     for item in input {
+        check(cancelled)?;
         if !seen.insert(item.item_no) {
             return Err(Error::DuplicateItem);
         }
@@ -118,27 +171,35 @@ pub fn ranking(
             Weight::Exact(_) => known.push(*item),
         }
     }
-    known.sort_by(|a, b| {
+    let rank_order = |a: &Item, b: &Item| {
         amount(b.value)
             .cmp(&amount(a.value))
             .then_with(|| a.item_no.cmp(&b.item_no))
-    });
-    unknown_items.sort_unstable();
+    };
+    if cancellable_sort {
+        sort_cancellable(&mut known, rank_order, cancelled)?;
+        sort_cancellable(&mut unknown_items, u32::cmp, cancelled)?;
+    } else {
+        known.sort_by(rank_order);
+        unknown_items.sort_unstable();
+    }
     let split = top.min(known.len());
-    let mut bars: Vec<_> = known[..split]
-        .iter()
-        .map(|item| Bar {
+    let mut bars = Vec::with_capacity(split);
+    for item in &known[..split] {
+        check(cancelled)?;
+        bars.push(Bar {
             reference: BarRef::Item(item.item_no),
             value: item.value,
             rect: None,
             no_area: None,
             overflowed: false,
-        })
-        .collect();
+        });
+    }
     if split < known.len() {
         let mut other = Sum::default();
         let mut members = Vec::new();
         for item in &known[split..] {
+            check(cancelled)?;
             other.add(item.value);
             members.push(item.item_no);
         }
@@ -150,21 +211,35 @@ pub fn ranking(
             overflowed: other.overflowed(),
         });
     }
-    let mut axis = resolve_axis(
+    let mut interrupted = false;
+    let axis_result = resolve_axis(
         scale,
         input
             .iter()
             .map(|item| item.value)
-            .chain(bars.iter().map(|bar| bar.value)),
-    )
-    .map_err(|_| Error::InvalidAxis)?;
+            .chain(bars.iter().map(|bar| bar.value))
+            .take_while(|_| {
+                if cancelled() {
+                    interrupted = true;
+                    false
+                } else {
+                    true
+                }
+            }),
+    );
+    if interrupted {
+        return Err(Error::Cancelled);
+    }
+    let mut axis = axis_result.map_err(|_| Error::InvalidAxis)?;
     if completeness != ResultCompleteness::Complete && scale == Scale::Automatic {
         axis = None;
     }
     let count = bars.len();
     for (index, bar) in bars.iter_mut().enumerate() {
+        check(cancelled)?;
         (bar.rect, bar.no_area) = row_rect(bounds, index, count, bar.value, axis);
     }
+    check(cancelled)?;
     Ok(Ranking {
         bars,
         unknown_items,
@@ -218,6 +293,32 @@ impl Stack {
             .map(|segment| rect_geometry(segment.rect))
             .collect()
     }
+
+    /// Converts existing rectangles while allowing cancellation between segments.
+    pub fn geometry_v1_cancellable(
+        &self,
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<Vec<Option<du_core_contracts::visualization::geometry::Geometry>>, GeometryError>
+    {
+        convert_geometry(self.segments.iter().map(|segment| segment.rect), cancelled)
+    }
+}
+
+fn convert_geometry(
+    rectangles: impl Iterator<Item = Option<Rect>>,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<Vec<Option<du_core_contracts::visualization::geometry::Geometry>>, GeometryError> {
+    let mut output = Vec::new();
+    for rect in rectangles {
+        if cancelled() {
+            return Err(GeometryError::Cancelled);
+        }
+        output.push(rect_geometry(rect).map_err(GeometryError::Invalid)?);
+    }
+    if cancelled() {
+        return Err(GeometryError::Cancelled);
+    }
+    Ok(output)
 }
 
 /// Orders every supplied segment by `legend` and uses the caller's fixed axis.
@@ -228,11 +329,26 @@ pub fn stacked(
     legend: &[u32],
     input: &[Segment],
 ) -> Result<Stack, Error> {
+    stacked_cancellable(bounds, axis_max, legend, input, &mut || false)
+}
+
+/// Builds the same legend-ordered stack with cooperative cancellation.
+///
+/// Polls each input, legend entry, and output segment; no partial stack escapes.
+pub fn stacked_cancellable(
+    bounds: Rect,
+    axis_max: u64,
+    legend: &[u32],
+    input: &[Segment],
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<Stack, Error> {
+    check(cancelled)?;
     if !valid_bounds(bounds) {
         return Err(Error::InvalidBounds);
     }
     let mut values = BTreeMap::new();
     for item in input {
+        check(cancelled)?;
         if values.insert(item.legend_key, item.value).is_some() {
             return Err(Error::DuplicateLegend);
         }
@@ -241,6 +357,7 @@ pub fn stacked(
     let mut ordered = Vec::new();
     let mut total = Sum::default();
     for key in legend {
+        check(cancelled)?;
         if !seen.insert(*key) {
             return Err(Error::DuplicateLegend);
         }
@@ -261,6 +378,7 @@ pub fn stacked(
     let mut offset = Some(0u64);
     let mut segments = Vec::with_capacity(ordered.len());
     for item in ordered {
+        check(cancelled)?;
         let (rect, no_area) = stack_rect(bounds, axis_max, offset, item.value);
         segments.push(SegmentLayout {
             legend_key: item.legend_key,
@@ -273,11 +391,58 @@ pub fn stacked(
             _ => None,
         };
     }
+    check(cancelled)?;
     Ok(Stack {
         segments,
         total: sum,
         total_overflowed: total.overflowed(),
     })
+}
+
+fn check(cancelled: &mut dyn FnMut() -> bool) -> Result<(), Error> {
+    if cancelled() {
+        Err(Error::Cancelled)
+    } else {
+        Ok(())
+    }
+}
+
+// Stable bottom-up merge; the partially sorted buffer never escapes on error.
+fn sort_cancellable<T: Copy>(
+    values: &mut Vec<T>,
+    compare: impl Fn(&T, &T) -> Ordering,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<(), Error> {
+    let mut scratch = Vec::with_capacity(values.len());
+    for value in values.iter() {
+        check(cancelled)?;
+        scratch.push(*value);
+    }
+    let mut width = 1usize;
+    while width < values.len() {
+        let mut start = 0usize;
+        while start < values.len() {
+            let mid = start.saturating_add(width).min(values.len());
+            let end = mid.saturating_add(width).min(values.len());
+            let (mut left, mut right) = (start, mid);
+            for slot in &mut scratch[start..end] {
+                check(cancelled)?;
+                if right == end
+                    || (left < mid && compare(&values[left], &values[right]) != Ordering::Greater)
+                {
+                    *slot = values[left];
+                    left += 1;
+                } else {
+                    *slot = values[right];
+                    right += 1;
+                }
+            }
+            start = end;
+        }
+        std::mem::swap(values, &mut scratch);
+        width = width.saturating_mul(2);
+    }
+    check(cancelled)
 }
 
 fn stack_rect(

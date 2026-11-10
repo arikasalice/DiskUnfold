@@ -255,3 +255,137 @@ fn partial_source_does_not_claim_a_complete_ranking_or_automatic_scale() -> Resu
     assert_eq!(result.bars[0].no_area, Some(NoArea::UncertainScale));
     Ok(())
 }
+
+#[test]
+fn cancellable_ranking_preserves_order_and_interrupts_each_major_stage() -> Result<(), Error> {
+    let rows: Vec<_> = (0..64)
+        .rev()
+        .map(|n| item(n, Weight::Exact(u64::from(n % 7))))
+        .collect();
+    let result = bar::ranking_cancellable(
+        bounds(),
+        &rows,
+        0,
+        Scale::Fixed(1000),
+        ResultCompleteness::Complete,
+        &mut || false,
+    )?;
+    let mut expected: Vec<_> = rows.iter().map(|r| (r.item_no, r.value)).collect();
+    expected.sort_by(|a, b| {
+        let amount = |v| match v {
+            Weight::Exact(n) | Weight::LowerBound(n) => n,
+            Weight::Unknown => 0,
+        };
+        amount(b.1).cmp(&amount(a.1)).then_with(|| a.0.cmp(&b.0))
+    });
+    let BarRef::Other(members) = &result.bars[0].reference else {
+        return Err(Error::InvalidBounds);
+    };
+    assert_eq!(
+        *members,
+        expected.iter().map(|(n, _)| *n).collect::<Vec<_>>()
+    );
+    assert_eq!(
+        result,
+        bar::ranking(
+            bounds(),
+            &rows,
+            0,
+            Scale::Fixed(1000),
+            ResultCompleteness::Complete
+        )?
+    );
+    for stop in [1, 20, 150, 520, 590, 645] {
+        let mut calls = 0;
+        let output = bar::ranking_cancellable(
+            bounds(),
+            &rows,
+            0,
+            Scale::Fixed(1000),
+            ResultCompleteness::Complete,
+            &mut || {
+                calls += 1;
+                calls == stop
+            },
+        );
+        assert_eq!(output, Err(Error::Cancelled), "checkpoint {stop}");
+    }
+    assert_eq!(
+        result
+            .geometry_v1_cancellable(&mut || false)
+            .map_err(|_| Error::InvalidBounds)?,
+        result.geometry_v1().map_err(|_| Error::InvalidBounds)?
+    );
+    assert_eq!(
+        result.geometry_v1_cancellable(&mut || true).err(),
+        Some(bar::GeometryError::Cancelled)
+    );
+    Ok(())
+}
+
+#[test]
+fn cancellable_stack_preserves_legend_order_and_interrupts_each_stage() -> Result<(), Error> {
+    let legend: Vec<_> = (0..64).collect();
+    let input: Vec<_> = legend
+        .iter()
+        .rev()
+        .map(|n| segment(*n, Weight::Exact(1)))
+        .collect();
+    let result = bar::stacked_cancellable(bounds(), 64, &legend, &input, &mut || false)?;
+    assert_eq!(result, bar::stacked(bounds(), 64, &legend, &input)?);
+    for stop in [1, 20, 75, 140, 194] {
+        let mut calls = 0;
+        let output = bar::stacked_cancellable(bounds(), 64, &legend, &input, &mut || {
+            calls += 1;
+            calls == stop
+        });
+        assert_eq!(output, Err(Error::Cancelled), "checkpoint {stop}");
+    }
+    assert_eq!(
+        result
+            .geometry_v1_cancellable(&mut || false)
+            .map_err(|_| Error::InvalidBounds)?,
+        result.geometry_v1().map_err(|_| Error::InvalidBounds)?
+    );
+    let mut calls = 0;
+    assert_eq!(
+        result
+            .geometry_v1_cancellable(&mut || {
+                calls += 1;
+                calls == 30
+            })
+            .err(),
+        Some(bar::GeometryError::Cancelled)
+    );
+    Ok(())
+}
+
+#[test]
+fn large_unknown_sort_is_cancellable_and_keeps_canonical_order() -> Result<(), Error> {
+    let input: Vec<_> = (0..8192).rev().map(|n| item(n, Weight::Unknown)).collect();
+    let mut checks = 0;
+    assert_eq!(
+        bar::ranking_cancellable(
+            bounds(),
+            &input,
+            1,
+            Scale::Automatic,
+            ResultCompleteness::Complete,
+            &mut || {
+                checks += 1;
+                checks == 10_000
+            }
+        ),
+        Err(Error::Cancelled)
+    );
+    let result = bar::ranking_cancellable(
+        bounds(),
+        &input,
+        1,
+        Scale::Automatic,
+        ResultCompleteness::Complete,
+        &mut || false,
+    )?;
+    assert_eq!(result.unknown_items, (0..8192).collect::<Vec<_>>());
+    Ok(())
+}
