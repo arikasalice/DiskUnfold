@@ -29,6 +29,8 @@ pub struct WindowsVolumeSpace {
     pub capacity: VolumeCapacity,
     /// Total bytes on the volume, irrespective of caller quota.
     pub actual_total_bytes: u64,
+    /// Used bytes reported directly for the volume.
+    pub used_bytes: u64,
     /// Total free bytes reported for the volume, irrespective of caller quota.
     pub actual_free_bytes: u64,
 }
@@ -92,6 +94,7 @@ fn read(directory: &WindowsDirectory) -> Result<WindowsVolumeSpace, PortError> {
             available_bytes: amount(value.CallerAvailableAllocationUnits, cluster)?,
         },
         actual_total_bytes: amount(value.ActualTotalAllocationUnits, cluster)?,
+        used_bytes: amount(value.UsedAllocationUnits, cluster)?,
         actual_free_bytes: amount(value.ActualAvailableAllocationUnits, cluster)?,
     })
 }
@@ -102,6 +105,8 @@ impl WindowsDirectory {
     /// Call separately at the beginning and end and retain both `Result`s. The
     /// caller records observation times; failure must remain an unavailable report.
     /// A different or unavailable identity prevents or invalidates the observation.
+    ///
+    /// Errors retain the port kind and OS code with the volume-report reason key.
     pub fn volume_space(&self, expected_volume: &[u8]) -> Result<WindowsVolumeSpace, PortError> {
         checked(
             expected_volume,
@@ -118,6 +123,10 @@ impl WindowsDirectory {
             },
             || read(self),
         )
+        .map_err(|error| PortError {
+            reason_key: "space.volume_report_unavailable".into(),
+            ..error
+        })
     }
 }
 

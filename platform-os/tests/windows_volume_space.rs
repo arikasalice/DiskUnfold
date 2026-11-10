@@ -25,12 +25,15 @@ fn verified_root_volume_reports_survive_path_replacement() -> Result<(), Box<dyn
     assert!(first.capacity.total_bytes >= first.capacity.available_bytes);
     assert!(first.actual_free_bytes >= first.capacity.available_bytes);
     assert!(first.actual_total_bytes >= first.actual_free_bytes);
+    assert!(first.actual_total_bytes >= first.used_bytes);
     let mut different = root.volume_id.clone();
     different[0] ^= 1;
-    assert_eq!(
-        directory.volume_space(&different).err().map(|e| e.kind),
-        Some(PortErrorKind::IdentityChanged)
-    );
+    let unavailable = directory
+        .volume_space(&different)
+        .err()
+        .ok_or("capacity was returned for the wrong volume")?;
+    assert_eq!(unavailable.kind, PortErrorKind::IdentityChanged);
+    assert_eq!(unavailable.reason_key, "space.volume_report_unavailable");
     fs::rename(&path, fixture.path().join("original"))?;
     fs::create_dir(&path)?;
     let replacement = open_verified(&path).map_err(|e| format!("{e:?}"))?;
