@@ -1,5 +1,6 @@
 //! Live-scan F06 model admission and row paging, without IPC registration.
 //! A session index owns only weak source references; source results own row data.
+pub mod production;
 use du_analysis_index::{IngestSink, ResultVersion, visualization::live_models};
 use du_core_contracts::{
     Id,
