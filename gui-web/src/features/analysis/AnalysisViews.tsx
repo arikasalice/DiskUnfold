@@ -249,33 +249,12 @@ export function ScanOutput({
       {error && <Notice tone="error">{error}</Notice>}
       {awaitingTotals && <Progress label="Reading space totals" />}
       {scan.total ? (
-        <div className="du-results">
-          <Text kind="muted">
-            Result completeness: {scan.total.completeness}
-          </Text>
-          <div className="du-metrics">
-            {scan.total.sizes.map((value) => (
-              <Metric
-                key={value.size.basis}
-                label={sizeLabels[value.size.basis]}
-                detail={
-                  value.size.evidence === "os_reported"
-                    ? "Reported by the file system"
-                    : undefined
-                }
-              >
-                {displaySize(value.size)}
-              </Metric>
-            ))}
-          </div>
-          <Coverage total={scan.total} />
-          <ScopeDetails
-            key={scan.total.resultVersion}
-            client={client}
-            resultVersion={scan.total.resultVersion}
-            multiRoot={multiRoot}
-          />
-        </div>
+        <PinnedResult
+          client={client}
+          total={scan.total}
+          multiRoot={multiRoot}
+          showLatest={scan.hasNewResult ? scan.showLatest : undefined}
+        />
       ) : !awaitingTotals ? (
         <div className="du-empty">
           <Icon name="layers" />
@@ -290,6 +269,53 @@ export function ScanOutput({
         </div>
       ) : null}
     </>
+  );
+}
+
+/** Displays the selected result without replacing it on later publications. */
+function PinnedResult({
+  client,
+  total,
+  multiRoot,
+  showLatest,
+}: {
+  client: AnalysisClient;
+  total: SpaceTotal;
+  multiRoot: boolean;
+  showLatest: (() => void) | undefined;
+}) {
+  return (
+    <div className="du-results">
+      <Text kind="muted">Result completeness: {total.completeness}</Text>
+      {showLatest && (
+        <Notice>
+          <Text>New result available</Text>
+          <Action onPress={showLatest}>Show latest result</Action>
+        </Notice>
+      )}
+      <div className="du-metrics">
+        {total.sizes.map((value) => (
+          <Metric
+            key={value.size.basis}
+            label={sizeLabels[value.size.basis]}
+            detail={
+              value.size.evidence === "os_reported"
+                ? "Reported by the file system"
+                : undefined
+            }
+          >
+            {displaySize(value.size)}
+          </Metric>
+        ))}
+      </div>
+      <Coverage total={total} />
+      <ScopeDetails
+        key={total.resultVersion}
+        client={client}
+        resultVersion={total.resultVersion}
+        multiRoot={multiRoot}
+      />
+    </div>
   );
 }
 

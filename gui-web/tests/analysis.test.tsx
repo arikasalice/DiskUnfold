@@ -13,6 +13,7 @@ import { App } from "../src/app/App";
 import { AnalysisError, createAnalysisClient, windowsPath } from "../src/ipc";
 import type {
   AnalysisClient,
+  AnalysisJobStatus,
   BrowseDetail,
   EventEnvelope,
   ScopeReview,
@@ -49,6 +50,8 @@ function fixture({
   targetList = targets,
   readTotals = (result) => result,
   readReview = (result) => result,
+  readStatus = (result) => result,
+  lineageId,
 }: {
   stale?: boolean;
   earlyProbe?: EventEnvelope;
@@ -56,6 +59,8 @@ function fixture({
   targetList?: TargetList;
   readTotals?: (result: SpaceTotal) => SpaceTotal | Promise<SpaceTotal>;
   readReview?: (result: ScopeReview) => ScopeReview | Promise<ScopeReview>;
+  readStatus?: (result: AnalysisJobStatus) => AnalysisJobStatus;
+  lineageId?: string;
 } = {}) {
   const listeners = new Set<(event: EventEnvelope) => void>();
   const calls: { name: string; body: unknown }[] = [];
@@ -92,21 +97,22 @@ function fixture({
             existing: false,
             scopeVersion: "scope",
             scopeFingerprint: "verified",
+            lineageId,
           };
         case "job.get":
           if (missingJob) throw new AnalysisError("NOT_FOUND", "job.not_found");
-          return {
+          return readStatus({
             jobRef: "scan",
             kind: "scan.metadata",
             state: "partial",
             sequence: 3,
             resultVersion: "result",
             reasonKey: null,
-          };
+          });
         case "space.total": {
-          const request = body as { requestSeq: number };
+          const request = body as { requestSeq: number; resultVersion: string };
           const result: SpaceTotal = {
-            resultVersion: "result",
+            resultVersion: request.resultVersion,
             requestSeq: request.requestSeq,
             completeness: "missing",
             sizes: [
@@ -411,6 +417,141 @@ test("F24: an expired job releases the scan controls without inventing a result"
   expect(start.disabled).toBe(false);
   expect(screen.queryByRole("button", { name: "Cancel scan" })).toBeNull();
   expect(calls.some((call) => call.name === "space.total")).toBe(false);
+});
+
+async function startFixtureScan(client: AnalysisClient) {
+  render(<App analysis={client} />);
+  fireEvent.click(await screen.findByRole("radio", { name: path.display }));
+  fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
+  const start = screen.getByRole<HTMLButtonElement>("button", {
+    name: "Start scan",
+  });
+  await waitFor(() => expect(start.disabled).toBe(false));
+  fireEvent.click(start);
+}
+
+function notifyResult(
+  listeners: Set<(event: EventEnvelope) => void>,
+  topic: string,
+  body: unknown,
+) {
+  act(() => {
+    for (const listener of listeners) {
+      listener({
+        topic,
+        body,
+        seq: 1,
+        contractVersion: 1,
+        occurredAt: timestamp,
+      });
+    }
+  });
+}
+
+test("F02 IF-23: opens an existing partial without an event, then keeps it until explicit refresh", async () => {
+  let status: AnalysisJobStatus = {
+    jobRef: "scan",
+    kind: "scan.metadata",
+    state: "running",
+    sequence: 1,
+    resultVersion: null,
+    reasonKey: null,
+    scanResult: { lineageId: "lineage", sequence: 1, resultVersion: "part" },
+  };
+  const { client, calls, listeners } = fixture({
+    lineageId: "lineage",
+    readStatus: () => status,
+    readTotals: (result) => ({
+      ...result,
+      completeness: result.resultVersion === "part" ? "partial" : "complete",
+    }),
+  });
+  await startFixtureScan(client);
+  await screen.findByText("Result completeness: partial");
+  expect(screen.getByText("Scan status: running")).toBeDefined();
+
+  const previousReads = calls.filter(({ name }) => name === "job.get").length;
+  notifyResult(listeners, "results.version_changed", {
+    lineageId: "other",
+    sequence: 2,
+  });
+  expect(calls.filter(({ name }) => name === "job.get").length).toBe(
+    previousReads,
+  );
+  status = {
+    ...status,
+    state: "done",
+    resultVersion: "final",
+    scanResult: { lineageId: "lineage", sequence: 2, resultVersion: "final" },
+  };
+  notifyResult(listeners, "results.version_changed", {
+    lineageId: "lineage",
+    sequence: 2,
+  });
+  const latest = await screen.findByRole("button", {
+    name: "Show latest result",
+  });
+  expect(screen.getByText("Result completeness: partial")).toBeDefined();
+  expect(calls.filter(({ name }) => name === "space.total")).toHaveLength(1);
+  fireEvent.click(latest);
+  await screen.findByText("Result completeness: complete");
+  expect(
+    screen.queryByRole("button", { name: "Show latest result" }),
+  ).toBeNull();
+});
+
+test("F02 IF-23: resynchronizes when the first partial version expires before its read", async () => {
+  let published = false;
+  const { client, calls } = fixture({
+    lineageId: "lineage",
+    readStatus: (base) => ({
+      ...base,
+      state: published ? "done" : "running",
+      resultVersion: published ? "final" : null,
+      scanResult: {
+        lineageId: "lineage",
+        sequence: published ? 2 : 1,
+        resultVersion: published ? "final" : "part",
+      },
+    }),
+    readTotals: (result) => {
+      if (result.resultVersion === "part") {
+        published = true;
+        throw new AnalysisError("STALE_VERSION", "result.requery_required");
+      }
+      return { ...result, completeness: "complete" };
+    },
+  });
+  await startFixtureScan(client);
+  await screen.findByText("Result completeness: complete");
+  expect(
+    calls.filter(({ name }) => name === "space.total").map(({ body }) => body),
+  ).toMatchObject([{ resultVersion: "part" }, { resultVersion: "final" }]);
+  expect(
+    screen.queryByRole("button", { name: "Show latest result" }),
+  ).toBeNull();
+});
+
+test("F02 IF-23: resync after withdrawal removes only this failed scan's partial totals", async () => {
+  let withdrawn = false;
+  const { client, calls, listeners } = fixture({
+    lineageId: "lineage",
+    readStatus: (base) => ({
+      ...base,
+      state: withdrawn ? "failed" : "running",
+      resultVersion: null,
+      scanResult: withdrawn
+        ? { lineageId: "lineage", sequence: 2 }
+        : { lineageId: "lineage", sequence: 1, resultVersion: "part" },
+    }),
+  });
+  await startFixtureScan(client);
+  await screen.findByText("At least 42 bytes");
+  withdrawn = true;
+  notifyResult(listeners, "job.resync_required", {});
+  await screen.findByText("Scan status: failed");
+  expect(screen.queryByText("At least 42 bytes")).toBeNull();
+  expect(calls.filter(({ name }) => name === "space.total")).toHaveLength(1);
 });
 
 test("ANFR5: the analysis workspace exposes labelled controls and valid ARIA roles", async () => {
