@@ -47,6 +47,36 @@ export function subscribeNative(
   return () => window.removeEventListener("du://event", receive);
 }
 
+type NativeFolderDrop =
+  { path: string } | { reason: "invalid_target" | "unsupported" };
+
+/** Reads a local folder selection from the top-level native drop bridge. */
+export function subscribeNativeFolderDrop(
+  listener: (drop: NativeFolderDrop) => void,
+): () => void {
+  const receive = (event: Event) => {
+    if (!(event instanceof CustomEvent)) return;
+    const detail: unknown = event.detail;
+    if (typeof detail !== "object" || detail === null) return;
+    if (
+      "path" in detail &&
+      typeof detail.path === "string" &&
+      detail.path.length > 0 &&
+      detail.path.length <= 32_767 &&
+      !detail.path.includes("\0")
+    ) {
+      listener({ path: detail.path });
+    } else if (
+      "reason" in detail &&
+      (detail.reason === "invalid_target" || detail.reason === "unsupported")
+    ) {
+      listener({ reason: detail.reason });
+    }
+  };
+  window.addEventListener("du://folder-drop", receive);
+  return () => window.removeEventListener("du://folder-drop", receive);
+}
+
 export async function invokeNative(
   command: string,
   args: { envelope: CallEnvelope },

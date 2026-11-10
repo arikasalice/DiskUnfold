@@ -1,3 +1,4 @@
+mod folder_drop;
 mod icon;
 mod messages;
 
@@ -38,6 +39,12 @@ const BRIDGE: &str = r#"(() => {
         const split = data.indexOf('\n');
         if (split < 0) return;
         const id = data.slice(0, split);
+        if (id === 'folder-drop') {
+            let detail;
+            try { detail = JSON.parse(data.slice(split + 1)); } catch { return; }
+            window.dispatchEvent(new CustomEvent('du://folder-drop', { detail }));
+            return;
+        }
         if (id === 'event') {
             let detail;
             try { detail = JSON.parse(data.slice(split + 1)); } catch { return; }
@@ -52,6 +59,22 @@ const BRIDGE: &str = r#"(() => {
         if (response) request.resolve(response);
         else request.reject(new Error('DiskUnfold IPC request denied'));
     });
+    const dropReason = (reason) => window.dispatchEvent(new CustomEvent('du://folder-drop', { detail: { reason } }));
+    const inDropZone = (target) => target instanceof Element && !!target.closest('[data-diskunfold-dropzone]');
+    document.addEventListener('dragover', (event) => {
+        event.preventDefault();
+        if (event.dataTransfer) event.dataTransfer.dropEffect = event.isTrusted && inDropZone(event.target) ? 'copy' : 'none';
+    }, true);
+    document.addEventListener('drop', (event) => {
+        event.preventDefault();
+        if (!event.isTrusted || !inDropZone(event.target)) return;
+        const data = event.dataTransfer;
+        if (!data || data.items.length !== 1 || data.items[0].kind !== 'file' || data.files.length > 1) { dropReason('invalid_target'); return; }
+        if (data.files.length === 0) { dropReason('unsupported'); return; }
+        if (typeof channel.postMessageWithAdditionalObjects !== 'function') { dropReason('unsupported'); return; }
+        try { channel.postMessageWithAdditionalObjects('du:folder-drop', data.files); }
+        catch { dropReason('unsupported'); }
+    }, true);
     Object.defineProperty(window, '__diskunfoldRequest', { value: (payload) => new Promise((resolve, reject) => {
         const id = String(++sequence);
         const timer = setTimeout(() => {
@@ -196,7 +219,7 @@ pub(super) fn run(app: WebApp, events: Option<Events>) -> Result<(), Box<dyn Err
         native
             .0
             .cast::<ICoreWebView2Controller4>()?
-            .SetAllowExternalDrop(false)?;
+            .SetAllowExternalDrop(true)?;
         let view = native.0.CoreWebView2()?;
         let settings = view.Settings()?;
         settings.SetAreDevToolsEnabled(false)?;
@@ -387,6 +410,17 @@ unsafe fn receive(
             return Ok(());
         }
         let text = take_pwstr(text);
+        if text == "du:folder-drop" {
+            let mut source = PWSTR::null();
+            args.Source(&mut source)?;
+            if !super::contract::trusted_message(&take_pwstr(source), "") {
+                return Ok(());
+            }
+            match folder_drop::path(args) {
+                Ok(path) => return requests.submit_folder(view, path),
+                Err(reason) => return messages::post(view, folder_drop::reason_message(reason)),
+            }
+        }
         let Some((id, data)) = text
             .split_once('\n')
             .filter(|(id, _)| id.parse::<u64>().is_ok())

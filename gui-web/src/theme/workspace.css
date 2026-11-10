@@ -225,6 +225,17 @@ body {
   font: inherit;
 }
 
+.du-drop-surface[data-diskunfold-dropzone] .du-field input {
+  border-style: dashed;
+}
+
+.du-drop-surface[data-drag-over] .du-field input {
+  border-color: var(--du-focus);
+  background: var(--du-info-surface);
+  outline: 2px solid var(--du-focus);
+  outline-offset: 2px;
+}
+
 .du-field [slot="description"],
 .du-choice__details .du-text--muted {
   color: var(--du-muted);

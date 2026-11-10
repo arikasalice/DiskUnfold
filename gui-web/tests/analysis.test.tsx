@@ -10,7 +10,7 @@ import {
 import axe from "axe-core";
 import { afterEach, expect, test } from "vitest";
 import { App } from "../src/app/App";
-import { AnalysisError, windowsPath } from "../src/ipc";
+import { AnalysisError, createAnalysisClient, windowsPath } from "../src/ipc";
 import type {
   AnalysisClient,
   EventEnvelope,
@@ -275,4 +275,63 @@ test("ANFR5: the analysis workspace exposes labelled controls and valid ARIA rol
     },
   });
   expect(result.violations).toEqual([]);
+});
+
+test("F01: a dropped folder replaces the selection and requires a fresh scope review", async () => {
+  const { client, calls } = fixture();
+  const nativeDrop = createAnalysisClient().subscribeFolderDrop;
+  if (!nativeDrop) throw new Error("Expected native drop subscription");
+  render(<App analysis={{ ...client, subscribeFolderDrop: nativeDrop }} />);
+  fireEvent.click(await screen.findByRole("radio", { name: path.display }));
+  const review = screen.getByRole("button", { name: "Review scope" });
+  const start = screen.getByRole("button", {
+    name: "Start scan",
+  }) as HTMLButtonElement;
+  fireEvent.click(review);
+  await waitFor(() => expect(start.disabled).toBe(false));
+  const dropped = "D:\\한글 폴더";
+  act(() => {
+    window.dispatchEvent(
+      new CustomEvent("du://folder-drop", { detail: { path: dropped } }),
+    );
+  });
+  expect(
+    (
+      screen.getByRole("textbox", {
+        name: "Windows folder path",
+      }) as HTMLInputElement
+    ).value,
+  ).toBe(dropped);
+  expect(start.disabled).toBe(true);
+  expect(calls.some(({ name }) => name === "scan.start")).toBe(false);
+  fireEvent.click(review);
+  await waitFor(() => expect(start.disabled).toBe(false));
+  expect(
+    calls.filter(({ name }) => name === "scope.review").at(-1)?.body,
+  ).toMatchObject({
+    draft: { includes: [windowsPath(dropped)] },
+  });
+});
+
+test("F01: an invalid drop gives guidance without replacing the chosen folder", async () => {
+  const { client } = fixture();
+  const nativeDrop = createAnalysisClient().subscribeFolderDrop;
+  if (!nativeDrop) throw new Error("Expected native drop subscription");
+  render(<App analysis={{ ...client, subscribeFolderDrop: nativeDrop }} />);
+  fireEvent.click(await screen.findByRole("radio", { name: path.display }));
+  act(() => {
+    window.dispatchEvent(
+      new CustomEvent("du://folder-drop", {
+        detail: { reason: "invalid_target" },
+      }),
+    );
+  });
+  expect(screen.getByText("Drop one accessible local folder.")).toBeDefined();
+  expect(
+    (
+      screen.getByRole("textbox", {
+        name: "Windows folder path",
+      }) as HTMLInputElement
+    ).value,
+  ).toBe(path.display);
 });

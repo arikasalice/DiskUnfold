@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Action, Heading, Notice, Readout, Text } from "../../components";
 import { AnalysisError } from "../../ipc";
 import type {
@@ -38,6 +38,10 @@ export function AnalysisPanel({ client }: { client: AnalysisClient }) {
   const [error, setError] = useState<string>();
   const [receipt, setReceipt] = useState<ScanStart | null>(null);
   const [cancelRequested, setCancelRequested] = useState(false);
+  const [dropMessage, setDropMessage] = useState<{
+    text: string;
+    tone: "info" | "error";
+  }>();
   const request = useRef(0);
   const scan = useScanResult(client, receipt);
   const running =
@@ -45,13 +49,37 @@ export function AnalysisPanel({ client }: { client: AnalysisClient }) {
     !scan.unavailable &&
     (!scan.status || isRunning(scan.status.state));
 
-  function choose(path: OsPath | undefined) {
+  const choose = useCallback((path: OsPath | undefined) => {
     request.current += 1;
     setSelected(path);
     setReview(undefined);
     setWorking(false);
     setError(undefined);
-  }
+    setDropMessage(undefined);
+  }, []);
+
+  useEffect(
+    () =>
+      client.subscribeFolderDrop?.((drop) => {
+        if (working || running) return;
+        if ("path" in drop) {
+          choose(drop.path);
+          setDropMessage({
+            text: "Folder selected. Review the scope before scanning.",
+            tone: "info",
+          });
+        } else {
+          setDropMessage({
+            text:
+              drop.reason === "invalid_target"
+                ? "Drop one accessible local folder."
+                : "Folder drop is unavailable. Enter its path instead.",
+            tone: "error",
+          });
+        }
+      }),
+    [client, choose, running, working],
+  );
 
   async function reviewScope() {
     if (!selected) return;
@@ -127,6 +155,8 @@ export function AnalysisPanel({ client }: { client: AnalysisClient }) {
             disabled={working || running}
             selected={selected}
             choose={choose}
+            dropEnabled={client.subscribeFolderDrop !== undefined}
+            dropMessage={dropMessage}
           />
           <footer className="du-card__actions">
             <Action

@@ -1,5 +1,6 @@
 //! Deliver WebView2 messages on the STA while application handlers run on a worker.
 use super::super::contract::{Dispatch, Events, message, trusted_message};
+use super::folder_drop::{self, Reason};
 use std::{cell::Cell, io, rc::Rc, sync::mpsc};
 use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2;
 use windows::{
@@ -21,7 +22,10 @@ struct Request {
 
 /// A bounded queue for requests accepted from the trusted top-level document.
 #[derive(Clone)]
-pub(super) struct RequestQueue(mpsc::SyncSender<Request>);
+pub(super) struct RequestQueue {
+    ipc: mpsc::SyncSender<Request>,
+    folders: mpsc::SyncSender<Vec<u16>>,
+}
 
 impl RequestQueue {
     pub(super) fn submit(
@@ -33,7 +37,7 @@ impl RequestQueue {
     ) -> windows::core::Result<()> {
         if trusted_message(origin, data)
             && self
-                .0
+                .ipc
                 .try_send(Request {
                     id: id.to_owned(),
                     origin: origin.to_owned(),
@@ -44,6 +48,18 @@ impl RequestQueue {
             return Ok(());
         }
         post(view, &format!("{id}\n"))
+    }
+
+    /// Schedules local directory verification off the WebView thread.
+    pub(super) fn submit_folder(
+        &self,
+        view: &ICoreWebView2,
+        path: Vec<u16>,
+    ) -> windows::core::Result<()> {
+        if self.folders.try_send(path).is_ok() {
+            return Ok(());
+        }
+        post(view, folder_drop::reason_message(Reason::Unsupported))
     }
 }
 
@@ -63,14 +79,26 @@ impl Bridge {
         ready: Rc<Cell<bool>>,
     ) -> io::Result<Self> {
         let (requests, incoming) = mpsc::sync_channel::<Request>(QUEUE_LIMIT);
+        let (folders, incoming_folders) = mpsc::sync_channel::<Vec<u16>>(4);
         let (outgoing, replies) = mpsc::sync_channel(QUEUE_LIMIT);
+        let folder_replies = outgoing.clone();
+        std::thread::Builder::new()
+            .name("diskunfold-folder-drop".into())
+            .spawn(move || {
+                while let Ok(path) = incoming_folders.recv() {
+                    if folder_replies.send(folder_drop::response(&path)).is_err() {
+                        break;
+                    }
+                }
+            })?;
         std::thread::Builder::new()
             .name("diskunfold-ipc".into())
             .spawn(move || {
                 while let Ok(request) = incoming.recv() {
                     let payload = message(&dispatch, true, &request.origin, &request.data)
                         .unwrap_or_default();
-                    if outgoing.send(format!("{}\n{payload}", request.id)).is_err() {
+                    let reply = format!("{}\n{payload}", request.id);
+                    if outgoing.send(reply).is_err() {
                         break;
                     }
                 }
@@ -78,7 +106,10 @@ impl Bridge {
         Ok(Self {
             view,
             ready,
-            requests: RequestQueue(requests),
+            requests: RequestQueue {
+                ipc: requests,
+                folders,
+            },
             replies,
             events,
         })
@@ -103,7 +134,7 @@ impl Bridge {
     }
 }
 
-fn post(view: &ICoreWebView2, data: &str) -> windows::core::Result<()> {
+pub(super) fn post(view: &ICoreWebView2, data: &str) -> windows::core::Result<()> {
     let payload = HSTRING::from(data);
     // SAFETY: The view is used on its owning STA and WebView2 copies the string.
     unsafe { view.PostWebMessageAsString(PCWSTR(payload.as_ptr())) }

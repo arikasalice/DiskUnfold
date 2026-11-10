@@ -2,6 +2,7 @@ import {
   Action,
   Choice,
   ChoiceGroup,
+  FolderDropSurface,
   Heading,
   Icon,
   Metric,
@@ -38,11 +39,15 @@ export function TargetPicker({
   disabled,
   selected,
   choose,
+  dropEnabled,
+  dropMessage,
 }: {
   targets: ReturnType<typeof useTargets>;
   disabled: boolean;
   selected: OsPath | undefined;
   choose: (path: OsPath | undefined) => void;
+  dropEnabled: boolean;
+  dropMessage: { text: string; tone: "info" | "error" } | undefined;
 }) {
   const error = targets.error ?? targets.list?.unavailableReason;
   const notice =
@@ -50,6 +55,20 @@ export function TargetPicker({
       ? "Automatic drive listing is unavailable. You can still enter a folder below."
       : error;
   const entries = targets.list?.targets ?? [];
+  const pathField = (
+    <PathField
+      label="Windows folder path"
+      description={
+        dropEnabled
+          ? "Drop a folder here or enter its path."
+          : "Review this path before scanning."
+      }
+      placeholder={"C:\\Folder"}
+      isDisabled={disabled}
+      value={selected?.display ?? ""}
+      onChange={(path) => choose(path ? windowsPath(path) : undefined)}
+    />
+  );
   return (
     <>
       <div className="du-card__header">
@@ -104,14 +123,14 @@ export function TargetPicker({
           })}
         </ChoiceGroup>
       )}
-      <PathField
-        label="Windows folder path"
-        description="Review this path before scanning."
-        placeholder={"C:\\Folder"}
-        isDisabled={disabled}
-        value={selected?.display ?? ""}
-        onChange={(path) => choose(path ? windowsPath(path) : undefined)}
-      />
+      {dropEnabled ? (
+        <FolderDropSurface isDisabled={disabled}>{pathField}</FolderDropSurface>
+      ) : (
+        pathField
+      )}
+      {dropMessage && (
+        <Notice tone={dropMessage.tone}>{dropMessage.text}</Notice>
+      )}
     </>
   );
 }

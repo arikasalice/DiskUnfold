@@ -1,4 +1,10 @@
-export { Action, Choice, ChoiceGroup, PathField } from "./controls";
+export {
+  Action,
+  Choice,
+  ChoiceGroup,
+  FolderDropSurface,
+  PathField,
+} from "./controls";
 export {
   BrandMark,
   Heading,

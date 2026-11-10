@@ -1,4 +1,8 @@
-import { invokeNative, subscribeNative } from "./bridge";
+import {
+  invokeNative,
+  subscribeNative,
+  subscribeNativeFolderDrop,
+} from "./bridge";
 import type {
   AnalysisJobControl,
   AnalysisJobRequest,
@@ -49,7 +53,11 @@ export interface AnalysisClient {
     body: Commands[K][0],
   ): Promise<Commands[K][1]>;
   subscribe(listener: (event: EventEnvelope) => void): () => void;
+  subscribeFolderDrop?(listener: (drop: FolderDrop) => void): () => void;
 }
+
+export type FolderDrop =
+  { path: OsPath } | { reason: "invalid_target" | "unsupported" };
 
 export class AnalysisError extends Error {
   constructor(
@@ -109,6 +117,10 @@ export function createAnalysisClient(
       return result.body as Commands[K][1];
     },
     subscribe: subscribeNative,
+    subscribeFolderDrop: (listener) =>
+      subscribeNativeFolderDrop((drop) =>
+        listener("path" in drop ? { path: windowsPath(drop.path) } : drop),
+      ),
   };
 }
 

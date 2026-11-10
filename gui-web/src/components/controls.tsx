@@ -1,4 +1,4 @@
-import { useId } from "react";
+import { useId, useState } from "react";
 import type { ReactNode } from "react";
 import {
   Button,
@@ -69,6 +69,36 @@ export function PathField({
       />
       <Text slot="description">{description}</Text>
     </TextField>
+  );
+}
+
+/** Marks a native drop target and leaves its child input as the keyboard equivalent. */
+export function FolderDropSurface({
+  children,
+  isDisabled,
+}: {
+  children: ReactNode;
+  isDisabled: boolean;
+}) {
+  const [over, setOver] = useState(false);
+  return (
+    <div
+      className="du-drop-surface"
+      data-diskunfold-dropzone={isDisabled ? undefined : ""}
+      data-drag-over={over && !isDisabled ? "" : undefined}
+      onDragEnter={(event) => {
+        if (!isDisabled && event.dataTransfer.types.includes("Files"))
+          setOver(true);
+      }}
+      onDragLeave={(event) => {
+        const target = event.relatedTarget;
+        if (!(target instanceof Node) || !event.currentTarget.contains(target))
+          setOver(false);
+      }}
+      onDrop={() => setOver(false)}
+    >
+      {children}
+    </div>
   );
 }
 
