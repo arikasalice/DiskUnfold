@@ -221,3 +221,166 @@ fn recorded_gap_rejects_layout() {
         AdmissionError::NoAttribution
     );
 }
+
+#[test]
+fn unrelated_recorded_gap_does_not_hide_complete_nested_partition() {
+    use du_core_contracts::{
+        PathBytes, PathEncoding,
+        result::{ResultNativePath, ResultScopeRoot},
+    };
+    for gap in [
+        b"outside".as_slice(),
+        b"selected".as_slice(),
+        b"".as_slice(),
+    ] {
+        let root = ResultScopeRoot {
+            path: ResultNativePath {
+                encoding: PathEncoding::Unix,
+                raw: PathBytes::from_bytes(b"/root"),
+            },
+            volume_id: vec![1],
+            file_id: vec![1],
+        };
+        let sink = IngestSink::default();
+        let mut b = sink.open_observed(id(1), root).unwrap();
+        for name in [b"selected".as_slice(), b"outside".as_slice()] {
+            b.add_directory(vec![name.to_vec()]).unwrap();
+        }
+        b.add_directory(vec![]).unwrap();
+        for (name, file) in [(b"first".as_slice(), 1), (b"second".as_slice(), 2)] {
+            b.add_with_space(
+                Observation {
+                    path: vec![b"selected".to_vec(), name.to_vec()],
+                    size: Some(size(SizeBasis::Logical, 10)),
+                },
+                obs(1, file, Some(1)),
+            )
+            .unwrap();
+        }
+        b.record_gap_at(
+            0,
+            if gap.is_empty() {
+                vec![]
+            } else {
+                vec![gap.to_vec(), b"unread".to_vec()]
+            },
+            "scan.path_denied".into(),
+            None,
+        )
+        .unwrap();
+        let v = b.seal(id(2), ResultCompleteness::Complete).unwrap();
+        assert_eq!(v.completeness(), ResultCompleteness::Missing);
+        let selected = v
+            .items()
+            .iter()
+            .find(|item| item.name == b"selected")
+            .unwrap();
+        let parent = ItemRef {
+            result_version: v.version_id().clone(),
+            item_no: selected.item_no,
+        };
+        let keys: Vec<_> = v
+            .items()
+            .iter()
+            .filter(|item| item.parent == Some(selected.item_no))
+            .map(|item| ChildKey {
+                item: ItemRef {
+                    result_version: v.version_id().clone(),
+                    item_no: item.item_no,
+                },
+                path_compare_key: item.name.clone(),
+            })
+            .collect();
+        let bounds = Rect {
+            left: 0,
+            top: 0,
+            right: 100,
+            bottom: 100,
+        };
+        for basis in [SizeBasis::Logical, SizeBasis::Allocated] {
+            let result = treemap::layout_parent(&v, &parent, basis, bounds, &keys);
+            if gap == b"outside" {
+                assert_eq!(result.unwrap().layout.shapes.len(), 2);
+            } else {
+                assert_eq!(result.unwrap_err(), AdmissionError::NoAttribution);
+            }
+        }
+    }
+}
+
+#[test]
+fn nested_unprovable_partition_suppresses_children_without_redistributing() {
+    let sink = IngestSink::default();
+    let mut b = sink.open(id(1)).unwrap();
+    for path in [
+        vec![],
+        vec![b"container".to_vec()],
+        vec![b"container".to_vec(), b"a".to_vec()],
+        vec![b"container".to_vec(), b"b".to_vec()],
+    ] {
+        b.add_directory(path).unwrap();
+    }
+    for name in [b"a", b"b"] {
+        b.add_with_space(
+            Observation {
+                path: vec![b"container".to_vec(), name.to_vec(), b"file".to_vec()],
+                size: Some(size(SizeBasis::Logical, 10)),
+            },
+            obs(1, 7, Some(2)),
+        )
+        .unwrap();
+    }
+    let v = b.seal(id(2), ResultCompleteness::Complete).unwrap();
+    assert_eq!(
+        layout(&v, SizeBasis::Allocated)
+            .unwrap()
+            .layout
+            .shapes
+            .len(),
+        1
+    );
+    let container = v
+        .items()
+        .iter()
+        .find(|item| item.name == b"container")
+        .unwrap();
+    let parent = ItemRef {
+        result_version: v.version_id().clone(),
+        item_no: container.item_no,
+    };
+    let keys: Vec<_> = v
+        .items()
+        .iter()
+        .filter(|item| item.parent == Some(container.item_no))
+        .map(|item| ChildKey {
+            item: ItemRef {
+                result_version: v.version_id().clone(),
+                item_no: item.item_no,
+            },
+            path_compare_key: item.name.clone(),
+        })
+        .collect();
+    let bounds = Rect {
+        left: 0,
+        top: 0,
+        right: 100,
+        bottom: 100,
+    };
+    assert_eq!(
+        treemap::layout_parent(&v, &parent, SizeBasis::Allocated, bounds, &keys).unwrap_err(),
+        AdmissionError::NoAttribution
+    );
+    let branch =
+        treemap::layout_nested_parent(&v, &parent, SizeBasis::Allocated, bounds, &keys).unwrap();
+    assert!(branch.layout.shapes.is_empty());
+    assert_eq!(branch.children.len(), 2);
+    assert!(branch.children.iter().all(|child| !child.area_attributed
+        && child.value.amount == size(SizeBasis::Allocated, 10).amount));
+    let mut bad_keys = keys.clone();
+    bad_keys.pop();
+    assert_eq!(
+        treemap::layout_nested_parent(&v, &parent, SizeBasis::Allocated, bounds, &bad_keys)
+            .unwrap_err(),
+        AdmissionError::InvalidKeys
+    );
+}

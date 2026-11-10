@@ -7,7 +7,7 @@ use super::{reference, root_ref, squarify, value};
 use crate::{FileIdentity, ResultVersion, SharingEvidence};
 use du_core_contracts::{
     ItemRef, SizeAmount, SizeBasis, SizeEvidence, SizeValue,
-    result::{ResultCompleteness, ResultItemKind, ResultVersionRead},
+    result::{ResultItemKind, ResultVersionRead},
 };
 use std::collections::{BTreeMap, HashMap};
 
@@ -23,6 +23,8 @@ pub struct ChildKey {
 pub struct Child {
     pub item: ItemRef,
     pub value: SizeValue,
+    /// False when this child is retained without a provable area.
+    pub area_attributed: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -51,9 +53,7 @@ pub fn layout_parent(
     keys: &[ChildKey],
 ) -> Result<Partition, AdmissionError> {
     let parent_no = root_ref(version, parent).map_err(|_| AdmissionError::InvalidParent)?;
-    if version.completeness() != ResultCompleteness::Complete || !version.scope_gaps().is_empty() {
-        return Err(AdmissionError::NoAttribution);
-    }
+    squarify::layout(bounds, &[]).map_err(AdmissionError::Layout)?;
     let children = version.children(parent_no);
     if keys.len() != children.len() {
         return Err(AdmissionError::InvalidKeys);
@@ -67,6 +67,15 @@ pub fn layout_parent(
         {
             return Err(AdmissionError::InvalidKeys);
         }
+    }
+    if children
+        .iter()
+        .any(|child| !lookup.contains_key(&child.item_no))
+    {
+        return Err(AdmissionError::InvalidKeys);
+    }
+    if gap_covers_parent(version, parent_no)? {
+        return Err(AdmissionError::NoAttribution);
     }
     let mut identities = BTreeMap::new();
     let mut admitted = Vec::with_capacity(children.len());
@@ -88,6 +97,7 @@ pub fn layout_parent(
             Child {
                 item: reference(version, child.item_no),
                 value: raw,
+                area_attributed: true,
             },
             observed,
             *key,
@@ -112,6 +122,73 @@ pub fn layout_parent(
         children: admitted.into_iter().map(|entry| entry.0).collect(),
         layout,
     })
+}
+
+// A gap at an ancestor is not reflected in a descendant aggregate. In that
+// case the retained source cannot establish that the selected subtree was read.
+fn gap_covers_parent(version: &ResultVersion, parent_no: u32) -> Result<bool, AdmissionError> {
+    let item = version
+        .items()
+        .get(parent_no as usize)
+        .ok_or(AdmissionError::NoAttribution)?;
+    let root = *version
+        .root_indices
+        .get(parent_no as usize)
+        .ok_or(AdmissionError::NoAttribution)?;
+    let chain = version
+        .ancestors(item)
+        .map_err(|_| AdmissionError::NoAttribution)?;
+    let path: Vec<_> = chain.iter().skip(1).map(|item| &item.name).collect();
+    Ok(version.scope_gaps().iter().any(|gap| {
+        gap.root_index == root
+            && gap.path.len() <= path.len()
+            && gap
+                .path
+                .iter()
+                .zip(&path)
+                .all(|(gap_part, part)| gap_part == *part)
+    }))
+}
+
+/// Lays out a previously admitted, non-root branch, or retains all of its
+/// children without geometry when this branch cannot be partitioned.
+///
+/// The caller must use `layout_parent` for the navigation root and call this
+/// only for a branch whose enclosing rectangle was already admitted. Suppressed
+/// children keep their original F03 values; no remainder is redistributed.
+pub fn layout_nested_parent(
+    version: &ResultVersion,
+    parent: &ItemRef,
+    basis: SizeBasis,
+    bounds: squarify::Rect,
+    keys: &[ChildKey],
+) -> Result<Partition, AdmissionError> {
+    match layout_parent(version, parent, basis.clone(), bounds, keys) {
+        Ok(partition) => Ok(partition),
+        Err(AdmissionError::NoAttribution) => {
+            let parent_no = root_ref(version, parent).map_err(|_| AdmissionError::InvalidParent)?;
+            let children = version
+                .children(parent_no)
+                .iter()
+                .map(|child| {
+                    Ok(Child {
+                        item: reference(version, child.item_no),
+                        value: value(version, child.item_no, &basis)
+                            .map_err(|_| AdmissionError::NoAttribution)?,
+                        area_attributed: false,
+                    })
+                })
+                .collect::<Result<Vec<_>, AdmissionError>>()?;
+            Ok(Partition {
+                children,
+                layout: squarify::Layout {
+                    shapes: Vec::new(),
+                    skipped: Vec::new(),
+                },
+            })
+        }
+        Err(error) => Err(error),
+    }
 }
 
 // Identity, sibling owner, allocation, link count, observed paths.
