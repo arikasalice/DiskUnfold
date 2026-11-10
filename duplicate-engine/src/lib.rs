@@ -1,5 +1,6 @@
-//! Pure candidate preparation for content identity verification.
+//! Candidate preparation and injected content identity verification.
 //!
-//! Content reads and verified duplicate publication require a future identity-bound
-//! content port and registered hash strategy; this crate performs no file I/O.
+//! Real content reads require an injected identity-bound port and registered hash strategy.
 pub mod candidates;
+
+pub mod verification;
