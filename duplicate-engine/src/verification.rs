@@ -1,7 +1,7 @@
 //! Read-only duplicate verification with injected identity-bound I/O and streaming hashing.
 //!
-//! These interfaces are local to duplicate-engine. They are not yet connected to the
-//! shared OS port, job runtime, or a production hash implementation.
+//! These interfaces are local to duplicate-engine. OS and job runtime composition
+//! must supply the approved input list and the identity-bound read port.
 use crate::candidates::{
     self, Exclusion, FileIdentity, Placeholder, PrepareError, SampleRange, Size, Target,
 };
@@ -71,13 +71,24 @@ pub trait HashStrategy {
     fn id(&self) -> &str;
     fn revision(&self) -> u32;
     fn collision_resistant(&self) -> bool;
-    fn start(&self, purpose: HashPurpose) -> Box<dyn Digest>;
+    /// Initializes a digest for the requested purpose and the confirmed file size.
+    fn start(&self, purpose: HashPurpose, approved_size: u64) -> Box<dyn Digest>;
 }
 
 /// Strategies fixed at admission for sample filtering and final full-file verification.
 pub struct Strategies<'a> {
     pub sample: &'a dyn HashStrategy,
     pub full: &'a dyn HashStrategy,
+}
+
+impl Strategies<'static> {
+    /// Selects the published default for both filtering and full-file verification.
+    pub fn blake3_v1() -> Self {
+        Self {
+            sample: &crate::content_hash::Blake3V1,
+            full: &crate::content_hash::Blake3V1,
+        }
+    }
 }
 
 /// Item disposition. Candidates and deferred items are not verified duplicates.
@@ -403,7 +414,7 @@ fn read_digest(
     if file.snapshot().map_err(read_error)? != *expected {
         return Err(State::Changed);
     }
-    let mut digest = hasher.start(purpose);
+    let mut digest = hasher.start(purpose, expected.size);
     match purpose {
         HashPurpose::Sample => {
             let ranges = candidates::sample_ranges(expected.size).ok_or(State::ReadFailed)?;

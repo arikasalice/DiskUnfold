@@ -43,6 +43,7 @@ struct FakePort {
     opens: Vec<u32>,
     reads: Vec<(u32, u64, usize)>,
     cancel_on_read: Option<Rc<Cell<bool>>>,
+    max_read: usize,
 }
 impl FakePort {
     fn new(items: &[(VerificationTarget, Vec<u8>)]) -> Self {
@@ -67,6 +68,7 @@ impl FakePort {
             opens: vec![],
             reads: vec![],
             cancel_on_read: None,
+            max_read: usize::MAX,
         }
     }
 }
@@ -76,6 +78,7 @@ struct FakeFile<'a> {
     snapshots: usize,
     reads: &'a mut Vec<(u32, u64, usize)>,
     cancel_on_read: Option<Rc<Cell<bool>>>,
+    max_read: usize,
 }
 impl OpenFile for FakeFile<'_> {
     fn snapshot(&mut self) -> Result<Snapshot, ReadError> {
@@ -96,7 +99,7 @@ impl OpenFile for FakeFile<'_> {
         }
         let start = usize::try_from(offset).map_err(|_| ReadError::Failed)?;
         let remaining = self.entry.bytes.get(start..).unwrap_or_default();
-        let count = remaining.len().min(buffer.len());
+        let count = remaining.len().min(buffer.len()).min(self.max_read);
         buffer[..count].copy_from_slice(&remaining[..count]);
         Ok(count)
     }
@@ -118,6 +121,7 @@ impl ReadPort for FakePort {
             snapshots: 0,
             reads: &mut self.reads,
             cancel_on_read: self.cancel_on_read.clone(),
+            max_read: self.max_read,
         }))
     }
 }
@@ -147,7 +151,7 @@ impl HashStrategy for FakeHasher {
     fn collision_resistant(&self) -> bool {
         self.strong
     }
-    fn start(&self, purpose: HashPurpose) -> Box<dyn Digest> {
+    fn start(&self, purpose: HashPurpose, _approved_size: u64) -> Box<dyn Digest> {
         Box::new(FakeDigest {
             bytes: vec![match purpose {
                 HashPurpose::Sample => 1,
@@ -170,6 +174,73 @@ fn hashers() -> (FakeHasher, FakeHasher) {
             id: "full",
         },
     )
+}
+
+#[test]
+fn blake3_matches_upstream_empty_derive_key_vector() {
+    // BLAKE3 1.8.3 test_vectors.json, input_len = 0, first 32 output bytes.
+    let hasher = blake3::Hasher::new_derive_key("BLAKE3 2019-12-27 16:29:52 test vectors context");
+    assert_eq!(
+        hasher.finalize().to_hex().as_str(),
+        "2cc39783c223154fea8dfb7c1b1660f2ac2dcbd1c1de8277b0b0dd39b7e50d7d"
+    );
+}
+
+#[test]
+fn blake3_v1_frames_sample_bytes_and_omits_size_from_full_bytes() {
+    const K: usize = 1024;
+    let head = [0x11; 64 * K];
+    let tail = [0x44; 64 * K];
+    let size = (128 * K + 1) as u64;
+    let strategies = Strategies::blake3_v1();
+    let mut digest = strategies.sample.start(HashPurpose::Sample, size);
+    digest.update(&head);
+    digest.update(&tail);
+    let sample = digest.finish();
+    let framed = [size.to_le_bytes().as_slice(), &head, &tail].concat();
+    assert_eq!(
+        sample,
+        blake3::derive_key(
+            "com.github.arikasalice.diskunfold.f09.blake3.v1.sample",
+            &framed
+        )
+    );
+    let full = strategies.full.start(HashPurpose::Full, 0).finish();
+    assert_eq!(
+        full,
+        blake3::derive_key("com.github.arikasalice.diskunfold.f09.blake3.v1.full", &[])
+    );
+    assert_ne!(sample, full);
+}
+
+#[test]
+fn blake3_v1_compares_full_bytes_after_matching_samples_and_short_reads() -> Result<(), VerifyError>
+{
+    const SIZE: usize = 128 * 1024 + 1;
+    let a = item(1, SIZE);
+    let b = item(2, SIZE);
+    let c = item(3, SIZE);
+    let same = vec![0x11; SIZE];
+    let mut different = same.clone();
+    different[SIZE / 2] ^= 0xff;
+    let mut port = FakePort::new(&[
+        (a.clone(), same.clone()),
+        (b.clone(), same.clone()),
+        (c.clone(), different),
+    ]);
+    port.max_read = 4093;
+    let result = verification::verify(&[a, b, c], &mut port, Strategies::blake3_v1(), || false)?;
+    assert_eq!(result.groups.len(), 1);
+    assert_eq!(result.groups[0].files.len(), 2);
+    assert_eq!(
+        result.groups[0].digest,
+        blake3::derive_key(
+            "com.github.arikasalice.diskunfold.f09.blake3.v1.full",
+            &same
+        )
+    );
+    assert_eq!(result.states.get(&3), Some(&State::Distinct));
+    Ok(())
 }
 
 #[test]

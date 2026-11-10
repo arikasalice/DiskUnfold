@@ -125,6 +125,12 @@
     "distributed": true,
     "reason": "Fingerprint a verified analysis scope for scan admission"
   },
+  "cargo:du-duplicate-engine:blake3@1.8.3": {
+    "license": "CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Compute purpose-separated sample and full content fingerprints for duplicate verification"
+  },
   "cargo:du-user-env:blake3@1.8.3": {
     "license": "CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception",
     "role": "runtime",

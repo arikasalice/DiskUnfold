@@ -214,6 +214,9 @@ dependencies = [
 [[package]]
 name = "du-duplicate-engine"
 version = "0.1.0"
+dependencies = [
+ "blake3",
+]
 
 [[package]]
 name = "du-engine-api"
