@@ -6,7 +6,7 @@ use du_core_contracts::{
     browse_page_ipc::{BrowseOpenResponse, QueryPageResponse},
     query_region_ipc::QueryRegionOpened,
 };
-use std::fs;
+use std::{fs, path::Path};
 
 #[test]
 fn scanned_scope_async_browse_recovers_query_from_job_get_and_finished()
@@ -28,35 +28,63 @@ fn scanned_scope_async_browse_recovers_query_from_job_get_and_finished()
         random,
     )?;
     let engine = builder.build()?;
-    let raw: Vec<_> = fixture
-        .path()
+    let scan = start_fixture_scan(&engine, fixture.path())?;
+    let version = read_scan_result(&engine, &events, &scan.job_ref)?;
+    assert_logical_total(&engine, &version, 2, FILES as u64)?;
+    verify_async_browse(&engine, &events, version.clone(), scan.job_ref)?;
+
+    let other_scope = tempfile::tempdir()?;
+    const OTHER_BYTES: u64 = 4_096;
+    fs::write(
+        other_scope.path().join("other.bin"),
+        vec![0; OTHER_BYTES as usize],
+    )?;
+    let other_scan = start_fixture_scan(&engine, other_scope.path())?;
+    let other_version = read_scan_result(&engine, &events, &other_scan.job_ref)?;
+    assert_ne!(version, other_version);
+    assert_logical_total(&engine, &other_version, 3, OTHER_BYTES)?;
+    assert_logical_total(&engine, &version, 4, FILES as u64)
+}
+
+/// Reviews and submits exactly the native path selected for an isolated scan.
+fn start_fixture_scan(
+    engine: &Engine,
+    path: &Path,
+) -> Result<ScanStart, Box<dyn std::error::Error>> {
+    let raw: Vec<_> = path
         .as_os_str()
         .encode_wide()
         .flat_map(u16::to_le_bytes)
         .collect();
     let draft = json!({"includes":[{"encoding":"windows_utf16le", "raw":PathBytes::from_bytes(&raw),
-        "display":fixture.path(), "lossy":false}], "exclusions":[], "boundary":"current_volume",
+        "display":path, "lossy":false}], "exclusions":[], "boundary":"current_volume",
         "includedMounts":[], "source":"gui"});
     let review = ipc(
-        &engine,
+        engine,
         "scope.review",
         json!({"draft":draft,"requestSeq":1}),
     )?;
     assert!(review.error.is_none(), "{:?}", review.error);
     let review: ScopeReview = serde_json::from_value(review.body)?;
     let start = ipc(
-        &engine,
+        engine,
         "scan.start",
         json!({"draft":draft,"reviewFingerprint":review.review_fingerprint}),
     )?;
     assert!(start.error.is_none(), "{:?}", start.error);
-    let scan: ScanStart = serde_json::from_value(start.body)?;
-    let batch = terminal_batch(&events, &scan.job_ref)?;
+    Ok(serde_json::from_value(start.body)?)
+}
+
+/// Reads the same scan result through the terminal event and job status.
+fn read_scan_result(
+    engine: &Engine,
+    events: &du_engine_api::desktop::DesktopEvents,
+    job_ref: &Id,
+) -> Result<Id, Box<dyn std::error::Error>> {
+    let batch = terminal_batch(events, job_ref)?;
     let scan_finished = batch
         .iter()
-        .find(|event| {
-            event.topic == "job.finished" && event.job_ref.as_ref() == Some(&scan.job_ref)
-        })
+        .find(|event| event.topic == "job.finished" && event.job_ref.as_ref() == Some(job_ref))
         .ok_or("missing scan completion")?;
     assert_eq!(scan_finished.body["state"], "done");
     assert!(scan_finished.body.get("queryRef").is_none());
@@ -64,19 +92,30 @@ fn scanned_scope_async_browse_recovers_query_from_job_get_and_finished()
         .result_version
         .clone()
         .ok_or("missing scan result version")?;
-    let scan_status = ipc(&engine, "job.get", json!({"jobRef":scan.job_ref}))?;
+    let scan_status = ipc(engine, "job.get", json!({"jobRef":job_ref}))?;
     assert!(scan_status.error.is_none(), "{:?}", scan_status.error);
     let scan_status: AnalysisJobStatus = serde_json::from_value(scan_status.body)?;
     assert_eq!(scan_status.result_version.as_ref(), Some(&version));
     assert!(scan_status.query_ref.is_none());
+    Ok(version)
+}
+
+/// Checks the native scan's aggregate without consulting the latest result.
+fn assert_logical_total(
+    engine: &Engine,
+    version: &Id,
+    sequence: u32,
+    bytes: u64,
+) -> Result<(), Box<dyn std::error::Error>> {
     let total = ipc(
-        &engine,
+        engine,
         "space.total",
-        json!({"resultVersion":version,"requestSeq":2,"target":{"kind":"scope_root"}}),
+        json!({"resultVersion":version,"requestSeq":sequence,"target":{"kind":"scope_root"}}),
     )?;
     assert!(total.error.is_none(), "{:?}", total.error);
     let total: SpaceTotal = serde_json::from_value(total.body)?;
-    assert_eq!(total.result_version, version);
+    assert_eq!(&total.result_version, version);
+    assert_eq!(total.request_seq, sequence);
     assert_eq!(
         total
             .sizes
@@ -86,10 +125,10 @@ fn scanned_scope_async_browse_recovers_query_from_job_get_and_finished()
             .size
             .amount,
         SizeAmount::Exact {
-            bytes: (FILES as u64).into()
+            bytes: bytes.into()
         }
     );
-    verify_async_browse(&engine, &events, version, scan.job_ref)
+    Ok(())
 }
 
 fn verify_async_browse(
