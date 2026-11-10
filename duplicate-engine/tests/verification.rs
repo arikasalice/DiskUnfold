@@ -203,9 +203,10 @@ fn only_approved_and_fully_known_candidates_are_opened() -> Result<(), VerifyErr
     )?;
     assert_eq!(port.opens, vec![1, 2]);
     assert_eq!(result.groups.len(), 1);
-    for n in [4, 5, 6, 7] {
-        assert_eq!(result.states.get(&n), Some(&State::Deferred));
+    for n in [4, 5, 7] {
+        assert_eq!(result.states.get(&n), Some(&State::Unchecked));
     }
+    assert_eq!(result.states.get(&6), Some(&State::PlaceholderDeferred));
     Ok(())
 }
 
@@ -222,8 +223,8 @@ fn matching_samples_are_not_full_verification() -> Result<(), VerifyError> {
     let result = verification::verify(&[a, b], &mut port, strategies(&sample, &full), || false)?;
     assert!(result.groups.is_empty());
     assert_eq!(port.opens, vec![1, 2, 1, 2]);
-    assert_eq!(result.states.get(&1), Some(&State::SampleCandidate));
-    assert_eq!(result.states.get(&2), Some(&State::SampleCandidate));
+    assert_eq!(result.states.get(&1), Some(&State::Distinct));
+    assert_eq!(result.states.get(&2), Some(&State::Distinct));
     Ok(())
 }
 
@@ -240,7 +241,31 @@ fn unequal_samples_do_not_trigger_full_reads() -> Result<(), VerifyError> {
     let result = verification::verify(&[a, b], &mut port, strategies(&sample, &full), || false)?;
     assert!(result.groups.is_empty());
     assert_eq!(port.opens, vec![1, 2]);
+    assert_eq!(result.states.get(&1), Some(&State::Distinct));
+    assert_eq!(result.states.get(&2), Some(&State::Distinct));
+    Ok(())
+}
+
+#[test]
+fn different_hashes_do_not_prove_distinction_against_an_unchecked_peer() -> Result<(), VerifyError>
+{
+    let a = item(1, 3);
+    let b = item(2, 3);
+    let mut unknown = item(3, 3);
+    unknown.snapshot = None;
+    let mut port = FakePort::new(&[(a.clone(), b"abc".to_vec()), (b.clone(), b"def".to_vec())]);
+    let (sample, full) = hashers();
+    let result = verification::verify(
+        &[a, b, unknown],
+        &mut port,
+        strategies(&sample, &full),
+        || false,
+    )?;
+    assert_eq!(port.opens, vec![1, 2]);
+    assert!(result.groups.is_empty());
     assert_eq!(result.states.get(&1), Some(&State::Candidate));
+    assert_eq!(result.states.get(&2), Some(&State::Candidate));
+    assert_eq!(result.states.get(&3), Some(&State::Unchecked));
     Ok(())
 }
 
@@ -266,6 +291,7 @@ fn zero_size_requires_successful_open_and_full_eof_check() -> Result<(), VerifyE
     let result = verification::verify(&[a, b], &mut port, strategies(&sample, &full), || false)?;
     assert!(result.groups.is_empty());
     assert_eq!(result.states.get(&2), Some(&State::ReadFailed));
+    assert_eq!(result.states.get(&1), Some(&State::Candidate));
     Ok(())
 }
 
@@ -340,8 +366,8 @@ fn conflicting_alias_observations_are_deferred_before_open() -> Result<(), Verif
         || false,
     )?;
     assert!(port.opens.is_empty());
-    assert_eq!(result.states.get(&1), Some(&State::Deferred));
-    assert_eq!(result.states.get(&2), Some(&State::Deferred));
+    assert_eq!(result.states.get(&1), Some(&State::Unchecked));
+    assert_eq!(result.states.get(&2), Some(&State::Unchecked));
     assert!(result.groups.is_empty());
     Ok(())
 }
@@ -401,7 +427,7 @@ fn unpaired_item_with_unknown_metadata_stays_deferred() -> Result<(), VerifyErro
     let mut port = FakePort::new(&[(target.clone(), b"xx".to_vec())]);
     let (sample, full) = hashers();
     let result = verification::verify(&[target], &mut port, strategies(&sample, &full), || false)?;
-    assert_eq!(result.states.get(&1), Some(&State::Deferred));
+    assert_eq!(result.states.get(&1), Some(&State::Unchecked));
     assert!(port.opens.is_empty());
     Ok(())
 }

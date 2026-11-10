@@ -2,7 +2,9 @@
 //!
 //! These interfaces are local to duplicate-engine. They are not yet connected to the
 //! shared OS port, job runtime, or a production hash implementation.
-use crate::candidates::{self, FileIdentity, Placeholder, PrepareError, SampleRange, Size, Target};
+use crate::candidates::{
+    self, Exclusion, FileIdentity, Placeholder, PrepareError, SampleRange, Size, Target,
+};
 use std::collections::BTreeMap;
 
 /// State observed before a file is selected for verification.
@@ -83,7 +85,9 @@ pub struct Strategies<'a> {
 pub enum State {
     Candidate,
     SampleCandidate,
-    Deferred,
+    Distinct,
+    PlaceholderDeferred,
+    Unchecked,
     ReadFailed,
     Changed,
     Verified,
@@ -170,13 +174,19 @@ pub fn verify(
         sample_algorithm_revision: strategies.sample.revision(),
     };
     for excluded in prepared.excluded {
-        output.states.insert(excluded.item_no, State::Deferred);
+        let state = if excluded.reason == Exclusion::PlaceholderDownloadRequired {
+            State::PlaceholderDeferred
+        } else {
+            State::Unchecked
+        };
+        output.states.insert(excluded.item_no, state);
     }
     if cancelled() {
         output.cancelled = true;
         return Ok(output);
     }
     for group in prepared.groups {
+        let group_size = group.files.len();
         let mut selected = Vec::new();
         for file in group.files {
             let Some(&item_no) = file.item_nos.first() else {
@@ -200,13 +210,14 @@ pub fn verify(
                     aliases: file.item_nos,
                     identity,
                 }),
-                None => set_state(&mut output, &file.item_nos, State::Deferred),
+                None => set_state(&mut output, &file.item_nos, State::Unchecked),
             }
         }
         if selected.len() >= 2
             && !process_group(
                 &selected,
                 group.size,
+                selected.len() == group_size,
                 reader,
                 &strategies,
                 &mut cancelled,
@@ -238,7 +249,7 @@ fn initial_state(item: &VerificationTarget) -> State {
         (Some(identity), Size::Exact(size)) if valid_approval(item, identity, size) => {
             State::Candidate
         }
-        _ => State::Deferred,
+        _ => State::Unchecked,
     }
 }
 
@@ -261,6 +272,7 @@ fn set_state(output: &mut Outcome, items: &[u32], state: State) {
 fn process_group(
     targets: &[Candidate<'_>],
     size: u64,
+    all_eligible: bool,
     reader: &mut impl ReadPort,
     strategies: &Strategies<'_>,
     cancelled: &mut impl FnMut() -> bool,
@@ -284,13 +296,26 @@ fn process_group(
     } else {
         buckets.insert(Vec::new(), targets.iter().collect());
     }
+    let all_compared =
+        all_eligible && buckets.values().map(Vec::len).sum::<usize>() == targets.len();
+    if all_compared {
+        mark_distinct(&buckets, targets.len(), output);
+    }
     for matched in buckets.values().filter(|items| items.len() >= 2) {
         if candidates::sample_ranges(size).is_some() {
             for item in matched {
                 set_state(output, &item.aliases, State::SampleCandidate);
             }
         }
-        if !verify_full(matched, size, reader, strategies.full, cancelled, output) {
+        if !verify_full(
+            matched,
+            size,
+            all_compared,
+            reader,
+            strategies.full,
+            cancelled,
+            output,
+        ) {
             return false;
         }
     }
@@ -300,6 +325,7 @@ fn process_group(
 fn verify_full(
     targets: &[&Candidate<'_>],
     size: u64,
+    all_compared: bool,
     reader: &mut impl ReadPort,
     hasher: &dyn HashStrategy,
     cancelled: &mut impl FnMut() -> bool,
@@ -318,6 +344,9 @@ fn verify_full(
             Ok(digest) => digests.entry(digest).or_default().push(target),
             Err(state) => set_state(output, &target.aliases, state),
         }
+    }
+    if all_compared {
+        mark_distinct(&digests, targets.len(), output);
     }
     for (digest, matched) in digests.into_iter().filter(|(_, items)| items.len() >= 2) {
         let mut files: Vec<_> = matched
@@ -345,13 +374,29 @@ fn verify_full(
     true
 }
 
+/// A singleton digest proves a difference only when every peer at this stage was read.
+fn mark_distinct(
+    buckets: &BTreeMap<Vec<u8>, Vec<&Candidate<'_>>>,
+    expected: usize,
+    output: &mut Outcome,
+) {
+    if buckets.values().map(Vec::len).sum::<usize>() != expected {
+        return;
+    }
+    for bucket in buckets.values() {
+        if let [item] = bucket.as_slice() {
+            set_state(output, &item.aliases, State::Distinct);
+        }
+    }
+}
+
 fn read_digest(
     target: &Candidate<'_>,
     purpose: HashPurpose,
     reader: &mut impl ReadPort,
     hasher: &dyn HashStrategy,
 ) -> Result<Vec<u8>, State> {
-    let expected = target.approved.snapshot.as_ref().ok_or(State::Deferred)?;
+    let expected = target.approved.snapshot.as_ref().ok_or(State::Unchecked)?;
     let mut file = reader
         .open_bound(target.approved.target.item_no, &target.identity)
         .map_err(read_error)?;
