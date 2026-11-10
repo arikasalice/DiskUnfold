@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Action,
   DataTable,
@@ -17,6 +17,8 @@ import type {
   HistoryListRow,
 } from "../../ipc";
 import { useHistory } from "../../state/history";
+import { HistoryDetailPanel } from "./HistoryDetailPanel";
+import { relationLabel } from "./history-labels";
 
 const states = [
   { value: "all", label: "All states" },
@@ -53,6 +55,28 @@ export function HistoryPanel({
   const [through, setThrough] = useState("");
   const [kind, setKind] = useState<KindFilter>("all");
   const [state, setState] = useState<StateFilter>("all");
+  const [selected, setSelected] = useState<string>();
+  const opener = useRef<HTMLElement | null>(null);
+  const openerLabel = useRef<string | null>(null);
+  const back = useRef<HTMLButtonElement>(null);
+  const list = useRef<HTMLDivElement>(null);
+  const restore = useRef(false);
+  useEffect(() => {
+    if (!selected && restore.current) {
+      const target = opener.current;
+      if (
+        target?.isConnected &&
+        target.getAttribute("aria-label") === openerLabel.current
+      )
+        target.focus();
+      else
+        (
+          list.current?.querySelector<HTMLElement>('[role="region"]') ??
+          back.current
+        )?.focus();
+      restore.current = false;
+    }
+  }, [selected]);
   const filter = useMemo<HistoryListFilter>(
     () => ({
       finishedFromMs: day(from, false),
@@ -68,35 +92,63 @@ export function HistoryPanel({
     filter.finishedBeforeMs !== null &&
     filter.finishedFromMs >= filter.finishedBeforeMs;
   return (
-    <section className="du-results" aria-labelledby="history-heading">
-      <div className="du-card__header">
-        <Heading level={2} id="history-heading">
-          Operation history
-        </Heading>
-        <Action autoFocus onPress={onClose}>
-          Back to analysis
-        </Action>
+    <section className="du-results" aria-label="Operation history">
+      <div ref={list} hidden={Boolean(selected)}>
+        <div className="du-results">
+          <div className="du-card__header">
+            <Heading level={2} id="history-heading">
+              Operation history
+            </Heading>
+            <Action ref={back} autoFocus onPress={onClose}>
+              Back to analysis
+            </Action>
+          </div>
+          <div className="du-card__actions">
+            <DateField label="From date" value={from} onChange={setFrom} />
+            <DateField
+              label="Through date"
+              value={through}
+              onChange={setThrough}
+            />
+            <SelectField
+              label="Job type"
+              value={kind}
+              options={kinds}
+              onChange={setKind}
+            />
+            <SelectField
+              label="End state"
+              value={state}
+              options={states}
+              onChange={setState}
+            />
+          </div>
+          {invalid ? (
+            <Notice tone="error">Choose a valid date range.</Notice>
+          ) : (
+            <HistoryPages
+              client={client}
+              filter={filter}
+              onOpen={(job, target) => {
+                opener.current = target;
+                openerLabel.current = target.getAttribute("aria-label");
+                setSelected(job);
+              }}
+            />
+          )}
+        </div>
       </div>
-      <div className="du-card__actions">
-        <DateField label="From date" value={from} onChange={setFrom} />
-        <DateField label="Through date" value={through} onChange={setThrough} />
-        <SelectField
-          label="Job type"
-          value={kind}
-          options={kinds}
-          onChange={setKind}
+      {selected && (
+        <HistoryDetailPanel
+          key={selected}
+          client={client}
+          jobRef={selected}
+          onNavigate={setSelected}
+          onClose={() => {
+            restore.current = true;
+            setSelected(undefined);
+          }}
         />
-        <SelectField
-          label="End state"
-          value={state}
-          options={states}
-          onChange={setState}
-        />
-      </div>
-      {invalid ? (
-        <Notice tone="error">Choose a valid date range.</Notice>
-      ) : (
-        <HistoryPages client={client} filter={filter} />
       )}
     </section>
   );
@@ -105,9 +157,11 @@ export function HistoryPanel({
 function HistoryPages({
   client,
   filter,
+  onOpen,
 }: {
   client: AnalysisClient;
   filter: HistoryListFilter;
+  onOpen: (jobRef: string, target: HTMLElement) => void;
 }) {
   const { page, pending, error, refreshed, retry, more } = useHistory(
     client,
@@ -133,7 +187,7 @@ function HistoryPages({
           columns={["Job", "Scope", "State", "Counts", "Finished", "Details"]}
           columnWidths={[95, 100, 100, 240, 110, 145]}
           rows={page.rows}
-          renderCells={rowCells}
+          renderCells={(row, index) => rowCells(row, onOpen, index + 1)}
         />
       )}
       {page?.nextCursor && (
@@ -145,11 +199,39 @@ function HistoryPages({
   );
 }
 
-function rowCells(row: HistoryListRow) {
+function rowCells(
+  row: HistoryListRow,
+  onOpen: (jobRef: string, target: HTMLElement) => void,
+  rowNumber: number,
+) {
   const summary = row.summary;
+  const jobRef = row.jobRef;
+  const name =
+    summary?.kindId === "scan.metadata"
+      ? "Disk analysis"
+      : (summary?.kindId ?? "Operation unavailable");
+  const date =
+    summary?.finishedAtMs == null ? null : new Date(summary.finishedAtMs);
+  const time =
+    date && Number.isFinite(date.getTime())
+      ? date.toLocaleString()
+      : "Time unavailable";
+  const open = jobRef && (
+    <Action
+      aria-label={`View details: ${name}, ${time}, row ${rowNumber}`}
+      onPress={(event) => {
+        if (event.target instanceof HTMLElement) onOpen(jobRef, event.target);
+      }}
+    >
+      Details
+    </Action>
+  );
   if (!summary)
     return [
-      "Unavailable",
+      <>
+        <div>{open}</div>
+        {name}
+      </>,
       "Unavailable",
       "Unavailable",
       "Unavailable",
@@ -157,14 +239,11 @@ function rowCells(row: HistoryListRow) {
       "Some history could not be read",
     ];
   const counts = summary.counts;
-  const date =
-    summary.finishedAtMs === null ? null : new Date(summary.finishedAtMs);
-  const time =
-    date && Number.isFinite(date.getTime())
-      ? date.toLocaleString()
-      : "Unavailable";
   return [
-    summary.kindId === "scan.metadata" ? "Disk analysis" : summary.kindId,
+    <>
+      <div>{open}</div>
+      {name}
+    </>,
     summary.scopeSummary ?? "Unavailable",
     states.find(({ value }) => value === summary.state)?.label ?? "Unavailable",
     counts ? (
@@ -182,16 +261,18 @@ function rowCells(row: HistoryListRow) {
       "Unavailable"
     ),
     time,
-    [
-      summary.relation ? `Follow-up: ${summary.relation}` : "",
-      summary.sessionRestoreAvailable === null
-        ? "Restore information unavailable"
-        : summary.sessionRestoreAvailable
-          ? "Restore information available in this session"
-          : "No restore information in this session",
-      row.missingReasons.length ? "Incomplete" : "",
-    ]
-      .filter(Boolean)
-      .join(" · "),
+    <>
+      {[
+        summary.relation ? `Follow-up: ${relationLabel(summary.relation)}` : "",
+        summary.sessionRestoreAvailable === null
+          ? "Restore information unavailable"
+          : summary.sessionRestoreAvailable
+            ? "Restore information available in this session"
+            : "No restore information in this session",
+        row.missingReasons.length ? "Incomplete" : "",
+      ]
+        .filter(Boolean)
+        .join(" · ")}
+    </>,
   ];
 }

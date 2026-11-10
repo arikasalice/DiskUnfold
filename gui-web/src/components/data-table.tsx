@@ -15,7 +15,7 @@ export function DataTable<Row>({
   label: string;
   columns: string[];
   rows: readonly Row[];
-  renderCells: (row: Row) => readonly ReactNode[];
+  renderCells: (row: Row, index: number) => readonly ReactNode[];
   columnWidths?: number[];
 }) {
   const [scrollTop, setScrollTop] = useState(0);
@@ -72,7 +72,7 @@ export function DataTable<Row>({
           )}
           {rows.slice(start, end).map((row, index) => (
             <tr key={start + index} aria-rowindex={start + index + 2}>
-              {renderCells(row).map((cell, column) => (
+              {renderCells(row, start + index).map((cell, column) => (
                 <td key={column}>
                   <div
                     className="du-table-cell"
