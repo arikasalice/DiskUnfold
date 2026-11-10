@@ -1,7 +1,7 @@
 //! Own the shared entry point and use case registration.
 
 pub mod api;
-mod browse;
+pub mod browse;
 mod contracts;
 pub mod desktop;
 pub mod error;

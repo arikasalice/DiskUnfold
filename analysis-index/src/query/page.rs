@@ -205,6 +205,10 @@ pub struct Page {
 }
 
 impl Page {
+    /// Returns the source pinned when this page was admitted.
+    pub fn version(&self) -> &Arc<crate::ResultVersion> {
+        &self.result.version
+    }
     /// Returns the ordered item references in this page.
     pub fn items(&self) -> &[ItemRef] {
         &self.result.items[self.range.clone()]
