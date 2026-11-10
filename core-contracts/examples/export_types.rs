@@ -87,6 +87,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .into_iter()
         .map(|d| format!("export {d}\n"))
         .collect::<String>();
+    let output = output
+        .lines()
+        .map(str::trim_end)
+        .collect::<Vec<_>>()
+        .join("\n")
+        + "\n";
     fs::write(std::path::Path::new(&dir).join("contracts.ts"), output)?;
     Ok(())
 }
