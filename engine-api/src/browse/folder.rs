@@ -3,7 +3,9 @@
 //! This API does not define or register the `browse.open` or `query.page` wire
 //! contracts. The caller supplies identifiers and typed conditions, and owns
 //! transport, session composition and result-source resolution.
+mod admission;
 pub mod cursor;
+pub use admission::{AdmissionError, LiveOpen};
 use std::sync::Arc;
 
 use du_analysis_index::{

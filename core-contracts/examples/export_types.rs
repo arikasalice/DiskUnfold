@@ -1,3 +1,4 @@
+use du_core_contracts::browse_open_ipc::*;
 use du_core_contracts::history_ipc::*;
 use du_core_contracts::query_page_ipc::*;
 use du_core_contracts::result_events::{
@@ -128,6 +129,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ResultItemKind::decl(&config),
         BrowseValue::<String>::decl(&config),
         BrowseOrigin::decl(&config),
+        BrowseSourceKind::decl(&config),
+        BrowseSourceRef::decl(&config),
+        BrowseViewKind::decl(&config),
+        BrowseSortKey::decl(&config),
+        QueryNameOp::decl(&config),
+        QueryNameEncoding::decl(&config),
+        QueryItemType::decl(&config),
+        QuerySizeBasis::decl(&config),
+        QuerySizeOp::decl(&config),
+        QueryPredicate::decl(&config),
+        QueryCondition::decl(&config),
+        BrowseOpenRequest::decl(&config),
         BrowseDetailRequest::decl(&config),
         BrowseDetail::decl(&config),
         QueryPagePosition::decl(&config),
