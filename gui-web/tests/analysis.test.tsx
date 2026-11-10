@@ -1437,6 +1437,70 @@ test("F01 FR3: a delayed folder verification cannot undo a newer edit or drop", 
   expect(calls.some(({ name }) => name === "scan.start")).toBe(false);
 });
 
+test.each(["finished", "rejected"] as const)(
+  "F01: a drop after Start in the same render cannot block the next scope when the scan is %s",
+  async (outcome) => {
+    let scanFinished = false;
+    let settleStart = () => {};
+    const delayed = new Promise<void>((resolve, reject) => {
+      settleStart = () => {
+        if (outcome === "rejected") reject(new Error("Scan was not started."));
+        else resolve();
+      };
+    });
+    const { client, listeners } = fixture({
+      beforeStart: () => delayed,
+      readStatus: (base) => ({
+        ...base,
+        state: scanFinished ? "done" : "running",
+        resultVersion: null,
+      }),
+    });
+    const nativeDrop = createAnalysisClient().subscribeFolderDrop;
+    if (!nativeDrop) throw new Error("Expected native drop subscription");
+    render(<App analysis={{ ...client, subscribeFolderDrop: nativeDrop }} />);
+    fireEvent.click(await screen.findByRole("radio", { name: path.display }));
+    fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
+    const start = screen.getByRole<HTMLButtonElement>("button", {
+      name: "Start scan",
+    });
+    await waitFor(() => expect(start.disabled).toBe(false));
+
+    act(() => {
+      fireEvent.click(start);
+      folderDrop({ seq: 1, pending: true });
+    });
+    expect(
+      screen.getByRole("progressbar", { name: "Starting scan" }),
+    ).toBeDefined();
+    folderDrop({ seq: 1, path: "D:\\During start" });
+    settleStart();
+    if (outcome === "finished") {
+      await screen.findByText("Scan status: running");
+      folderDrop({ seq: 2, pending: true });
+      folderDrop({ seq: 2, path: "D:\\During scan" });
+      scanFinished = true;
+      notifyResult(listeners, "job.resync_required", {});
+      await screen.findByText("Scan finished");
+    } else {
+      await screen.findByText("Scan was not started.");
+    }
+
+    expect(screen.queryByText("Checking dropped folder…")).toBeNull();
+    expect(start.disabled).toBe(false);
+    expect(start.hasAttribute("aria-disabled")).toBe(false);
+    const input = screen.getByRole<HTMLInputElement>("textbox", {
+      name: "Windows folder path",
+    });
+    expect(input.value).toBe(path.display);
+    folderDrop({ seq: 3, pending: true });
+    expect(screen.getByText("Checking dropped folder…")).toBeDefined();
+    folderDrop({ seq: 3, path: "D:\\Next scope" });
+    expect(input.value).toBe("D:\\Next scope");
+    expect(start.disabled).toBe(true);
+  },
+);
+
 test("F01 FR3: multiple paths are reviewed together and the exact reviewed input starts the scan", async () => {
   const { client, calls } = fixture({
     readVolume: ({ resultVersion, requestSeq }) => ({

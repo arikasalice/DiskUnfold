@@ -229,6 +229,7 @@ export function AnalysisPanel({
   }>();
   const request = useRef(0);
   const cancelOwner = useRef<{ jobRef: string }>(undefined);
+  const scanBlocksDrop = useRef(false);
   const pendingDrop = useRef<{ seq: number; request: number } | undefined>(
     undefined,
   );
@@ -248,9 +249,14 @@ export function AnalysisPanel({
   useLayoutEffect(
     () => () => {
       cancelOwner.current = undefined;
+      scanBlocksDrop.current = false;
     },
     [],
   );
+
+  useLayoutEffect(() => {
+    scanBlocksDrop.current = working || running;
+  }, [running, working]);
 
   const editPaths = useCallback(
     (update: (current: (OsPath | undefined)[]) => (OsPath | undefined)[]) => {
@@ -290,7 +296,7 @@ export function AnalysisPanel({
   useEffect(
     () =>
       client.subscribeFolderDrop?.((drop) => {
-        if (working || running) return;
+        if (scanBlocksDrop.current) return;
         if ("pending" in drop) {
           pendingDrop.current = { seq: drop.seq, request: request.current };
           setCheckingDrop(true);
@@ -318,7 +324,7 @@ export function AnalysisPanel({
           });
         }
       }),
-    [client, choose, running, working],
+    [client, choose],
   );
 
   async function reviewScope() {
@@ -352,8 +358,9 @@ export function AnalysisPanel({
   }
 
   async function start() {
-    if (pendingDrop.current) return;
+    if (scanBlocksDrop.current || pendingDrop.current) return;
     if (!review || !reviewedDraft || !canStart(review, reviewedDraft)) return;
+    scanBlocksDrop.current = true;
     cancelOwner.current = undefined;
     setWorking(true);
     setCancelRequested(false);
@@ -366,6 +373,7 @@ export function AnalysisPanel({
       setResultRoots(review.scope.includes);
       setReceipt(result);
     } catch (failure) {
+      scanBlocksDrop.current = false;
       if (failure instanceof AnalysisError && failure.code === "STALE_VERSION")
         setReview(undefined);
       setError(errorText(failure));
