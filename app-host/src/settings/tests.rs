@@ -27,6 +27,34 @@ fn context() -> SettingsCommit {
 }
 
 #[test]
+fn failed_recent_setting_commit_leaves_existing_override_intact()
+-> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("failure.db");
+    let mut db = AppDb::open_or_create_gui(&path).map_err(|e| format!("{e:?}"))?;
+    db.commit(
+        0,
+        &SettingsChanges::from([(scope::REMEMBER_RECENT.into(), Some(json!(false)))]),
+        context(),
+    )
+    .map_err(|e| format!("{e:?}"))?;
+    drop(db);
+    let db = Connection::open(&path)?;
+    db.execute_batch("CREATE TRIGGER reject_recent_delete BEFORE DELETE ON user_env_setting BEGIN SELECT RAISE(ABORT, 'test'); END;")?;
+    drop(db);
+    let mut service = open_settings(&path, 100)?;
+    let reset = SettingsChanges::from([(scope::REMEMBER_RECENT.into(), None)]);
+    let fingerprint = service.review(1, &reset).map_err(|e| format!("{e:?}"))?;
+    assert!(service.apply(1, &reset, fingerprint, context()).is_err());
+    assert!(!scope::remember_recent(service.snapshot()));
+    drop(service);
+    assert!(!scope::remember_recent(
+        open_settings(&path, 101)?.snapshot()
+    ));
+    Ok(())
+}
+
+#[test]
 fn startup_preserves_a_configured_language_override() -> Result<(), Box<dyn std::error::Error>> {
     let dir = tempfile::tempdir()?;
     let path = dir.path().join("language.db");
@@ -43,6 +71,55 @@ fn startup_preserves_a_configured_language_override() -> Result<(), Box<dyn std:
     assert_eq!(settings.stored_language()?.as_deref(), Some("ko"));
     assert!(settings.status.invalid_keys.is_empty());
     assert_eq!(settings.status.stored_revision, Some(1));
+    Ok(())
+}
+
+#[test]
+fn recent_scope_setting_is_registered_and_persists_without_erasing_other_settings()
+-> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("settings.db");
+    seed(&path, 200_000)?;
+    let mut service = open_settings(&path, 100)?;
+    assert!(scope::remember_recent(service.snapshot()));
+    let off = SettingsChanges::from([(scope::REMEMBER_RECENT.into(), Some(json!(false)))]);
+    let fingerprint = service.review(1, &off).map_err(|e| format!("{e:?}"))?;
+    service
+        .apply(1, &off, fingerprint, context())
+        .map_err(|e| format!("{e:?}"))?;
+    assert!(!scope::remember_recent(service.snapshot()));
+    drop(service);
+    let mut service = open_settings(&path, 101)?;
+    assert!(!scope::remember_recent(service.snapshot()));
+    assert_eq!(
+        service.snapshot().values.get("future.setting"),
+        Some(&json!("preserved"))
+    );
+    let reset = SettingsChanges::from([(scope::REMEMBER_RECENT.into(), None)]);
+    let fingerprint = service.review(2, &reset).map_err(|e| format!("{e:?}"))?;
+    service
+        .apply(2, &reset, fingerprint, context())
+        .map_err(|e| format!("{e:?}"))?;
+    assert!(scope::remember_recent(service.snapshot()));
+    drop(service);
+    assert!(scope::remember_recent(
+        open_settings(&path, 102)?.snapshot()
+    ));
+    Ok(())
+}
+
+#[test]
+fn recent_scope_setting_defaults_on_when_restoration_fails()
+-> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("settings.db");
+    seed(&path, 200_000)?;
+    let db = Connection::open(&path)?;
+    db.execute_batch("UPDATE user_env_setting_version SET schema_version = 2;")?;
+    drop(db);
+    let service = open_settings(&path, 100)?;
+    assert!(service.restore_status().write_locked);
+    assert!(scope::remember_recent(service.snapshot()));
     Ok(())
 }
 

@@ -8,7 +8,7 @@ use std::{
 
 use du_engine_api::desktop::SharedTableLimitSource;
 use du_user_env::{
-    Registry, locale,
+    Registry, locale, scope,
     settings::{RestoreStatus, SettingsService},
     space::{self, restore_shared_table_limit},
 };
@@ -82,8 +82,13 @@ fn restore_settings(
 ) -> Result<SettingsService<SharedSettings>, io::Error> {
     let locale_descriptors = locale::descriptors(configured_languages)
         .map_err(|error| io::Error::other(error.reason_key()))?;
-    let registry = Registry::new(space::descriptors().into_iter().chain(locale_descriptors))
-        .map_err(|error| io::Error::other(format!("settings.registration_failed: {error:?}")))?;
+    let registry = Registry::new(
+        space::descriptors()
+            .into_iter()
+            .chain(locale_descriptors)
+            .chain(scope::descriptors()),
+    )
+    .map_err(|error| io::Error::other(format!("settings.registration_failed: {error:?}")))?;
     Ok(SettingsService::restore(
         registry,
         database.settings(),

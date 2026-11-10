@@ -10,6 +10,7 @@ use serde_json::Value;
 
 pub mod i18n;
 pub mod locale;
+pub mod scope;
 pub mod settings;
 pub mod space;
 pub mod space_format;
