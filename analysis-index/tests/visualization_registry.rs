@@ -61,6 +61,14 @@ fn a_new_format_and_revision_preserve_explicit_dispatch_to_the_original_layout()
         (newer.implementation)(parent, &weights),
         Err(squarify::LayoutError::NotDescending)
     );
+    assert_eq!(
+        registry.latest("treemap").map(|entry| &entry.descriptor),
+        Ok(&next)
+    );
+    assert!(matches!(
+        registry.latest("missing"),
+        Err(registry::SelectionError::UnknownFormat)
+    ));
     assert!(matches!(
         registry.resolve("treemap", &extension.strategy),
         Err(registry::SelectionError::UnknownStrategy)
@@ -86,6 +94,14 @@ fn composition_rejects_duplicate_invalid_and_missing_required_entries() -> Resul
     assert_eq!(
         builder.register(descriptor("other", "viz.other", 0), 2),
         Err(registry::RegistrationError::InvalidDescriptor)
+    );
+    assert_eq!(
+        builder.register(descriptor("treemap", "viz.unrelated", 1), 2),
+        Err(registry::RegistrationError::ConflictingFormat)
+    );
+    assert_eq!(
+        builder.register(descriptor("other", "viz.treemap", 2), 2),
+        Err(registry::RegistrationError::ConflictingFormat)
     );
     assert!(matches!(
         builder.build(&[first, descriptor("bar", "viz.bar", 1)]),

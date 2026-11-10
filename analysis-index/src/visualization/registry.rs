@@ -2,13 +2,15 @@
 use du_core_contracts::visualization::{
     LayoutDescriptor as Descriptor, LayoutStrategyKey as StrategyKey,
 };
-use std::collections::{BTreeMap, btree_map::Entry};
+use std::collections::BTreeMap;
 
 /// Invalid or missing configuration at composition time.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RegistrationError {
     InvalidDescriptor,
     DuplicateStrategy,
+    /// A format and strategy ID must refer to each other across all revisions.
+    ConflictingFormat,
     RequiredStrategyMissing,
 }
 
@@ -45,16 +47,23 @@ impl<S> Builder<S> {
         if descriptor.format.trim().is_empty() || key.id.trim().is_empty() || key.revision == 0 {
             return Err(RegistrationError::InvalidDescriptor);
         }
-        match self.0.entry(key.clone()) {
-            Entry::Occupied(_) => Err(RegistrationError::DuplicateStrategy),
-            Entry::Vacant(slot) => {
-                slot.insert(Registered {
-                    descriptor,
-                    implementation,
-                });
-                Ok(())
-            }
+        if self.0.contains_key(key) {
+            return Err(RegistrationError::DuplicateStrategy);
         }
+        if self.0.values().any(|entry| {
+            (entry.descriptor.format == descriptor.format)
+                != (entry.descriptor.strategy.id == key.id)
+        }) {
+            return Err(RegistrationError::ConflictingFormat);
+        }
+        self.0.insert(
+            key.clone(),
+            Registered {
+                descriptor,
+                implementation,
+            },
+        );
+        Ok(())
     }
 
     /// Freezes a registry after checking that all required format/strategy pairs are present.
@@ -99,5 +108,14 @@ impl<S> Registry<S> {
         } else {
             Err(SelectionError::UnknownFormat)
         }
+    }
+
+    /// Selects the highest registered revision only when the caller omits a strategy key.
+    pub fn latest(&self, format: &str) -> Result<&Registered<S>, SelectionError> {
+        self.0
+            .values()
+            .rev()
+            .find(|entry| entry.descriptor.format == format)
+            .ok_or(SelectionError::UnknownFormat)
     }
 }

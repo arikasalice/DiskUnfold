@@ -2,7 +2,10 @@
 //!
 //! These local models are not the serialized F06 contract. The caller owns the
 //! pinned source, size basis, shared-space attribution, and legend definitions.
-use super::squarify::{Rect, Weight};
+use super::geometry::{
+    NoArea, Rect, Scale, Sum, Weight, amount, positive_amount, resolve_axis, row_rect, scale,
+    valid_bounds,
+};
 use du_core_contracts::result::ResultCompleteness;
 use std::collections::{BTreeMap, HashSet};
 
@@ -18,23 +21,6 @@ pub struct Item {
 pub enum BarRef {
     Item(u32),
     Other(Vec<u32>),
-}
-
-/// Why a row or segment has no drawable area.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum NoArea {
-    Unknown,
-    Zero,
-    CoordinatePrecision,
-    UncertainOffset,
-    UncertainScale,
-}
-
-/// Uses an exact automatic maximum or a caller-confirmed fixed axis maximum.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Scale {
-    Automatic,
-    Fixed(u64),
 }
 
 /// A bar, its original value state, and its optional integer rectangle.
@@ -85,7 +71,9 @@ pub fn ranking(
     scale: Scale,
     completeness: ResultCompleteness,
 ) -> Result<Ranking, Error> {
-    validate_bounds(bounds)?;
+    if !valid_bounds(bounds) {
+        return Err(Error::InvalidBounds);
+    }
     let mut seen = HashSet::new();
     let mut known = Vec::new();
     let mut unknown_items = Vec::new();
@@ -149,7 +137,8 @@ pub fn ranking(
             .iter()
             .map(|item| item.value)
             .chain(bars.iter().map(|bar| bar.value)),
-    )?;
+    )
+    .map_err(|_| Error::InvalidAxis)?;
     if completeness != ResultCompleteness::Complete && scale == Scale::Automatic {
         axis = None;
     }
@@ -201,7 +190,9 @@ pub fn stacked(
     legend: &[u32],
     input: &[Segment],
 ) -> Result<Stack, Error> {
-    validate_bounds(bounds)?;
+    if !valid_bounds(bounds) {
+        return Err(Error::InvalidBounds);
+    }
     let mut values = BTreeMap::new();
     for item in input {
         if values.insert(item.legend_key, item.value).is_some() {
@@ -251,129 +242,16 @@ pub fn stacked(
     })
 }
 
-#[derive(Default)]
-pub(super) struct Sum {
-    value: Option<u64>,
-    incomplete: bool,
-    overflow: bool,
-}
-impl Sum {
-    pub(super) fn overflowed(&self) -> bool {
-        self.overflow
-    }
-    pub(super) fn add(&mut self, value: Weight) {
-        let bytes = match value {
-            Weight::Unknown => {
-                self.incomplete = true;
-                return;
-            }
-            Weight::LowerBound(n) => {
-                self.incomplete = true;
-                n
-            }
-            Weight::Exact(n) => n,
-        };
-        match self.value.unwrap_or(0).checked_add(bytes) {
-            Some(value) => self.value = Some(value),
-            None => self.overflow = true,
-        }
-    }
-    pub(super) fn finish(&self) -> Weight {
-        if self.overflow {
-            return Weight::Unknown;
-        }
-        match (self.value, self.incomplete) {
-            (Some(value), true) => Weight::LowerBound(value),
-            (Some(value), false) => Weight::Exact(value),
-            (None, true) => Weight::Unknown,
-            (None, false) => Weight::Exact(0),
-        }
-    }
-}
-
-pub(super) fn amount(weight: Weight) -> Option<u64> {
-    match weight {
-        Weight::Exact(n) | Weight::LowerBound(n) => Some(n),
-        Weight::Unknown => None,
-    }
-}
-pub(super) fn validate_bounds(rect: Rect) -> Result<(), Error> {
-    if rect.left >= rect.right || rect.top >= rect.bottom {
-        Err(Error::InvalidBounds)
-    } else {
-        Ok(())
-    }
-}
-
-pub(super) fn resolve_axis(
-    scale: Scale,
-    values: impl Iterator<Item = Weight>,
-) -> Result<Option<u64>, Error> {
-    let mut maximum = 0;
-    let mut exact = true;
-    for value in values {
-        if let Some(bytes) = amount(value) {
-            maximum = maximum.max(bytes);
-        }
-        exact &= matches!(value, Weight::Exact(_));
-    }
-    match scale {
-        Scale::Automatic => Ok(exact.then_some(maximum)),
-        Scale::Fixed(axis) if axis >= maximum => Ok(Some(axis)),
-        Scale::Fixed(_) => Err(Error::InvalidAxis),
-    }
-}
-
-/// Produces one horizontal row using an already chosen common axis maximum.
-pub(super) fn row_rect(
-    bounds: Rect,
-    index: usize,
-    count: usize,
-    weight: Weight,
-    axis: Option<u64>,
-) -> (Option<Rect>, Option<NoArea>) {
-    let Some(value) = amount(weight) else {
-        return (None, Some(NoArea::Unknown));
-    };
-    if value == 0 {
-        return (None, Some(NoArea::Zero));
-    }
-    let Some(axis) = axis else {
-        return (None, Some(NoArea::UncertainScale));
-    };
-    if axis == 0 || count == 0 {
-        return (None, Some(NoArea::CoordinatePrecision));
-    }
-    let height = u128::from(bounds.bottom - bounds.top);
-    let top = bounds.top + (height * index as u128 / count as u128) as u32;
-    let bottom = bounds.top + (height * (index + 1) as u128 / count as u128) as u32;
-    let right = bounds.left + scale(bounds.right - bounds.left, value, axis);
-    if top == bottom || right == bounds.left {
-        return (None, Some(NoArea::CoordinatePrecision));
-    }
-    (
-        Some(Rect {
-            left: bounds.left,
-            right,
-            top,
-            bottom,
-        }),
-        None,
-    )
-}
-
 fn stack_rect(
     bounds: Rect,
     axis: u64,
     offset: Option<u64>,
     weight: Weight,
 ) -> (Option<Rect>, Option<NoArea>) {
-    let Some(value) = amount(weight) else {
-        return (None, Some(NoArea::Unknown));
+    let value = match positive_amount(weight) {
+        Ok(value) => value,
+        Err(reason) => return (None, Some(reason)),
     };
-    if value == 0 {
-        return (None, Some(NoArea::Zero));
-    }
     let Some(start) = offset else {
         return (None, Some(NoArea::UncertainOffset));
     };
@@ -397,7 +275,4 @@ fn stack_rect(
         }),
         None,
     )
-}
-fn scale(length: u32, value: u64, maximum: u64) -> u32 {
-    ((u128::from(length) * u128::from(value)) / u128::from(maximum)) as u32
 }

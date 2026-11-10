@@ -1,7 +1,6 @@
 use du_analysis_index::visualization::{
-    bar::{NoArea, Scale},
+    geometry::{NoArea, Rect, Scale, Weight},
     histogram::{self, Basis, Bin, Error, Item},
-    squarify::{Rect, Weight},
 };
 use du_core_contracts::result::ResultCompleteness;
 

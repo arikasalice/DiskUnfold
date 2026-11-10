@@ -2,10 +2,7 @@
 //!
 //! Boundary generation, attribution, and the source of observations belong to
 //! the caller and F26/F03; this module does not infer a missing boundary table.
-use super::{
-    bar::{self, NoArea, Scale, Sum},
-    squarify::{Rect, Weight},
-};
+use super::geometry::{NoArea, Rect, Scale, Sum, Weight, resolve_axis, row_rect, valid_bounds};
 use du_core_contracts::result::ResultCompleteness;
 use std::collections::HashSet;
 
@@ -89,7 +86,9 @@ pub fn layout(
     scale: Scale,
     completeness: ResultCompleteness,
 ) -> Result<Histogram, Error> {
-    bar::validate_bounds(bounds).map_err(|_| Error::InvalidBounds)?;
+    if !valid_bounds(bounds) {
+        return Err(Error::InvalidBounds);
+    }
     validate_bins(bins)?;
     let mut accumulators: Vec<_> = (0..bins.len()).map(|_| Accumulator::default()).collect();
     let mut seen = HashSet::new();
@@ -148,11 +147,11 @@ pub fn layout(
             bytes_overflowed: acc.bytes.overflowed(),
         })
         .collect();
-    let axis = bar::resolve_axis(scale, output.iter().map(|row| selected(row, basis)))
+    let axis = resolve_axis(scale, output.iter().map(|row| selected(row, basis)))
         .map_err(|_| Error::InvalidAxis)?;
     let count = output.len();
     for (index, row) in output.iter_mut().enumerate() {
-        (row.rect, row.no_area) = bar::row_rect(bounds, index, count, selected(row, basis), axis);
+        (row.rect, row.no_area) = row_rect(bounds, index, count, selected(row, basis), axis);
     }
     uncertain_items.sort_unstable();
     unclassified_items.sort_unstable();

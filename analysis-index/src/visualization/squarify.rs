@@ -2,24 +2,9 @@
 //!
 //! This is an internal calculation unit, not the F06 wire model or a policy for
 //! choosing a size basis, sorting equal values, grouping, or overall totals.
+use super::geometry::valid_bounds;
+pub use super::geometry::{Rect, Weight};
 use std::num::NonZeroU64;
-
-/// Integer rectangle using exclusive right and bottom edges in the caller's units.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Rect {
-    pub left: u32,
-    pub top: u32,
-    pub right: u32,
-    pub bottom: u32,
-}
-
-/// A source value; a lower bound remains distinguishable from an exact value.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Weight {
-    Exact(u64),
-    LowerBound(u64),
-    Unknown,
-}
 
 /// A shape refers back to an index in the supplied ordered sibling slice.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -79,7 +64,7 @@ struct Item {
 /// The caller must supply weights attributed to disjoint sibling areas; this
 /// unit cannot establish hard-link or shared-extent accounting on its own.
 pub fn layout(parent: Rect, ordered: &[Weight]) -> Result<Layout, LayoutError> {
-    if parent.left >= parent.right || parent.top >= parent.bottom {
+    if !valid_bounds(parent) {
         return Err(LayoutError::InvalidBounds);
     }
     let mut result = Layout {

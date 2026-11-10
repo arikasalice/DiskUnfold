@@ -1,6 +1,6 @@
 use du_analysis_index::visualization::{
-    bar::{self, BarRef, Error, Item, NoArea, Scale, Segment},
-    squarify::{Rect, Weight},
+    bar::{self, BarRef, Error, Item, Segment},
+    geometry::{NoArea, Rect, Scale, Weight},
 };
 use du_core_contracts::result::ResultCompleteness;
 
@@ -17,6 +17,22 @@ fn item(item_no: u32, value: Weight) -> Item {
 }
 fn segment(legend_key: u32, value: Weight) -> Segment {
     Segment { legend_key, value }
+}
+
+#[test]
+fn exact_and_lower_bound_zero_have_distinct_area_reasons() -> Result<(), Error> {
+    let ranking = bar::ranking(
+        bounds(),
+        &[item(1, Weight::Exact(0)), item(2, Weight::LowerBound(0))],
+        2,
+        Scale::Fixed(10),
+        ResultCompleteness::Complete,
+    )?;
+    assert_eq!(ranking.bars[0].no_area, Some(NoArea::ExactZero));
+    assert_eq!(ranking.bars[1].no_area, Some(NoArea::LowerBoundZero));
+    assert!(ranking.bars.iter().all(|row| row.rect.is_none()));
+    assert_eq!(ranking.total, Weight::LowerBound(0));
+    Ok(())
 }
 
 #[test]
@@ -110,7 +126,7 @@ fn zero_unknown_overflow_and_input_errors_are_not_fabricated() -> Result<(), Err
         ResultCompleteness::Complete,
     )?;
     assert_eq!(zero.bars[0].value, Weight::Exact(0));
-    assert_eq!(zero.bars[0].no_area, Some(NoArea::Zero));
+    assert_eq!(zero.bars[0].no_area, Some(NoArea::ExactZero));
     assert_eq!(
         bar::ranking(
             bounds(),
