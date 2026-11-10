@@ -221,6 +221,52 @@ fn replay_keeps_only_gap_metadata_and_preserves_committed_changes() {
 }
 
 #[test]
+fn repeated_cut_preserves_last_batch_end_after_replay_records_are_removed() {
+    let mut ledger = ledger();
+    let mut sink = Sink::default();
+    assert_eq!(
+        apply(&mut ledger, &batch(3, 1), &mut sink),
+        Ok(Outcome::Applied)
+    );
+    let first = snapshot(3, 1, 2);
+    let mut starts = Vec::new();
+    assert_eq!(
+        ledger.apply_snapshot(&first, &mut |update| {
+            if let Update::Snapshot { resync_start, .. } = update {
+                starts.push(resync_start);
+            }
+            Ok::<(), ()>(())
+        }),
+        Ok(Outcome::Applied)
+    );
+    assert!(ledger.window.records.is_empty());
+    assert_eq!(
+        apply(&mut ledger, &batch(3, 2), &mut sink),
+        Ok(Outcome::Applied)
+    );
+
+    let mut repeated_cut = first.clone();
+    repeated_cut.observed_at = 3;
+    repeated_cut.last_observed = Some(3);
+    assert_eq!(
+        ledger.apply_snapshot(&repeated_cut, &mut |_| Err::<(), _>("failed")),
+        Err(Error::Apply("failed"))
+    );
+    assert_eq!(ledger.unit(&[3; 16]).unwrap().last_change_sequence, 2);
+    assert_eq!(
+        ledger.apply_snapshot(&repeated_cut, &mut |update| {
+            if let Update::Snapshot { resync_start, .. } = update {
+                starts.push(resync_start);
+            }
+            Ok::<(), ()>(())
+        }),
+        Ok(Outcome::Applied)
+    );
+    assert_eq!(starts, vec![Some(1), Some(1)]);
+    assert_eq!(ledger.unit(&[3; 16]).unwrap().last_change_sequence, 2);
+}
+
+#[test]
 fn release_reclaims_unit_and_scope_without_touching_other_evidence() {
     let mut l = ledger();
     l.register::<()>(definition(4)).unwrap();

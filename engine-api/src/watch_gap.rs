@@ -68,6 +68,10 @@ pub struct Unit {
     pub needs_resync: bool,
     pub volume_unverifiable: bool,
     snapshot: Option<SnapshotCut>,
+    // Last received batch end at or before the applied snapshot cut. Replay
+    // records through that cut are discarded, but later snapshots still need
+    // this boundary to describe the consumer resynchronization gap.
+    snapshot_batch_end: Option<u64>,
 }
 
 /// Owns one scope revision's watch consumers and bounded replay window.
@@ -105,6 +109,7 @@ impl Ledger {
                 needs_resync: false,
                 volume_unverifiable: false,
                 snapshot: None,
+                snapshot_batch_end: None,
             },
         );
         Ok(())
@@ -244,7 +249,8 @@ impl Ledger {
                 (cut.cut >= unit.last_change_sequence)
                     .then_some(unit.last_batch_end)
                     .flatten()
-            });
+            })
+            .or(unit.snapshot_batch_end);
         if prior.is_some_and(|t| t > snapshot.observed_at) {
             unit.needs_resync = true;
             return Ok(Outcome::Resync);
@@ -266,6 +272,7 @@ impl Ledger {
         };
         unit.last_change_sequence = unit.last_change_sequence.max(cut.cut);
         unit.snapshot = Some(cut);
+        unit.snapshot_batch_end = prior;
         unit.needs_resync = false;
         self.window
             .remove_unit_through(snapshot.definition.watch_ref, snapshot.last_change_sequence);
