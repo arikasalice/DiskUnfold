@@ -73,6 +73,33 @@ function parentLocation(
     : undefined;
 }
 
+function isPreviousResult(displayed?: string, selected?: string): boolean {
+  return (
+    displayed !== undefined && selected !== undefined && displayed !== selected
+  );
+}
+
+function readOnlyBreadcrumbs(
+  entries: ReturnType<typeof folderPath>,
+  readOnly: boolean,
+) {
+  if (!readOnly) return entries;
+  return entries.map((entry) => ({
+    id: entry.id,
+    label: entry.label,
+    ...(entry.current === undefined ? {} : { current: entry.current }),
+  }));
+}
+
+function PreviousResultNotice({ previous }: { previous: boolean }) {
+  if (!previous) return null;
+  return (
+    <Notice>
+      Showing the previous result. Open the selected result to navigate.
+    </Notice>
+  );
+}
+
 /** Isolated folder browser; its host supplies the transport and pinned result. */
 export function BrowsePanel({
   port,
@@ -183,6 +210,7 @@ export function BrowsePanel({
   }, [view]);
 
   const page = view?.opened.page;
+  const previousResult = isPreviousResult(page?.resultVersion, resultVersion);
   const hasVirtualRoot =
     page !== undefined && virtualRootVersion.current === page.resultVersion;
   const parent = view && parentLocation(view.opened, hasVirtualRoot);
@@ -192,7 +220,7 @@ export function BrowsePanel({
   }
 
   function goUp() {
-    if (parent && page && !opening.current)
+    if (parent && page && !opening.current && !previousResult)
       navigate(parent.item, page.resultVersion);
   }
 
@@ -238,18 +266,22 @@ export function BrowsePanel({
       {message === "job" && <Notice>Folder results are being prepared.</Notice>}
       {view && page && (
         <>
+          <PreviousResultNotice previous={previousResult} />
           <Text kind="muted">
             Source: {view.opened.origin} · Observed:{" "}
             {page.observedAt ?? "Unavailable"}
           </Text>
           <div className="du-card__actions">
-            <Action onPress={goUp} isDisabled={!parent}>
+            <Action onPress={goUp} isDisabled={!parent || previousResult}>
               Up
             </Action>
             <Breadcrumbs
               label="Folder path"
-              entries={folderPath(view.opened, hasVirtualRoot, (item) =>
-                navigate(item, page.resultVersion),
+              entries={readOnlyBreadcrumbs(
+                folderPath(view.opened, hasVirtualRoot, (item) =>
+                  navigate(item, page.resultVersion),
+                ),
+                previousResult,
               )}
             />
           </div>
@@ -272,10 +304,11 @@ export function BrowsePanel({
             pages={view.pages}
             initialCursor={page.nextCursor}
             readPage={(request) => port.page(request)}
-            busy={busy}
+            busy={busy || previousResult}
+            readOnly={previousResult}
             navigationEpoch={sequence.current}
             navigationSeq={() => sequence.current}
-            canRead={() => opening.current === undefined}
+            canRead={() => opening.current === undefined && !previousResult}
             focusPanel={() => panel.current?.focus({ preventScroll: true })}
             openFolder={(item) => navigate(item, page.resultVersion)}
             openFile={inspectFile ? openFile : undefined}

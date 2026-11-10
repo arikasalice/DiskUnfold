@@ -198,6 +198,48 @@ test("announces empty results, failure, and asynchronous work", async () => {
   ).toBeDefined();
 });
 
+test("marks the previous result read-only across failed and superseded version switches", async () => {
+  const second = deferred<BrowseOpenResponse>();
+  const third = deferred<BrowseOpenResponse>();
+  const retry = deferred<BrowseOpenResponse>();
+  const open = vi
+    .fn()
+    .mockResolvedValueOnce(opened(1, [row(1, "Old folder")]))
+    .mockImplementationOnce(() => second.promise)
+    .mockImplementationOnce(() => third.promise)
+    .mockImplementationOnce(() => retry.promise);
+  const port: BrowsePort = { open, page: vi.fn() };
+  const { rerender } = render(<BrowsePanel port={port} resultVersion={id} />);
+  await screen.findByRole("button", { name: "Old folder" });
+  expect(screen.queryByText(/Showing the previous result/)).toBeNull();
+  rerender(<BrowsePanel port={port} resultVersion="second" />);
+  expect(screen.getByText(/Showing the previous result/)).toBeDefined();
+  const old = screen.getByRole("button", { name: "Old folder" });
+  expect((old as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(old);
+  fireEvent.keyDown(gridRow("Old folder"), { key: "Enter" });
+  expect(open).toHaveBeenCalledTimes(2);
+  rerender(<BrowsePanel port={port} resultVersion="third" />);
+  await act(async () => second.resolve(opened(2, [row(2, "Outdated")])));
+  expect(screen.queryByText("Outdated")).toBeNull();
+  await act(async () => third.reject(new Error("unavailable")));
+  expect(screen.getByRole("alert").textContent).toContain("Could not open");
+  expect(screen.getByText(/Showing the previous result/)).toBeDefined();
+  expect(
+    (screen.getByRole("button", { name: "Old folder" }) as HTMLButtonElement)
+      .disabled,
+  ).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+  const next = opened(4, [row(3, "Current folder")]);
+  if (next.kind !== "opened") throw new Error("wrong fixture");
+  next.requestSeq = open.mock.calls[3]![0].requestSeq;
+  next.page.resultVersion = "third";
+  next.page.rows[0]!.item.resultVersion = "third";
+  await act(async () => retry.resolve(next));
+  expect(screen.getByRole("button", { name: "Current folder" })).toBeDefined();
+  expect(screen.queryByText(/Showing the previous result/)).toBeNull();
+});
+
 test("keyboard opens a folder and breadcrumbs return to the virtual root", async () => {
   const port: BrowsePort = {
     open: vi.fn().mockImplementation((request) => {

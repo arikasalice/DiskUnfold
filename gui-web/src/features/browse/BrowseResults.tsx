@@ -41,6 +41,7 @@ export function BrowseResults({
   initialCursor,
   readPage,
   busy,
+  readOnly,
   navigationEpoch,
   navigationSeq,
   canRead,
@@ -53,6 +54,7 @@ export function BrowseResults({
   initialCursor: string | null;
   readPage: (request: QueryPageRequest) => Promise<QueryPageResponse>;
   busy: boolean;
+  readOnly: boolean;
   navigationEpoch: number;
   navigationSeq: () => number;
   canRead: () => boolean;
@@ -138,6 +140,7 @@ export function BrowseResults({
         focusRequest={paging.focusRequest}
         onMove={paging.move}
         onOpen={(row) => {
+          if (readOnly) return;
           if (row.kind === "directory") openFolder(row.item);
           if (row.kind === "file") openFile?.(row, document.activeElement);
         }}
@@ -148,7 +151,11 @@ export function BrowseResults({
         getKey={(row) => rowKey(row.item)}
         renderCells={(row) => [
           row.kind === "directory" ? (
-            <Action excludeFromTabOrder onPress={() => openFolder(row.item)}>
+            <Action
+              excludeFromTabOrder
+              isDisabled={readOnly}
+              onPress={() => openFolder(row.item)}
+            >
               {browseDisplayName(row.displayName)}
             </Action>
           ) : row.kind === "file" && openFile ? (
