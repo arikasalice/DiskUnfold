@@ -15,6 +15,7 @@ mod registry;
 pub mod scan;
 mod scan_failures;
 pub mod scope;
+pub mod search_page;
 pub mod space;
 mod target_enumeration;
 mod target_probe;
