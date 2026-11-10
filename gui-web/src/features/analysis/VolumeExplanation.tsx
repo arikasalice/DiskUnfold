@@ -70,6 +70,22 @@ function observationRows(label: string, observation: VolumeGapObservation) {
   ];
 }
 
+/** Maps pinned volume lookup failures to their published recovery guidance. */
+function lookupProblem(failure: unknown): string {
+  if (failure instanceof AnalysisError) {
+    switch (failure.code) {
+      case "STALE_VERSION":
+        return "This result is no longer current. Open the latest result to explain its volume usage.";
+      case "NOT_FOUND":
+        return "This scan result is no longer available. Run the analysis again to explain its volume usage.";
+      case "INVALID_ARGUMENT":
+        if (failure.reasonKey === "space.target_out_of_scope")
+          return "The selected target is outside this scan. Choose a folder or volume included in the scan.";
+    }
+  }
+  return "The volume explanation is unavailable.";
+}
+
 /** Reads start/end volume observations and difference factors from this result. */
 export function VolumeExplanation({
   client,
@@ -112,11 +128,7 @@ export function VolumeExplanation({
       setReport(response);
     } catch (failure) {
       if (sequence.current !== requestSeq) return;
-      setProblem(
-        failure instanceof AnalysisError && failure.code === "STALE_VERSION"
-          ? "This result is no longer current. Open the latest result to explain its volume usage."
-          : "The volume explanation is unavailable.",
-      );
+      setProblem(lookupProblem(failure));
     } finally {
       if (sequence.current === requestSeq) setPending(false);
     }
