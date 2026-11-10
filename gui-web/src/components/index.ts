@@ -17,3 +17,10 @@ export {
   StatusBadge,
   Text,
 } from "./presentation";
+
+export { GeometryRenderer } from "./geometry-renderer";
+export type {
+  DisplayGeometry,
+  DisplayPoint,
+  GeometryRendererProps,
+} from "./geometry-renderer";

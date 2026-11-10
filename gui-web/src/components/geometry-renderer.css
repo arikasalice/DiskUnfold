@@ -1,0 +1,17 @@
+.du-geometry-shape {
+  color: var(--du-accent);
+  fill: var(--du-info-surface);
+  stroke: var(--du-accent);
+}
+
+.du-geometry-relation {
+  color: var(--du-muted);
+  fill: var(--du-border);
+  stroke: var(--du-muted);
+}
+
+.du-geometry g[data-selected="true"] > * {
+  stroke: var(--du-focus);
+  stroke-width: 3;
+  stroke-dasharray: 4 2;
+}
