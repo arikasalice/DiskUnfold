@@ -1,5 +1,5 @@
 #![allow(clippy::unwrap_used)] // Test fixtures fail immediately when setup is invalid.
-use super::{replay::Record, *};
+use super::*;
 use du_scan_engine::watch_coalescer::{Change, ChangeKind, Context, GapReason, Trust};
 use std::collections::BTreeSet;
 
