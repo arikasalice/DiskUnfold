@@ -5,7 +5,7 @@ use du_analysis_index::{
     query::page::{Page, RowKind, Total},
 };
 use du_core_contracts::{
-    Id, ItemRef, SizeAmount, SizeBasis, SizeEvidence, SizeValue,
+    ItemRef, SizeAmount, SizeBasis, SizeEvidence, SizeValue,
     browse_ipc::BrowseValue,
     browse_page_ipc::{QueryPage, QueryTotal, SearchQueryPage, SearchQueryRow, SearchRowKind},
 };
@@ -25,11 +25,8 @@ pub enum ProjectionError {
 
 /// Projects one pinned search page without reading a live store or filesystem.
 ///
-/// The caller must supply the query reference and cursor belonging to this exact
-/// admission; `Page` does not currently retain either value. Cursor authentication
-/// and query-reference binding belong to the eventual shared page dispatcher.
+/// The cursor must be produced for this exact admission by the session reader.
 pub fn project(
-    query_ref: Id,
     page: &Page,
     next_cursor: Option<String>,
 ) -> Result<SearchQueryPage, ProjectionError> {
@@ -53,7 +50,7 @@ pub fn project(
     Ok(SearchQueryPage {
         row_kind: SearchRowKind::Search,
         page: QueryPage {
-            query_ref,
+            query_ref: page.query_ref().clone(),
             result_version: metadata.version.clone(),
             rows,
             total,

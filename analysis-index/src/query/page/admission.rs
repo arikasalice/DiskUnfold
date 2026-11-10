@@ -76,7 +76,7 @@ impl ResultSets {
             if !state.used.insert(id.clone()) {
                 return Err(PageError::DuplicateId);
             }
-            return Ok((id, first_page(Arc::new(result), count)));
+            return Ok((id.clone(), first_page(id, Arc::new(result), count)));
         }
         if let Some(existing) = state.folder_id(&key) {
             let result = state
@@ -89,21 +89,22 @@ impl ResultSets {
                 return Err(PageError::InvalidResult);
             }
             touch(&mut state.lru, &existing);
-            return Ok((existing, first_page(result, count)));
+            return Ok((existing.clone(), first_page(existing, result, count)));
         }
         if state.used.contains(&id) {
             return Err(PageError::DuplicateId);
         }
         let result = state.insert(id.clone(), result, Some(key));
-        Ok((id, first_page(result, count)))
+        Ok((id.clone(), first_page(id, result, count)))
     }
 }
 
-fn first_page(result: Arc<QueryResult>, count: u32) -> Page {
+fn first_page(query: Id, result: Arc<QueryResult>, count: u32) -> Page {
     let end = usize::try_from(count)
         .unwrap_or(usize::MAX)
         .min(result.items.len());
     Page {
+        query,
         result,
         range: 0..end,
     }

@@ -93,7 +93,7 @@ fn projected_rows_retain_source_and_search_kind_after_replacement() -> Result<()
         .open_page(&id(3)?, &id(2)?, 0, Some(1))
         .map_err(|e| format!("{e:?}"))?;
     assert_eq!(
-        search_page::project(id(3)?, &folder_page, None),
+        search_page::project(&folder_page, None),
         Err(ProjectionError::NotSearch)
     );
     let mut replacement = store.open(id(5)?).map_err(|e| format!("{e:?}"))?;
@@ -104,10 +104,10 @@ fn projected_rows_retain_source_and_search_kind_after_replacement() -> Result<()
         .seal(id(6)?, ResultCompleteness::Complete)
         .map_err(|e| format!("{e:?}"))?;
     assert!(sets.open_page(&id(4)?, &id(2)?, 0, None).is_err());
-    let a = search_page::project(id(4)?, &a, Some("admitted-cursor".into()))
+    let a = search_page::project(&a, Some("admitted-cursor".into()))
         .map_err(|e| format!("{e:?}"))?
         .page;
-    let b = search_page::project(id(4)?, &b, None)
+    let b = search_page::project(&b, None)
         .map_err(|e| format!("{e:?}"))?
         .page;
     assert_eq!(a.result_version, id(2)?);
@@ -174,7 +174,7 @@ fn absent_root_and_missing_values_remain_unknown() -> Result<(), String> {
     let page = sets
         .open_page(&id(13)?, &id(12)?, 0, None)
         .map_err(|e| format!("{e:?}"))?;
-    let page = search_page::project(id(13)?, &page, None)
+    let page = search_page::project(&page, None)
         .map_err(|e| format!("{e:?}"))?
         .page;
     let row = &page.rows[0];

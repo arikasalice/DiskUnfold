@@ -4,10 +4,12 @@
 //! or IPC registration.
 mod condition;
 pub(super) mod context;
+mod dispatch;
 pub use condition::CanonicalCondition;
+pub(super) use dispatch::AdmittedQueryPage;
 use std::sync::Arc;
 
-use du_analysis_index::query::page::{Page, PageError};
+use du_analysis_index::query::page::{Page, PageError, RowKind};
 use du_core_contracts::{
     Id, PathBytes,
     ports::{PortError, Random},
@@ -120,7 +122,7 @@ impl Session {
         validate_count(count).map_err(|_| CursorError::InvalidPage)?;
         let admitted = self.admit(query, version, start, count)?;
         let condition = self.condition(&admitted)?;
-        self.finish_page(admitted, query, version, condition, start == 0)
+        self.finish_page(admitted, condition, start == 0)
     }
 
     /// Reads a cursor while requiring the caller's expected query and result version.
@@ -141,42 +143,42 @@ impl Session {
     }
 
     fn read_page(&self, fields: Fields, count: Option<u32>) -> Result<CursorPage, CursorError> {
-        let page = self.admit(&fields.query, &fields.version, fields.next, count)?;
-        if self.condition(&page)? != fields.condition {
-            return Err(CursorError::Invalid);
-        }
-        self.finish_page(
-            page,
-            &fields.query,
-            &fields.version,
-            fields.condition,
-            false,
-        )
+        let page = self.admit_cursor(&fields, count)?;
+        self.finish_page(page, fields.condition, false)
     }
 
     fn finish_page(
         &self,
         page: Page,
-        query: &Id,
-        version: &Id,
         condition: [u8; 16],
         first_position: bool,
     ) -> Result<CursorPage, CursorError> {
+        if page.row_kind() != RowKind::Folder {
+            return Err(CursorError::Invalid);
+        }
         let browse_context = if first_position {
             context::page_context(&page).map_err(CursorError::Folder)?
         } else {
             None
         };
-        let page = project(query.clone(), page).map_err(CursorError::Folder)?;
+        let page = project(page).map_err(CursorError::Folder)?;
         let next_cursor = page
             .next_position
-            .map(|next| self.encode(query, version, condition, next))
+            .map(|next| self.encode(&page.query_ref, &page.result_version, condition, next))
             .transpose()?;
         Ok(CursorPage {
             page,
             next_cursor,
             browse_context,
         })
+    }
+
+    fn admit_cursor(&self, fields: &Fields, count: Option<u32>) -> Result<Page, CursorError> {
+        let page = self.admit(&fields.query, &fields.version, fields.next, count)?;
+        if self.condition(&page)? != fields.condition {
+            return Err(CursorError::Invalid);
+        }
+        Ok(page)
     }
 
     fn admit(

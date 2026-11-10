@@ -273,6 +273,7 @@ impl ResultSets {
             .min(result.items.len());
         touch(&mut state.lru, id);
         Ok(Page {
+            query: id.clone(),
             result,
             range: start..end,
         })
@@ -402,11 +403,17 @@ pub enum Total {
 
 /// One immutable admitted page; its backing result stays alive until this value is dropped.
 pub struct Page {
+    query: Id,
     result: Arc<QueryResult>,
     range: Range<usize>,
 }
 
 impl Page {
+    /// Returns the registered query reference that supplied this admitted page.
+    pub fn query_ref(&self) -> &Id {
+        &self.query
+    }
+
     /// Returns the row contract fixed by the producer for this admitted page.
     pub fn row_kind(&self) -> RowKind {
         self.result.row_kind
@@ -426,6 +433,10 @@ impl Page {
     /// Returns the position immediately after this page.
     pub fn next_position(&self) -> usize {
         self.range.end
+    }
+    /// Reports whether this evaluation has more known rows after the admitted page.
+    pub fn has_next(&self) -> bool {
+        self.range.end < self.result.items.len()
     }
     /// Returns metadata from the same source and evaluation as the page.
     pub fn metadata(&self) -> Metadata<'_> {

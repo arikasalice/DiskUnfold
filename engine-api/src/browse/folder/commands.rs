@@ -8,7 +8,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use du_analysis_index::IngestSink;
+use du_analysis_index::query::page::ResultSets;
 use du_core_contracts::{
     browse_open_ipc::BrowseOpenRequest,
     browse_page_ipc::{BrowseOpenResponse, QueryPageResponse, ResultOrigin},
@@ -20,7 +20,7 @@ use du_job_runtime::{JobIdentity, RuntimeError};
 use super::{
     AdmissionError, Error, FolderBrowse, LiveOpen, PreparedOpen,
     admission::lower_live,
-    cursor::{CursorError, Session},
+    cursor::{AdmittedQueryPage, CursorError, Session},
     job::{ErrorKind, FolderJobs},
 };
 use crate::{
@@ -37,12 +37,12 @@ const SYNC_WORK: usize = 4096;
 /// Composes both browse commands over the same scan-only publication store.
 pub(crate) fn register(
     builder: &mut EngineBuilder,
-    store: IngestSink,
+    sets: Arc<ResultSets>,
     ids: Arc<dyn JobIdentity>,
     workers: Arc<Workers>,
     random: &dyn Random,
 ) -> Result<(), RuntimeError> {
-    let browse = Arc::new(FolderBrowse::new(store, ids));
+    let browse = Arc::new(FolderBrowse::with_result_sets(sets, ids));
     let Ok(session) = Session::try_new(browse.clone(), random) else {
         return Ok(());
     };
@@ -242,10 +242,14 @@ impl UseCase for Page {
         _: &CallerCtx,
     ) -> Result<Self::Response, EngineError> {
         let continuation = matches!(request, QueryPageRequest::Continuation(_));
-        self.0
-            .read_request(request)
+        match self
+            .0
+            .read_query_request(request)
             .map_err(|error| cursor_error(error, continuation))?
-            .into_response()
+        {
+            AdmittedQueryPage::Folder(page) => page.into_response(),
+            AdmittedQueryPage::Search(page) => Ok(QueryPageResponse::Search(page)),
+        }
     }
 }
 

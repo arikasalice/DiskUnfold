@@ -132,14 +132,13 @@ pub enum Error {
 
 /// Folder-query session over one publication point and immutable result registry.
 pub struct FolderBrowse {
-    sets: ResultSets,
+    sets: Arc<ResultSets>,
     ids: Arc<dyn JobIdentity>,
 }
 
 struct AdmittedOpen {
     location: Option<ItemRef>,
     breadcrumbs: Vec<Breadcrumb>,
-    query_ref: Id,
     page: Page,
 }
 
@@ -151,7 +150,7 @@ impl AdmittedOpen {
             breadcrumbs: self.breadcrumbs,
             sort_strategies: metadata.sorts.to_vec(),
             predicate_strategies: metadata.predicate_strategies.to_vec(),
-            page: project(self.query_ref, self.page)?,
+            page: project(self.page)?,
         })
     }
 }
@@ -186,10 +185,12 @@ impl PreparedOpen {
 impl FolderBrowse {
     /// Creates a session; identifiers must be unique within this session.
     pub fn new(source: IngestSink, ids: Arc<dyn JobIdentity>) -> Self {
-        Self {
-            sets: ResultSets::new(source),
-            ids,
-        }
+        Self::with_result_sets(Arc::new(ResultSets::new(source)), ids)
+    }
+
+    /// Shares one immutable result registry with the desktop search and space readers.
+    pub fn with_result_sets(sets: Arc<ResultSets>, ids: Arc<dyn JobIdentity>) -> Self {
+        Self { sets, ids }
     }
 
     /// Pins the current version, opens one folder and returns its first page.
@@ -311,7 +312,6 @@ impl FolderBrowse {
                     return Ok(Some(AdmittedOpen {
                         location: prepared.location.clone(),
                         breadcrumbs: prepared.breadcrumbs.clone(),
-                        query_ref: id,
                         page,
                     }));
                 }
@@ -365,7 +365,7 @@ impl FolderBrowse {
         match candidate {
             Candidate::Cached(page) => Ok(page),
             Candidate::Evaluated { prepared, result } => {
-                let (query_ref, page) = self
+                let (_, page) = self
                     .sets
                     .register_admitted_folder(
                         prepared.admission,
@@ -378,7 +378,6 @@ impl FolderBrowse {
                 Ok(AdmittedOpen {
                     location: prepared.location,
                     breadcrumbs: prepared.breadcrumbs,
-                    query_ref,
                     page,
                 })
             }
@@ -415,7 +414,7 @@ impl FolderBrowse {
             .sets
             .open_page(query_ref, version, start, count)
             .map_err(page_error)?;
-        project(query_ref.clone(), page)
+        project(page)
     }
 }
 

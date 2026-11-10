@@ -1,5 +1,6 @@
 use super::*;
 use crate::{api::Engine, desktop::DesktopEvents};
+use du_analysis_index::IngestSink;
 use du_core_contracts::{
     CallEnvelope, ENVELOPE_VERSION, Id, ResultEnvelope,
     job::{HistoryAppend, JobHistory, JobState, JobSummary},
@@ -8,6 +9,8 @@ use du_core_contracts::{
 };
 use du_job_runtime::{JobClock, JobRuntime};
 use serde_json::{Value, json};
+
+mod search;
 
 struct Ids;
 impl JobIdentity for Ids {
@@ -49,6 +52,13 @@ fn fixture(children: usize) -> Result<(Engine, Arc<JobRuntime>, Id), Box<dyn std
     let version = Ids.next_id();
     scan.seal(version.clone(), ResultCompleteness::Complete)
         .map_err(|error| format!("{error:?}"))?;
+    let (engine, runtime) = register_fixture(Arc::new(ResultSets::new(store)))?;
+    Ok((engine, runtime, version))
+}
+
+fn register_fixture(
+    sets: Arc<ResultSets>,
+) -> Result<(Engine, Arc<JobRuntime>), Box<dyn std::error::Error>> {
     let runtime = Arc::new(JobRuntime::new(
         Arc::new(Ids),
         Arc::new(Clock),
@@ -57,8 +67,9 @@ fn fixture(children: usize) -> Result<(Engine, Arc<JobRuntime>, Id), Box<dyn std
     )?);
     let workers = Arc::new(Workers::start(runtime.clone())?);
     let mut builder = EngineBuilder::default();
-    register(&mut builder, store, Arc::new(Ids), workers, &Entropy)?;
-    Ok((builder.build()?, runtime, version))
+    crate::space::register_total_with_queries(&mut builder, sets.clone());
+    register(&mut builder, sets, Arc::new(Ids), workers, &Entropy)?;
+    Ok((builder.build()?, runtime))
 }
 
 fn call(engine: &Engine, name: &str, body: Value, channel: Channel) -> ResultEnvelope {

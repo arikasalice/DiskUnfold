@@ -1,7 +1,7 @@
 //! Admit a verified scope and submit its read-only metadata job.
 use std::sync::{Arc, Mutex};
 
-use du_analysis_index::IngestSink;
+use du_analysis_index::{IngestSink, query::page::ResultSets};
 use du_core_contracts::{
     Id,
     analysis_ipc::{ScanStart, ScanStartRequest},
@@ -34,7 +34,7 @@ pub(crate) fn register_with_limit(
     roots: Arc<dyn ScopeRootPort>,
     ids: Arc<dyn JobIdentity>,
     limit: SharedTableLimitSource,
-) -> Result<IngestSink, RuntimeError> {
+) -> Result<Arc<ResultSets>, RuntimeError> {
     register_with_options(builder, workers, roots, ids, None, limit)
 }
 
@@ -54,6 +54,7 @@ pub(crate) fn register_with_comparison(
         comparison,
         Arc::new(SharedTableLimit::default),
     )
+    .map(|sets| sets.source())
 }
 
 fn register_with_options(
@@ -63,12 +64,13 @@ fn register_with_options(
     ids: Arc<dyn JobIdentity>,
     comparison: Option<Arc<dyn scope::exclusion::PathComparison>>,
     limit: SharedTableLimitSource,
-) -> Result<IngestSink, RuntimeError> {
+) -> Result<Arc<ResultSets>, RuntimeError> {
     workers
         .runtime
         .register(du_scan_engine::scan_job::descriptor())?;
     let store = IngestSink::with_version_publisher(workers.runtime.result_version_publisher());
-    space::register_total(builder, store.clone());
+    let sets = Arc::new(ResultSets::new(store.clone()));
+    space::register_total_with_queries(builder, sets.clone());
     space::detail::register(builder, store.clone());
     space::volume_gap::register(builder, store.clone());
     browse::register(builder, store.clone());
@@ -81,7 +83,7 @@ fn register_with_options(
         comparison,
         limit,
     });
-    Ok(store)
+    Ok(sets)
 }
 
 struct ScanIds(Arc<dyn JobIdentity>);

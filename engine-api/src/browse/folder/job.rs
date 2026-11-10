@@ -201,7 +201,7 @@ impl FolderJobs {
                         }
                         .to_owned()
                     })?;
-                    let id = admitted.query_ref.clone();
+                    let id = admitted.page.query_ref().clone();
                     *first = Some(admitted);
                     Ok(id)
                 },
