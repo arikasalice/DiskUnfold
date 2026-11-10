@@ -530,6 +530,28 @@
   {
     "ecosystem": "cargo",
     "owner": "du-user-env",
+    "name": "icu_casemap",
+    "version": "2.4.0",
+    "source": "registry+https://github.com/rust-lang/crates.io-index",
+    "license": "Unicode-3.0",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Apply full Unicode case folding to offline settings search text"
+  },
+  {
+    "ecosystem": "cargo",
+    "owner": "du-user-env",
+    "name": "icu_normalizer",
+    "version": "2.4.0",
+    "source": "registry+https://github.com/rust-lang/crates.io-index",
+    "license": "Unicode-3.0",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Normalize offline settings search text to Unicode NFC before case folding"
+  },
+  {
+    "ecosystem": "cargo",
+    "owner": "du-user-env",
     "name": "serde_json",
     "version": "1.0.154",
     "source": "registry+https://github.com/rust-lang/crates.io-index",

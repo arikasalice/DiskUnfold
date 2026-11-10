@@ -1,4 +1,16 @@
 {
+  "cargo:du-user-env:icu_casemap@2.4.0": {
+    "license": "Unicode-3.0",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Apply full Unicode case folding to offline settings search text"
+  },
+  "cargo:du-user-env:icu_normalizer@2.4.0": {
+    "license": "Unicode-3.0",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Normalize offline settings search text to Unicode NFC before case folding"
+  },
   "cargo:du-app-host:rusqlite@0.41.1": {
     "license": "MIT",
     "role": "test",
