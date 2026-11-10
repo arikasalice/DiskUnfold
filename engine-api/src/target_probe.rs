@@ -69,7 +69,7 @@ fn observation(
             AccessStatus::Unknown,
         );
     }
-    let access =
+    let mut access =
         target::access_result(AccessObservation::Completed(port.path_access(&target.path)));
     if context.checkpoint() == Checkpoint::Cancel {
         return unavailable("job.cancelled", AccessStatus::Unknown);
@@ -85,7 +85,14 @@ fn observation(
     } else if capacity.state == du_core_contracts::volume::CapabilityState::Unsupported {
         Err(capacity.reason_key.unwrap_or("os.unsupported").into())
     } else {
-        port.capacity(&target.path).map_err(|e| e.reason_key)
+        port.capacity(&target.path).map_err(|error| {
+            let reason = error.reason_key.clone();
+            let latest = target::access_result(AccessObservation::Completed(Err(error)));
+            if latest.status == AccessStatus::Disconnected {
+                access = latest;
+            }
+            reason
+        })
     };
     ProbeResult {
         access,

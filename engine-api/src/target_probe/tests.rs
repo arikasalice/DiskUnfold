@@ -1,4 +1,5 @@
 use super::*;
+mod capacity;
 use du_core_contracts::{
     PathBytes, PathEncoding,
     analysis_ipc::{TargetAccess, TargetStatusChanged},

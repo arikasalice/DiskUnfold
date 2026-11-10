@@ -190,20 +190,26 @@ fn open_root(path: &[u8]) -> Result<(std::fs::File, Vec<u8>), PortError> {
     Ok((file, before))
 }
 
-/// Discards a capacity observation when the drive mapping cannot be revalidated.
+/// Discards a capacity observation if the drive changed or could not be revalidated.
 fn checked_capacity(
     expected: &[u8],
     observation: Result<VolumeCapacity, PortError>,
     current_identity: impl FnOnce() -> Result<Vec<u8>, PortError>,
 ) -> Result<VolumeCapacity, PortError> {
-    if current_identity().as_deref() != Ok(expected) {
-        return Err(PortError {
+    match current_identity() {
+        Ok(identity) if identity == expected => observation,
+        Ok(_) => Err(PortError {
             kind: PortErrorKind::IdentityChanged,
             reason_key: "scan.disconnected".into(),
             os_code: None,
-        });
+        }),
+        Err(error) if error.kind == PortErrorKind::NotFound => Err(PortError {
+            kind: PortErrorKind::IdentityChanged,
+            reason_key: "scan.disconnected".into(),
+            os_code: error.os_code,
+        }),
+        Err(error) => Err(error),
     }
-    observation
 }
 
 impl VolumePort for WindowsVolumes {
@@ -304,10 +310,29 @@ mod tests {
                 Err(error(io::Error::from_raw_os_error(1167)))
             },
         );
-        assert_eq!(
-            unavailable.err().map(|e| e.kind),
-            Some(PortErrorKind::IdentityChanged)
+        assert_eq!(unavailable, Err(error(io::Error::from_raw_os_error(1167))));
+        let denied_recheck = checked_capacity(
+            &original,
+            Ok(VolumeCapacity {
+                total_bytes: 100,
+                available_bytes: 40,
+            }),
+            || Err(error(io::Error::from_raw_os_error(5))),
         );
+        assert_eq!(denied_recheck, Err(error(io::Error::from_raw_os_error(5))));
+        let missing = checked_capacity(
+            &original,
+            Err(error(io::Error::from_raw_os_error(5))),
+            || Err(error(io::Error::from_raw_os_error(15))),
+        );
+        assert!(matches!(
+            missing,
+            Err(PortError {
+                kind: PortErrorKind::IdentityChanged,
+                os_code: Some(15),
+                ..
+            })
+        ));
         assert_eq!(calls.get(), 5);
     }
     #[test]
