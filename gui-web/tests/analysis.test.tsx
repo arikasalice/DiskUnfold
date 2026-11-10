@@ -578,7 +578,7 @@ test("F02 IF-05: pages within the displayed result and discards a late page afte
     pathRef: { rootIndex: 0, relative: [] },
     reasonKey: "scan.path_denied",
   });
-  const { client, calls } = fixture({
+  const { client, calls, listeners } = fixture({
     readFailures: async ({ resultVersion, kind, cursor }) => {
       if (kind === "untraversed_link") {
         return {
@@ -597,9 +597,26 @@ test("F02 IF-05: pages within the displayed result and discards a late page afte
     },
   });
   await startFixtureScan(client);
-  fireEvent.click(
-    await screen.findByRole("button", { name: "View scan issues" }),
+  await screen.findByRole("button", { name: "View scan issues" });
+  const statusReads = calls.filter(({ name }) => name === "job.get").length;
+  await act(async () => {
+    for (const listener of listeners) {
+      listener({
+        topic: "job.resync_required",
+        body: {},
+        seq: 1,
+        contractVersion: 1,
+        occurredAt: timestamp,
+      });
+    }
+  });
+  expect(calls.filter(({ name }) => name === "job.get")).toHaveLength(
+    statusReads + 1,
   );
+  expect(
+    screen.getAllByRole("button", { name: "View scan issues" }),
+  ).toHaveLength(1);
+  fireEvent.click(screen.getByRole("button", { name: "View scan issues" }));
   await screen.findByText("first");
   fireEvent.click(screen.getByRole("button", { name: "Load more issues" }));
   await screen.findByText("second");

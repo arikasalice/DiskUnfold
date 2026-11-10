@@ -314,7 +314,7 @@ function PinnedResult({
       </div>
       <Coverage total={total} />
       <ScanIssues
-        key={total.resultVersion}
+        key={`issues:${total.resultVersion}`}
         client={client}
         resultVersion={total.resultVersion}
       />
