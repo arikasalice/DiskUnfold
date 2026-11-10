@@ -1,4 +1,5 @@
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -31,10 +32,12 @@ test("F14 FR6 opens a value-free startup report and shows the edit lock", async 
   const transport = vi.fn<
     NonNullable<Parameters<typeof createAnalysisClient>[0]>
   >(async (_, { envelope }) => ({ ...envelope, body: report }));
-  render(<SettingsRestoration client={createAnalysisClient(transport)} />);
+  const client = createAnalysisClient(transport);
+  const { rerender } = render(<SettingsRestoration client={client} visible />);
 
-  const opener = screen.getByRole("button", { name: "Settings restoration" });
-  expect(transport).not.toHaveBeenCalled();
+  const opener = await screen.findByRole("button", {
+    name: "Settings restoration",
+  });
   opener.focus();
   fireEvent.click(opener);
   const dialog = await screen.findByRole("dialog", {
@@ -63,30 +66,29 @@ test("F14 FR6 opens a value-free startup report and shows the edit lock", async 
   );
   expect(screen.queryByRole("dialog")).toBeNull();
   await waitFor(() => expect(document.activeElement).toBe(opener));
+  rerender(<SettingsRestoration client={client} visible={false} />);
+  expect(
+    screen.queryByRole("button", { name: "Settings restoration" }),
+  ).toBeNull();
+  rerender(<SettingsRestoration client={client} visible />);
+  fireEvent.click(screen.getByRole("button", { name: "Settings restoration" }));
+  expect(await screen.findByText("Restored", { exact: true })).toBeDefined();
+  expect(transport).toHaveBeenCalledTimes(1);
 });
 
-test("F14 FR6 exposes a failed read and can read again when reopened", async () => {
+test("F14 FR6 omits the restoration notice if the startup read fails", async () => {
   const transport =
     vi.fn<NonNullable<Parameters<typeof createAnalysisClient>[0]>>();
   transport.mockRejectedValueOnce(new Error("private diagnostic"));
-  transport.mockImplementationOnce(async (_, { envelope }) => ({
-    ...envelope,
-    body: {
-      items: [],
-      storedSchema: null,
-      appSchema: 1,
-      migrated: false,
-      writeLocked: false,
-    },
-  }));
-  render(<SettingsRestoration client={createAnalysisClient(transport)} />);
-  fireEvent.click(screen.getByRole("button", { name: "Settings restoration" }));
+  await act(async () => {
+    render(
+      <SettingsRestoration client={createAnalysisClient(transport)} visible />,
+    );
+  });
   expect(
-    await screen.findByText("Settings restoration could not be read."),
-  ).toBeDefined();
+    screen.queryByRole("button", { name: "Settings restoration" }),
+  ).toBeNull();
+  expect(screen.queryByRole("alert")).toBeNull();
   expect(screen.queryByText("private diagnostic")).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "Close details" }));
-  fireEvent.click(screen.getByRole("button", { name: "Settings restoration" }));
-  expect(await screen.findByText("Unavailable", { exact: true })).toBeDefined();
-  expect(transport).toHaveBeenCalledTimes(2);
+  expect(transport).toHaveBeenCalledTimes(1);
 });

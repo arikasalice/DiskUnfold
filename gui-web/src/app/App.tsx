@@ -49,7 +49,12 @@ export function App({ analysis }: { analysis?: AnalysisClient } = {}) {
           <Heading level={1}>DiskUnfold</Heading>
         </div>
         <div className="du-app-header__actions">
-          {analysisOpen && <SettingsRestoration client={client} />}
+          {client && (
+            <SettingsRestoration
+              client={client}
+              visible={Boolean(analysisOpen)}
+            />
+          )}
           {client && !history && !browseVersion && (
             <Action
               variant="quiet"

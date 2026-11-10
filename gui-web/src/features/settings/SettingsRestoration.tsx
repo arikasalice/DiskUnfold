@@ -1,11 +1,5 @@
 import { useEffect, useState } from "react";
-import {
-  Action,
-  InspectionDialog,
-  Notice,
-  Progress,
-  Readout,
-} from "../../components";
+import { Action, InspectionDialog, Notice, Readout } from "../../components";
 import type { AnalysisClient, SettingsRestoreStatus } from "../../ipc";
 
 const names = new Map([
@@ -29,29 +23,7 @@ const reasons = new Map([
   ["settings.schema_unsupported", "The saved settings format is unsupported."],
 ]);
 
-function RestoreReport({ client }: { client: AnalysisClient }) {
-  const [report, setReport] = useState<SettingsRestoreStatus>();
-  const [failed, setFailed] = useState(false);
-  useEffect(() => {
-    let active = true;
-    void client.call("settings.restore_status", {}).then(
-      (result) => {
-        if (active) setReport(result);
-      },
-      () => {
-        if (active) setFailed(true);
-      },
-    );
-    return () => {
-      active = false;
-    };
-  }, [client]);
-
-  if (failed)
-    return (
-      <Notice tone="error">Settings restoration could not be read.</Notice>
-    );
-  if (!report) return <Progress label="Reading settings restoration" />;
+function RestoreReport({ report }: { report: SettingsRestoreStatus }) {
   return (
     <>
       {report.writeLocked && (
@@ -90,9 +62,33 @@ function RestoreReport({ client }: { client: AnalysisClient }) {
   );
 }
 
-/** Opens the read-only settings outcome for this startup. */
-export function SettingsRestoration({ client }: { client: AnalysisClient }) {
+/** Reads the immutable startup outcome once and keeps it across screen changes. */
+export function SettingsRestoration({
+  client,
+  visible,
+}: {
+  client: AnalysisClient;
+  visible: boolean;
+}) {
+  const [loaded, setLoaded] = useState<{
+    client: AnalysisClient;
+    report: SettingsRestoreStatus;
+  }>();
   const [open, setOpen] = useState(false);
+  useEffect(() => {
+    let active = true;
+    void client.call("settings.restore_status", {}).then(
+      (report) => {
+        if (active) setLoaded({ client, report });
+      },
+      () => undefined,
+    );
+    return () => {
+      active = false;
+    };
+  }, [client]);
+
+  if (!visible || loaded?.client !== client) return null;
   return (
     <>
       <Action variant="quiet" onPress={() => setOpen(true)}>
@@ -103,7 +99,7 @@ export function SettingsRestoration({ client }: { client: AnalysisClient }) {
           title="Settings restoration"
           onClose={() => setOpen(false)}
         >
-          <RestoreReport client={client} />
+          <RestoreReport report={loaded.report} />
         </InspectionDialog>
       )}
     </>
