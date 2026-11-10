@@ -23,8 +23,13 @@ pub struct InvalidSelection;
 
 /// A bridge for one immutable selected set and one injected platform port.
 pub struct Adapter<'a, P> {
-    port: &'a mut P,
+    port: Port<'a, P>,
     selected: BTreeMap<u32, SelectedContent>,
+}
+
+enum Port<'a, P> {
+    Borrowed(&'a mut P),
+    Owned(P),
 }
 
 impl<'a, P> Adapter<'a, P> {
@@ -34,6 +39,14 @@ impl<'a, P> Adapter<'a, P> {
     /// Returns `InvalidSelection` for a mixed version, duplicate item, or empty identity.
     pub fn new(
         port: &'a mut P,
+        version: &Id,
+        selected: Vec<SelectedContent>,
+    ) -> Result<Self, InvalidSelection> {
+        Self::bind(Port::Borrowed(port), version, selected)
+    }
+
+    fn bind(
+        port: Port<'a, P>,
         version: &Id,
         selected: Vec<SelectedContent>,
     ) -> Result<Self, InvalidSelection> {
@@ -57,6 +70,23 @@ impl<'a, P> Adapter<'a, P> {
     }
 }
 
+impl<P> Adapter<'static, P> {
+    /// Binds a port owned by the verification worker to one pinned selection.
+    ///
+    /// This lets a queued job retain the port without borrowing from its caller.
+    /// The caller must keep the source result pinned for the duration of the job.
+    ///
+    /// # Errors
+    /// Returns `InvalidSelection` for a mixed version, duplicate item, or empty identity.
+    pub fn new_owned(
+        port: P,
+        version: &Id,
+        selected: Vec<SelectedContent>,
+    ) -> Result<Self, InvalidSelection> {
+        Self::bind(Port::Owned(port), version, selected)
+    }
+}
+
 impl<P: DuplicateContentPort> ReadPort for Adapter<'_, P> {
     fn open_bound<'a>(
         &'a mut self,
@@ -71,8 +101,11 @@ impl<P: DuplicateContentPort> ReadPort for Adapter<'_, P> {
             return Err(ReadError::Failed);
         }
         let expected = item.identity.clone();
-        let handle = self
-            .port
+        let port = match &mut self.port {
+            Port::Borrowed(port) => &mut **port,
+            Port::Owned(port) => port,
+        };
+        let handle = port
             .open_bound(&item.item, &expected, item.placeholder)
             .map_err(map_error)?;
         Ok(Box::new(Opened { handle, expected }))

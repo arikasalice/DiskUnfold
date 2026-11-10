@@ -10,7 +10,7 @@ use du_duplicate_engine::{
     RegisteredHash,
     candidates::{EntryKind, FileIdentity, Placeholder, Size, Target},
     content_port::{Adapter, SelectedContent},
-    verification::{ReadPort, Snapshot, State, VerificationTarget},
+    verification::{ReadError, ReadPort, Snapshot, State, VerificationTarget},
 };
 use std::collections::BTreeMap;
 
@@ -136,6 +136,42 @@ fn fake() -> Fake {
         changed: false,
         reject: false,
     }
+}
+
+#[test]
+fn worker_owns_the_port_and_opens_only_pinned_selection() -> Result<(), String> {
+    let mut adapter = Adapter::new_owned(
+        fake(),
+        &version(1),
+        vec![selection(1, PlaceholderEvidence::Local)],
+    )
+    .map_err(|error| format!("{error:?}"))?;
+    std::thread::spawn(move || {
+        let expected = FileIdentity {
+            volume: vec![1],
+            file: vec![2],
+        };
+        assert!(matches!(
+            adapter.open_bound(2, &expected),
+            Err(ReadError::Failed)
+        ));
+        let expected = FileIdentity {
+            volume: vec![1],
+            file: vec![1],
+        };
+        let mut file = adapter
+            .open_bound(1, &expected)
+            .map_err(|error| format!("{error:?}"))?;
+        assert_eq!(
+            file.snapshot()
+                .map_err(|error| format!("{error:?}"))?
+                .identity,
+            expected
+        );
+        Ok(())
+    })
+    .join()
+    .map_err(|_| "content worker panicked".to_owned())?
 }
 
 #[test]
