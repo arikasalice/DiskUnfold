@@ -167,6 +167,7 @@ export function TargetPicker({
           {selected.slice(1).map((path, index) => (
             <div className="du-scope-path" key={index}>
               <PathField
+                autoFocus
                 label={`Additional folder path ${index + 2}`}
                 description="Enter a local folder or drive path."
                 placeholder={"D:\\Folder"}

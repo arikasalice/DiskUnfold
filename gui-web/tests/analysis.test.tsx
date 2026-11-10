@@ -1246,10 +1246,11 @@ test("F01 FR3: multi-path controls have accessible labels and preserve the drop 
   add.focus();
   fireEvent.keyDown(add, { key: "Enter", code: "Enter" });
   fireEvent.keyUp(add, { key: "Enter", code: "Enter" });
-  fireEvent.change(
-    screen.getByRole("textbox", { name: "Additional folder path 2" }),
-    { target: { value: "D:\\Kept" } },
-  );
+  const additional = screen.getByRole("textbox", {
+    name: "Additional folder path 2",
+  });
+  expect(document.activeElement).toBe(additional);
+  fireEvent.change(additional, { target: { value: "D:\\Kept" } });
   folderDrop({ seq: 1, pending: true });
   folderDrop({ seq: 1, path: "C:\\Dropped" });
   expect(

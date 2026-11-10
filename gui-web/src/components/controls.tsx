@@ -38,7 +38,7 @@ export function Action({
   );
 }
 
-/** A labelled native-path input. Display text is passed through without rewriting it. */
+/** A labelled native-path input with optional focus on insertion. */
 export function PathField({
   label,
   description,
@@ -46,6 +46,7 @@ export function PathField({
   value,
   onChange,
   isDisabled,
+  autoFocus,
 }: {
   label: string;
   description: string;
@@ -53,6 +54,7 @@ export function PathField({
   value: string;
   onChange: (value: string) => void;
   isDisabled: boolean;
+  autoFocus?: boolean;
 }) {
   return (
     <TextField
@@ -63,6 +65,7 @@ export function PathField({
     >
       <Label>{label}</Label>
       <Input
+        autoFocus={autoFocus}
         placeholder={placeholder ?? ""}
         spellCheck={false}
         autoComplete="off"
