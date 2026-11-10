@@ -153,28 +153,6 @@ pub(crate) fn collect_open_build(
     collect_open_forest(build, vec![root], ids, context, limit, include)
 }
 
-pub(super) fn collect_open_build_filtered(
-    build: Result<BuildHandle, BuildError>,
-    root: Box<dyn AnchoredDirectory>,
-    ids: &dyn ResultIds,
-    context: &dyn JobContext,
-    limit: usize,
-    include: &PreMetadataFilter<'_>,
-) -> JobOutcome {
-    collect_with_policy(
-        build,
-        vec![root],
-        ids,
-        context,
-        limit,
-        Policy::BeforeMetadata(include),
-        DevicePlan {
-            groups: vec![0],
-            limit: 4,
-        },
-    )
-}
-
 /// Collect all roots into the same already opened forest build.
 pub(crate) fn collect_open_forest(
     build: Result<BuildHandle, BuildError>,
@@ -212,6 +190,26 @@ pub(crate) fn collect_open_forest_with_groups(
         context,
         limit,
         Policy::Legacy(include),
+        devices,
+    )
+}
+
+pub(crate) fn collect_open_forest_filtered(
+    build: Result<BuildHandle, BuildError>,
+    roots: Vec<Box<dyn AnchoredDirectory>>,
+    ids: &dyn ResultIds,
+    context: &dyn JobContext,
+    limit: usize,
+    include: &PreMetadataFilter<'_>,
+    devices: DevicePlan,
+) -> JobOutcome {
+    collect_with_policy(
+        build,
+        roots,
+        ids,
+        context,
+        limit,
+        Policy::BeforeMetadata(include),
         devices,
     )
 }

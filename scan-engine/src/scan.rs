@@ -11,7 +11,9 @@ use du_core_contracts::{
     result::ResultCompleteness,
     scan_observation::{AnchoredDirectory, MetadataObservation, ObservedEntry, ObservedKind},
 };
-pub(crate) use parallel::{DevicePlan, collect_open_build, collect_open_forest_with_groups};
+pub(crate) use parallel::{
+    DevicePlan, collect_open_build, collect_open_forest_filtered, collect_open_forest_with_groups,
+};
 use std::collections::VecDeque;
 
 /// Supplies distinct result identifiers for partial and terminal publications.
@@ -22,6 +24,7 @@ pub trait ResultIds: Send + Sync {
 /// A frozen decision over a root, parent path and native child name.
 /// An undecidable match must be returned as `Undecidable`, never `Exclude`.
 pub type PreMetadataFilter<'a> = dyn Fn(u32, &[Vec<u8>], &[u8]) -> du_core_contracts::scan_observation::FilterDecision
+    + Send
     + Sync
     + 'a;
 
@@ -61,7 +64,18 @@ pub fn collect_parallel_filtered(
     limit: usize,
     include: &PreMetadataFilter<'_>,
 ) -> JobOutcome {
-    parallel::collect_open_build_filtered(sink.open(scope), root, ids, context, limit, include)
+    collect_open_forest_filtered(
+        sink.open(scope),
+        vec![root],
+        ids,
+        context,
+        limit,
+        include,
+        DevicePlan {
+            groups: vec![0],
+            limit: 4,
+        },
+    )
 }
 
 struct Frame {

@@ -6,6 +6,110 @@ struct FilteredRoot {
     step: u8,
     probes: Arc<AtomicUsize>,
 }
+
+#[test]
+fn frozen_policy_receives_forest_root_index() -> Result<(), Box<dyn std::error::Error>> {
+    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let ids = Ids(AtomicUsize::new(1));
+    let context = Context {
+        completed: Arc::new(AtomicUsize::new(0)),
+        abandoned: Arc::new(AtomicUsize::new(0)),
+    };
+    let sink = IngestSink::default();
+    let probes = Arc::new(AtomicUsize::new(0));
+    let build = sink.open_forest(
+        ids.next_id(),
+        vec![observed_root("C:\\A", 1), observed_root("D:\\B", 2)],
+    );
+    let roots = (0..2)
+        .map(|_| {
+            Box::new(FilteredRoot {
+                step: 0,
+                probes: probes.clone(),
+            }) as Box<dyn AnchoredDirectory>
+        })
+        .collect();
+    let outcome = collect_open_forest_filtered(
+        build,
+        roots,
+        &ids,
+        &context,
+        1,
+        &|root, _, _| {
+            if root == 0 {
+                FilterDecision::Exclude
+            } else {
+                FilterDecision::Admit
+            }
+        },
+        DevicePlan {
+            groups: vec![0, 1],
+            limit: 1,
+        },
+    );
+    assert!(outcome.result_version_id.is_some());
+    let result = sink
+        .pin()
+        .map_err(|e| format!("{e:?}"))?
+        .ok_or("missing result")?;
+    assert_eq!(result.items().len(), 4);
+    assert_eq!(probes.load(Ordering::SeqCst), 2);
+    for item in result.items().iter().filter(|item| item.parent.is_some()) {
+        let reference = ItemRef {
+            result_version: result.version_id().clone(),
+            item_no: item.item_no,
+        };
+        assert_eq!(
+            result
+                .observed_root_for(&reference)
+                .map_err(|e| format!("{e:?}"))?
+                .0,
+            1
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn metadata_job_uses_the_injected_frozen_policy() -> Result<(), Box<dyn std::error::Error>> {
+    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let ids = Arc::new(Ids(AtomicUsize::new(1)));
+    let context = Arc::new(Context {
+        completed: Arc::new(AtomicUsize::new(0)),
+        abandoned: Arc::new(AtomicUsize::new(0)),
+    });
+    let sink = IngestSink::default();
+    let probes = Arc::new(AtomicUsize::new(0));
+    let root = OpenedScopeRoot {
+        canonical_path: OsPath {
+            encoding: PathEncoding::WindowsUtf16le,
+            raw: PathBytes::from_bytes(&native("C:\\A")),
+            display: "C:\\A".into(),
+            lossy: false,
+        },
+        volume_id: vec![1],
+        file_id: vec![1],
+        directory: Box::new(FilteredRoot {
+            step: 0,
+            probes: probes.clone(),
+        }),
+    };
+    let filter = Arc::new(|_, _: &[Vec<u8>], name: &[u8]| {
+        if name == b"skip" {
+            FilterDecision::Exclude
+        } else {
+            FilterDecision::Admit
+        }
+    });
+    let job = crate::scan_job::MetadataScan::new(root, sink.clone(), ids.next_id(), ids)
+        .with_pre_metadata_filter(filter);
+    assert!(job.run(context).result_version_id.is_some());
+    assert_eq!(probes.load(Ordering::SeqCst), 1);
+    let result = sink.pin().map_err(|e| format!("{e:?}"))?.ok_or("missing")?;
+    assert_eq!(result.items().len(), 2);
+    assert_eq!(result.items()[1].name, b"keep");
+    Ok(())
+}
 impl DirectoryObservations for FilteredRoot {
     fn next_batch(&mut self) -> Result<Vec<ObservedEntry>, PortError> {
         Err(PortError {

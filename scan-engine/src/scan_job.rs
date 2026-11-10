@@ -15,7 +15,10 @@ use du_core_contracts::{
     scan_observation::OpenedScopeRoot,
 };
 
-use crate::scan::{DevicePlan, ResultIds, collect_open_forest_with_groups};
+use crate::scan::{
+    DevicePlan, PreMetadataFilter, ResultIds, collect_open_forest_filtered,
+    collect_open_forest_with_groups,
+};
 
 type DeviceRoots = Vec<(OpenedScopeRoot, Option<Vec<u8>>)>;
 
@@ -44,6 +47,7 @@ pub struct MetadataScan {
     scope: Id,
     lineage: Option<Id>,
     ids: Arc<dyn ResultIds>,
+    filter: Option<Arc<PreMetadataFilter<'static>>>,
 }
 
 impl MetadataScan {
@@ -89,11 +93,18 @@ impl MetadataScan {
             scope,
             lineage: None,
             ids,
+            filter: None,
         }
     }
     /// Binds this scan to the stable lineage of its verified scope and source.
     pub fn with_lineage(mut self, lineage: Id) -> Self {
         self.lineage = Some(lineage);
+        self
+    }
+
+    /// Installs an immutable pre-metadata decision for every root of this job.
+    pub fn with_pre_metadata_filter(mut self, filter: Arc<PreMetadataFilter<'static>>) -> Self {
+        self.filter = Some(filter);
         self
     }
 }
@@ -132,15 +143,27 @@ impl JobBody for MetadataScan {
                     ),
                     None => self.store.open_forest(self.scope.clone(), observed),
                 };
-                collect_open_forest_with_groups(
-                    build,
-                    directories,
-                    &*self.ids,
-                    &*context,
-                    DEFAULT_SCAN_WORKERS,
-                    &|_| true,
-                    DevicePlan { groups, limit: 4 },
-                )
+                let devices = DevicePlan { groups, limit: 4 };
+                match &self.filter {
+                    Some(filter) => collect_open_forest_filtered(
+                        build,
+                        directories,
+                        &*self.ids,
+                        &*context,
+                        DEFAULT_SCAN_WORKERS,
+                        &**filter,
+                        devices,
+                    ),
+                    None => collect_open_forest_with_groups(
+                        build,
+                        directories,
+                        &*self.ids,
+                        &*context,
+                        DEFAULT_SCAN_WORKERS,
+                        &|_| true,
+                        devices,
+                    ),
+                }
             }
             _ => JobOutcome {
                 counts: Default::default(),
