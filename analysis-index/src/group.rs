@@ -1,10 +1,10 @@
 //! File membership and category totals from one immutable analysis result.
 
-use std::sync::Arc;
+use std::{collections::BTreeMap, sync::Arc};
 
 use du_core_contracts::{
     ItemRef,
-    result::{ResultItemKind, SpaceAggregate},
+    result::{ResultCompleteness, ResultItemKind, ResultVersionRead, SpaceAggregate},
 };
 
 use crate::{
@@ -58,6 +58,21 @@ pub struct Categories {
     pub undecidable: Vec<ItemRef>,
 }
 
+/// Reconciliation of observed files across all rules, independent of group selection.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Reconciliation {
+    pub observed_files: usize,
+    pub matched_files: usize,
+    pub unclassified_files: usize,
+    pub undecidable_files: usize,
+    /// Whether retained source evidence covers the entire requested scope.
+    pub source_coverage_complete: bool,
+    /// Known reason keys counted once per undecidable file.
+    pub known_reason_counts: BTreeMap<&'static str, usize>,
+    /// Undecidable files with an unknown predicate whose reason is not supplied.
+    pub unattributed_files: usize,
+}
+
 /// Each value is calculated independently by F03 from the corresponding item set.
 pub struct Totals {
     pub groups: Vec<SpaceAggregate>,
@@ -75,6 +90,7 @@ pub enum Error {
     InvalidRoot,
     InvalidRule(query::Error),
     InvalidSelection,
+    InconsistentMembership,
     Total(query::SpaceTotalError),
     Cancelled,
 }
@@ -181,6 +197,51 @@ impl Classification {
     /// Returns file membership from the pinned classification read.
     pub fn rows(&self) -> &[Member] {
         &self.rows
+    }
+
+    /// Checks the observed partition using all rules and counts only established reasons.
+    /// Unattributed and unavailable counts may overlap for the same undecidable file.
+    /// Incomplete source coverage makes the observed count a non-exhaustive scope count.
+    pub fn reconcile(&self, mut cancelled: impl FnMut() -> bool) -> Result<Reconciliation, Error> {
+        let mut matched = 0;
+        let mut unclassified = 0;
+        let mut undecidable = 0;
+        let mut unavailable = 0;
+        let mut unattributed = 0;
+        for row in &self.rows {
+            check(&mut cancelled)?;
+            if row.decisions.len() != self.rule_count {
+                return Err(Error::InconsistentMembership);
+            }
+            if row.decisions.contains(&Decision::Match) {
+                matched += 1;
+                continue;
+            }
+            let unavailable_rule = row.decisions.contains(&Decision::RuleUnavailable);
+            let unknown = row.decisions.contains(&Decision::Unknown);
+            if unavailable_rule || unknown {
+                undecidable += 1;
+                unavailable += usize::from(unavailable_rule);
+                unattributed += usize::from(unknown);
+            } else {
+                unclassified += 1;
+            }
+        }
+        check(&mut cancelled)?;
+        let mut known_reason_counts = BTreeMap::new();
+        if unavailable > 0 {
+            known_reason_counts.insert("group.rule_unevaluable", unavailable);
+        }
+        Ok(Reconciliation {
+            observed_files: self.rows.len(),
+            matched_files: matched,
+            unclassified_files: unclassified,
+            undecidable_files: undecidable,
+            source_coverage_complete: self.coverage_complete
+                && self.version.completeness() == ResultCompleteness::Complete,
+            known_reason_counts,
+            unattributed_files: unattributed,
+        })
     }
 
     /// Computes sets for all individual groups and the requested union and overlap.

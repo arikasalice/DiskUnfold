@@ -243,3 +243,132 @@ fn empty_folder_stays_empty_and_another_version_is_rejected() -> Result<(), Stri
     ));
     Ok(())
 }
+
+#[test]
+fn reconciliation_uses_all_rules_and_counts_known_and_unattributed_reasons_per_file()
+-> Result<(), String> {
+    fn unknown(
+        _: &du_analysis_index::query::Record<'_>,
+        _: &Predicate,
+    ) -> du_analysis_index::query::Truth {
+        du_analysis_index::query::Truth::Unknown
+    }
+    let (version, root) = fixture()?;
+    let mut registry = Registry::baseline();
+    registry
+        .register_predicate("pred.unknown", 1, unknown)
+        .map_err(|e| format!("{e:?}"))?;
+    let unavailable = Condition::Predicate(Predicate::Registered {
+        id: "pred.absent".into(),
+        revision: 1,
+        operand: vec![],
+    });
+    let rules = [
+        rule(NameTest::StartsWith(b"a-".to_vec())),
+        rule(NameTest::StartsWith(b"b-".to_vec())),
+        Condition::Predicate(Predicate::Registered {
+            id: "pred.unknown".into(),
+            revision: 1,
+            operand: vec![],
+        }),
+        unavailable.clone(),
+        unavailable,
+    ];
+    let read = group::classify(version, &root, &registry, &rules, || false)
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(
+        read.categories(&[0], || false)
+            .map_err(|e| format!("{e:?}"))?
+            .union
+            .len(),
+        1
+    );
+    let summary = read.reconcile(|| false).map_err(|e| format!("{e:?}"))?;
+    assert_eq!(
+        (
+            summary.observed_files,
+            summary.matched_files,
+            summary.unclassified_files,
+            summary.undecidable_files
+        ),
+        (3, 2, 0, 1)
+    );
+    assert!(summary.source_coverage_complete);
+    assert_eq!(
+        summary.known_reason_counts.get("group.rule_unevaluable"),
+        Some(&1)
+    );
+    assert_eq!(summary.unattributed_files, 1);
+    assert!(matches!(read.reconcile(|| true), Err(Error::Cancelled)));
+    Ok(())
+}
+
+#[test]
+fn reconciliation_identifies_partial_coverage_and_empty_scope() -> Result<(), String> {
+    let sink = IngestSink::default();
+    let mut build = sink.open(id(1)).map_err(|e| format!("{e:?}"))?;
+    build.add_directory(vec![]).map_err(|e| format!("{e:?}"))?;
+    build
+        .add_file(Observation {
+            path: vec![b"file".to_vec()],
+            size: None,
+        })
+        .map_err(|e| format!("{e:?}"))?;
+    let partial = build.publish_partial(id(2)).map_err(|e| format!("{e:?}"))?;
+    let root = ItemRef {
+        result_version: id(2),
+        item_no: 0,
+    };
+    let read = group::classify(partial, &root, &Registry::baseline(), &[], || false)
+        .map_err(|e| format!("{e:?}"))?;
+    let summary = read.reconcile(|| false).map_err(|e| format!("{e:?}"))?;
+    assert_eq!((summary.observed_files, summary.unclassified_files), (1, 1));
+    assert!(!summary.source_coverage_complete);
+    assert!(summary.known_reason_counts.is_empty());
+    assert_eq!(summary.unattributed_files, 0);
+    let (version, _) = fixture()?;
+    let empty = version
+        .items()
+        .iter()
+        .find(|i| i.name == b"empty")
+        .ok_or("empty")?;
+    let root = ItemRef {
+        result_version: id(2),
+        item_no: empty.item_no,
+    };
+    let read = group::classify(version, &root, &Registry::baseline(), &[], || false)
+        .map_err(|e| format!("{e:?}"))?;
+    let summary = read.reconcile(|| false).map_err(|e| format!("{e:?}"))?;
+    assert_eq!(
+        (
+            summary.observed_files,
+            summary.matched_files,
+            summary.unclassified_files,
+            summary.undecidable_files
+        ),
+        (0, 0, 0, 0)
+    );
+    assert!(summary.source_coverage_complete);
+    let sink = IngestSink::default();
+    let mut build = sink.open(id(4)).map_err(|e| format!("{e:?}"))?;
+    build.add_directory(vec![]).map_err(|e| format!("{e:?}"))?;
+    build
+        .add_untraversed_link(vec![b"link".to_vec()])
+        .map_err(|e| format!("{e:?}"))?;
+    let version = build
+        .seal(id(5), ResultCompleteness::Complete)
+        .map_err(|e| format!("{e:?}"))?;
+    let root = ItemRef {
+        result_version: id(5),
+        item_no: 0,
+    };
+    let read = group::classify(version, &root, &Registry::baseline(), &[], || false)
+        .map_err(|e| format!("{e:?}"))?;
+    assert!(
+        !read
+            .reconcile(|| false)
+            .map_err(|e| format!("{e:?}"))?
+            .source_coverage_complete
+    );
+    Ok(())
+}
