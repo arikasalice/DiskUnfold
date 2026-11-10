@@ -1,7 +1,9 @@
 //! Per-directory case flag observations, not a filesystem name comparator.
 use super::{WindowsDirectory, identity, info, invalid, raw, recall, verified_directory, wide};
 use du_core_contracts::ports::{PortError, PortErrorKind};
-use du_core_contracts::scan_observation::{ObservedEntry, ObservedKind};
+use du_core_contracts::scan_observation::{
+    DirectoryCaseEvidence, DirectoryCaseState, ObservedEntry, ObservedKind,
+};
 use std::collections::VecDeque;
 use std::mem::size_of;
 use windows::{
@@ -43,6 +45,52 @@ fn unsupported(code: Option<i32>) -> PortError {
         kind: PortErrorKind::Unsupported,
         reason_key: "os.query_failed".into(),
         os_code: code,
+    }
+}
+
+fn query_error(status: i32) -> PortError {
+    // These statuses mean the information class or operation is unsupported.
+    let unsupported_status = matches!(status as u32, 0xc000_0003 | 0xc000_0010 | 0xc000_00bb);
+    PortError {
+        kind: if unsupported_status {
+            PortErrorKind::Unsupported
+        } else {
+            PortErrorKind::Io
+        },
+        reason_key: "os.query_failed".into(),
+        // SAFETY: this function only converts an NTSTATUS value.
+        os_code: Some(
+            unsafe { RtlNtStatusToDosError(windows::Win32::Foundation::NTSTATUS(status)) } as i32,
+        ),
+    }
+}
+
+/// Maps a completed handle observation without inventing a path comparison key.
+pub(super) fn evidence(
+    result: Result<DirectoryCaseObservation, PortError>,
+    observed_at: Option<du_core_contracts::Timestamp>,
+) -> DirectoryCaseEvidence {
+    let (state, reason_key) = match result {
+        Ok(value) => (
+            match value.mode {
+                DirectoryCaseMode::Sensitive => DirectoryCaseState::Sensitive,
+                DirectoryCaseMode::Insensitive => DirectoryCaseState::Insensitive,
+            },
+            None,
+        ),
+        Err(error) => (
+            if error.kind == PortErrorKind::Unsupported {
+                DirectoryCaseState::Unsupported
+            } else {
+                DirectoryCaseState::Failed
+            },
+            Some(error.reason_key),
+        ),
+    };
+    DirectoryCaseEvidence {
+        state,
+        observed_at,
+        reason_key,
     }
 }
 
@@ -104,16 +152,43 @@ impl WindowsDirectory {
 
     /// Queries this verified handle without opening or enumerating a child.
     ///
-    /// Failure and unrecognized flag bits are returned as unsupported; callers
-    /// must not infer a mode from a volume feature or from an ancestor's flag.
+    /// Explicitly unsupported queries and unrecognized flag bits are unsupported;
+    /// other query or identity failures remain errors. Callers must not infer a
+    /// mode from a volume feature or from an ancestor's flag.
     pub fn case_sensitivity(&self) -> Result<DirectoryCaseObservation, PortError> {
+        self.case_sensitivity_with_clock(&|| None).0
+    }
+
+    /// Observes the flag once and timestamps only an attempted native query.
+    pub(super) fn case_sensitivity_with_clock(
+        &self,
+        clock: &dyn Fn() -> Option<du_core_contracts::Timestamp>,
+    ) -> (
+        Result<DirectoryCaseObservation, PortError>,
+        Option<du_core_contracts::Timestamp>,
+    ) {
+        let mut observed_at = None;
+        let result = self.query_case(&mut || {
+            observed_at = clock();
+        });
+        (result, observed_at)
+    }
+
+    fn query_case(
+        &self,
+        after_query: &mut dyn FnMut(),
+    ) -> Result<DirectoryCaseObservation, PortError> {
         let before = info(&self.handle)?;
-        recall::check_handle_attributes(before.dwFileAttributes)?;
+        recall::check_handle_attributes(before.dwFileAttributes).map_err(preflight_failed)?;
         if before.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY.0 == 0
             || before.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT.0 != 0
             || identity(&before) == 0
         {
-            return Err(unsupported(None));
+            return Err(PortError {
+                kind: PortErrorKind::IdentityChanged,
+                reason_key: "os.query_failed".into(),
+                os_code: None,
+            });
         }
         let mut data = FILE_CASE_SENSITIVE_INFORMATION::default();
         let mut status = IO_STATUS_BLOCK::default();
@@ -128,18 +203,20 @@ impl WindowsDirectory {
                 FileCaseSensitiveInformation,
             )
         };
+        after_query();
         if result.0 != 0 {
-            // SAFETY: this function only converts an NTSTATUS value.
-            return Err(unsupported(Some(
-                unsafe { RtlNtStatusToDosError(result) } as i32
-            )));
+            return Err(query_error(result.0));
         }
         if status.Information != size_of::<FILE_CASE_SENSITIVE_INFORMATION>() {
-            return Err(unsupported(None));
+            return Err(PortError {
+                kind: PortErrorKind::Io,
+                reason_key: "os.query_failed".into(),
+                os_code: None,
+            });
         }
         let mode = mode(data.Flags)?;
         let after = info(&self.handle)?;
-        recall::check_handle_attributes(after.dwFileAttributes)?;
+        recall::check_handle_attributes(after.dwFileAttributes).map_err(preflight_failed)?;
         if identity(&after) != identity(&before)
             || after.dwVolumeSerialNumber != before.dwVolumeSerialNumber
             || after.dwFileAttributes != before.dwFileAttributes
@@ -158,6 +235,11 @@ impl WindowsDirectory {
     }
 }
 
+fn preflight_failed(mut error: PortError) -> PortError {
+    error.kind = PortErrorKind::Io;
+    error
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -170,6 +252,48 @@ mod tests {
         assert_eq!(mode(1).map(|v| v == DirectoryCaseMode::Sensitive), Ok(true));
         assert!(mode(2).is_err());
         assert!(mode(3).is_err());
+    }
+
+    #[test]
+    fn query_status_and_identity_failures_remain_distinct() {
+        for (mode, state) in [
+            (DirectoryCaseMode::Sensitive, DirectoryCaseState::Sensitive),
+            (
+                DirectoryCaseMode::Insensitive,
+                DirectoryCaseState::Insensitive,
+            ),
+        ] {
+            let value = evidence(
+                Ok(DirectoryCaseObservation {
+                    mode,
+                    volume_serial: 1,
+                    file_index: 2,
+                }),
+                None,
+            );
+            assert_eq!(value.state, state);
+            assert_eq!(value.reason_key, None);
+        }
+        for status in [0xc000_0003_u32, 0xc000_0010, 0xc000_00bb] {
+            assert_eq!(query_error(status as i32).kind, PortErrorKind::Unsupported);
+        }
+        assert_eq!(query_error(0xc000_0022_u32 as i32).kind, PortErrorKind::Io);
+        for kind in [PortErrorKind::Io, PortErrorKind::IdentityChanged] {
+            let value = evidence(
+                Err(PortError {
+                    kind,
+                    reason_key: "os.query_failed".into(),
+                    os_code: None,
+                }),
+                None,
+            );
+            assert_eq!(value.state, DirectoryCaseState::Failed);
+            assert_eq!(value.reason_key.as_deref(), Some("os.query_failed"));
+        }
+        assert_eq!(
+            evidence(Err(unsupported(None)), None).state,
+            DirectoryCaseState::Unsupported
+        );
     }
 
     #[test]

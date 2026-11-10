@@ -1,7 +1,43 @@
 #![cfg(windows)]
-use du_core_contracts::scan_observation::DirectoryObservations;
+use du_core_contracts::{
+    Timestamp,
+    scan_observation::{AnchoredDirectory, DirectoryCaseState, DirectoryObservations},
+};
 use du_platform_os::windows_observation::{case_sensitivity::DirectoryCaseMode, open_verified};
 use std::{fs, process::Command};
+
+/// The optional scan port reports the same handle observation and one timestamp.
+#[test]
+fn optional_port_preserves_handle_result_and_observation_time()
+-> Result<(), Box<dyn std::error::Error>> {
+    let temp = tempfile::tempdir()?;
+    let directory = open_verified(temp.path()).map_err(|e| format!("{e:?}"))?;
+    let low_level = directory.case_sensitivity().map_err(|e| format!("{e:?}"))?;
+    let calls = std::cell::Cell::new(0);
+    let expected = Timestamp::from_unix_millis(123);
+    let observed = directory
+        .observe_directory_case(&|| {
+            calls.set(calls.get() + 1);
+            expected.clone()
+        })
+        .ok_or("missing evidence")?;
+    assert_eq!(calls.get(), 1);
+    assert_eq!(observed.observed_at, expected);
+    assert_eq!(observed.reason_key, None);
+    assert_eq!(
+        observed.state,
+        match low_level.mode {
+            DirectoryCaseMode::Sensitive => DirectoryCaseState::Sensitive,
+            DirectoryCaseMode::Insensitive => DirectoryCaseState::Insensitive,
+        }
+    );
+    let unavailable_clock = directory
+        .observe_directory_case(&|| None)
+        .ok_or("missing evidence")?;
+    assert_eq!(unavailable_clock.observed_at, None);
+    assert_eq!(unavailable_clock.state, observed.state);
+    Ok(())
+}
 
 #[test]
 fn reports_flag_for_the_open_directory_without_reopening_its_name()

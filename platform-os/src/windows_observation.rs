@@ -436,6 +436,13 @@ impl WindowsDirectory {
     }
 }
 impl AnchoredDirectory for WindowsDirectory {
+    fn observe_directory_case(
+        &self,
+        clock: &dyn Fn() -> Option<du_core_contracts::Timestamp>,
+    ) -> Option<du_core_contracts::scan_observation::DirectoryCaseEvidence> {
+        let (result, observed_at) = self.case_sensitivity_with_clock(clock);
+        Some(case_sensitivity::evidence(result, observed_at))
+    }
     fn volume_space_reader(
         &self,
     ) -> Result<Box<dyn du_core_contracts::scan_observation::VolumeSpaceReader>, PortError> {
@@ -455,7 +462,6 @@ impl AnchoredDirectory for WindowsDirectory {
             ancestors: None,
         }))
     }
-
     fn observed_modified_at(&self) -> Option<du_core_contracts::Timestamp> {
         timestamps::modified_at(&self.handle)
     }
