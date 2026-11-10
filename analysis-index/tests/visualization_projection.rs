@@ -1,7 +1,8 @@
 use du_analysis_index::{
     IngestSink, Observation, ResultVersion,
     visualization::{
-        geometry::Rect,
+        AreaValue,
+        geometry::{NoArea, Rect},
         projection::{self, Options, Source},
         registry, treemap,
         typed_layout::{self, Dispatcher, Input, Strategy},
@@ -148,8 +149,75 @@ fn projection_keeps_source_rows_and_verified_totals() -> Result<(), String> {
         assert_eq!(shape.meta.visible_depth, 1);
         assert_eq!(shape.meta.shape_ref, format!("s{:x}-1", row.item.item_no));
         assert_eq!(shape.meta.root_branch_ref, None);
+        assert_eq!(row.root_branch_ref, None);
+        assert_eq!(row.area_value, AreaValue::Positive);
+        assert_eq!(row.omission, None);
+        assert_eq!(row.omitted_children, 0);
     }
+    let zero = model
+        .rows
+        .iter()
+        .find(|row| row.area_value == AreaValue::ExactZero)
+        .ok_or("missing zero")?;
+    assert_eq!(zero.omission, Some(NoArea::ExactZero));
     assert_eq!(model.strategy, typed_layout::treemap_descriptor());
+    Ok(())
+}
+
+#[test]
+fn folder_branch_is_carried_to_projection_row_and_shape() -> Result<(), String> {
+    let id = |n| Id::parse(&format!("018f0000-0000-7000-8000-{n:012x}"));
+    let sink = IngestSink::default();
+    let mut builder = sink.open(id(10)?).map_err(|e| format!("{e:?}"))?;
+    builder
+        .add_directory(vec![])
+        .map_err(|e| format!("{e:?}"))?;
+    builder
+        .add_directory(vec![b"folder".to_vec()])
+        .map_err(|e| format!("{e:?}"))?;
+    builder
+        .add_file(Observation {
+            path: vec![b"folder".to_vec(), b"file".to_vec()],
+            size: Some(SizeValue {
+                basis: SizeBasis::Logical,
+                evidence: SizeEvidence::Measured,
+                amount: SizeAmount::Exact {
+                    bytes: 5_u64.into(),
+                },
+            }),
+        })
+        .map_err(|e| format!("{e:?}"))?;
+    let version = builder
+        .seal(id(11)?, ResultCompleteness::Complete)
+        .map_err(|e| format!("{e:?}"))?;
+    let parent = ItemRef {
+        result_version: version.version_id().clone(),
+        item_no: 0,
+    };
+    let folder = ItemRef {
+        result_version: version.version_id().clone(),
+        item_no: version
+            .items()
+            .iter()
+            .find(|item| item.name == b"folder")
+            .ok_or("missing folder")?
+            .item_no,
+    };
+    let keys = vec![treemap::ChildKey {
+        item: folder.clone(),
+        path_compare_key: b"folder".to_vec(),
+    }];
+    let (_, _, _, dispatcher) = fixture()?;
+    let model = projection::project(
+        source(&version, &parent, SizeBasis::Logical, &keys),
+        &dispatcher,
+        options(10),
+        &mut || false,
+    )
+    .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(model.rows[0].root_branch_ref, Some(folder.clone()));
+    assert_eq!(model.rows[0].omitted_children, 1);
+    assert_eq!(model.shapes[0].meta.root_branch_ref, Some(folder));
     Ok(())
 }
 #[test]

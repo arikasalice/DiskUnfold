@@ -26,6 +26,14 @@ use std::num::NonZeroU64;
 pub struct Row {
     pub item: ItemRef,
     pub size: SizeValue,
+    /// First child folder of the navigation root, or no established branch.
+    pub root_branch_ref: Option<ItemRef>,
+    /// Source value state, independent of whether the row has geometry.
+    pub area_value: super::AreaValue,
+    /// Layout omission reason, or `None` when the row has a shape.
+    pub omission: Option<NoArea>,
+    /// Immediate children outside this single-level projection, not a recursive count.
+    pub omitted_children: usize,
     /// Ratio to the admitted parent's exact value in the selected size basis.
     pub ratio: Option<String>,
 }
@@ -124,6 +132,7 @@ pub fn project(
         return Err(Error::ShapeLimitExceeded);
     }
     let mut visited = vec![false; input.rows().len()];
+    let mut omission_reasons = vec![None; input.rows().len()];
     let mut drawn_bytes = 0_u64;
     let mut shapes = Vec::with_capacity(selected.output.shapes.len());
     for shape in selected.output.shapes {
@@ -169,6 +178,7 @@ pub fn project(
         {
             return Err(Error::InvalidLayout);
         }
+        omission_reasons[omitted.row_index] = Some(omitted.reason);
     }
     if visited.iter().any(|v| !v) {
         return Err(Error::InvalidLayout);
@@ -180,7 +190,7 @@ pub fn project(
         &relationships,
     )
     .map_err(Error::Links)?;
-    let rows = project_rows(&input, &parent_value, cancelled)?;
+    let rows = project_rows(version, &input, &parent_value, &omission_reasons, cancelled)?;
     if cancelled() {
         return Err(Error::Cancelled);
     }
@@ -205,8 +215,10 @@ pub fn project(
 }
 
 fn project_rows(
+    version: &ResultVersion,
     input: &Input,
     parent_value: &SizeValue,
+    omission_reasons: &[Option<NoArea>],
     cancelled: &mut dyn FnMut() -> bool,
 ) -> Result<Vec<Row>, Error> {
     let SizeAmount::Exact { bytes } = &parent_value.amount else {
@@ -218,13 +230,19 @@ fn project_rows(
         .map_err(|_| Error::InvalidSource)?;
     let denominator = NonZeroU64::new(total);
     let mut rows = Vec::with_capacity(input.rows().len());
-    for row in input.rows() {
+    for (index, row) in input.rows().iter().enumerate() {
         if cancelled() {
             return Err(Error::Cancelled);
         }
         rows.push(Row {
             item: row.item().clone(),
             size: row.value().clone(),
+            root_branch_ref: (version.items()[row.item().item_no as usize].kind
+                == ResultItemKind::Directory)
+                .then(|| row.item().clone()),
+            area_value: super::area(row.value()),
+            omission: omission_reasons[index],
+            omitted_children: version.children(row.item().item_no).len(),
             ratio: denominator.map(|total| ratio::format_ratio(i128::from(row.bytes()), total)),
         });
     }
