@@ -257,7 +257,8 @@ pub fn open_verified(path: &Path) -> Result<WindowsDirectory, PortError> {
     open_verified_impl(path, false)
 }
 
-pub(crate) fn open_verified_stable(path: &Path) -> Result<WindowsDirectory, PortError> {
+/// Opens a verified local directory and retains its ancestor handles without delete sharing.
+pub fn open_verified_stable(path: &Path) -> Result<WindowsDirectory, PortError> {
     open_verified_impl(path, true)
 }
 

@@ -17,6 +17,9 @@ pub mod windows_console;
 pub mod windows_duplicate;
 #[cfg(target_os = "windows")]
 #[allow(unsafe_code)]
+pub mod windows_instance_lock;
+#[cfg(target_os = "windows")]
+#[allow(unsafe_code)]
 pub mod windows_observation;
 #[cfg(target_os = "windows")]
 #[allow(unsafe_code)]
