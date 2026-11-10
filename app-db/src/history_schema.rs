@@ -1,4 +1,4 @@
-//! The built-in settings and job history schema chain.
+//! The built-in settings, job history and recent scope schema chain.
 
 use std::path::Path;
 
@@ -16,10 +16,10 @@ const TERMINAL_SUMMARY: &str = concat!(
     include_str!("job_history/terminal_summary.sql")
 );
 
-/// Current database version for the history-enabled store.
-pub const HISTORY_SCHEMA_VERSION: u32 = 3;
+/// Current database version for the desktop store with job history.
+pub const HISTORY_SCHEMA_VERSION: u32 = 4;
 
-/// Job history migrations in application-wide order, after the known settings schema.
+/// Desktop migrations in application-wide order, after the known settings schema.
 pub const HISTORY_DEFINITIONS: Definitions<'static> = Definitions {
     baseline: SCHEMA_VERSION,
     steps: &[
@@ -28,8 +28,12 @@ pub const HISTORY_DEFINITIONS: Definitions<'static> = Definitions {
             sql: TERMINAL_SUMMARY,
         },
         Definition {
-            number: HISTORY_SCHEMA_VERSION,
+            number: 3,
             sql: include_str!("job_history/history_records.sql"),
+        },
+        Definition {
+            number: HISTORY_SCHEMA_VERSION,
+            sql: crate::recent_scope_schema::DEFINITION,
         },
     ],
 };

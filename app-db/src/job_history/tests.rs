@@ -252,8 +252,8 @@ fn append_leaves_legacy_settings_database_untouched() -> TestResult {
 }
 
 #[test]
-fn legacy_settings_survive_both_history_definitions_and_scan_append() -> TestResult {
-    use crate::{HISTORY_DEFINITIONS, migration::apply_next};
+fn legacy_settings_survive_desktop_migrations_and_scan_append() -> TestResult {
+    use crate::{HISTORY_DEFINITIONS, HISTORY_SCHEMA_VERSION, migration::apply_next};
     use rusqlite::Connection;
 
     let dir = tempfile::tempdir()?;
@@ -292,6 +292,15 @@ fn legacy_settings_survive_both_history_definitions_and_scan_append() -> TestRes
         apply_next(&path, &second_backup, &HISTORY_DEFINITIONS)
             .map_err(|error| format!("{error:?}"))?,
         3
+    );
+    assert_eq!(
+        apply_next(
+            &path,
+            &dir.path().join("before-recent-scope.db"),
+            &HISTORY_DEFINITIONS
+        )
+        .map_err(|error| format!("{error:?}"))?,
+        HISTORY_SCHEMA_VERSION
     );
     let mut db = AppDb::open_gui_with_history(&path).map_err(|error| format!("{error:?}"))?;
     assert_eq!(

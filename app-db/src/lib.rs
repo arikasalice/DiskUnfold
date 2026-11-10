@@ -12,6 +12,7 @@ use rusqlite::{Connection, OpenFlags, Transaction, TransactionBehavior};
 mod history_schema;
 mod job_history;
 pub mod migration;
+mod recent_scope_schema;
 mod settings;
 
 pub use history_schema::{HISTORY_DEFINITIONS, HISTORY_SCHEMA_VERSION};

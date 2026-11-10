@@ -272,16 +272,17 @@ fn foreign_and_newer_files_are_rejected_without_mutation() -> Result<(), Box<dyn
     let newer = dir.path().join("newer.db");
     let db = Connection::open(&newer)?;
     db.pragma_update(None, "application_id", APPLICATION_ID)?;
-    db.pragma_update(None, "user_version", HISTORY_SCHEMA_VERSION + 1)?;
+    let unsupported = HISTORY_SCHEMA_VERSION + 1;
+    db.pragma_update(None, "user_version", unsupported)?;
     drop(db);
     let before = std::fs::read(&newer)?;
     assert!(matches!(
         AppDb::open_gui(&newer),
-        Err(OpenError::UnsupportedSchema(4))
+        Err(OpenError::UnsupportedSchema(version)) if version == unsupported
     ));
     assert!(matches!(
         AppDb::open_read_only(&newer),
-        Err(OpenError::UnsupportedSchema(4))
+        Err(OpenError::UnsupportedSchema(version)) if version == unsupported
     ));
     assert_eq!(std::fs::read(newer)?, before);
     Ok(())

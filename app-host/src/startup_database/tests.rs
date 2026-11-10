@@ -51,15 +51,16 @@ fn startup_migrates_preserves_settings_and_keeps_lock_until_last_writer() -> Tes
     assert_eq!(settings.scan_limit_source()().entries(), 200_000);
 
     let live = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
-    let counts: (i64, i64) = live.query_row(
+    let counts: (i64, i64, i64) = live.query_row(
         "SELECT (SELECT count(*) FROM job_runtime_job_record),
-                (SELECT count(*) FROM job_runtime_job_link)",
+                (SELECT count(*) FROM job_runtime_job_link),
+                (SELECT count(*) FROM user_env_recent_scope)",
         [],
-        |row| Ok((row.get(0)?, row.get(1)?)),
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
     )?;
-    assert_eq!(counts, (1, 1));
+    assert_eq!(counts, (1, 1, 0));
     let backups = dir.path().join("db-backups");
-    assert_eq!(fs::read_dir(&backups)?.count(), 2);
+    assert_eq!(fs::read_dir(&backups)?.count(), 3);
     let original = Connection::open_with_flags(
         backups
             .join("backup-00000000000000000001")

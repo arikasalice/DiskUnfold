@@ -27,23 +27,21 @@ fn startup_definitions_preserve_settings_and_report_four_backup_boundary()
     let root = sandbox.path().join("backups");
     fs::create_dir(&root)?;
     seed(&path)?;
-    for expected in [2, 3] {
+    for expected in [2, 3, 4] {
         let outcome =
             apply_next_managed(&path, &root, &HISTORY_DEFINITIONS).map_err(|e| format!("{e:?}"))?;
         assert_eq!(outcome.revision, expected);
         assert!(outcome.retention.cleanup_unavailable);
     }
-    assert_eq!(state(&path)?, (3, 7, "\"ko\"".into()));
+    assert_eq!(state(&path)?, (4, 7, "\"ko\"".into()));
     let first = root.join("backup-00000000000000000001").join(COPY);
     let second = root.join("backup-00000000000000000002").join(COPY);
+    let third = root.join("backup-00000000000000000003").join(COPY);
     assert_eq!(state(&first)?, (1, 7, "\"ko\"".into()));
     assert_eq!(state(&second)?, (2, 7, "\"ko\"".into()));
+    assert_eq!(state(&third)?, (3, 7, "\"ko\"".into()));
     drop(AppDb::open_gui_with_history(&path).map_err(|e| format!("{e:?}"))?);
     let current = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
-    assert_eq!(
-        publish(&current, 3, &root).map_err(|e| format!("{e:?}"))?,
-        3
-    );
     assert_eq!(
         inspect_retention(&root)
             .map_err(|e| format!("{e:?}"))?
@@ -51,7 +49,7 @@ fn startup_definitions_preserve_settings_and_report_four_backup_boundary()
         3
     );
     assert_eq!(
-        publish(&current, 3, &root).map_err(|e| format!("{e:?}"))?,
+        publish(&current, 4, &root).map_err(|e| format!("{e:?}"))?,
         4
     );
     let report = inspect_retention(&root).map_err(|e| format!("{e:?}"))?;
