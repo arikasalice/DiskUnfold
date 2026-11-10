@@ -215,7 +215,8 @@ pub fn project(
         if std::mem::replace(&mut visited[omitted.row_index], true)
             || !matches!(
                 (omitted.reason, row.bytes()),
-                (NoArea::ExactZero, 0) | (NoArea::CoordinatePrecision, 1..)
+                (NoArea::ExactZero | NoArea::LowerBoundZero, 0)
+                    | (NoArea::CoordinatePrecision, 1..)
             )
         {
             return Err(Error::InvalidLayout);
@@ -263,14 +264,13 @@ fn project_rows(
     omission_reasons: &[Option<NoArea>],
     cancelled: &mut dyn FnMut() -> bool,
 ) -> Result<Vec<Row>, Error> {
-    let SizeAmount::Exact { bytes } = &parent_value.amount else {
-        return Err(Error::UnavailableAttribution);
+    let denominator = match &parent_value.amount {
+        SizeAmount::Exact { bytes } => {
+            NonZeroU64::new(bytes.as_str().parse().map_err(|_| Error::InvalidSource)?)
+        }
+        SizeAmount::LowerBound { .. } => None,
+        SizeAmount::Unknown => return Err(Error::UnavailableAttribution),
     };
-    let total = bytes
-        .as_str()
-        .parse::<u64>()
-        .map_err(|_| Error::InvalidSource)?;
-    let denominator = NonZeroU64::new(total);
     let mut rows = Vec::with_capacity(input.rows().len());
     for (index, row) in input.rows().iter().enumerate() {
         if cancelled() {

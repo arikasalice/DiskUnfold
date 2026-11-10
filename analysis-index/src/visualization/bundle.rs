@@ -1,6 +1,6 @@
 //! Composition of implemented typed visualization layout strategies.
 //!
-//! The current typed boundary admits only an exact single-parent treemap input.
+//! The typed boundary admits a single-parent treemap from attributable bytes.
 //! A partial bundle is not a release-ready F06 default bundle or catalog.
 use super::{
     registry,

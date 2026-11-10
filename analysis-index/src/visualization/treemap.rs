@@ -7,7 +7,7 @@ use super::{geometry::valid_bounds, reference, root_ref, squarify, value};
 use crate::{FileIdentity, ResultVersion, SharingEvidence};
 use du_core_contracts::{
     ItemRef, SizeAmount, SizeBasis, SizeEvidence, SizeValue,
-    result::{ResultItemKind, ResultVersionRead},
+    result::{ResultCompleteness, ResultItemKind, ResultVersionRead},
 };
 use std::collections::{BTreeMap, HashMap};
 
@@ -97,6 +97,9 @@ pub fn admit_cancellable(
     let mut identities = BTreeMap::new();
     let mut rows = Vec::with_capacity(children.len());
     let mut total = 0_u64;
+    // Logical bytes are disjoint by observed path even while the scan is open.
+    let allow_lower_bound =
+        basis == SizeBasis::Logical && version.completeness() == ResultCompleteness::Partial;
     for child in children {
         check(cancelled)?;
         let key = lookup
@@ -105,7 +108,7 @@ pub fn admit_cancellable(
         let observed = inspect_subtree(version, child.item_no, &basis, &mut identities, cancelled)?;
         let raw =
             value(version, child.item_no, &basis).map_err(|_| AdmissionError::NoAttribution)?;
-        if exact(&raw, &basis) != Some(observed) {
+        if partition_bytes(&raw, &basis, allow_lower_bound) != Some(observed) {
             return Err(AdmissionError::NoAttribution);
         }
         total = total
@@ -123,7 +126,7 @@ pub fn admit_cancellable(
     }
     let parent_value =
         value(version, parent_no, &basis).map_err(|_| AdmissionError::NoAttribution)?;
-    if exact(&parent_value, &basis) != Some(total) {
+    if partition_bytes(&parent_value, &basis, allow_lower_bound) != Some(total) {
         return Err(AdmissionError::NoAttribution);
     }
     let rows = order(rows, cancelled)?;
@@ -149,7 +152,7 @@ pub fn layout_parent(
     let weights: Vec<_> = admitted
         .rows
         .iter()
-        .map(|row| squarify::Weight::Exact(row.bytes))
+        .map(|row| layout_weight(&row.child.value, row.bytes))
         .collect();
     let layout = squarify::layout(bounds, &weights).map_err(AdmissionError::Layout)?;
     Ok(Partition {
@@ -388,11 +391,24 @@ fn physical_file(
 }
 
 fn exact(value: &SizeValue, basis: &SizeBasis) -> Option<u64> {
+    partition_bytes(value, basis, false)
+}
+
+fn partition_bytes(value: &SizeValue, basis: &SizeBasis, allow_lower_bound: bool) -> Option<u64> {
     if value.basis != *basis || value.evidence == SizeEvidence::Unknown {
         return None;
     }
     match &value.amount {
         SizeAmount::Exact { bytes } => bytes.as_str().parse().ok(),
+        SizeAmount::LowerBound { bytes } if allow_lower_bound => bytes.as_str().parse().ok(),
         _ => None,
+    }
+}
+
+pub(super) fn layout_weight(value: &SizeValue, bytes: u64) -> squarify::Weight {
+    if matches!(value.amount, SizeAmount::LowerBound { .. }) {
+        squarify::Weight::LowerBound(bytes)
+    } else {
+        squarify::Weight::Exact(bytes)
     }
 }

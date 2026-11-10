@@ -35,7 +35,7 @@ impl NumericRow {
     }
 }
 
-/// An exact, disjoint sibling partition admitted from one pinned result.
+/// A disjoint sibling partition of attributed bytes from one pinned result.
 /// Construction is restricted to the existing F03 observation checks.
 pub struct Input {
     rows: Vec<NumericRow>,
@@ -144,7 +144,7 @@ impl Strategy for Treemap {
             if cancelled() {
                 return Err(Error::Cancelled);
             }
-            weights.push(squarify::Weight::Exact(row.bytes));
+            weights.push(treemap::layout_weight(&row.value, row.bytes));
         }
         let layout =
             squarify::layout_cancellable(input.bounds, &weights, cancelled).map_err(|error| {

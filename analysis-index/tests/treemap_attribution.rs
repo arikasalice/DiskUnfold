@@ -130,7 +130,7 @@ fn independent_identities_and_different_volumes_are_admitted() {
     }
 }
 #[test]
-fn missing_or_uncertain_observations_and_partial_versions_are_rejected() {
+fn uncertain_physical_observations_and_partial_physical_totals_are_rejected() {
     let mut no_identity = obs(1, 8, Some(1));
     no_identity.identity = None;
     let mut no_bytes = obs(1, 8, Some(1));
@@ -161,12 +161,14 @@ fn missing_or_uncertain_observations_and_partial_versions_are_rejected() {
         Some(obs(1, 8, Some(1))),
         ResultCompleteness::Partial,
     );
-    for basis in [SizeBasis::Allocated, SizeBasis::Logical] {
-        assert_eq!(
-            layout(&v, basis).unwrap_err(),
-            AdmissionError::NoAttribution
-        );
-    }
+    assert_eq!(
+        layout(&v, SizeBasis::Allocated).unwrap_err(),
+        AdmissionError::NoAttribution
+    );
+    assert_eq!(
+        layout(&v, SizeBasis::Logical).unwrap().layout.shapes.len(),
+        2
+    );
 }
 
 #[test]
