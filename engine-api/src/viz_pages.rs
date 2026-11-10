@@ -111,6 +111,7 @@ impl ModelPages {
         }
         let mut retired = None;
         let mut rollback = None;
+        let mut retired_source = None;
         let result = self
             .source
             .with_current(&version, || {
@@ -152,10 +153,19 @@ impl ModelPages {
                 while state.entries.len() >= self.capacity.get() {
                     let result = state
                         .lru
-                        .front()
+                        .iter()
+                        .find(|reference| {
+                            state
+                                .entries
+                                .get(*reference)
+                                .is_some_and(|entry| entry.source.strong_count() == 0)
+                        })
+                        .or_else(|| state.lru.front())
                         .cloned()
                         .ok_or(Error::Unavailable)
-                        .and_then(|oldest| remove_deferred(&mut state, &oldest));
+                        .and_then(|oldest| {
+                            remove_deferred(&mut state, &oldest, &mut retired_source)
+                        });
                     match result {
                         Ok(old) => retired = Some(old),
                         Err(error) => {
@@ -180,6 +190,7 @@ impl ModelPages {
             .map_err(source_error);
         drop(state);
         drop(retired);
+        drop(retired_source);
         drop(rollback);
         drop(rows);
         result?
@@ -285,8 +296,12 @@ impl ModelPages {
     }
     /// Evicts this model even if its source remains alive.
     pub fn release_model(&self, reference: &str) -> Result<(), Error> {
+        let mut source = None;
         let mut state = self.state.lock().map_err(|_| Error::Unavailable)?;
-        remove(&mut state, reference)
+        let retired = remove_deferred(&mut state, reference, &mut source);
+        drop(state);
+        drop(source);
+        retired.map(drop)
     }
 }
 impl Drop for ModelPages {
@@ -365,17 +380,21 @@ fn touch(lru: &mut VecDeque<String>, key: &str) {
     lru.push_back(key.to_owned());
 }
 fn remove(state: &mut State, key: &str) -> Result<(), Error> {
-    drop(remove_deferred(state, key)?);
+    let mut source = None;
+    drop(remove_deferred(state, key, &mut source)?);
     Ok(())
 }
 fn remove_deferred(
     state: &mut State,
     key: &str,
+    retained_source: &mut Option<Arc<ResultVersion>>,
 ) -> Result<(Option<Entry>, Option<live_models::RetiredRows>), Error> {
     let mut rows = None;
-    if let Some(entry) = state.entries.get(key)
-        && let Some(source) = entry.source.upgrade()
-    {
+    *retained_source = state
+        .entries
+        .get(key)
+        .and_then(|entry| entry.source.upgrade());
+    if let Some(source) = retained_source.as_ref() {
         rows = Some(source.retire_viz_rows(key).map_err(model_error)?);
     }
     let entry = state.entries.remove(key);

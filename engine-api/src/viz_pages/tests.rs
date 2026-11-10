@@ -17,6 +17,46 @@ fn id(n: u32) -> Result<Id, String> {
 }
 
 #[test]
+fn retirement_keeps_source_alive_after_the_session_lock() -> Result<(), String> {
+    let source = IngestSink::default();
+    let mut build = source.open(id(1)?).map_err(|e| format!("{e:?}"))?;
+    build.add_directory(vec![]).map_err(|e| format!("{e:?}"))?;
+    let old = build
+        .seal(id(2)?, ResultCompleteness::Complete)
+        .map_err(|e| format!("{e:?}"))?;
+    let pages = ModelPages::new(
+        source.clone(),
+        NonZeroUsize::MIN,
+        Arc::new(Ids(AtomicU64::new(1))),
+    );
+    let reference = pages
+        .register(ModelInput {
+            version: old.clone(),
+            condition_fingerprint: "old".into(),
+            rows: vec![],
+            groups: HashMap::new(),
+        })
+        .map_err(|e| format!("{e:?}"))?;
+    let weak = Arc::downgrade(&old);
+    let mut build = source.open(id(3)?).map_err(|e| format!("{e:?}"))?;
+    build.add_directory(vec![]).map_err(|e| format!("{e:?}"))?;
+    build
+        .seal(id(4)?, ResultCompleteness::Complete)
+        .map_err(|e| format!("{e:?}"))?;
+    let mut retained = None;
+    let mut state = pages.state.lock().map_err(|_| "cache lock")?;
+    let retired =
+        remove_deferred(&mut state, &reference, &mut retained).map_err(|e| format!("{e:?}"))?;
+    drop(old);
+    assert!(weak.upgrade().is_some());
+    drop(state);
+    drop(retired);
+    drop(retained);
+    assert!(weak.upgrade().is_none());
+    Ok(())
+}
+
+#[test]
 fn another_lineage_can_publish_while_rows_are_being_prepared() -> Result<(), String> {
     use du_core_contracts::{
         PathBytes, PathEncoding,

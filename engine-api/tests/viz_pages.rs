@@ -257,6 +257,64 @@ fn another_lineage_does_not_replace_the_target_lineage() -> Result<(), String> {
     );
     Ok(())
 }
+
+#[test]
+fn expired_source_is_evicted_before_lru_live_other_lineage() -> Result<(), String> {
+    use du_core_contracts::{
+        PathBytes, PathEncoding,
+        result::{ResultNativePath, ResultScopeRoot},
+    };
+    let sink = IngestSink::default();
+    let a_lineage = sink
+        .bind_current_analysis("a", id(20)?)
+        .map_err(|e| format!("{e:?}"))?;
+    let b_lineage = sink
+        .bind_current_analysis("b", id(21)?)
+        .map_err(|e| format!("{e:?}"))?;
+    let root = || ResultScopeRoot {
+        path: ResultNativePath {
+            encoding: PathEncoding::WindowsUtf16le,
+            raw: PathBytes::from_bytes(&[67, 0]),
+        },
+        volume_id: vec![1],
+        file_id: vec![1],
+    };
+    let mut a_build = sink
+        .open_forest_in_lineage(id(22)?, vec![root()], a_lineage)
+        .map_err(|e| format!("{e:?}"))?;
+    add(&mut a_build, 5)?;
+    let a = a_build
+        .seal(id(23)?, ResultCompleteness::Complete)
+        .map_err(|e| format!("{e:?}"))?;
+    let mut b_build = sink
+        .open_forest_in_lineage(id(24)?, vec![root()], b_lineage.clone())
+        .map_err(|e| format!("{e:?}"))?;
+    add(&mut b_build, 5)?;
+    let b = b_build
+        .seal(id(25)?, ResultCompleteness::Complete)
+        .map_err(|e| format!("{e:?}"))?;
+    let pages = pages(sink.clone())?;
+    let live_ref = register(&pages, &a, "live")?;
+    let expired_ref = register(&pages, &b, "expired")?;
+    let weak_b = Arc::downgrade(&b);
+    drop(b);
+    let mut next_build = sink
+        .open_forest_in_lineage(id(26)?, vec![root()], b_lineage)
+        .map_err(|e| format!("{e:?}"))?;
+    add(&mut next_build, 9)?;
+    let next = next_build
+        .seal(id(27)?, ResultCompleteness::Complete)
+        .map_err(|e| format!("{e:?}"))?;
+    assert!(weak_b.upgrade().is_none());
+    let next_ref = register(&pages, &next, "new")?;
+    assert!(pages.rows(&request(&live_ref, &a)).is_ok());
+    assert!(pages.rows(&request(&next_ref, &next)).is_ok());
+    assert_eq!(
+        pages.rows(&request(&expired_ref, &next)).err(),
+        Some(Error::ModelExpired)
+    );
+    Ok(())
+}
 #[test]
 fn repeated_source_replacements_release_each_source() -> Result<(), String> {
     let sink = IngestSink::default();
