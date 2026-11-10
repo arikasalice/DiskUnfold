@@ -19,9 +19,9 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : "The operation failed";
 }
 
-function draft(path: OsPath): ScopeDraft {
+function draft(paths: OsPath[]): ScopeDraft {
   return {
-    includes: [path],
+    includes: paths,
     exclusions: [],
     boundary: "current_volume",
     includedMounts: [],
@@ -29,12 +29,65 @@ function draft(path: OsPath): ScopeDraft {
   };
 }
 
+function canStart(
+  review: ScopeReview | undefined,
+  input: ScopeDraft | undefined,
+): boolean {
+  return Boolean(
+    review?.scope.includes.length &&
+    input?.includes.length &&
+    review.targets.length === input.includes.length &&
+    review.targets.every((target) => target.access === "accessible"),
+  );
+}
+
+function noticeText(key: string): string {
+  switch (key) {
+    case "scope.overlap_merged":
+      return "Duplicate paths were combined.";
+    case "scope.alias_merged":
+      return "Paths to the same location were combined.";
+    case "scope.descendant_absorbed":
+      return "A selected folder is already inside another selected folder.";
+    case "scope.correspondence_unknown":
+      return "Some path relationships could not be confirmed.";
+    default:
+      return key;
+  }
+}
+
+function ReviewNotices({
+  review,
+  input,
+}: {
+  review: ScopeReview | undefined;
+  input: ScopeDraft | undefined;
+}) {
+  if (!review) return null;
+  return (
+    <>
+      {review.notices.map((notice) => (
+        <Notice key={notice}>{noticeText(notice)}</Notice>
+      ))}
+      {!canStart(review, input) && (
+        <Notice tone="error">
+          One or more selected paths could not be verified. Review all paths
+          before starting.
+        </Notice>
+      )}
+    </>
+  );
+}
+
 /** Presents target selection, scope review, background collection and pinned totals. */
 export function AnalysisPanel({ client }: { client: AnalysisClient }) {
   const targets = useTargets(client);
-  const [selected, setSelected] = useState<OsPath>();
+  const [selected, setSelected] = useState<(OsPath | undefined)[]>([undefined]);
   const [review, setReview] = useState<ScopeReview>();
+  const [reviewedDraft, setReviewedDraft] = useState<ScopeDraft>();
   const [working, setWorking] = useState(false);
+  const [reviewing, setReviewing] = useState(false);
+  const [multiRootResult, setMultiRootResult] = useState(false);
   const [error, setError] = useState<string>();
   const [receipt, setReceipt] = useState<ScanStart | null>(null);
   const [cancelRequested, setCancelRequested] = useState(false);
@@ -56,14 +109,37 @@ export function AnalysisPanel({ client }: { client: AnalysisClient }) {
         ? "Drop a folder here or enter its path."
         : "Review this path before scanning.";
 
-  const choose = useCallback((path: OsPath | undefined) => {
-    request.current += 1;
-    setSelected(path);
-    setReview(undefined);
-    setWorking(false);
-    setError(undefined);
-    setDropMessage(undefined);
-  }, []);
+  const editPaths = useCallback(
+    (update: (current: (OsPath | undefined)[]) => (OsPath | undefined)[]) => {
+      request.current += 1;
+      setSelected(update);
+      setReview(undefined);
+      setReviewedDraft(undefined);
+      setReviewing(false);
+      setError(undefined);
+      setDropMessage(undefined);
+    },
+    [],
+  );
+
+  const choose = useCallback(
+    (path: OsPath | undefined, index = 0) => {
+      editPaths((current) =>
+        current.map((entry, i) => (i === index ? path : entry)),
+      );
+    },
+    [editPaths],
+  );
+
+  const addPath = useCallback(
+    () => editPaths((current) => [...current, undefined]),
+    [editPaths],
+  );
+  const removePath = useCallback(
+    (index: number) =>
+      editPaths((current) => current.filter((_, i) => i !== index)),
+    [editPaths],
+  );
 
   useEffect(
     () =>
@@ -89,35 +165,46 @@ export function AnalysisPanel({ client }: { client: AnalysisClient }) {
   );
 
   async function reviewScope() {
-    if (!selected) return;
+    if (selected.some((path) => !path)) return;
+    const paths = selected.filter((path): path is OsPath => path !== undefined);
+    if (paths.length === 0) return;
     const requestSeq = ++request.current;
-    setWorking(true);
+    setReview(undefined);
+    setReviewedDraft(undefined);
+    setReviewing(true);
     setError(undefined);
     try {
+      const submittedDraft = draft(paths);
       const response = await client.call("scope.review", {
-        draft: draft(selected),
+        draft: submittedDraft,
         requestSeq,
       });
-      if (request.current === response.requestSeq) setReview(response);
+      if (
+        request.current === requestSeq &&
+        response.requestSeq === requestSeq
+      ) {
+        setReview(response);
+        setReviewedDraft(submittedDraft);
+      }
     } catch (failure) {
       if (request.current === requestSeq) setError(errorText(failure));
     } finally {
-      if (request.current === requestSeq) setWorking(false);
+      if (request.current === requestSeq) setReviewing(false);
     }
   }
 
   async function start() {
-    if (!review || !selected) return;
+    if (!review || !reviewedDraft || !canStart(review, reviewedDraft)) return;
     setWorking(true);
     setCancelRequested(false);
     setError(undefined);
     try {
-      setReceipt(
-        await client.call("scan.start", {
-          draft: draft(selected),
-          reviewFingerprint: review.reviewFingerprint,
-        }),
-      );
+      const result = await client.call("scan.start", {
+        draft: reviewedDraft,
+        reviewFingerprint: review.reviewFingerprint,
+      });
+      setMultiRootResult(review.scope.includes.length > 1);
+      setReceipt(result);
     } catch (failure) {
       if (failure instanceof AnalysisError && failure.code === "STALE_VERSION")
         setReview(undefined);
@@ -162,6 +249,8 @@ export function AnalysisPanel({ client }: { client: AnalysisClient }) {
             disabled={working || running}
             selected={selected}
             choose={choose}
+            addPath={addPath}
+            removePath={removePath}
             dropEnabled={dropEnabled}
             dropError={
               dropMessage?.tone === "error" ? dropMessage.text : undefined
@@ -171,7 +260,12 @@ export function AnalysisPanel({ client }: { client: AnalysisClient }) {
           <footer className="du-card__actions">
             <Action
               icon="folder"
-              isDisabled={!selected || working || running}
+              isDisabled={
+                selected.some((path) => !path) ||
+                reviewing ||
+                working ||
+                running
+              }
               onPress={() => void reviewScope()}
             >
               Review scope
@@ -180,10 +274,8 @@ export function AnalysisPanel({ client }: { client: AnalysisClient }) {
               icon="scan"
               variant="primary"
               isDisabled={
-                !review ||
-                review.targets.some(
-                  (target) => target.access !== "accessible",
-                ) ||
+                !canStart(review, reviewedDraft) ||
+                reviewing ||
                 working ||
                 running
               }
@@ -206,9 +298,7 @@ export function AnalysisPanel({ client }: { client: AnalysisClient }) {
               ]}
             />
           )}
-          {review?.notices.map((notice) => (
-            <Notice key={notice}>{notice}</Notice>
-          ))}
+          <ReviewNotices review={review} input={reviewedDraft} />
         </section>
         <section className="du-card" aria-label="Scan and results">
           <ScanOutput
@@ -217,6 +307,7 @@ export function AnalysisPanel({ client }: { client: AnalysisClient }) {
             started={receipt !== null}
             running={running}
             problem={error}
+            multiRoot={multiRootResult}
           />
           {running && (
             <footer className="du-card__actions">

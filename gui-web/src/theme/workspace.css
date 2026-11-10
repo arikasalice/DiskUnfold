@@ -27,6 +27,35 @@ body {
   gap: 12px;
 }
 
+.du-primary-path {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.du-primary-path > * {
+  min-width: 0;
+}
+
+@media (max-width: 420px) {
+  .du-primary-path {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.du-scope-paths {
+  display: grid;
+  gap: 8px;
+  max-block-size: 13rem;
+  overflow-y: auto;
+}
+
+.du-scope-path {
+  display: grid;
+  gap: 4px;
+}
+
 .du-app-header,
 .du-card__header {
   justify-content: space-between;

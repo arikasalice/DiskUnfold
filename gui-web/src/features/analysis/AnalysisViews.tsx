@@ -47,14 +47,18 @@ export function TargetPicker({
   disabled,
   selected,
   choose,
+  addPath,
+  removePath,
   dropEnabled,
   dropError,
   pathDescription,
 }: {
   targets: ReturnType<typeof useTargets>;
   disabled: boolean;
-  selected: OsPath | undefined;
-  choose: (path: OsPath | undefined) => void;
+  selected: (OsPath | undefined)[];
+  choose: (path: OsPath | undefined, index?: number) => void;
+  addPath: () => void;
+  removePath: (index: number) => void;
   dropEnabled: boolean;
   dropError: string | undefined;
   pathDescription: string;
@@ -73,7 +77,7 @@ export function TargetPicker({
       description={pathDescription}
       placeholder={"C:\\Folder"}
       isDisabled={disabled}
-      value={selected?.display ?? ""}
+      value={selected[0]?.display ?? ""}
       onChange={(path) => choose(path ? windowsPath(path) : undefined)}
     />
   );
@@ -107,7 +111,7 @@ export function TargetPicker({
       {entries.length > 0 && (
         <ChoiceGroup
           label="Choose a target"
-          value={selected?.raw ?? null}
+          value={selected[0]?.raw ?? null}
           isDisabled={disabled}
           onChange={(raw) =>
             choose(entries.find(({ path }) => path.raw === raw)?.path)
@@ -139,10 +143,44 @@ export function TargetPicker({
           })}
         </ChoiceGroup>
       )}
-      {dropEnabled ? (
-        <FolderDropSurface isDisabled={disabled}>{pathField}</FolderDropSurface>
-      ) : (
-        pathField
+      <div className="du-primary-path">
+        {dropEnabled ? (
+          <FolderDropSurface isDisabled={disabled}>
+            {pathField}
+          </FolderDropSurface>
+        ) : (
+          pathField
+        )}
+        <Action isDisabled={disabled} onPress={addPath}>
+          Add another path
+        </Action>
+      </div>
+      {selected.length > 1 && (
+        <div className="du-scope-paths" aria-label="Additional paths">
+          <Action isDisabled={disabled} onPress={() => removePath(0)}>
+            Remove primary path
+          </Action>
+          {selected.slice(1).map((path, index) => (
+            <div className="du-scope-path" key={index}>
+              <PathField
+                label={`Additional folder path ${index + 2}`}
+                description="Enter a local folder or drive path."
+                placeholder={"D:\\Folder"}
+                isDisabled={disabled}
+                value={path?.display ?? ""}
+                onChange={(value) =>
+                  choose(value ? windowsPath(value) : undefined, index + 1)
+                }
+              />
+              <Action
+                isDisabled={disabled}
+                onPress={() => removePath(index + 1)}
+              >
+                {`Remove path ${index + 2}`}
+              </Action>
+            </div>
+          ))}
+        </div>
       )}
       {dropError && <Notice tone="error">{dropError}</Notice>}
     </>
@@ -176,12 +214,14 @@ export function ScanOutput({
   started,
   running,
   problem,
+  multiRoot,
 }: {
   client: AnalysisClient;
   scan: ReturnType<typeof useScanResult>;
   started: boolean;
   running: boolean;
   problem: string | undefined;
+  multiRoot: boolean;
 }) {
   const error = problem ?? scan.error ?? scan.status?.reasonKey;
   const state = scan.unavailable
@@ -233,6 +273,7 @@ export function ScanOutput({
             key={scan.total.resultVersion}
             client={client}
             resultVersion={scan.total.resultVersion}
+            multiRoot={multiRoot}
           />
         </div>
       ) : !awaitingTotals ? (
@@ -256,13 +297,17 @@ export function ScanOutput({
 function ScopeDetails({
   client,
   resultVersion,
+  multiRoot,
 }: {
   client: AnalysisClient;
   resultVersion: string;
+  multiRoot: boolean;
 }) {
   const [detail, setDetail] = useState<BrowseDetail>();
   const [pending, setPending] = useState(false);
   const [problem, setProblem] = useState<string>();
+
+  if (multiRoot) return null;
 
   async function toggle() {
     if (detail) {

@@ -15,6 +15,7 @@ import type {
   AnalysisClient,
   BrowseDetail,
   EventEnvelope,
+  ScopeReview,
   SpaceTotal,
   TargetList,
   TargetProbeEvent,
@@ -47,12 +48,14 @@ function fixture({
   missingJob = false,
   targetList = targets,
   readTotals = (result) => result,
+  readReview = (result) => result,
 }: {
   stale?: boolean;
   earlyProbe?: EventEnvelope;
   missingJob?: boolean;
   targetList?: TargetList;
   readTotals?: (result: SpaceTotal) => SpaceTotal | Promise<SpaceTotal>;
+  readReview?: (result: ScopeReview) => ScopeReview | Promise<ScopeReview>;
 } = {}) {
   const listeners = new Set<(event: EventEnvelope) => void>();
   const calls: { name: string; body: unknown }[] = [];
@@ -65,15 +68,22 @@ function fixture({
             for (const listener of listeners) listener(earlyProbe);
           return targetList;
         case "scope.review": {
-          const request = body as { draft: unknown; requestSeq: number };
-          return {
+          const request = body as {
+            draft: ScopeReview["scope"];
+            requestSeq: number;
+          };
+          return readReview({
             scope: request.draft,
             notices: [],
-            targets: [{ path, access: "accessible", reasonKey: null }],
+            targets: request.draft.includes.map((path) => ({
+              path,
+              access: "accessible",
+              reasonKey: null,
+            })),
             reviewFingerprint: "verified",
             observedAt: timestamp,
             requestSeq: request.requestSeq,
-          };
+          });
         }
         case "scan.start":
           if (stale) throw new AnalysisError("STALE_VERSION", "scope.changed");
@@ -482,4 +492,262 @@ test("F01: an invalid drop gives guidance without replacing the chosen folder", 
       }) as HTMLInputElement
     ).value,
   ).toBe(path.display);
+});
+
+test("F01 FR3: multiple paths are reviewed together and the exact reviewed input starts the scan", async () => {
+  const { client, calls } = fixture();
+  render(<App analysis={client} />);
+  fireEvent.click(await screen.findByRole("radio", { name: path.display }));
+  fireEvent.click(screen.getByRole("button", { name: "Add another path" }));
+  const reviewButton = screen.getByRole<HTMLButtonElement>("button", {
+    name: "Review scope",
+  });
+  expect(reviewButton.disabled).toBe(true);
+  const second = windowsPath("D:\\Another folder");
+  fireEvent.change(
+    screen.getByRole("textbox", { name: "Additional folder path 2" }),
+    { target: { value: second.display } },
+  );
+  fireEvent.click(reviewButton);
+  const start = screen.getByRole<HTMLButtonElement>("button", {
+    name: "Start scan",
+  });
+  await waitFor(() => expect(start.disabled).toBe(false));
+  const reviewRequest = calls.find((call) => call.name === "scope.review")
+    ?.body as { draft: unknown };
+  expect(reviewRequest.draft).toMatchObject({ includes: [path, second] });
+  fireEvent.click(start);
+  await screen.findByText("At least 42 bytes");
+  expect(calls.find((call) => call.name === "scan.start")?.body).toEqual({
+    draft: reviewRequest.draft,
+    reviewFingerprint: "verified",
+  });
+  expect(
+    screen.queryByRole("button", { name: "View folder details" }),
+  ).toBeNull();
+  expect(calls.some((call) => call.name === "browse.detail")).toBe(false);
+});
+
+test("F01 FR3: normalized review preserves original selections for scan admission", async () => {
+  const { client, calls } = fixture({
+    readReview: (review) => ({
+      ...review,
+      scope: { ...review.scope, includes: review.scope.includes.slice(0, 1) },
+      notices: ["scope.descendant_absorbed"],
+    }),
+  });
+  render(<App analysis={client} />);
+  fireEvent.click(await screen.findByRole("radio", { name: path.display }));
+  fireEvent.click(screen.getByRole("button", { name: "Add another path" }));
+  const second = windowsPath("C:\\fixture\\child");
+  fireEvent.change(
+    screen.getByRole("textbox", { name: "Additional folder path 2" }),
+    { target: { value: second.display } },
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
+  const start = screen.getByRole<HTMLButtonElement>("button", {
+    name: "Start scan",
+  });
+  await waitFor(() => expect(start.disabled).toBe(false));
+  expect(
+    screen.getByText(
+      "A selected folder is already inside another selected folder.",
+    ),
+  ).toBeDefined();
+  fireEvent.click(start);
+  await screen.findByText("At least 42 bytes");
+  expect(calls.find(({ name }) => name === "scan.start")?.body).toMatchObject({
+    draft: { includes: [path, second] },
+  });
+});
+
+test("F01 FR3: canonical Windows review paths do not replace the original request", async () => {
+  const canonical = windowsPath("\\\\?\\D:\\Folder");
+  const requested = windowsPath("D:\\Folder");
+  const { client, calls } = fixture({
+    readReview: (review) => ({
+      ...review,
+      scope: { ...review.scope, includes: [canonical] },
+      targets: [{ path: canonical, access: "accessible", reasonKey: null }],
+    }),
+  });
+  render(<App analysis={client} />);
+  fireEvent.change(
+    screen.getByRole("textbox", { name: "Windows folder path" }),
+    { target: { value: requested.display } },
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
+  const start = screen.getByRole<HTMLButtonElement>("button", {
+    name: "Start scan",
+  });
+  await waitFor(() => expect(start.disabled).toBe(false));
+  fireEvent.click(start);
+  await screen.findByText("At least 42 bytes");
+  expect(calls.find(({ name }) => name === "scan.start")?.body).toMatchObject({
+    draft: { includes: [requested] },
+  });
+});
+
+test("F01 FR3: editing or removing a path rejects a late review and requires another review", async () => {
+  let release: ((value: ScopeReview) => void) | undefined;
+  let captured: ScopeReview | undefined;
+  let count = 0;
+  const { client } = fixture({
+    readReview: (review) => {
+      count += 1;
+      if (count > 1) return review;
+      captured = review;
+      return new Promise<ScopeReview>((resolve) => {
+        release = resolve;
+      });
+    },
+  });
+  render(<App analysis={client} />);
+  fireEvent.click(await screen.findByRole("radio", { name: path.display }));
+  fireEvent.click(screen.getByRole("button", { name: "Add another path" }));
+  const input = screen.getByRole("textbox", {
+    name: "Additional folder path 2",
+  });
+  fireEvent.change(input, { target: { value: "D:\\First" } });
+  fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
+  fireEvent.change(input, { target: { value: "D:\\Changed" } });
+  if (!release || !captured) throw new Error("Review was not started");
+  await act(async () => release?.(captured as ScopeReview));
+  const start = screen.getByRole<HTMLButtonElement>("button", {
+    name: "Start scan",
+  });
+  expect(start.disabled).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
+  await waitFor(() => expect(start.disabled).toBe(false));
+  fireEvent.click(screen.getByRole("button", { name: "Remove path 2" }));
+  expect(start.disabled).toBe(true);
+  expect(
+    screen.queryByRole("textbox", { name: "Additional folder path 2" }),
+  ).toBeNull();
+});
+
+test("F01 FR3: rejected or incomplete reviews cannot start a partial scan", async () => {
+  const { client, calls } = fixture({
+    readReview: (review) => ({
+      ...review,
+      targets: review.targets.slice(0, 1),
+    }),
+  });
+  render(<App analysis={client} />);
+  fireEvent.click(await screen.findByRole("radio", { name: path.display }));
+  fireEvent.click(screen.getByRole("button", { name: "Add another path" }));
+  fireEvent.change(
+    screen.getByRole("textbox", { name: "Additional folder path 2" }),
+    { target: { value: "D:\\Denied" } },
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
+  await screen.findByLabelText("Reviewed scope");
+  expect(
+    screen.getByRole<HTMLButtonElement>("button", { name: "Start scan" })
+      .disabled,
+  ).toBe(true);
+  expect(calls.some(({ name }) => name === "scan.start")).toBe(false);
+});
+
+test("F01 FR3: an unavailable selection prevents the whole scope from starting", async () => {
+  const { client, calls } = fixture({
+    readReview: (review) => ({
+      ...review,
+      targets: review.targets.map((target, index) =>
+        index === 1
+          ? { ...target, access: "denied", reasonKey: "scan.path_denied" }
+          : target,
+      ),
+    }),
+  });
+  render(<App analysis={client} />);
+  fireEvent.click(await screen.findByRole("radio", { name: path.display }));
+  fireEvent.click(screen.getByRole("button", { name: "Add another path" }));
+  fireEvent.change(
+    screen.getByRole("textbox", { name: "Additional folder path 2" }),
+    { target: { value: "D:\\Denied" } },
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
+  await screen.findByLabelText("Reviewed scope");
+  expect(
+    screen.getByRole<HTMLButtonElement>("button", { name: "Start scan" })
+      .disabled,
+  ).toBe(true);
+  expect(calls.some(({ name }) => name === "scan.start")).toBe(false);
+});
+
+test("F01 FR3: failed multi-path review retains input and rejects start", async () => {
+  const { client, calls } = fixture({
+    readReview: () => {
+      throw new AnalysisError("INVALID_ARGUMENT", "scope.target_unavailable");
+    },
+  });
+  render(<App analysis={client} />);
+  fireEvent.click(await screen.findByRole("radio", { name: path.display }));
+  fireEvent.click(screen.getByRole("button", { name: "Add another path" }));
+  fireEvent.change(
+    screen.getByRole("textbox", { name: "Additional folder path 2" }),
+    { target: { value: "D:\\Denied" } },
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
+  await screen.findByText("scope.target_unavailable");
+  expect(
+    screen.getByRole<HTMLInputElement>("textbox", {
+      name: "Additional folder path 2",
+    }).value,
+  ).toBe("D:\\Denied");
+  expect(
+    screen.getByRole<HTMLButtonElement>("button", { name: "Start scan" })
+      .disabled,
+  ).toBe(true);
+  expect(calls.some(({ name }) => name === "scan.start")).toBe(false);
+});
+
+test("F01 FR3: multi-path controls have accessible labels and preserve the drop input", async () => {
+  const { client } = fixture();
+  const nativeDrop = createAnalysisClient().subscribeFolderDrop;
+  if (!nativeDrop) throw new Error("Expected native drop subscription");
+  const { container } = render(
+    <App analysis={{ ...client, subscribeFolderDrop: nativeDrop }} />,
+  );
+  fireEvent.click(await screen.findByRole("radio", { name: path.display }));
+  const add = screen.getByRole("button", { name: "Add another path" });
+  add.focus();
+  fireEvent.keyDown(add, { key: "Enter", code: "Enter" });
+  fireEvent.keyUp(add, { key: "Enter", code: "Enter" });
+  fireEvent.change(
+    screen.getByRole("textbox", { name: "Additional folder path 2" }),
+    { target: { value: "D:\\Kept" } },
+  );
+  act(() =>
+    window.dispatchEvent(
+      new CustomEvent("du://folder-drop", { detail: { path: "C:\\Dropped" } }),
+    ),
+  );
+  expect(
+    screen.getByRole<HTMLInputElement>("textbox", {
+      name: "Windows folder path",
+    }).value,
+  ).toBe("C:\\Dropped");
+  expect(
+    screen.getByRole<HTMLInputElement>("textbox", {
+      name: "Additional folder path 2",
+    }).value,
+  ).toBe("D:\\Kept");
+  expect(
+    (
+      await axe.run(container, {
+        runOnly: {
+          type: "rule",
+          values: [
+            "label",
+            "button-name",
+            "aria-valid-attr",
+            "aria-allowed-role",
+            "aria-required-attr",
+          ],
+        },
+      })
+    ).violations,
+  ).toEqual([]);
 });
