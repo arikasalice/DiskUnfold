@@ -68,6 +68,48 @@ pub struct Model {
     pub omissions: Vec<typed_layout::Omission>,
     pub totals: Totals,
 }
+
+/// An observed item's location relative to this ungrouped projection.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Location {
+    /// Zero-based position in the model's geometry array.
+    Shape(usize),
+    /// Inside the pinned folder scope, with no geometry in this view.
+    OutsideView,
+    /// Observed in the same result, outside the pinned folder scope.
+    OutsideScope,
+}
+
+impl Model {
+    /// Locates an exact item reference using only the pinned hierarchy and model.
+    ///
+    /// # Errors
+    /// Returns `StaleVersion` for another revision and `NotFound` for an unknown item.
+    pub fn locate(
+        &self,
+        version: &ResultVersion,
+        item: &ItemRef,
+    ) -> Result<Location, crate::QueryError> {
+        if version.version_id() != &self.result_revision {
+            return Err(crate::QueryError::StaleVersion);
+        }
+        let item_no = version.detail(item)?.item.item_no;
+        if let Some(index) = self.shapes.iter().position(|shape| {
+            self.rows
+                .get(shape.row_index)
+                .is_some_and(|row| row.item == *item)
+        }) {
+            return Ok(Location::Shape(index));
+        }
+        Ok(
+            if super::descendant(version.items(), item_no, self.parent.item_no) {
+                Location::OutsideView
+            } else {
+                Location::OutsideScope
+            },
+        )
+    }
+}
 /// No model is produced on failure or cancellation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {

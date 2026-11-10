@@ -4,8 +4,14 @@
 //! contract. The caller supplies trusted evidence from the pinned result.
 use std::{num::NonZeroUsize, sync::Arc};
 
-use du_analysis_index::{IngestSink, visualization::typed_layout::Dispatcher};
-use du_core_contracts::visualization::rows::{VizRows, VizRowsRequest};
+use du_analysis_index::{
+    IngestSink,
+    visualization::{projection::Location, typed_layout::Dispatcher},
+};
+use du_core_contracts::{
+    ItemRef,
+    visualization::rows::{VizRows, VizRowsRequest},
+};
 use du_job_runtime::JobIdentity;
 
 use super::{ModelPages, render};
@@ -37,6 +43,11 @@ impl Session {
     /// Reads a page from the same pinned model as its rendered geometry.
     pub fn rows(&self, request: &VizRowsRequest) -> Result<VizRows, super::Error> {
         self.pages.rows(request)
+    }
+
+    /// Resolves an item reference against the same immutable model used for rows.
+    pub fn locate(&self, model_ref: &str, item: &ItemRef) -> Result<Location, super::Error> {
+        self.pages.locate(model_ref, item)
     }
 
     /// Renders against the session's registry and pins the matching table rows.
