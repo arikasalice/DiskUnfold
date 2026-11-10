@@ -16,6 +16,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+mod async_browse;
 mod items;
 mod scan_cancellation;
 mod scope_replacement;
