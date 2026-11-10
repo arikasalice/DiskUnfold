@@ -3,7 +3,9 @@ pub mod boundary;
 mod condition;
 pub mod page;
 mod plan;
+mod sorting;
 pub use condition::{Basis, Boundary, Condition, Kind, NameEncoding, NameTest, Predicate, Truth};
+pub use sorting::{Sort, SortSpec};
 
 use crate::{QueryError, ResultVersion, browse};
 use du_core_contracts::result::{ResultItem, ResultVersionRead};
@@ -144,14 +146,6 @@ fn sort_size(record: &Record<'_>, basis: Basis) -> SortValue {
         .map_or(SortValue::Missing, SortValue::Number)
 }
 
-/// Selection of a pinned sort strategy and ordering direction.
-pub struct Sort<'a> {
-    pub id: &'a str,
-    pub revision: u32,
-    pub basis: Basis,
-    pub descending: bool,
-}
-
 /// A materialized selection retaining the source snapshot for its entire lifetime.
 pub struct QueryResult {
     pub version: Arc<ResultVersion>,
@@ -166,6 +160,8 @@ pub struct QueryResult {
     /// Size basis and direction used to evaluate the selected sort strategy.
     pub sort_basis: Basis,
     pub sort_descending: bool,
+    /// All resolved sort keys, in evaluation priority order.
+    pub sorts: Vec<SortSpec>,
     /// The folder whose immediate children supplied the candidates, if scoped.
     folder: Option<u32>,
     /// Whether an earlier search excluded candidates it could not determine.
@@ -177,7 +173,7 @@ pub struct QueryResult {
 struct Row {
     item_no: u32,
     path: Vec<Vec<u8>>,
-    key: SortValue,
+    keys: Vec<SortValue>,
 }
 
 enum Selection<'a> {
@@ -199,12 +195,27 @@ pub fn run(
     sort: Sort<'_>,
     cancelled: impl FnMut() -> bool,
 ) -> Result<QueryResult, Error> {
+    run_with_sorts(registry, version, condition, sort, &[], cancelled)
+}
+
+/// Evaluates one version using a required first sort and ordered additional keys.
+pub fn run_with_sorts(
+    registry: &Registry,
+    version: Arc<ResultVersion>,
+    condition: &Condition,
+    first: Sort<'_>,
+    additional: &[Sort<'_>],
+    cancelled: impl FnMut() -> bool,
+) -> Result<QueryResult, Error> {
+    let sorts: Vec<_> = std::iter::once(first)
+        .chain(additional.iter().copied())
+        .collect();
     evaluate(
         registry,
         version,
         Selection::Version,
         condition,
-        sort,
+        &sorts,
         cancelled,
     )
 }
@@ -221,14 +232,30 @@ pub fn run_folder(
     sort: Sort<'_>,
     cancelled: impl FnMut() -> bool,
 ) -> Result<QueryResult, Error> {
+    run_folder_with_sorts(registry, version, location, condition, sort, &[], cancelled)
+}
+
+/// Evaluates immediate children using ordered sort keys against one pinned version.
+pub fn run_folder_with_sorts(
+    registry: &Registry,
+    version: Arc<ResultVersion>,
+    location: Option<&ItemRef>,
+    condition: &Condition,
+    first: Sort<'_>,
+    additional: &[Sort<'_>],
+    cancelled: impl FnMut() -> bool,
+) -> Result<QueryResult, Error> {
     let folder = browse::directory(&version, location).map_err(Error::Folder)?;
     let item_no = folder.item_no;
+    let sorts: Vec<_> = std::iter::once(first)
+        .chain(additional.iter().copied())
+        .collect();
     evaluate(
         registry,
         version,
         Selection::Folder(item_no),
         condition,
-        sort,
+        &sorts,
         cancelled,
     )
 }
@@ -244,14 +271,29 @@ pub fn run_in_result(
     sort: Sort<'_>,
     cancelled: impl FnMut() -> bool,
 ) -> Result<QueryResult, Error> {
+    run_in_result_with_sorts(registry, parent, additional, sort, &[], cancelled)
+}
+
+/// Refines one admitted result using ordered sort keys without widening its rows.
+pub fn run_in_result_with_sorts(
+    registry: &Registry,
+    parent: &QueryResult,
+    additional: &Condition,
+    first: Sort<'_>,
+    sorts: &[Sort<'_>],
+    cancelled: impl FnMut() -> bool,
+) -> Result<QueryResult, Error> {
     plan::check_shape(&parent.condition, 1)?;
     plan::check_shape(additional, 1)?;
+    let sorts: Vec<_> = std::iter::once(first)
+        .chain(sorts.iter().copied())
+        .collect();
     evaluate(
         registry,
         Arc::clone(&parent.version),
         Selection::Parent(parent),
         additional,
-        sort,
+        &sorts,
         cancelled,
     )
 }
@@ -261,16 +303,14 @@ fn evaluate(
     version: Arc<ResultVersion>,
     selection: Selection<'_>,
     condition: &Condition,
-    sort: Sort<'_>,
+    sorts: &[Sort<'_>],
     mut cancelled: impl FnMut() -> bool,
 ) -> Result<QueryResult, Error> {
     plan::check_shape(condition, 0)?;
     let condition = condition.clone().normalize();
     let plan = plan::prepare(registry, &condition, 0)?;
-    let sort_key = registry
-        .sorts
-        .get(&(sort.id.to_owned(), sort.revision))
-        .ok_or(Error::UnknownSort)?;
+    let first = sorts.first().ok_or(Error::UnknownSort)?;
+    let prepared = sorting::prepare(registry, sorts)?;
     let mut rows = Vec::new();
     let mut unknown_count = 0;
     let (ordinary, parent, folder) = match selection {
@@ -301,14 +341,17 @@ fn evaluate(
         match plan.evaluate(&record) {
             Truth::Match => rows.push(Row {
                 item_no: item.item_no,
-                key: sort_key(&record, sort.basis),
+                keys: prepared
+                    .iter()
+                    .map(|sort| (sort.evaluate)(&record, sort.spec.basis))
+                    .collect(),
                 path,
             }),
             Truth::Unknown => unknown_count += 1,
             Truth::NoMatch => {}
         }
     }
-    rows.sort_by(|a, b| compare_rows(a, b, sort.descending));
+    rows.sort_by(|a, b| sorting::compare(a, b, &prepared));
     if cancelled() {
         return Err(Error::Cancelled);
     }
@@ -331,9 +374,10 @@ fn evaluate(
         unknown_count,
         condition,
         predicate_strategies: strategies.into_iter().collect(),
-        sort_strategy: (sort.id.to_owned(), sort.revision),
-        sort_basis: sort.basis,
-        sort_descending: sort.descending,
+        sort_strategy: (first.id.to_owned(), first.revision),
+        sort_basis: first.basis,
+        sort_descending: first.descending,
+        sorts: sorts.iter().map(SortSpec::from).collect(),
         folder,
         inherited_uncertainty: parent
             .is_some_and(|parent| parent.unknown_count > 0 || parent.inherited_uncertainty),
@@ -371,18 +415,4 @@ fn item_path(version: &ResultVersion, item: &ResultItem) -> Vec<Vec<u8>> {
     }
     path.reverse();
     path
-}
-
-fn compare_rows(a: &Row, b: &Row, descending: bool) -> std::cmp::Ordering {
-    use std::cmp::Ordering;
-    let order = match (&a.key, &b.key) {
-        (SortValue::Missing, SortValue::Missing) => Ordering::Equal,
-        (SortValue::Missing, _) => Ordering::Greater,
-        (_, SortValue::Missing) => Ordering::Less,
-        _ if descending => b.key.cmp(&a.key),
-        _ => a.key.cmp(&b.key),
-    };
-    order
-        .then_with(|| a.path.cmp(&b.path))
-        .then_with(|| a.item_no.cmp(&b.item_no))
 }

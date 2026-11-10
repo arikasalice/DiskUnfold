@@ -34,17 +34,17 @@ struct State {
 
 struct Entry {
     result: Arc<QueryResult>,
-    folder_key: Option<FolderKey>,
+    folder_key: Option<MultiFolderKey>,
 }
 
 impl State {
-    fn folder_id(&self, key: &FolderKey) -> Option<Id> {
+    fn folder_id(&self, key: &MultiFolderKey) -> Option<Id> {
         self.entries
             .iter()
             .find_map(|(id, entry)| (entry.folder_key.as_ref() == Some(key)).then(|| id.clone()))
     }
 
-    fn insert(&mut self, id: Id, result: QueryResult, folder_key: Option<FolderKey>) {
+    fn insert(&mut self, id: Id, result: QueryResult, folder_key: Option<MultiFolderKey>) {
         if self.entries.len() == MAX_RESULTS
             && let Some(oldest) = self.lru.pop_front()
         {
@@ -73,6 +73,33 @@ pub struct FolderKey {
     pub sort_revision: u32,
     pub sort_basis: Basis,
     pub descending: bool,
+}
+
+/// Identity of a folder query with all ordered sort selections.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MultiFolderKey {
+    pub version: Id,
+    pub folder: u32,
+    pub tree: bool,
+    pub condition: Condition,
+    pub sorts: Vec<super::SortSpec>,
+}
+
+impl From<&FolderKey> for MultiFolderKey {
+    fn from(key: &FolderKey) -> Self {
+        Self {
+            version: key.version.clone(),
+            folder: key.folder,
+            tree: key.tree,
+            condition: key.condition.clone(),
+            sorts: vec![super::SortSpec {
+                id: key.sort_id.clone(),
+                revision: key.sort_revision,
+                basis: key.sort_basis,
+                descending: key.descending,
+            }],
+        }
+    }
 }
 
 /// In-memory result registry bound to one live source. Dropping it releases its entries.
@@ -118,6 +145,11 @@ impl ResultSets {
 
     /// Finds an admitted folder query and updates its access order.
     pub fn find_folder(&self, key: &FolderKey) -> Result<Option<Id>, PageError> {
+        self.find_multi_folder(&MultiFolderKey::from(key))
+    }
+
+    /// Finds an admitted multi-sort folder query and updates its access order.
+    pub fn find_multi_folder(&self, key: &MultiFolderKey) -> Result<Option<Id>, PageError> {
         let mut state = self.state.lock().map_err(|_| PageError::Unavailable)?;
         let id = state.folder_id(key);
         if let Some(id) = &id {
@@ -134,13 +166,21 @@ impl ResultSets {
         id: Id,
         result: QueryResult,
     ) -> Result<Id, PageError> {
+        self.register_multi_folder(MultiFolderKey::from(&key), id, result)
+    }
+
+    /// Reuses or registers a folder query using its complete ordered sort list.
+    pub fn register_multi_folder(
+        &self,
+        key: MultiFolderKey,
+        id: Id,
+        result: QueryResult,
+    ) -> Result<Id, PageError> {
         validate_result(&result)?;
         if result.version.version_id() != &key.version
             || result.folder != Some(key.folder)
             || result.condition != key.condition
-            || result.sort_strategy != (key.sort_id.clone(), key.sort_revision)
-            || result.sort_basis != key.sort_basis
-            || result.sort_descending != key.descending
+            || result.sorts != key.sorts
         {
             return Err(PageError::InvalidResult);
         }
@@ -254,6 +294,13 @@ fn source_error(error: QueryError) -> PageError {
 }
 
 fn validate_result(result: &QueryResult) -> Result<(), PageError> {
+    if result.sorts.first().is_none_or(|first| {
+        result.sort_strategy != (first.id.clone(), first.revision)
+            || result.sort_basis != first.basis
+            || result.sort_descending != first.descending
+    }) {
+        return Err(PageError::InvalidResult);
+    }
     let mut seen = HashSet::new();
     for item in &result.items {
         let row = result.version.items().get(item.item_no as usize);
@@ -336,6 +383,7 @@ impl Page {
             sort_strategy: &self.result.sort_strategy,
             sort_basis: self.result.sort_basis,
             sort_descending: self.result.sort_descending,
+            sorts: &self.result.sorts,
             limitations: self.result.limitations,
         }
     }
@@ -357,5 +405,7 @@ pub struct Metadata<'a> {
     pub sort_strategy: &'a (String, u32),
     pub sort_basis: Basis,
     pub sort_descending: bool,
+    /// All pinned sort selections, in request priority order.
+    pub sorts: &'a [super::SortSpec],
     pub limitations: &'static [&'static str],
 }
