@@ -9,6 +9,7 @@ pub mod jobs;
 mod pipeline;
 mod registry;
 pub mod scan;
+mod scan_failures;
 pub mod scope;
 pub mod space;
 mod target_enumeration;

@@ -104,6 +104,40 @@ export function FolderDropSurface({
   );
 }
 
+/** A labelled native selector for compact lists of predefined values. */
+export function SelectField<T extends string>({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: T;
+  options: readonly { value: T; label: string }[];
+  onChange: (value: T) => void;
+}) {
+  return (
+    <label className="du-field">
+      <span>{label}</span>
+      <select
+        value={value}
+        onChange={(event) => {
+          const option = options.find(
+            ({ value }) => value === event.currentTarget.value,
+          );
+          if (option) onChange(option.value);
+        }}
+      >
+        {options.map(({ value, label }) => (
+          <option key={value} value={value}>
+            {label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
 /** A labelled list of choices with arrow-key selection and shared focus styling. */
 export function ChoiceGroup({
   label,

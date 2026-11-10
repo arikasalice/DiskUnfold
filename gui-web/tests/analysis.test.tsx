@@ -16,6 +16,8 @@ import type {
   AnalysisJobStatus,
   BrowseDetail,
   EventEnvelope,
+  ScanFailures,
+  ScanFailuresRequest,
   ScopeReview,
   SpaceTotal,
   TargetList,
@@ -51,6 +53,7 @@ function fixture({
   readTotals = (result) => result,
   readReview = (result) => result,
   readStatus = (result) => result,
+  readFailures,
   lineageId,
 }: {
   stale?: boolean;
@@ -60,6 +63,9 @@ function fixture({
   readTotals?: (result: SpaceTotal) => SpaceTotal | Promise<SpaceTotal>;
   readReview?: (result: ScopeReview) => ScopeReview | Promise<ScopeReview>;
   readStatus?: (result: AnalysisJobStatus) => AnalysisJobStatus;
+  readFailures?: (
+    request: ScanFailuresRequest,
+  ) => ScanFailures | Promise<ScanFailures>;
   lineageId?: string;
 } = {}) {
   const listeners = new Set<(event: EventEnvelope) => void>();
@@ -142,6 +148,9 @@ function fixture({
           };
           return readTotals(result);
         }
+        case "scan.failures":
+          if (readFailures) return readFailures(body as ScanFailuresRequest);
+          throw new Error("Scan issues unavailable");
         case "browse.detail": {
           const unavailable = {
             state: "unknown",
@@ -552,6 +561,67 @@ test("F02 IF-23: resync after withdrawal removes only this failed scan's partial
   await screen.findByText("Scan status: failed");
   expect(screen.queryByText("At least 42 bytes")).toBeNull();
   expect(calls.filter(({ name }) => name === "space.total")).toHaveLength(1);
+});
+
+test("F02 IF-05: pages within the displayed result and discards a late page after changing the filter", async () => {
+  let release = () => {};
+  const delayed = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const row = (
+    displayPath: string,
+    kind: "unread_range" | "untraversed_link",
+  ) => ({
+    kind,
+    displayPath,
+    stage: "enumerate" as const,
+    pathRef: { rootIndex: 0, relative: [] },
+    reasonKey: "scan.path_denied",
+  });
+  const { client, calls } = fixture({
+    readFailures: async ({ resultVersion, kind, cursor }) => {
+      if (kind === "untraversed_link") {
+        return {
+          resultVersion,
+          totalCount: 1,
+          rows: [row("C:\\junction", kind)],
+        };
+      }
+      if (cursor === "third") await delayed;
+      return {
+        resultVersion,
+        totalCount: 3,
+        rows: [row(cursor ?? "first", "unread_range")],
+        ...(cursor !== "third" && { nextCursor: cursor ? "third" : "second" }),
+      };
+    },
+  });
+  await startFixtureScan(client);
+  fireEvent.click(
+    await screen.findByRole("button", { name: "View scan issues" }),
+  );
+  await screen.findByText("first");
+  fireEvent.click(screen.getByRole("button", { name: "Load more issues" }));
+  await screen.findByText("second");
+  expect(screen.getByText("Showing 2 of 3 issues")).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "Load more issues" }));
+  fireEvent.change(screen.getByRole("combobox", { name: "Issue type" }), {
+    target: { value: "untraversed_link" },
+  });
+  await screen.findByText("C:\\junction");
+  await act(async () => release());
+  expect(screen.queryByText("third")).toBeNull();
+  expect(screen.queryByText("first")).toBeNull();
+  expect(
+    calls
+      .filter(({ name }) => name === "scan.failures")
+      .map(({ body }) => body),
+  ).toEqual([
+    { resultVersion: "result" },
+    { resultVersion: "result", cursor: "second" },
+    { resultVersion: "result", cursor: "third" },
+    { resultVersion: "result", kind: "untraversed_link" },
+  ]);
 });
 
 test("ANFR5: the analysis workspace exposes labelled controls and valid ARIA roles", async () => {

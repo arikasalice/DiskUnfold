@@ -10,6 +10,7 @@ use crate::{
 };
 
 mod analysis;
+mod scan_failures;
 mod scan_flow;
 
 #[derive(Deserialize)]

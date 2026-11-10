@@ -29,6 +29,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         Arc::new(du_platform_os::windows_observation::WindowsScopeRoots),
         Arc::new(du_platform_os::volume::WindowsVolumes),
         Arc::new(DeferredHistory),
+        &du_platform_os::entropy::OsRandom,
     )?;
     let engine = builder.build()?;
     let app = WebApp {

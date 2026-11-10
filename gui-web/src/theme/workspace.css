@@ -176,6 +176,7 @@ body {
 
 .du-action,
 .du-field input,
+.du-field select,
 .du-choice {
   border: 1px solid var(--du-border);
   border-radius: 9px;
@@ -228,7 +229,8 @@ body {
 
 .du-action[data-focus-visible],
 .du-choice[data-focus-visible],
-.du-field input:focus-visible {
+.du-field input:focus-visible,
+.du-field select:focus-visible {
   outline: 2px solid var(--du-focus);
   outline-offset: 2px;
 }
@@ -241,11 +243,13 @@ body {
   gap: 8px;
 }
 
-.du-field label {
+.du-field label,
+label.du-field > span {
   font-weight: 650;
 }
 
-.du-field input {
+.du-field input,
+.du-field select {
   width: 100%;
   min-height: 44px;
   padding: 9px 12px;

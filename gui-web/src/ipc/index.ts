@@ -14,6 +14,8 @@ import type {
   Id,
   OsPath,
   ResultEnvelope,
+  ScanFailures,
+  ScanFailuresRequest,
   ScanStart,
   ScanStartRequest,
   ScopeReview,
@@ -32,6 +34,11 @@ export type {
   EventEnvelope,
   JobState,
   OsPath,
+  ScanFailureKind,
+  ScanFailureRow,
+  ScanFailureStage,
+  ScanFailures,
+  ScanFailuresRequest,
   ScanStart,
   ScopeDraft,
   ScopeReview,
@@ -47,6 +54,7 @@ type Commands = {
   "target.list": [TargetListRequest, TargetList];
   "scope.review": [ScopeReviewRequest, ScopeReview];
   "scan.start": [ScanStartRequest, ScanStart];
+  "scan.failures": [ScanFailuresRequest, ScanFailures];
   "job.get": [AnalysisJobRequest, AnalysisJobStatus];
   "job.cancel": [AnalysisJobRequest, AnalysisJobControl];
   "space.total": [SpaceTotalRequest, SpaceTotal];

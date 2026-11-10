@@ -3,7 +3,7 @@ use du_core_contracts::{
     ByteSize, CallEnvelope, ENVELOPE_VERSION, EventEnvelope, Id,
     analysis_ipc::{TargetProbeEvent, TargetStatusChanged},
     job::{HistoryAppend, JobBody, JobContext, JobHistory, JobOutcome, JobState, JobSummary},
-    ports::{PortError, PortErrorKind},
+    ports::{PortError, PortErrorKind, Random},
     scan_observation::{OpenedScopeRoot, ScopeRootPort},
     volume::{Capability, VolumeCapabilities, VolumeCapacity, VolumeEnumeration},
 };
@@ -64,6 +64,12 @@ fn slow_discovery_returns_empty_listing_without_launching_a_probe()
 }
 
 struct Fixture;
+impl Random for Fixture {
+    fn fill(&self, bytes: &mut [u8]) -> Result<(), PortError> {
+        bytes.fill(7);
+        Ok(())
+    }
+}
 impl JobIdentity for Fixture {
     fn next_id(&self) -> Id {
         Id::from_v7_bytes(*uuid::Uuid::now_v7().as_bytes())
@@ -247,6 +253,7 @@ fn unclassified_target_is_listed_and_delivers_probe_then_terminal_on_the_desktop
         Arc::new(NoRoots),
         Arc::new(Volumes(None)),
         Arc::new(Fixture),
+        &Fixture,
     )?;
     let engine = builder.build()?;
     let ctx = caller();

@@ -9,6 +9,7 @@ use du_core_contracts::{
     ENVELOPE_VERSION, EventEnvelope, Id, Timestamp,
     analysis_ipc::{TargetProbeEvent, TargetStatusChanged},
     job::JobHistory,
+    ports::Random,
     result_events::RESULT_VERSION_CHANGED,
     scan_observation::ScopeRootPort,
     volume::VolumePort,
@@ -30,6 +31,7 @@ pub fn register(
     roots: Arc<dyn ScopeRootPort>,
     volumes: Arc<dyn VolumePort>,
     history: Arc<dyn JobHistory>,
+    random: &dyn Random,
 ) -> Result<Arc<DesktopEvents>, Box<dyn std::error::Error>> {
     let ids = Arc::new(SystemIdentity);
     let clock = Arc::new(SystemClock(Instant::now()));
@@ -58,6 +60,7 @@ pub fn register(
         },
     )?;
     let store = scan::register(builder, workers, roots, ids)?;
+    crate::scan_failures::register(builder, store.clone(), random);
     jobs::register_with_scan_store(builder, runtime, store);
     Ok(events)
 }

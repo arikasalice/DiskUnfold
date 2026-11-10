@@ -25,6 +25,7 @@ import type {
 } from "../../ipc";
 import type { useScanResult } from "../../state/analysis-scan";
 import type { useTargets } from "../../state/analysis-targets";
+import { ScanIssues } from "./ScanIssues";
 
 const sizeLabels = {
   logical: "Logical size",
@@ -312,6 +313,11 @@ function PinnedResult({
         ))}
       </div>
       <Coverage total={total} />
+      <ScanIssues
+        key={total.resultVersion}
+        client={client}
+        resultVersion={total.resultVersion}
+      />
       <ScopeDetails
         key={total.resultVersion}
         client={client}

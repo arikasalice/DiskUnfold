@@ -4,6 +4,7 @@ export {
   ChoiceGroup,
   FolderDropSurface,
   PathField,
+  SelectField,
 } from "./controls";
 export {
   BrandMark,

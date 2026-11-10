@@ -118,7 +118,7 @@ fn size(value: Option<&SizeValue>) -> BrowseValue<SizeValue> {
     )
 }
 
-fn display(encoding: &PathEncoding, bytes: &[u8]) -> Option<String> {
+pub(crate) fn display(encoding: &PathEncoding, bytes: &[u8]) -> Option<String> {
     match encoding {
         PathEncoding::Unix => Some(String::from_utf8_lossy(bytes).into_owned()),
         PathEncoding::WindowsUtf16le => {

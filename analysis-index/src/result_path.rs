@@ -1,7 +1,7 @@
 //! Resolve native item paths without accessing the filesystem or display text.
 use du_core_contracts::{
     ItemRef, PathBytes, PathEncoding,
-    result::{ResultNativePath, ResultVersionRead},
+    result::{ResultNativePath, ResultScopeRoot, ResultVersionRead},
 };
 
 use crate::{QueryError, ResultVersion};
@@ -23,26 +23,55 @@ impl ResultVersion {
             .get(root_index)
             .or_else(|| self.observed_root())
             .ok_or(QueryError::PathUnavailable)?;
-        let mut raw = root.path.raw.bytes().map_err(|_| QueryError::InvalidPath)?;
-        let separator = match root.path.encoding {
-            PathEncoding::Unix if raw.starts_with(b"/") && !raw.contains(&0) => b"/".as_slice(),
-            PathEncoding::WindowsUtf16le if valid_windows_root(&raw) => b"\\\0".as_slice(),
-            _ => return Err(QueryError::InvalidPath),
-        };
-        for part in self.ancestors(detail.item)?.into_iter().skip(1) {
-            if !valid_name(&root.path.encoding, &part.name) {
-                return Err(QueryError::InvalidPath);
-            }
-            if !raw.ends_with(separator) {
-                raw.extend_from_slice(separator);
-            }
-            raw.extend_from_slice(&part.name);
-        }
-        Ok(ResultNativePath {
-            encoding: root.path.encoding.clone(),
-            raw: PathBytes::from_bytes(&raw),
-        })
+        join(
+            root,
+            self.ancestors(detail.item)?
+                .into_iter()
+                .skip(1)
+                .map(|part| part.name.as_slice()),
+        )
     }
+
+    /// Resolves a reported issue path from stored root evidence, without I/O.
+    ///
+    /// The path need not correspond to an admitted item, for example when the
+    /// collector could not open it. It cannot be used to establish identity.
+    pub fn issue_path(
+        &self,
+        root_index: u32,
+        relative: &[Vec<u8>],
+    ) -> Result<ResultNativePath, QueryError> {
+        let root = self
+            .roots
+            .get(root_index as usize)
+            .ok_or(QueryError::PathUnavailable)?;
+        join(root, relative.iter().map(Vec::as_slice))
+    }
+}
+
+fn join<'a>(
+    root: &ResultScopeRoot,
+    parts: impl Iterator<Item = &'a [u8]>,
+) -> Result<ResultNativePath, QueryError> {
+    let mut raw = root.path.raw.bytes().map_err(|_| QueryError::InvalidPath)?;
+    let separator = match root.path.encoding {
+        PathEncoding::Unix if raw.starts_with(b"/") && !raw.contains(&0) => b"/".as_slice(),
+        PathEncoding::WindowsUtf16le if valid_windows_root(&raw) => b"\\\0".as_slice(),
+        _ => return Err(QueryError::InvalidPath),
+    };
+    for part in parts {
+        if !valid_name(&root.path.encoding, part) {
+            return Err(QueryError::InvalidPath);
+        }
+        if !raw.ends_with(separator) {
+            raw.extend_from_slice(separator);
+        }
+        raw.extend_from_slice(part);
+    }
+    Ok(ResultNativePath {
+        encoding: root.path.encoding.clone(),
+        raw: PathBytes::from_bytes(&raw),
+    })
 }
 
 fn valid_windows_root(raw: &[u8]) -> bool {
