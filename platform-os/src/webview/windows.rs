@@ -1,4 +1,5 @@
 mod folder_drop;
+mod folder_validation;
 mod icon;
 mod messages;
 

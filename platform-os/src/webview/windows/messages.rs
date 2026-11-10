@@ -1,7 +1,15 @@
 //! Deliver WebView2 messages on the STA while application handlers use bounded lanes.
 use super::super::contract::{Dispatch, DispatchLane, Events, WebApp, message, trusted_message};
-use super::folder_drop::{self, Reason};
-use std::{cell::Cell, io, rc::Rc, sync::mpsc};
+use super::{
+    folder_drop::{self, Reason},
+    folder_validation,
+};
+use std::{
+    cell::Cell,
+    io,
+    rc::Rc,
+    sync::{Arc, mpsc},
+};
 use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2;
 use windows::{
     Win32::{
@@ -138,22 +146,9 @@ impl Bridge {
         events: Option<Events>,
         ready: Rc<Cell<bool>>,
     ) -> io::Result<Self> {
-        let (folders, incoming_folders) = mpsc::sync_channel::<(u64, Vec<u16>)>(4);
         let (outgoing, replies) = mpsc::sync_channel(QUEUE_LIMIT);
         let requests = IpcQueues::start(app, outgoing.clone())?;
-        let folder_replies = outgoing.clone();
-        std::thread::Builder::new()
-            .name("diskunfold-folder-drop".into())
-            .spawn(move || {
-                while let Ok((id, path)) = incoming_folders.recv() {
-                    if folder_replies
-                        .send(folder_drop::response(id, &path))
-                        .is_err()
-                    {
-                        break;
-                    }
-                }
-            })?;
+        let folders = folder_validation::start(outgoing, Arc::new(folder_drop::response))?;
         Ok(Self {
             view,
             ready,
