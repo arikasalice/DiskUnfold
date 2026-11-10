@@ -33,6 +33,7 @@ type View = {
   opened: Opened;
   rows: FolderQueryRow[];
   nextCursor: string | null;
+  focusRow?: number;
 };
 
 function name(value: BrowseValue<string>): string {
@@ -150,7 +151,7 @@ export function BrowsePanel({
     }
   }, [view]);
 
-  function loadMore() {
+  function loadMore(keyboard: boolean) {
     const snapshot = current.current;
     if (!snapshot?.nextCursor || pageActive.current || busy) return;
     const cursor = snapshot.nextCursor;
@@ -177,13 +178,17 @@ export function BrowsePanel({
           setMessage("page-error");
           return;
         }
-        focusAfterUpdate.current =
+        const buttonWillLoseFocus =
           page.nextCursor === null &&
           document.activeElement === loadMoreButton.current;
+        const focusNewRow =
+          keyboard && buttonWillLoseFocus && page.rows.length > 0;
+        focusAfterUpdate.current = buttonWillLoseFocus && !focusNewRow;
         setView({
           ...active,
           rows: [...active.rows, ...page.rows],
           nextCursor: page.nextCursor,
+          ...(focusNewRow ? { focusRow: active.rows.length } : {}),
         });
       })
       .catch(() => {
@@ -268,6 +273,7 @@ export function BrowsePanel({
               "Availability",
             ]}
             rows={view.rows}
+            focusRow={view.focusRow}
             getRowKey={(row) => rowKey(row.item)}
             totalRows={page.total.state === "exact" ? page.total.count : -1}
             renderCells={(row) => [
@@ -296,7 +302,16 @@ export function BrowsePanel({
             ]}
           />
           {view.nextCursor && (
-            <Action ref={loadMoreButton} onPress={loadMore} isDisabled={busy}>
+            <Action
+              ref={loadMoreButton}
+              onPress={(event) =>
+                loadMore(
+                  event.pointerType === "keyboard" ||
+                    event.pointerType === "virtual",
+                )
+              }
+              isDisabled={busy}
+            >
               {loadingPage ? "Loading…" : "Load more"}
             </Action>
           )}

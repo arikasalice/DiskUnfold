@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useId, useLayoutEffect, useState } from "react";
 import type { FocusEvent, ReactNode } from "react";
 import { useDocumentRows } from "./document-rows";
 import "../theme/browse-table.css";
@@ -7,6 +7,7 @@ export function BrowseTable<Row>({
   label,
   columns,
   rows,
+  focusRow,
   totalRows,
   getRowKey,
   renderCells,
@@ -14,6 +15,7 @@ export function BrowseTable<Row>({
   label: string;
   columns: readonly string[];
   rows: readonly Row[];
+  focusRow?: number | undefined;
   totalRows: number;
   getRowKey: (row: Row) => string;
   renderCells: (row: Row) => readonly ReactNode[];
@@ -24,20 +26,38 @@ export function BrowseTable<Row>({
     index: number;
     key: string;
   }>();
+  const [completedFocus, setCompletedFocus] = useState<number>();
+  const pendingFocus = focusRow === completedFocus ? undefined : focusRow;
   const indexes = Array.from(
     { length: layout.end - layout.start },
     (_, index) => layout.start + index,
   );
   const pinnedRow = focusedRow && rows[focusedRow.index];
-  if (
-    focusedRow &&
+  const pin =
+    pendingFocus ??
+    (focusedRow &&
     pinnedRow !== undefined &&
-    focusedRow.index < rows.length &&
     getRowKey(pinnedRow) === focusedRow.key
-  ) {
-    if (focusedRow.index < layout.start) indexes.unshift(focusedRow.index);
-    if (focusedRow.index >= layout.end) indexes.push(focusedRow.index);
+      ? focusedRow.index
+      : undefined);
+  if (pin !== undefined && pin < rows.length) {
+    if (pin < layout.start) indexes.unshift(pin);
+    if (pin >= layout.end) indexes.push(pin);
   }
+
+  useLayoutEffect(() => {
+    if (pendingFocus === undefined) return;
+    setCompletedFocus(pendingFocus);
+    // The paging button has been removed. Respect focus placed elsewhere before commit.
+    if (document.activeElement !== document.body) return;
+    const row = body.current?.querySelector<HTMLElement>(
+      `[data-row="${pendingFocus}"]`,
+    );
+    const action = row?.querySelector<HTMLButtonElement>(
+      "button:not(:disabled)",
+    );
+    (action ?? row)?.focus();
+  }, [body, pendingFocus]);
 
   function trackFocus(event: FocusEvent<HTMLTableSectionElement>) {
     const index = Number(
@@ -108,6 +128,7 @@ export function BrowseTable<Row>({
                 role="row"
                 key={getRowKey(row)}
                 data-row={index}
+                tabIndex={index === pin ? -1 : undefined}
                 aria-rowindex={index + 2}
               >
                 {renderCells(row).map((cell, column) => (

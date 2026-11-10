@@ -222,29 +222,80 @@ test("discards a late page after navigating to another folder", async () => {
   expect(screen.queryByRole("button", { name: "Stale" })).toBeNull();
 });
 
-test.each([true, false])(
-  "preserves focus when the last page removes Load more (focus on button: %s)",
-  async (keepsFocus) => {
+test.each(["directory", "file"] as const)(
+  "keyboard paging focuses the first newly mounted %s when Load more is removed",
+  async (kind) => {
     const pending = deferred<FolderQueryPage>();
+    const first = opened(
+      1,
+      Array.from({ length: 200 }, (_, index) =>
+        row(index + 1, "Existing " + index),
+      ),
+      "next",
+    );
+    if (first.kind !== "opened") throw new Error("wrong fixture");
+    first.page.total = { state: "exact", count: 201 };
     const port: BrowsePort = {
-      open: vi.fn().mockResolvedValue(opened(1, [row(1, "Alpha")], "next")),
+      open: vi.fn().mockResolvedValue(first),
       page: vi.fn(() => pending.promise),
     };
     render(<BrowsePanel port={port} resultVersion={id} />);
     const load = await screen.findByRole("button", { name: "Load more" });
-    const folder = screen.getByRole("button", { name: "Alpha" });
+    expect(screen.queryByText("New item")).toBeNull();
+    expect(screen.queryByText("Existing 199")).toBeNull();
     act(() => load.focus());
-    fireEvent.click(load);
+    fireEvent.keyDown(load, { key: "Enter", code: "Enter" });
+    fireEvent.keyUp(load, { key: "Enter", code: "Enter" });
     expect(document.activeElement).toBe(load);
     fireEvent.click(load);
     expect(port.page).toHaveBeenCalledTimes(1);
-    if (!keepsFocus) act(() => folder.focus());
-    await act(async () => pending.resolve(page([row(2, "Beta")])));
+    await act(async () =>
+      pending.resolve(page([{ ...row(201, "New item"), kind }])),
+    );
+    const newItem = screen.getByText("New item");
     expect(load.isConnected).toBe(false);
     expect(document.activeElement).toBe(
-      keepsFocus
-        ? screen.getByRole("region", { name: "Folder navigation" })
-        : folder,
+      kind === "directory"
+        ? screen.getByRole("button", { name: "New item" })
+        : newItem.closest("tr"),
     );
+    expect(newItem.closest("tr")?.getAttribute("aria-rowindex")).toBe("202");
+    expect(screen.queryByText("Existing 199")).toBeNull();
   },
 );
+
+test("keyboard paging leaves focus where the user moved it before the final response", async () => {
+  const pending = deferred<FolderQueryPage>();
+  const port: BrowsePort = {
+    open: vi.fn().mockResolvedValue(opened(1, [row(1, "Alpha")], "next")),
+    page: vi.fn(() => pending.promise),
+  };
+  render(<BrowsePanel port={port} resultVersion={id} />);
+  const load = await screen.findByRole("button", { name: "Load more" });
+  const folder = screen.getByRole("button", { name: "Alpha" });
+  act(() => load.focus());
+  fireEvent.keyDown(load, { key: "Enter", code: "Enter" });
+  fireEvent.keyUp(load, { key: "Enter", code: "Enter" });
+  act(() => folder.focus());
+  await act(async () => pending.resolve(page([row(2, "Beta")])));
+  expect(load.isConnected).toBe(false);
+  expect(document.activeElement).toBe(folder);
+});
+
+test("keyboard paging restores panel focus if the final page has no rows", async () => {
+  const port: BrowsePort = {
+    open: vi.fn().mockResolvedValue(opened(1, [row(1, "Alpha")], "next")),
+    page: vi.fn().mockResolvedValue(page([])),
+  };
+  render(<BrowsePanel port={port} resultVersion={id} />);
+  const load = await screen.findByRole("button", { name: "Load more" });
+  act(() => load.focus());
+  await act(async () => {
+    fireEvent.keyDown(load, { key: "Enter", code: "Enter" });
+    fireEvent.keyUp(load, { key: "Enter", code: "Enter" });
+  });
+  expect(load.isConnected).toBe(false);
+  expect(document.activeElement).toBe(
+    screen.getByRole("region", { name: "Folder navigation" }),
+  );
+});
