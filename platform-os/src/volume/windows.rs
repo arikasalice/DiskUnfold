@@ -189,6 +189,23 @@ fn open_root(path: &[u8]) -> Result<(std::fs::File, Vec<u8>), PortError> {
     }
     Ok((file, before))
 }
+
+/// Discards a capacity observation when the drive mapping cannot be revalidated.
+fn checked_capacity(
+    expected: &[u8],
+    observation: Result<VolumeCapacity, PortError>,
+    current_identity: impl FnOnce() -> Result<Vec<u8>, PortError>,
+) -> Result<VolumeCapacity, PortError> {
+    if current_identity().as_deref() != Ok(expected) {
+        return Err(PortError {
+            kind: PortErrorKind::IdentityChanged,
+            reason_key: "scan.disconnected".into(),
+            os_code: None,
+        });
+    }
+    observation
+}
+
 impl VolumePort for WindowsVolumes {
     fn enumerate(&self) -> VolumeEnumeration {
         let mounts = enumerate();
@@ -226,7 +243,7 @@ impl VolumePort for WindowsVolumes {
         );
         let (mut available, mut total) = (0, 0);
         // SAFETY: path is NUL-terminated and output pointers are valid.
-        unsafe {
+        let observation = unsafe {
             GetDiskFreeSpaceExW(
                 PCWSTR(wide.as_ptr()),
                 Some(&mut available),
@@ -234,24 +251,65 @@ impl VolumePort for WindowsVolumes {
                 None,
             )
         }
-        .map_err(|e| error(io::Error::from_raw_os_error(e.code().0 & 0xffff)))?;
-        if identity(&drive).as_ref() != Ok(&volume) {
-            return Err(PortError {
-                kind: PortErrorKind::IdentityChanged,
-                reason_key: "scan.disconnected".into(),
-                os_code: None,
-            });
-        }
-        Ok(VolumeCapacity {
+        .map(|()| VolumeCapacity {
             total_bytes: total,
             available_bytes: available,
         })
+        .map_err(|e| error(io::Error::from_raw_os_error(e.code().0 & 0xffff)));
+        checked_capacity(&volume, observation, || identity(&drive))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn capacity_rechecks_identity_on_success_and_failure() {
+        use std::cell::Cell;
+        let original = vec![1, 2];
+        let size = VolumeCapacity {
+            total_bytes: 100,
+            available_bytes: 40,
+        };
+        let denied = error(io::Error::from_raw_os_error(5));
+        let calls = Cell::new(0);
+        let observed = checked_capacity(&original, Ok(size.clone()), || {
+            calls.set(calls.get() + 1);
+            Ok(original.clone())
+        });
+        assert_eq!(observed, Ok(size.clone()));
+        let unchanged_error = checked_capacity(&original, Err(denied.clone()), || {
+            calls.set(calls.get() + 1);
+            Ok(original.clone())
+        });
+        assert_eq!(unchanged_error, Err(denied.clone()));
+        for observation in [Ok(size), Err(denied)] {
+            let changed = checked_capacity(&original, observation, || {
+                calls.set(calls.get() + 1);
+                Ok(vec![3, 4])
+            });
+            assert_eq!(
+                changed.err().map(|e| e.kind),
+                Some(PortErrorKind::IdentityChanged)
+            );
+        }
+        let unavailable = checked_capacity(
+            &original,
+            Ok(VolumeCapacity {
+                total_bytes: 100,
+                available_bytes: 40,
+            }),
+            || {
+                calls.set(calls.get() + 1);
+                Err(error(io::Error::from_raw_os_error(1167)))
+            },
+        );
+        assert_eq!(
+            unavailable.err().map(|e| e.kind),
+            Some(PortErrorKind::IdentityChanged)
+        );
+        assert_eq!(calls.get(), 5);
+    }
     #[test]
     fn only_remote_drive_type_establishes_network_target() {
         for drive_type in [0, 1, 2, 3, 5, 6, u32::MAX] {
