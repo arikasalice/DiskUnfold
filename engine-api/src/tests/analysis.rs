@@ -277,3 +277,84 @@ fn folder_total_accepts_only_directory_references_from_the_requested_version()
     }
     Ok(())
 }
+
+#[test]
+fn scope_total_uses_the_entire_forest_and_deduplicates_per_volume()
+-> Result<(), Box<dyn std::error::Error>> {
+    use du_core_contracts::{
+        PathBytes, PathEncoding,
+        result::{ResultNativePath, ResultScopeRoot},
+    };
+    let scope = Id::parse("0195f856-ab83-7a59-9343-10d29775c9a9")?;
+    let version = Id::parse("0195f856-ab83-7a59-9343-10d29775c9aa")?;
+    let store = IngestSink::default();
+    let roots = [(b"/a", 1, 11), (b"/b", 1, 12), (b"/c", 2, 13)].map(|(path, volume, file)| {
+        ResultScopeRoot {
+            path: ResultNativePath {
+                encoding: PathEncoding::Unix,
+                raw: PathBytes::from_bytes(path),
+            },
+            volume_id: vec![volume],
+            file_id: vec![file],
+        }
+    });
+    let mut ingest = store
+        .open_forest(scope, roots.into())
+        .map_err(|e| format!("{e:?}"))?;
+    for (root_index, volume, bytes) in [(0, 1, 32), (1, 1, 32), (2, 2, 64)] {
+        ingest
+            .add_directory_at(root_index, vec![])
+            .map_err(|e| format!("{e:?}"))?;
+        ingest
+            .add_with_space_at(
+                root_index,
+                Observation {
+                    path: vec![b"same-name".to_vec()],
+                    size: None,
+                },
+                SpaceObservation {
+                    allocated: Some(SizeValue {
+                        basis: SizeBasis::Allocated,
+                        evidence: SizeEvidence::OsReported,
+                        amount: SizeAmount::Exact {
+                            bytes: ByteSize::from(bytes),
+                        },
+                    }),
+                    identity: Some(FileIdentity {
+                        volume: vec![volume],
+                        file: vec![3],
+                    }),
+                    link_count: Some(if volume == 1 { 2 } else { 1 }),
+                    sharing: SharingEvidence::Unknown,
+                },
+            )
+            .map_err(|e| format!("{e:?}"))?;
+    }
+    ingest
+        .record_gap_at(2, vec![], "scan.path_denied".into(), None)
+        .map_err(|e| format!("{e:?}"))?;
+    ingest
+        .seal(version.clone(), ResultCompleteness::Missing)
+        .map_err(|e| format!("{e:?}"))?;
+    let mut builder = EngineBuilder::default();
+    crate::space::register_total(&mut builder, store);
+    let engine = builder.build()?;
+    let read = |target| {
+        call(
+            &engine,
+            "space.total",
+            Channel::Gui,
+            ENVELOPE_VERSION,
+            json!({"resultVersion": version, "target": target, "requestSeq": 11}),
+        )
+    };
+    let total = read(json!({"kind": "scope_root"}))?;
+    assert!(total.error.is_none());
+    assert_eq!(total.body["sizes"][1]["size"]["bytes"], "96");
+    assert_eq!(total.body["sizes"][1]["size"]["state"], "lower_bound");
+    assert_eq!(total.body["inaccessibleRanges"], "1");
+    let first = read(json!({"kind": "folder", "item": {"resultVersion": version, "itemNo": 0}}))?;
+    assert!(first.error.is_none());
+    assert_eq!(first.body["sizes"][1]["size"]["bytes"], "32");
+    Ok(())
+}

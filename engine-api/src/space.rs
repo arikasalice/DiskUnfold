@@ -63,22 +63,21 @@ fn query_error(error: QueryError) -> EngineError {
 }
 
 fn total(version: &ResultVersion, request: SpaceTotalRequest) -> Result<SpaceTotal, EngineError> {
-    let item_no = match request.target {
-        SpaceTarget::ScopeRoot {} => 0,
+    let aggregate = match request.target {
+        SpaceTarget::ScopeRoot {} => version.scope_total(),
         SpaceTarget::Folder { item } => {
             let detail = version.detail(&item).map_err(query_error)?;
             if detail.item.kind != ResultItemKind::Directory {
                 return Err(EngineError::reason("space.target_out_of_scope"));
             }
-            detail.item.item_no
+            version
+                .space(detail.item.item_no)
+                .ok_or_else(|| EngineError::reason("space.target_out_of_scope"))?
         }
         SpaceTarget::QueryResult { .. } => {
             return Err(EngineError::reason("space.target_out_of_scope"));
         }
     };
-    let aggregate = version
-        .space(item_no)
-        .ok_or_else(|| EngineError::reason("space.target_out_of_scope"))?;
     Ok(SpaceTotal {
         result_version: version.version_id().clone(),
         request_seq: request.request_seq,
