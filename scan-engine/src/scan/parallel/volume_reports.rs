@@ -1,7 +1,7 @@
 //! Scan-lifetime volume observations from retained verified root handles.
 use du_analysis_index::{VolumeReport, VolumeReportPoint};
 use du_core_contracts::{
-    job::{Checkpoint, JobContext, JobCounts},
+    job::{Checkpoint, JobContext, JobCounts, JobFlow, JobFlowError},
     ports::{PortError, PortErrorKind},
     scan_observation::{AnchoredDirectory, VolumeSpaceReader},
 };
@@ -38,9 +38,28 @@ impl Reports {
                 .collect(),
         )
     }
-    pub(super) fn start(&mut self, roots: &[Box<dyn AnchoredDirectory>], context: &dyn JobContext) {
+    /// Runs initial volume probes under one independently registered flow.
+    pub(super) fn prepare_start(
+        &mut self,
+        roots: &[Box<dyn AnchoredDirectory>],
+        context: &dyn JobContext,
+    ) -> Result<(), JobFlowError> {
+        let mut flows = super::acquire_flows(context, 1)?;
+        if let Some(flow) = flows.pop() {
+            self.start(roots, context, &*flow);
+            flow.finish(JobCounts::default());
+        }
+        Ok(())
+    }
+    pub(super) fn start(
+        &mut self,
+        roots: &[Box<dyn AnchoredDirectory>],
+        context: &dyn JobContext,
+        flow: &dyn JobFlow,
+    ) {
         for slot in &mut self.0 {
-            if context.checkpoint() == Checkpoint::Cancel {
+            if context.checkpoint() == Checkpoint::Cancel || flow.safe_point() == Checkpoint::Cancel
+            {
                 break;
             }
             let result = if slot.report.volume_id.is_empty() {
@@ -57,27 +76,33 @@ impl Reports {
                 })
             };
             slot.report.start = Some(point(context, result));
+            if flow.safe_point() == Checkpoint::Cancel {
+                break;
+            }
         }
     }
     pub(super) fn finish(&mut self, context: &dyn JobContext, cancelled: bool) {
         if !cancelled
             && self.0.iter().any(|slot| slot.reader.is_some())
             && let Ok(mut flows) = super::acquire_flows(context, 1)
+            && let Some(flow) = flows.pop()
         {
-            self.end(context);
-            if let Some(flow) = flows.pop() {
-                flow.finish(JobCounts::default());
-            }
+            self.end(context, &*flow);
+            flow.finish(JobCounts::default());
         }
     }
-    pub(super) fn end(&mut self, context: &dyn JobContext) {
+    pub(super) fn end(&mut self, context: &dyn JobContext, flow: &dyn JobFlow) {
         for slot in &mut self.0 {
-            if context.checkpoint() == Checkpoint::Cancel {
+            if context.checkpoint() == Checkpoint::Cancel || flow.safe_point() == Checkpoint::Cancel
+            {
                 break;
             }
             if let Some(reader) = &slot.reader {
                 let result = reader.read(&slot.report.volume_id);
                 slot.report.end = Some(point(context, result));
+                if flow.safe_point() == Checkpoint::Cancel {
+                    break;
+                }
             }
         }
     }

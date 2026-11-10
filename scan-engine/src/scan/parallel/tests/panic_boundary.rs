@@ -80,7 +80,7 @@ fn worker_panics_abort_other_flows_and_restore_previous_result()
             .recv_timeout(Duration::from_secs(3))
             .map_err(|_| "worker panic did not finish")?;
         assert!(outcome.result_version_id.is_none());
-        assert_eq!(finished.load(Ordering::Acquire), 2);
+        assert_eq!(finished.load(Ordering::Acquire), 3);
         assert_eq!(abandoned.load(Ordering::Acquire), 0);
         assert_eq!(
             sink.pin()

@@ -394,7 +394,7 @@ impl JobContext for CancelWhileWaiting {
         }
     }
     fn try_start_flow(&self) -> Result<Box<dyn JobFlow>, JobFlowError> {
-        if self.calls.fetch_add(1, Ordering::SeqCst) == 0 {
+        if self.calls.fetch_add(1, Ordering::SeqCst) < 2 {
             Ok(Box::new(Flow {
                 completed: Arc::new(AtomicUsize::new(0)),
                 abandoned: Arc::new(AtomicUsize::new(0)),

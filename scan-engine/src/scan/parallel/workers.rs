@@ -1,4 +1,10 @@
 //! Worker scheduling and bounded per-root directory processing.
+//!
+//! Each worker parks outside queue locks and device permits after transferring
+//! an item or returned batch into owned state. An in-flight adapter call is
+//! allowed to return first; a pause request is not itself a completed pause.
+//! A shared abort cannot wake a flow already blocked inside `safe_point`; the
+//! runtime must resume or cancel that flow until an abort-aware port exists.
 use super::*;
 
 pub(super) fn worker(
@@ -9,7 +15,7 @@ pub(super) fn worker(
     flow: Box<dyn JobFlow>,
 ) {
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        worker_loop(shared, &sender, context, policy)
+        worker_loop(shared, &sender, context, policy, &*flow)
     }));
     if !matches!(result, Ok(true)) {
         shared.abort();
@@ -22,11 +28,15 @@ fn worker_loop(
     sender: &SyncSender<Event>,
     context: &dyn JobContext,
     policy: Policy<'_>,
+    flow: &dyn JobFlow,
 ) -> bool {
     let mut local = Vec::new();
     let mut prefer_shared = true;
     while context.checkpoint() != Checkpoint::Cancel && !shared.abort.load(Ordering::Acquire) {
-        let claim = take(shared, context, &mut local, prefer_shared);
+        if flow.safe_point() == Checkpoint::Cancel {
+            break;
+        }
+        let claim = take(shared, context, &mut local, prefer_shared, flow);
         prefer_shared = !prefer_shared;
         let Some(Claim {
             frame,
@@ -100,6 +110,7 @@ fn take<'a>(
     context: &dyn JobContext,
     local: &mut Vec<Frame>,
     prefer_shared: bool,
+    flow: &dyn JobFlow,
 ) -> Option<Claim<'a>> {
     let mut queue = shared.queue.lock().ok()?;
     loop {
@@ -122,6 +133,11 @@ fn take<'a>(
             .wait_timeout(queue, Duration::from_millis(25))
             .ok()?
             .0;
+        drop(queue);
+        if flow.safe_point() == Checkpoint::Cancel {
+            return None;
+        }
+        queue = shared.queue.lock().ok()?;
     }
 }
 
@@ -133,7 +149,7 @@ fn process(
     policy: Policy<'_>,
     local: &mut Vec<Frame>,
 ) -> bool {
-    while context.checkpoint() != Checkpoint::Cancel && !shared.abort.load(Ordering::Acquire) {
+    if context.checkpoint() != Checkpoint::Cancel && !shared.abort.load(Ordering::Acquire) {
         let recorded = frame.root_published && !frame.deferred.is_empty();
         let next = if recorded {
             frame.deferred.pop_front()
@@ -147,10 +163,12 @@ fn process(
                     local.push(child);
                     return true;
                 }
-                Ok(None) => {}
+                Ok(None) => {
+                    requeue(shared, frame, local);
+                    return true;
+                }
                 Err(()) => return false,
             }
-            continue;
         }
         if !publish_first_batch(&mut frame, sender, context) {
             return false;
@@ -162,7 +180,10 @@ fn process(
         }
         let outcome = next_entries(&mut frame, context, policy);
         match outcome {
-            Ok(None) => continue,
+            Ok(None) => {
+                requeue(shared, frame, local);
+                return true;
+            }
             Err(ReadFailure::Filter) => {
                 return context.checkpoint() == Checkpoint::Cancel;
             }
@@ -173,6 +194,8 @@ fn process(
                 frame.first_batch |= frame.root && !frame.root_published;
                 frame.batch_pending = true;
                 frame.entries = batch.into();
+                requeue(shared, frame, local);
+                return true;
             }
             outcome => {
                 let failure_reason = match outcome {

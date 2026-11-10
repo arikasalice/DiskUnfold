@@ -11,6 +11,7 @@ use du_core_contracts::{
 use std::sync::{Arc, atomic::AtomicUsize};
 mod filtered;
 mod item_times;
+mod pause;
 mod root_times;
 mod volume_reports;
 
@@ -326,7 +327,7 @@ fn cancellation_after_one_root_releases_flow_and_counts_only_unfinished_roots()
         outcome.unprocessed_summary.as_deref(),
         Some("unprocessed_roots=1")
     );
-    assert_eq!(done.load(Ordering::Acquire), 1);
+    assert_eq!(done.load(Ordering::Acquire), 2);
     assert_eq!(abandoned.load(Ordering::Acquire), 0);
     let result = sink
         .pin()
@@ -485,7 +486,7 @@ fn failed_second_spawn_closes_channels_and_finishes_all_flows()
     assert!(TEST_WORKER_STARTED.load(Ordering::Acquire));
     assert_eq!(reads.load(Ordering::Relaxed), 0);
     assert!(result.result_version_id.is_none());
-    assert_eq!(context.completed.load(Ordering::SeqCst), 3);
+    assert_eq!(context.completed.load(Ordering::SeqCst), 4);
     assert_eq!(context.abandoned.load(Ordering::SeqCst), 0);
     assert_eq!(
         sink.pin()

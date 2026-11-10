@@ -147,7 +147,7 @@ fn saturated_device_does_not_block_other_device_and_releases_on_return()
             .result_version_id
             .is_some()
     );
-    assert_eq!(completed.load(Ordering::Acquire), 3);
+    assert_eq!(completed.load(Ordering::Acquire), 4);
     assert_eq!(abandoned.load(Ordering::Acquire), 0);
     Ok(())
 }
