@@ -81,6 +81,24 @@ function Invoke-UI($item) {
   $pattern = $item.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern)
   $pattern.Invoke()
 }
+# Wait for the expected total, selecting a newer result if the interim one stays pinned.
+function Wait-FinalLogicalSize($expected) {
+  $selection = @{ LastSwitch = [DateTime]::MinValue }
+  Wait-UI "final logical size $expected" {
+    if (-not (Find-UI 'Scan finished' $textType)) { return }
+    $metric = Find-UI 'Logical size' ([Windows.Automation.ControlType]::Group)
+    if ($metric -and (Find-UI 'Final' $textType)) {
+      $value = Find-UI $expected $textType $metric
+      if ($value) { return $value }
+    }
+    $latest = Find-UI 'Show latest result' $button
+    $now = [DateTime]::UtcNow
+    if ($latest -and $latest.Current.IsEnabled -and $now -ge $selection.LastSwitch.AddSeconds(1)) {
+      Invoke-UI $latest
+      $selection.LastSwitch = $now
+    }
+  }
+}
 # Open the observed file inspector through its real WebView2 action.
 function Test-FileInspection($name, $size) {
   $file = Wait-Enabled $name $true
@@ -123,14 +141,7 @@ function Test-ScaledFileInspection {
   Set-Scope $scaledScope
   Invoke-UI (Wait-Enabled 'Review scope' $true)
   Invoke-UI (Wait-Enabled 'Start scan' $true)
-  $result = Wait-UI 'scaled final result or manual result switch' {
-    if (Find-UI 'Scan finished' $textType) {
-      $switch = Find-UI 'Show latest result' $button
-      if ($switch -and $switch.Current.IsEnabled) { return 'switch' }
-      if (Find-UI '1.1 KiB' $textType) { return 'shown' }
-    }
-  }
-  if ($result -eq 'switch') { Invoke-UI (Wait-Enabled 'Show latest result' $true) }
+  $null = Wait-FinalLogicalSize '1.1 KiB'
   Invoke-UI (Wait-Enabled 'Browse folders' $true)
   Test-FileInspection 'scaled.bin' '1.1 KiB · 1,100 bytes'
 }
@@ -202,22 +213,8 @@ function Test-PopulatedWorkspace {
   $null = Wait-Enabled 'Start scan' $true
   Wait-ScopeActionsVisible
   Invoke-UI (Wait-Enabled 'Start scan' $true)
-  $null = Wait-UI 'six-root scan finished' { Find-UI 'Scan finished' $textType }
-  $available = Wait-UI 'six-root final result or user-controlled switch' {
-    if (Find-UI 'Final' $textType) { return 'shown' }
-    $switch = Find-UI 'Show latest result' $button
-    if ($switch -and $switch.Current.IsEnabled) { return 'switch' }
-  }
-  if ($available -eq 'switch') {
-    $null = Wait-UI 'six-root interim result still pinned' { Find-UI 'Interim' $textType }
-    Invoke-UI (Wait-Enabled 'Show latest result' $true)
-    'F03 populated workspace: switched from the pinned interim result to the final result'
-  }
   try {
-    $null = Wait-UI '245-byte aggregate from all six roots' {
-      $metric = Find-UI 'Logical size' ([Windows.Automation.ControlType]::Group)
-      if ($metric -and (Find-UI 'Final' $textType)) { Find-UI '245 bytes' $textType $metric }
-    }
+    $null = Wait-FinalLogicalSize '245 bytes'
   } catch {
     $metric = Find-UI 'Logical size' ([Windows.Automation.ControlType]::Group)
     if ($metric) {
@@ -284,17 +281,7 @@ function Test-ScanSuspension($path) {
   $null = Wait-UI 'confirmed paused scan' { Find-UI 'Scan status: paused' $textType }
   $null = Wait-VisibleAction 'Cancel scan'
   Invoke-UI (Wait-VisibleAction 'Resume scan')
-  $null = Wait-UI 'resumed scan finished' { Find-UI 'Scan finished' $textType }
-  $result = Wait-UI 'final result or manual result switch' {
-    if (Find-UI 'Final' $textType) { return 'shown' }
-    $switch = Find-UI 'Show latest result' $button
-    if ($switch -and $switch.Current.IsEnabled) { return 'switch' }
-  }
-  if ($result -eq 'switch') { Invoke-UI (Wait-VisibleAction 'Show latest result') }
-  $null = Wait-UI 'exact 25 KiB result' {
-    $metric = Find-UI 'Logical size' ([Windows.Automation.ControlType]::Group)
-    if ($metric -and (Find-UI 'Final' $textType)) { Find-UI '25.0 KiB' $textType $metric }
-  }
+  $null = Wait-FinalLogicalSize '25.0 KiB'
   'F02 native pause and resume: controls visible, scan paused, final logical size 25 KiB'
 }
 try {
