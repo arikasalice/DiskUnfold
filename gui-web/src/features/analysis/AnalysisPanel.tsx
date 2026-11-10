@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import type { Ref } from "react";
 import {
   Action,
@@ -213,6 +219,7 @@ export function AnalysisPanel({
     tone: "info" | "error";
   }>();
   const request = useRef(0);
+  const cancelOwner = useRef<{ jobRef: string }>(undefined);
   const pendingDrop = useRef<{ seq: number; request: number } | undefined>(
     undefined,
   );
@@ -228,6 +235,13 @@ export function AnalysisPanel({
       : dropEnabled
         ? "Drop a folder here or enter its path."
         : "Review this path before scanning.";
+
+  useLayoutEffect(
+    () => () => {
+      cancelOwner.current = undefined;
+    },
+    [],
+  );
 
   const editPaths = useCallback(
     (update: (current: (OsPath | undefined)[]) => (OsPath | undefined)[]) => {
@@ -325,6 +339,7 @@ export function AnalysisPanel({
 
   async function start() {
     if (!review || !reviewedDraft || !canStart(review, reviewedDraft)) return;
+    cancelOwner.current = undefined;
     pendingDrop.current = undefined;
     setWorking(true);
     setCancelRequested(false);
@@ -347,16 +362,20 @@ export function AnalysisPanel({
 
   async function cancel() {
     if (!receipt) return;
+    const owner = { jobRef: receipt.jobRef };
+    cancelOwner.current = owner;
     setCancelRequested(true);
     try {
       const response = await client.call("job.cancel", {
-        jobRef: receipt.jobRef,
+        jobRef: owner.jobRef,
       });
+      if (cancelOwner.current !== owner) return;
       if (response.outcome === "unsupported") {
         setCancelRequested(false);
         setError("Cancellation is unavailable for this scan.");
       }
     } catch (failure) {
+      if (cancelOwner.current !== owner) return;
       setCancelRequested(false);
       setError(errorText(failure));
     }

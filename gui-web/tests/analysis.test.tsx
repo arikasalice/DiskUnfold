@@ -59,6 +59,7 @@ function fixture({
   readTotals = (result) => result,
   readReview = (result) => result,
   beforeStart,
+  startJob = () => "scan",
   readStatus = (result) => result,
   cancelJob,
   readFailures,
@@ -72,10 +73,13 @@ function fixture({
   readTotals?: (result: SpaceTotal) => SpaceTotal | Promise<SpaceTotal>;
   readReview?: (result: ScopeReview) => ScopeReview | Promise<ScopeReview>;
   beforeStart?: () => Promise<void>;
+  startJob?: () => string;
   readStatus?: (
     result: AnalysisJobStatus,
   ) => AnalysisJobStatus | Promise<AnalysisJobStatus>;
-  cancelJob?: () => AnalysisJobControl | Promise<AnalysisJobControl>;
+  cancelJob?: (
+    jobRef: string,
+  ) => AnalysisJobControl | Promise<AnalysisJobControl>;
   readFailures?: (
     request: ScanFailuresRequest,
   ) => ScanFailures | Promise<ScanFailures>;
@@ -116,7 +120,7 @@ function fixture({
           if (beforeStart) await beforeStart();
           if (stale) throw new AnalysisError("STALE_VERSION", "scope.changed");
           return {
-            jobRef: "scan",
+            jobRef: startJob(),
             existing: false,
             scopeVersion: "scope",
             scopeFingerprint: "verified",
@@ -125,7 +129,7 @@ function fixture({
         case "job.get":
           if (missingJob) throw new AnalysisError("NOT_FOUND", "job.not_found");
           return readStatus({
-            jobRef: "scan",
+            jobRef: (body as { jobRef: string }).jobRef,
             kind: "scan.metadata",
             state: "partial",
             sequence: 3,
@@ -133,7 +137,7 @@ function fixture({
             reasonKey: null,
           });
         case "job.cancel":
-          if (cancelJob) return cancelJob();
+          if (cancelJob) return cancelJob((body as { jobRef: string }).jobRef);
           throw new Error("Cancellation unavailable");
         case "space.total": {
           const request = body as { requestSeq: number; resultVersion: string };
@@ -740,6 +744,88 @@ test("F02 FR10: cancellation is announced before acknowledgement and a rejection
   expect(screen.getByText("Scan status: running")).toBeDefined();
   expect(cancel.disabled).toBe(false);
 });
+
+test.each(["starting", "cancelling"] as const)(
+  "F02: an older cancellation cannot change a newer scan while it is %s",
+  async (phase) => {
+    let firstFinished = false;
+    let starts = 0;
+    let resolveStart = () => {};
+    const delayedStart = new Promise<void>((resolve) => {
+      resolveStart = resolve;
+    });
+    let settleFirstCancel = () => {};
+    const firstCancel = new Promise<AnalysisJobControl>((resolve, reject) => {
+      settleFirstCancel = () => {
+        if (phase === "starting") {
+          reject(new Error("Old cancellation failed."));
+        } else {
+          resolve({
+            outcome: "unsupported",
+            state: "running",
+            reasonKey: "job.control_unsupported",
+            sequence: 3,
+          });
+        }
+      };
+    });
+    const { client, calls, listeners } = fixture({
+      beforeStart: async () => {
+        starts += 1;
+        if (starts === 2 && phase === "starting") await delayedStart;
+      },
+      startJob: () => (starts === 1 ? "scan" : "next-scan"),
+      readStatus: (base) => ({
+        ...base,
+        state: base.jobRef === "scan" && firstFinished ? "done" : "running",
+        resultVersion: null,
+      }),
+      cancelJob: (jobRef) =>
+        jobRef === "scan"
+          ? firstCancel
+          : {
+              outcome: "accepted",
+              state: "cancel_requested",
+              reasonKey: null,
+              sequence: 4,
+            },
+    });
+    await startFixtureScan(client);
+    await screen.findByText("Scan status: running");
+    fireEvent.click(screen.getByRole("button", { name: "Cancel scan" }));
+    firstFinished = true;
+    notifyResult(listeners, "job.resync_required", {});
+    await screen.findByText("Scan finished");
+    fireEvent.click(screen.getByRole("button", { name: "Start scan" }));
+    if (phase === "starting") {
+      expect(
+        screen.getByRole("progressbar", { name: "Starting scan" }),
+      ).toBeDefined();
+    } else {
+      await screen.findByText("Scan status: running");
+      fireEvent.click(screen.getByRole("button", { name: "Cancel scan" }));
+    }
+    await act(async () => settleFirstCancel());
+    expect(screen.queryByRole("alert")).toBeNull();
+    if (phase === "starting") {
+      resolveStart();
+      await screen.findByText("Scan status: running");
+    } else {
+      expect(
+        screen.getByText("Scan status: cancellation requested"),
+      ).toBeDefined();
+      expect(
+        screen.getByRole<HTMLButtonElement>("button", { name: "Cancel scan" })
+          .disabled,
+      ).toBe(true);
+      expect(
+        calls
+          .filter(({ name }) => name === "job.cancel")
+          .map(({ body }) => body),
+      ).toEqual([{ jobRef: "scan" }, { jobRef: "next-scan" }]);
+    }
+  },
+);
 
 test("F02 IF-23: opens an existing partial without an event, then keeps it until explicit refresh", async () => {
   let finish = () => {};
