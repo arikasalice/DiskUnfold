@@ -12,6 +12,8 @@ use rusqlite::Connection;
 use serde_json::json;
 use std::path::Path;
 
+mod search;
+
 fn test_database(path: &Path) -> Result<SharedDatabase, io::Error> {
     let database = AppDb::open_or_create_gui(path)
         .map_err(|error| io::Error::other(format!("db.open_failed: {error:?}")))?;
