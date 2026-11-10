@@ -90,9 +90,10 @@ fn registered_page_and_space_total_share_the_same_search_admission()
         retired.error.ok_or("retired cursor accepted")?.reason_key,
         "cursor.stale"
     );
+    let region_ref = region(&engine);
     let folder = gui(
         "browse.open",
-        json!({"viewKind": "list", "requestSeq": 2,
+        json!({"regionRef": region_ref, "viewKind": "list", "requestSeq": 2,
         "resultVersion": version, "pageSize": 1}),
     );
     assert!(folder.error.is_none(), "{:?}", folder.error);

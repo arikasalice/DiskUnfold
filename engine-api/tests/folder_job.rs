@@ -309,7 +309,7 @@ fn typed_ticket_preserves_admission_across_replacement_and_channel_cancel() -> R
     let jobs = FolderJobs::new(browse, runtime.clone()).map_err(|e| format!("{e:?}"))?;
     let request = |sequence| -> Result<BrowseOpenRequest, String> {
         serde_json::from_value(
-            serde_json::json!({"viewKind":"list", "requestSeq":sequence, "pageSize":1}),
+            serde_json::json!({"regionRef":id(7)?,"viewKind":"list", "requestSeq":sequence, "pageSize":1}),
         )
         .map_err(|e| e.to_string())
     };
@@ -358,8 +358,10 @@ fn typed_request_rejects_unrelated_session_without_cancelling_current_job() -> R
     ));
     let jobs = FolderJobs::new(browse, runtime.clone()).map_err(|e| format!("{e:?}"))?;
     let request = || -> Result<BrowseOpenRequest, String> {
-        serde_json::from_value(serde_json::json!({"viewKind":"list", "requestSeq":1}))
-            .map_err(|e| e.to_string())
+        serde_json::from_value(
+            serde_json::json!({"regionRef":id(7)?,"viewKind":"list", "requestSeq":1}),
+        )
+        .map_err(|e| e.to_string())
     };
     let active = jobs
         .submit_live(session, "main", id(8)?, request()?)

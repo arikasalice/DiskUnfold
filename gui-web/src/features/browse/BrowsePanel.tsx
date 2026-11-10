@@ -31,7 +31,7 @@ import type {
 /** Injected boundary for opening folders and paging through a pinned result. */
 export interface BrowsePort {
   open(
-    request: BrowseOpenRequest,
+    request: Omit<BrowseOpenRequest, "regionRef">,
     signal?: AbortSignal,
   ): Promise<BrowseOpenResponse>;
   page(request: QueryPageRequest): Promise<QueryPageResponse>;
@@ -115,6 +115,10 @@ export function BrowsePanel({
   const [message, setMessage] = useState<"error" | "job" | "page-error">();
   const sequence = useRef(0);
   const opening = useRef<AbortController | undefined>(undefined);
+  const lastAttempt = useRef<{
+    location: ItemRef | undefined;
+    pinned: string | undefined;
+  }>(undefined);
   const pageActive = useRef<PageViewport>(undefined);
   const pageViewport = useRef<PageViewport>(undefined);
   const virtualRootVersion = useRef<string>(undefined);
@@ -133,6 +137,7 @@ export function BrowsePanel({
   }, []);
 
   function navigate(location?: ItemRef, pinned = resultVersion) {
+    lastAttempt.current = { location, pinned };
     const requestSeq = ++sequence.current;
     const active = document.activeElement;
     const restoreFocus =
@@ -334,7 +339,19 @@ export function BrowsePanel({
       <Heading level={2}>Folders and files</Heading>
       {busy && <Progress label="Opening folder" />}
       {message === "error" && (
-        <Notice tone="error">Could not open this folder.</Notice>
+        <Notice tone="error">
+          Could not open this folder.{" "}
+          <Action
+            onPress={() =>
+              navigate(
+                lastAttempt.current?.location,
+                lastAttempt.current?.pinned,
+              )
+            }
+          >
+            Retry
+          </Action>
+        </Notice>
       )}
       {message === "page-error" && (
         <Notice tone="error">Could not load the next page.</Notice>

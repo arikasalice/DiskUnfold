@@ -136,11 +136,6 @@ impl FolderJobs {
             request_seq,
         })
     }
-    pub(super) fn cancel_channel(&self, channel: &str) -> Result<(), ErrorKind> {
-        let channels = self.channels.lock().map_err(|_| ErrorKind::Unavailable)?;
-        self.cancel_previous(&channels, channel)
-    }
-
     fn cancel_previous(&self, channels: &Channels, channel: &str) -> Result<(), ErrorKind> {
         if let Some(previous) = channels.by_name.get(channel) {
             match self.runtime.cancel(previous) {
@@ -211,6 +206,77 @@ impl FolderJobs {
             SubmitResult::Created(id) | SubmitResult::Existing(id) => id,
         };
         channels.by_name.insert(channel.to_owned(), id.clone());
+        channels.active.push(id.clone());
+        Ok(FolderTicket {
+            id,
+            runtime: self.runtime.clone(),
+            first,
+        })
+    }
+
+    /// Submits one region-bound evaluation without cancelling any other region.
+    pub(super) fn submit_region(
+        &self,
+        correlation: Id,
+        prepared: PreparedOpen,
+        permit: crate::query_region::Permit<du_core_contracts::query_region_ipc::QueryRegionKind>,
+    ) -> Result<FolderTicket, ErrorKind> {
+        let mut channels = self.channels.lock().map_err(|_| ErrorKind::Unavailable)?;
+        reap(&self.runtime, &mut channels)?;
+        if channels.active.len() >= 4 {
+            return Err(ErrorKind::Busy);
+        }
+        let slot = Arc::new(Mutex::new(None));
+        let first = Arc::new(Mutex::new(None));
+        let body = Arc::new(Evaluate {
+            browse: self.browse.clone(),
+            prepared: Mutex::new(Some(prepared)),
+            result: slot.clone(),
+        });
+        let browse = self.browse.clone();
+        let output = first.clone();
+        let result = self
+            .runtime
+            .submit_with_publication(
+                Submission {
+                    kind_id: "query.evaluate".into(),
+                    deduplication_key: None,
+                    body,
+                    priority: JobPriority::Normal,
+                    scope_summary: "folder query".into(),
+                    correlation_id: correlation,
+                    sample: false,
+                },
+                move || {
+                    permit
+                        .publish(false, || {
+                            let candidate = slot
+                                .lock()
+                                .map_err(|_| "support.internal_error".to_owned())?
+                                .take()
+                                .ok_or_else(|| "support.internal_error".to_owned())?;
+                            let mut first = output
+                                .lock()
+                                .map_err(|_| "support.internal_error".to_owned())?;
+                            let admitted =
+                                browse.publish_candidate(candidate).map_err(|error| {
+                                    match error {
+                                        Error::StaleVersion => "result.requery_required",
+                                        _ => "support.internal_error",
+                                    }
+                                    .to_owned()
+                                })?;
+                            let id = admitted.page.query_ref().clone();
+                            *first = Some(admitted);
+                            Ok(id)
+                        })
+                        .map_err(|_| "support.internal_error".to_owned())?
+                },
+            )
+            .map_err(ErrorKind::Runtime)?;
+        let id = match result {
+            SubmitResult::Created(id) | SubmitResult::Existing(id) => id,
+        };
         channels.active.push(id.clone());
         Ok(FolderTicket {
             id,

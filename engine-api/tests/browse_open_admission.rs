@@ -49,7 +49,7 @@ fn filters_and_continues_on_the_admitted_version() -> Result<(), String> {
         [1; 32],
     );
     let request: BrowseOpenRequest = serde_json::from_value(json!({
-        "viewKind": "list", "requestSeq": 9, "pageSize": 1,
+        "regionRef": id(4), "viewKind": "list", "requestSeq": 9, "pageSize": 1,
         "condition": { "kind": "any", "children": [
             { "kind": "predicate", "predicate": { "kind": "type", "value": "directory" } },
             { "kind": "predicate", "predicate": { "kind": "size", "basis": "logical", "op": "at_least", "bytes": "1" } }
@@ -121,14 +121,15 @@ fn rejects_unresolved_sources_and_invalid_page_size() -> Result<(), serde_json::
         [1; 32],
     );
     let unresolved = serde_json::from_value(json!({
-        "viewKind": "list", "requestSeq": 1, "sourceRef": { "kind": "scan", "ref": id(1) }
+        "regionRef": id(4), "viewKind": "list", "requestSeq": 1, "sourceRef": { "kind": "scan", "ref": id(1) }
     }))?;
     assert!(matches!(
         session.open_live(unresolved, || false),
         Err(AdmissionError::SourceUnresolved)
     ));
-    let invalid_count =
-        serde_json::from_value(json!({ "viewKind": "list", "requestSeq": 1, "pageSize": 0 }))?;
+    let invalid_count = serde_json::from_value(
+        json!({ "regionRef": id(4), "viewKind": "list", "requestSeq": 1, "pageSize": 0 }),
+    )?;
     assert!(matches!(
         session.open_live(invalid_count, || false),
         Err(AdmissionError::Browse(CursorError::Folder(

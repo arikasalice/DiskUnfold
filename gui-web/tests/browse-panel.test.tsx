@@ -736,3 +736,55 @@ test.each(["browser layout", "wheel", "scroll key", "pointer"] as const)(
     }
   },
 );
+
+test("keeps the previous result and focus on failure, and retries the pinned location", async () => {
+  const pending = deferred<BrowseOpenResponse>();
+  const port: BrowsePort = {
+    open: vi
+      .fn()
+      .mockResolvedValueOnce(opened(1, [row(1, "Alpha")]))
+      .mockImplementationOnce(() => pending.promise)
+      .mockResolvedValueOnce(opened(3, [row(2, "Retried")])),
+    page: vi.fn(),
+  };
+  render(<BrowsePanel port={port} resultVersion={id} />);
+  const alpha = await screen.findByRole("button", { name: "Alpha" });
+  act(() => alpha.focus());
+  fireEvent.click(alpha);
+  expect(screen.getByLabelText("Opening folder")).toBeDefined();
+  expect(screen.getByRole("button", { name: "Alpha" })).toBeDefined();
+  await act(async () => pending.reject(new Error("failed")));
+  expect(document.activeElement).toBe(alpha);
+  expect(screen.getByRole("button", { name: "Alpha" })).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+  expect(port.open).toHaveBeenLastCalledWith(
+    expect.objectContaining({ location: ref(1), resultVersion: id }),
+    expect.any(AbortSignal),
+  );
+  expect(await screen.findByRole("button", { name: "Retried" })).toBeDefined();
+});
+
+test("a stale failure cannot change the latest result or focus", async () => {
+  const stale = deferred<BrowseOpenResponse>();
+  const latest = deferred<BrowseOpenResponse>();
+  const port: BrowsePort = {
+    open: vi
+      .fn()
+      .mockResolvedValueOnce(opened(1, [row(1, "Alpha"), row(2, "Beta")]))
+      .mockImplementationOnce(() => stale.promise)
+      .mockImplementationOnce(() => latest.promise),
+    page: vi.fn(),
+  };
+  render(<BrowsePanel port={port} resultVersion={id} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Alpha" }));
+  expect(screen.getByRole("button", { name: "Alpha" })).toBeDefined();
+  expect(screen.getByLabelText("Opening folder")).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "Beta" }));
+  await act(async () => latest.resolve(opened(3, [row(3, "Latest")])));
+  const latestRow = screen.getByRole("button", { name: "Latest" });
+  act(() => latestRow.focus());
+  await act(async () => stale.reject(new Error("late failure")));
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(screen.getByRole("button", { name: "Latest" })).toBe(latestRow);
+  expect(document.activeElement).toBe(latestRow);
+});

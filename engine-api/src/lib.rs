@@ -11,6 +11,7 @@ pub mod error;
 pub mod history;
 pub mod jobs;
 mod pipeline;
+mod query_region;
 mod registry;
 pub mod scan;
 mod scan_failures;

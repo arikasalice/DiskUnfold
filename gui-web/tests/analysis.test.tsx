@@ -178,6 +178,12 @@ function fixture({
         case "space.volume_gap":
           if (readVolume) return readVolume(body as VolumeGapRequest);
           throw new Error("Volume explanation unavailable");
+        case "query.region.open":
+          return { regionRef: "browse-region" };
+        case "query.region.close":
+          return {};
+        case "query.cancel":
+          return { outcome: "no_effect" };
         case "browse.open": {
           const request = body as BrowseOpenRequest;
           const version = request.resultVersion ?? "result";

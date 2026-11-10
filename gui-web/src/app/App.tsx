@@ -17,9 +17,10 @@ export function App({ analysis }: { analysis?: AnalysisClient } = {}) {
   const browseTrigger = useRef<HTMLButtonElement>(null);
   const restoreBrowseFocus = useRef(false);
   const browsePort = useMemo(
-    () => client && createBrowsePort(client),
-    [client],
+    () => (client && browseVersion ? createBrowsePort(client) : undefined),
+    [client, browseVersion],
   );
+  useEffect(() => () => browsePort?.dispose(), [browsePort]);
   const opener = useRef<HTMLButtonElement>(null);
   const restoreFocus = useRef(false);
   useEffect(() => {

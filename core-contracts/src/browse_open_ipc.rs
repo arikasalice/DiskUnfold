@@ -131,6 +131,7 @@ pub enum QuerySizeOp {
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct BrowseOpenRequest {
+    pub region_ref: Id,
     pub view_kind: BrowseViewKind,
     pub request_seq: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]

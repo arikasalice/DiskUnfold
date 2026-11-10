@@ -72,20 +72,26 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         &du_platform_os::entropy::OsRandom,
     )
     .map_err(|error| std::io::Error::other(format!("history.storage_unavailable: {error:?}")))?;
-    let engine = builder.build()?;
+    let engine = Arc::new(builder.build()?);
+    let dispatch_engine = engine.clone();
     let app = WebApp {
         asset,
         dispatch: Arc::new(move |message| {
             #[cfg(windows)]
             let _ = &locale;
-            crate::ipc::dispatch(&engine, message)
+            crate::ipc::dispatch(&dispatch_engine, message)
         }),
         #[cfg(windows)]
         isolate: crate::ipc::isolates_volume_enumeration,
         icon: include_bytes!("../icons/icon.png"),
     };
     #[cfg(windows)]
-    return du_platform_os::webview::run_with_events(app, Arc::new(move || events.next_json()));
+    {
+        let result =
+            du_platform_os::webview::run_with_events(app, Arc::new(move || events.next_json()));
+        engine.retire_window_session();
+        result
+    }
     #[cfg(not(windows))]
     du_platform_os::webview::run(app)
 }

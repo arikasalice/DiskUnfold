@@ -22,6 +22,12 @@ import type {
   Id,
   OsPath,
   QueryPageRequest,
+  QueryRegionOpenRequest,
+  QueryRegionOpened,
+  QueryRegionCloseRequest,
+  QueryRegionClosed,
+  QueryCancelRequest,
+  QueryCancelled,
   QueryPageResponse,
   ResultEnvelope,
   ScanFailures,
@@ -110,6 +116,9 @@ type Commands = {
   "space.volume_gap": [VolumeGapRequest, VolumeGapResponse];
   "browse.detail": [BrowseDetailRequest, BrowseDetail];
   "browse.open": [BrowseOpenRequest, BrowseOpenResponse];
+  "query.region.open": [QueryRegionOpenRequest, QueryRegionOpened];
+  "query.region.close": [QueryRegionCloseRequest, QueryRegionClosed];
+  "query.cancel": [QueryCancelRequest, QueryCancelled];
   "query.page": [QueryPageRequest, QueryPageResponse];
 };
 

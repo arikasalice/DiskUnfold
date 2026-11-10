@@ -1,10 +1,7 @@
 //! GUI-only folder commands over the desktop scan store and F24 workers.
 
 use std::{
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -14,6 +11,7 @@ use du_core_contracts::{
     browse_page_ipc::{BrowseOpenResponse, QueryPageResponse, ResultOrigin},
     ports::Random,
     query_page_ipc::QueryPageRequest,
+    query_region_ipc::QueryRegionKind,
 };
 use du_job_runtime::{JobIdentity, RuntimeError};
 
@@ -26,10 +24,13 @@ use super::{
 use crate::{
     api::{CallerCtx, Channel, EngineBuilder, UseCase},
     error::EngineError,
+    query_region::{
+        Permit,
+        commands::{Regions, region_error},
+    },
     workers::Workers,
 };
 
-const BROWSE_CHANNEL: &str = "browse.main";
 const SYNC_LIMIT: Duration = Duration::from_millis(300);
 // Conservative preflight before a measured per-device cost model is available.
 const SYNC_WORK: usize = 4096;
@@ -42,18 +43,19 @@ pub(crate) fn register(
     workers: Arc<Workers>,
     random: &dyn Random,
 ) -> Result<(), RuntimeError> {
-    let browse = Arc::new(FolderBrowse::with_result_sets(sets, ids));
+    let browse = Arc::new(FolderBrowse::with_result_sets(sets, ids.clone()));
     let Ok(session) = Session::try_new(browse.clone(), random) else {
         return Ok(());
     };
     let session = Arc::new(session);
     let jobs = FolderJobs::new(browse.clone(), workers.runtime.clone())?;
+    let regions = Regions::register(builder, ids, random, workers.runtime.clone())?;
     builder.register(Open {
         browse,
         session: session.clone(),
         jobs,
         workers,
-        admission: Mutex::new(Admission::default()),
+        regions,
     });
     builder.register(Page(session));
     Ok(())
@@ -64,14 +66,7 @@ struct Open {
     session: Arc<Session>,
     jobs: FolderJobs,
     workers: Arc<Workers>,
-    admission: Mutex<Admission>,
-}
-
-#[derive(Default)]
-struct Admission {
-    reserved: u64,
-    promoted: u64,
-    current: Option<Arc<AtomicBool>>,
+    regions: Arc<Regions>,
 }
 
 impl UseCase for Open {
@@ -90,12 +85,41 @@ impl UseCase for Open {
         caller: &CallerCtx,
     ) -> Result<Self::Response, EngineError> {
         let start = Instant::now();
+        let region_ref = request.region_ref.clone();
+        let kind = match request.view_kind {
+            du_core_contracts::browse_open_ipc::BrowseViewKind::List => QueryRegionKind::BrowseList,
+            du_core_contracts::browse_open_ipc::BrowseViewKind::TreeBranch => {
+                QueryRegionKind::BrowseTreeBranch
+            }
+        };
+        self.regions
+            .registry
+            .validate_region(&self.regions.owner, &region_ref, kind)
+            .map_err(region_error)?;
         let (request_seq, request, sorts) = lower_live(request).map_err(admission_error)?;
-        let reservation = self.reserve()?;
         #[cfg(test)]
         tests::pause_at(request_seq, 1);
         let prepared = self.browse.prepare(request, &sorts).map_err(folder_error)?;
-        let token = self.promote(reservation, caller)?;
+        if caller.is_cancelled() {
+            return Err(folder_error(Error::Cancelled));
+        }
+        let promotion = self
+            .regions
+            .registry
+            .promote_validated(
+                &self.regions.owner,
+                &region_ref,
+                kind,
+                request_seq,
+                Ok::<_, ()>(prepared),
+            )
+            .map_err(region_error)?
+            .map_err(|()| folder_error(Error::Internal))?;
+        if let Some(job) = promotion.previous_job {
+            let _ = self.regions.cancel_job(&job);
+        }
+        let token = promotion.permit;
+        let prepared = promotion.prepared;
         if let Some(page) = self.browse.cached(&prepared).map_err(folder_error)? {
             #[cfg(test)]
             tests::pause_at(request_seq, 2);
@@ -107,7 +131,7 @@ impl UseCase for Open {
         let force_sync = false;
         if prepared.estimated_work() <= SYNC_WORK && (force_sync || start.elapsed() < SYNC_LIMIT) {
             let ended = || {
-                token.load(Ordering::Acquire)
+                token.is_stopped()
                     || caller.is_cancelled()
                     || (!force_sync && start.elapsed() >= SYNC_LIMIT)
             };
@@ -135,63 +159,21 @@ impl UseCase for Open {
         }
         #[cfg(test)]
         tests::pause_at(request_seq, 4);
-        self.with_current(&token, caller, || {
-            self.enqueue(request_seq, caller, prepared)
-        })
+        self.enqueue(request_seq, caller, prepared, &token)
     }
 }
 
 impl Open {
-    fn reserve(&self) -> Result<u64, EngineError> {
-        let mut state = self
-            .admission
-            .lock()
-            .map_err(|_| folder_error(Error::Internal))?;
-        state.reserved = state
-            .reserved
-            .checked_add(1)
-            .ok_or_else(|| folder_error(Error::Internal))?;
-        Ok(state.reserved)
-    }
-
-    fn promote(
-        &self,
-        reservation: u64,
-        caller: &CallerCtx,
-    ) -> Result<Arc<AtomicBool>, EngineError> {
-        let mut state = self
-            .admission
-            .lock()
-            .map_err(|_| folder_error(Error::Internal))?;
-        if caller.is_cancelled() || reservation < state.promoted {
-            return Err(folder_error(Error::Cancelled));
-        }
-        self.jobs
-            .cancel_channel(BROWSE_CHANNEL)
-            .map_err(job_error)?;
-        if let Some(previous) = &state.current {
-            previous.store(true, Ordering::Release);
-        }
-        let token = Arc::new(AtomicBool::new(false));
-        state.promoted = reservation;
-        state.current = Some(token.clone());
-        Ok(token)
-    }
-
     fn with_current<T>(
         &self,
-        token: &AtomicBool,
+        token: &Permit<QueryRegionKind>,
         caller: &CallerCtx,
         action: impl FnOnce() -> Result<T, EngineError>,
     ) -> Result<T, EngineError> {
-        let _guard = self
-            .admission
-            .lock()
-            .map_err(|_| folder_error(Error::Internal))?;
-        if token.load(Ordering::Acquire) || caller.is_cancelled() {
+        if caller.is_cancelled() {
             return Err(folder_error(Error::Cancelled));
         }
-        action()
+        token.publish(true, action).map_err(region_error)?
     }
 
     fn opened(
@@ -211,11 +193,19 @@ impl Open {
         request_seq: u32,
         caller: &CallerCtx,
         prepared: PreparedOpen,
+        token: &Permit<QueryRegionKind>,
     ) -> Result<BrowseOpenResponse, EngineError> {
+        if caller.is_cancelled() || token.is_stopped() {
+            return Err(folder_error(Error::Cancelled));
+        }
         let ticket = self
             .jobs
-            .submit_prepared(BROWSE_CHANNEL, caller.correlation_id.clone(), prepared)
+            .submit_region(caller.correlation_id.clone(), prepared, token.clone())
             .map_err(job_error)?;
+        if token.bind_job(ticket.id()).is_err() {
+            let _ = self.regions.cancel_job(ticket.id());
+            return Err(folder_error(Error::Cancelled));
+        }
         self.workers.notify();
         Ok(BrowseOpenResponse::Job {
             request_seq,

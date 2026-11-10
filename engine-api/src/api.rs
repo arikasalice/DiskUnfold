@@ -22,6 +22,7 @@ pub struct EngineBuilder {
     registry: Registry,
     duplicate_name: Option<&'static str>,
     outbound_filter: Option<Box<dyn OutboundFilter>>,
+    session_retire: Option<Box<dyn Fn() + Send + Sync>>,
 }
 
 impl EngineBuilder {
@@ -35,6 +36,10 @@ impl EngineBuilder {
         self.outbound_filter = Some(Box::new(filter));
     }
 
+    pub(crate) fn on_session_retire(&mut self, retire: impl Fn() + Send + Sync + 'static) {
+        self.session_retire = Some(Box::new(retire));
+    }
+
     pub fn build(self) -> Result<Engine, BuildError> {
         if let Some(duplicate_name) = self.duplicate_name {
             return Err(BuildError { duplicate_name });
@@ -42,6 +47,7 @@ impl EngineBuilder {
         Ok(Engine {
             registry: self.registry,
             outbound_filter: self.outbound_filter,
+            session_retire: self.session_retire,
         })
     }
 }
@@ -49,9 +55,17 @@ impl EngineBuilder {
 pub struct Engine {
     registry: Registry,
     outbound_filter: Option<Box<dyn OutboundFilter>>,
+    session_retire: Option<Box<dyn Fn() + Send + Sync>>,
 }
 
 impl Engine {
+    /// Retires query regions when the owning desktop window session ends.
+    pub fn retire_window_session(&self) {
+        if let Some(retire) = &self.session_retire {
+            retire();
+        }
+    }
+
     pub fn call(&self, envelope: CallEnvelope, caller: &CallerCtx) -> ResultEnvelope {
         pipeline::call(
             &self.registry,
