@@ -170,6 +170,21 @@ impl Physical {
             if previous == &value || previous.is_none() {
                 return;
             }
+            // Sharing uncertainty does not invalidate an otherwise identical
+            // allocation observation. Retain the allocation once, while
+            // propagating uncertainty to the unique-physical calculation.
+            if let (Some(previous), Some(next)) = (previous, &value)
+                && previous.bytes == next.bytes
+                && previous.lower == next.lower
+            {
+                if previous.sharing == SharingEvidence::None {
+                    self.sharing_unknown += 1;
+                    let mut combined = previous.clone();
+                    combined.sharing = SharingEvidence::Unknown;
+                    self.identities.insert(identity, Some(combined));
+                }
+                return;
+            }
             if let Some(previous) = previous.clone() {
                 self.remove_known(&previous);
             }

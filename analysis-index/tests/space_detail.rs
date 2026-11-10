@@ -70,6 +70,47 @@ fn reference(result: &du_analysis_index::ResultVersion, name: &str) -> Result<It
         item_no: item.item_no,
     })
 }
+
+/// Identical allocations remain countable when only sharing evidence is missing.
+#[test]
+fn pinned_totals_preserve_allocation_with_partial_sharing_evidence() -> Result<(), String> {
+    for (index, first) in [SharingEvidence::None, SharingEvidence::Unknown]
+        .into_iter()
+        .enumerate()
+    {
+        let second = if first == SharingEvidence::None {
+            SharingEvidence::Unknown
+        } else {
+            SharingEvidence::None
+        };
+        let sink = IngestSink::default();
+        let mut build = sink
+            .open_forest(id(40 + index as u8)?, vec![root(1, "scope")])
+            .map_err(|e| format!("{e:?}"))?;
+        build
+            .add_directory_at(0, vec![])
+            .map_err(|e| format!("{e:?}"))?;
+        add(&mut build, 0, "first", 1, 7, Some(2), first)?;
+        add(&mut build, 0, "second", 1, 7, Some(2), second)?;
+        let result = build
+            .seal(id(50 + index as u8)?, ResultCompleteness::Complete)
+            .map_err(|e| format!("{e:?}"))?;
+        let first = reference(&result, "first")?;
+        let second = reference(&result, "second")?;
+        let selected = result
+            .selection_total(&[first, second], true, || false)
+            .map_err(|e| format!("{e:?}"))?;
+        for total in [result.scope_total(), &selected] {
+            assert_eq!(
+                total.allocated.amount,
+                SizeAmount::Exact { bytes: 8.into() }
+            );
+            assert_eq!(total.unique_physical.amount, SizeAmount::Unknown);
+            assert!(total.limitations.contains(&"space.sharing_not_collected"));
+        }
+    }
+    Ok(())
+}
 #[test]
 fn links_only_match_same_volume_and_preserve_exclusivity_evidence() -> Result<(), String> {
     let sink = IngestSink::default();
