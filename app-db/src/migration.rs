@@ -21,7 +21,17 @@ use rusqlite::{
 
 use crate::{APPLICATION_ID, BUSY_TIMEOUT, OpenError, reserve_temporary, settings};
 
-/// One globally numbered definition; SQL must not contain transaction control.
+const TRACKING_SCHEMA: &str = "
+CREATE TABLE IF NOT EXISTS app_db_schema_meta (
+ migration_no INTEGER PRIMARY KEY,
+ definition_hash BLOB NOT NULL CHECK(length(definition_hash) = 32)
+) STRICT;
+CREATE TRIGGER IF NOT EXISTS app_db_schema_meta_no_update
+BEFORE UPDATE ON app_db_schema_meta BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS app_db_schema_meta_no_delete
+BEFORE DELETE ON app_db_schema_meta BEGIN SELECT RAISE(ABORT, 'append_only'); END;";
+
+/// One globally numbered definition with LF line endings and no transaction control.
 pub struct Definition<'a> {
     pub number: u32,
     pub sql: &'a str,
@@ -78,6 +88,7 @@ fn apply_next_with(
     validate_definitions(definitions)?;
     let mut source = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
     source.busy_timeout(BUSY_TIMEOUT)?;
+    source.pragma_update(None, "recursive_triggers", true)?;
     let definition_active = Arc::new(AtomicBool::new(false));
     let guard = Arc::clone(&definition_active);
     source.authorizer(Some(move |context: AuthContext<'_>| {
@@ -93,15 +104,7 @@ fn apply_next_with(
         return Err(MigrationError::ForeignDatabase);
     }
     let current: u32 = tx.pragma_query_value(None, "user_version", |row| row.get(0))?;
-    let offset = if current == definitions.baseline {
-        0
-    } else {
-        definitions
-            .steps
-            .binary_search_by_key(&current, |definition| definition.number)
-            .map_err(|_| MigrationError::VersionMismatch)?
-            + 1
-    };
+    let offset = applied_count(definitions, current)?;
     let next = definitions
         .steps
         .get(offset)
@@ -113,24 +116,76 @@ fn apply_next_with(
     quick_check(&tx)?;
     backup_snapshot(&tx, backup_path)?;
     before_write()?;
-    tx.execute_batch("CREATE TABLE IF NOT EXISTS app_db_schema_meta (migration_no INTEGER PRIMARY KEY, definition_hash BLOB NOT NULL CHECK(length(definition_hash) = 32)) STRICT;
-        CREATE TRIGGER IF NOT EXISTS app_db_schema_meta_no_update BEFORE UPDATE ON app_db_schema_meta BEGIN SELECT RAISE(ABORT, 'append_only'); END;
-        CREATE TRIGGER IF NOT EXISTS app_db_schema_meta_no_delete BEFORE DELETE ON app_db_schema_meta BEGIN SELECT RAISE(ABORT, 'append_only'); END;")?;
+    tx.execute_batch(TRACKING_SCHEMA)?;
     definition_active.store(true, Ordering::Relaxed);
     let applied = tx.execute_batch(next.sql);
     definition_active.store(false, Ordering::Relaxed);
     applied?;
-    tx.execute(
-        "INSERT INTO app_db_schema_meta(migration_no, definition_hash) VALUES (?1, ?2)",
-        params![
-            next.number,
-            blake3::hash(next.sql.as_bytes()).as_bytes().as_slice()
-        ],
-    )?;
-    tx.pragma_update(None, "user_version", next.number)?;
+    record_applied(&tx, next)?;
     quick_check(&tx)?;
     tx.commit()?;
     Ok(next.number)
+}
+
+/// Applies built-in definitions while the database file is still unpublished.
+pub(crate) fn initialize(
+    tx: &Transaction<'_>,
+    definitions: &Definitions<'_>,
+) -> Result<(), MigrationError> {
+    validate_definitions(definitions)?;
+    tx.execute_batch(TRACKING_SCHEMA)?;
+    for definition in definitions.steps {
+        tx.execute_batch(definition.sql)?;
+        record_applied(tx, definition)?;
+    }
+    quick_check(tx)
+}
+
+/// Checks applied definitions against one read snapshot before opening for use.
+pub(crate) fn verify_registered(
+    connection: &mut Connection,
+    definitions: &Definitions<'_>,
+    require_current: bool,
+) -> Result<(), MigrationError> {
+    validate_definitions(definitions)?;
+    let tx = connection.transaction()?;
+    let id: u32 = tx.pragma_query_value(None, "application_id", |row| row.get(0))?;
+    if id != APPLICATION_ID {
+        return Err(MigrationError::ForeignDatabase);
+    }
+    let version: u32 = tx.pragma_query_value(None, "user_version", |row| row.get(0))?;
+    let count = applied_count(definitions, version)?;
+    if count == 0 || (require_current && count != definitions.steps.len()) {
+        return Err(MigrationError::VersionMismatch);
+    }
+    check_history(&tx, definitions, count)?;
+    quick_check(&tx)?;
+    tx.commit()?;
+    Ok(())
+}
+
+fn applied_count(definitions: &Definitions<'_>, version: u32) -> Result<usize, MigrationError> {
+    if version == definitions.baseline {
+        return Ok(0);
+    }
+    definitions
+        .steps
+        .binary_search_by_key(&version, |definition| definition.number)
+        .map(|index| index + 1)
+        .map_err(|_| MigrationError::VersionMismatch)
+}
+
+fn record_applied(tx: &Transaction<'_>, definition: &Definition<'_>) -> rusqlite::Result<()> {
+    tx.execute(
+        "INSERT INTO app_db_schema_meta(migration_no, definition_hash) VALUES (?1, ?2)",
+        params![
+            definition.number,
+            blake3::hash(definition.sql.as_bytes())
+                .as_bytes()
+                .as_slice()
+        ],
+    )?;
+    tx.pragma_update(None, "user_version", definition.number)
 }
 
 fn prohibited(action: AuthAction<'_>) -> bool {
@@ -164,6 +219,7 @@ fn validate_definitions(definitions: &Definitions<'_>) -> Result<(), MigrationEr
         if definition.number <= previous
             || definition.number > 9999
             || definition.sql.trim().is_empty()
+            || definition.sql.contains('\r')
         {
             return Err(MigrationError::InvalidDefinitions);
         }

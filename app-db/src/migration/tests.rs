@@ -29,6 +29,23 @@ fn applies_registered_numbers_in_order_without_assuming_contiguity()
     let dir = tempfile::tempdir()?;
     let path = dir.path().join("app.db");
     drop(AppDb::create_gui(&path).map_err(|error| format!("{error:?}"))?);
+    let noncanonical = [Definition {
+        number: 2,
+        sql: "CREATE TABLE demo_value(value INTEGER);\r\n",
+    }];
+    let rejected_backup = dir.path().join("rejected.db");
+    assert!(matches!(
+        apply_next(
+            &path,
+            &rejected_backup,
+            &Definitions {
+                baseline: 1,
+                steps: &noncanonical
+            }
+        ),
+        Err(MigrationError::InvalidDefinitions)
+    ));
+    assert!(!rejected_backup.exists());
     let mut steps = definitions();
     steps[0].number = 12;
     steps[1].number = 34;
@@ -116,7 +133,7 @@ fn applies_one_definition_after_recoverable_online_backup() -> Result<(), Box<dy
     drop(db);
     assert!(matches!(
         AppDb::open_read_only(&path),
-        Err(OpenError::UnsupportedSchema(2))
+        Err(OpenError::HistorySchema(error)) if matches!(*error, MigrationError::Tampered)
     ));
     assert_eq!(version(&path)?, 2);
     Ok(())

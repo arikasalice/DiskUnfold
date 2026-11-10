@@ -7,11 +7,14 @@ use std::{
     time::Duration,
 };
 
-use rusqlite::{Connection, OpenFlags, TransactionBehavior};
+use rusqlite::{Connection, OpenFlags, Transaction, TransactionBehavior};
 
+mod history_schema;
 mod job_history;
 pub mod migration;
 mod settings;
+
+pub use history_schema::{HISTORY_DEFINITIONS, HISTORY_SCHEMA_VERSION};
 
 const APPLICATION_ID: u32 = 0x4455_4442;
 const SCHEMA_VERSION: u32 = 1;
@@ -28,6 +31,7 @@ pub enum OpenError {
     ForeignDatabase,
     UnsupportedSchema(u32),
     MigrationRequired,
+    HistorySchema(Box<migration::MigrationError>),
     Io(std::io::Error),
     WalUnavailable,
     /// The initialized database was published. Retry by opening it, not creating it.
@@ -81,19 +85,38 @@ impl AppDb {
 
     /// Read without creating a file, changing pragmas or running migrations.
     pub fn open_read_only(path: &Path) -> Result<Self, OpenError> {
-        let connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        let mut connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
         connection.busy_timeout(BUSY_TIMEOUT)?;
-        check_existing(&connection, true)?;
+        let version: u32 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
+        if HISTORY_DEFINITIONS
+            .steps
+            .iter()
+            .any(|definition| definition.number == version)
+        {
+            migration::verify_registered(&mut connection, &HISTORY_DEFINITIONS, false)
+                .map_err(history_schema::schema_error)?;
+        } else {
+            check_existing(&connection, true)?;
+        }
         Ok(Self { connection })
     }
 
     /// Open an already-current database for GUI writes. Older databases require
     /// a future backup-and-migration runner and are never modified here.
     pub fn open_gui(path: &Path) -> Result<Self, OpenError> {
-        let connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
+        Self::open_gui_checked(path, |connection| check_existing(connection, false))
+    }
+
+    fn open_gui_checked(
+        path: &Path,
+        check: impl FnOnce(&mut Connection) -> Result<(), OpenError>,
+    ) -> Result<Self, OpenError> {
+        let mut connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
         connection.busy_timeout(BUSY_TIMEOUT)?;
-        check_existing(&connection, false)?;
+        check(&mut connection)?;
         connection.pragma_update(None, "foreign_keys", true)?;
+        // SQLite fires the purge guard on rows removed by REPLACE with this enabled.
+        connection.pragma_update(None, "recursive_triggers", true)?;
         let journal: String =
             connection.pragma_update_and_check(None, "journal_mode", "WAL", |row| row.get(0))?;
         if !journal.eq_ignore_ascii_case("wal") {
@@ -105,7 +128,7 @@ impl AppDb {
 
     /// Create a new current-format database; never overwrites an existing file.
     pub fn create_gui(path: &Path) -> Result<Self, OpenError> {
-        create_gui_with(path, settings::SCHEMA, || Ok(()), Self::open_gui)
+        create_gui_with(path, initialize_settings, || Ok(()), Self::open_gui)
     }
 
     /// Opens the current application database or publishes its initial schema.
@@ -175,7 +198,7 @@ fn reserve_temporary(path: &Path) -> Result<PendingFile, OpenError> {
 
 fn create_gui_with(
     path: &Path,
-    schema: &str,
+    initialize: impl FnOnce(&Transaction<'_>) -> Result<(), OpenError>,
     before_publish: impl FnOnce() -> Result<(), OpenError>,
     open: impl FnOnce(&Path) -> Result<AppDb, OpenError>,
 ) -> Result<AppDb, OpenError> {
@@ -185,8 +208,7 @@ fn create_gui_with(
     connection.busy_timeout(BUSY_TIMEOUT)?;
     let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
     tx.pragma_update(None, "application_id", APPLICATION_ID)?;
-    tx.execute_batch(schema)?;
-    tx.pragma_update(None, "user_version", SCHEMA_VERSION)?;
+    initialize(&tx)?;
     tx.commit()?;
     drop(connection);
     before_publish()?;
@@ -195,6 +217,12 @@ fn create_gui_with(
         .map_err(|error| OpenError::CreatedButOpenFailed(Box::new(OpenError::Io(error))))?;
     pending.cleaned = true;
     open(path).map_err(|error| OpenError::CreatedButOpenFailed(Box::new(error)))
+}
+
+fn initialize_settings(tx: &Transaction<'_>) -> Result<(), OpenError> {
+    tx.execute_batch(settings::SCHEMA)?;
+    tx.pragma_update(None, "user_version", SCHEMA_VERSION)?;
+    Ok(())
 }
 
 fn check_existing(connection: &Connection, read_only: bool) -> Result<(), OpenError> {

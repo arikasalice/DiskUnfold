@@ -34,16 +34,7 @@ fn summary(n: u8) -> JobSummary {
 }
 
 fn installed(path: &Path) -> Result<AppDb, Box<dyn std::error::Error>> {
-    let db = AppDb::create_gui(path).map_err(|error| format!("{error:?}"))?;
-    for ddl in [
-        "CREATE TABLE app_db_purge_gate (open INTEGER NOT NULL CHECK(open IN (0, 1))) STRICT;
-         INSERT INTO app_db_purge_gate VALUES (0);",
-        include_str!("terminal_summary.sql"),
-        include_str!("scan_link.sql"),
-    ] {
-        db.connection.execute_batch(ddl)?;
-    }
-    Ok(db)
+    AppDb::create_gui_with_history(path).map_err(|error| format!("{error:?}").into())
 }
 
 fn counts(db: &AppDb) -> rusqlite::Result<(i64, i64, i64)> {
@@ -70,7 +61,7 @@ fn persists_summary_link_and_sequence_without_rewriting_on_retry() -> TestResult
     );
     drop(db);
 
-    let db = AppDb::open_gui(&path).map_err(|error| format!("{error:?}"))?;
+    let db = AppDb::open_gui_with_history(&path).map_err(|error| format!("{error:?}"))?;
     assert_eq!(counts(&db)?, (1, 1, 1));
     let summary_row = db.connection.query_row(
         "SELECT completed_count, scope_summary, finished_at_ms, created_at_ms
@@ -158,7 +149,7 @@ fn rolls_back_all_history_on_link_failure_and_leaves_busy_to_caller() -> TestRes
     assert_eq!(counts(&db)?, (0, 0, 0));
     db.connection.execute_batch("DROP TRIGGER fail_history")?;
 
-    let other = AppDb::open_gui(&path).map_err(|error| format!("{error:?}"))?;
+    let other = AppDb::open_gui_with_history(&path).map_err(|error| format!("{error:?}"))?;
     other.connection.execute_batch("BEGIN IMMEDIATE")?;
     assert_eq!(
         db.append_scan_history(&summary(1), 250),
@@ -207,7 +198,7 @@ fn concurrent_connections_allocate_one_sequence_per_job() -> TestResult {
     let gate = Arc::new(Barrier::new(3));
     let mut workers = Vec::new();
     for n in [1, 2, 1] {
-        let mut db = AppDb::open_gui(&path).map_err(|error| format!("{error:?}"))?;
+        let mut db = AppDb::open_gui_with_history(&path).map_err(|error| format!("{error:?}"))?;
         let gate = gate.clone();
         workers.push(std::thread::spawn(move || {
             gate.wait();
@@ -249,7 +240,7 @@ fn append_leaves_legacy_settings_database_untouched() -> TestResult {
 
 #[test]
 fn legacy_settings_survive_both_history_definitions_and_scan_append() -> TestResult {
-    use crate::migration::{Definition, Definitions, apply_next};
+    use crate::{HISTORY_DEFINITIONS, migration::apply_next};
     use rusqlite::Connection;
 
     let dir = tempfile::tempdir()?;
@@ -262,30 +253,11 @@ fn legacy_settings_survive_both_history_definitions_and_scan_append() -> TestRes
     )?;
     drop(db);
 
-    let summary_schema = concat!(
-        "CREATE TABLE app_db_purge_gate
-            (open INTEGER NOT NULL CHECK(open IN (0, 1))) STRICT;
-         INSERT INTO app_db_purge_gate VALUES (0);",
-        include_str!("terminal_summary.sql")
-    );
-    let steps = [
-        Definition {
-            number: 2,
-            sql: summary_schema,
-        },
-        Definition {
-            number: 3,
-            sql: include_str!("scan_link.sql"),
-        },
-    ];
-    let definitions = Definitions {
-        baseline: 1,
-        steps: &steps,
-    };
     let first_backup = dir.path().join("before-summary.db");
     let second_backup = dir.path().join("before-link.db");
     assert_eq!(
-        apply_next(&path, &first_backup, &definitions).map_err(|error| format!("{error:?}"))?,
+        apply_next(&path, &first_backup, &HISTORY_DEFINITIONS)
+            .map_err(|error| format!("{error:?}"))?,
         2
     );
     let mut db = AppDb {
@@ -304,12 +276,11 @@ fn legacy_settings_survive_both_history_definitions_and_scan_append() -> TestRes
     drop(db);
 
     assert_eq!(
-        apply_next(&path, &second_backup, &definitions).map_err(|error| format!("{error:?}"))?,
+        apply_next(&path, &second_backup, &HISTORY_DEFINITIONS)
+            .map_err(|error| format!("{error:?}"))?,
         3
     );
-    let mut db = AppDb {
-        connection: Connection::open(&path)?,
-    };
+    let mut db = AppDb::open_gui_with_history(&path).map_err(|error| format!("{error:?}"))?;
     assert_eq!(
         db.append_scan_history(&summary(1), 250),
         Ok(HistoryAppend::Added)

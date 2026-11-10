@@ -77,13 +77,18 @@ fn creation_failure_can_be_retried_without_removing_competing_file()
 -> Result<(), Box<dyn std::error::Error>> {
     let dir = tempfile::tempdir()?;
     let path = dir.path().join("settings.db");
-    let result = create_gui_with(&path, "INVALID SQL", || Ok(()), AppDb::open_gui);
+    let result = create_gui_with(
+        &path,
+        |tx| tx.execute_batch("INVALID SQL").map_err(OpenError::from),
+        || Ok(()),
+        AppDb::open_gui,
+    );
     assert!(matches!(result, Err(OpenError::Sqlite(_))));
     assert!(!path.exists());
     assert_eq!(std::fs::read_dir(dir.path())?.count(), 0);
     let result = create_gui_with(
         &path,
-        settings::SCHEMA,
+        initialize_settings,
         || Err(OpenError::WalUnavailable),
         AppDb::open_gui,
     );
@@ -103,7 +108,7 @@ fn published_database_open_failure_reports_safe_retry() -> Result<(), Box<dyn st
     let path = dir.path().join("settings.db");
     let result = create_gui_with(
         &path,
-        settings::SCHEMA,
+        initialize_settings,
         || Ok(()),
         |_| Err(OpenError::WalUnavailable),
     );
@@ -126,7 +131,7 @@ fn simultaneous_creation_never_removes_winner() -> Result<(), Box<dyn std::error
             std::thread::spawn(move || {
                 create_gui_with(
                     &path,
-                    settings::SCHEMA,
+                    initialize_settings,
                     || {
                         gate.wait();
                         Ok(())
@@ -267,16 +272,16 @@ fn foreign_and_newer_files_are_rejected_without_mutation() -> Result<(), Box<dyn
     let newer = dir.path().join("newer.db");
     let db = Connection::open(&newer)?;
     db.pragma_update(None, "application_id", APPLICATION_ID)?;
-    db.pragma_update(None, "user_version", 2)?;
+    db.pragma_update(None, "user_version", HISTORY_SCHEMA_VERSION + 1)?;
     drop(db);
     let before = std::fs::read(&newer)?;
     assert!(matches!(
         AppDb::open_gui(&newer),
-        Err(OpenError::UnsupportedSchema(2))
+        Err(OpenError::UnsupportedSchema(4))
     ));
     assert!(matches!(
         AppDb::open_read_only(&newer),
-        Err(OpenError::UnsupportedSchema(2))
+        Err(OpenError::UnsupportedSchema(4))
     ));
     assert_eq!(std::fs::read(newer)?, before);
     Ok(())
