@@ -1,4 +1,5 @@
 //! Exercise live model registration from the selected scan through the strategy registry.
+mod commands;
 mod fallback;
 mod locate;
 mod pinned_children;
