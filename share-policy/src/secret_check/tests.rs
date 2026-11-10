@@ -166,3 +166,79 @@ fn non_string_free_text_is_dropped_without_calling_the_checker()
     assert_eq!(port.checks.load(Ordering::SeqCst), 0);
     Ok(())
 }
+
+struct SyntheticSnapshot;
+impl SecretCheckSnapshot for SyntheticSnapshot {
+    fn check(&self, text: &str) -> SecretCheck {
+        if text.contains("synthetic-marker") {
+            SecretCheck::Contains
+        } else {
+            SecretCheck::Clean
+        }
+    }
+}
+
+#[test]
+fn rendered_json_uses_the_same_admission_snapshot() -> Result<(), fixed_exclusion::Error> {
+    let mut source = port(SecretCheck::Clean, false);
+    let snapshot = source.open_snapshot().ok();
+    source.answer = SecretCheck::Contains;
+    let checked = check(input("ordinary")?, snapshot);
+    assert_eq!(
+        checked.check_rendered_json(br#"{"text":"ordinary"}"#),
+        Ok(())
+    );
+    assert_eq!(source.opens.load(Ordering::SeqCst), 1);
+    assert!(source.checks.load(Ordering::SeqCst) >= 4);
+    Ok(())
+}
+
+#[test]
+fn invalid_unavailable_or_detected_output_never_passes() -> Result<(), fixed_exclusion::Error> {
+    let checked = check(input("ordinary")?, Some(Box::new(SyntheticSnapshot)));
+    for bytes in [
+        b"\xff".as_slice(),
+        b"{".as_slice(),
+        br#"{"x":1,"x":2}"#.as_slice(),
+        br#"{"x":"DU_MCP_example"}"#.as_slice(),
+        br#"{"x":"du_\u006dcp_example"}"#.as_slice(),
+        br#"{"x":"BEARER example"}"#.as_slice(),
+        br#"{"x":"synthetic\u002dmarker"}"#.as_slice(),
+        br#"{"synthetic\u002dmarker":0}"#.as_slice(),
+    ] {
+        assert_eq!(checked.check_rendered_json(bytes), Err(RenderedSecretFound));
+    }
+    assert_eq!(
+        RenderedSecretFound.reason_key(),
+        "share.rendered_secret_found"
+    );
+    let missing = check(input("ordinary")?, None);
+    assert_eq!(
+        missing.check_rendered_json(br#"{"x":1}"#),
+        Err(RenderedSecretFound)
+    );
+    for answer in [SecretCheck::Contains, SecretCheck::Unavailable] {
+        let source = port(answer, false);
+        let checked = check(input("ordinary")?, source.open_snapshot().ok());
+        assert_eq!(
+            checked.check_rendered_json(br#"{"x":1}"#),
+            Err(RenderedSecretFound)
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn rendered_check_accepts_the_snapshot_limit_and_rejects_larger_input()
+-> Result<(), fixed_exclusion::Error> {
+    let source = port(SecretCheck::Clean, false);
+    let checked = check(input("ordinary")?, source.open_snapshot().ok());
+    let mut json = vec![b' '; MAX_CHECK_BYTES];
+    json[..2].copy_from_slice(b"{}");
+    assert_eq!(checked.check_rendered_json(&json), Ok(()));
+    let checks = source.checks.load(Ordering::SeqCst);
+    json.push(b' ');
+    assert_eq!(checked.check_rendered_json(&json), Err(RenderedSecretFound));
+    assert_eq!(source.checks.load(Ordering::SeqCst), checks);
+    Ok(())
+}

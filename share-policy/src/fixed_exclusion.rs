@@ -104,7 +104,7 @@ fn secret_name(key: &str) -> bool {
     .any(|name| key.eq_ignore_ascii_case(name))
 }
 
-fn secret_pattern(value: &str) -> bool {
+pub(crate) fn secret_pattern(value: &str) -> bool {
     value
         .as_bytes()
         .windows(7)
