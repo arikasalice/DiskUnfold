@@ -2,3 +2,4 @@
 pub mod envelope;
 pub mod records;
 pub mod retention;
+pub mod zstd_frame;
