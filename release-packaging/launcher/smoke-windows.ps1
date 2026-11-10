@@ -2,7 +2,10 @@
 # Runs the installed Windows UI Automation client against one real WebView2 window.
 # Use a GUI build and an interactive Windows session with WebView2 installed.
 [CmdletBinding()]
-param([Parameter(Mandatory)][string]$Binary)
+param(
+  [Parameter(Mandatory)][string]$Binary,
+  [switch]$VerifyWorkspaceLayout
+)
 
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName UIAutomationClient,UIAutomationTypes
@@ -43,6 +46,15 @@ function Find-UI($name, $type, $within = $window) {
 function Wait-Enabled($name, $enabled) {
   Wait-UI "$name enabled=$enabled" { $item = Find-UI $name $button; if ($item -and $item.Current.IsEnabled -eq $enabled) { $item } }
 }
+# Inspect the UIA viewport before invoking a button, since Invoke can reach clipped controls.
+function Wait-ScopeActionsVisible {
+  foreach ($name in @('Review scope', 'Start scan')) {
+    $null = Wait-UI "$name in view" {
+      $item = Find-UI $name $button
+      if ($item -and -not $item.Current.IsOffscreen) { $item }
+    }
+  }
+}
 function Invoke-UI($item) {
   $pattern = $item.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern)
   $pattern.Invoke()
@@ -66,7 +78,15 @@ try {
   Set-Scope (Join-Path $root 'missing')
   Invoke-UI (Wait-Enabled 'Review scope' $true)
   $null = Wait-UI 'invalid folder notice' {
-    foreach ($msg in @('Check that every selected path is an accessible local folder, then review the scope again.', 'Enter a valid local folder path, then review the scope again.', 'One or more selected paths could not be verified. Review all paths before starting.')) {
+    $notices = @(
+      'Check that every selected path is an accessible local folder, then review the scope again.'
+      'Enter a valid local folder path, then review the scope again.'
+      'One or more selected paths could not be verified. Review all paths before starting.'
+      'A selected folder no longer exists. Check the path and review the scope again.'
+      'A selected folder path could not be resolved. Check the path and review the scope again.'
+      'A selected path needs attention. Check the folder paths and review the scope again.'
+    )
+    foreach ($msg in $notices) {
       $notice = Find-UI $msg $textType
       if ($notice) { $notice; break }
     }
@@ -74,6 +94,14 @@ try {
   $null = Wait-Enabled 'Start scan' $false
   'F01 invalid folder: rejected, Start scan disabled'
   Set-Scope $scanRoot
+  if ($VerifyWorkspaceLayout) {
+    Invoke-UI (Wait-Enabled 'Add path' $true)
+    $null = Wait-UI 'additional path field' { Find-UI 'Additional folder path 2' $edit }
+    Wait-ScopeActionsVisible
+    Invoke-UI (Wait-Enabled 'Remove path 2' $true)
+    $null = Wait-UI 'additional path removed' { -not (Find-UI 'Additional folder path 2' $edit) }
+    'F01 workspace: both actions remain in view after adding a path'
+  }
   Invoke-UI (Wait-Enabled 'Review scope' $true)
   $null = Wait-Enabled 'Start scan' $true
   Set-Scope $child
