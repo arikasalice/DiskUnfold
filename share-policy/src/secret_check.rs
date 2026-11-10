@@ -12,6 +12,15 @@ const MAX_CHECK_BYTES: usize = 1024 * 1024;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RenderedSecretFound;
 
+/// A JSON rendering failed an intermediate-only comparison.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum IntermediateRenderError {
+    /// The retained admission snapshot could not clear the rendered bytes.
+    SecretCheck,
+    /// The JSON leaves, values, or supported shape did not match.
+    Mismatch,
+}
+
 impl RenderedSecretFound {
     /// Stable reason for a rejected rendered secret check.
     #[must_use]
@@ -65,6 +74,34 @@ pub fn check(input: Intermediate, snapshot: Option<Box<dyn SecretCheckSnapshot>>
 }
 
 impl Checked {
+    /// Checks secret content and compares flat JSON to the retained intermediate.
+    ///
+    /// This verifies exact object keys and scalar values, rejecting floats,
+    /// nested values and arrays. JSON object key order is not significant.
+    /// This intermediate has not passed scope, mode transformation, preview
+    /// digest or final policy authorization; even a match permits no release.
+    /// A complete filter must build its final allowed paths after those stages.
+    ///
+    /// # Errors
+    /// Returns an error for an unsuccessful secret check or a mismatch.
+    pub fn check_intermediate_json(&self, bytes: &[u8]) -> Result<(), IntermediateRenderError> {
+        let value = self
+            .checked_json(bytes)
+            .map_err(|_| IntermediateRenderError::SecretCheck)?;
+        let object = value.as_object().ok_or(IntermediateRenderError::Mismatch)?;
+        if object.len() != self._fields.len() {
+            return Err(IntermediateRenderError::Mismatch);
+        }
+        for (key, field) in &self._fields {
+            let value = object.get(key).ok_or(IntermediateRenderError::Mismatch)?;
+            if !supported_scalar(value) || !supported_scalar(&field.value) || *value != field.value
+            {
+                return Err(IntermediateRenderError::Mismatch);
+            }
+        }
+        Ok(())
+    }
+
     /// Checks a JSON rendering using the same snapshot as the free-text stage.
     ///
     /// The raw UTF-8 JSON and each decoded string and object key must pass.
@@ -79,6 +116,10 @@ impl Checked {
     /// # Errors
     /// Returns `RenderedSecretFound` whenever any check cannot pass.
     pub fn check_rendered_json(&self, bytes: &[u8]) -> Result<(), RenderedSecretFound> {
+        self.checked_json(bytes).map(drop)
+    }
+
+    fn checked_json(&self, bytes: &[u8]) -> Result<Value, RenderedSecretFound> {
         if bytes.len() > MAX_CHECK_BYTES {
             return Err(RenderedSecretFound);
         }
@@ -86,7 +127,8 @@ impl Checked {
         let text = std::str::from_utf8(bytes).map_err(|_| RenderedSecretFound)?;
         check_text(snapshot.as_ref(), text)?;
         let value = crate::unique_json::parse(bytes).map_err(|_| RenderedSecretFound)?;
-        check_value(snapshot.as_ref(), &value)
+        check_value(snapshot.as_ref(), &value)?;
+        Ok(value)
     }
     /// Number of free-text fields removed by the secret check.
     #[must_use]
@@ -98,6 +140,14 @@ impl Checked {
     #[must_use]
     pub fn limitation(&self) -> Option<&'static str> {
         (self._secret_check_excluded > 0).then_some(SECRET_CHECK_UNAVAILABLE)
+    }
+}
+
+fn supported_scalar(value: &Value) -> bool {
+    match value {
+        Value::Null | Value::Bool(_) | Value::String(_) => true,
+        Value::Number(number) => number.is_i64() || number.is_u64(),
+        Value::Array(_) | Value::Object(_) => false,
     }
 }
 

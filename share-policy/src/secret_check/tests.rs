@@ -229,6 +229,68 @@ fn invalid_unavailable_or_detected_output_never_passes() -> Result<(), fixed_exc
 }
 
 #[test]
+fn intermediate_json_compares_every_retained_path_and_value() -> Result<(), fixed_exclusion::Error>
+{
+    let source = port(SecretCheck::Clean, false);
+    let checked = check(input("ordinary")?, source.open_snapshot().ok());
+    assert_eq!(
+        checked.check_intermediate_json(br#"{"total":8,"label":"label","note":"ordinary"}"#),
+        Ok(())
+    );
+    assert_eq!(
+        checked.check_intermediate_json(br#"{"label":"label","note":"\u006frdinary","total":8}"#),
+        Ok(())
+    );
+    for bytes in [
+        br#"{"total":8,"label":"label","note":"ordinary","extra":1}"#.as_slice(),
+        br#"{"total":8,"label":"label"}"#.as_slice(),
+        br#"{"total":9,"label":"label","note":"ordinary"}"#.as_slice(),
+        br#"{"total":8,"label":"ordinary","note":"label"}"#.as_slice(),
+        br#"{"total":8.0,"label":"label","note":"ordinary"}"#.as_slice(),
+        br#"{"total":[8],"label":"label","note":"ordinary"}"#.as_slice(),
+        br#"{"total":8,"label":"label","note":"ordinary","content":"contents"}"#.as_slice(),
+    ] {
+        assert_eq!(
+            checked.check_intermediate_json(bytes),
+            Err(IntermediateRenderError::Mismatch)
+        );
+    }
+    for bytes in [br#"{"total":8,"total":8}"#.as_slice(), b"\xff".as_slice()] {
+        assert_eq!(
+            checked.check_intermediate_json(bytes),
+            Err(IntermediateRenderError::SecretCheck)
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn empty_intermediate_and_removed_text_cannot_gain_leaves() -> Result<(), fixed_exclusion::Error> {
+    struct Empty;
+    impl Exportable for Empty {
+        const FIELDS: &'static [ExportField] = &[];
+    }
+    let source = port(SecretCheck::Clean, false);
+    let checked = check(
+        fixed_exclusion::begin_json::<Empty>(b"{}")?,
+        source.open_snapshot().ok(),
+    );
+    assert_eq!(checked.check_intermediate_json(b"{}"), Ok(()));
+    assert_eq!(
+        checked.check_intermediate_json(br#"{"x":1}"#),
+        Err(IntermediateRenderError::Mismatch)
+    );
+    let unavailable = port(SecretCheck::Unavailable, false);
+    let checked = check(input("ordinary")?, unavailable.open_snapshot().ok());
+    // An unavailable snapshot blocks the final secret check even when free text was removed.
+    assert_eq!(
+        checked.check_intermediate_json(br#"{"label":"label","total":8}"#),
+        Err(IntermediateRenderError::SecretCheck)
+    );
+    Ok(())
+}
+
+#[test]
 fn rendered_check_accepts_the_snapshot_limit_and_rejects_larger_input()
 -> Result<(), fixed_exclusion::Error> {
     let source = port(SecretCheck::Clean, false);
