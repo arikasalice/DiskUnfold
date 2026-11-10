@@ -271,11 +271,11 @@ impl WindowsDirectory {
         })
     }
 
-    fn observe(&self, name: Vec<u16>, inode: u64, attributes: u32) -> ObservedEntry {
+    fn observe(&self, name: Vec<u8>, inode: u64, attributes: u32) -> ObservedEntry {
         #[cfg(test)]
         PROBES.with(|count| count.set(count.get() + 1));
         let metadata = recall::observe_if_safe(attributes, || {
-            wide(&bytes(&name))
+            wide(&name)
                 .and_then(|name| relative(&self.handle, &name, false, false))
                 .and_then(|file| {
                     let value = info(&file)?;
@@ -303,7 +303,7 @@ impl WindowsDirectory {
                 })
         });
         ObservedEntry {
-            name: bytes(&name),
+            name,
             enumerated_inode: inode,
             enumerated_kind: kind(attributes),
             metadata,
@@ -380,7 +380,8 @@ impl WindowsDirectory {
                 name.push(value);
             }
             if name != [46] && name != [46, 46] {
-                match include(&bytes(&name)) {
+                let name = bytes(&name);
+                match include(&name) {
                     FilterDecision::Admit => self.pending.push_back(self.observe(
                         name,
                         item.FileId as u64,
