@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { KeyboardEvent } from "react";
+import type { KeyboardEvent, RefObject } from "react";
 import {
   Action,
   BrowseTable,
@@ -35,7 +35,13 @@ type View = {
   opened: Opened;
   rows: FolderQueryRow[];
   nextCursor: string | null;
-  focusRow?: number;
+  pageFocus?:
+    | {
+        index: number;
+        scrollY: number;
+        button: RefObject<HTMLButtonElement | null>;
+      }
+    | undefined;
 };
 
 function name(value: BrowseValue<string>): string {
@@ -98,11 +104,11 @@ export function BrowsePanel({
   const [message, setMessage] = useState<"error" | "job" | "page-error">();
   const sequence = useRef(0);
   const opening = useRef<AbortController | undefined>(undefined);
-  const pageActive = useRef(false);
+  const pageActive = useRef<{ scrollY: number; scrolled: boolean }>(undefined);
   const virtualRootVersion = useRef<string>(undefined);
   const panel = useRef<HTMLElement>(null);
   const loadMoreButton = useRef<HTMLButtonElement>(null);
-  const focusAfterUpdate = useRef(false);
+  const focusAfterUpdate = useRef<"navigation" | "page-end">(undefined);
   const current = useRef<View | undefined>(undefined);
   current.current = view;
 
@@ -114,7 +120,7 @@ export function BrowsePanel({
     opening.current?.abort();
     const controller = new AbortController();
     opening.current = controller;
-    pageActive.current = false;
+    pageActive.current = undefined;
     setLoadingPage(false);
     setBusy(true);
     setMessage(undefined);
@@ -142,9 +148,10 @@ export function BrowsePanel({
         if (response.rootKind === "virtual_root") {
           virtualRootVersion.current = response.page.resultVersion;
         }
-        focusAfterUpdate.current = Boolean(
-          restoreFocus && document.activeElement === active,
-        );
+        focusAfterUpdate.current =
+          restoreFocus && document.activeElement === active
+            ? "navigation"
+            : undefined;
         setView({
           opened: response,
           rows: response.page.rows,
@@ -170,18 +177,32 @@ export function BrowsePanel({
   }, [port, resultVersion]);
 
   useLayoutEffect(() => {
-    if (focusAfterUpdate.current) {
-      focusAfterUpdate.current = false;
-      panel.current?.focus();
+    const focus = focusAfterUpdate.current;
+    focusAfterUpdate.current = undefined;
+    if (focus === "navigation") panel.current?.focus();
+    if (focus === "page-end" && document.activeElement === document.body) {
+      panel.current?.focus({ preventScroll: true });
     }
   }, [view]);
+
+  useEffect(() => {
+    if (!loadingPage) return;
+    function trackScroll() {
+      const request = pageActive.current;
+      if (request && window.scrollY !== request.scrollY)
+        request.scrolled = true;
+    }
+    window.addEventListener("scroll", trackScroll, { passive: true });
+    return () => window.removeEventListener("scroll", trackScroll);
+  }, [loadingPage]);
 
   function loadMore(keyboard: boolean) {
     const snapshot = current.current;
     if (!snapshot?.nextCursor || pageActive.current || busy) return;
     const cursor = snapshot.nextCursor;
     const requestSeq = sequence.current;
-    pageActive.current = true;
+    const request = { scrollY: window.scrollY, scrolled: false };
+    pageActive.current = request;
     setLoadingPage(true);
     setMessage(undefined);
     void port
@@ -203,17 +224,28 @@ export function BrowsePanel({
           setMessage("page-error");
           return;
         }
-        const buttonWillLoseFocus =
-          page.nextCursor === null &&
-          document.activeElement === loadMoreButton.current;
+        const buttonFocused = document.activeElement === loadMoreButton.current;
         const focusNewRow =
-          keyboard && buttonWillLoseFocus && page.rows.length > 0;
-        focusAfterUpdate.current = buttonWillLoseFocus && !focusNewRow;
+          keyboard &&
+          buttonFocused &&
+          page.rows.length > 0 &&
+          !request.scrolled &&
+          window.scrollY === request.scrollY;
+        focusAfterUpdate.current =
+          buttonFocused && page.nextCursor === null && !focusNewRow
+            ? "page-end"
+            : undefined;
         setView({
           ...active,
           rows: [...active.rows, ...page.rows],
           nextCursor: page.nextCursor,
-          ...(focusNewRow ? { focusRow: active.rows.length } : {}),
+          pageFocus: focusNewRow
+            ? {
+                index: active.rows.length,
+                scrollY: request.scrollY,
+                button: loadMoreButton,
+              }
+            : undefined,
         });
       })
       .catch(() => {
@@ -221,7 +253,7 @@ export function BrowsePanel({
       })
       .finally(() => {
         if (sequence.current === requestSeq) {
-          pageActive.current = false;
+          pageActive.current = undefined;
           setLoadingPage(false);
         }
       });
@@ -323,7 +355,7 @@ export function BrowsePanel({
               "Availability",
             ]}
             rows={view.rows}
-            focusRow={view.focusRow}
+            pageFocus={view.pageFocus}
             getRowKey={(row) => rowKey(row.item)}
             totalRows={page.total.state === "exact" ? page.total.count : -1}
             renderCells={(row) => [
@@ -352,18 +384,20 @@ export function BrowsePanel({
             ]}
           />
           {view.nextCursor && (
-            <Action
-              ref={loadMoreButton}
-              onPress={(event) =>
-                loadMore(
-                  event.pointerType === "keyboard" ||
-                    event.pointerType === "virtual",
-                )
-              }
-              isDisabled={busy}
-            >
-              {loadingPage ? "Loading…" : "Load more"}
-            </Action>
+            <div className="du-browse-more">
+              <Action
+                ref={loadMoreButton}
+                onPress={(event) =>
+                  loadMore(
+                    event.pointerType === "keyboard" ||
+                      event.pointerType === "virtual",
+                  )
+                }
+                isDisabled={busy}
+              >
+                {loadingPage ? "Loading…" : "Load more"}
+              </Action>
+            </div>
           )}
         </>
       )}

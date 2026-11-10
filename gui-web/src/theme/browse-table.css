@@ -71,6 +71,12 @@
   outline-offset: -2px;
 }
 
+/* Appending rows moves this control. It must not anchor the document to the new end. */
+.du-browse-more {
+  display: grid;
+  overflow-anchor: none;
+}
+
 .du-browse-panel .du-card__actions .du-action {
   max-inline-size: 100%;
   display: inline-block;

@@ -451,3 +451,154 @@ test.each(["parent version", "current crumb"] as const)(
     expect(port.open).toHaveBeenCalledTimes(1);
   },
 );
+
+function delayedPage() {
+  const pending = deferred<FolderQueryPage>();
+  const first = opened(
+    1,
+    Array.from({ length: 200 }, (_, index) => ({
+      ...row(index + 1, "Entry " + index),
+      kind: "file" as const,
+    })),
+    "next",
+  );
+  if (first.kind !== "opened") throw new Error("wrong fixture");
+  first.page.total = { state: "exact", count: 2200 };
+  const next = page(
+    Array.from({ length: 200 }, (_, index) => ({
+      ...row(index + 201, "Entry " + (index + 200)),
+      kind: "file" as const,
+    })),
+    "more",
+  );
+  const port: BrowsePort = {
+    open: vi.fn().mockResolvedValue(first),
+    page: vi.fn(() => pending.promise),
+  };
+  return { pending, next, port };
+}
+
+function pressLoadMore(button: HTMLElement) {
+  fireEvent.keyDown(button, { key: "Enter", code: "Enter" });
+  fireEvent.keyUp(button, { key: "Enter", code: "Enter" });
+}
+
+test("keyboard paging continues at the first new row even when the button remains", async () => {
+  const { pending, next, port } = delayedPage();
+  render(<BrowsePanel port={port} resultVersion={id} />);
+  const load = await screen.findByRole("button", { name: "Load more" });
+  expect(screen.queryByText("Entry 200")).toBeNull();
+  act(() => load.focus());
+  pressLoadMore(load);
+  await act(async () => pending.resolve(next));
+  expect(screen.getByRole("button", { name: "Load more" })).toBe(load);
+  expect(document.activeElement).toBe(
+    screen.getByText("Entry 200").closest("tr"),
+  );
+  expect(screen.queryByText("Entry 399")).toBeNull();
+});
+
+test("scrolling while a keyboard page is pending prevents a focus or scroll jump", async () => {
+  const { pending, next, port } = delayedPage();
+  const previous = window.scrollY;
+  const focus = vi.spyOn(HTMLElement.prototype, "focus");
+  const scrollBy = vi.spyOn(window, "scrollBy");
+  try {
+    window.scrollTo(0, 12000);
+    render(<BrowsePanel port={port} resultVersion={id} />);
+    const load = await screen.findByRole("button", { name: "Load more" });
+    act(() => load.focus());
+    pressLoadMore(load);
+    window.scrollTo(0, 600);
+    fireEvent.scroll(window);
+    const before = window.scrollY;
+    expect(before).toBe(600);
+    focus.mockClear();
+    scrollBy.mockClear();
+    await act(async () => pending.resolve(next));
+    expect(window.scrollY).toBe(before);
+    expect(document.activeElement).toBe(load);
+    expect(focus).not.toHaveBeenCalled();
+    expect(scrollBy).not.toHaveBeenCalled();
+  } finally {
+    focus.mockRestore();
+    scrollBy.mockRestore();
+    window.scrollTo(0, previous);
+  }
+});
+
+test("pointer paging leaves the old viewport and focus alone when 200 rows are appended", async () => {
+  const { pending, next, port } = delayedPage();
+  const previous = window.scrollY;
+  const rect = vi
+    .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+    .mockImplementation(function (this: HTMLElement) {
+      if (this.tagName === "TBODY")
+        return DOMRect.fromRect({ y: -window.scrollY });
+      if (this.hasAttribute("data-row"))
+        return DOMRect.fromRect({ height: 64 });
+      return DOMRect.fromRect({ width: 800 });
+    });
+  const scrollBy = vi.spyOn(window, "scrollBy");
+  try {
+    window.scrollTo(0, 64 * 195);
+    render(<BrowsePanel port={port} resultVersion={id} />);
+    const load = await screen.findByRole("button", { name: "Load more" });
+    await screen.findByText("Entry 195");
+    const before = window.scrollY;
+    expect(before).toBe(64 * 195);
+    act(() => load.focus());
+    clickLoadMore(load);
+    expect(port.page).toHaveBeenCalledTimes(1);
+    await act(async () => pending.resolve(next));
+    expect(window.scrollY).toBe(before);
+    expect(document.activeElement).toBe(load);
+    expect(scrollBy).not.toHaveBeenCalled();
+    expect(screen.getByText("Entry 195")).toBeDefined();
+    expect(await screen.findByText("Entry 200")).toBeDefined();
+    expect(screen.queryByText("Entry 399")).toBeNull();
+  } finally {
+    rect.mockRestore();
+    scrollBy.mockRestore();
+    window.scrollTo(0, previous);
+  }
+});
+
+function clickLoadMore(button: HTMLElement) {
+  const pointer = {
+    pointerType: "mouse",
+    pointerId: 1,
+    isPrimary: true,
+    button: 0,
+  };
+  fireEvent.pointerDown(button, pointer);
+  fireEvent.pointerUp(button, pointer);
+  fireEvent.click(button, { detail: 1 });
+}
+
+test.each([0, 1])(
+  "pointer terminal page (%i rows) restores focus without scrolling",
+  async (count) => {
+    const { pending, port } = delayedPage();
+    const previous = window.scrollY;
+    const focus = vi.spyOn(HTMLElement.prototype, "focus");
+    try {
+      window.scrollTo(0, 600);
+      render(<BrowsePanel port={port} resultVersion={id} />);
+      const load = await screen.findByRole("button", { name: "Load more" });
+      act(() => load.focus());
+      clickLoadMore(load);
+      focus.mockClear();
+      const rows = count === 0 ? [] : [row(201, "Added")];
+      await act(async () => pending.resolve(page(rows)));
+      const panel = screen.getByRole("region", { name: "Folder navigation" });
+      expect(load.isConnected).toBe(false);
+      expect(window.scrollY).toBe(600);
+      expect(document.activeElement).toBe(panel);
+      expect(focus).toHaveBeenCalledExactlyOnceWith({ preventScroll: true });
+    } finally {
+      focus.mockRestore();
+      window.scrollTo(0, previous);
+    }
+  },
+);

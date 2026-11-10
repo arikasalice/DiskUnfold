@@ -1,5 +1,5 @@
 import { useId, useLayoutEffect, useState } from "react";
-import type { FocusEvent, ReactNode } from "react";
+import type { FocusEvent, ReactNode, RefObject } from "react";
 import { useDocumentRows } from "./document-rows";
 import "../theme/browse-table.css";
 
@@ -7,7 +7,7 @@ export function BrowseTable<Row>({
   label,
   columns,
   rows,
-  focusRow,
+  pageFocus,
   totalRows,
   getRowKey,
   renderCells,
@@ -15,7 +15,13 @@ export function BrowseTable<Row>({
   label: string;
   columns: readonly string[];
   rows: readonly Row[];
-  focusRow?: number | undefined;
+  pageFocus?:
+    | {
+        index: number;
+        scrollY: number;
+        button: RefObject<HTMLButtonElement | null>;
+      }
+    | undefined;
   totalRows: number;
   getRowKey: (row: Row) => string;
   renderCells: (row: Row) => readonly ReactNode[];
@@ -27,14 +33,16 @@ export function BrowseTable<Row>({
     key: string;
   }>();
   const [completedFocus, setCompletedFocus] = useState<number>();
-  const pendingFocus = focusRow === completedFocus ? undefined : focusRow;
+  const pendingFocus =
+    pageFocus?.index === completedFocus ? undefined : pageFocus;
+  const pendingIndex = pendingFocus?.index;
   const indexes = Array.from(
     { length: layout.end - layout.start },
     (_, index) => layout.start + index,
   );
   const pinnedRow = focusedRow && rows[focusedRow.index];
   const pin =
-    pendingFocus ??
+    pendingIndex ??
     (focusedRow &&
     pinnedRow !== undefined &&
     getRowKey(pinnedRow) === focusedRow.key
@@ -47,11 +55,16 @@ export function BrowseTable<Row>({
 
   useLayoutEffect(() => {
     if (pendingFocus === undefined) return;
-    setCompletedFocus(pendingFocus);
-    // The paging button has been removed. Respect focus placed elsewhere before commit.
-    if (document.activeElement !== document.body) return;
+    setCompletedFocus(pendingFocus.index);
+    // The button remains for another page, or was removed by a terminal response.
+    const expected = pendingFocus.button.current ?? document.body;
+    if (
+      document.activeElement !== expected ||
+      window.scrollY !== pendingFocus.scrollY
+    )
+      return;
     const row = body.current?.querySelector<HTMLElement>(
-      `[data-row="${pendingFocus}"]`,
+      `[data-row="${pendingFocus.index}"]`,
     );
     const action = row?.querySelector<HTMLButtonElement>(
       "button:not(:disabled)",
