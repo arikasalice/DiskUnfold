@@ -36,6 +36,7 @@ impl JobRuntime {
             submission,
             None,
             Some(Publication::Query(Box::new(publish))),
+            |_| Ok(()),
         )
     }
 
@@ -50,10 +51,26 @@ impl JobRuntime {
         submission: Submission,
         publish: impl FnOnce() -> Result<(), String> + Send + 'static,
     ) -> Result<SubmitResult, RuntimeError> {
+        self.submit_viz_with_admission(submission, publish, |_| Ok(()))
+    }
+
+    /// Admits a new visualization subscription before workers can observe its job.
+    ///
+    /// `admit` runs after validation under the runtime table lock. It must be
+    /// bounded, perform no I/O or runtime calls, and leave the subscription registry
+    /// unchanged on error or panic. Reusing an existing job skips the callback;
+    /// the caller attaches to that job under `inspect_viz_gate` instead.
+    pub fn submit_viz_with_admission(
+        &self,
+        submission: Submission,
+        publish: impl FnOnce() -> Result<(), String> + Send + 'static,
+        admit: impl FnOnce(&Id) -> Result<(), RuntimeError>,
+    ) -> Result<SubmitResult, RuntimeError> {
         self.submit_inner(
             submission,
             None,
             Some(Publication::Visualization(Box::new(publish))),
+            admit,
         )
     }
 

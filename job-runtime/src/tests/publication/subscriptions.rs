@@ -1,6 +1,47 @@
 use super::*;
 
 #[test]
+fn failed_admission_never_creates_a_queued_visualization_job()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (runtime, id) = setup_kind("viz.compute", Arc::new(Events::default()))?;
+    let job = controlled_submission(
+        "viz.compute",
+        Arc::new(Barrier::new(1)),
+        Arc::new(Barrier::new(1)),
+        id.clone(),
+    );
+    assert_eq!(
+        runtime.submit_viz_with_admission(
+            job.clone(),
+            || Ok(()),
+            |candidate| {
+                assert_eq!(candidate, &id);
+                Err(RuntimeError::NotFound)
+            }
+        ),
+        Err(RuntimeError::NotFound)
+    );
+    assert_eq!(
+        runtime.submit_viz_with_admission(
+            job.clone(),
+            || Ok(()),
+            |_| { std::panic::resume_unwind(Box::new("injected registry failure")) }
+        ),
+        Err(RuntimeError::InvalidState)
+    );
+    assert_eq!(runtime.state(&id), Err(RuntimeError::NotFound));
+    assert_eq!(runtime.outstanding.load(Ordering::Acquire), 0);
+    assert_eq!(runtime.run_next()?, None);
+    assert_eq!(
+        runtime.submit_viz_with_admission(job, || Ok(()), |_| Ok(()))?,
+        SubmitResult::Created(id.clone())
+    );
+    assert_eq!(runtime.run_next()?, Some(id.clone()));
+    assert_eq!(runtime.state(&id)?, JobState::Done);
+    Ok(())
+}
+
+#[test]
 fn subscriber_panic_leaves_the_physical_job_able_to_finish()
 -> Result<(), Box<dyn std::error::Error>> {
     let (runtime, id) = setup_kind("viz.compute", Arc::new(Events::default()))?;

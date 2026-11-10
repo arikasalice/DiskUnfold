@@ -123,10 +123,14 @@ fn visualization_commit_is_private_and_cancelled_work_never_commits()
         assert_eq!(result, SubmitResult::Created(id.clone()));
         let counter = commits.clone();
         assert_eq!(
-            runtime.submit_viz_with_publication(submission, move || {
-                counter.fetch_add(10, Ordering::SeqCst);
-                Ok(())
-            })?,
+            runtime.submit_viz_with_admission(
+                submission,
+                move || {
+                    counter.fetch_add(10, Ordering::SeqCst);
+                    Ok(())
+                },
+                |_| Err(RuntimeError::InvalidState),
+            )?,
             SubmitResult::Existing(id.clone())
         );
         let worker = {

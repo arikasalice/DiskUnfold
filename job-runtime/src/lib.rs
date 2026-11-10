@@ -132,7 +132,7 @@ impl JobRuntime {
         Ok(())
     }
     pub fn submit(&self, submission: Submission) -> Result<SubmitResult, RuntimeError> {
-        self.submit_inner(submission, None, None)
+        self.submit_inner(submission, None, None, |_| Ok(()))
     }
 
     /// Submits a job with a result binding stored for the job entry lifetime.
@@ -141,7 +141,7 @@ impl JobRuntime {
         submission: Submission,
         binding: ResultBinding,
     ) -> Result<SubmitResult, RuntimeError> {
-        self.submit_inner(submission, Some(binding), None)
+        self.submit_inner(submission, Some(binding), None, |_| Ok(()))
     }
 
     fn submit_inner(
@@ -149,6 +149,7 @@ impl JobRuntime {
         submission: Submission,
         result_binding: Option<ResultBinding>,
         publication: Option<Publication>,
+        admit: impl FnOnce(&Id) -> Result<(), RuntimeError>,
     ) -> Result<SubmitResult, RuntimeError> {
         let now = self.clock.now_ms();
         let body_kind = submission.body.kind_id().to_owned();
@@ -195,7 +196,10 @@ impl JobRuntime {
             return Err(RuntimeError::InvalidState);
         }
         let order = table.next_order;
-        table.next_order += 1;
+        let next_order = order.checked_add(1).ok_or(RuntimeError::InvalidState)?;
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| admit(&id)))
+            .map_err(|_| RuntimeError::InvalidState)??;
+        table.next_order = next_order;
         let Submission {
             kind_id,
             deduplication_key,
