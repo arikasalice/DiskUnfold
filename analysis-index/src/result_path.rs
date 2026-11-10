@@ -13,6 +13,22 @@ impl ResultVersion {
     /// The bytes remain in their original encoding and can contain names that
     /// cannot be displayed losslessly. This is not a current identity check.
     pub fn native_path(&self, item: &ItemRef) -> Result<ResultNativePath, QueryError> {
+        let (root, parts) = self.observed_path_parts(item)?;
+        join(root, parts)
+    }
+
+    /// Returns the recorded root and raw relative components of an observed item.
+    /// These are historical inputs to an anchored open and require live verification.
+    pub fn observed_path_parts<'a>(
+        &'a self,
+        item: &ItemRef,
+    ) -> Result<
+        (
+            &'a ResultScopeRoot,
+            impl Iterator<Item = &'a [u8]> + use<'a>,
+        ),
+        QueryError,
+    > {
         let detail = self.detail(item)?;
         let root_index = *self
             .root_indices
@@ -23,13 +39,12 @@ impl ResultVersion {
             .get(root_index)
             .or_else(|| self.observed_root())
             .ok_or(QueryError::PathUnavailable)?;
-        join(
-            root,
-            self.ancestors(detail.item)?
-                .into_iter()
-                .skip(1)
-                .map(|part| part.name.as_slice()),
-        )
+        let parts = self
+            .ancestors(detail.item)?
+            .into_iter()
+            .skip(1)
+            .map(|part| part.name.as_slice());
+        Ok((root, parts))
     }
 
     /// Resolves a reported issue path from stored root evidence, without I/O.

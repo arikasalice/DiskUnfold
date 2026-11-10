@@ -3,8 +3,10 @@
 pub mod api;
 pub mod browse;
 mod contracts;
+pub mod current_analysis;
 mod cursor_mac;
 pub mod desktop;
+pub mod duplicate_scope;
 pub mod error;
 pub mod history;
 pub mod jobs;
