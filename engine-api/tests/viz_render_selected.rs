@@ -350,3 +350,69 @@ fn session_dispatches_registered_revision_and_rejects_unknown_strategy() -> Resu
     ));
     Ok(())
 }
+
+#[test]
+fn dropping_a_session_releases_only_its_models_from_the_pinned_source() -> Result<(), String> {
+    let sink = IngestSink::default();
+    publish(&sink, id(2), id(3))?;
+    let parent = ItemRef {
+        result_version: id(3),
+        item_no: 0,
+    };
+    let pinned = sink
+        .pin_current(&parent.result_version)
+        .map_err(|error| format!("{error:?}"))?;
+    let ids = Arc::new(Identity(AtomicU8::new(30)));
+    let session = || {
+        let dispatcher = bundle::implemented_dispatcher().map_err(|error| format!("{error:?}"))?;
+        Ok::<_, String>(Session::new(
+            sink.clone(),
+            NonZeroUsize::MIN,
+            ids.clone(),
+            dispatcher,
+        ))
+    };
+    let render = |session: &Session| {
+        session
+            .render_selected(
+                request(&parent, 1000),
+                |source, _| Ok(evidence(source.version(), source.result_version())),
+                &mut || false,
+            )
+            .map_err(|error| format!("{error:?}"))
+    };
+    let first = session()?;
+    let second = session()?;
+    let first_model = render(&first)?;
+    let second_model = render(&second)?;
+    assert_ne!(first_model.model_ref, second_model.model_ref);
+    let first_rows = VizRowsRequest {
+        model_ref: first_model.model_ref,
+        result_revision: parent.result_version.clone(),
+        start: 0,
+        count: 1,
+    };
+    assert!(first.rows(&first_rows).is_ok());
+    assert!(matches!(
+        second.rows(&first_rows),
+        Err(viz_pages::Error::ModelExpired)
+    ));
+
+    drop(first);
+    assert!(matches!(
+        pinned.pin_viz_rows(&first_rows.model_ref),
+        Err(du_analysis_index::visualization::live_models::Error::Missing)
+    ));
+    let second_rows = VizRowsRequest {
+        model_ref: second_model.model_ref,
+        ..first_rows
+    };
+    assert_eq!(
+        second
+            .rows(&second_rows)
+            .map_err(|error| format!("{error:?}"))?
+            .total_count,
+        2
+    );
+    Ok(())
+}
