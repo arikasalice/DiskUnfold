@@ -235,13 +235,21 @@ impl Drop for ModelPages {
     }
 }
 fn validate_input(input: &ModelInput) -> Result<(), Error> {
-    if input.condition_fingerprint.is_empty()
-        || input.groups.keys().any(String::is_empty)
-        || input.rows.len() as u64 >= (1_u64 << 53)
-    {
+    if input.condition_fingerprint.is_empty() || input.groups.keys().any(String::is_empty) {
         return Err(Error::InvalidModel);
     }
-    for row in &input.rows {
+    validate_rows(input, &input.rows)?;
+    for group in input.groups.values() {
+        validate_rows(input, &group.rows)?;
+    }
+    Ok(())
+}
+
+fn validate_rows(input: &ModelInput, rows: &[VizRow]) -> Result<(), Error> {
+    if rows.len() as u64 >= (1_u64 << 53) {
+        return Err(Error::InvalidModel);
+    }
+    for row in rows {
         row.validate_revision(input.version.version_id())
             .map_err(|_| Error::InvalidModel)?;
         if let Some(item) = &row.item_ref
@@ -259,31 +267,6 @@ fn validate_input(input: &ModelInput) -> Result<(), Error> {
             .is_some_and(|group| !input.groups.contains_key(group))
         {
             return Err(Error::InvalidModel);
-        }
-    }
-    for group in input.groups.values() {
-        if group.rows.len() as u64 >= (1_u64 << 53) {
-            return Err(Error::InvalidModel);
-        }
-        for row in &group.rows {
-            row.validate_revision(input.version.version_id())
-                .map_err(|_| Error::InvalidModel)?;
-            if let Some(item) = &row.item_ref
-                && input
-                    .version
-                    .items()
-                    .get(item.item_no as usize)
-                    .is_none_or(|found| found.item_no != item.item_no)
-            {
-                return Err(Error::InvalidModel);
-            }
-            if row
-                .group_ref
-                .as_ref()
-                .is_some_and(|key| !input.groups.contains_key(key))
-            {
-                return Err(Error::InvalidModel);
-            }
         }
     }
     Ok(())

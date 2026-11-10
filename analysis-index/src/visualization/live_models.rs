@@ -5,7 +5,7 @@ use std::{collections::HashMap, sync::Arc};
 
 #[derive(Debug, Default)]
 pub(crate) struct OwnedModels {
-    entries: HashMap<String, Arc<ModelRows>>,
+    entries: HashMap<String, ModelRows>,
 }
 /// An observed size range; unknown is not an exact zero.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -47,13 +47,13 @@ impl ResultVersion {
         }
         cache.entries.insert(
             reference,
-            Arc::new(ModelRows {
+            ModelRows {
                 rows: rows.into(),
                 groups: groups
                     .into_iter()
                     .map(|(key, group)| (key, Arc::new(group)))
                     .collect(),
-            }),
+            },
         );
         Ok(())
     }
