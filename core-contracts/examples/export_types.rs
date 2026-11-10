@@ -1,6 +1,7 @@
 use du_core_contracts::result_events::{
     PublishedCompleteness, ResultVersionChange, ResultVersionChanged,
 };
+use du_core_contracts::scan_failures::*;
 use du_core_contracts::*;
 use du_core_contracts::{analysis_ipc::*, job::JobState, result::ResultCompleteness};
 use du_core_contracts::{browse_ipc::*, result::ResultItemKind};
@@ -49,6 +50,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ScopeReview::decl(&config),
         ScanStartRequest::decl(&config),
         ScanStart::decl(&config),
+        ScanFailureKind::decl(&config),
+        ScanFailureStage::decl(&config),
+        ScanFailurePathRef::decl(&config),
+        ScanFailureRow::decl(&config),
+        ScanFailuresRequest::decl(&config),
+        ScanFailures::decl(&config),
         JobState::decl(&config),
         AnalysisJobRequest::decl(&config),
         ScanResult::decl(&config),
