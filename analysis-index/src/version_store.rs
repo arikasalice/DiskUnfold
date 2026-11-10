@@ -108,11 +108,10 @@ impl State {
         if !published {
             return None;
         }
-        let previous = if let Some(baseline) = baseline {
+        if let Some(baseline) = baseline {
             self.current.insert(lineage.clone(), baseline)
         } else {
             self.current.remove(lineage)
-        };
-        previous
+        }
     }
 }
