@@ -8,6 +8,7 @@ param(
   [switch]$VerifyCancellation,
   [switch]$VerifySuspension,
   [switch]$VerifyPopulatedWorkspace,
+  [switch]$VerifyPhysicalAccounting,
   [switch]$VerifyNativeFolderDrop
 )
 
@@ -144,6 +145,59 @@ function Test-ScaledFileInspection {
   $null = Wait-FinalLogicalSize '1.1 KiB'
   Invoke-UI (Wait-Enabled 'Browse folders' $true)
   Test-FileInspection 'scaled.bin' '1.1 KiB · 1,100 bytes'
+}
+# Read the original count only from a complete result metric, regardless of IEC rounding.
+function Read-CompleteSize($basis) {
+  $metric = Wait-UI "$basis result metric" {
+    Find-UI $basis ([Windows.Automation.ControlType]::Group)
+  }
+  $names = @($metric.FindAll($scopeTree, [Windows.Automation.Condition]::TrueCondition) |
+    ForEach-Object { $_.Current.Name })
+  if (-not ($names -match 'Complete measurement')) {
+    throw "$basis was not complete: $($names -join ' / ')"
+  }
+  foreach ($part in ($names -split '·')) {
+    if ($part.Trim() -match '^(?<bytes>[0-9][0-9,\.\p{Zs}]*) bytes$') {
+      return [uint64]($Matches.bytes -replace '[^0-9]', '')
+    }
+  }
+  throw "No original byte count for $basis`: $($names -join ' / ')"
+}
+
+# Compare the same NTFS allocation before and after adding a second name in a sibling folder.
+function Test-PhysicalAccounting {
+  $accounting = Join-Path $root 'physical-accounting'
+  $left = Join-Path $accounting 'left'
+  $right = Join-Path $accounting 'right'
+  $null = [IO.Directory]::CreateDirectory($left)
+  $null = [IO.Directory]::CreateDirectory($right)
+  $original = Join-Path $left 'original.bin'
+  $contents = [byte[]]::new(1MB)
+  [Random]::new(2026).NextBytes($contents)
+  [IO.File]::WriteAllBytes($original, $contents)
+
+  Invoke-UI (Wait-Enabled 'Back to analysis' $true)
+  foreach ($expected in @('1.0 MiB', '2.0 MiB')) {
+    Invoke-UI (Wait-Enabled 'Cancel selection' $true)
+    Set-Scope $accounting
+    Invoke-UI (Wait-Enabled 'Review scope' $true)
+    Invoke-UI (Wait-Enabled 'Start scan' $true)
+    $null = Wait-FinalLogicalSize $expected
+    if ($expected -eq '1.0 MiB') {
+      $singleAllocated = Read-CompleteSize 'Allocated size'
+      if ($singleAllocated -eq 0 -or (Read-CompleteSize 'Logical size') -ne 1MB) {
+        throw 'The original file did not provide the expected allocation evidence'
+      }
+      $null = New-Item -ItemType HardLink -Path (Join-Path $right 'second-name.bin') -Target $original
+    } else {
+      $logical = Read-CompleteSize 'Logical size'
+      $allocated = Read-CompleteSize 'Allocated size'
+      if ($logical -ne 2MB -or $allocated -ne $singleAllocated) {
+        throw "Hardlink totals differed: logical $logical, allocated $allocated, single allocation $singleAllocated"
+      }
+      "F03 native NTFS hardlinks: logical $logical bytes across two paths; allocated $allocated bytes once"
+    }
+  }
 }
 function Set-Scope($path, $fieldName = 'Windows folder path') {
   $item = Wait-UI $fieldName { Find-UI $fieldName $edit }
@@ -381,6 +435,7 @@ try {
   'F05 native browse: root.bin 11 bytes, nested.bin 7 bytes, Up returns to the pinned scope'
   if ($VerifyPopulatedWorkspace) { Test-PopulatedWorkspace }
   Test-ScaledFileInspection
+  if ($VerifyPhysicalAccounting) { Test-PhysicalAccounting }
 } catch {
   Write-Warning "Native smoke failed. Isolated fixture and logs: $root"
   throw
