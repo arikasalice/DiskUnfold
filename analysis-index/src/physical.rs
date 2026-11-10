@@ -41,7 +41,7 @@ struct Known {
     sharing: SharingEvidence,
 }
 
-struct Physical {
+pub(crate) struct Physical {
     limit: usize,
     identities: BTreeMap<FileIdentity, Option<Known>>,
     total: u128,
@@ -63,7 +63,7 @@ impl Default for Physical {
 }
 
 impl Physical {
-    fn with_limit(limit: usize) -> Self {
+    pub(crate) fn with_limit(limit: usize) -> Self {
         Self {
             limit,
             identities: BTreeMap::new(),
@@ -120,6 +120,36 @@ impl Physical {
                 self.missing = true;
                 self.identity_missing = true;
             }
+        }
+    }
+
+    /// Reads a file observation only when its identity agrees with its root evidence.
+    pub(crate) fn observe_pinned(&mut self, result: &crate::ResultVersion, index: usize) {
+        let observed = result
+            .physical
+            .as_ref()
+            .and_then(|values| values[index].as_ref());
+        let root = result.roots.get(result.root_indices[index] as usize);
+        let consistent = observed.is_none_or(|value| {
+            value.identity.as_ref().is_none_or(|identity| {
+                root.is_none_or(|root| {
+                    root.volume_id.is_empty() || identity.volume == root.volume_id
+                })
+            })
+        });
+        self.observe(if consistent { observed } else { None });
+    }
+
+    /// Finalizes a set total without treating missing attributes as partial matches.
+    pub(crate) fn finish_selection(&self, output: &mut SpaceAggregate) {
+        self.finish(ResultCompleteness::Complete, output);
+        if self.missing || self.conflicts > 0 {
+            output.allocated = amount(
+                SizeBasis::Allocated,
+                None,
+                output.allocated_completeness,
+                false,
+            );
         }
     }
 
@@ -355,17 +385,7 @@ pub(crate) fn selected_scope(
                     | du_core_contracts::result::ResultItemKind::UnknownStructure
             )
         {
-            let observed = result
-                .physical
-                .as_ref()
-                .and_then(|values| values[index].as_ref());
-            let root_volume = &result.roots[result.root_indices[index] as usize].volume_id;
-            let consistent = observed.is_none_or(|value| {
-                value.identity.as_ref().is_none_or(|identity| {
-                    root_volume.is_empty() || identity.volume == *root_volume
-                })
-            });
-            sum.observe(if consistent { observed } else { None });
+            sum.observe_pinned(result, index);
         }
     }
     sum.finish(completeness, output);

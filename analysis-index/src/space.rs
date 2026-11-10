@@ -1,6 +1,8 @@
 use du_core_contracts::result::{ResultCompleteness, ResultItem, ResultItemKind, SpaceAggregate};
 use du_core_contracts::{ByteSize, SizeAmount, SizeBasis, SizeEvidence, SizeValue};
 
+pub(crate) mod selection;
+
 #[derive(Clone, Default)]
 struct Accumulator {
     bytes: Option<u64>,

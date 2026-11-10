@@ -148,3 +148,6 @@ fn unknown<T>(reason: &str) -> BrowseValue<T> {
         reason_key: reason.into(),
     }
 }
+
+#[cfg(test)]
+mod tests;

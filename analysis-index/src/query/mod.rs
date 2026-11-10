@@ -18,6 +18,8 @@ use du_core_contracts::{ItemRef, SizeAmount, SizeValue};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
+pub use crate::space::selection::Error as SpaceTotalError;
+
 /// One immutable item and its native root-relative path in a pinned result.
 pub struct Record<'a> {
     pub item: &'a ResultItem,
@@ -183,6 +185,22 @@ pub struct QueryResult {
     inherited_uncertainty: bool,
     /// Comparison metadata not available in the current result source.
     pub limitations: &'static [&'static str],
+}
+
+impl QueryResult {
+    /// Sums the observed file membership of this pinned query without using scope totals.
+    /// Indeterminate predicates or source coverage yield unavailable evidence.
+    pub fn space_total(
+        &self,
+        cancelled: impl FnMut() -> bool,
+    ) -> Result<du_core_contracts::result::SpaceAggregate, SpaceTotalError> {
+        crate::space::selection::sum(
+            &self.version,
+            &self.items,
+            self.unknown_count == 0 && !self.inherited_uncertainty,
+            cancelled,
+        )
+    }
 }
 
 struct Row {
