@@ -329,7 +329,7 @@ fn duplicate_or_missing_row_from_strategy_is_rejected() -> Result<(), String> {
 }
 
 #[test]
-fn rejects_wrong_version_missing_keys_and_mid_admission_cancel() -> Result<(), String> {
+fn rejects_wrong_version_duplicate_keys_and_mid_admission_cancel() -> Result<(), String> {
     let (version, parent, keys, dispatcher) = fixture()?;
     let mut wrong = parent.clone();
     wrong.result_version = Id::parse("018f0000-0000-7000-8000-000000000099")?;
@@ -343,9 +343,10 @@ fn rejects_wrong_version_missing_keys_and_mid_admission_cancel() -> Result<(), S
         .err(),
         Some(projection::Error::InvalidSource)
     );
+    let duplicate = [keys[0].clone(), keys[0].clone()];
     assert_eq!(
         projection::project(
-            source(&version, &parent, SizeBasis::Logical, &keys[..2]),
+            source(&version, &parent, SizeBasis::Logical, &duplicate),
             &dispatcher,
             options(10),
             &mut || false
