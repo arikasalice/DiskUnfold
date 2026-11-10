@@ -1,10 +1,10 @@
 //! Read-only item space projection, separate from filesystem browse details.
 use du_analysis_index::{
     IngestSink, ResultVersion,
-    space_detail::{ExclusiveDecision, HardlinkSummary, SpaceDetail as ItemEvidence},
+    space_detail::{ExclusiveDecision, HardlinkSummary, SharedSpace, SpaceDetail as ItemEvidence},
 };
 use du_core_contracts::{
-    SizeAmount, SizeEvidence, SizeValue,
+    SizeAmount, SizeBasis, SizeEvidence, SizeValue,
     browse_ipc::{BrowseDetailRequest, BrowseValue},
     result::SpaceAggregate,
     space_detail_ipc::{SpaceDetail, SpaceDetailSize, SpaceExclusiveDecision, SpaceLinkGroup},
@@ -70,26 +70,22 @@ fn exclusive_parts(
     BrowseValue<SpaceDetailSize>,
     SpaceExclusiveDecision,
 ) {
-    let (exclusive, shared, reason) = match facts.exclusive {
-        ExclusiveDecision::Confirmed => (
-            size(facts.allocated.clone(), None),
-            size(
-                facts.allocated.clone().map(|value| SizeValue {
-                    amount: SizeAmount::Exact { bytes: 0.into() },
-                    ..value
-                }),
-                None,
-            ),
+    let (exclusive, reason) = match facts.exclusive {
+        ExclusiveDecision::Confirmed => (size(facts.allocated.clone(), None), None),
+        ExclusiveDecision::Unknown { reason_key } => (unknown(reason_key), Some(reason_key)),
+        ExclusiveDecision::NotApplicable => (BrowseValue::Absent, Some(UNAVAILABLE)),
+    };
+    let shared = match facts.shared {
+        SharedSpace::ConfirmedZero => size(
+            Some(SizeValue {
+                basis: SizeBasis::Allocated,
+                evidence: SizeEvidence::OsReported,
+                amount: SizeAmount::Exact { bytes: 0.into() },
+            }),
             None,
         ),
-        ExclusiveDecision::Unknown { reason_key } => (
-            unknown(reason_key),
-            unknown("space.sharing_unknown"),
-            Some(reason_key),
-        ),
-        ExclusiveDecision::NotApplicable => {
-            (BrowseValue::Absent, BrowseValue::Absent, Some(UNAVAILABLE))
-        }
+        SharedSpace::Unknown => unknown("space.sharing_unknown"),
+        SharedSpace::NotApplicable => BrowseValue::Absent,
     };
     (
         exclusive,
@@ -126,7 +122,11 @@ fn link_group(links: Option<HardlinkSummary>) -> BrowseValue<SpaceLinkGroup> {
         return BrowseValue::Absent;
     };
     let Some(paths) = links.in_scope else {
-        return unknown("space.identity_unsupported");
+        return unknown(
+            links
+                .lookup_unavailable_reason
+                .unwrap_or("space.identity_unsupported"),
+        );
     };
     BrowseValue::Present {
         value: SpaceLinkGroup {

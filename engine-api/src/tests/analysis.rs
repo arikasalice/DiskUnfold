@@ -29,32 +29,34 @@ fn space_detail_exposes_pinned_evidence_without_inventing_a_timestamp()
     build
         .add_directory(Vec::new())
         .map_err(|e| format!("{e:?}"))?;
-    build
-        .add_with_space_at(
-            0,
-            Observation {
-                path: vec![b"item".to_vec()],
-                size: Some(SizeValue {
-                    basis: SizeBasis::Logical,
-                    evidence: SizeEvidence::Measured,
-                    amount: SizeAmount::Exact { bytes: 0.into() },
-                }),
-            },
-            SpaceObservation {
-                allocated: Some(SizeValue {
-                    basis: SizeBasis::Allocated,
-                    evidence: SizeEvidence::OsReported,
-                    amount: SizeAmount::Exact { bytes: 0.into() },
-                }),
-                identity: Some(FileIdentity {
-                    volume: vec![1],
-                    file: vec![3],
-                }),
-                link_count: Some(1),
-                sharing: SharingEvidence::None,
-            },
-        )
-        .map_err(|e| format!("{e:?}"))?;
+    for (name, file_id, links) in [(b"item".as_slice(), 3, 1), (b"outside", 4, 2)] {
+        build
+            .add_with_space_at(
+                0,
+                Observation {
+                    path: vec![name.to_vec()],
+                    size: Some(SizeValue {
+                        basis: SizeBasis::Logical,
+                        evidence: SizeEvidence::Measured,
+                        amount: SizeAmount::Exact { bytes: 0.into() },
+                    }),
+                },
+                SpaceObservation {
+                    allocated: Some(SizeValue {
+                        basis: SizeBasis::Allocated,
+                        evidence: SizeEvidence::OsReported,
+                        amount: SizeAmount::Exact { bytes: 0.into() },
+                    }),
+                    identity: Some(FileIdentity {
+                        volume: vec![1],
+                        file: vec![file_id],
+                    }),
+                    link_count: Some(links),
+                    sharing: SharingEvidence::None,
+                },
+            )
+            .map_err(|e| format!("{e:?}"))?;
+    }
     build
         .seal_at(
             version.clone(),
@@ -90,6 +92,14 @@ fn space_detail_exposes_pinned_evidence_without_inventing_a_timestamp()
         "space.aux_not_included"
     );
     assert!(file.body.get("placeholderLocalState").is_none());
+    let outside = read(&version, 2)?;
+    assert!(outside.error.is_none(), "{:?}", outside.error);
+    assert_eq!(outside.body["shared"]["value"]["size"]["bytes"], "0");
+    assert_eq!(outside.body["exclusive"]["state"], "unknown");
+    assert_eq!(
+        outside.body["exclusiveDecision"]["reasonKey"],
+        "space.out_of_range_links"
+    );
     assert_eq!(read(&version, 0)?.body["exclusive"]["state"], "absent");
     assert_eq!(
         read(&version, 9)?

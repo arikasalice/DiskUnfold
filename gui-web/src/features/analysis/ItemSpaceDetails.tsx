@@ -11,6 +11,7 @@ import { displaySize, evidenceLabels } from "./space-format";
 
 const reasonText: Readonly<Record<string, string>> = {
   "space.aux_not_included": "Auxiliary data was not collected",
+  "space.dedup_capacity": "The file identity limit was reached",
   "space.sharing_not_collected": "Sharing evidence was not collected",
   "space.sharing_unknown": "Sharing could not be verified",
   "space.identity_unsupported": "File identity could not be verified",

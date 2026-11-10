@@ -1,5 +1,7 @@
 use std::collections::BTreeMap;
 
+pub(crate) const IDENTITY_LIMIT: usize = 1_000_000;
+
 use du_core_contracts::result::{ResultCompleteness, ResultItem, SpaceAggregate};
 use du_core_contracts::{ByteSize, SizeAmount, SizeBasis, SizeEvidence, SizeValue};
 
@@ -99,7 +101,7 @@ impl Physical {
     }
 
     fn insert(&mut self, identity: FileIdentity, value: Option<Known>) {
-        self.insert_with_limit(identity, value, 1_000_000);
+        self.insert_with_limit(identity, value, IDENTITY_LIMIT);
     }
 
     fn insert_with_limit(&mut self, identity: FileIdentity, value: Option<Known>, limit: usize) {

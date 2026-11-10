@@ -1,6 +1,6 @@
 use du_analysis_index::{
     FileIdentity, IngestSink, Observation, QueryError, SharingEvidence, SpaceObservation,
-    space_detail::ExclusiveDecision,
+    space_detail::{ExclusiveDecision, SharedSpace},
 };
 use du_core_contracts::{
     Id, ItemRef, PathBytes, PathEncoding, SizeAmount, SizeBasis, SizeEvidence, SizeValue,
@@ -187,6 +187,7 @@ fn inconsistent_link_counts_and_incomplete_scope_are_never_confirmed() -> Result
             reason_key: "space.out_of_range_links"
         }
     );
+    assert_eq!(outside.shared, SharedSpace::ConfirmedZero);
     Ok(())
 }
 #[test]
@@ -336,6 +337,49 @@ fn unavailable_shared_observation_does_not_confirm_exclusive() -> Result<(), Str
         .space_detail(&reference(&result, "first")?)
         .map_err(|e| format!("{e:?}"))?;
     assert_eq!(detail.links.ok_or("missing")?.facts_consistent, None);
+    assert_eq!(
+        detail.exclusive,
+        ExclusiveDecision::Unknown {
+            reason_key: "space.data_insufficient"
+        }
+    );
+    Ok(())
+}
+
+#[test]
+fn reported_no_shared_extents_does_not_confirm_missing_allocation() -> Result<(), String> {
+    let sink = IngestSink::default();
+    let mut build = sink
+        .open_forest(id(1)?, vec![root(1, "a")])
+        .map_err(|e| format!("{e:?}"))?;
+    build
+        .add_directory_at(0, vec![])
+        .map_err(|e| format!("{e:?}"))?;
+    build
+        .add_with_space_at(
+            0,
+            Observation {
+                path: vec![b"item".to_vec()],
+                size: Some(value(SizeBasis::Logical, 11)),
+            },
+            SpaceObservation {
+                allocated: None,
+                identity: Some(FileIdentity {
+                    volume: vec![1],
+                    file: vec![7],
+                }),
+                link_count: Some(1),
+                sharing: SharingEvidence::None,
+            },
+        )
+        .map_err(|e| format!("{e:?}"))?;
+    let result = build
+        .seal(id(2)?, ResultCompleteness::Complete)
+        .map_err(|e| format!("{e:?}"))?;
+    let detail = result
+        .space_detail(&reference(&result, "item")?)
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(detail.shared, SharedSpace::ConfirmedZero);
     assert_eq!(
         detail.exclusive,
         ExclusiveDecision::Unknown {
