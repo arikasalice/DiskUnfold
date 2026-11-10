@@ -4,6 +4,7 @@
 //! serialized IPC contracts, cached models, or geometry totals.
 pub mod bar;
 pub mod bundle;
+mod cancellable_sort;
 pub mod geometry;
 pub mod group_page;
 pub mod histogram;

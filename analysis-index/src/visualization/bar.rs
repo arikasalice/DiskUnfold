@@ -2,15 +2,13 @@
 //!
 //! These local models are not the serialized F06 contract. The caller owns the
 //! pinned source, size basis, shared-space attribution, and legend definitions.
+use super::cancellable_sort;
 use super::geometry::{
     NoArea, Rect, Scale, Sum, Weight, amount, positive_amount, rect_geometry, resolve_axis,
     row_rect, scale, valid_bounds,
 };
 use du_core_contracts::result::ResultCompleteness;
-use std::{
-    cmp::Ordering,
-    collections::{BTreeMap, HashSet},
-};
+use std::collections::{BTreeMap, HashSet};
 
 /// An item with its source value; `item_no` is unique within the input.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -177,8 +175,9 @@ fn rank(
             .then_with(|| a.item_no.cmp(&b.item_no))
     };
     if cancellable_sort {
-        sort_cancellable(&mut known, rank_order, cancelled)?;
-        sort_cancellable(&mut unknown_items, u32::cmp, cancelled)?;
+        cancellable_sort::sort(&mut known, rank_order, cancelled).map_err(|_| Error::Cancelled)?;
+        cancellable_sort::sort(&mut unknown_items, u32::cmp, cancelled)
+            .map_err(|_| Error::Cancelled)?;
     } else {
         known.sort_by(rank_order);
         unknown_items.sort_unstable();
@@ -405,44 +404,6 @@ fn check(cancelled: &mut dyn FnMut() -> bool) -> Result<(), Error> {
     } else {
         Ok(())
     }
-}
-
-// Stable bottom-up merge; the partially sorted buffer never escapes on error.
-fn sort_cancellable<T: Copy>(
-    values: &mut Vec<T>,
-    compare: impl Fn(&T, &T) -> Ordering,
-    cancelled: &mut dyn FnMut() -> bool,
-) -> Result<(), Error> {
-    let mut scratch = Vec::with_capacity(values.len());
-    for value in values.iter() {
-        check(cancelled)?;
-        scratch.push(*value);
-    }
-    let mut width = 1usize;
-    while width < values.len() {
-        let mut start = 0usize;
-        while start < values.len() {
-            let mid = start.saturating_add(width).min(values.len());
-            let end = mid.saturating_add(width).min(values.len());
-            let (mut left, mut right) = (start, mid);
-            for slot in &mut scratch[start..end] {
-                check(cancelled)?;
-                if right == end
-                    || (left < mid && compare(&values[left], &values[right]) != Ordering::Greater)
-                {
-                    *slot = values[left];
-                    left += 1;
-                } else {
-                    *slot = values[right];
-                    right += 1;
-                }
-            }
-            start = end;
-        }
-        std::mem::swap(values, &mut scratch);
-        width = width.saturating_mul(2);
-    }
-    check(cancelled)
 }
 
 fn stack_rect(

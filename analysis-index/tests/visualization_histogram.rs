@@ -260,3 +260,106 @@ fn partial_source_preserves_known_bounds_without_fabricating_empty_bins() -> Res
     assert_eq!(result.bins[0].no_area, Some(NoArea::UncertainScale));
     Ok(())
 }
+
+#[test]
+fn cancellable_layout_preserves_output_and_empty_bins() -> Result<(), Error> {
+    let input = [
+        item(8, Weight::Unknown),
+        item(3, Weight::Exact(99)),
+        item(4, Weight::LowerBound(15)),
+        item(2, Weight::Exact(5)),
+    ];
+    for basis in [Basis::Bytes, Basis::ItemCount] {
+        for scale in [Scale::Automatic, Scale::Fixed(100)] {
+            for completeness in [ResultCompleteness::Complete, ResultCompleteness::Partial] {
+                let expected =
+                    histogram::layout(bounds(), &bins(), &input, basis, scale, completeness)?;
+                let actual = histogram::layout_cancellable(
+                    bounds(),
+                    &bins(),
+                    &input,
+                    basis,
+                    scale,
+                    completeness,
+                    &mut || false,
+                )?;
+                assert_eq!(actual, expected);
+                assert_eq!(actual.uncertain_items, vec![4, 8]);
+            }
+        }
+    }
+    let empty = histogram::layout_cancellable(
+        bounds(),
+        &bins(),
+        &[],
+        Basis::ItemCount,
+        Scale::Automatic,
+        ResultCompleteness::Complete,
+        &mut || false,
+    )?;
+    assert_eq!(empty.bins.len(), 3);
+    assert!(
+        empty
+            .bins
+            .iter()
+            .all(|b| b.item_count == Weight::Exact(0) && b.rect.is_none())
+    );
+    Ok(())
+}
+
+#[test]
+fn cancellation_covers_input_bins_axis_and_large_sorts() -> Result<(), Error> {
+    let many_bins: Vec<_> = (0..128)
+        .map(|n| Bin {
+            lower: n * 10,
+            upper: Some((n + 1) * 10),
+        })
+        .collect();
+    let input: Vec<_> = (0..8192)
+        .rev()
+        .map(|n| {
+            item(
+                n,
+                if n % 2 == 0 {
+                    Weight::Unknown
+                } else {
+                    Weight::Exact(5000)
+                },
+            )
+        })
+        .collect();
+    let run = |stop: usize| {
+        let mut checks = 0;
+        let result = histogram::layout_cancellable(
+            bounds(),
+            &many_bins,
+            &input,
+            Basis::Bytes,
+            Scale::Automatic,
+            ResultCompleteness::Complete,
+            &mut || {
+                checks += 1;
+                checks == stop
+            },
+        );
+        (result, checks)
+    };
+    // Validation, allocation, observations, output, and both sorting phases.
+    for stop in [1, 50, 200, 500, 8400, 8600, 9000, 13000, 50000, 70000] {
+        let (result, checks) = run(stop);
+        assert_eq!(result, Err(Error::Cancelled), "check {stop}");
+        assert_eq!(checks, stop);
+    }
+    let (result, _) = run(usize::MAX);
+    let actual = result?;
+    assert_eq!(
+        actual.uncertain_items,
+        (0..8192).filter(|n| n % 2 == 0).collect::<Vec<_>>()
+    );
+    assert_eq!(
+        actual.unclassified_items,
+        (0..8192).filter(|n| n % 2 == 1).collect::<Vec<_>>()
+    );
+    assert_eq!(actual.bins.len(), 128);
+    Ok(())
+}
