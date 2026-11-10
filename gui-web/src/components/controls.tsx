@@ -13,7 +13,10 @@ import type { ButtonProps } from "react-aria-components";
 import { Icon, StatusBadge } from "./presentation";
 import type { IconName } from "./presentation";
 
-type ActionProps = Pick<ButtonProps, "onPress" | "isDisabled" | "autoFocus"> & {
+type ActionProps = Pick<
+  ButtonProps,
+  "onPress" | "isDisabled" | "isPending" | "autoFocus"
+> & {
   variant?: "primary" | "secondary" | "quiet";
   ref?: Ref<HTMLButtonElement>;
 } & (

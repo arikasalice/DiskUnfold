@@ -72,7 +72,9 @@ function fixture({
   readTotals?: (result: SpaceTotal) => SpaceTotal | Promise<SpaceTotal>;
   readReview?: (result: ScopeReview) => ScopeReview | Promise<ScopeReview>;
   beforeStart?: () => Promise<void>;
-  readStatus?: (result: AnalysisJobStatus) => AnalysisJobStatus;
+  readStatus?: (
+    result: AnalysisJobStatus,
+  ) => AnalysisJobStatus | Promise<AnalysisJobStatus>;
   cancelJob?: () => AnalysisJobControl | Promise<AnalysisJobControl>;
   readFailures?: (
     request: ScanFailuresRequest,
@@ -740,6 +742,15 @@ test("F02 FR10: cancellation is announced before acknowledgement and a rejection
 });
 
 test("F02 IF-23: opens an existing partial without an event, then keeps it until explicit refresh", async () => {
+  let finish = () => {};
+  let finishBackground = () => {};
+  let delayBackground = false;
+  const delayed = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  const background = new Promise<void>((resolve) => {
+    finishBackground = resolve;
+  });
   let status: AnalysisJobStatus = {
     jobRef: "scan",
     kind: "scan.metadata",
@@ -751,22 +762,28 @@ test("F02 IF-23: opens an existing partial without an event, then keeps it until
   };
   const { client, calls, listeners } = fixture({
     lineageId: "lineage",
-    readStatus: () => status,
-    readTotals: (result) => ({
-      ...result,
-      completeness: result.resultVersion === "part" ? "partial" : "complete",
-      sizes: result.sizes.map((value) =>
-        value.size.state === "lower_bound"
-          ? {
-              ...value,
-              size: {
-                ...value.size,
-                bytes: result.resultVersion === "part" ? "255" : "2207",
-              },
-            }
-          : value,
-      ),
-    }),
+    readStatus: async () => {
+      if (!delayBackground) return status;
+      delayBackground = false;
+      await background;
+      return { ...status, jobRef: "unrelated" };
+    },
+    readTotals: async (result) => {
+      const interim = result.resultVersion === "part";
+      if (!interim) await delayed;
+      return {
+        ...result,
+        completeness: interim ? "partial" : "complete",
+        sizes: result.sizes.map((value) =>
+          value.size.state === "lower_bound"
+            ? {
+                ...value,
+                size: { ...value.size, bytes: interim ? "255" : "2207" },
+              }
+            : value,
+        ),
+      };
+    },
   });
   await startFixtureScan(client);
   await screen.findByText("Result version: Interim");
@@ -814,10 +831,37 @@ test("F02 IF-23: opens an existing partial without an event, then keeps it until
     resultVersion: "part",
   });
   fireEvent.click(screen.getByRole("button", { name: "Back to analysis" }));
+  // Queue the user's selection behind a status read that cannot consume it.
+  delayBackground = true;
+  notifyResult(listeners, "job.resync_required", {});
+  await waitFor(() => expect(delayBackground).toBe(false));
   latest.focus();
   fireEvent.keyDown(latest, { key: "Enter", code: "Enter" });
   fireEvent.keyUp(latest, { key: "Enter", code: "Enter" });
+  const reading = screen.getByRole("button", {
+    name: "Reading latest result…",
+  });
+  expect(reading).toBe(latest);
+  expect(reading.getAttribute("aria-disabled")).toBe("true");
+  expect(document.activeElement).toBe(reading);
+  expect(screen.getByText("At least 255 bytes")).toBeDefined();
+  finishBackground();
+  await waitFor(() =>
+    expect(calls.filter(({ name }) => name === "space.total")).toHaveLength(2),
+  );
+  expect(screen.getByRole("button", { name: "Reading latest result…" })).toBe(
+    reading,
+  );
+  const started = calls.length;
+  fireEvent.keyDown(reading, { key: "Enter", code: "Enter", repeat: true });
+  fireEvent.keyUp(reading, { key: "Enter", code: "Enter" });
+  fireEvent.click(reading);
+  finish();
   await screen.findByText("Result version: Final");
+  expect(
+    calls.slice(started).filter(({ name }) => name === "job.get"),
+  ).toHaveLength(0);
+  expect(calls.filter(({ name }) => name === "space.total")).toHaveLength(2);
   const logical = within(screen.getByRole("group", { name: "Logical size" }));
   expect(logical.getByText(/2,207 bytes/)).toBeDefined();
   expect(screen.queryByText("At least 255 bytes")).toBeNull();
@@ -842,8 +886,12 @@ test("F02: a failed switch retains the interim totals and can be retried after f
   let published = false;
   let attempts = 0;
   let finish = () => {};
+  let fail = () => {};
   const delayed = new Promise<void>((resolve) => {
     finish = resolve;
+  });
+  const delayedFailure = new Promise<void>((resolve) => {
+    fail = resolve;
   });
   const { client, listeners } = fixture({
     lineageId: "lineage",
@@ -860,7 +908,10 @@ test("F02: a failed switch retains the interim totals and can be retried after f
     readTotals: async (result) => {
       if (result.resultVersion === "part")
         return { ...result, completeness: "partial" };
-      if (++attempts === 1) throw new Error("Could not read newer totals.");
+      if (++attempts === 1) {
+        await delayedFailure;
+        throw new Error("Could not read newer totals.");
+      }
       await delayed;
       return { ...result, completeness: "missing" };
     },
@@ -875,24 +926,83 @@ test("F02: a failed switch retains the interim totals and can be retried after f
   const latest = await screen.findByRole("button", {
     name: "Show latest result",
   });
+  latest.focus();
   fireEvent.click(latest);
+  expect(screen.getByRole("button", { name: "Reading latest result…" })).toBe(
+    latest,
+  );
+  fail();
   await within(await screen.findByRole("alert")).findByText(
     "Could not read newer totals.",
   );
   expect(screen.getByText("Result version: Interim")).toBeDefined();
   expect(screen.getByText("At least 42 bytes")).toBeDefined();
-  expect(screen.getByRole("button", { name: "Show latest result" })).toBe(
-    latest,
-  );
-  latest.focus();
+  expect(
+    await screen.findByRole("button", { name: "Show latest result" }),
+  ).toBe(latest);
+  expect(document.activeElement).toBe(latest);
   fireEvent.click(latest);
   await waitFor(() => expect(attempts).toBe(2));
+  expect(screen.getByRole("button", { name: "Reading latest result…" })).toBe(
+    latest,
+  );
   const browse = screen.getByRole("button", { name: "Browse folders" });
   browse.focus();
   finish();
   await screen.findByText("Result version: Final with scan gaps");
   expect(document.activeElement).toBe(browse);
   expect(screen.queryByText("Could not read newer totals.")).toBeNull();
+});
+
+test("F02: an expired newer result stops showing progress after resynchronizing", async () => {
+  let published = false;
+  let expired = true;
+  const { client, calls, listeners } = fixture({
+    lineageId: "lineage",
+    readStatus: (base) => ({
+      ...base,
+      state: "running",
+      resultVersion: null,
+      scanResult: {
+        lineageId: "lineage",
+        sequence: published ? 2 : 1,
+        resultVersion: published ? "newer" : "part",
+      },
+    }),
+    readTotals: (result) => {
+      if (result.resultVersion === "newer" && expired)
+        throw new AnalysisError("STALE_VERSION", "result.requery_required");
+      return { ...result, completeness: "partial" };
+    },
+  });
+  await startFixtureScan(client);
+  await screen.findByText("Result version: Interim");
+  published = true;
+  notifyResult(listeners, "results.version_changed", {
+    lineageId: "lineage",
+    sequence: 2,
+  });
+  const latest = await screen.findByRole("button", {
+    name: "Show latest result",
+  });
+  const before = calls.length;
+  fireEvent.click(latest);
+  expect(screen.getByRole("button", { name: "Reading latest result…" })).toBe(
+    latest,
+  );
+  expect(
+    await screen.findByRole("button", { name: "Show latest result" }),
+  ).toBe(latest);
+  expect(calls.slice(before, before + 3).map(({ name }) => name)).toEqual([
+    "job.get",
+    "space.total",
+    "job.get",
+  ]);
+  expect(screen.getByText("At least 42 bytes")).toBeDefined();
+  expect(screen.queryByRole("alert")).toBeNull();
+  expired = false;
+  fireEvent.click(latest);
+  await screen.findByText("Now showing the latest result.");
 });
 
 test.each(["partial", "cancelled"] as const)(

@@ -42,6 +42,7 @@ export function useScanResult(
   const [status, setStatus] = useState<AnalysisJobStatus>();
   const [total, setTotal] = useState<{ jobRef: string; value: SpaceTotal }>();
   const [latest, setLatest] = useState<{ jobRef: string; version: string }>();
+  const [switchingJob, setSwitchingJob] = useState<string>();
   const [error, setError] = useState<{
     jobRef: string;
     message: string;
@@ -60,6 +61,7 @@ export function useScanResult(
     let inFlight = false;
     let queued = false;
     let displayLatest = false;
+    let switching = false;
     let lineage = receiptLineage;
     let jobSequence = -1;
     let resultSequence = -1;
@@ -100,11 +102,12 @@ export function useScanResult(
           // A partial result can be superseded before its first read is admitted.
           staleFailure = failure;
           queued = true;
-          return;
+          return "resync" as const;
         }
         displayLatest = false;
         recordError(failure, false);
       }
+      return "totals" as const;
     }
 
     function recordError(failure: unknown, unavailable: boolean) {
@@ -142,7 +145,7 @@ export function useScanResult(
       jobSequence = next.sequence;
       terminal = !isRunning(next.state);
       setStatus(next);
-      await reconcileResult(next);
+      return reconcileResult(next);
     }
 
     async function reconcileResult(next: AnalysisJobStatus) {
@@ -178,11 +181,17 @@ export function useScanResult(
         version !== rejected &&
         (!displayed || displayLatest)
       ) {
-        await readTotals(version);
+        return readTotals(version);
       } else if (terminal && version === rejected && staleFailure) {
         displayLatest = false;
         recordError(staleFailure, false);
       }
+    }
+
+    function finishSwitch() {
+      if (!switching) return;
+      switching = false;
+      setSwitchingJob((current) => (current === scanJob ? undefined : current));
     }
 
     async function refresh() {
@@ -192,10 +201,20 @@ export function useScanResult(
         return;
       }
       inFlight = true;
+      const startedForSwitch = switching;
+      let outcome: Awaited<ReturnType<typeof readStatus>> = undefined;
       try {
-        await readStatus();
+        outcome = await readStatus();
       } finally {
         inFlight = false;
+        // A status read already in flight can fulfill the selection by reading
+        // totals. Otherwise the queued read still owns the new selection.
+        if (
+          alive &&
+          outcome !== "resync" &&
+          (startedForSwitch || outcome === "totals")
+        )
+          finishSwitch();
         if (queued && alive) {
           queued = false;
           void refresh();
@@ -204,6 +223,9 @@ export function useScanResult(
     }
 
     showLatest.current = () => {
+      if (switching) return;
+      switching = true;
+      setSwitchingJob(scanJob);
       displayLatest = true;
       rejected = undefined;
       staleFailure = undefined;
@@ -232,6 +254,7 @@ export function useScanResult(
     }, 500);
     void refresh();
     return () => {
+      finishSwitch();
       alive = false;
       showLatest.current = undefined;
       window.clearInterval(timer);
@@ -250,6 +273,7 @@ export function useScanResult(
       latest?.jobRef === jobRef &&
       latest?.version !== currentTotal.resultVersion,
     showLatest: () => showLatest.current?.(),
+    switchingResult: switchingJob !== undefined && switchingJob === jobRef,
     error: currentError?.message,
     unavailable: currentError?.unavailable ?? false,
   };

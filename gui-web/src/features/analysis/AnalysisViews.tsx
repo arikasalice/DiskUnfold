@@ -258,6 +258,7 @@ export function ScanOutput({
         total={scan.total}
         hasNewResult={scan.hasNewResult}
         showLatest={scan.showLatest}
+        switching={scan.switchingResult}
         finished={scan.status?.state === "done"}
       />
       {actions}
@@ -305,11 +306,13 @@ function ResultVersionSummary({
   total,
   hasNewResult,
   showLatest,
+  switching,
   finished,
 }: {
   total: SpaceTotal | undefined;
   hasNewResult: boolean;
   showLatest: () => void;
+  switching: boolean;
   finished: boolean;
 }) {
   const button = useRef<HTMLButtonElement>(null);
@@ -322,7 +325,7 @@ function ResultVersionSummary({
   const waitingToSwitch = selection?.shown === false;
 
   useLayoutEffect(() => {
-    if (!waitingToSwitch || hasNewResult) return;
+    if (!waitingToSwitch || hasNewResult || switching) return;
     if (!version || version === selection.version) {
       setSelection(undefined);
       return;
@@ -332,7 +335,7 @@ function ResultVersionSummary({
     if (button.current && button.current === document.activeElement)
       summary.current?.focus({ preventScroll: true });
     setSelection({ version, shown: true });
-  }, [hasNewResult, selection, version, waitingToSwitch]);
+  }, [hasNewResult, selection, switching, version, waitingToSwitch]);
 
   const shownLatest = selection?.shown && selection.version === version;
   return (
@@ -351,12 +354,13 @@ function ResultVersionSummary({
       {version && (hasNewResult || waitingToSwitch) && (
         <Action
           ref={button}
+          isPending={switching}
           onPress={() => {
             setSelection({ version, shown: false });
             showLatest();
           }}
         >
-          Show latest result
+          {switching ? "Reading latest result…" : "Show latest result"}
         </Action>
       )}
     </div>
