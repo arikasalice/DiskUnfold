@@ -89,6 +89,8 @@ fn detects_tampering_and_never_changes_input() {
 fn rejects_unregistered_version() {
     let mut bytes = fixture(b"{}", b"body");
     bytes[8..10].copy_from_slice(&2u16.to_le_bytes());
+    // A newer format may define flags and footer layout differently.
+    bytes[10] = 1;
     assert!(matches!(verify_v1(&bytes), Err(Error::UnsupportedVersion)));
 }
 

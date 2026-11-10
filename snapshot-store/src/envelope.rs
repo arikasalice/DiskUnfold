@@ -50,6 +50,9 @@ fn inspect(bytes: &[u8]) -> Result<Envelope<'_>, Error> {
         return Err(Error::Magic);
     }
     let version = read_u16(bytes, 8)?;
+    if version != 1 {
+        return Err(Error::UnsupportedVersion);
+    }
     if read_u16(bytes, 10)? != 0 {
         return Err(Error::Flags);
     }
@@ -141,9 +144,6 @@ fn read_u64(bytes: &[u8], offset: usize) -> Result<u64, Error> {
 /// zstd frame, decoded records, or file origin.
 pub fn verify_v1(bytes: &[u8]) -> Result<Envelope<'_>, Error> {
     let envelope = inspect(bytes)?;
-    if envelope.version != 1 {
-        return Err(Error::UnsupportedVersion);
-    }
     if blake3::hash(envelope.bytes_before_digest).as_bytes() != envelope.expected_digest {
         return Err(Error::IntegrityFailed);
     }
