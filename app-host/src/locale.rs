@@ -41,6 +41,16 @@ fn initialize_with_os(
     stored: Option<&str>,
     os: locale::OsLanguage<'_>,
 ) -> Result<StartupLocale, io::Error> {
+    initialize_with_report(registry, stored, os, |warning| eprintln!("{warning}"))
+}
+
+/// Selects the startup language before reporting registration warnings.
+fn initialize_with_report(
+    registry: i18n::Registry,
+    stored: Option<&str>,
+    os: locale::OsLanguage<'_>,
+    mut report: impl FnMut(&str),
+) -> Result<StartupLocale, io::Error> {
     let korean_integrity_failed = registry
         .integrity_warnings()
         .iter()
@@ -54,7 +64,7 @@ fn initialize_with_os(
     })
     .map_err(|error| io::Error::other(error.reason_key()))?;
     for warning in registry.integrity_warnings() {
-        eprintln!("{warning}");
+        report(warning);
     }
     Ok(StartupLocale {
         _registry: registry,
@@ -65,6 +75,11 @@ fn initialize_with_os(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{settings::StartupSettings, shared_database::SharedDatabase};
+    use du_app_db::AppDb;
+    use du_core_contracts::settings::{
+        SettingsChanges, SettingsCommit, SettingsSource, SettingsStore,
+    };
 
     const EMPTY_HASH: [u8; 32] = [
         0xaf, 0x13, 0x49, 0xb9, 0xf5, 0xf9, 0xa1, 0xa6, 0xa0, 0x40, 0x4d, 0xea, 0x36, 0xdc, 0xc9,
@@ -153,6 +168,110 @@ mod tests {
         let stored = initialize_with_os(register()?, Some("en"), os)?;
         assert_eq!(stored._decision.language, "en");
         assert_eq!(stored._decision.source, locale::Source::Stored);
+        Ok(())
+    }
+
+    #[test]
+    fn actual_startup_composition_reports_corruption_and_preserves_stored_override()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("settings.db");
+        let mut db = AppDb::open_or_create_gui(&path).map_err(|e| format!("{e:?}"))?;
+        db.commit(
+            0,
+            &SettingsChanges::from([(
+                locale::DISPLAY_LANGUAGE_KEY.into(),
+                Some(serde_json::json!("ko")),
+            )]),
+            SettingsCommit {
+                source: SettingsSource::Screen,
+                timestamp_ms: 1,
+            },
+        )
+        .map_err(|e| format!("{e:?}"))?;
+        let db = SharedDatabase::new(db, None);
+        let mut resources = i18n::embedded::resources().map_err(|e| format!("{e:?}"))?;
+        for resource in &mut resources {
+            if resource.language == "ko" {
+                resource.expected_hash = [0; 32];
+            }
+        }
+        let declared = i18n::embedded::DECLARED_KEYS
+            .iter()
+            .map(|key| (*key).to_owned())
+            .collect::<Vec<_>>();
+        let bundles =
+            i18n::Registry::register(&resources, &declared, &[], i18n::embedded::parse_bundle)
+                .map_err(|e| format!("{e:?}"))?;
+        let configured = bundles.configured_languages().collect::<Vec<_>>();
+        let settings = StartupSettings::open(&db, 2, &configured)?;
+        let stored = settings.stored_language()?;
+        let mut warnings = Vec::new();
+        let startup = initialize_with_report(
+            bundles,
+            stored.as_deref(),
+            locale::OsLanguage::Supported(&["ko-KR"]),
+            |warning| warnings.push(warning.to_owned()),
+        )?;
+        assert_eq!(startup._decision.language, "en");
+        assert!(startup._registry.bundle("ko").is_none());
+        assert_eq!(warnings, ["i18n.bundle_integrity_failed"]);
+        assert_eq!(settings.stored_language()?.as_deref(), Some("ko"));
+        drop(settings);
+        drop(db);
+        let mut reopened = AppDb::open_read_only(&path).map_err(|e| format!("{e:?}"))?;
+        let persisted = reopened.load().map_err(|e| format!("{e:?}"))?;
+        assert_eq!(
+            persisted.values.get(locale::DISPLAY_LANGUAGE_KEY),
+            Some(&serde_json::json!("ko"))
+        );
+        assert_eq!(persisted.revision, 1);
+        Ok(())
+    }
+
+    #[test]
+    fn embedded_startup_honors_os_when_healthy_and_reports_no_warning() -> Result<(), io::Error> {
+        let mut warnings = Vec::new();
+        let startup = initialize_with_report(
+            register()?,
+            None,
+            locale::OsLanguage::Supported(&["ko-KR"]),
+            |warning| warnings.push(warning.to_owned()),
+        )?;
+        assert_eq!(startup._decision.language, "ko");
+        assert!(warnings.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn non_integrity_registration_error_stops_startup() -> Result<(), Box<dyn std::error::Error>> {
+        let mut resources = i18n::embedded::resources().map_err(|e| format!("{e:?}"))?;
+        for resource in &mut resources {
+            if resource.language == "ko" {
+                resource.version = "mismatched";
+            }
+        }
+        let result = i18n::Registry::register(&resources, &[], &[], i18n::embedded::parse_bundle);
+        let error = check_registration(result)
+            .err()
+            .ok_or("registration succeeded")?;
+        assert_eq!(error.to_string(), "locale.registration_failed");
+        Ok(())
+    }
+
+    #[test]
+    fn corrupt_embedded_english_stops_startup() -> Result<(), Box<dyn std::error::Error>> {
+        let mut resources = i18n::embedded::resources().map_err(|e| format!("{e:?}"))?;
+        for resource in &mut resources {
+            if resource.language == "en" {
+                resource.expected_hash = [0; 32];
+            }
+        }
+        let result = i18n::Registry::register(&resources, &[], &[], i18n::embedded::parse_bundle);
+        let error = check_registration(result)
+            .err()
+            .ok_or("registration succeeded")?;
+        assert_eq!(error.to_string(), "locale.registration_failed");
         Ok(())
     }
 }

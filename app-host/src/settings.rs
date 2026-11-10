@@ -36,7 +36,7 @@ impl StartupSettings {
         Ok(Arc::new(settings))
     }
 
-    fn open(
+    pub(super) fn open(
         database: &SharedDatabase,
         timestamp_ms: i64,
         configured_languages: &[&str],
