@@ -82,7 +82,14 @@ pub fn register_with_shared_table_limit(
             probe: TARGET_PROBE_DEADLINE,
         },
     )?;
-    let store = scan::register_with_limit(builder, workers, roots, ids, shared_table_limit)?;
+    let store = scan::register_with_limit(
+        builder,
+        workers.clone(),
+        roots,
+        ids.clone(),
+        shared_table_limit,
+    )?;
+    crate::browse::folder::commands::register(builder, store.clone(), ids, workers, random)?;
     crate::scan_failures::register(builder, store.clone(), random);
     jobs::register_with_scan_store(builder, runtime, store);
     Ok(events)

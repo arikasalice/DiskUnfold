@@ -1,6 +1,7 @@
 use super::*;
 
 /// Proof that this registry pinned a source version at request admission.
+#[derive(Clone)]
 pub struct SourceAdmission {
     owner: Arc<()>,
     version: Arc<crate::ResultVersion>,

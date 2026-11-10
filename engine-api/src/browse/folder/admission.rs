@@ -55,44 +55,48 @@ impl Session {
         request: BrowseOpenRequest,
         cancelled: impl FnMut() -> bool,
     ) -> Result<LiveOpen, AdmissionError> {
-        if request.source_ref.is_some() {
-            return Err(AdmissionError::SourceUnresolved);
-        }
-        let condition = request
-            .condition
-            .map(|node| lower(node, 0))
-            .transpose()?
-            .unwrap_or(Condition::All(vec![]));
-        let mut sorts = request.sort_keys.unwrap_or_default().into_iter().map(sort);
-        let primary = sorts.next().transpose()?.unwrap_or_else(|| Sort {
-            id: "sort.path".into(),
-            revision: 1,
-            basis: Basis::Logical,
-            descending: false,
-        });
-        let additional = sorts.collect::<Result<Vec<_>, _>>()?;
+        let (request_seq, input, additional) = lower_live(request)?;
         let page = self
-            .open(
-                OpenRequest {
-                    result_version: request.result_version,
-                    location: request.location,
-                    view: match request.view_kind {
-                        BrowseViewKind::List => View::List,
-                        BrowseViewKind::TreeBranch => View::Tree,
-                    },
-                    condition,
-                    sort: primary,
-                    page_size: request.page_size,
-                },
-                &additional,
-                cancelled,
-            )
+            .open(input, &additional, cancelled)
             .map_err(AdmissionError::Browse)?;
-        Ok(LiveOpen {
-            request_seq: request.request_seq,
-            page,
-        })
+        Ok(LiveOpen { request_seq, page })
     }
+}
+
+pub(super) fn lower_live(
+    request: BrowseOpenRequest,
+) -> Result<(u32, OpenRequest, Vec<Sort>), AdmissionError> {
+    if request.source_ref.is_some() {
+        return Err(AdmissionError::SourceUnresolved);
+    }
+    let condition = request
+        .condition
+        .map(|node| lower(node, 0))
+        .transpose()?
+        .unwrap_or(Condition::All(vec![]));
+    let mut sorts = request.sort_keys.unwrap_or_default().into_iter().map(sort);
+    let primary = sorts.next().transpose()?.unwrap_or_else(|| Sort {
+        id: "sort.path".into(),
+        revision: 1,
+        basis: Basis::Logical,
+        descending: false,
+    });
+    let additional = sorts.collect::<Result<Vec<_>, _>>()?;
+    Ok((
+        request.request_seq,
+        OpenRequest {
+            result_version: request.result_version,
+            location: request.location,
+            view: match request.view_kind {
+                BrowseViewKind::List => View::List,
+                BrowseViewKind::TreeBranch => View::Tree,
+            },
+            condition,
+            sort: primary,
+            page_size: request.page_size,
+        },
+        additional,
+    ))
 }
 
 fn sort(key: BrowseSortKey) -> Result<Sort, AdmissionError> {

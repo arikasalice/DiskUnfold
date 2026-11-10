@@ -63,6 +63,9 @@ impl ErrorEnvelope {
             | "command.channel_denied"
             | "cursor.invalid"
             | "cursor.limit_exceeded"
+            | "browse.not_folder"
+            | "predicate.unknown"
+            | "sort.key_unknown"
             | "space.target_out_of_scope"
             | "scope.empty"
             | "scope.target_unavailable"
@@ -74,9 +77,11 @@ impl ErrorEnvelope {
             | "scope.changed"
             | "result.requery_required"
             | "history.version_changed" => ErrorCode::StaleVersion,
-            "ref.unavailable" | "job.not_found" | "history.removed" => ErrorCode::NotFound,
+            "ref.unavailable" | "browse.location_missing" | "job.not_found" | "history.removed" => {
+                ErrorCode::NotFound
+            }
             "path.outside_scope" | "path.link_escape" => ErrorCode::ScopeDenied,
-            "db.busy" | "job.queue_full" | "job.shutting_down" => ErrorCode::Busy,
+            "db.busy" | "job.queue_full" | "job.shutting_down" | "query.busy" => ErrorCode::Busy,
             "db.schema_mismatch" | "support.internal_error" | "history.storage_unavailable" => {
                 ErrorCode::Internal
             }

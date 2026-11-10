@@ -64,6 +64,10 @@ impl Session {
         Self { browse, key }
     }
 
+    pub(super) fn uses_browse(&self, browse: &Arc<FolderBrowse>) -> bool {
+        Arc::ptr_eq(&self.browse, browse)
+    }
+
     /// Opens a folder and issues a cursor bound to the admitted query and its condition.
     pub fn open(
         &self,
@@ -78,7 +82,7 @@ impl Session {
         self.finish_open(admitted)
     }
 
-    fn finish_open(&self, admitted: AdmittedOpen) -> Result<OpenedPage, CursorError> {
+    pub(super) fn finish_open(&self, admitted: AdmittedOpen) -> Result<OpenedPage, CursorError> {
         let condition = admitted.page.metadata().condition.clone();
         let opened = admitted.project().map_err(CursorError::Folder)?;
         let next_cursor = match opened.page.next_position {

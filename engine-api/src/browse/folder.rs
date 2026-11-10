@@ -1,10 +1,12 @@
 //! Internal, read-only folder browsing over an admitted immutable result version.
 //!
-//! This API does not define or register the `browse.open` or `query.page` wire
-//! contracts. The caller supplies identifiers and typed conditions, and owns
-//! transport, session composition and result-source resolution.
+//! The desktop adapter shares this registry between folder opens and pages.
 mod admission;
+pub(crate) mod commands;
 pub mod cursor;
+pub mod job;
+mod rows;
+use rows::project;
 mod wire;
 pub use admission::{AdmissionError, LiveOpen};
 use std::sync::Arc;
@@ -13,12 +15,12 @@ use du_analysis_index::{
     IngestSink, QueryError, ResultVersion, browse,
     query::{
         self,
-        page::{MultiFolderKey, Page, PageError, ResultSets, Total},
+        page::{MultiFolderKey, Page, PageError, ResultSets, SourceAdmission, Total},
     },
 };
 use du_core_contracts::{
-    Id, ItemRef, SizeBasis, SizeValue, Timestamp,
-    result::{ResultCompleteness, ResultItem, ResultItemKind, ResultVersionRead},
+    Id, ItemRef, SizeValue, Timestamp,
+    result::{ResultCompleteness, ResultItem, ResultVersionRead},
 };
 use du_job_runtime::JobIdentity;
 
@@ -152,6 +154,33 @@ impl AdmittedOpen {
     }
 }
 
+#[derive(Clone)]
+struct PreparedOpen {
+    admission: SourceAdmission,
+    version: Arc<ResultVersion>,
+    location: Option<ItemRef>,
+    child_count: usize,
+    breadcrumbs: Vec<Breadcrumb>,
+    key: MultiFolderKey,
+    primary: Sort,
+    additional: Vec<Sort>,
+    page_size: Option<u32>,
+}
+enum Candidate {
+    Cached(AdmittedOpen),
+    Evaluated {
+        prepared: Box<PreparedOpen>,
+        result: query::QueryResult,
+    },
+}
+
+impl PreparedOpen {
+    fn estimated_work(&self) -> usize {
+        self.child_count
+            .saturating_mul(self.key.sorts.len().saturating_add(1))
+    }
+}
+
 impl FolderBrowse {
     /// Creates a session; identifiers must be unique within this session.
     pub fn new(source: IngestSink, ids: Arc<dyn JobIdentity>) -> Self {
@@ -184,22 +213,15 @@ impl FolderBrowse {
             .project()
     }
 
-    fn open_admitted(
-        &self,
-        request: OpenRequest,
-        additional: &[Sort],
-        mut cancelled: impl FnMut() -> bool,
-    ) -> Result<AdmittedOpen, Error> {
+    fn prepare(&self, request: OpenRequest, additional: &[Sort]) -> Result<PreparedOpen, Error> {
         validate_count(request.page_size)?;
-        if cancelled() {
-            return Err(Error::Cancelled);
-        }
         let admission = self
             .sets
             .admit_source(request.result_version.as_ref())
             .map_err(page_error)?;
         let version = admission.version();
-        let (location, breadcrumbs) = open_location(&version, request.location.as_ref())?;
+        let (location, breadcrumbs, child_count) =
+            open_location(&version, request.location.as_ref())?;
         let condition = match request.view {
             View::List => request.condition,
             View::Tree => query::Condition::All(vec![
@@ -210,7 +232,7 @@ impl FolderBrowse {
         query::validate_condition(&condition).map_err(query_error)?;
         let condition = condition.normalize();
         query::validate_condition(&condition).map_err(query_error)?;
-        let sorts: Vec<_> = std::iter::once(&request.sort)
+        let sorts = std::iter::once(&request.sort)
             .chain(additional)
             .map(|sort| query::SortSpec {
                 id: sort.id.clone(),
@@ -230,29 +252,69 @@ impl FolderBrowse {
             condition,
             sorts,
         };
-        let cached = match self.sets.find_multi_folder(&key) {
+        Ok(PreparedOpen {
+            admission,
+            version,
+            location,
+            child_count,
+            breadcrumbs,
+            key,
+            primary: request.sort,
+            additional: additional.to_vec(),
+            page_size: request.page_size,
+        })
+    }
+
+    fn evaluate(
+        &self,
+        prepared: PreparedOpen,
+        mut cancelled: impl FnMut() -> bool,
+    ) -> Result<Candidate, Error> {
+        if cancelled() {
+            return Err(Error::Cancelled);
+        }
+        if let Some(page) = self.cached(&prepared)? {
+            if cancelled() {
+                return Err(Error::Cancelled);
+            }
+            return Ok(Candidate::Cached(page));
+        }
+        self.evaluate_uncached(prepared, cancelled)
+    }
+
+    fn cached(&self, prepared: &PreparedOpen) -> Result<Option<AdmittedOpen>, Error> {
+        let cached = match self.sets.find_multi_folder(&prepared.key) {
             Ok(id) => id,
             Err(PageError::StaleVersion) => None,
             Err(error) => return Err(page_error(error)),
         };
         if let Some(id) = cached {
-            match self.sets.open_page(&id, &key.version, 0, request.page_size) {
+            match self
+                .sets
+                .open_page(&id, &prepared.key.version, 0, prepared.page_size)
+            {
                 Ok(page) => {
-                    if cancelled() {
-                        return Err(Error::Cancelled);
-                    }
-                    return Ok(AdmittedOpen {
-                        location,
-                        breadcrumbs,
+                    return Ok(Some(AdmittedOpen {
+                        location: prepared.location.clone(),
+                        breadcrumbs: prepared.breadcrumbs.clone(),
                         query_ref: id,
                         page,
-                    });
+                    }));
                 }
                 Err(PageError::StaleVersion) => {}
                 Err(error) => return Err(page_error(error)),
             }
         }
-        let extra: Vec<_> = additional
+        Ok(None)
+    }
+
+    fn evaluate_uncached(
+        &self,
+        prepared: PreparedOpen,
+        mut cancelled: impl FnMut() -> bool,
+    ) -> Result<Candidate, Error> {
+        let extra: Vec<_> = prepared
+            .additional
             .iter()
             .map(|sort| query::Sort {
                 id: &sort.id,
@@ -263,14 +325,14 @@ impl FolderBrowse {
             .collect();
         let result = query::run_folder_with_sorts(
             &query::Registry::baseline(),
-            version,
-            location.as_ref(),
-            &key.condition,
+            prepared.version.clone(),
+            prepared.location.as_ref(),
+            &prepared.key.condition,
             query::Sort {
-                id: &request.sort.id,
-                revision: request.sort.revision,
-                basis: request.sort.basis,
-                descending: request.sort.descending,
+                id: &prepared.primary.id,
+                revision: prepared.primary.revision,
+                basis: prepared.primary.basis,
+                descending: prepared.primary.descending,
             },
             &extra,
             &mut cancelled,
@@ -279,22 +341,52 @@ impl FolderBrowse {
         if cancelled() {
             return Err(Error::Cancelled);
         }
-        let (id, page) = self
-            .sets
-            .register_admitted_folder(
-                admission,
-                key,
-                self.ids.next_id(),
-                result,
-                request.page_size,
-            )
-            .map_err(page_error)?;
-        Ok(AdmittedOpen {
-            location,
-            breadcrumbs,
-            query_ref: id,
-            page,
+        Ok(Candidate::Evaluated {
+            prepared: Box::new(prepared),
+            result,
         })
+    }
+
+    fn publish_candidate(&self, candidate: Candidate) -> Result<AdmittedOpen, Error> {
+        match candidate {
+            Candidate::Cached(page) => Ok(page),
+            Candidate::Evaluated { prepared, result } => {
+                let (query_ref, page) = self
+                    .sets
+                    .register_admitted_folder(
+                        prepared.admission,
+                        prepared.key,
+                        self.ids.next_id(),
+                        result,
+                        prepared.page_size,
+                    )
+                    .map_err(page_error)?;
+                Ok(AdmittedOpen {
+                    location: prepared.location,
+                    breadcrumbs: prepared.breadcrumbs,
+                    query_ref,
+                    page,
+                })
+            }
+        }
+    }
+
+    fn open_admitted(
+        &self,
+        request: OpenRequest,
+        additional: &[Sort],
+        mut cancelled: impl FnMut() -> bool,
+    ) -> Result<AdmittedOpen, Error> {
+        validate_count(request.page_size)?;
+        if cancelled() {
+            return Err(Error::Cancelled);
+        }
+        let prepared = self.prepare(request, additional)?;
+        let candidate = self.evaluate(prepared, &mut cancelled)?;
+        if cancelled() {
+            return Err(Error::Cancelled);
+        }
+        self.publish_candidate(candidate)
     }
 
     /// Admits a bounded positional page against the same registered result.
@@ -316,13 +408,13 @@ impl FolderBrowse {
 fn open_location(
     version: &ResultVersion,
     requested: Option<&ItemRef>,
-) -> Result<(Option<ItemRef>, Vec<Breadcrumb>), Error> {
+) -> Result<(Option<ItemRef>, Vec<Breadcrumb>, usize), Error> {
     let view = if let Some(requested) = requested {
         browse::open(version, Some(requested)).map_err(folder_error)?
     } else {
         match browse::open_scope(version).map_err(folder_error)? {
             browse::ScopeView::Single(view) => view,
-            browse::ScopeView::Forest { .. } => return Ok((None, Vec::new())),
+            browse::ScopeView::Forest { roots, .. } => return Ok((None, Vec::new(), roots.len())),
         }
     };
     let reference = |item_no| ItemRef {
@@ -341,7 +433,11 @@ fn open_location(
             }
         })
         .collect();
-    Ok((Some(reference(view.location.item_no)), breadcrumbs))
+    Ok((
+        Some(reference(view.location.item_no)),
+        breadcrumbs,
+        view.children.len(),
+    ))
 }
 
 fn validate_count(count: Option<u32>) -> Result<(), Error> {
@@ -350,57 +446,6 @@ fn validate_count(count: Option<u32>) -> Result<(), Error> {
     } else {
         Ok(())
     }
-}
-
-fn project(query_ref: Id, page: Page) -> Result<FolderPage, Error> {
-    let version = page.version();
-    let rows = page
-        .items()
-        .iter()
-        .map(|reference| {
-            let item = version.detail(reference).map_err(folder_error)?.item;
-            Ok(Row {
-                item: reference.clone(),
-                display_name: super::item_display_name(version, reference, item),
-                observation: item.clone(),
-                logical_size: version.item_size(item.item_no, SizeBasis::Logical).cloned(),
-                allocated_size: version
-                    .item_size(item.item_no, SizeBasis::Allocated)
-                    .cloned(),
-                modified_at: version.item_modified_at(item.item_no).cloned(),
-                reported_gaps: version
-                    .item_scope_gaps(reference)
-                    .map_err(folder_error)?
-                    .map(|gap| GapEvidence {
-                        reason_key: gap.reason_key.clone(),
-                        observed_at: gap.observed_at.clone(),
-                    })
-                    .collect(),
-                has_observed_child_folder: if item.kind == ResultItemKind::Directory {
-                    browse::has_observed_child_directory(version, reference)
-                        .map_err(folder_error)?
-                        .then_some(true)
-                } else {
-                    None
-                },
-            })
-        })
-        .collect::<Result<Vec<_>, Error>>()?;
-    let metadata = page.metadata();
-    let known_count = match metadata.total {
-        Total::Exact(n) | Total::LowerBound(n) => n,
-    };
-    let next = u64::try_from(page.next_position()).map_err(|_| Error::Internal)?;
-    Ok(FolderPage {
-        query_ref,
-        result_version: metadata.version.clone(),
-        rows,
-        total: metadata.total,
-        unknown_count: metadata.unknown_count,
-        completeness: metadata.completeness,
-        observed_at: metadata.observed_at.cloned(),
-        next_position: (next < known_count).then_some(next),
-    })
 }
 
 fn folder_error(error: QueryError) -> Error {
