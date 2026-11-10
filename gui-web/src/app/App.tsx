@@ -50,6 +50,7 @@ export function App({ analysis }: { analysis?: AnalysisClient } = {}) {
           {client && !history && !browseVersion && (
             <Action
               variant="quiet"
+              icon="history"
               ref={opener}
               onPress={() => setHistory(true)}
             >
@@ -70,6 +71,8 @@ export function App({ analysis }: { analysis?: AnalysisClient } = {}) {
       {browsePort && browseVersion && (
         <div className="du-browse-shell">
           <Action
+            variant="quiet"
+            icon="back"
             autoFocus
             onPress={() => {
               restoreBrowseFocus.current = true;

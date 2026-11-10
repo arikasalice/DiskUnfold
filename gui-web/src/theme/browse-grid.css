@@ -68,11 +68,17 @@
 .du-browse-grid {
   overflow-anchor: none;
   border: 1px solid var(--du-border);
-  border-radius: 6px;
+  border-radius: var(--du-radius);
+  background: var(--du-surface);
+  box-shadow: var(--du-shadow);
 }
 
 .du-browse-grid__header {
+  border-start-start-radius: inherit;
+  border-start-end-radius: inherit;
   background: var(--du-subtle);
+  color: var(--du-muted);
+  font-weight: 650;
 }
 
 .du-browse-grid__header [role="row"],

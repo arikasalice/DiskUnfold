@@ -55,7 +55,7 @@ body {
 
 .du-brand-mark {
   flex: none;
-  border-radius: 7px;
+  border-radius: 8px;
 }
 
 .du-card {
@@ -87,18 +87,20 @@ body {
 
 .du-heading--1 {
   font-size: 18px;
-  font-weight: 720;
+  font-weight: 690;
 }
 
 .du-heading--2 {
   font-size: clamp(26px, 4vw, 36px);
-  font-weight: 750;
+  font-weight: 660;
+  letter-spacing: -0.025em;
 }
 
 .du-heading--3 {
   margin-top: 4px;
   font-size: 19px;
-  font-weight: 680;
+  font-weight: 640;
+  letter-spacing: -0.01em;
 }
 
 .du-text--muted {
@@ -136,12 +138,14 @@ body {
   background: var(--du-surface);
   color: var(--du-text);
   font: inherit;
-  font-weight: 640;
+  font-weight: 620;
   cursor: pointer;
 }
 
 .du-action--quiet {
+  --du-action-interaction-border: transparent;
   border-color: transparent;
+  background: transparent;
   color: var(--du-info-text);
 }
 
@@ -159,14 +163,23 @@ body {
 }
 
 .du-action[data-hovered]:not([data-disabled]) {
-  border-color: var(--du-action-hover, currentColor);
+  border-color: var(
+    --du-action-hover,
+    var(--du-action-interaction-border, var(--du-control-border))
+  );
   background: var(--du-action-hover, var(--du-hover-surface));
 }
 
 .du-action[data-pressed]:not([data-disabled]) {
-  border-color: var(--du-action-pressed, currentColor);
+  border-color: var(
+    --du-action-pressed,
+    var(--du-action-interaction-border, var(--du-control-border))
+  );
   background: var(--du-action-pressed, var(--du-pressed-surface));
-  transform: translateY(1px);
+}
+
+.du-app-header .du-action--quiet {
+  color: var(--du-muted);
 }
 
 .du-action[data-disabled] {
@@ -209,6 +222,14 @@ label.du-field > span {
   font: inherit;
 }
 
+.du-action,
+.du-field :is(input, select),
+.du-choice {
+  transition:
+    background-color var(--du-state-duration) ease,
+    border-color var(--du-state-duration) ease;
+}
+
 .du-field input::placeholder {
   color: var(--du-muted);
   opacity: 1;
@@ -235,10 +256,6 @@ label.du-field > span {
   color: var(--du-disabled-text);
 }
 
-.du-drop-surface[data-diskunfold-dropzone] .du-field input {
-  border-style: dashed;
-}
-
 .du-drop-surface[data-drag-over] .du-field input {
   border-color: var(--du-focus);
   background: var(--du-info-surface);
@@ -259,7 +276,7 @@ label.du-field > span {
   max-width: 100%;
   padding: 4px 9px;
   border: 1px solid transparent;
-  border-radius: 999px;
+  border-radius: 6px;
   background: var(--du-subtle);
   color: var(--du-muted);
   font-size: 12px;
@@ -433,4 +450,28 @@ label.du-field > span {
 .du-table-spacer td {
   padding: 0;
   border: 0;
+}
+
+.du-history-shell {
+  padding-block-start: 14px;
+}
+
+.du-history-shell .du-heading--2 {
+  font-size: 26px;
+}
+
+.du-history-shell .du-history-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 8rem), 1fr));
+  gap: 8px 12px;
+  align-items: end;
+  padding: 12px;
+  border: 1px solid var(--du-border);
+  border-radius: var(--du-radius);
+  background: var(--du-surface);
+}
+
+.du-history-shell .du-field :is(input, select) {
+  min-block-size: 38px;
+  padding-block: 6px;
 }

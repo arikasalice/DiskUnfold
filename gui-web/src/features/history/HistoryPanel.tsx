@@ -92,18 +92,27 @@ export function HistoryPanel({
     filter.finishedBeforeMs !== null &&
     filter.finishedFromMs >= filter.finishedBeforeMs;
   return (
-    <section className="du-results" aria-label="Operation history">
+    <section
+      className="du-results du-history-shell"
+      aria-label="Operation history"
+    >
       <div ref={list} hidden={Boolean(selected)}>
         <div className="du-results">
           <div className="du-card__header">
             <Heading level={2} id="history-heading">
               Operation history
             </Heading>
-            <Action ref={back} autoFocus onPress={onClose}>
+            <Action
+              variant="quiet"
+              icon="back"
+              ref={back}
+              autoFocus
+              onPress={onClose}
+            >
               Back to analysis
             </Action>
           </div>
-          <div className="du-card__actions">
+          <div className="du-history-filters">
             <DateField label="From date" value={from} onChange={setFrom} />
             <DateField
               label="Through date"

@@ -1,9 +1,11 @@
 import type { ReactNode, Ref } from "react";
 import {
   Activity,
+  ArrowLeft,
   CircleAlert,
   FolderOpen,
   HardDrive,
+  History,
   Layers3,
   RefreshCw,
   ScanLine,
@@ -13,8 +15,10 @@ import { ProgressBar } from "react-aria-components";
 const icons = {
   activity: Activity,
   alert: CircleAlert,
+  back: ArrowLeft,
   folder: FolderOpen,
   drive: HardDrive,
+  history: History,
   layers: Layers3,
   refresh: RefreshCw,
   scan: ScanLine,

@@ -3,6 +3,7 @@ import { App } from "./app/App";
 import "./theme/tokens.css";
 import "./theme/workspace.css";
 import "./theme/analysis-workspace.css";
+import "./theme/drive-picker.css";
 
 const root = document.getElementById("root");
 if (root === null) {
