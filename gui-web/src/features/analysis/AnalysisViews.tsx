@@ -20,7 +20,7 @@ import type {
   OsPath,
   SpaceTotal,
 } from "../../ipc";
-import type { useScanResult } from "../../state/analysis-scan";
+import type { ScanControl, useScanResult } from "../../state/analysis-scan";
 import { ScanIssues } from "./ScanIssues";
 import { ItemSpaceDetails } from "./ItemSpaceDetails";
 import { SizeDisplayControls } from "./SizeDisplayControls";
@@ -67,7 +67,6 @@ export function ScanOutput({
   scan,
   started,
   running,
-  cancelRequested,
   problem,
   roots,
   actions,
@@ -76,12 +75,12 @@ export function ScanOutput({
   scan: ReturnType<typeof useScanResult>;
   started: boolean;
   running: boolean;
-  cancelRequested: boolean;
   problem: string | undefined;
   roots: readonly OsPath[];
   actions: ReactNode;
 }) {
-  const error = problem ?? scan.error ?? scan.status?.reasonKey;
+  const error =
+    problem ?? scan.controlError ?? scan.error ?? scan.status?.reasonKey;
   const awaitingTotals =
     !running &&
     Boolean(scan.status?.resultVersion) &&
@@ -93,7 +92,6 @@ export function ScanOutput({
         scan={scan}
         started={started}
         running={running}
-        cancelRequested={cancelRequested}
         awaitingTotals={awaitingTotals}
         actions={actions}
       />
@@ -107,7 +105,9 @@ export function ScanOutput({
           <PinnedResult client={client} total={scan.total} roots={roots} />
         ) : running ? (
           <Text kind="muted">
-            Collecting file metadata. Totals appear when a result is ready.
+            {scan.status?.state === "paused"
+              ? "The scan is paused. Resume to continue collecting file metadata."
+              : "Collecting file metadata. Totals appear when a result is ready."}
           </Text>
         ) : !awaitingTotals && !error ? (
           <Text kind="muted">No result to display.</Text>
@@ -121,14 +121,12 @@ function ScanOutputHeader({
   scan,
   started,
   running,
-  cancelRequested,
   awaitingTotals,
   actions,
 }: {
   scan: ReturnType<typeof useScanResult>;
   started: boolean;
   running: boolean;
-  cancelRequested: boolean;
   awaitingTotals: boolean;
   actions: ReactNode;
 }) {
@@ -141,7 +139,7 @@ function ScanOutputHeader({
         {started && (
           <ScanStatus
             state={scan.unavailable ? "unavailable" : scan.status?.state}
-            cancellationPending={running && cancelRequested}
+            pending={running ? scan.control : undefined}
           />
         )}
       </div>
@@ -155,7 +153,9 @@ function ScanOutputHeader({
         />
         {actions}
       </div>
-      {running && <Progress label="Scanning folder" />}
+      {running && scan.status?.state !== "paused" && (
+        <Progress label="Scanning folder" />
+      )}
       {awaitingTotals && (
         <div className="du-result__loading">
           <LiveStatus>
@@ -170,15 +170,19 @@ function ScanOutputHeader({
 
 function ScanStatus({
   state = "queued",
-  cancellationPending,
+  pending,
 }: {
   state: JobState | "unavailable" | undefined;
-  cancellationPending: boolean;
+  pending: ScanControl | undefined;
 }) {
   const statusText =
-    cancellationPending || state === "cancel_requested"
+    pending === "cancel" || state === "cancel_requested"
       ? "cancellation requested"
-      : state;
+      : pending === "resume"
+        ? "resume requested"
+        : pending === "pause" || state === "pause_requested"
+          ? "pause requested"
+          : state;
   return (
     <StatusBadge tone={state === "done" ? "good" : "info"} live>
       {state === "done" ? "Scan finished" : `Scan status: ${statusText}`}

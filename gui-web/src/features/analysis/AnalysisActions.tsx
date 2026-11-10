@@ -8,7 +8,8 @@ import {
   Readout,
   Text,
 } from "../../components";
-import type { ScopeReview } from "../../ipc";
+import type { JobState, ScopeReview } from "../../ipc";
+import type { ScanControl } from "../../state/analysis-scan";
 
 function noticeText(key: string): string {
   switch (key) {
@@ -182,15 +183,17 @@ export function ResultActions({
   onBrowse,
   trigger,
   running,
-  cancelRequested,
-  onCancel,
+  state,
+  pending,
+  onControl,
 }: {
   version: string | undefined;
   onBrowse: ((version: string) => void) | undefined;
   trigger: Ref<HTMLButtonElement> | undefined;
   running: boolean;
-  cancelRequested: boolean;
-  onCancel: () => void;
+  state: JobState | undefined;
+  pending: ScanControl | undefined;
+  onControl: (command: ScanControl) => void;
 }) {
   const browse = version && onBrowse && (
     <Action
@@ -203,11 +206,27 @@ export function ResultActions({
     </Action>
   );
   if (!browse && !running) return null;
+  const command =
+    state === "running"
+      ? "pause"
+      : state === "pause_requested" || state === "paused"
+        ? "resume"
+        : undefined;
+  const cancelling = pending === "cancel" || state === "cancel_requested";
   return (
     <div className="du-result__actions">
       {browse}
+      {running && command && (
+        <Action
+          isPending={pending === command}
+          isDisabled={cancelling}
+          onPress={() => onControl(command)}
+        >
+          {command === "pause" ? "Pause scan" : "Resume scan"}
+        </Action>
+      )}
       {running && (
-        <Action isDisabled={cancelRequested} onPress={onCancel}>
+        <Action isDisabled={cancelling} onPress={() => onControl("cancel")}>
           Cancel scan
         </Action>
       )}

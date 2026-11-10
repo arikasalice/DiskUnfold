@@ -14,6 +14,69 @@ export function isRunning(state: JobState): boolean {
   return !["done", "partial", "failed", "cancelled"].includes(state);
 }
 
+export type ScanControl = "pause" | "resume" | "cancel";
+
+function canControl(
+  command: ScanControl,
+  state: JobState | undefined,
+): boolean {
+  switch (command) {
+    case "pause":
+      return state === "running";
+    case "resume":
+      return state === "pause_requested" || state === "paused";
+    case "cancel":
+      return state !== "cancel_requested";
+  }
+}
+
+function controlObserved(command: ScanControl, state: JobState): boolean {
+  if (state === "cancel_requested") return true;
+  switch (command) {
+    case "pause":
+      return state === "pause_requested" || state === "paused";
+    case "resume":
+      return state === "running";
+    case "cancel":
+      return false;
+  }
+}
+
+const controlLabels = {
+  pause: {
+    unavailable: "Pausing is unavailable for this scan.",
+    action: "paused",
+  },
+  resume: {
+    unavailable: "Resuming is unavailable for this scan.",
+    action: "resumed",
+  },
+  cancel: {
+    unavailable: "Cancellation is unavailable for this scan.",
+    action: "cancelled",
+  },
+} satisfies Record<ScanControl, { unavailable: string; action: string }>;
+
+type ControlView = { jobRef: string; command?: ScanControl; message?: string };
+
+function controlsForJob(
+  jobRef: string | undefined,
+  status: AnalysisJobStatus | undefined,
+  unavailable: boolean,
+  control: ControlView | undefined,
+) {
+  const running =
+    jobRef !== undefined &&
+    !unavailable &&
+    (!status || isRunning(status.state));
+  const current = running && control?.jobRef === jobRef ? control : undefined;
+  return {
+    running,
+    control: current?.command,
+    controlError: current?.message,
+  };
+}
+
 function isNewLineageEvent(
   event: EventEnvelope,
   lineage: string | undefined,
@@ -48,6 +111,10 @@ export function useScanResult(
     message: string;
     unavailable: boolean;
   }>();
+  const [control, setControl] = useState<ControlView>();
+  const issueControl = useRef<((command: ScanControl) => void) | undefined>(
+    undefined,
+  );
   const sequence = useRef(0);
   const showLatest = useRef<() => void>(undefined);
   const jobRef = receipt?.jobRef;
@@ -63,6 +130,14 @@ export function useScanResult(
     let displayLatest = false;
     let switching = false;
     let lineage = receiptLineage;
+    let jobState: JobState | undefined;
+    let pending:
+      | {
+          command: ScanControl;
+          after: number;
+          acknowledged?: number;
+        }
+      | undefined;
     let jobSequence = -1;
     let resultSequence = -1;
     let displayed: string | undefined;
@@ -70,6 +145,75 @@ export function useScanResult(
     let staleFailure: AnalysisError | undefined;
     let statusReadFailed = false;
     let statusFrame: number | undefined;
+
+    function clearControl() {
+      pending = undefined;
+      setControl((current) =>
+        current?.jobRef === scanJob ? undefined : current,
+      );
+    }
+
+    async function requestControl(command: ScanControl) {
+      if (!alive || terminal || !canControl(command, jobState)) return;
+      if (pending && (command !== "cancel" || pending.command === "cancel"))
+        return;
+
+      const owner: NonNullable<typeof pending> = {
+        command,
+        after: jobSequence,
+      };
+      pending = owner;
+      setControl({ jobRef: scanJob, command });
+      try {
+        const response = await client.call(`job.${command}`, {
+          jobRef: scanJob,
+        });
+        if (!alive || terminal || pending !== owner) return;
+        if (response.sequence < jobSequence) {
+          clearControl();
+          return;
+        }
+        if (response.outcome === "accepted") {
+          owner.acknowledged = response.sequence;
+        } else {
+          clearControl();
+          const labels = controlLabels[command];
+          setControl({
+            jobRef: scanJob,
+            message:
+              response.outcome === "unsupported"
+                ? labels.unavailable
+                : response.outcome === "already_terminal"
+                  ? "This scan has already ended."
+                  : `The scan could not be ${labels.action} in its current state.`,
+          });
+        }
+        void refresh();
+      } catch (failure) {
+        if (!alive || terminal || pending !== owner) return;
+        clearControl();
+        setControl({
+          jobRef: scanJob,
+          message:
+            failure instanceof AnalysisError
+              ? controlLabels[command].unavailable
+              : failure instanceof Error
+                ? failure.message
+                : controlLabels[command].unavailable,
+        });
+      }
+    }
+
+    function receiveControlStatus(state: JobState) {
+      if (
+        pending &&
+        (terminal ||
+          (jobSequence > pending.after &&
+            jobSequence >= (pending.acknowledged ?? 0) &&
+            controlObserved(pending.command, state)))
+      )
+        clearControl();
+    }
 
     async function readTotals(version: string) {
       const requestSeq = ++sequence.current;
@@ -130,11 +274,21 @@ export function useScanResult(
         statusReadFailed = true;
         const unavailable =
           failure instanceof AnalysisError && failure.code === "NOT_FOUND";
-        if (unavailable) terminal = true;
+        if (unavailable) {
+          terminal = true;
+          if (pending) clearControl();
+        }
         recordError(failure, unavailable);
         return;
       }
-      if (!alive || next.jobRef !== scanJob || next.sequence < jobSequence)
+      if (
+        !alive ||
+        next.jobRef !== scanJob ||
+        next.sequence < jobSequence ||
+        (jobState !== undefined &&
+          !isRunning(jobState) &&
+          isRunning(next.state))
+      )
         return;
       const result = next.scanResult;
       if (result && lineage && result.lineageId !== lineage) return;
@@ -143,7 +297,9 @@ export function useScanResult(
         setError(undefined);
       }
       jobSequence = next.sequence;
+      jobState = next.state;
       terminal = !isRunning(next.state);
+      receiveControlStatus(next.state);
       setStatus(next);
       return reconcileResult(next);
     }
@@ -223,6 +379,7 @@ export function useScanResult(
       }
     }
 
+    issueControl.current = (command) => void requestControl(command);
     showLatest.current = () => {
       if (switching) return;
       switching = true;
@@ -258,6 +415,7 @@ export function useScanResult(
       finishSwitch();
       alive = false;
       showLatest.current = undefined;
+      issueControl.current = undefined;
       window.clearInterval(timer);
       if (statusFrame !== undefined) window.cancelAnimationFrame(statusFrame);
       unsubscribe();
@@ -266,8 +424,12 @@ export function useScanResult(
 
   const currentError = error?.jobRef === jobRef ? error : undefined;
   const currentTotal = total?.jobRef === jobRef ? total?.value : undefined;
+  const currentStatus = status?.jobRef === jobRef ? status : undefined;
+  const unavailable = currentError?.unavailable ?? false;
   return {
-    status: status?.jobRef === jobRef ? status : undefined,
+    status: currentStatus,
+    ...controlsForJob(jobRef, currentStatus, unavailable, control),
+    requestControl: (command: ScanControl) => issueControl.current?.(command),
     total: currentTotal,
     hasNewResult:
       currentTotal !== undefined &&
@@ -276,6 +438,6 @@ export function useScanResult(
     showLatest: () => showLatest.current?.(),
     switchingResult: switchingJob !== undefined && switchingJob === jobRef,
     error: currentError?.message,
-    unavailable: currentError?.unavailable ?? false,
+    unavailable,
   };
 }

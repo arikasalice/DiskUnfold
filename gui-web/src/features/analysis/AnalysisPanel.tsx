@@ -16,7 +16,7 @@ import type {
   ScopeDraft,
   ScopeReview,
 } from "../../ipc";
-import { isRunning, useScanResult } from "../../state/analysis-scan";
+import { useScanResult } from "../../state/analysis-scan";
 import { useTargets } from "../../state/analysis-targets";
 import {
   ResultActions,
@@ -88,23 +88,18 @@ export function AnalysisPanel({
   const [reviewProblem, setReviewProblem] = useState<string>();
   const [error, setError] = useState<string>();
   const [receipt, setReceipt] = useState<ScanStart | null>(null);
-  const [cancelRequested, setCancelRequested] = useState(false);
   const [checkingDrop, setCheckingDrop] = useState(false);
   const [dropMessage, setDropMessage] = useState<{
     text: string;
     tone: "info" | "error";
   }>();
   const request = useRef(0);
-  const cancelOwner = useRef<{ jobRef: string }>(undefined);
   const scanBlocksDrop = useRef(false);
   const pendingDrop = useRef<{ seq: number; request: number } | undefined>(
     undefined,
   );
   const scan = useScanResult(client, receipt);
-  const running =
-    receipt !== null &&
-    !scan.unavailable &&
-    (!scan.status || isRunning(scan.status.state));
+  const running = scan.running;
   const dropEnabled = client.subscribeFolderDrop !== undefined;
   const pathDescription =
     dropMessage?.tone === "info"
@@ -115,7 +110,6 @@ export function AnalysisPanel({
 
   useLayoutEffect(
     () => () => {
-      cancelOwner.current = undefined;
       scanBlocksDrop.current = false;
     },
     [],
@@ -228,9 +222,7 @@ export function AnalysisPanel({
     if (scanBlocksDrop.current || pendingDrop.current) return;
     if (!review || !reviewedDraft || !canStart(review, reviewedDraft)) return;
     scanBlocksDrop.current = true;
-    cancelOwner.current = undefined;
     setWorking(true);
-    setCancelRequested(false);
     setError(undefined);
     try {
       const result = await client.call("scan.start", {
@@ -246,27 +238,6 @@ export function AnalysisPanel({
       setError(errorText(failure));
     } finally {
       setWorking(false);
-    }
-  }
-
-  async function cancel() {
-    if (!receipt) return;
-    const owner = { jobRef: receipt.jobRef };
-    cancelOwner.current = owner;
-    setCancelRequested(true);
-    try {
-      const response = await client.call("job.cancel", {
-        jobRef: owner.jobRef,
-      });
-      if (cancelOwner.current !== owner) return;
-      if (response.outcome === "unsupported") {
-        setCancelRequested(false);
-        setError("Cancellation is unavailable for this scan.");
-      }
-    } catch (failure) {
-      if (cancelOwner.current !== owner) return;
-      setCancelRequested(false);
-      setError(errorText(failure));
     }
   }
 
@@ -346,7 +317,6 @@ export function AnalysisPanel({
               scan={scan}
               started={receipt !== null}
               running={running}
-              cancelRequested={cancelRequested}
               problem={error}
               roots={resultRoots}
               actions={
@@ -355,8 +325,9 @@ export function AnalysisPanel({
                   onBrowse={onBrowse}
                   trigger={browseTrigger}
                   running={running}
-                  cancelRequested={cancelRequested}
-                  onCancel={() => void cancel()}
+                  state={scan.status?.state}
+                  pending={scan.control}
+                  onControl={scan.requestControl}
                 />
               }
             />

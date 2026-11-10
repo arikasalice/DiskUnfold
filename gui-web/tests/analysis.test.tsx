@@ -62,6 +62,7 @@ function fixture({
   startJob = () => "scan",
   readStatus = (result) => result,
   cancelJob,
+  suspendJob,
   readFailures,
   readVolume,
   lineageId,
@@ -78,6 +79,10 @@ function fixture({
     result: AnalysisJobStatus,
   ) => AnalysisJobStatus | Promise<AnalysisJobStatus>;
   cancelJob?: (
+    jobRef: string,
+  ) => AnalysisJobControl | Promise<AnalysisJobControl>;
+  suspendJob?: (
+    command: "job.pause" | "job.resume",
     jobRef: string,
   ) => AnalysisJobControl | Promise<AnalysisJobControl>;
   readFailures?: (
@@ -136,6 +141,11 @@ function fixture({
             resultVersion: "result",
             reasonKey: null,
           });
+        case "job.pause":
+        case "job.resume":
+          if (suspendJob)
+            return suspendJob(name, (body as { jobRef: string }).jobRef);
+          throw new Error("Scan suspension unavailable");
         case "job.cancel":
           if (cancelJob) return cancelJob((body as { jobRef: string }).jobRef);
           throw new Error("Cancellation unavailable");
@@ -895,6 +905,212 @@ test("F02 FR10: cancellation is announced before acknowledgement and a rejection
   ).toBeDefined();
   expect(screen.getByText("Scan status: running")).toBeDefined();
   expect(cancel.disabled).toBe(false);
+});
+
+test("F02 F24: pauses and resumes the same scan without replacing pinned totals", async () => {
+  let state: AnalysisJobStatus["state"] = "running";
+  let sequence = 3;
+  let acknowledge: ((response: AnalysisJobControl) => void) | undefined;
+  const { client, calls, listeners } = fixture({
+    lineageId: "pause-lineage",
+    readStatus: (base) => ({
+      ...base,
+      state,
+      sequence,
+      resultVersion: null,
+      scanResult: {
+        lineageId: "pause-lineage",
+        sequence: 1,
+        resultVersion: "pinned",
+      },
+    }),
+    suspendJob: () =>
+      new Promise((resolve) => {
+        acknowledge = resolve;
+      }),
+  });
+
+  await startFixtureScan(client);
+  const total = await screen.findByText("At least 42 bytes");
+  const pause = screen.getByRole("button", { name: "Pause scan" });
+  pause.focus();
+  fireEvent.click(pause);
+  fireEvent.click(pause);
+  expect(screen.getByText("Scan status: pause requested")).toBeDefined();
+  expect(document.activeElement).toBe(pause);
+  expect(
+    screen.getByRole<HTMLButtonElement>("button", { name: "Cancel scan" })
+      .disabled,
+  ).toBe(false);
+  expect(calls.filter(({ name }) => name === "job.pause")).toHaveLength(1);
+
+  await act(async () => {
+    acknowledge?.({
+      outcome: "accepted",
+      state: "pause_requested",
+      reasonKey: null,
+      sequence: 4,
+    });
+  });
+  expect(screen.getByText("Scan status: pause requested")).toBeDefined();
+  expect(screen.queryByText("Scan status: paused")).toBeNull();
+
+  state = "pause_requested";
+  sequence = 4;
+  notifyResult(listeners, "job.resync_required", {});
+  const resume = await screen.findByRole("button", { name: "Resume scan" });
+  expect(resume).toBe(pause);
+  expect(
+    screen.getByRole("progressbar", { name: "Scanning folder" }),
+  ).toBeDefined();
+
+  state = "paused";
+  sequence = 5;
+  notifyResult(listeners, "job.resync_required", {});
+  await screen.findByText("Scan status: paused");
+  expect(
+    screen.queryByRole("progressbar", { name: "Scanning folder" }),
+  ).toBeNull();
+  expect(screen.getByText("At least 42 bytes")).toBe(total);
+  expect(screen.getByRole("button", { name: "Browse folders" })).toBeDefined();
+  expect(document.activeElement).toBe(resume);
+
+  fireEvent.click(resume);
+  expect(screen.getByText("Scan status: resume requested")).toBeDefined();
+  await act(async () => {
+    state = "running";
+    sequence = 6;
+    acknowledge?.({ outcome: "accepted", state, reasonKey: null, sequence });
+  });
+  await screen.findByText("Scan status: running");
+  expect(screen.getByRole("button", { name: "Pause scan" })).toBe(resume);
+  expect(document.activeElement).toBe(resume);
+  expect(screen.getByText("At least 42 bytes")).toBe(total);
+  expect(calls.filter(({ name }) => name === "space.total")).toHaveLength(1);
+  expect(
+    calls.filter(({ name }) => name === "job.pause" || name === "job.resume"),
+  ).toEqual([
+    { name: "job.pause", body: { jobRef: "scan" } },
+    { name: "job.resume", body: { jobRef: "scan" } },
+  ]);
+});
+
+test("F02 F24: cancellation supersedes a pending pause and terminal status cannot regress", async () => {
+  let state: AnalysisJobStatus["state"] = "running";
+  let sequence = 3;
+  let settlePause: ((response: AnalysisJobControl) => void) | undefined;
+  const { client, calls, listeners } = fixture({
+    readStatus: (base) => ({ ...base, state, sequence, resultVersion: null }),
+    suspendJob: () =>
+      new Promise((resolve) => {
+        settlePause = resolve;
+      }),
+    cancelJob: () => ({
+      outcome: "accepted",
+      state: "cancel_requested",
+      reasonKey: null,
+      sequence: 4,
+    }),
+  });
+  await startFixtureScan(client);
+  fireEvent.click(await screen.findByRole("button", { name: "Pause scan" }));
+  fireEvent.click(screen.getByRole("button", { name: "Cancel scan" }));
+  await act(async () => {
+    settlePause?.({
+      outcome: "unsupported",
+      state: "running",
+      reasonKey: "job.control_unsupported",
+      sequence: 3,
+    });
+  });
+  expect(screen.getByText("Scan status: cancellation requested")).toBeDefined();
+  expect(screen.queryByRole("alert")).toBeNull();
+  state = "cancelled";
+  sequence = 5;
+  notifyResult(listeners, "job.resync_required", {});
+  await screen.findByText("Scan status: cancelled");
+
+  state = "running";
+  sequence = 6;
+  const reads = calls.filter(({ name }) => name === "job.get").length;
+  notifyResult(listeners, "job.resync_required", {});
+  await waitFor(() =>
+    expect(
+      calls.filter(({ name }) => name === "job.get").length,
+    ).toBeGreaterThan(reads),
+  );
+  expect(screen.getByText("Scan status: cancelled")).toBeDefined();
+  expect(screen.queryByRole("button", { name: "Pause scan" })).toBeNull();
+});
+
+test("F02 F24: a stale pause rejection cannot overwrite a newer status read", async () => {
+  let sequence = 3;
+  let settlePause: ((response: AnalysisJobControl) => void) | undefined;
+  const { client, calls, listeners } = fixture({
+    readStatus: (base) => ({
+      ...base,
+      state: "running",
+      sequence,
+      resultVersion: null,
+    }),
+    suspendJob: () =>
+      new Promise((resolve) => {
+        settlePause = resolve;
+      }),
+  });
+  await startFixtureScan(client);
+  const pause = await screen.findByRole("button", { name: "Pause scan" });
+  fireEvent.click(pause);
+  sequence = 4;
+  const reads = calls.filter(({ name }) => name === "job.get").length;
+  notifyResult(listeners, "job.resync_required", {});
+  await waitFor(() =>
+    expect(
+      calls.filter(({ name }) => name === "job.get").length,
+    ).toBeGreaterThan(reads),
+  );
+  await act(async () =>
+    settlePause?.({
+      outcome: "unsupported",
+      state: "running",
+      reasonKey: "job.control_unsupported",
+      sequence: 3,
+    }),
+  );
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(screen.getByText("Scan status: running")).toBeDefined();
+  expect(pause.getAttribute("aria-disabled")).toBeNull();
+});
+
+test("F02 F24: an old resume failure cannot affect a replacement scan", async () => {
+  let firstDone = false;
+  let starts = 0;
+  let failResume: ((failure: Error) => void) | undefined;
+  const { client, listeners } = fixture({
+    startJob: () => (++starts === 1 ? "scan" : "next-scan"),
+    readStatus: (base) => ({
+      ...base,
+      state:
+        base.jobRef === "scan" ? (firstDone ? "done" : "paused") : "running",
+      sequence: firstDone && base.jobRef === "scan" ? 4 : 3,
+      resultVersion: null,
+    }),
+    suspendJob: () =>
+      new Promise((_, reject) => {
+        failResume = reject;
+      }),
+  });
+  await startFixtureScan(client);
+  fireEvent.click(await screen.findByRole("button", { name: "Resume scan" }));
+  expect(screen.getByText("Scan status: resume requested")).toBeDefined();
+  firstDone = true;
+  notifyResult(listeners, "job.resync_required", {});
+  await screen.findByText("Scan finished");
+  fireEvent.click(screen.getByRole("button", { name: "Start scan" }));
+  await screen.findByText("Scan status: running");
+  await act(async () => failResume?.(new Error("Late resume failure")));
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(screen.getByRole("button", { name: "Pause scan" })).toBeDefined();
 });
 
 test.each(["starting", "cancelling"] as const)(
