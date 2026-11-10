@@ -174,18 +174,19 @@ function fixture({
           throw new Error("Volume explanation unavailable");
         case "browse.open": {
           const request = body as BrowseOpenRequest;
+          const version = request.resultVersion ?? "result";
           return {
             kind: "opened",
             requestSeq: request.requestSeq,
             origin: "scan",
-            location: { resultVersion: "result", itemNo: 0 },
+            location: { resultVersion: version, itemNo: 0 },
             breadcrumbs: [],
             rootKind: "scope_root",
             currentCorrespondence: false,
             page: {
               rowKind: "folder",
               queryRef: "folder-query",
-              resultVersion: "result",
+              resultVersion: version,
               rows: [],
               total: { state: "exact", count: 0 },
               unknownCount: 0,
@@ -754,6 +755,17 @@ test("F02 IF-23: opens an existing partial without an event, then keeps it until
     readTotals: (result) => ({
       ...result,
       completeness: result.resultVersion === "part" ? "partial" : "complete",
+      sizes: result.sizes.map((value) =>
+        value.size.state === "lower_bound"
+          ? {
+              ...value,
+              size: {
+                ...value.size,
+                bytes: result.resultVersion === "part" ? "255" : "2207",
+              },
+            }
+          : value,
+      ),
     }),
   });
   await startFixtureScan(client);
@@ -781,19 +793,154 @@ test("F02 IF-23: opens an existing partial without an event, then keeps it until
   const latest = await screen.findByRole("button", {
     name: "Show latest result",
   });
-  expect(screen.getByText("Result version: Interim")).toBeDefined();
+  const interim = screen.getByText("Result version: Interim");
+  const summary = interim.closest('[role="status"]');
+  expect(screen.getByText("Scan finished")).toBeDefined();
+  expect(summary?.textContent).toContain(
+    "You’re still viewing an interim result.",
+  );
+  expect(summary?.contains(latest)).toBe(false);
+  expect(
+    latest.compareDocumentPosition(
+      screen.getByRole("button", { name: "Browse folders" }),
+    ),
+  ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  expect(screen.getByText("At least 255 bytes")).toBeDefined();
+  expect(screen.queryByText(/2,207 bytes/)).toBeNull();
   expect(calls.filter(({ name }) => name === "space.total")).toHaveLength(1);
-  fireEvent.click(latest);
+  fireEvent.click(screen.getByRole("button", { name: "Browse folders" }));
+  await screen.findByText(/^Source: scan/);
+  expect(calls.find(({ name }) => name === "browse.open")?.body).toMatchObject({
+    resultVersion: "part",
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Back to analysis" }));
+  latest.focus();
+  fireEvent.keyDown(latest, { key: "Enter", code: "Enter" });
+  fireEvent.keyUp(latest, { key: "Enter", code: "Enter" });
   await screen.findByText("Result version: Final");
   const logical = within(screen.getByRole("group", { name: "Logical size" }));
-  expect(logical.getByText("At least 42 bytes")).toBeDefined();
+  expect(logical.getByText(/2,207 bytes/)).toBeDefined();
+  expect(screen.queryByText("At least 255 bytes")).toBeNull();
+  expect(document.activeElement).toBe(summary);
+  expect(summary?.textContent).toContain("Now showing the latest result.");
   expect(
-    logical.getByText("Incomplete measurement · Reported by the file system"),
+    logical.getByText(/Incomplete measurement · Reported by the file system/),
   ).toBeDefined();
   expect(
     screen.queryByRole("button", { name: "Show latest result" }),
   ).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Browse folders" }));
+  await screen.findByText(/^Source: scan/);
+  expect(
+    calls.filter(({ name }) => name === "browse.open").at(-1)?.body,
+  ).toMatchObject({
+    resultVersion: "final",
+  });
 });
+
+test("F02: a failed switch retains the interim totals and can be retried after focus moves", async () => {
+  let published = false;
+  let attempts = 0;
+  let finish = () => {};
+  const delayed = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  const { client, listeners } = fixture({
+    lineageId: "lineage",
+    readStatus: (base) => ({
+      ...base,
+      state: published ? "done" : "running",
+      resultVersion: published ? "final" : null,
+      scanResult: {
+        lineageId: "lineage",
+        sequence: published ? 2 : 1,
+        resultVersion: published ? "final" : "part",
+      },
+    }),
+    readTotals: async (result) => {
+      if (result.resultVersion === "part")
+        return { ...result, completeness: "partial" };
+      if (++attempts === 1) throw new Error("Could not read newer totals.");
+      await delayed;
+      return { ...result, completeness: "missing" };
+    },
+  });
+  await startFixtureScan(client);
+  await screen.findByText("Result version: Interim");
+  published = true;
+  notifyResult(listeners, "results.version_changed", {
+    lineageId: "lineage",
+    sequence: 2,
+  });
+  const latest = await screen.findByRole("button", {
+    name: "Show latest result",
+  });
+  fireEvent.click(latest);
+  await within(await screen.findByRole("alert")).findByText(
+    "Could not read newer totals.",
+  );
+  expect(screen.getByText("Result version: Interim")).toBeDefined();
+  expect(screen.getByText("At least 42 bytes")).toBeDefined();
+  expect(screen.getByRole("button", { name: "Show latest result" })).toBe(
+    latest,
+  );
+  latest.focus();
+  fireEvent.click(latest);
+  await waitFor(() => expect(attempts).toBe(2));
+  const browse = screen.getByRole("button", { name: "Browse folders" });
+  browse.focus();
+  finish();
+  await screen.findByText("Result version: Final with scan gaps");
+  expect(document.activeElement).toBe(browse);
+  expect(screen.queryByText("Could not read newer totals.")).toBeNull();
+});
+
+test.each(["partial", "cancelled"] as const)(
+  "F02: a %s scan keeps the interim result separate from the job outcome",
+  async (outcome) => {
+    let published = false;
+    const { client, listeners } = fixture({
+      lineageId: "lineage",
+      readStatus: (base) => ({
+        ...base,
+        state: published ? outcome : "running",
+        resultVersion: published ? "final" : null,
+        scanResult: {
+          lineageId: "lineage",
+          sequence: published ? 2 : 1,
+          resultVersion: published ? "final" : "part",
+        },
+      }),
+      readTotals: (result) => ({
+        ...result,
+        completeness:
+          result.resultVersion === "part"
+            ? "partial"
+            : outcome === "cancelled"
+              ? "cancelled"
+              : "missing",
+      }),
+    });
+    await startFixtureScan(client);
+    await screen.findByText("Result version: Interim");
+    published = true;
+    notifyResult(listeners, "results.version_changed", {
+      lineageId: "lineage",
+      sequence: 2,
+    });
+    await screen.findByText(`Scan status: ${outcome}`);
+    expect(screen.queryByText(/^Scan finished/)).toBeNull();
+    expect(screen.getByText("Result version: Interim")).toBeDefined();
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Show latest result" }),
+    );
+    await screen.findByText(
+      outcome === "cancelled"
+        ? "Result version: Cancelled"
+        : "Result version: Final with scan gaps",
+    );
+  },
+);
 
 test("F02 IF-23: resynchronizes when the first partial version expires before its read", async () => {
   let published = false;

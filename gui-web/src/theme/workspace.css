@@ -28,6 +28,23 @@ body {
   gap: 12px;
 }
 
+.du-result-version {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+.du-result-version:not([data-result]) {
+  position: absolute;
+}
+
+.du-result-version [role="status"]:focus {
+  outline: 2px solid var(--du-focus);
+  outline-offset: 2px;
+}
+
 .du-primary-path {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
   Action,
@@ -253,18 +253,18 @@ export function ScanOutput({
           />
         )}
       </div>
+      <ResultVersionSummary
+        total={scan.total}
+        hasNewResult={scan.hasNewResult}
+        showLatest={scan.showLatest}
+        finished={scan.status?.state === "done"}
+      />
       {actions}
       {running && <Progress label="Scanning folder" />}
       {error && <Notice tone="error">{error}</Notice>}
       {awaitingTotals && <Progress label="Reading space totals" />}
       {scan.total ? (
-        <PinnedResult
-          client={client}
-          total={scan.total}
-          roots={roots}
-          hasNewResult={scan.hasNewResult}
-          showLatest={scan.showLatest}
-        />
+        <PinnedResult client={client} total={scan.total} roots={roots} />
       ) : !awaitingTotals ? (
         <div className="du-empty">
           <Icon name="layers" />
@@ -295,9 +295,82 @@ function ScanStatus({
       : state;
   return (
     <StatusBadge tone={state === "done" ? "good" : "info"} live>
-      Scan status: {statusText}
+      {state === "done" ? "Scan finished" : `Scan status: ${statusText}`}
     </StatusBadge>
   );
+}
+
+function ResultVersionSummary({
+  total,
+  hasNewResult,
+  showLatest,
+  finished,
+}: {
+  total: SpaceTotal | undefined;
+  hasNewResult: boolean;
+  showLatest: () => void;
+  finished: boolean;
+}) {
+  const button = useRef<HTMLButtonElement>(null);
+  const summary = useRef<HTMLDivElement>(null);
+  const [selection, setSelection] = useState<{
+    version: string;
+    shown: boolean;
+  }>();
+  const version = total?.resultVersion;
+  const waitingToSwitch = selection?.shown === false;
+
+  useLayoutEffect(() => {
+    if (!waitingToSwitch || hasNewResult) return;
+    if (!version || version === selection.version) {
+      setSelection(undefined);
+      return;
+    }
+    // Keep the action mounted through this render so we can check its focus
+    // before removing it. Do not move focus if the user already moved on.
+    if (button.current && button.current === document.activeElement)
+      summary.current?.focus({ preventScroll: true });
+    setSelection({ version, shown: true });
+  }, [hasNewResult, selection, version, waitingToSwitch]);
+
+  const shownLatest = selection?.shown && selection.version === version;
+  return (
+    <div className="du-result-version" data-result={total ? "" : undefined}>
+      <div ref={summary} role="status" tabIndex={total ? -1 : undefined}>
+        {total && (
+          <Text kind="muted">
+            Result version: {resultVersionLabels[total.completeness]}
+          </Text>
+        )}
+        {hasNewResult && <Text>{newerResultMessage(finished, total)}</Text>}
+        {!hasNewResult && shownLatest && (
+          <Text>Now showing the latest result.</Text>
+        )}
+      </div>
+      {version && (hasNewResult || waitingToSwitch) && (
+        <Action
+          ref={button}
+          onPress={() => {
+            setSelection({ version, shown: false });
+            showLatest();
+          }}
+        >
+          Show latest result
+        </Action>
+      )}
+    </div>
+  );
+}
+
+function newerResultMessage(
+  finished: boolean,
+  total: SpaceTotal | undefined,
+): string {
+  if (!finished)
+    return "Newer result available. Showing the current result until you switch.";
+  return total?.completeness === "partial"
+    ? "You’re still viewing an interim result."
+    : "You’re still viewing an earlier result.";
 }
 
 /** Displays the selected result without replacing it on later publications. */
@@ -305,28 +378,15 @@ function PinnedResult({
   client,
   total,
   roots,
-  hasNewResult,
-  showLatest,
 }: {
   client: AnalysisClient;
   total: SpaceTotal;
   roots: readonly OsPath[];
-  hasNewResult: boolean;
-  showLatest: () => void;
 }) {
   const [display, setDisplay] = useState(windowsSizeDisplay);
   const [basis, setBasis] = useState<SizeBasisFilter>("all");
   return (
     <div className="du-results">
-      <Text kind="muted">
-        Result version: {resultVersionLabels[total.completeness]}
-      </Text>
-      {hasNewResult && (
-        <Notice>
-          <Text>New result available</Text>
-          <Action onPress={showLatest}>Show latest result</Action>
-        </Notice>
-      )}
       <SizeDisplayControls
         basis={basis}
         display={display}
