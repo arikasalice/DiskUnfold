@@ -229,14 +229,7 @@ fn reviewed_identity_is_rechecked_and_one_job_publishes_the_requested_result()
         .ok_or("replacement reused the active job")?;
     assert_eq!(busy.reason_key, "job.queue_full");
     release.send(())?;
-    let JobEvent::Finished {
-        summary,
-        history_recorded,
-        ..
-    } = terminal.recv_timeout(Duration::from_secs(5))?
-    else {
-        return Err("missing terminal event".into());
-    };
+    let (summary, history_recorded) = scan_finished(&terminal)?;
     assert_eq!(summary.job_id, receipt.job_ref);
     assert_eq!(summary.scope_summary, "metadata: 1 root");
     assert!(history_recorded);
@@ -254,16 +247,42 @@ fn reviewed_identity_is_rechecked_and_one_job_publishes_the_requested_result()
     check_observed_details(&engine, &versions, version, path)?;
     assert_eq!(roots.reads.load(Ordering::Acquire), 2);
 
-    let next: ScanStart = serde_json::from_value(start(&replacement.review_fingerprint)?.body)?;
+    check_replacement_submission(
+        &receipt,
+        start(&replacement.review_fingerprint)?.body,
+        &release,
+        &terminal,
+    )?;
+    Ok(())
+}
+
+fn check_replacement_submission(
+    receipt: &ScanStart,
+    response: serde_json::Value,
+    release: &mpsc::Sender<()>,
+    terminal: &mpsc::Receiver<JobEvent>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let next: ScanStart = serde_json::from_value(response)?;
     assert!(!next.existing);
     assert_ne!(receipt.job_ref, next.job_ref);
     assert_eq!(receipt.scope_fingerprint, next.scope_fingerprint);
     release.send(())?;
-    let JobEvent::Finished { summary, .. } = terminal.recv_timeout(Duration::from_secs(5))? else {
-        return Err("missing replacement terminal event".into());
-    };
+    let (summary, _) = scan_finished(terminal)?;
     assert_eq!(summary.job_id, next.job_ref);
     Ok(())
+}
+
+fn scan_finished(
+    terminal: &mpsc::Receiver<JobEvent>,
+) -> Result<(Box<JobSummary>, bool), Box<dyn std::error::Error>> {
+    match terminal.recv_timeout(Duration::from_secs(5))? {
+        JobEvent::Finished {
+            summary,
+            history_recorded,
+            ..
+        } => Ok((summary, history_recorded)),
+        _ => Err("missing terminal event".into()),
+    }
 }
 
 fn check_uncomposed_scope_fails_closed(
