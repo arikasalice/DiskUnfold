@@ -70,18 +70,7 @@ pub(super) fn project_rows(
         return Err(Error::MissingClassification);
     }
     let denominator = denominator(&model.totals.scope, &model.basis)?;
-    let mut by_item = HashMap::new();
-    for p in presentations {
-        if cancelled() {
-            return Err(Error::Cancelled);
-        }
-        if p.item.result_version != model.result_revision
-            || p.legend_class_key.is_empty()
-            || by_item.insert(p.item.item_no, p).is_some()
-        {
-            return Err(Error::MissingClassification);
-        }
-    }
+    let mut by_item = presentations_by_item(&model.result_revision, presentations, cancelled)?;
     let mut rows = Vec::with_capacity(model.rows.len());
     for row in &model.rows {
         if cancelled() {
@@ -119,6 +108,76 @@ pub(super) fn project_rows(
         groups: HashMap::new(),
     })
 }
+
+/// Builds a table from the original admitted source without creating geometry.
+pub(super) fn project_fallback(
+    version: Arc<ResultVersion>,
+    parent: &ItemRef,
+    basis: &SizeBasis,
+    fingerprint: String,
+    presentations: Vec<RowPresentation>,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<ModelInput, Error> {
+    if cancelled() {
+        return Err(Error::Cancelled);
+    }
+    let folder = du_analysis_index::browse::open(&version, Some(parent))
+        .map_err(|_| Error::SourceMismatch)?;
+    if folder.children.len() != presentations.len() {
+        return Err(Error::MissingClassification);
+    }
+    let total = original_size(&version, parent.item_no, basis).ok_or(Error::SourceMismatch)?;
+    let denominator = denominator(total, basis)?;
+    let mut by_item = presentations_by_item(version.version_id(), presentations, cancelled)?;
+    let mut rows = Vec::with_capacity(folder.children.len());
+    for item in folder.children {
+        if cancelled() {
+            return Err(Error::Cancelled);
+        }
+        let presentation = by_item
+            .remove(&item.item_no)
+            .ok_or(Error::MissingClassification)?;
+        let size = original_size(&version, item.item_no, basis).ok_or(Error::SourceMismatch)?;
+        rows.push(make_row(
+            &version,
+            &item.name,
+            size,
+            presentation,
+            &denominator,
+        )?);
+    }
+    if cancelled() {
+        return Err(Error::Cancelled);
+    }
+    Ok(ModelInput {
+        version,
+        condition_fingerprint: fingerprint,
+        rows,
+        groups: HashMap::new(),
+    })
+}
+
+fn presentations_by_item(
+    revision: &du_core_contracts::Id,
+    presentations: Vec<RowPresentation>,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<HashMap<u32, RowPresentation>, Error> {
+    let mut by_item = HashMap::new();
+    for presentation in presentations {
+        if cancelled() {
+            return Err(Error::Cancelled);
+        }
+        if &presentation.item.result_version != revision
+            || presentation.legend_class_key.is_empty()
+            || by_item
+                .insert(presentation.item.item_no, presentation)
+                .is_some()
+        {
+            return Err(Error::MissingClassification);
+        }
+    }
+    Ok(by_item)
+}
 fn validate_model(version: &ResultVersion, model: &projection::Model) -> Result<(), Error> {
     if model.result_revision != *version.version_id()
         || model.parent.result_version != model.result_revision
@@ -130,14 +189,8 @@ fn validate_model(version: &ResultVersion, model: &projection::Model) -> Result<
     if model.totals.grouped_bytes != 0 {
         return Err(Error::UnsupportedGroups);
     }
-    let scope = version
-        .space(model.parent.item_no)
-        .ok_or(Error::SourceMismatch)?;
-    let original = match model.basis {
-        SizeBasis::Logical => &scope.logical,
-        SizeBasis::Allocated => &scope.allocated,
-        SizeBasis::UniquePhysical => &scope.unique_physical,
-    };
+    let original =
+        original_size(version, model.parent.item_no, &model.basis).ok_or(Error::SourceMismatch)?;
     if original != &model.totals.scope
         || du_analysis_index::browse::open(version, Some(&model.parent))
             .map_err(|_| Error::SourceMismatch)?
@@ -162,34 +215,40 @@ fn project_row(
         .ok_or(Error::SourceMismatch)?;
     if row.item.result_version != model.result_revision
         || item.parent != Some(model.parent.item_no)
-        || version.space(item.item_no).map(|space| match model.basis {
-            SizeBasis::Logical => &space.logical,
-            SizeBasis::Allocated => &space.allocated,
-            SizeBasis::UniquePhysical => &space.unique_physical,
-        }) != Some(&row.size)
+        || original_size(version, item.item_no, &model.basis) != Some(&row.size)
     {
         return Err(Error::SourceMismatch);
     }
-    let (_, root) = version
-        .observed_root_for(&row.item)
-        .map_err(|_| Error::MissingDisplayName)?;
-    let display_name =
-        browse::display(&root.path.encoding, &item.name).ok_or(Error::MissingDisplayName)?;
-    let numerator = exact_quantity(&row.size, &model.basis)?;
-    if row.ratio != ratio::calculate(&numerator, &denominator.value) {
+    let projected = make_row(version, &item.name, &row.size, presentation, denominator)?;
+    if row.ratio.as_deref() != projected.ratio.as_ref().map(VizRatio::as_str) {
         return Err(Error::InvalidRatio);
     }
-    let ratio = row
-        .ratio
+    Ok(projected)
+}
+
+fn make_row(
+    version: &ResultVersion,
+    name: &[u8],
+    size: &SizeValue,
+    presentation: RowPresentation,
+    denominator: &VizDenominator,
+) -> Result<VizRow, Error> {
+    let (_, root) = version
+        .observed_root_for(&presentation.item)
+        .map_err(|_| Error::MissingDisplayName)?;
+    let display_name =
+        browse::display(&root.path.encoding, name).ok_or(Error::MissingDisplayName)?;
+    let numerator = quantity(size)?;
+    let ratio = ratio::calculate(&numerator, &denominator.value)
         .as_deref()
         .map(VizRatio::parse)
         .transpose()
         .map_err(|_| Error::InvalidRatio)?;
     let projected = VizRow {
-        item_ref: Some(row.item.clone()),
+        item_ref: Some(presentation.item),
         group_ref: None,
         display_name,
-        size: row.size.clone(),
+        size: size.clone(),
         quantity: None,
         ratio,
         denominator: denominator.clone(),
@@ -202,22 +261,42 @@ fn project_row(
     Ok(projected)
 }
 fn denominator(size: &SizeValue, basis: &SizeBasis) -> Result<VizDenominator, Error> {
+    if &size.basis != basis {
+        return Err(Error::SourceMismatch);
+    }
     Ok(VizDenominator {
         basis: VizDenominatorBasis::Scope,
-        value: exact_quantity(size, basis)?,
+        value: quantity(size)?,
         size: Some(size.clone()),
     })
 }
-fn exact_quantity(size: &SizeValue, basis: &SizeBasis) -> Result<VizQuantity, Error> {
-    if &size.basis != basis || size.evidence == SizeEvidence::Unknown {
-        return Err(Error::SourceMismatch);
-    }
-    let SizeAmount::Exact { bytes } = &size.amount else {
-        return Err(Error::InvalidQuantity);
+fn original_size<'a>(
+    version: &'a ResultVersion,
+    item_no: u32,
+    basis: &SizeBasis,
+) -> Option<&'a SizeValue> {
+    let scope = version.space(item_no)?;
+    Some(match basis {
+        SizeBasis::Logical => &scope.logical,
+        SizeBasis::Allocated => &scope.allocated,
+        SizeBasis::UniquePhysical => &scope.unique_physical,
+    })
+}
+
+fn quantity(size: &SizeValue) -> Result<VizQuantity, Error> {
+    let bytes = |bytes: &du_core_contracts::ByteSize| {
+        bytes
+            .as_str()
+            .parse::<u64>()
+            .map_err(|_| Error::InvalidQuantity)
     };
-    let value = bytes
-        .as_str()
-        .parse::<u64>()
-        .map_err(|_| Error::InvalidQuantity)?;
-    VizQuantity::exact("bytes", i128::from(value)).ok_or(Error::InvalidQuantity)
+    let value = match &size.amount {
+        SizeAmount::Exact { bytes: value } if size.evidence != SizeEvidence::Unknown => {
+            VizQuantity::exact("bytes", i128::from(bytes(value)?))
+        }
+        SizeAmount::Exact { .. } => return Err(Error::SourceMismatch),
+        SizeAmount::LowerBound { bytes: value } => VizQuantity::lower_bound("bytes", bytes(value)?),
+        _ => VizQuantity::unknown("bytes", "viz.unavailable.no_attribution".into()),
+    };
+    value.ok_or(Error::InvalidQuantity)
 }

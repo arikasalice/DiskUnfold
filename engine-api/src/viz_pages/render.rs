@@ -54,12 +54,14 @@ impl Rendered {
     }
 }
 
-/// A failed render never registers a completed model.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// A render failure or a table-only result when geometry cannot be attributed.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Error {
     Source(current_analysis::Error),
     Strategy(viz_catalog::Error),
     Projection(projection::Error),
+    /// The same pinned rows remain available without geometry.
+    NoAttribution(VizFallback),
     Registration(production::Error),
     Cache(super::Error),
     InvalidEvidence,
@@ -115,7 +117,7 @@ impl ModelPages {
             Source {
                 version: source.version(),
                 parent: request.parent,
-                basis: request.basis,
+                basis: request.basis.clone(),
                 bounds: request.bounds,
                 keys: &keys,
             },
@@ -126,8 +128,29 @@ impl ModelPages {
                 max_shapes: request.max_shapes,
             },
             cancelled,
-        )
-        .map_err(Error::Projection)?;
+        );
+        let model = match model {
+            Ok(model) => model,
+            Err(projection::Error::UnavailableAttribution) => {
+                let input = production::project_fallback(
+                    source.version().clone(),
+                    request.parent,
+                    &request.basis,
+                    format!("no_attribution:{fingerprint}"),
+                    presentations,
+                    cancelled,
+                )
+                .map_err(Error::Registration)?;
+                let (model_ref, _) = self
+                    .register_with_layout(input, None, cancelled)
+                    .map_err(registration_error)?;
+                return Err(Error::NoAttribution(VizFallback {
+                    model_ref,
+                    result_revision: source.result_version().clone(),
+                }));
+            }
+            Err(error) => return Err(Error::Projection(error)),
+        };
         let input = production::project_rows(
             source.version().clone(),
             &model,
@@ -139,10 +162,7 @@ impl ModelPages {
         check(cancelled)?;
         let (model_ref, model) = self
             .register_with_layout(input, Some(Arc::new(model)), cancelled)
-            .map_err(|error| match error {
-                super::Error::Cancelled => Error::Cancelled,
-                _ => Error::Registration(production::Error::Pages(error)),
-            })?;
+            .map_err(registration_error)?;
         let model = model.ok_or(Error::Cache(super::Error::InvalidModel))?;
         Ok(Rendered { model_ref, model })
     }
@@ -184,6 +204,13 @@ impl ModelPages {
                 Ok(Some(Rendered { model_ref, model }))
             })
             .map_err(|error| Error::Cache(super::source_error(error)))?
+    }
+}
+
+fn registration_error(error: super::Error) -> Error {
+    match error {
+        super::Error::Cancelled => Error::Cancelled,
+        _ => Error::Registration(production::Error::Pages(error)),
     }
 }
 

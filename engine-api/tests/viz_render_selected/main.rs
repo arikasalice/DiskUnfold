@@ -1,4 +1,5 @@
 //! Exercise live model registration from the selected scan through the strategy registry.
+mod fallback;
 mod locate;
 
 use std::{
