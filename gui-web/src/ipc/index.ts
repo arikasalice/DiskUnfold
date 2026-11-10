@@ -29,6 +29,7 @@ import type {
   VolumeGapResponse,
 } from "./generated/contracts";
 
+export { SIZE_UNIT_RULES } from "./generated/contracts";
 export type {
   AnalysisJobStatus,
   AnalysisTarget,

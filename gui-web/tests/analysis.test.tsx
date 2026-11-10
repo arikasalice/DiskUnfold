@@ -418,6 +418,50 @@ test("F01–F03: reviewed scope starts a scan and reads its pinned partial resul
   );
 });
 
+test("F03: changing size display does not request another result", async () => {
+  const { client, calls } = fixture({
+    readTotals(result) {
+      return {
+        ...result,
+        sizes: result.sizes.map((entry) => ({
+          ...entry,
+          size:
+            entry.size.state === "lower_bound"
+              ? { ...entry.size, bytes: "1023" }
+              : entry.size,
+        })),
+      };
+    },
+  });
+  render(<App analysis={client} />);
+  fireEvent.click(await screen.findByRole("radio", { name: path.display }));
+  fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
+  const start = screen.getByRole<HTMLButtonElement>("button", {
+    name: "Start scan",
+  });
+  await waitFor(() => expect(start.disabled).toBe(false));
+  fireEvent.click(start);
+  expect(await screen.findByText("At least 1,023 bytes")).toBeDefined();
+  fireEvent.change(screen.getByRole("combobox", { name: "Unit system" }), {
+    target: { value: "si" },
+  });
+  expect(screen.getByText("At least 1.0 kB")).toBeDefined();
+  fireEvent.change(screen.getByRole("combobox", { name: "Size unit" }), {
+    target: { value: "0" },
+  });
+  expect(screen.getByText("At least 1,023 bytes")).toBeDefined();
+  fireEvent.change(screen.getByRole("combobox", { name: "Size basis" }), {
+    target: { value: "allocated" },
+  });
+  expect(screen.queryByRole("group", { name: "Logical size" })).toBeNull();
+  expect(
+    within(screen.getByRole("group", { name: "Allocated size" })).getByText(
+      "Unavailable",
+    ),
+  ).toBeDefined();
+  expect(calls.filter(({ name }) => name === "space.total")).toHaveLength(1);
+});
+
 test("F01: stale scope disables start and requires review again", async () => {
   const { client, calls } = fixture({ stale: true });
   render(<App analysis={client} />);

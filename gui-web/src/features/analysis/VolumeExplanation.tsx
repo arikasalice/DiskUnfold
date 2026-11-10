@@ -21,6 +21,7 @@ import {
   evidenceLabels,
   formatBytes,
 } from "./space-format";
+import type { SizeDisplay } from "./space-format";
 
 const factorLabels: Readonly<Record<string, string>> = {
   "gap.out_of_scope": "Outside the scan scope",
@@ -74,10 +75,12 @@ export function VolumeExplanation({
   client,
   resultVersion,
   roots,
+  display,
 }: {
   client: AnalysisClient;
   resultVersion: string;
   roots: readonly OsPath[];
+  display: SizeDisplay;
 }) {
   const [root, setRoot] = useState("0");
   const [pending, setPending] = useState(false);
@@ -177,11 +180,11 @@ export function VolumeExplanation({
               },
               {
                 label: "Scoped allocated size",
-                value: `${displaySize(report.allocated.size)} · ${displayMeasurement(report.allocated.size, report.allocated.completeness)}`,
+                value: `${displaySize(report.allocated.size, display)} · ${displayMeasurement(report.allocated.size, report.allocated.completeness)}`,
               },
               {
                 label: "Scoped unique physical size",
-                value: `${displaySize(report.uniquePhysical.size)} · ${displayMeasurement(report.uniquePhysical.size, report.uniquePhysical.completeness)}`,
+                value: `${displaySize(report.uniquePhysical.size, display)} · ${displayMeasurement(report.uniquePhysical.size, report.uniquePhysical.completeness)}`,
               },
               ...report.factors.map(({ key, value }) => ({
                 label: factorLabels[key] ?? key,

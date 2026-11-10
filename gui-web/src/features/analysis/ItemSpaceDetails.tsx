@@ -8,6 +8,7 @@ import type {
   SpaceDetailSize,
 } from "../../ipc";
 import { displaySize, evidenceLabels } from "./space-format";
+import type { SizeDisplay } from "./space-format";
 
 const reasonText: Readonly<Record<string, string>> = {
   "space.aux_not_included": "Auxiliary data was not collected",
@@ -30,9 +31,9 @@ function describe<T>(field: BrowseValue<T>, present: (value: T) => string) {
   }
 }
 
-function sizeText(value: SpaceDetailSize): string {
+function sizeText(value: SpaceDetailSize, display: SizeDisplay): string {
   return [
-    displaySize(value.size),
+    displaySize(value.size, display),
     evidenceLabels[value.size.evidence],
     ...value.measurementLimits.map((key) => reasonText[key]).filter(Boolean),
   ]
@@ -40,23 +41,24 @@ function sizeText(value: SpaceDetailSize): string {
     .join(" · ");
 }
 
-function rows(detail: SpaceDetail) {
+function rows(detail: SpaceDetail, display: SizeDisplay) {
   const decision = detail.exclusiveDecision;
+  const formatSize = (value: SpaceDetailSize) => sizeText(value, display);
   return [
     {
       label: "Observed logical size",
-      value: describe(detail.logical, sizeText),
+      value: describe(detail.logical, formatSize),
     },
     {
       label: "Observed allocated size",
-      value: describe(detail.allocated, sizeText),
+      value: describe(detail.allocated, formatSize),
     },
     {
       label: "Unique physical space",
-      value: describe(detail.uniquePhysical, sizeText),
+      value: describe(detail.uniquePhysical, formatSize),
     },
-    { label: "Exclusive space", value: describe(detail.exclusive, sizeText) },
-    { label: "Shared space", value: describe(detail.shared, sizeText) },
+    { label: "Exclusive space", value: describe(detail.exclusive, formatSize) },
+    { label: "Shared space", value: describe(detail.shared, formatSize) },
     {
       label: "Exclusive space confirmed",
       value: decision.confirmed
@@ -88,7 +90,7 @@ function rows(detail: SpaceDetail) {
             : auxiliary.includedInAllocated
               ? "included in allocation"
               : "separate from allocation";
-        return `${displaySize(auxiliary.size)} · ${inclusion}`;
+        return `${displaySize(auxiliary.size, display)} · ${inclusion}`;
       }),
     },
     { label: "Item observed at", value: describe(detail.observedAt, String) },
@@ -117,9 +119,11 @@ function rows(detail: SpaceDetail) {
 export function ItemSpaceDetails({
   client,
   item,
+  display,
 }: {
   client: AnalysisClient;
   item: SpaceDetail["item"];
+  display: SizeDisplay;
 }) {
   const [detail, setDetail] = useState<SpaceDetail>();
   const [problem, setProblem] = useState<string>();
@@ -158,5 +162,5 @@ export function ItemSpaceDetails({
 
   if (problem) return <Notice tone="error">{problem}</Notice>;
   if (!detail) return <Progress label="Reading item space details" />;
-  return <Readout label="Observed item space" rows={rows(detail)} />;
+  return <Readout label="Observed item space" rows={rows(detail, display)} />;
 }

@@ -26,14 +26,16 @@ import type { useScanResult } from "../../state/analysis-scan";
 import type { useTargets } from "../../state/analysis-targets";
 import { ScanIssues } from "./ScanIssues";
 import { ItemSpaceDetails } from "./ItemSpaceDetails";
+import { SizeDisplayControls } from "./SizeDisplayControls";
 import { VolumeExplanation } from "./VolumeExplanation";
-import { displayMeasurement, displaySize, formatBytes } from "./space-format";
-
-const sizeLabels = {
-  logical: "Logical size",
-  allocated: "Allocated size",
-  unique_physical: "Unique physical size",
-};
+import {
+  displayMeasurement,
+  displaySize,
+  formatBytes,
+  sizeLabels,
+  windowsSizeDisplay,
+} from "./space-format";
+import type { SizeBasisFilter, SizeDisplay } from "./space-format";
 
 const resultVersionLabels = {
   complete: "Final",
@@ -288,6 +290,8 @@ function PinnedResult({
   hasNewResult: boolean;
   showLatest: () => void;
 }) {
+  const [display, setDisplay] = useState(windowsSizeDisplay);
+  const [basis, setBasis] = useState<SizeBasisFilter>("all");
   return (
     <div className="du-results">
       <Text kind="muted">
@@ -299,16 +303,33 @@ function PinnedResult({
           <Action onPress={showLatest}>Show latest result</Action>
         </Notice>
       )}
+      <SizeDisplayControls
+        basis={basis}
+        display={display}
+        onBasis={setBasis}
+        onDisplay={setDisplay}
+      />
       <div className="du-metrics">
-        {total.sizes.map((value) => (
-          <Metric
-            key={value.size.basis}
-            label={sizeLabels[value.size.basis]}
-            detail={displayMeasurement(value.size, value.completeness)}
-          >
-            {displaySize(value.size)}
-          </Metric>
-        ))}
+        {total.sizes
+          .filter(({ size }) => basis === "all" || size.basis === basis)
+          .map(({ size, completeness }) => {
+            const value = displaySize(size, display);
+            const raw =
+              size.state !== "unknown" && !value.endsWith(" bytes")
+                ? formatBytes(size.bytes)
+                : undefined;
+            return (
+              <Metric
+                key={size.basis}
+                label={sizeLabels[size.basis]}
+                detail={[displayMeasurement(size, completeness), raw]
+                  .filter(Boolean)
+                  .join(" · ")}
+              >
+                {value}
+              </Metric>
+            );
+          })}
       </div>
       <Coverage total={total} />
       <VolumeExplanation
@@ -316,6 +337,7 @@ function PinnedResult({
         client={client}
         resultVersion={total.resultVersion}
         roots={roots}
+        display={display}
       />
       <ScanIssues
         key={`issues:${total.resultVersion}`}
@@ -327,6 +349,7 @@ function PinnedResult({
         client={client}
         resultVersion={total.resultVersion}
         multiRoot={roots.length > 1}
+        display={display}
       />
     </div>
   );
@@ -337,10 +360,12 @@ function ScopeDetails({
   client,
   resultVersion,
   multiRoot,
+  display,
 }: {
   client: AnalysisClient;
   resultVersion: string;
   multiRoot: boolean;
+  display: SizeDisplay;
 }) {
   const [detail, setDetail] = useState<BrowseDetail>();
   const [pending, setPending] = useState(false);
@@ -395,11 +420,15 @@ function ScopeDetails({
               { label: "Kind", value: attribute(detail.kind) },
               {
                 label: "Logical size",
-                value: attribute(detail.logicalSize, displaySize),
+                value: attribute(detail.logicalSize, (value) =>
+                  displaySize(value, display),
+                ),
               },
               {
                 label: "Allocated size",
-                value: attribute(detail.allocatedSize, displaySize),
+                value: attribute(detail.allocatedSize, (value) =>
+                  displaySize(value, display),
+                ),
               },
               { label: "Modified", value: attribute(detail.modifiedAt) },
               { label: "Created", value: attribute(detail.createdAt) },
@@ -413,7 +442,11 @@ function ScopeDetails({
               },
             ]}
           />
-          <ItemSpaceDetails client={client} item={detail.item} />
+          <ItemSpaceDetails
+            client={client}
+            item={detail.item}
+            display={display}
+          />
         </>
       )}
     </section>

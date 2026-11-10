@@ -1,4 +1,20 @@
 import type { SizeValue, SpaceTotal } from "../../ipc";
+import { SIZE_UNIT_RULES } from "../../ipc";
+import { formatByteUnit } from "../../i18n/bytes";
+
+export type SizeDisplay = {
+  system: "iec" | "si";
+  unit: number | "auto";
+};
+
+export const windowsSizeDisplay: SizeDisplay = { system: "iec", unit: "auto" };
+
+export type SizeBasisFilter = "all" | SizeValue["basis"];
+export const sizeLabels = {
+  logical: "Logical size",
+  allocated: "Allocated size",
+  unique_physical: "Unique physical size",
+} satisfies Record<SizeValue["basis"], string>;
 
 const measurementLabels = {
   complete: "Complete measurement",
@@ -31,7 +47,18 @@ export function formatBytes(bytes: string): string {
 }
 
 /** Preserves a lower bound or missing observation in the displayed size. */
-export function displaySize(size: SizeValue): string {
+export function displaySize(
+  size: SizeValue,
+  display: SizeDisplay = windowsSizeDisplay,
+): string {
   if (size.state === "unknown") return "Unavailable";
-  return `${size.state === "lower_bound" ? "At least " : ""}${formatBytes(size.bytes)}`;
+  const lowerBound = size.state === "lower_bound";
+  const formatted = formatByteUnit(
+    BigInt(size.bytes),
+    SIZE_UNIT_RULES[display.system],
+    SIZE_UNIT_RULES.decimalPlaces,
+    display.unit,
+    lowerBound,
+  );
+  return lowerBound ? `At least ${formatted}` : formatted;
 }

@@ -12,6 +12,7 @@ pub mod i18n;
 pub mod locale;
 pub mod settings;
 pub mod space;
+pub mod space_format;
 
 fn accepts(kind: &ValueKind, value: &Value) -> bool {
     match kind {

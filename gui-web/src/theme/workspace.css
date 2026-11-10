@@ -248,6 +248,12 @@ label.du-field > span {
   font-weight: 650;
 }
 
+.du-size-display {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 8rem), 1fr));
+  gap: 8px;
+}
+
 .du-field input,
 .du-field select {
   width: 100%;

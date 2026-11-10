@@ -3,6 +3,9 @@ use du_core_contracts::result_events::{
     PublishedCompleteness, ResultVersionChange, ResultVersionChanged,
 };
 use du_core_contracts::scan_failures::*;
+use du_core_contracts::size_units::{
+    DISPLAY_DECIMAL_PLACES, IEC_UNITS, SI_UNITS, UNIT_TABLE_REVISION,
+};
 use du_core_contracts::space_detail_ipc::*;
 use du_core_contracts::visualization::geometry::{Geometry, Point};
 use du_core_contracts::visualization::model::{ShapeMeta, VizRelationship};
@@ -118,12 +121,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .into_iter()
         .map(|d| format!("export {d}\n"))
         .collect::<String>();
-    let output = output
+    let mut output = output
         .lines()
         .map(str::trim_end)
         .collect::<Vec<_>>()
         .join("\n")
         + "\n";
+    let tables = serde_json::json!({
+        "revision": UNIT_TABLE_REVISION,
+        "decimalPlaces": DISPLAY_DECIMAL_PLACES,
+        "si": SI_UNITS,
+        "iec": IEC_UNITS,
+    });
+    output.push_str(&format!(
+        "export const SIZE_UNIT_RULES = {tables} as const;\n"
+    ));
     fs::write(std::path::Path::new(&dir).join("contracts.ts"), output)?;
     Ok(())
 }
