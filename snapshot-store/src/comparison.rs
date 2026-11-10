@@ -1,6 +1,7 @@
 //! F08 change classification for one normalized path in two pinned results.
 
 pub mod folder;
+pub mod tree;
 
 use crate::storage_match::{self, Correspondence, Observation};
 use du_core_contracts::{SizeAmount, SizeBasis, SizeValue, result::ResultItemKind};
