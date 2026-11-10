@@ -255,26 +255,34 @@ fn rejects_cross_version_duplicate_and_missing_identity_before_open() {
         )
         .is_err()
     );
-    for invalid in 0..4 {
+    for invalid_identity in [
+        ContentIdentity {
+            volume: Vec::new(),
+            ..identity(1)
+        },
+        ContentIdentity {
+            file: Vec::new(),
+            ..identity(1)
+        },
+        ContentIdentity {
+            enumerated_inode: Some(0),
+            ..identity(1)
+        },
+    ] {
         let mut value = selection(1, PlaceholderEvidence::Local);
-        match invalid {
-            0 => value.identity.volume.clear(),
-            1 => value.identity.file.clear(),
-            2 => value.identity.enumerated_inode = Some(0),
-            _ => value.item.item_no = 0,
-        }
+        value.identity = invalid_identity;
         assert!(Adapter::new(&mut port, &version(1), vec![value]).is_err());
     }
     assert_eq!((port.opens, port.reads), (0, 0));
 }
 
 #[test]
-fn unknown_enumeration_is_preserved_without_fabricating_a_value()
--> Result<(), Box<dyn std::error::Error>> {
+fn selected_zero_item_preserves_unknown_enumeration() -> Result<(), Box<dyn std::error::Error>> {
     let mut port = fake();
     let mut selected = selection(1, PlaceholderEvidence::Local);
+    selected.item.item_no = 0;
     selected.identity.enumerated_inode = None;
-    port.facts.insert(1, selected.identity.clone());
+    port.facts.insert(0, selected.identity.clone());
     let mut adapter =
         Adapter::new(&mut port, &version(1), vec![selected]).map_err(|e| format!("{e:?}"))?;
     let expected = FileIdentity {
@@ -282,7 +290,7 @@ fn unknown_enumeration_is_preserved_without_fabricating_a_value()
         file: vec![1],
     };
     let mut handle = adapter
-        .open_bound(1, &expected)
+        .open_bound(0, &expected)
         .map_err(|e| format!("{e:?}"))?;
     assert_eq!(
         handle.snapshot().map_err(|e| format!("{e:?}"))?.identity,
