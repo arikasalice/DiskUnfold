@@ -45,7 +45,13 @@ function fixture({
   stale = false,
   earlyProbe,
   missingJob = false,
-}: { stale?: boolean; earlyProbe?: EventEnvelope; missingJob?: boolean } = {}) {
+  targetList = targets,
+}: {
+  stale?: boolean;
+  earlyProbe?: EventEnvelope;
+  missingJob?: boolean;
+  targetList?: TargetList;
+} = {}) {
   const listeners = new Set<(event: EventEnvelope) => void>();
   const calls: { name: string; body: unknown }[] = [];
   const client: AnalysisClient = {
@@ -55,7 +61,7 @@ function fixture({
         case "target.list":
           if (earlyProbe)
             for (const listener of listeners) listener(earlyProbe);
-          return targets;
+          return targetList;
         case "scope.review": {
           const request = body as { draft: unknown; requestSeq: number };
           return {
@@ -200,6 +206,29 @@ test("F01: an early probe is applied and older or unrelated probes are ignored",
   expect(screen.getByText("accessible")).toBeDefined();
   expect(screen.queryByText("missing")).toBeNull();
   expect(screen.queryByText("denied")).toBeNull();
+});
+
+test("F01: a target with an unavailable type can be selected and reviewed", async () => {
+  const { client, calls } = fixture({
+    targetList: {
+      ...targets,
+      targets: targets.targets.map((target) => ({ ...target, kind: null })),
+    },
+    earlyProbe: probe("probe", 1, "accessible"),
+  });
+  render(<App analysis={client} />);
+  const choice = await screen.findByRole("radio", { name: path.display });
+  expect(screen.getByText("Type unavailable")).toBeDefined();
+  expect(screen.getByText("accessible")).toBeDefined();
+  fireEvent.click(choice);
+  fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
+  await waitFor(() =>
+    expect(
+      calls.find(({ name }) => name === "scope.review")?.body,
+    ).toMatchObject({
+      draft: { includes: [path] },
+    }),
+  );
 });
 
 test("F01: a probe that finishes before publishing an observation leaves the target unknown", async () => {

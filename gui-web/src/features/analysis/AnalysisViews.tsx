@@ -113,13 +113,15 @@ export function TargetPicker({
                 ? "unknown"
                 : target.access);
             const capacity = probe?.totalBytes;
+            const kind =
+              target.kind?.replaceAll("_", " ") ?? "Type unavailable";
             return (
               <Choice
                 key={target.path.raw}
                 value={target.path.raw}
                 label={target.path.display}
                 icon="drive"
-                description={`${target.kind.replaceAll("_", " ")}${capacity ? ` · ${formatBytes(capacity)} total` : ""}`}
+                description={`${kind}${capacity ? ` · ${formatBytes(capacity)} total` : ""}`}
                 status={{
                   text: access,
                   tone: access === "accessible" ? "good" : "neutral",

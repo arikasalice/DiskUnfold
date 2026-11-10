@@ -42,11 +42,12 @@ pub struct TargetListRequest {
 }
 
 /// A mount entry identified by its native path, with independent identity evidence.
+/// The kind is absent when the OS reports the path without evidence for a kind.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct AnalysisTarget {
-    pub kind: TargetKind,
+    pub kind: Option<TargetKind>,
     pub path: OsPath,
     pub connected: bool,
     pub volume_id: Option<String>,

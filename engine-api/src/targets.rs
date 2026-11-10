@@ -1,4 +1,4 @@
-//! Expose only target kinds supported by the supplied volume observations.
+//! List observed target paths and preserve the kind only when it is established.
 use std::{
     sync::{Arc, Mutex},
     time::Duration,
@@ -156,12 +156,12 @@ impl UseCase for List {
 }
 
 fn target(mount: VolumeMount, identity_supported: bool) -> Option<AnalysisTarget> {
-    let kind = match mount.target_kind? {
+    let kind = mount.target_kind.map(|kind| match kind {
         VolumeTargetKind::Internal => TargetKind::Internal,
         VolumeTargetKind::External => TargetKind::External,
         VolumeTargetKind::NetworkMount => TargetKind::NetworkMount,
         VolumeTargetKind::FolderMount => TargetKind::FolderMount,
-    };
+    });
     let path = crate::scope::windows_path(&OsPath {
         encoding: PathEncoding::WindowsUtf16le,
         raw: PathBytes::from_bytes(&mount.mount_path),
@@ -236,7 +236,7 @@ mod tests {
             }
         }
     }
-    struct Volumes;
+    struct Volumes(Option<VolumeTargetKind>);
     impl VolumePort for Volumes {
         fn enumerate(&self) -> VolumeEnumeration {
             let supported = Capability {
@@ -255,7 +255,7 @@ mod tests {
                     mount_source: vec![],
                     role: None,
                     topology: None,
-                    target_kind: Some(VolumeTargetKind::Internal),
+                    target_kind: self.0,
                     volume_id: Some(vec![1, 2]),
                 }]),
                 capabilities: VolumeCapabilities {
@@ -316,7 +316,7 @@ mod tests {
     }
     fn list(workers: Arc<crate::workers::Workers>, previous: Option<Id>) -> List {
         List {
-            volumes: Arc::new(Volumes),
+            volumes: Arc::new(Volumes(Some(VolumeTargetKind::Internal))),
             clock: Arc::new(Fixture),
             probe: Probe {
                 workers,
@@ -365,13 +365,13 @@ mod tests {
     }
 
     #[test]
-    fn composed_target_list_delivers_probe_then_terminal_on_the_desktop_bus()
+    fn unclassified_target_is_listed_and_delivers_probe_then_terminal_on_the_desktop_bus()
     -> Result<(), Box<dyn std::error::Error>> {
         let mut builder = EngineBuilder::default();
         let events = crate::desktop::register(
             &mut builder,
             Arc::new(NoRoots),
-            Arc::new(Volumes),
+            Arc::new(Volumes(None)),
             Arc::new(Fixture),
         )?;
         let engine = builder.build()?;
@@ -386,8 +386,17 @@ mod tests {
             &ctx,
         );
         assert!(reply.error.is_none());
+        assert!(
+            reply.body["targets"][0]
+                .get("kind")
+                .is_some_and(serde_json::Value::is_null)
+        );
         let list: TargetList = serde_json::from_value(reply.body)?;
         let job = list.probe_job_ref.ok_or("missing probe job")?;
+        assert_eq!(list.targets.len(), 1);
+        assert_eq!(list.unavailable_reason, None);
+        assert_eq!(list.targets[0].kind, None);
+        assert_eq!(list.targets[0].identity_source, IdentitySource::Confirmed);
         assert_eq!(list.targets[0].access, TargetAccess::Checking);
         let mut reports = Vec::new();
         let deadline = Instant::now() + Duration::from_secs(5);
