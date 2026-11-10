@@ -7,7 +7,8 @@ param(
   [switch]$VerifyWorkspaceLayout,
   [switch]$VerifyCancellation,
   [switch]$VerifySuspension,
-  [switch]$VerifyPopulatedWorkspace
+  [switch]$VerifyPopulatedWorkspace,
+  [switch]$VerifyNativeFolderDrop
 )
 
 $ErrorActionPreference = 'Stop'
@@ -91,6 +92,32 @@ function Set-Scope($path, $fieldName = 'Windows folder path') {
       $current.Current.Value -eq $path
     }
   }
+}
+# The operator performs the OLE gesture; UIA only observes its result.
+function Test-NativeFolderDrop {
+  Set-Scope $scanRoot
+  Invoke-UI (Wait-Enabled 'Review scope' $true)
+  $null = Wait-Enabled 'Start scan' $true
+  Write-Host "Within 120 seconds, drag this isolated folder from Explorer onto the Windows folder path field: $child"
+  $deadline = [DateTime]::UtcNow.AddSeconds(120)
+  $received = $false
+  do {
+    if ($process.HasExited) { throw 'Application exited while waiting for native folder drop' }
+    try {
+      $field = Find-UI 'Windows folder path' $edit
+      $notice = Find-UI 'Folder selected. Review scope.' $textType
+      if ($field -and $notice) {
+        $value = $field.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern).Current.Value
+        if ($value -ceq $child) { $received = $true; break }
+      }
+    } catch [Windows.Automation.ElementNotAvailableException] {}
+    Start-Sleep -Milliseconds 100
+  } while ([DateTime]::UtcNow -lt $deadline)
+  if (-not $received) { throw 'Native folder drop was not observed with the expected isolated path and drop notice' }
+  $null = Wait-Enabled 'Start scan' $false
+  Invoke-UI (Wait-Enabled 'Review scope' $true)
+  $null = Wait-Enabled 'Start scan' $true
+  'F01 native folder drop: isolated folder received, prior review invalidated, fresh review required'
 }
 # Verify the scope editor and paging in a small native window with real NTFS data.
 function Test-PopulatedWorkspace {
@@ -223,6 +250,7 @@ try {
   }
   $null = Wait-UI 'path field' { Find-UI 'Windows folder path' $edit }
   $null = Wait-Enabled 'Start scan' $false
+  if ($VerifyNativeFolderDrop) { Test-NativeFolderDrop }
   if ($VerifySuspension) { Test-ScanSuspension $controlScope }
   if ($VerifyCancellation) { Test-ScanCancellation $controlScope }
   Set-Scope (Join-Path $root 'missing')
