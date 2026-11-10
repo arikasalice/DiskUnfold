@@ -59,6 +59,7 @@ impl ModelPages {
     /// Pins and registers only a still-current live result. Cancelled results must not be supplied.
     pub fn register(&self, input: ModelInput) -> Result<String, Error> {
         validate_input(&input)?;
+        let mut state = self.state.lock().map_err(|_| Error::Unavailable)?;
         let current = self
             .source
             .pin_current(input.version.version_id())
@@ -71,7 +72,6 @@ impl ModelPages {
             input.version.version_id().clone(),
             input.condition_fingerprint.clone(),
         );
-        let mut state = self.state.lock().map_err(|_| Error::Unavailable)?;
         prune(&mut state);
         if let Some(existing) = state.conditions.get(&key).cloned() {
             if !state
@@ -107,7 +107,7 @@ impl ModelPages {
         touch(&mut state.lru, &reference);
         Ok(reference)
     }
-    /// Admit against the current version; a page already copied remains valid after replacement.
+    /// Admit the source and model together before copying the page without holding the index lock.
     pub fn rows(&self, request: &VizRowsRequest) -> Result<VizRows, Error> {
         self.rows_at_admission(request, || {})
     }
@@ -117,12 +117,11 @@ impl ModelPages {
         after_pin: impl FnOnce(),
     ) -> Result<VizRows, Error> {
         request.validate().map_err(|_| Error::InvalidRange)?;
+        let mut state = self.state.lock().map_err(|_| Error::Unavailable)?;
         let current = self
             .source
             .pin_current(&request.result_revision)
             .map_err(source_error)?;
-        after_pin();
-        let mut state = self.state.lock().map_err(|_| Error::Unavailable)?;
         let entry = state
             .entries
             .get(&request.model_ref)
@@ -134,11 +133,24 @@ impl ModelPages {
         if !Arc::ptr_eq(&pinned, &current) {
             return Err(Error::StaleVersion);
         }
-        let page = current
-            .viz_rows(&request.model_ref, request.start, request.count)
+        let rows = current
+            .pin_viz_rows(&request.model_ref)
             .map_err(model_error)?;
+        let start = request.start as usize;
+        if start > rows.len() {
+            return Err(Error::InvalidRange);
+        }
         touch(&mut state.lru, &request.model_ref);
-        Ok(page)
+        drop(state);
+        after_pin();
+        let end = start.saturating_add(request.count as usize).min(rows.len());
+        Ok(VizRows {
+            rows: rows[start..end].to_vec(),
+            total_count: rows.len() as u64,
+            result_revision: current.version_id().clone(),
+            observed_at: current.observed_at().cloned(),
+            completeness: current.completeness(),
+        })
     }
     /// Evicts this model even if its source remains alive.
     pub fn release_model(&self, reference: &str) -> Result<(), Error> {
@@ -198,7 +210,6 @@ fn model_error(error: live_models::Error) -> Error {
         live_models::Error::Unavailable => Error::Unavailable,
         live_models::Error::Duplicate => Error::ReferenceCollision,
         live_models::Error::Missing => Error::ModelExpired,
-        live_models::Error::InvalidRange => Error::InvalidRange,
     }
 }
 fn touch(lru: &mut VecDeque<String>, key: &str) {

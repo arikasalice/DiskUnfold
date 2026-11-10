@@ -16,7 +16,7 @@ fn id(n: u32) -> Result<Id, String> {
     Id::parse(&format!("018f0000-0000-7000-8000-{n:012x}"))
 }
 #[test]
-fn page_pinned_before_replacement_finishes_from_old_source() -> Result<(), String> {
+fn admitted_page_survives_model_eviction_and_source_replacement() -> Result<(), String> {
     let source = IngestSink::default();
     let mut b = source.open(id(1)?).map_err(|e| format!("{e:?}"))?;
     b.add_directory(vec![]).map_err(|e| format!("{e:?}"))?;
@@ -28,11 +28,21 @@ fn page_pinned_before_replacement_finishes_from_old_source() -> Result<(), Strin
         NonZeroUsize::new(2).ok_or("zero")?,
         Arc::new(Ids(AtomicU64::new(1))),
     ));
+    let expected: VizRow = serde_json::from_value(serde_json::json!({
+        "itemRef": {"resultVersion": a.version_id(), "itemNo": 0},
+        "groupRef": null,
+        "displayName": "original root",
+        "size": {"basis": "logical", "evidence": "measured", "state": "exact", "bytes": "5"},
+        "ratio": null,
+        "denominator": {"basis": "scope", "value": {"unit": "bytes", "state": "exact", "value": "5"}},
+        "legendClassKey": "root",
+        "displayFlags": []
+    })).map_err(|e| e.to_string())?;
     let model = pages
         .register(ModelInput {
             version: a.clone(),
             condition_fingerprint: "a".into(),
-            rows: vec![],
+            rows: vec![expected.clone()],
             groups: HashSet::new(),
         })
         .map_err(|e| format!("{e:?}"))?;
@@ -56,6 +66,13 @@ fn page_pinned_before_replacement_finishes_from_old_source() -> Result<(), Strin
         })
     };
     start.wait();
+    pages.release_model(&model).map_err(|e| format!("{e:?}"))?;
+    let expired = pages.rows(&VizRowsRequest {
+        model_ref: model.clone(),
+        result_revision: id(2)?,
+        start: 0,
+        count: 1,
+    });
     let mut b = source.open(id(3)?).map_err(|e| format!("{e:?}"))?;
     b.add_directory(vec![]).map_err(|e| format!("{e:?}"))?;
     let _ = b
@@ -67,6 +84,8 @@ fn page_pinned_before_replacement_finishes_from_old_source() -> Result<(), Strin
         .map_err(|_| "panic")?
         .map_err(|e| format!("{e:?}"))?;
     assert_eq!(page.result_revision, *a.version_id());
+    assert_eq!(page.rows, vec![expected]);
+    assert_eq!(expired.err(), Some(Error::ModelExpired));
     assert_eq!(
         pages
             .rows(&VizRowsRequest {

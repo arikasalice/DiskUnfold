@@ -22,8 +22,8 @@ use du_core_contracts::result_events::{ResultVersionChange, ResultVersionPublish
 use du_core_contracts::{Id, SizeValue, Timestamp};
 pub use physical::{FileIdentity, SharingEvidence, SpaceObservation};
 use publication_events::PublicationEvents;
-pub use result_read::ItemDetail;
 use result_read::ensure_directory;
+pub use result_read::{ItemDetail, QueryError};
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 use version_store::{Entry, State};
@@ -54,17 +54,6 @@ pub struct ResultVersion {
     modified_times: Option<Vec<Option<Timestamp>>>,
     item_observed_times: Option<Vec<Option<Timestamp>>>,
     issues: Vec<du_core_contracts::scan_failures::ScanIssue>,
-}
-/// Failure to resolve an item or a current version without changing the pinned result.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum QueryError {
-    NotFound,
-    StaleVersion,
-    InvalidPath,
-    PathUnavailable,
-    NotDirectory,
-    KindUnknown,
-    Unavailable,
 }
 /// A single publication point. Readers retain their snapshot after releasing the lock.
 #[derive(Clone, Default)]

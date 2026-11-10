@@ -1,5 +1,5 @@
 //! Read the immutable item hierarchy and aggregates of a published version.
-use crate::{QueryError, ResultVersion, SpaceObservation};
+use crate::{ResultVersion, SpaceObservation};
 use du_core_contracts::{
     Id, ItemRef, SizeBasis, SizeValue, Timestamp,
     result::{
@@ -7,6 +7,18 @@ use du_core_contracts::{
         SpaceAggregate,
     },
 };
+
+/// Failure to resolve an item or a current version without changing the pinned result.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum QueryError {
+    NotFound,
+    StaleVersion,
+    InvalidPath,
+    PathUnavailable,
+    NotDirectory,
+    KindUnknown,
+    Unavailable,
+}
 
 /// Original observations for one item in a pinned result, without inferring missing values.
 pub struct ItemDetail<'a> {
