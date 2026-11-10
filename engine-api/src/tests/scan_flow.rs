@@ -238,6 +238,18 @@ fn reviewed_identity_is_rechecked_and_one_job_publishes_the_requested_result()
     )?;
     assert_eq!(response.body["resultVersion"], json!(version));
     assert_eq!(response.body["sizes"][0]["size"]["bytes"], "64");
+    check_observed_details(&engine, &versions, version, path)?;
+    assert_eq!(roots.reads.load(Ordering::Acquire), 2);
+    Ok(())
+}
+
+fn check_observed_details(
+    engine: &Engine,
+    versions: &du_analysis_index::IngestSink,
+    version: Id,
+    path: Vec<u8>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let gui = |name, body| call(engine, name, Channel::Gui, ENVELOPE_VERSION, body);
     let pinned = versions
         .pin_current(&version)
         .map_err(|error| format!("{error:?}"))?;
@@ -280,6 +292,5 @@ fn reviewed_identity_is_rechecked_and_one_job_publishes_the_requested_result()
         })
         .map_err(|error| format!("{error:?}"))?;
     assert_eq!(child.raw.bytes()?, [path, vec![b'\\', 0, b'f', 0]].concat());
-    assert_eq!(roots.reads.load(Ordering::Acquire), 2);
     Ok(())
 }
