@@ -15,6 +15,11 @@ pub struct ItemDetail<'a> {
 }
 
 impl ResultVersion {
+    /// Volume reports frozen in this result version.
+    pub fn volume_reports(&self) -> &[crate::VolumeReport] {
+        &self.volume_reports
+    }
+
     /// Reads the modification time retained for this immutable item, if available.
     pub fn item_modified_at(&self, item_no: u32) -> Option<&Timestamp> {
         self.modified_times

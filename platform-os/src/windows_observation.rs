@@ -413,6 +413,26 @@ impl WindowsDirectory {
     }
 }
 impl AnchoredDirectory for WindowsDirectory {
+    fn volume_space_reader(
+        &self,
+    ) -> Result<Box<dyn du_core_contracts::scan_observation::VolumeSpaceReader>, PortError> {
+        let handle = self
+            .handle
+            .try_clone()
+            .map_err(|e| error(e.raw_os_error().unwrap_or(0)))?;
+        Ok(Box::new(Self {
+            handle,
+            volume: self.volume,
+            volume_guid: Arc::clone(&self.volume_guid),
+            restart: true,
+            pending: VecDeque::new(),
+            filtered: None,
+            filter_failed: false,
+            finished: false,
+            ancestors: None,
+        }))
+    }
+
     fn observed_modified_at(&self) -> Option<du_core_contracts::Timestamp> {
         timestamps::modified_at(&self.handle)
     }

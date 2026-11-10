@@ -397,3 +397,62 @@ fn missing_root_cannot_be_published_as_an_empty_success() -> Result<(), String> 
     assert!(sink.pin().map_err(|e| format!("{e:?}"))?.is_none());
     Ok(())
 }
+
+#[test]
+fn volume_reports_are_frozen_independently_of_aggregates() -> Result<(), String> {
+    use du_analysis_index::{VolumeReport, VolumeReportPoint};
+    use du_core_contracts::scan_observation::VolumeSpace;
+    let sink = IngestSink::default();
+    let mut build = sink
+        .open_forest(id(1)?, vec![root("C:\\A", 1)])
+        .map_err(|e| format!("{e:?}"))?;
+    build
+        .add_directory_at(0, Vec::new())
+        .map_err(|e| format!("{e:?}"))?;
+    let point = VolumeReportPoint {
+        observed_at: None,
+        value: Ok(VolumeSpace {
+            total_bytes: 100,
+            used_bytes: 40,
+            free_bytes: 60,
+        }),
+    };
+    let mut report = VolumeReport {
+        volume_id: vec![1],
+        start: Some(point.clone()),
+        end: None,
+    };
+    build
+        .set_volume_reports(vec![report.clone()])
+        .map_err(|e| format!("{e:?}"))?;
+    let partial = build
+        .publish_partial(id(2)?)
+        .map_err(|e| format!("{e:?}"))?;
+    report.end = Some(point);
+    build
+        .set_volume_reports(vec![report.clone()])
+        .map_err(|e| format!("{e:?}"))?;
+    let finished = build
+        .seal(id(3)?, ResultCompleteness::Complete)
+        .map_err(|e| format!("{e:?}"))?;
+    assert!(partial.volume_reports()[0].end.is_none());
+    assert_eq!(finished.volume_reports(), &[report]);
+    let mut control = sink
+        .open_forest(id(4)?, vec![root("C:\\A", 1)])
+        .map_err(|e| format!("{e:?}"))?;
+    control
+        .add_directory_at(0, Vec::new())
+        .map_err(|e| format!("{e:?}"))?;
+    let control = control
+        .seal(id(5)?, ResultCompleteness::Complete)
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(
+        control.scope_total().logical.amount,
+        finished.scope_total().logical.amount
+    );
+    assert_eq!(
+        control.scope_total().allocated.amount,
+        finished.scope_total().allocated.amount
+    );
+    Ok(())
+}

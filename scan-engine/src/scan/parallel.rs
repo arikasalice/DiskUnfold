@@ -19,6 +19,8 @@ use std::{
     time::Duration,
 };
 
+mod volume_reports;
+
 const QUEUED_DIRECTORIES: usize = 64;
 const BUFFERED_OBSERVATIONS: usize = 8192;
 const MAX_WORKERS: usize = 64;
@@ -269,6 +271,8 @@ fn run(
         return Err(BuildError::Unavailable);
     }
     let root_count = roots.len();
+    let mut reports = volume_reports::Reports::new(build.root_volumes());
+    build.set_volume_reports(reports.snapshot())?;
     for index in 0..root_count {
         build.add_directory_at(index as u32, Vec::new())?;
     }
@@ -286,6 +290,8 @@ fn run(
         }
         Err(_) => return Err(BuildError::Unavailable),
     };
+    reports.start(&roots, context);
+    build.set_volume_reports(reports.snapshot())?;
     let shared = Shared {
         queue: Mutex::new(Queue {
             ready: roots
@@ -349,7 +355,12 @@ fn run(
     if shared.abort.load(Ordering::Acquire) {
         return Err(BuildError::Unavailable);
     }
-    let cancelled = context.checkpoint() == Checkpoint::Cancel;
+    let was_cancelled = context.checkpoint() == Checkpoint::Cancel;
+    if progress.failed_roots.iter().all(|failed| *failed) && !was_cancelled {
+        return Err(BuildError::Unavailable);
+    }
+    reports.finish(context, was_cancelled);
+    let cancelled = was_cancelled || context.checkpoint() == Checkpoint::Cancel;
     let unprocessed_roots = if cancelled {
         shared
             .queue
@@ -362,9 +373,6 @@ fn run(
     } else {
         0
     };
-    if progress.failed_roots.iter().all(|failed| *failed) && !cancelled {
-        return Err(BuildError::Unavailable);
-    }
     let completeness = if cancelled {
         ResultCompleteness::Cancelled
     } else if counts.failed > 0 {
@@ -372,6 +380,7 @@ fn run(
     } else {
         ResultCompleteness::Complete
     };
+    build.set_volume_reports(reports.snapshot())?;
     let id = ids.next_id();
     build.seal_at(id.clone(), completeness, context.utc_now())?;
     Ok((id, cancelled, unprocessed_roots))

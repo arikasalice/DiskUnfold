@@ -1,5 +1,8 @@
 #![cfg(windows)]
-use du_core_contracts::{ports::PortErrorKind, scan_observation::ScopeRootPort};
+use du_core_contracts::{
+    ports::PortErrorKind,
+    scan_observation::{AnchoredDirectory, ScopeRootPort},
+};
 use du_platform_os::windows_observation::{WindowsScopeRoots, open_verified};
 use std::{ffi::OsStr, fs, os::windows::ffi::OsStrExt};
 
@@ -18,6 +21,9 @@ fn verified_root_volume_reports_survive_path_replacement() -> Result<(), Box<dyn
         .map_err(|e| format!("{e:?}"))?;
     let directory = open_verified(&path).map_err(|e| format!("{e:?}"))?;
     let first_id = directory.identity().map_err(|e| format!("{e:?}"))?.file_id;
+    let reader = directory
+        .volume_space_reader()
+        .map_err(|e| format!("{e:?}"))?;
     let first = directory
         .volume_space(&root.volume_id)
         .map_err(|e| format!("{e:?}"))?;
@@ -48,6 +54,8 @@ fn verified_root_volume_reports_survive_path_replacement() -> Result<(), Box<dyn
         .volume_space(&root.volume_id)
         .map_err(|e| format!("{e:?}"))?;
     assert_eq!(last.volume_id, first.volume_id);
+    let retained = reader.read(&root.volume_id).map_err(|e| format!("{e:?}"))?;
+    assert_eq!(retained.total_bytes, last.actual_total_bytes);
     assert!(last.capacity.total_bytes >= last.capacity.available_bytes);
     Ok(())
 }

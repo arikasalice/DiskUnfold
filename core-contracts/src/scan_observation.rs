@@ -46,6 +46,19 @@ pub trait DirectoryObservationPort: Send + Sync {
     fn open(&self, absolute_path: &[u8]) -> Result<Box<dyn DirectoryObservations>, PortError>;
 }
 
+/// Volume-wide OS-reported values; no physical extent identity is implied.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VolumeSpace {
+    pub total_bytes: u64,
+    pub used_bytes: u64,
+    pub free_bytes: u64,
+}
+
+/// A retained, verified handle that can re-observe one expected volume.
+pub trait VolumeSpaceReader: Send {
+    fn read(&self, expected_volume: &[u8]) -> Result<VolumeSpace, PortError>;
+}
+
 /// A directory already opened and verified by an operating-system adapter.
 ///
 /// Child opens must be relative to this handle, without following links or
@@ -53,6 +66,16 @@ pub trait DirectoryObservationPort: Send + Sync {
 pub trait AnchoredDirectory: DirectoryObservations {
     /// Opens the previously observed directory entry after revalidating it.
     fn open_child(&self, entry: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError>;
+
+    /// Retains read-only volume evidence without reopening a path.
+    /// The default explicitly declines the observation without filesystem I/O.
+    fn volume_space_reader(&self) -> Result<Box<dyn VolumeSpaceReader>, PortError> {
+        Err(PortError {
+            kind: PortErrorKind::Unsupported,
+            reason_key: "space.volume_report_unavailable".into(),
+            os_code: None,
+        })
+    }
 
     /// Reads the last-write time from this verified handle without reopening it.
     /// Missing permissions or unsupported or invalid observations return `None`.

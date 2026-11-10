@@ -2,6 +2,7 @@
 use super::{WindowsDirectory, error, final_path, info, raw, scope};
 use du_core_contracts::{
     ports::{PortError, PortErrorKind},
+    scan_observation::{VolumeSpace, VolumeSpaceReader},
     volume::VolumeCapacity,
 };
 use std::mem::size_of;
@@ -126,6 +127,17 @@ impl WindowsDirectory {
         .map_err(|error| PortError {
             reason_key: "space.volume_report_unavailable".into(),
             ..error
+        })
+    }
+}
+
+impl VolumeSpaceReader for WindowsDirectory {
+    fn read(&self, expected_volume: &[u8]) -> Result<VolumeSpace, PortError> {
+        let report = self.volume_space(expected_volume)?;
+        Ok(VolumeSpace {
+            total_bytes: report.actual_total_bytes,
+            used_bytes: report.used_bytes,
+            free_bytes: report.actual_free_bytes,
         })
     }
 }

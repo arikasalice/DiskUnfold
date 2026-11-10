@@ -34,6 +34,9 @@ pub enum BuildError {
     Unavailable,
 }
 
+mod volume_reports;
+pub use volume_reports::{VolumeReport, VolumeReportPoint};
+
 /// Raw component names relative to the root; the root path is empty.
 #[derive(Clone, Debug)]
 pub struct Observation {
@@ -53,6 +56,7 @@ pub struct ResultVersion {
     root_indices: Vec<u32>,
     gaps: Vec<ResultScopeGap>,
     scope_total: Option<SpaceAggregate>,
+    volume_reports: Vec<VolumeReport>,
     observed_at: Option<Timestamp>,
     modified_times: Option<Vec<Option<Timestamp>>>,
     issues: Vec<du_core_contracts::scan_failures::ScanIssue>,
@@ -170,6 +174,7 @@ impl IngestSink {
             gaps: Vec::new(),
             observations: BTreeMap::new(),
             issues: Vec::new(),
+            volume_reports: Vec::new(),
             finished: false,
         })
     }
@@ -187,6 +192,7 @@ pub struct BuildHandle {
     gaps: Vec<ResultScopeGap>,
     observations: BTreeMap<(u32, Vec<Vec<u8>>), StoredObservation>,
     issues: Vec<du_core_contracts::scan_failures::ScanIssue>,
+    volume_reports: Vec<VolumeReport>,
     finished: bool,
 }
 struct StoredObservation {
@@ -420,6 +426,7 @@ impl BuildHandle {
             root_indices: built.keys.into_iter().map(|(root, _)| root).collect(),
             gaps: self.gaps.clone(),
             scope_total,
+            volume_reports: self.volume_reports.clone(),
             observed_at,
         });
         let order = self

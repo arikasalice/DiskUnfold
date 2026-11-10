@@ -11,6 +11,7 @@ use du_core_contracts::{
 use std::sync::{Arc, atomic::AtomicUsize};
 mod filtered;
 mod root_times;
+mod volume_reports;
 
 static WORKER_TEST_LOCK: Mutex<()> = Mutex::new(());
 
