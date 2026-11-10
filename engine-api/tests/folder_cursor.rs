@@ -120,6 +120,59 @@ fn positional_page_emits_a_bound_cursor_and_checks_bounds() -> Result<(), String
 }
 
 #[test]
+fn visualization_registration_collision_preserves_authenticated_folder_cursor() -> Result<(), String>
+{
+    use du_engine_api::viz_pages::{Error as VizError, ModelInput, ModelPages};
+    use std::num::NonZeroUsize;
+    let (sink, browse) = fixture(false)?;
+    let session = Session::new(Arc::new(browse), [7; 32]);
+    let cursor = session
+        .open(request(None), &[], || false)
+        .map_err(|e| format!("{e:?}"))?
+        .next_cursor
+        .ok_or("cursor")?;
+    let expected = session
+        .page(&cursor, Some(1))
+        .map_err(|e| format!("{e:?}"))?
+        .page;
+    let version = sink.pin().map_err(|e| format!("{e:?}"))?.ok_or("version")?;
+    let pages = ModelPages::new(sink, NonZeroUsize::MIN, Arc::new(Ids(AtomicU8::new(40))));
+    let input = |key: &str| ModelInput {
+        version: version.clone(),
+        condition_fingerprint: key.into(),
+        rows: vec![],
+        groups: Default::default(),
+    };
+    let old = pages.register(input("old")).map_err(|e| format!("{e:?}"))?;
+    let next = Ids(AtomicU8::new(41)).next_id().as_str().to_owned();
+    version
+        .insert_viz_rows(next, vec![], Default::default())
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(
+        pages.register(input("new")).err(),
+        Some(VizError::ReferenceCollision)
+    );
+    assert_eq!(
+        session
+            .page(&cursor, Some(1))
+            .map_err(|e| format!("{e:?}"))?
+            .page,
+        expected
+    );
+    assert!(
+        pages
+            .rows(&du_core_contracts::visualization::rows::VizRowsRequest {
+                model_ref: old,
+                result_revision: id(2)?,
+                start: 0,
+                count: 1
+            })
+            .is_ok()
+    );
+    Ok(())
+}
+
+#[test]
 fn session_generation_fails_closed_and_fresh_sessions_reject_prior_cursors() -> Result<(), String> {
     let (_, api) = fixture(false)?;
     let shared = Arc::new(api);

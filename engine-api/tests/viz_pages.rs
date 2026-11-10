@@ -65,6 +65,48 @@ fn pages(s: IngestSink) -> Result<ModelPages, String> {
         Arc::new(Ids(AtomicU64::new(10))),
     ))
 }
+
+#[test]
+fn source_reference_collision_preserves_existing_model_and_page() -> Result<(), String> {
+    let sink = IngestSink::default();
+    let mut build = sink.open(id(1)?).map_err(|e| format!("{e:?}"))?;
+    add(&mut build, 5)?;
+    let version = build
+        .seal(id(2)?, ResultCompleteness::Complete)
+        .map_err(|e| format!("{e:?}"))?;
+    let pages = ModelPages::new(sink, NonZeroUsize::MIN, Arc::new(Ids(AtomicU64::new(10))));
+    let old = register(&pages, &version, "old")?;
+    let next = Ids(AtomicU64::new(11)).next_id().as_str().to_owned();
+    version
+        .insert_viz_rows(next, vec![], Default::default())
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(
+        pages
+            .register(ModelInput {
+                version: version.clone(),
+                condition_fingerprint: "new".into(),
+                rows: vec![make_row(&version)?],
+                groups: Default::default()
+            })
+            .err(),
+        Some(Error::ReferenceCollision)
+    );
+    assert_eq!(
+        pages
+            .rows(&request(&old, &version))
+            .map_err(|e| format!("{e:?}"))?
+            .rows
+            .len(),
+        1
+    );
+    let new = register(&pages, &version, "new")?;
+    assert_eq!(
+        pages.rows(&request(&old, &version)).err(),
+        Some(Error::ModelExpired)
+    );
+    assert!(pages.rows(&request(&new, &version)).is_ok());
+    Ok(())
+}
 #[test]
 fn current_replacement_restore_and_model_expiry_are_distinct() -> Result<(), String> {
     let sink = IngestSink::default();

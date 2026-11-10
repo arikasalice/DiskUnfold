@@ -159,29 +159,28 @@ impl ModelPages {
         let Some(model_ref) = state.conditions.get(&key).cloned() else {
             return Ok(None);
         };
-        let current = self
-            .source
-            .pin_current(version.version_id())
-            .map_err(|error| Error::Cache(super::source_error(error)))?;
-        let entry = state
-            .entries
-            .get(&model_ref)
-            .ok_or(Error::Cache(super::Error::Unavailable))?;
-        let matches = Arc::ptr_eq(version, &current)
-            && entry
-                .source
-                .upgrade()
-                .is_some_and(|source| Arc::ptr_eq(&source, version));
-        if !matches {
-            return Err(Error::Cache(super::Error::StaleVersion));
-        }
-        let model = entry
-            .layout
-            .clone()
-            .ok_or(Error::Cache(super::Error::InvalidModel))?;
         check(cancelled)?;
-        super::touch(&mut state.lru, &model_ref);
-        Ok(Some(Rendered { model_ref, model }))
+        self.source
+            .with_current(version, || {
+                let entry = state
+                    .entries
+                    .get(&model_ref)
+                    .ok_or(Error::Cache(super::Error::Unavailable))?;
+                let matches = entry
+                    .source
+                    .upgrade()
+                    .is_some_and(|source| Arc::ptr_eq(&source, version));
+                if !matches {
+                    return Err(Error::Cache(super::Error::StaleVersion));
+                }
+                let model = entry
+                    .layout
+                    .clone()
+                    .ok_or(Error::Cache(super::Error::InvalidModel))?;
+                super::touch(&mut state.lru, &model_ref);
+                Ok(Some(Rendered { model_ref, model }))
+            })
+            .map_err(|error| Error::Cache(super::source_error(error)))?
     }
 }
 

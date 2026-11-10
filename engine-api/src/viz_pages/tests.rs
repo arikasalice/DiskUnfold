@@ -15,6 +15,71 @@ impl JobIdentity for Ids {
 fn id(n: u32) -> Result<Id, String> {
     Id::parse(&format!("018f0000-0000-7000-8000-{n:012x}"))
 }
+
+#[test]
+fn replacement_before_registration_cannot_commit_old_model() -> Result<(), String> {
+    let source = IngestSink::default();
+    let mut build = source.open(id(1)?).map_err(|e| format!("{e:?}"))?;
+    build.add_directory(vec![]).map_err(|e| format!("{e:?}"))?;
+    let old = build
+        .seal(id(2)?, ResultCompleteness::Complete)
+        .map_err(|e| format!("{e:?}"))?;
+    let pages = Arc::new(ModelPages::new(
+        source.clone(),
+        NonZeroUsize::MIN,
+        Arc::new(Ids(AtomicU64::new(1))),
+    ));
+    let input = ModelInput {
+        version: old,
+        condition_fingerprint: "old".into(),
+        rows: vec![],
+        groups: HashMap::new(),
+    };
+    let entered = Arc::new(Barrier::new(2));
+    let resume = Arc::new(Barrier::new(2));
+    let worker = {
+        let pages = pages.clone();
+        let entered = entered.clone();
+        let resume = resume.clone();
+        std::thread::spawn(move || {
+            pages.register_with_layout(input, None, &mut || {
+                entered.wait();
+                resume.wait();
+                false
+            })
+        })
+    };
+    entered.wait();
+    let mut build = source.open(id(3)?).map_err(|e| format!("{e:?}"))?;
+    build.add_directory(vec![]).map_err(|e| format!("{e:?}"))?;
+    let current = build
+        .seal(id(4)?, ResultCompleteness::Complete)
+        .map_err(|e| format!("{e:?}"))?;
+    resume.wait();
+    assert_eq!(
+        worker.join().map_err(|_| "worker panic")?.err(),
+        Some(Error::StaleVersion)
+    );
+    let reference = pages
+        .register(ModelInput {
+            version: current.clone(),
+            condition_fingerprint: "new".into(),
+            rows: vec![],
+            groups: HashMap::new(),
+        })
+        .map_err(|e| format!("{e:?}"))?;
+    assert!(
+        pages
+            .rows(&VizRowsRequest {
+                model_ref: reference,
+                result_revision: current.version_id().clone(),
+                start: 0,
+                count: 1
+            })
+            .is_ok()
+    );
+    Ok(())
+}
 #[test]
 fn admitted_page_survives_model_eviction_and_source_replacement() -> Result<(), String> {
     let source = IngestSink::default();

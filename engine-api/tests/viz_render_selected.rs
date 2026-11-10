@@ -173,6 +173,55 @@ fn selected_render_uses_the_same_rows_and_stable_normalized_reference() -> Resul
 }
 
 #[test]
+fn render_reference_collision_keeps_previous_geometry_and_page() -> Result<(), String> {
+    let sink = IngestSink::default();
+    publish(&sink, id(2), id(3))?;
+    let parent = ItemRef {
+        result_version: id(3),
+        item_no: 0,
+    };
+    let source = sink.pin_current(&id(3)).map_err(|e| format!("{e:?}"))?;
+    let session = Session::new(
+        sink,
+        NonZeroUsize::MIN,
+        Arc::new(Identity(AtomicU8::new(11))),
+        bundle::implemented_dispatcher().map_err(|e| format!("{e:?}"))?,
+    );
+    let render = |width| {
+        session.render_selected(
+            request(&parent, width),
+            |source, _| Ok(evidence(source.version(), source.result_version())),
+            &mut || false,
+        )
+    };
+    let first = render(1000).map_err(|e| format!("{e:?}"))?;
+    source
+        .insert_viz_rows(id(12).as_str().to_owned(), vec![], Default::default())
+        .map_err(|e| format!("{e:?}"))?;
+    assert!(matches!(
+        render(500),
+        Err(Error::Registration(viz_pages::production::Error::Pages(
+            viz_pages::Error::ReferenceCollision
+        )))
+    ));
+    let page = session
+        .rows(&VizRowsRequest {
+            model_ref: first.model_ref.clone(),
+            result_revision: id(3),
+            start: 0,
+            count: 10,
+        })
+        .map_err(|e| format!("{e:?}"))?;
+    for shape in &first.model.shapes {
+        assert_eq!(
+            page.rows[shape.row_index].item_ref.as_ref(),
+            Some(&first.model.rows[shape.row_index].item)
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn selected_render_rejects_replaced_or_mismatched_sources() -> Result<(), String> {
     let sink = IngestSink::default();
     publish(&sink, id(2), id(3))?;

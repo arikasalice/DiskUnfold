@@ -72,6 +72,9 @@ impl ModelPages {
             .map(|(reference, _)| reference)
     }
 
+    // Lock order is model session, result publication store, then model rows.
+    // Result publication, including other lineages, waits while rows are inserted.
+    // No cancellation callback or identity port runs under the publication lock.
     fn register_with_layout(
         &self,
         input: ModelInput,
@@ -79,65 +82,79 @@ impl ModelPages {
         cancelled: &mut dyn FnMut() -> bool,
     ) -> Result<(String, Option<Arc<projection::Model>>), Error> {
         validate_input(&input)?;
-        let mut state = self.state.lock().map_err(|_| Error::Unavailable)?;
-        let current = self
-            .source
-            .pin_current(input.version.version_id())
-            .map_err(source_error)?;
-        if !Arc::ptr_eq(&current, &input.version) {
-            return Err(Error::StaleVersion);
-        }
-        let key = (
-            input.version.version_id().clone(),
-            input.condition_fingerprint.clone(),
-        );
-        if let Some(existing) = state.conditions.get(&key).cloned() {
-            let entry = state.entries.get(&existing).ok_or(Error::Unavailable)?;
-            if !entry
-                .source
-                .upgrade()
-                .is_some_and(|source| Arc::ptr_eq(&source, &current))
-            {
-                return Err(Error::StaleVersion);
-            }
-            if layout.is_some() && entry.layout.is_none() {
-                return Err(Error::InvalidModel);
-            }
-            if cancelled() {
-                return Err(Error::Cancelled);
-            }
-            let layout = entry.layout.clone();
-            touch(&mut state.lru, &existing);
-            return Ok((existing, layout));
-        }
         let reference = self.ids.next_id().as_str().to_owned();
-        // Commit only after the last cancellation check, before evicting any live model.
+        let mut state = self.state.lock().map_err(|_| Error::Unavailable)?;
         if cancelled() {
             return Err(Error::Cancelled);
         }
-        prune(&mut state);
-        if state.entries.contains_key(&reference) {
-            return Err(Error::ReferenceCollision);
-        }
-        while state.entries.len() >= self.capacity.get() {
-            let oldest = state.lru.front().cloned().ok_or(Error::Unavailable)?;
-            remove(&mut state, &oldest)?;
-        }
-        current
-            .insert_viz_rows(reference.clone(), input.rows, input.groups)
-            .map_err(model_error)?;
-        state.entries.insert(
-            reference.clone(),
-            Entry {
-                source: Arc::downgrade(&current),
-                revision: key.0.clone(),
-                fingerprint: key.1.clone(),
-                layout: layout.clone(),
-            },
-        );
-        state.conditions.insert(key, reference.clone());
-        touch(&mut state.lru, &reference);
-        Ok((reference, layout))
+        let pinned = input.version.clone();
+        self.source
+            .with_current(&pinned, || {
+                let current = &input.version;
+                let key = (
+                    input.version.version_id().clone(),
+                    input.condition_fingerprint.clone(),
+                );
+                if let Some(existing) = state.conditions.get(&key).cloned() {
+                    let entry = state.entries.get(&existing).ok_or(Error::Unavailable)?;
+                    if !entry
+                        .source
+                        .upgrade()
+                        .is_some_and(|source| Arc::ptr_eq(&source, current))
+                    {
+                        return Err(Error::StaleVersion);
+                    }
+                    if layout.is_some() && entry.layout.is_none() {
+                        return Err(Error::InvalidModel);
+                    }
+                    let layout = entry.layout.clone();
+                    touch(&mut state.lru, &existing);
+                    return Ok((existing, layout));
+                }
+                if state.entries.contains_key(&reference) {
+                    return Err(Error::ReferenceCollision);
+                }
+                if state.entries.len() > self.capacity.get() {
+                    return Err(Error::Unavailable);
+                }
+                state
+                    .entries
+                    .try_reserve(1)
+                    .map_err(|_| Error::Unavailable)?;
+                state
+                    .conditions
+                    .try_reserve(1)
+                    .map_err(|_| Error::Unavailable)?;
+                state.lru.try_reserve(1).map_err(|_| Error::Unavailable)?;
+                current
+                    .insert_viz_rows(reference.clone(), input.rows, input.groups)
+                    .map_err(model_error)?;
+                while state.entries.len() >= self.capacity.get() {
+                    let result = state
+                        .lru
+                        .front()
+                        .cloned()
+                        .ok_or(Error::Unavailable)
+                        .and_then(|oldest| remove(&mut state, &oldest));
+                    if let Err(error) = result {
+                        let _ = current.remove_viz_rows(&reference);
+                        return Err(error);
+                    }
+                }
+                state.entries.insert(
+                    reference.clone(),
+                    Entry {
+                        source: Arc::downgrade(current),
+                        revision: key.0.clone(),
+                        fingerprint: key.1.clone(),
+                        layout: layout.clone(),
+                    },
+                );
+                state.conditions.insert(key, reference.clone());
+                touch(&mut state.lru, &reference);
+                Ok((reference, layout))
+            })
+            .map_err(source_error)?
     }
     /// Admit the source and model together before copying the page without holding the index lock.
     pub fn rows(&self, request: &VizRowsRequest) -> Result<VizRows, Error> {
@@ -318,17 +335,6 @@ fn group_error(error: group_page::Error) -> Error {
 fn touch(lru: &mut VecDeque<String>, key: &str) {
     lru.retain(|item| item != key);
     lru.push_back(key.to_owned());
-}
-fn prune(state: &mut State) {
-    let dead: Vec<_> = state
-        .entries
-        .iter()
-        .filter(|(_, entry)| entry.source.strong_count() == 0)
-        .map(|(key, _)| key.clone())
-        .collect();
-    for key in dead {
-        let _ = remove(state, &key);
-    }
 }
 fn remove(state: &mut State, key: &str) -> Result<(), Error> {
     if let Some(entry) = state.entries.get(key)

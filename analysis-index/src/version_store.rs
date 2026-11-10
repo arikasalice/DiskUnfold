@@ -117,6 +117,21 @@ impl State {
 }
 
 impl IngestSink {
+    /// Runs an in-memory operation while the exact result remains current.
+    /// The callback must not reenter this store or perform blocking I/O.
+    pub fn with_current<T>(
+        &self,
+        expected: &Arc<ResultVersion>,
+        operation: impl FnOnce() -> T,
+    ) -> Result<T, QueryError> {
+        let state = self.state.lock().map_err(|_| QueryError::Unavailable)?;
+        let current = state.pin_current(&expected.version_id)?;
+        if !Arc::ptr_eq(&current, expected) {
+            return Err(QueryError::StaleVersion);
+        }
+        Ok(operation())
+    }
+
     /// Reads a lineage sequence and this scope version's current result atomically.
     pub fn scan_result(
         &self,
