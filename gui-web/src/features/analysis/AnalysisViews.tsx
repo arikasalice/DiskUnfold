@@ -152,11 +152,11 @@ export function TargetPicker({
           pathField
         )}
         <Action isDisabled={disabled} onPress={addPath}>
-          Add another path
+          Add path
         </Action>
       </div>
       {selected.length > 1 && (
-        <div className="du-scope-paths" aria-label="Additional paths">
+        <section className="du-scope-paths" aria-label="Additional paths">
           <Action isDisabled={disabled} onPress={() => removePath(0)}>
             Remove primary path
           </Action>
@@ -180,7 +180,7 @@ export function TargetPicker({
               </Action>
             </div>
           ))}
-        </div>
+        </section>
       )}
       {dropError && <Notice tone="error">{dropError}</Notice>}
     </>

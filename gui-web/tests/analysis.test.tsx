@@ -498,7 +498,7 @@ test("F01 FR3: multiple paths are reviewed together and the exact reviewed input
   const { client, calls } = fixture();
   render(<App analysis={client} />);
   fireEvent.click(await screen.findByRole("radio", { name: path.display }));
-  fireEvent.click(screen.getByRole("button", { name: "Add another path" }));
+  fireEvent.click(screen.getByRole("button", { name: "Add path" }));
   const reviewButton = screen.getByRole<HTMLButtonElement>("button", {
     name: "Review scope",
   });
@@ -538,7 +538,7 @@ test("F01 FR3: normalized review preserves original selections for scan admissio
   });
   render(<App analysis={client} />);
   fireEvent.click(await screen.findByRole("radio", { name: path.display }));
-  fireEvent.click(screen.getByRole("button", { name: "Add another path" }));
+  fireEvent.click(screen.getByRole("button", { name: "Add path" }));
   const second = windowsPath("C:\\fixture\\child");
   fireEvent.change(
     screen.getByRole("textbox", { name: "Additional folder path 2" }),
@@ -604,7 +604,7 @@ test("F01 FR3: editing or removing a path rejects a late review and requires ano
   });
   render(<App analysis={client} />);
   fireEvent.click(await screen.findByRole("radio", { name: path.display }));
-  fireEvent.click(screen.getByRole("button", { name: "Add another path" }));
+  fireEvent.click(screen.getByRole("button", { name: "Add path" }));
   const input = screen.getByRole("textbox", {
     name: "Additional folder path 2",
   });
@@ -635,7 +635,7 @@ test("F01 FR3: rejected or incomplete reviews cannot start a partial scan", asyn
   });
   render(<App analysis={client} />);
   fireEvent.click(await screen.findByRole("radio", { name: path.display }));
-  fireEvent.click(screen.getByRole("button", { name: "Add another path" }));
+  fireEvent.click(screen.getByRole("button", { name: "Add path" }));
   fireEvent.change(
     screen.getByRole("textbox", { name: "Additional folder path 2" }),
     { target: { value: "D:\\Denied" } },
@@ -662,7 +662,7 @@ test("F01 FR3: an unavailable selection prevents the whole scope from starting",
   });
   render(<App analysis={client} />);
   fireEvent.click(await screen.findByRole("radio", { name: path.display }));
-  fireEvent.click(screen.getByRole("button", { name: "Add another path" }));
+  fireEvent.click(screen.getByRole("button", { name: "Add path" }));
   fireEvent.change(
     screen.getByRole("textbox", { name: "Additional folder path 2" }),
     { target: { value: "D:\\Denied" } },
@@ -684,7 +684,7 @@ test("F01 FR3: failed multi-path review retains input and rejects start", async 
   });
   render(<App analysis={client} />);
   fireEvent.click(await screen.findByRole("radio", { name: path.display }));
-  fireEvent.click(screen.getByRole("button", { name: "Add another path" }));
+  fireEvent.click(screen.getByRole("button", { name: "Add path" }));
   fireEvent.change(
     screen.getByRole("textbox", { name: "Additional folder path 2" }),
     { target: { value: "D:\\Denied" } },
@@ -711,7 +711,7 @@ test("F01 FR3: multi-path controls have accessible labels and preserve the drop 
     <App analysis={{ ...client, subscribeFolderDrop: nativeDrop }} />,
   );
   fireEvent.click(await screen.findByRole("radio", { name: path.display }));
-  const add = screen.getByRole("button", { name: "Add another path" });
+  const add = screen.getByRole("button", { name: "Add path" });
   add.focus();
   fireEvent.keyDown(add, { key: "Enter", code: "Enter" });
   fireEvent.keyUp(add, { key: "Enter", code: "Enter" });
