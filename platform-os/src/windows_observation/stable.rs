@@ -95,6 +95,8 @@ pub(super) fn open_verified_impl(path: &Path, stable: bool) -> Result<WindowsDir
         volume_guid,
         restart: true,
         pending: VecDeque::new(),
+        filtered: None,
+        filter_failed: false,
         finished: false,
         ancestors: Some(ancestors),
     })

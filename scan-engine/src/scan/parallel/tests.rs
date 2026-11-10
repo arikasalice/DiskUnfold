@@ -9,6 +9,7 @@ use du_core_contracts::{
     scan_observation::{DirectoryObservations, MetadataObservation, OpenedScopeRoot},
 };
 use std::sync::{Arc, atomic::AtomicUsize};
+mod filtered;
 
 static WORKER_TEST_LOCK: Mutex<()> = Mutex::new(());
 

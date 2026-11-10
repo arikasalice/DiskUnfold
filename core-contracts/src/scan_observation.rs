@@ -1,10 +1,45 @@
 //! Read-only directory observations. Names are native bytes, not display strings.
-use crate::{OsPath, Timestamp, ports::PortError};
+use crate::{
+    OsPath, Timestamp,
+    ports::{PortError, PortErrorKind},
+};
+
+/// A bounded filtered enumeration step; `Progress` is not end of directory.
+pub enum FilteredBatch {
+    Entries(Vec<ObservedEntry>),
+    Progress,
+    End,
+    /// The predicate could not safely decide; the collection must be withdrawn.
+    Undecidable,
+}
+
+/// A decision made before opening the enumerated item.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FilterDecision {
+    Admit,
+    Exclude,
+    Undecidable,
+}
 
 /// A bounded pull interface; an empty batch marks the end of this directory.
 /// An error terminates the stream; callers must record the unread remainder.
 pub trait DirectoryObservations: Send {
     fn next_batch(&mut self) -> Result<Vec<ObservedEntry>, PortError>;
+
+    /// Applies a stable raw-name decision before opening any item metadata handle.
+    /// Each call processes bounded work; `Progress` requires another call. The
+    /// predicate must remain the same for this directory's lifetime. Adapters
+    /// that cannot enforce this boundary must return `Unsupported` without I/O.
+    fn next_filtered(
+        &mut self,
+        _include: &mut dyn FnMut(&[u8]) -> FilterDecision,
+    ) -> Result<FilteredBatch, PortError> {
+        Err(PortError {
+            kind: PortErrorKind::Unsupported,
+            reason_key: "os.unsupported".into(),
+            os_code: None,
+        })
+    }
 }
 
 pub trait DirectoryObservationPort: Send + Sync {

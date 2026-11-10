@@ -5,11 +5,11 @@ pub(super) fn worker(
     shared: &Shared,
     sender: SyncSender<Event>,
     context: &dyn JobContext,
-    include: &(dyn Fn(&[Vec<u8>]) -> bool + Sync),
+    policy: Policy<'_>,
     flow: Box<dyn JobFlow>,
 ) {
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        worker_loop(shared, &sender, context, include)
+        worker_loop(shared, &sender, context, policy)
     }));
     if !matches!(result, Ok(true)) {
         shared.abort();
@@ -21,7 +21,7 @@ fn worker_loop(
     shared: &Shared,
     sender: &SyncSender<Event>,
     context: &dyn JobContext,
-    include: &(dyn Fn(&[Vec<u8>]) -> bool + Sync),
+    policy: Policy<'_>,
 ) -> bool {
     let mut local = Vec::new();
     let mut prefer_shared = true;
@@ -35,7 +35,7 @@ fn worker_loop(
         else {
             break;
         };
-        if !process(frame, shared, sender, context, include, &mut local) {
+        if !process(frame, shared, sender, context, policy, &mut local) {
             return false;
         }
     }
@@ -130,7 +130,7 @@ fn process(
     shared: &Shared,
     sender: &SyncSender<Event>,
     context: &dyn JobContext,
-    include: &(dyn Fn(&[Vec<u8>]) -> bool + Sync),
+    policy: Policy<'_>,
     local: &mut Vec<Frame>,
 ) -> bool {
     while context.checkpoint() != Checkpoint::Cancel && !shared.abort.load(Ordering::Acquire) {
@@ -141,9 +141,7 @@ fn process(
             frame.entries.pop_front()
         };
         if let Some(entry) = next {
-            match process_entry(
-                &mut frame, entry, recorded, shared, sender, context, include,
-            ) {
+            match process_entry(&mut frame, entry, recorded, shared, sender, context, policy) {
                 Ok(Some(child)) => {
                     local.push(frame);
                     local.push(child);
@@ -162,22 +160,23 @@ fn process(
             requeue(shared, frame, local);
             return true;
         }
-        match frame.directory.next_batch() {
-            Ok(batch) if batch.is_empty() => {
-                if frame.root && sender.send(Event::RootBatch(frame.root_index)).is_err() {
-                    return false;
-                }
-                complete(shared, frame.root_index);
-                return true;
+        let outcome = next_entries(&mut frame, context, policy);
+        match outcome {
+            Ok(None) => continue,
+            Err(ReadFailure::Filter) => {
+                return context.checkpoint() == Checkpoint::Cancel;
             }
-            Ok(batch) if batch.len() <= 8192 => {
+            Ok(Some(batch)) if batch.is_empty() => {
+                return finish_directory(&frame, sender, shared);
+            }
+            Ok(Some(batch)) if batch.len() <= 8192 => {
                 frame.first_batch |= frame.root && !frame.root_published;
                 frame.batch_pending = true;
                 frame.entries = batch.into();
             }
             outcome => {
                 let failure_reason = match outcome {
-                    Err(error) => reason(&error),
+                    Err(ReadFailure::Observation(error)) => reason(&error),
                     _ => "scan.unclassified",
                 };
                 let _ = sender.send(Event::Failure {
@@ -194,6 +193,60 @@ fn process(
         }
     }
     true
+}
+
+fn finish_directory(frame: &Frame, sender: &SyncSender<Event>, shared: &Shared) -> bool {
+    if frame.root && sender.send(Event::RootBatch(frame.root_index)).is_err() {
+        return false;
+    }
+    complete(shared, frame.root_index);
+    true
+}
+
+enum ReadFailure {
+    Filter,
+    Observation(PortError),
+}
+
+fn next_entries(
+    frame: &mut Frame,
+    context: &dyn JobContext,
+    policy: Policy<'_>,
+) -> Result<Option<Vec<ObservedEntry>>, ReadFailure> {
+    let Policy::BeforeMetadata(include) = policy else {
+        return frame
+            .directory
+            .next_batch()
+            .map(Some)
+            .map_err(ReadFailure::Observation);
+    };
+    let mut decide = |name: &[u8]| {
+        if context.checkpoint() == Checkpoint::Cancel {
+            du_core_contracts::scan_observation::FilterDecision::Undecidable
+        } else {
+            include(frame.root_index, &frame.path, name)
+        }
+    };
+    let batch = frame
+        .directory
+        .next_filtered(&mut decide)
+        .map_err(|error| {
+            if error.kind == PortErrorKind::Unsupported {
+                ReadFailure::Filter
+            } else {
+                ReadFailure::Observation(error)
+            }
+        })?;
+    match batch {
+        du_core_contracts::scan_observation::FilteredBatch::Entries(entries)
+            if !entries.is_empty() =>
+        {
+            Ok(Some(entries))
+        }
+        du_core_contracts::scan_observation::FilteredBatch::Progress => Ok(None),
+        du_core_contracts::scan_observation::FilteredBatch::End => Ok(Some(Vec::new())),
+        _ => Err(ReadFailure::Filter),
+    }
 }
 
 fn publish_first_batch(frame: &mut Frame, sender: &SyncSender<Event>) -> bool {
@@ -214,11 +267,14 @@ fn process_entry(
     shared: &Shared,
     sender: &SyncSender<Event>,
     context: &dyn JobContext,
-    include: &(dyn Fn(&[Vec<u8>]) -> bool + Sync),
+    policy: Policy<'_>,
 ) -> Result<Option<Frame>, ()> {
     let mut path = frame.path.clone();
     path.push(entry.name.clone());
-    if !recorded && !include(&path) {
+    if !recorded
+        && let Policy::Legacy(include) = policy
+        && !include(&path)
+    {
         return Ok(None);
     }
     if !recorded {

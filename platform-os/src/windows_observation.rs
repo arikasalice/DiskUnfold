@@ -1,4 +1,7 @@
 //! Handle-relative, read-only observations on a local NTFS volume.
+mod enumeration;
+#[cfg(test)]
+mod filter_tests;
 mod recall;
 mod scope;
 mod stable;
@@ -6,10 +9,14 @@ use stable::open_verified_impl;
 mod space;
 mod timestamps;
 
+#[cfg(test)]
+thread_local! { static PROBES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
+
 use du_core_contracts::{
     ports::{PortError, PortErrorKind},
     scan_observation::{
-        AnchoredDirectory, DirectoryObservations, MetadataObservation, ObservedEntry, ObservedKind,
+        AnchoredDirectory, DirectoryObservations, FilterDecision, FilteredBatch,
+        MetadataObservation, ObservedEntry, ObservedKind,
     },
 };
 pub use scope::WindowsScopeRoots;
@@ -60,6 +67,8 @@ pub struct WindowsDirectory {
     volume_guid: Arc<[u8]>,
     restart: bool,
     pending: VecDeque<ObservedEntry>,
+    filtered: Option<bool>,
+    filter_failed: bool,
     finished: bool,
     ancestors: Option<AncestorChain>,
 }
@@ -77,7 +86,6 @@ pub struct DirectoryIdentity {
     pub volume: u64,
     pub file_id: u64,
 }
-
 fn error(code: i32) -> PortError {
     let kind = match code {
         2 | 3 => PortErrorKind::NotFound,
@@ -264,6 +272,8 @@ impl WindowsDirectory {
     }
 
     fn observe(&self, name: Vec<u16>, inode: u64, attributes: u32) -> ObservedEntry {
+        #[cfg(test)]
+        PROBES.with(|count| count.set(count.get() + 1));
         let metadata = recall::observe_if_safe(attributes, || {
             wide(&bytes(&name))
                 .and_then(|name| relative(&self.handle, &name, false, false))
@@ -300,7 +310,7 @@ impl WindowsDirectory {
         }
     }
 
-    fn fill(&mut self) -> Result<(), PortError> {
+    fn fill(&mut self, include: &mut dyn FnMut(&[u8]) -> FilterDecision) -> Result<(), PortError> {
         // u64 backing storage provides the alignment required by the Windows records.
         let mut buffer = vec![0u64; BUFFER_SIZE / size_of::<u64>()];
         let class = if self.restart {
@@ -370,8 +380,19 @@ impl WindowsDirectory {
                 name.push(value);
             }
             if name != [46] && name != [46, 46] {
-                self.pending
-                    .push_back(self.observe(name, item.FileId as u64, item.FileAttributes));
+                match include(&bytes(&name)) {
+                    FilterDecision::Admit => self.pending.push_back(self.observe(
+                        name,
+                        item.FileId as u64,
+                        item.FileAttributes,
+                    )),
+                    FilterDecision::Exclude => {}
+                    FilterDecision::Undecidable => {
+                        self.pending.clear();
+                        self.filter_failed = true;
+                        return Ok(());
+                    }
+                }
             }
             if item.NextEntryOffset == 0 {
                 break;
@@ -383,15 +404,6 @@ impl WindowsDirectory {
             offset = offset.checked_add(next).ok_or_else(invalid)?;
         }
         Ok(())
-    }
-}
-impl DirectoryObservations for WindowsDirectory {
-    fn next_batch(&mut self) -> Result<Vec<ObservedEntry>, PortError> {
-        while self.pending.is_empty() && !self.finished {
-            self.fill()?;
-        }
-        let count = self.pending.len().min(BATCH_SIZE);
-        Ok(self.pending.drain(..count).collect())
     }
 }
 impl AnchoredDirectory for WindowsDirectory {
@@ -412,6 +424,8 @@ impl AnchoredDirectory for WindowsDirectory {
             volume_guid: self.volume_guid.clone(),
             restart: true,
             pending: VecDeque::new(),
+            filtered: None,
+            filter_failed: false,
             finished: false,
             ancestors: None,
         }))

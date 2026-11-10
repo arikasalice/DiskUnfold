@@ -19,6 +19,12 @@ pub trait ResultIds: Send + Sync {
     fn next_id(&self) -> Id;
 }
 
+/// A frozen decision over a root, parent path and native child name.
+/// An undecidable match must be returned as `Undecidable`, never `Exclude`.
+pub type PreMetadataFilter<'a> = dyn Fn(u32, &[Vec<u8>], &[u8]) -> du_core_contracts::scan_observation::FilterDecision
+    + Sync
+    + 'a;
+
 /// Collects a verified root using at most `limit` JobContext metadata flows.
 ///
 /// Each worker retains its flow permit through every in-flight OS call. The
@@ -40,6 +46,22 @@ pub fn collect_parallel(
     include: &(dyn Fn(&[Vec<u8>]) -> bool + Sync),
 ) -> JobOutcome {
     collect_open_build(sink.open(scope), root, ids, context, limit, include)
+}
+
+/// Collects one verified root with a predicate enforced before metadata opens.
+/// The predicate receives the root index, parent components and native name.
+/// It must remain deterministic and immutable for the lifetime of the scan.
+/// An unsupported adapter fails the collection instead of falling back.
+pub fn collect_parallel_filtered(
+    sink: &IngestSink,
+    scope: Id,
+    root: Box<dyn AnchoredDirectory>,
+    ids: &dyn ResultIds,
+    context: &dyn JobContext,
+    limit: usize,
+    include: &PreMetadataFilter<'_>,
+) -> JobOutcome {
+    parallel::collect_open_build_filtered(sink.open(scope), root, ids, context, limit, include)
 }
 
 struct Frame {

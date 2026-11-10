@@ -1,5 +1,5 @@
 //! Bounded handle-based workers and a single result publisher.
-use super::{ResultIds, record_at};
+use super::{PreMetadataFilter, ResultIds, record_at};
 use du_analysis_index::{BuildError, BuildHandle, publication_cadence::PublicationCadence};
 use du_core_contracts::{
     Id,
@@ -104,7 +104,13 @@ struct Control<'a> {
     ids: &'a dyn ResultIds,
     context: &'a dyn JobContext,
     limit: usize,
-    include: &'a (dyn Fn(&[Vec<u8>]) -> bool + Sync),
+    policy: Policy<'a>,
+}
+
+#[derive(Clone, Copy)]
+enum Policy<'a> {
+    Legacy(&'a (dyn Fn(&[Vec<u8>]) -> bool + Sync)),
+    BeforeMetadata(&'a PreMetadataFilter<'a>),
 }
 struct Progress {
     failed_roots: Vec<bool>,
@@ -147,6 +153,28 @@ pub(crate) fn collect_open_build(
     collect_open_forest(build, vec![root], ids, context, limit, include)
 }
 
+pub(super) fn collect_open_build_filtered(
+    build: Result<BuildHandle, BuildError>,
+    root: Box<dyn AnchoredDirectory>,
+    ids: &dyn ResultIds,
+    context: &dyn JobContext,
+    limit: usize,
+    include: &PreMetadataFilter<'_>,
+) -> JobOutcome {
+    collect_with_policy(
+        build,
+        vec![root],
+        ids,
+        context,
+        limit,
+        Policy::BeforeMetadata(include),
+        DevicePlan {
+            groups: vec![0],
+            limit: 4,
+        },
+    )
+}
+
 /// Collect all roots into the same already opened forest build.
 pub(crate) fn collect_open_forest(
     build: Result<BuildHandle, BuildError>,
@@ -177,12 +205,32 @@ pub(crate) fn collect_open_forest_with_groups(
     include: &(dyn Fn(&[Vec<u8>]) -> bool + Sync),
     devices: DevicePlan,
 ) -> JobOutcome {
+    collect_with_policy(
+        build,
+        roots,
+        ids,
+        context,
+        limit,
+        Policy::Legacy(include),
+        devices,
+    )
+}
+
+fn collect_with_policy(
+    build: Result<BuildHandle, BuildError>,
+    roots: Vec<Box<dyn AnchoredDirectory>>,
+    ids: &dyn ResultIds,
+    context: &dyn JobContext,
+    limit: usize,
+    policy: Policy<'_>,
+    devices: DevicePlan,
+) -> JobOutcome {
     let mut counts = JobCounts::default();
     let control = Control {
         ids,
         context,
         limit,
-        include,
+        policy,
     };
     let clock = ContextClock(context);
     let result = build.and_then(|build| run(build, roots, control, &mut counts, devices, &clock));
@@ -217,7 +265,7 @@ fn run(
         ids,
         context,
         limit,
-        include,
+        policy,
     } = control;
     if !devices.valid(roots.len()) {
         return Err(BuildError::Unavailable);
@@ -277,7 +325,7 @@ fn run(
     };
     let mut failure = None;
     thread::scope(|scope| {
-        let spawned = spawn_workers(scope, flows, &shared, &sender, context, include)
+        let spawned = spawn_workers(scope, flows, &shared, &sender, context, policy)
             .and_then(|()| start_queue(&shared));
         drop(sender);
         if let Err(error) = spawned {
@@ -348,7 +396,7 @@ fn spawn_workers<'scope, 'env>(
     shared: &'scope Shared,
     sender: &SyncSender<Event>,
     context: &'scope dyn JobContext,
-    include: &'scope (dyn Fn(&[Vec<u8>]) -> bool + Sync),
+    policy: Policy<'scope>,
 ) -> Result<(), BuildError> {
     let mut flows = flows.into_iter();
     #[cfg(test)]
@@ -378,7 +426,7 @@ fn spawn_workers<'scope, 'env>(
                 TEST_WORKER_STARTED.store(true, Ordering::Release);
                 let flow = worker_slot.lock().ok().and_then(|mut slot| slot.take());
                 if let Some(flow) = flow {
-                    worker(shared, sender, context, include, flow);
+                    worker(shared, sender, context, policy, flow);
                 } else {
                     shared.abort();
                 }
