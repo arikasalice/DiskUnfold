@@ -191,6 +191,7 @@ export function useScanResult(
     function finishSwitch() {
       if (!switching) return;
       switching = false;
+      displayLatest = false;
       setSwitchingJob((current) => (current === scanJob ? undefined : current));
     }
 

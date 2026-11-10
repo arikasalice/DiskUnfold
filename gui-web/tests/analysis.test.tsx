@@ -1097,6 +1097,130 @@ test("F02: an expired newer result stops showing progress after resynchronizing"
   await screen.findByText("Now showing the latest result.");
 });
 
+test.each(["STALE_VERSION", "NOT_FOUND", "status read failure"] as const)(
+  "F03: a publication arriving after %s still needs an explicit selection",
+  async (failure) => {
+    let version = "interim-a";
+    let sequence = 1;
+    let failStatus = false;
+    const { client, calls, listeners } = fixture({
+      lineageId: "lineage",
+      readStatus: (base) => {
+        if (failStatus) {
+          failStatus = false;
+          throw new Error("Could not read scan status.");
+        }
+        return {
+          ...base,
+          state: version === "final-c" ? "done" : "running",
+          resultVersion: version === "final-c" ? version : null,
+          scanResult: {
+            lineageId: "lineage",
+            sequence,
+            resultVersion: version,
+          },
+        };
+      },
+      readTotals: (result) => {
+        if (
+          result.resultVersion === "expired-b" &&
+          failure !== "status read failure"
+        )
+          throw new AnalysisError(failure, "result.requery_required");
+        return {
+          ...result,
+          completeness:
+            result.resultVersion === "final-c" ? "complete" : "partial",
+        };
+      },
+    });
+    const publish = (next: string) => {
+      version = next;
+      notifyResult(listeners, "results.version_changed", {
+        lineageId: "lineage",
+        sequence: ++sequence,
+      });
+    };
+    const totalsRead = () =>
+      calls
+        .filter(({ name }) => name === "space.total")
+        .map(({ body }) => (body as { resultVersion: string }).resultVersion);
+
+    await startFixtureScan(client);
+    await screen.findByText("Result version: Interim");
+    publish("expired-b");
+    const latest = await screen.findByRole("button", {
+      name: "Show latest result",
+    });
+    failStatus = failure === "status read failure";
+    fireEvent.click(latest);
+    expect(screen.getByRole("button", { name: "Reading latest result…" })).toBe(
+      latest,
+    );
+    await screen.findByRole("button", { name: "Show latest result" });
+    const expected =
+      failure === "status read failure"
+        ? ["interim-a"]
+        : ["interim-a", "expired-b"];
+    expect(totalsRead()).toEqual(expected);
+
+    publish("final-c");
+    await screen.findByText("Scan finished");
+    await act(async () => {});
+    expect(totalsRead()).toEqual(expected);
+    const interim = screen.getByText("Result version: Interim");
+    const summary = interim.closest('[role="status"]');
+    latest.focus();
+    fireEvent.keyDown(latest, { key: "Enter", code: "Enter" });
+    fireEvent.keyUp(latest, { key: "Enter", code: "Enter" });
+    await screen.findByText("Result version: Final");
+    expect(totalsRead()).toEqual([...expected, "final-c"]);
+    expect(document.activeElement).toBe(summary);
+  },
+);
+
+test("F03: an in-progress switch can read a replacement during resynchronization", async () => {
+  let version = "interim-a";
+  const { client, calls, listeners } = fixture({
+    lineageId: "lineage",
+    readStatus: (base) => ({
+      ...base,
+      state: "running",
+      resultVersion: null,
+      scanResult: {
+        lineageId: "lineage",
+        sequence: version === "interim-a" ? 1 : version === "expired-b" ? 2 : 3,
+        resultVersion: version,
+      },
+    }),
+    readTotals: (result) => {
+      if (result.resultVersion === "expired-b") {
+        version = "replacement-c";
+        throw new AnalysisError("STALE_VERSION", "result.requery_required");
+      }
+      return { ...result, completeness: "partial" };
+    },
+  });
+  await startFixtureScan(client);
+  await screen.findByText("Result version: Interim");
+  version = "expired-b";
+  notifyResult(listeners, "results.version_changed", {
+    lineageId: "lineage",
+    sequence: 2,
+  });
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Show latest result" }),
+  );
+  await screen.findByText("Now showing the latest result.");
+  expect(
+    calls.filter(({ name }) => name === "space.total").map(({ body }) => body),
+  ).toMatchObject([
+    { resultVersion: "interim-a" },
+    { resultVersion: "expired-b" },
+    { resultVersion: "replacement-c" },
+  ]);
+});
+
 test.each(["partial", "cancelled"] as const)(
   "F02: a %s scan keeps the interim result separate from the job outcome",
   async (outcome) => {
