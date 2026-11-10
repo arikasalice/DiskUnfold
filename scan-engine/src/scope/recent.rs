@@ -23,6 +23,17 @@ pub enum Identity<'a> {
     Unknown,
 }
 
+impl<'a> Identity<'a> {
+    fn verified(self) -> Option<(&'a [u8], &'a [u8])> {
+        match self {
+            Self::Confirmed { kind, value } if !kind.is_empty() && !value.is_empty() => {
+                Some((kind, value))
+            }
+            _ => None,
+        }
+    }
+}
+
 /// A provider's comparison of a current entry with the saved entry.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum EntryComparison {
@@ -69,54 +80,38 @@ pub fn correspond<'a>(
     inventory: Inventory,
     current: &'a [CurrentVolume<'a>],
 ) -> Correspondence<'a> {
-    let Identity::Confirmed { kind, value: saved } = saved else {
+    let Some((kind, saved)) = saved.verified() else {
         return Correspondence::Unverifiable;
     };
-    if kind.is_empty() || saved.is_empty() || inventory == Inventory::Unavailable {
+    if inventory == Inventory::Unavailable {
         return Correspondence::Unverifiable;
     }
     let mut same = None;
     let mut unknown = false;
     for volume in current {
-        match volume.identity {
-            Identity::Confirmed {
-                kind: current_kind,
-                value: id,
-            } if !current_kind.is_empty()
-                && !id.is_empty()
-                && current_kind == kind
-                && id == saved =>
-            {
-                if same.replace(volume).is_some() {
+        match volume.identity.verified() {
+            Some((current_kind, id)) if current_kind == kind => {
+                if id == saved && same.replace(volume).is_some() {
                     return Correspondence::Unverifiable;
                 }
             }
-            Identity::Confirmed {
-                kind: current_kind,
-                value: id,
-            } if !current_kind.is_empty() && !id.is_empty() && current_kind == kind => {}
             _ => unknown = true,
         }
     }
+    if unknown {
+        return Correspondence::Unverifiable;
+    }
     match same {
-        Some(volume)
-            if !unknown
-                && !volume.entry_path.is_empty()
-                && volume.entry_comparison == EntryComparison::Same =>
-        {
-            Correspondence::Matched
-        }
-        Some(volume)
-            if !unknown
-                && inventory == Inventory::Complete
-                && volume.entry_comparison == EntryComparison::Different
-                && !volume.entry_path.is_empty() =>
-        {
-            Correspondence::Moved {
-                proposed_entry: volume.entry_path,
+        Some(volume) if !volume.entry_path.is_empty() => {
+            match (volume.entry_comparison, inventory) {
+                (EntryComparison::Same, _) => Correspondence::Matched,
+                (EntryComparison::Different, Inventory::Complete) => Correspondence::Moved {
+                    proposed_entry: volume.entry_path,
+                },
+                _ => Correspondence::Unverifiable,
             }
         }
-        None if !unknown && inventory == Inventory::Complete => Correspondence::Disconnected,
+        None if inventory == Inventory::Complete => Correspondence::Disconnected,
         _ => Correspondence::Unverifiable,
     }
 }
