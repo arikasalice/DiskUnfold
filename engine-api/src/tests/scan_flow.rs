@@ -57,12 +57,14 @@ impl JobEvents for Events {
 
 struct Roots {
     file_id: AtomicUsize,
+    opens: AtomicUsize,
     reads: Arc<AtomicUsize>,
     release: Arc<Mutex<mpsc::Receiver<()>>>,
 }
 
 impl ScopeRootPort for Roots {
     fn open_root(&self, path: &[u8]) -> Result<OpenedScopeRoot, PortError> {
+        self.opens.fetch_add(1, Ordering::Relaxed);
         Ok(OpenedScopeRoot {
             canonical_path: OsPath {
                 encoding: PathEncoding::WindowsUtf16le,
@@ -138,6 +140,7 @@ fn reviewed_identity_is_rechecked_and_one_job_publishes_the_requested_result()
     let (send, terminal) = mpsc::channel();
     let roots = Arc::new(Roots {
         file_id: AtomicUsize::new(1),
+        opens: AtomicUsize::new(0),
         reads: Arc::new(AtomicUsize::new(0)),
         release: Arc::new(Mutex::new(blocked)),
     });
@@ -176,6 +179,39 @@ fn reviewed_identity_is_rechecked_and_one_job_publishes_the_requested_result()
         "includedMounts": [],
         "source": "gui"
     });
+    // Until multi-root collection and result identity are composed, reject the
+    // entire scope before opening any path or submitting a partial scan.
+    let mut other = draft["includes"][0].clone();
+    let other_path: Vec<u8> = "D:\\Other"
+        .encode_utf16()
+        .flat_map(u16::to_le_bytes)
+        .collect();
+    other["raw"] = json!(PathBytes::from_bytes(&other_path));
+    for second in [draft["includes"][0].clone(), other] {
+        let mut multi = draft.clone();
+        multi["includes"] = json!([draft["includes"][0], second]);
+        let rejected_review = gui("scope.review", json!({"draft": multi, "requestSeq": 0}))?;
+        assert_eq!(
+            rejected_review
+                .error
+                .ok_or("multi-root review unexpectedly succeeded")?
+                .reason_key,
+            "scope.target_unavailable"
+        );
+        let rejected_start = gui(
+            "scan.start",
+            json!({"draft": multi, "reviewFingerprint": "unreviewed"}),
+        )?;
+        assert_eq!(
+            rejected_start
+                .error
+                .ok_or("multi-root scan unexpectedly started")?
+                .reason_key,
+            "scope.target_unavailable"
+        );
+    }
+    assert_eq!(roots.reads.load(Ordering::Acquire), 0);
+    assert_eq!(roots.opens.load(Ordering::Acquire), 0);
     let review = |seq| -> Result<ScopeReview, Box<dyn std::error::Error>> {
         Ok(serde_json::from_value(
             gui(
