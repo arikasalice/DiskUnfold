@@ -40,6 +40,20 @@ pub struct ModelInput {
     pub rows: Vec<VizRow>,
     pub groups: HashMap<String, live_models::GroupRows>,
 }
+struct PreparedModelInput {
+    version: Arc<ResultVersion>,
+    condition_fingerprint: String,
+    rows: live_models::PreparedRows,
+}
+
+fn prepare_model_input(input: ModelInput) -> Result<PreparedModelInput, Error> {
+    validate_input(&input)?;
+    Ok(PreparedModelInput {
+        version: input.version,
+        condition_fingerprint: input.condition_fingerprint,
+        rows: live_models::PreparedRows::new(input.rows, input.groups),
+    })
+}
 struct Entry {
     source: Weak<ResultVersion>,
     revision: Id,
@@ -56,6 +70,7 @@ pub use group_page::Page as GroupPage;
 /// Bounded session index. IDs supplied by the identity port must never be reused in this session.
 pub struct ModelPages {
     source: IngestSink,
+    identity: Arc<()>,
     capacity: NonZeroUsize,
     ids: Arc<dyn JobIdentity>,
     state: Mutex<State>,
@@ -64,6 +79,7 @@ impl ModelPages {
     pub fn new(source: IngestSink, capacity: NonZeroUsize, ids: Arc<dyn JobIdentity>) -> Self {
         Self {
             source,
+            identity: Arc::new(()),
             capacity,
             ids,
             state: Mutex::new(State::default()),
@@ -80,7 +96,9 @@ impl ModelPages {
     // rows and layouts are destroyed after them. Publication still waits for
     // lookups, allocations/rehashing, at most one eviction and O(capacity) LRU
     // updates; source-wide table and lineage counts have no configured bound.
-    // No cancellation callback or identity port runs under the publication lock.
+    // The cancellation callback also runs under the publication lock just before
+    // any cache mutation. It must be nonblocking and must not reenter either the
+    // source store or model session. The identity port runs before these locks.
     fn register_with_layout(
         &self,
         input: ModelInput,
@@ -97,17 +115,25 @@ impl ModelPages {
         cancelled: &mut dyn FnMut() -> bool,
         during_prepare: impl FnOnce(),
     ) -> Result<(String, Option<Arc<projection::Model>>), Error> {
-        validate_input(&input)?;
+        let input = prepare_model_input(input)?;
+        during_prepare();
+        self.register_prepared(input, layout, cancelled)
+    }
+
+    fn register_prepared(
+        &self,
+        input: PreparedModelInput,
+        layout: Option<Arc<projection::Model>>,
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<(String, Option<Arc<projection::Model>>), Error> {
         let reference = self.ids.next_id().as_str().to_owned();
-        let ModelInput {
+        let PreparedModelInput {
             version,
             condition_fingerprint,
             rows,
-            groups,
         } = input;
         let key = (version.version_id().clone(), condition_fingerprint);
-        during_prepare();
-        let mut rows = Some(live_models::PreparedRows::new(rows, groups));
+        let mut rows = Some(rows);
         let mut state = self.state.lock().map_err(|_| Error::Unavailable)?;
         if cancelled() {
             return Err(Error::Cancelled);
@@ -118,6 +144,9 @@ impl ModelPages {
         let result = self
             .source
             .with_current(&version, || {
+                if cancelled() {
+                    return Err(Error::Cancelled);
+                }
                 let current = &version;
                 if let Some(existing) = state.conditions.get(&key).cloned() {
                     let entry = state.entries.get(&existing).ok_or(Error::Unavailable)?;

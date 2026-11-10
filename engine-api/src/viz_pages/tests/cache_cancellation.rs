@@ -1,6 +1,84 @@
 use super::*;
 
 #[test]
+fn cancellation_while_waiting_for_source_preserves_the_existing_cache() -> Result<(), String> {
+    use std::sync::{atomic::AtomicBool, mpsc};
+    use std::time::Duration;
+
+    let source = IngestSink::default();
+    let mut build = source.open(id(1)?).map_err(|e| format!("{e:?}"))?;
+    build.add_directory(vec![]).map_err(|e| format!("{e:?}"))?;
+    let version = build
+        .seal(id(2)?, ResultCompleteness::Complete)
+        .map_err(|e| format!("{e:?}"))?;
+    let pages = Arc::new(ModelPages::new(
+        source.clone(),
+        NonZeroUsize::MIN,
+        Arc::new(Ids(AtomicU64::new(30))),
+    ));
+    let input = |fingerprint: &str| ModelInput {
+        version: version.clone(),
+        condition_fingerprint: fingerprint.into(),
+        rows: vec![],
+        groups: HashMap::new(),
+    };
+    let original = pages
+        .register(input("original"))
+        .map_err(|e| format!("{e:?}"))?;
+    let (held_tx, held_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let holder = {
+        let source = source.clone();
+        let version = version.clone();
+        std::thread::spawn(move || {
+            source.with_current(&version, || {
+                let _ = held_tx.send(());
+                release_rx.recv_timeout(Duration::from_secs(5))
+            })
+        })
+    };
+    held_rx
+        .recv_timeout(Duration::from_secs(5))
+        .map_err(|e| format!("{e:?}"))?;
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let worker = {
+        let pages = pages.clone();
+        let cancelled = cancelled.clone();
+        let candidate = input("candidate");
+        std::thread::spawn(move || {
+            let mut calls = 0;
+            pages.register_with_layout(candidate, None, &mut || {
+                calls += 1;
+                if calls == 1 {
+                    let _ = entered_tx.send(());
+                }
+                cancelled.load(Ordering::Acquire)
+            })
+        })
+    };
+    entered_rx
+        .recv_timeout(Duration::from_secs(5))
+        .map_err(|e| format!("{e:?}"))?;
+    cancelled.store(true, Ordering::Release);
+    release_tx.send(()).map_err(|e| format!("{e:?}"))?;
+    holder
+        .join()
+        .map_err(|_| "holder panic")?
+        .map_err(|e| format!("{e:?}"))?
+        .map_err(|e| format!("{e:?}"))?;
+    assert!(matches!(
+        worker.join().map_err(|_| "worker panic")?,
+        Err(Error::Cancelled)
+    ));
+    let state = pages.state.lock().map_err(|_| "cache lock")?;
+    assert_eq!(state.entries.len(), 1);
+    assert!(state.entries.contains_key(&original));
+    assert_eq!(state.lru.iter().collect::<Vec<_>>(), vec![&original]);
+    Ok(())
+}
+
+#[test]
 fn cancelled_during_cached_source_admission_preserves_existing_model() -> Result<(), String> {
     use crate::viz_pages::render::{ChildEvidence, Error as RenderError, Request};
     use du_analysis_index::{

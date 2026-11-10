@@ -1,5 +1,8 @@
 //! Composes the admitted live single-parent visualization and its page registry.
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::BTreeMap,
+    sync::{Arc, Weak},
+};
 
 use du_analysis_index::visualization::{
     geometry::Rect,
@@ -13,7 +16,7 @@ use du_core_contracts::{
 };
 
 use super::{
-    ModelPages,
+    ModelPages, PreparedModelInput, prepare_model_input,
     production::{self, RowPresentation},
 };
 use crate::{current_analysis, viz_catalog};
@@ -44,6 +47,22 @@ pub struct Rendered {
     pub model: Arc<projection::Model>,
 }
 
+/// Why a committed model has a table but no geometry.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FallbackReason {
+    NoAttribution,
+    OrderingUnavailable,
+}
+
+/// A successfully committed geometry model or table-only fallback.
+pub enum CommittedRender {
+    Model(Rendered),
+    Fallback {
+        reason: FallbackReason,
+        fallback: VizFallback,
+    },
+}
+
 impl Rendered {
     /// Returns the table reference for the exact displayed geometry and result revision.
     pub fn fallback(&self) -> VizFallback {
@@ -71,6 +90,23 @@ pub enum Error {
     Cancelled,
 }
 
+/// An unpublished model candidate bound to the source pinned during preparation.
+///
+/// This value contains no model reference and is not visible through row paging.
+/// Drop it to discard the calculation. Commit rejects another model registry
+/// and revalidates the exact source identity. The caller must preserve the dispatcher.
+pub struct PreparedRender {
+    owner: Weak<()>,
+    input: PreparedModelInput,
+    layout: Option<Arc<projection::Model>>,
+    fallback_reason: Option<projection::Error>,
+}
+
+enum Preparation {
+    Cached(Rendered),
+    Candidate(PreparedRender),
+}
+
 impl ModelPages {
     /// Pins the selected live revision, renders via the strategy registry, and registers its rows.
     /// The evidence callback must use the supplied pinned source and trusted in-process policies.
@@ -85,6 +121,53 @@ impl ModelPages {
         ) -> Result<Vec<ChildEvidence>, Error>,
         cancelled: &mut dyn FnMut() -> bool,
     ) -> Result<Rendered, Error> {
+        match self.prepare_inner(dispatcher, request, evidence, cancelled, true)? {
+            Preparation::Cached(rendered) => Ok(rendered),
+            Preparation::Candidate(candidate) => {
+                match self.commit_prepared(candidate, cancelled)? {
+                    CommittedRender::Model(rendered) => Ok(rendered),
+                    CommittedRender::Fallback {
+                        reason: FallbackReason::NoAttribution,
+                        fallback,
+                    } => Err(Error::NoAttribution(fallback)),
+                    CommittedRender::Fallback {
+                        reason: FallbackReason::OrderingUnavailable,
+                        fallback,
+                    } => Err(Error::OrderingUnavailable(fallback)),
+                }
+            }
+        }
+    }
+
+    /// Computes an unpublished candidate without allocating a model reference or changing the cache.
+    /// The evidence must come from the supplied pinned source and trusted policies.
+    pub fn prepare_selected(
+        &self,
+        dispatcher: &Dispatcher,
+        request: Request<'_>,
+        evidence: impl FnOnce(
+            &current_analysis::CurrentAnalysis,
+            &mut dyn FnMut() -> bool,
+        ) -> Result<Vec<ChildEvidence>, Error>,
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<PreparedRender, Error> {
+        match self.prepare_inner(dispatcher, request, evidence, cancelled, false)? {
+            Preparation::Candidate(candidate) => Ok(candidate),
+            Preparation::Cached(_) => Err(Error::Cache(super::Error::InvalidModel)),
+        }
+    }
+
+    fn prepare_inner(
+        &self,
+        dispatcher: &Dispatcher,
+        request: Request<'_>,
+        evidence: impl FnOnce(
+            &current_analysis::CurrentAnalysis,
+            &mut dyn FnMut() -> bool,
+        ) -> Result<Vec<ChildEvidence>, Error>,
+        cancelled: &mut dyn FnMut() -> bool,
+        use_cache: bool,
+    ) -> Result<Preparation, Error> {
         check(cancelled)?;
         let source = current_analysis::admit_selected(
             &self.source,
@@ -101,11 +184,13 @@ impl ModelPages {
         let normalized = normalize(evidence, source.result_version(), cancelled)?;
         let fingerprint = fingerprint(&request, &descriptor.strategy, &normalized, cancelled)?;
         check(cancelled)?;
-        if let Some(cached) = self.cached_render(source.version(), &fingerprint, cancelled)? {
+        if use_cache
+            && let Some(cached) = self.cached_render(source.version(), &fingerprint, cancelled)?
+        {
             // Cache admission may wait for source publication; observe cancellation again
             // after its locks are released and before returning the model.
             check(cancelled)?;
-            return Ok(cached);
+            return Ok(Preparation::Cached(cached));
         }
         let mut keys = Vec::with_capacity(normalized.len());
         let mut presentations = Vec::with_capacity(normalized.len());
@@ -146,18 +231,13 @@ impl ModelPages {
                     cancelled,
                 )
                 .map_err(Error::Registration)?;
-                let (model_ref, _) = self
-                    .register_with_layout(input, None, cancelled)
-                    .map_err(registration_error)?;
-                let fallback = VizFallback {
-                    model_ref,
-                    result_revision: source.result_version().clone(),
-                };
-                return Err(if reason == projection::Error::OrderingUnavailable {
-                    Error::OrderingUnavailable(fallback)
-                } else {
-                    Error::NoAttribution(fallback)
-                });
+                check(cancelled)?;
+                return Ok(Preparation::Candidate(PreparedRender {
+                    owner: Arc::downgrade(&self.identity),
+                    input: prepare_model_input(input).map_err(registration_error)?,
+                    layout: None,
+                    fallback_reason: Some(reason),
+                }));
             }
             Err(error) => return Err(Error::Projection(error)),
         };
@@ -170,11 +250,59 @@ impl ModelPages {
         )
         .map_err(Error::Registration)?;
         check(cancelled)?;
+        Ok(Preparation::Candidate(PreparedRender {
+            owner: Arc::downgrade(&self.identity),
+            input: prepare_model_input(input).map_err(registration_error)?,
+            layout: Some(Arc::new(model)),
+            fallback_reason: None,
+        }))
+    }
+
+    /// Publishes a prepared candidate only if its exact source is still current.
+    ///
+    /// Cancellation is checked before the cache mutation. The caller must arbitrate
+    /// this commit with job cancellation; this method does not provide an F24 gate.
+    /// The cancellation callback must be nonblocking and must not reenter the
+    /// source store or model session, including while publication is locked.
+    pub fn commit_prepared(
+        &self,
+        candidate: PreparedRender,
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<CommittedRender, Error> {
+        check(cancelled)?;
+        let PreparedRender {
+            owner,
+            input,
+            layout,
+            fallback_reason,
+        } = candidate;
+        if !owner
+            .upgrade()
+            .is_some_and(|owner| Arc::ptr_eq(&owner, &self.identity))
+        {
+            return Err(Error::Cache(super::Error::InvalidModel));
+        }
+        use du_core_contracts::result::ResultVersionRead;
+        let revision = input.version.version_id().clone();
         let (model_ref, model) = self
-            .register_with_layout(input, Some(Arc::new(model)), cancelled)
+            .register_prepared(input, layout, cancelled)
             .map_err(registration_error)?;
+        if let Some(reason) = fallback_reason {
+            let fallback = VizFallback {
+                model_ref,
+                result_revision: revision,
+            };
+            return Ok(CommittedRender::Fallback {
+                reason: if reason == projection::Error::OrderingUnavailable {
+                    FallbackReason::OrderingUnavailable
+                } else {
+                    FallbackReason::NoAttribution
+                },
+                fallback,
+            });
+        }
         let model = model.ok_or(Error::Cache(super::Error::InvalidModel))?;
-        Ok(Rendered { model_ref, model })
+        Ok(CommittedRender::Model(Rendered { model_ref, model }))
     }
 
     fn cached_render(

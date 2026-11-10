@@ -3,6 +3,7 @@ mod commands;
 mod fallback;
 mod locate;
 mod pinned_children;
+mod prepared;
 mod retained;
 
 use std::{
