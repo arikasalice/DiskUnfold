@@ -21,3 +21,10 @@ pub mod windows_observation;
 #[cfg(target_os = "windows")]
 #[allow(unsafe_code)]
 pub mod windows_snapshot;
+#[cfg(target_os = "windows")]
+pub mod windows_watch_decode;
+#[cfg(target_os = "windows")]
+pub mod windows_watch_events;
+#[cfg(target_os = "windows")]
+#[allow(unsafe_code)]
+pub mod windows_watch_native;
