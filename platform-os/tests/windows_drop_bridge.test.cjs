@@ -47,24 +47,46 @@ test('only trusted drops on an enabled zone reach the native bridge', () => {
   assert.equal(bridge.posts.length, 0);
   drop(bridge, true, true, items, files);
   assert.equal(bridge.posts.length, 1);
-  assert.equal(bridge.posts[0].message, 'du:folder-drop');
+  assert.equal(bridge.posts[0].message, 'du:folder-drop:1');
   assert.equal(bridge.posts[0].files, files);
+  assert.equal(bridge.events[0].type, 'du://folder-drop');
+  assert.equal(bridge.events[0].detail.seq, 1);
+  assert.equal(bridge.events[0].detail.pending, true);
 });
 
 test('invalid and unsupported drops produce the specified reason', () => {
   const bridge = bootstrap();
   drop(bridge, true, true, [{ kind: 'file' }, { kind: 'file' }], [{}, {}]);
   assert.equal(bridge.events.at(-1).detail.reason, 'invalid_target');
+  assert.equal(bridge.events.at(-1).detail.seq, 1);
   drop(bridge, true, true, [{ kind: 'file' }], []);
   assert.equal(bridge.events.at(-1).detail.reason, 'unsupported');
+  assert.equal(bridge.events.at(-1).detail.seq, 2);
   delete bridge.channel.postMessageWithAdditionalObjects;
   drop(bridge, true, true, [{ kind: 'file' }], [{}]);
   assert.equal(bridge.events.at(-1).detail.reason, 'unsupported');
+  assert.equal(bridge.events.at(-1).detail.seq, 3);
+  assert.equal(bridge.posts.length, 0);
 });
 
 test('native path delivery preserves raw JavaScript UTF-16 units', () => {
   const bridge = bootstrap();
-  bridge.handlers['channel:message']({ data: 'folder-drop\n{"path":"\\u0043\\u003a\\u005c\\ud800\\udc00\\udfff"}' });
-  const path = bridge.events.at(-1).detail.path;
+  drop(bridge, true, true, [{ kind: 'file' }], [{}]);
+  bridge.handlers['channel:message']({ data: 'folder-drop:1\n{"path":"\\u0043\\u003a\\u005c\\ud800\\udc00\\udfff"}' });
+  const { path, seq } = bridge.events.at(-1).detail;
+  assert.equal(seq, 1);
   assert.deepEqual(Array.from({ length: path.length }, (_, i) => path.charCodeAt(i)), [67, 58, 92, 0xd800, 0xdc00, 0xdfff]);
+});
+
+test('native replies retain the drop sequence even when delivered out of order', () => {
+  const bridge = bootstrap();
+  drop(bridge, true, true, [{ kind: 'file' }], [{}]);
+  drop(bridge, true, true, [{ kind: 'file' }], [{}]);
+  const receive = bridge.handlers['channel:message'];
+  receive({ data: 'folder-drop:2\n{"reason":"invalid_target"}' });
+  receive({ data: 'folder-drop:1\n{"path":"old"}' });
+  assert.deepEqual(bridge.posts.map(({ message }) => message), ['du:folder-drop:1', 'du:folder-drop:2']);
+  assert.deepEqual(bridge.events.map(({ detail }) => detail.seq), [1, 2, 2, 1]);
+  assert.equal(bridge.events[2].detail.reason, 'invalid_target');
+  assert.equal(bridge.events[3].detail.path, 'old');
 });

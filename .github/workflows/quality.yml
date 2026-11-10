@@ -62,6 +62,9 @@ jobs:
       - name: GUI checks
         working-directory: gui-web
         run: npm run check && npm run test
+      - name: Windows folder-drop bridge checks
+        if: runner.os == 'Windows'
+        run: node --test platform-os/tests/windows_drop_bridge.test.cjs
       - name: Check generated contracts
         shell: bash
         run: |
