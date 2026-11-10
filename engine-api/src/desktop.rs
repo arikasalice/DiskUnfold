@@ -9,6 +9,7 @@ use du_core_contracts::{
     ENVELOPE_VERSION, EventEnvelope, Id, Timestamp,
     analysis_ipc::{TargetProbeEvent, TargetStatusChanged},
     job::JobHistory,
+    result_events::RESULT_VERSION_CHANGED,
     scan_observation::ScopeRootPort,
     volume::VolumePort,
 };
@@ -164,13 +165,20 @@ impl JobEvents for DesktopEvents {
 
 fn envelope(event: JobEvent, occurred_at: Timestamp) -> Option<EventEnvelope> {
     let (topic, job_ref, correlation_id, result_version, body) = match event {
+        JobEvent::ResultVersionChanged(notice) => (
+            RESULT_VERSION_CHANGED,
+            None,
+            None,
+            notice.result_version,
+            serde_json::to_value(notice.body).ok()?,
+        ),
         JobEvent::StateChanged {
             job_id,
             state,
             sequence,
         } => (
             "job.state_changed",
-            job_id,
+            Some(job_id),
             None,
             None,
             json!({ "state": state, "sequence": sequence }),
@@ -182,7 +190,7 @@ fn envelope(event: JobEvent, occurred_at: Timestamp) -> Option<EventEnvelope> {
             warning,
         } => (
             "job.finished",
-            summary.job_id,
+            Some(summary.job_id),
             Some(summary.correlation_id),
             summary.result_version_id,
             json!({
@@ -208,7 +216,7 @@ fn envelope(event: JobEvent, occurred_at: Timestamp) -> Option<EventEnvelope> {
             let observation: TargetStatusChanged = serde_json::from_slice(&payload).ok()?;
             (
                 "target.status_changed",
-                job_id,
+                Some(job_id),
                 None,
                 None,
                 serde_json::to_value(TargetProbeEvent {
@@ -225,7 +233,7 @@ fn envelope(event: JobEvent, occurred_at: Timestamp) -> Option<EventEnvelope> {
         contract_version: ENVELOPE_VERSION,
         seq: 0,
         correlation_id,
-        job_ref: Some(job_ref),
+        job_ref,
         result_version,
         occurred_at,
         body,

@@ -1,3 +1,6 @@
+use du_core_contracts::result_events::{
+    PublishedCompleteness, ResultVersionChange, ResultVersionChanged,
+};
 use du_core_contracts::*;
 use du_core_contracts::{analysis_ipc::*, job::JobState, result::ResultCompleteness};
 use du_core_contracts::{browse_ipc::*, result::ResultItemKind};
@@ -26,6 +29,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         CallEnvelope::decl(&config),
         ResultEnvelope::decl(&config),
         EventEnvelope::decl(&config),
+        ResultVersionChange::decl(&config),
+        PublishedCompleteness::decl(&config),
+        ResultVersionChanged::decl(&config),
         TargetKind::decl(&config),
         IdentitySource::decl(&config),
         TargetAccess::decl(&config),

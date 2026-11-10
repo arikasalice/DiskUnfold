@@ -5,6 +5,7 @@ mod envelopes;
 pub mod job;
 pub mod ports;
 pub mod result;
+pub mod result_events;
 pub mod scan_observation;
 pub mod settings;
 mod values;

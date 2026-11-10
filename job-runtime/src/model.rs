@@ -1,6 +1,7 @@
 use du_core_contracts::{
     Id,
     job::{JobBody, JobDescriptor, JobState, JobSummary},
+    result_events::ResultVersionNotice,
 };
 use std::{
     collections::HashMap,
@@ -27,6 +28,7 @@ pub trait JobEvents: Send + Sync {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum JobEvent {
+    ResultVersionChanged(Box<ResultVersionNotice>),
     StateChanged {
         job_id: Id,
         state: JobState,

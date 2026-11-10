@@ -1,4 +1,7 @@
 use super::*;
+use du_core_contracts::result_events::{
+    PublishedCompleteness, ResultVersionChange, ResultVersionChanged, ResultVersionNotice,
+};
 use du_core_contracts::{OsPath, PathBytes, PathEncoding, analysis_ipc::TargetAccess};
 
 fn observation(observed_at: Timestamp) -> TargetStatusChanged {
@@ -92,5 +95,73 @@ fn batches_events_without_dropping_order_and_coalesces_overflow_into_resync()
             .seq,
         resync.seq + 1
     );
+    Ok(())
+}
+
+#[test]
+fn preserves_lineage_sequence_and_withdrawal_without_a_replacement()
+-> Result<(), Box<dyn std::error::Error>> {
+    let lineage_id = Id::parse("0195f856-ab83-7a59-9343-10d29775c9a9")?;
+    let partial = Id::parse("0195f856-ab84-7a59-9343-10d29775c9a9")?;
+    let observed = Timestamp::from_unix_millis(100).ok_or("invalid observation time")?;
+    let occurred = Timestamp::from_unix_millis(200).ok_or("invalid event time")?;
+    let body = ResultVersionChanged {
+        source_ref: lineage_id.clone(),
+        lineage_id,
+        origin: "scan".into(),
+        sequence: 7,
+        change: ResultVersionChange::Published,
+        previous_result_version: None,
+        completeness: Some(PublishedCompleteness::Partial),
+        observed_at: Some(observed.clone()),
+    };
+    let publish = ResultVersionNotice {
+        result_version: Some(partial.clone()),
+        body: body.clone(),
+    };
+    let withdrawal = ResultVersionNotice {
+        result_version: None,
+        body: ResultVersionChanged {
+            sequence: 8,
+            change: ResultVersionChange::Withdrawn,
+            previous_result_version: Some(partial.clone()),
+            completeness: None,
+            observed_at: None,
+            ..body
+        },
+    };
+    let now = Instant::now();
+    let mut pending = Pending::default();
+    for notice in [publish, withdrawal] {
+        assert!(notice.validate());
+        let event = envelope(
+            JobEvent::ResultVersionChanged(Box::new(notice)),
+            occurred.clone(),
+        )
+        .ok_or("missing result version event")?;
+        pending.push(event, now);
+    }
+    let published = pending
+        .take(now + EVENT_INTERVAL)
+        .ok_or("missing publish")?;
+    assert_eq!(published.seq, 1);
+    assert_eq!(published.result_version.as_ref(), Some(&partial));
+    assert_eq!(published.body["sequence"], 7);
+    assert_eq!(published.body["observedAt"], observed.as_str());
+    assert_eq!(published.occurred_at, occurred);
+
+    let withdrawn = pending
+        .take(now + EVENT_INTERVAL)
+        .ok_or("missing withdrawal")?;
+    assert_eq!(withdrawn.topic, RESULT_VERSION_CHANGED);
+    assert_eq!(withdrawn.seq, 2);
+    let wire = serde_json::to_value(withdrawn)?;
+    assert!(wire.get("resultVersion").is_none());
+    assert!(wire.get("jobRef").is_none());
+    assert_eq!(wire["body"]["sequence"], 8);
+    assert_eq!(wire["body"]["change"], "withdrawn");
+    assert_eq!(wire["body"]["previousResultVersion"], partial.as_str());
+    assert!(wire["body"].get("completeness").is_none());
+    assert!(wire["body"].get("observedAt").is_none());
     Ok(())
 }

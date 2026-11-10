@@ -12,6 +12,7 @@ use du_core_contracts::{
         HistoryMode, JobControl, JobDescriptor, JobHistory, JobOutcome, JobState, JobSummary,
         ResourceClass,
     },
+    result_events::{ResultVersionNotice, ResultVersionPublisher},
 };
 pub use model::FlowLimits;
 use model::*;
@@ -25,6 +26,17 @@ use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
     mpsc,
 };
+
+impl ResultVersionPublisher for JobRuntime {
+    fn publish_result_version(&self, notice: ResultVersionNotice) {
+        if notice.validate()
+            && let Ok(table) = self.table.lock()
+        {
+            let event = JobEvent::ResultVersionChanged(Box::new(notice));
+            let _ = enqueue(&table, Delivery::Event(event));
+        }
+    }
+}
 
 impl JobRuntime {
     pub fn new(
