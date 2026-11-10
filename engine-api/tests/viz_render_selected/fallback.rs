@@ -1,5 +1,5 @@
 use super::*;
-use du_core_contracts::visualization::quantity::VizAmount;
+use du_core_contracts::visualization::{quantity::VizAmount, rows::VizRows};
 
 #[test]
 fn observed_logical_subtrees_draw_during_an_active_scan_without_exact_ratios() -> Result<(), String>
@@ -141,21 +141,9 @@ fn unavailable_geometry_keeps_the_original_partial_rows_and_denominator() -> Res
     let page = session
         .rows(&rows_request)
         .map_err(|error| format!("{error:?}"))?;
-    assert_eq!(page.result_revision, id(3));
-    assert_eq!(page.completeness, ResultCompleteness::Partial);
-    assert_eq!(page.total_count, 2);
-    for (row, name) in page.rows.iter().zip(["observed", "unmeasured"]) {
-        assert_eq!(row.display_name, name);
-        assert_eq!(row.ratio, None);
-        assert_eq!(
-            row.denominator.size.as_ref(),
-            pinned.space(0).map(|aggregate| &aggregate.logical)
-        );
-        assert!(matches!(
-            row.denominator.value.amount(),
-            VizAmount::LowerBound { value } if value.get() == 25
-        ));
-    }
+    assert_partial_page(&page, &pinned, 2, 25);
+    assert_eq!(page.rows[0].display_name, "observed");
+    assert_eq!(page.rows[1].display_name, "unmeasured");
     assert_eq!(
         page.rows[0].size.amount,
         SizeAmount::LowerBound { bytes: 25.into() }
@@ -190,19 +178,24 @@ fn unavailable_geometry_keeps_the_original_partial_rows_and_denominator() -> Res
             count: 10,
         })
         .map_err(|error| format!("{error:?}"))?;
-    assert_eq!(later_page.result_revision, id(4));
-    assert_eq!(later_page.total_count, 3);
-    assert_eq!(later_page.completeness, ResultCompleteness::Partial);
-    for row in &later_page.rows {
+    assert_partial_page(&later_page, &later, 3, 125);
+    Ok(())
+}
+
+fn assert_partial_page(page: &VizRows, version: &ResultVersion, count: u64, bytes: i128) {
+    assert_eq!(&page.result_revision, version.version_id());
+    assert_eq!(page.total_count, count);
+    assert_eq!(page.completeness, ResultCompleteness::Partial);
+    for row in &page.rows {
+        assert_eq!(row.ratio, None);
         assert_eq!(
             row.denominator.size.as_ref(),
-            later.space(0).map(|a| &a.logical)
+            version.space(0).map(|aggregate| &aggregate.logical)
         );
         assert!(
-            matches!(row.denominator.value.amount(), VizAmount::LowerBound { value } if value.get() == 125)
+            matches!(row.denominator.value.amount(), VizAmount::LowerBound { value } if value.get() == bytes)
         );
     }
-    Ok(())
 }
 
 fn render_fallback(
