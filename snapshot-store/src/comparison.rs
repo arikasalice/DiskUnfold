@@ -1,5 +1,6 @@
 //! F08 change classification for one normalized path in two pinned results.
 
+use crate::storage_match::{self, Correspondence, Observation};
 use du_core_contracts::{SizeAmount, SizeBasis, SizeValue, result::ResultItemKind};
 use std::cmp::Ordering;
 
@@ -72,6 +73,52 @@ pub enum Rows<'a> {
         removed: Row<'a>,
         added: Row<'a>,
     },
+}
+
+/// A root comparison whose recorded storage evidence was resolved once.
+///
+/// This applies `compare.storage-match` before classifying individual keys.
+/// Its observations must originate from the two already validated inputs.
+pub struct RootComparison {
+    correspondence: Correspondence,
+}
+
+impl RootComparison {
+    /// Resolves the two observed storage identities without looking up current OS state.
+    #[must_use]
+    pub fn new(before: Observation<'_>, after: Observation<'_>) -> Self {
+        Self {
+            correspondence: storage_match::compare(before, after),
+        }
+    }
+
+    /// Returns the pinned root-level correspondence used for each classification.
+    #[must_use]
+    pub fn correspondence(&self) -> Correspondence {
+        self.correspondence
+    }
+
+    /// Classifies a key only after applying the root's storage boundary.
+    ///
+    /// Different or unverifiable storage overrides narrower coverage evidence,
+    /// except that a known different-storage boundary has higher precedence.
+    #[must_use]
+    pub fn classify<'a>(
+        &self,
+        before: Option<Side<'a>>,
+        after: Option<Side<'a>>,
+        location: Location,
+        basis: &SizeBasis,
+    ) -> Option<Rows<'a>> {
+        let location = match (self.correspondence, location) {
+            (Correspondence::Different, _) | (_, Location::Incomparable(Gap::DifferentStorage)) => {
+                Location::Incomparable(Gap::DifferentStorage)
+            }
+            (Correspondence::Unverifiable, _) => Location::Incomparable(Gap::UnknownStorage),
+            (Correspondence::Same, location) => location,
+        };
+        classify(before, after, location, basis)
+    }
 }
 
 /// Classifies a paired normalized key using the scope evidence supplied by the caller.

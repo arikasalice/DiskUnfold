@@ -137,3 +137,125 @@ fn signed_delta_covers_the_full_byte_size_range() -> Result<(), &'static str> {
     );
     Ok(())
 }
+
+#[test]
+fn root_storage_decision_controls_existing_change_classification() -> Result<(), &'static str> {
+    use crate::storage_match::{Capability, Correspondence, Observation};
+    let observed = |kind, value| Observation {
+        capability: Capability::Supported,
+        kind: Some(kind),
+        value: Some(value),
+    };
+    let exact = exact_size(10);
+    let before = file(1, &exact);
+    let same = RootComparison::new(observed(b"volume", b"a"), observed(b"volume", b"a"));
+    assert_eq!(same.correspondence(), Correspondence::Same);
+    let Some(Rows::One(removed)) = same.classify(Some(before), None, OBSERVED, &SizeBasis::Logical)
+    else {
+        return Err("expected removal");
+    };
+    assert_eq!(
+        (removed.change, removed.delta),
+        (Change::Removed, Some(-10))
+    );
+    let Some(Rows::One(unverified)) = same.classify(
+        Some(before),
+        None,
+        Location::Comparable {
+            after_gap: Some(Gap::AccessDenied),
+        },
+        &SizeBasis::Logical,
+    ) else {
+        return Err("expected unverified row");
+    };
+    assert_eq!(
+        (unverified.change, unverified.delta),
+        (Change::Unverified(Gap::AccessDenied), None)
+    );
+    for (later, expected) in [
+        (observed(b"volume", b"b"), Gap::DifferentStorage),
+        (observed(b"other-kind", b"a"), Gap::UnknownStorage),
+        (
+            Observation {
+                capability: Capability::Partial,
+                kind: Some(b"volume"),
+                value: Some(b"a"),
+            },
+            Gap::UnknownStorage,
+        ),
+        (
+            Observation {
+                capability: Capability::Supported,
+                kind: None,
+                value: None,
+            },
+            Gap::UnknownStorage,
+        ),
+    ] {
+        let comparison = RootComparison::new(observed(b"volume", b"a"), later);
+        let Some(Rows::One(row)) =
+            comparison.classify(Some(before), None, OBSERVED, &SizeBasis::Logical)
+        else {
+            return Err("expected incomparable row");
+        };
+        assert_eq!(
+            (row.change, row.delta, row.before),
+            (Change::Incomparable(expected), None, Some(before))
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn storage_rejection_takes_precedence_over_item_and_range_evidence() -> Result<(), &'static str> {
+    use crate::storage_match::{Capability, Observation};
+    let left = Observation {
+        capability: Capability::Supported,
+        kind: Some(b"id"),
+        value: Some(b"a"),
+    };
+    let other = Observation {
+        value: Some(b"b"),
+        ..left
+    };
+    let unknown = Observation {
+        capability: Capability::Unavailable,
+        ..left
+    };
+    let exact = exact_size(9);
+    let file = file(1, &exact);
+    let folder = Side {
+        item_no: 2,
+        kind: ResultItemKind::Directory,
+        size: Some(&exact),
+    };
+    for (comparison, location, expected) in [
+        (
+            RootComparison::new(left, other),
+            Location::Incomparable(Gap::Excluded),
+            Gap::DifferentStorage,
+        ),
+        (
+            RootComparison::new(left, unknown),
+            Location::Incomparable(Gap::AccessDenied),
+            Gap::UnknownStorage,
+        ),
+        (
+            RootComparison::new(left, unknown),
+            Location::Incomparable(Gap::DifferentStorage),
+            Gap::DifferentStorage,
+        ),
+    ] {
+        let Some(Rows::One(row)) =
+            comparison.classify(Some(file), Some(folder), location, &SizeBasis::Logical)
+        else {
+            return Err("expected one incomparable row");
+        };
+        assert_eq!(row.change, Change::Incomparable(expected));
+        assert_eq!(
+            (row.before, row.after, row.delta),
+            (Some(file), Some(folder), None)
+        );
+    }
+    Ok(())
+}
