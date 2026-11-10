@@ -16,7 +16,9 @@ use du_core_contracts::visualization::geometry::{Geometry, Point};
 use du_core_contracts::visualization::locate::{VizLocate, VizLocateRequest};
 use du_core_contracts::visualization::model::{ShapeMeta, VizRelationship};
 use du_core_contracts::visualization::quantity::{VizAmount, VizDecimal, VizQuantity};
-use du_core_contracts::visualization::render::{VizColorMode, VizFallback, VizLabelMode};
+use du_core_contracts::visualization::render::{
+    VizColorMode, VizFallback, VizLabelMode, VizRenderNonModelResponse,
+};
 use du_core_contracts::visualization::rows::{
     VizDenominator, VizDenominatorBasis, VizRatio, VizRow, VizRows, VizRowsRequest,
 };
@@ -72,6 +74,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         VizAmount::decl(&config),
         VizQuantity::decl(&config),
         VizFallback::decl(&config),
+        VizRenderNonModelResponse::decl(&config),
         VizColorMode::decl(&config),
         VizLabelMode::decl(&config),
         Point::decl(&config),

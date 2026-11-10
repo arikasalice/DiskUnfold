@@ -113,6 +113,7 @@ export type VizDecimal = string;
 export type VizAmount = { "state": "exact", value: VizDecimal, } | { "state": "lower_bound", value: VizDecimal, } | { "state": "unknown", reasonKey: string, };
 export type VizQuantity = { unit: string, } & ({ "state": "exact", value: VizDecimal, } | { "state": "lower_bound", value: VizDecimal, } | { "state": "unknown", reasonKey: string, });
 export type VizFallback = { modelRef: string, resultRevision: Id, };
+export type VizRenderNonModelResponse = { "kind": "job", requestSeq: number, resultRevision: Id, observedAt: Timestamp | null, completeness: ResultCompleteness, jobRef: Id, } | { "kind": "unavailable", requestSeq: number, resultRevision: Id, observedAt: Timestamp | null, completeness: ResultCompleteness, reasonKey: string, availableFormats: Array<string>, fallback: VizFallback | null, };
 export type VizColorMode = "parent_folder" | "classification" | "monochrome";
 export type VizLabelMode = "name_size" | "name_only";
 export type VizPoint = { x: number, y: number, };
