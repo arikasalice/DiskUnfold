@@ -9,7 +9,7 @@ mod replay;
 
 use du_scan_engine::watch_coalescer::{Batch, Gap};
 use du_scan_engine::watch_lifecycle::{Definition, Snapshot, State};
-use replay::{Record, Window};
+use replay::Window;
 use std::collections::BTreeMap;
 
 /// An ephemeral request to the future atomic freshness-ledger adapter.
@@ -177,11 +177,14 @@ impl Ledger {
         }
         unit.gaps = next;
         unit.volume_unverifiable |= mismatch;
+        if mismatch || batch.context.generation != unit.generation {
+            unit.state = None;
+        }
         unit.generation = batch.context.generation;
         unit.last_change_sequence = batch.change_sequence;
         unit.last_batch_end = Some(batch.interval_end);
         if !mismatch {
-            self.window.push(Record::from_batch(batch));
+            self.window.push_batch(batch);
         }
         Ok(if mismatch {
             Outcome::VolumeReplaced

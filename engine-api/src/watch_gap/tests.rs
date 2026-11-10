@@ -1,5 +1,5 @@
 #![allow(clippy::unwrap_used)] // Test fixtures fail immediately when setup is invalid.
-use super::*;
+use super::{replay::Record, *};
 use du_scan_engine::watch_coalescer::{Change, ChangeKind, Context, GapReason, Trust};
 use std::collections::BTreeSet;
 
@@ -175,18 +175,17 @@ fn byte_limit_exact_overflow_and_single_oversize_are_bounded() {
         path: Some(vec![vec![]]),
         ..gap(1)
     });
-    let base = Record::from_batch(&b).bytes().unwrap();
+    let base = Record::estimated_bytes(&b).unwrap();
     b.gaps[0].path.as_mut().unwrap()[0].resize(MAX_BYTES - base, 7);
-    let exact = Record::from_batch(&b);
-    assert_eq!(exact.bytes(), Some(MAX_BYTES));
-    w.push(exact);
+    assert_eq!(Record::estimated_bytes(&b), Some(MAX_BYTES));
+    w.push_batch(&b);
     assert_eq!(w.bytes, MAX_BYTES);
     assert_eq!(w.records.len(), 1);
-    w.push(Record::from_batch(&batch(4, 1)));
+    w.push_batch(&batch(4, 1));
     assert_eq!(w.records.len(), 1);
     assert_eq!(w.records[0].unit, [4; 16]);
     b.gaps[0].path.as_mut().unwrap()[0].push(7);
-    w.push(Record::from_batch(&b));
+    w.push_batch(&b);
     assert_eq!(w.records.len(), 1);
     assert_eq!(w.records[0].unit, [4; 16]);
 }
@@ -303,6 +302,23 @@ fn volume_mismatch_does_not_send_change_ranges_to_sink() {
     assert_eq!(apply(&mut l, &b, &mut sink), Ok(Outcome::VolumeReplaced));
     assert!(sink.independent.is_empty());
     assert!(l.unit(&[3; 16]).unwrap().volume_unverifiable);
+}
+
+#[test]
+fn a_new_generation_does_not_inherit_snapshot_status() {
+    let mut ledger = ledger();
+    let mut sink = Sink::default();
+    assert_eq!(
+        snap(&mut ledger, &snapshot(3, 0, 0), &mut sink),
+        Ok(Outcome::Applied)
+    );
+    assert_eq!(ledger.unit(&[3; 16]).unwrap().state, Some(State::Active));
+    let mut newer = batch(3, 1);
+    newer.context.generation = 2;
+    assert_eq!(apply(&mut ledger, &newer, &mut sink), Ok(Outcome::Applied));
+    let unit = ledger.unit(&[3; 16]).unwrap();
+    assert_eq!(unit.generation, 2);
+    assert_eq!(unit.state, None);
 }
 
 #[test]

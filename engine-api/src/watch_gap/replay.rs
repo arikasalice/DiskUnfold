@@ -14,9 +14,10 @@ pub(super) struct Record {
     pub end: u64,
     pub gaps: Vec<Gap>,
     pub replaced: Vec<u64>,
+    bytes: usize,
 }
 impl Record {
-    pub fn from_batch(b: &Batch) -> Self {
+    fn from_batch(b: &Batch, bytes: usize) -> Self {
         Self {
             unit: b.context.watch_ref,
             sequence: b.change_sequence,
@@ -24,13 +25,14 @@ impl Record {
             end: b.interval_end,
             gaps: b.gaps.clone(),
             replaced: b.replaced_gap_ids.clone(),
+            bytes,
         }
     }
-    pub fn bytes(&self) -> Option<usize> {
+    pub fn estimated_bytes(b: &Batch) -> Option<usize> {
         let mut total = size_of::<Self>()
-            .checked_add(self.gaps.len().checked_mul(size_of::<Gap>())?)?
-            .checked_add(self.replaced.len().checked_mul(size_of::<u64>())?)?;
-        for gap in &self.gaps {
+            .checked_add(b.gaps.len().checked_mul(size_of::<Gap>())?)?
+            .checked_add(b.replaced_gap_ids.len().checked_mul(size_of::<u64>())?)?;
+        for gap in &b.gaps {
             if let Some(path) = &gap.path {
                 total = total.checked_add(
                     path.len()
@@ -51,8 +53,9 @@ pub(super) struct Window {
     pub bytes: usize,
 }
 impl Window {
-    pub fn push(&mut self, record: Record) {
-        let Some(bytes) = record.bytes().filter(|&n| n <= MAX_BYTES) else {
+    /// Charges the borrowed batch before copying any replay payload.
+    pub fn push_batch(&mut self, batch: &Batch) {
+        let Some(bytes) = Record::estimated_bytes(batch).filter(|&n| n <= MAX_BYTES) else {
             return;
         };
         while self.records.len() >= MAX_RECORDS
@@ -61,15 +64,15 @@ impl Window {
             self.pop();
         }
         self.bytes += bytes;
-        self.records.push_back(record);
+        self.records.push_back(Record::from_batch(batch, bytes));
     }
     fn pop(&mut self) {
         if let Some(old) = self.records.pop_front() {
-            self.bytes -= old.bytes().unwrap_or(self.bytes);
+            self.bytes -= old.bytes;
         }
     }
     pub fn remove_unit_through(&mut self, unit: [u8; 16], cut: u64) {
         self.records.retain(|r| r.unit != unit || r.sequence > cut);
-        self.bytes = self.records.iter().filter_map(Record::bytes).sum();
+        self.bytes = self.records.iter().map(|record| record.bytes).sum();
     }
 }
