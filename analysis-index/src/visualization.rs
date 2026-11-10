@@ -5,6 +5,7 @@
 pub mod bar;
 pub mod geometry;
 pub mod histogram;
+pub mod model_links;
 pub mod registry;
 pub mod sankey;
 pub mod squarify;
