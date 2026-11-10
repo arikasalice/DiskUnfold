@@ -54,8 +54,9 @@ fn project(
     let display_name = match detail.item.parent {
         None => display_path.clone(),
         Some(_) => version
-            .observed_root()
-            .and_then(|root| display(&root.path.encoding, &detail.item.name)),
+            .observed_root_for(&request.item)
+            .ok()
+            .and_then(|(_, root)| display(&root.path.encoding, &detail.item.name)),
     };
     let kind = match detail.item.kind {
         ResultItemKind::Unknown | ResultItemKind::UnknownStructure => unknown("ref.unavailable"),
@@ -78,6 +79,9 @@ fn project(
         observation_only: true,
     })
 }
+
+#[cfg(test)]
+mod tests;
 
 fn reason(error: QueryError) -> EngineError {
     EngineError::reason(match error {
