@@ -3,7 +3,7 @@
 //! The session composition supplies the key. This module has no random fallback
 //! or IPC registration.
 mod condition;
-mod context;
+pub(super) mod context;
 pub use condition::CanonicalCondition;
 use std::sync::Arc;
 

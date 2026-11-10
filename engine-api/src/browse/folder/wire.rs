@@ -2,9 +2,8 @@
 
 use du_analysis_index::query::page::Total;
 use du_core_contracts::browse_page_ipc::{
-    BrowseBreadcrumb, BrowseOpenResponse, BrowseRootKind, FolderFlags, FolderQueryPage,
-    FolderQueryRow, FolderRowKind, QueryPage, QueryPageResponse, QueryStrategy, QueryTotal,
-    ResultOrigin,
+    BrowseContext, BrowseOpenResponse, FolderFlags, FolderQueryPage, FolderQueryRow, FolderRowKind,
+    QueryPage, QueryPageResponse, QueryTotal, ResultOrigin,
 };
 
 use super::{FolderPage, LiveOpen, Row, cursor::CursorPage};
@@ -17,41 +16,33 @@ impl LiveOpen {
     /// Converts the first page using the origin of the source pinned at admission.
     pub fn into_response(self, origin: ResultOrigin) -> Result<BrowseOpenResponse, EngineError> {
         let opened = self.page.opened;
-        let root_kind = match (opened.location.is_some(), opened.breadcrumbs.len()) {
-            (false, 0) => BrowseRootKind::VirtualRoot,
-            (true, 1) => BrowseRootKind::ScopeRoot,
-            (true, 2..) => BrowseRootKind::Folder,
-            _ => return Err(internal()),
-        };
+        let BrowseContext {
+            origin,
+            location,
+            breadcrumbs,
+            root_kind,
+            current_correspondence,
+            sort_strategies,
+            predicate_strategies,
+        } = super::cursor::context::project_context(
+            origin,
+            opened.location,
+            opened.breadcrumbs,
+            &opened.sort_strategies,
+            &opened.predicate_strategies,
+        )
+        .map_err(|_| internal())?;
         let page = folder_page(opened.page, self.page.next_cursor)?;
         Ok(BrowseOpenResponse::Opened {
             request_seq: self.request_seq,
             origin,
-            location: opened.location,
-            breadcrumbs: opened
-                .breadcrumbs
-                .into_iter()
-                .map(|crumb| BrowseBreadcrumb {
-                    item: crumb.item,
-                    display_name: field(crumb.display_name, "ref.unavailable"),
-                })
-                .collect(),
+            location,
+            breadcrumbs,
             root_kind,
-            current_correspondence: false,
+            current_correspondence,
             page: Box::new(page),
-            sort_strategies: opened
-                .sort_strategies
-                .into_iter()
-                .map(|strategy| QueryStrategy {
-                    id: strategy.id,
-                    revision: strategy.revision,
-                })
-                .collect(),
-            predicate_strategies: opened
-                .predicate_strategies
-                .into_iter()
-                .map(|(id, revision)| QueryStrategy { id, revision })
-                .collect(),
+            sort_strategies,
+            predicate_strategies,
         })
     }
 }

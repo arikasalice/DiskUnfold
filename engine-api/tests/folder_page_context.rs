@@ -82,6 +82,7 @@ fn forest_top_pages_only_real_roots_and_opens_each_root_independently() -> Resul
     assert_eq!(top.page.rows[0].display_name.as_deref(), Some("/a"));
     assert_eq!(top.page.rows[0].item.item_no, 1);
     check_virtual_context(&session, &top)?;
+    compare_open_and_page_context(&session, request(None))?;
     let cursor = first.next_cursor.ok_or("missing forest cursor")?;
     check_continuation_context(&session, &cursor)?;
     let next = session
@@ -93,6 +94,7 @@ fn forest_top_pages_only_real_roots_and_opens_each_root_independently() -> Resul
 
     let a = open(&api, request(Some(top.page.rows[0].item.clone())))?;
     check_root_context(&session, &a)?;
+    compare_open_and_page_context(&session, request(a.location.clone()))?;
     assert_eq!(a.location.as_ref(), Some(&top.page.rows[0].item));
     assert_eq!(a.breadcrumbs[0].display_name.as_deref(), Some("/a"));
     assert_eq!(a.page.rows[0].display_name.as_deref(), Some("a-child"));
@@ -104,6 +106,44 @@ fn forest_top_pages_only_real_roots_and_opens_each_root_independently() -> Resul
         open(&api, request(None))?.page.query_ref,
         top.page.query_ref
     );
+    Ok(())
+}
+
+fn compare_open_and_page_context(session: &Session, request: OpenRequest) -> Result<(), String> {
+    use du_core_contracts::browse_page_ipc::ResultOrigin;
+    use du_engine_api::browse::folder::LiveOpen;
+    let opened = session
+        .open(request, &[], || false)
+        .map_err(|e| format!("{e:?}"))?;
+    let page = session
+        .page_at(
+            &opened.opened.page.query_ref,
+            &opened.opened.page.result_version,
+            0,
+            Some(1),
+        )
+        .map_err(|e| format!("{e:?}"))?
+        .into_response()
+        .map_err(|e| format!("{e:?}"))?;
+    let page = serde_json::to_value(page).map_err(|e| e.to_string())?;
+    let open = LiveOpen {
+        request_seq: 7,
+        page: opened,
+    }
+    .into_response(ResultOrigin("scan".into()))
+    .map_err(|e| format!("{e:?}"))?;
+    let open = serde_json::to_value(open).map_err(|e| e.to_string())?;
+    for key in [
+        "origin",
+        "location",
+        "breadcrumbs",
+        "rootKind",
+        "currentCorrespondence",
+        "sortStrategies",
+        "predicateStrategies",
+    ] {
+        assert_eq!(page["browseContext"][key], open[key], "{key}");
+    }
     Ok(())
 }
 
