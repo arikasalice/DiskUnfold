@@ -2,6 +2,7 @@
 
 pub mod folder;
 pub mod range;
+pub mod summary;
 pub mod tree;
 
 use crate::storage_match::{self, Correspondence, Observation};
