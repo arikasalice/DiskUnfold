@@ -9,9 +9,6 @@ use std::{
     path::Path,
 };
 
-#[path = "windows_observation/root_time.rs"]
-mod root_time;
-
 fn name(value: &str) -> Vec<u8> {
     value.encode_utf16().flat_map(u16::to_le_bytes).collect()
 }

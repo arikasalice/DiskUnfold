@@ -1,4 +1,7 @@
-use super::*;
+#![cfg(windows)]
+use du_core_contracts::scan_observation::AnchoredDirectory;
+use du_platform_os::windows_observation::open_verified;
+use std::fs;
 
 #[test]
 fn root_last_write_comes_from_the_verified_directory_handle()
