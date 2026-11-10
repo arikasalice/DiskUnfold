@@ -196,6 +196,11 @@ pub enum JobFlowError {
 }
 /// One registered metadata I/O flow. Dropping it releases its permit.
 pub trait JobFlow: Send {
+    /// Waits at a completed unit boundary; returns cancellation when the job is cancelled.
+    /// Call without holding queue locks, bounded sender permits, or other resources needed by other flows to reach their boundary.
+    fn safe_point(&self) -> Checkpoint {
+        Checkpoint::Continue
+    }
     fn report_item(&self, payload: &[u8]) -> Result<(), JobFlowError>;
     fn finish(self: Box<Self>, counts: JobCounts);
 }

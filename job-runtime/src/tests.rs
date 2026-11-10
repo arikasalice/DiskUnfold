@@ -355,3 +355,5 @@ mod lifecycle;
 mod multiflow;
 mod publication;
 mod race;
+
+mod pause;

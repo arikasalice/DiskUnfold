@@ -1,9 +1,11 @@
 //! Job registration, cooperative cancellation, and terminal handoff.
+mod control;
 mod delivery;
 mod flows;
 mod model;
 mod publication;
 mod shutdown;
+use control::final_state;
 use delivery::{consume, enqueue};
 #[cfg(test)]
 use du_core_contracts::job::{Checkpoint, HistoryAppend, JobBody, JobContext};
@@ -23,7 +25,7 @@ pub use model::{
 };
 pub use shutdown::{ShutdownStatus, ShutdownTicket};
 use std::sync::{
-    Arc, Mutex,
+    Arc, Condvar, Mutex,
     atomic::{AtomicBool, AtomicUsize, Ordering},
     mpsc,
 };
@@ -228,6 +230,9 @@ impl JobRuntime {
                 state: JobState::Queued,
                 sequence: 1,
                 cancel: Arc::new(Cancellation(AtomicBool::new(false))),
+                wake: Arc::new(Condvar::new()),
+                live_flows: 0,
+                paused_flows: 0,
                 started_at_ms: None,
                 summary: None,
                 order,
@@ -289,6 +294,7 @@ impl JobRuntime {
             return Ok((CancelResult::NoEffect(job.state), job.sequence));
         }
         job.cancel.0.store(true, Ordering::Release);
+        job.wake.notify_all();
         if job.state == JobState::Queued {
             job.state = JobState::CancelRequested;
             drop(table);
@@ -463,29 +469,6 @@ impl JobRuntime {
         receiver
             .recv()
             .map_err(|_| RuntimeError::DeliveryUnavailable)
-    }
-}
-
-fn final_state(job: &Entry, outcome: &JobOutcome) -> JobState {
-    if job.cancel.0.load(Ordering::Acquire) {
-        return JobState::Cancelled;
-    }
-    if outcome.completed_scope {
-        if job
-            .descriptor
-            .resource_classes
-            .contains(&ResourceClass::FileChange)
-            && outcome.counts.completed > 0
-            && (outcome.counts.failed > 0 || outcome.counts.skipped > 0)
-        {
-            return JobState::Partial;
-        }
-        return JobState::Done;
-    }
-    if outcome.counts.completed > 0 || outcome.counts.overwritten > 0 {
-        JobState::Partial
-    } else {
-        JobState::Failed
     }
 }
 

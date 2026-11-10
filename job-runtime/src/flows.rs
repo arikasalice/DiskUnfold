@@ -86,13 +86,16 @@ impl JobContext for Context {
         }
     }
     fn try_start_flow(&self) -> Result<Box<dyn JobFlow>, JobFlowError> {
-        let table = self
+        let mut table = self
             .table
             .lock()
             .map_err(|_| JobFlowError::DeliveryUnavailable)?;
-        let job = table.jobs.get(&self.id).ok_or(JobFlowError::Closed)?;
+        let job = table.jobs.get_mut(&self.id).ok_or(JobFlowError::Closed)?;
         if self.cancellation.0.load(Ordering::Acquire) {
             return Err(JobFlowError::Cancelled);
+        }
+        if matches!(job.state, JobState::PauseRequested | JobState::Paused) {
+            return Err(JobFlowError::Busy);
         }
         if job.state != JobState::Running {
             return Err(JobFlowError::Closed);
@@ -116,6 +119,7 @@ impl JobContext for Context {
         }
         reserve(&limits.active, limits.config.metadata_io)?;
         state.active += 1;
+        job.live_flows += 1;
         Ok(Box::new(Flow {
             id: self.id.clone(),
             table: self.table.clone(),
@@ -133,6 +137,44 @@ struct Flow {
     counts: Option<JobCounts>,
 }
 impl JobFlow for Flow {
+    fn safe_point(&self) -> Checkpoint {
+        let mut table = self
+            .table
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let Some(job) = table.jobs.get_mut(&self.id) else {
+            return Checkpoint::Cancel;
+        };
+        if job.cancel.0.load(Ordering::Acquire) {
+            return Checkpoint::Cancel;
+        }
+        if !matches!(job.state, JobState::PauseRequested | JobState::Paused) {
+            return Checkpoint::Continue;
+        }
+        job.paused_flows += 1;
+        let wake = job.wake.clone();
+        settle_pause(&mut table, &self.id);
+        loop {
+            let Some(job) = table.jobs.get(&self.id) else {
+                return Checkpoint::Cancel;
+            };
+            if job.cancel.0.load(Ordering::Acquire) || job.state == JobState::Running {
+                break;
+            }
+            table = wake
+                .wait(table)
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+        }
+        let Some(job) = table.jobs.get_mut(&self.id) else {
+            return Checkpoint::Cancel;
+        };
+        job.paused_flows -= 1;
+        if job.cancel.0.load(Ordering::Acquire) {
+            Checkpoint::Cancel
+        } else {
+            Checkpoint::Continue
+        }
+    }
     fn report_item(&self, payload: &[u8]) -> Result<(), JobFlowError> {
         if payload.len() > self.limits.config.item_bytes {
             return Err(JobFlowError::PayloadTooLarge);
@@ -174,6 +216,15 @@ impl Flow {
 }
 impl Drop for Flow {
     fn drop(&mut self) {
+        let mut table = self
+            .table
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(job) = table.jobs.get_mut(&self.id) {
+            job.live_flows -= 1;
+            settle_pause(&mut table, &self.id);
+        }
+        drop(table);
         let mut state = self
             .shared
             .state
@@ -203,4 +254,25 @@ fn add_counts(a: &mut JobCounts, b: &JobCounts) {
     a.failed = a.failed.saturating_add(b.failed);
     a.skipped = a.skipped.saturating_add(b.skipped);
     a.unprocessed = a.unprocessed.saturating_add(b.unprocessed);
+}
+
+/// Publishes suspension only after every currently registered flow has stopped.
+pub(crate) fn settle_pause(table: &mut Table, id: &Id) {
+    let Some(job) = table.jobs.get_mut(id) else {
+        return;
+    };
+    if job.state != JobState::PauseRequested || job.paused_flows != job.live_flows {
+        return;
+    }
+    job.state = JobState::Paused;
+    job.sequence += 1;
+    let sequence = job.sequence;
+    let _ = enqueue(
+        table,
+        Delivery::Event(JobEvent::StateChanged {
+            job_id: id.clone(),
+            state: JobState::Paused,
+            sequence,
+        }),
+    );
 }

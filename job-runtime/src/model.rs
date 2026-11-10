@@ -6,7 +6,7 @@ use du_core_contracts::{
 use std::{
     collections::HashMap,
     sync::{
-        Arc, Mutex,
+        Arc, Condvar, Mutex,
         atomic::{AtomicBool, AtomicUsize},
         mpsc,
     },
@@ -137,6 +137,9 @@ pub(crate) struct Entry {
     pub(crate) state: JobState,
     pub(crate) sequence: u64,
     pub(crate) cancel: Arc<Cancellation>,
+    pub(crate) wake: Arc<Condvar>,
+    pub(crate) live_flows: usize,
+    pub(crate) paused_flows: usize,
     pub(crate) started_at_ms: Option<i64>,
     pub(crate) summary: Option<JobSummary>,
     pub(crate) order: u64,
