@@ -108,6 +108,23 @@ struct Directory {
 }
 
 impl DirectoryObservations for Directory {
+    fn next_filtered(
+        &mut self,
+        decide: &mut dyn FnMut(&[u8]) -> du_core_contracts::scan_observation::FilterDecision,
+    ) -> Result<du_core_contracts::scan_observation::FilteredBatch, PortError> {
+        use du_core_contracts::scan_observation::{FilterDecision, FilteredBatch};
+        if self.release.is_none() {
+            return Ok(FilteredBatch::End);
+        }
+        match decide(&[b'f', 0]) {
+            FilterDecision::Admit => self.next_batch().map(FilteredBatch::Entries),
+            FilterDecision::Exclude => {
+                self.release.take();
+                Ok(FilteredBatch::Progress)
+            }
+            FilterDecision::Undecidable => Ok(FilteredBatch::Undecidable),
+        }
+    }
     fn next_batch(&mut self) -> Result<Vec<ObservedEntry>, PortError> {
         self.reads.fetch_add(1, Ordering::Relaxed);
         let Some(release) = self.release.take() else {
@@ -472,6 +489,7 @@ fn check_observed_details(
     Ok(())
 }
 
+mod exclusions;
 mod multiple;
 
 mod partial_status;

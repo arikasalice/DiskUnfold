@@ -29,6 +29,16 @@ pub(crate) fn register(
     roots: Arc<dyn ScopeRootPort>,
     ids: Arc<dyn JobIdentity>,
 ) -> Result<IngestSink, RuntimeError> {
+    register_with_comparison(builder, workers, roots, ids, None)
+}
+
+pub(crate) fn register_with_comparison(
+    builder: &mut EngineBuilder,
+    workers: Arc<Workers>,
+    roots: Arc<dyn ScopeRootPort>,
+    ids: Arc<dyn JobIdentity>,
+    comparison: Option<Arc<dyn scope::exclusion::PathComparison>>,
+) -> Result<IngestSink, RuntimeError> {
     workers
         .runtime
         .register(du_scan_engine::scan_job::descriptor())?;
@@ -41,6 +51,7 @@ pub(crate) fn register(
         workers,
         store: store.clone(),
         admitted: Mutex::new(None),
+        comparison,
     });
     Ok(store)
 }
@@ -59,6 +70,7 @@ struct StartScan {
     workers: Arc<Workers>,
     store: IngestSink,
     admitted: Mutex<Option<Admitted>>,
+    comparison: Option<Arc<dyn scope::exclusion::PathComparison>>,
 }
 
 /// Retains the review identity alongside the reusable receipt while a scan is active.
@@ -83,22 +95,29 @@ impl UseCase for StartScan {
         request: Self::Request,
         caller: &CallerCtx,
     ) -> Result<Self::Response, EngineError> {
-        let verified = scope::verify(&request.draft, &request.review_fingerprint, &*self.roots)?;
+        let verified = scope::verify(
+            &request.draft,
+            &request.review_fingerprint,
+            &*self.roots,
+            self.comparison.clone(),
+        )?;
         let scope_version = self.ids.next_id();
         let lineage = self
             .store
             .bind_current_analysis(&verified.scope_fingerprint, self.ids.next_id())
             .map_err(|_| internal())?;
         let root_count = verified.roots.len();
-        let body = Arc::new(
-            MetadataScan::new_roots(
-                verified.roots,
-                self.store.clone(),
-                scope_version.clone(),
-                self.ids.clone(),
-            )
-            .with_lineage(lineage.clone()),
-        );
+        let mut job = MetadataScan::new_roots(
+            verified.roots,
+            self.store.clone(),
+            scope_version.clone(),
+            self.ids.clone(),
+        )
+        .with_lineage(lineage.clone());
+        if let Some(filter) = verified.filter {
+            job = job.with_pre_metadata_filter(filter);
+        }
+        let body = Arc::new(job);
         let submission = Submission {
             kind_id: body.kind_id().into(),
             deduplication_key: Some(DeduplicationKey {

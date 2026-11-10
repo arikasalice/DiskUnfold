@@ -1,5 +1,6 @@
 //! Review a desktop scope using evidence obtained from the opened directory.
 mod digest;
+pub mod exclusion;
 pub mod preparation;
 
 use std::sync::Arc;
@@ -26,12 +27,31 @@ pub fn register_review(
     roots: Arc<dyn ScopeRootPort>,
     clock: Arc<dyn JobClock>,
 ) {
-    builder.register(Review { roots, clock });
+    builder.register(Review {
+        roots,
+        clock,
+        comparison: None,
+    });
+}
+
+/// Registers scope review with a verified path-comparison capability.
+pub fn register_review_with_comparison(
+    builder: &mut EngineBuilder,
+    roots: Arc<dyn ScopeRootPort>,
+    clock: Arc<dyn JobClock>,
+    comparison: Arc<dyn exclusion::PathComparison>,
+) {
+    builder.register(Review {
+        roots,
+        clock,
+        comparison: Some(comparison),
+    });
 }
 
 struct Review {
     roots: Arc<dyn ScopeRootPort>,
     clock: Arc<dyn JobClock>,
+    comparison: Option<Arc<dyn exclusion::PathComparison>>,
 }
 
 impl UseCase for Review {
@@ -41,7 +61,7 @@ impl UseCase for Review {
     type Response = ScopeReview;
 
     fn check_scope(&self, request: &Self::Request, _: &CallerCtx) -> Result<(), EngineError> {
-        validate(&request.draft)
+        validate(&request.draft, self.comparison.is_some())
     }
 
     fn execute(
@@ -50,7 +70,18 @@ impl UseCase for Review {
         _: &CallerCtx,
     ) -> Result<Self::Response, EngineError> {
         let mut draft = request.draft;
-        validate(&draft)?;
+        validate(&draft, self.comparison.is_some())?;
+        if !draft.exclusions.is_empty() {
+            return exclusion::review(
+                draft,
+                request.request_seq,
+                &*self.roots,
+                &*self.clock,
+                self.comparison
+                    .clone()
+                    .ok_or_else(|| EngineError::reason("scope.exclude_invalid"))?,
+            );
+        }
         let [single] = draft.includes.as_slice() else {
             return review_multiple(draft, request.request_seq, &*self.roots, &*self.clock);
         };
@@ -85,8 +116,16 @@ impl UseCase for Review {
     }
 }
 
-fn validate(draft: &ScopeDraft) -> Result<(), EngineError> {
-    if !draft.exclusions.is_empty() {
+fn validate(draft: &ScopeDraft, has_comparison: bool) -> Result<(), EngineError> {
+    if !draft.exclusions.is_empty()
+        && (!has_comparison
+            || draft.exclusions.iter().any(|rule| {
+                !matches!(
+                    rule,
+                    du_core_contracts::analysis_ipc::ScopeExclusion::Path { .. }
+                )
+            }))
+    {
         return Err(EngineError::reason("scope.exclude_invalid"));
     }
     if draft.includes.is_empty() {
@@ -208,6 +247,7 @@ pub(crate) fn windows_path(path: &OsPath) -> Result<OsPath, EngineError> {
 pub(crate) struct VerifiedScope {
     pub roots: Vec<OpenedScopeRoot>,
     pub scope_fingerprint: String,
+    pub filter: Option<Arc<du_scan_engine::scan::PreMetadataFilter<'static>>>,
 }
 
 /// Revalidates the review against fresh handle evidence before starting work.
@@ -215,8 +255,17 @@ pub(crate) fn verify(
     draft: &ScopeDraft,
     expected: &str,
     roots: &dyn ScopeRootPort,
+    comparison: Option<Arc<dyn exclusion::PathComparison>>,
 ) -> Result<VerifiedScope, EngineError> {
-    validate(draft)?;
+    validate(draft, comparison.is_some())?;
+    if !draft.exclusions.is_empty() {
+        return exclusion::verify(
+            draft,
+            expected,
+            roots,
+            comparison.ok_or_else(|| EngineError::reason("scope.exclude_invalid"))?,
+        );
+    }
     let [single] = draft.includes.as_slice() else {
         let prepared =
             preparation::prepare(draft, roots, &preparation::RawRootEvidence).map_err(|error| {
@@ -232,6 +281,7 @@ pub(crate) fn verify(
         return Ok(VerifiedScope {
             roots: prepared.into_roots(),
             scope_fingerprint: scope.to_hex().to_string(),
+            filter: None,
         });
     };
     let path = windows_path(single)?;
@@ -252,6 +302,7 @@ pub(crate) fn verify(
     Ok(VerifiedScope {
         roots: vec![root],
         scope_fingerprint: scope_fingerprint.to_hex().to_string(),
+        filter: None,
     })
 }
 
