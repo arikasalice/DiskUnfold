@@ -3,6 +3,8 @@
 
 use std::collections::BTreeMap;
 
+pub mod recent;
+
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Path {
     /// Only an observed, confirmed volume identity belongs here.
