@@ -155,7 +155,8 @@ pub fn validate_items_and_gaps_in_sealed<S: SealedSpool, W: StagingSink>(
 }
 
 /// Validate Volume, Item and Gap bodies using metadata from the same sealed copy.
-/// The returned sink is staged only; all other metadata and publication checks remain.
+/// The v1 format, snapshot identity, and source identity and time fields are
+/// checked before staging. Other metadata and publication checks remain.
 /// Any error or cancellation discards the staging sink.
 pub fn validate_records_in_sealed<S: SealedSpool, W: StagingSink>(
     spool: &mut VerifiedSpool<S>,

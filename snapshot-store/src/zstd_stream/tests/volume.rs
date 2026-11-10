@@ -48,8 +48,7 @@ fn input(
 }
 #[test]
 fn sealed_volume_semantics_and_discard() -> Result<(), String> {
-    let metadata =
-        r#"{"pathEncoding":"bytes","source":{"scopeRoots":["Lw"]},"volume":{"recordKind":1}}"#;
+    let metadata = r#"{"formatId":"dusnap","formatVersion":1,"snapshotId":"018f0000-0000-7000-8000-000000000001","createdAt":"2026-11-10T00:00:00.000Z","appVersion":"0.1.0","pathEncoding":"bytes","source":{"resultVersionId":"018f0000-0000-7000-8000-000000000002","scopeVersionId":null,"lineageId":null,"observedAt":null,"scopeRoots":["Lw"]},"volume":{"recordKind":1}}"#;
     let volume = [1, 1, 0, 0, 0, 255, 255, 1, 0, 0, 0];
     let mut spool = input(&volume, Some((0, Kind::Folder, b"@")), metadata)?;
     validate_records_in_sealed(&mut spool, Stage::default(), || false)
@@ -69,7 +68,7 @@ fn sealed_volume_semantics_and_discard() -> Result<(), String> {
         (
             &volume[..],
             Some((0, Kind::Folder, b"@".as_slice())),
-            r#"{"pathEncoding":"bytes","source":{"scopeRoots":["Lw"]},"volume":{"recordKind":2}}"#,
+            r#"{"formatId":"dusnap","formatVersion":1,"snapshotId":"018f0000-0000-7000-8000-000000000001","createdAt":"2026-11-10T00:00:00.000Z","appVersion":"0.1.0","pathEncoding":"bytes","source":{"resultVersionId":"018f0000-0000-7000-8000-000000000002","scopeVersionId":null,"lineageId":null,"observedAt":null,"scopeRoots":["Lw"]},"volume":{"recordKind":2}}"#,
         ),
         (&volume[..volume.len() - 1], None, metadata),
     ] {
@@ -84,8 +83,8 @@ fn sealed_volume_semantics_and_discard() -> Result<(), String> {
 #[test]
 fn duplicate_volume_descriptor_keys_are_rejected_before_staging() -> Result<(), String> {
     for metadata in [
-        r#"{"pathEncoding":"bytes","source":{"scopeRoots":[]},"volume":{"recordKind":2},"volume":{"recordKind":1}}"#,
-        r#"{"pathEncoding":"bytes","source":{"scopeRoots":[]},"volume":{"recordKind":2,"recordKind":1}}"#,
+        r#"{"formatId":"dusnap","formatVersion":1,"snapshotId":"018f0000-0000-7000-8000-000000000001","createdAt":"2026-11-10T00:00:00.000Z","appVersion":"0.1.0","pathEncoding":"bytes","source":{"resultVersionId":"018f0000-0000-7000-8000-000000000002","scopeVersionId":null,"lineageId":null,"observedAt":null,"scopeRoots":[]},"volume":{"recordKind":2},"volume":{"recordKind":1}}"#,
+        r#"{"formatId":"dusnap","formatVersion":1,"snapshotId":"018f0000-0000-7000-8000-000000000001","createdAt":"2026-11-10T00:00:00.000Z","appVersion":"0.1.0","pathEncoding":"bytes","source":{"resultVersionId":"018f0000-0000-7000-8000-000000000002","scopeVersionId":null,"lineageId":null,"observedAt":null,"scopeRoots":[]},"volume":{"recordKind":2,"recordKind":1}}"#,
     ] {
         let mut spool = input(&[1, 0, 0, 0, 0], None, metadata)?;
         let stage = Stage::default();
@@ -101,7 +100,7 @@ fn duplicate_volume_descriptor_keys_are_rejected_before_staging() -> Result<(), 
 
 #[test]
 fn volume_rejects_duplicate_and_invalid_links_with_valid_envelope_hash() -> Result<(), String> {
-    let metadata = r#"{"pathEncoding":"bytes","source":{"scopeRoots":["Lw","L2E"]},"volume":{"recordKind":1}}"#;
+    let metadata = r#"{"formatId":"dusnap","formatVersion":1,"snapshotId":"018f0000-0000-7000-8000-000000000001","createdAt":"2026-11-10T00:00:00.000Z","appVersion":"0.1.0","pathEncoding":"bytes","source":{"resultVersionId":"018f0000-0000-7000-8000-000000000002","scopeVersionId":null,"lineageId":null,"observedAt":null,"scopeRoots":["Lw","L2E"]},"volume":{"recordKind":1}}"#;
     let cases: &[&[u8]] = &[
         &[1, 2, 0, 0, 0, 255, 255, 1, 0, 0, 0, 255, 255, 1, 0, 0, 0], // duplicate item
         &[1, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 0, 0, 0, 0],     // volume out of range
@@ -128,7 +127,7 @@ fn volume_rejects_duplicate_and_invalid_links_with_valid_envelope_hash() -> Resu
 }
 #[test]
 fn cancelled_semantic_validation_discards_stage() -> Result<(), String> {
-    let meta = r#"{"pathEncoding":"bytes","source":{"scopeRoots":[]},"volume":{"recordKind":1}}"#;
+    let meta = r#"{"formatId":"dusnap","formatVersion":1,"snapshotId":"018f0000-0000-7000-8000-000000000001","createdAt":"2026-11-10T00:00:00.000Z","appVersion":"0.1.0","pathEncoding":"bytes","source":{"resultVersionId":"018f0000-0000-7000-8000-000000000002","scopeVersionId":null,"lineageId":null,"observedAt":null,"scopeRoots":[]},"volume":{"recordKind":1}}"#;
     let mut spool = input(&[1, 0, 0, 0, 0], None, meta)?;
     let stage = Stage::default();
     let discarded = stage.discarded.clone();
@@ -139,17 +138,20 @@ fn cancelled_semantic_validation_discards_stage() -> Result<(), String> {
     assert_eq!(discarded.load(Ordering::SeqCst), 1);
     Ok(())
 }
-// These fixtures include every metadata meaning named by architecture DLD 1387.
-// Only scopeRoots, pathEncoding, volume.recordKind, and the outer fields have
-// published spellings here. The other source keys and values are illustrative:
-// the published section does not specify their complete JSON schema. The test
-// metadata callback accepts them and does not validate those fields. This is
-// evidence for the envelope/record checks, not full metadata conformance.
-const SOURCE_EXAMPLE: &str = r#"{"resultVersion":"018f0000-0000-7000-8000-000000000002","lineage":"018f0000-0000-7000-8000-000000000003","observedAt":"2026-11-10T00:00:00.000Z","scopeMarker":"example","conditions":{},"completeness":"complete","algorithms":[],"pathRule":{"example":"unknown"}}"#;
+// Condition summary semantics and catalog extensions remain outside this check.
+const SOURCE_EXAMPLE: &str = r#"{"resultVersionId":"018f0000-0000-7000-8000-000000000002","scopeVersionId":null,"lineageId":null,"observedAt":null,"scopeMarker":null,"conditionSummary":{"state":"unknown"},"completeness":null,"algorithms":{"state":"unknown"},"pathRules":[]}"#;
 fn example_metadata(roots: &[&str]) -> Result<String, String> {
     let mut source: serde_json::Value =
         serde_json::from_str(SOURCE_EXAMPLE).map_err(|e| e.to_string())?;
     source["scopeRoots"] = serde_json::json!(roots);
+    source["pathRules"] = serde_json::json!(
+        roots
+            .iter()
+            .map(|_| serde_json::json!({
+                "separator":"/", "caseSensitivity":null, "normalization":null
+            }))
+            .collect::<Vec<_>>()
+    );
     Ok(serde_json::json!({
         "formatId":"dusnap", "formatVersion":1,
         "snapshotId":"018f0000-0000-7000-8000-000000000001",
@@ -157,6 +159,91 @@ fn example_metadata(roots: &[&str]) -> Result<String, String> {
         "source":source, "volume":{"recordKind":1}, "pathEncoding":"bytes"
     })
     .to_string())
+}
+
+#[test]
+fn sealed_identity_and_observation_metadata_are_checked_before_staging() -> Result<(), String> {
+    let valid: serde_json::Value =
+        serde_json::from_str(&example_metadata(&[])?).map_err(|e| e.to_string())?;
+    let mut cases = Vec::new();
+    for key in [
+        "formatId",
+        "formatVersion",
+        "snapshotId",
+        "createdAt",
+        "appVersion",
+    ] {
+        let mut value = valid.clone();
+        value.as_object_mut().ok_or("object")?.remove(key);
+        cases.push(value);
+    }
+    for key in [
+        "resultVersionId",
+        "scopeVersionId",
+        "lineageId",
+        "observedAt",
+    ] {
+        let mut value = valid.clone();
+        value["source"].as_object_mut().ok_or("source")?.remove(key);
+        cases.push(value);
+    }
+    for (key, bad) in [
+        ("resultVersionId", serde_json::json!(null)),
+        ("scopeVersionId", serde_json::json!("not-an-id")),
+        ("lineageId", serde_json::json!(42)),
+        ("observedAt", serde_json::json!("2026-02-30T00:00:00.000Z")),
+    ] {
+        let mut value = valid.clone();
+        value["source"][key] = bad;
+        cases.push(value);
+    }
+    for (key, bad) in [
+        ("formatId", serde_json::json!("other")),
+        ("formatVersion", serde_json::json!(1.0)),
+        (
+            "snapshotId",
+            serde_json::json!("018F0000-0000-7000-8000-000000000001"),
+        ),
+        ("createdAt", serde_json::json!("2026-11-10T00:00:00Z")),
+        ("appVersion", serde_json::json!("")),
+        ("label", serde_json::json!(null)),
+    ] {
+        let mut value = valid.clone();
+        value[key] = bad;
+        cases.push(value);
+    }
+    for metadata in cases {
+        let mut spool = input(&[1, 0, 0, 0, 0], None, &metadata.to_string())?;
+        let stage = Stage::default();
+        let discarded = stage.discarded.clone();
+        assert!(matches!(
+            validate_records_in_sealed(&mut spool, stage, || false),
+            Err(Error::Metadata)
+        ));
+        assert_eq!(discarded.load(Ordering::SeqCst), 1);
+    }
+    let mut spool = input(&[1, 0, 0, 0, 0], None, &valid.to_string())?;
+    validate_records_in_sealed(&mut spool, Stage::default(), || false)
+        .map_err(|e| format!("{e:?}"))?;
+    let mut known = valid.clone();
+    known["source"]["scopeVersionId"] = serde_json::json!("018f0000-0000-7000-8000-000000000004");
+    known["source"]["lineageId"] = serde_json::json!("018f0000-0000-7000-8000-000000000005");
+    known["source"]["observedAt"] = serde_json::json!("2026-11-10T00:00:00.000Z");
+    known["futureField"] = serde_json::json!({"future": true});
+    let mut spool = input(&[1, 0, 0, 0, 0], None, &known.to_string())?;
+    validate_records_in_sealed(&mut spool, Stage::default(), || false)
+        .map_err(|e| format!("{e:?}"))?;
+    let duplicate = valid.to_string().replacen(
+        "\"resultVersionId\":",
+        "\"resultVersionId\":null,\"resultVersionId\":",
+        1,
+    );
+    let mut spool = input(&[1, 0, 0, 0, 0], None, &duplicate)?;
+    assert!(matches!(
+        validate_records_in_sealed(&mut spool, Stage::default(), || false),
+        Err(Error::Metadata)
+    ));
+    Ok(())
 }
 #[test]
 fn canonical_vectors_open_as_full_envelopes() -> Result<(), String> {

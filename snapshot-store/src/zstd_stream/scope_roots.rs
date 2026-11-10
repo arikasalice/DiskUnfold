@@ -27,6 +27,7 @@ pub(super) fn parse(metadata: &str, require_volume: bool) -> Result<ScopeRoots, 
     unique::validate(metadata)?;
     if require_volume {
         volume_descriptor(&json)?;
+        stable_metadata(&json)?;
     }
     let encoding = match json.get("pathEncoding").and_then(Value::as_str) {
         Some("bytes") => NameEncoding::Bytes,
@@ -51,6 +52,49 @@ pub(super) fn parse(metadata: &str, require_volume: bool) -> Result<ScopeRoots, 
         roots.push(bytes);
     }
     Ok(ScopeRoots { encoding, roots })
+}
+
+// These checks cover the published identity and observation fields, not the
+// still-separate condition and publication contracts.
+fn stable_metadata(json: &Value) -> Result<(), ()> {
+    let object = json.as_object().ok_or(())?;
+    if object.get("formatId").and_then(Value::as_str) != Some("dusnap")
+        || object.get("formatVersion").and_then(Value::as_u64) != Some(1)
+        || !object
+            .get("appVersion")
+            .and_then(Value::as_str)
+            .is_some_and(|v| !v.is_empty())
+        || !valid_id(object.get("snapshotId"))
+        || !valid_time(object.get("createdAt"))
+        || object.get("label").is_some_and(|v| !v.is_string())
+    {
+        return Err(());
+    }
+    let source = object.get("source").and_then(Value::as_object).ok_or(())?;
+    if !valid_id(source.get("resultVersionId"))
+        || !nullable(source.get("scopeVersionId"), valid_id)
+        || !nullable(source.get("lineageId"), valid_id)
+        || !nullable(source.get("observedAt"), valid_time)
+    {
+        return Err(());
+    }
+    Ok(())
+}
+
+fn valid_id(value: Option<&Value>) -> bool {
+    value
+        .and_then(Value::as_str)
+        .is_some_and(|v| du_core_contracts::Id::parse(v).is_ok())
+}
+
+fn valid_time(value: Option<&Value>) -> bool {
+    value
+        .and_then(Value::as_str)
+        .is_some_and(|v| du_core_contracts::Timestamp::parse(v).is_ok())
+}
+
+fn nullable(value: Option<&Value>, valid: fn(Option<&Value>) -> bool) -> bool {
+    value.is_some_and(|v| v.is_null() || valid(Some(v)))
 }
 
 fn volume_descriptor(json: &Value) -> Result<(), ()> {
