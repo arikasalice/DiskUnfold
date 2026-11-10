@@ -44,6 +44,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     #[allow(unused_mut)]
     let mut builder = EngineBuilder::default();
     #[cfg(windows)]
+    settings.register_restore_status(&mut builder);
+    #[cfg(windows)]
     let events = du_engine_api::desktop::register_with_shared_table_limit(
         &mut builder,
         Arc::new(du_platform_os::windows_observation::WindowsScopeRoots),

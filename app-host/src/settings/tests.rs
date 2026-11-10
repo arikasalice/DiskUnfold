@@ -1,6 +1,11 @@
 use super::*;
 use du_app_db::AppDb;
 use du_core_contracts::settings::{SettingsChanges, SettingsCommit, SettingsSource, SettingsStore};
+use du_core_contracts::{CallEnvelope, ResultEnvelope};
+use du_engine_api::{
+    api::{CallerCtx, Channel, EngineBuilder, OutboundFilter},
+    error::EngineError,
+};
 use du_user_env::settings::SettingsError;
 use rusqlite::Connection;
 use serde_json::json;
@@ -186,6 +191,92 @@ fn seed(path: &Path, value: i64) -> Result<(), Box<dyn std::error::Error>> {
         context(),
     )
     .map_err(|e| format!("{e:?}"))?;
+    Ok(())
+}
+
+#[test]
+fn restore_status_is_immutable_value_free_and_only_available_to_the_gui()
+-> Result<(), Box<dyn std::error::Error>> {
+    struct AllowOutbound;
+    impl OutboundFilter for AllowOutbound {
+        fn filter(
+            &self,
+            _: &str,
+            _: &CallerCtx,
+            response: serde_json::Value,
+        ) -> Result<serde_json::Value, EngineError> {
+            Ok(response)
+        }
+    }
+
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("report.db");
+    seed(&path, 1)?;
+    let mut db = AppDb::open_or_create_gui(&path).map_err(|e| format!("{e:?}"))?;
+    db.commit(
+        1,
+        &SettingsChanges::from([(locale::DISPLAY_LANGUAGE_KEY.into(), Some(json!("ko")))]),
+        context(),
+    )
+    .map_err(|e| format!("{e:?}"))?;
+    drop(db);
+    let settings = StartupSettings::open(&test_database(&path)?, 100, &["en", "ko"])?;
+    let mut builder = EngineBuilder::default();
+    builder.with_outbound_filter(AllowOutbound);
+    settings.register_restore_status(&mut builder);
+    let engine = builder.build()?;
+    let mut envelope = json!({
+        "name": "settings.restore_status",
+        "contractVersion": 1,
+        "correlationId": "0195f856-ab83-7a59-9343-10d29775c9a9",
+        "body": {}
+    });
+    let gui = |envelope: &serde_json::Value| -> Result<ResultEnvelope, Box<dyn std::error::Error>> {
+        let request = json!({"command": "du_call", "args": {"envelope": envelope}});
+        let result = crate::ipc::dispatch(&engine, &request.to_string()).ok_or("missing reply")?;
+        Ok(serde_json::from_str(&result)?)
+    };
+    let result = gui(&envelope)?;
+    assert!(result.error.is_none());
+    assert_eq!(result, gui(&envelope)?);
+    assert_eq!(
+        result.body,
+        json!({
+            "items": [
+                {"key": "a11y.app_scale", "source": "default", "reasonKey": null},
+                {"key": "a11y.motion", "source": "default", "reasonKey": null},
+                {"key": "locale.date_format", "source": "default", "reasonKey": null},
+                {"key": "locale.display_language", "source": "restored", "reasonKey": null},
+                {"key": "locale.number_format", "source": "default", "reasonKey": null},
+                {"key": "locale.time_zone_policy", "source": "default", "reasonKey": null},
+                {"key": "scope.remember_recent", "source": "default", "reasonKey": null},
+                {"key": "space.shared_table_max_entries", "source": "default", "reasonKey": "settings.value_invalid"}
+            ],
+            "storedSchema": 1,
+            "appSchema": 1,
+            "migrated": false,
+            "writeLocked": false
+        })
+    );
+
+    let call: CallEnvelope = serde_json::from_value(envelope.clone())?;
+    for channel in [Channel::Cli, Channel::Mcp] {
+        let caller = CallerCtx::new(channel, call.correlation_id.clone(), None);
+        let rejected = engine.call(call.clone(), &caller);
+        assert!(rejected.body.is_null());
+        assert_eq!(
+            rejected.error.ok_or("missing error")?.reason_key,
+            "command.not_provided"
+        );
+    }
+
+    envelope["body"] = json!({"key": "space.shared_table_max_entries"});
+    let rejected = gui(&envelope)?;
+    assert!(rejected.body.is_null());
+    assert_eq!(
+        rejected.error.ok_or("missing error")?.reason_key,
+        "command.body_invalid"
+    );
     Ok(())
 }
 

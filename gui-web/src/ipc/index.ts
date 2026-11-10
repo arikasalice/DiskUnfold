@@ -34,6 +34,8 @@ import type {
   ScanFailuresRequest,
   ScanStart,
   ScanStartRequest,
+  SettingsRestoreRequest,
+  SettingsRestoreStatus,
   ScopeReview,
   ScopeReviewRequest,
   SpaceDetail,
@@ -86,6 +88,7 @@ export type {
   ScanFailures,
   ScanFailuresRequest,
   ScanStart,
+  SettingsRestoreStatus,
   ScopeDraft,
   ScopeReview,
   SpaceTotal,
@@ -114,6 +117,7 @@ type Commands = {
   "history.list": [HistoryListRequest, HistoryListResponse];
   "history.get": [HistoryDetailRequest, HistoryDetail];
   "history.items": [HistoryItemsRequest, HistoryItemsResponse];
+  "settings.restore_status": [SettingsRestoreRequest, SettingsRestoreStatus];
   "space.total": [SpaceTotalRequest, SpaceTotal];
   "space.detail": [SpaceDetailRequest, SpaceDetail];
   "space.volume_gap": [VolumeGapRequest, VolumeGapResponse];

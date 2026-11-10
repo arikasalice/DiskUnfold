@@ -5,6 +5,7 @@ import { AnalysisPanel } from "../features/analysis/AnalysisPanel";
 import { FileInspection } from "../features/analysis/FileInspection";
 import { BrowsePanel } from "../features/browse/BrowsePanel";
 import { HistoryPanel } from "../features/history/HistoryPanel";
+import { SettingsRestoration } from "../features/settings/SettingsRestoration";
 import { createAnalysisClient, hasWindowsAnalysisBridge } from "../ipc";
 import type { AnalysisClient } from "../ipc";
 import { createBrowsePort } from "./browse-port";
@@ -48,6 +49,7 @@ export function App({ analysis }: { analysis?: AnalysisClient } = {}) {
           <Heading level={1}>DiskUnfold</Heading>
         </div>
         <div className="du-app-header__actions">
+          {analysisOpen && <SettingsRestoration client={client} />}
           {client && !history && !browseVersion && (
             <Action
               variant="quiet"

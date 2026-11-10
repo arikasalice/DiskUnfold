@@ -9,6 +9,7 @@ param(
   [switch]$VerifySuspension,
   [switch]$VerifyPopulatedWorkspace,
   [switch]$VerifyPhysicalAccounting,
+  [switch]$VerifySettingsRestoration,
   [switch]$VerifyNativeFolderDrop
 )
 
@@ -345,6 +346,15 @@ try {
   }
   $null = Wait-UI 'path field' { Find-UI 'Windows folder path' $edit }
   $null = Wait-Enabled 'Start scan' $false
+  if ($VerifySettingsRestoration) {
+    Invoke-UI (Wait-VisibleAction 'Settings restoration')
+    $null = Wait-UI 'startup settings format' { Find-UI 'App format version' $null }
+    $null = Wait-UI 'startup settings defaults' { Find-UI 'Using default' $textType }
+    Invoke-UI (Wait-VisibleAction 'Close details')
+    $null = Wait-UI 'settings report closed' { -not (Find-UI 'App format version' $null) }
+    $null = Wait-VisibleAction 'Settings restoration'
+    'F14 native settings restoration: startup format and defaults visible, dialog closed'
+  }
   if ($VerifyNativeFolderDrop) { Test-NativeFolderDrop }
   if ($VerifySuspension) { Test-ScanSuspension $controlScope }
   if ($VerifyCancellation) { Test-ScanCancellation $controlScope }

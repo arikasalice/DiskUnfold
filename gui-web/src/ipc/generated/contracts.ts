@@ -1,3 +1,39 @@
+export type SettingsRestoreRequest = Record<symbol, never>;
+export type SettingsRestoreSource = "restored" | "default";
+export type SettingsRestoreItem = {
+/**
+ * Stable key of the registered setting.
+ */
+key: string,
+/**
+ * Source selected when restoring this setting.
+ */
+source: SettingsRestoreSource,
+/**
+ * Reason for falling back to a default, if a failure occurred.
+ */
+reasonKey: string | null, };
+export type SettingsRestoreStatus = {
+/**
+ * Restoration outcome for each registered setting.
+ */
+items: Array<SettingsRestoreItem>,
+/**
+ * Absent if the stored schema could not be read.
+ */
+storedSchema: number | null,
+/**
+ * Settings schema supported by this application.
+ */
+appSchema: number,
+/**
+ * Whether startup successfully migrated the stored settings.
+ */
+migrated: boolean,
+/**
+ * Whether the startup outcome disallows normal settings writes.
+ */
+writeLocked: boolean, };
 export type HistoryEndState = "done" | "partial" | "failed" | "cancelled" | "interrupted";
 export type HistoryRelation = "retry" | "restore" | "move_undo" | "effect_check";
 export type HistoryListFilter = { finishedFromMs: number | null, finishedBeforeMs: number | null, kinds: Array<string>, states: Array<HistoryEndState>, relations: Array<HistoryRelation>, };

@@ -7,6 +7,7 @@ use du_core_contracts::result_events::{
     PublishedCompleteness, ResultVersionChange, ResultVersionChanged,
 };
 use du_core_contracts::scan_failures::*;
+use du_core_contracts::settings_ipc::*;
 use du_core_contracts::size_units::{
     DISPLAY_DECIMAL_PLACES, IEC_UNITS, SI_UNITS, UNIT_TABLE_REVISION,
 };
@@ -31,6 +32,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     fs::create_dir_all(&dir)?;
     let config = ts_rs::Config::default();
     let declarations = [
+        SettingsRestoreRequest::decl(&config),
+        SettingsRestoreSource::decl(&config),
+        SettingsRestoreItem::decl(&config),
+        SettingsRestoreStatus::decl(&config),
         HistoryEndState::decl(&config),
         HistoryRelation::decl(&config),
         HistoryListFilter::decl(&config),

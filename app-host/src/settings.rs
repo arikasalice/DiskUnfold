@@ -15,6 +15,8 @@ use du_user_env::{
 
 use crate::shared_database::{SharedDatabase, SharedSettings};
 
+mod restore_ipc;
+
 /// Owns the restored service and immutable startup report for the desktop lifetime.
 pub(super) struct StartupSettings {
     service: Mutex<SettingsService<SharedSettings>>,

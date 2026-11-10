@@ -15,6 +15,7 @@ pub mod result_events;
 pub mod scan_failures;
 pub mod scan_observation;
 pub mod settings;
+pub mod settings_ipc;
 pub mod share;
 pub mod size_units;
 pub mod snapshot_spool;
