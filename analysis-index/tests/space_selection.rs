@@ -182,6 +182,7 @@ fn physical_capacity_and_cancellation_do_not_change_the_logical_observations() -
         .map_err(|error| format!("{error:?}"))?;
     assert_eq!(total.logical.amount, exact(40));
     assert_eq!(total.allocated.amount, SizeAmount::Unknown);
+    assert_eq!(total.unique_physical.amount, SizeAmount::Unknown);
     assert!(total.limitations.contains(&"space.dedup_capacity"));
     let mut checks = 0;
     assert_eq!(
