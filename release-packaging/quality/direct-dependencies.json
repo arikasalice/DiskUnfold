@@ -463,6 +463,28 @@
   },
   {
     "ecosystem": "cargo",
+    "owner": "du-share-policy",
+    "name": "serde_json",
+    "version": "1.0.154",
+    "source": "registry+https://github.com/rust-lang/crates.io-index",
+    "license": "MIT OR Apache-2.0",
+    "role": "runtime",
+    "distributed": false,
+    "reason": "Validate serialized fields before fixed exclusions in the internal sharing filter"
+  },
+  {
+    "ecosystem": "cargo",
+    "owner": "du-share-policy",
+    "name": "serde",
+    "version": "1.0.229",
+    "source": "registry+https://github.com/rust-lang/crates.io-index",
+    "license": "MIT OR Apache-2.0",
+    "role": "runtime",
+    "distributed": false,
+    "reason": "Serialize declared candidates and inspect JSON object keys before filtering"
+  },
+  {
+    "ecosystem": "cargo",
     "owner": "du-snapshot-store",
     "name": "blake3",
     "version": "1.8.3",

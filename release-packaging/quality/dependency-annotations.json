@@ -161,6 +161,18 @@
     "distributed": true,
     "reason": "Fingerprint settings reviews and compute and verify embedded language bundle digests"
   },
+  "cargo:du-share-policy:serde@1.0.229": {
+    "license": "MIT OR Apache-2.0",
+    "role": "runtime",
+    "distributed": false,
+    "reason": "Serialize declared candidates and inspect JSON object keys before filtering"
+  },
+  "cargo:du-share-policy:serde_json@1.0.154": {
+    "license": "MIT OR Apache-2.0",
+    "role": "runtime",
+    "distributed": false,
+    "reason": "Validate serialized fields before fixed exclusions in the internal sharing filter"
+  },
   "cargo:du-snapshot-store:blake3@1.8.3": {
     "license": "CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception",
     "role": "runtime",
