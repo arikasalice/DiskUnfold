@@ -2,6 +2,7 @@ use du_core_contracts::browse_open_ipc::*;
 use du_core_contracts::browse_page_ipc::*;
 use du_core_contracts::history_ipc::*;
 use du_core_contracts::query_page_ipc::*;
+use du_core_contracts::query_region_ipc::*;
 use du_core_contracts::result_events::{
     PublishedCompleteness, ResultVersionChange, ResultVersionChanged,
 };
@@ -169,6 +170,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         QueryPagePosition::decl(&config),
         QueryPageContinuation::decl(&config),
         QueryPageRequest::decl(&config),
+        QueryRegionKind::decl(&config),
+        QueryRegionOpenRequest::decl(&config),
+        QueryRegionOpened::decl(&config),
+        QueryRegionCloseRequest::decl(&config),
+        QueryRegionClosed::decl(&config),
+        QueryCancelTarget::decl(&config),
+        QueryCancelRequest::decl(&config),
+        QueryCancelOutcome::decl(&config),
+        QueryCancelled::decl(&config),
         SpaceDetailSize::decl(&config),
         SpaceLinkGroup::decl(&config),
         SpaceExclusiveDecision::decl(&config),

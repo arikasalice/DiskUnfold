@@ -209,6 +209,15 @@ export type BrowseDetail = { item: ItemRef, displayPath: BrowseValue<string>, di
 export type QueryPagePosition = { queryRef: Id, resultVersion: Id, start: number, count: number, };
 export type QueryPageContinuation = { nextCursor: string, count?: number | null, };
 export type QueryPageRequest = QueryPagePosition | QueryPageContinuation;
+export type QueryRegionKind = "search" | "browse_list" | "browse_tree_branch" | "workspace_classification";
+export type QueryRegionOpenRequest = { kind: QueryRegionKind, };
+export type QueryRegionOpened = { regionRef: Id, };
+export type QueryRegionCloseRequest = { regionRef: Id, };
+export type QueryRegionClosed = Record<string, never>;
+export type QueryCancelTarget = { "kind": "request", requestSeq: number, } | { "kind": "job", jobRef: Id, };
+export type QueryCancelRequest = { regionRef: Id, target: QueryCancelTarget, };
+export type QueryCancelOutcome = "accepted" | "no_effect" | "already_terminal";
+export type QueryCancelled = { outcome: QueryCancelOutcome, };
 export type SpaceDetailSize = { size: SizeValue, measurementLimits: Array<string>, };
 export type SpaceLinkGroup = {
 /**
