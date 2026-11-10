@@ -1,8 +1,7 @@
 //! Read-only F09 selection from one pinned scan result.
 //!
-//! The public entry point accepts only the single observed scan root, without
-//! request-supplied paths, item references, or additional exclusions. It does
-//! not authorize or open file content, or attest the absence of scan exclusions.
+//! Selection accepts item references resolved by the caller against the pinned
+//! scan. It does not open file content or authorize subsequent content reads.
 use du_analysis_index::{FileIdentity, IngestSink, QueryError, ResultVersion};
 use du_core_contracts::{
     Id, ItemRef, SizeAmount, SizeBasis, SizeEvidence, Timestamp,
@@ -12,12 +11,16 @@ use du_core_contracts::{
 };
 use std::sync::Arc;
 
-/// Scan-local roots and exclusions, resolved before calling this adapter.
-struct Scope<'a> {
-    version: &'a Id,
-    roots: &'a [ItemRef],
-    exclusions: &'a [ItemRef],
-    min_bytes: u64,
+/// A duplicate scope resolved to observed item references by a trusted caller.
+pub struct Scope<'a> {
+    /// The current scan result the caller used to resolve every reference.
+    pub version: &'a Id,
+    /// Observed directories whose descendants are eligible for selection.
+    pub roots: &'a [ItemRef],
+    /// Observed files or directories to omit, including their descendants.
+    pub exclusions: &'a [ItemRef],
+    /// Inclusive minimum logical byte size for an observed file.
+    pub min_bytes: u64,
 }
 
 /// Original observations, not proof of current identity or read permission.
@@ -40,8 +43,8 @@ pub struct Selected {
 pub struct Counts {
     /// Observed files outside the selected roots.
     pub outside: u64,
-    /// Observed files covered by a request exclusion. For the whole-scan entry
-    /// this is zero and does not describe exclusions from the original scan.
+    /// Observed files covered by a request exclusion within the selected roots.
+    /// This does not describe exclusions from the original scan.
     pub excluded: u64,
     /// Observed files below the minimum size.
     pub below_minimum: u64,
@@ -115,6 +118,42 @@ pub enum Error {
     Cancelled,
 }
 
+/// Selects files beneath resolved directories in one current scan result.
+///
+/// Selection follows parent links, so similar display names and raw path
+/// prefixes cannot expand the scope. Overlapping roots select each item once.
+/// This entry requires a complete source with verified root observations and
+/// returns historical evidence for later live identity checks.
+///
+/// # Errors
+/// Returns an error for cancellation, a missing or stale result, invalid or
+/// foreign references, or unavailable source evidence.
+pub fn select_scope(
+    source: &IngestSink,
+    scope: Scope<'_>,
+    mut cancelled: impl FnMut() -> bool,
+) -> Result<Selection, Error> {
+    if cancelled() {
+        return Err(Error::Cancelled);
+    }
+    let version = source.pin_current(scope.version).map_err(source_error)?;
+    verify_source(&version)?;
+    for (index, root) in version.scope_roots().iter().enumerate() {
+        if cancelled() {
+            return Err(Error::Cancelled);
+        }
+        verify_anchor(
+            &version,
+            &ItemRef {
+                result_version: version.version_id().clone(),
+                item_no: root.item_no,
+            },
+            index,
+        )?;
+    }
+    select_pinned(version, scope, &mut cancelled)
+}
+
 /// Selects observations beneath one scan-owned root, with no new exclusions.
 ///
 /// The caller must supply the application's trusted scan result store. The
@@ -132,27 +171,15 @@ pub fn select_whole_scan(
         return Err(Error::Cancelled);
     }
     let version = source.pin_current(expected).map_err(source_error)?;
-    if version.completeness() != ResultCompleteness::Complete
-        || !version.scope_gaps().is_empty()
-        || version.scope_roots().len() != 1
-        || version.observed_roots().len() != 1
-    {
+    verify_source(&version)?;
+    let [scope_root] = version.scope_roots() else {
         return Err(Error::Unavailable);
-    }
+    };
     let root = ItemRef {
         result_version: version.version_id().clone(),
-        item_no: version.scope_roots()[0].item_no,
+        item_no: scope_root.item_no,
     };
-    let (index, observed) = version
-        .observed_root_for(&root)
-        .map_err(|_| Error::Unavailable)?;
-    if index != 0
-        || observed.volume_id.is_empty()
-        || observed.file_id.is_empty()
-        || version.native_path(&root).is_err()
-    {
-        return Err(Error::Unavailable);
-    }
+    verify_anchor(&version, &root, 0)?;
     let roots = [root];
     select_pinned(
         version,
@@ -164,6 +191,30 @@ pub fn select_whole_scan(
         },
         &mut cancelled,
     )
+}
+
+fn verify_source(version: &ResultVersion) -> Result<(), Error> {
+    if version.completeness() != ResultCompleteness::Complete
+        || !version.scope_gaps().is_empty()
+        || version.scope_roots().len() != version.observed_roots().len()
+    {
+        return Err(Error::Unavailable);
+    }
+    Ok(())
+}
+
+fn verify_anchor(version: &ResultVersion, root: &ItemRef, index: usize) -> Result<(), Error> {
+    let (observed_index, observed) = version
+        .observed_root_for(root)
+        .map_err(|_| Error::Unavailable)?;
+    if observed_index as usize != index
+        || observed.volume_id.is_empty()
+        || observed.file_id.is_empty()
+    {
+        return Err(Error::Unavailable);
+    }
+    version.native_path(root).map_err(|_| Error::Unavailable)?;
+    Ok(())
 }
 
 #[cfg(test)]

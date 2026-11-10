@@ -1,11 +1,11 @@
-//! Exercise the reusable read-only whole-scan entry without filesystem access.
+//! Exercise F09 pinned scope selection without filesystem access.
 use du_analysis_index::{FileIdentity, IngestSink, Observation, SharingEvidence, SpaceObservation};
 use du_core_contracts::{
     ByteSize, Id, ItemRef, PathBytes, PathEncoding, SizeAmount, SizeBasis, SizeEvidence, SizeValue,
     Timestamp,
     result::{ResultCompleteness, ResultNativePath, ResultScopeRoot},
 };
-use du_engine_api::duplicate_scope::{Error, select_whole_scan};
+use du_engine_api::duplicate_scope::{Error, Scope, select_scope, select_whole_scan};
 
 fn id(n: u8) -> Id {
     Id::from_v7_bytes([1, 2, 3, 4, 5, n, 0x70, 0, 0x80, 0, 0, 0, 0, 0, 0, n])
@@ -198,5 +198,122 @@ fn publication_during_selection_does_not_switch_the_pinned_source() -> Result<()
         select_whole_scan(&source, &id(2), 0, || false),
         Err(Error::StaleVersion)
     ));
+    Ok(())
+}
+
+#[test]
+fn explicit_scope_keeps_overlapping_roots_and_exclusions_bound_to_one_version() -> Result<(), String>
+{
+    let source = build(true, vec![1], ResultCompleteness::Complete, false)?;
+    let item = |item_no| ItemRef {
+        result_version: id(2),
+        item_no,
+    };
+    let roots = [item(0), item(1)];
+    let scope = |exclusions| Scope {
+        version: &roots[0].result_version,
+        roots: &roots,
+        exclusions,
+        min_bytes: 8,
+    };
+    let selected = select_scope(&source, scope(&[]), || false).map_err(|e| format!("{e:?}"))?;
+    assert_eq!(selected.files().len(), 1);
+    assert_eq!(selected.files()[0].item, item(2));
+    let excluded = [item(1)];
+    let omitted =
+        select_scope(&source, scope(&excluded), || false).map_err(|e| format!("{e:?}"))?;
+    assert!(omitted.files().is_empty());
+    assert_eq!(omitted.counts().excluded, 1);
+    let foreign = [ItemRef {
+        result_version: id(3),
+        item_no: 1,
+    }];
+    assert!(matches!(
+        select_scope(&source, scope(&foreign), || false),
+        Err(Error::InvalidScope)
+    ));
+    assert!(matches!(
+        select_scope(&source, scope(&[]), || true),
+        Err(Error::Cancelled)
+    ));
+    Ok(())
+}
+
+#[test]
+fn explicit_scope_keeps_identical_names_under_distinct_scan_roots() -> Result<(), String> {
+    let source = IngestSink::default();
+    let mut left = root(vec![1]);
+    left.path.raw = PathBytes::from_bytes(b"/left");
+    let mut right = root(vec![2]);
+    right.path.raw = PathBytes::from_bytes(b"/right");
+    right.volume_id = vec![2];
+    let mut build = source
+        .open_forest(id(1), vec![left, right])
+        .map_err(|e| format!("{e:?}"))?;
+    let time = Timestamp::parse("2026-01-01T00:00:00.000Z")?;
+    for (index, volume) in [(0, 1), (1, 2)] {
+        let path = vec![b"file".to_vec()];
+        build
+            .add_directory_at(index, vec![])
+            .map_err(|e| format!("{e:?}"))?;
+        build
+            .add_with_space_at(
+                index,
+                Observation {
+                    path: path.clone(),
+                    size: Some(SizeValue {
+                        basis: SizeBasis::Logical,
+                        evidence: SizeEvidence::OsReported,
+                        amount: SizeAmount::Exact {
+                            bytes: ByteSize::from(8),
+                        },
+                    }),
+                },
+                SpaceObservation {
+                    allocated: None,
+                    identity: Some(FileIdentity {
+                        volume: vec![volume],
+                        file: vec![3],
+                    }),
+                    link_count: None,
+                    sharing: SharingEvidence::Unknown,
+                },
+            )
+            .map_err(|e| format!("{e:?}"))?;
+        build
+            .set_modified_at(index, &path, time.clone())
+            .map_err(|e| format!("{e:?}"))?;
+    }
+    let version = id(2);
+    build
+        .seal(version.clone(), ResultCompleteness::Complete)
+        .map_err(|e| format!("{e:?}"))?;
+    let references = [0, 1].map(|item_no| ItemRef {
+        result_version: version.clone(),
+        item_no,
+    });
+    let scope = |roots| Scope {
+        version: &version,
+        roots,
+        exclusions: &[],
+        min_bytes: 0,
+    };
+    let both = select_scope(&source, scope(&references), || false).map_err(|e| format!("{e:?}"))?;
+    assert_eq!(both.files().len(), 2);
+    let right =
+        select_scope(&source, scope(&references[1..]), || false).map_err(|e| format!("{e:?}"))?;
+    assert_eq!(right.counts().outside, 1);
+    let [file] = right.files() else {
+        return Err("expected one file".into());
+    };
+    assert_eq!(
+        file.path.raw.bytes().map_err(|e| e.to_string())?,
+        b"/right/file"
+    );
+    let (root, parts) = right
+        .anchored_location(&file.item)
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(root.volume_id, [2]);
+    assert_eq!(parts, [b"file"]);
     Ok(())
 }
