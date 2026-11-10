@@ -8,7 +8,7 @@ use du_core_contracts::{
     result::ResultCompleteness,
 };
 use du_engine_api::browse::folder::{
-    AdmissionError, Error, FolderBrowse,
+    AdmissionError, Error, FolderBrowse, LiveOpen,
     cursor::{CursorError, Session},
 };
 use du_job_runtime::JobIdentity;
@@ -72,18 +72,7 @@ fn filters_and_continues_on_the_admitted_version() -> Result<(), String> {
         .next_cursor
         .clone()
         .ok_or("missing cursor for second folder")?;
-    let wire = open
-        .into_response(ResultOrigin("scan".into()))
-        .map_err(|error| format!("{error:?}"))?;
-    let body = serde_json::to_value(wire).map_err(|error| error.to_string())?;
-    assert_eq!(body["requestSeq"], 9);
-    assert_eq!(body["rootKind"], "scope_root");
-    assert_eq!(body["origin"], "scan");
-    assert_eq!(body["page"]["unknownCount"], 1);
-    let row = &body["page"]["rows"][0];
-    assert_eq!(row["flags"]["unenumerated"]["state"], "unknown");
-    assert_eq!(row["flags"]["excluded"]["state"], "unknown");
-    assert_eq!(row["correspondence"]["state"], "unknown");
+    verify_open_response(open)?;
     let continuation = serde_json::from_value(json!({ "nextCursor": cursor, "count": 1 }))
         .map_err(|error| error.to_string())?;
     let next = session
@@ -106,6 +95,22 @@ fn filters_and_continues_on_the_admitted_version() -> Result<(), String> {
     assert_eq!(body["rowKind"], "folder");
     assert_eq!(body["resultVersion"], json!(first.result_version));
     assert_eq!(body["unknownCount"], 1);
+    Ok(())
+}
+
+fn verify_open_response(open: LiveOpen) -> Result<(), String> {
+    let wire = open
+        .into_response(ResultOrigin("scan".into()))
+        .map_err(|error| format!("{error:?}"))?;
+    let body = serde_json::to_value(wire).map_err(|error| error.to_string())?;
+    assert_eq!(body["requestSeq"], 9);
+    assert_eq!(body["rootKind"], "scope_root");
+    assert_eq!(body["origin"], "scan");
+    assert_eq!(body["page"]["unknownCount"], 1);
+    let row = &body["page"]["rows"][0];
+    assert_eq!(row["flags"]["unenumerated"]["state"], "unknown");
+    assert_eq!(row["flags"]["excluded"]["state"], "unknown");
+    assert_eq!(row["correspondence"]["state"], "unknown");
     Ok(())
 }
 
