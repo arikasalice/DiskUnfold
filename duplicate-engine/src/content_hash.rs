@@ -21,6 +21,27 @@ pub struct RegisteredHash(&'static (dyn HashStrategy + Sync));
 pub struct RegisteredOutcome(Outcome);
 
 impl RegisteredOutcome {
+    pub(crate) fn prepare_unjudged(&mut self) -> Vec<u32> {
+        if self.0.cancelled {
+            std::mem::take(&mut self.0.unjudged)
+        } else {
+            self.0
+                .states
+                .iter()
+                .filter_map(|(&item, state)| {
+                    matches!(
+                        state,
+                        verification::State::Candidate | verification::State::SampleCandidate
+                    )
+                    .then_some(item)
+                })
+                .collect()
+        }
+    }
+    pub(crate) fn mark_cancelled_prepared(&mut self, unjudged: Vec<u32>) {
+        self.0.cancelled = true;
+        self.0.unjudged = unjudged;
+    }
     /// Reads the verification evidence and its exact selected strategy identity.
     pub fn evidence(&self) -> &Outcome {
         &self.0
@@ -62,6 +83,26 @@ impl RegisteredHash {
         self.verify(approved, reader, || {
             context.checkpoint() == Checkpoint::Cancel
         })
+    }
+
+    pub(crate) fn verify_for_scope(
+        &self,
+        approved: &[VerificationTarget],
+        reader: &mut impl ReadPort,
+        scope_proven: bool,
+        cancelled: impl FnMut() -> bool,
+    ) -> Result<RegisteredOutcome, VerifyError> {
+        verification::verify_for_scope(
+            approved,
+            reader,
+            Strategies {
+                sample: self.0,
+                full: self.0,
+            },
+            scope_proven,
+            cancelled,
+        )
+        .map(RegisteredOutcome)
     }
 
     /// Verifies approved targets using the pinned strategy for sampling and confirmation.

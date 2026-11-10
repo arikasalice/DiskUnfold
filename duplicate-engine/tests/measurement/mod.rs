@@ -134,3 +134,28 @@ fn cancellation_after_failed_open_marks_attempt_without_final_disposition()
     assert_eq!(result.unjudged, vec![1, 2]);
     Ok(())
 }
+
+#[test]
+fn unavailable_same_size_peer_blocks_distinct_claims_from_full_hash() -> Result<(), VerifyError> {
+    let a = item(1, 3);
+    let b = item(2, 3);
+    let mut unavailable = item(3, 3);
+    unavailable.target.placeholder = Placeholder::DownloadRequired;
+    let mut port = FakePort::new(&[
+        (a.clone(), b"abc".to_vec()),
+        (b.clone(), b"def".to_vec()),
+        (unavailable.clone(), b"abc".to_vec()),
+    ]);
+    let result = verification::verify(
+        &[a, b, unavailable],
+        &mut port,
+        Strategies::blake3_v1(),
+        || false,
+    )?;
+    assert_eq!(result.states[&1], State::Candidate);
+    assert_eq!(result.states[&2], State::Candidate);
+    assert_eq!(result.states[&3], State::PlaceholderDeferred);
+    assert!(result.distinct_by.is_empty());
+    assert_eq!(port.opens, vec![1, 2]);
+    Ok(())
+}

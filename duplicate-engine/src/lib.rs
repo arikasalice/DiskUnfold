@@ -14,3 +14,10 @@ mod verification_result;
 
 /// Session-owned immutable duplicate verification results.
 pub mod result_store;
+
+/// Job producer for a pinned, injected duplicate verification scope.
+pub mod job;
+
+mod size_evidence;
+
+mod verification_input;

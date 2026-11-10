@@ -16,6 +16,16 @@ pub enum State {
     Changed,
     Verified,
 }
+/// Evidence stage that excluded all other eligible physical files.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DistinctStage {
+    /// No same-size peer was observed in a complete selected scope.
+    Size,
+    /// All comparable same-size peers produced different partial fingerprints.
+    Sample,
+    /// All comparable peers produced different full fingerprints.
+    Full,
+}
 /// One independently identified physical file and its selected path references.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VerifiedFile {
@@ -35,6 +45,8 @@ pub struct VerifiedGroup {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Outcome {
     pub states: BTreeMap<u32, State>,
+    /// Evidence stage for each `Distinct` item, never a blanket byte-comparison claim.
+    pub distinct_by: BTreeMap<u32, DistinctStage>,
     pub groups: Vec<VerifiedGroup>,
     pub cancelled: bool,
     /// Candidate item references without a final disposition when cancelled.

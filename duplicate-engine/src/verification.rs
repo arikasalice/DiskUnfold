@@ -2,31 +2,12 @@
 //!
 //! These interfaces are local to duplicate-engine. OS and job runtime composition
 //! must supply the approved input list and the identity-bound read port.
-use crate::candidates::{
-    self, Exclusion, FileIdentity, Placeholder, PrepareError, SampleRange, Size, Target,
-};
+use crate::candidates::{self, Exclusion, FileIdentity, PrepareError, SampleRange, Size};
 pub use crate::read_measurement::ReadMeasurement;
 use std::collections::BTreeMap;
 
-/// State observed before a file is selected for verification.
-///
-/// `modified` is an adapter-defined timestamp value that must use the same resolution
-/// and representation for the approval and both observations of a read.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Snapshot {
-    pub identity: FileIdentity,
-    pub size: u64,
-    pub modified: u64,
-    pub change_stamp: Option<u64>,
-}
-
-/// An approved target and its pre-observed state. Missing state is never opened.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct VerificationTarget {
-    pub target: Target,
-    pub snapshot: Option<Snapshot>,
-}
-
+use crate::verification_input::valid_approval;
+pub use crate::verification_input::{Snapshot, VerificationTarget};
 /// Purpose-separated hash invocations must not reuse each other's digest domain.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HashPurpose {
@@ -81,7 +62,7 @@ pub struct Strategies<'a> {
     pub sample: &'a dyn HashStrategy,
     pub full: &'a dyn HashStrategy,
 }
-pub use crate::verification_result::{Outcome, State, VerifiedFile, VerifiedGroup};
+pub use crate::verification_result::{DistinctStage, Outcome, State, VerifiedFile, VerifiedGroup};
 
 /// Failure before any file is opened.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -100,12 +81,22 @@ struct Candidate<'a> {
 ///
 /// Missing identity, metadata or placeholder state is deferred without opening. A file
 /// already being read reaches its file boundary on cancellation; its digest is discarded.
-/// The caller must supply a correctly registered collision-resistant strategy and a port
-/// that enforces identity-bound opens. The returned result is not automatically published.
+/// The caller must supply a complete comparison population, a correctly registered
+/// collision-resistant strategy and a port that enforces identity-bound opens. The returned result is not automatically published.
 pub fn verify(
     approved: &[VerificationTarget],
     reader: &mut impl ReadPort,
     strategies: Strategies<'_>,
+    cancelled: impl FnMut() -> bool,
+) -> Result<Outcome, VerifyError> {
+    verify_for_scope(approved, reader, strategies, true, cancelled)
+}
+
+pub(crate) fn verify_for_scope(
+    approved: &[VerificationTarget],
+    reader: &mut impl ReadPort,
+    strategies: Strategies<'_>,
+    scope_proven: bool,
     mut cancelled: impl FnMut() -> bool,
 ) -> Result<Outcome, VerifyError> {
     if strategies.full.id().is_empty()
@@ -127,6 +118,7 @@ pub fn verify(
             .iter()
             .map(|item| (item.target.item_no, initial_state(item)))
             .collect(),
+        distinct_by: BTreeMap::new(),
         groups: Vec::new(),
         cancelled: false,
         unjudged: Vec::new(),
@@ -150,8 +142,22 @@ pub fn verify(
         output.mark_cancelled();
         return Ok(output);
     }
+    let sizes = crate::size_evidence::Evidence::new(&inputs);
+    if !crate::size_evidence::settle_unpaired(
+        prepared.unpaired,
+        &sizes,
+        &source,
+        scope_proven,
+        &mut cancelled,
+        &mut output,
+    ) {
+        output.mark_cancelled();
+        return Ok(output);
+    }
     for group in prepared.groups {
         let group_size = group.files.len();
+        let path_count = group.files.iter().map(|file| file.item_nos.len()).sum();
+        let all_peers_known = scope_proven && sizes.no_unrepresented_peer(group.size, path_count);
         let mut selected = Vec::new();
         for file in group.files {
             let Some(&item_no) = file.item_nos.first() else {
@@ -182,7 +188,7 @@ pub fn verify(
             && !process_group(
                 &selected,
                 group.size,
-                selected.len() == group_size,
+                selected.len() == group_size && all_peers_known,
                 reader,
                 &strategies,
                 &mut cancelled,
@@ -215,15 +221,6 @@ fn initial_state(item: &VerificationTarget) -> State {
         }
         _ => State::Unchecked,
     }
-}
-fn valid_approval(item: &VerificationTarget, identity: &FileIdentity, size: u64) -> bool {
-    item.target.placeholder == Placeholder::Local
-        && item.target.size == Size::Exact(size)
-        && item.target.identity.as_ref() == Some(identity)
-        && item
-            .snapshot
-            .as_ref()
-            .is_some_and(|snapshot| snapshot.identity == *identity && snapshot.size == size)
 }
 fn set_state(output: &mut Outcome, items: &[u32], state: State) {
     for item in items {
@@ -267,7 +264,7 @@ fn process_group(
     let all_compared =
         all_eligible && buckets.values().map(Vec::len).sum::<usize>() == targets.len();
     if all_compared {
-        mark_distinct(&buckets, targets.len(), output);
+        mark_distinct(&buckets, targets.len(), DistinctStage::Sample, output);
     }
     for matched in buckets.values().filter(|items| items.len() >= 2) {
         if candidates::sample_ranges(size).is_some() {
@@ -320,7 +317,7 @@ fn verify_full(
         }
     }
     if all_compared {
-        mark_distinct(&digests, targets.len(), output);
+        mark_distinct(&digests, targets.len(), DistinctStage::Full, output);
     }
     for (digest, matched) in digests.into_iter().filter(|(_, items)| items.len() >= 2) {
         let mut files: Vec<_> = matched
@@ -352,6 +349,7 @@ fn verify_full(
 fn mark_distinct(
     buckets: &BTreeMap<Vec<u8>, Vec<&Candidate<'_>>>,
     expected: usize,
+    stage: DistinctStage,
     output: &mut Outcome,
 ) {
     if buckets.values().map(Vec::len).sum::<usize>() != expected {
@@ -360,6 +358,9 @@ fn mark_distinct(
     for bucket in buckets.values() {
         if let [item] = bucket.as_slice() {
             set_state(output, &item.aliases, State::Distinct);
+            for number in &item.aliases {
+                output.distinct_by.insert(*number, stage);
+            }
         }
     }
 }

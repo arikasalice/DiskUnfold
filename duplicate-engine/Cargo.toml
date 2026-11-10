@@ -9,7 +9,6 @@ license.workspace = true
 blake3 = "=1.8.3"
 du-core-contracts = { version = "0.1.0", path = "../core-contracts" }
 
-[dev-dependencies]
 du-job-runtime = { version = "0.1.0", path = "../job-runtime" }
 
 [lints]

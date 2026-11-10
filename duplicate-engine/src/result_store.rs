@@ -5,16 +5,73 @@
 //! integration that owns those inputs. No retention count is selected here.
 
 use crate::RegisteredOutcome;
-use du_core_contracts::Id;
+use du_core_contracts::{Id, ItemRef, Timestamp, result::ResultCompleteness};
 use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
+
+/// Scope and source observation supplied by the pinned-scan selector.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ScopeEvidence {
+    /// Selected root references from the source result.
+    pub roots: Vec<ItemRef>,
+    /// Exclusion references from the same source result.
+    pub exclusions: Vec<ItemRef>,
+    /// Inclusive minimum logical size in bytes.
+    pub minimum_bytes: u64,
+    /// Observed file counts outside the selected roots.
+    pub outside: u64,
+    /// Observed files excluded by path.
+    pub excluded: u64,
+    /// Observed files below the minimum size.
+    pub below_minimum: u64,
+    /// Observed files lacking selection metadata.
+    pub unavailable: u64,
+    /// Completeness of the underlying scan result.
+    pub source_completeness: ResultCompleteness,
+    /// Source observation time when supplied by the scan.
+    pub observed_at: Option<Timestamp>,
+}
+
+/// Whether all selected content dispositions have conclusive evidence.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ContentCoverage {
+    /// Every selected item has a verified or stage-distinct disposition.
+    Complete,
+    /// Some content or scope evidence remains unavailable or unjudged.
+    Partial,
+    /// The terminal gate selected a cancelled result.
+    Cancelled,
+}
+
+/// Result data prepared before entering the runtime terminal gate.
+pub(crate) struct PreparedResult {
+    outcome: RegisteredOutcome,
+    scope: ScopeEvidence,
+    coverage: ContentCoverage,
+    unjudged: Vec<u32>,
+}
+
+impl PreparedResult {
+    pub(crate) fn new(mut outcome: RegisteredOutcome, scope: ScopeEvidence) -> Self {
+        let coverage = content_coverage(&outcome, Some(&scope));
+        let unjudged = outcome.prepare_unjudged();
+        Self {
+            outcome,
+            scope,
+            coverage,
+            unjudged,
+        }
+    }
+}
 
 /// A complete, immutable verification outcome pinned by a reader.
 pub struct PinnedResult {
     source: Id,
     version: Id,
     outcome: RegisteredOutcome,
+    scope: Option<ScopeEvidence>,
+    content_coverage: ContentCoverage,
 }
 
 impl PinnedResult {
@@ -25,6 +82,14 @@ impl PinnedResult {
     /// The unique duplicate result version assigned by the caller.
     pub fn version(&self) -> &Id {
         &self.version
+    }
+    /// Scope evidence when this result was published by a scoped producer.
+    pub fn scope(&self) -> Option<&ScopeEvidence> {
+        self.scope.as_ref()
+    }
+    /// Content disposition coverage, separate from the job terminal state.
+    pub fn content_coverage(&self) -> ContentCoverage {
+        self.content_coverage
     }
     /// Registered strategy evidence; this is not an execution authorization.
     pub fn outcome(&self) -> &RegisteredOutcome {
@@ -120,6 +185,39 @@ impl ResultStore {
         version: Id,
         outcome: RegisteredOutcome,
     ) -> Result<(), StoreError> {
+        let coverage = content_coverage(&outcome, None);
+        self.publish_inner(source, version, outcome, None, coverage)
+    }
+
+    /// Publishes a candidate whose coverage and cancellation list are precomputed.
+    pub(crate) fn publish_prepared(
+        &self,
+        source: &Id,
+        version: Id,
+        mut prepared: PreparedResult,
+        cancelled: bool,
+    ) -> Result<(), StoreError> {
+        if cancelled {
+            prepared.outcome.mark_cancelled_prepared(prepared.unjudged);
+            prepared.coverage = ContentCoverage::Cancelled;
+        }
+        self.publish_inner(
+            source,
+            version,
+            prepared.outcome,
+            Some(prepared.scope),
+            prepared.coverage,
+        )
+    }
+
+    fn publish_inner(
+        &self,
+        source: &Id,
+        version: Id,
+        outcome: RegisteredOutcome,
+        scope: Option<ScopeEvidence>,
+        content_coverage: ContentCoverage,
+    ) -> Result<(), StoreError> {
         let mut state = self.state.lock().map_err(|_| StoreError::Unavailable)?;
         if !state.sources.contains(source) {
             return Err(StoreError::SourceUnavailable);
@@ -136,6 +234,8 @@ impl ResultStore {
             source: source.clone(),
             version: version.clone(),
             outcome,
+            scope,
+            content_coverage,
         });
         state.versions.insert(version.clone(), Some(result));
         state
@@ -194,4 +294,22 @@ impl ResultStore {
 
 fn tracked_identifiers(state: &State) -> usize {
     state.sources.len() + state.retired_sources.len() + state.versions.len()
+}
+
+fn content_coverage(outcome: &RegisteredOutcome, scope: Option<&ScopeEvidence>) -> ContentCoverage {
+    use crate::verification::State;
+    let evidence = outcome.evidence();
+    if evidence.cancelled {
+        return ContentCoverage::Cancelled;
+    }
+    if scope.is_none_or(|scope| {
+        scope.source_completeness != ResultCompleteness::Complete || scope.unavailable != 0
+    }) || evidence
+        .states
+        .values()
+        .any(|state| !matches!(state, State::Verified | State::Distinct))
+    {
+        return ContentCoverage::Partial;
+    }
+    ContentCoverage::Complete
 }

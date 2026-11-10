@@ -48,6 +48,7 @@ struct Gate {
     release: Barrier,
     opens: AtomicUsize,
     reads: AtomicUsize,
+    drops: AtomicUsize,
 }
 struct Port(Arc<Gate>);
 struct File {
@@ -65,6 +66,11 @@ impl ReadPort for Port {
             gate: Arc::clone(&self.0),
             identity: identity.clone(),
         }))
+    }
+}
+impl Drop for File {
+    fn drop(&mut self) {
+        self.gate.drops.fetch_add(1, Ordering::SeqCst);
     }
 }
 impl OpenFile for File {
@@ -186,6 +192,7 @@ fn runtime_cancellation_waits_for_inflight_file_and_stops_new_opens()
         release: Barrier::new(2),
         opens: AtomicUsize::new(0),
         reads: AtomicUsize::new(0),
+        drops: AtomicUsize::new(0),
     });
     let body = Arc::new(Body {
         gate: Arc::clone(&gate),
@@ -240,6 +247,7 @@ fn context_bridge_handles_pre_cancel_and_normal_verification() -> Result<(), Str
             release: Barrier::new(2),
             opens: AtomicUsize::new(0),
             reads: AtomicUsize::new(0),
+            drops: AtomicUsize::new(0),
         })
     };
     let hash = RegisteredHash::resolve("blake3", Some(1)).map_err(|e| format!("{e:?}"))?;
@@ -272,3 +280,5 @@ fn context_bridge_handles_pre_cancel_and_normal_verification() -> Result<(), Str
     assert_eq!(gate.opens.load(Ordering::SeqCst), 2);
     Ok(())
 }
+
+mod producer;

@@ -217,6 +217,7 @@ fn blake3_v1_compares_full_bytes_after_matching_samples_and_short_reads() -> Res
         )
     );
     assert_eq!(result.states.get(&3), Some(&State::Distinct));
+    assert_eq!(result.distinct_by[&3], verification::DistinctStage::Full);
     Ok(())
 }
 
@@ -291,6 +292,7 @@ fn unequal_samples_do_not_trigger_full_reads() -> Result<(), VerifyError> {
     assert_eq!(port.opens, vec![1, 2]);
     assert_eq!(result.states.get(&1), Some(&State::Distinct));
     assert_eq!(result.states.get(&2), Some(&State::Distinct));
+    assert_eq!(result.distinct_by[&1], verification::DistinctStage::Sample);
     Ok(())
 }
 
