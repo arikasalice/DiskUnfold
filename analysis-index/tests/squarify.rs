@@ -179,3 +179,53 @@ fn generated_sorted_inputs_preserve_rectangular_invariants() -> Result<(), Layou
     }
     Ok(())
 }
+
+#[test]
+fn cancellable_layout_preserves_results_and_never_returns_partial_at_any_checkpoint()
+-> Result<(), LayoutError> {
+    use du_analysis_index::visualization::squarify::layout_cancellable;
+    let cases = [
+        (
+            rectangle(0, 0, 100, 100),
+            vec![
+                Weight::Exact(20),
+                Weight::Exact(10),
+                Weight::Exact(5),
+                Weight::Exact(0),
+                Weight::Unknown,
+                Weight::LowerBound(0),
+            ],
+        ),
+        (
+            rectangle(0, 0, 1, 1),
+            vec![
+                Weight::Exact(100),
+                Weight::Exact(10),
+                Weight::Exact(1),
+                Weight::Exact(1),
+            ],
+        ),
+        (rectangle(0, 0, 100, 100), vec![]),
+    ];
+    for (bounds, weights) in cases {
+        let expected = layout(bounds, &weights)?;
+        let mut checks = 0;
+        let actual = layout_cancellable(bounds, &weights, &mut || {
+            checks += 1;
+            false
+        })?;
+        assert_eq!(actual, expected);
+        for stop in 1..=checks {
+            let mut seen = 0;
+            assert_eq!(
+                layout_cancellable(bounds, &weights, &mut || {
+                    seen += 1;
+                    seen == stop
+                }),
+                Err(LayoutError::Cancelled),
+                "stop {stop} of {checks}"
+            );
+        }
+    }
+    Ok(())
+}

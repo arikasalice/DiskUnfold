@@ -61,6 +61,7 @@ impl Layout {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LayoutError {
     InvalidBounds,
+    Cancelled,
     NotDescending,
     ArithmeticOverflow,
 }
@@ -83,6 +84,18 @@ struct Item {
 /// The caller must supply weights attributed to disjoint sibling areas; this
 /// unit cannot establish hard-link or shared-extent accounting on its own.
 pub fn layout(parent: Rect, ordered: &[Weight]) -> Result<Layout, LayoutError> {
+    layout_cancellable(parent, ordered, &mut || false)
+}
+
+/// Calculates the same layout with cancellation checkpoints in each traversal.
+/// Sorting skipped indices is not interruptible; cancellation is checked on
+/// both sides of the sort, and no partial result is returned.
+pub fn layout_cancellable(
+    parent: Rect,
+    ordered: &[Weight],
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<Layout, LayoutError> {
+    check(cancelled)?;
     if !valid_bounds(parent) {
         return Err(LayoutError::InvalidBounds);
     }
@@ -92,6 +105,7 @@ pub fn layout(parent: Rect, ordered: &[Weight]) -> Result<Layout, LayoutError> {
     };
     let mut items = Vec::new();
     for (index, weight) in ordered.iter().copied().enumerate() {
+        check(cancelled)?;
         match weight {
             Weight::Unknown => result.skipped.push(Skipped {
                 input_index: index,
@@ -119,31 +133,36 @@ pub fn layout(parent: Rect, ordered: &[Weight]) -> Result<Layout, LayoutError> {
         }
     }
     let mut remaining_weight = items.iter().try_fold(0_u128, |sum, item| {
+        check(cancelled)?;
         sum.checked_add(u128::from(item.amount.get()))
             .ok_or(LayoutError::ArithmeticOverflow)
     })?;
     let mut remaining = parent;
     let mut start = 0;
     while start < items.len() {
+        check(cancelled)?;
         if remaining.left == remaining.right || remaining.top == remaining.bottom {
-            skip_precision(&mut result, &items[start..]);
+            skip_precision(&mut result, &items[start..], cancelled)?;
             break;
         }
-        let (end, row_weight) = select_row(remaining, remaining_weight, &items, start)?;
+        let (end, row_weight) = select_row(remaining, remaining_weight, &items, start, cancelled)?;
         if !lay_row(
             &mut result,
             &mut remaining,
             remaining_weight,
             &items[start..end],
             row_weight,
+            cancelled,
         )? {
-            skip_precision(&mut result, &items[start..]);
+            skip_precision(&mut result, &items[start..], cancelled)?;
             break;
         }
         remaining_weight -= row_weight;
         start = end;
     }
+    check(cancelled)?;
     result.skipped.sort_by_key(|entry| entry.input_index);
+    check(cancelled)?;
     Ok(result)
 }
 
@@ -152,6 +171,7 @@ fn select_row(
     total: u128,
     items: &[Item],
     start: usize,
+    cancelled: &mut dyn FnMut() -> bool,
 ) -> Result<(usize, u128), LayoutError> {
     let mut end = start + 1;
     let mut sum = u128::from(items[start].amount.get());
@@ -166,6 +186,7 @@ fn select_row(
         items[start].amount.get(),
     );
     while let Some(next) = items.get(end) {
+        check(cancelled)?;
         let candidate_sum = sum
             .checked_add(u128::from(next.amount.get()))
             .ok_or(LayoutError::ArithmeticOverflow)?;
@@ -199,6 +220,7 @@ fn lay_row(
     total: u128,
     items: &[Item],
     row_weight: u128,
+    cancelled: &mut dyn FnMut() -> bool,
 ) -> Result<bool, LayoutError> {
     let width = remaining.right - remaining.left;
     let height = remaining.bottom - remaining.top;
@@ -212,6 +234,7 @@ fn lay_row(
     let mut previous = 0;
     let mut cumulative = 0_u128;
     for item in items {
+        check(cancelled)?;
         cumulative += u128::from(item.amount.get());
         let edge = proportion(short, cumulative, row_weight)?;
         if edge == previous {
@@ -259,9 +282,24 @@ fn proportion(length: u32, value: u128, total: u128) -> Result<u32, LayoutError>
     u32::try_from(rounded).map_err(|_| LayoutError::ArithmeticOverflow)
 }
 
-fn skip_precision(result: &mut Layout, items: &[Item]) {
-    result.skipped.extend(items.iter().map(|item| Skipped {
-        input_index: item.index,
-        reason: SkipReason::CoordinatePrecision,
-    }));
+fn skip_precision(
+    result: &mut Layout,
+    items: &[Item],
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<(), LayoutError> {
+    for item in items {
+        check(cancelled)?;
+        result.skipped.push(Skipped {
+            input_index: item.index,
+            reason: SkipReason::CoordinatePrecision,
+        });
+    }
+    Ok(())
+}
+fn check(cancelled: &mut dyn FnMut() -> bool) -> Result<(), LayoutError> {
+    if cancelled() {
+        Err(LayoutError::Cancelled)
+    } else {
+        Ok(())
+    }
 }

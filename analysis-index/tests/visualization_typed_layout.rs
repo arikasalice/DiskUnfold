@@ -414,3 +414,18 @@ fn admitted_strategy_matches_existing_layout_parent_geometry() -> Result<(), Str
     assert_eq!(actual.skipped.len(), old.layout.skipped.len());
     Ok(())
 }
+
+#[test]
+fn treemap_propagates_cancellation_inside_squarify() -> Result<(), String> {
+    let input = prepared()?;
+    let mut checks = 0;
+    let result = typed_layout::Treemap.layout(&input, &mut || {
+        checks += 1;
+        // The outer preflight and weight-copy checks finish first; this is
+        // during squarify's own input traversal.
+        checks == input.rows().len() + 3
+    });
+    assert_eq!(result, Err(typed_layout::Error::Cancelled));
+    assert_eq!(checks, input.rows().len() + 3);
+    Ok(())
+}

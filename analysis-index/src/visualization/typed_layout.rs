@@ -146,11 +146,14 @@ impl Strategy for Treemap {
             }
             weights.push(squarify::Weight::Exact(row.bytes));
         }
-        // The existing squarifier itself has no mid-calculation checkpoint.
-        let layout = squarify::layout(input.bounds, &weights).map_err(|error| match error {
-            squarify::LayoutError::ArithmeticOverflow => Error::ArithmeticOverflow,
-            _ => Error::InvalidInput,
-        })?;
+        let layout =
+            squarify::layout_cancellable(input.bounds, &weights, cancelled).map_err(|error| {
+                match error {
+                    squarify::LayoutError::ArithmeticOverflow => Error::ArithmeticOverflow,
+                    squarify::LayoutError::Cancelled => Error::Cancelled,
+                    _ => Error::InvalidInput,
+                }
+            })?;
         let mut shapes = Vec::with_capacity(layout.shapes.len());
         for shape in layout.shapes {
             if cancelled() {
