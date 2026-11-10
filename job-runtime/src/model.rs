@@ -213,6 +213,10 @@ pub(crate) struct Limits {
     pub(crate) active: AtomicUsize,
     pub(crate) content_limit: usize,
     pub(crate) content_active: AtomicUsize,
+    pub(crate) wait_lock: Mutex<()>,
+    pub(crate) wait_changed: Condvar,
+    #[cfg(test)]
+    pub(crate) waiters: AtomicUsize,
     pub(crate) pending: Arc<AtomicUsize>,
 }
 impl Limits {
@@ -222,7 +226,19 @@ impl Limits {
             active: AtomicUsize::new(0),
             content_limit,
             content_active: AtomicUsize::new(0),
+            wait_lock: Mutex::new(()),
+            wait_changed: Condvar::new(),
+            #[cfg(test)]
+            waiters: AtomicUsize::new(0),
             pending: Arc::new(AtomicUsize::new(0)),
         }
+    }
+
+    pub(crate) fn wake_waiters(&self) {
+        let _guard = self
+            .wait_lock
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        self.wait_changed.notify_all();
     }
 }

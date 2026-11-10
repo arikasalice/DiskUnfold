@@ -5,6 +5,7 @@ mod flows;
 mod history_recovery;
 mod model;
 mod publication;
+mod result_publisher;
 mod shutdown;
 use control::final_state;
 use delivery::{consume, enqueue};
@@ -16,7 +17,6 @@ use du_core_contracts::{
         HistoryMode, JobControl, JobDescriptor, JobHistory, JobOutcome, JobState, JobSummary,
         ResourceClass,
     },
-    result_events::{ResultVersionNotice, ResultVersionPublisher},
 };
 pub use history_recovery::recover_history;
 pub use model::FlowLimits;
@@ -33,27 +33,7 @@ use std::sync::{
     mpsc,
 };
 
-struct ResultPublisher(std::sync::Weak<Mutex<Table>>);
-
-impl ResultVersionPublisher for ResultPublisher {
-    fn publish_result_version(&self, notice: ResultVersionNotice) {
-        if notice.validate()
-            && let Some(table) = self.0.upgrade()
-            && let Ok(table) = table.lock()
-            && !table.shutting_down
-        {
-            let event = JobEvent::ResultVersionChanged(Box::new(notice));
-            let _ = enqueue(&table, Delivery::Event(event));
-        }
-    }
-}
-
 impl JobRuntime {
-    /// Shares the event lane without giving queued job bodies ownership of their runtime.
-    pub fn result_version_publisher(&self) -> Arc<dyn ResultVersionPublisher> {
-        Arc::new(ResultPublisher(Arc::downgrade(&self.table)))
-    }
-
     pub fn new(
         identity: Arc<dyn JobIdentity>,
         clock: Arc<dyn JobClock>,
@@ -307,6 +287,7 @@ impl JobRuntime {
                     None
                 };
             drop(table);
+            self.flow_limits.wake_waiters();
             if let Some(Publication::DuplicateTerminal { queued, commit }) = duplicate {
                 let outcome =
                     publication::commit_duplicate(queued, commit, DuplicateTerminal::Cancelled);
@@ -333,8 +314,10 @@ impl JobRuntime {
             state: job.state,
             sequence,
         };
-        enqueue(&table, Delivery::Event(event))?;
+        let delivery = enqueue(&table, Delivery::Event(event));
         drop(table);
+        self.flow_limits.wake_waiters();
+        delivery?;
         Ok((CancelResult::Accepted(JobState::CancelRequested), sequence))
     }
     /// Runs the oldest eligible queued job on the calling worker thread.
@@ -473,6 +456,7 @@ impl JobRuntime {
         drop(table);
         drop(released_body);
         drop(released_publication);
+        self.flow_limits.wake_waiters();
         delivery.map(|()| state_sequence + 1)
     }
     #[cfg(test)]

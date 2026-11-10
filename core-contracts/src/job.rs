@@ -221,6 +221,15 @@ pub trait JobContext: Send + Sync {
     /// Returns Busy rather than spawning or waiting when no metadata I/O permit is available.
     /// Returns UnsupportedResource when metadata I/O is disabled or not declared for the job.
     fn try_start_flow(&self) -> Result<Box<dyn JobFlow>, JobFlowError>;
+    /// Waits cooperatively for a flow permit, without holding a permit while waiting.
+    ///
+    /// Call without a file handle, queue lock, or bounded-channel permit. A
+    /// runtime implementation wakes on permit release, resume, cancellation,
+    /// abort, or closure. The default preserves nonblocking implementations and
+    /// may return `Busy`; callers must not spin when that happens.
+    fn wait_start_flow(&self) -> Result<Box<dyn JobFlow>, JobFlowError> {
+        self.try_start_flow()
+    }
 }
 /// The body can return while registered flows finish; the runtime waits for them.
 pub trait JobBody: Send + Sync {

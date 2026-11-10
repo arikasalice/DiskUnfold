@@ -83,6 +83,7 @@ fn setup_with_resource(
 }
 
 mod content;
+mod wait;
 
 #[test]
 fn internal_failure_wakes_parked_flow_without_cancelling_the_job()

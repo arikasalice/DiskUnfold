@@ -51,6 +51,8 @@ impl JobRuntime {
         let (sender, receiver) = mpsc::channel();
         enqueue(&table, Delivery::Stop(sender))?;
         table.shutting_down = true;
+        drop(table);
+        self.flow_limits.wake_waiters();
         Ok(ShutdownTicket {
             receiver,
             started_at: Instant::now(),

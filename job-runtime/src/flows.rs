@@ -58,6 +58,13 @@ impl Context {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         state.sealed = true;
+        drop(state);
+        self.services.limits.wake_waiters();
+        let mut state = self
+            .shared
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         while state.active != 0 {
             state = self
                 .shared
@@ -95,6 +102,31 @@ impl JobContext for Context {
             job.flows_aborted = true;
             job.wake.notify_all();
         }
+        drop(table);
+        self.services.limits.wake_waiters();
+    }
+
+    fn wait_start_flow(&self) -> Result<Box<dyn JobFlow>, JobFlowError> {
+        let limits = &self.services.limits;
+        let mut guard = limits
+            .wait_lock
+            .lock()
+            .map_err(|_| JobFlowError::DeliveryUnavailable)?;
+        loop {
+            match self.try_start_flow() {
+                Err(JobFlowError::Busy) => {
+                    #[cfg(test)]
+                    limits.waiters.fetch_add(1, Ordering::Release);
+                    guard = limits
+                        .wait_changed
+                        .wait(guard)
+                        .map_err(|_| JobFlowError::DeliveryUnavailable)?;
+                    #[cfg(test)]
+                    limits.waiters.fetch_sub(1, Ordering::Release);
+                }
+                result => return result,
+            }
+        }
     }
 
     fn try_start_flow(&self) -> Result<Box<dyn JobFlow>, JobFlowError> {
@@ -107,6 +139,14 @@ impl JobContext for Context {
             return Err(JobFlowError::Cancelled);
         }
         if job.flows_aborted {
+            return Err(JobFlowError::Closed);
+        }
+        let mut state = self
+            .shared
+            .state
+            .lock()
+            .map_err(|_| JobFlowError::DeliveryUnavailable)?;
+        if state.sealed {
             return Err(JobFlowError::Closed);
         }
         if matches!(job.state, JobState::PauseRequested | JobState::Paused) {
@@ -133,14 +173,6 @@ impl JobContext for Context {
         };
         if limit == 0 {
             return Err(JobFlowError::UnsupportedResource);
-        }
-        let mut state = self
-            .shared
-            .state
-            .lock()
-            .map_err(|_| JobFlowError::DeliveryUnavailable)?;
-        if state.sealed {
-            return Err(JobFlowError::Closed);
         }
         reserve(counter, limit)?;
         state.active += 1;
@@ -270,6 +302,8 @@ impl Drop for Flow {
         };
         counter.fetch_sub(1, Ordering::AcqRel);
         self.shared.completed.notify_all();
+        drop(state);
+        self.limits.wake_waiters();
     }
 }
 fn reserve(counter: &AtomicUsize, limit: usize) -> Result<(), JobFlowError> {

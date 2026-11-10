@@ -62,6 +62,8 @@ impl JobRuntime {
         } else {
             job.wake.notify_all();
         }
+        drop(table);
+        self.flow_limits.wake_waiters();
         Ok((CancelResult::Accepted(state), sequence))
     }
 }
