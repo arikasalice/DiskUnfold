@@ -45,6 +45,7 @@ struct FakePort {
     opens: Vec<u32>,
     reads: Vec<(u32, u64, usize)>,
     cancel_on_read: Option<Rc<Cell<bool>>>,
+    cancel_on_open_failure: Option<Rc<Cell<bool>>>,
     max_read: usize,
 }
 impl FakePort {
@@ -72,6 +73,7 @@ impl FakePort {
             opens: vec![],
             reads: vec![],
             cancel_on_read: None,
+            cancel_on_open_failure: None,
             max_read: usize::MAX,
         }
     }
@@ -118,6 +120,10 @@ impl ReadPort for FakePort {
         expected: &FileIdentity,
     ) -> Result<Box<dyn OpenFile + 'a>, ReadError> {
         self.opens.push(item_no);
+        if let Some(flag) = &self.cancel_on_open_failure {
+            flag.set(true);
+            return Err(ReadError::Failed);
+        }
         let entry = self.entries.get(&item_no).ok_or(ReadError::Failed)?;
         if &entry.before.identity != expected {
             return Err(ReadError::IdentityChanged);

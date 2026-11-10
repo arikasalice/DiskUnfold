@@ -7,6 +7,7 @@ use crate::candidates::{
 };
 pub use crate::read_measurement::ReadMeasurement;
 use std::collections::BTreeMap;
+
 /// State observed before a file is selected for verification.
 ///
 /// `modified` is an adapter-defined timestamp value that must use the same resolution
@@ -18,12 +19,14 @@ pub struct Snapshot {
     pub modified: u64,
     pub change_stamp: Option<u64>,
 }
+
 /// An approved target and its pre-observed state. Missing state is never opened.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VerificationTarget {
     pub target: Target,
     pub snapshot: Option<Snapshot>,
 }
+
 /// Purpose-separated hash invocations must not reuse each other's digest domain.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HashPurpose {
@@ -78,52 +81,7 @@ pub struct Strategies<'a> {
     pub sample: &'a dyn HashStrategy,
     pub full: &'a dyn HashStrategy,
 }
-
-/// Item disposition. Candidates and deferred items are not verified duplicates.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum State {
-    Candidate,
-    SampleCandidate,
-    Distinct,
-    PlaceholderDeferred,
-    Unchecked,
-    ReadFailed,
-    Changed,
-    Verified,
-}
-
-/// One independently identified physical file and its selected path references.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct VerifiedFile {
-    pub item_nos: Vec<u32>,
-    pub identity: FileIdentity,
-    /// Whether the approved and observed state included a change stamp.
-    pub change_stamp_available: bool,
-}
-
-/// A group formed only from full fingerprints produced by the pinned strategy.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct VerifiedGroup {
-    pub size: u64,
-    pub digest: Vec<u8>,
-    pub files: Vec<VerifiedFile>,
-}
-
-/// Partial or complete in-memory result; cancellation leaves unfinished candidates unverified.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Outcome {
-    pub states: BTreeMap<u32, State>,
-    pub groups: Vec<VerifiedGroup>,
-    pub cancelled: bool,
-    /// Bytes returned by sample reads, including discarded in-flight work.
-    pub sample_reads: ReadMeasurement,
-    /// Bytes returned by full reads and EOF probes, including discarded work.
-    pub full_reads: ReadMeasurement,
-    pub algorithm_id: String,
-    pub algorithm_revision: u32,
-    pub sample_algorithm_id: String,
-    pub sample_algorithm_revision: u32,
-}
+pub use crate::verification_result::{Outcome, State, VerifiedFile, VerifiedGroup};
 
 /// Failure before any file is opened.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -171,6 +129,8 @@ pub fn verify(
             .collect(),
         groups: Vec::new(),
         cancelled: false,
+        unjudged: Vec::new(),
+        interrupted: Vec::new(),
         sample_reads: ReadMeasurement::default(),
         full_reads: ReadMeasurement::default(),
         algorithm_id: strategies.full.id().to_owned(),
@@ -187,7 +147,7 @@ pub fn verify(
         output.states.insert(excluded.item_no, state);
     }
     if cancelled() {
-        output.cancelled = true;
+        output.mark_cancelled();
         return Ok(output);
     }
     for group in prepared.groups {
@@ -229,7 +189,7 @@ pub fn verify(
                 &mut output,
             )
         {
-            output.cancelled = true;
+            output.mark_cancelled();
             break;
         }
     }
@@ -293,6 +253,7 @@ fn process_group(
                 &mut output.sample_reads,
             );
             if cancelled() {
+                output.interrupted.extend_from_slice(&target.aliases);
                 return false;
             }
             match digest {
@@ -350,6 +311,7 @@ fn verify_full(
             &mut output.full_reads,
         );
         if cancelled() {
+            output.interrupted.extend_from_slice(&target.aliases);
             return false;
         }
         match digest {

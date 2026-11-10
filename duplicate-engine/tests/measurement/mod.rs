@@ -57,6 +57,80 @@ fn cancellation_before_admission_starts_no_reads() -> Result<(), VerifyError> {
     let (sample, full) = hashers();
     let result = verification::verify(&[a, b], &mut port, strategies(&sample, &full), || true)?;
     assert!(result.cancelled);
+    assert_eq!(result.unjudged, vec![1, 2]);
+    assert!(result.interrupted.is_empty());
     assert!(port.opens.is_empty());
+    Ok(())
+}
+
+#[test]
+fn cancellation_retains_interrupted_aliases_and_unjudged_candidates() -> Result<(), VerifyError> {
+    let a = item(1, 2);
+    let mut alias = a.clone();
+    alias.target.item_no = 3;
+    let b = item(2, 2);
+    let flag = Rc::new(Cell::new(false));
+    let mut port = FakePort::new(&[
+        (a.clone(), b"xx".to_vec()),
+        (b.clone(), b"xx".to_vec()),
+        (alias.clone(), b"xx".to_vec()),
+    ]);
+    port.cancel_on_read = Some(flag.clone());
+    let result = verification::verify(&[a, b, alias], &mut port, Strategies::blake3_v1(), || {
+        flag.get()
+    })?;
+    assert!(result.cancelled);
+    assert_eq!(port.opens, vec![1]);
+    assert_eq!(result.interrupted, vec![1, 3]);
+    assert_eq!(result.unjudged, vec![1, 2, 3]);
+    assert_eq!(result.states[&1], State::Candidate);
+    assert_eq!(result.states[&3], State::Candidate);
+    Ok(())
+}
+
+#[test]
+fn cancellation_keeps_completed_group_and_marks_later_candidates() -> Result<(), VerifyError> {
+    let a = item(1, 4);
+    let b = item(2, 4);
+    let c = item(3, 2);
+    let d = item(4, 2);
+    let mut port = FakePort::new(&[
+        (a.clone(), b"aaaa".to_vec()),
+        (b.clone(), b"aaaa".to_vec()),
+        (c.clone(), b"bb".to_vec()),
+        (d.clone(), b"bb".to_vec()),
+    ]);
+    let calls = Cell::new(0);
+    let result = verification::verify(&[a, b, c, d], &mut port, Strategies::blake3_v1(), || {
+        calls.set(calls.get() + 1);
+        calls.get() == 6
+    })?;
+    assert!(result.cancelled);
+    assert_eq!(result.groups.len(), 1);
+    assert_eq!(result.states[&1], State::Verified);
+    assert_eq!(result.states[&2], State::Verified);
+    assert_eq!(result.unjudged, vec![3, 4]);
+    assert!(result.interrupted.is_empty());
+    assert_eq!(port.opens, vec![1, 2]);
+    Ok(())
+}
+
+#[test]
+fn cancellation_after_failed_open_marks_attempt_without_final_disposition()
+-> Result<(), VerifyError> {
+    let a = item(1, 2);
+    let b = item(2, 2);
+    let flag = Rc::new(Cell::new(false));
+    let mut port = FakePort::new(&[(a.clone(), b"xx".to_vec()), (b.clone(), b"xx".to_vec())]);
+    port.cancel_on_open_failure = Some(flag.clone());
+    let result = verification::verify(&[a, b], &mut port, Strategies::blake3_v1(), || flag.get())?;
+    assert!(result.cancelled);
+    assert_eq!(port.opens, vec![1]);
+    assert!(port.reads.is_empty());
+    assert_eq!(result.full_reads.observed, 0);
+    assert!(result.full_reads.exact);
+    assert_eq!(result.states[&1], State::Candidate);
+    assert_eq!(result.interrupted, vec![1]);
+    assert_eq!(result.unjudged, vec![1, 2]);
     Ok(())
 }

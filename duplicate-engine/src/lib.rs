@@ -9,3 +9,5 @@ pub use content_hash::{RegisteredHash, RegisteredOutcome};
 pub mod verification;
 
 mod read_measurement;
+
+mod verification_result;
