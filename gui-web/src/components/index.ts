@@ -20,6 +20,7 @@ export {
 } from "./presentation";
 
 export { BrowseTable } from "./browse-table";
+export { canHandleBrowseKey } from "./browse-keys";
 export { DataTable } from "./data-table";
 
 export { createChartRenderers } from "./chart-renderers";

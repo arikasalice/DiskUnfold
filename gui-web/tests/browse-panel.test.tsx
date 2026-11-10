@@ -299,3 +299,155 @@ test("keyboard paging restores panel focus if the final page has no rows", async
     screen.getByRole("region", { name: "Folder navigation" }),
   );
 });
+
+function openedAt(sequence: number, path: number[], rows: FolderQueryRow[]) {
+  const response = opened(sequence, rows);
+  if (response.kind !== "opened") throw new Error("wrong fixture");
+  response.rootKind =
+    path.length > 1 ? "folder" : path.length ? "scope_root" : "virtual_root";
+  response.location = path.length ? ref(path.at(-1) ?? 0) : null;
+  response.breadcrumbs = path.map((itemNo) => ({
+    item: ref(itemNo),
+    displayName: { state: "present", value: "Crumb " + itemNo },
+  }));
+  return response;
+}
+
+test("uses the pinned immediate parent for both Alt+Up and the Up button", async () => {
+  const port: BrowsePort = {
+    open: vi
+      .fn()
+      .mockResolvedValueOnce(openedAt(1, [], [row(11, "Scope")]))
+      .mockResolvedValueOnce(openedAt(2, [11], [row(22, "Nested")]))
+      .mockResolvedValueOnce(openedAt(3, [11, 22], [row(33, "Child")]))
+      .mockResolvedValueOnce(openedAt(4, [11], [row(22, "Nested")]))
+      .mockResolvedValueOnce(openedAt(5, [], [row(11, "Scope")])),
+    page: vi.fn(),
+  };
+  render(<BrowsePanel port={port} resultVersion={id} />);
+  const scope = await screen.findByRole("button", { name: "Scope" });
+  const up = screen.getByRole<HTMLButtonElement>("button", { name: "Up" });
+  expect(up.disabled).toBe(true);
+  expect(fireEvent.keyDown(scope, { key: "ArrowUp", altKey: true })).toBe(true);
+  fireEvent.click(scope);
+  fireEvent.click(await screen.findByRole("button", { name: "Nested" }));
+  const child = await screen.findByRole("button", { name: "Child" });
+  act(() => child.focus());
+  expect(fireEvent.keyDown(child, { key: "ArrowUp", altKey: true })).toBe(
+    false,
+  );
+  expect(port.open).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      resultVersion: id,
+      location: ref(11),
+      requestSeq: 4,
+    }),
+    expect.any(AbortSignal),
+  );
+  await screen.findByRole("button", { name: "Nested" });
+  fireEvent.click(up);
+  expect(port.open).toHaveBeenLastCalledWith(
+    expect.not.objectContaining({ location: expect.anything() }),
+    expect.any(AbortSignal),
+  );
+  expect(port.open).toHaveBeenLastCalledWith(
+    expect.objectContaining({ resultVersion: id, requestSeq: 5 }),
+    expect.any(AbortSignal),
+  );
+  await screen.findByRole("button", { name: "Scope" });
+  expect(up.disabled).toBe(true);
+});
+
+test("keeps location and focus through an unsuccessful Up and suppresses duplicate or reserved keys", async () => {
+  const pending = deferred<BrowseOpenResponse>();
+  const port: BrowsePort = {
+    open: vi
+      .fn()
+      .mockResolvedValueOnce(openedAt(1, [11, 22], [row(33, "Child")]))
+      .mockImplementationOnce(() => pending.promise),
+    page: vi.fn(),
+  };
+  render(
+    <>
+      <BrowsePanel port={port} resultVersion={id} />
+      <div style={{ display: "none" }}>
+        <div role="listbox" aria-label="Popup" />
+      </div>
+    </>,
+  );
+  const child = await screen.findByRole("button", { name: "Child" });
+  act(() => child.focus());
+  const altUp = { key: "ArrowUp", altKey: true };
+  for (const extra of [
+    { isComposing: true },
+    { keyCode: 229 },
+    { shiftKey: true },
+    { ctrlKey: true },
+    { metaKey: true },
+    { repeat: true },
+  ]) {
+    fireEvent.keyDown(child, { ...altUp, ...extra });
+  }
+  const popup = document.querySelector<HTMLElement>('[role="listbox"]');
+  const popupParent = popup?.parentElement;
+  if (!popupParent) throw new Error("wrong fixture");
+  popupParent.style.display = "block";
+  fireEvent.keyDown(child, altUp);
+  popupParent.style.display = "none";
+  const field = document.createElement("input");
+  const panel = screen.getByRole("region", { name: "Folder navigation" });
+  panel.append(field);
+  fireEvent.keyDown(field, altUp);
+  field.remove();
+  expect(port.open).toHaveBeenCalledTimes(1);
+
+  act(() => {
+    expect(fireEvent.keyDown(child, altUp)).toBe(false);
+    expect(fireEvent.keyDown(child, altUp)).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Up" }));
+  });
+  expect(port.open).toHaveBeenCalledTimes(2);
+  expect(document.activeElement).toBe(child);
+  await act(async () => pending.reject(new Error("unavailable")));
+  expect(screen.getByRole("alert").textContent).toContain("Could not open");
+  expect(screen.getByRole("button", { name: "Crumb 22" })).toBeDefined();
+  expect(document.activeElement).toBe(child);
+});
+
+test("leaves Up disabled at a directly opened single scope root", async () => {
+  const port: BrowsePort = {
+    open: vi.fn().mockResolvedValue(openedAt(1, [11], [row(33, "Child")])),
+    page: vi.fn(),
+  };
+  render(<BrowsePanel port={port} resultVersion={id} />);
+  const child = await screen.findByRole("button", { name: "Child" });
+  expect(
+    screen.getByRole<HTMLButtonElement>("button", { name: "Up" }).disabled,
+  ).toBe(true);
+  expect(fireEvent.keyDown(child, { key: "ArrowUp", altKey: true })).toBe(true);
+  expect(port.open).toHaveBeenCalledTimes(1);
+});
+
+test.each(["parent version", "current crumb"] as const)(
+  "does not derive Up from a mismatched %s",
+  async (mismatch) => {
+    const response = openedAt(1, [11, 22], [row(33, "Child")]);
+    const [parent, current] = response.breadcrumbs;
+    if (!parent || !current) throw new Error("wrong fixture");
+    if (mismatch === "parent version") parent.item.resultVersion = "other";
+    else current.item = ref(99);
+    const port: BrowsePort = {
+      open: vi.fn().mockResolvedValue(response),
+      page: vi.fn(),
+    };
+    render(<BrowsePanel port={port} resultVersion={id} />);
+    const child = await screen.findByRole("button", { name: "Child" });
+    expect(
+      screen.getByRole<HTMLButtonElement>("button", { name: "Up" }).disabled,
+    ).toBe(true);
+    expect(fireEvent.keyDown(child, { key: "ArrowUp", altKey: true })).toBe(
+      true,
+    );
+    expect(port.open).toHaveBeenCalledTimes(1);
+  },
+);

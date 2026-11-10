@@ -1,7 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import type { KeyboardEvent } from "react";
 import {
   Action,
   BrowseTable,
+  canHandleBrowseKey,
   Heading,
   Notice,
   Progress,
@@ -63,6 +65,25 @@ function rowKey(item: ItemRef): string {
   return `${item.resultVersion}:${item.itemNo}`;
 }
 
+type ParentLocation = { item?: ItemRef };
+
+function parentLocation(
+  opened: Opened,
+  knownVirtualRoot: boolean,
+): ParentLocation | undefined {
+  const { rootKind, location, breadcrumbs, page } = opened;
+  if (!location || location.resultVersion !== page.resultVersion)
+    return undefined;
+  if (rootKind === "scope_root") return knownVirtualRoot ? {} : undefined;
+  if (rootKind !== "folder") return undefined;
+  const current = breadcrumbs.at(-1)?.item;
+  const parent = breadcrumbs.at(-2)?.item;
+  if (!current || rowKey(current) !== rowKey(location)) return undefined;
+  return parent?.resultVersion === page.resultVersion
+    ? { item: parent }
+    : undefined;
+}
+
 /** Isolated folder browser; its host supplies the transport and pinned result. */
 export function BrowsePanel({
   port,
@@ -78,7 +99,7 @@ export function BrowsePanel({
   const sequence = useRef(0);
   const opening = useRef<AbortController | undefined>(undefined);
   const pageActive = useRef(false);
-  const hasVirtualRoot = useRef(false);
+  const virtualRootVersion = useRef<string>(undefined);
   const panel = useRef<HTMLElement>(null);
   const loadMoreButton = useRef<HTMLButtonElement>(null);
   const focusAfterUpdate = useRef(false);
@@ -110,6 +131,7 @@ export function BrowsePanel({
       )
       .then((response) => {
         if (sequence.current !== requestSeq) return;
+        opening.current = undefined;
         setBusy(false);
         if (response.requestSeq !== requestSeq) return;
         if (response.kind === "job") {
@@ -117,7 +139,9 @@ export function BrowsePanel({
           return;
         }
         if (pinned && response.page.resultVersion !== pinned) return;
-        if (response.rootKind === "virtual_root") hasVirtualRoot.current = true;
+        if (response.rootKind === "virtual_root") {
+          virtualRootVersion.current = response.page.resultVersion;
+        }
         focusAfterUpdate.current = Boolean(
           restoreFocus && document.activeElement === active,
         );
@@ -129,13 +153,14 @@ export function BrowsePanel({
       })
       .catch(() => {
         if (sequence.current !== requestSeq) return;
+        opening.current = undefined;
         setBusy(false);
         setMessage("error");
       });
   }
 
   useEffect(() => {
-    hasVirtualRoot.current = false;
+    virtualRootVersion.current = undefined;
     navigate(undefined, resultVersion);
     return () => {
       sequence.current += 1;
@@ -203,12 +228,34 @@ export function BrowsePanel({
   }
 
   const page: FolderQueryPage | undefined = view?.opened.page;
+  const hasVirtualRoot =
+    page !== undefined && virtualRootVersion.current === page.resultVersion;
+  const parent = view && parentLocation(view.opened, hasVirtualRoot);
+
+  function goUp() {
+    if (parent && page && !opening.current)
+      navigate(parent.item, page.resultVersion);
+  }
+
+  function handleBrowseKey(event: KeyboardEvent<HTMLElement>) {
+    if (
+      event.key !== "ArrowUp" ||
+      !event.altKey ||
+      !parent ||
+      !canHandleBrowseKey(event)
+    )
+      return;
+    event.preventDefault();
+    if (!event.repeat) goUp();
+  }
+
   return (
     <section
       ref={panel}
       tabIndex={-1}
       className="du-results du-browse-panel"
       aria-label="Folder navigation"
+      onKeyDown={handleBrowseKey}
     >
       <Heading level={2}>Folders and files</Heading>
       {busy && <Progress label="Opening folder" />}
@@ -226,10 +273,13 @@ export function BrowsePanel({
             {page.observedAt ?? "Unavailable"}
           </Text>
           <div className="du-card__actions" aria-label="Folder path">
+            <Action onPress={goUp} isDisabled={!parent}>
+              Up
+            </Action>
             {view.opened.rootKind === "virtual_root" ? (
               <Text>Scope roots</Text>
             ) : (
-              hasVirtualRoot.current && (
+              hasVirtualRoot && (
                 <Action onPress={() => navigate(undefined, page.resultVersion)}>
                   Scope roots
                 </Action>
