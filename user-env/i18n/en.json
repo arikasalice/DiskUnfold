@@ -5,6 +5,22 @@
     ["cli.help.usage", "Usage: diskunfold [--lang LANGUAGE] [--help | --version]", []],
     ["cli.help.unsupported", "DiskUnfold: unsupported arguments. See --help.", []],
     ["locale.registration_failed", "Language bundle registration failed.", []],
-    ["i18n.bundle_integrity_failed", "A language bundle failed its integrity check.", []]
+    ["i18n.bundle_integrity_failed", "A language bundle failed its integrity check.", []],
+    ["settings.scope.remember_recent.name", "Remember recent scopes", []],
+    ["settings.scope.remember_recent.description", "Keep recently used analysis scopes for later selection.", []],
+    ["settings.space.shared_table_max_entries.name", "Shared identity table limit", []],
+    ["settings.space.shared_table_max_entries.description", "Maximum entries in each scan identity table. Applies to new scans.", []],
+    ["settings.locale.display_language.name", "Display language", []],
+    ["settings.locale.display_language.description", "Choose the language used by the application.", []],
+    ["settings.locale.date_format.name", "Date format", []],
+    ["settings.locale.date_format.description", "Choose how dates are displayed.", []],
+    ["settings.locale.number_format.name", "Number format", []],
+    ["settings.locale.number_format.description", "Choose how numbers are displayed.", []],
+    ["settings.locale.time_zone_policy.name", "Time zone", []],
+    ["settings.locale.time_zone_policy.description", "Choose whether times use the local time zone or UTC.", []],
+    ["settings.a11y.motion.name", "Motion", []],
+    ["settings.a11y.motion.description", "Choose whether to follow system motion preferences or reduce motion.", []],
+    ["settings.a11y.app_scale.name", "Application scale", []],
+    ["settings.a11y.app_scale.description", "Choose the application display scale.", []]
   ]
 ]

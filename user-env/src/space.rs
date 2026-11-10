@@ -10,6 +10,9 @@ pub const SHARED_TABLE_MAX_ENTRIES: &str = "space.shared_table_max_entries";
 /// Returns the F03 descriptor. Applying it to future jobs is the caller's responsibility.
 pub fn descriptors() -> Vec<Descriptor> {
     vec![Descriptor {
+        presentation: du_core_contracts::settings::SettingPresentation::for_setting(
+            SHARED_TABLE_MAX_ENTRIES,
+        ),
         key: SHARED_TABLE_MAX_ENTRIES.into(),
         owner: "F03".into(),
         default: json!(SharedTableLimit::DEFAULT_ENTRIES),

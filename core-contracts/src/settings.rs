@@ -31,8 +31,29 @@ impl Default for SharedTableLimit {
     }
 }
 
+/// Message resource keys for a setting's name and description.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SettingPresentation {
+    /// Localized name resource key.
+    pub name_key: String,
+    /// Localized description resource key.
+    pub description_key: String,
+}
+
+impl SettingPresentation {
+    /// Derives the registered resource keys from the stable setting key.
+    pub fn for_setting(key: &str) -> Self {
+        Self {
+            name_key: format!("settings.{key}.name"),
+            description_key: format!("settings.{key}.description"),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct SettingDescriptor {
+    /// Localized presentation keys; values remain in language resources.
+    pub presentation: SettingPresentation,
     pub key: String,
     pub owner: String,
     pub default: Value,

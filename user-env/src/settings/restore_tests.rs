@@ -20,6 +20,7 @@ impl SettingsStore for Store {
 fn registry() -> Result<Registry, String> {
     let mut all = descriptors();
     all.push(crate::Descriptor {
+        presentation: du_core_contracts::settings::SettingPresentation::for_setting("test.setting"),
         key: "good".into(),
         owner: "test".into(),
         default: json!(false),

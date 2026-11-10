@@ -18,6 +18,22 @@ pub const DECLARED_KEYS: &[&str] = &[
     "cli.help.unsupported",
     "locale.registration_failed",
     "i18n.bundle_integrity_failed",
+    "settings.scope.remember_recent.name",
+    "settings.scope.remember_recent.description",
+    "settings.space.shared_table_max_entries.name",
+    "settings.space.shared_table_max_entries.description",
+    "settings.locale.display_language.name",
+    "settings.locale.display_language.description",
+    "settings.locale.date_format.name",
+    "settings.locale.date_format.description",
+    "settings.locale.number_format.name",
+    "settings.locale.number_format.description",
+    "settings.locale.time_zone_policy.name",
+    "settings.locale.time_zone_policy.description",
+    "settings.a11y.motion.name",
+    "settings.a11y.motion.description",
+    "settings.a11y.app_scale.name",
+    "settings.a11y.app_scale.description",
 ];
 
 /// Resource rows and bytes come from one build-generated, immutable archive.
@@ -115,7 +131,44 @@ pub fn register(metadata_keys: &[String]) -> Result<Registry, RegistrationError>
         .iter()
         .map(|key| (*key).to_owned())
         .collect::<Vec<_>>();
-    Registry::register(&resources()?, &declared, metadata_keys, parse_bundle)
+    let registry = Registry::register(&resources()?, &declared, metadata_keys, parse_bundle)?;
+    let languages: Vec<_> = registry.configured_languages().collect();
+    let descriptors = crate::locale::descriptors(&languages)
+        .map_err(|_| RegistrationError)?
+        .into_iter()
+        .chain(crate::scope::descriptors())
+        .chain(crate::space::descriptors());
+    validate_setting_presentation(&registry, descriptors)?;
+    Ok(registry)
+}
+
+/// Validates unique presentation keys against every available verified bundle.
+fn validate_setting_presentation(
+    registry: &Registry,
+    descriptors: impl IntoIterator<Item = crate::Descriptor>,
+) -> Result<(), RegistrationError> {
+    let mut keys = std::collections::BTreeSet::new();
+    for descriptor in descriptors {
+        for key in [
+            descriptor.presentation.name_key,
+            descriptor.presentation.description_key,
+        ] {
+            if key.is_empty() || !keys.insert(key.clone()) {
+                return Err(RegistrationError);
+            }
+            for language in registry.languages() {
+                let bundle = registry.bundle(language).ok_or(RegistrationError)?;
+                if !bundle
+                    .messages
+                    .iter()
+                    .any(|(candidate, _)| candidate == &key)
+                {
+                    return Err(RegistrationError);
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

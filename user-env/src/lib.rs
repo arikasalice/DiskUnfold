@@ -81,6 +81,9 @@ mod tests {
     fn registry_rejects_duplicates_and_catalog_uses_the_given_snapshot() -> Result<(), RegistryError>
     {
         let descriptor = Descriptor {
+            presentation: du_core_contracts::settings::SettingPresentation::for_setting(
+                "test.setting",
+            ),
             key: "locale.language".into(),
             owner: "F13".into(),
             default: json!("auto"),

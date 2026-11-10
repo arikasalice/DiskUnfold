@@ -9,6 +9,9 @@ pub const REMEMBER_RECENT: &str = "scope.remember_recent";
 /// Registers the published default; this does not write or erase recent scopes.
 pub fn descriptors() -> Vec<Descriptor> {
     vec![Descriptor {
+        presentation: du_core_contracts::settings::SettingPresentation::for_setting(
+            REMEMBER_RECENT,
+        ),
         key: REMEMBER_RECENT.into(),
         owner: "F01".into(),
         default: json!(true),

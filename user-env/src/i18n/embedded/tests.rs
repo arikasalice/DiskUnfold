@@ -101,3 +101,61 @@ fn registration_rejects_duplicate_keys_and_wrong_metadata() -> Result<(), Regist
     assert!(Registry::register(&[wrong_version], &[], &[], parse_bundle).is_err());
     Ok(())
 }
+
+#[test]
+fn setting_presentations_cover_eight_descriptors_in_both_bundles()
+-> Result<(), Box<dyn std::error::Error>> {
+    let registry = register(&[]).map_err(|e| format!("{e:?}"))?;
+    let descriptors: Vec<_> = crate::locale::descriptors(&["en", "ko"])
+        .map_err(|e| format!("{e:?}"))?
+        .into_iter()
+        .chain(crate::scope::descriptors())
+        .chain(crate::space::descriptors())
+        .collect();
+    assert_eq!(descriptors.len(), 8);
+    validate_setting_presentation(&registry, descriptors.clone()).map_err(|e| format!("{e:?}"))?;
+    for language in ["en", "ko"] {
+        let bundle = registry.bundle(language).ok_or("missing bundle")?;
+        for descriptor in &descriptors {
+            for key in [
+                &descriptor.presentation.name_key,
+                &descriptor.presentation.description_key,
+            ] {
+                let message = bundle
+                    .messages
+                    .iter()
+                    .find(|(candidate, _)| candidate == key)
+                    .ok_or("missing message")?;
+                assert!(!message.1.text.trim().is_empty());
+                assert!(message.1.parameters.is_empty());
+            }
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn setting_presentation_rejects_duplicate_empty_and_missing_keys()
+-> Result<(), Box<dyn std::error::Error>> {
+    let mut registry = register(&[]).map_err(|e| format!("{e:?}"))?;
+    let descriptors = crate::scope::descriptors();
+    let one = descriptors.first().ok_or("missing descriptor")?.clone();
+    assert!(validate_setting_presentation(&registry, [one.clone(), one.clone()]).is_err());
+    let mut same = one.clone();
+    same.presentation.description_key = same.presentation.name_key.clone();
+    assert!(validate_setting_presentation(&registry, [same]).is_err());
+    let mut empty = one.clone();
+    empty.presentation.name_key.clear();
+    assert!(validate_setting_presentation(&registry, [empty]).is_err());
+    let mut missing = one.clone();
+    missing.presentation.name_key = "settings.missing.name".into();
+    assert!(validate_setting_presentation(&registry, [missing]).is_err());
+    registry
+        .bundles
+        .get_mut("ko")
+        .ok_or("missing ko")?
+        .messages
+        .retain(|(key, _)| key != &one.presentation.description_key);
+    assert!(validate_setting_presentation(&registry, [one]).is_err());
+    Ok(())
+}

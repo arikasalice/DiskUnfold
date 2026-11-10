@@ -155,6 +155,7 @@ pub fn decide_cli(inputs: &Inputs<'_>, argument: Option<&str>) -> Result<Decisio
 
 fn descriptor(key: &str, default: Value, values: Vec<Value>) -> Descriptor {
     Descriptor {
+        presentation: du_core_contracts::settings::SettingPresentation::for_setting(key),
         key: key.to_owned(),
         owner: "F13".to_owned(),
         default,

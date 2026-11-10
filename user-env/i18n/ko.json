@@ -5,6 +5,22 @@
     ["cli.help.usage", "사용법: diskunfold [--lang 언어] [--help | --version]", []],
     ["cli.help.unsupported", "DiskUnfold: 지원하지 않는 인자입니다. --help를 확인하세요.", []],
     ["locale.registration_failed", "언어 묶음 등록에 실패했습니다.", []],
-    ["i18n.bundle_integrity_failed", "언어 묶음 무결성 검사에 실패했습니다.", []]
+    ["i18n.bundle_integrity_failed", "언어 묶음 무결성 검사에 실패했습니다.", []],
+    ["settings.scope.remember_recent.name", "최근 분석 범위 기억", []],
+    ["settings.scope.remember_recent.description", "나중에 다시 선택할 수 있도록 최근 분석 범위를 보관합니다.", []],
+    ["settings.space.shared_table_max_entries.name", "공유 식별 표 상한", []],
+    ["settings.space.shared_table_max_entries.description", "스캔 식별 표마다 보관할 최대 항목 수입니다. 새 스캔부터 적용됩니다.", []],
+    ["settings.locale.display_language.name", "표시 언어", []],
+    ["settings.locale.display_language.description", "앱에서 사용할 언어를 선택합니다.", []],
+    ["settings.locale.date_format.name", "날짜 형식", []],
+    ["settings.locale.date_format.description", "날짜를 표시하는 형식을 선택합니다.", []],
+    ["settings.locale.number_format.name", "숫자 형식", []],
+    ["settings.locale.number_format.description", "숫자를 표시하는 형식을 선택합니다.", []],
+    ["settings.locale.time_zone_policy.name", "시간대", []],
+    ["settings.locale.time_zone_policy.description", "시간을 현지 시간대 또는 UTC로 표시할지 선택합니다.", []],
+    ["settings.a11y.motion.name", "움직임", []],
+    ["settings.a11y.motion.description", "시스템 움직임 설정을 따르거나 움직임을 줄이도록 선택합니다.", []],
+    ["settings.a11y.app_scale.name", "앱 배율", []],
+    ["settings.a11y.app_scale.description", "앱의 표시 배율을 선택합니다.", []]
   ]
 ]

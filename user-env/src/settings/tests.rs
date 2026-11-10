@@ -38,6 +38,7 @@ impl SettingsStore for Fake {
 
 fn setup() -> Result<SettingsService<Fake>, String> {
     let descriptor = Descriptor {
+        presentation: du_core_contracts::settings::SettingPresentation::for_setting("test.setting"),
         key: "scope.remember_recent".into(),
         owner: "F01".into(),
         default: json!(true),
@@ -177,6 +178,7 @@ fn concurrent_store_change_does_not_replace_snapshot() -> Result<(), String> {
 #[test]
 fn unvalidated_stored_values_and_schema_mismatches_are_not_exposed() -> Result<(), String> {
     let descriptor = Descriptor {
+        presentation: du_core_contracts::settings::SettingPresentation::for_setting("test.setting"),
         key: "scope.remember_recent".into(),
         owner: "F01".into(),
         default: json!(true),
