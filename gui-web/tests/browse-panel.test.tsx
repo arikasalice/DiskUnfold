@@ -1128,7 +1128,7 @@ test.each([
         : syntheticPage(count, 200, "lower_bound"),
     );
     const { unmount } = render(<BrowsePanel port={port} resultVersion={id} />);
-    await screen.findByRole("grid");
+    await screen.findByText("Entry 0");
     const start = gridRow("Entry 0");
     act(() => start.focus());
     await act(async () => fireEvent.keyDown(start, { key: "End" }));
@@ -1211,7 +1211,7 @@ test("page Retry keeps the same focused control across a repeated failure", asyn
     return syntheticPage(2001, 2000);
   });
   render(<BrowsePanel port={port} resultVersion={id} />);
-  await screen.findByRole("grid");
+  await screen.findByText("Entry 0");
   const initial = gridRow("Entry 0");
   act(() => initial.focus());
   await act(async () => fireEvent.keyDown(initial, { key: "End" }));
@@ -1317,7 +1317,7 @@ test("page Retry does not restore row or panel focus after the user leaves and r
       <button>Outside browse</button>
     </>,
   );
-  await screen.findByRole("grid");
+  await screen.findByText("Entry 0");
   const first = gridRow("Entry 0");
   act(() => first.focus());
   await act(async () => fireEvent.keyDown(first, { key: "End" }));
