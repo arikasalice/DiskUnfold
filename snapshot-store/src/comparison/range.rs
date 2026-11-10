@@ -147,6 +147,29 @@ impl Ranges {
             None => Location::Comparable { after_gap: later },
         }
     }
+
+    /// Finds incomplete parent observations in the common range only.
+    /// Explicit incomparable ranges prune the whole subtree. The caller must
+    /// still supply complete range evidence from both pinned inputs.
+    pub(super) fn has_incomplete_common(
+        &self,
+        cancelled: &mut impl FnMut() -> bool,
+    ) -> Result<bool, tree::Error> {
+        let mut pending = vec![0];
+        while let Some(index) = pending.pop() {
+            check(cancelled)?;
+            let node = &self.nodes[index];
+            if node.earlier_range.is_some() || node.later_range.is_some() {
+                continue;
+            }
+            if node.later_folder.is_some() {
+                return Ok(true);
+            }
+            pending.extend(node.children.values().copied());
+        }
+        check(cancelled)?;
+        Ok(false)
+    }
 }
 
 fn combine(a: Option<Gap>, b: Option<Gap>) -> Option<Gap> {

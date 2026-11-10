@@ -159,6 +159,40 @@ fn actual_f03_set_totals_deduplicate_and_compare_pinned_sides() -> Result<(), St
         }
     );
     assert_eq!(totals.delta, Some(10));
+    let excluded = vec![b"b".to_vec()];
+    let ranges = range::Ranges::new(
+        &[range::Evidence::Range {
+            path: &excluded,
+            side: range::Side::Earlier,
+            reason: range::RangeReason::Excluded,
+        }],
+        || false,
+    )
+    .map_err(|e| format!("{e:?}"))?;
+    let mut totals = Totals::new(
+        Selection::new(before.clone(), vec![references(&before)[0].clone()], true),
+        Selection::new(after.clone(), vec![references(&after)[0].clone()], true),
+    );
+    let comparison = summary::compare(
+        summary::Inputs {
+            root: &root(),
+            earlier: &earlier_tree,
+            later: &later_tree,
+            basis: &SizeBasis::Allocated,
+            ranges: &ranges,
+        },
+        &mut totals,
+        || false,
+    )
+    .map_err(|e| format!("{e:?}"))?;
+    assert!(matches!(
+        comparison.rows[1].change,
+        crate::comparison::Change::Incomparable(crate::comparison::Gap::Excluded)
+    ));
+    assert_eq!(
+        comparison.totals.ok_or("missing common totals")?.delta,
+        Some(10)
+    );
     Ok(())
 }
 

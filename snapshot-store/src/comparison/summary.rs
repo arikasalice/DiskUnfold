@@ -1,5 +1,5 @@
 //! F08 common-range totals from the same set aggregation rule used by F03.
-use super::{RootComparison, range, tree};
+use super::{Change, RootComparison, range, tree};
 use crate::storage_match::Correspondence;
 use du_core_contracts::{
     SizeAmount, SizeBasis, SizeEvidence, SizeValue,
@@ -35,6 +35,8 @@ pub trait SetTotals {
 pub struct Totals {
     pub earlier: SpaceAggregate,
     pub later: SpaceAggregate,
+    /// The range index or its comparison rows identify gaps in common observations.
+    pub common_observations_incomplete: bool,
     pub delta: Option<i128>,
 }
 
@@ -65,6 +67,9 @@ pub struct Inputs<'a, 'data> {
 /// Assembles the tree and asks the provider for the common set on both sides.
 ///
 /// Incompatible roots preserve their comparison rows without asking for totals.
+/// A known incomparable range does not lower the common-range total. Incomplete
+/// observations within the common range are reported independently from each
+/// supplier's aggregate, including when no item row represents the gap.
 /// Only exact, complete aggregate amounts produce a delta. The original
 /// aggregates remain available even when either amount is uncertain. Decimal
 /// byte sizes are parsed as `u64` and widened before subtraction.
@@ -94,6 +99,21 @@ pub fn compare<'data, P: SetTotals>(
     if inputs.root.correspondence() != Correspondence::Same {
         return Ok(Comparison { rows, totals: None });
     }
+    let mut incomplete = inputs
+        .ranges
+        .has_incomplete_common(&mut cancelled)
+        .map_err(|_| Error::Cancelled)?;
+    if !incomplete {
+        for row in &rows {
+            if cancelled() {
+                return Err(Error::Cancelled);
+            }
+            if matches!(row.change, Change::Unverified(_)) {
+                incomplete = true;
+                break;
+            }
+        }
+    }
     let earlier = provider.total(Side::Earlier, inputs.basis, &mut cancelled);
     if cancelled() {
         return Err(Error::Cancelled);
@@ -104,14 +124,19 @@ pub fn compare<'data, P: SetTotals>(
         return Err(Error::Cancelled);
     }
     let later = later.map_err(Error::Source)?;
-    let delta = exact(&earlier, inputs.basis)
-        .zip(exact(&later, inputs.basis))
-        .map(|(a, b)| i128::from(b) - i128::from(a));
+    let delta = if incomplete {
+        None
+    } else {
+        exact(&earlier, inputs.basis)
+            .zip(exact(&later, inputs.basis))
+            .map(|(a, b)| i128::from(b) - i128::from(a))
+    };
     Ok(Comparison {
         rows,
         totals: Some(Totals {
             earlier,
             later,
+            common_observations_incomplete: incomplete,
             delta,
         }),
     })

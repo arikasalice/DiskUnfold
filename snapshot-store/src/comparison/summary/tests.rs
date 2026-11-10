@@ -116,6 +116,112 @@ fn tree_assembly_uses_set_totals_and_preserves_wide_delta() -> Result<(), Error<
 }
 
 #[test]
+fn only_incomplete_common_range_blocks_delta() -> Result<(), Error<&'static str>> {
+    let empty = tree::Tree::new(&[], || false).map_err(|_| Error::InvalidTree)?;
+    let excluded = vec![b"excluded".to_vec()];
+    let excluded_child = vec![b"excluded".to_vec(), b"child".to_vec()];
+    let sibling = vec![b"excluded-sibling".to_vec()];
+    let excluded_evidence = range::Evidence::Range {
+        path: &excluded,
+        side: range::Side::Earlier,
+        reason: range::RangeReason::Excluded,
+    };
+    let ignored = range::Evidence::LaterFolder {
+        path: &excluded_child,
+        reason: range::Incomplete::AccessDenied,
+    };
+    let outside = range::Ranges::new(&[excluded_evidence, ignored], || false)
+        .map_err(|_| Error::Cancelled)?;
+    let common_incomplete = range::Ranges::new(
+        &[
+            range::Evidence::Range {
+                path: &excluded,
+                side: range::Side::Earlier,
+                reason: range::RangeReason::Excluded,
+            },
+            range::Evidence::LaterFolder {
+                path: &sibling,
+                reason: range::Incomplete::MissingObservation,
+            },
+        ],
+        || false,
+    )
+    .map_err(|_| Error::Cancelled)?;
+    let root = root();
+    let mut source = Source {
+        before: aggregate(10),
+        after: aggregate(20),
+        calls: vec![],
+        fail: false,
+    };
+    for (ranges, expected) in [(&outside, Some(10)), (&common_incomplete, None)] {
+        let result = compare(
+            Inputs {
+                root: &root,
+                earlier: &empty,
+                later: &empty,
+                basis: &SizeBasis::Logical,
+                ranges,
+            },
+            &mut source,
+            || false,
+        )?;
+        let totals = result.totals.ok_or(Error::InvalidTree)?;
+        assert_eq!(totals.delta, expected);
+        assert_eq!(totals.common_observations_incomplete, expected.is_none());
+        assert_eq!(totals.earlier, source.before);
+        assert_eq!(totals.later, source.after);
+    }
+    Ok(())
+}
+
+#[test]
+fn unverified_emitted_rows_block_common_delta() -> Result<(), Error<&'static str>> {
+    let file = item();
+    let before = tree::Tree::new(
+        &[Child {
+            item: &file,
+            key: b"x",
+        }],
+        || false,
+    )
+    .map_err(|_| Error::InvalidTree)?;
+    let after = tree::Tree::new(&[], || false).map_err(|_| Error::InvalidTree)?;
+    let path = Vec::new();
+    let ranges = range::Ranges::new(
+        &[range::Evidence::LaterFolder {
+            path: &path,
+            reason: range::Incomplete::AccessDenied,
+        }],
+        || false,
+    )
+    .map_err(|_| Error::Cancelled)?;
+    let mut source = Source {
+        before: aggregate(10),
+        after: aggregate(20),
+        calls: vec![],
+        fail: false,
+    };
+    let result = compare(
+        Inputs {
+            root: &root(),
+            earlier: &before,
+            later: &after,
+            basis: &SizeBasis::Logical,
+            ranges: &ranges,
+        },
+        &mut source,
+        || false,
+    )?;
+    assert!(matches!(result.rows[0].change, Change::Unverified(_)));
+    let totals = result.totals.ok_or(Error::InvalidTree)?;
+    assert_eq!(totals.delta, None);
+    assert!(totals.common_observations_incomplete);
+    assert_eq!(totals.later, source.after);
+    Ok(())
+}
+
+#[test]
 fn unknown_partial_and_other_basis_are_not_exact() {
     let mut a = aggregate(7);
     let original = a.clone();
