@@ -10,6 +10,7 @@ mod result_path;
 mod result_read;
 mod space;
 pub mod space_detail;
+mod space_limit;
 mod tree;
 mod version_store;
 pub mod visualization;
@@ -28,10 +29,8 @@ use std::sync::{Arc, Mutex};
 use version_store::{Entry, State};
 mod build_error;
 pub use build_error::BuildError;
-
 mod volume_reports;
 pub use volume_reports::{VolumeReport, VolumeReportPoint};
-
 mod observation;
 pub use observation::Observation;
 #[derive(Debug)]
@@ -44,6 +43,7 @@ pub struct ResultVersion {
     aggregates: Vec<SpaceAggregate>,
     physical: Option<Vec<Option<SpaceObservation>>>,
     identity_groups: std::sync::OnceLock<Result<space_detail::IdentityGroups, ()>>,
+    shared_table_limit: usize,
     roots: Vec<ResultScopeRoot>,
     root_indices: Vec<u32>,
     gaps: Vec<ResultScopeGap>,
@@ -54,7 +54,6 @@ pub struct ResultVersion {
     item_observed_times: Option<Vec<Option<Timestamp>>>,
     issues: Vec<du_core_contracts::scan_failures::ScanIssue>,
 }
-
 /// Failure to resolve an item or a current version without changing the pinned result.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum QueryError {
@@ -66,7 +65,6 @@ pub enum QueryError {
     KindUnknown,
     Unavailable,
 }
-
 /// A single publication point. Readers retain their snapshot after releasing the lock.
 #[derive(Clone, Default)]
 pub struct IngestSink {
@@ -81,7 +79,6 @@ impl IngestSink {
             events: Arc::new(PublicationEvents::new(publisher)),
         }
     }
-
     /// Pins the current version only if its identifier still matches the admitted request.
     pub fn pin_current(&self, expected: &Id) -> Result<Arc<ResultVersion>, QueryError> {
         let state = self.state.lock().map_err(|_| QueryError::Unavailable)?;
@@ -162,6 +159,7 @@ impl IngestSink {
             baseline,
             lineage,
             published: false,
+            shared_table_limit: physical::IDENTITY_LIMIT,
             scope_version_id,
             roots,
             gaps: Vec::new(),
@@ -180,6 +178,7 @@ pub struct BuildHandle {
     baseline: Option<Entry>,
     lineage: Option<Id>,
     published: bool,
+    shared_table_limit: usize,
     scope_version_id: Id,
     roots: Vec<ResultScopeRoot>,
     gaps: Vec<ResultScopeGap>,
@@ -383,6 +382,7 @@ impl BuildHandle {
             &built.structures,
             built.physical.as_deref(),
             completeness,
+            self.shared_table_limit,
             &mut aggregates,
         );
         if let Err(error) = forest::mark_gaps(&built, &self.gaps, &mut aggregates) {
@@ -405,6 +405,7 @@ impl BuildHandle {
                 &built.structures,
                 built.physical.as_deref(),
                 result_completeness,
+                self.shared_table_limit,
                 &mut total,
             );
             if !self.gaps.is_empty() {
@@ -420,6 +421,7 @@ impl BuildHandle {
             items: built.items,
             physical: built.physical,
             identity_groups: std::sync::OnceLock::new(),
+            shared_table_limit: self.shared_table_limit,
             modified_times: built.modified_times,
             item_observed_times: built.item_observed_times,
             issues: issues::ordered(&self.issues),

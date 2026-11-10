@@ -124,7 +124,7 @@ impl ResultVersion {
         };
         let groups = match self
             .identity_groups
-            .get_or_init(|| build_groups(self, crate::physical::IDENTITY_LIMIT))
+            .get_or_init(|| build_groups(self, self.shared_table_limit))
         {
             Ok(groups) => groups,
             Err(()) => {

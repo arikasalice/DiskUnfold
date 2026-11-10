@@ -40,8 +40,8 @@ struct Known {
     sharing: SharingEvidence,
 }
 
-#[derive(Default)]
 struct Physical {
+    limit: usize,
     identities: BTreeMap<FileIdentity, Option<Known>>,
     total: u128,
     known: usize,
@@ -55,7 +55,29 @@ struct Physical {
     insertions: usize,
 }
 
+impl Default for Physical {
+    fn default() -> Self {
+        Self::with_limit(IDENTITY_LIMIT)
+    }
+}
+
 impl Physical {
+    fn with_limit(limit: usize) -> Self {
+        Self {
+            limit,
+            identities: BTreeMap::new(),
+            total: 0,
+            known: 0,
+            conflicts: 0,
+            lower: 0,
+            sharing_unknown: 0,
+            missing: false,
+            identity_missing: false,
+            capacity_exceeded: false,
+            #[cfg(test)]
+            insertions: 0,
+        }
+    }
     fn observe(&mut self, input: Option<&SpaceObservation>) {
         let Some(input) = input else {
             self.missing = true;
@@ -101,7 +123,7 @@ impl Physical {
     }
 
     fn insert(&mut self, identity: FileIdentity, value: Option<Known>) {
-        self.insert_with_limit(identity, value, IDENTITY_LIMIT);
+        self.insert_with_limit(identity, value, self.limit);
     }
 
     fn insert_with_limit(&mut self, identity: FileIdentity, value: Option<Known>, limit: usize) {
@@ -303,9 +325,10 @@ pub(crate) fn scope_total(
     structures: &[bool],
     observations: Option<&[Option<SpaceObservation>]>,
     completeness: ResultCompleteness,
+    limit: usize,
     output: &mut SpaceAggregate,
 ) {
-    let mut sum = Physical::default();
+    let mut sum = Physical::with_limit(limit);
     for item in items {
         let index = item.item_no as usize;
         if !structures[index] {
@@ -322,7 +345,7 @@ pub(crate) fn selected_scope(
     completeness: ResultCompleteness,
     output: &mut SpaceAggregate,
 ) {
-    let mut sum = Physical::default();
+    let mut sum = Physical::with_limit(result.shared_table_limit);
     for (index, item) in result.items.iter().enumerate() {
         if roots.binary_search(&result.root_indices[index]).is_ok()
             && !matches!(
@@ -352,6 +375,7 @@ pub(crate) fn apply(
     structures: &[bool],
     observations: Option<&[Option<SpaceObservation>]>,
     completeness: ResultCompleteness,
+    limit: usize,
     output: &mut [SpaceAggregate],
 ) {
     let Some(observations) = observations else {
@@ -361,7 +385,7 @@ pub(crate) fn apply(
             missing[index] |= !structures[index];
             Physical {
                 missing: missing[index],
-                ..Physical::default()
+                ..Physical::with_limit(limit)
             }
             .finish(completeness, &mut output[index]);
             if let Some(parent) = item.parent {
@@ -375,12 +399,12 @@ pub(crate) fn apply(
         let index = item.item_no as usize;
         if !structures[index] {
             sums[index]
-                .get_or_insert_with(Box::default)
+                .get_or_insert_with(|| Box::new(Physical::with_limit(limit)))
                 .observe(observations[index].as_ref());
         }
         sums[index]
             .as_deref()
-            .unwrap_or(&Physical::default())
+            .unwrap_or(&Physical::with_limit(limit))
             .finish(completeness, &mut output[index]);
         if let Some(parent) = item.parent
             && let Some(child) = sums[index].take()
@@ -395,86 +419,4 @@ pub(crate) fn apply(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn identity_capacity_boundary_and_conflict_update_summary() {
-        let mut sum = Physical::default();
-        let identity = |n| FileIdentity {
-            volume: vec![1],
-            file: vec![n],
-        };
-        let known = |bytes| {
-            Some(Known {
-                bytes,
-                lower: false,
-                sharing: SharingEvidence::None,
-            })
-        };
-        sum.insert_with_limit(identity(1), known(10), 2);
-        sum.insert_with_limit(identity(2), known(20), 2);
-        assert_eq!(
-            (sum.total, sum.known, sum.capacity_exceeded),
-            (30, 2, false)
-        );
-        let item = ResultItem {
-            item_no: 0,
-            parent: None,
-            name: vec![],
-            size: None,
-            kind: du_core_contracts::result::ResultItemKind::Directory,
-        };
-        let mut aggregates =
-            crate::space::aggregate(&[item], &[true], ResultCompleteness::Complete);
-        sum.finish(ResultCompleteness::Complete, &mut aggregates[0]);
-        assert_eq!(
-            aggregates[0].allocated.amount,
-            SizeAmount::Exact {
-                bytes: ByteSize::from(30)
-            }
-        );
-        sum.insert_with_limit(identity(1), known(11), 2);
-        assert_eq!((sum.total, sum.known, sum.conflicts), (20, 1, 1));
-        sum.insert_with_limit(identity(3), known(5), 2);
-        assert!(sum.capacity_exceeded);
-        assert_eq!(sum.identities.len(), 2);
-        sum.finish(ResultCompleteness::Complete, &mut aggregates[0]);
-        assert_eq!(aggregates[0].allocated.amount, SizeAmount::Unknown);
-        assert!(aggregates[0].limitations.contains(&"space.dedup_capacity"));
-    }
-
-    #[test]
-    fn merge_inserts_only_the_smaller_identity_map() {
-        let mut small = Physical::default();
-        let mut large = Physical::default();
-        for n in 0u8..128 {
-            large.insert(
-                FileIdentity {
-                    volume: vec![1],
-                    file: vec![n],
-                },
-                Some(Known {
-                    bytes: 1,
-                    lower: false,
-                    sharing: SharingEvidence::None,
-                }),
-            );
-        }
-        small.insert(
-            FileIdentity {
-                volume: vec![2],
-                file: vec![0],
-            },
-            Some(Known {
-                bytes: 2,
-                lower: false,
-                sharing: SharingEvidence::None,
-            }),
-        );
-        small.merge(large);
-        assert_eq!(small.identities.len(), 129);
-        assert_eq!(small.insertions, 129);
-        assert_eq!(small.total, 130);
-    }
-}
+mod tests;

@@ -48,6 +48,7 @@ pub struct MetadataScan {
     lineage: Option<Id>,
     ids: Arc<dyn ResultIds>,
     filter: Option<Arc<PreMetadataFilter<'static>>>,
+    shared_table_limit: Option<usize>,
 }
 
 impl MetadataScan {
@@ -94,11 +95,18 @@ impl MetadataScan {
             lineage: None,
             ids,
             filter: None,
+            shared_table_limit: None,
         }
     }
     /// Binds this scan to the stable lineage of its verified scope and source.
     pub fn with_lineage(mut self, lineage: Id) -> Self {
         self.lineage = Some(lineage);
+        self
+    }
+
+    /// Freezes a caller-validated identity-table capacity for this scan.
+    pub fn with_shared_table_limit(mut self, limit: usize) -> Self {
+        self.shared_table_limit = Some(limit);
         self
     }
 
@@ -143,6 +151,12 @@ impl JobBody for MetadataScan {
                     ),
                     None => self.store.open_forest(self.scope.clone(), observed),
                 };
+                let build = build.and_then(|mut build| {
+                    if let Some(limit) = self.shared_table_limit {
+                        build.set_shared_table_limit(limit)?;
+                    }
+                    Ok(build)
+                });
                 let devices = DevicePlan { groups, limit: 4 };
                 match &self.filter {
                     Some(filter) => collect_open_forest_filtered(
