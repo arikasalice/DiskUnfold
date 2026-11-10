@@ -233,6 +233,10 @@ fn decode_sealed<S: SealedSpool, W: StagingSink>(
         if let Some(items) = items {
             items.finish().map_err(|()| Error::Records)?;
         }
+        // Do not return a staged result when cancellation arrived during final checks.
+        if cancelled() {
+            return Err(Error::Cancelled);
+        }
         Ok(())
     })();
     match result {

@@ -5,6 +5,7 @@ use crate::records::{
 };
 use std::sync::atomic::Ordering;
 mod source_metadata_tests;
+mod windows_sealed_tests;
 fn record(kind: u8, body: &[u8], into: &mut Vec<u8>) {
     into.extend(((body.len() + 1) as u32).to_le_bytes());
     into.push(kind);
