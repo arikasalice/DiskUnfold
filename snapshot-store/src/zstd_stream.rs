@@ -4,7 +4,8 @@
 //! Decoded bytes are not validated records and must not be committed as a
 //! snapshot until metadata and record validation have also succeeded.
 
-use std::io::{self, Read, Write};
+use crate::envelope::spool::{SealedSpool, VerifiedSpool};
+use std::io::{self, BufRead, BufReader, Read, Write};
 
 use crate::{envelope, record_framing, zstd_frame};
 
@@ -25,6 +26,11 @@ pub enum Error {
     DecodedLimit,
     /// The decoded record boundaries, order or count are invalid.
     Records,
+    /// Discarding an unsuccessful staging sink failed.
+    Discard {
+        failure: Box<Error>,
+        cleanup: io::Error,
+    },
 }
 
 /// Decode the single frame into a caller-supplied bounded sink.
@@ -83,7 +89,91 @@ fn decode_verified(
                 Error::Frame(e)
             }
         })?;
-    let mut decoder = zstd::stream::read::Decoder::with_buffer(envelope.compressed)
+    decode_reader(
+        envelope.compressed,
+        envelope.compressed.len() as u64,
+        envelope.decoded_length,
+        cancelled,
+        &mut consume,
+    )
+}
+
+/// An owned temporary output discarded on unsuccessful decoding or validation.
+///
+/// Implementations must discard all staged bytes when `discard` succeeds.
+/// Returning a sink after success does not authorize publishing it: payload
+/// semantics and all other snapshot checks still have to pass.
+pub trait StagingSink: Write {
+    fn discard(self) -> io::Result<()>;
+}
+
+/// Decode and validate record framing from the same verified sealed spool.
+///
+/// On every failure or cancellation, the owned sink is discarded. If cleanup
+/// fails, both the original error and cleanup error are returned. Success
+/// returns the staged sink, not a published snapshot; metadata and individual
+/// record payloads still require validation. The verified spool remains open.
+pub fn validate_and_decode_sealed<S: SealedSpool, W: StagingSink>(
+    spool: &mut VerifiedSpool<S>,
+    mut sink: W,
+    mut cancelled: impl FnMut() -> bool,
+) -> Result<W, Error> {
+    let result = (|| {
+        if cancelled() {
+            return Err(Error::Cancelled);
+        }
+        let compressed_length = spool.compressed_length();
+        let decoded_length = spool.decoded_length();
+        let mut records = record_framing::Validator::new(spool.record_count());
+        let reader = spool.compressed_reader().map_err(Error::Decode)?;
+        decode_reader(
+            reader,
+            compressed_length,
+            decoded_length,
+            &mut cancelled,
+            &mut |chunk| {
+                records.push(chunk).map_err(|()| Error::Records)?;
+                sink.write_all(chunk).map_err(Error::Sink)
+            },
+        )?;
+        records.finish().map_err(|()| Error::Records)
+    })();
+    match result {
+        Ok(()) => Ok(sink),
+        Err(failure) => match sink.discard() {
+            Ok(()) => Err(failure),
+            Err(cleanup) => Err(Error::Discard {
+                failure: Box::new(failure),
+                cleanup,
+            }),
+        },
+    }
+}
+
+struct Counting<R> {
+    input: R,
+    bytes: u64,
+}
+impl<R: Read> Read for Counting<R> {
+    fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
+        let n = self.input.read(output)?;
+        self.bytes = self
+            .bytes
+            .checked_add(n as u64)
+            .ok_or_else(|| io::Error::other("compressed byte count overflow"))?;
+        Ok(n)
+    }
+}
+
+fn decode_reader<R: Read>(
+    input: R,
+    compressed_length: u64,
+    decoded_length: u64,
+    cancelled: &mut impl FnMut() -> bool,
+    consume: &mut impl FnMut(&[u8]) -> Result<(), Error>,
+) -> Result<u64, Error> {
+    let reader = BufReader::new(Counting { input, bytes: 0 });
+    let mut decoder = zstd::stream::read::Decoder::with_buffer(reader)
         .map_err(Error::Decode)?
         .single_frame();
     decoder.window_log_max(27).map_err(Error::Decode)?;
@@ -93,7 +183,7 @@ fn decode_verified(
         if cancelled() {
             return Err(Error::Cancelled);
         }
-        let available = envelope.decoded_length - total;
+        let available = decoded_length - total;
         let read_size = if available == 0 {
             1
         } else {
@@ -112,8 +202,19 @@ fn decode_verified(
         total += count as u64;
     }
     decoder.finish_frame().map_err(Error::Decode)?;
-    if !decoder.get_ref().is_empty() {
+    if cancelled() {
+        return Err(Error::Cancelled);
+    }
+    if !decoder
+        .get_mut()
+        .fill_buf()
+        .map_err(Error::Decode)?
+        .is_empty()
+    {
         return Err(Error::Frame(zstd_frame::Error::TrailingData));
+    }
+    if decoder.get_ref().get_ref().bytes != compressed_length {
+        return Err(Error::Decode(io::Error::from(io::ErrorKind::UnexpectedEof)));
     }
     Ok(total)
 }

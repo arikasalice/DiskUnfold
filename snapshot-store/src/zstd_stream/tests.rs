@@ -160,3 +160,233 @@ fn rejects_multiple_frames_and_truncated_frame() -> io::Result<()> {
     ));
     Ok(())
 }
+
+struct MemoryCapture(Vec<u8>);
+impl Write for MemoryCapture {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        self.0.extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+impl crate::envelope::spool::CaptureSpool for MemoryCapture {
+    type Sealed = MemorySealed;
+    fn seal(self) -> io::Result<Self::Sealed> {
+        Ok(MemorySealed(std::io::Cursor::new(self.0)))
+    }
+}
+
+struct MemorySealed(std::io::Cursor<Vec<u8>>);
+impl Read for MemorySealed {
+    fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
+        self.0.read(bytes)
+    }
+}
+impl std::io::Seek for MemorySealed {
+    fn seek(&mut self, position: std::io::SeekFrom) -> io::Result<u64> {
+        self.0.seek(position)
+    }
+}
+impl crate::envelope::spool::SealedSpool for MemorySealed {}
+
+#[derive(Default)]
+struct Stage {
+    bytes: Vec<u8>,
+    discarded: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    fail_write: bool,
+    fail_discard: bool,
+}
+impl Write for Stage {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        if self.fail_write {
+            return Err(io::Error::other("sink failure"));
+        }
+        self.bytes.extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+impl StagingSink for Stage {
+    fn discard(self) -> io::Result<()> {
+        self.discarded
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        if self.fail_discard {
+            Err(io::Error::other("cleanup failure"))
+        } else {
+            Ok(())
+        }
+    }
+}
+fn sealed(data: &[u8]) -> Result<VerifiedSpool<MemorySealed>, String> {
+    crate::envelope::spool::capture_v1(
+        &mut std::io::Cursor::new(data),
+        MemoryCapture(Vec::new()),
+        None,
+        |_, _| true,
+        || false,
+    )
+    .map_err(|e| format!("{e:?}"))
+}
+fn valid_records() -> Vec<u8> {
+    vec![1, 0, 0, 0, 1, 1, 0, 0, 0, 0x7f]
+}
+
+#[test]
+fn sealed_framing_uses_captured_input_and_returns_only_successful_stage() -> Result<(), String> {
+    let records = valid_records();
+    let compressed = frame(&records, true).map_err(|e| e.to_string())?;
+    let mut source = envelope_with_count(&compressed, records.len() as u64, 2);
+    let mut spool = sealed(&source)?;
+    source.fill(0);
+    let stage = validate_and_decode_sealed(&mut spool, Stage::default(), || false)
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(stage.bytes, records);
+    assert_eq!(stage.discarded.load(std::sync::atomic::Ordering::SeqCst), 0);
+    Ok(())
+}
+
+#[test]
+fn sealed_rejects_checksum_record_errors_and_discards_stage() -> Result<(), String> {
+    let records = valid_records();
+    let mut compressed = frame(&records, true).map_err(|e| e.to_string())?;
+    let last = compressed.len() - 1;
+    compressed[last] ^= 1;
+    let mut spool = sealed(&envelope_with_count(&compressed, records.len() as u64, 2))?;
+    let stage = Stage::default();
+    let dropped = stage.discarded.clone();
+    assert!(matches!(
+        validate_and_decode_sealed(&mut spool, stage, || false),
+        Err(Error::Decode(_))
+    ));
+    assert_eq!(dropped.load(std::sync::atomic::Ordering::SeqCst), 1);
+    let compressed = frame(&records, false).map_err(|e| e.to_string())?;
+    let mut spool = sealed(&envelope_with_count(&compressed, records.len() as u64, 1))?;
+    let stage = Stage::default();
+    let dropped = stage.discarded.clone();
+    assert!(matches!(
+        validate_and_decode_sealed(&mut spool, stage, || false),
+        Err(Error::Records)
+    ));
+    assert_eq!(dropped.load(std::sync::atomic::Ordering::SeqCst), 1);
+    Ok(())
+}
+
+#[test]
+fn sealed_cap_cancellation_and_cleanup_failure_are_reported() -> Result<(), String> {
+    let records = valid_records();
+    let compressed = frame(&records, false).map_err(|e| e.to_string())?;
+    let mut spool = sealed(&envelope_with_count(
+        &compressed,
+        records.len() as u64 - 1,
+        2,
+    ))?;
+    let stage = Stage::default();
+    let dropped = stage.discarded.clone();
+    assert!(matches!(
+        validate_and_decode_sealed(&mut spool, stage, || false),
+        Err(Error::DecodedLimit)
+    ));
+    assert_eq!(dropped.load(std::sync::atomic::Ordering::SeqCst), 1);
+    let mut spool = sealed(&envelope_with_count(&compressed, records.len() as u64, 2))?;
+    let stage = Stage::default();
+    let dropped = stage.discarded.clone();
+    assert!(matches!(
+        validate_and_decode_sealed(&mut spool, stage, || true),
+        Err(Error::Cancelled)
+    ));
+    assert_eq!(dropped.load(std::sync::atomic::Ordering::SeqCst), 1);
+    let stage = Stage {
+        fail_write: true,
+        fail_discard: true,
+        ..Stage::default()
+    };
+    let dropped = stage.discarded.clone();
+    assert!(
+        matches!(validate_and_decode_sealed(&mut spool, stage, || false), Err(Error::Discard { failure, .. }) if matches!(*failure, Error::Sink(_)))
+    );
+    assert_eq!(dropped.load(std::sync::atomic::Ordering::SeqCst), 1);
+    Ok(())
+}
+
+#[test]
+fn shared_decoder_checks_short_reads_and_trailing_bytes() -> io::Result<()> {
+    let records = valid_records();
+    let compressed = frame(&records, true)?;
+    let mut sink = Vec::new();
+    assert!(
+        decode_reader(
+            &compressed[..compressed.len() - 1],
+            compressed.len() as u64,
+            records.len() as u64,
+            &mut || false,
+            &mut |bytes| {
+                sink.extend_from_slice(bytes);
+                Ok(())
+            }
+        )
+        .is_err()
+    );
+    let mut trailing = compressed;
+    trailing.push(0);
+    assert!(matches!(
+        decode_reader(
+            trailing.as_slice(),
+            trailing.len() as u64,
+            records.len() as u64,
+            &mut || false,
+            &mut |_| Ok(())
+        ),
+        Err(Error::Frame(zstd_frame::Error::TrailingData))
+    ));
+    Ok(())
+}
+
+#[test]
+fn shared_decoder_accepts_repeated_short_reads_and_cancels_midstream() -> io::Result<()> {
+    struct Short<'a>(&'a [u8]);
+    impl Read for Short<'_> {
+        fn read(&mut self, out: &mut [u8]) -> io::Result<usize> {
+            let n = out.len().min(self.0.len()).min(2);
+            out[..n].copy_from_slice(&self.0[..n]);
+            self.0 = &self.0[n..];
+            Ok(n)
+        }
+    }
+    let original = vec![42; 100_000];
+    let compressed = frame(&original, true)?;
+    let mut output = Vec::new();
+    assert_eq!(
+        decode_reader(
+            Short(&compressed),
+            compressed.len() as u64,
+            original.len() as u64,
+            &mut || false,
+            &mut |chunk| {
+                output.extend_from_slice(chunk);
+                Ok(())
+            }
+        )
+        .ok(),
+        Some(original.len() as u64)
+    );
+    assert_eq!(output, original);
+    let mut calls = 0;
+    assert!(matches!(
+        decode_reader(
+            Short(&compressed),
+            compressed.len() as u64,
+            original.len() as u64,
+            &mut || {
+                calls += 1;
+                calls > 2
+            },
+            &mut |_| Ok(())
+        ),
+        Err(Error::Cancelled)
+    ));
+    Ok(())
+}
