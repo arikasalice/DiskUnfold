@@ -1,6 +1,6 @@
 //! GUI history query and event contracts.
 
-use crate::{Id, Timestamp, job::HistoryRevision};
+use crate::{ByteSize, Id, Timestamp, job::HistoryRevision};
 use serde::{Deserialize, Serialize};
 
 /// Notifies the main window that a history transaction committed.
@@ -240,4 +240,118 @@ pub struct HistoryDetail {
     pub effects: HistoryEffects,
     pub completeness: HistoryDetailCompleteness,
     pub missing_reasons: Vec<String>,
+}
+
+/// A recorded item result and an allowed item filter.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum HistoryItemOutcome {
+    Completed,
+    Overwritten,
+    Skipped,
+    Failed,
+    Unprocessed,
+}
+
+impl HistoryItemOutcome {
+    /// Returns the persisted value of the outcome.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Completed => "completed",
+            Self::Overwritten => "overwritten",
+            Self::Skipped => "skipped",
+            Self::Failed => "failed",
+            Self::Unprocessed => "unprocessed",
+        }
+    }
+}
+
+impl TryFrom<&str> for HistoryItemOutcome {
+    type Error = ();
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
+            "completed" => Ok(Self::Completed),
+            "overwritten" => Ok(Self::Overwritten),
+            "skipped" => Ok(Self::Skipped),
+            "failed" => Ok(Self::Failed),
+            "unprocessed" => Ok(Self::Unprocessed),
+            _ => Err(()),
+        }
+    }
+}
+
+/// Reads the initial or authenticated next page of an operation's item results.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct HistoryItemsRequest {
+    pub job_ref: Id,
+    pub outcome: Option<HistoryItemOutcome>,
+    pub cursor: Option<String>,
+    pub count: Option<u32>,
+}
+
+/// Display-only information for an item moved to the OS trash before overwrite.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryDisplacedItem {
+    pub name: Option<String>,
+    pub original_location_display: Option<String>,
+    #[cfg_attr(feature = "typescript", ts(type = "number | null"))]
+    pub trashed_at_ms: Option<i64>,
+    /// A different row of the same history record has the same displayed identity.
+    pub ambiguous: bool,
+}
+
+/// One historical result. Its location is the recorded display label.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryItemResult {
+    pub location_display: String,
+    pub outcome: HistoryItemOutcome,
+    pub reason_key: Option<String>,
+    pub review_needed: bool,
+    pub held: bool,
+    pub outcome_unknown: bool,
+    pub observed_size: Option<ByteSize>,
+    /// Persisted evidence key: exact, lower_bound, or unknown.
+    pub observed_size_state: String,
+    pub displaced: Option<HistoryDisplacedItem>,
+}
+
+/// The position remains visible even when an item could not be decoded.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryItemRow {
+    pub item_seq: String,
+    pub result: Option<HistoryItemResult>,
+}
+
+/// Whole-operation reconciliation, independent of the display filter and page size.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryItemCounts {
+    /// None when the operation has no readable item summary.
+    pub summary: Option<String>,
+    pub recorded: String,
+    /// Difference between summary and recorded counts, if both are known.
+    pub unavailable: Option<String>,
+}
+
+/// An ascending page whose location labels refer only to the recording time.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryItemsResponse {
+    pub revision: HistoryListRevision,
+    pub rows: Vec<HistoryItemRow>,
+    pub counts: HistoryItemCounts,
+    pub completeness: HistoryDetailCompleteness,
+    pub missing_reasons: Vec<String>,
+    pub next_cursor: Option<String>,
 }

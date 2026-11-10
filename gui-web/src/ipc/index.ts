@@ -13,6 +13,8 @@ import type {
   EventEnvelope,
   HistoryDetail,
   HistoryDetailRequest,
+  HistoryItemsRequest,
+  HistoryItemsResponse,
   HistoryListRequest,
   HistoryListResponse,
   Id,
@@ -44,6 +46,10 @@ export type {
   HistoryChangedBody,
   HistoryDetail,
   HistoryDetailRequest,
+  HistoryItemOutcome,
+  HistoryItemRow,
+  HistoryItemsRequest,
+  HistoryItemsResponse,
   HistoryEndState,
   HistoryListCounts,
   HistoryListFilter,
@@ -86,6 +92,7 @@ type Commands = {
   "job.cancel": [AnalysisJobRequest, AnalysisJobControl];
   "history.list": [HistoryListRequest, HistoryListResponse];
   "history.get": [HistoryDetailRequest, HistoryDetail];
+  "history.items": [HistoryItemsRequest, HistoryItemsResponse];
   "space.total": [SpaceTotalRequest, SpaceTotal];
   "space.detail": [BrowseDetailRequest, SpaceDetail];
   "space.volume_gap": [VolumeGapRequest, VolumeGapResponse];

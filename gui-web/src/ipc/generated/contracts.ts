@@ -43,6 +43,29 @@ value: string, unit: string, uncertainty: string, };
 export type HistoryEffects = { estimated: HistoryEffectValue | null, executed: HistoryEffectValue | null, confirmed: HistoryEffectValue | null, };
 export type HistoryDetailCompleteness = "complete" | "partial";
 export type HistoryDetail = { summary: HistoryListSummary | null, workflow: HistoryWorkflow, followUps: Array<HistoryFollowUp> | null, effects: HistoryEffects, completeness: HistoryDetailCompleteness, missingReasons: Array<string>, };
+export type HistoryItemOutcome = "completed" | "overwritten" | "skipped" | "failed" | "unprocessed";
+export type HistoryItemsRequest = { jobRef: Id, outcome: HistoryItemOutcome | null, cursor: string | null, count: number | null, };
+export type HistoryDisplacedItem = { name: string | null, originalLocationDisplay: string | null, trashedAtMs: number | null,
+/**
+ * A different row of the same history record has the same displayed identity.
+ */
+ambiguous: boolean, };
+export type HistoryItemResult = { locationDisplay: string, outcome: HistoryItemOutcome, reasonKey: string | null, reviewNeeded: boolean, held: boolean, outcomeUnknown: boolean, observedSize: ByteSize | null,
+/**
+ * Persisted evidence key: exact, lower_bound, or unknown.
+ */
+observedSizeState: string, displaced: HistoryDisplacedItem | null, };
+export type HistoryItemRow = { itemSeq: string, result: HistoryItemResult | null, };
+export type HistoryItemCounts = {
+/**
+ * None when the operation has no readable item summary.
+ */
+summary: string | null, recorded: string,
+/**
+ * Difference between summary and recorded counts, if both are known.
+ */
+unavailable: string | null, };
+export type HistoryItemsResponse = { revision: HistoryListRevision, rows: Array<HistoryItemRow>, counts: HistoryItemCounts, completeness: HistoryDetailCompleteness, missingReasons: Array<string>, nextCursor: string | null, };
 export type Id = string;
 export type ByteSize = string;
 export type Timestamp = string;
