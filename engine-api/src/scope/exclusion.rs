@@ -1,4 +1,6 @@
 //! Preparing path exclusions from injected, verified comparison capabilities.
+mod prefix;
+
 use super::{
     EngineError, ScopeCorrespondence, ScopeDraft, ScopeReview, TargetAccess, Timestamp, digest,
     preparation,
@@ -10,6 +12,7 @@ use du_core_contracts::{
 };
 use du_job_runtime::JobClock;
 use du_scan_engine::scan::PreMetadataFilter;
+use prefix::PrefixFilter;
 use std::sync::Arc;
 
 /// Comparison identity and deterministic serialized key supplied by an adapter.
@@ -104,13 +107,11 @@ pub fn prepare(
     let per_root: Vec<_> = kept
         .iter()
         .map(|root| {
-            rule_keys
-                .iter()
-                .filter(|rule| {
-                    rule.volume == root.volume && rule.components.starts_with(&root.components)
-                })
-                .map(|rule| rule.components[root.components.len()..].to_vec())
-                .collect::<Vec<_>>()
+            PrefixFilter::new(rule_keys.iter().filter_map(|rule| {
+                (rule.volume == root.volume)
+                    .then(|| rule.components.strip_prefix(root.components.as_slice()))
+                    .flatten()
+            }))
         })
         .collect();
     let output_roots = kept
@@ -128,26 +129,9 @@ pub fn prepare(
         let Some(rules) = per_root.get(index as usize) else {
             return FilterDecision::Undecidable;
         };
-        if rules.is_empty() {
-            return FilterDecision::Admit;
-        }
-        let mut path = Vec::with_capacity(parent.len() + 1);
-        for (index, raw) in parent
-            .iter()
-            .map(Vec::as_slice)
-            .chain(std::iter::once(name))
-            .enumerate()
-        {
-            let Some(key) = evidence.component(root, &parent[..index], raw) else {
-                return FilterDecision::Undecidable;
-            };
-            path.push(key);
-        }
-        if rules.iter().any(|rule| path.starts_with(rule)) {
-            FilterDecision::Exclude
-        } else {
-            FilterDecision::Admit
-        }
+        rules.decide(parent, name, |index, raw| {
+            evidence.component(root, &parent[..index], raw)
+        })
     });
     Some(FrozenExclusions {
         roots,

@@ -199,6 +199,22 @@ fn root_order_cross_volume_and_rule_order_use_proven_keys() -> Result<(), Box<dy
         FilterDecision::Admit
     );
     assert_eq!((policy.filter)(0, &[], &[0]), FilterDecision::Undecidable);
+    assert_eq!(
+        (policy.filter)(0, &[native_component("public")], &[0]),
+        FilterDecision::Admit
+    );
+    assert_eq!(
+        (policy.filter)(0, &[native_component("child")], &[0]),
+        FilterDecision::Undecidable
+    );
+    assert_eq!(
+        (policy.filter)(
+            0,
+            &[native_component("child"), native_component("private")],
+            &[0]
+        ),
+        FilterDecision::Exclude
+    );
     let policy = prepare(
         Arc::new(ProvenComparison),
         &roots,
