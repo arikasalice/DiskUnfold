@@ -2,21 +2,16 @@ import { useLayoutEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
   Action,
-  Choice,
-  ChoiceGroup,
-  FolderDropSurface,
   Heading,
-  Icon,
   LiveStatus,
   Metric,
   Notice,
-  PathField,
   Progress,
   Readout,
   StatusBadge,
   Text,
 } from "../../components";
-import { AnalysisError, windowsPath } from "../../ipc";
+import { AnalysisError } from "../../ipc";
 import type {
   AnalysisClient,
   BrowseDetail,
@@ -26,7 +21,6 @@ import type {
   SpaceTotal,
 } from "../../ipc";
 import type { useScanResult } from "../../state/analysis-scan";
-import type { useTargets } from "../../state/analysis-targets";
 import { ScanIssues } from "./ScanIssues";
 import { ItemSpaceDetails } from "./ItemSpaceDetails";
 import { SizeDisplayControls } from "./SizeDisplayControls";
@@ -39,7 +33,6 @@ import {
   windowsSizeDisplay,
 } from "./space-format";
 import type { SizeBasisFilter, SizeDisplay } from "./space-format";
-import { describeTargetCapacity } from "./target-capacity";
 
 const resultVersionLabels = {
   complete: "Final",
@@ -47,158 +40,6 @@ const resultVersionLabels = {
   missing: "Final with scan gaps",
   cancelled: "Cancelled",
 } satisfies Record<SpaceTotal["completeness"], string>;
-
-/** Presents discovered drives and the direct path entry defined for scope review. */
-export function TargetPicker({
-  targets,
-  disabled,
-  selected,
-  choose,
-  addPath,
-  removePath,
-  dropEnabled,
-  dropError,
-  pathDescription,
-}: {
-  targets: ReturnType<typeof useTargets>;
-  disabled: boolean;
-  selected: (OsPath | undefined)[];
-  choose: (path: OsPath | undefined, index?: number) => void;
-  addPath: () => void;
-  removePath: (index: number) => void;
-  dropEnabled: boolean;
-  dropError: string | undefined;
-  pathDescription: string;
-}) {
-  const {
-    targets: entries = [],
-    probeJobRef,
-    unavailableReason,
-  } = targets.list ?? {};
-  const error = targets.error ?? unavailableReason;
-  const checkingCapacity = Boolean(probeJobRef) && !targets.finished;
-  const notice =
-    error === "os.unsupported"
-      ? "Automatic drive listing is unavailable. You can still enter a folder below."
-      : error === "os.call_slow"
-        ? "Drive listing is taking longer than expected. Refresh later or enter a folder below."
-        : error;
-  const pathField = (
-    <PathField
-      label="Windows folder path"
-      description={pathDescription}
-      placeholder={"C:\\Folder"}
-      isDisabled={disabled}
-      value={selected[0]?.display ?? ""}
-      onChange={(path) => choose(path ? windowsPath(path) : undefined)}
-    />
-  );
-  return (
-    <>
-      <div className="du-card__header">
-        <div>
-          <Text kind="eyebrow">01 · Target & scope</Text>
-          <Heading level={3}>Choose what to scan</Heading>
-        </div>
-        <Action
-          variant="quiet"
-          icon="refresh"
-          aria-label="Refresh targets"
-          isDisabled={targets.loading || disabled}
-          onPress={() => void targets.refresh(true)}
-        />
-      </div>
-      {targets.loading && <Progress label="Loading targets" />}
-      {notice && (
-        <Notice
-          tone={
-            error === "os.unsupported" || error === "os.call_slow"
-              ? "info"
-              : "error"
-          }
-        >
-          {notice}
-        </Notice>
-      )}
-      {entries.length > 0 && (
-        <ChoiceGroup
-          label="Choose a target"
-          value={selected[0]?.raw ?? null}
-          isDisabled={disabled}
-          onChange={(raw) =>
-            choose(entries.find(({ path }) => path.raw === raw)?.path)
-          }
-        >
-          {entries.map((target) => {
-            const probe = targets.probes[target.path.raw];
-            const access =
-              probe?.access ??
-              (targets.finished && target.access === "checking"
-                ? "unknown"
-                : target.access);
-            const capacity = describeTargetCapacity(probe, checkingCapacity);
-            const kind =
-              target.kind?.replaceAll("_", " ") ?? "Type unavailable";
-            return (
-              <Choice
-                key={target.path.raw}
-                value={target.path.raw}
-                label={target.path.display}
-                icon="drive"
-                description={`${kind} · ${capacity}`}
-                status={{
-                  text: access,
-                  tone: access === "accessible" ? "good" : "neutral",
-                }}
-              />
-            );
-          })}
-        </ChoiceGroup>
-      )}
-      <div className="du-primary-path">
-        {dropEnabled ? (
-          <FolderDropSurface isDisabled={disabled}>
-            {pathField}
-          </FolderDropSurface>
-        ) : (
-          pathField
-        )}
-        <Action isDisabled={disabled} onPress={addPath}>
-          Add path
-        </Action>
-      </div>
-      {selected.length > 1 && (
-        <section className="du-scope-paths" aria-label="Additional paths">
-          <Action isDisabled={disabled} onPress={() => removePath(0)}>
-            Remove primary path
-          </Action>
-          {selected.slice(1).map((path, index) => (
-            <div className="du-scope-path" key={index}>
-              <PathField
-                autoFocus
-                label={`Additional folder path ${index + 2}`}
-                description="Enter a local folder or drive path."
-                placeholder={"D:\\Folder"}
-                isDisabled={disabled}
-                value={path?.display ?? ""}
-                onChange={(value) =>
-                  choose(value ? windowsPath(value) : undefined, index + 1)
-                }
-              />
-              <Action
-                isDisabled={disabled}
-                onPress={() => removePath(index + 1)}
-              >
-                {`Remove path ${index + 2}`}
-              </Action>
-            </div>
-          ))}
-        </section>
-      )}
-      {dropError && <Notice tone="error">{dropError}</Notice>}
-    </>
-  );
-}
 
 function Coverage({ total }: { total: SpaceTotal }) {
   const counters = [
@@ -248,11 +89,55 @@ export function ScanOutput({
     !scan.error;
   return (
     <>
-      <div className="du-card__header">
-        <div>
-          <Text kind="eyebrow">02 · Scan & results</Text>
-          <Heading level={3}>Space totals</Heading>
-        </div>
+      <ScanOutputHeader
+        scan={scan}
+        started={started}
+        running={running}
+        cancelRequested={cancelRequested}
+        awaitingTotals={awaitingTotals}
+        actions={actions}
+      />
+      <section
+        className="du-result__body"
+        aria-label="Result details"
+        tabIndex={0}
+      >
+        {error && <Notice tone="error">{error}</Notice>}
+        {scan.total ? (
+          <PinnedResult client={client} total={scan.total} roots={roots} />
+        ) : running ? (
+          <Text kind="muted">
+            Collecting file metadata. Totals appear when a result is ready.
+          </Text>
+        ) : !awaitingTotals && !error ? (
+          <Text kind="muted">No result to display.</Text>
+        ) : null}
+      </section>
+    </>
+  );
+}
+
+function ScanOutputHeader({
+  scan,
+  started,
+  running,
+  cancelRequested,
+  awaitingTotals,
+  actions,
+}: {
+  scan: ReturnType<typeof useScanResult>;
+  started: boolean;
+  running: boolean;
+  cancelRequested: boolean;
+  awaitingTotals: boolean;
+  actions: ReactNode;
+}) {
+  return (
+    <header className="du-result__header">
+      <div className="du-result__title">
+        <Heading level={3}>
+          {scan.total ? "Space totals" : "Scan progress"}
+        </Heading>
         {started && (
           <ScanStatus
             state={scan.unavailable ? "unavailable" : scan.status?.state}
@@ -260,33 +145,26 @@ export function ScanOutput({
           />
         )}
       </div>
-      <ResultVersionSummary
-        total={scan.total}
-        hasNewResult={scan.hasNewResult}
-        showLatest={scan.showLatest}
-        switching={scan.switchingResult}
-        finished={scan.status?.state === "done"}
-      />
-      {actions}
+      <div className="du-result__toolbar">
+        <ResultVersionSummary
+          total={scan.total}
+          hasNewResult={scan.hasNewResult}
+          showLatest={scan.showLatest}
+          switching={scan.switchingResult}
+          finished={scan.status?.state === "done"}
+        />
+        {actions}
+      </div>
       {running && <Progress label="Scanning folder" />}
-      {error && <Notice tone="error">{error}</Notice>}
-      {awaitingTotals && <Progress label="Reading space totals" />}
-      {scan.total ? (
-        <PinnedResult client={client} total={scan.total} roots={roots} />
-      ) : !awaitingTotals ? (
-        <div className="du-empty">
-          <Icon name="layers" />
-          <Text>
-            {running ? "Collecting file metadata" : "No result to display"}
-          </Text>
-          <Text kind="muted">
-            {running
-              ? "Totals appear when a result is ready."
-              : "Review a folder and start a scan to see its space totals."}
-          </Text>
+      {awaitingTotals && (
+        <div className="du-result__loading">
+          <LiveStatus>
+            <Text>Reading space totals…</Text>
+          </LiveStatus>
+          <Progress label="Reading space totals" />
         </div>
-      ) : null}
-    </>
+      )}
+    </header>
   );
 }
 
@@ -396,18 +274,16 @@ function PinnedResult({
 }) {
   const [display, setDisplay] = useState(windowsSizeDisplay);
   const [basis, setBasis] = useState<SizeBasisFilter>("all");
+  const sizes = total.sizes.filter(
+    ({ size }) => basis === "all" || size.basis === basis,
+  );
+  const lead = sizes.find(({ size }) => size.basis === "logical") ?? sizes[0];
+  const supporting = sizes.filter((entry) => entry !== lead);
   return (
     <div className="du-results">
-      <SizeDisplayControls
-        basis={basis}
-        display={display}
-        onBasis={setBasis}
-        onDisplay={setDisplay}
-      />
       <div className="du-metrics">
-        {total.sizes
-          .filter(({ size }) => basis === "all" || size.basis === basis)
-          .map(({ size, completeness }) => {
+        {(lead ? [lead, ...supporting] : supporting).map(
+          ({ size, completeness }, index) => {
             const value = displaySize(size, display);
             const raw =
               size.state !== "unknown" && !value.endsWith(" bytes")
@@ -417,6 +293,7 @@ function PinnedResult({
               <Metric
                 key={size.basis}
                 label={sizeLabels[size.basis]}
+                prominent={index === 0}
                 detail={[displayMeasurement(size, completeness), raw]
                   .filter(Boolean)
                   .join(" · ")}
@@ -424,9 +301,25 @@ function PinnedResult({
                 {value}
               </Metric>
             );
-          })}
+          },
+        )}
       </div>
       <Coverage total={total} />
+      <Readout
+        label="Scanned paths"
+        rows={[
+          {
+            label: "Scanned paths",
+            value: roots.map((root) => root.display).join(", "),
+          },
+        ]}
+      />
+      <SizeDisplayControls
+        basis={basis}
+        display={display}
+        onBasis={setBasis}
+        onDisplay={setDisplay}
+      />
       <VolumeExplanation
         key={`volume:${total.resultVersion}`}
         client={client}

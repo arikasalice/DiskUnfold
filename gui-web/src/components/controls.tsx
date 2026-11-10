@@ -15,7 +15,13 @@ import type { IconName } from "./presentation";
 
 type ActionProps = Pick<
   ButtonProps,
-  "onPress" | "isDisabled" | "isPending" | "autoFocus" | "excludeFromTabOrder"
+  | "onPress"
+  | "isDisabled"
+  | "isPending"
+  | "autoFocus"
+  | "excludeFromTabOrder"
+  | "aria-expanded"
+  | "aria-controls"
 > & {
   variant?: "primary" | "secondary" | "quiet";
   ref?: Ref<HTMLButtonElement>;
@@ -69,6 +75,7 @@ export function PathField({
   onChange,
   isDisabled,
   autoFocus,
+  ref,
 }: {
   label: string;
   description: string;
@@ -77,6 +84,7 @@ export function PathField({
   onChange: (value: string) => void;
   isDisabled: boolean;
   autoFocus?: boolean;
+  ref?: Ref<HTMLInputElement>;
 }) {
   return (
     <TextField
@@ -87,6 +95,7 @@ export function PathField({
     >
       <Label>{label}</Label>
       <Input
+        ref={ref}
         autoFocus={autoFocus}
         placeholder={placeholder ?? ""}
         spellCheck={false}
@@ -165,12 +174,14 @@ export function SelectField<T extends string>({
 
 /** A labelled list of choices with arrow-key selection and shared focus styling. */
 export function ChoiceGroup({
+  id,
   label,
   value,
   onChange,
   isDisabled,
   children,
 }: {
+  id: string;
   label: string;
   value: string | null;
   onChange: (value: string) => void;
@@ -179,6 +190,7 @@ export function ChoiceGroup({
 }) {
   return (
     <RadioGroup
+      id={id}
       aria-label={label}
       value={value}
       onChange={onChange}
@@ -195,12 +207,16 @@ export function Choice({
   value,
   label,
   description,
+  summary,
+  availablePercent,
   status,
   icon,
 }: {
   value: string;
   label: string;
   description: string;
+  summary?: string | undefined;
+  availablePercent?: number | undefined;
   status: { text: string; tone: "neutral" | "good" };
   icon: IconName;
 }) {
@@ -212,6 +228,7 @@ export function Choice({
       aria-label={label}
       aria-describedby={`${descriptionId} ${statusId}`}
       className="du-choice"
+      data-compact={summary !== undefined || undefined}
     >
       <span className="du-choice__indicator" aria-hidden />
       <Icon name={icon} />
@@ -222,6 +239,16 @@ export function Choice({
       >
         {description}
       </span>
+      {summary !== undefined && (
+        <span className="du-choice__summary" aria-hidden>
+          {summary}
+        </span>
+      )}
+      {availablePercent !== undefined && (
+        <span className="du-choice__capacity" aria-hidden>
+          <span style={{ inlineSize: `${availablePercent}%` }} />
+        </span>
+      )}
       <span className="du-choice__status" id={statusId}>
         <StatusBadge tone={status.tone}>{status.text}</StatusBadge>
       </span>

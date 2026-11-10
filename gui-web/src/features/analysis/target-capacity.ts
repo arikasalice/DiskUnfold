@@ -1,3 +1,5 @@
+import { formatByteUnit } from "../../i18n/bytes";
+import { SIZE_UNIT_RULES } from "../../ipc";
 import type { TargetProbeEvent } from "../../ipc";
 import { formatBytes } from "./space-format";
 
@@ -16,20 +18,62 @@ function capacityValue(bytes: string | null): string {
   return bytes === null ? "Could not verify" : formatBytes(bytes);
 }
 
+function summaryValue(bytes: string): string {
+  return formatByteUnit(
+    BigInt(bytes),
+    SIZE_UNIT_RULES.iec,
+    SIZE_UNIT_RULES.decimalPlaces,
+    "auto",
+    false,
+  );
+}
+
+function availablePercent(
+  total: string | null,
+  available: string | null,
+): number | undefined {
+  if (total === null || available === null) return undefined;
+  const totalBytes = BigInt(total);
+  const availableBytes = BigInt(available);
+  if (totalBytes <= 0n || availableBytes < 0n || availableBytes > totalBytes)
+    return undefined;
+  return Number((availableBytes * 10_000n) / totalBytes) / 100;
+}
+
 /** Describe reported values and their limits without inferring unobserved data. */
 export function describeTargetCapacity(
   observation: TargetProbeEvent | undefined,
   checking: boolean,
-): string {
-  if (!observation && checking) return "Checking capacity…";
+): {
+  summary: string;
+  evidence: string;
+  availablePercent?: number | undefined;
+} {
+  if (!observation && checking)
+    return {
+      summary: "Checking drive capacity…",
+      evidence: "Checking capacity…",
+    };
   const total = observation?.totalBytes ?? null;
   const available = observation?.availableBytes ?? null;
+  const summary =
+    total === null && available === null
+      ? "Capacity unavailable"
+      : [
+          available === null
+            ? "Available unverified"
+            : "Available " + summaryValue(available),
+          total === null ? "Total unverified" : "Total " + summaryValue(total),
+        ].join(" · ");
   const parts = [
     `Total: ${capacityValue(total)}`,
     `Available: ${capacityValue(available)}`,
   ];
   if (!observation)
-    return [...parts, "No capacity check was reported."].join(" · ");
+    return {
+      summary,
+      evidence: [...parts, "No capacity check was reported."].join(" · "),
+    };
 
   if (total === null || available === null)
     parts.push(
@@ -39,5 +83,9 @@ export function describeTargetCapacity(
   if (observation.aggregationUncertain)
     parts.push("Combined capacity unverified. Paths may share a volume.");
   parts.push(`Checked: ${observation.observedAt}`);
-  return parts.join(" · ");
+  return {
+    summary,
+    evidence: parts.join(" · "),
+    availablePercent: availablePercent(total, available),
+  };
 }

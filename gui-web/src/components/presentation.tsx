@@ -30,7 +30,7 @@ export function Icon({ name }: { name: IconName }) {
 
 export function BrandMark({ src }: { src: string }) {
   return (
-    <img className="du-brand-mark" src={src} width={42} height={42} alt="" />
+    <img className="du-brand-mark" src={src} width={30} height={30} alt="" />
   );
 }
 
@@ -106,12 +106,15 @@ export function LiveStatus({
 export function Notice({
   children,
   tone = "info",
+  id,
 }: {
   children: ReactNode;
   tone?: "info" | "error";
+  id?: string;
 }) {
   return (
     <div
+      id={id}
       className={`du-notice du-notice--${tone}`}
       role={tone === "error" ? "alert" : "status"}
     >
@@ -157,13 +160,20 @@ export function Metric({
   label,
   children,
   detail,
+  prominent = false,
 }: {
   label: string;
   children: ReactNode;
   detail?: string | undefined;
+  prominent?: boolean;
 }) {
   return (
-    <div className="du-metric" role="group" aria-label={label}>
+    <div
+      className="du-metric"
+      data-prominent={prominent || undefined}
+      role="group"
+      aria-label={label}
+    >
       <p className="du-metric__label">{label}</p>
       <p className="du-metric__value">{children}</p>
       {detail && <p className="du-metric__detail">{detail}</p>}

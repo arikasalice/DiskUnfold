@@ -15,7 +15,7 @@ body {
 .du-app {
   width: min(100%, 1240px);
   margin-inline: auto;
-  padding: 18px clamp(16px, 4vw, 40px) 32px;
+  padding: 0 clamp(14px, 3vw, 36px) 24px;
 }
 
 .du-app-header,
@@ -28,18 +28,6 @@ body {
   gap: 12px;
 }
 
-.du-result-version {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 8px 12px;
-}
-
-.du-result-version:not([data-result]) {
-  position: absolute;
-}
-
 .du-live-status:focus {
   outline: 2px solid var(--du-focus);
   outline-offset: 2px;
@@ -47,35 +35,6 @@ body {
 
 .du-live-status:empty {
   position: absolute;
-}
-
-.du-primary-path {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 8px;
-}
-
-.du-primary-path > * {
-  min-width: 0;
-}
-
-@media (max-width: 420px) {
-  .du-primary-path {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
-.du-scope-paths {
-  display: grid;
-  gap: 8px;
-  max-block-size: 13rem;
-  overflow-y: auto;
-}
-
-.du-scope-path {
-  display: grid;
-  gap: 4px;
 }
 
 .du-app-header,
@@ -86,7 +45,8 @@ body {
 
 .du-app-header {
   border-bottom: 1px solid var(--du-border);
-  padding-bottom: 16px;
+  min-block-size: 52px;
+  padding-block: 4px;
 }
 
 .du-app-header__actions {
@@ -95,26 +55,7 @@ body {
 
 .du-brand-mark {
   flex: none;
-  border-radius: 12px;
-}
-
-.du-analysis__header {
-  display: grid;
-  gap: 4px;
-  margin-block: 20px 16px;
-}
-
-.du-analysis__grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  align-items: start;
-  gap: 16px;
-}
-
-@media (min-width: 780px) {
-  .du-analysis__grid {
-    grid-template-columns: minmax(300px, 0.9fr) minmax(0, 1.1fr);
-  }
+  border-radius: 7px;
 }
 
 .du-card {
@@ -135,47 +76,6 @@ body {
   padding-top: 14px;
 }
 
-@media (min-width: 780px) and (max-height: 640px) {
-  .du-app {
-    padding-block: 10px 4px;
-  }
-
-  .du-app-header {
-    padding-bottom: 10px;
-  }
-
-  .du-analysis__header {
-    gap: 2px;
-    margin-block: 4px;
-  }
-
-  .du-analysis__header .du-heading--2 {
-    font-size: 22px;
-  }
-
-  .du-analysis__grid {
-    gap: 12px;
-  }
-
-  .du-card {
-    gap: 10px;
-    padding: 16px;
-  }
-
-  .du-card__actions {
-    padding-top: 10px;
-  }
-
-  .du-analysis__grid > .du-card {
-    gap: 8px;
-    padding-block: 12px;
-  }
-
-  .du-analysis__grid > .du-card > .du-card__actions {
-    padding-top: 8px;
-  }
-}
-
 .du-heading,
 .du-text {
   margin: 0;
@@ -186,8 +86,8 @@ body {
 }
 
 .du-heading--1 {
-  font-size: 20px;
-  font-weight: 730;
+  font-size: 18px;
+  font-weight: 720;
 }
 
 .du-heading--2 {
@@ -274,6 +174,7 @@ body {
 }
 
 .du-action[data-focus-visible],
+.du-action:focus-visible,
 .du-choice[data-focus-visible],
 .du-field input:focus-visible,
 .du-field select:focus-visible {
@@ -282,9 +183,7 @@ body {
 }
 
 .du-field,
-.du-choices,
-.du-results,
-.du-metrics {
+.du-results {
   display: grid;
   gap: 8px;
 }
@@ -353,88 +252,6 @@ label.du-field > span {
   font-size: 12px;
 }
 
-.du-choice {
-  display: grid;
-  grid-template-columns: 16px 18px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 0 9px;
-  padding: 4px 10px;
-  background: var(--du-surface);
-  cursor: pointer;
-}
-
-.du-choices {
-  max-block-size: 12rem;
-  overflow-y: auto;
-  padding: 4px;
-  margin: -4px;
-}
-
-@media (min-width: 780px) and (max-height: 640px) {
-  .du-choices {
-    max-block-size: 132px;
-  }
-}
-
-.du-choice__label {
-  grid-area: 1 / 3;
-}
-
-.du-choice__description {
-  grid-area: 2 / 2 / 3 / -1;
-  overflow-wrap: anywhere;
-}
-
-.du-choice__status {
-  grid-area: 1 / 4;
-}
-
-.du-choice__indicator {
-  width: 16px;
-  height: 16px;
-  flex: none;
-  border: 1px solid var(--du-control-border);
-  border-radius: 50%;
-}
-
-.du-choice[data-hovered]:not([data-disabled], [data-selected]) {
-  background: var(--du-hover-surface);
-}
-
-.du-choice[data-pressed]:not([data-disabled], [data-selected]) {
-  background: var(--du-pressed-surface);
-}
-
-.du-choice[data-selected]:not([data-disabled]) {
-  border-color: var(--du-selected-border);
-  background: var(--du-selected-surface);
-  color: var(--du-selected-text);
-}
-
-.du-choice[data-selected]:not([data-disabled]) .du-choice__description {
-  color: var(--du-selected-text);
-}
-
-.du-choice[data-hovered]:not([data-disabled]) .du-choice__label {
-  text-decoration: underline;
-}
-
-.du-choice[data-pressed]:not([data-disabled]) {
-  border-style: dashed;
-}
-
-.du-choice[data-disabled] {
-  cursor: default;
-}
-
-.du-choice[data-selected] .du-choice__indicator {
-  border: 5px solid currentColor;
-}
-
-.du-choice[data-disabled] .du-choice__indicator {
-  border-color: var(--du-disabled-border);
-}
-
 .du-badge {
   display: inline-flex;
   align-items: center;
@@ -483,57 +300,6 @@ label.du-field > span {
 .du-notice svg,
 .du-action svg {
   flex: none;
-}
-
-.du-empty {
-  display: grid;
-  justify-items: center;
-  align-content: center;
-  gap: 5px;
-  min-height: 174px;
-  padding: 16px;
-  border: 1px dashed var(--du-border);
-  border-radius: 12px;
-  background: var(--du-subtle);
-  text-align: center;
-}
-
-.du-empty svg {
-  margin-bottom: 5px;
-  color: var(--du-info-text);
-}
-
-.du-metric {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, auto);
-  align-items: baseline;
-  gap: 0 10px;
-  padding: 11px 13px;
-  border: 1px solid var(--du-border);
-  border-radius: 10px;
-  background: var(--du-subtle);
-}
-
-.du-metric p {
-  margin: 0;
-  overflow-wrap: anywhere;
-}
-
-.du-metric__label {
-  color: var(--du-muted);
-}
-
-.du-metric__value {
-  font-size: 17px;
-  font-variant-numeric: tabular-nums;
-  font-weight: 720;
-  text-align: right;
-}
-
-.du-metric__detail {
-  grid-column: 1 / -1;
-  color: var(--du-muted);
-  font-size: 11px;
 }
 
 .du-readout {

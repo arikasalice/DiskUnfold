@@ -1,3 +1,14 @@
+/* Keep browse on the document scroll used by the virtual rows. */
+.du-browse-shell {
+  padding-block-start: 10px;
+}
+
+.du-browse-shell > .du-action {
+  min-block-size: 36px;
+  margin-block-end: 8px;
+  padding-block: 5px;
+}
+
 .du-browse-grid-frame {
   container-type: inline-size;
   min-inline-size: 0;
@@ -14,7 +25,20 @@
   outline-offset: -2px;
 }
 
+.du-browse-panel .du-heading--2 {
+  font-size: 26px;
+}
+
+.du-browse-panel .du-card__actions {
+  justify-content: flex-start;
+  gap: 8px;
+  border-block-start: 0;
+  padding-block-start: 0;
+}
+
 .du-browse-panel .du-card__actions .du-action {
+  min-block-size: 36px;
+  padding-block: 5px;
   max-inline-size: 100%;
   display: inline-block;
 }

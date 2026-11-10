@@ -1,20 +1,13 @@
 import {
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
   useRef,
   useState,
 } from "react";
 import type { Ref } from "react";
-import {
-  Action,
-  Heading,
-  LiveStatus,
-  Notice,
-  Progress,
-  Readout,
-  Text,
-} from "../../components";
+import { Heading, Text } from "../../components";
 import { AnalysisError } from "../../ipc";
 import type {
   AnalysisClient,
@@ -25,7 +18,13 @@ import type {
 } from "../../ipc";
 import { isRunning, useScanResult } from "../../state/analysis-scan";
 import { useTargets } from "../../state/analysis-targets";
-import { ScanOutput, TargetPicker } from "./AnalysisViews";
+import {
+  ResultActions,
+  ScopeActions,
+  ScopeReviewFeedback,
+} from "./AnalysisActions";
+import { ScanOutput } from "./AnalysisViews";
+import { TargetPicker } from "./TargetPicker";
 
 function errorText(error: unknown): string {
   if (error instanceof AnalysisError && error.code === "STALE_VERSION") {
@@ -68,139 +67,6 @@ function canStart(
   );
 }
 
-function noticeText(key: string): string {
-  switch (key) {
-    case "scope.overlap_merged":
-      return "Duplicate paths were combined.";
-    case "scope.alias_merged":
-      return "Paths to the same location were combined.";
-    case "scope.descendant_absorbed":
-      return "A selected folder is already inside another selected folder.";
-    case "scope.correspondence_unknown":
-      return "Some path relationships could not be confirmed.";
-    case "scope.excluded":
-      return "An exclusion removed a selected folder from the scan.";
-    case "scope.exclusion_ineffective":
-      return "An exclusion falls outside the selected folders.";
-    default:
-      return key;
-  }
-}
-
-function ReviewNotices({
-  review,
-  input,
-  problem,
-}: {
-  review: ScopeReview | undefined;
-  input: ScopeDraft | undefined;
-  problem: string | undefined;
-}) {
-  if (problem) return <Notice tone="error">{problem}</Notice>;
-  if (!review) return null;
-  return (
-    <>
-      {review.notices.map((notice) => (
-        <Notice key={notice}>{noticeText(notice)}</Notice>
-      ))}
-      {!canStart(review, input) && (
-        <Notice tone="error">
-          One or more selected paths could not be verified. Review all paths
-          before starting.
-        </Notice>
-      )}
-    </>
-  );
-}
-
-function ScopeActions({
-  checkingDrop,
-  reviewing,
-  working,
-  running,
-  reviewEnabled,
-  startEnabled,
-  onReview,
-  onStart,
-}: {
-  checkingDrop: boolean;
-  reviewing: boolean;
-  working: boolean;
-  running: boolean;
-  reviewEnabled: boolean;
-  startEnabled: boolean;
-  onReview: () => void;
-  onStart: () => void;
-}) {
-  const blocked = reviewing || working || running;
-  const starting = working && !running;
-  return (
-    <>
-      <LiveStatus>
-        {checkingDrop && <Text>Checking dropped folder…</Text>}
-      </LiveStatus>
-      {reviewing && <Progress label="Reviewing scope" />}
-      {starting && <Progress label="Starting scan" />}
-      <footer className="du-card__actions">
-        <Action
-          icon="folder"
-          isDisabled={blocked || !reviewEnabled}
-          isPending={checkingDrop && !blocked && reviewEnabled}
-          onPress={onReview}
-        >
-          {reviewing ? "Reviewing scope…" : "Review scope"}
-        </Action>
-        <Action
-          icon="scan"
-          variant="primary"
-          isDisabled={blocked || !startEnabled}
-          isPending={checkingDrop && !blocked && startEnabled}
-          onPress={onStart}
-        >
-          {starting ? "Starting scan…" : "Start scan"}
-        </Action>
-      </footer>
-    </>
-  );
-}
-
-function ResultActions({
-  version,
-  onBrowse,
-  trigger,
-  running,
-  cancelRequested,
-  onCancel,
-}: {
-  version: string | undefined;
-  onBrowse: ((version: string) => void) | undefined;
-  trigger: Ref<HTMLButtonElement> | undefined;
-  running: boolean;
-  cancelRequested: boolean;
-  onCancel: () => void;
-}) {
-  const browse = version && onBrowse && (
-    <Action
-      ref={trigger ?? null}
-      icon="folder"
-      onPress={() => onBrowse(version)}
-    >
-      Browse folders
-    </Action>
-  );
-  if (!browse && !running) return null;
-  return (
-    <div className="du-card__actions">
-      {browse}
-      {running && (
-        <Action isDisabled={cancelRequested} onPress={onCancel}>
-          Cancel scan
-        </Action>
-      )}
-    </div>
-  );
-}
-
 /** Presents target selection, scope review, background collection and pinned totals. */
 export function AnalysisPanel({
   client,
@@ -212,6 +78,7 @@ export function AnalysisPanel({
   browseTrigger?: Ref<HTMLButtonElement>;
 }) {
   const targets = useTargets(client);
+  const reviewProblemId = useId();
   const [selected, setSelected] = useState<(OsPath | undefined)[]>([undefined]);
   const [review, setReview] = useState<ScopeReview>();
   const [reviewedDraft, setReviewedDraft] = useState<ScopeDraft>();
@@ -403,81 +270,105 @@ export function AnalysisPanel({
     }
   }
 
+  const ready = canStart(review, reviewedDraft);
+  const resultActive = receipt !== null || error !== undefined;
+  const scopeProblem = Boolean(reviewProblem || (review && !ready));
+
   return (
-    <section className="du-analysis" aria-labelledby="analysis-heading">
+    <section
+      className="du-analysis du-analysis--workspace"
+      aria-labelledby="analysis-heading"
+    >
       <header className="du-analysis__header">
         <Heading level={2} id="analysis-heading">
-          Disk analysis
+          {scan.total ? "Disk space results" : "Scan a drive or folder"}
         </Heading>
-        <Text kind="muted">
-          Review a scope, then scan it to see its space totals.
-        </Text>
+        {!resultActive && (
+          <Text kind="muted">
+            Choose a drive or enter a folder path. Review the scope before
+            scanning.
+          </Text>
+        )}
       </header>
-      <div className="du-analysis__grid">
-        <section className="du-card" aria-label="Target and scope">
-          <TargetPicker
-            targets={targets}
-            disabled={working || running}
-            selected={selected}
-            choose={choose}
-            addPath={addPath}
-            removePath={removePath}
-            dropEnabled={dropEnabled}
-            dropError={
-              dropMessage?.tone === "error" ? dropMessage.text : undefined
-            }
-            pathDescription={pathDescription}
-          />
-          {review && (
-            <Readout
-              label="Reviewed scope"
-              rows={[
-                {
-                  label: "Reviewed scope",
-                  value: review.scope.includes
-                    .map((path) => path.display)
-                    .join(", "),
-                },
-                { label: "Boundary", value: "Current volume" },
-              ]}
-            />
+      <div
+        className="du-analysis__grid"
+        data-result-active={resultActive || undefined}
+      >
+        <section className="du-target-editor" aria-label="Target and scope">
+          {resultActive && (
+            <header className="du-target-editor__header">
+              <Heading level={3}>Scan targets</Heading>
+            </header>
           )}
-          <ReviewNotices
-            review={review}
-            input={reviewedDraft}
-            problem={reviewProblem}
-          />
+          <section
+            className="du-target-editor__body"
+            aria-label="Target selection and scope review"
+            tabIndex={0}
+          >
+            <TargetPicker
+              targets={targets}
+              disabled={working || running}
+              selected={selected}
+              choose={choose}
+              addPath={addPath}
+              removePath={removePath}
+              dropEnabled={dropEnabled}
+              dropError={
+                dropMessage?.tone === "error" ? dropMessage.text : undefined
+              }
+              pathDescription={pathDescription}
+              reviewDescriptionId={scopeProblem ? reviewProblemId : undefined}
+              feedback={
+                <ScopeReviewFeedback
+                  review={review}
+                  ready={ready}
+                  problem={reviewProblem}
+                  problemId={reviewProblemId}
+                />
+              }
+            />
+          </section>
           <ScopeActions
             checkingDrop={checkingDrop}
             reviewing={reviewing}
             working={working}
             running={running}
             reviewEnabled={selected.every(Boolean)}
-            startEnabled={canStart(review, reviewedDraft)}
+            startEnabled={ready}
             onReview={() => void reviewScope()}
             onStart={() => void start()}
           />
         </section>
-        <section className="du-card" aria-label="Scan and results">
-          <ScanOutput
-            client={client}
-            scan={scan}
-            started={receipt !== null}
-            running={running}
-            cancelRequested={cancelRequested}
-            problem={error}
-            roots={resultRoots}
-            actions={
-              <ResultActions
-                version={scan.total?.resultVersion}
-                onBrowse={onBrowse}
-                trigger={browseTrigger}
-                running={running}
-                cancelRequested={cancelRequested}
-                onCancel={() => void cancel()}
-              />
-            }
-          />
+        <section className="du-analysis__result" aria-label="Scan and results">
+          {resultActive ? (
+            <ScanOutput
+              client={client}
+              scan={scan}
+              started={receipt !== null}
+              running={running}
+              cancelRequested={cancelRequested}
+              problem={error}
+              roots={resultRoots}
+              actions={
+                <ResultActions
+                  version={scan.total?.resultVersion}
+                  onBrowse={onBrowse}
+                  trigger={browseTrigger}
+                  running={running}
+                  cancelRequested={cancelRequested}
+                  onCancel={() => void cancel()}
+                />
+              }
+            />
+          ) : (
+            <div className="du-analysis__guide">
+              <Heading level={3}>After the scan</Heading>
+              <Text kind="muted">
+                See measured space and coverage, then browse the scanned
+                folders.
+              </Text>
+            </div>
+          )}
         </section>
       </div>
     </section>

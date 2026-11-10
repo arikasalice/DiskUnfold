@@ -1,6 +1,6 @@
 import diskUnfoldIcon from "./assets/diskunfold-icon.svg";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Action, BrandMark, Heading, StatusBadge, Text } from "../components";
+import { Action, BrandMark, Heading } from "../components";
 import { AnalysisPanel } from "../features/analysis/AnalysisPanel";
 import { BrowsePanel } from "../features/browse/BrowsePanel";
 import { HistoryPanel } from "../features/history/HistoryPanel";
@@ -35,27 +35,31 @@ export function App({ analysis }: { analysis?: AnalysisClient } = {}) {
       restoreBrowseFocus.current = false;
     }
   }, [browseVersion]);
+  const analysisOpen = client && !history && browseVersion === undefined;
   return (
-    <main className="du-app">
+    <main
+      className="du-app"
+      data-analysis-open={Boolean(analysisOpen) || undefined}
+    >
       <header className="du-app-header">
         <div className="du-brand">
           <BrandMark src={diskUnfoldIcon} />
-          <div>
-            <Heading level={1}>DiskUnfold</Heading>
-            <Text kind="muted">Disk space workspace</Text>
-          </div>
+          <Heading level={1}>DiskUnfold</Heading>
         </div>
         <div className="du-app-header__actions">
-          <StatusBadge tone="good">Local analysis</StatusBadge>
           {client && !history && !browseVersion && (
-            <Action ref={opener} onPress={() => setHistory(true)}>
+            <Action
+              variant="quiet"
+              ref={opener}
+              onPress={() => setHistory(true)}
+            >
               Operation history
             </Action>
           )}
         </div>
       </header>
       {client && (
-        <div hidden={history || browseVersion !== undefined}>
+        <div className="du-analysis-slot" hidden={!analysisOpen}>
           <AnalysisPanel
             client={client}
             onBrowse={setBrowseVersion}
@@ -64,7 +68,7 @@ export function App({ analysis }: { analysis?: AnalysisClient } = {}) {
         </div>
       )}
       {browsePort && browseVersion && (
-        <div className="du-analysis">
+        <div className="du-browse-shell">
           <Action
             autoFocus
             onPress={() => {

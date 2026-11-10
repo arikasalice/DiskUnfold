@@ -2014,7 +2014,9 @@ test("F01 FR3: rejected or incomplete reviews cannot start a partial scan", asyn
     { target: { value: "D:\\Denied" } },
   );
   fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
-  await screen.findByLabelText("Reviewed scope");
+  expect((await screen.findByRole("alert")).textContent).toContain(
+    "One or more selected paths could not be verified.",
+  );
   expect(
     screen.getByRole<HTMLButtonElement>("button", { name: "Start scan" })
       .disabled,
@@ -2041,7 +2043,9 @@ test("F01 FR3: an unavailable selection prevents the whole scope from starting",
     { target: { value: "D:\\Denied" } },
   );
   fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
-  await screen.findByLabelText("Reviewed scope");
+  expect((await screen.findByRole("alert")).textContent).toContain(
+    "Access to a selected folder was denied.",
+  );
   expect(
     screen.getByRole<HTMLButtonElement>("button", { name: "Start scan" })
       .disabled,
