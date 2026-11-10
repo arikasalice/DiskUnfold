@@ -67,6 +67,7 @@ pub struct TargetList {
 }
 
 /// A completed probe. The event envelope carries the probe job and sequence.
+/// The observation time is the time the probe determined its outcome.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
@@ -78,6 +79,7 @@ pub struct TargetStatusChanged {
     pub available_bytes: Option<ByteSize>,
     pub capacity_reason: Option<String>,
     pub aggregation_uncertain: bool,
+    pub observed_at: Timestamp,
 }
 
 /// One observed target, ordered within its probe job.

@@ -203,7 +203,7 @@ fn discovery_has_no_probe_and_success_reads_clock_after_capacity() {
         })
     );
     assert!(result.aggregation_uncertain);
-    assert_eq!(result.observed_at, 42);
+    assert_eq!(result.observed_at, Some(42));
     let unavailable = probe_one(
         &port,
         &Target {
@@ -253,6 +253,6 @@ fn failed_access_skips_capacity_and_reads_clock_after_access() {
             },
         );
         assert_eq!(result.capacity, Err(expected.into()));
-        assert_eq!(result.observed_at, 99);
+        assert_eq!(result.observed_at, Some(99));
     }
 }

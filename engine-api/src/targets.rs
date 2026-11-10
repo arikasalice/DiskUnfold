@@ -148,6 +148,7 @@ impl UseCase for List {
                 capacity,
                 path_access,
                 timeout: probe.timeout,
+                clock: self.clock.clone(),
             });
             let submission = Submission {
                 kind_id: du_scan_engine::target_probe::TARGET_PROBE_KIND.into(),

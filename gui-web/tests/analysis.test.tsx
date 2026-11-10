@@ -180,6 +180,7 @@ function probe(
     availableBytes: null,
     capacityReason: null,
     aggregationUncertain: true,
+    observedAt: timestamp,
   };
   return {
     topic: "target.status_changed",

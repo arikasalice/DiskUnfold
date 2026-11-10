@@ -122,7 +122,8 @@ pub struct ProbeResult {
     pub capacity: Result<VolumeCapacity, String>,
     /// The current port exposes no verified alias identity.
     pub aggregation_uncertain: bool,
-    pub observed_at: u64,
+    /// UTC epoch milliseconds when the probe finished, if already observed.
+    pub observed_at: Option<i64>,
 }
 
 /// Run one probe on the caller's worker. This function does not impose a deadline.
@@ -132,7 +133,7 @@ pub fn probe_one(
     port: &dyn VolumePort,
     target: &Target,
     capacity: &Capability,
-    clock: impl FnOnce() -> u64,
+    clock: impl FnOnce() -> i64,
 ) -> ProbeResult {
     let access = access_result(AccessObservation::Completed(port.path_access(&target.path)));
     let capacity = if access.status != AccessStatus::Accessible {
@@ -150,6 +151,6 @@ pub fn probe_one(
         access,
         capacity,
         aggregation_uncertain: true,
-        observed_at: clock(),
+        observed_at: Some(clock()),
     }
 }

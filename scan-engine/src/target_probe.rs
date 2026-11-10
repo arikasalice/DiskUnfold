@@ -1,6 +1,6 @@
 //! Target-probe job description and result conversion.
 use du_core_contracts::{
-    OsPath,
+    OsPath, Timestamp,
     analysis_ipc::{TargetAccess, TargetStatusChanged},
     job::{HistoryMode, JobControl, JobDescriptor, ProgressUnit, ResourceClass},
 };
@@ -25,8 +25,8 @@ pub fn descriptor() -> JobDescriptor {
 }
 
 /// Converts one completed probe without manufacturing capacity or identity.
-/// Returns the observation time for the caller's event envelope.
-pub fn status(target: OsPath, result: ProbeResult) -> (TargetStatusChanged, u64) {
+/// An absent or unrepresentable observation time cannot form an item event.
+pub fn status(target: OsPath, result: ProbeResult) -> Option<TargetStatusChanged> {
     let access = match result.access.status {
         AccessStatus::Accessible => TargetAccess::Accessible,
         AccessStatus::Denied => TargetAccess::Denied,
@@ -43,18 +43,16 @@ pub fn status(target: OsPath, result: ProbeResult) -> (TargetStatusChanged, u64)
         ),
         Err(reason) => (None, None, Some(reason)),
     };
-    (
-        TargetStatusChanged {
-            target,
-            access,
-            reason_key: result.access.reason,
-            total_bytes,
-            available_bytes,
-            capacity_reason,
-            aggregation_uncertain: result.aggregation_uncertain,
-        },
-        result.observed_at,
-    )
+    Some(TargetStatusChanged {
+        target,
+        access,
+        reason_key: result.access.reason,
+        total_bytes,
+        available_bytes,
+        capacity_reason,
+        aggregation_uncertain: result.aggregation_uncertain,
+        observed_at: Timestamp::from_unix_millis(result.observed_at?)?,
+    })
 }
 
 #[cfg(test)]
@@ -82,8 +80,8 @@ mod tests {
     }
 
     #[test]
-    fn converts_capacity_and_preserves_unavailable_reason() {
-        let (success, observed_at) = status(
+    fn converts_capacity_and_preserves_unavailable_reason() -> Result<(), &'static str> {
+        let success = status(
             path(),
             ProbeResult {
                 access: AccessResult {
@@ -95,14 +93,15 @@ mod tests {
                     available_bytes: 20,
                 }),
                 aggregation_uncertain: true,
-                observed_at: 1,
+                observed_at: Some(1),
             },
-        );
+        )
+        .ok_or("missing successful observation")?;
         assert_eq!(success.access, TargetAccess::Accessible);
-        assert_eq!(observed_at, 1);
+        assert_eq!(success.observed_at.as_str(), "1970-01-01T00:00:00.001Z");
         assert_eq!(success.total_bytes, Some(100u64.into()));
         assert!(success.aggregation_uncertain);
-        let (denied, _) = status(
+        let denied = status(
             path(),
             ProbeResult {
                 access: AccessResult {
@@ -111,11 +110,13 @@ mod tests {
                 },
                 capacity: Err("scan.path_denied".into()),
                 aggregation_uncertain: true,
-                observed_at: 2,
+                observed_at: Some(2),
             },
-        );
+        )
+        .ok_or("missing denied observation")?;
         assert_eq!(denied.access, TargetAccess::Denied);
         assert_eq!(denied.total_bytes, None);
         assert_eq!(denied.capacity_reason.as_deref(), Some("scan.path_denied"));
+        Ok(())
     }
 }

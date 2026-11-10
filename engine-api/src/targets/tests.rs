@@ -283,11 +283,13 @@ fn unclassified_target_is_listed_and_delivers_probe_then_terminal_on_the_desktop
         access,
         total_bytes,
         available_bytes,
+        observed_at,
         ..
     } = &reports[0].observation;
     assert_eq!(*access, TargetAccess::Accessible);
     assert_eq!(total_bytes.as_ref().map(ByteSize::as_str), Some("100"));
     assert_eq!(available_bytes.as_ref().map(ByteSize::as_str), Some("50"));
+    assert_ne!(observed_at.as_str(), "1970-01-01T00:00:00.000Z");
     assert_eq!(terminal.body["historyRecorded"], false);
     assert!(terminal.body["sequence"].as_u64() > Some(reports[0].sequence));
     assert!(events.next_json().is_none());

@@ -4,6 +4,7 @@ use du_core_contracts::{
     job::{Checkpoint, JobBody, JobContext, JobCounts, JobFlow, JobFlowError, JobOutcome},
     volume::{Capability, VolumePort},
 };
+use du_job_runtime::JobClock;
 use du_scan_engine::{
     target::{self, AccessObservation, AccessResult, AccessStatus, ProbeResult, Target},
     target_probe::{self, TARGET_PROBE_KIND},
@@ -26,6 +27,7 @@ pub(crate) struct TargetProbe {
     pub capacity: Capability,
     pub path_access: Capability,
     pub timeout: Duration,
+    pub clock: Arc<dyn JobClock>,
 }
 
 struct Pending {
@@ -89,7 +91,7 @@ fn observation(
         access,
         capacity,
         aggregation_uncertain: true,
-        observed_at: 0,
+        observed_at: None,
     }
 }
 
@@ -101,12 +103,15 @@ fn unavailable(reason: &str, status: AccessStatus) -> ProbeResult {
         },
         capacity: Err(reason.into()),
         aggregation_uncertain: true,
-        observed_at: 0,
+        observed_at: None,
     }
 }
 
-fn report(flow: &Flow, path: OsPath, result: ProbeResult) -> bool {
-    let (status, _) = target_probe::status(path, result);
+fn report(flow: &Flow, path: OsPath, mut result: ProbeResult, clock: &dyn JobClock) -> bool {
+    result.observed_at.get_or_insert_with(|| clock.now_ms());
+    let Some(status) = target_probe::status(path, result) else {
+        return false;
+    };
     let Ok(payload) = serde_json::to_vec(&status) else {
         return false;
     };
@@ -134,6 +139,7 @@ fn start(
     let port = body.volumes.clone();
     let capability = body.capacity.clone();
     let path_access = body.path_access.clone();
+    let clock = body.clock.clone();
     let thread_path = path.clone();
     let thread_context = context.clone();
     let now = Instant::now();
@@ -141,7 +147,7 @@ fn start(
     let spawned = std::thread::Builder::new()
         .name("target-probe-io".into())
         .spawn(move || {
-            let result = observation(
+            let mut result = observation(
                 &*port,
                 &thread_path,
                 &capability,
@@ -149,8 +155,10 @@ fn start(
                 &*thread_context,
                 deadline,
             );
+            let finished = Instant::now();
+            result.observed_at = Some(clock.now_ms());
             thread_finished.store(true, Ordering::Release);
-            let _ = send.send((Instant::now(), result));
+            let _ = send.send((finished, result));
             let _ = done.recv();
             if let Ok(mut guard) = thread_flow.lock()
                 && let Some(flow) = guard.take()
@@ -205,6 +213,7 @@ impl JobBody for TargetProbe {
                             flow,
                             path,
                             unavailable("job.cancelled", AccessStatus::Unknown),
+                            &*self.clock,
                         );
                     }
                 } else {
@@ -227,6 +236,7 @@ impl JobBody for TargetProbe {
                                 &timed_out[0].flow,
                                 path,
                                 unavailable("os.call_slow", AccessStatus::Unresponsive),
+                                &*self.clock,
                             );
                         }
                     }
@@ -244,7 +254,7 @@ impl JobBody for TargetProbe {
                     }
                 }
             }
-            failed |= process_pending(&*context, &mut pending, &mut timed_out);
+            failed |= process_pending(&*context, &mut pending, &mut timed_out, &*self.clock);
             if !pending.is_empty() || !waiting.is_empty() {
                 std::thread::sleep(Duration::from_millis(5));
             }
@@ -267,6 +277,7 @@ fn process_pending(
     context: &dyn JobContext,
     pending: &mut Vec<Pending>,
     timed_out: &mut Vec<TimedOut>,
+    clock: &dyn JobClock,
 ) -> bool {
     let mut failed = false;
     let mut index = 0;
@@ -288,7 +299,7 @@ fn process_pending(
         if let Some(result) = result {
             let task = pending.swap_remove(index);
             let timed_out_result = result.access.status == AccessStatus::Unresponsive;
-            failed |= !report(&task.flow, task.path, result);
+            failed |= !report(&task.flow, task.path, result, clock);
             // A late observation is still a timeout, but a completed OS call no
             // longer justifies skipping other targets while its permit is released.
             if timed_out_result && !task.io_finished.load(Ordering::Acquire) {

@@ -11,6 +11,14 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 
+struct FixedClock;
+
+impl JobClock for FixedClock {
+    fn now_ms(&self) -> i64 {
+        5
+    }
+}
+
 struct Context {
     cancelled: AtomicBool,
     events: Arc<Mutex<Vec<TargetStatusChanged>>>,
@@ -111,13 +119,24 @@ fn a_late_but_returned_call_is_not_counted_as_still_blocking_a_permit()
         ack,
     }];
     let mut timed_out = Vec::new();
-    assert!(!process_pending(&context, &mut pending, &mut timed_out));
+    assert!(!process_pending(
+        &context,
+        &mut pending,
+        &mut timed_out,
+        &FixedClock
+    ));
     assert!(pending.is_empty());
     assert!(timed_out.is_empty());
     assert!(acknowledged.try_recv().is_ok());
     assert_eq!(
         events.lock().map_err(|_| "probe events poisoned")?[0].access,
         TargetAccess::Unresponsive
+    );
+    assert_eq!(
+        events.lock().map_err(|_| "probe events poisoned")?[0]
+            .observed_at
+            .as_str(),
+        "1970-01-01T00:00:00.005Z"
     );
     Ok(())
 }
@@ -131,6 +150,7 @@ fn blocked_call_times_out_without_delaying_fast_target_or_emitting_late_result()
         events: events.clone(),
     });
     let body = TargetProbe {
+        clock: Arc::new(FixedClock),
         paths: vec![path("slow"), path("fast")],
         volumes: Arc::new(Port(gate.clone())),
         capacity: Capability {
@@ -166,6 +186,7 @@ fn cancellation_reports_unknown_without_waiting_for_blocked_call() {
         events: events.clone(),
     });
     let body = TargetProbe {
+        clock: Arc::new(FixedClock),
         paths: vec![path("slow")],
         volumes: Arc::new(Port(gate.clone())),
         capacity: Capability {
@@ -242,6 +263,7 @@ fn actual_runtime_reuses_single_permit_for_three_targets() -> Result<(), Box<dyn
         reason_key: None,
     };
     let body = TargetProbe {
+        clock: Arc::new(FixedClock),
         paths: vec![path("delay"), path("fast"), path("third")],
         volumes: Arc::new(Port(gate)),
         capacity: cap.clone(),
@@ -304,6 +326,7 @@ fn actual_runtime_timeout_retains_permit_and_suppresses_late_result()
         reason_key: None,
     };
     let body = TargetProbe {
+        clock: Arc::new(FixedClock),
         paths: vec![path("slow"), path("fast")],
         volumes: Arc::new(Port(gate.clone())),
         capacity: cap.clone(),
@@ -413,6 +436,7 @@ fn actual_runtime_foreign_permit_saturation_ends_with_reason()
         sample: false,
     };
     runtime.submit(submit(TargetProbe {
+        clock: Arc::new(FixedClock),
         paths: vec![path("slow")],
         volumes: Arc::new(SignalPort {
             gate: gate.clone(),
@@ -426,6 +450,7 @@ fn actual_runtime_foreign_permit_saturation_ends_with_reason()
     let first = std::thread::spawn(move || first_runtime.run_next());
     wait_started.recv_timeout(Duration::from_secs(2))?;
     let second = match runtime.submit(submit(TargetProbe {
+        clock: Arc::new(FixedClock),
         paths: vec![path("fast")],
         volumes: Arc::new(Port(gate.clone())),
         capacity: cap.clone(),

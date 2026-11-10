@@ -1,7 +1,7 @@
 use super::*;
 use du_core_contracts::{OsPath, PathBytes, PathEncoding, analysis_ipc::TargetAccess};
 
-fn observation() -> TargetStatusChanged {
+fn observation(observed_at: Timestamp) -> TargetStatusChanged {
     TargetStatusChanged {
         target: OsPath {
             encoding: PathEncoding::WindowsUtf16le,
@@ -15,6 +15,7 @@ fn observation() -> TargetStatusChanged {
         available_bytes: Some(100.into()),
         capacity_reason: None,
         aggregation_uncertain: true,
+        observed_at,
     }
 }
 
@@ -31,7 +32,8 @@ fn probe_event_preserves_job_order_and_only_accepts_typed_results()
     };
     let kind = du_scan_engine::target_probe::TARGET_PROBE_KIND;
     assert!(envelope(input(kind, b"{}".to_vec()), now.clone()).is_none());
-    let payload = serde_json::to_vec(&observation())?;
+    let observed_at = Timestamp::from_unix_millis(42).ok_or("invalid observation time")?;
+    let payload = serde_json::to_vec(&observation(observed_at.clone()))?;
     assert!(envelope(input("scan.metadata", payload.clone()), now.clone()).is_none());
     let event = envelope(input(kind, payload), now.clone()).ok_or("missing probe event")?;
     assert_eq!(event.topic, "target.status_changed");
@@ -41,6 +43,7 @@ fn probe_event_preserves_job_order_and_only_accepts_typed_results()
     assert_eq!(body.sequence, 7);
     assert_eq!(body.observation.access, TargetAccess::Accessible);
     assert_eq!(body.observation.total_bytes, Some(200.into()));
+    assert_eq!(body.observation.observed_at, observed_at);
     Ok(())
 }
 
