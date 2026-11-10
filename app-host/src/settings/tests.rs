@@ -12,6 +12,28 @@ fn context() -> SettingsCommit {
 }
 
 #[test]
+fn source_keeps_startup_service_and_report_alive() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("lifetime.db");
+    seed(&path, 1)?;
+    let settings = Arc::new(StartupSettings::open(&path, 100)?);
+    let weak = Arc::downgrade(&settings);
+    let source = settings.clone().scan_limit_source();
+    drop(settings);
+    let retained = weak.upgrade().ok_or("settings dropped")?;
+    assert_eq!(retained.status.stored_schema, Some(1));
+    assert_eq!(
+        retained.status.items[space::SHARED_TABLE_MAX_ENTRIES].reason,
+        Some("settings.value_invalid")
+    );
+    assert_eq!(source().entries(), 1_000_000);
+    drop(retained);
+    drop(source);
+    assert!(weak.upgrade().is_none());
+    Ok(())
+}
+
+#[test]
 fn startup_quarantine_failure_keeps_all_rows_and_disables_writes()
 -> Result<(), Box<dyn std::error::Error>> {
     let dir = tempfile::tempdir()?;

@@ -4,6 +4,8 @@ use du_core_contracts::settings::{
 };
 
 use crate::Registry;
+mod restore_status;
+pub use restore_status::{RestoreItem, RestoreSource, RestoreStatus};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum SettingsError {
@@ -33,17 +35,6 @@ pub struct SettingsService<S> {
     restore_status: RestoreStatus,
 }
 
-/// The startup outcome, separate from the application database open result.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct RestoreStatus {
-    /// Registered keys whose invalid stored values were quarantined.
-    pub invalid_keys: Vec<String>,
-    /// Reason the settings category could not be restored, if any.
-    pub failure_reason: Option<&'static str>,
-    /// Whether changes are blocked for this service instance.
-    pub write_locked: bool,
-}
-
 impl<S: SettingsStore> SettingsService<S> {
     pub fn open(registry: Registry, mut store: S) -> Result<Self, SettingsError> {
         let snapshot = store.load().map_err(SettingsError::Store)?;
@@ -62,11 +53,17 @@ impl<S: SettingsStore> SettingsService<S> {
                 return Err(SettingsError::InvalidStoredValue);
             }
         }
+        let mut status = RestoreStatus {
+            stored_revision: Some(snapshot.revision),
+            stored_schema: Some(snapshot.schema_version),
+            ..RestoreStatus::default()
+        };
+        status.record_items(&registry, &snapshot);
         Ok(Self {
             registry,
             store,
             snapshot,
-            restore_status: RestoreStatus::default(),
+            restore_status: status,
         })
     }
 
@@ -92,7 +89,12 @@ impl<S: SettingsStore> SettingsService<S> {
     {
         let mut status = RestoreStatus::default();
         let mut invalid = std::collections::BTreeMap::new();
-        let mut snapshot = match load(&mut store) {
+        let loaded = load(&mut store);
+        if let Ok((revision, schema, _)) = &loaded {
+            status.stored_revision = Some(*revision);
+            status.stored_schema = Some(*schema);
+        }
+        let mut snapshot = match loaded {
             Ok((revision, 1, rows)) => {
                 let mut values = std::collections::BTreeMap::new();
                 for (key, raw) in rows {
@@ -150,6 +152,7 @@ impl<S: SettingsStore> SettingsService<S> {
                 }
             }
         }
+        status.record_items(&registry, &snapshot);
         Self {
             registry,
             store,

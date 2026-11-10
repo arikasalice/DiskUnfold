@@ -75,6 +75,31 @@ fn invalid_known_value_only_is_quarantined_and_unknown_retained() -> Result<(), 
         vec![SHARED_TABLE_MAX_ENTRIES]
     );
     assert_eq!(service.snapshot().revision, 2);
+    let status = service.restore_status();
+    assert_eq!(
+        (
+            status.stored_revision,
+            status.stored_schema,
+            status.app_schema,
+            status.migrated
+        ),
+        (Some(1), Some(1), 1, false)
+    );
+    assert_eq!(
+        status.items.get("good"),
+        Some(&RestoreItem {
+            source: RestoreSource::Stored,
+            reason: None
+        })
+    );
+    assert_eq!(
+        status.items.get(SHARED_TABLE_MAX_ENTRIES),
+        Some(&RestoreItem {
+            source: RestoreSource::Default,
+            reason: Some("settings.value_invalid")
+        })
+    );
+    assert!(!status.items.contains_key("future.key"));
     assert_eq!(
         service.snapshot().values.get("future.key"),
         Some(&json!("preserve"))
@@ -102,6 +127,14 @@ fn failures_and_newer_schema_default_and_lock_without_quarantine() -> Result<(),
         });
         assert!(!called.get());
         assert!(service.restore_status().write_locked);
+        assert!(
+            service
+                .restore_status()
+                .items
+                .values()
+                .all(|item| item.source == RestoreSource::Default
+                    && item.reason == service.restore_status().failure_reason)
+        );
         assert!(service.snapshot().values.is_empty());
         assert_eq!(
             service.review(0, &SettingsChanges::new()),
@@ -127,6 +160,25 @@ fn failures_and_newer_schema_default_and_lock_without_quarantine() -> Result<(),
             }
         ),
         Err(SettingsError::RestoreLocked)
+    );
+    Ok(())
+}
+
+#[test]
+fn absent_value_is_a_default_without_failure_reason() -> Result<(), String> {
+    let empty = SettingsSnapshot {
+        schema_version: 1,
+        ..SettingsSnapshot::default()
+    };
+    let service = SettingsService::restore(registry()?, Store(Ok(empty)), load, |_, _, _| {
+        Err(SettingsStoreError::Storage)
+    });
+    assert_eq!(
+        service.restore_status().items.get(SHARED_TABLE_MAX_ENTRIES),
+        Some(&RestoreItem {
+            source: RestoreSource::Default,
+            reason: None
+        })
     );
     Ok(())
 }
