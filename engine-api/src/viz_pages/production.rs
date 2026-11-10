@@ -51,6 +51,17 @@ pub fn register_projection(
     presentations: Vec<RowPresentation>,
     cancelled: &mut dyn FnMut() -> bool,
 ) -> Result<String, Error> {
+    let input = project_rows(version, model, fingerprint, presentations, cancelled)?;
+    pages.register(input).map_err(Error::Pages)
+}
+
+pub(super) fn project_rows(
+    version: Arc<ResultVersion>,
+    model: &projection::Model,
+    fingerprint: String,
+    presentations: Vec<RowPresentation>,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<ModelInput, Error> {
     if cancelled() {
         return Err(Error::Cancelled);
     }
@@ -101,14 +112,12 @@ pub fn register_projection(
     if cancelled() {
         return Err(Error::Cancelled);
     }
-    pages
-        .register(ModelInput {
-            version,
-            condition_fingerprint: fingerprint,
-            rows,
-            groups: HashMap::new(),
-        })
-        .map_err(Error::Pages)
+    Ok(ModelInput {
+        version,
+        condition_fingerprint: fingerprint,
+        rows,
+        groups: HashMap::new(),
+    })
 }
 fn validate_model(version: &ResultVersion, model: &projection::Model) -> Result<(), Error> {
     if model.result_revision != *version.version_id()

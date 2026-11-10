@@ -1,9 +1,10 @@
 //! Live-scan F06 model admission and row paging, without IPC registration.
 //! A session index owns only weak source references; source results own row data.
 pub mod production;
+pub mod render;
 use du_analysis_index::{
     IngestSink, ResultVersion,
-    visualization::{group_page, live_models},
+    visualization::{group_page, live_models, projection},
 };
 use du_core_contracts::{
     Id,
@@ -39,6 +40,7 @@ struct Entry {
     source: Weak<ResultVersion>,
     revision: Id,
     fingerprint: String,
+    layout: Option<Arc<projection::Model>>,
 }
 #[derive(Default)]
 struct State {
@@ -65,6 +67,15 @@ impl ModelPages {
     }
     /// Pins and registers only a still-current live result. Cancelled results must not be supplied.
     pub fn register(&self, input: ModelInput) -> Result<String, Error> {
+        self.register_with_layout(input, None)
+            .map(|(reference, _)| reference)
+    }
+
+    fn register_with_layout(
+        &self,
+        input: ModelInput,
+        layout: Option<Arc<projection::Model>>,
+    ) -> Result<(String, Option<Arc<projection::Model>>), Error> {
         validate_input(&input)?;
         let mut state = self.state.lock().map_err(|_| Error::Unavailable)?;
         let current = self
@@ -81,16 +92,20 @@ impl ModelPages {
         );
         prune(&mut state);
         if let Some(existing) = state.conditions.get(&key).cloned() {
-            if !state
-                .entries
-                .get(&existing)
-                .and_then(|entry| entry.source.upgrade())
+            let entry = state.entries.get(&existing).ok_or(Error::Unavailable)?;
+            if !entry
+                .source
+                .upgrade()
                 .is_some_and(|source| Arc::ptr_eq(&source, &current))
             {
                 return Err(Error::StaleVersion);
             }
+            if layout.is_some() && entry.layout.is_none() {
+                return Err(Error::InvalidModel);
+            }
+            let layout = entry.layout.clone();
             touch(&mut state.lru, &existing);
-            return Ok(existing);
+            return Ok((existing, layout));
         }
         if state.entries.contains_key(&reference) {
             return Err(Error::ReferenceCollision);
@@ -108,11 +123,12 @@ impl ModelPages {
                 source: Arc::downgrade(&current),
                 revision: key.0.clone(),
                 fingerprint: key.1.clone(),
+                layout: layout.clone(),
             },
         );
         state.conditions.insert(key, reference.clone());
         touch(&mut state.lru, &reference);
-        Ok(reference)
+        Ok((reference, layout))
     }
     /// Admit the source and model together before copying the page without holding the index lock.
     pub fn rows(&self, request: &VizRowsRequest) -> Result<VizRows, Error> {
