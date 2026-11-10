@@ -8,6 +8,7 @@ pub mod result;
 pub mod scan_observation;
 pub mod settings;
 mod values;
+pub mod visualization;
 pub mod volume;
 pub use envelopes::*;
 pub use values::*;
