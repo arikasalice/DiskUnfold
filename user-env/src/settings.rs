@@ -5,6 +5,7 @@ use du_core_contracts::settings::{
 
 use crate::{CatalogEntry, Registry};
 mod restore_status;
+pub mod search;
 pub use restore_status::{RestoreItem, RestoreSource, RestoreStatus};
 
 /// Builds the shared startup catalog from each feature's registered descriptors.
