@@ -2,7 +2,8 @@
 //!
 //! This API does not define or register the `browse.open` or `query.page` wire
 //! contracts. The caller supplies identifiers and typed conditions, and owns
-//! any transport, session cursor and result-source resolution.
+//! transport, session composition and result-source resolution.
+pub mod cursor;
 use std::sync::Arc;
 
 use du_analysis_index::{
@@ -168,8 +169,10 @@ impl FolderBrowse {
                 request.condition,
                 query::Condition::Predicate(query::Predicate::Kind(query::Kind::Directory)),
             ]),
-        }
-        .normalize();
+        };
+        query::validate_condition(&condition).map_err(query_error)?;
+        let condition = condition.normalize();
+        query::validate_condition(&condition).map_err(query_error)?;
         let sorts: Vec<_> = std::iter::once(&request.sort)
             .chain(additional)
             .map(|sort| query::SortSpec {

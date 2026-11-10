@@ -5,6 +5,11 @@ pub mod page;
 mod plan;
 mod sorting;
 pub use condition::{Basis, Boundary, Condition, Kind, NameEncoding, NameTest, Predicate, Truth};
+
+/// Checks condition depth and group sizes before recursive normalization.
+pub fn validate_condition(condition: &Condition) -> Result<(), Error> {
+    plan::check_shape(condition, 0)
+}
 pub use sorting::{Sort, SortSpec};
 
 use crate::{QueryError, ResultVersion, browse};
