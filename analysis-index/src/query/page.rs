@@ -27,9 +27,23 @@ pub enum PageError {
 #[derive(Default)]
 struct State {
     entries: HashMap<Id, Arc<QueryResult>>,
+    folder_keys: HashMap<Id, FolderKey>,
     lru: VecDeque<Id>,
     used: HashSet<Id>,
     released_sources: HashSet<Id>,
+}
+
+/// Identity of a normalized immediate-child query, including its view mode.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FolderKey {
+    pub version: Id,
+    pub folder: u32,
+    pub tree: bool,
+    pub condition: Condition,
+    pub sort_id: String,
+    pub sort_revision: u32,
+    pub sort_basis: Basis,
+    pub descending: bool,
 }
 
 /// In-memory result registry bound to one live source. Dropping it releases its entries.
@@ -73,11 +87,78 @@ impl ResultSets {
             && let Some(oldest) = state.lru.pop_front()
         {
             state.entries.remove(&oldest);
+            state.folder_keys.remove(&oldest);
         }
         state.used.insert(id.clone());
         state.lru.push_back(id.clone());
         state.entries.insert(id, Arc::new(result));
         Ok(())
+    }
+
+    /// Finds an admitted folder query and updates its access order.
+    pub fn find_folder(&self, key: &FolderKey) -> Result<Option<Id>, PageError> {
+        let mut state = self.state.lock().map_err(|_| PageError::Unavailable)?;
+        let id = state
+            .folder_keys
+            .iter()
+            .find_map(|(id, stored)| (stored == key).then(|| id.clone()));
+        if let Some(id) = &id {
+            self.pin_entry(&state, id, &key.version)?;
+            touch(&mut state.lru, id);
+        }
+        Ok(id)
+    }
+
+    /// Atomically reuses or registers a completed folder query under the same LRU.
+    pub fn register_folder(
+        &self,
+        key: FolderKey,
+        id: Id,
+        result: QueryResult,
+    ) -> Result<Id, PageError> {
+        validate_result(&result)?;
+        if result.version.version_id() != &key.version
+            || result.folder != Some(key.folder)
+            || result.condition != key.condition
+            || result.sort_strategy != (key.sort_id.clone(), key.sort_revision)
+            || result.sort_basis != key.sort_basis
+            || result.sort_descending != key.descending
+        {
+            return Err(PageError::InvalidResult);
+        }
+        let mut state = self.state.lock().map_err(|_| PageError::Unavailable)?;
+        if state.released_sources.contains(&key.version) {
+            return Err(PageError::StaleVersion);
+        }
+        let current = self
+            .source
+            .pin_current(&key.version)
+            .map_err(source_error)?;
+        if !Arc::ptr_eq(&current, &result.version) {
+            return Err(PageError::StaleVersion);
+        }
+        if let Some(existing) = state
+            .folder_keys
+            .iter()
+            .find_map(|(candidate, stored)| (stored == &key).then(|| candidate.clone()))
+        {
+            touch(&mut state.lru, &existing);
+            return Ok(existing);
+        }
+        if state.used.contains(&id) {
+            return Err(PageError::DuplicateId);
+        }
+        if state.entries.len() == MAX_RESULTS
+            && let Some(oldest) = state.lru.pop_front()
+        {
+            state.entries.remove(&oldest);
+            state.folder_keys.remove(&oldest);
+        }
+        state.used.insert(id.clone());
+        state.lru.push_back(id.clone());
+        state.folder_keys.insert(id.clone(), key);
+        state.entries.insert(id.clone(), Arc::new(result));
+        Ok(id)
     }
 
     /// Admits one page against the current source, then pins its immutable contents.
@@ -147,6 +228,7 @@ impl ResultSets {
             .entries
             .retain(|_, value| value.version.version_id() != version);
         let valid: HashSet<Id> = state.entries.keys().cloned().collect();
+        state.folder_keys.retain(|id, _| valid.contains(id));
         state.lru.retain(|id| valid.contains(id));
         Ok(())
     }
@@ -155,6 +237,7 @@ impl ResultSets {
     pub fn release(&self, id: &Id) -> Result<(), PageError> {
         let mut state = self.state.lock().map_err(|_| PageError::Unavailable)?;
         state.entries.remove(id);
+        state.folder_keys.remove(id);
         state.lru.retain(|candidate| candidate != id);
         Ok(())
     }

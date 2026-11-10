@@ -3,13 +3,13 @@
 //! This API does not define or register the `browse.open` or `query.page` wire
 //! contracts. The caller supplies identifiers and typed conditions, and owns
 //! any transport, session cursor and result-source resolution.
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use du_analysis_index::{
     IngestSink, QueryError, browse,
     query::{
         self,
-        page::{Page, PageError, ResultSets, Total},
+        page::{FolderKey, Page, PageError, ResultSets, Total},
     },
 };
 use du_core_contracts::{
@@ -98,21 +98,11 @@ pub enum Error {
     Internal,
 }
 
-#[derive(Clone, PartialEq, Eq)]
-struct Key {
-    version: Id,
-    folder: u32,
-    view: View,
-    condition: query::Condition,
-    sort: Sort,
-}
-
 /// Folder-query session over one publication point and immutable result registry.
 pub struct FolderBrowse {
     source: IngestSink,
     sets: ResultSets,
     ids: Arc<dyn JobIdentity>,
-    cache: Mutex<Vec<(Key, Id)>>,
 }
 
 impl FolderBrowse {
@@ -122,7 +112,6 @@ impl FolderBrowse {
             sets: ResultSets::new(source.clone()),
             source,
             ids,
-            cache: Mutex::new(Vec::new()),
         }
     }
 
@@ -168,52 +157,51 @@ impl FolderBrowse {
             ]),
         }
         .normalize();
-        let key = Key {
+        let key = FolderKey {
             version: version.version_id().clone(),
             folder: location.item_no,
-            view: request.view,
+            tree: request.view == View::Tree,
             condition,
-            sort: request.sort,
+            sort_id: request.sort.id,
+            sort_revision: request.sort.revision,
+            sort_basis: request.sort.basis,
+            descending: request.sort.descending,
         };
-        let mut cache = self.cache.lock().map_err(|_| Error::Internal)?;
-        if let Some((_, id)) = cache.iter().find(|(stored, _)| *stored == key) {
-            match self.sets.open_page(id, &key.version, 0, request.page_size) {
+        if let Some(id) = self.sets.find_folder(&key).map_err(page_error)? {
+            match self.sets.open_page(&id, &key.version, 0, request.page_size) {
                 Ok(page) => {
                     return Ok(Opened {
                         location,
                         breadcrumbs,
-                        page: project(id.clone(), page)?,
+                        page: project(id, page)?,
                     });
                 }
                 Err(PageError::StaleVersion) => {}
                 Err(error) => return Err(page_error(error)),
             }
         }
-        cache.retain(|(stored, _)| *stored != key);
         let result = query::run_folder(
             &query::Registry::baseline(),
             version,
             Some(&location),
             &key.condition,
             query::Sort {
-                id: &key.sort.id,
-                revision: key.sort.revision,
-                basis: key.sort.basis,
-                descending: key.sort.descending,
+                id: &key.sort_id,
+                revision: key.sort_revision,
+                basis: key.sort_basis,
+                descending: key.descending,
             },
             cancelled,
         )
         .map_err(query_error)?;
-        let id = self.ids.next_id();
-        self.sets.register(id.clone(), result).map_err(page_error)?;
+        let id = self
+            .sets
+            .register_folder(key.clone(), self.ids.next_id(), result)
+            .map_err(page_error)?;
         let page = self
             .sets
             .open_page(&id, &key.version, 0, request.page_size)
             .map_err(page_error)?;
-        if cache.len() == 16 {
-            cache.remove(0);
-        }
-        cache.push((key, id.clone()));
         Ok(Opened {
             location,
             breadcrumbs,

@@ -185,3 +185,133 @@ fn partial_information_is_a_lower_bound_and_unknown_kind_is_not_a_folder() -> Re
     );
     Ok(())
 }
+
+fn numbered_request(n: u8) -> OpenRequest {
+    let mut request = request(None);
+    request.condition = query::Condition::Predicate(query::Predicate::Name(
+        query::NameTest::Equal(vec![n]),
+        query::NameEncoding::Bytes,
+    ));
+    request
+}
+
+#[test]
+fn page_reads_refresh_the_single_lru_and_evict_the_oldest_query() -> Result<(), String> {
+    let (_, api) = fixture(false)?;
+    let mut opened = Vec::new();
+    for n in 0..16 {
+        opened.push(open(&api, numbered_request(n))?);
+    }
+    let first = &opened[0].page;
+    api.page(&first.query_ref, &first.result_version, 0, None)
+        .map_err(|e| format!("{e:?}"))?;
+    let _ = open(&api, numbered_request(16))?;
+    assert_eq!(
+        open(&api, numbered_request(0))?.page.query_ref,
+        first.query_ref
+    );
+    let second = &opened[1].page;
+    assert_eq!(
+        api.page(&second.query_ref, &second.result_version, 0, None),
+        Err(Error::StaleVersion)
+    );
+    assert_ne!(
+        open(&api, numbered_request(1))?.page.query_ref,
+        second.query_ref
+    );
+    Ok(())
+}
+
+#[test]
+fn long_evaluation_does_not_block_an_unrelated_page_and_replacement_rejects_old_work()
+-> Result<(), String> {
+    use std::{sync::mpsc, thread, time::Duration};
+    let (sink, api) = fixture(false)?;
+    let api = Arc::new(api);
+    let existing = open(&api, numbered_request(0))?;
+    let (started_tx, started_rx) = mpsc::channel();
+    let (resume_tx, resume_rx) = mpsc::channel();
+    let worker_api = Arc::clone(&api);
+    let worker = thread::spawn(move || {
+        let mut calls = 0;
+        worker_api.open(numbered_request(99), || {
+            calls += 1;
+            if calls == 2 {
+                let _ = started_tx.send(());
+                let _ = resume_rx.recv();
+            }
+            false
+        })
+    });
+    started_rx
+        .recv_timeout(Duration::from_secs(5))
+        .map_err(|e| format!("{e:?}"))?;
+    let (page_tx, page_rx) = mpsc::channel();
+    let reader = Arc::clone(&api);
+    let old = existing.page.clone();
+    let reader_thread = thread::spawn(move || {
+        let _ = page_tx.send(reader.page(&old.query_ref, &old.result_version, 0, None));
+    });
+    let independent = page_rx.recv_timeout(Duration::from_secs(5));
+    let mut build = sink.open(id(1)?).map_err(|e| format!("{e:?}"))?;
+    build.add_directory(vec![]).map_err(|e| format!("{e:?}"))?;
+    build
+        .seal(id(3)?, ResultCompleteness::Complete)
+        .map_err(|e| format!("{e:?}"))?;
+    resume_tx.send(()).map_err(|e| format!("{e:?}"))?;
+    reader_thread.join().map_err(|_| "reader thread panicked")?;
+    let result = worker.join().map_err(|_| "worker thread panicked")?;
+    assert!(
+        independent
+            .map_err(|e| format!("page blocked: {e:?}"))?
+            .is_ok()
+    );
+    assert_eq!(result, Err(Error::StaleVersion));
+    assert_eq!(
+        api.page(
+            &existing.page.query_ref,
+            &existing.page.result_version,
+            0,
+            None
+        ),
+        Err(Error::StaleVersion)
+    );
+    Ok(())
+}
+
+#[test]
+fn concurrent_identical_evaluations_publish_one_reference() -> Result<(), String> {
+    use std::{sync::Barrier, thread};
+    let (_, api) = fixture(false)?;
+    let api = Arc::new(api);
+    let barrier = Arc::new(Barrier::new(2));
+    let workers: Vec<_> = (0..2)
+        .map(|_| {
+            let api = Arc::clone(&api);
+            let barrier = Arc::clone(&barrier);
+            thread::spawn(move || {
+                let mut calls = 0;
+                api.open(numbered_request(90), || {
+                    calls += 1;
+                    if calls == 2 {
+                        barrier.wait();
+                    }
+                    false
+                })
+            })
+        })
+        .collect();
+    let mut refs = Vec::new();
+    for worker in workers {
+        refs.push(
+            worker
+                .join()
+                .map_err(|_| "worker thread panicked")?
+                .map_err(|e| format!("{e:?}"))?
+                .page
+                .query_ref,
+        );
+    }
+    assert_eq!(refs[0], refs[1]);
+    Ok(())
+}
