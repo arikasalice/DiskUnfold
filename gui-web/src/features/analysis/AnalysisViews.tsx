@@ -253,7 +253,8 @@ export function ScanOutput({
           client={client}
           total={scan.total}
           multiRoot={multiRoot}
-          showLatest={scan.hasNewResult ? scan.showLatest : undefined}
+          hasNewResult={scan.hasNewResult}
+          showLatest={scan.showLatest}
         />
       ) : !awaitingTotals ? (
         <div className="du-empty">
@@ -277,17 +278,19 @@ function PinnedResult({
   client,
   total,
   multiRoot,
+  hasNewResult,
   showLatest,
 }: {
   client: AnalysisClient;
   total: SpaceTotal;
   multiRoot: boolean;
-  showLatest: (() => void) | undefined;
+  hasNewResult: boolean;
+  showLatest: () => void;
 }) {
   return (
     <div className="du-results">
       <Text kind="muted">Result completeness: {total.completeness}</Text>
-      {showLatest && (
+      {hasNewResult && (
         <Notice>
           <Text>New result available</Text>
           <Action onPress={showLatest}>Show latest result</Action>
