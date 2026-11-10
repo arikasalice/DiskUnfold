@@ -244,7 +244,14 @@ mod tests {
         std::fs::rename(&original, fixture.path().join("old"))?;
         std::fs::create_dir(&original)?;
         assert!(
-            verified_directory(&parent.handle, &name, parent.volume, Some(observed.inode)).is_err()
+            verified_directory(
+                &parent.handle,
+                &name,
+                parent.volume,
+                Some(observed.inode),
+                false
+            )
+            .is_err()
         );
         Ok(())
     }
@@ -257,13 +264,18 @@ mod tests {
         std::fs::create_dir(fixture.path().join("École"))?;
         let parent = open_verified(fixture.path()).map_err(|e| format!("{e:?}"))?;
         let requested: Vec<u16> = std::ffi::OsStr::new("éCOLE").encode_wide().collect();
-        let direct = verified_directory(&parent.handle, &requested, parent.volume, None)
+        let direct = verified_directory(&parent.handle, &requested, parent.volume, None, false)
             .map_err(|e| format!("{e:?}"))?;
         let expected = identity(&info(&direct).map_err(|e| format!("{e:?}"))?);
         let seen = lookup(&parent.handle, &requested).map_err(|e| format!("{e:?}"))?;
-        let checked =
-            verified_directory(&parent.handle, &requested, parent.volume, Some(seen.inode))
-                .map_err(|e| format!("{e:?}"))?;
+        let checked = verified_directory(
+            &parent.handle,
+            &requested,
+            parent.volume,
+            Some(seen.inode),
+            false,
+        )
+        .map_err(|e| format!("{e:?}"))?;
         assert_eq!(
             expected,
             identity(&info(&checked).map_err(|e| format!("{e:?}"))?)

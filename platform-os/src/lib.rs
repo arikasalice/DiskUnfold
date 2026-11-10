@@ -13,3 +13,6 @@ pub mod windows_console;
 #[cfg(target_os = "windows")]
 #[allow(unsafe_code)]
 pub mod windows_observation;
+#[cfg(target_os = "windows")]
+#[allow(unsafe_code)]
+pub mod windows_snapshot;
