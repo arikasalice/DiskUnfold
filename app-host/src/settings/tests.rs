@@ -333,3 +333,72 @@ fn scan_setting_source_tracks_commits_and_survives_failed_write_and_restart()
     assert_eq!(restarted.scan_limit_source()().entries(), 300_000);
     Ok(())
 }
+
+#[test]
+fn failed_quarantine_keeps_other_valid_setting_for_next_scan_and_can_recover_on_restart()
+-> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("mixed.db");
+    seed(&path, 200_000)?;
+    let mut db = AppDb::open_or_create_gui(&path).map_err(|e| format!("{e:?}"))?;
+    db.commit(
+        1,
+        &SettingsChanges::from([(locale::DISPLAY_LANGUAGE_KEY.into(), Some(json!(42)))]),
+        context(),
+    )
+    .map_err(|e| format!("{e:?}"))?;
+    drop(db);
+    let raw = Connection::open(&path)?;
+    raw.execute_batch("CREATE TRIGGER reject_quarantine BEFORE INSERT ON user_env_setting_quarantine BEGIN SELECT RAISE(ABORT, 'test'); END;")?;
+    drop(raw);
+    let database = test_database(&path)?;
+    let settings = Arc::new(StartupSettings::open(&database, 100, &["en", "ko"])?);
+    assert_eq!(
+        settings.status.failure_reason,
+        Some("settings.restore_failed")
+    );
+    assert_eq!(settings.status.stored_revision, Some(2));
+    assert!(settings.status.write_locked);
+    assert_eq!(
+        settings.status.invalid_keys,
+        vec![locale::DISPLAY_LANGUAGE_KEY]
+    );
+    assert_eq!(settings.stored_language()?, None);
+    assert_eq!(settings.clone().scan_limit_source()().entries(), 200_000);
+    let valid = &settings.status.items[space::SHARED_TABLE_MAX_ENTRIES];
+    assert_eq!(valid.source, du_user_env::settings::RestoreSource::Stored);
+    assert_eq!(valid.reason, None);
+    let bad = &settings.status.items[locale::DISPLAY_LANGUAGE_KEY];
+    assert_eq!(bad.reason, Some("settings.value_invalid"));
+    assert_eq!(
+        settings
+            .service
+            .lock()
+            .map_err(|_| "settings lock")?
+            .review(2, &SettingsChanges::new()),
+        Err(SettingsError::RestoreLocked)
+    );
+    drop(settings);
+    drop(database);
+    let raw = Connection::open(&path)?;
+    let (rows, quarantined, revision): (i64, i64, i64) = raw.query_row("SELECT (SELECT count(*) FROM user_env_setting), (SELECT count(*) FROM user_env_setting_quarantine), settings_version FROM user_env_setting_version", [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+    assert_eq!((rows, quarantined, revision), (3, 0, 2));
+    raw.execute_batch("DROP TRIGGER reject_quarantine;")?;
+    drop(raw);
+    let reopened = test_database(&path)?;
+    let restored = Arc::new(StartupSettings::open(&reopened, 101, &["en", "ko"])?);
+    assert!(!restored.status.write_locked);
+    assert_eq!(restored.status.stored_revision, Some(2));
+    assert_eq!(restored.clone().scan_limit_source()().entries(), 200_000);
+    assert_eq!(restored.stored_language()?, None);
+    assert_eq!(
+        restored
+            .service
+            .lock()
+            .map_err(|_| "settings lock")?
+            .snapshot()
+            .revision,
+        3
+    );
+    Ok(())
+}

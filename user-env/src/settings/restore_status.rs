@@ -27,7 +27,7 @@ pub struct RestoreItem {
 /// Startup outcome, separate from the application database open result.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RestoreStatus {
-    /// Registered keys whose invalid raw values were quarantined.
+    /// Registered keys whose raw values failed validation, including failed quarantine.
     pub invalid_keys: Vec<String>,
     /// Category-wide reason when the stored snapshot could not be restored.
     pub failure_reason: Option<&'static str>,
@@ -64,15 +64,19 @@ impl RestoreStatus {
     pub(super) fn record_items(&mut self, registry: &Registry, snapshot: &SettingsSnapshot) {
         for key in registry.descriptors.keys() {
             let invalid = self.invalid_keys.iter().any(|candidate| candidate == key);
-            let source =
-                if self.failure_reason.is_none() && !invalid && snapshot.values.contains_key(key) {
-                    RestoreSource::Stored
-                } else {
-                    RestoreSource::Default
-                };
-            let reason = self
-                .failure_reason
-                .or(invalid.then_some("settings.value_invalid"));
+            let stored = !invalid && snapshot.values.contains_key(key);
+            let source = if stored {
+                RestoreSource::Stored
+            } else {
+                RestoreSource::Default
+            };
+            let reason = if stored {
+                None
+            } else if invalid {
+                Some("settings.value_invalid")
+            } else {
+                self.failure_reason
+            };
             self.items
                 .insert(key.clone(), RestoreItem { source, reason });
         }

@@ -137,18 +137,14 @@ impl<S: SettingsStore> SettingsService<S> {
             }
         };
         if !status.write_locked && !invalid.is_empty() {
+            status.invalid_keys = invalid.keys().cloned().collect();
             match quarantine(&mut store, snapshot.revision, &invalid) {
                 Ok(revision) => {
                     snapshot.revision = revision;
-                    status.invalid_keys = invalid.keys().cloned().collect();
                 }
                 Err(_) => {
                     status.write_locked = true;
                     status.failure_reason = Some("settings.restore_failed");
-                    snapshot = SettingsSnapshot {
-                        schema_version: 1,
-                        ..SettingsSnapshot::default()
-                    };
                 }
             }
         }
