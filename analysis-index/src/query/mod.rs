@@ -60,6 +60,7 @@ pub enum Error {
     UnknownSort,
     InvalidCondition,
     Folder(QueryError),
+    Parent(QueryError),
     Cancelled,
 }
 
@@ -167,6 +168,8 @@ pub struct QueryResult {
     pub sort_descending: bool,
     /// The folder whose immediate children supplied the candidates, if scoped.
     folder: Option<u32>,
+    /// Whether an earlier search excluded candidates it could not determine.
+    inherited_uncertainty: bool,
     /// Comparison metadata not available in the current result source.
     pub limitations: &'static [&'static str],
 }
@@ -175,6 +178,12 @@ struct Row {
     item_no: u32,
     path: Vec<Vec<u8>>,
     key: SortValue,
+}
+
+enum Selection<'a> {
+    Version,
+    Folder(u32),
+    Parent(&'a QueryResult),
 }
 
 /// Evaluates a condition against one pinned version. Cancellation returns no result set.
@@ -190,7 +199,14 @@ pub fn run(
     sort: Sort<'_>,
     cancelled: impl FnMut() -> bool,
 ) -> Result<QueryResult, Error> {
-    evaluate(registry, version, None, condition, sort, cancelled)
+    evaluate(
+        registry,
+        version,
+        Selection::Version,
+        condition,
+        sort,
+        cancelled,
+    )
 }
 
 /// Evaluates only immediate children of one confirmed folder on the pinned version.
@@ -207,13 +223,43 @@ pub fn run_folder(
 ) -> Result<QueryResult, Error> {
     let folder = browse::directory(&version, location).map_err(Error::Folder)?;
     let item_no = folder.item_no;
-    evaluate(registry, version, Some(item_no), condition, sort, cancelled)
+    evaluate(
+        registry,
+        version,
+        Selection::Folder(item_no),
+        condition,
+        sort,
+        cancelled,
+    )
+}
+
+/// Refines an admitted parent result without widening its row set or changing its version.
+///
+/// Only the added condition is evaluated. The parent and added condition remain separate
+/// conjuncts in the returned metadata, including for an empty parent result.
+pub fn run_in_result(
+    registry: &Registry,
+    parent: &QueryResult,
+    additional: &Condition,
+    sort: Sort<'_>,
+    cancelled: impl FnMut() -> bool,
+) -> Result<QueryResult, Error> {
+    plan::check_shape(&parent.condition, 1)?;
+    plan::check_shape(additional, 1)?;
+    evaluate(
+        registry,
+        Arc::clone(&parent.version),
+        Selection::Parent(parent),
+        additional,
+        sort,
+        cancelled,
+    )
 }
 
 fn evaluate(
     registry: &Registry,
     version: Arc<ResultVersion>,
-    folder: Option<u32>,
+    selection: Selection<'_>,
     condition: &Condition,
     sort: Sort<'_>,
     mut cancelled: impl FnMut() -> bool,
@@ -227,11 +273,25 @@ fn evaluate(
         .ok_or(Error::UnknownSort)?;
     let mut rows = Vec::new();
     let mut unknown_count = 0;
-    let candidates = folder.map_or_else(|| version.items(), |parent| version.children(parent));
-    for item in candidates {
+    let (ordinary, parent, folder) = match selection {
+        Selection::Version => (version.items(), None, None),
+        Selection::Folder(item) => (version.children(item), None, Some(item)),
+        Selection::Parent(parent) => (&[][..], Some(parent), parent.folder),
+    };
+    let admitted = parent
+        .into_iter()
+        .flat_map(|result| &result.items)
+        .map(|item| {
+            version
+                .detail(item)
+                .map(|detail| detail.item)
+                .map_err(Error::Parent)
+        });
+    for item in ordinary.iter().map(Ok).chain(admitted) {
         if cancelled() {
             return Err(Error::Cancelled);
         }
+        let item = item?;
         let path = item_path(&version, item);
         let record = Record {
             item,
@@ -260,6 +320,10 @@ fn evaluate(
         })
         .collect();
     let mut strategies = BTreeSet::new();
+    let condition = match parent {
+        Some(parent) => Condition::All(vec![parent.condition.clone(), condition]),
+        None => condition,
+    };
     collect_strategies(&condition, &mut strategies);
     Ok(QueryResult {
         version,
@@ -271,6 +335,8 @@ fn evaluate(
         sort_basis: sort.basis,
         sort_descending: sort.descending,
         folder,
+        inherited_uncertainty: parent
+            .is_some_and(|parent| parent.unknown_count > 0 || parent.inherited_uncertainty),
         limitations: &[
             "query.volume_name_comparison_unavailable",
             "query.raw_path_order",

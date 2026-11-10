@@ -99,14 +99,7 @@ impl ResultSets {
             .checked_add(u64::from(count))
             .ok_or(PageError::InvalidRange)?;
         let mut state = self.state.lock().map_err(|_| PageError::Unavailable)?;
-        let result = Arc::clone(state.entries.get(id).ok_or(PageError::StaleVersion)?);
-        if result.version.version_id() != version {
-            return Err(PageError::StaleVersion);
-        }
-        let current = self.source.pin_current(version).map_err(source_error)?;
-        if !Arc::ptr_eq(&current, &result.version) {
-            return Err(PageError::StaleVersion);
-        }
+        let result = self.pin_entry(&state, id, version)?;
         let start = usize::try_from(start).map_err(|_| PageError::InvalidRange)?;
         if start > result.items.len() {
             return Err(PageError::InvalidRange);
@@ -119,6 +112,31 @@ impl ResultSets {
             result,
             range: start..end,
         })
+    }
+
+    /// Admits a parent result for a refinement, using the same expiry rules as page reads.
+    pub fn open_parent(&self, id: &Id, version: &Id) -> Result<Arc<QueryResult>, PageError> {
+        let mut state = self.state.lock().map_err(|_| PageError::Unavailable)?;
+        let result = self.pin_entry(&state, id, version)?;
+        touch(&mut state.lru, id);
+        Ok(result)
+    }
+
+    fn pin_entry(
+        &self,
+        state: &State,
+        id: &Id,
+        version: &Id,
+    ) -> Result<Arc<QueryResult>, PageError> {
+        let result = state.entries.get(id).ok_or(PageError::StaleVersion)?;
+        if result.version.version_id() != version {
+            return Err(PageError::StaleVersion);
+        }
+        let current = self.source.pin_current(version).map_err(source_error)?;
+        if !Arc::ptr_eq(&current, &result.version) {
+            return Err(PageError::StaleVersion);
+        }
+        Ok(Arc::clone(result))
     }
 
     /// Withdraws all registered results derived from a released source version.
@@ -207,18 +225,21 @@ impl Page {
                 |aggregate| aggregate.completeness,
             ),
         };
-        let total =
-            if completeness == ResultCompleteness::Complete && self.result.unknown_count == 0 {
-                Total::Exact(count)
-            } else {
-                Total::LowerBound(count)
-            };
+        let total = if completeness == ResultCompleteness::Complete
+            && self.result.unknown_count == 0
+            && !self.result.inherited_uncertainty
+        {
+            Total::Exact(count)
+        } else {
+            Total::LowerBound(count)
+        };
         Metadata {
             version: self.result.version.version_id(),
             observed_at: self.result.version.observed_at(),
             folder: self.result.folder,
             total,
             unknown_count: self.result.unknown_count,
+            inherited_uncertainty: self.result.inherited_uncertainty,
             completeness,
             condition: &self.result.condition,
             predicate_strategies: &self.result.predicate_strategies,
@@ -238,6 +259,8 @@ pub struct Metadata<'a> {
     pub folder: Option<u32>,
     pub total: Total,
     pub unknown_count: u64,
+    /// The parent selection had additional, unresolved candidates outside these rows.
+    pub inherited_uncertainty: bool,
     pub completeness: ResultCompleteness,
     pub condition: &'a Condition,
     pub predicate_strategies: &'a [(String, u32)],

@@ -1,5 +1,7 @@
 use du_analysis_index::query::page::{PageError, ResultSets, Total};
-use du_analysis_index::query::{self, Basis, Condition, Registry, Sort};
+use du_analysis_index::query::{
+    self, Basis, Condition, Kind, NameEncoding, NameTest, Predicate, Registry, Sort,
+};
 use du_analysis_index::{BuildError, IngestSink, Observation, ResultVersion};
 use du_core_contracts::Id;
 use du_core_contracts::result::ResultCompleteness;
@@ -49,6 +51,70 @@ fn result(version: Arc<ResultVersion>) -> Result<query::QueryResult, String> {
         || false,
     )
     .map_err(|e| format!("{e:?}"))
+}
+
+#[test]
+fn refinement_reads_only_admitted_parent_rows_and_keeps_both_conditions() -> Result<(), String> {
+    let sink = IngestSink::default();
+    let mut build = sink.open(id(1)?).map_err(error)?;
+    build.add_directory(vec![]).map_err(error)?;
+    for name in [vec![b'a', 0], vec![b'b', 0], vec![b'x']] {
+        build
+            .add_file(Observation {
+                path: vec![name],
+                size: Some(SizeValue {
+                    basis: SizeBasis::Logical,
+                    evidence: SizeEvidence::Measured,
+                    amount: SizeAmount::Exact {
+                        bytes: ByteSize::from(1),
+                    },
+                }),
+            })
+            .map_err(error)?;
+    }
+    let version = build
+        .seal(id(2)?, ResultCompleteness::Complete)
+        .map_err(error)?;
+    let sets = ResultSets::new(sink);
+    let registry = Registry::baseline();
+    let sort = || Sort {
+        id: "sort.path",
+        revision: 1,
+        basis: Basis::Logical,
+        descending: false,
+    };
+    let upper = Condition::Predicate(Predicate::Name(
+        NameTest::Equal(vec![b'a', 0]),
+        NameEncoding::WindowsUtf16Le,
+    ));
+    let added = Condition::Predicate(Predicate::Kind(Kind::File));
+    let parent =
+        query::run(&registry, version, &upper, sort(), || false).map_err(|e| format!("{e:?}"))?;
+    assert_eq!(parent.unknown_count, 1);
+    assert_eq!(parent.items.len(), 1);
+    sets.register(id(3)?, parent)
+        .map_err(|e| format!("{e:?}"))?;
+    let parent = sets
+        .open_parent(&id(3)?, &id(2)?)
+        .map_err(|e| format!("{e:?}"))?;
+    sets.release(&id(3)?).map_err(|e| format!("{e:?}"))?;
+    assert!(matches!(
+        sets.open_parent(&id(3)?, &id(2)?),
+        Err(PageError::StaleVersion)
+    ));
+    let refined = query::run_in_result(&registry, &parent, &added, sort(), || false)
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(refined.items, parent.items);
+    assert_eq!(refined.condition, Condition::All(vec![upper, added]));
+    sets.register(id(4)?, refined)
+        .map_err(|e| format!("{e:?}"))?;
+    let page = sets
+        .open_page(&id(4)?, &id(2)?, 0, None)
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(page.metadata().unknown_count, 0);
+    assert!(page.metadata().inherited_uncertainty);
+    assert_eq!(page.metadata().total, Total::LowerBound(1));
+    Ok(())
 }
 
 #[test]
