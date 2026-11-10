@@ -215,5 +215,6 @@ fn map_error(error: Error) -> String {
     .into()
 }
 
+mod interruption;
 #[cfg(test)]
 mod tests;

@@ -8,7 +8,10 @@ use std::{
 
 use du_app_db::AppDb;
 use du_core_contracts::{
-    job::{HistoryAppend, HistoryAppendOutcome, JobHistory, JobSummary},
+    job::{
+        HistoryAppend, HistoryAppendOutcome, HistoryInterruptionReceipt, HistoryRecovery,
+        JobHistory, JobSummary,
+    },
     settings::{
         SettingsChanges, SettingsCommit, SettingsSnapshot, SettingsStore, SettingsStoreError,
     },
@@ -60,6 +63,16 @@ impl SharedDatabase {
             database: self.clone(),
             now_ms,
         }
+    }
+}
+
+impl HistoryRecovery for SharedDatabase {
+    fn mark_interrupted(&self, now_ms: i64) -> Result<Option<HistoryInterruptionReceipt>, String> {
+        self.0
+            .connection
+            .lock()
+            .map_err(|_| "history.record_failed".to_owned())?
+            .mark_interrupted_jobs(now_ms)
     }
 }
 

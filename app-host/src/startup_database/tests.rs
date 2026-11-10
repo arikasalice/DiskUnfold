@@ -3,6 +3,7 @@ use du_core_contracts::{
     Id,
     job::{HistoryAppend, JobHistory, JobState, JobSummary},
 };
+use du_engine_api::desktop::DesktopEvents;
 use rusqlite::{Connection, OpenFlags};
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
@@ -106,4 +107,63 @@ fn backup_directory_failure_leaves_legacy_schema_and_existing_file_intact() -> T
         1
     );
     Ok(())
+}
+
+#[test]
+fn startup_recovers_committed_interruption_once_and_retries_only_on_reopen() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("diskunfold.db");
+    drop(open(dir.path())?);
+    let fixture = Connection::open(&path)?;
+    fixture.execute_batch(
+        "INSERT INTO job_runtime_job_start
+           (job_id, kind_id, kind_version, scope_summary, started_at_ms, record_origin, created_at_ms)
+         VALUES (X'01010101010171018101010101010101', 'change.trash', 1, 'redacted', 80, 'this_app', 80);
+         CREATE TRIGGER fail_link BEFORE INSERT ON job_runtime_job_link
+         BEGIN SELECT RAISE(ABORT, 'fixture'); END;",
+    )?;
+
+    let first = open(dir.path())?;
+    let events = DesktopEvents::default();
+    assert!(events.recover_history(&first, 100).is_err());
+    drop(first);
+    assert_eq!(interruption_counts(&fixture)?, (1, 0, 0, 0, 0));
+
+    fixture.execute_batch("DROP TRIGGER fail_link")?;
+    let reopened = open(dir.path())?;
+    events.recover_history(&reopened, 200)?;
+    assert_eq!(interruption_counts(&fixture)?, (1, 1, 1, 0, 1));
+    let detected: i64 = fixture.query_row(
+        "SELECT detected_at_ms FROM job_runtime_job_interrupt",
+        [],
+        |row| row.get(0),
+    )?;
+    assert_eq!(detected, 200);
+    drop(reopened);
+
+    let reopened = open(dir.path())?;
+    events.recover_history(&reopened, 300)?;
+    assert_eq!(interruption_counts(&fixture)?, (1, 1, 1, 0, 1));
+    Ok(())
+}
+
+fn interruption_counts(db: &Connection) -> rusqlite::Result<(i64, i64, i64, i64, i64)> {
+    db.query_row(
+        "SELECT (SELECT count(*) FROM job_runtime_job_start),
+                (SELECT count(*) FROM job_runtime_job_interrupt),
+                (SELECT count(*) FROM job_runtime_job_link),
+                (SELECT count(*) FROM job_runtime_job_record),
+                last_record_seq
+         FROM job_runtime_history_state",
+        [],
+        |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+            ))
+        },
+    )
 }

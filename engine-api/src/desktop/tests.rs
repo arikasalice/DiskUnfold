@@ -148,6 +148,41 @@ fn history_change_uses_the_public_revision_and_omits_internal_references()
 }
 
 #[test]
+fn startup_interruption_uses_the_same_bounded_history_event_queue()
+-> Result<(), Box<dyn std::error::Error>> {
+    use du_core_contracts::job::{HistoryInterruptionReceipt, HistoryRevision};
+
+    struct Recovery(Option<HistoryInterruptionReceipt>);
+    impl HistoryRecovery for Recovery {
+        fn mark_interrupted(&self, _: i64) -> Result<Option<HistoryInterruptionReceipt>, String> {
+            Ok(self.0)
+        }
+    }
+
+    let events = DesktopEvents::default();
+    let receipt = HistoryInterruptionReceipt {
+        revision: HistoryRevision {
+            delete_generation: 4,
+            max_record_seq: 12,
+        },
+        count: 2,
+        observed_at_ms: 42,
+    };
+    events.recover_history(&Recovery(Some(receipt)), 42)?;
+    events.recover_history(&Recovery(None), 55)?;
+    let mut pending = events.0.lock().map_err(|_| "event queue lock")?;
+    let ready = Instant::now() + EVENT_INTERVAL;
+    let event = pending.take(ready).ok_or("missing recovery event")?;
+    assert_eq!(event.topic, HISTORY_CHANGED);
+    assert_eq!(event.seq, 1);
+    assert_eq!(event.body["reason"], "interrupted");
+    assert_eq!(event.body["count"], "2");
+    assert_eq!(event.body["revision"]["maxRecordSeq"], "12");
+    assert!(pending.take(ready).is_none());
+    Ok(())
+}
+
+#[test]
 fn preserves_lineage_sequence_and_withdrawal_without_a_replacement()
 -> Result<(), Box<dyn std::error::Error>> {
     let lineage_id = Id::parse("0195f856-ab83-7a59-9343-10d29775c9a9")?;

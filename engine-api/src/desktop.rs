@@ -9,7 +9,7 @@ use du_core_contracts::{
     ENVELOPE_VERSION, EventEnvelope, Id, Timestamp,
     analysis_ipc::{TargetProbeEvent, TargetStatusChanged},
     history_ipc::{HISTORY_CHANGED, HistoryChangedBody},
-    job::{HistoryChangeReason, HistoryChanged, JobHistory},
+    job::{HistoryChangeReason, HistoryChanged, HistoryRecovery, JobHistory},
     ports::Random,
     result_events::RESULT_VERSION_CHANGED,
     scan_observation::ScopeRootPort,
@@ -173,6 +173,15 @@ impl DesktopEvents {
         serde_json::to_string(&event).ok()
     }
 
+    /// Runs startup recovery and queues its committed notice before the UI is ready.
+    pub fn recover_history(
+        &self,
+        storage: &dyn HistoryRecovery,
+        now_ms: i64,
+    ) -> Result<(), String> {
+        du_job_runtime::recover_history(storage, self, now_ms)
+    }
+
     fn enqueue(&self, event: EventEnvelope) {
         if let Ok(mut pending) = self.0.lock() {
             pending.push(event, Instant::now());
@@ -192,10 +201,9 @@ impl JobEvents for DesktopEvents {
     }
 
     fn publish_history_changed(&self, change: HistoryChanged) {
-        let Some(event) = history_envelope(change) else {
-            return;
-        };
-        self.enqueue(event);
+        if let Some(event) = history_envelope(change) {
+            self.enqueue(event);
+        }
     }
 }
 
@@ -203,6 +211,7 @@ fn history_envelope(change: HistoryChanged) -> Option<EventEnvelope> {
     let observed_at = Timestamp::from_unix_millis(change.observed_at_ms)?;
     let reason = match change.reason {
         HistoryChangeReason::Appended => "appended",
+        HistoryChangeReason::Interrupted => "interrupted",
     };
     Some(EventEnvelope {
         topic: HISTORY_CHANGED.into(),

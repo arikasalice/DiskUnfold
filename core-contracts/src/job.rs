@@ -147,6 +147,25 @@ pub struct HistoryChanged {
 pub enum HistoryChangeReason {
     /// A terminal history record was appended.
     Appended,
+    /// A startup check marked unfinished operations as interrupted.
+    Interrupted,
+}
+
+/// The persisted outcome of a startup interruption check.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HistoryInterruptionReceipt {
+    /// Revision committed with the interruption markers.
+    pub revision: HistoryRevision,
+    /// Number of newly marked operations.
+    pub count: u64,
+    /// UTC time used to mark the interrupted operations.
+    pub observed_at_ms: i64,
+}
+
+/// A startup-only storage port for unfinished operations from a previous session.
+pub trait HistoryRecovery {
+    /// Returns a receipt only when new interruption markers were committed.
+    fn mark_interrupted(&self, now_ms: i64) -> Result<Option<HistoryInterruptionReceipt>, String>;
 }
 
 pub trait JobHistory: Send + Sync {
