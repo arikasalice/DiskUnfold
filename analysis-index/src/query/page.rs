@@ -26,11 +26,40 @@ pub enum PageError {
 
 #[derive(Default)]
 struct State {
-    entries: HashMap<Id, Arc<QueryResult>>,
-    folder_keys: HashMap<Id, FolderKey>,
+    entries: HashMap<Id, Entry>,
     lru: VecDeque<Id>,
     used: HashSet<Id>,
     released_sources: HashSet<Id>,
+}
+
+struct Entry {
+    result: Arc<QueryResult>,
+    folder_key: Option<FolderKey>,
+}
+
+impl State {
+    fn folder_id(&self, key: &FolderKey) -> Option<Id> {
+        self.entries
+            .iter()
+            .find_map(|(id, entry)| (entry.folder_key.as_ref() == Some(key)).then(|| id.clone()))
+    }
+
+    fn insert(&mut self, id: Id, result: QueryResult, folder_key: Option<FolderKey>) {
+        if self.entries.len() == MAX_RESULTS
+            && let Some(oldest) = self.lru.pop_front()
+        {
+            self.entries.remove(&oldest);
+        }
+        self.used.insert(id.clone());
+        self.lru.push_back(id.clone());
+        self.entries.insert(
+            id,
+            Entry {
+                result: Arc::new(result),
+                folder_key,
+            },
+        );
+    }
 }
 
 /// Identity of a normalized immediate-child query, including its view mode.
@@ -83,25 +112,14 @@ impl ResultSets {
         if !Arc::ptr_eq(&current, &result.version) {
             return Err(PageError::StaleVersion);
         }
-        if state.entries.len() == MAX_RESULTS
-            && let Some(oldest) = state.lru.pop_front()
-        {
-            state.entries.remove(&oldest);
-            state.folder_keys.remove(&oldest);
-        }
-        state.used.insert(id.clone());
-        state.lru.push_back(id.clone());
-        state.entries.insert(id, Arc::new(result));
+        state.insert(id, result, None);
         Ok(())
     }
 
     /// Finds an admitted folder query and updates its access order.
     pub fn find_folder(&self, key: &FolderKey) -> Result<Option<Id>, PageError> {
         let mut state = self.state.lock().map_err(|_| PageError::Unavailable)?;
-        let id = state
-            .folder_keys
-            .iter()
-            .find_map(|(id, stored)| (stored == key).then(|| id.clone()));
+        let id = state.folder_id(key);
         if let Some(id) = &id {
             self.pin_entry(&state, id, &key.version)?;
             touch(&mut state.lru, id);
@@ -137,27 +155,14 @@ impl ResultSets {
         if !Arc::ptr_eq(&current, &result.version) {
             return Err(PageError::StaleVersion);
         }
-        if let Some(existing) = state
-            .folder_keys
-            .iter()
-            .find_map(|(candidate, stored)| (stored == &key).then(|| candidate.clone()))
-        {
+        if let Some(existing) = state.folder_id(&key) {
             touch(&mut state.lru, &existing);
             return Ok(existing);
         }
         if state.used.contains(&id) {
             return Err(PageError::DuplicateId);
         }
-        if state.entries.len() == MAX_RESULTS
-            && let Some(oldest) = state.lru.pop_front()
-        {
-            state.entries.remove(&oldest);
-            state.folder_keys.remove(&oldest);
-        }
-        state.used.insert(id.clone());
-        state.lru.push_back(id.clone());
-        state.folder_keys.insert(id.clone(), key);
-        state.entries.insert(id.clone(), Arc::new(result));
+        state.insert(id.clone(), result, Some(key));
         Ok(id)
     }
 
@@ -209,7 +214,7 @@ impl ResultSets {
         id: &Id,
         version: &Id,
     ) -> Result<Arc<QueryResult>, PageError> {
-        let result = state.entries.get(id).ok_or(PageError::StaleVersion)?;
+        let result = &state.entries.get(id).ok_or(PageError::StaleVersion)?.result;
         if result.version.version_id() != version {
             return Err(PageError::StaleVersion);
         }
@@ -226,9 +231,8 @@ impl ResultSets {
         state.released_sources.insert(version.clone());
         state
             .entries
-            .retain(|_, value| value.version.version_id() != version);
+            .retain(|_, entry| entry.result.version.version_id() != version);
         let valid: HashSet<Id> = state.entries.keys().cloned().collect();
-        state.folder_keys.retain(|id, _| valid.contains(id));
         state.lru.retain(|id| valid.contains(id));
         Ok(())
     }
@@ -237,7 +241,6 @@ impl ResultSets {
     pub fn release(&self, id: &Id) -> Result<(), PageError> {
         let mut state = self.state.lock().map_err(|_| PageError::Unavailable)?;
         state.entries.remove(id);
-        state.folder_keys.remove(id);
         state.lru.retain(|candidate| candidate != id);
         Ok(())
     }
