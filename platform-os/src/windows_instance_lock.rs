@@ -79,19 +79,25 @@ impl WindowsInstanceLock {
     /// Pins the existing database against rename or deletion while permitting SQLite I/O.
     /// An absent file is reported separately so the caller can publish a new database.
     pub fn pin_database(&self) -> Result<Option<File>, InstanceLockError> {
-        match open_child(
-            &self._directory,
-            "diskunfold.db",
-            FILE_OPEN,
-            FILE_SHARE_READ | FILE_SHARE_WRITE,
-        ) {
-            Ok(file) if single_link_file(&file)? => Ok(Some(file)),
-            Ok(_) => Err(InstanceLockError::InvalidDatabase),
-            Err(InstanceLockError::Io(error)) if error.kind() == io::ErrorKind::NotFound => {
-                Ok(None)
-            }
-            Err(error) => Err(error),
-        }
+        pin_existing_database(&self._directory)
+    }
+}
+
+/// Pins an existing single-link database for a reader without taking the GUI lock.
+/// Keep the directory and returned handle alive for the duration of SQLite access.
+pub fn pin_existing_database(
+    directory: &WindowsDirectory,
+) -> Result<Option<File>, InstanceLockError> {
+    match open_child(
+        directory,
+        crate::application_data::DATABASE_FILE,
+        FILE_OPEN,
+        FILE_SHARE_READ | FILE_SHARE_WRITE,
+    ) {
+        Ok(file) if single_link_file(&file)? => Ok(Some(file)),
+        Ok(_) => Err(InstanceLockError::InvalidDatabase),
+        Err(InstanceLockError::Io(error)) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error),
     }
 }
 

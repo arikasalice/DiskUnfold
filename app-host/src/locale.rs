@@ -24,6 +24,23 @@ pub(super) fn initialize(
     registry: i18n::Registry,
     stored: Option<&str>,
 ) -> Result<StartupLocale, io::Error> {
+    let tags = du_platform_os::windows_ui_language::preferred_ui_languages().ok();
+    let tags = tags
+        .as_ref()
+        .map(|tags| tags.iter().map(String::as_str).collect::<Vec<_>>());
+    let os = tags.as_deref().map_or(
+        locale::OsLanguage::Unavailable,
+        locale::OsLanguage::Supported,
+    );
+    initialize_with_os(registry, stored, os)
+}
+
+/// Applies the startup table to one observation without writing settings.
+fn initialize_with_os(
+    registry: i18n::Registry,
+    stored: Option<&str>,
+    os: locale::OsLanguage<'_>,
+) -> Result<StartupLocale, io::Error> {
     let korean_integrity_failed = registry
         .integrity_warnings()
         .iter()
@@ -32,7 +49,7 @@ pub(super) fn initialize(
     let decision = locale::decide(&locale::Inputs {
         registered: &registered,
         stored,
-        os: locale::OsLanguage::Unavailable,
+        os,
         korean_integrity_failed,
     })
     .map_err(|error| io::Error::other(error.reason_key()))?;
@@ -124,6 +141,18 @@ mod tests {
         let startup = initialize(register()?, Some("ko"))?;
         assert_eq!(startup._decision.language, "ko");
         assert_eq!(startup._decision.source, locale::Source::Stored);
+        Ok(())
+    }
+
+    #[test]
+    fn startup_uses_first_os_preference_after_a_stored_override() -> Result<(), io::Error> {
+        let os = locale::OsLanguage::Supported(&["ko-KR", "en-US"]);
+        let automatic = initialize_with_os(register()?, None, os)?;
+        assert_eq!(automatic._decision.language, "ko");
+        assert_eq!(automatic._decision.source, locale::Source::Os);
+        let stored = initialize_with_os(register()?, Some("en"), os)?;
+        assert_eq!(stored._decision.language, "en");
+        assert_eq!(stored._decision.source, locale::Source::Stored);
         Ok(())
     }
 }

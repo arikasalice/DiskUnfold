@@ -6,13 +6,15 @@ rust-version.workspace = true
 license.workspace = true
 
 [features]
-windows-console = ["dep:du-platform-os", "du-platform-os/windows-console"]
+windows-console = ["du-platform-os/windows-console"]
 
 [dependencies]
 du-user-env = { version = "0.1.0", path = "../user-env" }
 
 [target.'cfg(windows)'.dependencies]
-du-platform-os = { version = "0.1.0", path = "../platform-os", optional = true }
+du-app-db = { version = "0.1.0", path = "../app-db" }
+du-core-contracts = { version = "0.1.0", path = "../core-contracts" }
+du-platform-os = { version = "0.1.0", path = "../platform-os" }
 
 [lints]
 workspace = true

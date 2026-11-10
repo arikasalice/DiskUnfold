@@ -24,6 +24,9 @@ pub mod windows_observation;
 #[cfg(target_os = "windows")]
 #[allow(unsafe_code)]
 pub mod windows_snapshot;
+#[cfg(any(windows, test))]
+#[allow(unsafe_code)]
+pub mod windows_ui_language;
 #[cfg(target_os = "windows")]
 pub mod windows_watch_decode;
 #[cfg(target_os = "windows")]

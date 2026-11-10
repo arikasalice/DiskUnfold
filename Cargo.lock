@@ -203,6 +203,8 @@ version = "0.1.0"
 name = "du-cli"
 version = "0.1.0"
 dependencies = [
+ "du-app-db",
+ "du-core-contracts",
  "du-platform-os",
  "du-user-env",
 ]

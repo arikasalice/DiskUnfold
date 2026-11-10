@@ -2,6 +2,9 @@
 
 use std::path::PathBuf;
 
+/// File name shared by GUI writers and CLI readers in the application directory.
+pub const DATABASE_FILE: &str = "diskunfold.db";
+
 /// Returns the existing desktop data override or the per-user data directory.
 pub fn directory() -> Option<PathBuf> {
     std::env::var_os("DISKUNFOLD_DATA_DIR")

@@ -10,7 +10,7 @@ fn launcher_prints_help_and_version_to_stdout() -> io::Result<()> {
         ),
     ] {
         let output = Command::new(env!("CARGO_BIN_EXE_diskunfold"))
-            .arg(flag)
+            .args(["--lang", "en", flag])
             .output()?;
         assert!(output.status.success());
         assert!(String::from_utf8_lossy(&output.stdout).contains(expected));
@@ -23,6 +23,7 @@ fn launcher_prints_help_and_version_to_stdout() -> io::Result<()> {
 fn launcher_rejects_unsupported_commands_and_trailing_arguments() -> io::Result<()> {
     for args in [&["scan"][..], &["--version", "extra"][..]] {
         let output = Command::new(env!("CARGO_BIN_EXE_diskunfold"))
+            .args(["--lang", "en"])
             .args(args)
             .output()?;
         assert_eq!(output.status.code(), Some(2));

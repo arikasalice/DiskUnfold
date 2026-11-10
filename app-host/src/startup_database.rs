@@ -7,6 +7,7 @@ use du_app_db::{
     migration::{MigrationError, managed::apply_next_managed},
 };
 use du_platform_os::{
+    application_data::DATABASE_FILE,
     windows_instance_lock::{InstanceLockError, WindowsInstanceLock},
     windows_observation::open_verified_stable,
 };
@@ -18,7 +19,7 @@ pub(super) fn open(data_dir: &Path) -> Result<SharedDatabase, io::Error> {
     let data_dir = std::path::absolute(data_dir)?;
     fs::create_dir_all(&data_dir)?;
     let instance = WindowsInstanceLock::acquire(&data_dir).map_err(lock_error)?;
-    let path = data_dir.join("diskunfold.db");
+    let path = data_dir.join(DATABASE_FILE);
     let (database, file) = if let Some(file) = instance.pin_database().map_err(lock_error)? {
         (open_existing(&path, &data_dir)?, file)
     } else {
