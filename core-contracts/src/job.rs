@@ -1,5 +1,5 @@
 //! In-process job contracts shared by runtimes and job bodies.
-use crate::Id;
+use crate::{Id, Timestamp};
 use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -113,6 +113,10 @@ pub trait JobFlow: Send {
 }
 pub trait JobContext: Send + Sync {
     fn checkpoint(&self) -> Checkpoint;
+    /// Supplies UTC time to bodies recording evidence. A context without a clock may omit it.
+    fn utc_now(&self) -> Option<Timestamp> {
+        None
+    }
     /// Returns Busy rather than spawning or waiting when no metadata I/O permit is available.
     /// Returns UnsupportedResource when metadata I/O is disabled or not declared for the job.
     fn try_start_flow(&self) -> Result<Box<dyn JobFlow>, JobFlowError>;

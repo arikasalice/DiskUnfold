@@ -1,7 +1,7 @@
 use crate::delivery::enqueue;
-use crate::model::{Cancellation, Delivery, JobEvent, Limits, Table};
+use crate::model::{Cancellation, Delivery, JobClock, JobEvent, Limits, Table};
 use du_core_contracts::{
-    Id,
+    Id, Timestamp,
     job::{Checkpoint, JobContext, JobCounts, JobFlow, JobFlowError, JobState, ResourceClass},
 };
 use std::sync::{
@@ -24,21 +24,27 @@ pub(crate) struct Context {
     id: Id,
     table: Arc<Mutex<Table>>,
     cancellation: Arc<Cancellation>,
-    limits: Arc<Limits>,
+    services: Services,
     shared: Arc<Shared>,
+}
+
+/// Runtime services shared with a running job context.
+pub(crate) struct Services {
+    pub(crate) limits: Arc<Limits>,
+    pub(crate) clock: Arc<dyn JobClock>,
 }
 impl Context {
     pub(crate) fn new(
         id: Id,
         table: Arc<Mutex<Table>>,
         cancellation: Arc<Cancellation>,
-        limits: Arc<Limits>,
+        services: Services,
     ) -> Self {
         Self {
             id,
             table,
             cancellation,
-            limits,
+            services,
             shared: Arc::new(Shared {
                 state: Mutex::new(FlowState::default()),
                 completed: Condvar::new(),
@@ -64,6 +70,10 @@ impl Context {
     }
 }
 impl JobContext for Context {
+    fn utc_now(&self) -> Option<Timestamp> {
+        Timestamp::from_unix_millis(self.services.clock.now_ms())
+    }
+
     fn checkpoint(&self) -> Checkpoint {
         if self.cancellation.0.load(Ordering::Acquire) {
             Checkpoint::Cancel
@@ -83,7 +93,8 @@ impl JobContext for Context {
         if job.state != JobState::Running {
             return Err(JobFlowError::Closed);
         }
-        if self.limits.config.metadata_io == 0
+        let limits = &self.services.limits;
+        if limits.config.metadata_io == 0
             || !job
                 .descriptor
                 .resource_classes
@@ -99,12 +110,12 @@ impl JobContext for Context {
         if state.sealed {
             return Err(JobFlowError::Closed);
         }
-        reserve(&self.limits.active, self.limits.config.metadata_io)?;
+        reserve(&limits.active, limits.config.metadata_io)?;
         state.active += 1;
         Ok(Box::new(Flow {
             id: self.id.clone(),
             table: self.table.clone(),
-            limits: self.limits.clone(),
+            limits: limits.clone(),
             shared: self.shared.clone(),
             counts: None,
         }))

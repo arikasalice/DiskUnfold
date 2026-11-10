@@ -6,7 +6,7 @@ mod plan;
 pub use condition::{Basis, Boundary, Condition, Kind, NameEncoding, NameTest, Predicate, Truth};
 
 use crate::{QueryError, ResultVersion, browse};
-use du_core_contracts::result::{ResultItem, ResultItemKind, ResultVersionRead};
+use du_core_contracts::result::{ResultItem, ResultVersionRead};
 use du_core_contracts::{ItemRef, SizeAmount, SizeValue};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -21,24 +21,13 @@ pub struct Record<'a> {
 impl<'a> Record<'a> {
     /// Reads the item's observed size, or its subtree aggregate for a directory.
     pub fn size(&self, basis: Basis) -> Option<&'a SizeValue> {
-        if self.item.kind == ResultItemKind::Directory {
-            let aggregate = self.version.space(self.item.item_no)?;
-            return Some(match basis {
-                Basis::Logical => &aggregate.logical,
-                Basis::Allocated => &aggregate.allocated,
-            });
-        }
-        match basis {
-            Basis::Logical => self.item.size.as_ref(),
-            Basis::Allocated => self
-                .version
-                .physical
-                .as_ref()?
-                .get(self.item.item_no as usize)?
-                .as_ref()?
-                .allocated
-                .as_ref(),
-        }
+        self.version.item_size(
+            self.item.item_no,
+            match basis {
+                Basis::Logical => du_core_contracts::SizeBasis::Logical,
+                Basis::Allocated => du_core_contracts::SizeBasis::Allocated,
+            },
+        )
     }
 }
 

@@ -1,5 +1,6 @@
 use du_core_contracts::*;
 use du_core_contracts::{analysis_ipc::*, job::JobState, result::ResultCompleteness};
+use du_core_contracts::{browse_ipc::*, result::ResultItemKind};
 use std::{env, fs, io};
 use ts_rs::TS;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -52,6 +53,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ResultCompleteness::decl(&config),
         SpaceTotalSize::decl(&config),
         SpaceTotal::decl(&config),
+        ResultItemKind::decl(&config),
+        BrowseValue::<String>::decl(&config),
+        BrowseOrigin::decl(&config),
+        BrowseDetailRequest::decl(&config),
+        BrowseDetail::decl(&config),
     ];
     let output = declarations
         .into_iter()

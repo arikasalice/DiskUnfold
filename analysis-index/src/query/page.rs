@@ -4,7 +4,7 @@ use std::ops::Range;
 use std::sync::{Arc, Mutex};
 
 use du_core_contracts::result::{ResultCompleteness, ResultVersionRead};
-use du_core_contracts::{Id, ItemRef};
+use du_core_contracts::{Id, ItemRef, Timestamp};
 
 use super::{Basis, Condition, QueryResult};
 use crate::{IngestSink, QueryError};
@@ -215,6 +215,7 @@ impl Page {
             };
         Metadata {
             version: self.result.version.version_id(),
+            observed_at: self.result.version.observed_at(),
             folder: self.result.folder,
             total,
             unknown_count: self.result.unknown_count,
@@ -232,6 +233,7 @@ impl Page {
 /// Read-only metadata bound to an admitted page.
 pub struct Metadata<'a> {
     pub version: &'a Id,
+    pub observed_at: Option<&'a Timestamp>,
     /// Immediate-child scope, or `None` for a full-version search.
     pub folder: Option<u32>,
     pub total: Total,

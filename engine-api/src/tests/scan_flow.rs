@@ -245,6 +245,34 @@ fn reviewed_identity_is_rechecked_and_one_job_publishes_the_requested_result()
     assert_eq!(observed.path.raw.bytes()?, path);
     assert_eq!(observed.volume_id, [1]);
     assert_eq!(observed.file_id, 3usize.to_le_bytes());
+    assert_eq!(
+        pinned.observed_at().map(|time| time.as_str()),
+        Some("1970-01-01T00:00:01.000Z")
+    );
+    let detail = gui(
+        "browse.detail",
+        json!({
+            "resultVersion": version,
+            "item": { "resultVersion": version, "itemNo": 1 }
+        }),
+    )?;
+    assert_eq!(detail.body["displayPath"]["value"], "C:\\Fixture\\f");
+    assert_eq!(detail.body["logicalSize"]["value"]["bytes"], "64");
+    assert_eq!(detail.body["allocatedSize"]["state"], "unknown");
+    assert_eq!(detail.body["modifiedAt"]["state"], "unknown");
+    assert_eq!(detail.body["observationOnly"], true);
+    assert!(!detail.body.to_string().contains("\"raw\""));
+    let missing = gui(
+        "browse.detail",
+        json!({
+            "resultVersion": version,
+            "item": { "resultVersion": version, "itemNo": 3 }
+        }),
+    )?;
+    assert_eq!(
+        missing.error.ok_or("missing browse error")?.reason_key,
+        "ref.unavailable"
+    );
     let child = pinned
         .native_path(&ItemRef {
             result_version: version,

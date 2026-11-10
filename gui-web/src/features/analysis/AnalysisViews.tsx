@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   Action,
   Choice,
@@ -13,8 +14,15 @@ import {
   StatusBadge,
   Text,
 } from "../../components";
-import { windowsPath } from "../../ipc";
-import type { OsPath, SpaceTotal, SpaceTotalSize } from "../../ipc";
+import { AnalysisError, windowsPath } from "../../ipc";
+import type {
+  AnalysisClient,
+  BrowseDetail,
+  BrowseValue,
+  OsPath,
+  SizeValue,
+  SpaceTotal,
+} from "../../ipc";
 import type { useScanResult } from "../../state/analysis-scan";
 import type { useTargets } from "../../state/analysis-targets";
 
@@ -28,7 +36,7 @@ function formatBytes(bytes: string): string {
   return `${BigInt(bytes).toLocaleString()} bytes`;
 }
 
-function displaySize({ size }: SpaceTotalSize): string {
+function displaySize(size: SizeValue): string {
   if (size.state === "unknown") return "Unavailable";
   return `${size.state === "lower_bound" ? "At least " : ""}${formatBytes(size.bytes)}`;
 }
@@ -153,11 +161,13 @@ function Coverage({ total }: { total: SpaceTotal }) {
 
 /** Shows only totals from the scan's pinned result, with basis and coverage kept separate. */
 export function ScanOutput({
+  client,
   scan,
   started,
   running,
   problem,
 }: {
+  client: AnalysisClient;
   scan: ReturnType<typeof useScanResult>;
   started: boolean;
   running: boolean;
@@ -198,11 +208,16 @@ export function ScanOutput({
                     : undefined
                 }
               >
-                {displaySize(value)}
+                {displaySize(value.size)}
               </Metric>
             ))}
           </div>
           <Coverage total={scan.total} />
+          <ScopeDetails
+            key={scan.total.resultVersion}
+            client={client}
+            resultVersion={scan.total.resultVersion}
+          />
         </div>
       ) : (
         <div className="du-empty">
@@ -219,4 +234,98 @@ export function ScanOutput({
       )}
     </>
   );
+}
+
+/** Shows only the observed attributes of the pinned scope root. */
+function ScopeDetails({
+  client,
+  resultVersion,
+}: {
+  client: AnalysisClient;
+  resultVersion: string;
+}) {
+  const [detail, setDetail] = useState<BrowseDetail>();
+  const [pending, setPending] = useState(false);
+  const [problem, setProblem] = useState<string>();
+
+  async function toggle() {
+    if (detail) {
+      setDetail(undefined);
+      return;
+    }
+    setProblem(undefined);
+    setPending(true);
+    try {
+      const response = await client.call("browse.detail", {
+        resultVersion,
+        item: { resultVersion, itemNo: 0 },
+      });
+      if (
+        response.item.resultVersion !== resultVersion ||
+        response.item.itemNo !== 0
+      ) {
+        setProblem("The result changed. Run a new scan to see folder details.");
+        return;
+      }
+      setDetail(response);
+    } catch (error) {
+      setProblem(
+        error instanceof AnalysisError && error.code === "STALE_VERSION"
+          ? "The result changed. Run a new scan to see folder details."
+          : "Folder details are unavailable.",
+      );
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <section aria-label="Folder details">
+      <Action isDisabled={pending} onPress={() => void toggle()}>
+        {detail ? "Hide folder details" : "View folder details"}
+      </Action>
+      {pending && <Progress label="Loading folder details" />}
+      {problem && <Notice tone="error">{problem}</Notice>}
+      {detail && (
+        <Readout
+          label="Observed folder attributes"
+          rows={[
+            { label: "Folder", value: attribute(detail.displayPath) },
+            { label: "Kind", value: attribute(detail.kind) },
+            {
+              label: "Logical size",
+              value: attribute(detail.logicalSize, displaySize),
+            },
+            {
+              label: "Allocated size",
+              value: attribute(detail.allocatedSize, displaySize),
+            },
+            { label: "Modified", value: attribute(detail.modifiedAt) },
+            { label: "Created", value: attribute(detail.createdAt) },
+            { label: "Observed", value: attribute(detail.observedAt) },
+            {
+              label: "Source",
+              value: detail.observationOnly ? "Scan record" : "Scan",
+            },
+          ]}
+        />
+      )}
+    </section>
+  );
+}
+
+function attribute<T>(
+  field: BrowseValue<T>,
+  format: (value: T) => string = String,
+): string {
+  switch (field.state) {
+    case "present":
+      return format(field.value);
+    case "absent":
+      return "No value";
+    case "unknown":
+      return field.reasonKey === "space.data_insufficient"
+        ? "Size was not established"
+        : "Unavailable in this scan";
+  }
 }

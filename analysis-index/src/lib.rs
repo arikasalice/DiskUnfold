@@ -3,14 +3,16 @@ pub mod browse;
 mod physical;
 pub mod query;
 mod result_path;
+mod result_read;
 mod space;
 pub mod visualization;
 use du_core_contracts::result::{
-    ResultCompleteness, ResultItem, ResultItemKind, ResultScopeRoot, ResultVersionRead,
-    SpaceAggregate,
+    ResultCompleteness, ResultItem, ResultItemKind, ResultScopeRoot, SpaceAggregate,
 };
-use du_core_contracts::{Id, ItemRef, SizeValue};
+use du_core_contracts::{Id, SizeValue, Timestamp};
 pub use physical::{FileIdentity, SharingEvidence, SpaceObservation};
+pub use result_read::ItemDetail;
+use result_read::ensure_directory;
 use std::collections::{BTreeMap, HashSet};
 use std::sync::{Arc, Mutex};
 
@@ -39,6 +41,7 @@ pub struct ResultVersion {
     aggregates: Vec<SpaceAggregate>,
     physical: Option<Vec<Option<SpaceObservation>>>,
     observed_root: Option<Arc<ResultScopeRoot>>,
+    observed_at: Option<Timestamp>,
 }
 
 /// Failure to resolve an item or a current version without changing the pinned result.
@@ -51,108 +54,6 @@ pub enum QueryError {
     NotDirectory,
     KindUnknown,
     Unavailable,
-}
-
-/// Original observations for one item in a pinned result, without inferring missing values.
-pub struct ItemDetail<'a> {
-    pub item: &'a ResultItem,
-    pub physical: Option<&'a SpaceObservation>,
-}
-
-impl ResultVersion {
-    /// Returns the aggregate for an item in this pinned version, or `None` for an invalid number.
-    pub fn space(&self, item_no: u32) -> Option<&SpaceAggregate> {
-        self.aggregates.get(item_no as usize)
-    }
-
-    /// Resolves an item reference against this snapshot, including an older snapshot held open.
-    pub fn detail(&self, item: &ItemRef) -> Result<ItemDetail<'_>, QueryError> {
-        if item.result_version != self.version_id {
-            return Err(QueryError::StaleVersion);
-        }
-        let index = item.item_no as usize;
-        let item = self.items.get(index).ok_or(QueryError::NotFound)?;
-        let physical = self
-            .physical
-            .as_ref()
-            .and_then(|values| values.get(index))
-            .and_then(Option::as_ref);
-        Ok(ItemDetail { item, physical })
-    }
-
-    /// Reads the immediate children in the stable parent/name order used at publication.
-    fn children(&self, parent: u32) -> &[ResultItem] {
-        let parent = Some(parent);
-        let start = self.items.partition_point(|item| item.parent < parent);
-        let end = self.items.partition_point(|item| item.parent <= parent);
-        &self.items[start..end]
-    }
-
-    /// Returns the root-to-item chain in the same immutable hierarchy.
-    fn ancestors<'a>(&'a self, item: &'a ResultItem) -> Result<Vec<&'a ResultItem>, QueryError> {
-        let mut chain = Vec::new();
-        let mut current = item;
-        loop {
-            chain.push(current);
-            let Some(parent) = current.parent else {
-                break;
-            };
-            current = self
-                .items
-                .get(parent as usize)
-                .ok_or(QueryError::NotFound)?;
-        }
-        chain.reverse();
-        Ok(chain)
-    }
-
-    /// Resolves a raw root-relative path to a confirmed directory's aggregate in this snapshot.
-    pub fn folder(&self, version: &Id, path: &[Vec<u8>]) -> Result<&SpaceAggregate, QueryError> {
-        if version != &self.version_id {
-            return Err(QueryError::StaleVersion);
-        }
-        if path.iter().any(Vec::is_empty) {
-            return Err(QueryError::InvalidPath);
-        }
-        let mut index = 0usize;
-        for component in path {
-            ensure_directory(self.items[index].kind)?;
-            let parent = u32::try_from(index).map_err(|_| QueryError::NotFound)?;
-            let children = self.children(parent);
-            let offset = children
-                .binary_search_by(|item| item.name.cmp(component))
-                .map_err(|_| QueryError::NotFound)?;
-            index = children[offset].item_no as usize;
-        }
-        ensure_directory(self.items[index].kind)?;
-        self.aggregates.get(index).ok_or(QueryError::NotFound)
-    }
-}
-
-fn ensure_directory(kind: ResultItemKind) -> Result<(), QueryError> {
-    match kind {
-        ResultItemKind::Directory => Ok(()),
-        ResultItemKind::Unknown | ResultItemKind::UnknownStructure => Err(QueryError::KindUnknown),
-        ResultItemKind::File | ResultItemKind::UntraversedLink => Err(QueryError::NotDirectory),
-    }
-}
-impl ResultVersionRead for ResultVersion {
-    fn version_id(&self) -> &Id {
-        &self.version_id
-    }
-    fn scope_version_id(&self) -> &Id {
-        &self.scope_version_id
-    }
-    fn completeness(&self) -> ResultCompleteness {
-        self.completeness
-    }
-    fn items(&self) -> &[ResultItem] {
-        &self.items
-    }
-
-    fn observed_root(&self) -> Option<&ResultScopeRoot> {
-        self.observed_root.as_deref()
-    }
 }
 
 #[derive(Default)]
@@ -335,19 +236,39 @@ impl BuildHandle {
         Ok(())
     }
     pub fn publish_partial(&mut self, version_id: Id) -> Result<Arc<ResultVersion>, BuildError> {
-        self.publish(version_id, ResultCompleteness::Partial, false)
+        self.publish_partial_at(version_id, None)
+    }
+
+    /// Publishes a partial snapshot with the collector's observation time, when available.
+    pub fn publish_partial_at(
+        &mut self,
+        version_id: Id,
+        observed_at: Option<Timestamp>,
+    ) -> Result<Arc<ResultVersion>, BuildError> {
+        self.publish(version_id, ResultCompleteness::Partial, observed_at, false)
     }
     pub fn seal(
-        mut self,
+        self,
         version_id: Id,
         completeness: ResultCompleteness,
     ) -> Result<Arc<ResultVersion>, BuildError> {
-        self.publish(version_id, completeness, true)
+        self.seal_at(version_id, completeness, None)
+    }
+
+    /// Seals the final snapshot using the collector's observation time, when available.
+    pub fn seal_at(
+        mut self,
+        version_id: Id,
+        completeness: ResultCompleteness,
+        observed_at: Option<Timestamp>,
+    ) -> Result<Arc<ResultVersion>, BuildError> {
+        self.publish(version_id, completeness, observed_at, true)
     }
     fn publish(
         &mut self,
         version_id: Id,
         completeness: ResultCompleteness,
+        observed_at: Option<Timestamp>,
         finish: bool,
     ) -> Result<Arc<ResultVersion>, BuildError> {
         if self.finished {
@@ -376,6 +297,7 @@ impl BuildHandle {
             physical: built.physical,
             aggregates,
             observed_root: self.observed_root.clone(),
+            observed_at,
         });
         let mut state = self.state.lock().map_err(|_| BuildError::Unavailable)?;
         if !state.used_versions.insert(result.version_id.clone()) {

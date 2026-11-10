@@ -15,6 +15,7 @@ use du_scan_engine::{scan::ResultIds, scan_job::MetadataScan};
 
 use crate::{
     api::{CallerCtx, Channel, EngineBuilder, UseCase},
+    browse,
     error::EngineError,
     scope, space,
     workers::Workers,
@@ -32,6 +33,7 @@ pub(crate) fn register(
         .register(du_scan_engine::scan_job::descriptor())?;
     let store = IngestSink::default();
     space::register_total(builder, store.clone());
+    browse::register(builder, store.clone());
     builder.register(StartScan {
         roots,
         ids: Arc::new(ScanIds(ids)),

@@ -13,6 +13,7 @@ import { App } from "../src/app/App";
 import { AnalysisError, createAnalysisClient, windowsPath } from "../src/ipc";
 import type {
   AnalysisClient,
+  BrowseDetail,
   EventEnvelope,
   SpaceTotal,
   TargetList,
@@ -114,6 +115,36 @@ function fixture({
             missingItems: "1",
             inaccessibleRanges: null,
             untraversedLinks: "2",
+          };
+          return result;
+        }
+        case "browse.detail": {
+          const unavailable = {
+            state: "unknown",
+            reasonKey: "ref.unavailable",
+          } as const;
+          const result: BrowseDetail = {
+            item: { resultVersion: "result", itemNo: 0 },
+            displayPath: { state: "present", value: path.display },
+            displayName: { state: "present", value: "fixture" },
+            kind: { state: "present", value: "directory" },
+            logicalSize: {
+              state: "present",
+              value: {
+                basis: "logical",
+                evidence: "os_reported",
+                state: "exact",
+                bytes: "0",
+              },
+            },
+            allocatedSize: unavailable,
+            createdAt: { state: "absent" },
+            modifiedAt: unavailable,
+            observedAt: { state: "present", value: timestamp },
+            origin: "scan",
+            completeness: "missing",
+            currentCorrespondence: false,
+            observationOnly: true,
           };
           return result;
         }
@@ -220,6 +251,17 @@ test("F01–F03: reviewed scope starts a scan and reads its pinned partial resul
   expect(calls.find((call) => call.name === "space.total")?.body).toMatchObject(
     { resultVersion: "result", target: { kind: "scope_root" } },
   );
+  fireEvent.click(screen.getByRole("button", { name: "View folder details" }));
+  const detail = within(
+    await screen.findByLabelText("Observed folder attributes"),
+  );
+  expect(detail.getByText("0 bytes")).toBeDefined();
+  expect(detail.getByText("No value")).toBeDefined();
+  expect(detail.getAllByText("Unavailable in this scan")).toHaveLength(2);
+  expect(calls.find((call) => call.name === "browse.detail")?.body).toEqual({
+    resultVersion: "result",
+    item: { resultVersion: "result", itemNo: 0 },
+  });
 });
 
 test("F01: stale scope disables start and requires review again", async () => {

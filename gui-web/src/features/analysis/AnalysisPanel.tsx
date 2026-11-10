@@ -212,6 +212,7 @@ export function AnalysisPanel({ client }: { client: AnalysisClient }) {
         </section>
         <section className="du-card" aria-label="Scan and results">
           <ScanOutput
+            client={client}
             scan={scan}
             started={receipt !== null}
             running={running}

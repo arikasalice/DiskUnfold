@@ -308,7 +308,10 @@ impl JobRuntime {
             id.clone(),
             self.table.clone(),
             cancellation,
-            self.flow_limits.clone(),
+            flows::Services {
+                limits: self.flow_limits.clone(),
+                clock: self.clock.clone(),
+            },
         ));
         let body_context = context.clone();
         let mut outcome =

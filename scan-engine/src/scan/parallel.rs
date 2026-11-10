@@ -162,7 +162,9 @@ fn run(
                 }
                 Event::RootBatch if !published => {
                     published = true;
-                    build.publish_partial(ids.next_id()).map(|_| ())
+                    build
+                        .publish_partial_at(ids.next_id(), context.utc_now())
+                        .map(|_| ())
                 }
                 Event::RootBatch => Ok(()),
             };
@@ -193,7 +195,7 @@ fn run(
         ResultCompleteness::Complete
     };
     let id = ids.next_id();
-    build.seal(id.clone(), completeness)?;
+    build.seal_at(id.clone(), completeness, context.utc_now())?;
     Ok((id, cancelled))
 }
 

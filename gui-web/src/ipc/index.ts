@@ -7,6 +7,8 @@ import type {
   AnalysisJobControl,
   AnalysisJobRequest,
   AnalysisJobStatus,
+  BrowseDetail,
+  BrowseDetailRequest,
   CallEnvelope,
   EventEnvelope,
   Id,
@@ -25,6 +27,8 @@ import type {
 export type {
   AnalysisJobStatus,
   AnalysisTarget,
+  BrowseDetail,
+  BrowseValue,
   EventEnvelope,
   JobState,
   OsPath,
@@ -33,6 +37,7 @@ export type {
   ScopeReview,
   SpaceTotal,
   SpaceTotalSize,
+  SizeValue,
   TargetList,
   TargetProbeEvent,
   TargetStatusChanged,
@@ -45,6 +50,7 @@ type Commands = {
   "job.get": [AnalysisJobRequest, AnalysisJobStatus];
   "job.cancel": [AnalysisJobRequest, AnalysisJobControl];
   "space.total": [SpaceTotalRequest, SpaceTotal];
+  "browse.detail": [BrowseDetailRequest, BrowseDetail];
 };
 
 export interface AnalysisClient {

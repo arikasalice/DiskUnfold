@@ -1,5 +1,5 @@
 //! Read-only, pinned result versions and their conservative space aggregates.
-use crate::{Id, PathBytes, PathEncoding, SizeValue};
+use crate::{Id, PathBytes, PathEncoding, SizeValue, Timestamp};
 use std::borrow::Cow;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -13,7 +13,9 @@ pub struct ResultItem {
 }
 
 /// The observed kind of a result item; legacy structure records are intentionally ambiguous.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
 pub enum ResultItemKind {
     Directory,
     File,
@@ -79,6 +81,11 @@ pub trait ResultVersionRead: Send + Sync {
 
     /// Returns verified root evidence when the source retained it at collection time.
     fn observed_root(&self) -> Option<&ResultScopeRoot> {
+        None
+    }
+
+    /// UTC when the collector submitted the observations retained by this version.
+    fn observed_at(&self) -> Option<&Timestamp> {
         None
     }
 }
