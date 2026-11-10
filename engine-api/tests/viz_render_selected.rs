@@ -21,6 +21,7 @@ use du_engine_api::{
     viz_pages::{
         self, ModelPages,
         render::{ChildEvidence, Error, Request},
+        session::Session,
     },
 };
 use du_job_runtime::JobIdentity;
@@ -125,16 +126,16 @@ fn selected_render_uses_the_same_rows_and_stable_normalized_reference() -> Resul
         result_version: id(3),
         item_no: 0,
     };
-    let pages = ModelPages::new(
+    let dispatcher = bundle::implemented_dispatcher().map_err(|error| format!("{error:?}"))?;
+    let session = Session::new(
         sink,
         NonZeroUsize::MIN.saturating_add(3),
         Arc::new(Identity(AtomicU8::new(11))),
+        dispatcher,
     );
-    let dispatcher = bundle::implemented_dispatcher().map_err(|error| format!("{error:?}"))?;
     let render = |width, reverse| {
-        pages
+        session
             .render_selected(
-                &dispatcher,
                 request(&parent, width),
                 |source, _| {
                     let mut rows = evidence(source.version(), source.result_version());
@@ -154,7 +155,7 @@ fn selected_render_uses_the_same_rows_and_stable_normalized_reference() -> Resul
     assert!(Arc::ptr_eq(&first.model, &repeated.model));
     assert_ne!(first.model_ref, render(500_000, false)?.model_ref);
     let fallback = first.fallback();
-    let page = pages
+    let page = session
         .rows(&VizRowsRequest {
             model_ref: fallback.model_ref,
             result_revision: fallback.result_revision,
@@ -277,5 +278,75 @@ fn cancelled_model_registration_keeps_the_previous_geometry_and_page() -> Result
             .model_ref,
         id(12).as_str()
     );
+    Ok(())
+}
+
+#[test]
+fn session_dispatches_registered_revision_and_rejects_unknown_strategy() -> Result<(), String> {
+    use du_analysis_index::visualization::{registry, typed_layout};
+    use du_core_contracts::visualization::{LayoutDescriptor, LayoutStrategyKey};
+    use std::sync::atomic::AtomicUsize;
+
+    struct Counted(Arc<AtomicUsize>);
+    impl typed_layout::Strategy for Counted {
+        fn layout(
+            &self,
+            input: &typed_layout::Input,
+            cancelled: &mut dyn FnMut() -> bool,
+        ) -> Result<typed_layout::Output, typed_layout::Error> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            typed_layout::Strategy::layout(&typed_layout::Treemap, input, cancelled)
+        }
+    }
+    let sink = IngestSink::default();
+    publish(&sink, id(2), id(3))?;
+    let parent = ItemRef {
+        result_version: id(3),
+        item_no: 0,
+    };
+    let calls = Arc::new(AtomicUsize::new(0));
+    let mut builder = registry::Builder::<Box<dyn typed_layout::Strategy>>::default();
+    let descriptor = |revision| LayoutDescriptor {
+        format: "treemap".into(),
+        strategy: LayoutStrategyKey {
+            id: "viz.treemap".into(),
+            revision,
+        },
+    };
+    builder
+        .register(descriptor(2), Box::new(Counted(calls.clone())))
+        .map_err(|e| format!("{e:?}"))?;
+    let dispatcher =
+        typed_layout::Dispatcher::new(builder.build(&[]).map_err(|e| format!("{e:?}"))?);
+    let session = Session::new(
+        sink,
+        NonZeroUsize::MIN,
+        Arc::new(Identity(AtomicU8::new(20))),
+        dispatcher,
+    );
+    let render = || {
+        session.render_selected(
+            request(&parent, 1000),
+            |source, _| Ok(evidence(source.version(), source.result_version())),
+            &mut || false,
+        )
+    };
+    let first = render().map_err(|e| format!("{e:?}"))?;
+    let second = render().map_err(|e| format!("{e:?}"))?;
+    assert_eq!(first.model.strategy, descriptor(2));
+    assert_eq!(first.model_ref, second.model_ref);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    let missing = LayoutStrategyKey {
+        id: "viz.treemap".into(),
+        revision: 1,
+    };
+    let mut unknown = request(&parent, 1000);
+    unknown.strategy = Some(&missing);
+    assert!(matches!(
+        session.render_selected(unknown, |_, _| unreachable!(), &mut || false),
+        Err(Error::Strategy(
+            du_engine_api::viz_catalog::Error::UnknownStrategy
+        ))
+    ));
     Ok(())
 }

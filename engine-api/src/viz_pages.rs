@@ -2,6 +2,7 @@
 //! A session index owns only weak source references; source results own row data.
 pub mod production;
 pub mod render;
+pub mod session;
 use du_analysis_index::{
     IngestSink, ResultVersion,
     visualization::{group_page, live_models, projection},
