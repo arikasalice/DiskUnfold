@@ -10,6 +10,7 @@ pub mod sankey;
 pub mod squarify;
 pub mod treemap;
 pub mod trend;
+pub mod typed_layout;
 pub mod waterfall;
 use crate::ResultVersion;
 use du_core_contracts::{

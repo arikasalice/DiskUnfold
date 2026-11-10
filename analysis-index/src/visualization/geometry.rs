@@ -16,23 +16,29 @@ pub(super) fn rect_geometry(
     Option<du_core_contracts::visualization::geometry::Geometry>,
     du_core_contracts::visualization::geometry::GeometryError,
 > {
+    rect.map(rectangle_geometry).transpose()
+}
+
+pub(super) fn rectangle_geometry(
+    rect: Rect,
+) -> Result<
+    du_core_contracts::visualization::geometry::Geometry,
+    du_core_contracts::visualization::geometry::GeometryError,
+> {
     use du_core_contracts::visualization::geometry::{Geometry, Point};
-    rect.map(|rect| {
-        Geometry::new(
-            "rect",
-            vec![
-                Point {
-                    x: rect.left,
-                    y: rect.top,
-                },
-                Point {
-                    x: rect.right,
-                    y: rect.bottom,
-                },
-            ],
-        )
-    })
-    .transpose()
+    Geometry::new(
+        "rect",
+        vec![
+            Point {
+                x: rect.left,
+                y: rect.top,
+            },
+            Point {
+                x: rect.right,
+                y: rect.bottom,
+            },
+        ],
+    )
 }
 
 /// A source value; a lower bound remains distinguishable from an exact value.

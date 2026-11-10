@@ -2,8 +2,8 @@
 //!
 //! This is an internal calculation unit, not the F06 wire model or a policy for
 //! choosing a size basis, sorting equal values, grouping, or overall totals.
-use super::geometry::valid_bounds;
 pub use super::geometry::{Rect, Weight};
+use super::geometry::{rectangle_geometry, valid_bounds};
 use std::num::NonZeroU64;
 
 /// A shape refers back to an index in the supplied ordered sibling slice.
@@ -50,28 +50,9 @@ impl Layout {
         Vec<(usize, du_core_contracts::visualization::geometry::Geometry)>,
         du_core_contracts::visualization::geometry::GeometryError,
     > {
-        use du_core_contracts::visualization::geometry::{Geometry, Point};
         self.shapes
             .iter()
-            .map(|shape| {
-                let rect = shape.rect;
-                Ok((
-                    shape.input_index,
-                    Geometry::new(
-                        "rect",
-                        vec![
-                            Point {
-                                x: rect.left,
-                                y: rect.top,
-                            },
-                            Point {
-                                x: rect.right,
-                                y: rect.bottom,
-                            },
-                        ],
-                    )?,
-                ))
-            })
+            .map(|shape| Ok((shape.input_index, rectangle_geometry(shape.rect)?)))
             .collect()
     }
 }

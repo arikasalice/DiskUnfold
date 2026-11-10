@@ -3,7 +3,7 @@
 //! The current index computes physical totals per subtree. It does not retain a
 //! selectable attribution rule; this boundary only admits cases whose disjoint
 //! attribution is independently established by the retained observations.
-use super::{reference, root_ref, squarify, value};
+use super::{geometry::valid_bounds, reference, root_ref, squarify, value};
 use crate::{FileIdentity, ResultVersion, SharingEvidence};
 use du_core_contracts::{
     ItemRef, SizeAmount, SizeBasis, SizeEvidence, SizeValue,
@@ -37,29 +37,46 @@ pub struct Partition {
 pub enum AdmissionError {
     InvalidParent,
     InvalidKeys,
+    /// The operation was cancelled before a complete result was produced.
+    Cancelled,
     /// `viz.unavailable.no_attribution`: the source does not establish a partition.
     NoAttribution,
     Layout(squarify::LayoutError),
 }
 
-/// Validates attribution before sending weights to the squarify calculation.
-/// Keys must cover every immediate child exactly once and must be computed using
-/// the pinned path comparison rule, not display names. They determine ties only.
-pub fn layout_parent(
+/// One verified row and its exact attributed bytes, with its pinned ordering key.
+#[derive(Clone, Debug)]
+pub(crate) struct AdmittedChild {
+    pub(crate) child: Child,
+    pub(crate) bytes: u64,
+    pub(crate) key: Vec<u8>,
+}
+
+/// A disjoint, ordered partition without geometry.
+pub struct Admitted {
+    pub(crate) rows: Vec<AdmittedChild>,
+}
+
+/// Validates and orders one pinned partition without performing layout.
+/// Cancellation is checked while validating keys, walking gaps and descendant
+/// observations, and sorting rows. One key comparison and allocation are not
+/// interruptible. No partial result is returned.
+pub fn admit_cancellable(
     version: &ResultVersion,
     parent: &ItemRef,
     basis: SizeBasis,
-    bounds: squarify::Rect,
     keys: &[ChildKey],
-) -> Result<Partition, AdmissionError> {
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<Admitted, AdmissionError> {
+    check(cancelled)?;
     let parent_no = root_ref(version, parent).map_err(|_| AdmissionError::InvalidParent)?;
-    squarify::layout(bounds, &[]).map_err(AdmissionError::Layout)?;
     let children = version.children(parent_no);
     if keys.len() != children.len() {
         return Err(AdmissionError::InvalidKeys);
     }
     let mut lookup = HashMap::new();
     for key in keys {
+        check(cancelled)?;
         if key.item.result_version != *version.version_id()
             || lookup
                 .insert(key.item.item_no, &key.path_compare_key)
@@ -68,23 +85,24 @@ pub fn layout_parent(
             return Err(AdmissionError::InvalidKeys);
         }
     }
-    if children
-        .iter()
-        .any(|child| !lookup.contains_key(&child.item_no))
-    {
-        return Err(AdmissionError::InvalidKeys);
+    for child in children {
+        check(cancelled)?;
+        if !lookup.contains_key(&child.item_no) {
+            return Err(AdmissionError::InvalidKeys);
+        }
     }
-    if gap_covers_parent(version, parent_no)? {
+    if gap_covers_parent(version, parent_no, cancelled)? {
         return Err(AdmissionError::NoAttribution);
     }
     let mut identities = BTreeMap::new();
-    let mut admitted = Vec::with_capacity(children.len());
+    let mut rows = Vec::with_capacity(children.len());
     let mut total = 0_u64;
     for child in children {
+        check(cancelled)?;
         let key = lookup
             .get(&child.item_no)
             .ok_or(AdmissionError::InvalidKeys)?;
-        let observed = inspect_subtree(version, child.item_no, &basis, &mut identities)?;
+        let observed = inspect_subtree(version, child.item_no, &basis, &mut identities, cancelled)?;
         let raw =
             value(version, child.item_no, &basis).map_err(|_| AdmissionError::NoAttribution)?;
         if exact(&raw, &basis) != Some(observed) {
@@ -93,61 +111,154 @@ pub fn layout_parent(
         total = total
             .checked_add(observed)
             .ok_or(AdmissionError::NoAttribution)?;
-        admitted.push((
-            Child {
+        rows.push(AdmittedChild {
+            child: Child {
                 item: reference(version, child.item_no),
                 value: raw,
                 area_attributed: true,
             },
-            observed,
-            *key,
-        ));
+            bytes: observed,
+            key: (*key).clone(),
+        });
     }
     let parent_value =
         value(version, parent_no, &basis).map_err(|_| AdmissionError::NoAttribution)?;
     if exact(&parent_value, &basis) != Some(total) {
         return Err(AdmissionError::NoAttribution);
     }
-    admitted.sort_by(|a, b| {
-        b.1.cmp(&a.1)
-            .then_with(|| a.2.cmp(b.2))
-            .then_with(|| a.0.item.item_no.cmp(&b.0.item.item_no))
-    });
+    let rows = order(rows, cancelled)?;
+    check(cancelled)?;
+    Ok(Admitted { rows })
+}
+
+/// Validates attribution and calculates the existing one-parent layout.
+/// Keys must cover every immediate child exactly once and be produced using
+/// the pinned path comparison rule, not display names.
+pub fn layout_parent(
+    version: &ResultVersion,
+    parent: &ItemRef,
+    basis: SizeBasis,
+    bounds: squarify::Rect,
+    keys: &[ChildKey],
+) -> Result<Partition, AdmissionError> {
+    root_ref(version, parent).map_err(|_| AdmissionError::InvalidParent)?;
+    if !valid_bounds(bounds) {
+        return Err(AdmissionError::Layout(squarify::LayoutError::InvalidBounds));
+    }
+    let admitted = admit_cancellable(version, parent, basis, keys, &mut || false)?;
     let weights: Vec<_> = admitted
+        .rows
         .iter()
-        .map(|entry| squarify::Weight::Exact(entry.1))
+        .map(|row| squarify::Weight::Exact(row.bytes))
         .collect();
     let layout = squarify::layout(bounds, &weights).map_err(AdmissionError::Layout)?;
     Ok(Partition {
-        children: admitted.into_iter().map(|entry| entry.0).collect(),
+        children: admitted.rows.into_iter().map(|row| row.child).collect(),
         layout,
     })
 }
 
+fn check(cancelled: &mut dyn FnMut() -> bool) -> Result<(), AdmissionError> {
+    if cancelled() {
+        Err(AdmissionError::Cancelled)
+    } else {
+        Ok(())
+    }
+}
+
+// Stable merge of lightweight row indexes gives a cancellation check per output.
+fn order(
+    rows: Vec<AdmittedChild>,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<Vec<AdmittedChild>, AdmissionError> {
+    let mut indices: Vec<usize> = (0..rows.len()).collect();
+    let mut scratch = indices.clone();
+    let mut width = 1usize;
+    while width < indices.len() {
+        let mut start = 0usize;
+        while start < indices.len() {
+            let mid = start.saturating_add(width).min(indices.len());
+            let end = mid.saturating_add(width).min(indices.len());
+            let (mut left, mut right) = (start, mid);
+            for dest in &mut scratch[start..end] {
+                check(cancelled)?;
+                let take_left = right == end
+                    || (left < mid && before(&rows[indices[left]], &rows[indices[right]]));
+                if take_left {
+                    *dest = indices[left];
+                    left += 1;
+                } else {
+                    *dest = indices[right];
+                    right += 1;
+                }
+            }
+            start = end;
+        }
+        std::mem::swap(&mut indices, &mut scratch);
+        width = width.saturating_mul(2);
+    }
+    let mut slots: Vec<_> = rows.into_iter().map(Some).collect();
+    let mut output = Vec::with_capacity(indices.len());
+    for index in indices {
+        check(cancelled)?;
+        output.push(slots[index].take().ok_or(AdmissionError::NoAttribution)?);
+    }
+    Ok(output)
+}
+fn before(a: &AdmittedChild, b: &AdmittedChild) -> bool {
+    b.bytes
+        .cmp(&a.bytes)
+        .then_with(|| a.key.cmp(&b.key))
+        .then_with(|| a.child.item.item_no.cmp(&b.child.item.item_no))
+        .is_le()
+}
+
 // A gap at an ancestor is not reflected in a descendant aggregate. In that
 // case the retained source cannot establish that the selected subtree was read.
-fn gap_covers_parent(version: &ResultVersion, parent_no: u32) -> Result<bool, AdmissionError> {
-    let item = version
-        .items()
-        .get(parent_no as usize)
-        .ok_or(AdmissionError::NoAttribution)?;
+fn gap_covers_parent(
+    version: &ResultVersion,
+    parent_no: u32,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<bool, AdmissionError> {
     let root = *version
         .root_indices
         .get(parent_no as usize)
         .ok_or(AdmissionError::NoAttribution)?;
-    let chain = version
-        .ancestors(item)
-        .map_err(|_| AdmissionError::NoAttribution)?;
-    let path: Vec<_> = chain.iter().skip(1).map(|item| &item.name).collect();
-    Ok(version.scope_gaps().iter().any(|gap| {
-        gap.root_index == root
-            && gap.path.len() <= path.len()
-            && gap
-                .path
-                .iter()
-                .zip(&path)
-                .all(|(gap_part, part)| gap_part == *part)
-    }))
+    let mut path = Vec::new();
+    let mut current = parent_no;
+    loop {
+        check(cancelled)?;
+        let item = version
+            .items()
+            .get(current as usize)
+            .ok_or(AdmissionError::NoAttribution)?;
+        match item.parent {
+            Some(parent) => {
+                path.push(&item.name);
+                current = parent;
+            }
+            None => break,
+        }
+    }
+    path.reverse();
+    for gap in version.scope_gaps() {
+        check(cancelled)?;
+        if gap.root_index != root || gap.path.len() > path.len() {
+            continue;
+        }
+        let mut matches = true;
+        for (part, actual) in gap.path.iter().zip(&path) {
+            check(cancelled)?;
+            if part != *actual {
+                matches = false;
+                break;
+            }
+        }
+        if matches {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// Lays out a previously admitted, non-root branch, or retains all of its
@@ -198,17 +309,22 @@ fn inspect_subtree(
     sibling: u32,
     basis: &SizeBasis,
     identities: &mut Identities,
+    cancelled: &mut dyn FnMut() -> bool,
 ) -> Result<u64, AdmissionError> {
     let mut work = vec![sibling];
     let mut sum = 0_u64;
     while let Some(no) = work.pop() {
+        check(cancelled)?;
         let item = version
             .items()
             .get(no as usize)
             .ok_or(AdmissionError::NoAttribution)?;
         match item.kind {
             ResultItemKind::Directory => {
-                work.extend(version.children(no).iter().map(|child| child.item_no))
+                for child in version.children(no) {
+                    check(cancelled)?;
+                    work.push(child.item_no);
+                }
             }
             ResultItemKind::File => {
                 let bytes = if *basis == SizeBasis::Logical {
