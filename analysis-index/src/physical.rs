@@ -313,6 +313,38 @@ pub(crate) fn scope_total(
     sum.finish(completeness, output);
 }
 
+/// Reuses the same identity table for a sorted set of root observations.
+pub(crate) fn selected_scope(
+    result: &crate::ResultVersion,
+    roots: &[u32],
+    completeness: ResultCompleteness,
+    output: &mut SpaceAggregate,
+) {
+    let mut sum = Physical::default();
+    for (index, item) in result.items.iter().enumerate() {
+        if roots.binary_search(&result.root_indices[index]).is_ok()
+            && !matches!(
+                item.kind,
+                du_core_contracts::result::ResultItemKind::Directory
+                    | du_core_contracts::result::ResultItemKind::UnknownStructure
+            )
+        {
+            let observed = result
+                .physical
+                .as_ref()
+                .and_then(|values| values[index].as_ref());
+            let root_volume = &result.roots[result.root_indices[index] as usize].volume_id;
+            let consistent = observed.is_none_or(|value| {
+                value.identity.as_ref().is_none_or(|identity| {
+                    root_volume.is_empty() || identity.volume == *root_volume
+                })
+            });
+            sum.observe(if consistent { observed } else { None });
+        }
+    }
+    sum.finish(completeness, output);
+}
+
 pub(crate) fn apply(
     items: &[ResultItem],
     structures: &[bool],
