@@ -169,10 +169,18 @@ fn hash_file(path: &Path) -> Result<String, MigrationError> {
 
 /// Inspects complete owned copies; unknown and incomplete entries are preserved.
 pub fn inspect_retention(root: &Path) -> Result<RetentionDiagnostic, MigrationError> {
+    inspect_retention_with(root, validate_entry)
+}
+
+fn inspect_retention_with(
+    root: &Path,
+    validate: impl Fn(&Path, u64) -> Result<(), MigrationError>,
+) -> Result<RetentionDiagnostic, MigrationError> {
     check_root(root)?;
     let mut valid = Vec::new();
     let mut content_valid = 0usize;
     let mut ignored = 0usize;
+    let mut inspection_failed = false;
     for entry in fs::read_dir(root).map_err(io)? {
         let entry = entry.map_err(io)?;
         let name = entry.file_name();
@@ -191,15 +199,23 @@ pub fn inspect_retention(root: &Path) -> Result<RetentionDiagnostic, MigrationEr
             ignored += 1;
             continue;
         }
-        if valid_entry(&entry.path(), sequence) {
-            content_valid += 1;
-            if link_counts_safe(&entry.path()) {
-                valid.push(sequence);
-            } else {
-                ignored += 1;
+        match validate(&entry.path(), sequence) {
+            Ok(()) => {
+                content_valid += 1;
+                match link_counts_safe(&entry.path()) {
+                    Ok(true) => valid.push(sequence),
+                    Ok(false) => ignored += 1,
+                    Err(_) => {
+                        ignored += 1;
+                        inspection_failed = true;
+                    }
+                }
             }
-        } else {
-            ignored += 1;
+            Err(MigrationError::Integrity) => ignored += 1,
+            Err(_) => {
+                ignored += 1;
+                inspection_failed = true;
+            }
         }
     }
     valid.sort_unstable();
@@ -209,23 +225,27 @@ pub fn inspect_retention(root: &Path) -> Result<RetentionDiagnostic, MigrationEr
         ignored,
         older_than_three: valid.len().saturating_sub(3),
         cleanup_unavailable: true,
-        inspection_failed: false,
+        inspection_failed,
     })
 }
 
 #[cfg(unix)]
-fn link_counts_safe(path: &Path) -> bool {
+fn link_counts_safe(path: &Path) -> Result<bool, MigrationError> {
     use std::os::unix::fs::MetadataExt;
-    [MARKER, COPY]
-        .iter()
-        .all(|name| fs::symlink_metadata(path.join(name)).is_ok_and(|meta| meta.nlink() == 1))
+    for name in [MARKER, COPY] {
+        if fs::symlink_metadata(path.join(name)).map_err(io)?.nlink() != 1 {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 #[cfg(not(unix))]
-fn link_counts_safe(_path: &Path) -> bool {
-    false
+fn link_counts_safe(_path: &Path) -> Result<bool, MigrationError> {
+    Ok(false)
 }
 
+#[cfg(test)]
 fn valid_entry(path: &Path, sequence: u64) -> bool {
     validate_entry(path, sequence).is_ok()
 }
@@ -327,6 +347,8 @@ fn sync_dir(path: &Path) -> Result<(), MigrationError> {
     Ok(())
 }
 
+#[cfg(test)]
+mod retention_tests;
 #[cfg(test)]
 mod startup_tests;
 #[cfg(test)]
