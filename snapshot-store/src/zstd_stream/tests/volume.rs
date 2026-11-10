@@ -121,3 +121,82 @@ fn cancelled_semantic_validation_discards_stage() -> Result<(), String> {
     assert_eq!(discarded.load(Ordering::SeqCst), 1);
     Ok(())
 }
+#[test]
+fn canonical_vectors_open_as_full_envelopes() -> Result<(), String> {
+    let vectors: &[(&[u8], &str, u32)] = &[
+        (
+            &[1, 0, 0, 0, 0],
+            r#"{"pathEncoding":"bytes","source":{"scopeRoots":[]},"volume":{"recordKind":1}}"#,
+            0,
+        ),
+        (
+            &[
+                1, 2, 0, 2, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2, 0, 0, 0, 1, 0, 65, 0, 0, 0, 0, 1, 0, 66,
+                0, 0, 0, 0,
+            ],
+            r#"{"pathEncoding":"bytes","source":{"scopeRoots":["Lw","L2E"]},"volume":{"recordKind":1}}"#,
+            2,
+        ),
+        (
+            &[1, 1, 0, 1, 0, 255, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            r#"{"pathEncoding":"bytes","source":{"scopeRoots":["Lw"]},"volume":{"recordKind":1}}"#,
+            0,
+        ),
+    ];
+    for (volume, metadata, item_count) in vectors {
+        let mut records = Vec::new();
+        record(1, volume, &mut records);
+        for number in 1..=*item_count {
+            let item = Item {
+                number,
+                parent: 0,
+                kind: Kind::Folder,
+                flags: 0,
+                name: b"@",
+                sizes: [Size::Unknown; 3],
+                modified_ms: None,
+                identity: &[],
+                link_count: 0,
+            };
+            record(
+                2,
+                &item
+                    .encode(NameEncoding::Bytes)
+                    .map_err(|e| format!("{e:?}"))?,
+                &mut records,
+            );
+        }
+        let root_count = u16::from_le_bytes([volume[1], volume[2]]);
+        if root_count > 0 {
+            let gap = crate::records::gap::Gap {
+                root_index: 0,
+                path: vec![b"missing"],
+                reason_key: "scan.denied",
+                observed_at_ms: None,
+            };
+            record(
+                3,
+                &gap.encode(NameEncoding::Bytes, usize::from(root_count))
+                    .map_err(|e| format!("{e:?}"))?,
+                &mut records,
+            );
+        }
+        record(127, &[], &mut records);
+        let compressed = frame(&records, true).map_err(|e| e.to_string())?;
+        let mut bytes = b"DUSNAP\r\n".to_vec();
+        bytes.extend(1u16.to_le_bytes());
+        bytes.extend(0u16.to_le_bytes());
+        bytes.extend((metadata.len() as u32).to_le_bytes());
+        bytes.extend(metadata.as_bytes());
+        bytes.extend(&compressed);
+        bytes.extend((compressed.len() as u64).to_le_bytes());
+        bytes.extend((u64::from(*item_count) + 2 + u64::from(root_count > 0)).to_le_bytes());
+        bytes.extend((records.len() as u64).to_le_bytes());
+        bytes.extend(blake3::hash(&bytes).as_bytes());
+        let mut spool = sealed(&bytes)?;
+        let (stage, _) = validate_records_in_sealed(&mut spool, Stage::default(), || false)
+            .map_err(|e| format!("{e:?}"))?;
+        assert_eq!(stage.bytes, records);
+    }
+    Ok(())
+}

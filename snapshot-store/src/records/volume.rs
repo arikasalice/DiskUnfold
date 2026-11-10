@@ -2,39 +2,63 @@
 use du_core_contracts::Timestamp;
 use std::collections::HashSet;
 
+/// Mapping for one scope root, in metadata order.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RootLink {
+    /// Index of a confirmed volume, or none if unknown.
     pub volume_index: Option<u16>,
+    /// Number of the corresponding top-level folder, or none if unknown.
     pub item_number: Option<u32>,
 }
+/// A volume capacity observation, preserving unknown failure keys.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Observation<'a> {
+    /// No observation was attempted.
     NotAttempted,
+    /// An observation with raw byte counts.
     Success {
+        /// Observed Unix milliseconds, or none when unknown.
         observed_ms: Option<i64>,
+        /// Total bytes.
         total: u64,
+        /// Used bytes.
         used: u64,
+        /// Free bytes.
         free: u64,
     },
+    /// An observation that failed with a reason and optional OS code.
     Failure {
+        /// Observed Unix milliseconds, or none when unknown.
         observed_ms: Option<i64>,
+        /// Failure kind, including unknown keys.
         kind: &'a str,
+        /// Failure reason key.
         reason: &'a str,
+        /// Optional native error code.
         os_code: Option<i32>,
     },
 }
+/// One observed volume; empty identifiers and bases mean unknown.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VolumeEntry<'a> {
+    /// Native identifier bytes.
     pub id: &'a [u8],
+    /// Original reporting basis.
     pub basis: &'a str,
+    /// Observation at the start.
     pub start: Observation<'a>,
+    /// Observation at the end.
     pub end: Observation<'a>,
 }
+/// Root mappings and ordered volume observations from one v1 body.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Volume<'a> {
+    /// Mappings in source scope-root order.
     pub roots: Vec<RootLink>,
+    /// Volume observations in capture order.
     pub volumes: Vec<VolumeEntry<'a>>,
 }
+/// A malformed, oversized, or unrepresentable Volume body.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Error;
 
@@ -205,12 +229,53 @@ fn put_observation(out: &mut Vec<u8>, obs: &Observation<'_>) -> Result<(), Error
     }
     Ok(())
 }
+fn observation_len(obs: &Observation<'_>) -> Result<usize, Error> {
+    match obs {
+        Observation::NotAttempted => Ok(1),
+        Observation::Success { .. } => Ok(33),
+        Observation::Failure {
+            kind,
+            reason,
+            os_code,
+            ..
+        } => {
+            u16::try_from(kind.len()).map_err(|_| Error)?;
+            u16::try_from(reason.len()).map_err(|_| Error)?;
+            14usize
+                .checked_add(kind.len())
+                .and_then(|n| n.checked_add(reason.len()))
+                .and_then(|n| n.checked_add(if os_code.is_some() { 4 } else { 0 }))
+                .ok_or(Error)
+        }
+    }
+}
 impl Volume<'_> {
     /// Encode a complete v1 body, rejecting unrepresentable values.
     pub fn encode(&self) -> Result<Vec<u8>, Error> {
         let roots = u16::try_from(self.roots.len()).map_err(|_| Error)?;
         let count = u16::try_from(self.volumes.len()).map_err(|_| Error)?;
-        let mut out = vec![1];
+        let mut len = 5usize
+            .checked_add(self.roots.len().checked_mul(6).ok_or(Error)?)
+            .ok_or(Error)?;
+        for v in &self.volumes {
+            u16::try_from(v.id.len()).map_err(|_| Error)?;
+            u16::try_from(v.basis.len()).map_err(|_| Error)?;
+            len = len
+                .checked_add(4)
+                .and_then(|n| n.checked_add(v.id.len()))
+                .and_then(|n| n.checked_add(v.basis.len()))
+                .and_then(|n| n.checked_add(observation_len(&v.start).ok()?))
+                .and_then(|n| n.checked_add(observation_len(&v.end).ok()?))
+                .ok_or(Error)?;
+            if len + 1 > 65_536 {
+                return Err(Error);
+            }
+        }
+        if len + 1 > 65_536 {
+            return Err(Error);
+        }
+        let mut out = Vec::with_capacity(len);
+        out.push(1);
         out.extend(roots.to_le_bytes());
         out.extend(count.to_le_bytes());
         for r in &self.roots {
@@ -249,6 +314,41 @@ mod tests {
             ),
             (&[1, 1, 0, 1, 0, 255, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], 1),
         ];
+        let empty = decode(vectors[0].0, 0)?;
+        assert!(empty.roots.is_empty() && empty.volumes.is_empty());
+        let paired = decode(vectors[1].0, 2)?;
+        assert_eq!(
+            paired.roots,
+            vec![
+                RootLink {
+                    volume_index: Some(0),
+                    item_number: Some(1)
+                },
+                RootLink {
+                    volume_index: Some(1),
+                    item_number: Some(2)
+                }
+            ]
+        );
+        assert_eq!(
+            paired.volumes.iter().map(|v| v.id).collect::<Vec<_>>(),
+            vec![b"A".as_slice(), b"B".as_slice()]
+        );
+        assert!(paired.volumes.iter().all(|v| v.basis.is_empty()
+            && v.start == Observation::NotAttempted
+            && v.end == Observation::NotAttempted));
+        let unknown = decode(vectors[2].0, 1)?;
+        assert_eq!(
+            unknown.roots,
+            vec![RootLink {
+                volume_index: None,
+                item_number: None
+            }]
+        );
+        assert_eq!(unknown.volumes[0].id, b"");
+        assert_eq!(unknown.volumes[0].basis, "");
+        assert_eq!(unknown.volumes[0].start, Observation::NotAttempted);
+        assert_eq!(unknown.volumes[0].end, Observation::NotAttempted);
         for (bytes, count) in vectors {
             let decoded = decode(bytes, *count)?;
             assert_eq!(decoded.encode()?, *bytes);
