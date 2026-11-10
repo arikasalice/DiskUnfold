@@ -204,6 +204,16 @@
   border-block-start: 1px solid var(--du-border);
 }
 
+.du-review-feedback .du-readout > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 2px;
+}
+
+.du-review-feedback .du-readout dd {
+  text-align: start;
+}
+
 .du-target-editor__footer {
   grid-row: 3;
   display: grid;
