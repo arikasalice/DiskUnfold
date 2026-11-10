@@ -14,6 +14,7 @@ use crate::APPLICATION_ID;
 const FORMAT: &str = "diskunfold-backup-v1";
 const COPY: &str = "database.sqlite";
 const MARKER: &str = "complete.json";
+const MAX_MARKER_BYTES: usize = 4096;
 
 /// Outcome of a migration whose backup was published in the managed directory.
 #[derive(Debug)]
@@ -177,7 +178,7 @@ pub fn inspect_retention(root: &Path) -> Result<RetentionDiagnostic, MigrationEr
         let name = entry.file_name();
         let text = name.to_str().unwrap_or("");
         let Some(sequence) = text.strip_prefix("backup-").and_then(|v| {
-            if v.len() == 20 {
+            if v.len() == 20 && v.bytes().all(|b| b.is_ascii_digit()) {
                 v.parse::<u64>().ok()
             } else {
                 None
@@ -186,6 +187,10 @@ pub fn inspect_retention(root: &Path) -> Result<RetentionDiagnostic, MigrationEr
             ignored += 1;
             continue;
         };
+        if sequence == 0 {
+            ignored += 1;
+            continue;
+        }
         if valid_entry(&entry.path(), sequence) {
             content_valid += 1;
             if link_counts_safe(&entry.path()) {
@@ -250,10 +255,15 @@ fn validate_entry(path: &Path, sequence: u64) -> Result<(), MigrationError> {
             return Err(MigrationError::Integrity);
         }
     }
-    if fs::metadata(path.join(MARKER)).map_err(io)?.len() > 4096 {
+    let mut bytes = Vec::new();
+    fs::File::open(path.join(MARKER))
+        .map_err(io)?
+        .take(MAX_MARKER_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(io)?;
+    if bytes.len() > MAX_MARKER_BYTES {
         return Err(MigrationError::Integrity);
     }
-    let bytes = fs::read(path.join(MARKER)).map_err(io)?;
     let value: Value = serde_json::from_slice(&bytes).map_err(|_| MigrationError::Integrity)?;
     if serde_json::to_vec(&value).map_err(|_| MigrationError::Integrity)? != bytes {
         return Err(MigrationError::Integrity);
@@ -317,5 +327,7 @@ fn sync_dir(path: &Path) -> Result<(), MigrationError> {
     Ok(())
 }
 
+#[cfg(test)]
+mod startup_tests;
 #[cfg(test)]
 mod tests;
