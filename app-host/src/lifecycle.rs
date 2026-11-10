@@ -22,14 +22,19 @@ fn asset(path: &str) -> Option<Asset> {
 
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(windows)]
-    let (locale, settings) = {
+    let (locale, settings, history) = {
         let bundles = crate::locale::register()?;
         let configured = bundles.configured_languages().collect::<Vec<_>>();
-        let settings = crate::settings::StartupSettings::load(&configured)?;
+        let data_dir = du_platform_os::application_data::directory().ok_or_else(|| {
+            std::io::Error::other("db.open_failed: no Windows application data directory")
+        })?;
+        let database = crate::startup_database::open(&data_dir)?;
+        let settings = crate::settings::StartupSettings::load(&database, &configured)?;
         let stored = settings.stored_language()?;
         (
             crate::locale::initialize(bundles, stored.as_deref())?,
             settings,
+            database.history(crate::settings::current_time_ms),
         )
     };
     #[allow(unused_mut)]
@@ -39,7 +44,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         &mut builder,
         Arc::new(du_platform_os::windows_observation::WindowsScopeRoots),
         Arc::new(du_platform_os::volume::WindowsVolumes),
-        Arc::new(DeferredHistory),
+        Arc::new(history),
         &du_platform_os::entropy::OsRandom,
         settings.scan_limit_source(),
     )?;
@@ -59,18 +64,4 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     return du_platform_os::webview::run_with_events(app, Arc::new(move || events.next_json()));
     #[cfg(not(windows))]
     du_platform_os::webview::run(app)
-}
-
-/// Until the history repository is composed, report storage failure explicitly.
-#[cfg(windows)]
-struct DeferredHistory;
-
-#[cfg(windows)]
-impl du_core_contracts::job::JobHistory for DeferredHistory {
-    fn append(
-        &self,
-        _: &du_core_contracts::job::JobSummary,
-    ) -> Result<du_core_contracts::job::HistoryAppend, String> {
-        Err("history.write_deferred".into())
-    }
 }

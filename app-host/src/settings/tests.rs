@@ -1,11 +1,22 @@
 use super::*;
+use du_app_db::AppDb;
 use du_core_contracts::settings::{SettingsChanges, SettingsCommit, SettingsSource, SettingsStore};
 use du_user_env::settings::SettingsError;
 use rusqlite::Connection;
 use serde_json::json;
+use std::path::Path;
 
-fn open_settings(path: &Path, timestamp_ms: i64) -> Result<SettingsService<AppDb>, io::Error> {
-    restore_settings(path, timestamp_ms, &["en", "ko"])
+fn test_database(path: &Path) -> Result<SharedDatabase, io::Error> {
+    let database = AppDb::open_or_create_gui(path)
+        .map_err(|error| io::Error::other(format!("db.open_failed: {error:?}")))?;
+    Ok(SharedDatabase::new(database, None))
+}
+
+fn open_settings(
+    path: &Path,
+    timestamp_ms: i64,
+) -> Result<SettingsService<SharedSettings>, io::Error> {
+    restore_settings(&test_database(path)?, timestamp_ms, &["en", "ko"])
 }
 
 fn context() -> SettingsCommit {
@@ -28,7 +39,7 @@ fn startup_preserves_a_configured_language_override() -> Result<(), Box<dyn std:
     .map_err(|error| format!("{error:?}"))?;
     drop(db);
 
-    let settings = StartupSettings::open(&path, 100, &["en", "ko"])?;
+    let settings = StartupSettings::open(&test_database(&path)?, 100, &["en", "ko"])?;
     assert_eq!(settings.stored_language()?.as_deref(), Some("ko"));
     assert!(settings.status.invalid_keys.is_empty());
     assert_eq!(settings.status.stored_revision, Some(1));
@@ -40,7 +51,11 @@ fn source_keeps_startup_service_and_report_alive() -> Result<(), Box<dyn std::er
     let dir = tempfile::tempdir()?;
     let path = dir.path().join("lifetime.db");
     seed(&path, 1)?;
-    let settings = Arc::new(StartupSettings::open(&path, 100, &["en", "ko"])?);
+    let settings = Arc::new(StartupSettings::open(
+        &test_database(&path)?,
+        100,
+        &["en", "ko"],
+    )?);
     let weak = Arc::downgrade(&settings);
     let source = settings.clone().scan_limit_source();
     drop(settings);

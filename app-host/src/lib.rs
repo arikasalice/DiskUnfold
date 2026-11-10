@@ -8,6 +8,10 @@ mod lifecycle;
 mod locale;
 #[cfg(all(feature = "gui", windows))]
 mod settings;
+#[cfg(all(feature = "gui", windows))]
+mod shared_database;
+#[cfg(all(feature = "gui", windows))]
+mod startup_database;
 
 #[cfg(feature = "gui")]
 pub use lifecycle::run;

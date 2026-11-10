@@ -2,12 +2,10 @@
 
 use std::{
     io,
-    path::Path,
     sync::{Arc, Mutex},
     time::UNIX_EPOCH,
 };
 
-use du_app_db::AppDb;
 use du_engine_api::desktop::SharedTableLimitSource;
 use du_user_env::{
     Registry, locale,
@@ -15,22 +13,20 @@ use du_user_env::{
     space::{self, restore_shared_table_limit},
 };
 
+use crate::shared_database::{SharedDatabase, SharedSettings};
+
 /// Owns the restored service and immutable startup report for the desktop lifetime.
 pub(super) struct StartupSettings {
-    service: Mutex<SettingsService<AppDb>>,
+    service: Mutex<SettingsService<SharedSettings>>,
     status: RestoreStatus,
 }
 
 impl StartupSettings {
-    pub(super) fn load(configured_languages: &[&str]) -> Result<Arc<Self>, io::Error> {
-        let data_dir = du_platform_os::application_data::directory().ok_or_else(|| {
-            io::Error::other("db.open_failed: no Windows application data directory")
-        })?;
-        let settings = Self::open(
-            &data_dir.join("diskunfold.db"),
-            current_time_ms(),
-            configured_languages,
-        )?;
+    pub(super) fn load(
+        database: &SharedDatabase,
+        configured_languages: &[&str],
+    ) -> Result<Arc<Self>, io::Error> {
+        let settings = Self::open(database, current_time_ms(), configured_languages)?;
         if let Some(reason) = settings.status.failure_reason {
             eprintln!("{reason}");
         }
@@ -41,11 +37,11 @@ impl StartupSettings {
     }
 
     fn open(
-        path: &Path,
+        database: &SharedDatabase,
         timestamp_ms: i64,
         configured_languages: &[&str],
     ) -> Result<Self, io::Error> {
-        let service = restore_settings(path, timestamp_ms, configured_languages)?;
+        let service = restore_settings(database, timestamp_ms, configured_languages)?;
         let status = service.restore_status().clone();
         Ok(Self {
             service: Mutex::new(service),
@@ -80,25 +76,23 @@ impl StartupSettings {
 }
 
 fn restore_settings(
-    path: &Path,
+    database: &SharedDatabase,
     timestamp_ms: i64,
     configured_languages: &[&str],
-) -> Result<SettingsService<AppDb>, io::Error> {
+) -> Result<SettingsService<SharedSettings>, io::Error> {
     let locale_descriptors = locale::descriptors(configured_languages)
         .map_err(|error| io::Error::other(error.reason_key()))?;
     let registry = Registry::new(space::descriptors().into_iter().chain(locale_descriptors))
         .map_err(|error| io::Error::other(format!("settings.registration_failed: {error:?}")))?;
-    let database = AppDb::open_or_create_gui(path)
-        .map_err(|error| io::Error::other(format!("db.open_failed: {error:?}")))?;
     Ok(SettingsService::restore(
         registry,
-        database,
-        AppDb::load_settings_for_restore,
-        |database, revision, invalid| database.quarantine_settings(revision, invalid, timestamp_ms),
+        database.settings(),
+        SharedSettings::load_for_restore,
+        |database, revision, invalid| database.quarantine(revision, invalid, timestamp_ms),
     ))
 }
 
-fn current_time_ms() -> i64 {
+pub(super) fn current_time_ms() -> i64 {
     UNIX_EPOCH
         .elapsed()
         .ok()
