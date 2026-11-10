@@ -289,8 +289,7 @@ fn page_reads_refresh_the_single_lru_and_evict_the_oldest_query() -> Result<(), 
 }
 
 #[test]
-fn long_evaluation_does_not_block_an_unrelated_page_and_replacement_rejects_old_work()
--> Result<(), String> {
+fn replacement_preserves_the_admitted_first_page_and_expires_new_reads() -> Result<(), String> {
     use std::{sync::mpsc, thread, time::Duration};
     let (sink, api) = fixture(false)?;
     let api = Arc::new(api);
@@ -300,7 +299,7 @@ fn long_evaluation_does_not_block_an_unrelated_page_and_replacement_rejects_old_
     let worker_api = Arc::clone(&api);
     let worker = thread::spawn(move || {
         let mut calls = 0;
-        worker_api.open(numbered_request(99), || {
+        worker_api.open(numbered_request(b'a'), || {
             calls += 1;
             if calls == 2 {
                 let _ = started_tx.send(());
@@ -332,7 +331,13 @@ fn long_evaluation_does_not_block_an_unrelated_page_and_replacement_rejects_old_
             .map_err(|e| format!("page blocked: {e:?}"))?
             .is_ok()
     );
-    assert_eq!(result, Err(Error::StaleVersion));
+    let first = result.map_err(|e| format!("{e:?}"))?.page;
+    assert_eq!(first.result_version, existing.page.result_version);
+    assert_eq!(first.rows[0].observation.name, b"a");
+    assert_eq!(
+        api.page(&first.query_ref, &first.result_version, 0, None),
+        Err(Error::StaleVersion)
+    );
     assert_eq!(
         api.page(
             &existing.page.query_ref,

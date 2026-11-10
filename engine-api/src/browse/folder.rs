@@ -127,7 +127,6 @@ pub enum Error {
 
 /// Folder-query session over one publication point and immutable result registry.
 pub struct FolderBrowse {
-    source: IngestSink,
     sets: ResultSets,
     ids: Arc<dyn JobIdentity>,
 }
@@ -156,8 +155,7 @@ impl FolderBrowse {
     /// Creates a session; identifiers must be unique within this session.
     pub fn new(source: IngestSink, ids: Arc<dyn JobIdentity>) -> Self {
         Self {
-            sets: ResultSets::new(source.clone()),
-            source,
+            sets: ResultSets::new(source),
             ids,
         }
     }
@@ -195,14 +193,11 @@ impl FolderBrowse {
         if cancelled() {
             return Err(Error::Cancelled);
         }
-        let version = match &request.result_version {
-            Some(id) => self.source.pin_current(id).map_err(source_error)?,
-            None => self
-                .source
-                .pin()
-                .map_err(|_| Error::Internal)?
-                .ok_or(Error::MissingVersion)?,
-        };
+        let admission = self
+            .sets
+            .admit_source(request.result_version.as_ref())
+            .map_err(page_error)?;
+        let version = admission.version();
         let (location, breadcrumbs) = open_location(&version, request.location.as_ref())?;
         let condition = match request.view {
             View::List => request.condition,
@@ -234,7 +229,12 @@ impl FolderBrowse {
             condition,
             sorts,
         };
-        if let Some(id) = self.sets.find_multi_folder(&key).map_err(page_error)? {
+        let cached = match self.sets.find_multi_folder(&key) {
+            Ok(id) => id,
+            Err(PageError::StaleVersion) => None,
+            Err(error) => return Err(page_error(error)),
+        };
+        if let Some(id) = cached {
             match self.sets.open_page(&id, &key.version, 0, request.page_size) {
                 Ok(page) => {
                     if cancelled() {
@@ -272,16 +272,21 @@ impl FolderBrowse {
                 descending: request.sort.descending,
             },
             &extra,
-            cancelled,
+            &mut cancelled,
         )
         .map_err(query_error)?;
-        let id = self
+        if cancelled() {
+            return Err(Error::Cancelled);
+        }
+        let (id, page) = self
             .sets
-            .register_multi_folder(key.clone(), self.ids.next_id(), result)
-            .map_err(page_error)?;
-        let page = self
-            .sets
-            .open_page(&id, &key.version, 0, request.page_size)
+            .register_admitted_folder(
+                admission,
+                key,
+                self.ids.next_id(),
+                result,
+                request.page_size,
+            )
             .map_err(page_error)?;
         Ok(AdmittedOpen {
             location,
@@ -397,13 +402,6 @@ fn project(query_ref: Id, page: Page) -> Result<FolderPage, Error> {
     })
 }
 
-fn source_error(error: QueryError) -> Error {
-    match error {
-        QueryError::NotFound => Error::MissingVersion,
-        QueryError::StaleVersion => Error::StaleVersion,
-        _ => Error::Internal,
-    }
-}
 fn folder_error(error: QueryError) -> Error {
     match error {
         QueryError::StaleVersion => Error::StaleVersion,
@@ -415,6 +413,7 @@ fn folder_error(error: QueryError) -> Error {
 }
 fn page_error(error: PageError) -> Error {
     match error {
+        PageError::NoSource => Error::MissingVersion,
         PageError::StaleVersion => Error::StaleVersion,
         PageError::InvalidRange => Error::InvalidPage,
         _ => Error::Internal,

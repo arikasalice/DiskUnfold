@@ -1,4 +1,6 @@
 //! Session-only immutable query results and admitted, pinned page reads.
+mod admission;
+pub use admission::SourceAdmission;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::ops::Range;
 use std::sync::{Arc, Mutex};
@@ -17,6 +19,7 @@ const MAX_RESULTS: usize = 16;
 /// Session result or page admission failure; transport error mapping is a caller concern.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PageError {
+    NoSource,
     StaleVersion,
     InvalidRange,
     DuplicateId,
@@ -44,7 +47,12 @@ impl State {
             .find_map(|(id, entry)| (entry.folder_key.as_ref() == Some(key)).then(|| id.clone()))
     }
 
-    fn insert(&mut self, id: Id, result: QueryResult, folder_key: Option<MultiFolderKey>) {
+    fn insert(
+        &mut self,
+        id: Id,
+        result: QueryResult,
+        folder_key: Option<MultiFolderKey>,
+    ) -> Arc<QueryResult> {
         if self.entries.len() == MAX_RESULTS
             && let Some(oldest) = self.lru.pop_front()
         {
@@ -52,13 +60,15 @@ impl State {
         }
         self.used.insert(id.clone());
         self.lru.push_back(id.clone());
+        let result = Arc::new(result);
         self.entries.insert(
             id,
             Entry {
-                result: Arc::new(result),
+                result: Arc::clone(&result),
                 folder_key,
             },
         );
+        result
     }
 }
 
@@ -108,6 +118,7 @@ impl From<&FolderKey> for MultiFolderKey {
 pub struct ResultSets {
     source: IngestSink,
     state: Mutex<State>,
+    identity: Arc<()>,
 }
 
 impl ResultSets {
@@ -116,6 +127,7 @@ impl ResultSets {
         Self {
             source,
             state: Mutex::new(State::default()),
+            identity: Arc::new(()),
         }
     }
 
@@ -254,6 +266,9 @@ impl ResultSets {
         id: &Id,
         version: &Id,
     ) -> Result<Arc<QueryResult>, PageError> {
+        if state.released_sources.contains(version) {
+            return Err(PageError::StaleVersion);
+        }
         let result = &state.entries.get(id).ok_or(PageError::StaleVersion)?.result;
         if result.version.version_id() != version {
             return Err(PageError::StaleVersion);
