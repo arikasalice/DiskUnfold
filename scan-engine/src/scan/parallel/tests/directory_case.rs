@@ -349,3 +349,52 @@ fn case_observation_returned_during_cancellation_is_retained()
     );
     Ok(())
 }
+
+#[test]
+fn case_query_failure_does_not_change_collection_counts_or_completeness()
+-> Result<(), Box<dyn std::error::Error>> {
+    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let ids = Ids(AtomicUsize::new(1));
+    let sink = IngestSink::default();
+    let root = CaseDir {
+        step: 0,
+        root: false,
+        state: Some(DirectoryCaseState::Failed),
+        root_calls: Arc::new(AtomicUsize::new(0)),
+        child_calls: Arc::new(AtomicUsize::new(0)),
+    };
+    let context = Context {
+        completed: Arc::new(AtomicUsize::new(0)),
+        abandoned: Arc::new(AtomicUsize::new(0)),
+    };
+    let outcome = collect_parallel(
+        &sink,
+        ids.next_id(),
+        Box::new(root),
+        &ids,
+        &context,
+        1,
+        &|_| true,
+    );
+    assert_eq!(outcome.counts.failed, 0);
+    assert!(outcome.completed_scope);
+    let result = sink
+        .pin()
+        .map_err(|e| format!("{e:?}"))?
+        .ok_or("missing result")?;
+    assert_eq!(result.completeness(), ResultCompleteness::Complete);
+    let root = result
+        .items()
+        .iter()
+        .find(|item| item.parent.is_none())
+        .ok_or("missing root")?;
+    let reference = ItemRef {
+        result_version: result.version_id().clone(),
+        item_no: root.item_no,
+    };
+    assert_eq!(
+        result.directory_case_evidence(&reference).map(|e| e.state),
+        Some(DirectoryCaseState::Failed)
+    );
+    Ok(())
+}
