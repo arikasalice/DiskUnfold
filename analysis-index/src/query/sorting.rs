@@ -1,7 +1,7 @@
 //! Resolve ordered sort strategies once and compare their native keys.
 use std::cmp::Ordering;
 
-use super::{Basis, Error, Registry, Row, SortEvaluator, SortValue};
+use super::{Basis, Error, Record, Registry, Row, SortEvaluator, SortValue};
 
 /// Selection of one exact registered revision and ordering direction.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -37,6 +37,32 @@ pub(super) struct Prepared<'a> {
     pub evaluate: SortEvaluator,
 }
 
+/// One key is inline; only additional keys need per-row vector storage.
+pub(super) struct Keys {
+    first: SortValue,
+    additional: Vec<SortValue>,
+}
+
+impl Keys {
+    pub(super) fn evaluate(
+        first: &Prepared<'_>,
+        additional: &[Prepared<'_>],
+        record: &Record<'_>,
+    ) -> Self {
+        Self {
+            first: (first.evaluate)(record, first.spec.basis),
+            additional: additional
+                .iter()
+                .map(|sort| (sort.evaluate)(record, sort.spec.basis))
+                .collect(),
+        }
+    }
+
+    fn iter(&self) -> impl Iterator<Item = &SortValue> {
+        std::iter::once(&self.first).chain(&self.additional)
+    }
+}
+
 /// Copies function pointers at admission so evaluation never re-reads the registry.
 pub(super) fn prepare<'a>(
     registry: &Registry,
@@ -59,7 +85,7 @@ pub(super) fn prepare<'a>(
 
 /// Missing values always follow known values; fully tied rows use native path and item number.
 pub(super) fn compare(a: &Row, b: &Row, sorts: &[Prepared<'_>]) -> Ordering {
-    for ((left, right), sort) in a.keys.iter().zip(&b.keys).zip(sorts) {
+    for ((left, right), sort) in a.keys.iter().zip(b.keys.iter()).zip(sorts) {
         let order = match (left, right) {
             (SortValue::Missing, SortValue::Missing) => Ordering::Equal,
             (SortValue::Missing, _) => Ordering::Greater,
@@ -83,14 +109,54 @@ mod tests {
         let first = Row {
             item_no: 2,
             path: vec![b"same".to_vec()],
-            keys: Vec::new(),
+            keys: Keys {
+                first: SortValue::Missing,
+                additional: Vec::new(),
+            },
         };
         let second = Row {
             item_no: 3,
             path: first.path.clone(),
-            keys: Vec::new(),
+            keys: Keys {
+                first: SortValue::Missing,
+                additional: Vec::new(),
+            },
         };
         assert_eq!(compare(&first, &second, &[]), Ordering::Less);
         assert_eq!(compare(&second, &first, &[]), Ordering::Greater);
+    }
+
+    #[test]
+    fn one_inline_key_has_no_additional_vector_allocation() -> Result<(), String> {
+        use crate::IngestSink;
+        use du_core_contracts::{
+            Id,
+            result::{ResultCompleteness, ResultVersionRead},
+        };
+        let id = |n| Id::parse(&format!("018f0000-0000-7000-8000-{n:012x}"));
+        let sink = IngestSink::default();
+        let mut build = sink.open(id(1)?).map_err(|e| format!("{e:?}"))?;
+        build.add_directory(vec![]).map_err(|e| format!("{e:?}"))?;
+        let version = build
+            .seal(id(2)?, ResultCompleteness::Complete)
+            .map_err(|e| format!("{e:?}"))?;
+        let item = version.items().first().ok_or("missing root")?;
+        let record = Record {
+            item,
+            path: &[],
+            version: &version,
+        };
+        let sorts = [Sort {
+            id: "sort.size",
+            revision: 1,
+            basis: Basis::Logical,
+            descending: false,
+        }];
+        let prepared = prepare(&Registry::baseline(), &sorts).map_err(|e| format!("{e:?}"))?;
+        let (first, other) = prepared.split_first().ok_or("missing strategy")?;
+        let keys = Keys::evaluate(first, other, &record);
+        assert_eq!(keys.additional.capacity(), 0);
+        assert_eq!(keys.iter().count(), 1);
+        Ok(())
     }
 }

@@ -9,7 +9,7 @@ use du_analysis_index::{
     IngestSink, QueryError, browse,
     query::{
         self,
-        page::{FolderKey, Page, PageError, ResultSets, Total},
+        page::{MultiFolderKey, Page, PageError, ResultSets, Total},
     },
 };
 use du_core_contracts::{
@@ -119,6 +119,19 @@ impl FolderBrowse {
     pub fn open(
         &self,
         request: OpenRequest,
+        cancelled: impl FnMut() -> bool,
+    ) -> Result<Opened, Error> {
+        self.open_with_sorts(request, &[], cancelled)
+    }
+
+    /// Opens one folder with additional sort keys in request priority order.
+    ///
+    /// The request's original sort remains first. Repeated keys are retained
+    /// because the published contract defines no duplicate-key rejection rule.
+    pub fn open_with_sorts(
+        &self,
+        request: OpenRequest,
+        additional: &[Sort],
         mut cancelled: impl FnMut() -> bool,
     ) -> Result<Opened, Error> {
         validate_count(request.page_size)?;
@@ -157,17 +170,23 @@ impl FolderBrowse {
             ]),
         }
         .normalize();
-        let key = FolderKey {
+        let sorts: Vec<_> = std::iter::once(&request.sort)
+            .chain(additional)
+            .map(|sort| query::SortSpec {
+                id: sort.id.clone(),
+                revision: sort.revision,
+                basis: sort.basis,
+                descending: sort.descending,
+            })
+            .collect();
+        let key = MultiFolderKey {
             version: version.version_id().clone(),
             folder: location.item_no,
             tree: request.view == View::Tree,
             condition,
-            sort_id: request.sort.id,
-            sort_revision: request.sort.revision,
-            sort_basis: request.sort.basis,
-            descending: request.sort.descending,
+            sorts,
         };
-        if let Some(id) = self.sets.find_folder(&key).map_err(page_error)? {
+        if let Some(id) = self.sets.find_multi_folder(&key).map_err(page_error)? {
             match self.sets.open_page(&id, &key.version, 0, request.page_size) {
                 Ok(page) => {
                     return Ok(Opened {
@@ -180,23 +199,33 @@ impl FolderBrowse {
                 Err(error) => return Err(page_error(error)),
             }
         }
-        let result = query::run_folder(
+        let extra: Vec<_> = additional
+            .iter()
+            .map(|sort| query::Sort {
+                id: &sort.id,
+                revision: sort.revision,
+                basis: sort.basis,
+                descending: sort.descending,
+            })
+            .collect();
+        let result = query::run_folder_with_sorts(
             &query::Registry::baseline(),
             version,
             Some(&location),
             &key.condition,
             query::Sort {
-                id: &key.sort_id,
-                revision: key.sort_revision,
-                basis: key.sort_basis,
-                descending: key.descending,
+                id: &request.sort.id,
+                revision: request.sort.revision,
+                basis: request.sort.basis,
+                descending: request.sort.descending,
             },
+            &extra,
             cancelled,
         )
         .map_err(query_error)?;
         let id = self
             .sets
-            .register_folder(key.clone(), self.ids.next_id(), result)
+            .register_multi_folder(key.clone(), self.ids.next_id(), result)
             .map_err(page_error)?;
         let page = self
             .sets

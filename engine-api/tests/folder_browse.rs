@@ -315,3 +315,109 @@ fn concurrent_identical_evaluations_publish_one_reference() -> Result<(), String
     assert_eq!(refs[0], refs[1]);
     Ok(())
 }
+
+#[test]
+fn ordered_sorts_reuse_the_full_key_and_pin_pages() -> Result<(), String> {
+    use du_core_contracts::{ByteSize, SizeAmount, SizeBasis, SizeEvidence, SizeValue};
+    let sink = IngestSink::default();
+    let mut build = sink.open(id(1)?).map_err(|e| format!("{e:?}"))?;
+    build.add_directory(vec![]).map_err(|e| format!("{e:?}"))?;
+    for (name, amount) in [("a", 10), ("b", 10), ("c", 5)] {
+        let value = SizeValue {
+            basis: SizeBasis::Logical,
+            evidence: SizeEvidence::Measured,
+            amount: SizeAmount::Exact {
+                bytes: ByteSize::from(amount),
+            },
+        };
+        build
+            .add_file(Observation {
+                path: vec![name.as_bytes().to_vec()],
+                size: Some(value),
+            })
+            .map_err(|e| format!("{e:?}"))?;
+    }
+    build
+        .seal(id(2)?, ResultCompleteness::Complete)
+        .map_err(|e| format!("{e:?}"))?;
+    let api = FolderBrowse::new(sink.clone(), Arc::new(Ids(AtomicU8::new(1))));
+    let mut req = request(None);
+    req.sort = Sort {
+        id: "sort.size".into(),
+        revision: 1,
+        basis: query::Basis::Logical,
+        descending: true,
+    };
+    let secondary = Sort {
+        id: "sort.name".into(),
+        revision: 1,
+        basis: query::Basis::Logical,
+        descending: true,
+    };
+    let first = api
+        .open_with_sorts(req.clone(), std::slice::from_ref(&secondary), || false)
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(first.page.rows[0].observation.name, b"b");
+    let repeated = api
+        .open_with_sorts(req.clone(), std::slice::from_ref(&secondary), || false)
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(first.page.query_ref, repeated.page.query_ref);
+    let next = api
+        .page(
+            &first.page.query_ref,
+            &first.page.result_version,
+            1,
+            Some(1),
+        )
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(next.rows[0].observation.name, b"a");
+    let ascending = Sort {
+        descending: false,
+        ..secondary.clone()
+    };
+    let other = api
+        .open_with_sorts(req.clone(), &[ascending], || false)
+        .map_err(|e| format!("{e:?}"))?;
+    assert_ne!(other.page.query_ref, first.page.query_ref);
+    assert_eq!(other.page.rows[0].observation.name, b"a");
+    let unsupported = Sort {
+        revision: 2,
+        ..secondary.clone()
+    };
+    assert_eq!(
+        api.open_with_sorts(req.clone(), &[unsupported], || false),
+        Err(Error::UnknownSort)
+    );
+    let mut swapped = req.clone();
+    swapped.sort = secondary.clone();
+    let reordered = api
+        .open_with_sorts(swapped, &[req.sort.clone()], || false)
+        .map_err(|e| format!("{e:?}"))?;
+    assert_ne!(reordered.page.query_ref, first.page.query_ref);
+    assert_eq!(reordered.page.rows[0].observation.name, b"c");
+    let single = open(&api, req.clone())?;
+    let single_again = api
+        .open_with_sorts(req.clone(), &[], || false)
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(single.page.query_ref, single_again.page.query_ref);
+    let duplicate = api
+        .open_with_sorts(req, &[secondary.clone(), secondary], || false)
+        .map_err(|e| format!("{e:?}"))?;
+    assert_ne!(duplicate.page.query_ref, first.page.query_ref);
+    let mut build = sink.open(id(1)?).map_err(|e| format!("{e:?}"))?;
+    build.add_directory(vec![]).map_err(|e| format!("{e:?}"))?;
+    build
+        .seal(id(3)?, ResultCompleteness::Complete)
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(next.rows[0].observation.name, b"a");
+    assert_eq!(
+        api.page(
+            &first.page.query_ref,
+            &first.page.result_version,
+            2,
+            Some(1)
+        ),
+        Err(Error::StaleVersion)
+    );
+    Ok(())
+}

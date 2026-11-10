@@ -173,7 +173,7 @@ pub struct QueryResult {
 struct Row {
     item_no: u32,
     path: Vec<Vec<u8>>,
-    keys: Vec<SortValue>,
+    keys: sorting::Keys,
 }
 
 enum Selection<'a> {
@@ -311,6 +311,7 @@ fn evaluate(
     let plan = plan::prepare(registry, &condition, 0)?;
     let first = sorts.first().ok_or(Error::UnknownSort)?;
     let prepared = sorting::prepare(registry, sorts)?;
+    let (first_key, other_keys) = prepared.split_first().ok_or(Error::UnknownSort)?;
     let mut rows = Vec::new();
     let mut unknown_count = 0;
     let (ordinary, parent, folder) = match selection {
@@ -341,10 +342,7 @@ fn evaluate(
         match plan.evaluate(&record) {
             Truth::Match => rows.push(Row {
                 item_no: item.item_no,
-                keys: prepared
-                    .iter()
-                    .map(|sort| (sort.evaluate)(&record, sort.spec.basis))
-                    .collect(),
+                keys: sorting::Keys::evaluate(first_key, other_keys, &record),
                 path,
             }),
             Truth::Unknown => unknown_count += 1,
