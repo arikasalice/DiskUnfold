@@ -9,6 +9,8 @@ use std::io::{self, BufRead, BufReader, Read, Write};
 
 use crate::{envelope, record_framing, zstd_frame};
 mod item_validation;
+mod scope_roots;
+pub use scope_roots::ScopeRoots;
 
 /// A failure while verifying or streaming a DUSNAP frame.
 #[derive(Debug)]
@@ -27,6 +29,8 @@ pub enum Error {
     DecodedLimit,
     /// The decoded record boundaries, order or count are invalid.
     Records,
+    /// Sealed metadata does not contain valid native scope roots and encoding.
+    Metadata,
     /// Discarding an unsuccessful staging sink failed.
     Discard {
         failure: Box<Error>,
@@ -137,17 +141,36 @@ pub fn validate_items_in_sealed<S: SealedSpool, W: StagingSink>(
 }
 
 /// Checks framing and Item and Gap bodies using the verified sealed spool.
-/// The caller supplies path encoding and scopeRoots count from validated
-/// metadata. Volume semantics and full snapshot validation remain outstanding.
+/// Path encoding and scope roots are read from this same sealed spool's metadata.
+/// Volume semantics and full snapshot validation remain outstanding.
+/// Duplicate object keys are rejected. The trusted capture-time metadata
+/// validator must still validate all remaining required metadata fields.
 /// Failure or cancellation consumes and discards the staging sink.
 pub fn validate_items_and_gaps_in_sealed<S: SealedSpool, W: StagingSink>(
     spool: &mut VerifiedSpool<S>,
     sink: W,
-    encoding: crate::records::NameEncoding,
-    root_count: usize,
     cancelled: impl FnMut() -> bool,
-) -> Result<W, Error> {
-    decode_sealed(spool, sink, Some(encoding), Some(root_count), cancelled)
+) -> Result<(W, ScopeRoots), Error> {
+    let roots = match scope_roots::parse(spool.metadata()) {
+        Ok(roots) => roots,
+        Err(()) => {
+            return match sink.discard() {
+                Ok(()) => Err(Error::Metadata),
+                Err(cleanup) => Err(Error::Discard {
+                    failure: Box::new(Error::Metadata),
+                    cleanup,
+                }),
+            };
+        }
+    };
+    let sink = decode_sealed(
+        spool,
+        sink,
+        Some(roots.encoding()),
+        Some(roots.roots().len()),
+        cancelled,
+    )?;
+    Ok((sink, roots))
 }
 
 fn decode_sealed<S: SealedSpool, W: StagingSink>(

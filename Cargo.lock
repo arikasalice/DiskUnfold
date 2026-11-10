@@ -318,6 +318,7 @@ version = "0.1.0"
 dependencies = [
  "blake3",
  "du-core-contracts",
+ "serde_json",
  "zstd",
 ]
 

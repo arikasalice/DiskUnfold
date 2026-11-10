@@ -167,6 +167,12 @@
     "distributed": true,
     "reason": "Decode bounded DUSNAP v1 snapshot frames"
   },
+  "cargo:du-snapshot-store:serde_json@1.0.154": {
+    "license": "MIT OR Apache-2.0",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Parse sealed snapshot metadata for native scope roots"
+  },
   "cargo:du-user-env:serde_json@1.0.154": {
     "license": "MIT OR Apache-2.0",
     "role": "runtime",
