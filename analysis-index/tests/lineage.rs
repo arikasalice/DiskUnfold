@@ -180,3 +180,59 @@ fn failed_build_does_not_steal_focus_from_a_later_other_lineage() -> Result<(), 
     assert!(sink.pin_current(&id(21)?).is_ok());
     Ok(())
 }
+
+#[test]
+fn overlapping_withdrawals_restore_latest_surviving_current() -> Result<(), String> {
+    let sink = IngestSink::default();
+    let c = sink
+        .bind_current_analysis("c", id(3)?)
+        .map_err(|e| format!("{e:?}"))?;
+    let b = sink
+        .bind_current_analysis("b", id(2)?)
+        .map_err(|e| format!("{e:?}"))?;
+    let a = sink
+        .bind_current_analysis("a", id(1)?)
+        .map_err(|e| format!("{e:?}"))?;
+    build(&sink, &c, 10)?
+        .seal(id(20)?, ResultCompleteness::Complete)
+        .map_err(|e| format!("{e:?}"))?;
+    let mut b_build = build(&sink, &b, 11)?;
+    b_build
+        .publish_partial(id(21)?)
+        .map_err(|e| format!("{e:?}"))?;
+    let mut a_build = build(&sink, &a, 12)?;
+    a_build
+        .publish_partial(id(22)?)
+        .map_err(|e| format!("{e:?}"))?;
+    drop(b_build);
+    assert_eq!(current(&sink)?, Some(id(22)?));
+    drop(a_build);
+    assert_eq!(current(&sink)?, Some(id(20)?));
+    assert!(sink.pin_current(&id(20)?).is_ok());
+    Ok(())
+}
+
+#[test]
+fn restored_baseline_keeps_its_original_publication_order() -> Result<(), String> {
+    let sink = IngestSink::default();
+    let a = sink
+        .bind_current_analysis("a", id(1)?)
+        .map_err(|e| format!("{e:?}"))?;
+    let b = sink
+        .bind_current_analysis("b", id(2)?)
+        .map_err(|e| format!("{e:?}"))?;
+    build(&sink, &a, 10)?
+        .seal(id(20)?, ResultCompleteness::Complete)
+        .map_err(|e| format!("{e:?}"))?;
+    build(&sink, &b, 11)?
+        .seal(id(21)?, ResultCompleteness::Complete)
+        .map_err(|e| format!("{e:?}"))?;
+    let mut a_build = build(&sink, &a, 12)?;
+    a_build
+        .publish_partial(id(22)?)
+        .map_err(|e| format!("{e:?}"))?;
+    drop(a_build);
+    assert_eq!(current(&sink)?, Some(id(21)?));
+    assert!(sink.pin_current(&id(20)?).is_ok());
+    Ok(())
+}

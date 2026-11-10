@@ -19,7 +19,7 @@ pub use result_read::ItemDetail;
 use result_read::ensure_directory;
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
-use version_store::State;
+use version_store::{Entry, State};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BuildError {
@@ -149,7 +149,6 @@ impl IngestSink {
             state: Arc::clone(&self.state),
             baseline,
             lineage,
-            focus_before: None,
             published: false,
             scope_version_id,
             roots,
@@ -163,9 +162,8 @@ impl IngestSink {
 /// Dropping or aborting an unfinished build withdraws its partial publications.
 pub struct BuildHandle {
     state: Arc<Mutex<State>>,
-    baseline: Option<Arc<ResultVersion>>,
+    baseline: Option<Entry>,
     lineage: Option<Id>,
-    focus_before: Option<Option<Id>>,
     published: bool,
     scope_version_id: Id,
     roots: Vec<ResultScopeRoot>,
@@ -400,18 +398,14 @@ impl BuildHandle {
             observed_at,
         });
         let mut state = self.state.lock().map_err(|_| BuildError::Unavailable)?;
-        let (focus_before, previous) =
-            match state.publish(&self.lineage, Arc::clone(&result), finish) {
-                Ok(focus) => focus,
-                Err(error) => {
-                    drop(state);
-                    self.abort();
-                    return Err(error);
-                }
-            };
-        if !self.published || focus_before.as_ref() != Some(&self.lineage) {
-            self.focus_before = focus_before;
-        }
+        let previous = match state.publish(&self.lineage, Arc::clone(&result), finish) {
+            Ok(focus) => focus,
+            Err(error) => {
+                drop(state);
+                self.abort();
+                return Err(error);
+            }
+        };
         self.published = true;
         if finish {
             self.finished = true;
@@ -423,12 +417,7 @@ impl BuildHandle {
     pub fn abort(&mut self) {
         if !self.finished {
             let withdrawn = self.state.lock().ok().and_then(|mut state| {
-                state.abort(
-                    &self.lineage,
-                    self.baseline.clone(),
-                    self.published,
-                    self.focus_before.clone(),
-                )
+                state.abort(&self.lineage, self.baseline.clone(), self.published)
             });
             drop(withdrawn);
             self.finished = true;
