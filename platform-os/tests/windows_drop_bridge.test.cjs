@@ -90,3 +90,28 @@ test('native replies retain the drop sequence even when delivered out of order',
   assert.equal(bridge.events[2].detail.reason, 'invalid_target');
   assert.equal(bridge.events[3].detail.path, 'old');
 });
+
+test('a single-item request cannot smuggle multiple files to the native channel', () => {
+  const bridge = bootstrap();
+  drop(bridge, true, true, [{ kind: 'file' }], [{}, {}]);
+  assert.equal(bridge.posts.length, 0);
+  assert.deepEqual(bridge.events.map(({ detail }) => [detail.seq, detail.pending ?? detail.reason]), [
+    [1, true], [1, 'invalid_target'],
+  ]);
+});
+
+test('additional-object transport failure closes exactly its own request', () => {
+  const bridge = bootstrap();
+  const calls = [];
+  bridge.channel.postMessageWithAdditionalObjects = (message) => {
+    calls.push(message);
+    if (calls.length === 1) throw new Error('transport failure');
+  };
+  drop(bridge, true, true, [{ kind: 'file' }], [{}]);
+  drop(bridge, true, true, [{ kind: 'file' }], [{}]);
+  bridge.handlers['channel:message']({ data: 'folder-drop:2\n{"path":"C:\\\\new"}' });
+  assert.deepEqual(calls, ['du:folder-drop:1', 'du:folder-drop:2']);
+  assert.deepEqual(bridge.events.map(({ detail }) => [detail.seq, detail.pending ?? detail.reason ?? detail.path]), [
+    [1, true], [1, 'unsupported'], [2, true], [2, 'C:\\new'],
+  ]);
+});
