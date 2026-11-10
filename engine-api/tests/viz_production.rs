@@ -241,3 +241,84 @@ fn refuses_missing_evidence_forged_denominator_groups_and_cancel() -> Result<(),
     );
     Ok(())
 }
+
+#[test]
+fn strategy_projection_and_page_remain_bound_to_the_admitted_revision() -> Result<(), String> {
+    let (sink, version, model) = fixture()?;
+    let pages = pages(sink.clone())?;
+    let reference = production::register_projection(
+        &pages,
+        version.clone(),
+        &model,
+        "bound-condition".into(),
+        labels(&model),
+        &mut || false,
+    )
+    .map_err(|e| format!("{e:?}"))?;
+    let request = VizRowsRequest {
+        model_ref: reference.clone(),
+        result_revision: version.version_id().clone(),
+        start: 0,
+        count: 10,
+    };
+    let admitted = pages.rows(&request).map_err(|e| format!("{e:?}"))?;
+    assert_eq!(model.strategy, typed_layout::treemap_descriptor());
+    assert_eq!(admitted.result_revision, model.result_revision);
+    for shape in &model.shapes {
+        let row = admitted.rows.get(shape.row_index).ok_or("missing row")?;
+        let source = model
+            .rows
+            .get(shape.row_index)
+            .ok_or("missing source row")?;
+        assert_eq!(row.item_ref.as_ref(), Some(&source.item));
+        assert_eq!(source.item.result_version, model.result_revision);
+        assert_eq!(row.size, source.size);
+    }
+
+    // Replace the same live lineage while retaining the old model and admitted page.
+    let root = ResultScopeRoot {
+        path: ResultNativePath {
+            encoding: PathEncoding::Unix,
+            raw: PathBytes::from_bytes(b"/"),
+        },
+        volume_id: vec![1],
+        file_id: vec![1],
+    };
+    let mut builder = sink
+        .open_observed(id(3)?, root)
+        .map_err(|e| format!("{e:?}"))?;
+    builder
+        .add_directory(vec![])
+        .map_err(|e| format!("{e:?}"))?;
+    let replacement = builder
+        .seal(id(4)?, ResultCompleteness::Complete)
+        .map_err(|e| format!("{e:?}"))?;
+    assert_ne!(replacement.version_id(), version.version_id());
+    assert_eq!(
+        pages.rows(&request).err(),
+        Some(du_engine_api::viz_pages::Error::StaleVersion)
+    );
+    assert_eq!(
+        production::register_projection(
+            &pages,
+            version.clone(),
+            &model,
+            "another-condition".into(),
+            labels(&model),
+            &mut || false
+        )
+        .err(),
+        Some(production::Error::Pages(
+            du_engine_api::viz_pages::Error::StaleVersion
+        ))
+    );
+    // The already admitted page and layout remain unchanged, never rebound to B.
+    assert_eq!(admitted.result_revision, *version.version_id());
+    for shape in &model.shapes {
+        assert_eq!(
+            admitted.rows[shape.row_index].item_ref.as_ref(),
+            Some(&model.rows[shape.row_index].item)
+        );
+    }
+    Ok(())
+}
