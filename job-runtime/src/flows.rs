@@ -74,6 +74,10 @@ impl JobContext for Context {
         Timestamp::from_unix_millis(self.services.clock.now_ms())
     }
 
+    fn monotonic_now(&self) -> Option<std::time::Duration> {
+        self.services.clock.monotonic_now()
+    }
+
     fn checkpoint(&self) -> Checkpoint {
         if self.cancellation.0.load(Ordering::Acquire) {
             Checkpoint::Cancel

@@ -1,6 +1,6 @@
 //! Bounded handle-based workers and a single result publisher.
 use super::{ResultIds, record_at};
-use du_analysis_index::{BuildError, BuildHandle};
+use du_analysis_index::{BuildError, BuildHandle, publication_cadence::PublicationCadence};
 use du_core_contracts::{
     Id,
     job::{Checkpoint, JobContext, JobCounts, JobFlow, JobFlowError, JobOutcome},
@@ -13,7 +13,7 @@ use std::{
     sync::{
         Arc, Condvar, Mutex,
         atomic::{AtomicBool, Ordering},
-        mpsc::{self, SyncSender},
+        mpsc::{self, RecvTimeoutError, SyncSender},
     },
     thread,
     time::Duration,
@@ -108,6 +108,16 @@ struct Progress {
     failed_roots: Vec<bool>,
     root_published: Vec<bool>,
     published: bool,
+    cadence: PublicationCadence,
+}
+trait MonotonicClock: Sync {
+    fn now(&self) -> Option<Duration>;
+}
+struct ContextClock<'a>(&'a dyn JobContext);
+impl MonotonicClock for ContextClock<'_> {
+    fn now(&self) -> Option<Duration> {
+        self.0.monotonic_now()
+    }
 }
 pub(crate) struct DevicePlan {
     pub groups: Vec<usize>,
@@ -172,7 +182,8 @@ pub(crate) fn collect_open_forest_with_groups(
         limit,
         include,
     };
-    let result = build.and_then(|build| run(build, roots, control, &mut counts, devices));
+    let clock = ContextClock(context);
+    let result = build.and_then(|build| run(build, roots, control, &mut counts, devices, &clock));
     match result {
         Ok((id, cancelled, unprocessed_roots)) => JobOutcome {
             counts,
@@ -198,6 +209,7 @@ fn run(
     control: Control<'_>,
     counts: &mut JobCounts,
     devices: DevicePlan,
+    clock: &dyn MonotonicClock,
 ) -> Result<(Id, bool, usize), BuildError> {
     let Control {
         ids,
@@ -259,6 +271,7 @@ fn run(
         failed_roots: vec![false; root_count],
         root_published: vec![false; root_count],
         published: false,
+        cadence: PublicationCadence::default(),
     };
     let mut failure = None;
     thread::scope(|scope| {
@@ -271,15 +284,16 @@ fn run(
             drop(receiver);
             return;
         }
-        while let Ok(event) = receiver.recv() {
-            let result = progress.record(event, &mut build, counts, context, ids);
-            if let Err(error) = result {
-                failure = Some(error);
-                shared.abort();
-                break;
-            }
+        let services = Services {
+            context,
+            ids,
+            clock,
+            abort: &shared.abort,
+        };
+        if let Err(error) = consume(receiver, &mut progress, &mut build, counts, services) {
+            failure = Some(error);
+            shared.abort();
         }
-        drop(receiver);
     });
     if let Some(error) = failure {
         return Err(error);
@@ -315,74 +329,8 @@ fn run(
     Ok((id, cancelled, unprocessed_roots))
 }
 
-impl Progress {
-    fn record(
-        &mut self,
-        event: Event,
-        build: &mut BuildHandle,
-        counts: &mut JobCounts,
-        context: &dyn JobContext,
-        ids: &dyn ResultIds,
-    ) -> Result<(), BuildError> {
-        match event {
-            Event::Item(root_index, path, entry) => {
-                let gap = entry_gap(&entry);
-                record_at(build, root_index, &entry, &path, counts)?;
-                if let Some(reason) = gap {
-                    build.record_gap_at(root_index, path, reason.into(), context.utc_now())?;
-                }
-                Ok(())
-            }
-            Event::Failure {
-                root_index,
-                path,
-                root,
-                reason,
-            } => {
-                counts.failed += 1;
-                if root && !self.root_published[root_index as usize] {
-                    self.failed_roots[root_index as usize] = true;
-                }
-                build.record_gap_at(root_index, path, reason.into(), context.utc_now())
-            }
-            Event::RootBatch(root_index) => {
-                self.root_published[root_index as usize] = true;
-                if !self.published {
-                    self.published = true;
-                    build.publish_partial_at(ids.next_id(), context.utc_now())?;
-                }
-                Ok(())
-            }
-        }
-    }
-}
-
-fn reason(error: &PortError) -> &'static str {
-    match error.kind {
-        PortErrorKind::PermissionDenied => "scan.path_denied",
-        PortErrorKind::NotFound => "scan.path_vanished",
-        _ => "scan.unclassified",
-    }
-}
-
-fn entry_gap(entry: &ObservedEntry) -> Option<&'static str> {
-    match &entry.metadata {
-        Err(error) => Some(reason(error)),
-        Ok(meta)
-            if entry.enumerated_inode == 0
-                || entry.enumerated_inode != meta.inode
-                || (entry.enumerated_kind != ObservedKind::Unknown
-                    && entry.enumerated_kind != meta.kind) =>
-        {
-            Some("scan.unclassified")
-        }
-        Ok(meta) if matches!(meta.kind, ObservedKind::Unknown | ObservedKind::Other) => {
-            Some("scan.unclassified")
-        }
-        Ok(meta) if meta.kind == ObservedKind::File => meta.size.as_ref().err().map(reason),
-        _ => None,
-    }
-}
+mod publisher;
+use publisher::{Services, consume, reason};
 
 /// Releases the initial directory only after all workers were successfully started.
 fn start_queue(shared: &Shared) -> Result<(), BuildError> {

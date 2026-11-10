@@ -31,7 +31,7 @@ pub fn register(
     history: Arc<dyn JobHistory>,
 ) -> Result<Arc<DesktopEvents>, Box<dyn std::error::Error>> {
     let ids = Arc::new(SystemIdentity);
-    let clock = Arc::new(SystemClock);
+    let clock = Arc::new(SystemClock(Instant::now()));
     let events = Arc::new(DesktopEvents::default());
     let runtime = Arc::new(JobRuntime::new_with_limits(
         ids.clone(),
@@ -69,16 +69,24 @@ impl JobIdentity for SystemIdentity {
     }
 }
 
-struct SystemClock;
+struct SystemClock(Instant);
 
 impl JobClock for SystemClock {
-    fn now_ms(&self) -> i64 {
-        UNIX_EPOCH
-            .elapsed()
-            .ok()
-            .and_then(|elapsed| i64::try_from(elapsed.as_millis()).ok())
-            .unwrap_or(0)
+    fn monotonic_now(&self) -> Option<Duration> {
+        Some(self.0.elapsed())
     }
+
+    fn now_ms(&self) -> i64 {
+        utc_now_ms()
+    }
+}
+
+fn utc_now_ms() -> i64 {
+    UNIX_EPOCH
+        .elapsed()
+        .ok()
+        .and_then(|elapsed| i64::try_from(elapsed.as_millis()).ok())
+        .unwrap_or(0)
 }
 
 #[derive(Default)]
@@ -141,7 +149,7 @@ impl DesktopEvents {
 
 impl JobEvents for DesktopEvents {
     fn publish(&self, event: JobEvent) {
-        let Some(occurred_at) = Timestamp::from_unix_millis(SystemClock.now_ms()) else {
+        let Some(occurred_at) = Timestamp::from_unix_millis(utc_now_ms()) else {
             return;
         };
         let Some(event) = envelope(event, occurred_at) else {

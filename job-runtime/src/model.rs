@@ -17,6 +17,10 @@ pub trait JobIdentity: Send + Sync {
 }
 pub trait JobClock: Send + Sync {
     fn now_ms(&self) -> i64;
+    /// Elapsed time from a stable, monotonic origin, if supported.
+    fn monotonic_now(&self) -> Option<std::time::Duration> {
+        None
+    }
 }
 pub trait JobEvents: Send + Sync {
     fn publish(&self, event: JobEvent);

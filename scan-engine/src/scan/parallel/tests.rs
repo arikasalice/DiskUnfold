@@ -433,6 +433,7 @@ fn ready_roots_take_turns_even_when_one_has_many_frames() {
     assert_eq!(selected, [0, 1, 2, 0, 1, 0]);
 }
 
+mod cadence;
 mod device;
 mod panic_boundary;
 

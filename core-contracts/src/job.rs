@@ -117,6 +117,10 @@ pub trait JobContext: Send + Sync {
     fn utc_now(&self) -> Option<Timestamp> {
         None
     }
+    /// Monotonic elapsed time from a clock-specific origin, when available.
+    fn monotonic_now(&self) -> Option<std::time::Duration> {
+        None
+    }
     /// Returns Busy rather than spawning or waiting when no metadata I/O permit is available.
     /// Returns UnsupportedResource when metadata I/O is disabled or not declared for the job.
     fn try_start_flow(&self) -> Result<Box<dyn JobFlow>, JobFlowError>;

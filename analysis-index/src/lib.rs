@@ -2,6 +2,7 @@
 pub mod browse;
 mod forest;
 mod physical;
+pub mod publication_cadence;
 pub mod query;
 mod result_path;
 mod result_read;
