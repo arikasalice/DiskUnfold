@@ -4,6 +4,7 @@ import {
   fireEvent,
   render,
   screen,
+  waitFor,
   within,
 } from "@testing-library/react";
 import axe from "axe-core";
@@ -1111,7 +1112,7 @@ test.each([0, 1, 200, 201, 2001, 1_000_000])(
     const port = syntheticPort(count);
     render(<BrowsePanel port={port} resultVersion={id} />);
     const grid = await screen.findByRole("grid", { name: "Folder items" });
-    const start = count === 0 ? grid : gridRow("Entry 0");
+    const start = count === 0 ? grid : await waitFor(() => gridRow("Entry 0"));
     act(() => start.focus());
     await act(async () => undefined);
     const callsBeforeEnd = port.page.mock.calls.length;
