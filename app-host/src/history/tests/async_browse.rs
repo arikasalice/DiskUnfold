@@ -133,6 +133,7 @@ fn verify_async_browse(
     assert_eq!(status.job_ref, job_ref);
     assert_eq!(status.kind, "query.evaluate");
     assert_eq!(status.state, JobState::Done);
+    assert_eq!(finished.body["sequence"], json!(status.sequence));
     assert_eq!(status.query_ref.as_ref(), Some(&query_ref));
     assert!(status.result_version.is_none());
     let page = ipc(

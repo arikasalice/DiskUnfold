@@ -137,12 +137,21 @@ fn queued_cancel_returns_during_blocked_history_and_finishes_in_order()
     let cancel_runtime = runtime.clone();
     let cancel_id = id.clone();
     let worker = std::thread::spawn(move || {
-        let _ = sender.send(cancel_runtime.cancel(&cancel_id));
+        let _ = sender.send(cancel_runtime.cancel_with_sequence(&cancel_id));
     });
     entered.wait();
     let result = receiver.recv_timeout(std::time::Duration::from_secs(2));
+    let snapshot = runtime.snapshot(&id);
+    let repeated = runtime.cancel_with_sequence(&id);
     release.wait();
-    assert_eq!(result??, CancelResult::Accepted(JobState::Cancelled));
+    let (outcome, sequence) = result??;
+    let snapshot = snapshot?;
+    assert_eq!(outcome, CancelResult::Accepted(JobState::Cancelled));
+    assert_eq!(snapshot.sequence, sequence);
+    assert_eq!(
+        repeated?,
+        (CancelResult::AlreadyTerminal(JobState::Cancelled), sequence)
+    );
     worker.join().map_err(|_| "worker panicked")?;
     runtime.flush()?;
     assert_eq!(

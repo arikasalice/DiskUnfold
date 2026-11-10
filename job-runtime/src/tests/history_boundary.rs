@@ -70,12 +70,17 @@ fn terminal_delivery_preserves_recording_boundaries() -> Result<(), Box<dyn std:
         assert_eq!(runtime.run_next()?, Some(id.clone()));
         runtime.flush()?;
         assert_eq!(runtime.state(&id)?, JobState::Done);
+        let snapshot = runtime.snapshot(&id)?;
+        let (cancel, cancel_sequence) = runtime.cancel_with_sequence(&id)?;
+        assert_eq!(cancel, CancelResult::AlreadyTerminal(JobState::Done));
+        assert_eq!(cancel_sequence, snapshot.sequence);
         assert_eq!(history.calls.load(Ordering::SeqCst), calls);
         let observed = events.0.lock().map_err(|_| "events poisoned")?;
         assert!(matches!(observed.as_slice(), [..,
             JobEvent::StateChanged { job_id, state: JobState::Done, sequence },
             JobEvent::Finished { summary, sequence: terminal_seq, history_recorded, warning }
         ] if *job_id == id && summary.job_id == id && *terminal_seq == *sequence + 1
+            && *terminal_seq == snapshot.sequence
             && *history_recorded == recorded && warning.is_some() == warned));
     }
     Ok(())

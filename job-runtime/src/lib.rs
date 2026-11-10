@@ -420,7 +420,8 @@ impl JobRuntime {
         }
         let state = final_state(job, &outcome);
         job.state = state;
-        job.sequence += 1;
+        job.sequence += 2;
+        let state_sequence = job.sequence - 1;
         let summary = JobSummary {
             job_id: id.clone(),
             kind_id: job.descriptor.kind_id.clone(),
@@ -440,19 +441,18 @@ impl JobRuntime {
         job.submission.deduplication_key = None;
         job.summary = Some(summary.clone());
         let record = job.descriptor.history != HistoryMode::None && !job.submission.sample;
-        let sequence = job.sequence;
         let delivery = enqueue(
             &table,
             Delivery::Terminal {
                 summary: Box::new(summary),
-                sequence,
+                sequence: state_sequence,
                 record,
             },
         );
         drop(table);
         drop(released_body);
         drop(released_publication);
-        delivery.map(|()| sequence)
+        delivery.map(|()| state_sequence + 1)
     }
     #[cfg(test)]
     fn flush(&self) -> Result<(), RuntimeError> {
