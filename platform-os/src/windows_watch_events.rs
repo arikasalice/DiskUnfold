@@ -2,10 +2,10 @@
 //!
 //! This module does not own an OS watch. The registration adapter must stop
 //! the stream before releasing its OS resources.
-use du_core_contracts::change_notify::{WatchEvent, WatchEvents};
+use du_core_contracts::change_notify::{WatchError, WatchEvent, WatchEvents};
 use std::sync::{
     Arc,
-    atomic::{AtomicBool, AtomicU64, Ordering},
+    atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering},
     mpsc::{Receiver, SyncSender, TrySendError, sync_channel},
 };
 
@@ -16,6 +16,8 @@ struct Shared {
     active: AtomicBool,
     lost: AtomicBool,
     lost_at: AtomicU64,
+    interruption: AtomicU8,
+    interruption_at: AtomicU64,
 }
 
 /// Nonblocking callback endpoint for one OS registration.
@@ -41,6 +43,8 @@ pub fn watch_event_channel(capacity: usize) -> Option<(WatchEventSender, WatchEv
         active: AtomicBool::new(true),
         lost: AtomicBool::new(false),
         lost_at: AtomicU64::new(0),
+        interruption: AtomicU8::new(0),
+        interruption_at: AtomicU64::new(0),
     });
     Some((
         WatchEventSender {
@@ -54,16 +58,46 @@ pub fn watch_event_channel(capacity: usize) -> Option<(WatchEventSender, WatchEv
 impl WatchEventSender {
     /// Records a loss reported by the OS or by record validation.
     pub fn loss(&self, observed_at: u64) {
-        if self.shared.active.load(Ordering::Acquire) && !self.shared.lost.load(Ordering::Acquire) {
+        if self.shared.active.load(Ordering::Acquire)
+            && self.shared.interruption.load(Ordering::Acquire) == 0
+            && !self.shared.lost.load(Ordering::Acquire)
+        {
             self.shared.lost_at.store(observed_at, Ordering::Relaxed);
             self.shared.lost.store(true, Ordering::Release);
         }
     }
-    /// Enqueues a signal without waiting. Callbacks for one watch are serialized.
-    /// Once a signal is lost, later signals are dropped until loss is consumed.
+    /// Enqueues without waiting. Callbacks for one watch are serialized.
+    /// A loss fences later signals until consumed; an interruption is retained
+    /// even when full and permanently fences later signals. IF-11 has three
+    /// interruption reasons, so a resource-limit input becomes `Other` here.
     pub fn signal(&self, event: WatchEvent, observed_at: u64) {
         if !self.shared.active.load(Ordering::Acquire) {
             return;
+        }
+        if self.shared.interruption.load(Ordering::Acquire) != 0 {
+            return;
+        }
+        match event {
+            WatchEvent::Interrupted {
+                reason,
+                observed_at,
+            } => {
+                let code = match reason {
+                    WatchError::Disconnected => 1,
+                    WatchError::AccessLost => 2,
+                    WatchError::ResourceLimit | WatchError::Other => 3,
+                };
+                self.shared
+                    .interruption_at
+                    .store(observed_at, Ordering::Relaxed);
+                self.shared.interruption.store(code, Ordering::Release);
+                return;
+            }
+            WatchEvent::Loss { observed_at } => {
+                self.loss(observed_at);
+                return;
+            }
+            WatchEvent::Signal { .. } => {}
         }
         if self.shared.lost.load(Ordering::Acquire) {
             return;
@@ -92,13 +126,41 @@ impl WatchEvents for WatchEventReceiver {
             if let Ok(event) = self.receiver.try_recv() {
                 return Some(event);
             }
-            let lost_at = self.shared.lost_at.load(Ordering::Relaxed);
-            self.shared.lost.store(false, Ordering::Release);
-            return Some(WatchEvent::Loss {
-                observed_at: lost_at,
+            return Some(self.take_loss());
+        }
+        let code = self.shared.interruption.load(Ordering::Acquire);
+        if (1..=3).contains(&code) {
+            // A producer can queue preceding signals or loss after the first checks.
+            if let Ok(event) = self.receiver.try_recv() {
+                return Some(event);
+            }
+            if self.shared.lost.load(Ordering::Acquire) {
+                return Some(self.take_loss());
+            }
+            let observed_at = self.shared.interruption_at.load(Ordering::Relaxed);
+            self.shared
+                .interruption
+                .store(code | 0x80, Ordering::Release);
+            let reason = match code {
+                1 => WatchError::Disconnected,
+                2 => WatchError::AccessLost,
+                _ => WatchError::Other,
+            };
+            return Some(WatchEvent::Interrupted {
+                reason,
+                observed_at,
             });
         }
         None
+    }
+}
+
+impl WatchEventReceiver {
+    /// Consumes the producer's loss marker after all earlier queued signals.
+    fn take_loss(&self) -> WatchEvent {
+        let observed_at = self.shared.lost_at.load(Ordering::Relaxed);
+        self.shared.lost.store(false, Ordering::Release);
+        WatchEvent::Loss { observed_at }
     }
 }
 
@@ -166,6 +228,85 @@ mod tests {
         assert_eq!(rx.try_next(), Some(signal(1)));
         assert_eq!(rx.try_next(), Some(WatchEvent::Loss { observed_at: 2 }));
         assert_eq!(rx.try_next(), None);
+        Ok(())
+    }
+
+    #[test]
+    fn interruption_survives_full_channel_and_fences_later_signals() -> Result<(), &'static str> {
+        let (tx, mut rx) = watch_event_channel(1).ok_or("capacity")?;
+        tx.signal(signal(1), 1);
+        tx.signal(signal(2), 2);
+        tx.signal(
+            WatchEvent::Interrupted {
+                reason: WatchError::AccessLost,
+                observed_at: 3,
+            },
+            3,
+        );
+        tx.signal(
+            WatchEvent::Interrupted {
+                reason: WatchError::Disconnected,
+                observed_at: 4,
+            },
+            4,
+        );
+        tx.signal(signal(4), 4);
+        assert_eq!(rx.try_next(), Some(signal(1)));
+        assert_eq!(rx.try_next(), Some(WatchEvent::Loss { observed_at: 2 }));
+        assert_eq!(
+            rx.try_next(),
+            Some(WatchEvent::Interrupted {
+                reason: WatchError::AccessLost,
+                observed_at: 3
+            })
+        );
+        assert_eq!(rx.try_next(), None);
+        tx.signal(signal(5), 5);
+        assert_eq!(rx.try_next(), None);
+        Ok(())
+    }
+
+    #[test]
+    fn interruption_reasons_follow_if11_with_full_queue_and_optional_loss()
+    -> Result<(), &'static str> {
+        for reason in [
+            WatchError::Disconnected,
+            WatchError::AccessLost,
+            WatchError::ResourceLimit,
+            WatchError::Other,
+        ] {
+            for overflow in [false, true] {
+                let expected = if reason == WatchError::ResourceLimit {
+                    WatchError::Other
+                } else {
+                    reason
+                };
+                let (tx, mut rx) = watch_event_channel(1).ok_or("capacity")?;
+                tx.signal(signal(1), 1);
+                if overflow {
+                    tx.signal(signal(2), 2);
+                }
+                tx.signal(
+                    WatchEvent::Interrupted {
+                        reason,
+                        observed_at: 3,
+                    },
+                    3,
+                );
+                assert_eq!(rx.try_next(), Some(signal(1)));
+                if overflow {
+                    assert_eq!(rx.try_next(), Some(WatchEvent::Loss { observed_at: 2 }));
+                }
+                assert_eq!(
+                    rx.try_next(),
+                    Some(WatchEvent::Interrupted {
+                        reason: expected,
+                        observed_at: 3
+                    })
+                );
+                assert_eq!(rx.try_next(), None);
+            }
+        }
         Ok(())
     }
 }

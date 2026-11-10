@@ -1,7 +1,8 @@
 //! Completion-owned Windows directory notification request.
 //!
 //! This low-level request does not establish scope identity or mount coverage.
-use crate::windows_watch_decode::{Completion, decode_completion};
+use crate::windows_watch_decode::{Completion, decode_completion, interruption_reason};
+use du_core_contracts::change_notify::WatchError;
 use std::{
     fs::{File, OpenOptions},
     io,
@@ -43,6 +44,9 @@ pub struct NativeWatch {
     buffer: Box<NotificationBuffer>,
     pending: bool,
     stopped: bool,
+    deferred_interruption: Option<WatchError>,
+    #[cfg(test)]
+    fail_next_submit: Option<i32>,
 }
 
 impl NativeWatch {
@@ -68,6 +72,9 @@ impl NativeWatch {
             buffer: Box::new(NotificationBuffer([0; NOTIFICATION_BYTES])),
             pending: false,
             stopped: false,
+            deferred_interruption: None,
+            #[cfg(test)]
+            fail_next_submit: None,
         };
         watch.submit()?;
         Ok(watch)
@@ -78,6 +85,10 @@ impl NativeWatch {
     }
 
     fn submit(&mut self) -> io::Result<()> {
+        #[cfg(test)]
+        if let Some(code) = self.fail_next_submit.take() {
+            return Err(io::Error::from_raw_os_error(code));
+        }
         *self.request = OVERLAPPED::default();
         self.request.hEvent = HANDLE(self.event.as_raw_handle());
         // SAFETY: The request and buffer are heap allocated, stay in self until
@@ -106,7 +117,13 @@ impl NativeWatch {
     }
 
     /// Collects a completed request without waiting, then submits the next one.
+    /// If rearming fails, the completed evidence is returned first and the next
+    /// poll reports one interruption. Callers must drain until `None`.
     pub fn poll(&mut self) -> io::Result<Option<Completion>> {
+        if let Some(reason) = self.deferred_interruption.take() {
+            self.stopped = true;
+            return Ok(Some(Completion::Interrupted(reason)));
+        }
         if self.stopped || !self.pending {
             return Ok(None);
         }
@@ -122,20 +139,25 @@ impl NativeWatch {
             return Ok(None);
         }
         self.pending = false;
-        let completion = if usize::try_from(count)
-            .ok()
-            .is_some_and(|n| n <= self.buffer.0.len())
-        {
-            decode_completion(code, false, &self.buffer.0[..count as usize])
+        let bytes = if code == 0 {
+            self.buffer.0.get(..count as usize).unwrap_or_default()
         } else {
-            Completion::Loss
+            &[]
         };
-        if matches!(completion, Completion::Interrupted) {
+        let completion = decode_completion(code, false, bytes);
+        Ok(Some(self.complete(completion)))
+    }
+
+    fn complete(&mut self, completion: Completion) -> Completion {
+        if matches!(completion, Completion::Interrupted(_)) {
             self.stopped = true;
-        } else {
-            self.submit()?;
+        } else if let Err(error) = self.submit() {
+            // Deliver the completed evidence first; report interruption on the
+            // next poll instead of silently discarding that evidence.
+            let code = error.raw_os_error().unwrap_or_default() as u32;
+            self.deferred_interruption = Some(interruption_reason(code));
         }
-        Ok(Some(completion))
+        completion
     }
 
     /// Fences delivery, cancels the exact request, and waits for its completion.
@@ -145,30 +167,51 @@ impl NativeWatch {
 
     fn drain(&mut self) -> io::Result<()> {
         self.stopped = true;
+        self.deferred_interruption = None;
         if !self.pending {
             return Ok(());
         }
-        // SAFETY: The pointer identifies this live request and its live handle.
-        let cancellation_error = unsafe { CancelIoEx(self.handle(), Some(&*self.request)) }
-            .err()
-            .filter(|error| (error.code().0 as u32 & 0xffff) != ERROR_NOT_FOUND.0)
-            .map(to_io);
-        let mut count = 0;
-        // SAFETY: Waiting here keeps the buffer, request, and both handles alive.
-        loop {
-            let completed =
-                unsafe { GetOverlappedResult(self.handle(), &*self.request, &mut count, true) };
-            if completed
-                .as_ref()
-                .err()
-                .is_none_or(|error| (error.code().0 as u32 & 0xffff) != ERROR_IO_INCOMPLETE.0)
-            {
-                break;
-            }
-        }
+        let handle = self.handle();
+        let request = &*self.request;
+        let result = cancel_then_reap(
+            || {
+                // SAFETY: The pointer identifies this live request and handle.
+                unsafe { CancelIoEx(handle, Some(request)) }
+                    .or_else(|error| {
+                        if (error.code().0 as u32 & 0xffff) == ERROR_NOT_FOUND.0 {
+                            Ok(())
+                        } else {
+                            Err(error)
+                        }
+                    })
+                    .map_err(to_io)
+            },
+            || {
+                let mut count = 0;
+                // SAFETY: The live owner retains the request, buffer and handles.
+                loop {
+                    let completed =
+                        unsafe { GetOverlappedResult(handle, request, &mut count, true) };
+                    if completed.as_ref().err().is_none_or(|error| {
+                        (error.code().0 as u32 & 0xffff) != ERROR_IO_INCOMPLETE.0
+                    }) {
+                        break;
+                    }
+                }
+            },
+        );
         self.pending = false;
-        cancellation_error.map_or(Ok(()), Err)
+        result
     }
+}
+
+fn cancel_then_reap(
+    cancel: impl FnOnce() -> io::Result<()>,
+    reap: impl FnOnce(),
+) -> io::Result<()> {
+    let result = cancel();
+    reap();
+    result
 }
 
 impl Drop for NativeWatch {
@@ -226,6 +269,65 @@ mod tests {
             fs::write(directory.path().join(format!("race-{index}")), b"x")?;
             watch.stop()?;
         }
+        Ok(())
+    }
+
+    #[test]
+    fn failed_cancel_still_reaps_before_returning() {
+        let calls = std::cell::RefCell::new(Vec::new());
+        let result = cancel_then_reap(
+            || {
+                calls.borrow_mut().push("cancel");
+                Err(io::Error::other("injected"))
+            },
+            || calls.borrow_mut().push("reap"),
+        );
+        assert!(result.is_err());
+        assert_eq!(*calls.borrow(), ["cancel", "reap"]);
+    }
+
+    #[test]
+    fn rearm_failure_delivers_completed_change_then_one_interruption()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let directory = tempfile::tempdir()?;
+        let mut watch = NativeWatch::start(directory.path())?;
+        watch.fail_next_submit = Some(5);
+        fs::write(directory.path().join("change"), b"x")?;
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let completion = loop {
+            if let Some(completion) = watch.poll()? {
+                break completion;
+            }
+            if Instant::now() >= deadline {
+                return Err("notification timed out".into());
+            }
+            thread::sleep(Duration::from_millis(10));
+        };
+        assert!(matches!(completion, Completion::Changes(_)));
+        assert_eq!(
+            watch.poll()?,
+            Some(Completion::Interrupted(WatchError::AccessLost))
+        );
+        assert!(watch.poll()?.is_none());
+        watch.stop()?;
+        Ok(())
+    }
+
+    #[test]
+    fn rearm_failure_preserves_loss_before_interruption() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let directory = tempfile::tempdir()?;
+        let mut watch = NativeWatch::start(directory.path())?;
+        watch.drain()?;
+        watch.stopped = false;
+        watch.fail_next_submit = Some(1167);
+        assert!(matches!(watch.complete(Completion::Loss), Completion::Loss));
+        assert_eq!(
+            watch.poll()?,
+            Some(Completion::Interrupted(WatchError::Disconnected))
+        );
+        assert!(watch.poll()?.is_none());
+        watch.stop()?;
         Ok(())
     }
 }

@@ -1,7 +1,7 @@
 //! Validation of completed ReadDirectoryChangesW records before delivery.
 //!
 //! This module does not own a native handle or report registration coverage.
-use du_core_contracts::change_notify::ChangeHint;
+use du_core_contracts::change_notify::{ChangeHint, WatchError};
 
 /// One native relative UTF-16LE path and its unverified change hint.
 #[derive(Debug, PartialEq, Eq)]
@@ -16,23 +16,33 @@ pub enum Completion {
     Changes(Vec<ChangeRecord>),
     Loss,
     Cancelled,
-    Interrupted,
+    Interrupted(WatchError),
 }
 
 /// Classifies the OS completion before parsing any records.
 /// `status` is zero on success or the Win32 error code on failure.
 pub fn decode_completion(status: u32, explicitly_stopping: bool, bytes: &[u8]) -> Completion {
-    const ERROR_OPERATION_ABORTED: u32 = 995;
     const ERROR_NOTIFY_ENUM_DIR: u32 = 1022;
     if explicitly_stopping {
         return Completion::Cancelled;
     }
     match status {
         ERROR_NOTIFY_ENUM_DIR => Completion::Loss,
-        ERROR_OPERATION_ABORTED => Completion::Interrupted,
         0 if bytes.is_empty() => Completion::Loss,
         0 => parse_records(bytes).map_or(Completion::Loss, Completion::Changes),
-        _ => Completion::Interrupted,
+        _ => Completion::Interrupted(interruption_reason(status)),
+    }
+}
+
+/// Maps an asynchronous Win32 failure to an IF-11 interruption reason.
+pub(crate) fn interruption_reason(status: u32) -> WatchError {
+    const ERROR_ACCESS_DENIED: u32 = 5;
+    const ERROR_DEV_NOT_EXIST: u32 = 55;
+    const ERROR_DEVICE_NOT_CONNECTED: u32 = 1167;
+    match status {
+        ERROR_ACCESS_DENIED => WatchError::AccessLost,
+        ERROR_DEV_NOT_EXIST | ERROR_DEVICE_NOT_CONNECTED => WatchError::Disconnected,
+        _ => WatchError::Other,
     }
 }
 
@@ -89,7 +99,18 @@ mod tests {
     fn completion_status_does_not_turn_loss_or_stop_into_changes() {
         assert_eq!(decode_completion(0, false, &[]), Completion::Loss);
         assert_eq!(decode_completion(1022, false, &[1]), Completion::Loss);
-        assert_eq!(decode_completion(995, false, &[]), Completion::Interrupted);
+        for (status, reason) in [
+            (5, WatchError::AccessLost),
+            (55, WatchError::Disconnected),
+            (1167, WatchError::Disconnected),
+            (995, WatchError::Other),
+            (8, WatchError::Other),
+        ] {
+            assert_eq!(
+                decode_completion(status, false, &[1]),
+                Completion::Interrupted(reason)
+            );
+        }
         assert_eq!(decode_completion(995, true, &[]), Completion::Cancelled);
         assert_eq!(decode_completion(0, true, &[1]), Completion::Cancelled);
     }
