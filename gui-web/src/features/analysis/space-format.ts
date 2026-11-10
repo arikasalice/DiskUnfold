@@ -31,6 +31,43 @@ export const evidenceLabels = {
   unknown: undefined,
 } satisfies Record<SizeValue["evidence"], string | undefined>;
 
+const spaceReasonLabels = new Map([
+  ["space.aux_not_included", "Auxiliary data was not collected"],
+  ["space.dedup_capacity", "The file identity limit was reached"],
+  ["space.sharing_not_collected", "Sharing evidence was not collected"],
+  ["space.sharing_unknown", "Sharing could not be verified"],
+  ["space.identity_unsupported", "File identity could not be verified"],
+  ["space.out_of_range_links", "Links outside the scan were reported"],
+  ["space.shared_reported", "The file system reported shared space"],
+]);
+
+const measurementLimitLabels = new Map([
+  ["space.data_insufficient", "Some space data could not be verified"],
+  [
+    "space.aggregation_overflow",
+    "The space total exceeded the supported range",
+  ],
+  ["space.allocated_not_collected", "Allocation data was not collected"],
+  [
+    "space.observation_detail_insufficient",
+    "Some observation details are unavailable",
+  ],
+]);
+
+/** Returns the explanation for a recognized item-space reason. */
+export function displaySpaceReason(key: string): string | undefined {
+  return spaceReasonLabels.get(key);
+}
+
+/** Preserves a visible limitation even when its reason is not recognized. */
+export function displayMeasurementLimit(key: string): string {
+  return (
+    displaySpaceReason(key) ??
+    measurementLimitLabels.get(key) ??
+    "A measurement limitation was reported"
+  );
+}
+
 /** Separates measurement completeness and evidence from the result version. */
 export function displayMeasurement(
   value: SizeValue,
@@ -44,6 +81,13 @@ export function displayMeasurement(
 /** Formats exact wire bytes without converting them to a floating-point number. */
 export function formatBytes(bytes: string): string {
   return `${BigInt(bytes).toLocaleString()} bytes`;
+}
+
+/** Retains the lower-bound qualifier when showing original bytes. */
+export function displayRawSize(size: SizeValue): string | undefined {
+  if (size.state === "unknown") return undefined;
+  const rawBytes = formatBytes(size.bytes);
+  return size.state === "lower_bound" ? `At least ${rawBytes}` : rawBytes;
 }
 
 /** Converts a wire byte count using exact arithmetic before display rounding. */
@@ -78,8 +122,6 @@ export function displaySizeWithBytes(
   display: SizeDisplay,
 ): string {
   const formatted = displaySize(size, display);
-  if (size.state === "unknown") return formatted;
-  const rawBytes = formatBytes(size.bytes);
-  const raw = size.state === "lower_bound" ? `At least ${rawBytes}` : rawBytes;
-  return formatted === raw ? raw : `${formatted} · ${raw}`;
+  const raw = displayRawSize(size);
+  return !raw || formatted === raw ? formatted : `${formatted} · ${raw}`;
 }

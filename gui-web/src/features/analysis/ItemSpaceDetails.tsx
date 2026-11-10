@@ -7,18 +7,13 @@ import type {
   SpaceDetail,
   SpaceDetailSize,
 } from "../../ipc";
-import { displaySizeWithBytes, evidenceLabels } from "./space-format";
+import {
+  displayMeasurementLimit,
+  displaySizeWithBytes,
+  displaySpaceReason,
+  evidenceLabels,
+} from "./space-format";
 import type { SizeDisplay } from "./space-format";
-
-const reasonText: Readonly<Record<string, string>> = {
-  "space.aux_not_included": "Auxiliary data was not collected",
-  "space.dedup_capacity": "The file identity limit was reached",
-  "space.sharing_not_collected": "Sharing evidence was not collected",
-  "space.sharing_unknown": "Sharing could not be verified",
-  "space.identity_unsupported": "File identity could not be verified",
-  "space.out_of_range_links": "Links outside the scan were reported",
-  "space.shared_reported": "The file system reported shared space",
-};
 
 function describe<T>(field: BrowseValue<T>, present: (value: T) => string) {
   switch (field.state) {
@@ -27,7 +22,7 @@ function describe<T>(field: BrowseValue<T>, present: (value: T) => string) {
     case "absent":
       return "Not applicable";
     case "unknown":
-      return reasonText[field.reasonKey] ?? "Unavailable in this scan";
+      return displaySpaceReason(field.reasonKey) ?? "Unavailable in this scan";
   }
 }
 
@@ -35,7 +30,7 @@ function sizeText(value: SpaceDetailSize, display: SizeDisplay): string {
   return [
     displaySizeWithBytes(value.size, display),
     evidenceLabels[value.size.evidence],
-    ...value.measurementLimits.map((key) => reasonText[key]).filter(Boolean),
+    ...value.measurementLimits.map(displayMeasurementLimit),
   ]
     .filter(Boolean)
     .join(" · ");
@@ -63,7 +58,7 @@ function rows(detail: SpaceDetail, display: SizeDisplay) {
       label: "Exclusive space confirmed",
       value: decision.confirmed
         ? "Confirmed"
-        : (reasonText[decision.reasonKey ?? ""] ?? "Not confirmed"),
+        : (displaySpaceReason(decision.reasonKey ?? "") ?? "Not confirmed"),
     },
     {
       label: "File links",

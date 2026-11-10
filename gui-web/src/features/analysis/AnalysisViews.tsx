@@ -27,9 +27,10 @@ import { SizeDisplayControls } from "./SizeDisplayControls";
 import { VolumeExplanation } from "./VolumeExplanation";
 import {
   displayMeasurement,
+  displayMeasurementLimit,
+  displayRawSize,
   displaySize,
   displaySizeWithBytes,
-  formatBytes,
   sizeLabels,
   windowsSizeDisplay,
 } from "./space-format";
@@ -302,18 +303,19 @@ function PinnedResult({
     <div className="du-results">
       <div className="du-metrics">
         {(lead ? [lead, ...supporting] : supporting).map(
-          ({ size, completeness }, index) => {
+          ({ size, completeness, measurementLimits }, index) => {
             const value = displaySize(size, display);
-            const raw =
-              size.state !== "unknown" && !value.endsWith(" bytes")
-                ? formatBytes(size.bytes)
-                : undefined;
+            const raw = displayRawSize(size);
             return (
               <Metric
                 key={size.basis}
                 label={sizeLabels[size.basis]}
                 prominent={index === 0}
-                detail={[displayMeasurement(size, completeness), raw]
+                detail={[
+                  displayMeasurement(size, completeness),
+                  raw === value ? undefined : raw,
+                  ...measurementLimits.map(displayMeasurementLimit),
+                ]
                   .filter(Boolean)
                   .join(" · ")}
               >

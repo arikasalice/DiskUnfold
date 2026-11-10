@@ -280,7 +280,11 @@ function fixture({
                   state: "lower_bound",
                   bytes: "1100",
                 },
-                measurementLimits: ["space.dedup_capacity"],
+                measurementLimits: [
+                  "space.dedup_capacity",
+                  "space.identity_unsupported",
+                  "space.future_limit",
+                ],
               },
             },
             exclusive: unknown,
@@ -592,7 +596,11 @@ test("F01–F03: reviewed scope starts a scan and reads its pinned partial resul
   const allocated = within(
     screen.getByRole("group", { name: "Allocated size" }),
   );
-  expect(allocated.getByText("Incomplete measurement")).toBeDefined();
+  expect(
+    allocated.getByText(
+      "Incomplete measurement · Some space data could not be verified",
+    ),
+  ).toBeDefined();
   const coverage = within(screen.getByLabelText("Coverage limits"));
   expect(
     coverage.getByText("Missing items").nextElementSibling?.textContent,
@@ -627,7 +635,7 @@ test("F01–F03: reviewed scope starts a scan and reads its pinned partial resul
   expect(
     space.getByText("Unique physical space").nextElementSibling?.textContent,
   ).toBe(
-    "At least 1.0 KiB · At least 1,100 bytes · Estimated · The file identity limit was reached",
+    "At least 1.0 KiB · At least 1,100 bytes · Estimated · The file identity limit was reached · File identity could not be verified · A measurement limitation was reported",
   );
   expect(space.getByText("Sharing evidence was not collected")).toBeDefined();
   expect(space.getByText("Auxiliary data was not collected")).toBeDefined();
@@ -667,6 +675,11 @@ test("F03: changing size display does not request another result", async () => {
     target: { value: "si" },
   });
   expect(screen.getByText("At least 1.0 kB")).toBeDefined();
+  expect(
+    within(screen.getByRole("group", { name: "Logical size" })).getByText(
+      "Incomplete measurement · Reported by the file system · At least 1,023 bytes",
+    ),
+  ).toBeDefined();
   fireEvent.change(screen.getByRole("combobox", { name: "Size unit" }), {
     target: { value: "0" },
   });
