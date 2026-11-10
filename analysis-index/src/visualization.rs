@@ -130,9 +130,9 @@ pub fn hierarchy(
                 extra_depth: i64::from(extra),
             });
         }
-        let (first, end) = children(items, pending.item_no);
+        let children = version.children(pending.item_no);
         let omitted_children = if pending.depth >= limit {
-            end - first
+            children.len()
         } else {
             0
         };
@@ -150,7 +150,7 @@ pub fn hierarchy(
             omitted_children,
         });
         if pending.depth < limit {
-            for child in items[first..end].iter().rev() {
+            for child in children.iter().rev() {
                 work.push(Pending {
                     item_no: child.item_no,
                     depth: pending.depth + 1,
@@ -219,12 +219,6 @@ fn descendant(items: &[ResultItem], mut item: u32, ancestor: u32) -> bool {
             _ => return false,
         }
     }
-}
-fn children(items: &[ResultItem], parent: u32) -> (usize, usize) {
-    (
-        items.partition_point(|item| item.parent < Some(parent)),
-        items.partition_point(|item| item.parent <= Some(parent)),
-    )
 }
 fn value(
     version: &ResultVersion,
