@@ -153,9 +153,18 @@ pub fn decide_cli(inputs: &Inputs<'_>, argument: Option<&str>) -> Result<Decisio
     Ok(choose(inputs))
 }
 
-fn descriptor(key: &str, default: Value, values: Vec<Value>) -> Descriptor {
+fn descriptor(
+    key: &str,
+    default: Value,
+    values: Vec<Value>,
+    placement: (
+        du_core_contracts::settings::SettingGroup,
+        du_core_contracts::settings::SettingLevel,
+    ),
+) -> Descriptor {
     Descriptor {
-        presentation: du_core_contracts::settings::SettingPresentation::for_setting(key),
+        presentation: du_core_contracts::settings::SettingPresentation::for_setting(key)
+            .with_placement(placement.0, placement.1),
         key: key.to_owned(),
         owner: "F13".to_owned(),
         default,
@@ -174,27 +183,37 @@ pub fn descriptors(configured_languages: &[&str]) -> Result<Vec<Descriptor>, Dec
     }
     let mut choices = vec![Value::Null];
     choices.extend(languages.into_iter().map(|language| json!(language)));
+    use du_core_contracts::settings::{SettingGroup as G, SettingLevel as L};
     Ok(vec![
-        descriptor(DISPLAY_LANGUAGE_KEY, Value::Null, choices),
+        descriptor(
+            DISPLAY_LANGUAGE_KEY,
+            Value::Null,
+            choices,
+            (G::GeneralDisplay, L::Basic),
+        ),
         descriptor(
             "locale.date_format",
             json!("lang_default"),
             vec![json!("lang_default"), json!("iso8601")],
+            (G::GeneralDisplay, L::Detailed),
         ),
         descriptor(
             "locale.number_format",
             json!("lang_default"),
             vec![json!("lang_default"), json!("no_grouping")],
+            (G::GeneralDisplay, L::Detailed),
         ),
         descriptor(
             "locale.time_zone_policy",
             json!("local"),
             vec![json!("local"), json!("utc")],
+            (G::GeneralDisplay, L::Detailed),
         ),
         descriptor(
             "a11y.motion",
             json!("follow_os"),
             vec![json!("follow_os"), json!("reduce")],
+            (G::Accessibility, L::Basic),
         ),
         descriptor(
             "a11y.app_scale",
@@ -207,6 +226,7 @@ pub fn descriptors(configured_languages: &[&str]) -> Result<Vec<Descriptor>, Dec
                 json!(175),
                 json!(200),
             ],
+            (G::Accessibility, L::Basic),
         ),
     ])
 }

@@ -11,6 +11,10 @@ pub fn descriptors() -> Vec<Descriptor> {
     vec![Descriptor {
         presentation: du_core_contracts::settings::SettingPresentation::for_setting(
             REMEMBER_RECENT,
+        )
+        .with_placement(
+            du_core_contracts::settings::SettingGroup::HistoryPrivacy,
+            du_core_contracts::settings::SettingLevel::Basic,
         ),
         key: REMEMBER_RECENT.into(),
         owner: "F01".into(),

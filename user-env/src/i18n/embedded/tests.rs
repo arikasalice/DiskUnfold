@@ -155,3 +155,62 @@ fn setting_presentation_rejects_duplicate_empty_and_missing_keys()
     assert!(validate_setting_presentation(&registry, [one]).is_err());
     Ok(())
 }
+
+#[test]
+fn registered_catalog_carries_only_published_group_and_level_pairs()
+-> Result<(), Box<dyn std::error::Error>> {
+    use du_core_contracts::settings::{
+        SettingGroup as G, SettingLevel as L, SettingPlacement, SettingsSnapshot,
+    };
+    let descriptors = crate::locale::descriptors(&["en", "ko"])
+        .map_err(|e| format!("{e:?}"))?
+        .into_iter()
+        .chain(crate::scope::descriptors())
+        .chain(crate::space::descriptors());
+    let registry = crate::Registry::new(descriptors).map_err(|e| format!("{e:?}"))?;
+    let snapshot = SettingsSnapshot {
+        revision: 17,
+        schema_version: 1,
+        values: BTreeMap::from([("scope.remember_recent".into(), serde_json::json!(false))]),
+    };
+    let before = snapshot.clone();
+    let rows = registry.catalog(&snapshot);
+    let placements: BTreeMap<_, _> = rows
+        .iter()
+        .map(|row| {
+            (
+                row.descriptor.key.as_str(),
+                row.descriptor.presentation.placement,
+            )
+        })
+        .collect();
+    let pair = |group, level| Some(SettingPlacement { group, level });
+    assert_eq!(placements.len(), 8);
+    assert_eq!(
+        placements["locale.display_language"],
+        pair(G::GeneralDisplay, L::Basic)
+    );
+    for key in [
+        "locale.date_format",
+        "locale.number_format",
+        "locale.time_zone_policy",
+    ] {
+        assert_eq!(placements[key], pair(G::GeneralDisplay, L::Detailed));
+    }
+    for key in ["a11y.motion", "a11y.app_scale"] {
+        assert_eq!(placements[key], pair(G::Accessibility, L::Basic));
+    }
+    assert_eq!(
+        placements["scope.remember_recent"],
+        pair(G::HistoryPrivacy, L::Basic)
+    );
+    assert_eq!(placements["space.shared_table_max_entries"], None);
+    let recent = rows
+        .iter()
+        .find(|row| row.descriptor.key == "scope.remember_recent")
+        .ok_or("missing scope")?;
+    assert_eq!(recent.value, &serde_json::json!(false));
+    assert!(!recent.uses_default);
+    assert_eq!(snapshot, before);
+    Ok(())
+}
