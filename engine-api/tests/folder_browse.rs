@@ -133,6 +133,7 @@ fn forest_top_pages_only_real_roots_and_opens_each_root_independently() -> Resul
         open(&api, request(None))?.page.query_ref,
         top.page.query_ref
     );
+    cancellation::check(&api, &top.page.query_ref)?;
     Ok(())
 }
 
@@ -146,6 +147,7 @@ fn root_child_parent_and_empty_use_the_same_pinned_folder_query() -> Result<(), 
     assert_eq!(root.page.next_position, Some(1));
     let repeated = open(&api, request(None))?;
     assert_eq!(repeated.page.query_ref, root.page.query_ref);
+    cancellation::check(&api, &root.page.query_ref)?;
     let second = api
         .page(&root.page.query_ref, &root.page.result_version, 1, Some(1))
         .map_err(|e| format!("{e:?}"))?;
@@ -485,3 +487,5 @@ fn ordered_sorts_reuse_the_full_key_and_pin_pages() -> Result<(), String> {
     );
     Ok(())
 }
+
+mod cancellation;

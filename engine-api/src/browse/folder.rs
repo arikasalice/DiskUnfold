@@ -213,6 +213,9 @@ impl FolderBrowse {
         if let Some(id) = self.sets.find_multi_folder(&key).map_err(page_error)? {
             match self.sets.open_page(&id, &key.version, 0, request.page_size) {
                 Ok(page) => {
+                    if cancelled() {
+                        return Err(Error::Cancelled);
+                    }
                     return Ok(AdmittedOpen {
                         location,
                         breadcrumbs,
