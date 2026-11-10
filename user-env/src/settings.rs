@@ -3,7 +3,7 @@ use du_core_contracts::settings::{
     SettingsChanges, SettingsCommit, SettingsSnapshot, SettingsStore, SettingsStoreError,
 };
 
-use crate::Registry;
+use crate::{CatalogEntry, Registry};
 mod restore_status;
 pub use restore_status::{RestoreItem, RestoreSource, RestoreStatus};
 
@@ -164,6 +164,17 @@ impl<S: SettingsStore> SettingsService<S> {
 
     pub fn snapshot(&self) -> &SettingsSnapshot {
         &self.snapshot
+    }
+
+    /// Returns the catalog and its revision from the same immutable settings snapshot.
+    ///
+    /// Each value is a validated override or the registered default. Reading the
+    /// catalog does not change the stored values or advance the revision.
+    pub fn catalog(&self) -> (u64, Vec<CatalogEntry<'_>>) {
+        (
+            self.snapshot.revision,
+            self.registry.catalog(&self.snapshot),
+        )
     }
 
     pub fn review(
@@ -380,6 +391,52 @@ mod tests {
             .map_err(|e| format!("{e:?}"))?;
         assert!(service.snapshot.values.is_empty());
         assert!(service.store.snapshot.values.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn catalog_reflects_commits_and_not_failed_or_stale_changes() -> Result<(), String> {
+        let mut service = setup()?;
+        let before = service.snapshot().clone();
+        let (revision, rows) = service.catalog();
+        assert_eq!(revision, 0);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].descriptor.owner, "F01");
+        assert_eq!(rows[0].value, &json!(true));
+        assert!(rows[0].uses_default);
+        assert_eq!(service.snapshot(), &before);
+        let changes = SettingsChanges::from([("scope.remember_recent".into(), Some(json!(false)))]);
+        let digest = service.review(0, &changes).map_err(|e| format!("{e:?}"))?;
+        service.store.fail = Some(SettingsStoreError::Storage);
+        assert!(service.apply(0, &changes, digest, context()).is_err());
+        let (revision, rows) = service.catalog();
+        assert_eq!(
+            (revision, rows[0].value, rows[0].uses_default),
+            (0, &json!(true), true)
+        );
+        service.store.fail = None;
+        service
+            .apply(0, &changes, digest, context())
+            .map_err(|e| format!("{e:?}"))?;
+        assert_eq!(
+            service.apply(0, &changes, digest, context()),
+            Err(SettingsError::StaleVersion)
+        );
+        let (revision, rows) = service.catalog();
+        assert_eq!(
+            (revision, rows[0].value, rows[0].uses_default),
+            (1, &json!(false), false)
+        );
+        let reset = SettingsChanges::from([("scope.remember_recent".into(), None)]);
+        let digest = service.review(1, &reset).map_err(|e| format!("{e:?}"))?;
+        service
+            .apply(1, &reset, digest, context())
+            .map_err(|e| format!("{e:?}"))?;
+        let (revision, rows) = service.catalog();
+        assert_eq!(
+            (revision, rows[0].value, rows[0].uses_default),
+            (2, &json!(true), true)
+        );
         Ok(())
     }
 
