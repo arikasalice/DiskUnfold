@@ -56,6 +56,15 @@ fn id(value: u8) -> Id {
     Id::from_v7_bytes([value; 16])
 }
 fn publish(sink: &IngestSink, scope: Id, revision: Id) -> Result<(), String> {
+    publish_sizes(sink, scope, revision, [25, 75])
+}
+
+fn publish_sizes(
+    sink: &IngestSink,
+    scope: Id,
+    revision: Id,
+    sizes: [u64; 2],
+) -> Result<(), String> {
     let lineage = sink
         .bind_current_analysis("scope", id(1))
         .map_err(|error| format!("{error:?}"))?;
@@ -72,7 +81,7 @@ fn publish(sink: &IngestSink, scope: Id, revision: Id) -> Result<(), String> {
         .map_err(|error| format!("{error:?}"))?;
     scan.add_directory(vec![])
         .map_err(|error| format!("{error:?}"))?;
-    for (name, bytes) in [(b'a', 25_u64), (b'b', 75)] {
+    for (name, bytes) in b"ab".iter().copied().zip(sizes) {
         scan.add_file(Observation {
             path: vec![vec![name]],
             size: Some(SizeValue {
@@ -99,7 +108,7 @@ fn evidence(version: &ResultVersion, revision: &Id) -> Vec<ChildEvidence> {
                 result_version: revision.clone(),
                 item_no: item.item_no,
             },
-            path_compare_key: item.name.clone(),
+            path_compare_key: Some(item.name.clone()),
             legend_class_key: "fixture.class".into(),
             display_flags: vec![],
         })
@@ -107,7 +116,7 @@ fn evidence(version: &ResultVersion, revision: &Id) -> Vec<ChildEvidence> {
 }
 fn policy(item: &du_core_contracts::result::ResultItem) -> ChildPolicyEvidence {
     ChildPolicyEvidence {
-        path_compare_key: item.name.clone(),
+        path_compare_key: Some(item.name.clone()),
         legend_class_key: "fixture.class".into(),
         display_flags: vec![],
     }

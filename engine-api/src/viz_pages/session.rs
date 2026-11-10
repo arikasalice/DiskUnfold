@@ -39,7 +39,8 @@ pub struct Session {
 /// The caller must use the registered path-comparison and legend policies;
 /// display names and raw path bytes do not establish a comparison key.
 pub struct ChildPolicyEvidence {
-    pub path_compare_key: Vec<u8>,
+    /// Comparison evidence retained for this exact result, if available.
+    pub path_compare_key: Option<Vec<u8>>,
     pub legend_class_key: String,
     pub display_flags: Vec<String>,
 }
@@ -72,8 +73,8 @@ impl Session {
     /// Renders the pinned folder's actual immediate children and matching table rows.
     ///
     /// The injected policy supplies keys and flags only; item references and
-    /// membership are derived from the admitted result. A missing policy must
-    /// return an error instead of inventing keys or classifications.
+    /// membership are derived from the admitted result. Missing comparison
+    /// evidence is represented by None. Classification still needs its policy.
     pub fn render_selected(
         &self,
         request: render::Request<'_>,

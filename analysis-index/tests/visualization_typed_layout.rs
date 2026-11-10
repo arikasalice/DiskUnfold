@@ -127,8 +127,8 @@ impl Strategy for Invalid {
 fn one_pinned_input_has_homogeneous_treemap_and_extension_outputs() -> Result<(), String> {
     let input = prepared()?;
     assert_eq!(input.rows().len(), 3);
-    assert_eq!(input.rows()[0].path_compare_key(), b"b");
-    assert_eq!(input.rows()[1].path_compare_key(), b"z");
+    assert_eq!(input.rows()[0].path_compare_key(), Some(b"b".as_slice()));
+    assert_eq!(input.rows()[1].path_compare_key(), Some(b"z".as_slice()));
     assert_eq!(input.rows()[0].value().evidence, SizeEvidence::Measured);
     let original = typed_layout::treemap_descriptor();
     let fixture = descriptor("fixture", "fixture.test", 1);

@@ -33,7 +33,7 @@ pub struct Request<'a> {
 /// Facts supplied by the path-comparison and presentation owners for one item.
 pub struct ChildEvidence {
     pub item: ItemRef,
-    pub path_compare_key: Vec<u8>,
+    pub path_compare_key: Option<Vec<u8>>,
     pub legend_class_key: String,
     pub display_flags: Vec<String>,
 }
@@ -62,6 +62,8 @@ pub enum Error {
     Projection(projection::Error),
     /// The same pinned rows remain available without geometry.
     NoAttribution(VizFallback),
+    /// Equal positive weights need pinned ordering evidence. Table rows remain available.
+    OrderingUnavailable(VizFallback),
     Registration(production::Error),
     Cache(super::Error),
     InvalidEvidence,
@@ -110,7 +112,7 @@ impl ModelPages {
         for child in normalized.into_values() {
             check(cancelled)?;
             let (key, presentation) = split_evidence(child);
-            keys.push(key);
+            keys.extend(key);
             presentations.push(presentation);
         }
         let model = projection::project(
@@ -131,12 +133,15 @@ impl ModelPages {
         );
         let model = match model {
             Ok(model) => model,
-            Err(projection::Error::UnavailableAttribution) => {
+            Err(
+                reason @ (projection::Error::UnavailableAttribution
+                | projection::Error::OrderingUnavailable),
+            ) => {
                 let input = production::project_fallback(
                     source.version().clone(),
                     request.parent,
                     &request.basis,
-                    format!("no_attribution:{fingerprint}"),
+                    format!("fallback:{fingerprint}"),
                     presentations,
                     cancelled,
                 )
@@ -144,10 +149,15 @@ impl ModelPages {
                 let (model_ref, _) = self
                     .register_with_layout(input, None, cancelled)
                     .map_err(registration_error)?;
-                return Err(Error::NoAttribution(VizFallback {
+                let fallback = VizFallback {
                     model_ref,
                     result_revision: source.result_version().clone(),
-                }));
+                };
+                return Err(if reason == projection::Error::OrderingUnavailable {
+                    Error::OrderingUnavailable(fallback)
+                } else {
+                    Error::NoAttribution(fallback)
+                });
             }
             Err(error) => return Err(Error::Projection(error)),
         };
@@ -265,12 +275,12 @@ fn fingerprint(
     Ok(hash.finalize().to_hex().to_string())
 }
 
-fn split_evidence(child: ChildEvidence) -> (ChildKey, RowPresentation) {
+fn split_evidence(child: ChildEvidence) -> (Option<ChildKey>, RowPresentation) {
     (
-        ChildKey {
+        child.path_compare_key.map(|path_compare_key| ChildKey {
             item: child.item.clone(),
-            path_compare_key: child.path_compare_key,
-        },
+            path_compare_key,
+        }),
         RowPresentation {
             item: child.item,
             legend_class_key: child.legend_class_key,

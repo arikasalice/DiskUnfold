@@ -49,7 +49,11 @@ fn observed_logical_subtrees_draw_during_an_active_scan_without_exact_ratios() -
     let render = session
         .render_selected(
             request(&parent, 1_000_000),
-            |_, item, _| Ok(policy(item)),
+            |_, item, _| {
+                let mut evidence = policy(item);
+                evidence.path_compare_key = None;
+                Ok(evidence)
+            },
             &mut || false,
         )
         .map_err(|e| format!("{e:?}"))?;

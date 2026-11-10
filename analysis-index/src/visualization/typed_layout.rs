@@ -16,7 +16,7 @@ use du_core_contracts::{
 #[derive(Clone, Debug)]
 pub struct NumericRow {
     item: ItemRef,
-    path_compare_key: Vec<u8>,
+    path_compare_key: Option<Vec<u8>>,
     value: SizeValue,
     bytes: u64,
 }
@@ -24,8 +24,9 @@ impl NumericRow {
     pub fn item(&self) -> &ItemRef {
         &self.item
     }
-    pub fn path_compare_key(&self) -> &[u8] {
-        &self.path_compare_key
+    /// The pinned comparison key, when available for this row.
+    pub fn path_compare_key(&self) -> Option<&[u8]> {
+        self.path_compare_key.as_deref()
     }
     pub fn value(&self) -> &SizeValue {
         &self.value

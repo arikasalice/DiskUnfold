@@ -41,6 +41,8 @@ pub enum AdmissionError {
     Cancelled,
     /// `viz.unavailable.no_attribution`: the source does not establish a partition.
     NoAttribution,
+    /// Equal positive sizes require an ordering key for each tied item.
+    OrderingUnavailable,
     Layout(squarify::LayoutError),
 }
 
@@ -49,7 +51,7 @@ pub enum AdmissionError {
 pub(crate) struct AdmittedChild {
     pub(crate) child: Child,
     pub(crate) bytes: u64,
-    pub(crate) key: Vec<u8>,
+    pub(crate) key: Option<Vec<u8>>,
 }
 
 /// A disjoint, ordered partition without geometry.
@@ -58,6 +60,7 @@ pub struct Admitted {
 }
 
 /// Validates and orders one pinned partition without performing layout.
+/// Ordering keys are required only for equal positive weights.
 /// Cancellation is checked while validating keys, walking gaps and descendant
 /// observations, and sorting rows. One key comparison and allocation are not
 /// interruptible. No partial result is returned.
@@ -71,23 +74,19 @@ pub fn admit_cancellable(
     check(cancelled)?;
     let parent_no = root_ref(version, parent).map_err(|_| AdmissionError::InvalidParent)?;
     let children = version.children(parent_no);
-    if keys.len() != children.len() {
-        return Err(AdmissionError::InvalidKeys);
-    }
     let mut lookup = HashMap::new();
     for key in keys {
         check(cancelled)?;
         if key.item.result_version != *version.version_id()
+            || version
+                .items()
+                .get(key.item.item_no as usize)
+                .and_then(|item| item.parent)
+                != Some(parent_no)
             || lookup
                 .insert(key.item.item_no, &key.path_compare_key)
                 .is_some()
         {
-            return Err(AdmissionError::InvalidKeys);
-        }
-    }
-    for child in children {
-        check(cancelled)?;
-        if !lookup.contains_key(&child.item_no) {
             return Err(AdmissionError::InvalidKeys);
         }
     }
@@ -102,9 +101,7 @@ pub fn admit_cancellable(
         basis == SizeBasis::Logical && version.completeness() == ResultCompleteness::Partial;
     for child in children {
         check(cancelled)?;
-        let key = lookup
-            .get(&child.item_no)
-            .ok_or(AdmissionError::InvalidKeys)?;
+        let key = lookup.get(&child.item_no).map(|key| (*key).clone());
         let observed = inspect_subtree(version, child.item_no, &basis, &mut identities, cancelled)?;
         let raw =
             value(version, child.item_no, &basis).map_err(|_| AdmissionError::NoAttribution)?;
@@ -121,7 +118,7 @@ pub fn admit_cancellable(
                 area_attributed: true,
             },
             bytes: observed,
-            key: (*key).clone(),
+            key,
         });
     }
     let parent_value =
@@ -130,13 +127,22 @@ pub fn admit_cancellable(
         return Err(AdmissionError::NoAttribution);
     }
     let rows = order(rows, cancelled)?;
+    for pair in rows.windows(2) {
+        check(cancelled)?;
+        if pair[0].bytes > 0
+            && pair[0].bytes == pair[1].bytes
+            && (pair[0].key.is_none() || pair[1].key.is_none())
+        {
+            return Err(AdmissionError::OrderingUnavailable);
+        }
+    }
     check(cancelled)?;
     Ok(Admitted { rows })
 }
 
 /// Validates attribution and calculates the existing one-parent layout.
-/// Keys must cover every immediate child exactly once and be produced using
-/// the pinned path comparison rule, not display names.
+/// Each supplied key must identify a distinct immediate child and come from
+/// the pinned path comparison rule. Equal positive weights need both keys.
 pub fn layout_parent(
     version: &ResultVersion,
     parent: &ItemRef,
@@ -279,7 +285,7 @@ pub fn layout_nested_parent(
 ) -> Result<Partition, AdmissionError> {
     match layout_parent(version, parent, basis.clone(), bounds, keys) {
         Ok(partition) => Ok(partition),
-        Err(AdmissionError::NoAttribution) => {
+        Err(AdmissionError::NoAttribution | AdmissionError::OrderingUnavailable) => {
             let parent_no = root_ref(version, parent).map_err(|_| AdmissionError::InvalidParent)?;
             let children = version
                 .children(parent_no)

@@ -76,7 +76,7 @@ fn cancelled_during_cached_source_admission_preserves_existing_model() -> Result
                 result_version: source.result_version().clone(),
                 item_no: 1,
             },
-            path_compare_key: b"child".to_vec(),
+            path_compare_key: Some(b"child".to_vec()),
             legend_class_key: "fixture".into(),
             display_flags: vec![],
         }]

@@ -115,6 +115,7 @@ impl Model {
 pub enum Error {
     InvalidSource,
     UnavailableAttribution,
+    OrderingUnavailable,
     Dispatch(typed_layout::DispatchError),
     InvalidLayout,
     ShapeLimitExceeded,
@@ -129,7 +130,7 @@ pub struct Options<'a> {
     pub max_shapes: usize,
 }
 
-/// One pinned source and its complete immediate-child ordering keys.
+/// One pinned source and the available immediate-child ordering keys.
 pub struct Source<'a> {
     pub version: &'a ResultVersion,
     pub parent: &'a ItemRef,
@@ -163,6 +164,7 @@ pub fn project(
         .map_err(|e| match e {
         super::treemap::AdmissionError::Cancelled => Error::Cancelled,
         super::treemap::AdmissionError::NoAttribution => Error::UnavailableAttribution,
+        super::treemap::AdmissionError::OrderingUnavailable => Error::OrderingUnavailable,
         _ => Error::InvalidSource,
     })?;
     let parent_value =

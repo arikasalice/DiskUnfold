@@ -379,7 +379,7 @@ fn nested_unprovable_partition_suppresses_children_without_redistributing() {
     assert!(branch.children.iter().all(|child| !child.area_attributed
         && child.value.amount == size(SizeBasis::Allocated, 10).amount));
     let mut bad_keys = keys.clone();
-    bad_keys.pop();
+    bad_keys.push(keys[0].clone());
     assert_eq!(
         treemap::layout_nested_parent(&v, &parent, SizeBasis::Allocated, bounds, &bad_keys)
             .unwrap_err(),
