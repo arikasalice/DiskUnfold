@@ -10,6 +10,7 @@ pub mod scan_failures;
 pub mod scan_observation;
 pub mod settings;
 pub mod snapshot_spool;
+pub mod space_detail_ipc;
 mod values;
 pub mod visualization;
 pub mod volume;

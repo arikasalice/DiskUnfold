@@ -25,6 +25,7 @@ import type {
 import type { useScanResult } from "../../state/analysis-scan";
 import type { useTargets } from "../../state/analysis-targets";
 import { ScanIssues } from "./ScanIssues";
+import { ItemSpaceDetails } from "./ItemSpaceDetails";
 import { VolumeExplanation } from "./VolumeExplanation";
 import { displayMeasurement, displaySize, formatBytes } from "./space-format";
 
@@ -386,28 +387,34 @@ function ScopeDetails({
       {pending && <Progress label="Loading folder details" />}
       {problem && <Notice tone="error">{problem}</Notice>}
       {detail && (
-        <Readout
-          label="Observed folder attributes"
-          rows={[
-            { label: "Folder", value: attribute(detail.displayPath) },
-            { label: "Kind", value: attribute(detail.kind) },
-            {
-              label: "Logical size",
-              value: attribute(detail.logicalSize, displaySize),
-            },
-            {
-              label: "Allocated size",
-              value: attribute(detail.allocatedSize, displaySize),
-            },
-            { label: "Modified", value: attribute(detail.modifiedAt) },
-            { label: "Created", value: attribute(detail.createdAt) },
-            { label: "Observed", value: attribute(detail.observedAt) },
-            {
-              label: "Source",
-              value: detail.observationOnly ? "Scan record" : "Scan",
-            },
-          ]}
-        />
+        <>
+          <Readout
+            label="Observed folder attributes"
+            rows={[
+              { label: "Folder", value: attribute(detail.displayPath) },
+              { label: "Kind", value: attribute(detail.kind) },
+              {
+                label: "Logical size",
+                value: attribute(detail.logicalSize, displaySize),
+              },
+              {
+                label: "Allocated size",
+                value: attribute(detail.allocatedSize, displaySize),
+              },
+              { label: "Modified", value: attribute(detail.modifiedAt) },
+              { label: "Created", value: attribute(detail.createdAt) },
+              {
+                label: "Result published",
+                value: attribute(detail.observedAt),
+              },
+              {
+                label: "Source",
+                value: detail.observationOnly ? "Scan record" : "Scan",
+              },
+            ]}
+          />
+          <ItemSpaceDetails client={client} item={detail.item} />
+        </>
       )}
     </section>
   );

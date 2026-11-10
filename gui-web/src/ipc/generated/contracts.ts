@@ -101,3 +101,15 @@ export type BrowseValue<T> = { "state": "present", value: T, } | { "state": "abs
 export type BrowseOrigin = "scan";
 export type BrowseDetailRequest = { resultVersion: Id, item: ItemRef, };
 export type BrowseDetail = { item: ItemRef, displayPath: BrowseValue<string>, displayName: BrowseValue<string>, kind: BrowseValue<ResultItemKind>, logicalSize: BrowseValue<SizeValue>, allocatedSize: BrowseValue<SizeValue>, modifiedAt: BrowseValue<Timestamp>, createdAt: BrowseValue<Timestamp>, observedAt: BrowseValue<Timestamp>, origin: BrowseOrigin, completeness: ResultCompleteness, currentCorrespondence: boolean, observationOnly: boolean, };
+export type SpaceDetailSize = { size: SizeValue, measurementLimits: Array<string>, };
+export type SpaceLinkGroup = {
+/**
+ * Total OS-reported links, serialized as an exact decimal count.
+ */
+reportedLinkCount: string | null, inScopePaths: Array<ItemRef>, hasOutsideLinks: boolean | null, };
+export type SpaceExclusiveDecision = { confirmed: boolean, reasonKey: string | null, };
+export type SpacePlaceholderState = "none" | "partial" | "full";
+export type SpaceAuxiliary = { size: SizeValue, includedInAllocated: boolean | null, };
+export type SpaceCapabilityState = "supported" | "partial" | "unsupported";
+export type SpaceDetailCapability = { key: string, state: SpaceCapabilityState, reasonKey: string | null, };
+export type SpaceDetail = { item: ItemRef, logical: BrowseValue<SpaceDetailSize>, allocated: BrowseValue<SpaceDetailSize>, uniquePhysical: BrowseValue<SpaceDetailSize>, exclusive: BrowseValue<SpaceDetailSize>, shared: BrowseValue<SpaceDetailSize>, linkGroup: BrowseValue<SpaceLinkGroup>, placeholderLocalState?: BrowseValue<SpacePlaceholderState>, auxiliary: BrowseValue<SpaceAuxiliary>, exclusiveDecision: SpaceExclusiveDecision, observedAt: BrowseValue<Timestamp>, capabilities: BrowseValue<Array<SpaceDetailCapability>>, };

@@ -1,4 +1,5 @@
 //! Read space totals from the immutable version pinned at request admission.
+pub(crate) mod detail;
 pub(crate) mod volume_gap;
 use std::sync::Arc;
 
@@ -107,6 +108,14 @@ fn total(version: &ResultVersion, request: SpaceTotalRequest) -> Result<SpaceTot
 }
 
 fn basis(size: &SizeValue, completeness: ResultCompleteness, limits: &[&str]) -> SpaceTotalSize {
+    SpaceTotalSize {
+        size: size.clone(),
+        completeness,
+        measurement_limits: measurement_limits(size, limits),
+    }
+}
+
+fn measurement_limits(size: &SizeValue, limits: &[&str]) -> Vec<String> {
     let mut measurement_limits: Vec<_> = limits
         .iter()
         .filter(|&&key| match key {
@@ -121,9 +130,5 @@ fn basis(size: &SizeValue, completeness: ResultCompleteness, limits: &[&str]) ->
     if size.amount == SizeAmount::Unknown {
         measurement_limits.push("space.data_insufficient".into());
     }
-    SpaceTotalSize {
-        size: size.clone(),
-        completeness,
-        measurement_limits,
-    }
+    measurement_limits
 }

@@ -2,6 +2,7 @@ use du_core_contracts::result_events::{
     PublishedCompleteness, ResultVersionChange, ResultVersionChanged,
 };
 use du_core_contracts::scan_failures::*;
+use du_core_contracts::space_detail_ipc::*;
 use du_core_contracts::visualization::geometry::{Geometry, Point};
 use du_core_contracts::visualization::model::{ShapeMeta, VizRelationship};
 use du_core_contracts::visualization::quantity::{VizAmount, VizDecimal, VizQuantity};
@@ -100,6 +101,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         BrowseOrigin::decl(&config),
         BrowseDetailRequest::decl(&config),
         BrowseDetail::decl(&config),
+        SpaceDetailSize::decl(&config),
+        SpaceLinkGroup::decl(&config),
+        SpaceExclusiveDecision::decl(&config),
+        SpacePlaceholderState::decl(&config),
+        SpaceAuxiliary::decl(&config),
+        SpaceCapabilityState::decl(&config),
+        SpaceDetailCapability::decl(&config),
+        SpaceDetail::decl(&config),
     ];
     let output = declarations
         .into_iter()

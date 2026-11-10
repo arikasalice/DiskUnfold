@@ -20,6 +20,7 @@ import type {
   ScanStartRequest,
   ScopeReview,
   ScopeReviewRequest,
+  SpaceDetail,
   SpaceTotal,
   SpaceTotalRequest,
   TargetList,
@@ -46,6 +47,8 @@ export type {
   ScopeReview,
   SpaceTotal,
   SpaceTotalSize,
+  SpaceDetail,
+  SpaceDetailSize,
   SizeValue,
   TargetList,
   TargetProbeEvent,
@@ -64,6 +67,7 @@ type Commands = {
   "job.get": [AnalysisJobRequest, AnalysisJobStatus];
   "job.cancel": [AnalysisJobRequest, AnalysisJobControl];
   "space.total": [SpaceTotalRequest, SpaceTotal];
+  "space.detail": [BrowseDetailRequest, SpaceDetail];
   "space.volume_gap": [VolumeGapRequest, VolumeGapResponse];
   "browse.detail": [BrowseDetailRequest, BrowseDetail];
 };

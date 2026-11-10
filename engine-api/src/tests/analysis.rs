@@ -1,10 +1,112 @@
 use super::*;
 use du_analysis_index::{FileIdentity, IngestSink, Observation, SharingEvidence, SpaceObservation};
 use du_core_contracts::{
-    ByteSize, SizeAmount, SizeBasis, SizeEvidence, SizeValue, result::ResultCompleteness,
+    ByteSize, PathBytes, PathEncoding, SizeAmount, SizeBasis, SizeEvidence, SizeValue,
+    result::{ResultCompleteness, ResultNativePath, ResultScopeRoot},
 };
 use du_job_runtime::{JobClock, JobEvents, JobIdentity, JobRuntime, Submission};
 use std::sync::Arc;
+
+#[test]
+fn space_detail_exposes_pinned_evidence_without_inventing_a_timestamp()
+-> Result<(), Box<dyn std::error::Error>> {
+    let scope = Id::parse("0195f856-ab83-7a59-9343-10d29775c9a9")?;
+    let version = Id::parse("0195f856-ab83-7a59-9343-10d29775c9aa")?;
+    let store = IngestSink::default();
+    let mut build = store
+        .open_forest(
+            scope.clone(),
+            vec![ResultScopeRoot {
+                path: ResultNativePath {
+                    encoding: PathEncoding::Unix,
+                    raw: PathBytes::from_bytes(b"/root"),
+                },
+                volume_id: vec![1],
+                file_id: vec![2],
+            }],
+        )
+        .map_err(|e| format!("{e:?}"))?;
+    build
+        .add_directory(Vec::new())
+        .map_err(|e| format!("{e:?}"))?;
+    build
+        .add_with_space_at(
+            0,
+            Observation {
+                path: vec![b"item".to_vec()],
+                size: Some(SizeValue {
+                    basis: SizeBasis::Logical,
+                    evidence: SizeEvidence::Measured,
+                    amount: SizeAmount::Exact { bytes: 0.into() },
+                }),
+            },
+            SpaceObservation {
+                allocated: Some(SizeValue {
+                    basis: SizeBasis::Allocated,
+                    evidence: SizeEvidence::OsReported,
+                    amount: SizeAmount::Exact { bytes: 0.into() },
+                }),
+                identity: Some(FileIdentity {
+                    volume: vec![1],
+                    file: vec![3],
+                }),
+                link_count: Some(1),
+                sharing: SharingEvidence::None,
+            },
+        )
+        .map_err(|e| format!("{e:?}"))?;
+    build
+        .seal_at(
+            version.clone(),
+            ResultCompleteness::Complete,
+            du_core_contracts::Timestamp::from_unix_millis(10),
+        )
+        .map_err(|e| format!("{e:?}"))?;
+    let mut builder = EngineBuilder::default();
+    crate::space::detail::register(&mut builder, store);
+    let engine = builder.build()?;
+    let read = |item_version: &Id, item_no: u32| {
+        call(
+            &engine,
+            "space.detail",
+            Channel::Gui,
+            ENVELOPE_VERSION,
+            json!({"resultVersion":version,"item":{"resultVersion":item_version,"itemNo":item_no}}),
+        )
+    };
+    let file = read(&version, 1)?;
+    assert!(file.error.is_none(), "{:?}", file.error);
+    assert_eq!(file.body["logical"]["value"]["size"]["bytes"], "0");
+    assert_eq!(file.body["shared"]["value"]["size"]["bytes"], "0");
+    assert_eq!(file.body["exclusiveDecision"]["confirmed"], true);
+    assert_eq!(file.body["linkGroup"]["value"]["reportedLinkCount"], "1");
+    assert_eq!(
+        file.body["linkGroup"]["value"]["inScopePaths"][0]["itemNo"],
+        1
+    );
+    assert_eq!(file.body["observedAt"]["state"], "unknown");
+    assert_eq!(
+        file.body["auxiliary"]["reasonKey"],
+        "space.aux_not_included"
+    );
+    assert!(file.body.get("placeholderLocalState").is_none());
+    assert_eq!(read(&version, 0)?.body["exclusive"]["state"], "absent");
+    assert_eq!(
+        read(&version, 9)?
+            .error
+            .ok_or("missing item accepted")?
+            .reason_key,
+        "ref.unavailable"
+    );
+    assert_eq!(
+        read(&scope, 1)?
+            .error
+            .ok_or("wrong version accepted")?
+            .reason_key,
+        "result.requery_required"
+    );
+    Ok(())
+}
 
 struct JobFixture(Id);
 

@@ -44,6 +44,7 @@ pub(crate) fn register_with_comparison(
         .register(du_scan_engine::scan_job::descriptor())?;
     let store = IngestSink::with_version_publisher(workers.runtime.result_version_publisher());
     space::register_total(builder, store.clone());
+    space::detail::register(builder, store.clone());
     space::volume_gap::register(builder, store.clone());
     browse::register(builder, store.clone());
     builder.register(StartScan {

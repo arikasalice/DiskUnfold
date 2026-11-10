@@ -19,6 +19,7 @@ import type {
   ScanFailures,
   ScanFailuresRequest,
   ScopeReview,
+  SpaceDetail,
   SpaceTotal,
   TargetList,
   TargetProbeEvent,
@@ -189,6 +190,43 @@ function fixture({
             observationOnly: true,
           };
           return result;
+        }
+        case "space.detail": {
+          const request = body as { item: SpaceDetail["item"] };
+          const unknown = {
+            state: "unknown",
+            reasonKey: "space.data_insufficient",
+          } as const;
+          return {
+            item: request.item,
+            logical: {
+              state: "present",
+              value: {
+                size: {
+                  basis: "logical",
+                  evidence: "os_reported",
+                  state: "lower_bound",
+                  bytes: "42",
+                },
+                measurementLimits: [],
+              },
+            },
+            allocated: unknown,
+            uniquePhysical: unknown,
+            exclusive: unknown,
+            shared: unknown,
+            linkGroup: { state: "absent" },
+            auxiliary: {
+              state: "unknown",
+              reasonKey: "space.aux_not_included",
+            },
+            exclusiveDecision: {
+              confirmed: false,
+              reasonKey: "space.sharing_not_collected",
+            },
+            observedAt: unknown,
+            capabilities: unknown,
+          } satisfies SpaceDetail;
         }
         default:
           throw new Error(`Unexpected command ${name}`);
@@ -366,6 +404,18 @@ test("F01–F03: reviewed scope starts a scan and reads its pinned partial resul
     resultVersion: "result",
     item: { resultVersion: "result", itemNo: 0 },
   });
+  const space = within(await screen.findByLabelText("Observed item space"));
+  expect(
+    space.getByText("At least 42 bytes · Reported by the file system"),
+  ).toBeDefined();
+  expect(space.getByText("Sharing evidence was not collected")).toBeDefined();
+  expect(space.getByText("Auxiliary data was not collected")).toBeDefined();
+  expect(
+    space.getByText("Item observed at").nextElementSibling?.textContent,
+  ).toBe("Unavailable in this scan");
+  expect(calls.find((call) => call.name === "space.detail")?.body).toEqual(
+    calls.find((call) => call.name === "browse.detail")?.body,
+  );
 });
 
 test("F01: stale scope disables start and requires review again", async () => {
