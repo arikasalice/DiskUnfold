@@ -8,6 +8,8 @@ mod stable;
 use stable::open_verified_impl;
 mod space;
 mod timestamps;
+mod volume_space;
+pub use volume_space::WindowsVolumeSpace;
 
 #[cfg(test)]
 thread_local! { static PROBES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
