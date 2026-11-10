@@ -3,6 +3,7 @@ pub mod boundary;
 mod condition;
 pub mod page;
 pub(crate) mod plan;
+pub mod prepared;
 mod sorting;
 pub use condition::{Basis, Boundary, Condition, Kind, NameEncoding, NameTest, Predicate, Truth};
 /// Checks condition depth and group sizes before recursive normalization.
@@ -17,7 +18,6 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 pub use crate::space::selection::Error as SpaceTotalError;
-
 /// One immutable item and its native root-relative path in a pinned result.
 pub struct Record<'a> {
     pub item: &'a ResultItem,
@@ -63,7 +63,7 @@ pub type PredicateEvaluator = for<'a> fn(&Record<'a>, &Predicate) -> Truth;
 pub type SortEvaluator = for<'a> fn(&Record<'a>, Basis) -> SortValue;
 
 /// Versioned in-memory registry for condition and ordering strategies.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct Registry {
     predicates: BTreeMap<(String, u32), PredicateEvaluator>,
     sorts: BTreeMap<(String, u32), SortEvaluator>,

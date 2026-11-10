@@ -1,6 +1,6 @@
 //! Session-only immutable query results and admitted, pinned page reads.
 mod admission;
-pub use admission::SourceAdmission;
+pub use admission::{SearchAdmission, SourceAdmission, ValidatedSearch};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::ops::Range;
 use std::sync::{Arc, Mutex};

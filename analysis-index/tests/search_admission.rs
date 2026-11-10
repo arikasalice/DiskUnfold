@@ -190,3 +190,114 @@ fn refinement_cannot_publish_rows_outside_the_admitted_parent() -> Result<(), St
     assert!(!page.has_next());
     Ok(())
 }
+
+fn no(_: &Record<'_>, _: &Predicate) -> Truth {
+    Truth::NoMatch
+}
+
+#[test]
+fn prepared_job_keeps_condition_sort_registry_and_source_snapshot() -> Result<(), String> {
+    use du_analysis_index::query::{
+        SortSpec,
+        prepared::{PreparedSearch, SearchInput},
+    };
+    let (store, sets) = fixture()?;
+    let mut registry = Registry::baseline();
+    registry
+        .register_checked_predicate("pred.test", 1, yes, operand)
+        .map_err(|e| format!("{e:?}"))?;
+    let condition = Condition::Predicate(Predicate::Registered {
+        id: "pred.test".into(),
+        revision: 1,
+        operand: b"ok".to_vec(),
+    });
+    let mut sorts = vec![SortSpec::from(&sort())];
+    let admission = sets
+        .admit_search(None, None)
+        .map_err(|e| format!("{e:?}"))?;
+    let prepared = PreparedSearch::new(
+        sets.clone(),
+        admission,
+        &registry,
+        SearchInput {
+            condition: condition.clone(),
+            sorts: sorts.clone(),
+            count: Some(1),
+        },
+    )
+    .map_err(|e| format!("{e:?}"))?;
+    registry
+        .register_checked_predicate("pred.test", 2, no, operand)
+        .map_err(|e| format!("{e:?}"))?;
+    sorts[0].descending = true;
+    let mut replacement = store.open(id(3)?).map_err(|e| format!("{e:?}"))?;
+    replacement
+        .add_directory(vec![])
+        .map_err(|e| format!("{e:?}"))?;
+    replacement
+        .seal(id(4)?, ResultCompleteness::Complete)
+        .map_err(|e| format!("{e:?}"))?;
+    let candidate = thread::spawn(move || prepared.evaluate(|| false))
+        .join()
+        .map_err(|_| "worker panicked")?
+        .map_err(|e| format!("{e:?}"))?;
+    let page = sets
+        .register_admitted_search(id(5)?, candidate)
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(page.items().len(), 1);
+    assert!(page.has_next());
+    assert_eq!(page.metadata().condition, &condition);
+    assert!(!page.metadata().sort_descending);
+    assert_eq!(
+        page.metadata().predicate_strategies,
+        &[("pred.test".into(), 1)]
+    );
+    assert_eq!(page.metadata().version, &id(2)?);
+    assert!(matches!(
+        sets.open_page(&id(5)?, &id(2)?, 0, Some(1)),
+        Err(PageError::StaleVersion)
+    ));
+    Ok(())
+}
+
+#[test]
+fn combined_parent_depth_is_rejected_before_evaluation() -> Result<(), String> {
+    use du_analysis_index::query::{
+        SortSpec,
+        prepared::{PreparedSearch, PreparedSearchError, SearchInput},
+    };
+    let (_, sets) = fixture()?;
+    let registry = Registry::baseline();
+    let mut deep = Condition::All(vec![]);
+    for _ in 0..64 {
+        deep = Condition::Not(Box::new(deep));
+    }
+    let admission = sets
+        .admit_search(None, None)
+        .map_err(|e| format!("{e:?}"))?;
+    let result = query::run(&registry, admission.version(), &deep, sort(), || false)
+        .map_err(|e| format!("{e:?}"))?;
+    let candidate = sets
+        .validate_search_candidate(admission, result, None)
+        .map_err(|e| format!("{e:?}"))?;
+    sets.register_admitted_search(id(5)?, candidate)
+        .map_err(|e| format!("{e:?}"))?;
+    let parent = sets
+        .admit_search(None, Some(&id(5)?))
+        .map_err(|e| format!("{e:?}"))?;
+    let result = PreparedSearch::new(
+        sets,
+        parent,
+        &registry,
+        SearchInput {
+            condition: Condition::All(vec![]),
+            sorts: vec![SortSpec::from(&sort())],
+            count: None,
+        },
+    );
+    assert!(matches!(
+        result,
+        Err(PreparedSearchError::Query(Error::InvalidCondition))
+    ));
+    Ok(())
+}

@@ -119,6 +119,9 @@ pub struct SearchAdmission {
 }
 
 impl SearchAdmission {
+    pub(crate) fn belongs_to(&self, sets: &ResultSets) -> bool {
+        Arc::ptr_eq(&self.source.owner, &sets.identity)
+    }
     /// Returns the pinned source selected for the search.
     pub fn version(&self) -> Arc<crate::ResultVersion> {
         self.source.version()
