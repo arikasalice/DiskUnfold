@@ -49,7 +49,7 @@ fn unavailable_geometry_keeps_the_original_partial_rows_and_denominator() -> Res
     );
     let render = || match session.render_selected(
         request(&parent, 1_000_000),
-        |source, _| Ok(evidence(source.version(), source.result_version())),
+        |_, item, _| Ok(policy(item)),
         &mut || false,
     ) {
         Err(Error::NoAttribution(fallback)) => Ok(fallback),

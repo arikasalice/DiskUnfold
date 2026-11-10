@@ -1,6 +1,7 @@
 //! Exercise live model registration from the selected scan through the strategy registry.
 mod fallback;
 mod locate;
+mod pinned_children;
 
 use std::{
     num::NonZeroUsize,
@@ -24,7 +25,7 @@ use du_engine_api::{
     viz_pages::{
         self, ModelPages,
         render::{ChildEvidence, Error, Request},
-        session::Session,
+        session::{ChildPolicyEvidence, Session},
     },
 };
 use du_job_runtime::JobIdentity;
@@ -103,6 +104,13 @@ fn evidence(version: &ResultVersion, revision: &Id) -> Vec<ChildEvidence> {
         })
         .collect()
 }
+fn policy(item: &du_core_contracts::result::ResultItem) -> ChildPolicyEvidence {
+    ChildPolicyEvidence {
+        path_compare_key: item.name.clone(),
+        legend_class_key: "fixture.class".into(),
+        display_flags: vec![],
+    }
+}
 fn request(parent: &ItemRef, right: u32) -> Request<'_> {
     Request {
         selected_revision: &parent.result_version,
@@ -136,27 +144,21 @@ fn selected_render_uses_the_same_rows_and_stable_normalized_reference() -> Resul
         Arc::new(Identity(AtomicU8::new(11))),
         dispatcher,
     );
-    let render = |width, reverse| {
+    let render = |width| {
         session
             .render_selected(
                 request(&parent, width),
-                |source, _| {
-                    let mut rows = evidence(source.version(), source.result_version());
-                    if reverse {
-                        rows.reverse();
-                    }
-                    Ok(rows)
-                },
+                |_, item, _| Ok(policy(item)),
                 &mut || false,
             )
             .map_err(|error| format!("{error:?}"))
     };
-    let first = render(1_000_000, false)?;
-    let repeated = render(1_000_000, true)?;
+    let first = render(1_000_000)?;
+    let repeated = render(1_000_000)?;
     assert_eq!(first.model_ref, repeated.model_ref);
     assert_eq!(first.model, repeated.model);
     assert!(Arc::ptr_eq(&first.model, &repeated.model));
-    assert_ne!(first.model_ref, render(500_000, false)?.model_ref);
+    assert_ne!(first.model_ref, render(500_000)?.model_ref);
     let fallback = first.fallback();
     let page = session
         .rows(&VizRowsRequest {
@@ -193,7 +195,7 @@ fn render_reference_collision_keeps_previous_geometry_and_page() -> Result<(), S
     let render = |width| {
         session.render_selected(
             request(&parent, width),
-            |source, _| Ok(evidence(source.version(), source.result_version())),
+            |_, item, _| Ok(policy(item)),
             &mut || false,
         )
     };
@@ -379,7 +381,7 @@ fn session_dispatches_registered_revision_and_rejects_unknown_strategy() -> Resu
     let render = || {
         session.render_selected(
             request(&parent, 1000),
-            |source, _| Ok(evidence(source.version(), source.result_version())),
+            |_, item, _| Ok(policy(item)),
             &mut || false,
         )
     };
@@ -395,7 +397,7 @@ fn session_dispatches_registered_revision_and_rejects_unknown_strategy() -> Resu
     let mut unknown = request(&parent, 1000);
     unknown.strategy = Some(&missing);
     assert!(matches!(
-        session.render_selected(unknown, |_, _| unreachable!(), &mut || false),
+        session.render_selected(unknown, |_, _, _| unreachable!(), &mut || false),
         Err(Error::Strategy(
             du_engine_api::viz_catalog::Error::UnknownStrategy
         ))
@@ -428,7 +430,7 @@ fn dropping_a_session_releases_only_its_models_from_the_pinned_source() -> Resul
         session
             .render_selected(
                 request(&parent, 1000),
-                |source, _| Ok(evidence(source.version(), source.result_version())),
+                |_, item, _| Ok(policy(item)),
                 &mut || false,
             )
             .map_err(|error| format!("{error:?}"))

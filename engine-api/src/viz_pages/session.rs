@@ -6,10 +6,14 @@ use std::{num::NonZeroUsize, sync::Arc};
 
 use du_analysis_index::{
     IngestSink,
-    visualization::{projection::Location, typed_layout::Dispatcher},
+    visualization::{
+        projection::{self, Location},
+        typed_layout::Dispatcher,
+    },
 };
 use du_core_contracts::{
     ItemRef,
+    result::ResultItem,
     visualization::rows::{VizRows, VizRowsRequest},
 };
 use du_job_runtime::JobIdentity;
@@ -24,6 +28,16 @@ use crate::current_analysis::CurrentAnalysis;
 pub struct Session {
     pages: ModelPages,
     dispatcher: Dispatcher,
+}
+
+/// Policy-owned values for one actual child of the pinned folder.
+///
+/// The caller must use the registered path-comparison and legend policies;
+/// display names and raw path bytes do not establish a comparison key.
+pub struct ChildPolicyEvidence {
+    pub path_compare_key: Vec<u8>,
+    pub legend_class_key: String,
+    pub display_flags: Vec<String>,
 }
 
 impl Session {
@@ -50,17 +64,50 @@ impl Session {
         self.pages.locate(model_ref, item)
     }
 
-    /// Renders against the session's registry and pins the matching table rows.
+    /// Renders the pinned folder's actual immediate children and matching table rows.
+    ///
+    /// The injected policy supplies keys and flags only; item references and
+    /// membership are derived from the admitted result. A missing policy must
+    /// return an error instead of inventing keys or classifications.
     pub fn render_selected(
         &self,
         request: render::Request<'_>,
-        evidence: impl FnOnce(
+        mut evidence: impl FnMut(
             &CurrentAnalysis,
+            &ResultItem,
             &mut dyn FnMut() -> bool,
-        ) -> Result<Vec<render::ChildEvidence>, render::Error>,
+        ) -> Result<ChildPolicyEvidence, render::Error>,
         cancelled: &mut dyn FnMut() -> bool,
     ) -> Result<render::Rendered, render::Error> {
-        self.pages
-            .render_selected(&self.dispatcher, request, evidence, cancelled)
+        let parent = request.parent.clone();
+        self.pages.render_selected(
+            &self.dispatcher,
+            request,
+            |source, cancelled| {
+                let folder = du_analysis_index::browse::open(source.version(), Some(&parent))
+                    .map_err(|_| render::Error::Projection(projection::Error::InvalidSource))?;
+                let mut children = Vec::with_capacity(folder.children.len());
+                for item in folder.children {
+                    if cancelled() {
+                        return Err(render::Error::Cancelled);
+                    }
+                    let policy = evidence(source, item, cancelled)?;
+                    children.push(render::ChildEvidence {
+                        item: ItemRef {
+                            result_version: source.result_version().clone(),
+                            item_no: item.item_no,
+                        },
+                        path_compare_key: policy.path_compare_key,
+                        legend_class_key: policy.legend_class_key,
+                        display_flags: policy.display_flags,
+                    });
+                }
+                if cancelled() {
+                    return Err(render::Error::Cancelled);
+                }
+                Ok(children)
+            },
+            cancelled,
+        )
     }
 }

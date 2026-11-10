@@ -83,23 +83,7 @@ fn locates_exact_items_and_separates_visibility_scope_and_lifetime() -> Result<(
         session
             .render_selected(
                 request(&focus, width),
-                |source, _| {
-                    Ok(source
-                        .version()
-                        .items()
-                        .iter()
-                        .filter(|item| item.parent == Some(focus.item_no))
-                        .map(|item| ChildEvidence {
-                            item: ItemRef {
-                                result_version: source.result_version().clone(),
-                                item_no: item.item_no,
-                            },
-                            path_compare_key: item.name.clone(),
-                            legend_class_key: "fixture.class".into(),
-                            display_flags: Vec::new(),
-                        })
-                        .collect())
-                },
+                |_, item, _| Ok(policy(item)),
                 &mut || false,
             )
             .map_err(|error| format!("{error:?}"))
