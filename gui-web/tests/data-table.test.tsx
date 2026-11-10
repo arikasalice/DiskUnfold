@@ -97,3 +97,35 @@ test("typical maximum counts and session label remain in non-focusable cells", (
   expect(cols[0]?.style.width).toBe("420px");
   expect(cols[1]?.style.width).toBe("400px");
 });
+
+test("compact tables keep default row height unchanged and render ten rows of overscan", () => {
+  const rows = Array.from({ length: 100 }, (_, i) => `Row ${i}`);
+  const { rerender } = render(
+    <DataTable
+      label="Compact"
+      columns={["Name"]}
+      rows={rows}
+      renderCells={(row) => [row]}
+      density="compact"
+      totalRows={500}
+    />,
+  );
+  const table = screen.getByRole("table", { name: "Compact" });
+  expect(table.getAttribute("aria-rowcount")).toBe("501");
+  expect((screen.getByText("Row 0") as HTMLElement).style.blockSize).toBe(
+    "64px",
+  );
+  expect(screen.getByText("Row 19")).toBeDefined();
+  expect(screen.queryByText("Row 20")).toBeNull();
+  rerender(
+    <DataTable
+      label="Compact"
+      columns={["Name"]}
+      rows={rows}
+      renderCells={(row) => [row]}
+    />,
+  );
+  expect((screen.getByText("Row 0") as HTMLElement).style.blockSize).toBe(
+    "144px",
+  );
+});

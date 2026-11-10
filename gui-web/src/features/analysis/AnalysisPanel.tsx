@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { Ref } from "react";
 import { Action, Heading, Notice, Readout, Text } from "../../components";
 import { AnalysisError } from "../../ipc";
 import type {
@@ -99,7 +100,15 @@ function ReviewNotices({
 }
 
 /** Presents target selection, scope review, background collection and pinned totals. */
-export function AnalysisPanel({ client }: { client: AnalysisClient }) {
+export function AnalysisPanel({
+  client,
+  onBrowse,
+  browseTrigger,
+}: {
+  client: AnalysisClient;
+  onBrowse?: (version: string) => void;
+  browseTrigger?: Ref<HTMLButtonElement>;
+}) {
   const targets = useTargets(client);
   const [selected, setSelected] = useState<(OsPath | undefined)[]>([undefined]);
   const [review, setReview] = useState<ScopeReview>();
@@ -120,6 +129,7 @@ export function AnalysisPanel({ client }: { client: AnalysisClient }) {
     undefined,
   );
   const scan = useScanResult(client, receipt);
+  const browsableVersion = scan.total?.resultVersion;
   const running =
     receipt !== null &&
     !scan.unavailable &&
@@ -349,6 +359,17 @@ export function AnalysisPanel({ client }: { client: AnalysisClient }) {
             problem={error}
             roots={resultRoots}
           />
+          {browsableVersion && onBrowse && (
+            <div className="du-card__actions">
+              <Action
+                ref={browseTrigger ?? null}
+                icon="folder"
+                onPress={() => onBrowse(browsableVersion)}
+              >
+                Browse folders
+              </Action>
+            </div>
+          )}
           {running && (
             <footer className="du-card__actions">
               <Action

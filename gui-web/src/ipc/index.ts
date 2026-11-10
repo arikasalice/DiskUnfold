@@ -9,6 +9,8 @@ import type {
   AnalysisJobStatus,
   BrowseDetail,
   BrowseDetailRequest,
+  BrowseOpenRequest,
+  BrowseOpenResponse,
   CallEnvelope,
   EventEnvelope,
   HistoryDetail,
@@ -19,6 +21,8 @@ import type {
   HistoryListResponse,
   Id,
   OsPath,
+  QueryPageRequest,
+  QueryPageResponse,
   ResultEnvelope,
   ScanFailures,
   ScanFailuresRequest,
@@ -41,6 +45,13 @@ export type {
   AnalysisJobStatus,
   AnalysisTarget,
   BrowseDetail,
+  BrowseOpenRequest,
+  BrowseOpenResponse,
+  FolderQueryPage,
+  FolderQueryRow,
+  ItemRef,
+  QueryPageRequest,
+  QueryPageResponse,
   BrowseValue,
   EventEnvelope,
   HistoryChangedBody,
@@ -59,6 +70,7 @@ export type {
   HistoryListRow,
   HistoryListSummary,
   HistoryRelation,
+  Id,
   JobState,
   OsPath,
   ScanFailureKind,
@@ -97,6 +109,8 @@ type Commands = {
   "space.detail": [BrowseDetailRequest, SpaceDetail];
   "space.volume_gap": [VolumeGapRequest, VolumeGapResponse];
   "browse.detail": [BrowseDetailRequest, BrowseDetail];
+  "browse.open": [BrowseOpenRequest, BrowseOpenResponse];
+  "query.page": [QueryPageRequest, QueryPageResponse];
 };
 
 export interface AnalysisClient {

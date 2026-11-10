@@ -11,21 +11,31 @@ export function DataTable<Row>({
   rows,
   renderCells,
   columnWidths,
+  density = "comfortable",
+  totalRows,
+  getRowKey,
 }: {
   label: string;
   columns: string[];
   rows: readonly Row[];
   renderCells: (row: Row, index: number) => readonly ReactNode[];
   columnWidths?: number[];
+  density?: "comfortable" | "compact";
+  /** Total known rows, or -1 when only a lower bound is known. */
+  totalRows?: number;
+  getRowKey?: (row: Row) => string;
 }) {
   const [scrollTop, setScrollTop] = useState(0);
+  const rowHeight = density === "compact" ? 64 : ROW_HEIGHT;
+  const viewRows = density === "compact" ? 10 : VIEW_ROWS;
+  const overscan = density === "compact" ? 10 : OVERSCAN;
   const widths = columns.map((_, index) => columnWidths?.[index] ?? 160);
   const first = Math.min(
-    Math.floor(scrollTop / ROW_HEIGHT),
-    Math.max(0, rows.length - VIEW_ROWS),
+    Math.floor(scrollTop / rowHeight),
+    Math.max(0, rows.length - viewRows),
   );
-  const start = Math.max(0, first - OVERSCAN);
-  const end = Math.min(rows.length, first + VIEW_ROWS + OVERSCAN);
+  const start = Math.max(0, first - overscan);
+  const end = Math.min(rows.length, first + viewRows + overscan);
   const onScroll = (event: UIEvent<HTMLDivElement>) =>
     setScrollTop(event.currentTarget.scrollTop);
   return (
@@ -39,7 +49,7 @@ export function DataTable<Row>({
       <table
         className="du-data-table"
         aria-label={label}
-        aria-rowcount={rows.length + 1}
+        aria-rowcount={totalRows === -1 ? -1 : (totalRows ?? rows.length) + 1}
         style={{
           minInlineSize:
             rows.length === 0
@@ -66,17 +76,20 @@ export function DataTable<Row>({
             <tr aria-hidden="true" className="du-table-spacer">
               <td
                 colSpan={columns.length}
-                style={{ height: start * ROW_HEIGHT }}
+                style={{ height: start * rowHeight }}
               />
             </tr>
           )}
           {rows.slice(start, end).map((row, index) => (
-            <tr key={start + index} aria-rowindex={start + index + 2}>
+            <tr
+              key={getRowKey?.(row) ?? start + index}
+              aria-rowindex={start + index + 2}
+            >
               {renderCells(row, start + index).map((cell, column) => (
                 <td key={column}>
                   <div
                     className="du-table-cell"
-                    style={{ blockSize: ROW_HEIGHT }}
+                    style={{ blockSize: rowHeight }}
                   >
                     {cell}
                   </div>
@@ -88,7 +101,7 @@ export function DataTable<Row>({
             <tr aria-hidden="true" className="du-table-spacer">
               <td
                 colSpan={columns.length}
-                style={{ height: (rows.length - end) * ROW_HEIGHT }}
+                style={{ height: (rows.length - end) * rowHeight }}
               />
             </tr>
           )}
