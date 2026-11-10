@@ -1,6 +1,36 @@
 use super::*;
 
 #[test]
+fn subscriber_panic_leaves_the_physical_job_able_to_finish()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (runtime, id) = setup_kind("viz.compute", Arc::new(Events::default()))?;
+    runtime.submit_viz_with_publication(
+        controlled_submission(
+            "viz.compute",
+            Arc::new(Barrier::new(1)),
+            Arc::new(Barrier::new(1)),
+            id.clone(),
+        ),
+        || Ok(()),
+    )?;
+    assert_eq!(
+        runtime.inspect_viz_gate::<()>(&id, |_| {
+            std::panic::resume_unwind(Box::new("injected admission failure"))
+        }),
+        Err(RuntimeError::InvalidState)
+    );
+    assert_eq!(
+        runtime.cancel_viz_if(&id, || {
+            std::panic::resume_unwind(Box::new("injected detach failure"))
+        }),
+        Err(RuntimeError::InvalidState)
+    );
+    assert_eq!(runtime.run_next()?, Some(id.clone()));
+    assert_eq!(runtime.state(&id)?, JobState::Done);
+    Ok(())
+}
+
+#[test]
 fn final_detach_cancels_and_closes_subscriber_admission() -> Result<(), Box<dyn std::error::Error>>
 {
     let (runtime, id) = setup_kind("viz.compute", Arc::new(Events::default()))?;

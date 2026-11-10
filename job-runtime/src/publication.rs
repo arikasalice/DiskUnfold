@@ -59,7 +59,8 @@ impl JobRuntime {
 
     /// Serializes a subscriber admission decision with model publication and cancellation.
     /// The caller must admit a subscriber only while the supplied state permits it.
-    /// The callback must be bounded and in-memory and must not call the runtime.
+    /// The callback must be bounded and in-memory, leave no partial change on panic,
+    /// and must not call the runtime.
     pub fn inspect_viz_gate<T>(
         &self,
         id: &Id,
@@ -70,8 +71,9 @@ impl JobRuntime {
 
     /// Detaches a subscriber under the same gate as model publication.
     /// The callback returns true only when it removed the final active subscriber.
-    /// It must be bounded and in-memory and must not call the runtime. If the job
-    /// has already finished, the callback is skipped and the terminal state is returned.
+    /// It must be bounded and in-memory, leave no partial change on error or panic,
+    /// and must not call the runtime. If the job has already finished, the callback
+    /// is skipped and the terminal state is returned.
     pub fn cancel_viz_if(
         &self,
         id: &Id,
@@ -106,7 +108,10 @@ impl JobRuntime {
             }
             (job.state, job.sequence)
         };
-        operation(state, sequence)
+        // Keep the guard outside the unwind boundary so a subscriber failure
+        // cannot prevent completion or cancellation of the physical job.
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| operation(state, sequence)))
+            .map_err(|_| RuntimeError::InvalidState)?
     }
 
     pub(super) fn publication_gate(&self, id: &Id) -> Result<Option<Arc<Mutex<()>>>, RuntimeError> {
