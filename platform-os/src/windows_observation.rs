@@ -134,16 +134,19 @@ fn wide(name: &[u8]) -> Result<Vec<u16>, PortError> {
     }
     Ok(result)
 }
-fn info(file: &File) -> Result<BY_HANDLE_FILE_INFORMATION, PortError> {
+pub(crate) fn info(file: &File) -> Result<BY_HANDLE_FILE_INFORMATION, PortError> {
     let mut value = BY_HANDLE_FILE_INFORMATION::default();
     // SAFETY: value is writable for the duration of the call; file owns a live handle.
     unsafe { GetFileInformationByHandle(raw(file), &mut value) }.map_err(win_error)?;
     Ok(value)
 }
-fn identity(value: &BY_HANDLE_FILE_INFORMATION) -> u64 {
+pub(crate) fn identity(value: &BY_HANDLE_FILE_INFORMATION) -> u64 {
     (u64::from(value.nFileIndexHigh) << 32) | u64::from(value.nFileIndexLow)
 }
-fn final_path(file: &File, flags: GETFINALPATHNAMEBYHANDLE_FLAGS) -> Result<Vec<u16>, PortError> {
+pub(crate) fn final_path(
+    file: &File,
+    flags: GETFINALPATHNAMEBYHANDLE_FLAGS,
+) -> Result<Vec<u16>, PortError> {
     let mut path = vec![0u16; 32768];
     // SAFETY: the handle is live and the buffer is writable for its full length.
     let length = unsafe { GetFinalPathNameByHandleW(raw(file), &mut path, flags) } as usize;
@@ -435,4 +438,12 @@ impl AnchoredDirectory for WindowsDirectory {
     fn ancestor_file_ids(&self) -> Option<&[Vec<u8>]> {
         self.ancestors.as_ref().map(|chain| chain.ids.as_slice())
     }
+}
+
+pub(crate) fn volume_name(path: &[u16]) -> Result<Vec<u8>, PortError> {
+    scope::volume_name(path)
+}
+
+pub(crate) fn file_id(file: &File) -> Option<[u8; 16]> {
+    space::file_id(file)
 }

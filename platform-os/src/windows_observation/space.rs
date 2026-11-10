@@ -37,17 +37,7 @@ pub(super) fn read(
         )
     }
     .is_ok();
-    let mut id = FILE_ID_INFO::default();
-    // SAFETY: id is writable and has the required size; file retains the handle.
-    let identity_available = unsafe {
-        GetFileInformationByHandleEx(
-            raw(file),
-            FileIdInfo,
-            std::ptr::addr_of_mut!(id).cast(),
-            size_of::<FILE_ID_INFO>() as u32,
-        )
-    }
-    .is_ok();
+    let file_id = file_id(file);
     let special = (FILE_ATTRIBUTE_COMPRESSED | FILE_ATTRIBUTE_SPARSE_FILE).0;
     let mut compression = FILE_COMPRESSION_INFO::default();
     let compression_available = if first.dwFileAttributes & special != 0 {
@@ -97,11 +87,10 @@ pub(super) fn read(
     } else {
         None
     };
-    let file_identity = (identity_available && id.FileId.Identifier.iter().any(|&byte| byte != 0))
-        .then(|| SpaceIdentity {
-            volume: volume_guid.to_vec(),
-            file: id.FileId.Identifier.to_vec(),
-        });
+    let file_identity = file_id.map(|id| SpaceIdentity {
+        volume: volume_guid.to_vec(),
+        file: id.to_vec(),
+    });
     Ok(Facts {
         allocated,
         link_count,
@@ -117,4 +106,21 @@ fn consistent(first: &BY_HANDLE_FILE_INFORMATION, last: &BY_HANDLE_FILE_INFORMAT
         && first.nFileSizeLow == last.nFileSizeLow
         && first.ftLastWriteTime.dwHighDateTime == last.ftLastWriteTime.dwHighDateTime
         && first.ftLastWriteTime.dwLowDateTime == last.ftLastWriteTime.dwLowDateTime
+}
+
+// Shared by scan and duplicate metadata checks; no path is reopened.
+pub(super) fn file_id(file: &File) -> Option<[u8; 16]> {
+    let mut id = FILE_ID_INFO::default();
+    // SAFETY: id is writable and correctly sized; file owns a live handle.
+    let available = unsafe {
+        GetFileInformationByHandleEx(
+            raw(file),
+            FileIdInfo,
+            std::ptr::addr_of_mut!(id).cast(),
+            size_of::<FILE_ID_INFO>() as u32,
+        )
+    }
+    .is_ok();
+    (available && id.FileId.Identifier.iter().any(|&byte| byte != 0))
+        .then_some(id.FileId.Identifier)
 }
