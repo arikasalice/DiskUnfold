@@ -21,6 +21,17 @@ fn asset(path: &str) -> Option<Asset> {
 }
 
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(windows)]
+    let (locale, settings) = {
+        let bundles = crate::locale::register()?;
+        let configured = bundles.configured_languages().collect::<Vec<_>>();
+        let settings = crate::settings::StartupSettings::load(&configured)?;
+        let stored = settings.stored_language()?;
+        (
+            crate::locale::initialize(bundles, stored.as_deref())?,
+            settings,
+        )
+    };
     #[allow(unused_mut)]
     let mut builder = EngineBuilder::default();
     #[cfg(windows)]
@@ -30,12 +41,16 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         Arc::new(du_platform_os::volume::WindowsVolumes),
         Arc::new(DeferredHistory),
         &du_platform_os::entropy::OsRandom,
-        crate::settings::scan_limit_source()?,
+        settings.scan_limit_source(),
     )?;
     let engine = builder.build()?;
     let app = WebApp {
         asset,
-        dispatch: Arc::new(move |message| crate::ipc::dispatch(&engine, message)),
+        dispatch: Arc::new(move |message| {
+            #[cfg(windows)]
+            let _ = &locale;
+            crate::ipc::dispatch(&engine, message)
+        }),
         #[cfg(windows)]
         isolate: crate::ipc::isolates_volume_enumeration,
         icon: include_bytes!("../icons/icon.png"),

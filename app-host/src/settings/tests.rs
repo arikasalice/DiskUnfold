@@ -4,6 +4,10 @@ use du_user_env::settings::SettingsError;
 use rusqlite::Connection;
 use serde_json::json;
 
+fn open_settings(path: &Path, timestamp_ms: i64) -> Result<SettingsService<AppDb>, io::Error> {
+    restore_settings(path, timestamp_ms, &["en", "ko"])
+}
+
 fn context() -> SettingsCommit {
     SettingsCommit {
         source: SettingsSource::Screen,
@@ -12,11 +16,31 @@ fn context() -> SettingsCommit {
 }
 
 #[test]
+fn startup_preserves_a_configured_language_override() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("language.db");
+    let mut db = AppDb::open_or_create_gui(&path).map_err(|error| format!("{error:?}"))?;
+    db.commit(
+        0,
+        &SettingsChanges::from([(locale::DISPLAY_LANGUAGE_KEY.into(), Some(json!("ko")))]),
+        context(),
+    )
+    .map_err(|error| format!("{error:?}"))?;
+    drop(db);
+
+    let settings = StartupSettings::open(&path, 100, &["en", "ko"])?;
+    assert_eq!(settings.stored_language()?.as_deref(), Some("ko"));
+    assert!(settings.status.invalid_keys.is_empty());
+    assert_eq!(settings.status.stored_revision, Some(1));
+    Ok(())
+}
+
+#[test]
 fn source_keeps_startup_service_and_report_alive() -> Result<(), Box<dyn std::error::Error>> {
     let dir = tempfile::tempdir()?;
     let path = dir.path().join("lifetime.db");
     seed(&path, 1)?;
-    let settings = Arc::new(StartupSettings::open(&path, 100)?);
+    let settings = Arc::new(StartupSettings::open(&path, 100, &["en", "ko"])?);
     let weak = Arc::downgrade(&settings);
     let source = settings.clone().scan_limit_source();
     drop(settings);

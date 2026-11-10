@@ -5,6 +5,8 @@ mod ipc;
 #[cfg(feature = "gui")]
 mod lifecycle;
 #[cfg(all(feature = "gui", windows))]
+mod locale;
+#[cfg(all(feature = "gui", windows))]
 mod settings;
 
 #[cfg(feature = "gui")]

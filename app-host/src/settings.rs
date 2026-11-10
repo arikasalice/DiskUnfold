@@ -10,37 +10,42 @@ use std::{
 use du_app_db::AppDb;
 use du_engine_api::desktop::SharedTableLimitSource;
 use du_user_env::{
-    Registry,
+    Registry, locale,
     settings::{RestoreStatus, SettingsService},
     space::{self, restore_shared_table_limit},
 };
 
-/// Reads settings once at startup. Jobs retain a validated value at admission.
-pub(crate) fn scan_limit_source() -> Result<SharedTableLimitSource, io::Error> {
-    let data_dir = du_platform_os::application_data::directory()
-        .ok_or_else(|| io::Error::other("db.open_failed: no Windows application data directory"))?;
-    let settings = Arc::new(StartupSettings::open(
-        &data_dir.join("diskunfold.db"),
-        current_time_ms(),
-    )?);
-    if let Some(reason) = settings.status.failure_reason {
-        eprintln!("{reason}");
-    }
-    for key in &settings.status.invalid_keys {
-        eprintln!("settings.value_invalid: {key}");
-    }
-    Ok(settings.scan_limit_source())
-}
-
 /// Owns the restored service and immutable startup report for the desktop lifetime.
-struct StartupSettings {
+pub(super) struct StartupSettings {
     service: Mutex<SettingsService<AppDb>>,
     status: RestoreStatus,
 }
 
 impl StartupSettings {
-    fn open(path: &Path, timestamp_ms: i64) -> Result<Self, io::Error> {
-        let service = open_settings(path, timestamp_ms)?;
+    pub(super) fn load(configured_languages: &[&str]) -> Result<Arc<Self>, io::Error> {
+        let data_dir = du_platform_os::application_data::directory().ok_or_else(|| {
+            io::Error::other("db.open_failed: no Windows application data directory")
+        })?;
+        let settings = Self::open(
+            &data_dir.join("diskunfold.db"),
+            current_time_ms(),
+            configured_languages,
+        )?;
+        if let Some(reason) = settings.status.failure_reason {
+            eprintln!("{reason}");
+        }
+        for key in &settings.status.invalid_keys {
+            eprintln!("settings.value_invalid: {key}");
+        }
+        Ok(Arc::new(settings))
+    }
+
+    fn open(
+        path: &Path,
+        timestamp_ms: i64,
+        configured_languages: &[&str],
+    ) -> Result<Self, io::Error> {
+        let service = restore_settings(path, timestamp_ms, configured_languages)?;
         let status = service.restore_status().clone();
         Ok(Self {
             service: Mutex::new(service),
@@ -48,7 +53,22 @@ impl StartupSettings {
         })
     }
 
-    fn scan_limit_source(self: Arc<Self>) -> SharedTableLimitSource {
+    /// Reads the stored override without rewriting it when a bundle is unavailable.
+    pub(super) fn stored_language(&self) -> Result<Option<String>, io::Error> {
+        let service = self
+            .service
+            .lock()
+            .map_err(|_| io::Error::other("settings.restore_failed"))?;
+        Ok(service
+            .snapshot()
+            .values
+            .get(locale::DISPLAY_LANGUAGE_KEY)
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned))
+    }
+
+    /// Supplies the validated setting when a scan is admitted.
+    pub(super) fn scan_limit_source(self: Arc<Self>) -> SharedTableLimitSource {
         Arc::new(move || {
             self.service
                 .lock()
@@ -59,11 +79,17 @@ impl StartupSettings {
     }
 }
 
-fn open_settings(path: &Path, timestamp_ms: i64) -> Result<SettingsService<AppDb>, io::Error> {
+fn restore_settings(
+    path: &Path,
+    timestamp_ms: i64,
+    configured_languages: &[&str],
+) -> Result<SettingsService<AppDb>, io::Error> {
+    let locale_descriptors = locale::descriptors(configured_languages)
+        .map_err(|error| io::Error::other(error.reason_key()))?;
+    let registry = Registry::new(space::descriptors().into_iter().chain(locale_descriptors))
+        .map_err(|error| io::Error::other(format!("settings.registration_failed: {error:?}")))?;
     let database = AppDb::open_or_create_gui(path)
         .map_err(|error| io::Error::other(format!("db.open_failed: {error:?}")))?;
-    let registry = Registry::new(space::descriptors())
-        .map_err(|error| io::Error::other(format!("settings.registration_failed: {error:?}")))?;
     Ok(SettingsService::restore(
         registry,
         database,

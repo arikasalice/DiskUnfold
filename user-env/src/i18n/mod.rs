@@ -40,6 +40,7 @@ impl RegistrationError {
 #[derive(Debug)]
 pub struct Registry {
     bundles: BTreeMap<String, Bundle>,
+    configured_languages: Vec<String>,
     integrity_warnings: Vec<String>,
 }
 
@@ -83,6 +84,10 @@ impl Registry {
         unique(metadata_keys.iter().map(String::as_str))?;
         Ok(Self {
             bundles,
+            configured_languages: resources
+                .iter()
+                .map(|row| row.language.to_owned())
+                .collect(),
             integrity_warnings: warnings,
         })
     }
@@ -93,6 +98,11 @@ impl Registry {
 
     pub fn languages(&self) -> impl Iterator<Item = &str> {
         self.bundles.keys().map(String::as_str)
+    }
+
+    /// Returns the build inventory, including resources rejected for integrity.
+    pub fn configured_languages(&self) -> impl Iterator<Item = &str> {
+        self.configured_languages.iter().map(String::as_str)
     }
 
     pub fn integrity_warnings(&self) -> &[String] {

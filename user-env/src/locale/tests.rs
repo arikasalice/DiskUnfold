@@ -261,3 +261,34 @@ fn corrupt_korean_does_not_invalidate_persisted_language() -> Result<(), String>
     assert_eq!(stored, Some("ko"));
     Ok(())
 }
+
+#[test]
+fn gui_startup_uses_english_and_preserves_stored_language_after_korean_integrity_failure()
+-> Result<(), DecisionError> {
+    let stored = "ko";
+    let inputs = Inputs {
+        registered: &["en"],
+        stored: Some(stored),
+        os: OsLanguage::Supported(&["ko-KR"]),
+        korean_integrity_failed: true,
+    };
+
+    let decision = decide(&inputs)?;
+
+    assert_eq!(decision.language, "en");
+    assert_eq!(decision.source, Source::Baseline);
+    assert_eq!(inputs.stored, Some("ko"));
+    Ok(())
+}
+
+#[test]
+fn gui_startup_is_blocked_when_the_english_baseline_is_not_registered() {
+    let inputs = Inputs {
+        registered: &["ko"],
+        stored: None,
+        os: OsLanguage::Supported(&["ko-KR"]),
+        korean_integrity_failed: false,
+    };
+
+    assert_eq!(decide(&inputs), Err(DecisionError::RegistrationFailed));
+}

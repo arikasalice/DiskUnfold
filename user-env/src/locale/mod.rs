@@ -6,6 +6,9 @@ use serde_json::{Value, json};
 
 use crate::{Descriptor, ValueKind};
 
+/// Settings key for the user-selected display language.
+pub const DISPLAY_LANGUAGE_KEY: &str = "locale.display_language";
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum OsLanguage<'a> {
     Supported(&'a [&'a str]),
@@ -171,7 +174,7 @@ pub fn descriptors(configured_languages: &[&str]) -> Result<Vec<Descriptor>, Dec
     let mut choices = vec![Value::Null];
     choices.extend(languages.into_iter().map(|language| json!(language)));
     Ok(vec![
-        descriptor("locale.display_language", Value::Null, choices),
+        descriptor(DISPLAY_LANGUAGE_KEY, Value::Null, choices),
         descriptor(
             "locale.date_format",
             json!("lang_default"),
