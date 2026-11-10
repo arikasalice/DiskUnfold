@@ -122,9 +122,32 @@ function Test-PopulatedWorkspace {
   $null = Wait-Enabled 'Start scan' $true
   Wait-ScopeActionsVisible
   Invoke-UI (Wait-Enabled 'Start scan' $true)
-  $null = Wait-UI '245-byte aggregate from all six roots' {
+  $null = Wait-UI 'six-root scan finished' { Find-UI 'Scan finished' $textType }
+  $available = Wait-UI 'six-root final result or user-controlled switch' {
+    if (Find-UI 'Final' $textType) { return 'shown' }
+    $switch = Find-UI 'Show latest result' $button
+    if ($switch -and $switch.Current.IsEnabled) { return 'switch' }
+  }
+  if ($available -eq 'switch') {
+    $null = Wait-UI 'six-root interim result still pinned' { Find-UI 'Interim' $textType }
+    Invoke-UI (Wait-Enabled 'Show latest result' $true)
+    'F03 populated workspace: switched from the pinned interim result to the final result'
+  }
+  try {
+    $null = Wait-UI '245-byte aggregate from all six roots' {
+      $metric = Find-UI 'Logical size' ([Windows.Automation.ControlType]::Group)
+      if ($metric -and (Find-UI 'Final' $textType)) { Find-UI '245 bytes' $textType $metric }
+    }
+  } catch {
     $metric = Find-UI 'Logical size' ([Windows.Automation.ControlType]::Group)
-    if ($metric -and (Find-UI 'Scan finished' $textType)) { Find-UI '245 bytes' $textType $metric }
+    if ($metric) {
+      $observed = $metric.FindAll($scopeTree, [Windows.Automation.Condition]::TrueCondition) |
+        ForEach-Object { $_.Current.Name } | Where-Object { $_ }
+      Write-Warning "Six-root logical size UI: $($observed -join ' / ')"
+    } else {
+      Write-Warning 'Six-root logical size group was absent.'
+    }
+    throw
   }
   'F01–F03 populated workspace: six long paths, visible scope actions, 245-byte native scan total in a 640x460 window'
 
