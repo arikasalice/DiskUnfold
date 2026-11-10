@@ -11,6 +11,7 @@ mod result_read;
 mod space;
 pub mod space_detail;
 mod space_limit;
+pub mod statistics;
 mod tree;
 mod version_store;
 pub mod visualization;
