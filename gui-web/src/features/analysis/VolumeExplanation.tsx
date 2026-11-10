@@ -20,6 +20,7 @@ import {
   displaySize,
   evidenceLabels,
   formatBytes,
+  formatSizeBytes,
 } from "./space-format";
 import type { SizeDisplay } from "./space-format";
 
@@ -34,14 +35,25 @@ const factorLabels: Readonly<Record<string, string>> = {
   "gap.time_skew": "Observation timing",
 };
 
-function amount(value: VolumeGapAmount): string {
+/** Shows the selected unit and preserves the exact bytes in the explanation. */
+function volumeBytes(bytes: string, display: SizeDisplay): string {
+  const converted = formatSizeBytes(bytes, display);
+  const raw = formatBytes(bytes);
+  return converted === raw ? raw : `${converted} · ${raw}`;
+}
+
+function amount(value: VolumeGapAmount, display: SizeDisplay): string {
   if (value.state === "unknown") return "Unavailable";
-  return [formatBytes(value.bytes), evidenceLabels[value.evidence]]
+  return [volumeBytes(value.bytes, display), evidenceLabels[value.evidence]]
     .filter(Boolean)
     .join(" · ");
 }
 
-function observationRows(label: string, observation: VolumeGapObservation) {
+function observationRows(
+  label: string,
+  observation: VolumeGapObservation,
+  display: SizeDisplay,
+) {
   if (observation.state === "not_attempted") {
     return [{ label: `${label} observation`, value: "Not attempted" }];
   }
@@ -53,15 +65,15 @@ function observationRows(label: string, observation: VolumeGapObservation) {
     { label: `${label} observation`, value: time },
     {
       label: `${label} volume capacity`,
-      value: formatBytes(observation.totalBytes),
+      value: volumeBytes(observation.totalBytes, display),
     },
     {
       label: `${label} volume used`,
-      value: formatBytes(observation.usedBytes),
+      value: volumeBytes(observation.usedBytes, display),
     },
     {
       label: `${label} volume free`,
-      value: formatBytes(observation.freeBytes),
+      value: volumeBytes(observation.freeBytes, display),
     },
     {
       label: `${label} evidence`,
@@ -177,8 +189,8 @@ export function VolumeExplanation({
           <Readout
             label="Volume observations"
             rows={[
-              ...observationRows("Start", report.start),
-              ...observationRows("End", report.end),
+              ...observationRows("Start", report.start, display),
+              ...observationRows("End", report.end, display),
             ]}
           />
           <Readout
@@ -200,11 +212,11 @@ export function VolumeExplanation({
               },
               ...report.factors.map(({ key, value }) => ({
                 label: factorLabels[key] ?? key,
-                value: amount(value),
+                value: amount(value, display),
               })),
               {
                 label: "Unexplained difference",
-                value: amount(report.remainder),
+                value: amount(report.remainder, display),
               },
               {
                 label: "OS system categories",
@@ -214,7 +226,10 @@ export function VolumeExplanation({
                     : report.osCategories.rows.length === 0
                       ? "None reported"
                       : report.osCategories.rows
-                          .map(({ key, value }) => `${key} · ${amount(value)}`)
+                          .map(
+                            ({ key, value }) =>
+                              `${key} · ${amount(value, display)}`,
+                          )
                           .join(", "),
               },
             ]}

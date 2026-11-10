@@ -1,7 +1,14 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { VolumeExplanation } from "../src/features/analysis/VolumeExplanation";
 import { AnalysisError, createAnalysisClient, windowsPath } from "../src/ipc";
+import type { CallEnvelope, VolumeGapResponse } from "../src/ipc";
 
 afterEach(cleanup);
 
@@ -40,3 +47,96 @@ test.each([
     );
   },
 );
+
+test("F03 FR9: changing volume display units keeps raw bytes and evidence on the same report", async () => {
+  const report = {
+    resultVersion: "selected-version",
+    requestSeq: 1,
+    volumeId: "AQ",
+    start: {
+      state: "available",
+      observedAt: null,
+      totalBytes: "7500",
+      usedBytes: "2500",
+      freeBytes: "5000",
+      evidence: "os_reported",
+    },
+    end: { state: "not_attempted" },
+    allocated: {
+      size: {
+        basis: "allocated",
+        state: "exact",
+        bytes: "0",
+        evidence: "measured",
+      },
+      completeness: "complete",
+    },
+    uniquePhysical: {
+      size: {
+        basis: "unique_physical",
+        state: "exact",
+        bytes: "0",
+        evidence: "measured",
+      },
+      completeness: "complete",
+    },
+    factors: [
+      {
+        key: "gap.excluded",
+        value: { state: "exact", bytes: "2500", evidence: "estimated" },
+      },
+    ],
+    remainder: { state: "unknown", reasonKey: "space.data_insufficient" },
+    osCategories: {
+      state: "available",
+      rows: [
+        {
+          key: "system",
+          value: { state: "exact", bytes: "2500", evidence: "os_reported" },
+        },
+      ],
+    },
+  } satisfies VolumeGapResponse;
+  const transport = vi.fn(
+    async (_: string, { envelope }: { envelope: CallEnvelope }) => ({
+      ...envelope,
+      body: report,
+    }),
+  );
+  const props = {
+    client: createAnalysisClient(transport),
+    resultVersion: report.resultVersion,
+    roots: [windowsPath("C:\\fixture")],
+  };
+  const { rerender } = render(
+    <VolumeExplanation {...props} display={{ system: "si", unit: "auto" }} />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Explain volume usage" }));
+  const observations = within(
+    await screen.findByLabelText("Volume observations"),
+  );
+  const differences = within(screen.getByLabelText("Volume difference"));
+  expect(observations.getByText("2.5 kB · 2,500 bytes")).toBeTruthy();
+  expect(
+    differences.getByText("2.5 kB · 2,500 bytes · Estimated"),
+  ).toBeTruthy();
+
+  rerender(
+    <VolumeExplanation {...props} display={{ system: "iec", unit: "auto" }} />,
+  );
+  expect(observations.getByText("2.4 KiB · 2,500 bytes")).toBeTruthy();
+  expect(
+    differences.getByText(
+      "system · 2.4 KiB · 2,500 bytes · Reported by the file system",
+    ),
+  ).toBeTruthy();
+
+  rerender(
+    <VolumeExplanation {...props} display={{ system: "iec", unit: 0 }} />,
+  );
+  expect(observations.getByText("2,500 bytes")).toBeTruthy();
+  expect(differences.getByText("2,500 bytes · Estimated")).toBeTruthy();
+  expect(differences.getByText("Unavailable")).toBeTruthy();
+  expect(transport).toHaveBeenCalledTimes(1);
+  expect(report.start.totalBytes).toBe("7500");
+});

@@ -46,6 +46,21 @@ export function formatBytes(bytes: string): string {
   return `${BigInt(bytes).toLocaleString()} bytes`;
 }
 
+/** Converts a wire byte count using exact arithmetic before display rounding. */
+export function formatSizeBytes(
+  bytes: string,
+  display: SizeDisplay,
+  lowerBound = false,
+): string {
+  return formatByteUnit(
+    BigInt(bytes),
+    SIZE_UNIT_RULES[display.system],
+    SIZE_UNIT_RULES.decimalPlaces,
+    display.unit,
+    lowerBound,
+  );
+}
+
 /** Preserves a lower bound or missing observation in the displayed size. */
 export function displaySize(
   size: SizeValue,
@@ -53,12 +68,6 @@ export function displaySize(
 ): string {
   if (size.state === "unknown") return "Unavailable";
   const lowerBound = size.state === "lower_bound";
-  const formatted = formatByteUnit(
-    BigInt(size.bytes),
-    SIZE_UNIT_RULES[display.system],
-    SIZE_UNIT_RULES.decimalPlaces,
-    display.unit,
-    lowerBound,
-  );
+  const formatted = formatSizeBytes(size.bytes, display, lowerBound);
   return lowerBound ? `At least ${formatted}` : formatted;
 }
