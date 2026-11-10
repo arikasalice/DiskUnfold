@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { ReactNode, Ref } from "react";
 import {
   Activity,
   CircleAlert,
@@ -77,6 +77,28 @@ export function StatusBadge({
     >
       {children}
     </span>
+  );
+}
+
+/** A persistent text status that can receive focus after an action is removed. */
+export function LiveStatus({
+  children,
+  focusTarget = false,
+  ref,
+}: {
+  children: ReactNode;
+  focusTarget?: boolean;
+  ref?: Ref<HTMLDivElement>;
+}) {
+  return (
+    <div
+      ref={ref}
+      className="du-live-status"
+      role="status"
+      tabIndex={focusTarget ? -1 : undefined}
+    >
+      {children}
+    </div>
   );
 }
 

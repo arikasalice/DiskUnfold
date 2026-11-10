@@ -7,6 +7,7 @@ import {
   FolderDropSurface,
   Heading,
   Icon,
+  LiveStatus,
   Metric,
   Notice,
   PathField,
@@ -336,7 +337,7 @@ function ResultVersionSummary({
   const shownLatest = selection?.shown && selection.version === version;
   return (
     <div className="du-result-version" data-result={total ? "" : undefined}>
-      <div ref={summary} role="status" tabIndex={total ? -1 : undefined}>
+      <LiveStatus ref={summary} focusTarget={total !== undefined}>
         {total && (
           <Text kind="muted">
             Result version: {resultVersionLabels[total.completeness]}
@@ -346,7 +347,7 @@ function ResultVersionSummary({
         {!hasNewResult && shownLatest && (
           <Text>Now showing the latest result.</Text>
         )}
-      </div>
+      </LiveStatus>
       {version && (hasNewResult || waitingToSwitch) && (
         <Action
           ref={button}

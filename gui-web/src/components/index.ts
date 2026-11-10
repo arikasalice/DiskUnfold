@@ -11,6 +11,7 @@ export {
   BrandMark,
   Heading,
   Icon,
+  LiveStatus,
   Metric,
   Notice,
   Progress,
