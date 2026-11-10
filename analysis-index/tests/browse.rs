@@ -1,4 +1,4 @@
-use du_analysis_index::{IngestSink, Observation, QueryError, ResultVersion, browse};
+use du_analysis_index::{IngestSink, Observation, QueryError, ResultVersion, browse, query};
 use du_core_contracts::{
     Id, ItemRef,
     result::{ResultCompleteness, ResultVersionRead},
@@ -183,5 +183,96 @@ fn pinned_old_reader_remains_consistent_after_replacement_and_withdrawal() -> Re
         .len(),
         2
     );
+    Ok(())
+}
+
+#[test]
+fn folder_query_registers_only_its_ordered_children_and_keeps_empty_folders_exact()
+-> Result<(), String> {
+    let (sink, version) = fixture()?;
+    let registry = query::Registry::baseline();
+    let open = |location| {
+        query::run_folder(
+            &registry,
+            Arc::clone(&version),
+            location,
+            &query::Condition::All(Vec::new()),
+            query::Sort {
+                id: "sort.name",
+                revision: 1,
+                basis: query::Basis::Logical,
+                descending: true,
+            },
+            || false,
+        )
+        .map_err(|error| format!("{error:?}"))
+    };
+    let dir = item(&version, b"a")?;
+    let file = item(&version, b"file")?;
+    let empty = item(&version, b"empty")?;
+    let sets = query::page::ResultSets::new(sink);
+    let result = open(Some(&dir))?;
+    assert_eq!(result.items, [file, empty.clone()]);
+    sets.register(id(10)?, result)
+        .map_err(|error| format!("{error:?}"))?;
+    let page = sets
+        .open_page(&id(10)?, version.version_id(), 1, Some(1))
+        .map_err(|error| format!("{error:?}"))?;
+    assert_eq!(page.items(), std::slice::from_ref(&empty));
+    assert_eq!(page.metadata().folder, Some(dir.item_no));
+    assert_eq!(page.metadata().total, query::page::Total::Exact(2));
+
+    sets.register(id(11)?, open(Some(&empty))?)
+        .map_err(|error| format!("{error:?}"))?;
+    let page = sets
+        .open_page(&id(11)?, version.version_id(), 0, None)
+        .map_err(|error| format!("{error:?}"))?;
+    assert_eq!(page.metadata().total, query::page::Total::Exact(0));
+    assert!(page.items().is_empty());
+    Ok(())
+}
+
+#[test]
+fn partial_folder_and_invalid_scoped_registration_keep_distinct_outcomes() -> Result<(), String> {
+    let (sink, _) = fixture()?;
+    let mut build = sink.open(id(1)?).map_err(|error| format!("{error:?}"))?;
+    build
+        .add_directory(vec![])
+        .map_err(|error| format!("{error:?}"))?;
+    let version = build
+        .publish_partial(id(3)?)
+        .map_err(|error| format!("{error:?}"))?;
+    let root = item(&version, b"")?;
+    let query_root = || {
+        query::run_folder(
+            &query::Registry::baseline(),
+            Arc::clone(&version),
+            Some(&root),
+            &query::Condition::All(Vec::new()),
+            query::Sort {
+                id: "sort.path",
+                revision: 1,
+                basis: query::Basis::Logical,
+                descending: false,
+            },
+            || false,
+        )
+        .map_err(|error| format!("{error:?}"))
+    };
+    let mut result = query_root()?;
+    let sets = query::page::ResultSets::new(sink);
+    result.items.push(root.clone());
+    let reference = id(10)?;
+    assert_eq!(
+        sets.register(reference.clone(), result),
+        Err(query::page::PageError::InvalidResult)
+    );
+    sets.register(reference.clone(), query_root()?)
+        .map_err(|error| format!("{error:?}"))?;
+    let page = sets
+        .open_page(&reference, version.version_id(), 0, None)
+        .map_err(|error| format!("{error:?}"))?;
+    assert_eq!(page.metadata().total, query::page::Total::LowerBound(0));
+    assert_eq!(page.metadata().completeness, ResultCompleteness::Partial);
     Ok(())
 }

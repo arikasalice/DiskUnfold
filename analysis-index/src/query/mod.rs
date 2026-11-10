@@ -4,7 +4,7 @@ pub mod page;
 mod plan;
 pub use condition::{Basis, Boundary, Condition, Kind, NameEncoding, NameTest, Predicate, Truth};
 
-use crate::ResultVersion;
+use crate::{QueryError, ResultVersion, browse};
 use du_core_contracts::result::{ResultItem, ResultItemKind, ResultVersionRead};
 use du_core_contracts::{ItemRef, SizeAmount, SizeValue};
 use std::collections::{BTreeMap, BTreeSet};
@@ -69,6 +69,7 @@ pub enum Error {
     UnknownPredicate,
     UnknownSort,
     InvalidCondition,
+    Folder(QueryError),
     Cancelled,
 }
 
@@ -174,6 +175,8 @@ pub struct QueryResult {
     /// Size basis and direction used to evaluate the selected sort strategy.
     pub sort_basis: Basis,
     pub sort_descending: bool,
+    /// The folder whose immediate children supplied the candidates, if scoped.
+    folder: Option<u32>,
     /// Comparison metadata not available in the current result source.
     pub limitations: &'static [&'static str],
 }
@@ -195,6 +198,34 @@ pub fn run(
     version: Arc<ResultVersion>,
     condition: &Condition,
     sort: Sort<'_>,
+    cancelled: impl FnMut() -> bool,
+) -> Result<QueryResult, Error> {
+    evaluate(registry, version, None, condition, sort, cancelled)
+}
+
+/// Evaluates only immediate children of one confirmed folder on the pinned version.
+///
+/// A missing location selects the scope root. This uses the same condition and sort
+/// registries as a full search, including the path tie-breaker and unknown handling.
+pub fn run_folder(
+    registry: &Registry,
+    version: Arc<ResultVersion>,
+    location: Option<&ItemRef>,
+    condition: &Condition,
+    sort: Sort<'_>,
+    cancelled: impl FnMut() -> bool,
+) -> Result<QueryResult, Error> {
+    let folder = browse::directory(&version, location).map_err(Error::Folder)?;
+    let item_no = folder.item_no;
+    evaluate(registry, version, Some(item_no), condition, sort, cancelled)
+}
+
+fn evaluate(
+    registry: &Registry,
+    version: Arc<ResultVersion>,
+    folder: Option<u32>,
+    condition: &Condition,
+    sort: Sort<'_>,
     mut cancelled: impl FnMut() -> bool,
 ) -> Result<QueryResult, Error> {
     plan::check_shape(condition, 0)?;
@@ -206,7 +237,8 @@ pub fn run(
         .ok_or(Error::UnknownSort)?;
     let mut rows = Vec::new();
     let mut unknown_count = 0;
-    for item in version.items() {
+    let candidates = folder.map_or_else(|| version.items(), |parent| version.children(parent));
+    for item in candidates {
         if cancelled() {
             return Err(Error::Cancelled);
         }
@@ -248,6 +280,7 @@ pub fn run(
         sort_strategy: (sort.id.to_owned(), sort.revision),
         sort_basis: sort.basis,
         sort_descending: sort.descending,
+        folder,
         limitations: &[
             "query.volume_name_comparison_unavailable",
             "query.raw_path_order",

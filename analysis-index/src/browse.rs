@@ -21,11 +21,7 @@ pub fn open<'a>(
     version: &'a ResultVersion,
     location: Option<&ItemRef>,
 ) -> Result<FolderView<'a>, QueryError> {
-    let item = match location {
-        Some(reference) => version.detail(reference)?.item,
-        None => version.items.first().ok_or(QueryError::NotFound)?,
-    };
-    ensure_directory(item.kind)?;
+    let item = directory(version, location)?;
     let mut breadcrumbs = Vec::new();
     let mut current = item;
     loop {
@@ -39,16 +35,22 @@ pub fn open<'a>(
             .ok_or(QueryError::NotFound)?;
     }
     breadcrumbs.reverse();
-    let parent = Some(item.item_no);
-    let first = version
-        .items
-        .partition_point(|candidate| candidate.parent < parent);
-    let last = version
-        .items
-        .partition_point(|candidate| candidate.parent <= parent);
     Ok(FolderView {
         location: item,
         breadcrumbs,
-        children: &version.items[first..last],
+        children: version.children(item.item_no),
     })
+}
+
+/// Resolves a browse location without computing its breadcrumb list.
+pub(crate) fn directory<'a>(
+    version: &'a ResultVersion,
+    location: Option<&ItemRef>,
+) -> Result<&'a ResultItem, QueryError> {
+    let item = match location {
+        Some(reference) => version.detail(reference)?.item,
+        None => version.items.first().ok_or(QueryError::NotFound)?,
+    };
+    ensure_directory(item.kind)?;
+    Ok(item)
 }

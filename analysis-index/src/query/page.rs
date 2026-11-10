@@ -152,8 +152,12 @@ fn source_error(error: QueryError) -> PageError {
 fn validate_result(result: &QueryResult) -> Result<(), PageError> {
     let mut seen = HashSet::new();
     for item in &result.items {
+        let row = result.version.items().get(item.item_no as usize);
         if &item.result_version != result.version.version_id()
-            || result.version.items().get(item.item_no as usize).is_none()
+            || row.is_none()
+            || result
+                .folder
+                .is_some_and(|parent| row.is_some_and(|row| row.parent != Some(parent)))
             || !seen.insert(item.item_no)
         {
             return Err(PageError::InvalidResult);
@@ -194,10 +198,15 @@ impl Page {
     /// Returns metadata from the same source and evaluation as the page.
     pub fn metadata(&self) -> Metadata<'_> {
         let count = self.result.items.len() as u64;
-        let completeness = self.result.version.space(0).map_or_else(
-            || self.result.version.completeness(),
-            |aggregate| aggregate.completeness,
-        );
+        // A missing byte count in a known child is not an enumeration gap.
+        // Folder-level enumeration evidence is not retained by the current source.
+        let completeness = match self.result.folder {
+            Some(_) => self.result.version.completeness(),
+            None => self.result.version.space(0).map_or_else(
+                || self.result.version.completeness(),
+                |aggregate| aggregate.completeness,
+            ),
+        };
         let total =
             if completeness == ResultCompleteness::Complete && self.result.unknown_count == 0 {
                 Total::Exact(count)
@@ -206,6 +215,7 @@ impl Page {
             };
         Metadata {
             version: self.result.version.version_id(),
+            folder: self.result.folder,
             total,
             unknown_count: self.result.unknown_count,
             completeness,
@@ -222,6 +232,8 @@ impl Page {
 /// Read-only metadata bound to an admitted page.
 pub struct Metadata<'a> {
     pub version: &'a Id,
+    /// Immediate-child scope, or `None` for a full-version search.
+    pub folder: Option<u32>,
     pub total: Total,
     pub unknown_count: u64,
     pub completeness: ResultCompleteness,

@@ -75,6 +75,14 @@ impl ResultVersion {
         Ok(ItemDetail { item, physical })
     }
 
+    /// Reads the immediate children in the stable parent/name order used at publication.
+    fn children(&self, parent: u32) -> &[ResultItem] {
+        let parent = Some(parent);
+        let start = self.items.partition_point(|item| item.parent < parent);
+        let end = self.items.partition_point(|item| item.parent <= parent);
+        &self.items[start..end]
+    }
+
     /// Resolves a raw root-relative path to a confirmed directory's aggregate in this snapshot.
     pub fn folder(&self, version: &Id, path: &[Vec<u8>]) -> Result<&SpaceAggregate, QueryError> {
         if version != &self.version_id {
@@ -87,16 +95,11 @@ impl ResultVersion {
         for component in path {
             ensure_directory(self.items[index].kind)?;
             let parent = u32::try_from(index).map_err(|_| QueryError::NotFound)?;
-            let first = self
-                .items
-                .partition_point(|item| item.parent < Some(parent));
-            let end = self
-                .items
-                .partition_point(|item| item.parent <= Some(parent));
-            let offset = self.items[first..end]
+            let children = self.children(parent);
+            let offset = children
                 .binary_search_by(|item| item.name.cmp(component))
                 .map_err(|_| QueryError::NotFound)?;
-            index = first + offset;
+            index = children[offset].item_no as usize;
         }
         ensure_directory(self.items[index].kind)?;
         self.aggregates.get(index).ok_or(QueryError::NotFound)
