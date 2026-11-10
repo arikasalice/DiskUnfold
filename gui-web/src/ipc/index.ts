@@ -31,6 +31,7 @@ import type {
 
 export { SIZE_UNIT_RULES } from "./generated/contracts";
 export type {
+  AnalysisJobControl,
   AnalysisJobStatus,
   AnalysisTarget,
   BrowseDetail,

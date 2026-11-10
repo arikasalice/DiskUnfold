@@ -256,7 +256,8 @@ export function AnalysisPanel({ client }: { client: AnalysisClient }) {
         jobRef: receipt.jobRef,
       });
       if (response.outcome === "unsupported") {
-        setError(response.reasonKey ?? "Cancellation is unavailable");
+        setCancelRequested(false);
+        setError("Cancellation is unavailable for this scan.");
       }
     } catch (failure) {
       setCancelRequested(false);
@@ -344,6 +345,7 @@ export function AnalysisPanel({ client }: { client: AnalysisClient }) {
             scan={scan}
             started={receipt !== null}
             running={running}
+            cancelRequested={cancelRequested}
             problem={error}
             roots={resultRoots}
           />

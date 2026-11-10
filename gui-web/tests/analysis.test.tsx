@@ -8,11 +8,12 @@ import {
   within,
 } from "@testing-library/react";
 import axe from "axe-core";
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { App } from "../src/app/App";
 import { AnalysisError, createAnalysisClient, windowsPath } from "../src/ipc";
 import type {
   AnalysisClient,
+  AnalysisJobControl,
   AnalysisJobStatus,
   BrowseDetail,
   EventEnvelope,
@@ -56,6 +57,7 @@ function fixture({
   readTotals = (result) => result,
   readReview = (result) => result,
   readStatus = (result) => result,
+  cancelJob,
   readFailures,
   readVolume,
   lineageId,
@@ -67,6 +69,7 @@ function fixture({
   readTotals?: (result: SpaceTotal) => SpaceTotal | Promise<SpaceTotal>;
   readReview?: (result: ScopeReview) => ScopeReview | Promise<ScopeReview>;
   readStatus?: (result: AnalysisJobStatus) => AnalysisJobStatus;
+  cancelJob?: () => AnalysisJobControl | Promise<AnalysisJobControl>;
   readFailures?: (
     request: ScanFailuresRequest,
   ) => ScanFailures | Promise<ScanFailures>;
@@ -122,6 +125,9 @@ function fixture({
             resultVersion: "result",
             reasonKey: null,
           });
+        case "job.cancel":
+          if (cancelJob) return cancelJob();
+          throw new Error("Cancellation unavailable");
         case "space.total": {
           const request = body as { requestSeq: number; resultVersion: string };
           const result: SpaceTotal = {
@@ -570,6 +576,77 @@ function notifyResult(
     }
   });
 }
+
+test("F02 NFR5: a burst of status events results in one read per frame", async () => {
+  const { client, calls, listeners } = fixture();
+  await startFixtureScan(client);
+  await screen.findByText("Scan status: partial");
+  const readCount = () => calls.filter(({ name }) => name === "job.get").length;
+  const before = readCount();
+  const frames: FrameRequestCallback[] = [];
+  const clock = vi
+    .spyOn(window, "requestAnimationFrame")
+    .mockImplementation((callback) => frames.push(callback));
+  try {
+    for (let sequence = 1; sequence <= 100; sequence += 1) {
+      await act(async () => {
+        for (const listener of listeners) {
+          listener({
+            topic: "job.progress",
+            contractVersion: 1,
+            jobRef: "scan",
+            seq: sequence,
+            occurredAt: timestamp,
+            body: { sequence },
+          });
+        }
+      });
+    }
+    expect(readCount()).toBe(before);
+    expect(frames).toHaveLength(1);
+    await act(async () => frames[0]?.(0));
+    expect(readCount()).toBe(before + 1);
+  } finally {
+    clock.mockRestore();
+  }
+});
+
+test("F02 FR10: cancellation is announced before acknowledgement and a rejection clears it", async () => {
+  let acknowledge: ((response: AnalysisJobControl) => void) | undefined;
+  const { client, calls } = fixture({
+    readStatus: (base) => ({
+      ...base,
+      state: "running",
+      resultVersion: null,
+    }),
+    cancelJob: () =>
+      new Promise((resolve) => {
+        acknowledge = resolve;
+      }),
+  });
+  await startFixtureScan(client);
+  await screen.findByText("Scan status: running");
+  const cancel = screen.getByRole<HTMLButtonElement>("button", {
+    name: "Cancel scan",
+  });
+  fireEvent.click(cancel);
+  expect(screen.getByText("Scan status: cancellation requested")).toBeDefined();
+  expect(cancel.disabled).toBe(true);
+  expect(calls.filter(({ name }) => name === "job.cancel")).toHaveLength(1);
+  await act(async () => {
+    acknowledge?.({
+      outcome: "unsupported",
+      state: "running",
+      reasonKey: "job.control_unsupported",
+      sequence: 3,
+    });
+  });
+  expect(
+    screen.getByText("Cancellation is unavailable for this scan."),
+  ).toBeDefined();
+  expect(screen.getByText("Scan status: running")).toBeDefined();
+  expect(cancel.disabled).toBe(false);
+});
 
 test("F02 IF-23: opens an existing partial without an event, then keeps it until explicit refresh", async () => {
   let status: AnalysisJobStatus = {

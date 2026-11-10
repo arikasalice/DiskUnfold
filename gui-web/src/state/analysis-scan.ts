@@ -67,6 +67,7 @@ export function useScanResult(
     let rejected: string | undefined;
     let staleFailure: AnalysisError | undefined;
     let statusReadFailed = false;
+    let statusFrame: number | undefined;
 
     async function readTotals(version: string) {
       const requestSeq = ++sequence.current;
@@ -208,13 +209,22 @@ export function useScanResult(
       staleFailure = undefined;
       void refresh();
     };
+    // Notifications invalidate status. Read it once for all events in this frame.
+    function scheduleStatusRead() {
+      if (statusFrame !== undefined) return;
+      statusFrame = window.requestAnimationFrame(() => {
+        statusFrame = undefined;
+        void refresh();
+      });
+    }
+
     const unsubscribe = client.subscribe((event) => {
       if (
         (event.jobRef === scanJob && event.topic.startsWith("job.")) ||
         event.topic === "job.resync_required" ||
         isNewLineageEvent(event, lineage, resultSequence)
       ) {
-        void refresh();
+        scheduleStatusRead();
       }
     });
     const timer = window.setInterval(() => {
@@ -225,6 +235,7 @@ export function useScanResult(
       alive = false;
       showLatest.current = undefined;
       window.clearInterval(timer);
+      if (statusFrame !== undefined) window.cancelAnimationFrame(statusFrame);
       unsubscribe();
     };
   }, [client, jobRef, receiptLineage]);

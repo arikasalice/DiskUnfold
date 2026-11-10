@@ -19,6 +19,7 @@ import type {
   AnalysisClient,
   BrowseDetail,
   BrowseValue,
+  JobState,
   OsPath,
   SpaceTotal,
 } from "../../ipc";
@@ -216,6 +217,7 @@ export function ScanOutput({
   scan,
   started,
   running,
+  cancelRequested,
   problem,
   roots,
 }: {
@@ -223,13 +225,11 @@ export function ScanOutput({
   scan: ReturnType<typeof useScanResult>;
   started: boolean;
   running: boolean;
+  cancelRequested: boolean;
   problem: string | undefined;
   roots: readonly OsPath[];
 }) {
   const error = problem ?? scan.error ?? scan.status?.reasonKey;
-  const state = scan.unavailable
-    ? "unavailable"
-    : (scan.status?.state ?? "queued");
   const awaitingTotals =
     !running &&
     Boolean(scan.status?.resultVersion) &&
@@ -243,9 +243,10 @@ export function ScanOutput({
           <Heading level={3}>Space totals</Heading>
         </div>
         {started && (
-          <StatusBadge tone={state === "done" ? "good" : "info"} live>
-            Scan status: {state}
-          </StatusBadge>
+          <ScanStatus
+            state={scan.unavailable ? "unavailable" : scan.status?.state}
+            cancellationPending={running && cancelRequested}
+          />
         )}
       </div>
       {running && <Progress label="Scanning folder" />}
@@ -273,6 +274,24 @@ export function ScanOutput({
         </div>
       ) : null}
     </>
+  );
+}
+
+function ScanStatus({
+  state = "queued",
+  cancellationPending,
+}: {
+  state: JobState | "unavailable" | undefined;
+  cancellationPending: boolean;
+}) {
+  const statusText =
+    cancellationPending || state === "cancel_requested"
+      ? "cancellation requested"
+      : state;
+  return (
+    <StatusBadge tone={state === "done" ? "good" : "info"} live>
+      Scan status: {statusText}
+    </StatusBadge>
   );
 }
 
