@@ -291,3 +291,45 @@ fn startup_locks_newer_schema_and_category_failures_but_not_database_open_failur
     assert!(open_settings(&foreign, 100).is_err());
     Ok(())
 }
+
+#[test]
+fn scan_setting_source_tracks_commits_and_survives_failed_write_and_restart()
+-> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("scan-settings.db");
+    seed(&path, 200_000)?;
+    let database = test_database(&path)?;
+    let settings = Arc::new(StartupSettings::open(&database, 100, &["en", "ko"])?);
+    let source = settings.clone().scan_limit_source();
+    let admitted_before_change = source();
+    assert_eq!(admitted_before_change.entries(), 200_000);
+    let update =
+        SettingsChanges::from([(space::SHARED_TABLE_MAX_ENTRIES.into(), Some(json!(300_000)))]);
+    {
+        let mut service = settings.service.lock().map_err(|_| "settings lock")?;
+        let review = service.review(1, &update).map_err(|e| format!("{e:?}"))?;
+        service
+            .apply(1, &update, review, context())
+            .map_err(|e| format!("{e:?}"))?;
+    }
+    assert_eq!(source().entries(), 300_000);
+    assert_eq!(admitted_before_change.entries(), 200_000);
+    let connection = Connection::open(&path)?;
+    connection.execute_batch("CREATE TRIGGER reject_scan_limit_update BEFORE UPDATE ON user_env_setting BEGIN SELECT RAISE(ABORT, 'test'); END;")?;
+    drop(connection);
+    let failed =
+        SettingsChanges::from([(space::SHARED_TABLE_MAX_ENTRIES.into(), Some(json!(400_000)))]);
+    {
+        let mut service = settings.service.lock().map_err(|_| "settings lock")?;
+        let review = service.review(2, &failed).map_err(|e| format!("{e:?}"))?;
+        assert!(service.apply(2, &failed, review, context()).is_err());
+    }
+    assert_eq!(source().entries(), 300_000);
+    drop(source);
+    drop(settings);
+    drop(database);
+    let reopened = test_database(&path)?;
+    let restarted = Arc::new(StartupSettings::open(&reopened, 101, &["en", "ko"])?);
+    assert_eq!(restarted.scan_limit_source()().entries(), 300_000);
+    Ok(())
+}
