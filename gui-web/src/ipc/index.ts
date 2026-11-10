@@ -11,6 +11,8 @@ import type {
   BrowseDetailRequest,
   CallEnvelope,
   EventEnvelope,
+  HistoryDetail,
+  HistoryDetailRequest,
   HistoryListRequest,
   HistoryListResponse,
   Id,
@@ -40,6 +42,8 @@ export type {
   BrowseValue,
   EventEnvelope,
   HistoryChangedBody,
+  HistoryDetail,
+  HistoryDetailRequest,
   HistoryEndState,
   HistoryListCounts,
   HistoryListFilter,
@@ -81,6 +85,7 @@ type Commands = {
   "job.get": [AnalysisJobRequest, AnalysisJobStatus];
   "job.cancel": [AnalysisJobRequest, AnalysisJobControl];
   "history.list": [HistoryListRequest, HistoryListResponse];
+  "history.get": [HistoryDetailRequest, HistoryDetail];
   "space.total": [SpaceTotalRequest, SpaceTotal];
   "space.detail": [BrowseDetailRequest, SpaceDetail];
   "space.volume_gap": [VolumeGapRequest, VolumeGapResponse];

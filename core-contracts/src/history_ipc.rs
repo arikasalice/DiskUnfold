@@ -1,4 +1,4 @@
-//! GUI history list request and response contracts.
+//! GUI history query and event contracts.
 
 use crate::{Id, Timestamp, job::HistoryRevision};
 use serde::{Deserialize, Serialize};
@@ -166,4 +166,78 @@ pub struct HistoryListResponse {
     pub revision: HistoryListRevision,
     pub rows: Vec<HistoryListRow>,
     pub next_cursor: Option<String>,
+}
+
+/// Reads the stored history of one operation in the main window.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct HistoryDetailRequest {
+    pub job_ref: Id,
+}
+
+/// The recorded workflow. Unavailable references and decisions remain null.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryWorkflow {
+    /// An empty list means the operation has no plan lineage.
+    pub plan_versions: Option<Vec<Id>>,
+    pub executed_plan: Option<Id>,
+    pub approval_check: Option<String>,
+}
+
+/// A stored successor of the selected operation.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryFollowUp {
+    pub job_ref: Option<Id>,
+    pub relation: Option<HistoryRelation>,
+    pub state: Option<HistoryEndState>,
+    #[cfg_attr(feature = "typescript", ts(type = "number | null"))]
+    pub finished_at_ms: Option<i64>,
+}
+
+/// A recorded effect in its original unit and uncertainty category.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryEffectValue {
+    /// Decimal text preserves precision and sign across IPC.
+    pub value: String,
+    pub unit: String,
+    pub uncertainty: String,
+}
+
+/// Independent estimates, execution measurements, and confirmed effects.
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryEffects {
+    pub estimated: Option<HistoryEffectValue>,
+    pub executed: Option<HistoryEffectValue>,
+    pub confirmed: Option<HistoryEffectValue>,
+}
+
+/// Whether any expected portion of a detail response could not be read.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum HistoryDetailCompleteness {
+    Complete,
+    Partial,
+}
+
+/// Read-only detail with independently available parts.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryDetail {
+    pub summary: Option<HistoryListSummary>,
+    pub workflow: HistoryWorkflow,
+    pub follow_ups: Option<Vec<HistoryFollowUp>>,
+    pub effects: HistoryEffects,
+    pub completeness: HistoryDetailCompleteness,
+    pub missing_reasons: Vec<String>,
 }

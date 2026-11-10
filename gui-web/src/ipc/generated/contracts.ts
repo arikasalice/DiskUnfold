@@ -28,6 +28,21 @@ export type HistoryListRow = { jobRef: Id | null, summary: HistoryListSummary | 
  */
 missingReasons: Array<string>, };
 export type HistoryListResponse = { revision: HistoryListRevision, rows: Array<HistoryListRow>, nextCursor: string | null, };
+export type HistoryDetailRequest = { jobRef: Id, };
+export type HistoryWorkflow = {
+/**
+ * An empty list means the operation has no plan lineage.
+ */
+planVersions: Array<Id> | null, executedPlan: Id | null, approvalCheck: string | null, };
+export type HistoryFollowUp = { jobRef: Id | null, relation: HistoryRelation | null, state: HistoryEndState | null, finishedAtMs: number | null, };
+export type HistoryEffectValue = {
+/**
+ * Decimal text preserves precision and sign across IPC.
+ */
+value: string, unit: string, uncertainty: string, };
+export type HistoryEffects = { estimated: HistoryEffectValue | null, executed: HistoryEffectValue | null, confirmed: HistoryEffectValue | null, };
+export type HistoryDetailCompleteness = "complete" | "partial";
+export type HistoryDetail = { summary: HistoryListSummary | null, workflow: HistoryWorkflow, followUps: Array<HistoryFollowUp> | null, effects: HistoryEffects, completeness: HistoryDetailCompleteness, missingReasons: Array<string>, };
 export type Id = string;
 export type ByteSize = string;
 export type Timestamp = string;

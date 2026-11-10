@@ -74,7 +74,7 @@ impl ErrorEnvelope {
             | "scope.changed"
             | "result.requery_required"
             | "history.version_changed" => ErrorCode::StaleVersion,
-            "ref.unavailable" | "job.not_found" => ErrorCode::NotFound,
+            "ref.unavailable" | "job.not_found" | "history.removed" => ErrorCode::NotFound,
             "path.outside_scope" | "path.link_escape" => ErrorCode::ScopeDenied,
             "db.busy" | "job.queue_full" | "job.shutting_down" => ErrorCode::Busy,
             "db.schema_mismatch" | "support.internal_error" | "history.storage_unavailable" => {
