@@ -151,27 +151,7 @@ pub fn validate_items_and_gaps_in_sealed<S: SealedSpool, W: StagingSink>(
     sink: W,
     cancelled: impl FnMut() -> bool,
 ) -> Result<(W, ScopeRoots), Error> {
-    let roots = match scope_roots::parse(spool.metadata()) {
-        Ok(roots) => roots,
-        Err(()) => {
-            return match sink.discard() {
-                Ok(()) => Err(Error::Metadata),
-                Err(cleanup) => Err(Error::Discard {
-                    failure: Box::new(Error::Metadata),
-                    cleanup,
-                }),
-            };
-        }
-    };
-    let sink = decode_sealed(
-        spool,
-        sink,
-        Some(roots.encoding()),
-        Some(roots.roots().len()),
-        false,
-        cancelled,
-    )?;
-    Ok((sink, roots))
+    validate_scoped_records(spool, sink, false, cancelled)
 }
 
 /// Validate Volume, Item and Gap bodies using metadata from the same sealed copy.
@@ -182,11 +162,16 @@ pub fn validate_records_in_sealed<S: SealedSpool, W: StagingSink>(
     sink: W,
     cancelled: impl FnMut() -> bool,
 ) -> Result<(W, ScopeRoots), Error> {
-    let metadata = scope_roots::parse(spool.metadata()).and_then(|roots| {
-        scope_roots::volume_descriptor(spool.metadata())?;
-        Ok(roots)
-    });
-    let roots = match metadata {
+    validate_scoped_records(spool, sink, true, cancelled)
+}
+
+fn validate_scoped_records<S: SealedSpool, W: StagingSink>(
+    spool: &mut VerifiedSpool<S>,
+    sink: W,
+    require_volume: bool,
+    cancelled: impl FnMut() -> bool,
+) -> Result<(W, ScopeRoots), Error> {
+    let roots = match scope_roots::parse(spool.metadata(), require_volume) {
         Ok(roots) => roots,
         Err(()) => {
             return match sink.discard() {
@@ -203,7 +188,7 @@ pub fn validate_records_in_sealed<S: SealedSpool, W: StagingSink>(
         sink,
         Some(roots.encoding()),
         Some(roots.roots().len()),
-        true,
+        require_volume,
         cancelled,
     )?;
     Ok((sink, roots))

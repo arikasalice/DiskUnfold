@@ -82,6 +82,24 @@ fn sealed_volume_semantics_and_discard() -> Result<(), String> {
     Ok(())
 }
 #[test]
+fn duplicate_volume_descriptor_keys_are_rejected_before_staging() -> Result<(), String> {
+    for metadata in [
+        r#"{"pathEncoding":"bytes","source":{"scopeRoots":[]},"volume":{"recordKind":2},"volume":{"recordKind":1}}"#,
+        r#"{"pathEncoding":"bytes","source":{"scopeRoots":[]},"volume":{"recordKind":2,"recordKind":1}}"#,
+    ] {
+        let mut spool = input(&[1, 0, 0, 0, 0], None, metadata)?;
+        let stage = Stage::default();
+        let discarded = stage.discarded.clone();
+        assert!(matches!(
+            validate_records_in_sealed(&mut spool, stage, || false),
+            Err(Error::Metadata)
+        ));
+        assert_eq!(discarded.load(Ordering::SeqCst), 1);
+    }
+    Ok(())
+}
+
+#[test]
 fn volume_rejects_duplicate_and_invalid_links_with_valid_envelope_hash() -> Result<(), String> {
     let metadata = r#"{"pathEncoding":"bytes","source":{"scopeRoots":["Lw","L2E"]},"volume":{"recordKind":1}}"#;
     let cases: &[&[u8]] = &[

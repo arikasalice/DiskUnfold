@@ -21,9 +21,13 @@ impl ScopeRoots {
     }
 }
 
-pub(super) fn parse(metadata: &str) -> Result<ScopeRoots, ()> {
+/// Validates root and, when required, Volume metadata from one parsed object.
+pub(super) fn parse(metadata: &str, require_volume: bool) -> Result<ScopeRoots, ()> {
     let json: Value = serde_json::from_str(metadata).map_err(|_| ())?;
     unique::validate(metadata)?;
+    if require_volume {
+        volume_descriptor(&json)?;
+    }
     let encoding = match json.get("pathEncoding").and_then(Value::as_str) {
         Some("bytes") => NameEncoding::Bytes,
         Some("utf16le") => NameEncoding::WindowsUtf16Le,
@@ -49,8 +53,7 @@ pub(super) fn parse(metadata: &str) -> Result<ScopeRoots, ()> {
     Ok(ScopeRoots { encoding, roots })
 }
 
-pub(super) fn volume_descriptor(metadata: &str) -> Result<(), ()> {
-    let json: Value = serde_json::from_str(metadata).map_err(|_| ())?;
+fn volume_descriptor(json: &Value) -> Result<(), ()> {
     let descriptor = json.get("volume").and_then(Value::as_object).ok_or(())?;
     if descriptor.get("recordKind").and_then(Value::as_u64) != Some(1) {
         return Err(());
