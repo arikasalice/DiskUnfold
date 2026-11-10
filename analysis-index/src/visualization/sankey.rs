@@ -2,6 +2,8 @@
 //!
 //! This is a pure calculation unit. It does not establish F03 attribution,
 //! produce IPC models, select categories, or turn space ownership into movement.
+pub mod geometry_v1;
+
 use super::geometry::{Rect, Weight};
 use std::collections::{BTreeMap, HashSet};
 
