@@ -52,6 +52,7 @@ pub struct ResultVersion {
     roots: Vec<ResultScopeRoot>,
     root_indices: Vec<u32>,
     gaps: Vec<ResultScopeGap>,
+    exact_gaps: BTreeMap<u32, Vec<usize>>,
     scope_total: Option<SpaceAggregate>,
     volume_reports: Vec<VolumeReport>,
     observed_at: Option<Timestamp>,
@@ -379,10 +380,13 @@ impl BuildHandle {
             self.shared_table_limit,
             &mut aggregates,
         );
-        if let Err(error) = forest::mark_gaps(&built, &self.gaps, &mut aggregates) {
-            self.abort();
-            return Err(error);
-        }
+        let exact_gaps = match forest::mark_gaps(&built, &self.gaps, &mut aggregates) {
+            Ok(exact) => exact,
+            Err(error) => {
+                self.abort();
+                return Err(error);
+            }
+        };
         let result_completeness =
             if !self.gaps.is_empty() && completeness == ResultCompleteness::Complete {
                 ResultCompleteness::Missing
@@ -424,6 +428,7 @@ impl BuildHandle {
             roots: self.roots.clone(),
             root_indices: built.keys.into_iter().map(|(root, _)| root).collect(),
             gaps: self.gaps.clone(),
+            exact_gaps,
             scope_total,
             volume_reports: self.volume_reports.clone(),
             observed_at,

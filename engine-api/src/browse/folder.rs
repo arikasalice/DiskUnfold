@@ -68,6 +68,15 @@ pub struct Row {
     pub modified_at: Option<Timestamp>,
     /// Evidence that an immediate child folder was observed; absence is unknown.
     pub has_observed_child_folder: Option<bool>,
+    /// Explicitly reported gaps at this exact observed item; empty does not prove completeness.
+    pub reported_gaps: Vec<GapEvidence>,
+}
+
+/// A collector report attached to the exact observed item in a pinned result.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GapEvidence {
+    pub reason_key: String,
+    pub observed_at: Option<Timestamp>,
 }
 
 /// One page from a registered, pinned folder query.
@@ -342,6 +351,14 @@ fn project(query_ref: Id, page: Page) -> Result<FolderPage, Error> {
                     .item_size(item.item_no, SizeBasis::Allocated)
                     .cloned(),
                 modified_at: version.item_modified_at(item.item_no).cloned(),
+                reported_gaps: version
+                    .item_scope_gaps(reference)
+                    .map_err(folder_error)?
+                    .map(|gap| GapEvidence {
+                        reason_key: gap.reason_key.clone(),
+                        observed_at: gap.observed_at.clone(),
+                    })
+                    .collect(),
                 has_observed_child_folder: if item.kind == ResultItemKind::Directory {
                     browse::has_observed_child_directory(version, reference)
                         .map_err(folder_error)?

@@ -3,8 +3,8 @@ use crate::{ResultVersion, SpaceObservation};
 use du_core_contracts::{
     Id, ItemRef, SizeBasis, SizeValue, Timestamp,
     result::{
-        ResultCompleteness, ResultItem, ResultItemKind, ResultScopeRoot, ResultVersionRead,
-        SpaceAggregate,
+        ResultCompleteness, ResultItem, ResultItemKind, ResultScopeGap, ResultScopeRoot,
+        ResultVersionRead, SpaceAggregate,
     },
 };
 
@@ -27,6 +27,21 @@ pub struct ItemDetail<'a> {
 }
 
 impl ResultVersion {
+    /// Reads reported gaps for the item's exact observed path in this immutable version.
+    /// An empty iterator establishes only the absence of a report at that path.
+    pub fn item_scope_gaps(
+        &self,
+        item: &ItemRef,
+    ) -> Result<impl Iterator<Item = &ResultScopeGap>, QueryError> {
+        let item_no = self.detail(item)?.item.item_no;
+        Ok(self
+            .exact_gaps
+            .get(&item_no)
+            .into_iter()
+            .flatten()
+            .map(|&index| &self.gaps[index]))
+    }
+
     /// Volume reports frozen in this result version.
     pub fn volume_reports(&self) -> &[crate::VolumeReport] {
         &self.volume_reports

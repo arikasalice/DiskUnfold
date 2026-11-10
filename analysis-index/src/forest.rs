@@ -1,4 +1,6 @@
 //! Forest-scoped observation ingestion.
+use std::collections::{BTreeMap, HashMap};
+
 use crate::{
     BuildError, BuildHandle, Observation, SpaceObservation, StoredObservation, space,
     tree::BuiltItems,
@@ -8,32 +10,37 @@ use du_core_contracts::{
     result::{ResultItemKind, ResultScopeGap, SpaceAggregate},
 };
 
-/// Marks only ancestors of unread ranges; no index or count map is made without gaps.
+/// Marks ancestors of unread ranges and indexes gaps with an exact observed item.
 pub(crate) fn mark_gaps(
     built: &BuiltItems,
     gaps: &[ResultScopeGap],
     aggregates: &mut [SpaceAggregate],
-) -> Result<(), BuildError> {
+) -> Result<BTreeMap<u32, Vec<usize>>, BuildError> {
+    let mut exact = BTreeMap::<u32, Vec<usize>>::new();
     if gaps.is_empty() {
-        return Ok(());
+        return Ok(exact);
     }
-    let key_indices: std::collections::HashMap<_, _> = built
+    let key_indices: HashMap<_, _> = built
         .keys
         .iter()
-        .cloned()
         .enumerate()
-        .map(|(index, key)| (key, index))
+        .map(|(index, (root, path))| ((*root, path.as_slice()), index))
         .collect();
-    let mut counts = std::collections::HashMap::<usize, u64>::new();
-    for gap in gaps {
-        let mut path = gap.path.clone();
+    let mut counts = HashMap::<usize, u64>::new();
+    for (offset, gap) in gaps.iter().enumerate() {
+        let mut path = gap.path.as_slice();
         let index = loop {
-            if let Some(&index) = key_indices.get(&(gap.root_index, path.clone())) {
+            if let Some(&index) = key_indices.get(&(gap.root_index, path)) {
+                if path.len() == gap.path.len() {
+                    exact
+                        .entry(built.items[index].item_no)
+                        .or_default()
+                        .push(offset);
+                }
                 break index;
             }
-            if path.pop().is_none() {
-                return Err(BuildError::InvalidTree);
-            }
+            let (_, parent) = path.split_last().ok_or(BuildError::InvalidTree)?;
+            path = parent;
         };
         let mut current = Some(index);
         while let Some(index) = current {
@@ -45,7 +52,7 @@ pub(crate) fn mark_gaps(
     for (index, count) in counts {
         space::mark_inaccessible(&mut aggregates[index], count);
     }
-    Ok(())
+    Ok(exact)
 }
 
 impl BuildHandle {
