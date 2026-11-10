@@ -23,14 +23,14 @@ fn accepts_empty_and_complete_streams_with_unchanged_gap_data() -> Result<(), Va
     assert_eq!(record, item(1, 0, original));
     validator.accept(item(2, 1, b"child"), 20, 24)?;
     let gap = Record::Gap {
-        item: 2,
+        root_index: 2,
         reason_key: "scan.path_denied",
     };
     validator.accept(gap, 20, 24)?;
     assert_eq!(
         gap,
         Record::Gap {
-            item: 2,
+            root_index: 2,
             reason_key: "scan.path_denied"
         }
     );
@@ -60,20 +60,9 @@ fn enforces_record_order_numbering_and_parent_without_advancing_on_failure()
         Err(ValidationError::Parent)
     );
     v.accept(item(1, 0, b"x"), 1, 5)?;
-    assert_eq!(
-        v.accept(
-            Record::Gap {
-                item: 2,
-                reason_key: "scan.path_denied"
-            },
-            1,
-            5
-        ),
-        Err(ValidationError::GapItem)
-    );
     v.accept(
         Record::Gap {
-            item: 1,
+            root_index: 2,
             reason_key: "scan.path_denied",
         },
         1,

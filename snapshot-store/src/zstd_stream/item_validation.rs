@@ -1,25 +1,29 @@
-//! Bounded Item-only semantic checks after each chunk passes framing checks.
-use crate::records::{NameEncoding, item};
+//! Bounded Item and optional Gap checks after each chunk passes framing.
+use crate::records::{NameEncoding, gap, item};
 
 pub(super) struct Validator {
     encoding: NameEncoding,
+    root_count: Option<usize>,
     header: [u8; 4],
     header_len: usize,
     remaining: usize,
     kind_pending: bool,
     item_body: Option<Vec<u8>>,
+    kind: u8,
     last_item: u32,
 }
 
 impl Validator {
-    pub(super) fn new(encoding: NameEncoding) -> Self {
+    pub(super) fn new(encoding: NameEncoding, root_count: Option<usize>) -> Self {
         Self {
             encoding,
+            root_count,
             header: [0; 4],
             header_len: 0,
             remaining: 0,
             kind_pending: false,
             item_body: None,
+            kind: 0,
             last_item: 0,
         }
     }
@@ -44,10 +48,12 @@ impl Validator {
             }
             if self.kind_pending && !input.is_empty() {
                 let kind = input[0];
+                self.kind = kind;
                 input = &input[1..];
                 self.remaining -= 1;
                 self.kind_pending = false;
-                self.item_body = (kind == 2).then(Vec::new);
+                self.item_body =
+                    (kind == 2 || (kind == 3 && self.root_count.is_some())).then(Vec::new);
                 if self.remaining == 0 {
                     self.finish_item()?;
                 }
@@ -69,11 +75,15 @@ impl Validator {
 
     fn finish_item(&mut self) -> Result<(), ()> {
         if let Some(body) = self.item_body.take() {
-            let item = item::decode(&body, self.encoding).map_err(|_| ())?;
-            if self.last_item.checked_add(1) != Some(item.number) {
-                return Err(());
+            if self.kind == 2 {
+                let item = item::decode(&body, self.encoding).map_err(|_| ())?;
+                if self.last_item.checked_add(1) != Some(item.number) {
+                    return Err(());
+                }
+                self.last_item = item.number;
+            } else if let Some(count) = self.root_count {
+                gap::decode(&body, self.encoding, count).map_err(|_| ())?;
             }
-            self.last_item = item.number;
         }
         Ok(())
     }
@@ -106,10 +116,37 @@ mod tests {
         data.extend_from_slice(&[1, 0, 0, 0, 127]);
         for split in 0..=data.len() {
             let mut framing = crate::record_framing::Validator::new(3);
-            let mut items = Validator::new(NameEncoding::Bytes);
+            let mut items = Validator::new(NameEncoding::Bytes, None);
             for chunk in [&data[..split], &data[split..]] {
                 framing.push(chunk).map_err(|()| "framing")?;
                 items.push(chunk).map_err(|()| "item")?;
+            }
+            framing.finish().map_err(|()| "finish")?;
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn every_chunk_boundary_preserves_gap_checks_without_items() -> Result<(), String> {
+        let body = gap::Gap {
+            root_index: 1,
+            path: vec![b"missing"],
+            reason_key: "scan.denied",
+            observed_at_ms: None,
+        }
+        .encode(NameEncoding::Bytes, 2)
+        .map_err(|e| format!("{e:?}"))?;
+        let mut data = vec![1, 0, 0, 0, 1];
+        data.extend_from_slice(&((body.len() + 1) as u32).to_le_bytes());
+        data.push(3);
+        data.extend_from_slice(&body);
+        data.extend_from_slice(&[1, 0, 0, 0, 127]);
+        for split in 0..=data.len() {
+            let mut framing = crate::record_framing::Validator::new(3);
+            let mut items = Validator::new(NameEncoding::Bytes, Some(2));
+            for chunk in [&data[..split], &data[split..]] {
+                framing.push(chunk).map_err(|()| "framing")?;
+                items.push(chunk).map_err(|()| "gap")?;
             }
             framing.finish().map_err(|()| "finish")?;
         }

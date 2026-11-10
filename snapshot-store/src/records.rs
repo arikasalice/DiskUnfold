@@ -2,6 +2,7 @@
 //!
 //! This module does not encode files or infer missing snapshot metadata.
 
+pub mod gap;
 pub mod item;
 
 /// Maximum metadata and declared record length in bytes.
@@ -31,7 +32,7 @@ pub enum Record<'a> {
         identity: &'a [u8],
     },
     Gap {
-        item: u32,
+        root_index: u32,
         reason_key: &'a str,
     },
     End,
@@ -48,7 +49,6 @@ pub enum ValidationError {
     Parent,
     Name,
     IdentityLength,
-    GapItem,
     MissingEnd,
 }
 
@@ -137,13 +137,9 @@ impl Validator {
                 }
                 Ok((Phase::Items, number))
             }
-            (Phase::Items | Phase::Gaps, Record::Gap { item, .. }) => {
-                // Item zero is the implicit scope root used by parent references.
-                if item > self.last_item {
-                    return Err(ValidationError::GapItem);
-                }
-                Ok((Phase::Gaps, self.last_item))
-            }
+            // Gap refers to scopeRoots, not an Item. Its complete body is
+            // checked by the Gap codec against validated metadata.
+            (Phase::Items | Phase::Gaps, Record::Gap { .. }) => Ok((Phase::Gaps, self.last_item)),
             (Phase::Items | Phase::Gaps, Record::End) => Ok((Phase::End, self.last_item)),
             _ => Err(ValidationError::RecordOrder),
         }

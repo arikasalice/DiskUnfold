@@ -119,7 +119,7 @@ pub fn validate_and_decode_sealed<S: SealedSpool, W: StagingSink>(
     sink: W,
     cancelled: impl FnMut() -> bool,
 ) -> Result<W, Error> {
-    decode_sealed(spool, sink, None, cancelled)
+    decode_sealed(spool, sink, None, None, cancelled)
 }
 
 /// Stages records after checking framing and Item bodies against the verified spool.
@@ -133,13 +133,28 @@ pub fn validate_items_in_sealed<S: SealedSpool, W: StagingSink>(
     encoding: crate::records::NameEncoding,
     cancelled: impl FnMut() -> bool,
 ) -> Result<W, Error> {
-    decode_sealed(spool, sink, Some(encoding), cancelled)
+    decode_sealed(spool, sink, Some(encoding), None, cancelled)
+}
+
+/// Checks framing and Item and Gap bodies using the verified sealed spool.
+/// The caller supplies path encoding and scopeRoots count from validated
+/// metadata. Volume semantics and full snapshot validation remain outstanding.
+/// Failure or cancellation consumes and discards the staging sink.
+pub fn validate_items_and_gaps_in_sealed<S: SealedSpool, W: StagingSink>(
+    spool: &mut VerifiedSpool<S>,
+    sink: W,
+    encoding: crate::records::NameEncoding,
+    root_count: usize,
+    cancelled: impl FnMut() -> bool,
+) -> Result<W, Error> {
+    decode_sealed(spool, sink, Some(encoding), Some(root_count), cancelled)
 }
 
 fn decode_sealed<S: SealedSpool, W: StagingSink>(
     spool: &mut VerifiedSpool<S>,
     mut sink: W,
     encoding: Option<crate::records::NameEncoding>,
+    root_count: Option<usize>,
     mut cancelled: impl FnMut() -> bool,
 ) -> Result<W, Error> {
     let result = (|| {
@@ -149,7 +164,8 @@ fn decode_sealed<S: SealedSpool, W: StagingSink>(
         let compressed_length = spool.compressed_length();
         let decoded_length = spool.decoded_length();
         let mut records = record_framing::Validator::new(spool.record_count());
-        let mut items = encoding.map(item_validation::Validator::new);
+        let mut items =
+            encoding.map(|encoding| item_validation::Validator::new(encoding, root_count));
         let reader = spool.compressed_reader().map_err(Error::Decode)?;
         decode_reader(
             reader,
