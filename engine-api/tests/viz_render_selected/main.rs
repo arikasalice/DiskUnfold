@@ -5,6 +5,7 @@ mod locate;
 mod pinned_children;
 mod prepared;
 mod retained;
+mod session_prepared;
 
 use std::{
     num::NonZeroUsize,

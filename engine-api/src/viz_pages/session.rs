@@ -78,7 +78,7 @@ impl Session {
     pub fn render_selected(
         &self,
         request: render::Request<'_>,
-        mut evidence: impl FnMut(
+        evidence: impl FnMut(
             &CurrentAnalysis,
             &ResultItem,
             &mut dyn FnMut() -> bool,
@@ -89,33 +89,81 @@ impl Session {
         self.pages.render_selected(
             &self.dispatcher,
             request,
-            |source, cancelled| {
-                let folder = du_analysis_index::browse::open(source.version(), Some(&parent))
-                    .map_err(|_| render::Error::Projection(projection::Error::InvalidSource))?;
-                let mut children = Vec::with_capacity(folder.children.len());
-                for item in folder.children {
-                    if cancelled() {
-                        return Err(render::Error::Cancelled);
-                    }
-                    let policy = evidence(source, item, cancelled)?;
-                    children.push(render::ChildEvidence {
-                        item: ItemRef {
-                            result_version: source.result_version().clone(),
-                            item_no: item.item_no,
-                        },
-                        path_compare_key: policy.path_compare_key,
-                        legend_class_key: policy.legend_class_key,
-                        display_flags: policy.display_flags,
-                    });
-                }
-                if cancelled() {
-                    return Err(render::Error::Cancelled);
-                }
-                Ok(children)
-            },
+            |source, cancelled| collect_evidence(source, &parent, evidence, cancelled),
             cancelled,
         )
     }
+
+    /// Prepares an unpublished model using this session's frozen dispatcher.
+    ///
+    /// Membership and item references come from the admitted source; the policy
+    /// supplies only comparison and presentation evidence for each actual child.
+    /// No model reference is allocated and no rows are registered by this call.
+    pub fn prepare_selected(
+        &self,
+        request: render::Request<'_>,
+        evidence: impl FnMut(
+            &CurrentAnalysis,
+            &ResultItem,
+            &mut dyn FnMut() -> bool,
+        ) -> Result<ChildPolicyEvidence, render::Error>,
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<render::PreparedRender, render::Error> {
+        let parent = request.parent.clone();
+        self.pages.prepare_selected(
+            &self.dispatcher,
+            request,
+            |source, cancelled| collect_evidence(source, &parent, evidence, cancelled),
+            cancelled,
+        )
+    }
+
+    /// Commits a candidate prepared by this session if its exact source is current.
+    ///
+    /// Both geometry and a table-only fallback are successful commits. The
+    /// callback must not block or reenter the source store or model session.
+    /// The caller must arbitrate publication with job cancellation separately.
+    pub fn commit_prepared(
+        &self,
+        candidate: render::PreparedRender,
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<render::CommittedRender, render::Error> {
+        self.pages.commit_prepared(candidate, cancelled)
+    }
+}
+
+fn collect_evidence(
+    source: &CurrentAnalysis,
+    parent: &ItemRef,
+    mut evidence: impl FnMut(
+        &CurrentAnalysis,
+        &ResultItem,
+        &mut dyn FnMut() -> bool,
+    ) -> Result<ChildPolicyEvidence, render::Error>,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<Vec<render::ChildEvidence>, render::Error> {
+    let folder = du_analysis_index::browse::open(source.version(), Some(parent))
+        .map_err(|_| render::Error::Projection(projection::Error::InvalidSource))?;
+    let mut children = Vec::with_capacity(folder.children.len());
+    for item in folder.children {
+        if cancelled() {
+            return Err(render::Error::Cancelled);
+        }
+        let policy = evidence(source, item, cancelled)?;
+        children.push(render::ChildEvidence {
+            item: ItemRef {
+                result_version: source.result_version().clone(),
+                item_no: item.item_no,
+            },
+            path_compare_key: policy.path_compare_key,
+            legend_class_key: policy.legend_class_key,
+            display_flags: policy.display_flags,
+        });
+    }
+    if cancelled() {
+        return Err(render::Error::Cancelled);
+    }
+    Ok(children)
 }
 
 struct PinnedModel {
