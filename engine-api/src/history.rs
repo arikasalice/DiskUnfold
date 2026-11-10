@@ -1,5 +1,7 @@
 //! GUI history list registration and authenticated session cursors.
 
+pub mod detail;
+
 pub use du_core_contracts::history_ipc::HistoryListFilter as Filter;
 use du_core_contracts::{
     PathBytes,

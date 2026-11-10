@@ -2,7 +2,10 @@ use super::*;
 use du_core_contracts::{
     CallEnvelope, ErrorCode, EventEnvelope, PathBytes, ResultEnvelope,
     analysis_ipc::{ScanStart, ScopeReview},
-    history_ipc::{HISTORY_CHANGED, HistoryChangedBody, HistoryListResponse},
+    history_ipc::{
+        HISTORY_CHANGED, HistoryChangedBody, HistoryDetail, HistoryDetailCompleteness,
+        HistoryEndState, HistoryFollowUp, HistoryListResponse, HistoryRelation,
+    },
     job::{HistoryAppend, JobHistory, JobState, JobSummary},
 };
 use du_engine_api::api::{CallerCtx, Channel, Engine, EngineBuilder};
@@ -53,6 +56,141 @@ fn ipc(
     let envelope: ResultEnvelope = serde_json::from_str(&response)?;
     assert_eq!(envelope.correlation_id, id);
     Ok(envelope)
+}
+
+#[test]
+fn registered_detail_distinguishes_unreadable_removed_and_readable_history()
+-> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempfile::tempdir()?;
+    let database = crate::startup_database::open(dir.path())?;
+    append(&database, 1, 100)?;
+    append(&database, 2, 200)?;
+    let sql = rusqlite::Connection::open(dir.path().join("diskunfold.db"))?;
+    sql.execute_batch(
+        "DROP TRIGGER job_runtime_job_link_no_update;
+         UPDATE job_runtime_job_link
+           SET predecessor_job_id=X'01010101010171018101010101010101',
+               relation_kind='retry', plan_version_id=X'03030303030373038303030303030303'
+           WHERE job_id=X'02020202020272028202020202020202';",
+    )?;
+    let mut builder = EngineBuilder::default();
+    du_engine_api::history::detail::register(
+        &mut builder,
+        HistoryReader::open(dir.path(), database)?,
+    );
+    let engine = builder.build()?;
+    let original = Id::from_v7_bytes([1; 16]);
+    let retry = Id::from_v7_bytes([2; 16]);
+    let get = |job: &Id| ipc(&engine, "history.get", json!({"jobRef": job}));
+
+    let follow_ups = assert_complete_detail(serde_json::from_value(get(&original)?.body)?, &retry)?;
+
+    let plan_missing: HistoryDetail = serde_json::from_value(get(&retry)?.body)?;
+    assert_eq!(
+        plan_missing.workflow.executed_plan,
+        Some(Id::from_v7_bytes([3; 16]))
+    );
+    assert!(plan_missing.workflow.plan_versions.is_none());
+    assert_eq!(plan_missing.missing_reasons, ["plan_unavailable"]);
+
+    sql.execute_batch(
+        "DROP TRIGGER job_runtime_job_record_no_update;
+         PRAGMA ignore_check_constraints=ON;
+         UPDATE job_runtime_job_record SET final_state='unrecognized'
+          WHERE job_id=X'01010101010171018101010101010101';",
+    )?;
+    let partial: HistoryDetail = serde_json::from_value(get(&original)?.body)?;
+    assert_eq!(partial.completeness, HistoryDetailCompleteness::Partial);
+    assert!(partial.summary.is_none());
+    assert_eq!(partial.missing_reasons, ["read_failed"]);
+    assert_eq!(partial.follow_ups, Some(follow_ups));
+
+    sql.execute_batch(
+        "BEGIN IMMEDIATE;
+         UPDATE app_db_purge_gate SET open=1;
+         DELETE FROM job_runtime_job_link WHERE job_id=X'01010101010171018101010101010101';
+         DELETE FROM job_runtime_job_record WHERE job_id=X'01010101010171018101010101010101';
+         UPDATE app_db_purge_gate SET open=0;
+         COMMIT;",
+    )?;
+    let removed = get(&original)?.error.ok_or("missing removed error")?;
+    assert_eq!(removed.code, ErrorCode::NotFound);
+    assert_eq!(removed.reason_key, "history.removed");
+    let orphan: HistoryDetail = serde_json::from_value(get(&retry)?.body)?;
+    assert!(
+        orphan
+            .summary
+            .ok_or("missing retry summary")?
+            .predecessor_job_ref
+            .is_none()
+    );
+    assert!(
+        orphan
+            .missing_reasons
+            .iter()
+            .any(|reason| reason == "read_failed")
+    );
+
+    assert_detail_requires_gui(&engine, &retry)?;
+    sql.execute_batch("DROP TABLE job_runtime_job_start")?;
+    let unavailable = get(&retry)?.error.ok_or("missing unavailable error")?;
+    assert_eq!(unavailable.code, ErrorCode::Internal);
+    assert_eq!(unavailable.reason_key, "history.storage_unavailable");
+    Ok(())
+}
+
+fn assert_complete_detail(
+    complete: HistoryDetail,
+    retry: &Id,
+) -> Result<Vec<HistoryFollowUp>, Box<dyn std::error::Error>> {
+    assert_eq!(complete.completeness, HistoryDetailCompleteness::Complete);
+    let summary = complete.summary.ok_or("missing original summary")?;
+    assert_eq!(summary.scope_summary.as_deref(), Some("metadata: 1 root"));
+    assert_eq!(summary.state, HistoryEndState::Done);
+    assert_eq!(
+        summary.counts.ok_or("missing recorded counts")?.completed,
+        "0"
+    );
+    assert_eq!(complete.effects.confirmed, None);
+    assert_eq!(complete.workflow.plan_versions, Some(vec![]));
+    let follow_ups = complete.follow_ups.ok_or("missing follow-up list")?;
+    assert_eq!(follow_ups.len(), 1);
+    assert_eq!(follow_ups[0].job_ref.as_ref(), Some(retry));
+    assert_eq!(follow_ups[0].relation, Some(HistoryRelation::Retry));
+    assert_eq!(follow_ups[0].state, Some(HistoryEndState::Done));
+    assert_eq!(follow_ups[0].finished_at_ms, Some(200));
+    Ok(follow_ups)
+}
+
+fn assert_detail_requires_gui(
+    engine: &Engine,
+    retry: &Id,
+) -> Result<(), Box<dyn std::error::Error>> {
+    for channel in [Channel::Cli, Channel::Mcp] {
+        let id = Id::from_v7_bytes([41; 16]);
+        let response = engine.call(
+            CallEnvelope {
+                name: "history.get".into(),
+                contract_version: 1,
+                correlation_id: id.clone(),
+                body: json!({"jobRef": retry}),
+            },
+            &CallerCtx::new(channel, id, None),
+        );
+        assert_eq!(
+            response
+                .error
+                .ok_or("detail exposed outside GUI")?
+                .reason_key,
+            "command.not_provided"
+        );
+    }
+    let invalid = ipc(engine, "history.get", json!({"jobRef": "invalid"}))?;
+    assert_eq!(
+        invalid.error.ok_or("invalid reference accepted")?.code,
+        ErrorCode::InvalidArgument
+    );
+    Ok(())
 }
 
 #[test]

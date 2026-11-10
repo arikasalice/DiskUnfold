@@ -51,6 +51,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         settings.scan_limit_source(),
     )?;
     #[cfg(windows)]
+    du_engine_api::history::detail::register(&mut builder, history_reader.clone());
+    #[cfg(windows)]
     du_engine_api::history::register(
         &mut builder,
         history_reader,

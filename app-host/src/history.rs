@@ -1,6 +1,10 @@
 //! Compose the history read port with a separate read-only SQLite connection.
 
-use std::{io, path::Path, sync::Mutex};
+use std::{
+    io,
+    path::Path,
+    sync::{Arc, Mutex},
+};
 
 use du_app_db::{AppDb, history_read as db};
 use du_core_contracts::{
@@ -11,8 +15,9 @@ use du_engine_api::history::{Entry, Filter, HistoryRead, Position, ReadError, Re
 
 use crate::shared_database::SharedDatabase;
 
+#[derive(Clone)]
 pub(super) struct HistoryReader {
-    connection: Mutex<AppDb>,
+    connection: Arc<Mutex<AppDb>>,
     _database: SharedDatabase,
 }
 
@@ -22,7 +27,7 @@ impl HistoryReader {
         let connection = AppDb::open_read_only(&data_dir.join("diskunfold.db"))
             .map_err(|error| io::Error::other(format!("history.storage_unavailable: {error:?}")))?;
         Ok(Self {
-            connection: Mutex::new(connection),
+            connection: Arc::new(Mutex::new(connection)),
             _database: database,
         })
     }
@@ -99,24 +104,7 @@ fn project_entry(entry: db::Entry) -> Result<Entry<HistoryListRow>, ReadError> {
             if row.state == HistoryEndState::Interrupted {
                 missing_reasons.push("interrupted".into());
             }
-            Some(HistoryListSummary {
-                session_restore_available: (row.kind_id == "scan.metadata").then_some(false),
-                kind_id: row.kind_id,
-                kind_version: row.kind_version,
-                scope_summary: row.scope_summary,
-                state: row.state,
-                counts: row.counts.map(|counts| HistoryListCounts {
-                    completed: counts.completed.to_string(),
-                    overwritten: counts.overwritten.to_string(),
-                    failed: counts.failed.to_string(),
-                    skipped: counts.skipped.to_string(),
-                    unprocessed: counts.unprocessed.to_string(),
-                }),
-                started_at_ms: row.started_at_ms,
-                finished_at_ms: row.finished_at_ms,
-                predecessor_job_ref,
-                relation: row.relation,
-            })
+            Some(project_summary(row, predecessor_job_ref))
         }
         None => {
             missing_reasons.push("read_failed".into());
@@ -136,9 +124,32 @@ fn project_entry(entry: db::Entry) -> Result<Entry<HistoryListRow>, ReadError> {
     })
 }
 
+fn project_summary(row: db::Summary, predecessor_job_ref: Option<Id>) -> HistoryListSummary {
+    HistoryListSummary {
+        session_restore_available: (row.kind_id == "scan.metadata").then_some(false),
+        kind_id: row.kind_id,
+        kind_version: row.kind_version,
+        scope_summary: row.scope_summary,
+        state: row.state,
+        counts: row.counts.map(|counts| HistoryListCounts {
+            completed: counts.completed.to_string(),
+            overwritten: counts.overwritten.to_string(),
+            failed: counts.failed.to_string(),
+            skipped: counts.skipped.to_string(),
+            unprocessed: counts.unprocessed.to_string(),
+        }),
+        started_at_ms: row.started_at_ms,
+        finished_at_ms: row.finished_at_ms,
+        predecessor_job_ref,
+        relation: row.relation,
+    }
+}
+
 fn history_id(bytes: [u8; 16]) -> Option<Id> {
     (bytes[6] >> 4 == 7 && bytes[8] >> 6 == 2).then(|| Id::from_v7_bytes(bytes))
 }
+
+mod detail;
 
 #[cfg(test)]
 mod tests;

@@ -225,5 +225,6 @@ fn read_summary(row: &rusqlite::Row<'_>) -> rusqlite::Result<Summary> {
     })
 }
 
+pub mod detail;
 #[cfg(test)]
 mod tests;
