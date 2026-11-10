@@ -304,3 +304,30 @@ fn rendered_check_accepts_the_snapshot_limit_and_rejects_larger_input()
     assert_eq!(source.checks.load(Ordering::SeqCst), checks);
     Ok(())
 }
+
+#[test]
+fn free_text_limit_uses_utf8_bytes_and_never_calls_snapshot_above_limit()
+-> Result<(), fixed_exclusion::Error> {
+    let source = port(SecretCheck::Clean, false);
+    let exactly = "a".repeat(MAX_CHECK_BYTES);
+    let checked = check(input(&exactly)?, source.open_snapshot().ok());
+    assert!(checked._fields.contains_key("note"));
+    assert_eq!(checked.limitation(), None);
+    assert_eq!(source.checks.load(Ordering::SeqCst), 1);
+
+    let too_large = "a".repeat(MAX_CHECK_BYTES + 1);
+    let checked = check(input(&too_large)?, source.open_snapshot().ok());
+    assert!(!checked._fields.contains_key("note"));
+    assert!(checked._fields.contains_key("label"));
+    assert_eq!(checked.secret_check_excluded(), 1);
+    assert_eq!(checked.limitation(), Some(SECRET_CHECK_UNAVAILABLE));
+    assert_eq!(source.checks.load(Ordering::SeqCst), 1);
+
+    let multibyte = "가".repeat(MAX_CHECK_BYTES / 3 + 1);
+    assert!(multibyte.chars().count() < MAX_CHECK_BYTES);
+    let checked = check(input(&multibyte)?, source.open_snapshot().ok());
+    assert!(!checked._fields.contains_key("note"));
+    assert_eq!(checked.limitation(), Some(SECRET_CHECK_UNAVAILABLE));
+    assert_eq!(source.checks.load(Ordering::SeqCst), 1);
+    Ok(())
+}

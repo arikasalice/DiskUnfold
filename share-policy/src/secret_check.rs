@@ -45,7 +45,8 @@ pub struct Checked {
 /// The caller must open the snapshot before preparing fields. A missing
 /// snapshot or a `Contains` or `Unavailable` answer removes the affected free-text
 /// field and records the published limitation. Non-string free-text fields are
-/// likewise removed because this stage cannot check them. No path, masking,
+/// likewise removed because this stage cannot check them. Text exceeding 1 MiB
+/// in UTF-8 bytes is removed without invoking the snapshot. No path, masking,
 /// sealing, rendered-byte verification, or export is performed here.
 #[must_use]
 pub fn check(input: Intermediate, snapshot: Option<Box<dyn SecretCheckSnapshot>>) -> Checked {
@@ -56,9 +57,10 @@ pub fn check(input: Intermediate, snapshot: Option<Box<dyn SecretCheckSnapshot>>
             return true;
         }
         let clean = field.value.as_str().is_some_and(|text| {
-            snapshot
-                .as_ref()
-                .is_some_and(|snapshot| snapshot.check(text) == SecretCheck::Clean)
+            text.len() <= MAX_CHECK_BYTES
+                && snapshot
+                    .as_ref()
+                    .is_some_and(|snapshot| snapshot.check(text) == SecretCheck::Clean)
         });
         if !clean {
             excluded += 1;
