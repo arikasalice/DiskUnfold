@@ -16,6 +16,7 @@ mod target_enumeration;
 mod target_probe;
 mod targets;
 pub mod viz_pages;
+pub mod watch_gap;
 mod workers;
 
 #[cfg(test)]
