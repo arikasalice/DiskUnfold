@@ -76,7 +76,14 @@ impl Progress {
             Event::Item(root_index, path, timed) => {
                 let entry = &timed.entry;
                 let gap = entry_gap(entry);
-                record_at(build, root_index, entry, &path, counts)?;
+                record_at(
+                    build,
+                    root_index,
+                    entry,
+                    &path,
+                    counts,
+                    timed.observed_at.as_ref(),
+                )?;
                 if gap.is_none()
                     && let Some(time) = &timed.observed_at
                 {

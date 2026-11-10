@@ -274,15 +274,17 @@ fn record(
     path: &[Vec<u8>],
     counts: &mut JobCounts,
 ) -> Result<bool, BuildError> {
-    record_at(build, 0, entry, path, counts)
+    record_at(build, 0, entry, path, counts, None)
 }
 
+/// Records only the timestamp supplied with the metadata observation.
 fn record_at(
     build: &mut BuildHandle,
     root_index: u32,
     entry: &ObservedEntry,
     path: &[Vec<u8>],
     counts: &mut JobCounts,
+    observed_at: Option<&du_core_contracts::Timestamp>,
 ) -> Result<bool, BuildError> {
     if let Some((kind, stage, reason)) = issues::classify(entry) {
         build.record_scan_issue(du_core_contracts::scan_failures::ScanIssue {
@@ -291,7 +293,7 @@ fn record_at(
             kind,
             stage,
             reason_key: reason.into(),
-            observed_at: None,
+            observed_at: observed_at.cloned(),
         })?;
     }
     let meta = match &entry.metadata {

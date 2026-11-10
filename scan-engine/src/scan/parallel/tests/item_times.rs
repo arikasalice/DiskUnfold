@@ -8,6 +8,7 @@ struct TimedRoot {
     step: usize,
     probes: Arc<AtomicUsize>,
     captured: Arc<Mutex<Option<Timestamp>>>,
+    mismatch_time: Arc<Mutex<Option<Timestamp>>>,
 }
 impl DirectoryObservations for TimedRoot {
     fn next_batch(&mut self) -> Result<Vec<ObservedEntry>, PortError> {
@@ -60,6 +61,13 @@ impl DirectoryObservations for TimedRoot {
                 os_code: None,
             })? = observed_at.clone();
         }
+        if name == b"mismatch" {
+            *self.mismatch_time.lock().map_err(|_| PortError {
+                kind: PortErrorKind::Io,
+                reason_key: "clock.lock".into(),
+                os_code: None,
+            })? = observed_at.clone();
+        }
         Ok(TimedFilteredBatch::Entries(vec![TimedObservedEntry {
             entry,
             observed_at,
@@ -101,10 +109,12 @@ fn injected_clock_is_recorded_at_fake_observation_not_publication()
     let store = IngestSink::default();
     let probes = Arc::new(AtomicUsize::new(0));
     let captured = Arc::new(Mutex::new(None));
+    let mismatch_time = Arc::new(Mutex::new(None));
     let roots: Vec<Box<dyn AnchoredDirectory>> = vec![Box::new(TimedRoot {
         step: 0,
         probes: probes.clone(),
         captured: captured.clone(),
+        mismatch_time: mismatch_time.clone(),
     })];
     let context = Clocked {
         ticks: AtomicUsize::new(10),
@@ -159,6 +169,22 @@ fn injected_clock_is_recorded_at_fake_observation_not_publication()
         .find(|item| item.name == b"mismatch")
         .ok_or("missing mismatch")?;
     assert_eq!(version.item_observed_at(mismatch.item_no), None);
+    let uncertain = version
+        .scan_issues()
+        .iter()
+        .find(|issue| issue.relative == vec![b"mismatch".to_vec()])
+        .ok_or("missing mismatch issue")?;
+    assert_eq!(
+        uncertain.observed_at,
+        *mismatch_time.lock().map_err(|_| "clock lock")?
+    );
+    assert!(uncertain.observed_at.is_some());
+    let failure = version
+        .scan_issues()
+        .iter()
+        .find(|issue| issue.relative == vec![b"bad".to_vec()])
+        .ok_or("missing failed issue")?;
+    assert_eq!(failure.observed_at, None);
     assert_eq!(probes.load(Ordering::SeqCst), 3);
     assert!(!version.items().iter().any(|item| item.name == b"skip"));
     Ok(())
