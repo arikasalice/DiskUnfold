@@ -310,6 +310,17 @@
   {
     "ecosystem": "cargo",
     "owner": "du-platform-os",
+    "name": "notify",
+    "version": "8.2.1",
+    "source": "registry+https://github.com/rust-lang/crates.io-index",
+    "license": "CC0-1.0",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Native Windows file change notifications for F18"
+  },
+  {
+    "ecosystem": "cargo",
+    "owner": "du-platform-os",
     "name": "objc2-app-kit",
     "version": "0.3.2",
     "source": "registry+https://github.com/rust-lang/crates.io-index",
