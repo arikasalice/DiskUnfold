@@ -6,7 +6,10 @@ pub mod bar;
 pub mod geometry;
 pub mod histogram;
 pub mod registry;
+pub mod sankey;
 pub mod squarify;
+pub mod trend;
+pub mod waterfall;
 use crate::ResultVersion;
 use du_core_contracts::{
     Id, ItemRef, SizeAmount, SizeBasis, SizeEvidence, SizeValue,
