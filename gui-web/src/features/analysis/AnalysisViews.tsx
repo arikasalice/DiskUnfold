@@ -40,14 +40,16 @@ export function TargetPicker({
   selected,
   choose,
   dropEnabled,
-  dropMessage,
+  dropError,
+  pathDescription,
 }: {
   targets: ReturnType<typeof useTargets>;
   disabled: boolean;
   selected: OsPath | undefined;
   choose: (path: OsPath | undefined) => void;
   dropEnabled: boolean;
-  dropMessage: { text: string; tone: "info" | "error" } | undefined;
+  dropError: string | undefined;
+  pathDescription: string;
 }) {
   const error = targets.error ?? targets.list?.unavailableReason;
   const notice =
@@ -58,11 +60,7 @@ export function TargetPicker({
   const pathField = (
     <PathField
       label="Windows folder path"
-      description={
-        dropEnabled
-          ? "Drop a folder here or enter its path."
-          : "Review this path before scanning."
-      }
+      description={pathDescription}
       placeholder={"C:\\Folder"}
       isDisabled={disabled}
       value={selected?.display ?? ""}
@@ -128,9 +126,7 @@ export function TargetPicker({
       ) : (
         pathField
       )}
-      {dropMessage && (
-        <Notice tone={dropMessage.tone}>{dropMessage.text}</Notice>
-      )}
+      {dropError && <Notice tone="error">{dropError}</Notice>}
     </>
   );
 }

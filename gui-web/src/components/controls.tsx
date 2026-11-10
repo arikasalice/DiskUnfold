@@ -67,7 +67,9 @@ export function PathField({
         spellCheck={false}
         autoComplete="off"
       />
-      <Text slot="description">{description}</Text>
+      <Text slot="description" aria-live="polite">
+        {description}
+      </Text>
     </TextField>
   );
 }

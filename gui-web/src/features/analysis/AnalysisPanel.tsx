@@ -48,6 +48,13 @@ export function AnalysisPanel({ client }: { client: AnalysisClient }) {
     receipt !== null &&
     !scan.unavailable &&
     (!scan.status || isRunning(scan.status.state));
+  const dropEnabled = client.subscribeFolderDrop !== undefined;
+  const pathDescription =
+    dropMessage?.tone === "info"
+      ? dropMessage.text
+      : dropEnabled
+        ? "Drop a folder here or enter its path."
+        : "Review this path before scanning.";
 
   const choose = useCallback((path: OsPath | undefined) => {
     request.current += 1;
@@ -65,7 +72,7 @@ export function AnalysisPanel({ client }: { client: AnalysisClient }) {
         if ("path" in drop) {
           choose(drop.path);
           setDropMessage({
-            text: "Folder selected. Review the scope before scanning.",
+            text: "Folder selected. Review scope.",
             tone: "info",
           });
         } else {
@@ -155,8 +162,11 @@ export function AnalysisPanel({ client }: { client: AnalysisClient }) {
             disabled={working || running}
             selected={selected}
             choose={choose}
-            dropEnabled={client.subscribeFolderDrop !== undefined}
-            dropMessage={dropMessage}
+            dropEnabled={dropEnabled}
+            dropError={
+              dropMessage?.tone === "error" ? dropMessage.text : undefined
+            }
+            pathDescription={pathDescription}
           />
           <footer className="du-card__actions">
             <Action
