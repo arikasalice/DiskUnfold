@@ -150,3 +150,83 @@ fn raw_restore_retains_malformed_rows_and_can_quarantine_them()
     assert_eq!(raw, "{bad");
     Ok(())
 }
+
+#[test]
+fn quarantine_mid_batch_delete_failure_rolls_back_and_can_retry_after_reopen()
+-> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("quarantine-atomic.db");
+    let mut db = AppDb::create_gui(&path).map_err(|e| format!("{e:?}"))?;
+    let context = SettingsCommit {
+        source: SettingsSource::Screen,
+        timestamp_ms: 7,
+    };
+    let initial = SettingsChanges::from([
+        ("a.invalid".into(), Some(json!(1))),
+        ("b.invalid".into(), Some(json!(2))),
+        ("z.valid".into(), Some(json!(3))),
+    ]);
+    assert_eq!(db.commit(0, &initial, context), Ok(1));
+    db.connection.execute_batch("CREATE TRIGGER reject_second_delete BEFORE DELETE ON user_env_setting WHEN OLD.setting_key = 'b.invalid' BEGIN SELECT RAISE(ABORT, 'injected'); END;")?;
+    let observed = BTreeMap::from([
+        ("a.invalid".into(), "1".into()),
+        ("b.invalid".into(), "2".into()),
+    ]);
+    assert_eq!(
+        db.quarantine_settings(1, &observed, 10),
+        Err(SettingsStoreError::Storage)
+    );
+    drop(db);
+    let mut reopened = AppDb::open_gui(&path).map_err(|e| format!("{e:?}"))?;
+    let (revision, schema, rows) = reopened
+        .load_settings_for_restore()
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!((revision, schema), (1, 1));
+    assert_eq!(
+        rows,
+        BTreeMap::from([
+            ("a.invalid".into(), "1".into()),
+            ("b.invalid".into(), "2".into()),
+            ("z.valid".into(), "3".into())
+        ])
+    );
+    let count: i64 = reopened.connection.query_row(
+        "SELECT count(*) FROM user_env_setting_quarantine",
+        [],
+        |r| r.get(0),
+    )?;
+    assert_eq!(count, 0);
+    reopened
+        .connection
+        .execute_batch("DROP TRIGGER reject_second_delete;")?;
+    assert_eq!(reopened.quarantine_settings(1, &observed, 11), Ok(2));
+    assert_eq!(
+        reopened.quarantine_settings(1, &observed, 12),
+        Err(SettingsStoreError::Conflict)
+    );
+    drop(reopened);
+    let mut final_reader = AppDb::open_read_only(&path).map_err(|e| format!("{e:?}"))?;
+    let (revision, schema, rows) = final_reader
+        .load_settings_for_restore()
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!((revision, schema), (2, 1));
+    assert_eq!(rows, BTreeMap::from([("z.valid".into(), "3".into())]));
+    let mut stmt = final_reader.connection.prepare("SELECT setting_key, raw_value_json, quarantined_at_ms FROM user_env_setting_quarantine ORDER BY setting_key")?;
+    let quarantined = stmt
+        .query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, i64>(2)?,
+            ))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    assert_eq!(
+        quarantined,
+        vec![
+            ("a.invalid".into(), "1".into(), 11),
+            ("b.invalid".into(), "2".into(), 11)
+        ]
+    );
+    Ok(())
+}
