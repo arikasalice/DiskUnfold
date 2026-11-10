@@ -1,11 +1,14 @@
 //! Live-scan F06 model admission and row paging, without IPC registration.
 //! A session index owns only weak source references; source results own row data.
 pub mod production;
-use du_analysis_index::{IngestSink, ResultVersion, visualization::live_models};
+use du_analysis_index::{
+    IngestSink, ResultVersion,
+    visualization::{group_page, live_models},
+};
 use du_core_contracts::{
     Id,
     result::ResultVersionRead,
-    visualization::rows::{VizRow, VizRows, VizRowsRequest},
+    visualization::rows::{MAX_PAGE_COUNT, VizRow, VizRows, VizRowsRequest},
 };
 use du_job_runtime::JobIdentity;
 use std::{
@@ -23,6 +26,7 @@ pub enum Error {
     StaleVersion,
     ReferenceCollision,
     Unavailable,
+    Cancelled,
 }
 /// An already computed model from a pinned live result and normalized condition.
 pub struct ModelInput {
@@ -42,17 +46,7 @@ struct State {
     conditions: HashMap<(Id, String), String>,
     lru: VecDeque<String>,
 }
-/// Internal group page; this is not an IPC response type.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct GroupPage {
-    pub rows: Vec<VizRow>,
-    pub total_count: u64,
-    pub group_total: du_core_contracts::SizeValue,
-    pub size_range: live_models::SizeRange,
-    pub result_revision: Id,
-    pub observed_at: Option<du_core_contracts::Timestamp>,
-    pub completeness: du_core_contracts::result::ResultCompleteness,
-}
+pub use group_page::Page as GroupPage;
 /// Bounded session index. IDs supplied by the identity port must never be reused in this session.
 pub struct ModelPages {
     source: IngestSink,
@@ -173,7 +167,19 @@ impl ModelPages {
         start: u32,
         count: u32,
     ) -> Result<GroupPage, Error> {
-        self.group_rows_at_admission(model_ref, group_ref, start, count, || {})
+        self.group_rows_cancellable(model_ref, group_ref, start, count, &mut || false)
+    }
+
+    /// Reads a fixed group page with cooperative cancellation during row copying.
+    pub fn group_rows_cancellable(
+        &self,
+        model_ref: &str,
+        group_ref: &str,
+        start: u32,
+        count: u32,
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<GroupPage, Error> {
+        self.group_rows_at_admission(model_ref, group_ref, start, count, || {}, cancelled)
     }
     fn group_rows_at_admission(
         &self,
@@ -182,8 +188,9 @@ impl ModelPages {
         start: u32,
         count: u32,
         after_pin: impl FnOnce(),
+        cancelled: &mut dyn FnMut() -> bool,
     ) -> Result<GroupPage, Error> {
-        if model_ref.is_empty() || group_ref.is_empty() || count == 0 || count > 1000 {
+        if model_ref.is_empty() || group_ref.is_empty() || count == 0 || count > MAX_PAGE_COUNT {
             return Err(Error::InvalidRange);
         }
         let mut state = self.state.lock().map_err(|_| Error::Unavailable)?;
@@ -196,27 +203,15 @@ impl ModelPages {
         if !Arc::ptr_eq(&pinned, &current) {
             return Err(Error::StaleVersion);
         }
-        let group = current
-            .pin_viz_group(model_ref, group_ref)
-            .map_err(model_error)?
-            .ok_or(Error::InvalidGroup)?;
-        let start = start as usize;
-        if start > group.rows.len() {
+        let group = group_page::PinnedGroup::from_admitted(current, model_ref, group_ref)
+            .map_err(group_error)?;
+        if start as usize > group.row_count() {
             return Err(Error::InvalidRange);
         }
         touch(&mut state.lru, model_ref);
         drop(state);
         after_pin();
-        let end = start.saturating_add(count as usize).min(group.rows.len());
-        Ok(GroupPage {
-            rows: group.rows[start..end].to_vec(),
-            total_count: group.rows.len() as u64,
-            group_total: group.total.clone(),
-            size_range: group.size_range.clone(),
-            result_revision: current.version_id().clone(),
-            observed_at: current.observed_at().cloned(),
-            completeness: current.completeness(),
-        })
+        group.page(start, count, cancelled).map_err(group_error)
     }
     /// Evicts this model even if its source remains alive.
     pub fn release_model(&self, reference: &str) -> Result<(), Error> {
@@ -284,6 +279,15 @@ fn model_error(error: live_models::Error) -> Error {
         live_models::Error::Unavailable => Error::Unavailable,
         live_models::Error::Duplicate => Error::ReferenceCollision,
         live_models::Error::Missing => Error::ModelExpired,
+    }
+}
+fn group_error(error: group_page::Error) -> Error {
+    match error {
+        group_page::Error::ModelUnavailable => Error::Unavailable,
+        group_page::Error::ModelExpired => Error::ModelExpired,
+        group_page::Error::GroupMissing => Error::InvalidGroup,
+        group_page::Error::InvalidRange => Error::InvalidRange,
+        group_page::Error::Cancelled => Error::Cancelled,
     }
 }
 fn touch(lru: &mut VecDeque<String>, key: &str) {

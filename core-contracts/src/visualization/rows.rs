@@ -4,7 +4,8 @@ use crate::{Id, ItemRef, SizeValue, Timestamp, result::ResultCompleteness};
 use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
 use std::collections::HashSet;
 
-const MAX_PAGE_COUNT: u32 = 1000;
+/// Maximum rows in one positional visualization page.
+pub const MAX_PAGE_COUNT: u32 = 1000;
 
 /// Canonical signed decimal ratio, with at most 20 fractional digits.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]

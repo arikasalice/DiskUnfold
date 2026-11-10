@@ -295,6 +295,17 @@ fn group_rows_keep_order_and_producer_evidence_and_reject_other_model_group() ->
     assert_eq!(page.group_total, total);
     assert_eq!(page.size_range, range);
     assert_eq!(page.result_revision, *a.version_id());
+    let mut checkpoints = 0;
+    let cancelled = pages.group_rows_cancellable(&model, "group-a", 0, 2, &mut || {
+        checkpoints += 1;
+        checkpoints == 3
+    });
+    assert_eq!(cancelled.err(), Some(Error::Cancelled));
+    let retry = pages
+        .group_rows(&model, "group-a", 0, 2)
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(retry.rows.len(), 2);
+    assert_eq!(retry.group_total, total);
     assert_eq!(
         pages.group_rows(&other, "group-a", 0, 1).err(),
         Some(Error::InvalidGroup)

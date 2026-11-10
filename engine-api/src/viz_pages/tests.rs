@@ -136,10 +136,17 @@ fn admitted_group_page_survives_eviction_and_replacement() -> Result<(), String>
         let r = resume.clone();
         let m = model.clone();
         std::thread::spawn(move || {
-            p.group_rows_at_admission(&m, "g", 0, 1, || {
-                s.wait();
-                r.wait();
-            })
+            p.group_rows_at_admission(
+                &m,
+                "g",
+                0,
+                1,
+                || {
+                    s.wait();
+                    r.wait();
+                },
+                &mut || false,
+            )
         })
     };
     start.wait();
