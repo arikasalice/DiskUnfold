@@ -1,6 +1,7 @@
 //! F03 settings descriptors for composition into the shared settings registry.
 
 use crate::{Descriptor, ValueKind};
+use du_core_contracts::settings::{SettingsSnapshot, SharedTableLimit};
 use serde_json::json;
 
 /// The registered key for the per-table identity capacity.
@@ -11,13 +12,25 @@ pub fn descriptors() -> Vec<Descriptor> {
     vec![Descriptor {
         key: SHARED_TABLE_MAX_ENTRIES.into(),
         owner: "F03".into(),
-        default: json!(1_000_000),
+        default: json!(SharedTableLimit::DEFAULT_ENTRIES),
         kind: ValueKind::Integer {
-            min: 100_000,
-            max: 10_000_000,
+            min: SharedTableLimit::MIN_ENTRIES as i64,
+            max: SharedTableLimit::MAX_ENTRIES as i64,
         },
         editable: true,
     }]
+}
+
+/// Resolves the F03 override in a stored snapshot. An absent override uses the
+/// descriptor default; an unreadable or out-of-range override requires recovery.
+pub fn restore_shared_table_limit(snapshot: &SettingsSnapshot) -> Option<SharedTableLimit> {
+    if snapshot.schema_version != 1 {
+        return None;
+    }
+    match snapshot.values.get(SHARED_TABLE_MAX_ENTRIES) {
+        None => Some(SharedTableLimit::default()),
+        Some(value) => SharedTableLimit::new(usize::try_from(value.as_u64()?).ok()?),
+    }
 }
 
 #[cfg(test)]
@@ -81,5 +94,36 @@ mod tests {
             );
         }
         Ok(())
+    }
+
+    #[test]
+    fn restores_valid_overrides_without_consulting_unrelated_keys() {
+        let mut snapshot = SettingsSnapshot {
+            schema_version: 1,
+            ..SettingsSnapshot::default()
+        };
+        snapshot
+            .values
+            .insert("unregistered.future".into(), json!(true));
+        assert_eq!(
+            restore_shared_table_limit(&snapshot),
+            Some(SharedTableLimit::default())
+        );
+        for value in [100_000, 10_000_000] {
+            snapshot
+                .values
+                .insert(SHARED_TABLE_MAX_ENTRIES.into(), json!(value));
+            assert_eq!(
+                restore_shared_table_limit(&snapshot),
+                SharedTableLimit::new(value)
+            );
+        }
+        snapshot
+            .values
+            .insert(SHARED_TABLE_MAX_ENTRIES.into(), json!(99_999));
+        assert_eq!(restore_shared_table_limit(&snapshot), None);
+        snapshot.values.clear();
+        snapshot.schema_version = 2;
+        assert_eq!(restore_shared_table_limit(&snapshot), None);
     }
 }

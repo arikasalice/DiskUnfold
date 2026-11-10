@@ -167,9 +167,11 @@ dependencies = [
 name = "du-app-host"
 version = "0.1.0"
 dependencies = [
+ "du-app-db",
  "du-core-contracts",
  "du-engine-api",
  "du-platform-os",
+ "du-user-env",
  "serde",
  "serde_json",
 ]

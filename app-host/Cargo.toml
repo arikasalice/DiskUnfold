@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [features]
-gui = ["dep:du-core-contracts", "dep:du-engine-api", "dep:du-platform-os", "dep:serde", "dep:serde_json", "du-platform-os/webview"]
+gui = ["dep:du-app-db", "dep:du-core-contracts", "dep:du-engine-api", "dep:du-platform-os", "dep:du-user-env", "dep:serde", "dep:serde_json", "du-platform-os/webview"]
 
 [dependencies]
 du-core-contracts = { version = "0.1.0", path = "../core-contracts", optional = true }
@@ -14,6 +14,10 @@ du-engine-api = { version = "0.1.0", path = "../engine-api", optional = true }
 du-platform-os = { version = "0.1.0", path = "../platform-os", optional = true }
 serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
+
+[target.'cfg(windows)'.dependencies]
+du-app-db = { version = "0.1.0", path = "../app-db", optional = true }
+du-user-env = { version = "0.1.0", path = "../user-env", optional = true }
 
 [lints]
 workspace = true

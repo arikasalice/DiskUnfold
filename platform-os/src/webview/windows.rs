@@ -8,7 +8,6 @@ use std::{
     cell::{Cell, RefCell},
     error::Error,
     os::windows::ffi::OsStrExt,
-    path::PathBuf,
     rc::Rc,
 };
 use webview2_com::{
@@ -106,12 +105,8 @@ impl Drop for Controller {
 }
 
 fn environment() -> Result<ICoreWebView2Environment, Box<dyn Error>> {
-    let base = std::env::var_os("DISKUNFOLD_DATA_DIR")
-        .map(PathBuf::from)
-        .or_else(|| {
-            std::env::var_os("LOCALAPPDATA").map(|path| PathBuf::from(path).join("DiskUnfold"))
-        })
-        .ok_or("No Windows application data directory")?;
+    let base =
+        crate::application_data::directory().ok_or("No Windows application data directory")?;
     let path = base.join("webview");
     std::fs::create_dir_all(&path)?;
     let data = HSTRING::from_wide(&path.as_os_str().encode_wide().collect::<Vec<_>>());

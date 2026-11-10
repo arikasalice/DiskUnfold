@@ -12,6 +12,30 @@ fn context() -> SettingsCommit {
 }
 
 #[test]
+fn desktop_bootstrap_creates_once_and_reopens_existing_overrides()
+-> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("app-data").join("diskunfold.db");
+    let mut first = AppDb::open_or_create_gui(&path).map_err(|e| format!("{e:?}"))?;
+    let changes = SettingsChanges::from([(
+        "space.shared_table_max_entries".into(),
+        Some(json!(100_000)),
+    )]);
+    first
+        .commit(0, &changes, context())
+        .map_err(|e| format!("{e:?}"))?;
+    drop(first);
+    let mut next = AppDb::open_or_create_gui(&path).map_err(|e| format!("{e:?}"))?;
+    let snapshot = next.load().map_err(|e| format!("{e:?}"))?;
+    assert_eq!(snapshot.revision, 1);
+    assert_eq!(
+        snapshot.values.get("space.shared_table_max_entries"),
+        Some(&json!(100_000))
+    );
+    Ok(())
+}
+
+#[test]
 fn legacy_connection_keeps_required_pragmas() -> Result<(), Box<dyn std::error::Error>> {
     let dir = tempfile::tempdir()?;
     let path = dir.path().join("legacy.db");

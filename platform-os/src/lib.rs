@@ -1,4 +1,6 @@
 //! Operating-system adapters. The in-memory implementation is test-only.
+#[cfg(windows)]
+pub mod application_data;
 pub mod entropy;
 #[cfg(feature = "fake")]
 pub mod fake;

@@ -3,6 +3,34 @@ use std::collections::BTreeMap;
 
 use serde_json::Value;
 
+/// Validated F03 capacity, frozen when a scan is admitted.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SharedTableLimit(usize);
+
+impl SharedTableLimit {
+    pub const MIN_ENTRIES: usize = 100_000;
+    pub const MAX_ENTRIES: usize = 10_000_000;
+    pub const DEFAULT_ENTRIES: usize = 1_000_000;
+
+    /// Accepts the inclusive bounds of the published setting.
+    pub fn new(entries: usize) -> Option<Self> {
+        (Self::MIN_ENTRIES..=Self::MAX_ENTRIES)
+            .contains(&entries)
+            .then_some(Self(entries))
+    }
+
+    /// Returns the validated number of entries in each table.
+    pub fn entries(self) -> usize {
+        self.0
+    }
+}
+
+impl Default for SharedTableLimit {
+    fn default() -> Self {
+        Self(Self::DEFAULT_ENTRIES)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct SettingDescriptor {
     pub key: String,

@@ -24,12 +24,13 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     #[allow(unused_mut)]
     let mut builder = EngineBuilder::default();
     #[cfg(windows)]
-    let events = du_engine_api::desktop::register(
+    let events = du_engine_api::desktop::register_with_shared_table_limit(
         &mut builder,
         Arc::new(du_platform_os::windows_observation::WindowsScopeRoots),
         Arc::new(du_platform_os::volume::WindowsVolumes),
         Arc::new(DeferredHistory),
         &du_platform_os::entropy::OsRandom,
+        crate::settings::scan_limit_source()?,
     )?;
     let engine = builder.build()?;
     let app = WebApp {

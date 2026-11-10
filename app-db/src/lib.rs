@@ -106,6 +106,23 @@ impl AppDb {
         create_gui_with(path, settings::SCHEMA, || Ok(()), Self::open_gui)
     }
 
+    /// Opens the current application database or publishes its initial schema.
+    /// If another creator wins the publication race, opens its database in place.
+    pub fn open_or_create_gui(path: &Path) -> Result<Self, OpenError> {
+        if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+            fs::create_dir_all(parent).map_err(OpenError::Io)?;
+        }
+        if path.try_exists().map_err(OpenError::Io)? {
+            return Self::open_gui(path);
+        }
+        match Self::create_gui(path) {
+            Err(OpenError::Io(error)) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                Self::open_gui(path)
+            }
+            result => result,
+        }
+    }
+
     pub fn schema_version(&self) -> rusqlite::Result<u32> {
         self.connection
             .pragma_query_value(None, "user_version", |row| row.get(0))

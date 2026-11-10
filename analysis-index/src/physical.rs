@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
-pub(crate) const IDENTITY_LIMIT: usize = 1_000_000;
+pub(crate) const IDENTITY_LIMIT: usize =
+    du_core_contracts::settings::SharedTableLimit::DEFAULT_ENTRIES;
 
 use du_core_contracts::result::{ResultCompleteness, ResultItem, SpaceAggregate};
 use du_core_contracts::{ByteSize, SizeAmount, SizeBasis, SizeEvidence, SizeValue};

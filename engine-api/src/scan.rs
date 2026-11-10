@@ -22,29 +22,7 @@ use crate::{
     workers::Workers,
 };
 
-/// A validated F03 identity-table capacity, frozen when a scan is admitted.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct SharedTableLimit(usize);
-
-impl SharedTableLimit {
-    /// Accepts only the inclusive range defined by the F03 setting.
-    pub fn new(entries: usize) -> Option<Self> {
-        (100_000..=10_000_000)
-            .contains(&entries)
-            .then_some(Self(entries))
-    }
-
-    /// Returns the validated number of entries.
-    pub fn entries(self) -> usize {
-        self.0
-    }
-}
-
-impl Default for SharedTableLimit {
-    fn default() -> Self {
-        Self(1_000_000)
-    }
-}
+pub use du_core_contracts::settings::SharedTableLimit;
 
 /// Reads an already validated setting snapshot when a new scan is admitted.
 pub type SharedTableLimitSource = Arc<dyn Fn() -> SharedTableLimit + Send + Sync>;
