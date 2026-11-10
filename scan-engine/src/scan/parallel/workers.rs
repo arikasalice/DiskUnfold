@@ -11,14 +11,13 @@ pub(super) fn worker(
     let mut local = Vec::new();
     let mut prefer_shared = true;
     while context.checkpoint() != Checkpoint::Cancel && !shared.abort.load(Ordering::Acquire) {
-        let frame = if prefer_shared {
-            take_ready(shared).or_else(|| local.pop())
-        } else {
-            local.pop().or_else(|| take_ready(shared))
-        }
-        .or_else(|| take(shared, context));
+        let claim = take(shared, context, &mut local, prefer_shared);
         prefer_shared = !prefer_shared;
-        let Some(frame) = frame else {
+        let Some(Claim {
+            frame,
+            permit: _permit,
+        }) = claim
+        else {
             break;
         };
         if !process(frame, shared, &sender, context, include, &mut local) {
@@ -30,34 +29,85 @@ pub(super) fn worker(
     flow.finish(JobCounts::default());
 }
 
-fn take_ready(shared: &Shared) -> Option<Frame> {
+struct Permit<'a> {
+    shared: &'a Shared,
+    group: usize,
+}
+impl Drop for Permit<'_> {
+    fn drop(&mut self) {
+        let mut queue = self
+            .shared
+            .queue
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        queue.active_groups[self.group] -= 1;
+        self.shared.wake.notify_all();
+    }
+}
+struct Claim<'a> {
+    frame: Frame,
+    permit: Permit<'a>,
+}
+
+fn take_ready(shared: &Shared) -> Option<Claim<'_>> {
     let mut queue = shared.queue.lock().ok()?;
     if queue.started {
-        queue.pop_fair()
+        let (frame, group) = queue.pop_fair()?;
+        Some(Claim {
+            frame,
+            permit: Permit { shared, group },
+        })
     } else {
         None
     }
 }
 
-fn take(shared: &Shared, context: &dyn JobContext) -> Option<Frame> {
+fn take_local<'a>(shared: &'a Shared, local: &mut Vec<Frame>) -> Option<Claim<'a>> {
     let mut queue = shared.queue.lock().ok()?;
+    if !queue.started {
+        return None;
+    }
+    let index = local.iter().rposition(|frame| {
+        let group = queue.root_groups[frame.root_index as usize];
+        queue.active_groups[group] < queue.device_limit
+    })?;
+    let frame = local.remove(index);
+    let group = queue.root_groups[frame.root_index as usize];
+    queue.active_groups[group] += 1;
+    Some(Claim {
+        frame,
+        permit: Permit { shared, group },
+    })
+}
+
+fn take<'a>(
+    shared: &'a Shared,
+    context: &dyn JobContext,
+    local: &mut Vec<Frame>,
+    prefer_shared: bool,
+) -> Option<Claim<'a>> {
     loop {
-        if queue.remaining == 0
-            || context.checkpoint() == Checkpoint::Cancel
-            || shared.abort.load(Ordering::Acquire)
-        {
+        if context.checkpoint() == Checkpoint::Cancel || shared.abort.load(Ordering::Acquire) {
             return None;
         }
-        if queue.started
-            && let Some(frame) = queue.pop_fair()
-        {
-            return Some(frame);
+        let claim = if prefer_shared {
+            take_ready(shared).or_else(|| take_local(shared, local))
+        } else {
+            take_local(shared, local).or_else(|| take_ready(shared))
+        };
+        if claim.is_some() {
+            return claim;
         }
-        queue = shared
-            .wake
-            .wait_timeout(queue, Duration::from_millis(25))
-            .ok()?
-            .0;
+        let queue = shared.queue.lock().ok()?;
+        if queue.remaining == 0 {
+            return None;
+        }
+        drop(
+            shared
+                .wake
+                .wait_timeout(queue, Duration::from_millis(25))
+                .ok()?,
+        );
     }
 }
 
@@ -240,5 +290,74 @@ fn complete(shared: &Shared, root_index: u32) {
         queue.remaining -= 1;
         queue.root_remaining[root_index as usize] -= 1;
         shared.wake.notify_all();
+    }
+}
+
+#[cfg(test)]
+mod permit_tests {
+    use super::*;
+    use du_core_contracts::{
+        ports::{PortError, PortErrorKind},
+        scan_observation::DirectoryObservations,
+    };
+    struct Empty;
+    impl DirectoryObservations for Empty {
+        fn next_batch(&mut self) -> Result<Vec<ObservedEntry>, PortError> {
+            Ok(Vec::new())
+        }
+    }
+    impl AnchoredDirectory for Empty {
+        fn open_child(&self, _: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError> {
+            Err(PortError {
+                kind: PortErrorKind::Unsupported,
+                reason_key: "os.unsupported".into(),
+                os_code: None,
+            })
+        }
+    }
+    #[test]
+    fn permit_is_released_during_panic_unwind() {
+        let frame = Frame {
+            root_index: 0,
+            path: Vec::new(),
+            directory: Box::new(Empty),
+            entries: VecDeque::new(),
+            deferred: VecDeque::new(),
+            root: true,
+            first_batch: false,
+            root_published: false,
+            batch_pending: false,
+        };
+        let shared = Shared {
+            queue: Mutex::new(Queue {
+                ready: VecDeque::from([frame]),
+                last_root: None,
+                remaining: 1,
+                root_remaining: vec![1],
+                root_groups: vec![0],
+                active_groups: vec![0],
+                device_limit: 1,
+                started: true,
+            }),
+            wake: Condvar::new(),
+            abort: AtomicBool::new(false),
+        };
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _claim = take_ready(&shared);
+            assert!(
+                shared
+                    .queue
+                    .lock()
+                    .is_ok_and(|queue| queue.active_groups[0] == 1)
+            );
+            std::panic::resume_unwind(Box::new("injected panic"));
+        }));
+        assert!(result.is_err());
+        assert!(
+            shared
+                .queue
+                .lock()
+                .is_ok_and(|queue| queue.active_groups[0] == 0)
+        );
     }
 }

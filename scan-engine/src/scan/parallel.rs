@@ -44,15 +44,21 @@ struct Queue {
     last_root: Option<u32>,
     remaining: usize,
     root_remaining: Vec<usize>,
+    root_groups: Vec<usize>,
+    active_groups: Vec<usize>,
+    device_limit: usize,
     started: bool,
 }
 impl Queue {
-    fn pop_fair(&mut self) -> Option<Frame> {
+    fn pop_fair(&mut self) -> Option<(Frame, usize)> {
         let last = self.last_root;
         let index = self
             .ready
             .iter()
             .enumerate()
+            .filter(|(_, frame)| {
+                self.active_groups[self.root_groups[frame.root_index as usize]] < self.device_limit
+            })
             .min_by_key(|(_, frame)| {
                 (
                     last.is_some_and(|value| frame.root_index <= value),
@@ -62,7 +68,9 @@ impl Queue {
             .map(|(index, _)| index)?;
         let frame = self.ready.remove(index)?;
         self.last_root = Some(frame.root_index);
-        Some(frame)
+        let group = self.root_groups[frame.root_index as usize];
+        self.active_groups[group] += 1;
+        Some((frame, group))
     }
 }
 struct Shared {
@@ -91,6 +99,19 @@ struct Progress {
     root_published: Vec<bool>,
     published: bool,
 }
+pub(crate) struct DevicePlan {
+    pub groups: Vec<usize>,
+    pub limit: usize,
+}
+impl DevicePlan {
+    fn valid(&self, count: usize) -> bool {
+        count != 0
+            && u32::try_from(count).is_ok()
+            && self.groups.len() == count
+            && self.limit != 0
+            && self.groups.iter().all(|&group| group < count)
+    }
+}
 
 /// Runs the same collector against a build prepared with source evidence.
 pub(crate) fn collect_open_build(
@@ -113,6 +134,27 @@ pub(crate) fn collect_open_forest(
     limit: usize,
     include: &(dyn Fn(&[Vec<u8>]) -> bool + Sync),
 ) -> JobOutcome {
+    let groups = vec![0; roots.len()];
+    collect_open_forest_with_groups(
+        build,
+        roots,
+        ids,
+        context,
+        limit,
+        include,
+        DevicePlan { groups, limit: 4 },
+    )
+}
+
+pub(crate) fn collect_open_forest_with_groups(
+    build: Result<BuildHandle, BuildError>,
+    roots: Vec<Box<dyn AnchoredDirectory>>,
+    ids: &dyn ResultIds,
+    context: &dyn JobContext,
+    limit: usize,
+    include: &(dyn Fn(&[Vec<u8>]) -> bool + Sync),
+    devices: DevicePlan,
+) -> JobOutcome {
     let mut counts = JobCounts::default();
     let control = Control {
         ids,
@@ -120,7 +162,7 @@ pub(crate) fn collect_open_forest(
         limit,
         include,
     };
-    let result = build.and_then(|build| run(build, roots, control, &mut counts));
+    let result = build.and_then(|build| run(build, roots, control, &mut counts, devices));
     match result {
         Ok((id, cancelled, unprocessed_roots)) => JobOutcome {
             counts,
@@ -145,6 +187,7 @@ fn run(
     roots: Vec<Box<dyn AnchoredDirectory>>,
     control: Control<'_>,
     counts: &mut JobCounts,
+    devices: DevicePlan,
 ) -> Result<(Id, bool, usize), BuildError> {
     let Control {
         ids,
@@ -152,7 +195,7 @@ fn run(
         limit,
         include,
     } = control;
-    if roots.is_empty() || u32::try_from(roots.len()).is_err() {
+    if !devices.valid(roots.len()) {
         return Err(BuildError::Unavailable);
     }
     let root_count = roots.len();
@@ -192,6 +235,9 @@ fn run(
                 .collect(),
             remaining: root_count,
             root_remaining: vec![1; root_count],
+            root_groups: devices.groups,
+            active_groups: vec![0; root_count],
+            device_limit: devices.limit,
             last_root: None,
             started: false,
         }),

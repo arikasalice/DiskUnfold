@@ -10,7 +10,7 @@ use du_core_contracts::{
     result::ResultCompleteness,
     scan_observation::{AnchoredDirectory, MetadataObservation, ObservedEntry, ObservedKind},
 };
-pub(crate) use parallel::{collect_open_build, collect_open_forest};
+pub(crate) use parallel::{DevicePlan, collect_open_build, collect_open_forest_with_groups};
 use std::collections::VecDeque;
 
 /// Supplies distinct result identifiers for partial and terminal publications.

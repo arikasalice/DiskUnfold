@@ -421,14 +421,19 @@ fn ready_roots_take_turns_even_when_one_has_many_frames() {
         last_root: None,
         remaining: 6,
         root_remaining: vec![3, 2, 1],
+        root_groups: vec![0, 1, 2],
+        active_groups: vec![0; 3],
+        device_limit: 10,
         started: true,
     };
     let mut selected = Vec::new();
-    while let Some(frame) = queue.pop_fair() {
+    while let Some((frame, _)) = queue.pop_fair() {
         selected.push(frame.root_index);
     }
     assert_eq!(selected, [0, 1, 2, 0, 1, 0]);
 }
+
+mod device;
 
 #[test]
 fn failed_second_spawn_closes_channels_and_finishes_all_flows()
