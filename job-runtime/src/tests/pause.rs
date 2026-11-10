@@ -29,6 +29,7 @@ impl JobBody for HoldingBody {
 }
 type Setup = (
     Arc<JobRuntime>,
+    Arc<Events>,
     Id,
     Arc<dyn JobContext>,
     mpsc::Sender<()>,
@@ -36,11 +37,12 @@ type Setup = (
 );
 fn setup() -> Result<Setup, Box<dyn std::error::Error>> {
     let id = Id::parse("00000000-0000-7000-8000-000000000001")?;
+    let events = Arc::new(Events::default());
     let runtime = Arc::new(JobRuntime::new_with_limits(
         Arc::new(Identity(id)),
         Arc::new(Clock),
         Arc::new(History::default()),
-        Arc::new(Events::default()),
+        events.clone(),
         FlowLimits {
             metadata_io: 3,
             queued_items: 4,
@@ -61,7 +63,7 @@ fn setup() -> Result<Setup, Box<dyn std::error::Error>> {
         std::thread::spawn(move || runtime.run_next())
     };
     let context = recv.recv_timeout(Duration::from_secs(2))?;
-    Ok((runtime, id, context, release, worker))
+    Ok((runtime, events, id, context, release, worker))
 }
 fn wait_state(
     runtime: &JobRuntime,
@@ -91,7 +93,7 @@ fn start(flow: Box<dyn JobFlow>) -> (std::thread::JoinHandle<()>, mpsc::Receiver
 #[test]
 fn pause_waits_for_every_live_flow_then_resume_preserves_job()
 -> Result<(), Box<dyn std::error::Error>> {
-    let (runtime, id, context, release, worker) = setup()?;
+    let (runtime, _, id, context, release, worker) = setup()?;
     let a = context.try_start_flow().map_err(|e| format!("{e:?}"))?;
     let b = context.try_start_flow().map_err(|e| format!("{e:?}"))?;
     let (result, seq) = runtime.pause(&id)?;
@@ -131,7 +133,7 @@ fn pause_waits_for_every_live_flow_then_resume_preserves_job()
 }
 #[test]
 fn zero_flows_pause_blocks_registration_until_resume() -> Result<(), Box<dyn std::error::Error>> {
-    let (runtime, id, context, release, worker) = setup()?;
+    let (runtime, _, id, context, release, worker) = setup()?;
     let (_, seq) = runtime.pause(&id)?;
     assert_eq!(runtime.state(&id)?, JobState::Paused);
     assert_eq!(runtime.snapshot(&id)?.sequence, seq + 1);
@@ -148,7 +150,7 @@ fn zero_flows_pause_blocks_registration_until_resume() -> Result<(), Box<dyn std
 #[test]
 fn cancel_wakes_paused_flow_and_waits_for_inflight_flow() -> Result<(), Box<dyn std::error::Error>>
 {
-    let (runtime, id, context, release, worker) = setup()?;
+    let (runtime, _, id, context, release, worker) = setup()?;
     let paused = context.try_start_flow().map_err(|e| format!("{e:?}"))?;
     let inflight = context.try_start_flow().map_err(|e| format!("{e:?}"))?;
     runtime.pause(&id)?;
@@ -178,7 +180,7 @@ fn cancel_wakes_paused_flow_and_waits_for_inflight_flow() -> Result<(), Box<dyn 
 #[test]
 fn flow_exit_completes_pause_and_registration_is_serialized()
 -> Result<(), Box<dyn std::error::Error>> {
-    let (runtime, id, context, release, worker) = setup()?;
+    let (runtime, _, id, context, release, worker) = setup()?;
     let first = context.try_start_flow().map_err(|e| format!("{e:?}"))?;
     let second = context.try_start_flow().map_err(|e| format!("{e:?}"))?;
     runtime.pause(&id)?;
@@ -201,7 +203,7 @@ fn flow_exit_completes_pause_and_registration_is_serialized()
 fn pause_registration_race_never_admits_unaccounted_flow() -> Result<(), Box<dyn std::error::Error>>
 {
     for _ in 0..30 {
-        let (runtime, id, context, release, worker) = setup()?;
+        let (runtime, _, id, context, release, worker) = setup()?;
         let barrier = Arc::new(Barrier::new(2));
         let flow_thread = {
             let barrier = barrier.clone();
@@ -226,5 +228,101 @@ fn pause_registration_race_never_admits_unaccounted_flow() -> Result<(), Box<dyn
         release.send(())?;
         worker.join().map_err(|_| "worker panic")??;
     }
+    Ok(())
+}
+
+#[test]
+fn resume_before_the_safe_point_keeps_control_events_ordered()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (runtime, events, id, context, release, worker) = setup()?;
+    let flow = context
+        .try_start_flow()
+        .map_err(|error| format!("{error:?}"))?;
+    let (_, requested) = runtime.pause(&id)?;
+    let (resumed, running) = runtime.resume(&id)?;
+    assert_eq!(resumed, CancelResult::Accepted(JobState::Running));
+    assert_eq!(running, requested + 1);
+    assert_eq!(flow.safe_point(), Checkpoint::Continue);
+
+    let (_, requested_again) = runtime.pause(&id)?;
+    let (thread, result) = start(flow);
+    wait_state(&runtime, &id, JobState::Paused)?;
+    let (_, cancelling) = runtime.cancel_with_sequence(&id)?;
+    assert_eq!(
+        result.recv_timeout(Duration::from_secs(2))?,
+        Checkpoint::Cancel
+    );
+    thread.join().map_err(|_| "thread panic")?;
+    release.send(())?;
+    worker.join().map_err(|_| "worker panic")??;
+    runtime.flush()?;
+
+    let events = events.0.lock().map_err(|_| "events poisoned")?;
+    let transitions = events
+        .iter()
+        .filter_map(|event| match event {
+            JobEvent::StateChanged {
+                job_id,
+                state,
+                sequence,
+            } if job_id == &id && *sequence >= requested => Some((*state, *sequence)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        transitions,
+        [
+            (JobState::PauseRequested, requested),
+            (JobState::Running, running),
+            (JobState::PauseRequested, requested_again),
+            (JobState::Paused, requested_again + 1),
+            (JobState::CancelRequested, cancelling),
+            (JobState::Cancelled, cancelling + 1),
+        ]
+    );
+    assert!(
+        matches!(events.last(), Some(JobEvent::Finished { sequence, .. }) if *sequence == cancelling + 2)
+    );
+    Ok(())
+}
+
+#[test]
+fn failed_resume_delivery_leaves_parked_flow_resumable() -> Result<(), Box<dyn std::error::Error>> {
+    let (runtime, _, id, context, release, worker) = setup()?;
+    let flow = context
+        .try_start_flow()
+        .map_err(|error| format!("{error:?}"))?;
+    runtime.pause(&id)?;
+    let (thread, result) = start(flow);
+    wait_state(&runtime, &id, JobState::Paused)?;
+    let paused = runtime.snapshot(&id)?;
+
+    let sender = runtime
+        .table
+        .lock()
+        .map_err(|_| "table poisoned")?
+        .sender
+        .take();
+    let failed = runtime.resume(&id);
+    runtime.table.lock().map_err(|_| "table poisoned")?.sender = sender;
+    assert_eq!(failed, Err(RuntimeError::DeliveryUnavailable));
+    let unchanged = runtime.snapshot(&id)?;
+    assert_eq!(
+        (unchanged.state, unchanged.sequence),
+        (paused.state, paused.sequence)
+    );
+    assert!(matches!(result.try_recv(), Err(mpsc::TryRecvError::Empty)));
+
+    assert_eq!(
+        runtime.resume(&id)?.0,
+        CancelResult::Accepted(JobState::Running)
+    );
+    assert_eq!(
+        result.recv_timeout(Duration::from_secs(2))?,
+        Checkpoint::Continue
+    );
+    thread.join().map_err(|_| "thread panic")?;
+    release.send(())?;
+    worker.join().map_err(|_| "worker panic")??;
     Ok(())
 }

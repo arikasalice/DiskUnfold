@@ -19,7 +19,7 @@ impl JobRuntime {
     fn change_pause(&self, id: &Id, pause: bool) -> Result<(CancelResult, u64), RuntimeError> {
         let mut table = self.table.lock().map_err(|_| RuntimeError::Poisoned)?;
         expire(&mut table, self.clock.now_ms());
-        let job = table.jobs.get_mut(id).ok_or(RuntimeError::NotFound)?;
+        let job = table.jobs.get(id).ok_or(RuntimeError::NotFound)?;
         if job.state.is_terminal() {
             return Ok((CancelResult::AlreadyTerminal(job.state), job.sequence));
         }
@@ -39,15 +39,13 @@ impl JobRuntime {
         if !applicable {
             return Ok((CancelResult::NoEffect(job.state), job.sequence));
         }
-        job.state = if pause {
+        let state = if pause {
             JobState::PauseRequested
         } else {
             JobState::Running
         };
-        job.sequence += 1;
-        let sequence = job.sequence;
-        let state = job.state;
-        let wake = job.wake.clone();
+        let sequence = job.sequence + 1;
+        // Queue the transition before committing it so a failed resume cannot strand parked flows.
         enqueue(
             &table,
             Delivery::Event(JobEvent::StateChanged {
@@ -56,10 +54,13 @@ impl JobRuntime {
                 sequence,
             }),
         )?;
+        let job = table.jobs.get_mut(id).ok_or(RuntimeError::NotFound)?;
+        job.state = state;
+        job.sequence = sequence;
         if pause {
             flows::settle_pause(&mut table, id);
         } else {
-            wake.notify_all();
+            job.wake.notify_all();
         }
         Ok((CancelResult::Accepted(state), sequence))
     }
