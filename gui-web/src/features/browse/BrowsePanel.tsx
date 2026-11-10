@@ -1,5 +1,11 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { KeyboardEvent, RefObject } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
+import type { KeyboardEvent } from "react";
 import {
   Action,
   BrowseTable,
@@ -9,6 +15,7 @@ import {
   Progress,
   Text,
 } from "../../components";
+import type { BrowsePageFocus, PageViewport } from "../../components";
 import type {
   BrowseOpenRequest,
   BrowseOpenResponse,
@@ -35,13 +42,7 @@ type View = {
   opened: Opened;
   rows: FolderQueryRow[];
   nextCursor: string | null;
-  pageFocus?:
-    | {
-        index: number;
-        scrollY: number;
-        button: RefObject<HTMLButtonElement | null>;
-      }
-    | undefined;
+  pageFocus?: BrowsePageFocus | undefined;
 };
 
 function name(value: BrowseValue<string>): string {
@@ -104,13 +105,22 @@ export function BrowsePanel({
   const [message, setMessage] = useState<"error" | "job" | "page-error">();
   const sequence = useRef(0);
   const opening = useRef<AbortController | undefined>(undefined);
-  const pageActive = useRef<{ scrollY: number; scrolled: boolean }>(undefined);
+  const pageActive = useRef<PageViewport>(undefined);
+  const pageViewport = useRef<PageViewport>(undefined);
   const virtualRootVersion = useRef<string>(undefined);
   const panel = useRef<HTMLElement>(null);
   const loadMoreButton = useRef<HTMLButtonElement>(null);
   const focusAfterUpdate = useRef<"navigation" | "page-end">(undefined);
   const current = useRef<View | undefined>(undefined);
   current.current = view;
+
+  const recordLayoutScroll = useCallback((before: number, after: number) => {
+    const viewport = pageViewport.current;
+    // Only compensate for the movement produced by this layout operation.
+    if (viewport && !viewport.scrolled && viewport.scrollY === before) {
+      viewport.scrollY = after;
+    }
+  }, []);
 
   function navigate(location?: ItemRef, pinned = resultVersion) {
     const requestSeq = ++sequence.current;
@@ -121,6 +131,7 @@ export function BrowsePanel({
     const controller = new AbortController();
     opening.current = controller;
     pageActive.current = undefined;
+    pageViewport.current = undefined;
     setLoadingPage(false);
     setBusy(true);
     setMessage(undefined);
@@ -186,14 +197,16 @@ export function BrowsePanel({
   }, [view]);
 
   useEffect(() => {
-    if (!loadingPage) return;
-    function trackScroll() {
-      const request = pageActive.current;
-      if (request && window.scrollY !== request.scrollY)
-        request.scrolled = true;
-    }
+    const request = pageViewport.current;
+    if (!loadingPage || !request) return;
+    const trackScroll = () => {
+      if (window.scrollY !== request.scrollY) request.scrolled = true;
+    };
     window.addEventListener("scroll", trackScroll, { passive: true });
-    return () => window.removeEventListener("scroll", trackScroll);
+    return () => {
+      window.removeEventListener("scroll", trackScroll);
+      if (pageViewport.current === request) pageViewport.current = undefined;
+    };
   }, [loadingPage]);
 
   function loadMore(keyboard: boolean) {
@@ -203,6 +216,7 @@ export function BrowsePanel({
     const requestSeq = sequence.current;
     const request = { scrollY: window.scrollY, scrolled: false };
     pageActive.current = request;
+    pageViewport.current = request;
     setLoadingPage(true);
     setMessage(undefined);
     void port
@@ -242,7 +256,7 @@ export function BrowsePanel({
           pageFocus: focusNewRow
             ? {
                 index: active.rows.length,
-                scrollY: request.scrollY,
+                viewport: request,
                 button: loadMoreButton,
               }
             : undefined,
@@ -357,6 +371,7 @@ export function BrowsePanel({
             rows={view.rows}
             pageFocus={view.pageFocus}
             scrollFooter={loadMoreButton}
+            onLayoutScroll={recordLayoutScroll}
             getRowKey={(row) => rowKey(row.item)}
             totalRows={page.total.state === "exact" ? page.total.count : -1}
             renderCells={(row) => [

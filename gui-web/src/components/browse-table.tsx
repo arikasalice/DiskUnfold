@@ -3,12 +3,21 @@ import type { FocusEvent, ReactNode, RefObject } from "react";
 import { useDocumentRows } from "./document-rows";
 import "../theme/browse-table.css";
 
+export type PageViewport = { scrollY: number; scrolled: boolean };
+
+export type BrowsePageFocus = {
+  index: number;
+  viewport: Readonly<PageViewport>;
+  button: RefObject<HTMLButtonElement | null>;
+};
+
 export function BrowseTable<Row>({
   label,
   columns,
   rows,
   pageFocus,
   scrollFooter,
+  onLayoutScroll,
   totalRows,
   getRowKey,
   renderCells,
@@ -16,14 +25,9 @@ export function BrowseTable<Row>({
   label: string;
   columns: readonly string[];
   rows: readonly Row[];
-  pageFocus?:
-    | {
-        index: number;
-        scrollY: number;
-        button: RefObject<HTMLButtonElement | null>;
-      }
-    | undefined;
+  pageFocus?: BrowsePageFocus | undefined;
   scrollFooter?: RefObject<HTMLButtonElement | null>;
+  onLayoutScroll?: (before: number, after: number) => void;
   totalRows: number;
   getRowKey: (row: Row) => string;
   renderCells: (row: Row) => readonly ReactNode[];
@@ -32,6 +36,7 @@ export function BrowseTable<Row>({
   const { frame, body, watchRow, layout } = useDocumentRows(
     rows.length,
     scrollFooter,
+    onLayoutScroll,
   );
   const [focusedRow, setFocusedRow] = useState<{
     index: number;
@@ -65,7 +70,8 @@ export function BrowseTable<Row>({
     const expected = pendingFocus.button.current ?? document.body;
     if (
       document.activeElement !== expected ||
-      window.scrollY !== pendingFocus.scrollY
+      pendingFocus.viewport.scrolled ||
+      window.scrollY !== pendingFocus.viewport.scrollY
     )
       return;
     const row = body.current?.querySelector<HTMLElement>(

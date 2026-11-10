@@ -602,3 +602,82 @@ test.each([0, 1])(
     }
   },
 );
+
+test.each(["layout only", "user before layout", "user after layout"] as const)(
+  "separates measured layout movement from unrelated scrolling while a page is pending (%s)",
+  async (motion) => {
+    const { pending, next, port } = delayedPage();
+    let viewport = 64 * 4 + 8;
+    let firstHeight = 64;
+    let scheduled: FrameRequestCallback | undefined;
+    const position = vi
+      .spyOn(window, "scrollY", "get")
+      .mockImplementation(() => viewport);
+    const scrollBy = vi
+      .spyOn(window, "scrollBy")
+      .mockImplementation((_x, y) => {
+        if (typeof y === "number") viewport += y;
+      });
+    const raf = vi
+      .spyOn(window, "requestAnimationFrame")
+      .mockImplementation((callback) => {
+        scheduled = callback;
+        return 1;
+      });
+    const cancel = vi
+      .spyOn(window, "cancelAnimationFrame")
+      .mockImplementation(() => {
+        scheduled = undefined;
+      });
+    const rect = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockImplementation(function (this: HTMLElement) {
+        if (this.tagName === "TBODY") return DOMRect.fromRect({ y: -viewport });
+        if (this.hasAttribute("data-row")) {
+          return DOMRect.fromRect({
+            height: this.dataset.row === "0" ? firstHeight : 64,
+          });
+        }
+        return DOMRect.fromRect({ width: 800 });
+      });
+    const flush = () =>
+      act(() => {
+        const callback = scheduled;
+        scheduled = undefined;
+        callback?.(0);
+      });
+    try {
+      render(<BrowsePanel port={port} resultVersion={id} />);
+      const load = await screen.findByRole("button", { name: "Load more" });
+      flush();
+      act(() => load.focus());
+      pressLoadMore(load);
+
+      // Remeasuring row 0 moves the ordinary anchor by 80 px.
+      if (motion === "user before layout") viewport += 35;
+      firstHeight += 80;
+      fireEvent(window, new Event("resize"));
+      flush();
+      expect(scrollBy).toHaveBeenCalledExactlyOnceWith(0, 80);
+
+      if (motion === "user after layout") viewport += 35;
+      fireEvent.scroll(window);
+      await act(async () => pending.resolve(next));
+      if (motion === "layout only") {
+        expect(document.activeElement).toBe(
+          screen.getByText("Entry 200").closest("tr"),
+        );
+      } else {
+        expect(document.activeElement).toBe(load);
+        expect(screen.queryByText("Entry 200")).toBeNull();
+      }
+    } finally {
+      cleanup();
+      position.mockRestore();
+      scrollBy.mockRestore();
+      raf.mockRestore();
+      cancel.mockRestore();
+      rect.mockRestore();
+    }
+  },
+);

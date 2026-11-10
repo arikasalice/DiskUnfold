@@ -1,5 +1,6 @@
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
+import { canObserveBrowseKey } from "./browse-keys";
 
 const OVERSCAN = 10;
 const INITIAL_ROWS = 10;
@@ -90,6 +91,7 @@ function scrollIntentDistance(
 export function useDocumentRows(
   count: number,
   scrollFooter?: RefObject<HTMLButtonElement | null>,
+  onLayoutScroll?: (before: number, after: number) => void,
 ) {
   const frame = useRef<HTMLDivElement>(null);
   const body = useRef<HTMLTableSectionElement>(null);
@@ -101,6 +103,12 @@ export function useDocumentRows(
   const anchor = useRef<{ position: number; scrollY: number }>(undefined);
   const scrollIntent = useRef<ScrollIntent>(undefined);
 
+  function scrollDocumentBy(distance: number) {
+    const before = window.scrollY;
+    window.scrollBy(0, distance);
+    onLayoutScroll?.(before, window.scrollY);
+  }
+
   function applyScrollIntent() {
     if (!scrollIntent.current) return false;
     const distance = scrollIntentDistance(
@@ -108,7 +116,7 @@ export function useDocumentRows(
       scrollFooter?.current ?? null,
     );
     if (Math.abs(distance) < 1) return false;
-    window.scrollBy(0, distance);
+    scrollDocumentBy(distance);
     return true;
   }
 
@@ -123,6 +131,7 @@ export function useDocumentRows(
     const section = body.current;
     if (!root || !section) return;
     let request: number | undefined;
+    let endKeyStart: number | undefined;
     scrollIntent.current = undefined;
 
     function refresh() {
@@ -175,9 +184,24 @@ export function useDocumentRows(
     };
     function cancelScrollIntent() {
       scrollIntent.current = undefined;
+      endKeyStart = undefined;
+    }
+
+    function observeEndKey(event: globalThis.KeyboardEvent) {
+      if (
+        event.key === "End" &&
+        event.ctrlKey &&
+        !event.metaKey &&
+        !event.altKey &&
+        !event.shiftKey &&
+        canObserveBrowseKey(event)
+      ) {
+        endKeyStart = window.scrollY;
+      }
     }
 
     function onFocus(event: FocusEvent) {
+      endKeyStart = undefined;
       const footer = scrollFooter?.current;
       scrollIntent.current =
         footer && event.target === footer && footer.matches(":focus-visible")
@@ -187,11 +211,16 @@ export function useDocumentRows(
     }
 
     function onScroll() {
+      // Ctrl+End is handled by the browser. Accept its downward scroll even
+      // if the estimated document height changed before the scroll event.
+      const movedAfterEndKey =
+        endKeyStart !== undefined && window.scrollY > endKeyStart;
+      endKeyStart = undefined;
       if (
         scrollFooter &&
         scrollIntent.current !== "footer" &&
         window.scrollY > 0 &&
-        Math.abs(distanceToDocumentEnd()) < 1
+        (movedAfterEndKey || Math.abs(distanceToDocumentEnd()) < 1)
       ) {
         scrollIntent.current = "end";
       }
@@ -211,6 +240,7 @@ export function useDocumentRows(
       window.addEventListener("focusin", onFocus);
       window.addEventListener("focusout", cancelScrollIntent);
       window.addEventListener("keydown", cancelScrollIntent, true);
+      window.addEventListener("keydown", observeEndKey);
       window.addEventListener("pointerdown", cancelScrollIntent, true);
       window.addEventListener("wheel", cancelScrollIntent, {
         capture: true,
@@ -228,6 +258,7 @@ export function useDocumentRows(
       window.removeEventListener("focusin", onFocus);
       window.removeEventListener("focusout", cancelScrollIntent);
       window.removeEventListener("keydown", cancelScrollIntent, true);
+      window.removeEventListener("keydown", observeEndKey);
       window.removeEventListener("pointerdown", cancelScrollIntent, true);
       window.removeEventListener("wheel", cancelScrollIntent, true);
       window.removeEventListener("touchstart", cancelScrollIntent, true);
@@ -235,7 +266,7 @@ export function useDocumentRows(
       observer.current = null;
       if (request !== undefined) window.cancelAnimationFrame(request);
     };
-  }, [count, scrollFooter]);
+  }, [count, scrollFooter, onLayoutScroll]);
 
   useLayoutEffect(() => {
     const section = body.current;
@@ -247,7 +278,7 @@ export function useDocumentRows(
     }
     if (section && pending && window.scrollY === pending.scrollY) {
       const distance = pending.position + section.getBoundingClientRect().top;
-      if (Math.abs(distance) >= 1) window.scrollBy(0, distance);
+      if (Math.abs(distance) >= 1) scrollDocumentBy(distance);
     }
   }, [layout]);
 

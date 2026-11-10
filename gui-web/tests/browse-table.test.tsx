@@ -285,3 +285,45 @@ test("a document-end scroll stays at the end while rows remeasure, but does not 
   expect(values.scrollY).toBe(980);
   expect(scrollBy).toHaveBeenCalledTimes(1);
 });
+
+test.each(["browse", "input", "composing", "popup"] as const)(
+  "observes native Ctrl+End without consuming it or bypassing input guards (%s)",
+  (context) => {
+    const { values, flush, resized, scrollBy } = fakeGeometry();
+    const footer = createRef<HTMLButtonElement>();
+    render(
+      <>
+        {browseTable(200, "first", footer)}
+        <button ref={footer}>Load more</button>
+        <input aria-label="Editor" />
+        {context === "popup" && <div role="listbox" aria-label="Menu" />}
+      </>,
+    );
+    flush();
+    const target =
+      context === "input"
+        ? screen.getByRole("textbox", { name: "Editor" })
+        : screen.getByRole("button", { name: "Load more" });
+    const acceptedByBrowser = fireEvent.keyDown(target, {
+      key: "End",
+      ctrlKey: true,
+      isComposing: context === "composing",
+    });
+    expect(acceptedByBrowser).toBe(true);
+    expect(scrollBy).not.toHaveBeenCalled();
+
+    values.scrollY = 900;
+    values.documentHeight = window.innerHeight + 980;
+    fireEvent.scroll(window);
+    values.firstHeight += 80;
+    resized();
+
+    if (context === "browse") {
+      expect(scrollBy).toHaveBeenCalledExactlyOnceWith(0, 80);
+      expect(values.scrollY).toBe(980);
+    } else {
+      expect(scrollBy).not.toHaveBeenCalled();
+      expect(values.scrollY).toBe(900);
+    }
+  },
+);

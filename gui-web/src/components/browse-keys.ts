@@ -18,18 +18,14 @@ function isVisiblePopup(popup: Element): boolean {
   return true;
 }
 
-/** Navigation only handles keys from the browsing surface, outside editing and popups. */
-export function canHandleBrowseKey(event: KeyboardEvent<HTMLElement>): boolean {
+/** Native document scrolling is observed only outside editing and popups. */
+export function canObserveBrowseKey(event: globalThis.KeyboardEvent): boolean {
   const target = event.target;
   if (
     event.defaultPrevented ||
-    event.nativeEvent.isComposing ||
+    event.isComposing ||
     event.keyCode === 229 ||
-    event.ctrlKey ||
-    event.metaKey ||
-    event.shiftKey ||
     !(target instanceof Element) ||
-    !event.currentTarget.contains(target) ||
     target.closest(editingOrPopup)
   ) {
     return false;
@@ -37,5 +33,18 @@ export function canHandleBrowseKey(event: KeyboardEvent<HTMLElement>): boolean {
 
   return !Array.from(target.ownerDocument.querySelectorAll(activePopup)).some(
     isVisiblePopup,
+  );
+}
+
+/** Navigation commands also require focus inside the browsing surface. */
+export function canHandleBrowseKey(event: KeyboardEvent<HTMLElement>): boolean {
+  return (
+    !event.defaultPrevented &&
+    !event.ctrlKey &&
+    !event.metaKey &&
+    !event.shiftKey &&
+    event.target instanceof Element &&
+    event.currentTarget.contains(event.target) &&
+    canObserveBrowseKey(event.nativeEvent)
   );
 }
