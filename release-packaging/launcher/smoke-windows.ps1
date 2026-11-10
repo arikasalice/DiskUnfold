@@ -153,7 +153,7 @@ function Read-CompleteSize($basis) {
   }
   $names = @($metric.FindAll($scopeTree, [Windows.Automation.Condition]::TrueCondition) |
     ForEach-Object { $_.Current.Name })
-  if (-not ($names -match 'Complete measurement')) {
+  if (-not ($names -cmatch '^Complete measurement(?:\s*·|$)')) {
     throw "$basis was not complete: $($names -join ' / ')"
   }
   foreach ($part in ($names -split '·')) {
