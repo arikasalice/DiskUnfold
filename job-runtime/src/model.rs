@@ -207,13 +207,17 @@ impl FlowLimits {
 pub(crate) struct Limits {
     pub(crate) config: FlowLimits,
     pub(crate) active: AtomicUsize,
+    pub(crate) content_limit: usize,
+    pub(crate) content_active: AtomicUsize,
     pub(crate) pending: Arc<AtomicUsize>,
 }
 impl Limits {
-    pub(crate) fn new(config: FlowLimits) -> Self {
+    pub(crate) fn new(config: FlowLimits, content_limit: usize) -> Self {
         Self {
             config,
             active: AtomicUsize::new(0),
+            content_limit,
+            content_active: AtomicUsize::new(0),
             pending: Arc::new(AtomicUsize::new(0)),
         }
     }

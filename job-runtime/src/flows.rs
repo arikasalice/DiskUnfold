@@ -116,12 +116,22 @@ impl JobContext for Context {
             return Err(JobFlowError::Closed);
         }
         let limits = &self.services.limits;
-        if limits.config.metadata_io == 0
-            || !job
-                .descriptor
-                .resource_classes
-                .contains(&ResourceClass::MetadataIo)
-        {
+        let metadata = job
+            .descriptor
+            .resource_classes
+            .contains(&ResourceClass::MetadataIo);
+        let content = job
+            .descriptor
+            .resource_classes
+            .contains(&ResourceClass::ContentIo);
+        let (counter, limit) = if metadata {
+            (&limits.active, limits.config.metadata_io)
+        } else if content {
+            (&limits.content_active, limits.content_limit)
+        } else {
+            return Err(JobFlowError::UnsupportedResource);
+        };
+        if limit == 0 {
             return Err(JobFlowError::UnsupportedResource);
         }
         let mut state = self
@@ -132,13 +142,14 @@ impl JobContext for Context {
         if state.sealed {
             return Err(JobFlowError::Closed);
         }
-        reserve(&limits.active, limits.config.metadata_io)?;
+        reserve(counter, limit)?;
         state.active += 1;
         job.live_flows += 1;
         Ok(Box::new(Flow {
             id: self.id.clone(),
             table: self.table.clone(),
             limits: limits.clone(),
+            metadata,
             shared: self.shared.clone(),
             counts: None,
         }))
@@ -148,6 +159,7 @@ struct Flow {
     id: Id,
     table: Arc<Mutex<Table>>,
     limits: Arc<Limits>,
+    metadata: bool,
     shared: Arc<Shared>,
     counts: Option<JobCounts>,
 }
@@ -251,7 +263,12 @@ impl Drop for Flow {
             state.abandoned = true;
         }
         state.active -= 1;
-        self.limits.active.fetch_sub(1, Ordering::AcqRel);
+        let counter = if self.metadata {
+            &self.limits.active
+        } else {
+            &self.limits.content_active
+        };
+        counter.fetch_sub(1, Ordering::AcqRel);
         self.shared.completed.notify_all();
     }
 }

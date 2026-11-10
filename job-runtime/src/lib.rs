@@ -86,7 +86,22 @@ impl JobRuntime {
         events: Arc<dyn JobEvents>,
         limits: FlowLimits,
     ) -> Result<Self, RuntimeError> {
-        let flow_limits = Arc::new(Limits::new(limits));
+        Self::new_with_content_io_limit(identity, clock, history, events, limits, 0)
+    }
+
+    /// Creates a runtime with an explicitly supplied session-wide content-read flow limit.
+    /// A zero limit disables content-read flows. Existing constructors leave them disabled.
+    /// Jobs declaring both metadata and content classes retain metadata-flow selection;
+    /// the current job context does not select a class for an individual flow.
+    pub fn new_with_content_io_limit(
+        identity: Arc<dyn JobIdentity>,
+        clock: Arc<dyn JobClock>,
+        history: Arc<dyn JobHistory>,
+        events: Arc<dyn JobEvents>,
+        limits: FlowLimits,
+        content_limit: usize,
+    ) -> Result<Self, RuntimeError> {
+        let flow_limits = Arc::new(Limits::new(limits, content_limit));
         let (sender, receiver) = mpsc::channel();
         let table = Arc::new(Mutex::new(Table {
             sender: Some(sender),
