@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import type { ReactNode, Ref } from "react";
 import {
   Action,
   Heading,
@@ -68,6 +68,7 @@ export function ScanOutput({
   started,
   running,
   problem,
+  statusFocus,
   roots,
   actions,
 }: {
@@ -76,6 +77,7 @@ export function ScanOutput({
   started: boolean;
   running: boolean;
   problem: string | undefined;
+  statusFocus: Ref<HTMLDivElement>;
   roots: readonly OsPath[];
   actions: ReactNode;
 }) {
@@ -93,6 +95,7 @@ export function ScanOutput({
         started={started}
         running={running}
         awaitingTotals={awaitingTotals}
+        statusFocus={statusFocus}
         actions={actions}
       />
       <section
@@ -122,14 +125,18 @@ function ScanOutputHeader({
   started,
   running,
   awaitingTotals,
+  statusFocus,
   actions,
 }: {
   scan: ReturnType<typeof useScanResult>;
   started: boolean;
   running: boolean;
   awaitingTotals: boolean;
+  statusFocus: Ref<HTMLDivElement>;
   actions: ReactNode;
 }) {
+  const cancelling =
+    scan.control === "cancel" || scan.status?.state === "cancel_requested";
   return (
     <header className="du-result__header">
       <div className="du-result__title">
@@ -140,6 +147,7 @@ function ScanOutputHeader({
           <ScanStatus
             state={scan.unavailable ? "unavailable" : scan.status?.state}
             pending={running ? scan.control : undefined}
+            focusTarget={statusFocus}
           />
         )}
       </div>
@@ -153,8 +161,10 @@ function ScanOutputHeader({
         />
         {actions}
       </div>
-      {running && scan.status?.state !== "paused" && (
-        <Progress label="Scanning folder" />
+      {running && (cancelling || scan.status?.state !== "paused") && (
+        <Progress
+          label={cancelling ? "Waiting for cancellation" : "Scanning folder"}
+        />
       )}
       {awaitingTotals && (
         <div className="du-result__loading">
@@ -171,9 +181,11 @@ function ScanOutputHeader({
 function ScanStatus({
   state = "queued",
   pending,
+  focusTarget,
 }: {
   state: JobState | "unavailable" | undefined;
   pending: ScanControl | undefined;
+  focusTarget: Ref<HTMLDivElement>;
 }) {
   const statusText =
     pending === "cancel" || state === "cancel_requested"
@@ -184,9 +196,11 @@ function ScanStatus({
           ? "pause requested"
           : state;
   return (
-    <StatusBadge tone={state === "done" ? "good" : "info"} live>
-      {state === "done" ? "Scan finished" : `Scan status: ${statusText}`}
-    </StatusBadge>
+    <LiveStatus ref={focusTarget} focusTarget>
+      <StatusBadge tone={state === "done" ? "good" : "info"}>
+        {state === "done" ? "Scan finished" : `Scan status: ${statusText}`}
+      </StatusBadge>
+    </LiveStatus>
   );
 }
 

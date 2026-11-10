@@ -890,7 +890,7 @@ test("F02 FR10: cancellation is announced before acknowledgement and a rejection
   });
   fireEvent.click(cancel);
   expect(screen.getByText("Scan status: cancellation requested")).toBeDefined();
-  expect(cancel.disabled).toBe(true);
+  expect(cancel.getAttribute("aria-disabled")).toBe("true");
   expect(calls.filter(({ name }) => name === "job.cancel")).toHaveLength(1);
   await act(async () => {
     acknowledge?.({
@@ -904,8 +904,63 @@ test("F02 FR10: cancellation is announced before acknowledgement and a rejection
     screen.getByText("Cancellation is unavailable for this scan."),
   ).toBeDefined();
   expect(screen.getByText("Scan status: running")).toBeDefined();
-  expect(cancel.disabled).toBe(false);
+  expect(cancel.getAttribute("aria-disabled")).toBeNull();
 });
+
+test.each(["keep focus", "move focus"] as const)(
+  "F02 F24: keyboard cancellation handles terminal focus when users %s",
+  async (intent) => {
+    let state: AnalysisJobStatus["state"] = "paused";
+    let sequence = 3;
+    const { client, calls, listeners } = fixture({
+      lineageId: "cancel-focus",
+      readStatus: (base) => ({
+        ...base,
+        state,
+        sequence,
+        resultVersion: null,
+        scanResult: {
+          lineageId: "cancel-focus",
+          sequence: 1,
+          resultVersion: "pinned",
+        },
+      }),
+      cancelJob: () => ({
+        outcome: "accepted",
+        state: "cancel_requested",
+        reasonKey: null,
+        sequence: 4,
+      }),
+    });
+    await startFixtureScan(client);
+    const browse = await screen.findByRole("button", {
+      name: "Browse folders",
+    });
+    const cancel = screen.getByRole("button", { name: "Cancel scan" });
+    cancel.focus();
+    fireEvent.keyDown(cancel, { key: "Enter", code: "Enter" });
+    fireEvent.keyUp(cancel, { key: "Enter", code: "Enter" });
+    expect(document.activeElement).toBe(cancel);
+    expect(cancel.getAttribute("aria-disabled")).toBe("true");
+    expect(
+      screen.getByRole("progressbar", { name: "Waiting for cancellation" }),
+    ).toBeDefined();
+    expect(
+      screen.queryByRole("progressbar", { name: "Scanning folder" }),
+    ).toBeNull();
+    expect(calls.filter(({ name }) => name === "job.cancel")).toHaveLength(1);
+    if (intent === "move focus") browse.focus();
+
+    state = "cancelled";
+    sequence = 5;
+    notifyResult(listeners, "job.resync_required", {});
+    const status = await screen.findByText("Scan status: cancelled");
+    expect(screen.queryByRole("button", { name: "Cancel scan" })).toBeNull();
+    expect(document.activeElement).toBe(
+      intent === "move focus" ? browse : status.closest('[role="status"]'),
+    );
+  },
+);
 
 test("F02 F24: pauses and resumes the same scan without replacing pinned totals", async () => {
   let state: AnalysisJobStatus["state"] = "running";
@@ -1183,9 +1238,10 @@ test.each(["starting", "cancelling"] as const)(
         screen.getByText("Scan status: cancellation requested"),
       ).toBeDefined();
       expect(
-        screen.getByRole<HTMLButtonElement>("button", { name: "Cancel scan" })
-          .disabled,
-      ).toBe(true);
+        screen
+          .getByRole("button", { name: "Cancel scan" })
+          .getAttribute("aria-disabled"),
+      ).toBe("true");
       expect(
         calls
           .filter(({ name }) => name === "job.cancel")

@@ -1,5 +1,5 @@
-import { useLayoutEffect, useRef } from "react";
-import type { Ref } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
+import type { Ref, RefObject } from "react";
 import {
   Action,
   LiveStatus,
@@ -178,6 +178,36 @@ export function ScopeActions({
   );
 }
 
+function useResultControlFocus(
+  running: boolean,
+  command: "pause" | "resume" | undefined,
+  statusFocus: RefObject<HTMLDivElement | null>,
+) {
+  const suspend = useRef<HTMLButtonElement>(null);
+  const cancel = useRef<HTMLButtonElement>(null);
+  const [previous, setPrevious] = useState({ running, command });
+
+  useLayoutEffect(() => {
+    if (previous.running === running && previous.command === command) return;
+    const active = document.activeElement;
+    if (
+      active &&
+      ((!running && active === cancel.current) ||
+        (!command && active === suspend.current))
+    )
+      statusFocus.current?.focus({ preventScroll: true });
+    setPrevious({ running, command });
+  }, [command, previous, running, statusFocus]);
+
+  // Keep outgoing controls mounted until their focus can be checked.
+  return {
+    suspend,
+    cancel,
+    showCancel: running || previous.running,
+    shownCommand: command ?? previous.command,
+  };
+}
+
 export function ResultActions({
   version,
   onBrowse,
@@ -186,6 +216,7 @@ export function ResultActions({
   state,
   pending,
   onControl,
+  statusFocus,
 }: {
   version: string | undefined;
   onBrowse: ((version: string) => void) | undefined;
@@ -194,6 +225,7 @@ export function ResultActions({
   state: JobState | undefined;
   pending: ScanControl | undefined;
   onControl: (command: ScanControl) => void;
+  statusFocus: RefObject<HTMLDivElement | null>;
 }) {
   const browse = version && onBrowse && (
     <Action
@@ -205,28 +237,38 @@ export function ResultActions({
       Browse folders
     </Action>
   );
-  if (!browse && !running) return null;
-  const command =
-    state === "running"
+  const command = !running
+    ? undefined
+    : state === "running"
       ? "pause"
       : state === "pause_requested" || state === "paused"
         ? "resume"
         : undefined;
   const cancelling = pending === "cancel" || state === "cancel_requested";
+  const { suspend, cancel, showCancel, shownCommand } = useResultControlFocus(
+    running,
+    command,
+    statusFocus,
+  );
+  if (!browse && !showCancel) return null;
   return (
     <div className="du-result__actions">
       {browse}
-      {running && command && (
+      {shownCommand && (
         <Action
-          isPending={pending === command}
-          isDisabled={cancelling}
-          onPress={() => onControl(command)}
+          ref={suspend}
+          isPending={!command || cancelling || pending === command}
+          onPress={() => onControl(shownCommand)}
         >
-          {command === "pause" ? "Pause scan" : "Resume scan"}
+          {shownCommand === "pause" ? "Pause scan" : "Resume scan"}
         </Action>
       )}
-      {running && (
-        <Action isDisabled={cancelling} onPress={() => onControl("cancel")}>
+      {showCancel && (
+        <Action
+          ref={cancel}
+          isPending={!running || cancelling}
+          onPress={() => onControl("cancel")}
+        >
           Cancel scan
         </Action>
       )}

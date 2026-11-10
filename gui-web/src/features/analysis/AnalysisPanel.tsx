@@ -79,6 +79,7 @@ export function AnalysisPanel({
 }) {
   const targets = useTargets(client);
   const reviewProblemId = useId();
+  const scanStatusFocus = useRef<HTMLDivElement>(null);
   const [selected, setSelected] = useState<(OsPath | undefined)[]>([undefined]);
   const [review, setReview] = useState<ScopeReview>();
   const [reviewedDraft, setReviewedDraft] = useState<ScopeDraft>();
@@ -318,6 +319,7 @@ export function AnalysisPanel({
               started={receipt !== null}
               running={running}
               problem={error}
+              statusFocus={scanStatusFocus}
               roots={resultRoots}
               actions={
                 <ResultActions
@@ -328,6 +330,7 @@ export function AnalysisPanel({
                   state={scan.status?.state}
                   pending={scan.control}
                   onControl={scan.requestControl}
+                  statusFocus={scanStatusFocus}
                 />
               }
             />
