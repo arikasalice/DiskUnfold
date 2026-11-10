@@ -20,6 +20,7 @@ use std::{
         io::{AsRawHandle, FromRawHandle},
     },
     path::{Component, Path, Prefix},
+    sync::Arc,
 };
 use windows::{
     Wdk::{
@@ -39,7 +40,7 @@ use windows::{
             FILE_SHARE_WRITE, FileIdBothDirectoryInfo, FileIdBothDirectoryRestartInfo,
             GETFINALPATHNAMEBYHANDLE_FLAGS, GetDriveTypeW, GetFileInformationByHandle,
             GetFileInformationByHandleEx, GetFinalPathNameByHandleW, GetVolumeInformationByHandleW,
-            OPEN_EXISTING, SYNCHRONIZE,
+            OPEN_EXISTING, SYNCHRONIZE, VOLUME_NAME_GUID,
         },
         System::IO::IO_STATUS_BLOCK,
     },
@@ -53,9 +54,17 @@ const BATCH_SIZE: usize = 256;
 pub struct WindowsDirectory {
     handle: File,
     volume: u64,
+    volume_guid: Arc<[u8]>,
     restart: bool,
     pending: VecDeque<ObservedEntry>,
     finished: bool,
+    ancestors: Option<AncestorChain>,
+}
+
+struct AncestorChain {
+    // Retain the verified parent handles for the lifetime of this evidence.
+    _handles: Vec<File>,
+    ids: Vec<Vec<u8>>,
 }
 
 /// Review information obtained from the same handle used for collection.
@@ -278,6 +287,7 @@ pub fn open_verified(path: &Path) -> Result<WindowsDirectory, PortError> {
         return Err(invalid());
     }
     let volume = u64::from(root_info.dwVolumeSerialNumber);
+    let volume_guid = scope::volume_name(&final_path(&file, VOLUME_NAME_GUID)?)?.into();
     let mut filesystem = [0u16; 32];
     // SAFETY: the writable name buffer and open handle are valid for the call.
     unsafe {
@@ -287,6 +297,11 @@ pub fn open_verified(path: &Path) -> Result<WindowsDirectory, PortError> {
     if !filesystem.starts_with(&[78, 84, 70, 83, 0]) {
         return Err(invalid());
     }
+    let mut ancestors = AncestorChain {
+        _handles: Vec::new(),
+        ids: Vec::new(),
+    };
+    let mut parent_id = identity(&root_info);
     for component in components {
         let Component::Normal(name) = component else {
             return Err(invalid());
@@ -294,16 +309,22 @@ pub fn open_verified(path: &Path) -> Result<WindowsDirectory, PortError> {
         let name: Vec<_> = OsStr::new(name).encode_wide().collect();
         wide(&bytes(&name))?;
         let observed = recall::lookup(&file, &name)?;
-        file = recall::observe_if_safe(observed.attributes, || {
+        let next = recall::observe_if_safe(observed.attributes, || {
             verified_directory(&file, &name, volume, Some(observed.inode))
         })?;
+        ancestors.ids.push(parent_id.to_le_bytes().to_vec());
+        parent_id = observed.inode;
+        ancestors._handles.push(file);
+        file = next;
     }
     Ok(WindowsDirectory {
         handle: file,
         volume,
+        volume_guid,
         restart: true,
         pending: VecDeque::new(),
         finished: false,
+        ancestors: Some(ancestors),
     })
 }
 
@@ -331,7 +352,7 @@ impl WindowsDirectory {
                     let size =
                         (u64::from(value.nFileSizeHigh) << 32) | u64::from(value.nFileSizeLow);
                     let facts = if kind(value.dwFileAttributes) == ObservedKind::File {
-                        space::read(&file, &value)?
+                        space::read(&file, &value, &self.volume_guid)?
                     } else {
                         space::Facts::default()
                     };
@@ -465,9 +486,15 @@ impl AnchoredDirectory for WindowsDirectory {
         Ok(Box::new(Self {
             handle,
             volume: self.volume,
+            volume_guid: self.volume_guid.clone(),
             restart: true,
             pending: VecDeque::new(),
             finished: false,
+            ancestors: None,
         }))
+    }
+
+    fn ancestor_file_ids(&self) -> Option<&[Vec<u8>]> {
+        self.ancestors.as_ref().map(|chain| chain.ids.as_slice())
     }
 }

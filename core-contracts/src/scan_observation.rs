@@ -18,6 +18,13 @@ pub trait DirectoryObservationPort: Send + Sync {
 pub trait AnchoredDirectory: DirectoryObservations {
     /// Opens the previously observed directory entry after revalidating it.
     fn open_child(&self, entry: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError>;
+
+    /// IDs of verified same-volume ancestors, excluding this directory.
+    /// `None` means unavailable; `Some(&[])` confirms a volume root. Evidence
+    /// applies only while this anchored directory and its supporting handles live.
+    fn ancestor_file_ids(&self) -> Option<&[Vec<u8>]> {
+        None
+    }
 }
 
 /// The identity and canonical path of a scope root obtained from its open handle.

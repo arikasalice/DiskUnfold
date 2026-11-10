@@ -21,7 +21,11 @@ pub(super) struct Facts {
 /// Reads allocation and link count without reopening the path.
 /// Sparse and compressed files use the handle's physical compressed-size report;
 /// encrypted files remain unknown because their allocation evidence is incomplete.
-pub(super) fn read(file: &File, first: &BY_HANDLE_FILE_INFORMATION) -> Result<Facts, PortError> {
+pub(super) fn read(
+    file: &File,
+    first: &BY_HANDLE_FILE_INFORMATION,
+    volume_guid: &[u8],
+) -> Result<Facts, PortError> {
     let mut standard = FILE_STANDARD_INFO::default();
     // SAFETY: the live handle and writable, correctly sized structure remain valid.
     let queried = unsafe {
@@ -95,7 +99,7 @@ pub(super) fn read(file: &File, first: &BY_HANDLE_FILE_INFORMATION) -> Result<Fa
     };
     let file_identity = (identity_available && id.FileId.Identifier.iter().any(|&byte| byte != 0))
         .then(|| SpaceIdentity {
-            volume: id.VolumeSerialNumber.to_le_bytes().to_vec(),
+            volume: volume_guid.to_vec(),
             file: id.FileId.Identifier.to_vec(),
         });
     Ok(Facts {

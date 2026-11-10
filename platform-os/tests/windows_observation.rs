@@ -135,6 +135,51 @@ fn scope_identity_is_anchored_to_the_real_volume_and_directory()
 }
 
 #[test]
+fn opened_scope_ancestry_uses_verified_handle_ids() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    let parent = fixture.path().join("parent");
+    let child = parent.join("child");
+    let sibling = fixture.path().join("parent-sibling");
+    fs::create_dir(&parent)?;
+    fs::create_dir(&child)?;
+    fs::create_dir(&sibling)?;
+    let open = |path: &Path| {
+        let raw: Vec<_> = path
+            .as_os_str()
+            .encode_wide()
+            .flat_map(u16::to_le_bytes)
+            .collect();
+        WindowsScopeRoots
+            .open_root(&raw)
+            .map_err(|e| format!("{e:?}"))
+    };
+    let parent = open(&parent)?;
+    let child = open(&child)?;
+    let sibling = open(&sibling)?;
+    let child_ancestors = child
+        .directory
+        .ancestor_file_ids()
+        .ok_or("missing evidence")?;
+    assert!(child_ancestors.contains(&parent.file_id));
+    assert!(!child_ancestors.contains(&child.file_id));
+    assert!(
+        !sibling
+            .directory
+            .ancestor_file_ids()
+            .ok_or("missing evidence")?
+            .contains(&parent.file_id)
+    );
+    let drive = fixture
+        .path()
+        .ancestors()
+        .last()
+        .ok_or("missing drive root")?;
+    let root = open(drive)?;
+    assert_eq!(root.directory.ancestor_file_ids(), Some([].as_slice()));
+    Ok(())
+}
+
+#[test]
 fn hard_links_have_the_same_identity_and_reported_allocation()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
@@ -143,8 +188,16 @@ fn hard_links_have_the_same_identity_and_reported_allocation()
         fixture.path().join("original"),
         fixture.path().join("alias"),
     )?;
-    let mut root = open_verified(fixture.path()).map_err(|e| format!("{e:?}"))?;
-    let found = entries(&mut root)?;
+    let raw: Vec<_> = fixture
+        .path()
+        .as_os_str()
+        .encode_wide()
+        .flat_map(u16::to_le_bytes)
+        .collect();
+    let mut root = WindowsScopeRoots
+        .open_root(&raw)
+        .map_err(|e| format!("{e:?}"))?;
+    let found = entries(&mut *root.directory)?;
     let first = found
         .iter()
         .find(|e| e.name == name("original"))
@@ -164,7 +217,10 @@ fn hard_links_have_the_same_identity_and_reported_allocation()
     assert_eq!(first.allocated, second.allocated);
     assert_eq!(first.link_count, Some(2));
     assert_eq!(first.link_count, second.link_count);
-    assert!(first.space_identity.is_some());
+    assert_eq!(
+        first.space_identity.as_ref().map(|id| id.volume.as_slice()),
+        Some(root.volume_id.as_slice())
+    );
     assert_eq!(first.space_identity, second.space_identity);
     Ok(())
 }

@@ -65,6 +65,19 @@ struct Roots {
 impl ScopeRootPort for Roots {
     fn open_root(&self, path: &[u8]) -> Result<OpenedScopeRoot, PortError> {
         self.opens.fetch_add(1, Ordering::Relaxed);
+        if path.first() == Some(&b'Z') {
+            return Err(PortError {
+                kind: PortErrorKind::PermissionDenied,
+                reason_key: "scan.path_denied".into(),
+                os_code: None,
+            });
+        }
+        let identity = self.file_id.load(Ordering::Acquire);
+        let identity = if path.first() == Some(&b'D') {
+            identity + 100
+        } else {
+            identity
+        };
         Ok(OpenedScopeRoot {
             canonical_path: OsPath {
                 encoding: PathEncoding::WindowsUtf16le,
@@ -73,7 +86,7 @@ impl ScopeRootPort for Roots {
                 lossy: false,
             },
             volume_id: vec![1],
-            file_id: self.file_id.load(Ordering::Acquire).to_le_bytes().to_vec(),
+            file_id: identity.to_le_bytes().to_vec(),
             directory: Box::new(Directory {
                 reads: self.reads.clone(),
                 release: Some(self.release.clone()),
@@ -129,9 +142,15 @@ fn io_error() -> PortError {
     }
 }
 
-#[test]
-fn reviewed_identity_is_rechecked_and_one_job_publishes_the_requested_result()
--> Result<(), Box<dyn std::error::Error>> {
+struct ScanHarness {
+    engine: Engine,
+    roots: Arc<Roots>,
+    release: mpsc::Sender<()>,
+    terminal: mpsc::Receiver<JobEvent>,
+    versions: du_analysis_index::IngestSink,
+}
+
+fn scan_harness() -> Result<ScanHarness, Box<dyn std::error::Error>> {
     let ids = Arc::new(Ids {
         next: AtomicUsize::new(1),
         fallback: Id::parse("018f0000-0000-7000-8000-000000000000")?,
@@ -161,7 +180,25 @@ fn reviewed_identity_is_rechecked_and_one_job_publishes_the_requested_result()
     crate::scope::register_review(&mut builder, roots.clone(), clock);
     let workers = Arc::new(crate::workers::Workers::start(runtime)?);
     let versions = crate::scan::register(&mut builder, workers, roots.clone(), ids)?;
-    let engine = builder.build()?;
+    Ok(ScanHarness {
+        engine: builder.build()?,
+        roots,
+        release,
+        terminal,
+        versions,
+    })
+}
+
+#[test]
+fn reviewed_identity_is_rechecked_and_one_job_publishes_the_requested_result()
+-> Result<(), Box<dyn std::error::Error>> {
+    let ScanHarness {
+        engine,
+        roots,
+        release,
+        terminal,
+        versions,
+    } = scan_harness()?;
     let gui = |name, body| call(&engine, name, Channel::Gui, ENVELOPE_VERSION, body);
     let path: Vec<u8> = "C:\\Fixture"
         .encode_utf16()
@@ -291,35 +328,42 @@ fn check_uncomposed_scope_fails_closed(
     draft: &serde_json::Value,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let gui = |name, body| call(engine, name, Channel::Gui, ENVELOPE_VERSION, body);
-    // Until multi-root collection and result identity are composed, reject the
-    // entire scope before opening any path or submitting a partial scan.
-    let mut other = draft["includes"][0].clone();
-    let other_path: Vec<u8> = "D:\\Other"
-        .encode_utf16()
-        .flat_map(u16::to_le_bytes)
-        .collect();
-    other["raw"] = json!(PathBytes::from_bytes(&other_path));
-    for second in [draft["includes"][0].clone(), other] {
-        let mut multi = draft.clone();
-        multi["includes"] = json!([draft["includes"][0], second]);
-        let rejected_review = gui("scope.review", json!({"draft": multi, "requestSeq": 0}))?;
+    // Unsupported exclusions or mount traversal must never be silently ignored.
+    for (field, value, reason) in [
+        (
+            "boundary",
+            json!("include_selected"),
+            "scope.target_unavailable",
+        ),
+        (
+            "exclusions",
+            json!([{"kind": "name_pattern", "pattern": "*.tmp"}]),
+            "scope.exclude_invalid",
+        ),
+    ] {
+        let mut unsupported = draft.clone();
+        unsupported[field] = value;
+        let rejected_review = gui(
+            "scope.review",
+            json!({"draft": unsupported, "requestSeq": 0}),
+        )?;
         assert_eq!(
             rejected_review
                 .error
-                .ok_or("multi-root review unexpectedly succeeded")?
+                .ok_or("unsupported review unexpectedly succeeded")?
                 .reason_key,
-            "scope.target_unavailable"
+            reason
         );
         let rejected_start = gui(
             "scan.start",
-            json!({"draft": multi, "reviewFingerprint": "unreviewed"}),
+            json!({"draft": unsupported, "reviewFingerprint": "unreviewed"}),
         )?;
         assert_eq!(
             rejected_start
                 .error
-                .ok_or("multi-root scan unexpectedly started")?
+                .ok_or("unsupported scan unexpectedly started")?
                 .reason_key,
-            "scope.target_unavailable"
+            reason
         );
     }
     assert_eq!(roots.reads.load(Ordering::Acquire), 0);
@@ -378,3 +422,5 @@ fn check_observed_details(
     assert_eq!(child.raw.bytes()?, [path, vec![b'\\', 0, b'f', 0]].concat());
     Ok(())
 }
+
+mod multiple;

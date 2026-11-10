@@ -1,14 +1,12 @@
 //! Scope admission from the exact directory handle passed to the collector.
 use std::{ffi::OsString, os::windows::ffi::OsStringExt, path::PathBuf};
 
+use super::{bytes, invalid, open_verified};
 use du_core_contracts::{
     OsPath, PathBytes, PathEncoding,
     ports::PortError,
     scan_observation::{OpenedScopeRoot, ScopeRootPort},
 };
-use windows::Win32::Storage::FileSystem::VOLUME_NAME_GUID;
-
-use super::{bytes, final_path, invalid, open_verified};
 
 /// Opens a verified scope root on a local NTFS drive.
 pub struct WindowsScopeRoots;
@@ -25,8 +23,7 @@ impl ScopeRootPort for WindowsScopeRoots {
         }
         let directory = open_verified(&PathBuf::from(OsString::from_wide(&wide)))?;
         let identity = directory.identity()?;
-        let guid_path = final_path(&directory.handle, VOLUME_NAME_GUID)?;
-        let volume_id = volume_name(&guid_path)?;
+        let volume_id = directory.volume_guid.to_vec();
         let physical_path = identity.physical_path;
         let display = String::from_utf16(&physical_path);
         Ok(OpenedScopeRoot {
@@ -43,7 +40,7 @@ impl ScopeRootPort for WindowsScopeRoots {
     }
 }
 
-fn volume_name(path: &[u16]) -> Result<Vec<u8>, PortError> {
+pub(super) fn volume_name(path: &[u16]) -> Result<Vec<u8>, PortError> {
     let prefix: Vec<_> = r"\\?\Volume{".encode_utf16().collect();
     let identifier = path.strip_prefix(prefix.as_slice()).ok_or_else(invalid)?;
     let close = identifier

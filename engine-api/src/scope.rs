@@ -1,5 +1,6 @@
 //! Review a desktop scope using evidence obtained from the opened directory.
 mod digest;
+pub mod preparation;
 
 use std::sync::Arc;
 
@@ -19,7 +20,7 @@ use crate::{
     error::EngineError,
 };
 
-/// Registers read-only review for a single local directory on its current volume.
+/// Registers read-only review for local directories, each on its current volume.
 pub fn register_review(
     builder: &mut EngineBuilder,
     roots: Arc<dyn ScopeRootPort>,
@@ -40,7 +41,7 @@ impl UseCase for Review {
     type Response = ScopeReview;
 
     fn check_scope(&self, request: &Self::Request, _: &CallerCtx) -> Result<(), EngineError> {
-        validate(&request.draft).map(|_| ())
+        validate(&request.draft)
     }
 
     fn execute(
@@ -49,7 +50,11 @@ impl UseCase for Review {
         _: &CallerCtx,
     ) -> Result<Self::Response, EngineError> {
         let mut draft = request.draft;
-        let mut path = validate(&draft)?;
+        validate(&draft)?;
+        let [single] = draft.includes.as_slice() else {
+            return review_multiple(draft, request.request_seq, &*self.roots, &*self.clock);
+        };
+        let mut path = windows_path(single)?;
         let raw = path
             .raw
             .bytes()
@@ -80,21 +85,103 @@ impl UseCase for Review {
     }
 }
 
-fn validate(draft: &ScopeDraft) -> Result<OsPath, EngineError> {
+fn validate(draft: &ScopeDraft) -> Result<(), EngineError> {
     if !draft.exclusions.is_empty() {
         return Err(EngineError::reason("scope.exclude_invalid"));
     }
-    let Some(path) = draft.includes.first() else {
+    if draft.includes.is_empty() {
         return Err(EngineError::reason("scope.empty"));
-    };
-    if draft.includes.len() != 1
-        || draft.source != ScopeSource::Gui
+    }
+    if draft.source != ScopeSource::Gui
         || draft.boundary != ScopeBoundary::CurrentVolume
         || !draft.included_mounts.is_empty()
     {
         return Err(EngineError::reason("scope.target_unavailable"));
     }
-    windows_path(path)
+    Ok(())
+}
+
+fn review_multiple(
+    draft: ScopeDraft,
+    request_seq: u32,
+    roots: &dyn ScopeRootPort,
+    clock: &dyn JobClock,
+) -> Result<ScopeReview, EngineError> {
+    let prepared = preparation::prepare(&draft, roots, &preparation::RawRootEvidence)
+        .map_err(preparation_error)?;
+    let scope = normalized(&draft, &prepared);
+    let (_, review_fingerprint) = prepared_fingerprints(&scope, &prepared)?;
+    let correspondences = prepared
+        .selected_roots()
+        .map(|root| ScopeCorrespondence {
+            path: root.canonical_path.clone(),
+            access: TargetAccess::Accessible,
+            reason_key: None,
+        })
+        .collect();
+    let notices = prepared
+        .notices()
+        .iter()
+        .map(notice_key)
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+    let observed_at = Timestamp::from_unix_millis(clock.now_ms())
+        .ok_or_else(|| EngineError::reason("support.internal_error"))?;
+    Ok(ScopeReview {
+        scope,
+        notices,
+        targets: correspondences,
+        review_fingerprint,
+        observed_at,
+        request_seq,
+    })
+}
+
+fn normalized(draft: &ScopeDraft, prepared: &preparation::Prepared) -> ScopeDraft {
+    ScopeDraft {
+        includes: prepared
+            .normalized_roots()
+            .map(|root| root.canonical_path.clone())
+            .collect(),
+        ..draft.clone()
+    }
+}
+
+fn prepared_fingerprints(
+    normalized: &ScopeDraft,
+    prepared: &preparation::Prepared,
+) -> Result<(blake3::Hash, String), EngineError> {
+    let scope = digest::scope(normalized)?;
+    let selected: Vec<_> = prepared
+        .selected_roots()
+        .map(|root| digest::ReviewRoot {
+            path: root.canonical_path,
+            identity: Some((root.volume_id, root.file_id)),
+        })
+        .collect();
+    let review = digest::review(&scope, &selected)?;
+    Ok((scope, review.to_hex().to_string()))
+}
+
+fn preparation_error(error: preparation::Error) -> EngineError {
+    use preparation::Error;
+    EngineError::reason(match error {
+        Error::Empty => "scope.empty",
+        Error::InvalidPath => "path.unresolvable",
+        _ => "scope.target_unavailable",
+    })
+}
+
+fn notice_key(notice: &du_scan_engine::scope::Notice) -> &'static str {
+    use du_scan_engine::scope::Notice;
+    match notice {
+        Notice::Duplicate(_) => "scope.overlap_merged",
+        Notice::AliasMerged(_) => "scope.alias_merged",
+        Notice::DescendantAbsorbed(_) => "scope.descendant_absorbed",
+        _ => "scope.correspondence_unknown",
+    }
 }
 
 pub(crate) fn windows_path(path: &OsPath) -> Result<OsPath, EngineError> {
@@ -119,7 +206,7 @@ pub(crate) fn windows_path(path: &OsPath) -> Result<OsPath, EngineError> {
 
 /// An anchored scope and its identity-independent fingerprint.
 pub(crate) struct VerifiedScope {
-    pub root: OpenedScopeRoot,
+    pub roots: Vec<OpenedScopeRoot>,
     pub scope_fingerprint: String,
 }
 
@@ -129,7 +216,25 @@ pub(crate) fn verify(
     expected: &str,
     roots: &dyn ScopeRootPort,
 ) -> Result<VerifiedScope, EngineError> {
-    let path = validate(draft)?;
+    validate(draft)?;
+    let [single] = draft.includes.as_slice() else {
+        let prepared =
+            preparation::prepare(draft, roots, &preparation::RawRootEvidence).map_err(|error| {
+                match error {
+                    preparation::Error::InvalidPath => preparation_error(error),
+                    _ => EngineError::reason("scope.changed"),
+                }
+            })?;
+        let (scope, review) = prepared_fingerprints(&normalized(draft, &prepared), &prepared)?;
+        if review != expected {
+            return Err(EngineError::reason("scope.changed"));
+        }
+        return Ok(VerifiedScope {
+            roots: prepared.into_roots(),
+            scope_fingerprint: scope.to_hex().to_string(),
+        });
+    };
+    let path = windows_path(single)?;
     let raw = path
         .raw
         .bytes()
@@ -145,7 +250,7 @@ pub(crate) fn verify(
         return Err(EngineError::reason("scope.changed"));
     }
     Ok(VerifiedScope {
-        root,
+        roots: vec![root],
         scope_fingerprint: scope_fingerprint.to_hex().to_string(),
     })
 }

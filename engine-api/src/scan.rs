@@ -84,8 +84,9 @@ impl UseCase for StartScan {
     ) -> Result<Self::Response, EngineError> {
         let verified = scope::verify(&request.draft, &request.review_fingerprint, &*self.roots)?;
         let scope_version = self.ids.next_id();
-        let body = Arc::new(MetadataScan::new(
-            verified.root,
+        let root_count = verified.roots.len();
+        let body = Arc::new(MetadataScan::new_roots(
+            verified.roots,
             self.store.clone(),
             scope_version.clone(),
             self.ids.clone(),
@@ -100,7 +101,11 @@ impl UseCase for StartScan {
             }),
             body,
             priority: JobPriority::Normal,
-            scope_summary: "metadata: 1 root".into(),
+            scope_summary: if root_count == 1 {
+                "metadata: 1 root".into()
+            } else {
+                format!("metadata: {root_count} roots")
+            },
             correlation_id: caller.correlation_id.clone(),
             sample: false,
         };
