@@ -36,6 +36,62 @@ fn current(sink: &IngestSink) -> Result<Option<Id>, String> {
 #[derive(Default)]
 struct Notices(Mutex<Vec<ResultVersionNotice>>);
 
+#[derive(Default)]
+struct ReentrantReader {
+    sink: Mutex<Option<IngestSink>>,
+    observed: Mutex<Vec<bool>>,
+}
+
+impl ResultVersionPublisher for ReentrantReader {
+    fn publish_result_version(&self, notice: ResultVersionNotice) {
+        let visible = self
+            .sink
+            .lock()
+            .ok()
+            .and_then(|guard| {
+                let sink = guard.as_ref()?;
+                let version = notice.result_version.as_ref()?;
+                Some(sink.pin_current(version).is_ok())
+            })
+            .unwrap_or(false);
+        if let Ok(mut observed) = self.observed.lock() {
+            observed.push(visible);
+        }
+    }
+}
+
+#[test]
+fn result_publisher_can_read_committed_current_without_store_lock() -> Result<(), String> {
+    use std::sync::mpsc;
+    use std::time::Duration;
+    let observer = Arc::new(ReentrantReader::default());
+    let sink = IngestSink::with_version_publisher(observer.clone());
+    *observer.sink.lock().map_err(|_| "sink lock poisoned")? = Some(sink.clone());
+    let lineage = sink
+        .bind_current_analysis("callback-read", id(100)?)
+        .map_err(|e| format!("{e:?}"))?;
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let result = build(&sink, &lineage, 101).and_then(|b| {
+            b.seal(id(102)?, ResultCompleteness::Complete)
+                .map(|_| ())
+                .map_err(|e| format!("{e:?}"))
+        });
+        let _ = tx.send(result);
+    });
+    rx.recv_timeout(Duration::from_secs(3))
+        .map_err(|e| format!("publication did not finish: {e}"))??;
+    assert_eq!(
+        *observer
+            .observed
+            .lock()
+            .map_err(|_| "observed lock poisoned")?,
+        [true]
+    );
+    *observer.sink.lock().map_err(|_| "sink lock poisoned")? = None;
+    Ok(())
+}
+
 impl ResultVersionPublisher for Notices {
     fn publish_result_version(&self, notice: ResultVersionNotice) {
         if let Ok(mut notices) = self.0.lock() {
