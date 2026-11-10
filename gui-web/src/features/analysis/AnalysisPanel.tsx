@@ -63,6 +63,10 @@ function noticeText(key: string): string {
       return "A selected folder is already inside another selected folder.";
     case "scope.correspondence_unknown":
       return "Some path relationships could not be confirmed.";
+    case "scope.excluded":
+      return "An exclusion removed a selected folder from the scan.";
+    case "scope.exclusion_ineffective":
+      return "An exclusion falls outside the selected folders.";
     default:
       return key;
   }

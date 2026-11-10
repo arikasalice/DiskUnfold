@@ -99,6 +99,18 @@ fn reviewed_exclusions_are_bound_to_start_and_filter_the_job()
         gui("scope.review", json!({"draft": ordered, "requestSeq": 5}))?.body,
     )?;
     assert_eq!(first.review_fingerprint, second.review_fingerprint);
+    assert!(
+        first
+            .notices
+            .iter()
+            .any(|notice| notice == "scope.exclusion_ineffective")
+    );
+    assert!(
+        !review
+            .notices
+            .iter()
+            .any(|notice| notice == "scope.exclusion_ineffective")
+    );
     let mut forged = draft.clone();
     forged["exclusions"][0]["path"] = native("C:\\Fixture\\other");
     assert_eq!(
@@ -166,6 +178,7 @@ fn root_order_cross_volume_and_rule_order_use_proven_keys() -> Result<(), Box<dy
     ];
     let policy = prepare(Arc::new(ProvenComparison), &roots, &rules).ok_or("no policy")?;
     assert_eq!(policy.roots, [1, 0]);
+    assert!(!policy.ineffective_rule);
     let child = native_component("CHILD");
     let private = native_component("PRIVATE");
     let neighbor = native_component("public");
@@ -186,6 +199,14 @@ fn root_order_cross_volume_and_rule_order_use_proven_keys() -> Result<(), Box<dy
         FilterDecision::Admit
     );
     assert_eq!((policy.filter)(0, &[], &[0]), FilterDecision::Undecidable);
+    let policy = prepare(
+        Arc::new(ProvenComparison),
+        &roots,
+        &[path("c:\\FIXTURE")?, path("D:\\OtherSibling")?],
+    )
+    .ok_or("no policy")?;
+    assert_eq!(policy.roots, [0]);
+    assert!(policy.ineffective_rule);
     Ok(())
 }
 

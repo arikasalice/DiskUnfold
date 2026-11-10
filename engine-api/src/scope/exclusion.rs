@@ -35,6 +35,8 @@ pub struct FrozenExclusions {
     pub roots: Vec<usize>,
     pub root_keys: Vec<OsPath>,
     pub rule_keys: Vec<OsPath>,
+    /// At least one rule is disjoint from every normalized inclusion.
+    pub ineffective_rule: bool,
     pub filter: Arc<PreMetadataFilter<'static>>,
 }
 
@@ -83,6 +85,13 @@ pub fn prepare(
         })
         .map(|(index, _)| index)
         .collect();
+    let ineffective_rule = rule_keys.iter().any(|rule| {
+        !root_keys.iter().any(|root| {
+            root.volume == rule.volume
+                && (root.components.starts_with(&rule.components)
+                    || rule.components.starts_with(&root.components))
+        })
+    });
     let sort_keys = root_keys
         .iter()
         .map(|root| root.serialized_key.raw.bytes().ok())
@@ -144,6 +153,7 @@ pub fn prepare(
         roots,
         root_keys: output_roots,
         rule_keys: output_rules,
+        ineffective_rule,
         filter,
     })
 }
@@ -184,18 +194,21 @@ fn prepare_scope(
             )
         })
         .collect::<Vec<_>>();
-    let notices = prepared
+    let mut notices = prepared
         .notices()
         .iter()
         .map(super::notice_key)
-        .collect::<std::collections::BTreeSet<_>>()
-        .into_iter()
-        .map(str::to_owned)
-        .collect();
+        .collect::<std::collections::BTreeSet<_>>();
     let frozen = prepare(evidence.clone(), &candidates, &rules)
         .ok_or_else(|| EngineError::reason("scope.target_unavailable"))?;
     if frozen.roots.is_empty() {
         return Err(EngineError::reason("scope.empty"));
+    }
+    if frozen.roots.len() < candidates.len() {
+        notices.insert("scope.excluded");
+    }
+    if frozen.ineffective_rule {
+        notices.insert("scope.exclusion_ineffective");
     }
     let mut output = draft.clone();
     output.includes = frozen
@@ -262,7 +275,7 @@ fn prepare_scope(
         draft: output,
         roots: retained,
         targets,
-        notices,
+        notices: notices.into_iter().map(str::to_owned).collect(),
         fingerprint: scope.to_hex().to_string(),
         review,
         filter: frozen.filter,
