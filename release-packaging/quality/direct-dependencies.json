@@ -2,13 +2,24 @@
   {
     "ecosystem": "cargo",
     "owner": "du-app-db",
+    "name": "blake3",
+    "version": "1.8.3",
+    "source": "registry+https://github.com/rust-lang/crates.io-index",
+    "license": "CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Verify the exact built-in SQLite migration definitions"
+  },
+  {
+    "ecosystem": "cargo",
+    "owner": "du-app-db",
     "name": "rusqlite",
     "version": "0.41.1",
     "source": "registry+https://github.com/rust-lang/crates.io-index",
     "license": "MIT",
     "role": "runtime",
     "distributed": true,
-    "reason": "SQLite persistence adapter"
+    "reason": "SQLite persistence, online backup and migration statement authorization"
   },
   {
     "ecosystem": "cargo",

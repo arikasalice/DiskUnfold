@@ -15,7 +15,13 @@
     "license": "MIT",
     "role": "runtime",
     "distributed": true,
-    "reason": "SQLite persistence adapter"
+    "reason": "SQLite persistence, online backup and migration statement authorization"
+  },
+  "cargo:du-app-db:blake3@1.8.3": {
+    "license": "CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Verify the exact built-in SQLite migration definitions"
   },
   "cargo:du-platform-os:tempfile@3.27.0": {
     "license": "MIT OR Apache-2.0",

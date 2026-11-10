@@ -10,6 +10,7 @@ use std::{
 use rusqlite::{Connection, OpenFlags, TransactionBehavior};
 
 mod job_history;
+pub mod migration;
 mod settings;
 
 const APPLICATION_ID: u32 = 0x4455_4442;

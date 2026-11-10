@@ -246,3 +246,84 @@ fn append_leaves_legacy_settings_database_untouched() -> TestResult {
     assert_eq!(history_objects, 0);
     Ok(())
 }
+
+#[test]
+fn legacy_settings_survive_both_history_definitions_and_scan_append() -> TestResult {
+    use crate::migration::{Definition, Definitions, apply_next};
+    use rusqlite::Connection;
+
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("legacy.db");
+    let db = AppDb::create_gui(&path).map_err(|error| format!("{error:?}"))?;
+    db.connection.execute_batch(
+        "INSERT INTO user_env_setting VALUES
+             ('locale.display_language', '\"ko\"', 'screen', 1, 2, 1);
+         UPDATE user_env_setting_version SET settings_version=7;",
+    )?;
+    drop(db);
+
+    let summary_schema = concat!(
+        "CREATE TABLE app_db_purge_gate
+            (open INTEGER NOT NULL CHECK(open IN (0, 1))) STRICT;
+         INSERT INTO app_db_purge_gate VALUES (0);",
+        include_str!("terminal_summary.sql")
+    );
+    let steps = [
+        Definition {
+            number: 2,
+            sql: summary_schema,
+        },
+        Definition {
+            number: 3,
+            sql: include_str!("scan_link.sql"),
+        },
+    ];
+    let definitions = Definitions {
+        baseline: 1,
+        steps: &steps,
+    };
+    let first_backup = dir.path().join("before-summary.db");
+    let second_backup = dir.path().join("before-link.db");
+    assert_eq!(
+        apply_next(&path, &first_backup, &definitions).map_err(|error| format!("{error:?}"))?,
+        2
+    );
+    let mut db = AppDb {
+        connection: Connection::open(&path)?,
+    };
+    assert_eq!(
+        db.append_scan_history(&summary(1), 250),
+        Err("history.record_failed".into())
+    );
+    let count: i64 =
+        db.connection
+            .query_row("SELECT count(*) FROM job_runtime_job_record", [], |row| {
+                row.get(0)
+            })?;
+    assert_eq!(count, 0);
+    drop(db);
+
+    assert_eq!(
+        apply_next(&path, &second_backup, &definitions).map_err(|error| format!("{error:?}"))?,
+        3
+    );
+    let mut db = AppDb {
+        connection: Connection::open(&path)?,
+    };
+    assert_eq!(
+        db.append_scan_history(&summary(1), 250),
+        Ok(HistoryAppend::Added)
+    );
+    assert_eq!(counts(&db)?, (1, 1, 1));
+    for connection in [&db.connection, &Connection::open(&first_backup)?] {
+        let settings: (String, i64) = connection.query_row(
+            "SELECT
+                (SELECT value_json FROM user_env_setting WHERE setting_key = 'locale.display_language'),
+                settings_version FROM user_env_setting_version",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        assert_eq!(settings, ("\"ko\"".into(), 7));
+    }
+    Ok(())
+}

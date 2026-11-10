@@ -157,6 +157,7 @@ dependencies = [
 name = "du-app-db"
 version = "0.1.0"
 dependencies = [
+ "blake3",
  "du-core-contracts",
  "rusqlite",
  "serde_json",
