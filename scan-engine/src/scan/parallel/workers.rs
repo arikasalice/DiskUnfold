@@ -5,6 +5,7 @@
 //! allowed to return first; a pause request is not itself a completed pause.
 //! Internal abort wakes parked flows without setting the user cancellation flag.
 use super::*;
+mod cancel_drain;
 
 pub(super) fn worker(
     shared: &Shared,
@@ -47,6 +48,9 @@ fn worker_loop(
         if !process(frame, shared, sender, context, policy, &mut local) {
             return false;
         }
+    }
+    if context.checkpoint() == Checkpoint::Cancel && !shared.abort.load(Ordering::Acquire) {
+        return cancel_drain::drain(shared, &mut local, sender, context, policy);
     }
     true
 }
@@ -165,73 +169,92 @@ fn process(
     policy: Policy<'_>,
     local: &mut Vec<Frame>,
 ) -> bool {
-    if context.checkpoint() != Checkpoint::Cancel && !shared.abort.load(Ordering::Acquire) {
-        let recorded = frame.root_published && !frame.deferred.is_empty();
-        let next = if recorded {
-            frame.deferred.pop_front()
-        } else {
-            frame.entries.pop_front()
-        };
-        if let Some(entry) = next {
-            match process_entry(&mut frame, entry, recorded, shared, sender, context, policy) {
-                Ok(Some(child)) => {
-                    local.push(frame);
-                    local.push(child);
-                    return true;
-                }
-                Ok(None) => {
-                    requeue(shared, frame, local, context);
-                    return true;
-                }
-                Err(()) => return false,
+    if shared.abort.load(Ordering::Acquire) {
+        return true;
+    }
+    if context.checkpoint() == Checkpoint::Cancel {
+        return cancel_drain::frame(frame, sender, policy);
+    }
+    let recorded = frame.root_published && !frame.deferred.is_empty();
+    let next = if recorded {
+        frame.deferred.pop_front()
+    } else {
+        frame.entries.pop_front()
+    };
+    if let Some(entry) = next {
+        match process_entry(&mut frame, entry, recorded, shared, sender, context, policy) {
+            Ok(Some(child)) => {
+                local.push(frame);
+                local.push(child);
+                return true;
             }
-        }
-        if !publish_first_batch(&mut frame, sender, context) {
-            return false;
-        }
-        if frame.batch_pending {
-            frame.batch_pending = false;
-            requeue(shared, frame, local, context);
-            return true;
-        }
-        let outcome = next_entries(&mut frame, context, policy);
-        match outcome {
             Ok(None) => {
                 requeue(shared, frame, local, context);
                 return true;
             }
-            Err(ReadFailure::Filter) => {
-                return context.checkpoint() == Checkpoint::Cancel;
-            }
-            Ok(Some(batch)) if batch.is_empty() => {
-                return finish_directory(&frame, sender, shared, context);
-            }
-            Ok(Some(batch)) if batch.len() <= 8192 => {
-                frame.first_batch |= frame.root && !frame.root_published;
-                frame.batch_pending = true;
-                frame.entries = batch.into();
-                requeue(shared, frame, local, context);
-                return true;
-            }
-            outcome => {
-                let failure_reason = match outcome {
-                    Err(ReadFailure::Observation(error)) => reason(&error),
-                    _ => "scan.unclassified",
-                };
-                let _ = sender.send(Event::Failure {
-                    root_index: frame.root_index,
-                    path: frame.path.clone(),
-                    root: frame.root,
-                    reason: failure_reason,
-                    stage: du_core_contracts::scan_failures::ScanFailureStage::Enumerate,
-                    observed_at: context.utc_now(),
-                });
+            Err(()) => return false,
+        }
+    }
+    if !publish_first_batch(&mut frame, sender, context) {
+        return false;
+    }
+    if frame.batch_pending {
+        frame.batch_pending = false;
+        requeue(shared, frame, local, context);
+        return true;
+    }
+    if context.checkpoint() == Checkpoint::Cancel {
+        return cancel_drain::frame(frame, sender, policy);
+    }
+    let outcome = next_entries(&mut frame, context, policy);
+    process_batch(frame, shared, sender, context, local, outcome)
+}
+
+fn process_batch(
+    mut frame: Frame,
+    shared: &Shared,
+    sender: &SyncSender<Event>,
+    context: &dyn JobContext,
+    local: &mut Vec<Frame>,
+    outcome: Result<Option<Vec<TimedObservedEntry>>, ReadFailure>,
+) -> bool {
+    match outcome {
+        Ok(None) => {
+            requeue(shared, frame, local, context);
+            true
+        }
+        Err(ReadFailure::Filter) => context.checkpoint() == Checkpoint::Cancel,
+        Ok(Some(batch)) if batch.is_empty() => {
+            if context.checkpoint() == Checkpoint::Cancel {
                 complete(shared, frame.root_index, context);
                 return true;
             }
+            finish_directory(&frame, sender, shared, context)
+        }
+        Ok(Some(batch)) if batch.len() <= 8192 => {
+            frame.first_batch |= frame.root && !frame.root_published;
+            frame.batch_pending = true;
+            frame.entries = batch.into();
+            requeue(shared, frame, local, context);
+            true
+        }
+        outcome => {
+            let failure_reason = match outcome {
+                Err(ReadFailure::Observation(error)) => reason(&error),
+                _ => "scan.unclassified",
+            };
+            let _ = sender.send(Event::Failure {
+                root_index: frame.root_index,
+                path: frame.path.clone(),
+                root: frame.root,
+                reason: failure_reason,
+                stage: du_core_contracts::scan_failures::ScanFailureStage::Enumerate,
+                observed_at: context.utc_now(),
+            });
+            complete(shared, frame.root_index, context);
+            true
         }
     }
-    true
 }
 
 fn finish_directory(
@@ -309,6 +332,9 @@ fn publish_first_batch(
 }
 
 fn send_root_batch(frame: &Frame, sender: &SyncSender<Event>, context: &dyn JobContext) -> bool {
+    if context.checkpoint() == Checkpoint::Cancel {
+        return true;
+    }
     let (modified_at, observed_at) = frame
         .directory
         .observed_modified_at_timed(&|| context.utc_now());

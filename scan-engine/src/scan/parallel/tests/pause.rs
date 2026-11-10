@@ -1,3 +1,4 @@
+mod cancel;
 use super::*;
 use std::sync::mpsc;
 use std::time::Duration;
