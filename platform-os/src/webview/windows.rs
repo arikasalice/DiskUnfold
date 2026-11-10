@@ -104,6 +104,13 @@ impl Drop for Controller {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum WindowPhase {
+    Starting,
+    CloseRequested,
+    Running,
+}
+
 fn environment() -> Result<ICoreWebView2Environment, Box<dyn Error>> {
     let base =
         crate::application_data::directory().ok_or("No Windows application data directory")?;
@@ -183,6 +190,8 @@ pub(super) fn run(app: WebApp, events: Option<Events>) -> Result<(), Box<dyn Err
     let resize = current.clone();
     let bridge = Rc::new(RefCell::new(None::<Bridge>));
     let window_bridge = bridge.clone();
+    let phase = Rc::new(Cell::new(WindowPhase::Starting));
+    let window_phase = phase.clone();
     let icons = icon::WindowIcons::load()?;
     let window = windows_window::Window::new("DiskUnfold")
         .size(900, 600)
@@ -194,7 +203,13 @@ pub(super) fn run(app: WebApp, events: Option<Events>) -> Result<(), Box<dyn Err
         })
         .on_message(move |_, kind, wparam, _| {
             if kind == WM_CLOSE {
-                windows_window::quit();
+                // WebView2 pumps messages during startup. A quit message would drop
+                // its completion receiver while the callback can still run.
+                if window_phase.get() == WindowPhase::Running {
+                    windows_window::quit();
+                } else {
+                    window_phase.set(WindowPhase::CloseRequested);
+                }
                 Some(0)
             } else if messages::is_tick(kind, wparam) {
                 if let Some(bridge) = window_bridge.borrow().as_ref() {
@@ -209,7 +224,13 @@ pub(super) fn run(app: WebApp, events: Option<Events>) -> Result<(), Box<dyn Err
         .map_err(|error| std::io::Error::other(error.to_string()))?;
     icons.install(&window);
     let environment = environment()?;
+    if phase.get() == WindowPhase::CloseRequested {
+        return Ok(());
+    }
     let native = create_controller(&window, &environment)?;
+    if phase.get() == WindowPhase::CloseRequested {
+        return Ok(());
+    }
     let (w, h) = window.client_size();
     // SAFETY: The active controller and view are owned by this STA.
     let view = unsafe {
@@ -238,8 +259,6 @@ pub(super) fn run(app: WebApp, events: Option<Events>) -> Result<(), Box<dyn Err
         ready,
         failed.clone(),
     )?;
-    bridge.replace(Some(requests));
-    let _timer = WindowTimer::start(HWND(window.hwnd()))?;
     let bootstrap_view = view.clone();
     AddScriptToExecuteOnDocumentCreatedCompletedHandler::wait_for_async_operation(
         Box::new(move |handler| {
@@ -253,13 +272,22 @@ pub(super) fn run(app: WebApp, events: Option<Events>) -> Result<(), Box<dyn Err
         }),
         Box::new(|status, _| status),
     )?;
+    if phase.get() == WindowPhase::CloseRequested {
+        return Ok(());
+    }
     // SAFETY: The live view and controller stay on their owning STA.
     unsafe {
         let url = HSTRING::from(entry());
         view.Navigate(PCWSTR(url.as_ptr()))?;
         native.0.SetIsVisible(true)?;
     }
+    if phase.get() == WindowPhase::CloseRequested {
+        return Ok(());
+    }
+    bridge.replace(Some(requests));
+    let _timer = WindowTimer::start(HWND(window.hwnd()))?;
     current.replace(Some(native.0.clone()));
+    phase.set(WindowPhase::Running);
     windows_window::run();
     bridge.take();
     current.take();
