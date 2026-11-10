@@ -27,6 +27,17 @@ pub enum PageError {
     Unavailable,
 }
 
+/// Failure to admit a search result for a set operation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SearchReadError {
+    /// The reference or source version is no longer current.
+    StaleVersion,
+    /// A folder listing is not a search result set.
+    NotSearch,
+    /// The session registry cannot be read.
+    Unavailable,
+}
+
 #[derive(Default)]
 struct State {
     entries: HashMap<Id, Entry>,
@@ -129,6 +140,11 @@ impl ResultSets {
             state: Mutex::new(State::default()),
             identity: Arc::new(()),
         }
+    }
+
+    /// Returns the publication point whose versions this registry admits.
+    pub fn source(&self) -> IngestSink {
+        self.source.clone()
     }
 
     /// Atomically registers one completed result under a caller-provided fresh identifier.
@@ -256,6 +272,34 @@ impl ResultSets {
     pub fn open_parent(&self, id: &Id, version: &Id) -> Result<Arc<QueryResult>, PageError> {
         let mut state = self.state.lock().map_err(|_| PageError::Unavailable)?;
         let result = self.pin_entry(&state, id, version)?;
+        touch(&mut state.lru, id);
+        Ok(result)
+    }
+
+    /// Pins a search and its current source together at admission.
+    ///
+    /// If `version` is absent, the search's own version must still be current.
+    /// Releasing the reference after admission does not change the returned snapshot.
+    pub fn open_search(
+        &self,
+        id: &Id,
+        version: Option<&Id>,
+    ) -> Result<Arc<QueryResult>, SearchReadError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| SearchReadError::Unavailable)?;
+        let entry = state.entries.get(id).ok_or(SearchReadError::StaleVersion)?;
+        let selected = version.unwrap_or_else(|| entry.result.version.version_id());
+        let result = self
+            .pin_entry(&state, id, selected)
+            .map_err(|error| match error {
+                PageError::Unavailable => SearchReadError::Unavailable,
+                _ => SearchReadError::StaleVersion,
+            })?;
+        if result.folder.is_some() {
+            return Err(SearchReadError::NotSearch);
+        }
         touch(&mut state.lru, id);
         Ok(result)
     }

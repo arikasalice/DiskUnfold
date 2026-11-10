@@ -3,11 +3,17 @@ pub(crate) mod detail;
 pub(crate) mod volume_gap;
 use std::sync::Arc;
 
-use du_analysis_index::{IngestSink, QueryError, ResultVersion};
+use du_analysis_index::{
+    IngestSink, QueryError, ResultVersion,
+    query::{
+        SpaceTotalError,
+        page::{ResultSets, SearchReadError},
+    },
+};
 use du_core_contracts::{
     ByteSize, Id, SizeAmount, SizeBasis, SizeValue,
     analysis_ipc::{SpaceTarget, SpaceTotal, SpaceTotalRequest, SpaceTotalSize},
-    result::{ResultCompleteness, ResultItemKind, ResultVersionRead},
+    result::{ResultCompleteness, ResultItemKind, ResultVersionRead, SpaceAggregate},
 };
 
 use crate::{
@@ -17,10 +23,22 @@ use crate::{
 
 /// Registers the GUI query against the same store used for scan publication.
 pub fn register_total(builder: &mut EngineBuilder, store: IngestSink) {
-    builder.register(Total(store));
+    let queries = Arc::new(ResultSets::new(store.clone()));
+    register_total_with_queries(builder, queries);
 }
 
-struct Total(IngestSink);
+/// Registers space totals with the session registry used by the search producer.
+pub fn register_total_with_queries(builder: &mut EngineBuilder, queries: Arc<ResultSets>) {
+    builder.register(Total {
+        store: queries.source(),
+        queries,
+    });
+}
+
+struct Total {
+    store: IngestSink,
+    queries: Arc<ResultSets>,
+}
 
 impl UseCase for Total {
     const NAME: &'static str = "space.total";
@@ -36,11 +54,33 @@ impl UseCase for Total {
     fn execute(
         &self,
         request: SpaceTotalRequest,
-        _: &CallerCtx,
+        caller: &CallerCtx,
     ) -> Result<SpaceTotal, EngineError> {
-        let version = pin(&self.0, request.result_version.as_ref())?;
+        if let SpaceTarget::QueryResult { query_ref } = &request.target {
+            let query = self
+                .queries
+                .open_search(query_ref, request.result_version.as_ref())
+                .map_err(search_error)?;
+            let aggregate =
+                query
+                    .space_total(|| caller.is_cancelled())
+                    .map_err(|error| match error {
+                        SpaceTotalError::Item(error) => query_error(error),
+                        SpaceTotalError::Cancelled => EngineError::reason("support.internal_error"),
+                    })?;
+            return Ok(response(&query.version, request.request_seq, &aggregate));
+        }
+        let version = pin(&self.store, request.result_version.as_ref())?;
         total(&version, request)
     }
+}
+
+fn search_error(error: SearchReadError) -> EngineError {
+    EngineError::reason(match error {
+        SearchReadError::StaleVersion => "result.requery_required",
+        SearchReadError::NotSearch => "space.target_out_of_scope",
+        SearchReadError::Unavailable => "support.internal_error",
+    })
 }
 
 fn pin(store: &IngestSink, id: Option<&Id>) -> Result<Arc<ResultVersion>, EngineError> {
@@ -80,9 +120,13 @@ fn total(version: &ResultVersion, request: SpaceTotalRequest) -> Result<SpaceTot
             return Err(EngineError::reason("space.target_out_of_scope"));
         }
     };
-    Ok(SpaceTotal {
+    Ok(response(version, request.request_seq, aggregate))
+}
+
+fn response(version: &ResultVersion, request_seq: u32, aggregate: &SpaceAggregate) -> SpaceTotal {
+    SpaceTotal {
         result_version: version.version_id().clone(),
-        request_seq: request.request_seq,
+        request_seq,
         sizes: vec![
             basis(
                 &aggregate.logical,
@@ -104,7 +148,7 @@ fn total(version: &ResultVersion, request: SpaceTotalRequest) -> Result<SpaceTot
         missing_items: Some(ByteSize::from(aggregate.missing_items)),
         inaccessible_ranges: aggregate.inaccessible_ranges.map(ByteSize::from),
         untraversed_links: Some(ByteSize::from(aggregate.untraversed_links)),
-    })
+    }
 }
 
 fn basis(size: &SizeValue, completeness: ResultCompleteness, limits: &[&str]) -> SpaceTotalSize {
