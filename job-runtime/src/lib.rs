@@ -2,6 +2,7 @@
 mod control;
 mod delivery;
 mod flows;
+mod history_recovery;
 mod model;
 mod publication;
 mod shutdown;
@@ -12,11 +13,12 @@ use du_core_contracts::job::{Checkpoint, HistoryAppend, JobBody, JobContext};
 use du_core_contracts::{
     Id,
     job::{
-        HistoryChangeReason, HistoryChanged, HistoryMode, HistoryRecovery, JobControl,
-        JobDescriptor, JobHistory, JobOutcome, JobState, JobSummary, ResourceClass,
+        HistoryMode, JobControl, JobDescriptor, JobHistory, JobOutcome, JobState, JobSummary,
+        ResourceClass,
     },
     result_events::{ResultVersionNotice, ResultVersionPublisher},
 };
+pub use history_recovery::recover_history;
 pub use model::FlowLimits;
 use model::*;
 pub use model::{
@@ -31,26 +33,6 @@ use std::sync::{
 };
 
 struct ResultPublisher(std::sync::Weak<Mutex<Table>>);
-
-/// Marks operations left by the previous session and notifies only after commit.
-///
-/// Call before accepting any new per-item work, while the session lock is held.
-pub fn recover_history(
-    storage: &dyn HistoryRecovery,
-    events: &dyn JobEvents,
-    now_ms: i64,
-) -> Result<(), String> {
-    if let Some(receipt) = storage.mark_interrupted(now_ms)? {
-        events.publish_history_changed(HistoryChanged {
-            revision: receipt.revision,
-            reason: HistoryChangeReason::Interrupted,
-            count: receipt.count,
-            observed_at_ms: receipt.observed_at_ms,
-            deleted_job_ids: Vec::new(),
-        });
-    }
-    Ok(())
-}
 
 impl ResultVersionPublisher for ResultPublisher {
     fn publish_result_version(&self, notice: ResultVersionNotice) {
