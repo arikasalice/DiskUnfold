@@ -879,6 +879,91 @@ test("keeps the previous result and focus on failure, and retries the pinned loc
   expect(await screen.findByRole("button", { name: "Retried" })).toBeDefined();
 });
 
+test.each(["first opening", "existing location"] as const)(
+  "keeps keyboard Retry focused through another failure and hands off on success (%s)",
+  async (context) => {
+    const failingRetry = deferred<BrowseOpenResponse>();
+    const successfulRetry = deferred<BrowseOpenResponse>();
+    const open = vi.fn();
+    if (context === "existing location")
+      open.mockResolvedValueOnce(openedAt(1, [], [row(1, "Alpha")]));
+    open
+      .mockRejectedValueOnce(new Error("unavailable"))
+      .mockImplementationOnce(() => failingRetry.promise)
+      .mockImplementationOnce(() => successfulRetry.promise);
+    render(<BrowsePanel port={{ open, page: vi.fn() }} resultVersion={id} />);
+    if (context === "existing location")
+      fireEvent.click(await screen.findByRole("button", { name: "Alpha" }));
+    const retry = await screen.findByRole("button", { name: "Retry" });
+    const error = screen.getByRole("alert");
+    const path = screen.queryByRole("navigation", { name: "Folder path" });
+    const attempts = open.mock.calls.length;
+    retry.focus();
+    act(() => {
+      fireEvent.keyDown(retry, { key: "Enter", code: "Enter" });
+      fireEvent.keyUp(retry, { key: "Enter", code: "Enter" });
+      fireEvent.click(retry);
+    });
+    expect(open).toHaveBeenCalledTimes(attempts + 1);
+    expect(screen.getByRole("button", { name: "Retrying…" })).toBe(retry);
+    expect(retry.getAttribute("aria-disabled")).toBe("true");
+    expect(document.activeElement).toBe(retry);
+    expect(screen.getByRole("alert")).toBe(error);
+    expect(screen.queryByRole("navigation", { name: "Folder path" })).toBe(
+      path,
+    );
+    await act(async () => failingRetry.reject(new Error("still unavailable")));
+    expect(screen.getByRole("button", { name: "Retry" })).toBe(retry);
+    expect(document.activeElement).toBe(retry);
+
+    fireEvent.keyDown(retry, { key: "Enter", code: "Enter" });
+    fireEvent.keyUp(retry, { key: "Enter", code: "Enter" });
+    expect(screen.getByRole("button", { name: "Retrying…" })).toBe(retry);
+    expect(open.mock.lastCall?.[0]).toMatchObject({
+      requestSeq: attempts + 2,
+      resultVersion: id,
+      ...(context === "existing location" ? { location: ref(1) } : {}),
+    });
+    await act(async () =>
+      successfulRetry.resolve(
+        openedAt(attempts + 2, context === "existing location" ? [1] : [], [
+          row(2, "Retried"),
+        ]),
+      ),
+    );
+    expect(retry.isConnected).toBe(false);
+    expect(screen.getByRole("button", { name: "Retried" })).toBeDefined();
+    expect(document.activeElement).toBe(
+      screen.getByRole("region", { name: "Folder navigation" }),
+    );
+  },
+);
+
+test("Retry success leaves focus where the user moved it while opening", async () => {
+  const pending = deferred<BrowseOpenResponse>();
+  const port: BrowsePort = {
+    open: vi
+      .fn()
+      .mockRejectedValueOnce(new Error("unavailable"))
+      .mockImplementationOnce(() => pending.promise),
+    page: vi.fn(),
+  };
+  render(
+    <>
+      <button>Elsewhere</button>
+      <BrowsePanel port={port} resultVersion={id} />
+    </>,
+  );
+  const retry = await screen.findByRole("button", { name: "Retry" });
+  retry.focus();
+  fireEvent.click(retry);
+  expect(screen.getByRole("button", { name: "Retrying…" })).toBe(retry);
+  const elsewhere = screen.getByRole("button", { name: "Elsewhere" });
+  elsewhere.focus();
+  await act(async () => pending.resolve(opened(2, [row(1, "Retried")])));
+  expect(document.activeElement).toBe(elsewhere);
+});
+
 test("a stale failure cannot change the latest result or focus", async () => {
   const stale = deferred<BrowseOpenResponse>();
   const latest = deferred<BrowseOpenResponse>();

@@ -127,7 +127,12 @@ export function BrowsePanel({
     }
   }, []);
 
-  function navigate(location?: ItemRef, pinned = resultVersion) {
+  function navigate(
+    location?: ItemRef,
+    pinned = resultVersion,
+    retrying = false,
+  ) {
+    if (retrying && opening.current) return;
     lastAttempt.current = { location, pinned };
     const requestSeq = ++sequence.current;
     const active = document.activeElement;
@@ -140,7 +145,7 @@ export function BrowsePanel({
     pageViewport.current = undefined;
     setLoadingPage(false);
     setBusy(true);
-    setMessage(undefined);
+    if (!retrying) setMessage(undefined);
     void port
       .open(
         {
@@ -169,6 +174,7 @@ export function BrowsePanel({
           restoreFocus && document.activeElement === active
             ? "navigation"
             : undefined;
+        setMessage(undefined);
         setView({
           opened: response,
           rows: response.page.rows,
@@ -333,14 +339,16 @@ export function BrowsePanel({
         <Notice tone="error">
           Could not open this folder.{" "}
           <Action
+            isPending={busy}
             onPress={() =>
               navigate(
                 lastAttempt.current?.location,
                 lastAttempt.current?.pinned,
+                true,
               )
             }
           >
-            Retry
+            {busy ? "Retrying…" : "Retry"}
           </Action>
         </Notice>
       )}
