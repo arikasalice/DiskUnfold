@@ -2,6 +2,7 @@ use du_core_contracts::result_events::{
     PublishedCompleteness, ResultVersionChange, ResultVersionChanged,
 };
 use du_core_contracts::scan_failures::*;
+use du_core_contracts::visualization::quantity::{VizAmount, VizDecimal, VizQuantity};
 use du_core_contracts::*;
 use du_core_contracts::{analysis_ipc::*, job::JobState, result::ResultCompleteness};
 use du_core_contracts::{browse_ipc::*, result::ResultItemKind};
@@ -21,6 +22,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         SizeEvidence::decl(&config),
         SizeAmount::decl(&config),
         SizeValue::decl(&config),
+        VizDecimal::decl(&config),
+        VizAmount::decl(&config),
+        VizQuantity::decl(&config),
         PathEncoding::decl(&config),
         PathBytes::decl(&config),
         OsPath::decl(&config),
