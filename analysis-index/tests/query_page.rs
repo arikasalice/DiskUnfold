@@ -350,3 +350,80 @@ fn untraversed_subtree_makes_match_count_a_lower_bound_even_when_query_is_decida
     assert_eq!(page.metadata().total, Total::LowerBound(2));
     Ok(())
 }
+
+#[test]
+fn repeated_refinement_keeps_parent_uncertainty_even_when_empty() -> Result<(), String> {
+    let sink = IngestSink::default();
+    let mut build = sink.open(id(1)?).map_err(error)?;
+    build.add_directory(vec![]).map_err(error)?;
+    for name in [vec![b'a', 0], vec![b'x']] {
+        build
+            .add_file(Observation {
+                path: vec![name],
+                size: None,
+            })
+            .map_err(error)?;
+    }
+    let version = build
+        .seal(id(2)?, ResultCompleteness::Complete)
+        .map_err(error)?;
+    let registry = Registry::baseline();
+    let sort = || Sort {
+        id: "sort.path",
+        revision: 1,
+        basis: Basis::Logical,
+        descending: false,
+    };
+    let parent = query::run(
+        &registry,
+        version,
+        &Condition::Predicate(Predicate::Name(
+            NameTest::Equal(vec![b'a', 0]),
+            NameEncoding::WindowsUtf16Le,
+        )),
+        sort(),
+        || false,
+    )
+    .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(parent.unknown_count, 1);
+    let empty = query::run_in_result(&registry, &parent, &Condition::Any(vec![]), sort(), || {
+        false
+    })
+    .map_err(|e| format!("{e:?}"))?;
+    assert!(empty.items.is_empty());
+    let final_result =
+        query::run_in_result(&registry, &empty, &Condition::All(vec![]), sort(), || false)
+            .map_err(|e| format!("{e:?}"))?;
+    let sets = ResultSets::new(sink);
+    sets.register(id(3)?, final_result)
+        .map_err(|e| format!("{e:?}"))?;
+    let page = sets
+        .open_page(&id(3)?, &id(2)?, 0, None)
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(page.metadata().unknown_count, 0);
+    assert!(page.metadata().inherited_uncertainty);
+    assert_eq!(page.metadata().total, Total::LowerBound(0));
+    Ok(())
+}
+
+#[test]
+fn cancelled_empty_refinement_does_not_produce_a_result() -> Result<(), String> {
+    let (_, version) = fixture(1)?;
+    let registry = Registry::baseline();
+    let sort = || Sort {
+        id: "sort.path",
+        revision: 1,
+        basis: Basis::Logical,
+        descending: false,
+    };
+    let empty = query::run(&registry, version, &Condition::Any(vec![]), sort(), || {
+        false
+    })
+    .map_err(|e| format!("{e:?}"))?;
+    assert!(empty.items.is_empty());
+    assert!(matches!(
+        query::run_in_result(&registry, &empty, &Condition::All(vec![]), sort(), || true),
+        Err(query::Error::Cancelled)
+    ));
+    Ok(())
+}
