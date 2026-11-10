@@ -69,6 +69,59 @@ fn entry(name: &[u8], kind: ObservedKind, size: Result<u64, PortError>) -> Obser
 fn file(name: &[u8], size: u64) -> ObservedEntry {
     entry(name, ObservedKind::File, Ok(size))
 }
+
+#[test]
+fn disconnected_metadata_stays_a_failure_not_zero_or_general_io()
+-> Result<(), Box<dyn std::error::Error>> {
+    let sink = IngestSink::default();
+    let ids = ids();
+    let disconnected = PortError {
+        kind: PortErrorKind::Io,
+        reason_key: "scan.disconnected".into(),
+        os_code: Some(1167),
+    };
+    let unknown = PortError {
+        kind: PortErrorKind::Io,
+        reason_key: "os.query_failed".into(),
+        os_code: Some(1117),
+    };
+    let root = Directory {
+        entries: Some(vec![
+            entry(b"removed", ObservedKind::File, Err(disconnected)),
+            entry(b"io", ObservedKind::File, Err(unknown)),
+        ]),
+        fail: false,
+    };
+    let result = collect(
+        &sink,
+        ids.next_id(),
+        Box::new(root),
+        &ids,
+        || Checkpoint::Continue,
+        |_| true,
+    );
+    assert_eq!(result.counts.failed, 2);
+    let version = sink
+        .pin()
+        .map_err(|e| format!("{e:?}"))?
+        .ok_or("missing result")?;
+    let issues = version.scan_issues();
+    assert!(issues.iter().any(|issue| issue.relative[0] == b"removed" && issue.reason_key == "scan.disconnected"));
+    assert!(
+        issues
+            .iter()
+            .any(|issue| issue.relative[0] == b"io" && issue.reason_key == "scan.unclassified")
+    );
+    assert_eq!(version.completeness(), ResultCompleteness::Missing);
+    assert!(
+        version
+            .items()
+            .iter()
+            .filter(|item| item.name == b"removed" || item.name == b"io")
+            .all(|item| item.size.is_none())
+    );
+    Ok(())
+}
 fn ids() -> Ids {
     Ids(AtomicUsize::new(1))
 }

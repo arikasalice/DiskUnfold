@@ -59,7 +59,7 @@ use windows::{
         },
         System::IO::IO_STATUS_BLOCK,
     },
-    core::{PCWSTR, PWSTR},
+    core::{HRESULT, PCWSTR, PWSTR},
 };
 
 const BUFFER_SIZE: usize = 65536;
@@ -92,14 +92,16 @@ pub struct DirectoryIdentity {
     pub file_id: u64,
 }
 fn error(code: i32) -> PortError {
-    let kind = match code {
-        2 | 3 => PortErrorKind::NotFound,
-        5 => PortErrorKind::PermissionDenied,
-        _ => PortErrorKind::Io,
+    let (kind, reason_key) = match code {
+        2 | 3 => (PortErrorKind::NotFound, "os.query_failed"),
+        5 => (PortErrorKind::PermissionDenied, "os.query_failed"),
+        // ERROR_DEVICE_NOT_CONNECTED is an explicit device-disconnection report.
+        1167 => (PortErrorKind::Io, "scan.disconnected"),
+        _ => (PortErrorKind::Io, "os.query_failed"),
     };
     PortError {
         kind,
-        reason_key: "os.query_failed".into(),
+        reason_key: reason_key.into(),
         os_code: Some(code),
     }
 }
@@ -111,8 +113,16 @@ fn invalid() -> PortError {
     }
 }
 fn win_error(e: windows::core::Error) -> PortError {
-    error(e.code().0 & 0xffff)
+    let status = e.code();
+    let code = (status.0 & 0xffff) as u32;
+    // Interpret the low word only when Windows encoded a Win32 error in it.
+    if status == HRESULT::from_win32(code) {
+        error(code as i32)
+    } else {
+        error(status.0)
+    }
 }
+
 fn raw(file: &File) -> HANDLE {
     HANDLE(file.as_raw_handle())
 }
@@ -479,3 +489,6 @@ pub(crate) fn volume_name(path: &[u16]) -> Result<Vec<u8>, PortError> {
 pub(crate) fn file_id(file: &File) -> Option<[u8; 16]> {
     space::file_id(file)
 }
+
+#[cfg(test)]
+mod error_tests;

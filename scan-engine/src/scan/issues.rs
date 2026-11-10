@@ -27,6 +27,7 @@ pub(super) fn reason(error: &PortError) -> &'static str {
     match error.kind {
         PortErrorKind::PermissionDenied => "scan.path_denied",
         PortErrorKind::NotFound => "scan.path_vanished",
+        PortErrorKind::Io if error.reason_key == "scan.disconnected" => "scan.disconnected",
         _ => "scan.unclassified",
     }
 }
@@ -56,4 +57,26 @@ pub(super) fn classify(entry: &ObservedEntry) -> Option<(Kind, Stage, &'static s
         return Some((Kind::CollectionFailed, Stage::Metadata, reason(error)));
     }
     None
+}
+
+#[cfg(test)]
+mod reason_tests {
+    use super::*;
+
+    #[test]
+    fn only_explicit_io_disconnection_is_preserved() {
+        let mut error = PortError {
+            kind: PortErrorKind::Io,
+            reason_key: "scan.disconnected".into(),
+            os_code: Some(1167),
+        };
+        assert_eq!(reason(&error), "scan.disconnected");
+        error.reason_key = "os.query_failed".into();
+        assert_eq!(reason(&error), "scan.unclassified");
+        error.kind = PortErrorKind::IdentityChanged;
+        error.reason_key = "scan.disconnected".into();
+        assert_eq!(reason(&error), "scan.unclassified");
+        error.kind = PortErrorKind::PermissionDenied;
+        assert_eq!(reason(&error), "scan.path_denied");
+    }
 }

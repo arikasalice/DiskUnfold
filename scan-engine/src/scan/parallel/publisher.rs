@@ -146,11 +146,7 @@ impl Progress {
 }
 
 pub(super) fn reason(error: &PortError) -> &'static str {
-    match error.kind {
-        PortErrorKind::PermissionDenied => "scan.path_denied",
-        PortErrorKind::NotFound => "scan.path_vanished",
-        _ => "scan.unclassified",
-    }
+    super::super::issues::reason(error)
 }
 
 fn entry_gap(entry: &ObservedEntry) -> Option<&'static str> {
