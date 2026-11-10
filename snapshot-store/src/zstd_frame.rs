@@ -24,6 +24,8 @@ pub enum Error {
     DecodedLimit,
     /// Bytes remain after the one frame, including additional frames.
     TrailingData,
+    /// The caller cancelled frame inspection.
+    Cancelled,
 }
 
 /// Information visible from a frame header, without decompressing its blocks.
@@ -46,6 +48,17 @@ pub fn inspect_v1(bytes: &[u8]) -> Result<FrameInfo, Error> {
 }
 
 fn inspect_frame(bytes: &[u8], decoded_limit: u64) -> Result<FrameInfo, Error> {
+    inspect_frame_cancellable(bytes, decoded_limit, &mut || false)
+}
+
+pub(crate) fn inspect_frame_cancellable(
+    bytes: &[u8],
+    decoded_limit: u64,
+    cancelled: &mut impl FnMut() -> bool,
+) -> Result<FrameInfo, Error> {
+    if cancelled() {
+        return Err(Error::Cancelled);
+    }
     if bytes.get(..4) != Some(MAGIC.as_slice()) {
         return Err(Error::InvalidFrame);
     }
@@ -93,7 +106,7 @@ fn inspect_frame(bytes: &[u8], decoded_limit: u64) -> Result<FrameInfo, Error> {
     if window_size > MAX_WINDOW {
         return Err(Error::WindowLimit);
     }
-    blocks(bytes, &mut pos, window_size)?;
+    blocks(bytes, &mut pos, window_size, cancelled)?;
     if descriptor & 4 != 0 {
         take(bytes, &mut pos, 4)?;
     }
@@ -106,8 +119,16 @@ fn inspect_frame(bytes: &[u8], decoded_limit: u64) -> Result<FrameInfo, Error> {
     })
 }
 
-fn blocks(bytes: &[u8], pos: &mut usize, window: u64) -> Result<(), Error> {
+fn blocks(
+    bytes: &[u8],
+    pos: &mut usize,
+    window: u64,
+    cancelled: &mut impl FnMut() -> bool,
+) -> Result<(), Error> {
     loop {
+        if cancelled() {
+            return Err(Error::Cancelled);
+        }
         let raw = take(bytes, pos, 3)?;
         let header = u32::from_le_bytes([raw[0], raw[1], raw[2], 0]);
         let last = header & 1 != 0;

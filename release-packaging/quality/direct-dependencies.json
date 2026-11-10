@@ -430,6 +430,17 @@
   },
   {
     "ecosystem": "cargo",
+    "owner": "du-snapshot-store",
+    "name": "zstd",
+    "version": "0.14.3",
+    "source": "registry+https://github.com/rust-lang/crates.io-index",
+    "license": "BSD-3-Clause",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Decode bounded DUSNAP v1 snapshot frames"
+  },
+  {
+    "ecosystem": "cargo",
     "owner": "du-user-env",
     "name": "blake3",
     "version": "1.8.3",
