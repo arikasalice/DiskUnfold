@@ -3,6 +3,7 @@ use du_core_contracts::result_events::{
 };
 use du_core_contracts::scan_failures::*;
 use du_core_contracts::visualization::geometry::{Geometry, Point};
+use du_core_contracts::visualization::model::{ShapeMeta, VizRelationship};
 use du_core_contracts::visualization::quantity::{VizAmount, VizDecimal, VizQuantity};
 use du_core_contracts::*;
 use du_core_contracts::{analysis_ipc::*, job::JobState, result::ResultCompleteness};
@@ -28,6 +29,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         VizQuantity::decl(&config),
         Point::decl(&config),
         Geometry::decl(&config),
+        ShapeMeta::decl(&config),
+        VizRelationship::decl(&config),
         PathEncoding::decl(&config),
         PathBytes::decl(&config),
         OsPath::decl(&config),

@@ -10,6 +10,32 @@ export type VizAmount = { "state": "exact", value: VizDecimal, } | { "state": "l
 export type VizQuantity = { unit: string, } & ({ "state": "exact", value: VizDecimal, } | { "state": "lower_bound", value: VizDecimal, } | { "state": "unknown", reasonKey: string, });
 export type VizPoint = { x: number, y: number, };
 export type VizGeometry = { primitive: string, points: Array<VizPoint>, };
+export type ShapeMeta = { 
+/**
+ * Opaque, unique identifier scoped to this model.
+ */
+shapeRef: string, 
+/**
+ * Closest returned ancestor, or null when none was returned.
+ */
+parentShapeRef: string | null, 
+/**
+ * Depth from the navigation root, including any omitted ancestors.
+ */
+visibleDepth: number, 
+/**
+ * First folder in the branch, from the same result revision.
+ */
+rootBranchRef: ItemRef | null, };
+export type VizRelationship = { 
+/**
+ * Registered key preserved even when the consumer has no matching style.
+ */
+kind: string, fromShapeRef: string, toShapeRef: string, 
+/**
+ * Drawing information, when the strategy supplies geometry for the relationship.
+ */
+geometry?: VizGeometry, };
 export type PathEncoding = "unix" | "windows_utf16le";
 export type PathBytes = string;
 export type OsPath = { encoding: PathEncoding, raw: PathBytes, display: string, lossy: boolean, };
