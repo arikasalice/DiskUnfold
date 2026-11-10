@@ -1,4 +1,5 @@
 //! Own snapshot format, comparison and catalog policy.
+pub mod catalog_status;
 pub mod comparison;
 pub mod comparison_ranking;
 pub mod envelope;
