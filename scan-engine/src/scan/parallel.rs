@@ -19,6 +19,7 @@ use std::{
     time::Duration,
 };
 
+mod disconnect;
 mod volume_reports;
 
 const QUEUED_DIRECTORIES: usize = 64;
@@ -79,6 +80,7 @@ struct Shared {
     queue: Mutex<Queue>,
     wake: Condvar,
     abort: AtomicBool,
+    disconnects: disconnect::Disconnects,
 }
 impl Shared {
     /// Stops all scan flows after an internal failure, without requesting user cancellation.
@@ -274,7 +276,8 @@ fn run(
         return Err(BuildError::Unavailable);
     }
     let root_count = roots.len();
-    let mut reports = volume_reports::Reports::new(build.root_volumes());
+    let volumes = build.root_volumes();
+    let mut reports = volume_reports::Reports::new(volumes.clone());
     build.set_volume_reports(reports.snapshot())?;
     for index in 0..root_count {
         build.add_directory_at(index as u32, Vec::new())?;
@@ -330,6 +333,7 @@ fn run(
         }),
         wake: Condvar::new(),
         abort: AtomicBool::new(false),
+        disconnects: disconnect::Disconnects::new(&volumes),
     };
     let (sender, receiver) = mpsc::sync_channel(BUFFERED_OBSERVATIONS);
     let mut progress = Progress {

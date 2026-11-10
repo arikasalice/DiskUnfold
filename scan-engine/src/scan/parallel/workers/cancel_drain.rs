@@ -130,6 +130,7 @@ mod tests {
             }),
             wake: Condvar::new(),
             abort: AtomicBool::new(false),
+            disconnects: disconnect::Disconnects::new(&[Vec::new()]),
         };
         let context = Flip(std::sync::atomic::AtomicUsize::new(0));
         let (sender, receiver) = mpsc::sync_channel(4);

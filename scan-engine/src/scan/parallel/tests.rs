@@ -9,6 +9,7 @@ use du_core_contracts::{
     scan_observation::{DirectoryObservations, MetadataObservation, OpenedScopeRoot},
 };
 use std::sync::{Arc, atomic::AtomicUsize};
+mod disconnect;
 mod filtered;
 mod item_times;
 mod pause;

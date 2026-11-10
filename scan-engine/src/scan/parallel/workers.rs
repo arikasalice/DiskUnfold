@@ -6,6 +6,7 @@
 //! Internal abort wakes parked flows without setting the user cancellation flag.
 use super::*;
 mod cancel_drain;
+mod disconnected;
 
 pub(super) fn worker(
     shared: &Shared,
@@ -172,6 +173,9 @@ fn process(
     if shared.abort.load(Ordering::Acquire) {
         return true;
     }
+    if shared.disconnects.closed(frame.root_index) {
+        return disconnected::close_frame(frame, shared, sender, context, policy);
+    }
     if context.checkpoint() == Checkpoint::Cancel {
         return cancel_drain::frame(frame, sender, policy);
     }
@@ -195,7 +199,7 @@ fn process(
             Err(()) => return false,
         }
     }
-    if !publish_first_batch(&mut frame, sender, context) {
+    if !publish_first_batch(&mut frame, sender, shared, context) {
         return false;
     }
     if frame.batch_pending {
@@ -205,6 +209,9 @@ fn process(
     }
     if context.checkpoint() == Checkpoint::Cancel {
         return cancel_drain::frame(frame, sender, policy);
+    }
+    if shared.disconnects.closed(frame.root_index) {
+        return disconnected::close_frame(frame, shared, sender, context, policy);
     }
     let outcome = next_entries(&mut frame, context, policy);
     process_batch(frame, shared, sender, context, local, outcome)
@@ -232,6 +239,7 @@ fn process_batch(
             finish_directory(&frame, sender, shared, context)
         }
         Ok(Some(batch)) if batch.len() <= 8192 => {
+            disconnected::observe_batch(shared, frame.root_index, &batch);
             frame.first_batch |= frame.root && !frame.root_published;
             frame.batch_pending = true;
             frame.entries = batch.into();
@@ -243,6 +251,9 @@ fn process_batch(
                 Err(ReadFailure::Observation(error)) => reason(&error),
                 _ => "scan.unclassified",
             };
+            shared
+                .disconnects
+                .observe_reason(frame.root_index, failure_reason);
             let _ = sender.send(Event::Failure {
                 root_index: frame.root_index,
                 path: frame.path.clone(),
@@ -263,7 +274,7 @@ fn finish_directory(
     shared: &Shared,
     context: &dyn JobContext,
 ) -> bool {
-    if frame.root && !frame.root_published && !send_root_batch(frame, sender, context) {
+    if frame.root && !frame.root_published && !send_root_batch(frame, sender, shared, context) {
         return false;
     }
     complete(shared, frame.root_index, context);
@@ -319,11 +330,12 @@ fn next_entries(
 fn publish_first_batch(
     frame: &mut Frame,
     sender: &SyncSender<Event>,
+    shared: &Shared,
     context: &dyn JobContext,
 ) -> bool {
     if frame.root && frame.first_batch {
         frame.first_batch = false;
-        if !send_root_batch(frame, sender, context) {
+        if !send_root_batch(frame, sender, shared, context) {
             return false;
         }
         frame.root_published = true;
@@ -331,13 +343,22 @@ fn publish_first_batch(
     true
 }
 
-fn send_root_batch(frame: &Frame, sender: &SyncSender<Event>, context: &dyn JobContext) -> bool {
+fn send_root_batch(
+    frame: &Frame,
+    sender: &SyncSender<Event>,
+    shared: &Shared,
+    context: &dyn JobContext,
+) -> bool {
     if context.checkpoint() == Checkpoint::Cancel {
         return true;
     }
-    let (modified_at, observed_at) = frame
-        .directory
-        .observed_modified_at_timed(&|| context.utc_now());
+    let (modified_at, observed_at) = if shared.disconnects.closed(frame.root_index) {
+        (None, None)
+    } else {
+        frame
+            .directory
+            .observed_modified_at_timed(&|| context.utc_now())
+    };
     sender
         .send(Event::RootBatch(frame.root_index, modified_at, observed_at))
         .is_ok()
@@ -370,7 +391,10 @@ fn process_entry(
             ))
             .map_err(|_| ())?;
     }
-    if !eligible_directory(entry) || context.checkpoint() == Checkpoint::Cancel {
+    if !eligible_directory(entry)
+        || context.checkpoint() == Checkpoint::Cancel
+        || shared.disconnects.closed(frame.root_index)
+    {
         return Ok(None);
     }
     if frame.root && !frame.root_published {
@@ -394,12 +418,14 @@ fn process_entry(
             },
         )),
         Err(error) => {
+            let reason = reason(&error);
+            shared.disconnects.observe_reason(frame.root_index, reason);
             sender
                 .send(Event::Failure {
                     root_index: frame.root_index,
                     path,
                     root: false,
-                    reason: reason(&error),
+                    reason,
                     stage: du_core_contracts::scan_failures::ScanFailureStage::OpenDirectory,
                     observed_at: context.utc_now(),
                 })
