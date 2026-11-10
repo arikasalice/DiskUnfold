@@ -1,8 +1,7 @@
 //! One-step GUI database migrations over a caller-owned application database.
 //!
 //! The caller must hold the GUI instance lock and ensure that the database
-//! path cannot be replaced during this operation. This module is not wired to
-//! startup and does not assign production migration numbers.
+//! path cannot be replaced during this operation.
 use std::{
     fs::{self, OpenOptions},
     path::Path,
@@ -20,6 +19,8 @@ use rusqlite::{
 };
 
 use crate::{APPLICATION_ID, BUSY_TIMEOUT, OpenError, reserve_temporary, settings};
+
+pub mod managed;
 
 const TRACKING_SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS app_db_schema_meta (
@@ -49,6 +50,7 @@ pub enum MigrationError {
     Sqlite(rusqlite::Error),
     Io(std::io::Error),
     Temporary(OpenError),
+    Backup(Box<MigrationError>),
     ForeignDatabase,
     InvalidDefinitions,
     VersionMismatch,
@@ -85,6 +87,20 @@ fn apply_next_with(
     definitions: &Definitions<'_>,
     before_write: impl FnOnce() -> Result<(), MigrationError>,
 ) -> Result<u32, MigrationError> {
+    apply_next_with_backup(
+        path,
+        definitions,
+        |source, _| backup_snapshot(source, backup_path),
+        before_write,
+    )
+}
+
+fn apply_next_with_backup(
+    path: &Path,
+    definitions: &Definitions<'_>,
+    backup: impl FnOnce(&Connection, u32) -> Result<(), MigrationError>,
+    before_write: impl FnOnce() -> Result<(), MigrationError>,
+) -> Result<u32, MigrationError> {
     validate_definitions(definitions)?;
     let mut source = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
     source.busy_timeout(BUSY_TIMEOUT)?;
@@ -114,7 +130,7 @@ fn apply_next_with(
         check_legacy_baseline(&tx)?;
     }
     quick_check(&tx)?;
-    backup_snapshot(&tx, backup_path)?;
+    backup(&tx, current)?;
     before_write()?;
     tx.execute_batch(TRACKING_SCHEMA)?;
     definition_active.store(true, Ordering::Relaxed);
@@ -326,6 +342,11 @@ fn backup_snapshot(source: &Connection, target: &Path) -> Result<(), MigrationEr
         }
     }
     quick_check(&destination)?;
+    let journal: String =
+        destination.pragma_update_and_check(None, "journal_mode", "DELETE", |row| row.get(0))?;
+    if !journal.eq_ignore_ascii_case("delete") {
+        return Err(MigrationError::Integrity);
+    }
     drop(destination);
     OpenOptions::new()
         .write(true)
