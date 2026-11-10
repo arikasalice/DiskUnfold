@@ -1,6 +1,12 @@
 //! Exercises scope revalidation through desktop IPC and the native Windows adapter.
 use super::*;
-use du_core_contracts::{SizeAmount, SizeBasis, analysis_ipc::SpaceTotal};
+use du_core_contracts::{
+    SizeAmount, SizeBasis,
+    analysis_ipc::SpaceTotal,
+    browse_ipc::BrowseValue,
+    browse_page_ipc::{BrowseOpenResponse, QueryPageResponse},
+    query_region_ipc::QueryRegionOpened,
+};
 use std::fs;
 
 #[test]
@@ -103,5 +109,77 @@ fn same_path_replacement_requires_a_new_review_before_scanning()
             bytes: 16_384_u64.into()
         }
     );
+    verify_pinned_folder(&engine, &events, version)?;
+    Ok(())
+}
+
+/// Opens the scanned fixture through desktop IPC and checks the region lifetime.
+fn verify_pinned_folder(
+    engine: &Engine,
+    events: &du_engine_api::desktop::DesktopEvents,
+    version: &Id,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let issued = ipc(engine, "query.region.open", json!({"kind": "browse_list"}))?;
+    assert!(issued.error.is_none(), "{:?}", issued.error);
+    let QueryRegionOpened { region_ref } = serde_json::from_value(issued.body)?;
+    let open = |seq| {
+        ipc(
+            engine,
+            "browse.open",
+            json!({"regionRef": region_ref, "viewKind": "list", "requestSeq": seq,
+                "resultVersion": version}),
+        )
+    };
+    let first = open(1)?;
+    assert!(first.error.is_none(), "{:?}", first.error);
+    let first = serde_json::from_value(first.body)?;
+    let completed = match first {
+        BrowseOpenResponse::Job { job_ref, .. } => {
+            let batch = terminal_batch(events, &job_ref)?;
+            assert!(batch.iter().any(|event| {
+                event.topic == "job.finished"
+                    && event.job_ref.as_ref() == Some(&job_ref)
+                    && event.body["state"] == "done"
+            }));
+            // The registered result is available even when the first request
+            // reached the asynchronous path under load.
+            let cached = open(2)?;
+            assert!(cached.error.is_none(), "{:?}", cached.error);
+            serde_json::from_value(cached.body)?
+        }
+        opened => opened,
+    };
+    let BrowseOpenResponse::Opened { page, .. } = completed else {
+        return Err("completed folder query was not available".into());
+    };
+    assert_eq!(&page.page.result_version, version);
+    assert_eq!(page.page.rows.len(), 1);
+    assert_eq!(
+        page.page.rows[0].display_name,
+        BrowseValue::Present {
+            value: "replacement.bin".into(),
+        }
+    );
+    let first_page = ipc(
+        engine,
+        "query.page",
+        json!({"queryRef": page.page.query_ref, "resultVersion": version, "start": 0, "count": 1}),
+    )?;
+    assert!(first_page.error.is_none(), "{:?}", first_page.error);
+    let QueryPageResponse::Folder(first_page) = serde_json::from_value(first_page.body)? else {
+        return Err("folder result returned a search page".into());
+    };
+    assert!(first_page.browse_context.is_some());
+    assert_eq!(first_page.page.rows, page.page.rows);
+
+    let closed = ipc(
+        engine,
+        "query.region.close",
+        json!({"regionRef": region_ref}),
+    )?;
+    assert!(closed.error.is_none(), "{:?}", closed.error);
+    let error = open(3)?.error.ok_or("closed region was accepted")?;
+    assert_eq!(error.code, ErrorCode::NotFound);
+    assert_eq!(error.reason_key, "ref.unavailable");
     Ok(())
 }
