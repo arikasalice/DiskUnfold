@@ -84,13 +84,20 @@ impl UseCase for StartScan {
     ) -> Result<Self::Response, EngineError> {
         let verified = scope::verify(&request.draft, &request.review_fingerprint, &*self.roots)?;
         let scope_version = self.ids.next_id();
+        let lineage = self
+            .store
+            .bind_current_analysis(&verified.scope_fingerprint, self.ids.next_id())
+            .map_err(|_| internal())?;
         let root_count = verified.roots.len();
-        let body = Arc::new(MetadataScan::new_roots(
-            verified.roots,
-            self.store.clone(),
-            scope_version.clone(),
-            self.ids.clone(),
-        ));
+        let body = Arc::new(
+            MetadataScan::new_roots(
+                verified.roots,
+                self.store.clone(),
+                scope_version.clone(),
+                self.ids.clone(),
+            )
+            .with_lineage(lineage),
+        );
         let submission = Submission {
             kind_id: body.kind_id().into(),
             deduplication_key: Some(DeduplicationKey {

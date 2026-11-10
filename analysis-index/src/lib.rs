@@ -8,6 +8,7 @@ mod result_path;
 mod result_read;
 mod space;
 mod tree;
+mod version_store;
 pub mod visualization;
 use du_core_contracts::result::{
     ResultCompleteness, ResultItem, ResultItemKind, ResultScopeGap, ResultScopeRoot, SpaceAggregate,
@@ -16,8 +17,9 @@ use du_core_contracts::{Id, SizeValue, Timestamp};
 pub use physical::{FileIdentity, SharingEvidence, SpaceObservation};
 pub use result_read::ItemDetail;
 use result_read::ensure_directory;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
+use version_store::State;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BuildError {
@@ -39,6 +41,7 @@ pub struct Observation {
 pub struct ResultVersion {
     version_id: Id,
     scope_version_id: Id,
+    lineage_id: Option<Id>,
     completeness: ResultCompleteness,
     items: Vec<ResultItem>,
     aggregates: Vec<SpaceAggregate>,
@@ -62,12 +65,6 @@ pub enum QueryError {
     Unavailable,
 }
 
-#[derive(Default)]
-struct State {
-    current: Option<Arc<ResultVersion>>,
-    active: bool,
-    used_versions: HashSet<Id>,
-}
 /// A single publication point. Readers retain their snapshot after releasing the lock.
 #[derive(Clone, Default)]
 pub struct IngestSink {
@@ -77,22 +74,32 @@ impl IngestSink {
     /// Pins the current version only if its identifier still matches the admitted request.
     pub fn pin_current(&self, expected: &Id) -> Result<Arc<ResultVersion>, QueryError> {
         let state = self.state.lock().map_err(|_| QueryError::Unavailable)?;
-        let current = state.current.as_ref().ok_or(QueryError::NotFound)?;
-        if current.version_id != *expected {
-            return Err(QueryError::StaleVersion);
-        }
-        Ok(Arc::clone(current))
+        state.pin_current(expected)
     }
+    /// Pins the most recently published current result, when present.
     pub fn pin(&self) -> Result<Option<Arc<ResultVersion>>, BuildError> {
         Ok(self
             .state
             .lock()
             .map_err(|_| BuildError::Unavailable)?
-            .current
-            .clone())
+            .pin())
     }
+
+    /// Returns the stable current-analysis lineage for a canonical scope fingerprint.
+    /// The caller supplies a unique candidate ID; an existing binding is reused.
+    pub fn bind_current_analysis(
+        &self,
+        fingerprint: &str,
+        candidate: Id,
+    ) -> Result<Id, BuildError> {
+        self.state
+            .lock()
+            .map_err(|_| BuildError::Unavailable)?
+            .bind(fingerprint, candidate)
+    }
+
     pub fn open(&self, scope_version_id: Id) -> Result<BuildHandle, BuildError> {
-        self.begin(scope_version_id, Vec::new())
+        self.begin(scope_version_id, Vec::new(), None)
     }
 
     /// Opens a build whose publications all retain the same verified root evidence.
@@ -101,7 +108,7 @@ impl IngestSink {
         scope_version_id: Id,
         root: ResultScopeRoot,
     ) -> Result<BuildHandle, BuildError> {
-        self.begin(scope_version_id, vec![root])
+        self.begin(scope_version_id, vec![root], None)
     }
 
     /// Opens one build for actual roots in producer order, without a synthetic item.
@@ -114,22 +121,36 @@ impl IngestSink {
         if roots.is_empty() || u32::try_from(roots.len()).is_err() {
             return Err(BuildError::InvalidTree);
         }
-        self.begin(scope_version_id, roots)
+        self.begin(scope_version_id, roots, None)
+    }
+
+    /// Opens a forest in a previously bound current-analysis lineage.
+    pub fn open_forest_in_lineage(
+        &self,
+        scope_version_id: Id,
+        roots: Vec<ResultScopeRoot>,
+        lineage: Id,
+    ) -> Result<BuildHandle, BuildError> {
+        if roots.is_empty() || u32::try_from(roots.len()).is_err() {
+            return Err(BuildError::InvalidTree);
+        }
+        self.begin(scope_version_id, roots, Some(lineage))
     }
 
     fn begin(
         &self,
         scope_version_id: Id,
         roots: Vec<ResultScopeRoot>,
+        lineage: Option<Id>,
     ) -> Result<BuildHandle, BuildError> {
         let mut state = self.state.lock().map_err(|_| BuildError::Unavailable)?;
-        if state.active {
-            return Err(BuildError::Busy);
-        }
-        state.active = true;
+        let baseline = state.begin(&lineage)?;
         Ok(BuildHandle {
             state: Arc::clone(&self.state),
-            baseline: state.current.clone(),
+            baseline,
+            lineage,
+            focus_before: None,
+            published: false,
             scope_version_id,
             roots,
             gaps: Vec::new(),
@@ -143,6 +164,9 @@ impl IngestSink {
 pub struct BuildHandle {
     state: Arc<Mutex<State>>,
     baseline: Option<Arc<ResultVersion>>,
+    lineage: Option<Id>,
+    focus_before: Option<Option<Id>>,
+    published: bool,
     scope_version_id: Id,
     roots: Vec<ResultScopeRoot>,
     gaps: Vec<ResultScopeGap>,
@@ -364,6 +388,7 @@ impl BuildHandle {
         let result = Arc::new(ResultVersion {
             version_id,
             scope_version_id: self.scope_version_id.clone(),
+            lineage_id: self.lineage.clone(),
             completeness: result_completeness,
             items: built.items,
             physical: built.physical,
@@ -375,14 +400,20 @@ impl BuildHandle {
             observed_at,
         });
         let mut state = self.state.lock().map_err(|_| BuildError::Unavailable)?;
-        if !state.used_versions.insert(result.version_id.clone()) {
-            drop(state);
-            self.abort();
-            return Err(BuildError::DuplicateVersion);
+        let (focus_before, previous) =
+            match state.publish(&self.lineage, Arc::clone(&result), finish) {
+                Ok(focus) => focus,
+                Err(error) => {
+                    drop(state);
+                    self.abort();
+                    return Err(error);
+                }
+            };
+        if !self.published || focus_before.as_ref() != Some(&self.lineage) {
+            self.focus_before = focus_before;
         }
-        let previous = state.current.replace(Arc::clone(&result));
+        self.published = true;
         if finish {
-            state.active = false;
             self.finished = true;
         }
         drop(state);
@@ -392,8 +423,12 @@ impl BuildHandle {
     pub fn abort(&mut self) {
         if !self.finished {
             let withdrawn = self.state.lock().ok().and_then(|mut state| {
-                state.active = false;
-                std::mem::replace(&mut state.current, self.baseline.clone())
+                state.abort(
+                    &self.lineage,
+                    self.baseline.clone(),
+                    self.published,
+                    self.focus_before.clone(),
+                )
             });
             drop(withdrawn);
             self.finished = true;

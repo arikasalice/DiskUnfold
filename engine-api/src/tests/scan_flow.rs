@@ -281,7 +281,7 @@ fn reviewed_identity_is_rechecked_and_one_job_publishes_the_requested_result()
     )?;
     assert_eq!(response.body["resultVersion"], json!(version));
     assert_eq!(response.body["sizes"][0]["size"]["bytes"], "64");
-    check_observed_details(&engine, &versions, version, path)?;
+    check_observed_details(&engine, &versions, version.clone(), path)?;
     assert_eq!(roots.reads.load(Ordering::Acquire), 2);
 
     check_replacement_submission(
@@ -289,6 +289,8 @@ fn reviewed_identity_is_rechecked_and_one_job_publishes_the_requested_result()
         start(&replacement.review_fingerprint)?.body,
         &release,
         &terminal,
+        &versions,
+        &version,
     )?;
     Ok(())
 }
@@ -298,7 +300,12 @@ fn check_replacement_submission(
     response: serde_json::Value,
     release: &mpsc::Sender<()>,
     terminal: &mpsc::Receiver<JobEvent>,
+    versions: &du_analysis_index::IngestSink,
+    first_version: &Id,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let first = versions
+        .pin_current(first_version)
+        .map_err(|error| format!("{error:?}"))?;
     let next: ScanStart = serde_json::from_value(response)?;
     assert!(!next.existing);
     assert_ne!(receipt.job_ref, next.job_ref);
@@ -306,6 +313,15 @@ fn check_replacement_submission(
     release.send(())?;
     let (summary, _) = scan_finished(terminal)?;
     assert_eq!(summary.job_id, next.job_ref);
+    let second_id = summary.result_version_id.ok_or("missing second result")?;
+    let second = versions
+        .pin_current(&second_id)
+        .map_err(|error| format!("{error:?}"))?;
+    assert_eq!(first.lineage_id(), second.lineage_id());
+    assert!(first.lineage_id().is_some());
+    assert_ne!(first.scope_version_id(), second.scope_version_id());
+    assert!(versions.pin_current(first_version).is_err());
+    assert_eq!(first.items().len(), 2);
     Ok(())
 }
 

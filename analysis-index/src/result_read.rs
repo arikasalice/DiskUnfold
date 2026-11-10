@@ -15,6 +15,11 @@ pub struct ItemDetail<'a> {
 }
 
 impl ResultVersion {
+    /// Returns the bound analysis lineage, or None for a legacy unbound build.
+    pub fn lineage_id(&self) -> Option<&Id> {
+        self.lineage_id.as_ref()
+    }
+
     /// The scope-wide aggregate, deduplicated across all observed roots.
     pub fn scope_total(&self) -> &SpaceAggregate {
         self.scope_total.as_ref().unwrap_or(&self.aggregates[0])

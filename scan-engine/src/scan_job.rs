@@ -42,6 +42,7 @@ pub struct MetadataScan {
     roots: Mutex<Option<DeviceRoots>>,
     store: IngestSink,
     scope: Id,
+    lineage: Option<Id>,
     ids: Arc<dyn ResultIds>,
 }
 
@@ -86,8 +87,14 @@ impl MetadataScan {
             roots: Mutex::new(Some(roots)),
             store,
             scope,
+            lineage: None,
             ids,
         }
+    }
+    /// Binds this scan to the stable lineage of its verified scope and source.
+    pub fn with_lineage(mut self, lineage: Id) -> Self {
+        self.lineage = Some(lineage);
+        self
     }
 }
 
@@ -117,7 +124,14 @@ impl JobBody for MetadataScan {
                         )
                     })
                     .unzip();
-                let build = self.store.open_forest(self.scope.clone(), observed);
+                let build = match &self.lineage {
+                    Some(lineage) => self.store.open_forest_in_lineage(
+                        self.scope.clone(),
+                        observed,
+                        lineage.clone(),
+                    ),
+                    None => self.store.open_forest(self.scope.clone(), observed),
+                };
                 collect_open_forest_with_groups(
                     build,
                     directories,
