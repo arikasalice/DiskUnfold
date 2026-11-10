@@ -49,6 +49,23 @@ pub(crate) fn mark_gaps(
 }
 
 impl BuildHandle {
+    /// Retains an observed modification time for an already admitted item.
+    pub fn set_modified_at(
+        &mut self,
+        root: u32,
+        path: &[Vec<u8>],
+        time: Timestamp,
+    ) -> Result<(), BuildError> {
+        if self.finished {
+            return Err(BuildError::InvalidTree);
+        }
+        let observation = self
+            .observations
+            .get_mut(&(root, path.to_vec()))
+            .ok_or(BuildError::InvalidTree)?;
+        observation.modified_at = Some(time);
+        Ok(())
+    }
     /// Adds an observation using the same kind inference as legacy `add`.
     /// An unavailable size remains an unknown kind, not a confirmed file.
     pub fn add_at(&mut self, root_index: u32, observation: Observation) -> Result<(), BuildError> {
@@ -64,6 +81,7 @@ impl BuildHandle {
                 size: observation.size,
                 kind,
                 physical: None,
+                modified_at: None,
             },
         )
     }
@@ -81,6 +99,7 @@ impl BuildHandle {
                 size: None,
                 kind: ResultItemKind::Directory,
                 physical: None,
+                modified_at: None,
             },
         )
     }
@@ -98,6 +117,7 @@ impl BuildHandle {
                 size: observation.size,
                 kind: ResultItemKind::File,
                 physical: None,
+                modified_at: None,
             },
         )
     }
@@ -116,6 +136,7 @@ impl BuildHandle {
                 size: observation.size,
                 kind: ResultItemKind::File,
                 physical: Some(Box::new(space)),
+                modified_at: None,
             },
         )
     }
@@ -133,6 +154,7 @@ impl BuildHandle {
                 size: None,
                 kind: ResultItemKind::UntraversedLink,
                 physical: None,
+                modified_at: None,
             },
         )
     }

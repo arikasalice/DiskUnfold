@@ -1,5 +1,6 @@
 //! Deterministic forest numbering and hierarchy construction.
 use crate::{BuildError, SpaceObservation, StoredObservation};
+use du_core_contracts::Timestamp;
 use du_core_contracts::result::{ResultItem, ResultItemKind};
 use std::collections::BTreeMap;
 
@@ -7,6 +8,7 @@ pub(crate) struct BuiltItems {
     pub(crate) items: Vec<ResultItem>,
     pub(crate) structures: Vec<bool>,
     pub(crate) physical: Option<Vec<Option<SpaceObservation>>>,
+    pub(crate) modified_times: Option<Vec<Option<Timestamp>>>,
     pub(crate) keys: Vec<(u32, Vec<Vec<u8>>)>,
 }
 
@@ -33,6 +35,10 @@ pub(crate) fn build_items(
         .values()
         .any(|v| v.physical.is_some())
         .then(Vec::new);
+    let mut modified_times = observations
+        .values()
+        .any(|v| v.modified_at.is_some())
+        .then(Vec::new);
     for index in 0..root_count {
         let root_index = u32::try_from(index).map_err(|_| BuildError::CapacityExceeded)?;
         let root = observations
@@ -52,6 +58,9 @@ pub(crate) fn build_items(
         structure_flags.push(is_structure(root.kind));
         if let Some(values) = &mut physical_values {
             values.push(root.physical.as_deref().cloned());
+        }
+        if let Some(values) = &mut modified_times {
+            values.push(root.modified_at.clone());
         }
     }
     let mut cursor = 0;
@@ -76,6 +85,9 @@ pub(crate) fn build_items(
             if let Some(values) = &mut physical_values {
                 values.push(observation.physical.as_deref().cloned());
             }
+            if let Some(values) = &mut modified_times {
+                values.push(observation.modified_at.clone());
+            }
         }
         cursor += 1;
     }
@@ -86,6 +98,7 @@ pub(crate) fn build_items(
         items,
         structures: structure_flags,
         physical: physical_values,
+        modified_times,
         keys: paths,
     })
 }

@@ -166,7 +166,6 @@ impl IngestSink {
             roots,
             gaps: Vec::new(),
             observations: BTreeMap::new(),
-            modified_times: BTreeMap::new(),
             finished: false,
         })
     }
@@ -183,29 +182,15 @@ pub struct BuildHandle {
     roots: Vec<ResultScopeRoot>,
     gaps: Vec<ResultScopeGap>,
     observations: BTreeMap<(u32, Vec<Vec<u8>>), StoredObservation>,
-    modified_times: BTreeMap<(u32, Vec<Vec<u8>>), Timestamp>,
     finished: bool,
 }
 struct StoredObservation {
     size: Option<SizeValue>,
     kind: ResultItemKind,
     physical: Option<Box<SpaceObservation>>,
+    modified_at: Option<Timestamp>,
 }
 impl BuildHandle {
-    /// Retains an observed modification time for an already admitted item.
-    pub fn set_modified_at(
-        &mut self,
-        root: u32,
-        path: &[Vec<u8>],
-        time: Timestamp,
-    ) -> Result<(), BuildError> {
-        let key = (root, path.to_vec());
-        if self.finished || !self.observations.contains_key(&key) {
-            return Err(BuildError::InvalidTree);
-        }
-        self.modified_times.insert(key, time);
-        Ok(())
-    }
     /// Adds a confirmed directory with no independent logical-size contribution.
     pub fn add_directory(&mut self, path: Vec<Vec<u8>>) -> Result<(), BuildError> {
         self.insert(
@@ -214,6 +199,7 @@ impl BuildHandle {
                 size: None,
                 kind: ResultItemKind::Directory,
                 physical: None,
+                modified_at: None,
             },
         )
     }
@@ -226,6 +212,7 @@ impl BuildHandle {
                 size: None,
                 kind: ResultItemKind::UntraversedLink,
                 physical: None,
+                modified_at: None,
             },
         )
     }
@@ -244,6 +231,7 @@ impl BuildHandle {
                 size: observation.size,
                 kind: ResultItemKind::File,
                 physical: Some(Box::new(space)),
+                modified_at: None,
             },
         )
     }
@@ -256,6 +244,7 @@ impl BuildHandle {
                 size: observation.size,
                 kind: ResultItemKind::File,
                 physical: None,
+                modified_at: None,
             },
         )
     }
@@ -270,6 +259,7 @@ impl BuildHandle {
                 size: None,
                 kind: ResultItemKind::UnknownStructure,
                 physical: None,
+                modified_at: None,
             },
         )
     }
@@ -286,6 +276,7 @@ impl BuildHandle {
                 size: observation.size,
                 kind,
                 physical: None,
+                modified_at: None,
             },
         )
     }
@@ -417,13 +408,7 @@ impl BuildHandle {
             completeness: result_completeness,
             items: built.items,
             physical: built.physical,
-            modified_times: (!self.modified_times.is_empty()).then(|| {
-                built
-                    .keys
-                    .iter()
-                    .map(|key| self.modified_times.get(key).cloned())
-                    .collect()
-            }),
+            modified_times: built.modified_times,
             aggregates,
             roots: self.roots.clone(),
             root_indices: built.keys.into_iter().map(|(root, _)| root).collect(),
