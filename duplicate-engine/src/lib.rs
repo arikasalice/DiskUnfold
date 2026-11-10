@@ -4,4 +4,5 @@
 pub mod candidates;
 
 mod content_hash;
+pub use content_hash::{RegisteredHash, RegisteredOutcome};
 pub mod verification;

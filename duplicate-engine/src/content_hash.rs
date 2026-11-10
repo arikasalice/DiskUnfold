@@ -1,11 +1,67 @@
 //! Purpose-separated BLAKE3 revision 1 for approved content observations.
 
-use crate::verification::{Digest, HashPurpose, HashStrategy, Strategies};
+use crate::verification::{
+    self, Digest, HashPurpose, HashStrategy, Outcome, ReadPort, Strategies, VerificationTarget,
+    VerifyError,
+};
 
 const SAMPLE_CONTEXT: &str = "com.github.arikasalice.diskunfold.f09.blake3.v1.sample";
 const FULL_CONTEXT: &str = "com.github.arikasalice.diskunfold.f09.blake3.v1.full";
 
 struct Blake3V1;
+
+const REGISTERED: &[&(dyn HashStrategy + Sync)] = &[&Blake3V1];
+
+/// A content hash selected from the product registry before reading any file.
+pub struct RegisteredHash(&'static (dyn HashStrategy + Sync));
+
+/// Verification performed with a registry-selected strategy for both hash purposes.
+pub struct RegisteredOutcome(Outcome);
+
+impl RegisteredOutcome {
+    /// Reads the verification evidence and its exact selected strategy identity.
+    pub fn evidence(&self) -> &Outcome {
+        &self.0
+    }
+}
+
+impl RegisteredHash {
+    /// Resolves an exact revision, or the highest registered revision when omitted.
+    pub fn resolve(id: &str, revision: Option<u32>) -> Result<Self, VerifyError> {
+        let strategy = REGISTERED
+            .iter()
+            .copied()
+            .filter(|strategy| {
+                strategy.id() == id
+                    && revision.is_none_or(|revision| strategy.revision() == revision)
+            })
+            .max_by_key(|strategy| strategy.revision())
+            .ok_or(VerifyError::UnsupportedHash)?;
+        if !strategy.collision_resistant() {
+            return Err(VerifyError::UnsupportedHash);
+        }
+        Ok(Self(strategy))
+    }
+
+    /// Verifies approved targets using the pinned strategy for sampling and confirmation.
+    pub fn verify(
+        &self,
+        approved: &[VerificationTarget],
+        reader: &mut impl ReadPort,
+        cancelled: impl FnMut() -> bool,
+    ) -> Result<RegisteredOutcome, VerifyError> {
+        verification::verify(
+            approved,
+            reader,
+            Strategies {
+                sample: self.0,
+                full: self.0,
+            },
+            cancelled,
+        )
+        .map(RegisteredOutcome)
+    }
+}
 
 impl Strategies<'static> {
     /// Selects the published default for both filtering and full-file verification.
