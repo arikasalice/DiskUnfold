@@ -2,6 +2,7 @@
 mod recall;
 mod scope;
 mod space;
+mod timestamps;
 
 use du_core_contracts::{
     ports::{PortError, PortErrorKind},
@@ -209,7 +210,6 @@ fn relative(parent: &File, name: &[u16], directory: bool) -> Result<File, PortEr
     // SAFETY: a successful NtCreateFile returned a uniquely owned handle.
     Ok(unsafe { File::from_raw_handle(handle.0) })
 }
-
 fn verified_directory(
     parent: &File,
     name: &[u16],
@@ -327,7 +327,6 @@ pub fn open_verified(path: &Path) -> Result<WindowsDirectory, PortError> {
         ancestors: Some(ancestors),
     })
 }
-
 impl WindowsDirectory {
     /// Reads the current handle identity and physical path without reopening it.
     pub fn identity(&self) -> Result<DirectoryIdentity, PortError> {
@@ -361,6 +360,7 @@ impl WindowsDirectory {
                         device: self.volume,
                         inode: identity(&value),
                         size: Ok(size),
+                        modified_at: timestamps::modified_at(&file),
                         allocated: facts.allocated,
                         link_count: facts.link_count,
                         space_identity: facts.identity,
@@ -460,7 +460,6 @@ impl WindowsDirectory {
         Ok(())
     }
 }
-
 impl DirectoryObservations for WindowsDirectory {
     fn next_batch(&mut self) -> Result<Vec<ObservedEntry>, PortError> {
         while self.pending.is_empty() && !self.finished {
@@ -470,7 +469,6 @@ impl DirectoryObservations for WindowsDirectory {
         Ok(self.pending.drain(..count).collect())
     }
 }
-
 impl AnchoredDirectory for WindowsDirectory {
     fn open_child(&self, entry: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError> {
         let meta = entry.metadata.as_ref().map_err(|e| e.clone())?;

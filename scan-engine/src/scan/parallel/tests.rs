@@ -49,6 +49,7 @@ impl DirectoryObservations for SmallRoot {
                 allocated: None,
                 link_count: None,
                 space_identity: None,
+                modified_at: None,
             }),
         }])
     }
@@ -385,6 +386,7 @@ impl DirectoryObservations for Root {
                     allocated: None,
                     link_count: None,
                     space_identity: None,
+                    modified_at: None,
                 }),
             })
             .collect())

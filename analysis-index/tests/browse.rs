@@ -5,6 +5,44 @@ use du_core_contracts::{
 };
 use std::sync::Arc;
 
+#[test]
+fn retained_item_times_are_pinned_across_publications() -> Result<(), String> {
+    let sink = IngestSink::default();
+    let mut build = sink.open(id(1)?).map_err(|e| format!("{e:?}"))?;
+    build.add_directory(vec![]).map_err(|e| format!("{e:?}"))?;
+    let path = vec![b"file".to_vec()];
+    build
+        .add_file(Observation {
+            path: path.clone(),
+            size: None,
+        })
+        .map_err(|e| format!("{e:?}"))?;
+    let first = du_core_contracts::Timestamp::parse("2020-01-01T00:00:00.000Z")?;
+    build
+        .set_modified_at(0, &path, first.clone())
+        .map_err(|e| format!("{e:?}"))?;
+    let old = build
+        .publish_partial(id(2)?)
+        .map_err(|e| format!("{e:?}"))?;
+    let second = du_core_contracts::Timestamp::parse("2021-01-01T00:00:00.000Z")?;
+    build
+        .set_modified_at(0, &path, second.clone())
+        .map_err(|e| format!("{e:?}"))?;
+    let new = build
+        .seal(id(3)?, ResultCompleteness::Complete)
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(
+        old.item_modified_at(item(&old, b"file")?.item_no),
+        Some(&first)
+    );
+    assert_eq!(
+        new.item_modified_at(item(&new, b"file")?.item_no),
+        Some(&second)
+    );
+    assert!(new.item_modified_at(0).is_none());
+    Ok(())
+}
+
 fn id(n: u8) -> Result<Id, String> {
     Id::parse(&format!("018f0000-0000-7000-8000-{n:012x}"))
 }

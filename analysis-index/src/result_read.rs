@@ -15,6 +15,13 @@ pub struct ItemDetail<'a> {
 }
 
 impl ResultVersion {
+    /// Reads the modification time retained for this immutable item, if available.
+    pub fn item_modified_at(&self, item_no: u32) -> Option<&Timestamp> {
+        self.modified_times
+            .as_ref()?
+            .get(item_no as usize)?
+            .as_ref()
+    }
     /// Returns the bound analysis lineage, or None for a legacy unbound build.
     pub fn lineage_id(&self) -> Option<&Id> {
         self.lineage_id.as_ref()

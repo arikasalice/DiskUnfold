@@ -99,6 +99,15 @@ fn detail_uses_each_pinned_root_encoding_and_preserves_field_states() -> Result<
             build.add_file_at(*root_index, observation)
         }
         .map_err(|e| format!("{e:?}"))?;
+        if size.is_some() {
+            build
+                .set_modified_at(
+                    *root_index,
+                    std::slice::from_ref(name),
+                    du_core_contracts::Timestamp::parse("2020-01-02T03:04:05.006Z")?,
+                )
+                .map_err(|e| format!("{e:?}"))?;
+        }
     }
     let pinned = build
         .seal(version.clone(), ResultCompleteness::Complete)
@@ -185,7 +194,10 @@ fn check_item(
     } else {
         assert_eq!(body["allocatedSize"]["state"], "unknown");
     }
-    assert_eq!(body["modifiedAt"]["state"], "unknown");
+    assert_eq!(
+        body["modifiedAt"]["value"].as_str(),
+        item.size.as_ref().map(|_| "2020-01-02T03:04:05.006Z")
+    );
     assert_eq!(body["createdAt"]["state"], "unknown");
     assert_eq!(body["observedAt"]["state"], "unknown");
     assert_eq!(body["observationOnly"], true);

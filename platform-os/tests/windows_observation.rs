@@ -26,6 +26,52 @@ fn entries(
 }
 
 #[test]
+fn observed_last_write_is_retained_after_live_change() -> Result<(), Box<dyn std::error::Error>> {
+    use std::time::{Duration, UNIX_EPOCH};
+    let fixture = tempfile::tempdir()?;
+    let path = fixture.path().join("item");
+    fs::write(&path, b"data")?;
+    let file = fs::OpenOptions::new().write(true).open(&path)?;
+    file.set_times(
+        fs::FileTimes::new().set_modified(UNIX_EPOCH + Duration::from_secs(1_600_000_000)),
+    )?;
+    let mut directory = open_verified(fixture.path()).map_err(|e| format!("{e:?}"))?;
+    let observed = entries(&mut directory)?
+        .into_iter()
+        .find(|e| e.name == name("item"))
+        .ok_or("missing item")?;
+    let first = observed
+        .metadata
+        .as_ref()
+        .map_err(|e| format!("{e:?}"))?
+        .modified_at
+        .clone()
+        .ok_or("missing time")?;
+    assert_eq!(first.as_str(), "2020-09-13T12:26:40.000Z");
+    file.set_times(
+        fs::FileTimes::new().set_modified(UNIX_EPOCH + Duration::from_secs(1_700_000_000)),
+    )?;
+    let mut fresh = open_verified(fixture.path()).map_err(|e| format!("{e:?}"))?;
+    let later = entries(&mut fresh)?
+        .into_iter()
+        .find(|e| e.name == name("item"))
+        .ok_or("missing item")?;
+    assert_ne!(
+        later
+            .metadata
+            .map_err(|e| format!("{e:?}"))?
+            .modified_at
+            .as_ref(),
+        Some(&first)
+    );
+    assert_eq!(
+        observed.metadata.map_err(|e| format!("{e:?}"))?.modified_at,
+        Some(first)
+    );
+    Ok(())
+}
+
+#[test]
 fn opens_ntfs_fixture_and_reads_bounded_batches() -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     fs::create_dir(fixture.path().join("folder"))?;

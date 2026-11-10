@@ -69,7 +69,10 @@ fn project(
         kind,
         logical_size: size(version.item_size(item_no, SizeBasis::Logical)),
         allocated_size: size(version.item_size(item_no, SizeBasis::Allocated)),
-        modified_at: unknown("ref.unavailable"),
+        modified_at: field(
+            version.item_modified_at(item_no).cloned(),
+            "ref.unavailable",
+        ),
         created_at: unknown("ref.unavailable"),
         observed_at: field(version.observed_at().cloned(), "ref.unavailable"),
         origin: BrowseOrigin::Scan,

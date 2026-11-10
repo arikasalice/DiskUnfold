@@ -271,6 +271,11 @@ fn record_at(
             )?;
         }
     }
+    if matches!(meta.kind, ObservedKind::File | ObservedKind::Directory)
+        && let Some(time) = &meta.modified_at
+    {
+        build.set_modified_at(root_index, path, time.clone())?;
+    }
     counts.completed += 1;
     Ok(meta.kind == ObservedKind::Directory)
 }

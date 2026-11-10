@@ -1,5 +1,5 @@
 //! Read-only directory observations. Names are native bytes, not display strings.
-use crate::{OsPath, ports::PortError};
+use crate::{OsPath, Timestamp, ports::PortError};
 
 /// A bounded pull interface; an empty batch marks the end of this directory.
 /// An error terminates the stream; callers must record the unread remainder.
@@ -55,6 +55,8 @@ pub struct MetadataObservation {
     pub device: u64,
     pub inode: u64,
     pub size: Result<u64, PortError>,
+    /// Last write time observed on the verified handle, when available.
+    pub modified_at: Option<Timestamp>,
     /// OS-reported allocation for the observed file, or `None` when unverified.
     pub allocated: Option<u64>,
     /// OS-reported total hard-link count, or `None` when unverified.

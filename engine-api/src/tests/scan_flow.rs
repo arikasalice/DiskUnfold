@@ -136,6 +136,7 @@ impl DirectoryObservations for Directory {
                 allocated: None,
                 link_count: None,
                 space_identity: None,
+                modified_at: du_core_contracts::Timestamp::parse("2020-01-02T03:04:05.006Z").ok(),
             }),
         }])
     }
@@ -341,13 +342,11 @@ fn scan_finished_with_publications(
     );
     Ok((delivery.summary, delivery.history_recorded))
 }
-
 struct ScanDelivery {
     summary: Box<JobSummary>,
     history_recorded: bool,
     notices: Vec<ResultVersionNotice>,
 }
-
 fn scan_delivery(
     terminal: &mpsc::Receiver<JobEvent>,
 ) -> Result<ScanDelivery, Box<dyn std::error::Error>> {
@@ -370,7 +369,6 @@ fn scan_delivery(
         }
     }
 }
-
 fn check_uncomposed_scope_fails_closed(
     engine: &Engine,
     roots: &Roots,
@@ -419,7 +417,6 @@ fn check_uncomposed_scope_fails_closed(
     assert_eq!(roots.opens.load(Ordering::Acquire), 0);
     Ok(())
 }
-
 fn check_observed_details(
     engine: &Engine,
     versions: &du_analysis_index::IngestSink,
@@ -448,7 +445,10 @@ fn check_observed_details(
     assert_eq!(detail.body["displayPath"]["value"], "C:\\Fixture\\f");
     assert_eq!(detail.body["logicalSize"]["value"]["bytes"], "64");
     assert_eq!(detail.body["allocatedSize"]["state"], "unknown");
-    assert_eq!(detail.body["modifiedAt"]["state"], "unknown");
+    assert_eq!(
+        detail.body["modifiedAt"]["value"],
+        "2020-01-02T03:04:05.006Z"
+    );
     assert_eq!(detail.body["observationOnly"], true);
     assert!(!detail.body.to_string().contains("\"raw\""));
     let missing = gui(

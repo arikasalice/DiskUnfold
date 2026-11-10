@@ -25,6 +25,7 @@ impl DirectoryObservations for PanickingRoot {
                 allocated: None,
                 link_count: None,
                 space_identity: None,
+                modified_at: None,
             }),
         }])
     }

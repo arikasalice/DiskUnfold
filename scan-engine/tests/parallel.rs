@@ -98,6 +98,7 @@ fn entry(name: &[u8], kind: ObservedKind, inode: u64) -> ObservedEntry {
             allocated: None,
             link_count: None,
             space_identity: None,
+            modified_at: None,
         }),
     }
 }
