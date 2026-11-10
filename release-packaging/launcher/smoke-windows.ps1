@@ -6,6 +6,7 @@ param(
   [Parameter(Mandatory)][string]$Binary,
   [switch]$VerifyWorkspaceLayout,
   [switch]$VerifyCancellation,
+  [switch]$VerifySuspension,
   [switch]$VerifyPopulatedWorkspace
 )
 
@@ -19,12 +20,12 @@ $child = Join-Path $scanRoot 'nested'
 New-Item -ItemType Directory -Path $child -Force | Out-Null
 [IO.File]::WriteAllBytes((Join-Path $scanRoot 'root.bin'), [byte[]]::new(11))
 [IO.File]::WriteAllBytes((Join-Path $child 'nested.bin'), [byte[]]::new(7))
-if ($VerifyCancellation) {
-  $cancelScope = Join-Path $root 'cancel-scope'
-  # Give the real filesystem scan enough work to observe its Cancel action.
+if ($VerifyCancellation -or $VerifySuspension) {
+  $controlScope = Join-Path $root 'control-scope'
+  # Give the real filesystem scan enough work to invoke cooperative controls.
   $contents = [byte[]]::new(1)
   for ($group = 0; $group -lt 32; $group++) {
-    $folder = Join-Path $cancelScope "group-$group"
+    $folder = Join-Path $controlScope "group-$group"
     [IO.Directory]::CreateDirectory($folder) | Out-Null
     for ($index = 0; $index -lt 800; $index++) {
       [IO.File]::WriteAllBytes((Join-Path $folder "file-$index.bin"), $contents)
@@ -59,6 +60,12 @@ function Find-UI($name, $type, $within = $window) {
 }
 function Wait-Enabled($name, $enabled) {
   Wait-UI "$name enabled=$enabled" { $item = Find-UI $name $button; if ($item -and $item.Current.IsEnabled -eq $enabled) { $item } }
+}
+function Wait-VisibleAction($actionName) {
+  Wait-UI "$actionName in view" {
+    $item = Find-UI $actionName $button
+    if ($item -and $item.Current.IsEnabled -and -not $item.Current.IsOffscreen) { $item }
+  }
 }
 # Inspect the UIA viewport before invoking a button, since Invoke can reach clipped controls.
 function Wait-ScopeActionsVisible {
@@ -164,6 +171,28 @@ function Test-ScanCancellation($path) {
   }
   'F02 native cancel: cancelled terminal state and interrupted result evidence'
 }
+# Exercise real pause/resume without treating its acknowledgement as a stopped scan.
+function Test-ScanSuspension($path) {
+  Set-Scope $path
+  Invoke-UI (Wait-Enabled 'Review scope' $true)
+  Invoke-UI (Wait-Enabled 'Start scan' $true)
+  Invoke-UI (Wait-VisibleAction 'Pause scan')
+  $null = Wait-UI 'confirmed paused scan' { Find-UI 'Scan status: paused' $textType }
+  $null = Wait-VisibleAction 'Cancel scan'
+  Invoke-UI (Wait-VisibleAction 'Resume scan')
+  $null = Wait-UI 'resumed scan finished' { Find-UI 'Scan finished' $textType }
+  $result = Wait-UI 'final result or manual result switch' {
+    if (Find-UI 'Final' $textType) { return 'shown' }
+    $switch = Find-UI 'Show latest result' $button
+    if ($switch -and $switch.Current.IsEnabled) { return 'switch' }
+  }
+  if ($result -eq 'switch') { Invoke-UI (Wait-VisibleAction 'Show latest result') }
+  $null = Wait-UI 'exact 25 KiB result' {
+    $metric = Find-UI 'Logical size' ([Windows.Automation.ControlType]::Group)
+    if ($metric -and (Find-UI 'Final' $textType)) { Find-UI '25.0 KiB' $textType $metric }
+  }
+  'F02 native pause and resume: controls visible, scan paused, final logical size 25 KiB'
+}
 try {
   $window = Wait-UI 'main window' {
     $process.Refresh()
@@ -171,7 +200,8 @@ try {
   }
   $null = Wait-UI 'path field' { Find-UI 'Windows folder path' $edit }
   $null = Wait-Enabled 'Start scan' $false
-  if ($VerifyCancellation) { Test-ScanCancellation $cancelScope }
+  if ($VerifySuspension) { Test-ScanSuspension $controlScope }
+  if ($VerifyCancellation) { Test-ScanCancellation $controlScope }
   Set-Scope (Join-Path $root 'missing')
   Invoke-UI (Wait-Enabled 'Review scope' $true)
   $null = Wait-UI 'invalid folder notice' {
