@@ -416,10 +416,9 @@ fn evaluate(
             Truth::NoMatch => {}
         }
     }
-    rows.sort_by(|a, b| sorting::compare(a, b, &prepared));
-    if cancelled() {
-        return Err(Error::Cancelled);
-    }
+    sorting::sort_rows(&mut rows, &mut cancelled, |a, b| {
+        sorting::compare(a, b, &prepared)
+    })?;
     let items = rows
         .into_iter()
         .map(|row| ItemRef {

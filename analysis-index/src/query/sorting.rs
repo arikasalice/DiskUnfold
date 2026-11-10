@@ -100,9 +100,62 @@ pub(super) fn compare(a: &Row, b: &Row, sorts: &[Prepared<'_>]) -> Ordering {
     a.path.cmp(&b.path).then_with(|| a.item_no.cmp(&b.item_no))
 }
 
+/// Avoids starting a potentially expensive sort after cancellation and checks again before returning rows.
+pub(super) fn sort_rows(
+    rows: &mut [Row],
+    cancelled: &mut impl FnMut() -> bool,
+    compare: impl FnMut(&Row, &Row) -> Ordering,
+) -> Result<(), Error> {
+    if cancelled() {
+        return Err(Error::Cancelled);
+    }
+    rows.sort_by(compare);
+    if cancelled() {
+        return Err(Error::Cancelled);
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cancelled_before_sort_does_not_compare_rows() {
+        let row = |item_no| Row {
+            item_no,
+            path: vec![],
+            keys: Keys {
+                first: SortValue::Missing,
+                additional: Vec::new(),
+            },
+        };
+        let mut rows = [row(2), row(1)];
+        let mut comparisons = 0;
+        let result = sort_rows(&mut rows, &mut || true, |a, b| {
+            comparisons += 1;
+            a.item_no.cmp(&b.item_no)
+        });
+        assert_eq!(result, Err(Error::Cancelled));
+        assert_eq!(comparisons, 0);
+        assert_eq!(rows[0].item_no, 2);
+    }
+
+    #[test]
+    fn completed_sort_rechecks_cancellation_before_returning_rows() {
+        let mut checks = 0;
+        let mut rows = [];
+        let result = sort_rows(
+            &mut rows,
+            &mut || {
+                checks += 1;
+                checks == 2
+            },
+            |_, _| Ordering::Equal,
+        );
+        assert_eq!(result, Err(Error::Cancelled));
+        assert_eq!(checks, 2);
+    }
 
     #[test]
     fn item_number_breaks_a_fully_tied_native_path() {
