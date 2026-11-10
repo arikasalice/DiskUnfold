@@ -9,7 +9,10 @@ use std::sync::Arc;
 use du_analysis_index::query::page::{Page, PageError};
 use du_core_contracts::{Id, PathBytes};
 
-use super::{Error, FolderBrowse, FolderPage, OpenRequest, Opened, Sort, project, validate_count};
+use super::{
+    AdmittedOpen, Error, FolderBrowse, FolderPage, OpenRequest, Opened, Sort, project,
+    validate_count,
+};
 
 const PAYLOAD_LEN: usize = 56;
 const MAC_LEN: usize = 32;
@@ -57,25 +60,23 @@ impl Session {
         additional: &[Sort],
         cancelled: impl FnMut() -> bool,
     ) -> Result<OpenedPage, CursorError> {
-        let opened = self
+        let admitted = self
             .browse
-            .open_with_sorts(request, additional, cancelled)
+            .open_admitted(request, additional, cancelled)
             .map_err(CursorError::Folder)?;
+        self.finish_open(admitted)
+    }
+
+    fn finish_open(&self, admitted: AdmittedOpen) -> Result<OpenedPage, CursorError> {
+        let condition = admitted.page.metadata().condition.clone();
+        let opened = admitted.project().map_err(CursorError::Folder)?;
         let next_cursor = match opened.page.next_position {
-            Some(next) => {
-                let page = self.admit(
-                    &opened.page.query_ref,
-                    &opened.page.result_version,
-                    next,
-                    Some(1),
-                )?;
-                Some(self.encode(
-                    &opened.page.query_ref,
-                    &opened.page.result_version,
-                    self.condition(&page)?,
-                    next,
-                )?)
-            }
+            Some(next) => Some(self.encode(
+                &opened.page.query_ref,
+                &opened.page.result_version,
+                CanonicalCondition.fingerprint(&condition)?,
+                next,
+            )?),
             None => None,
         };
         Ok(OpenedPage {
@@ -225,4 +226,80 @@ fn decode_part(part: Option<&str>) -> Result<Vec<u8>, CursorError> {
 fn id_from(bytes: &[u8]) -> Result<Id, CursorError> {
     let bytes: [u8; 16] = bytes.try_into().map_err(|_| CursorError::Invalid)?;
     Id::parse(&uuid::Uuid::from_bytes(bytes).to_string()).map_err(|_| CursorError::Invalid)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::browse::folder::View;
+    use du_analysis_index::{IngestSink, query};
+    use du_core_contracts::result::ResultCompleteness;
+    use du_job_runtime::JobIdentity;
+
+    struct Identity;
+    impl JobIdentity for Identity {
+        fn next_id(&self) -> Id {
+            Id::from_v7_bytes([1, 2, 3, 4, 5, 6, 0x70, 1, 0x80, 0, 0, 0, 0, 0, 0, 1])
+        }
+    }
+
+    #[test]
+    fn admitted_open_survives_replacement_and_binds_tree_condition() -> Result<(), String> {
+        let id = |n: u8| Id::parse(&format!("018f0000-0000-7000-8000-{n:012x}"));
+        let sink = IngestSink::default();
+        let mut build = sink.open(id(1)?).map_err(|e| format!("{e:?}"))?;
+        for path in [vec![], vec![b"a".to_vec()], vec![b"b".to_vec()]] {
+            build.add_directory(path).map_err(|e| format!("{e:?}"))?;
+        }
+        build
+            .seal(id(2)?, ResultCompleteness::Complete)
+            .map_err(|e| format!("{e:?}"))?;
+        let browse = Arc::new(FolderBrowse::new(sink.clone(), Arc::new(Identity)));
+        let session = Session::new(browse.clone(), [3; 32]);
+        let input = query::Condition::All(vec![query::Condition::All(vec![])]);
+        let request = OpenRequest {
+            result_version: None,
+            location: None,
+            view: View::Tree,
+            condition: input.clone(),
+            sort: Sort {
+                id: "sort.path".into(),
+                revision: 1,
+                basis: query::Basis::Logical,
+                descending: false,
+            },
+            page_size: Some(1),
+        };
+        let admitted = browse
+            .open_admitted(request, &[], || false)
+            .map_err(|e| format!("{e:?}"))?;
+        let expected = query::Condition::All(vec![
+            input,
+            query::Condition::Predicate(query::Predicate::Kind(query::Kind::Directory)),
+        ])
+        .normalize();
+        let mut replacement = sink.open(id(1)?).map_err(|e| format!("{e:?}"))?;
+        replacement
+            .add_directory(vec![])
+            .map_err(|e| format!("{e:?}"))?;
+        replacement
+            .seal(id(3)?, ResultCompleteness::Complete)
+            .map_err(|e| format!("{e:?}"))?;
+        let opened = session
+            .finish_open(admitted)
+            .map_err(|e| format!("{e:?}"))?;
+        let cursor = opened.next_cursor.ok_or("missing cursor")?;
+        let fields = session.decode(&cursor).map_err(|e| format!("{e:?}"))?;
+        assert_eq!(
+            fields.condition,
+            CanonicalCondition
+                .fingerprint(&expected)
+                .map_err(|e| format!("{e:?}"))?
+        );
+        assert!(matches!(
+            session.page(&cursor, None),
+            Err(CursorError::Stale)
+        ));
+        Ok(())
+    }
 }

@@ -106,6 +106,23 @@ pub struct FolderBrowse {
     ids: Arc<dyn JobIdentity>,
 }
 
+struct AdmittedOpen {
+    location: ItemRef,
+    breadcrumbs: Vec<Breadcrumb>,
+    query_ref: Id,
+    page: Page,
+}
+
+impl AdmittedOpen {
+    fn project(self) -> Result<Opened, Error> {
+        Ok(Opened {
+            location: self.location,
+            breadcrumbs: self.breadcrumbs,
+            page: project(self.query_ref, self.page)?,
+        })
+    }
+}
+
 impl FolderBrowse {
     /// Creates a session; identifiers must be unique within this session.
     pub fn new(source: IngestSink, ids: Arc<dyn JobIdentity>) -> Self {
@@ -133,8 +150,18 @@ impl FolderBrowse {
         &self,
         request: OpenRequest,
         additional: &[Sort],
-        mut cancelled: impl FnMut() -> bool,
+        cancelled: impl FnMut() -> bool,
     ) -> Result<Opened, Error> {
+        self.open_admitted(request, additional, cancelled)?
+            .project()
+    }
+
+    fn open_admitted(
+        &self,
+        request: OpenRequest,
+        additional: &[Sort],
+        mut cancelled: impl FnMut() -> bool,
+    ) -> Result<AdmittedOpen, Error> {
         validate_count(request.page_size)?;
         if cancelled() {
             return Err(Error::Cancelled);
@@ -192,10 +219,11 @@ impl FolderBrowse {
         if let Some(id) = self.sets.find_multi_folder(&key).map_err(page_error)? {
             match self.sets.open_page(&id, &key.version, 0, request.page_size) {
                 Ok(page) => {
-                    return Ok(Opened {
+                    return Ok(AdmittedOpen {
                         location,
                         breadcrumbs,
-                        page: project(id, page)?,
+                        query_ref: id,
+                        page,
                     });
                 }
                 Err(PageError::StaleVersion) => {}
@@ -234,10 +262,11 @@ impl FolderBrowse {
             .sets
             .open_page(&id, &key.version, 0, request.page_size)
             .map_err(page_error)?;
-        Ok(Opened {
+        Ok(AdmittedOpen {
             location,
             breadcrumbs,
-            page: project(id, page)?,
+            query_ref: id,
+            page,
         })
     }
 
