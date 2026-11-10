@@ -9,6 +9,7 @@ import {
 import type { AnalysisClient, HistoryDetail } from "../../ipc";
 import { useHistoryDetail } from "../../state/history-detail";
 import { missingLabel, relationLabel, stateLabel } from "./history-labels";
+import { HistoryItemSection } from "./HistoryItems";
 
 /** Read-only operation detail; approval, restore and deletion remain separate. */
 export function HistoryDetailPanel({
@@ -45,7 +46,14 @@ export function HistoryDetailPanel({
           </Action>
         </Notice>
       )}
-      {detail && <DetailContent detail={detail} onNavigate={onNavigate} />}
+      {detail && (
+        <>
+          <DetailContent detail={detail} onNavigate={onNavigate} />
+          {detail.summary?.kindId !== "scan.metadata" && (
+            <HistoryItemSection key={jobRef} client={client} jobRef={jobRef} />
+          )}
+        </>
+      )}
     </section>
   );
 }
