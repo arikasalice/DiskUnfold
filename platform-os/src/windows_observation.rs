@@ -1,4 +1,5 @@
 //! Handle-relative, read-only observations on a local NTFS volume.
+pub mod case_sensitivity;
 mod enumeration;
 #[cfg(test)]
 mod filter_tests;
@@ -462,27 +463,8 @@ impl AnchoredDirectory for WindowsDirectory {
     }
 
     fn open_child(&self, entry: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError> {
-        let meta = entry.metadata.as_ref().map_err(|e| e.clone())?;
-        if meta.kind != ObservedKind::Directory
-            || meta.device != self.volume
-            || meta.inode == 0
-            || entry.enumerated_inode != meta.inode
-        {
-            return Err(invalid());
-        }
-        let name = wide(&entry.name)?;
-        let handle = verified_directory(&self.handle, &name, self.volume, Some(meta.inode), false)?;
-        Ok(Box::new(Self {
-            handle,
-            volume: self.volume,
-            volume_guid: self.volume_guid.clone(),
-            restart: true,
-            pending: VecDeque::new(),
-            filtered: None,
-            filter_failed: false,
-            finished: false,
-            ancestors: None,
-        }))
+        self.open_child_directory(entry)
+            .map(|directory| Box::new(directory) as Box<dyn AnchoredDirectory>)
     }
 
     fn ancestor_file_ids(&self) -> Option<&[Vec<u8>]> {
