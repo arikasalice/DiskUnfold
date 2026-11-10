@@ -33,6 +33,27 @@ const sizeLabels = {
   unique_physical: "Unique physical size",
 };
 
+const resultVersionLabels = {
+  complete: "Final",
+  partial: "Interim",
+  missing: "Final with scan gaps",
+  cancelled: "Cancelled",
+} satisfies Record<SpaceTotal["completeness"], string>;
+
+const measurementLabels = {
+  complete: "Complete measurement",
+  partial: "Partial measurement",
+  missing: "Incomplete measurement",
+  cancelled: "Measurement interrupted",
+} satisfies Record<SpaceTotal["completeness"], string>;
+
+const evidenceLabels = {
+  measured: "Measured",
+  os_reported: "Reported by the file system",
+  estimated: "Estimated",
+  unknown: undefined,
+} satisfies Record<SizeValue["evidence"], string | undefined>;
+
 function formatBytes(bytes: string): string {
   return `${BigInt(bytes).toLocaleString()} bytes`;
 }
@@ -290,7 +311,9 @@ function PinnedResult({
 }) {
   return (
     <div className="du-results">
-      <Text kind="muted">Result completeness: {total.completeness}</Text>
+      <Text kind="muted">
+        Result version: {resultVersionLabels[total.completeness]}
+      </Text>
       {hasNewResult && (
         <Notice>
           <Text>New result available</Text>
@@ -302,11 +325,12 @@ function PinnedResult({
           <Metric
             key={value.size.basis}
             label={sizeLabels[value.size.basis]}
-            detail={
-              value.size.evidence === "os_reported"
-                ? "Reported by the file system"
-                : undefined
-            }
+            detail={[
+              measurementLabels[value.completeness],
+              evidenceLabels[value.size.evidence],
+            ]
+              .filter(Boolean)
+              .join(" · ")}
           >
             {displaySize(value.size)}
           </Metric>

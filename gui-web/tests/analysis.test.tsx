@@ -319,6 +319,17 @@ test("F01–F03: reviewed scope starts a scan and reads its pinned partial resul
   fireEvent.click(start);
   expect(await screen.findByText("At least 42 bytes")).toBeDefined();
   expect(screen.getByText("Unavailable")).toBeDefined();
+  expect(
+    screen.getByText("Result version: Final with scan gaps"),
+  ).toBeDefined();
+  const logical = within(screen.getByRole("group", { name: "Logical size" }));
+  expect(
+    logical.getByText("Incomplete measurement · Reported by the file system"),
+  ).toBeDefined();
+  const allocated = within(
+    screen.getByRole("group", { name: "Allocated size" }),
+  );
+  expect(allocated.getByText("Incomplete measurement")).toBeDefined();
   const coverage = within(screen.getByLabelText("Coverage limits"));
   expect(
     coverage.getByText("Missing items").nextElementSibling?.textContent,
@@ -476,7 +487,7 @@ test("F02 IF-23: opens an existing partial without an event, then keeps it until
     }),
   });
   await startFixtureScan(client);
-  await screen.findByText("Result completeness: partial");
+  await screen.findByText("Result version: Interim");
   expect(screen.getByText("Scan status: running")).toBeDefined();
 
   const previousReads = calls.filter(({ name }) => name === "job.get").length;
@@ -500,10 +511,15 @@ test("F02 IF-23: opens an existing partial without an event, then keeps it until
   const latest = await screen.findByRole("button", {
     name: "Show latest result",
   });
-  expect(screen.getByText("Result completeness: partial")).toBeDefined();
+  expect(screen.getByText("Result version: Interim")).toBeDefined();
   expect(calls.filter(({ name }) => name === "space.total")).toHaveLength(1);
   fireEvent.click(latest);
-  await screen.findByText("Result completeness: complete");
+  await screen.findByText("Result version: Final");
+  const logical = within(screen.getByRole("group", { name: "Logical size" }));
+  expect(logical.getByText("At least 42 bytes")).toBeDefined();
+  expect(
+    logical.getByText("Incomplete measurement · Reported by the file system"),
+  ).toBeDefined();
   expect(
     screen.queryByRole("button", { name: "Show latest result" }),
   ).toBeNull();
@@ -532,7 +548,7 @@ test("F02 IF-23: resynchronizes when the first partial version expires before it
     },
   });
   await startFixtureScan(client);
-  await screen.findByText("Result completeness: complete");
+  await screen.findByText("Result version: Final");
   expect(
     calls.filter(({ name }) => name === "space.total").map(({ body }) => body),
   ).toMatchObject([{ resultVersion: "part" }, { resultVersion: "final" }]);

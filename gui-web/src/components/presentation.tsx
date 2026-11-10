@@ -130,6 +130,7 @@ export function Readout({
   );
 }
 
+/** Groups a displayed value and its supporting evidence under one label. */
 export function Metric({
   label,
   children,
@@ -140,7 +141,7 @@ export function Metric({
   detail?: string | undefined;
 }) {
   return (
-    <div className="du-metric">
+    <div className="du-metric" role="group" aria-label={label}>
       <p className="du-metric__label">{label}</p>
       <p className="du-metric__value">{children}</p>
       {detail && <p className="du-metric__detail">{detail}</p>}
