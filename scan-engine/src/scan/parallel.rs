@@ -95,6 +95,8 @@ enum Event {
         path: Vec<Vec<u8>>,
         root: bool,
         reason: &'static str,
+        stage: du_core_contracts::scan_failures::ScanFailureStage,
+        observed_at: Option<du_core_contracts::Timestamp>,
     },
     RootBatch(u32),
 }

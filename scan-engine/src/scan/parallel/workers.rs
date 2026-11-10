@@ -185,6 +185,8 @@ fn process(
                     path: frame.path.clone(),
                     root: frame.root,
                     reason: failure_reason,
+                    stage: du_core_contracts::scan_failures::ScanFailureStage::Enumerate,
+                    observed_at: context.utc_now(),
                 });
                 complete(shared, frame.root_index);
                 return true;
@@ -257,6 +259,8 @@ fn process_entry(
                     path,
                     root: false,
                     reason: reason(&error),
+                    stage: du_core_contracts::scan_failures::ScanFailureStage::OpenDirectory,
+                    observed_at: context.utc_now(),
                 })
                 .map_err(|_| ())?;
             Ok(None)

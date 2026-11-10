@@ -1,6 +1,7 @@
 //! In-memory result publication and conservative per-subtree space aggregation.
 pub mod browse;
 mod forest;
+mod issues;
 mod physical;
 pub mod publication_cadence;
 mod publication_events;
@@ -53,6 +54,7 @@ pub struct ResultVersion {
     scope_total: Option<SpaceAggregate>,
     observed_at: Option<Timestamp>,
     modified_times: Option<Vec<Option<Timestamp>>>,
+    issues: Vec<du_core_contracts::scan_failures::ScanIssue>,
 }
 
 /// Failure to resolve an item or a current version without changing the pinned result.
@@ -166,6 +168,7 @@ impl IngestSink {
             roots,
             gaps: Vec::new(),
             observations: BTreeMap::new(),
+            issues: Vec::new(),
             finished: false,
         })
     }
@@ -182,6 +185,7 @@ pub struct BuildHandle {
     roots: Vec<ResultScopeRoot>,
     gaps: Vec<ResultScopeGap>,
     observations: BTreeMap<(u32, Vec<Vec<u8>>), StoredObservation>,
+    issues: Vec<du_core_contracts::scan_failures::ScanIssue>,
     finished: bool,
 }
 struct StoredObservation {
@@ -409,6 +413,7 @@ impl BuildHandle {
             items: built.items,
             physical: built.physical,
             modified_times: built.modified_times,
+            issues: issues::ordered(&self.issues),
             aggregates,
             roots: self.roots.clone(),
             root_indices: built.keys.into_iter().map(|(root, _)| root).collect(),

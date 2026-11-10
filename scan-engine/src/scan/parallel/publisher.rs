@@ -82,11 +82,21 @@ impl Progress {
                 path,
                 root,
                 reason,
+                stage,
+                observed_at,
             } => {
                 counts.failed += 1;
                 if root && !self.root_published[root_index as usize] {
                     self.failed_roots[root_index as usize] = true;
                 }
+                build.record_scan_issue(du_core_contracts::scan_failures::ScanIssue {
+                    root_index,
+                    relative: path.clone(),
+                    kind: du_core_contracts::scan_failures::ScanFailureKind::UnreadRange,
+                    stage,
+                    reason_key: reason.into(),
+                    observed_at: observed_at.clone(),
+                })?;
                 build.record_gap_at(root_index, path, reason.into(), context.utc_now())?;
                 self.cadence.changed();
                 Ok(())

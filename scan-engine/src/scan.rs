@@ -1,4 +1,5 @@
 //! Sequential collection from already verified directory handles.
+mod issues;
 mod parallel;
 use du_analysis_index::{
     BuildError, BuildHandle, FileIdentity, IngestSink, Observation, SharingEvidence,
@@ -187,7 +188,7 @@ fn walk(
         }
         if let Some(entry) = frame.recorded_directories.pop_front() {
             let path = vec![entry.name.clone()];
-            if let Some(child) = open_child(&*frame.dir, &entry, path, counts) {
+            if let Some(child) = open_child(build, &*frame.dir, &entry, path, counts)? {
                 stack.push(child);
             }
             continue;
@@ -199,7 +200,7 @@ fn walk(
                 continue;
             }
             if record(build, &entry, &path, counts)?
-                && let Some(child) = open_child(&*frame.dir, &entry, path, counts)
+                && let Some(child) = open_child(build, &*frame.dir, &entry, path, counts)?
             {
                 stack.push(child);
             }
@@ -210,8 +211,20 @@ fn walk(
                 stack.pop();
             }
             Ok(batch) if batch.len() <= 8192 => frame.entries = batch.into(),
-            _ => {
+            failure => {
                 counts.failed += 1;
+                let reason = match failure {
+                    Err(ref error) => issues::reason(error),
+                    _ => "scan.unclassified",
+                };
+                issues::unread(
+                    build,
+                    0,
+                    frame.path.clone(),
+                    du_core_contracts::scan_failures::ScanFailureStage::Enumerate,
+                    reason,
+                    None,
+                )?;
                 stack.pop();
             }
         }
@@ -235,6 +248,16 @@ fn record_at(
     path: &[Vec<u8>],
     counts: &mut JobCounts,
 ) -> Result<bool, BuildError> {
+    if let Some((kind, stage, reason)) = issues::classify(entry) {
+        build.record_scan_issue(du_core_contracts::scan_failures::ScanIssue {
+            root_index,
+            relative: path.to_vec(),
+            kind,
+            stage,
+            reason_key: reason.into(),
+            observed_at: None,
+        })?;
+    }
     let meta = match &entry.metadata {
         Ok(meta)
             if entry.enumerated_inode != 0
@@ -328,21 +351,30 @@ fn os_size(basis: SizeBasis, bytes: u64) -> SizeValue {
 }
 
 fn open_child(
+    build: &mut BuildHandle,
     parent: &dyn AnchoredDirectory,
     entry: &ObservedEntry,
     path: Vec<Vec<u8>>,
     counts: &mut JobCounts,
-) -> Option<Frame> {
+) -> Result<Option<Frame>, BuildError> {
     match parent.open_child(entry) {
-        Ok(dir) => Some(Frame {
+        Ok(dir) => Ok(Some(Frame {
             path,
             dir,
             entries: VecDeque::new(),
             recorded_directories: VecDeque::new(),
-        }),
-        Err(_) => {
+        })),
+        Err(error) => {
             counts.failed += 1;
-            None
+            issues::unread(
+                build,
+                0,
+                path,
+                du_core_contracts::scan_failures::ScanFailureStage::OpenDirectory,
+                issues::reason(&error),
+                None,
+            )?;
+            Ok(None)
         }
     }
 }

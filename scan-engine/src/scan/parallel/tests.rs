@@ -118,6 +118,12 @@ fn forest_keeps_same_names_separate_and_records_failed_root()
     assert_eq!(version.scope_gaps().len(), 1);
     assert_eq!(version.scope_gaps()[0].root_index, 2);
     assert_eq!(version.scope_gaps()[0].reason_key, "scan.path_denied");
+    assert_eq!(version.scan_issues().len(), 1);
+    assert_eq!(version.scan_issues()[0].root_index, 2);
+    assert_eq!(
+        version.scan_issues()[0].stage,
+        du_core_contracts::scan_failures::ScanFailureStage::Enumerate
+    );
     let files: Vec<_> = version
         .items()
         .iter()

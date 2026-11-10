@@ -99,6 +99,49 @@ fn publishes_tree_and_records_failures_without_zeroing() -> Result<(), Box<dyn s
         .pin()
         .map_err(|e| format!("{e:?}"))?
         .ok_or("no result")?;
+    use du_core_contracts::scan_failures::{ScanFailureKind as Kind, ScanFailureStage as Stage};
+    let facts = result.scan_issues();
+    assert_eq!(facts.len(), 3);
+    assert_eq!(
+        (
+            facts[0].relative[0].as_slice(),
+            facts[0].kind,
+            facts[0].stage
+        ),
+        (
+            b"denied".as_slice(),
+            Kind::UnreadRange,
+            Stage::OpenDirectory
+        )
+    );
+    assert_eq!(
+        (
+            facts[1].relative[0].as_slice(),
+            facts[1].kind,
+            facts[1].stage,
+            facts[1].reason_key.as_str()
+        ),
+        (
+            b"link".as_slice(),
+            Kind::UntraversedLink,
+            Stage::Traverse,
+            "scan.link_untraversed"
+        )
+    );
+    assert_eq!(
+        (
+            facts[2].relative[0].as_slice(),
+            facts[2].kind,
+            facts[2].stage
+        ),
+        (
+            b"unknown".as_slice(),
+            Kind::CollectionFailed,
+            Stage::Metadata
+        )
+    );
+    assert!(facts.iter().all(|fact| fact.observed_at.is_none()));
+    assert!(result.scope_gaps().is_empty());
     assert_eq!(result.completeness(), ResultCompleteness::Missing);
     assert_eq!(result.items().len(), 5);
     assert_eq!(result.items()[0].kind, ResultItemKind::Directory);
@@ -190,6 +233,10 @@ fn replacement_and_excluded_entries_are_not_opened() -> Result<(), Box<dyn std::
     assert_eq!(result.completeness(), ResultCompleteness::Missing);
     assert_eq!(result.items().len(), 2);
     assert_eq!(result.items()[1].name, b"changed");
+    assert_eq!(
+        result.scan_issues()[0].kind,
+        du_core_contracts::scan_failures::ScanFailureKind::Uncertain
+    );
     assert!(result.items()[1].size.is_none());
     Ok(())
 }
