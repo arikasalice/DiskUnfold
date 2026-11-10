@@ -17,6 +17,75 @@ fn id(n: u32) -> Result<Id, String> {
 }
 
 #[test]
+fn another_lineage_can_publish_while_rows_are_being_prepared() -> Result<(), String> {
+    use du_core_contracts::{
+        PathBytes, PathEncoding,
+        result::{ResultNativePath, ResultScopeRoot},
+    };
+    let source = IngestSink::default();
+    let first = source
+        .bind_current_analysis("first", id(10)?)
+        .map_err(|e| format!("{e:?}"))?;
+    let second = source
+        .bind_current_analysis("second", id(11)?)
+        .map_err(|e| format!("{e:?}"))?;
+    let root = || ResultScopeRoot {
+        path: ResultNativePath {
+            encoding: PathEncoding::Unix,
+            raw: PathBytes::from_bytes(b"/fixture"),
+        },
+        volume_id: vec![1],
+        file_id: vec![2],
+    };
+    let mut build = source
+        .open_forest_in_lineage(id(1)?, vec![root()], first)
+        .map_err(|e| format!("{e:?}"))?;
+    build.add_directory(vec![]).map_err(|e| format!("{e:?}"))?;
+    let version = build
+        .seal(id(2)?, ResultCompleteness::Complete)
+        .map_err(|e| format!("{e:?}"))?;
+    let pages = Arc::new(ModelPages::new(
+        source.clone(),
+        NonZeroUsize::MIN,
+        Arc::new(Ids(AtomicU64::new(1))),
+    ));
+    let entered = Arc::new(Barrier::new(2));
+    let resume = Arc::new(Barrier::new(2));
+    let worker = {
+        let pages = pages.clone();
+        let entered = entered.clone();
+        let resume = resume.clone();
+        std::thread::spawn(move || {
+            pages.register_after_prepare(
+                ModelInput {
+                    version,
+                    condition_fingerprint: "first".into(),
+                    rows: vec![],
+                    groups: HashMap::new(),
+                },
+                None,
+                &mut || false,
+                || {
+                    entered.wait();
+                    resume.wait();
+                },
+            )
+        })
+    };
+    entered.wait();
+    let mut build = source
+        .open_forest_in_lineage(id(3)?, vec![root()], second)
+        .map_err(|e| format!("{e:?}"))?;
+    build.add_directory(vec![]).map_err(|e| format!("{e:?}"))?;
+    build
+        .seal(id(4)?, ResultCompleteness::Complete)
+        .map_err(|e| format!("{e:?}"))?;
+    resume.wait();
+    assert!(worker.join().map_err(|_| "worker panic")?.is_ok());
+    Ok(())
+}
+
+#[test]
 fn replacement_before_registration_cannot_commit_old_model() -> Result<(), String> {
     let source = IngestSink::default();
     let mut build = source.open(id(1)?).map_err(|e| format!("{e:?}"))?;

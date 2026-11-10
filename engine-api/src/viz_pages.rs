@@ -73,7 +73,10 @@ impl ModelPages {
     }
 
     // Lock order is model session, result publication store, then model rows.
-    // Result publication, including other lineages, waits while rows are inserted.
+    // Row validation and storage preparation happen before these locks; detached
+    // rows and layouts are destroyed after them. Publication still waits for
+    // lookups, allocations/rehashing, at most one eviction and O(capacity) LRU
+    // updates; source-wide table and lineage counts have no configured bound.
     // No cancellation callback or identity port runs under the publication lock.
     fn register_with_layout(
         &self,
@@ -81,20 +84,37 @@ impl ModelPages {
         layout: Option<Arc<projection::Model>>,
         cancelled: &mut dyn FnMut() -> bool,
     ) -> Result<(String, Option<Arc<projection::Model>>), Error> {
+        self.register_after_prepare(input, layout, cancelled, || {})
+    }
+
+    fn register_after_prepare(
+        &self,
+        input: ModelInput,
+        layout: Option<Arc<projection::Model>>,
+        cancelled: &mut dyn FnMut() -> bool,
+        during_prepare: impl FnOnce(),
+    ) -> Result<(String, Option<Arc<projection::Model>>), Error> {
         validate_input(&input)?;
         let reference = self.ids.next_id().as_str().to_owned();
+        let ModelInput {
+            version,
+            condition_fingerprint,
+            rows,
+            groups,
+        } = input;
+        let key = (version.version_id().clone(), condition_fingerprint);
+        during_prepare();
+        let mut rows = Some(live_models::PreparedRows::new(rows, groups));
         let mut state = self.state.lock().map_err(|_| Error::Unavailable)?;
         if cancelled() {
             return Err(Error::Cancelled);
         }
-        let pinned = input.version.clone();
-        self.source
-            .with_current(&pinned, || {
-                let current = &input.version;
-                let key = (
-                    input.version.version_id().clone(),
-                    input.condition_fingerprint.clone(),
-                );
+        let mut retired = None;
+        let mut rollback = None;
+        let result = self
+            .source
+            .with_current(&version, || {
+                let current = &version;
                 if let Some(existing) = state.conditions.get(&key).cloned() {
                     let entry = state.entries.get(&existing).ok_or(Error::Unavailable)?;
                     if !entry
@@ -127,7 +147,7 @@ impl ModelPages {
                     .map_err(|_| Error::Unavailable)?;
                 state.lru.try_reserve(1).map_err(|_| Error::Unavailable)?;
                 current
-                    .insert_viz_rows(reference.clone(), input.rows, input.groups)
+                    .insert_prepared_viz_rows(reference.clone(), &mut rows)
                     .map_err(model_error)?;
                 while state.entries.len() >= self.capacity.get() {
                     let result = state
@@ -135,10 +155,13 @@ impl ModelPages {
                         .front()
                         .cloned()
                         .ok_or(Error::Unavailable)
-                        .and_then(|oldest| remove(&mut state, &oldest));
-                    if let Err(error) = result {
-                        let _ = current.remove_viz_rows(&reference);
-                        return Err(error);
+                        .and_then(|oldest| remove_deferred(&mut state, &oldest));
+                    match result {
+                        Ok(old) => retired = Some(old),
+                        Err(error) => {
+                            rollback = current.retire_viz_rows(&reference).ok();
+                            return Err(error);
+                        }
                     }
                 }
                 state.entries.insert(
@@ -150,11 +173,16 @@ impl ModelPages {
                         layout: layout.clone(),
                     },
                 );
-                state.conditions.insert(key, reference.clone());
+                state.conditions.insert(key.clone(), reference.clone());
                 touch(&mut state.lru, &reference);
-                Ok((reference, layout))
+                Ok((reference.clone(), layout.clone()))
             })
-            .map_err(source_error)?
+            .map_err(source_error);
+        drop(state);
+        drop(retired);
+        drop(rollback);
+        drop(rows);
+        result?
     }
     /// Admit the source and model together before copying the page without holding the index lock.
     pub fn rows(&self, request: &VizRowsRequest) -> Result<VizRows, Error> {
@@ -337,18 +365,27 @@ fn touch(lru: &mut VecDeque<String>, key: &str) {
     lru.push_back(key.to_owned());
 }
 fn remove(state: &mut State, key: &str) -> Result<(), Error> {
+    drop(remove_deferred(state, key)?);
+    Ok(())
+}
+fn remove_deferred(
+    state: &mut State,
+    key: &str,
+) -> Result<(Option<Entry>, Option<live_models::RetiredRows>), Error> {
+    let mut rows = None;
     if let Some(entry) = state.entries.get(key)
         && let Some(source) = entry.source.upgrade()
     {
-        source.remove_viz_rows(key).map_err(model_error)?;
+        rows = Some(source.retire_viz_rows(key).map_err(model_error)?);
     }
-    if let Some(entry) = state.entries.remove(key) {
+    let entry = state.entries.remove(key);
+    if let Some(entry) = &entry {
         state
             .conditions
-            .remove(&(entry.revision, entry.fingerprint));
+            .remove(&(entry.revision.clone(), entry.fingerprint.clone()));
     }
     state.lru.retain(|item| item != key);
-    Ok(())
+    Ok((entry, rows))
 }
 
 #[cfg(test)]
