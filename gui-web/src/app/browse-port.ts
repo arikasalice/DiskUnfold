@@ -88,6 +88,13 @@ export function createBrowsePort(
         signal?.throwIfAborted();
         if (response.requestSeq !== wireSeq)
           throw new Error("The folder query sequence does not match.");
+        if (
+          request.resultVersion != null &&
+          response.page.resultVersion !== request.resultVersion
+        )
+          throw new Error(
+            "The folder query does not match the selected result.",
+          );
         return { ...response, requestSeq: request.requestSeq };
       }
       const jobRef = response.jobRef;

@@ -40,6 +40,44 @@ function reply(envelope: CallEnvelope, body: unknown) {
   };
 }
 
+test("an immediate folder page must match the requested pinned version", async () => {
+  const client = createAnalysisClient(async (_, { envelope }) => {
+    if (envelope.name === "query.region.open")
+      return reply(envelope, { regionRef: "region" });
+    if (envelope.name === "browse.open")
+      return reply(envelope, {
+        kind: "opened",
+        requestSeq: 3,
+        ...page.browseContext,
+        page: { ...page, resultVersion: "different-version" },
+      });
+    throw new Error(`Unexpected command ${envelope.name}`);
+  });
+  await expect(createBrowsePort(client).open(request)).rejects.toThrow(
+    "does not match the selected result",
+  );
+});
+
+test("an unpinned immediate open accepts the resolved source version", async () => {
+  const client = createAnalysisClient(async (_, { envelope }) => {
+    if (envelope.name === "query.region.open")
+      return reply(envelope, { regionRef: "region" });
+    if (envelope.name === "browse.open")
+      return reply(envelope, {
+        kind: "opened",
+        requestSeq: 3,
+        ...page.browseContext,
+        page: { ...page, resultVersion: "resolved-version" },
+      });
+    throw new Error(`Unexpected command ${envelope.name}`);
+  });
+  const unpinned = { viewKind: request.viewKind, requestSeq: 3, pageSize: 200 };
+  await expect(createBrowsePort(client).open(unpinned)).resolves.toMatchObject({
+    kind: "opened",
+    page: { resultVersion: "resolved-version" },
+  });
+});
+
 test("a finished folder job uses context from its pinned page", async () => {
   const calls: string[] = [];
   const client = createAnalysisClient(async (_, { envelope }) => {
