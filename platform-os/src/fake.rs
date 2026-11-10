@@ -177,7 +177,7 @@ impl Clock for FakeWorld {
     }
 }
 impl Random for FakeWorld {
-    fn fill(&self, bytes: &mut [u8]) {
+    fn fill(&self, bytes: &mut [u8]) -> Result<(), PortError> {
         let mut state = self.state();
         for byte in bytes {
             state.random = state
@@ -186,5 +186,6 @@ impl Random for FakeWorld {
                 .wrapping_add(1442695040888963407);
             *byte = (state.random >> 56) as u8;
         }
+        Ok(())
     }
 }

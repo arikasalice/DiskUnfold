@@ -33,8 +33,8 @@ fn tree_and_deterministic_random() {
     assert_eq!(a.read(b"/dir/a", 2).unwrap(), b"he");
     let mut x = [0; 16];
     let mut y = [0; 16];
-    a.fill(&mut x);
-    b.fill(&mut y);
+    a.fill(&mut x).unwrap();
+    b.fill(&mut y).unwrap();
     assert_eq!(x, y);
     assert!(
         FakeWorld::new(

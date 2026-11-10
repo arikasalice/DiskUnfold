@@ -39,6 +39,9 @@ pub trait ContentReadPort: Send + Sync {
 pub trait Clock: Send + Sync {
     fn monotonic_millis(&self) -> u64;
 }
+/// Production implementations provide cryptographically secure OS randomness.
+/// Deterministic implementations are for isolated tests only.
 pub trait Random: Send + Sync {
-    fn fill(&self, bytes: &mut [u8]);
+    /// Fills the entire buffer or reports a failure; callers must discard it on error.
+    fn fill(&self, bytes: &mut [u8]) -> Result<(), PortError>;
 }

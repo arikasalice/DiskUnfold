@@ -1,4 +1,5 @@
 use du_analysis_index::{IngestSink, Observation, query};
+use du_core_contracts::ports::{PortError, PortErrorKind, Random};
 use du_core_contracts::{Id, ItemRef, result::ResultCompleteness};
 use du_engine_api::browse::folder::cursor::{CursorError, Session};
 use du_engine_api::browse::folder::{Error, FolderBrowse, OpenRequest, Sort, View};
@@ -62,6 +63,52 @@ fn request(location: Option<ItemRef>) -> OpenRequest {
         },
         page_size: Some(1),
     }
+}
+
+struct SequenceRandom(AtomicU8);
+impl Random for SequenceRandom {
+    fn fill(&self, bytes: &mut [u8]) -> Result<(), PortError> {
+        assert_eq!(bytes.len(), 32);
+        bytes.fill(self.0.fetch_add(1, Ordering::SeqCst));
+        Ok(())
+    }
+}
+
+struct FailingRandom;
+impl Random for FailingRandom {
+    fn fill(&self, bytes: &mut [u8]) -> Result<(), PortError> {
+        bytes.fill(42);
+        Err(PortError {
+            kind: PortErrorKind::Io,
+            reason_key: "os.random_unavailable".into(),
+            os_code: None,
+        })
+    }
+}
+
+#[test]
+fn session_generation_fails_closed_and_fresh_sessions_reject_prior_cursors() -> Result<(), String> {
+    let (_, api) = fixture(false)?;
+    let shared = Arc::new(api);
+    let error = match Session::try_new(shared.clone(), &FailingRandom) {
+        Ok(_) => return Err("failed entropy admitted a session".into()),
+        Err(error) => error,
+    };
+    assert_eq!(error.reason_key, "os.random_unavailable");
+    let random = SequenceRandom(AtomicU8::new(1));
+    let first = Session::try_new(shared.clone(), &random).map_err(|e| format!("{e:?}"))?;
+    let second = Session::try_new(shared, &random).map_err(|e| format!("{e:?}"))?;
+    let cursor = first
+        .open(request(None), &[], || false)
+        .map_err(|e| format!("{e:?}"))?
+        .next_cursor
+        .ok_or("missing cursor")?;
+    assert!(first.page(&cursor, None).is_ok());
+    assert!(matches!(
+        second.page(&cursor, None),
+        Err(CursorError::Invalid)
+    ));
+    Ok(())
 }
 #[test]
 fn authenticated_session_cursor_replays_and_rejects_tamper_or_other_context() -> Result<(), String>

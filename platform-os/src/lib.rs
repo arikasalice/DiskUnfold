@@ -1,4 +1,5 @@
 //! Operating-system adapters. The in-memory implementation is test-only.
+pub mod entropy;
 #[cfg(feature = "fake")]
 pub mod fake;
 #[cfg(target_os = "linux")]

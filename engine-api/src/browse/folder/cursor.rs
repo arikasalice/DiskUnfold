@@ -7,7 +7,10 @@ pub use condition::CanonicalCondition;
 use std::sync::Arc;
 
 use du_analysis_index::query::page::{Page, PageError};
-use du_core_contracts::{Id, PathBytes};
+use du_core_contracts::{
+    Id, PathBytes,
+    ports::{PortError, Random},
+};
 
 use super::{
     AdmittedOpen, Error, FolderBrowse, FolderPage, OpenRequest, Opened, Sort, project,
@@ -48,6 +51,14 @@ pub struct Session {
 }
 
 impl Session {
+    /// Creates a session only after obtaining a fresh 32-byte key from the random port.
+    /// Production composition must inject cryptographically secure OS randomness.
+    pub fn try_new(browse: Arc<FolderBrowse>, random: &dyn Random) -> Result<Self, PortError> {
+        let mut key = [0; 32];
+        random.fill(&mut key)?;
+        Ok(Self::new(browse, key))
+    }
+
     /// Constructs a GUI-session reader. The caller must supply a CSPRNG-generated key.
     pub fn new(browse: Arc<FolderBrowse>, key: [u8; 32]) -> Self {
         Self { browse, key }
