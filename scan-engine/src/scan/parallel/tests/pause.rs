@@ -6,6 +6,7 @@ use std::time::Duration;
 struct State {
     paused: bool,
     cancelled: bool,
+    aborted: bool,
     active: usize,
     waiting: usize,
 }
@@ -24,10 +25,19 @@ impl JobContext for PauseContext {
             Checkpoint::Continue
         }
     }
+    fn abort_flows(&self) {
+        if let Ok(mut state) = self.0.state.lock() {
+            state.aborted = true;
+            self.0.changed.notify_all();
+        }
+    }
     fn try_start_flow(&self) -> Result<Box<dyn JobFlow>, JobFlowError> {
         let mut state = self.0.state.lock().map_err(|_| JobFlowError::Closed)?;
         if state.cancelled {
             return Err(JobFlowError::Cancelled);
+        }
+        if state.aborted {
+            return Err(JobFlowError::Closed);
         }
         if state.paused {
             return Err(JobFlowError::Busy);
@@ -41,10 +51,10 @@ impl JobFlow for PauseFlow {
         let Ok(mut state) = self.0.state.lock() else {
             return Checkpoint::Cancel;
         };
-        if state.paused && !state.cancelled {
+        if state.paused && !state.cancelled && !state.aborted {
             state.waiting += 1;
             self.0.changed.notify_all();
-            while state.paused && !state.cancelled {
+            while state.paused && !state.cancelled && !state.aborted {
                 state = match self.0.changed.wait(state) {
                     Ok(s) => s,
                     Err(_) => return Checkpoint::Cancel,
@@ -52,7 +62,7 @@ impl JobFlow for PauseFlow {
             }
             state.waiting -= 1;
         }
-        if state.cancelled {
+        if state.cancelled || state.aborted {
             Checkpoint::Cancel
         } else {
             Checkpoint::Continue
@@ -184,7 +194,7 @@ fn pause_waits_for_inflight_batch_idle_flow_parks_and_resume_does_not_duplicate(
 }
 
 #[test]
-fn abort_alone_cannot_wake_a_flow_parked_in_the_safe_point() -> Result<(), String> {
+fn abort_wakes_parked_flow_without_user_cancellation() -> Result<(), String> {
     let control = Arc::new(Control::default());
     let context = PauseContext(control.clone());
     let flow = context.try_start_flow().map_err(|e| format!("{e:?}"))?;
@@ -199,23 +209,24 @@ fn abort_alone_cannot_wake_a_flow_parked_in_the_safe_point() -> Result<(), Strin
         flow.finish(JobCounts::default());
     });
     let s = control.state.lock().map_err(|_| "state")?;
-    let (mut s, timeout) = control
+    let (s, timeout) = control
         .changed
         .wait_timeout_while(s, Duration::from_secs(3), |s| s.waiting == 0)
         .map_err(|_| "state")?;
     assert!(!timeout.timed_out());
-    let abort = AtomicBool::new(false);
-    abort.store(true, Ordering::Release);
-    assert!(done_rx.recv_timeout(Duration::from_millis(100)).is_err());
-    s.cancelled = true;
-    control.changed.notify_all();
     drop(s);
+    context.abort_flows();
     assert_eq!(
         done_rx
             .recv_timeout(Duration::from_secs(3))
             .map_err(|e| e.to_string())?,
         Checkpoint::Cancel
     );
+    assert_eq!(context.checkpoint(), Checkpoint::Continue);
+    assert!(matches!(
+        context.try_start_flow(),
+        Err(JobFlowError::Closed)
+    ));
     handle.join().map_err(|_| "join")?;
     Ok(())
 }
@@ -379,5 +390,94 @@ fn initial_volume_io_is_own_flow_and_parks_after_return() -> Result<(), String> 
     drop(s);
     assert!(task.join().map_err(|_| "join")?.completed_scope);
     assert_eq!(calls.load(Ordering::SeqCst), 2);
+    Ok(())
+}
+
+struct PanickingBatch {
+    entered: mpsc::Sender<()>,
+    release: mpsc::Receiver<()>,
+}
+impl DirectoryObservations for PanickingBatch {
+    fn next_batch(&mut self) -> Result<Vec<ObservedEntry>, PortError> {
+        let _ = self.entered.send(());
+        let _ = self.release.recv();
+        std::panic::resume_unwind(Box::new("injected observation failure"))
+    }
+}
+impl AnchoredDirectory for PanickingBatch {
+    fn open_child(&self, _: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError> {
+        Err(fail())
+    }
+}
+#[test]
+fn worker_panic_wakes_parked_flow_and_restores_previous_version() -> Result<(), String> {
+    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "worker lock")?;
+    let control = Arc::new(Control::default());
+    let context = Arc::new(PauseContext(control.clone()));
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let (done_tx, done_rx) = mpsc::channel();
+    let store = IngestSink::default();
+    let mut prior = store
+        .open(Ids(AtomicUsize::new(70)).next_id())
+        .map_err(|e| format!("{e:?}"))?;
+    prior
+        .add_directory(Vec::new())
+        .map_err(|e| format!("{e:?}"))?;
+    let baseline = prior
+        .seal(
+            Ids(AtomicUsize::new(71)).next_id(),
+            ResultCompleteness::Complete,
+        )
+        .map_err(|e| format!("{e:?}"))?;
+    let build = store.open_forest(
+        Ids(AtomicUsize::new(72)).next_id(),
+        vec![observed_root("C:\\A", 1)],
+    );
+    let task_context = context.clone();
+    let handle = std::thread::spawn(move || {
+        let ids = Ids(AtomicUsize::new(1));
+        let roots: Vec<Box<dyn AnchoredDirectory>> = vec![Box::new(PanickingBatch {
+            entered: entered_tx,
+            release: release_rx,
+        })];
+        let outcome = collect_open_forest(build, roots, &ids, &*task_context, 2, &|_| true);
+        let _ = done_tx.send(outcome);
+    });
+    entered_rx
+        .recv_timeout(Duration::from_secs(3))
+        .map_err(|e| e.to_string())?;
+    {
+        let mut state = control.state.lock().map_err(|_| "state")?;
+        state.paused = true;
+    }
+    let state = control.state.lock().map_err(|_| "state")?;
+    let (state, timeout) = control
+        .changed
+        .wait_timeout_while(state, Duration::from_secs(3), |s| s.waiting == 0)
+        .map_err(|_| "state")?;
+    assert!(!timeout.timed_out());
+    assert!(state.waiting < state.active);
+    drop(state);
+    release_tx.send(()).map_err(|e| e.to_string())?;
+    let outcome = done_rx
+        .recv_timeout(Duration::from_secs(3))
+        .map_err(|e| e.to_string())?;
+    assert!(!outcome.completed_scope);
+    assert_eq!(
+        outcome.failure_reason_key.as_deref(),
+        Some("support.internal_error")
+    );
+    assert!(outcome.result_version_id.is_none());
+    assert_eq!(context.checkpoint(), Checkpoint::Continue);
+    assert_eq!(
+        store
+            .pin()
+            .map_err(|e| format!("{e:?}"))?
+            .ok_or("missing baseline")?
+            .version_id(),
+        baseline.version_id()
+    );
+    handle.join().map_err(|_| "join")?;
     Ok(())
 }

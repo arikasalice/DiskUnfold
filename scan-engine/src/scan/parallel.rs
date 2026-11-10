@@ -81,13 +81,12 @@ struct Shared {
     abort: AtomicBool,
 }
 impl Shared {
-    fn abort(&self) {
-        let _queue = self
-            .queue
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+    /// Stops all scan flows after an internal failure, without requesting user cancellation.
+    fn abort(&self, context: &dyn JobContext) {
         self.abort.store(true, Ordering::Release);
         self.wake.notify_all();
+        // The runtime may acquire its own locks; never hold the queue lock here.
+        context.abort_flows();
     }
 }
 enum Event {
@@ -346,7 +345,7 @@ fn run(
         drop(sender);
         if let Err(error) = spawned {
             failure = Some(error);
-            shared.abort();
+            shared.abort(context);
             drop(receiver);
             return;
         }
@@ -358,7 +357,7 @@ fn run(
         };
         if let Err(error) = consume(receiver, &mut progress, &mut build, counts, services) {
             failure = Some(error);
-            shared.abort();
+            shared.abort(context);
         }
     });
     if let Some(error) = failure {
@@ -447,7 +446,7 @@ fn spawn_workers<'scope, 'env>(
                 if let Some(flow) = flow {
                     worker(shared, sender, context, policy, flow);
                 } else {
-                    shared.abort();
+                    shared.abort(context);
                 }
             })
         };
@@ -464,7 +463,7 @@ fn spawn_workers<'scope, 'env>(
             for flow in flows {
                 flow.finish(JobCounts::default());
             }
-            shared.abort();
+            shared.abort(context);
             return Err(BuildError::Unavailable);
         }
     }

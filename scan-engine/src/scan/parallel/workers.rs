@@ -3,8 +3,7 @@
 //! Each worker parks outside queue locks and device permits after transferring
 //! an item or returned batch into owned state. An in-flight adapter call is
 //! allowed to return first; a pause request is not itself a completed pause.
-//! A shared abort cannot wake a flow already blocked inside `safe_point`; the
-//! runtime must resume or cancel that flow until an abort-aware port exists.
+//! Internal abort wakes parked flows without setting the user cancellation flag.
 use super::*;
 
 pub(super) fn worker(
@@ -18,7 +17,7 @@ pub(super) fn worker(
         worker_loop(shared, &sender, context, policy, &*flow)
     }));
     if !matches!(result, Ok(true)) {
-        shared.abort();
+        shared.abort(context);
     }
     flow.finish(JobCounts::default());
 }
@@ -112,7 +111,14 @@ fn take<'a>(
     prefer_shared: bool,
     flow: &dyn JobFlow,
 ) -> Option<Claim<'a>> {
-    let mut queue = shared.queue.lock().ok()?;
+    let mut queue = match shared.queue.lock() {
+        Ok(queue) => queue,
+        Err(error) => {
+            drop(error.into_inner());
+            shared.abort(context);
+            return None;
+        }
+    };
     loop {
         if context.checkpoint() == Checkpoint::Cancel || shared.abort.load(Ordering::Acquire) {
             return None;
@@ -128,16 +134,26 @@ fn take<'a>(
         if queue.remaining == 0 {
             return None;
         }
-        queue = shared
-            .wake
-            .wait_timeout(queue, Duration::from_millis(25))
-            .ok()?
-            .0;
+        queue = match shared.wake.wait_timeout(queue, Duration::from_millis(25)) {
+            Ok((queue, _)) => queue,
+            Err(error) => {
+                drop(error.into_inner());
+                shared.abort(context);
+                return None;
+            }
+        };
         drop(queue);
         if flow.safe_point() == Checkpoint::Cancel {
             return None;
         }
-        queue = shared.queue.lock().ok()?;
+        queue = match shared.queue.lock() {
+            Ok(queue) => queue,
+            Err(error) => {
+                drop(error.into_inner());
+                shared.abort(context);
+                return None;
+            }
+        };
     }
 }
 
@@ -164,7 +180,7 @@ fn process(
                     return true;
                 }
                 Ok(None) => {
-                    requeue(shared, frame, local);
+                    requeue(shared, frame, local, context);
                     return true;
                 }
                 Err(()) => return false,
@@ -175,13 +191,13 @@ fn process(
         }
         if frame.batch_pending {
             frame.batch_pending = false;
-            requeue(shared, frame, local);
+            requeue(shared, frame, local, context);
             return true;
         }
         let outcome = next_entries(&mut frame, context, policy);
         match outcome {
             Ok(None) => {
-                requeue(shared, frame, local);
+                requeue(shared, frame, local, context);
                 return true;
             }
             Err(ReadFailure::Filter) => {
@@ -194,7 +210,7 @@ fn process(
                 frame.first_batch |= frame.root && !frame.root_published;
                 frame.batch_pending = true;
                 frame.entries = batch.into();
-                requeue(shared, frame, local);
+                requeue(shared, frame, local, context);
                 return true;
             }
             outcome => {
@@ -210,7 +226,7 @@ fn process(
                     stage: du_core_contracts::scan_failures::ScanFailureStage::Enumerate,
                     observed_at: context.utc_now(),
                 });
-                complete(shared, frame.root_index);
+                complete(shared, frame.root_index, context);
                 return true;
             }
         }
@@ -227,7 +243,7 @@ fn finish_directory(
     if frame.root && !frame.root_published && !send_root_batch(frame, sender, context) {
         return false;
     }
-    complete(shared, frame.root_index);
+    complete(shared, frame.root_index, context);
     true
 }
 
@@ -338,6 +354,7 @@ fn process_entry(
     match frame.directory.open_child(entry) {
         Ok(directory) => Ok(schedule(
             shared,
+            context,
             Frame {
                 root_index: frame.root_index,
                 path,
@@ -365,13 +382,12 @@ fn process_entry(
         }
     }
 }
-fn requeue(shared: &Shared, frame: Frame, local: &mut Vec<Frame>) {
+fn requeue(shared: &Shared, frame: Frame, local: &mut Vec<Frame>, context: &dyn JobContext) {
     let mut queue = match shared.queue.lock() {
         Ok(queue) => queue,
         Err(error) => {
-            let _queue = error.into_inner();
-            shared.abort.store(true, Ordering::Release);
-            shared.wake.notify_all();
+            drop(error.into_inner());
+            shared.abort(context);
             local.push(frame);
             return;
         }
@@ -392,13 +408,12 @@ fn eligible_directory(entry: &du_core_contracts::scan_observation::ObservedEntry
             && (entry.enumerated_kind == ObservedKind::Unknown || entry.enumerated_kind == m.kind)
     })
 }
-fn schedule(shared: &Shared, frame: Frame) -> Option<Frame> {
+fn schedule(shared: &Shared, context: &dyn JobContext, frame: Frame) -> Option<Frame> {
     let mut queue = match shared.queue.lock() {
         Ok(queue) => queue,
         Err(error) => {
-            let _queue = error.into_inner();
-            shared.abort.store(true, Ordering::Release);
-            shared.wake.notify_all();
+            drop(error.into_inner());
+            shared.abort(context);
             return Some(frame);
         }
     };
@@ -411,85 +426,19 @@ fn schedule(shared: &Shared, frame: Frame) -> Option<Frame> {
     }
     Some(frame)
 }
-fn complete(shared: &Shared, root_index: u32) {
-    if let Ok(mut queue) = shared.queue.lock() {
-        queue.remaining -= 1;
-        queue.root_remaining[root_index as usize] -= 1;
-        shared.wake.notify_all();
+fn complete(shared: &Shared, root_index: u32, context: &dyn JobContext) {
+    match shared.queue.lock() {
+        Ok(mut queue) => {
+            queue.remaining -= 1;
+            queue.root_remaining[root_index as usize] -= 1;
+            shared.wake.notify_all();
+        }
+        Err(error) => {
+            drop(error.into_inner());
+            shared.abort(context);
+        }
     }
 }
 
 #[cfg(test)]
-mod permit_tests {
-    use super::*;
-    use du_core_contracts::{
-        ports::{PortError, PortErrorKind},
-        scan_observation::DirectoryObservations,
-    };
-    struct Empty;
-    impl DirectoryObservations for Empty {
-        fn next_batch(&mut self) -> Result<Vec<ObservedEntry>, PortError> {
-            Ok(Vec::new())
-        }
-    }
-    impl AnchoredDirectory for Empty {
-        fn open_child(&self, _: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError> {
-            Err(PortError {
-                kind: PortErrorKind::Unsupported,
-                reason_key: "os.unsupported".into(),
-                os_code: None,
-            })
-        }
-    }
-    #[test]
-    fn permit_is_released_during_panic_unwind() {
-        let frame = Frame {
-            root_index: 0,
-            path: Vec::new(),
-            directory: Box::new(Empty),
-            entries: VecDeque::new(),
-            deferred: VecDeque::new(),
-            root: true,
-            first_batch: false,
-            root_published: false,
-            batch_pending: false,
-        };
-        let shared = Shared {
-            queue: Mutex::new(Queue {
-                ready: VecDeque::from([frame]),
-                last_root: None,
-                remaining: 1,
-                root_remaining: vec![1],
-                root_groups: vec![0],
-                active_groups: vec![0],
-                device_limit: 1,
-                started: true,
-            }),
-            wake: Condvar::new(),
-            abort: AtomicBool::new(false),
-        };
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let mut queue = shared
-                .queue
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            let claim = claim_ready(&shared, &mut queue);
-            drop(queue);
-            let _claim = claim;
-            assert!(
-                shared
-                    .queue
-                    .lock()
-                    .is_ok_and(|queue| queue.active_groups[0] == 1)
-            );
-            std::panic::resume_unwind(Box::new("injected panic"));
-        }));
-        assert!(result.is_err());
-        assert!(
-            shared
-                .queue
-                .lock()
-                .is_ok_and(|queue| queue.active_groups[0] == 0)
-        );
-    }
-}
+mod permit_tests;
