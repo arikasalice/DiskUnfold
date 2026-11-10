@@ -107,3 +107,81 @@ fn rejecting_reparse_component_fails_closed() -> Result<(), Box<dyn std::error::
     }
     Ok(())
 }
+
+#[test]
+fn native_rename_stays_in_the_held_parent() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempfile::tempdir()?;
+    let inner = dir.path().join("snapshots");
+    fs::create_dir(&inner)?;
+    let root = SnapshotDirectory::open(&inner).map_err(|e| format!("{e:?}"))?;
+    let tmp = id(50)?;
+    let target = id(51)?;
+    let mut writer = root.create(&tmp)?;
+    writer.write_all(b"native")?;
+    writer.register(&target)?;
+    assert!(!temp_path(&inner, &tmp).exists());
+    assert_eq!(
+        fs::read(inner.join(format!("{}.dusnap", target.as_str())))?,
+        b"native"
+    );
+    assert!(
+        !dir.path()
+            .join(format!("{}.dusnap", target.as_str()))
+            .exists()
+    );
+    Ok(())
+}
+
+#[test]
+fn rename_collision_preserves_target_and_withdraws_temp() -> Result<(), Box<dyn std::error::Error>>
+{
+    let dir = tempfile::tempdir()?;
+    let root = SnapshotDirectory::open(dir.path()).map_err(|e| format!("{e:?}"))?;
+    let target = id(61)?;
+    let target_path = dir.path().join(format!("{}.dusnap", target.as_str()));
+    fs::write(&target_path, b"original")?;
+    let tmp = id(62)?;
+    let mut writer = root.create(&tmp)?;
+    writer.write_all(b"replacement")?;
+    assert!(fs::remove_file(temp_path(dir.path(), &tmp)).is_err());
+    let error = writer
+        .register(&target)
+        .err()
+        .ok_or("collision must fail")?;
+    assert_eq!(error.raw_os_error(), Some(183));
+    assert_eq!(fs::read(target_path)?, b"original");
+    assert!(!temp_path(dir.path(), &tmp).exists());
+    Ok(())
+}
+
+#[test]
+fn competing_nt_renames_preserve_exactly_one_result() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempfile::tempdir()?;
+    let root = SnapshotDirectory::open(dir.path()).map_err(|e| format!("{e:?}"))?;
+    let mut a = root.create(&id(70)?)?;
+    let mut b = root.create(&id(71)?)?;
+    a.write_all(b"one")?;
+    b.write_all(b"two")?;
+    let barrier = Arc::new(Barrier::new(2));
+    let final_id = id(72)?;
+    thread::scope(|scope| {
+        let first_barrier = barrier.clone();
+        let first_id = final_id.clone();
+        let first = scope.spawn(move || {
+            first_barrier.wait();
+            a.register(&first_id)
+        });
+        let second = scope.spawn(move || {
+            barrier.wait();
+            b.register(&final_id)
+        });
+        assert_ne!(
+            first.join().map_err(|_| "first panic")?.is_ok(),
+            second.join().map_err(|_| "second panic")?.is_ok()
+        );
+        Ok::<(), Box<dyn std::error::Error>>(())
+    })?;
+    let bytes = fs::read(dir.path().join(format!("{}.dusnap", id(72)?.as_str())))?;
+    assert!(bytes == b"one" || bytes == b"two");
+    Ok(())
+}

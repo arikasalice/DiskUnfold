@@ -1,10 +1,10 @@
-//! Handle-relative exclusive snapshot staging on local NTFS.
+//! Handle-relative snapshot staging and non-replacing registration on local NTFS.
 use crate::windows_observation::{WindowsDirectory, open_verified_stable};
 use du_core_contracts::{Id, ports::PortError};
 use std::{
     fs::File,
     io::{self, Read, Seek, SeekFrom, Write},
-    mem::size_of,
+    mem::{offset_of, size_of},
     os::windows::io::{AsRawHandle, FromRawHandle},
     path::Path,
 };
@@ -12,8 +12,9 @@ use windows::{
     Wdk::{
         Foundation::OBJECT_ATTRIBUTES,
         Storage::FileSystem::{
-            FILE_CREATE, FILE_NON_DIRECTORY_FILE, FILE_OPEN_REPARSE_POINT,
-            FILE_SYNCHRONOUS_IO_NONALERT, NtCreateFile,
+            FILE_CREATE, FILE_NON_DIRECTORY_FILE, FILE_OPEN_REPARSE_POINT, FILE_RENAME_INFORMATION,
+            FILE_RENAME_INFORMATION_0, FILE_SYNCHRONOUS_IO_NONALERT, FileRenameInformation,
+            NtCreateFile, NtSetInformationFile,
         },
     },
     Win32::{
@@ -83,6 +84,7 @@ impl SnapshotDirectory {
         let temporary = TemporarySnapshot {
             _directory: self,
             file,
+            registered: false,
         };
         if let Err(error) = temporary.file.try_lock() {
             return Err(error.into());
@@ -95,12 +97,69 @@ impl SnapshotDirectory {
 pub struct TemporarySnapshot<'a> {
     _directory: &'a SnapshotDirectory,
     file: File,
+    registered: bool,
 }
 impl TemporarySnapshot<'_> {
     /// Flushes and synchronizes staged bytes without registering a final filename.
     pub fn sync(&mut self) -> io::Result<()> {
         self.file.flush()?;
         self.file.sync_all()
+    }
+    /// Synchronizes and renames the held file within its current parent, without replacement.
+    ///
+    /// The temporary file and verified directory remain exclusively held until the
+    /// native rename completes. No path-based source reopen or copy fallback is used.
+    pub fn register(mut self, snapshot_id: &Id) -> io::Result<()> {
+        self.sync()?;
+        let name: Vec<u16> = format!("{}.dusnap", snapshot_id.as_str())
+            .encode_utf16()
+            .collect();
+        let name_bytes = name
+            .len()
+            .checked_mul(2)
+            .ok_or(io::ErrorKind::InvalidInput)?;
+        let size = size_of::<FILE_RENAME_INFORMATION>()
+            .checked_add(name_bytes)
+            .ok_or(io::ErrorKind::InvalidInput)?;
+        let length = u32::try_from(size).map_err(|_| io::ErrorKind::InvalidInput)?;
+        let mut buffer = vec![0u64; size.div_ceil(size_of::<u64>())];
+        let info = buffer.as_mut_ptr().cast::<FILE_RENAME_INFORMATION>();
+        let mut status = IO_STATUS_BLOCK::default();
+        // SAFETY: the aligned buffer holds the fixed header and complete UTF-16 name;
+        // this synchronous file handle remains exclusively held through the call.
+        let result = unsafe {
+            (*info).Anonymous = FILE_RENAME_INFORMATION_0 {
+                ReplaceIfExists: false,
+            };
+            // Native FileRenameInformation interprets a simple name and null root
+            // relative to the held file's current parent (not process CWD).
+            (*info).RootDirectory = HANDLE::default();
+            (*info).FileNameLength = name_bytes as u32;
+            std::ptr::copy_nonoverlapping(
+                name.as_ptr(),
+                buffer
+                    .as_mut_ptr()
+                    .cast::<u8>()
+                    .add(offset_of!(FILE_RENAME_INFORMATION, FileName))
+                    .cast::<u16>(),
+                name.len(),
+            );
+            NtSetInformationFile(
+                HANDLE(self.file.as_raw_handle()),
+                &mut status,
+                info.cast(),
+                length,
+                FileRenameInformation,
+            )
+        };
+        if result.0 < 0 {
+            // SAFETY: translating the returned NTSTATUS reads no application memory.
+            return Err(io::Error::from_raw_os_error(
+                unsafe { RtlNtStatusToDosError(result) } as i32,
+            ));
+        }
+        self.registered = true;
+        Ok(())
     }
     fn remove_on_close(&mut self) {
         let info = FILE_DISPOSITION_INFO { DeleteFile: true };
@@ -135,6 +194,43 @@ impl Write for TemporarySnapshot<'_> {
 }
 impl Drop for TemporarySnapshot<'_> {
     fn drop(&mut self) {
-        self.remove_on_close();
+        if !self.registered {
+            self.remove_on_close();
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use windows::Win32::Storage::FileSystem::{
+        BY_HANDLE_FILE_INFORMATION, GetFileInformationByHandle,
+    };
+
+    fn file_id(file: &File) -> io::Result<(u32, u32, u32)> {
+        let mut info = BY_HANDLE_FILE_INFORMATION::default();
+        // SAFETY: the live file handle and writable information buffer are valid.
+        unsafe { GetFileInformationByHandle(HANDLE(file.as_raw_handle()), &mut info) }
+            .map_err(io::Error::other)?;
+        Ok((
+            info.dwVolumeSerialNumber,
+            info.nFileIndexHigh,
+            info.nFileIndexLow,
+        ))
+    }
+
+    #[test]
+    fn registration_keeps_the_held_file_identity() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let root = SnapshotDirectory::open(dir.path()).map_err(|e| format!("{e:?}"))?;
+        let source = Id::parse("018f0000-0000-7000-8000-000000000080")?;
+        let target = Id::parse("018f0000-0000-7000-8000-000000000081")?;
+        let mut staged = root.create(&source)?;
+        staged.write_all(b"same handle")?;
+        let before = file_id(&staged.file)?;
+        staged.register(&target)?;
+        let registered = File::open(dir.path().join(format!("{}.dusnap", target.as_str())))?;
+        assert_eq!(before, file_id(&registered)?);
+        Ok(())
     }
 }
