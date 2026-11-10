@@ -1,5 +1,8 @@
 //! Read-only, pinned result versions and their conservative space aggregates.
-use crate::{Id, PathBytes, PathEncoding, SizeValue, Timestamp};
+use crate::{
+    Id, ItemRef, PathBytes, PathEncoding, SizeValue, Timestamp,
+    scan_observation::DirectoryCaseEvidence,
+};
 use std::borrow::Cow;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -87,6 +90,12 @@ pub trait ResultVersionRead: Send + Sync {
     fn scope_version_id(&self) -> &Id;
     fn completeness(&self) -> ResultCompleteness;
     fn items(&self) -> &[ResultItem];
+
+    /// Reads the recorded flag for a directory in this version, without accessing the OS.
+    /// An unobserved directory or a reference outside this version has no evidence.
+    fn directory_case_evidence(&self, _item: &ItemRef) -> Option<&DirectoryCaseEvidence> {
+        None
+    }
 
     /// Returns verified root evidence when the source retained it at collection time.
     fn observed_root(&self) -> Option<&ResultScopeRoot> {

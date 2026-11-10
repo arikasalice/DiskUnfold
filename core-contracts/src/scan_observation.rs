@@ -108,6 +108,30 @@ pub trait VolumeSpaceReader: Send {
     fn read(&self, expected_volume: &[u8]) -> Result<VolumeSpace, PortError>;
 }
 
+/// Name lookup mode observed on one verified directory handle.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DirectoryCaseState {
+    /// The directory reported case-sensitive name lookup.
+    Sensitive,
+    /// The directory reported case-insensitive name lookup.
+    Insensitive,
+    /// The adapter queried the mode but could not interpret or obtain support for it.
+    Unsupported,
+    /// A query or verification failed without establishing the mode.
+    Failed,
+}
+
+/// Point observation of a directory flag, independent of a path comparison key.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DirectoryCaseEvidence {
+    /// Outcome on this directory only, with no inherited or volume-wide meaning.
+    pub state: DirectoryCaseState,
+    /// Actual observation time, if the adapter captured it.
+    pub observed_at: Option<Timestamp>,
+    /// Diagnostic key for unsupported or failed observations, if available.
+    pub reason_key: Option<String>,
+}
+
 /// A directory already opened and verified by an operating-system adapter.
 ///
 /// Child opens must be relative to this handle, without following links or
@@ -115,6 +139,15 @@ pub trait VolumeSpaceReader: Send {
 pub trait AnchoredDirectory: DirectoryObservations {
     /// Opens the previously observed directory entry after revalidating it.
     fn open_child(&self, entry: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError>;
+
+    /// Optionally observes name lookup mode on this handle without reopening a path.
+    /// An absent observation leaves the mode unknown and does not query the clock.
+    fn observe_directory_case(
+        &self,
+        _clock: &dyn Fn() -> Option<Timestamp>,
+    ) -> Option<DirectoryCaseEvidence> {
+        None
+    }
 
     /// Retains read-only volume evidence without reopening a path.
     /// The default explicitly declines the observation without filesystem I/O.
