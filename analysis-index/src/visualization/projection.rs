@@ -5,12 +5,13 @@
 use super::{
     geometry::{NoArea, Rect},
     model_links::{ModelLinkError, validate_model_links},
+    ratio,
     treemap::ChildKey,
     typed_layout::{self, Dispatcher, Input},
 };
 use crate::ResultVersion;
 use du_core_contracts::{
-    Id, ItemRef, SizeBasis, SizeValue, Timestamp,
+    Id, ItemRef, SizeAmount, SizeBasis, SizeValue, Timestamp,
     result::{ResultCompleteness, ResultItemKind, ResultVersionRead},
     visualization::{
         LayoutDescriptor, LayoutStrategyKey,
@@ -18,12 +19,15 @@ use du_core_contracts::{
         model::{ShapeMeta, VizRelationship},
     },
 };
+use std::num::NonZeroU64;
 
 /// An original F03 row shared by the drawn shape and fallback list.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Row {
     pub item: ItemRef,
     pub size: SizeValue,
+    /// Ratio to the admitted parent's exact value in the selected size basis.
+    pub ratio: Option<String>,
 }
 /// A format-independent shape referring to an entry in `rows`.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -176,14 +180,7 @@ pub fn project(
         &relationships,
     )
     .map_err(Error::Links)?;
-    let rows = input
-        .rows()
-        .iter()
-        .map(|r| Row {
-            item: r.item().clone(),
-            size: r.value().clone(),
-        })
-        .collect();
+    let rows = project_rows(&input, &parent_value, cancelled)?;
     if cancelled() {
         return Err(Error::Cancelled);
     }
@@ -205,4 +202,31 @@ pub fn project(
             filtered_bytes: 0,
         },
     })
+}
+
+fn project_rows(
+    input: &Input,
+    parent_value: &SizeValue,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<Vec<Row>, Error> {
+    let SizeAmount::Exact { bytes } = &parent_value.amount else {
+        return Err(Error::UnavailableAttribution);
+    };
+    let total = bytes
+        .as_str()
+        .parse::<u64>()
+        .map_err(|_| Error::InvalidSource)?;
+    let denominator = NonZeroU64::new(total);
+    let mut rows = Vec::with_capacity(input.rows().len());
+    for row in input.rows() {
+        if cancelled() {
+            return Err(Error::Cancelled);
+        }
+        rows.push(Row {
+            item: row.item().clone(),
+            size: row.value().clone(),
+            ratio: denominator.map(|total| ratio::format_ratio(i128::from(row.bytes()), total)),
+        });
+    }
+    Ok(rows)
 }

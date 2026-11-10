@@ -111,6 +111,18 @@ fn projection_keeps_source_rows_and_verified_totals() -> Result<(), String> {
     )
     .map_err(|e| format!("{e:?}"))?;
     assert_eq!(model.rows.len(), 3);
+    assert_eq!(
+        model
+            .rows
+            .iter()
+            .map(|row| row.ratio.as_deref())
+            .collect::<Vec<_>>(),
+        [
+            Some("0.66666666666666666667"),
+            Some("0.33333333333333333333"),
+            Some("0")
+        ]
+    );
     assert_eq!(model.shapes.len(), 2);
     assert_eq!(model.omissions.len(), 1);
     assert_eq!(
