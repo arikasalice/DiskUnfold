@@ -264,3 +264,6 @@ pub fn treemap_descriptor() -> LayoutDescriptor {
         },
     }
 }
+
+#[cfg(test)]
+mod catalog_tests;
