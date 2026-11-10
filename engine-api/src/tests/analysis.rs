@@ -8,7 +8,7 @@ use du_job_runtime::{JobClock, JobEvents, JobIdentity, JobRuntime, Submission};
 use std::sync::Arc;
 
 #[test]
-fn space_detail_exposes_pinned_evidence_without_inventing_a_timestamp()
+fn space_detail_preserves_observation_time_and_leaves_legacy_time_unknown()
 -> Result<(), Box<dyn std::error::Error>> {
     let scope = Id::parse("0195f856-ab83-7a59-9343-10d29775c9a9")?;
     let version = Id::parse("0195f856-ab83-7a59-9343-10d29775c9aa")?;
@@ -57,6 +57,15 @@ fn space_detail_exposes_pinned_evidence_without_inventing_a_timestamp()
             )
             .map_err(|e| format!("{e:?}"))?;
     }
+    let outside_path = [b"outside".to_vec()];
+    let observed = du_core_contracts::Timestamp::parse("2026-01-01T12:00:01.002Z")?;
+    let modified = du_core_contracts::Timestamp::parse("2020-01-01T12:00:00.000Z")?;
+    build
+        .set_item_observed_at(0, &outside_path, observed.clone())
+        .map_err(|e| format!("{e:?}"))?;
+    build
+        .set_modified_at(0, &outside_path, modified)
+        .map_err(|e| format!("{e:?}"))?;
     build
         .seal_at(
             version.clone(),
@@ -94,6 +103,10 @@ fn space_detail_exposes_pinned_evidence_without_inventing_a_timestamp()
     assert!(file.body.get("placeholderLocalState").is_none());
     let outside = read(&version, 2)?;
     assert!(outside.error.is_none(), "{:?}", outside.error);
+    assert_eq!(
+        outside.body["observedAt"],
+        json!({"state":"present","value":observed})
+    );
     assert_eq!(outside.body["shared"]["value"]["size"]["bytes"], "0");
     assert_eq!(outside.body["exclusive"]["state"], "unknown");
     assert_eq!(

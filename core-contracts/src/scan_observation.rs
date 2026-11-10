@@ -55,15 +55,8 @@ pub trait DirectoryObservations: Send {
         &mut self,
         _clock: &dyn Fn() -> Option<Timestamp>,
     ) -> Result<Vec<TimedObservedEntry>, PortError> {
-        self.next_batch().map(|entries| {
-            entries
-                .into_iter()
-                .map(|entry| TimedObservedEntry {
-                    entry,
-                    observed_at: None,
-                })
-                .collect()
-        })
+        self.next_batch()
+            .map(|entries| entries.into_iter().map(TimedObservedEntry::from).collect())
     }
 
     /// Optional timed filtered variant, retaining the original pre-metadata boundary.
@@ -74,13 +67,7 @@ pub trait DirectoryObservations: Send {
     ) -> Result<TimedFilteredBatch, PortError> {
         self.next_filtered(include).map(|batch| match batch {
             FilteredBatch::Entries(entries) => TimedFilteredBatch::Entries(
-                entries
-                    .into_iter()
-                    .map(|entry| TimedObservedEntry {
-                        entry,
-                        observed_at: None,
-                    })
-                    .collect(),
+                entries.into_iter().map(TimedObservedEntry::from).collect(),
             ),
             FilteredBatch::Progress => TimedFilteredBatch::Progress,
             FilteredBatch::End => TimedFilteredBatch::End,

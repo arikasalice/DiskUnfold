@@ -108,11 +108,14 @@ impl Progress {
                 Ok(())
             }
             Event::RootBatch(root_index, modified_at, observed_at) => {
+                let has_timestamp = modified_at.is_some() || observed_at.is_some();
                 if let Some(time) = observed_at {
                     build.set_item_observed_at(root_index, &[], time)?;
                 }
                 if let Some(time) = modified_at {
                     build.set_modified_at(root_index, &[], time)?;
+                }
+                if has_timestamp {
                     self.cadence.changed();
                 }
                 self.root_published[root_index as usize] = true;

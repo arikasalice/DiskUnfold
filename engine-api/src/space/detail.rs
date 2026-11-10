@@ -46,6 +46,12 @@ impl UseCase for Query {
 
 fn project(version: &ResultVersion, facts: ItemEvidence) -> SpaceDetail {
     let aggregate = version.space(facts.item.item_no);
+    let observed_at = version.item_observed_at(facts.item.item_no).map_or_else(
+        || unknown(UNAVAILABLE),
+        |value| BrowseValue::Present {
+            value: value.clone(),
+        },
+    );
     let (exclusive, shared, exclusive_decision) = exclusive_parts(&facts);
     SpaceDetail {
         item: facts.item,
@@ -58,7 +64,7 @@ fn project(version: &ResultVersion, facts: ItemEvidence) -> SpaceDetail {
         placeholder_local_state: None,
         auxiliary: unknown("space.aux_not_included"),
         exclusive_decision,
-        observed_at: unknown(UNAVAILABLE),
+        observed_at,
         capabilities: unknown(UNAVAILABLE),
     }
 }
