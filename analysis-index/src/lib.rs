@@ -12,6 +12,7 @@ mod space;
 pub mod space_detail;
 mod space_limit;
 pub mod statistics;
+pub mod statistics_distribution;
 mod tree;
 mod version_store;
 pub mod visualization;
