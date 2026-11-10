@@ -412,3 +412,70 @@ test("a job received after region close is cancelled by its exact reference", as
     { name: "job.cancel", body: { jobRef: "late-job" } },
   ]);
 });
+
+test.each([
+  ["job.get", "queued"],
+  ["job.get", "done"],
+  ["query.page", "done"],
+] as const)(
+  "dispose fences a delayed %s response in %s state without a signal",
+  async (delayedCommand, state) => {
+    let release: (() => void) | undefined;
+    let markStarted: (() => void) | undefined;
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const calls: Array<{ name: string; body: unknown }> = [];
+    const client = createAnalysisClient(async (_, { envelope }) => {
+      calls.push({ name: envelope.name, body: envelope.body });
+      if (envelope.name === "query.region.open")
+        return reply(envelope, { regionRef: "region" });
+      if (envelope.name === "browse.open")
+        return reply(envelope, {
+          kind: "job",
+          requestSeq: 3,
+          jobRef: "target-job",
+        });
+      if (envelope.name === delayedCommand) {
+        markStarted?.();
+        await waiting;
+      }
+      if (envelope.name === "job.get")
+        return reply(envelope, {
+          jobRef: "target-job",
+          kind: "query.evaluate",
+          state,
+          ...(state === "done" ? { resultVersion: page.queryRef } : {}),
+        });
+      if (envelope.name === "query.page") return reply(envelope, page);
+      if (
+        envelope.name === "query.region.close" ||
+        envelope.name === "job.cancel"
+      )
+        return reply(envelope, {});
+      throw new Error(`Unexpected command ${envelope.name}`);
+    });
+    const port = createBrowsePort(client);
+    const pending = port.open(request);
+    await started;
+    port.dispose();
+    release?.();
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    expect(calls.filter(({ name }) => name === "job.cancel")).toEqual([
+      { name: "job.cancel", body: { jobRef: "target-job" } },
+    ]);
+    expect(calls.filter(({ name }) => name === "job.get")).toHaveLength(1);
+    expect(calls.filter(({ name }) => name === "query.page")).toHaveLength(
+      delayedCommand === "query.page" ? 1 : 0,
+    );
+    await expect(port.open(request)).rejects.toMatchObject({
+      name: "AbortError",
+    });
+    expect(
+      calls.filter(({ name }) => name === "query.region.open"),
+    ).toHaveLength(1);
+  },
+);

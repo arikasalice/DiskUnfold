@@ -36,6 +36,7 @@ export function createBrowsePort(
     signal?: AbortSignal,
   ) {
     signal?.throwIfAborted();
+    if (disposed) throw new DOMException("Browse region closed", "AbortError");
     if (request.requestSeq - offset > 0xffff_ffff) {
       if (region) closeRegion(region);
       offset = request.requestSeq - 1;
@@ -90,25 +91,28 @@ export function createBrowsePort(
         return { ...response, requestSeq: request.requestSeq };
       }
       const jobRef = response.jobRef;
-      try {
-        // A late receipt still owns its job, even if navigation was aborted.
-        if (entry.closed)
+      const checkLive = () => {
+        if (disposed || entry.closed)
           throw new DOMException("Browse region closed", "AbortError");
         signal?.throwIfAborted();
+      };
+      try {
+        // A late receipt still owns its job, even if navigation was aborted.
+        checkLive();
         if (response.requestSeq !== wireSeq || !request.resultVersion) {
           throw new Error(
             "The folder query does not match the selected result.",
           );
         }
-        const queryRef = await waitForQuery(client, jobRef, signal);
-        signal?.throwIfAborted();
+        const queryRef = await waitForQuery(client, jobRef, checkLive);
+        checkLive();
         const page = await client.call("query.page", {
           queryRef,
           resultVersion: request.resultVersion,
           start: 0,
           count: request.pageSize ?? 200,
         });
-        signal?.throwIfAborted();
+        checkLive();
         if (
           page.rowKind !== "folder" ||
           page.queryRef !== queryRef ||
@@ -128,6 +132,9 @@ export function createBrowsePort(
           ...context,
           page: folderPage,
         };
+      } catch (error) {
+        checkLive();
+        throw error;
       } finally {
         if (entry.closed) {
           void client.call("job.cancel", { jobRef }).catch(() => {});
@@ -147,12 +154,12 @@ export function createBrowsePort(
 async function waitForQuery(
   client: AnalysisClient,
   jobRef: Id,
-  signal?: AbortSignal,
+  checkLive: () => void,
 ): Promise<Id> {
   for (;;) {
-    signal?.throwIfAborted();
+    checkLive();
     const status = await client.call("job.get", { jobRef });
-    signal?.throwIfAborted();
+    checkLive();
     if (status.jobRef !== jobRef || status.kind !== "query.evaluate") {
       throw new Error("The folder query status could not be verified.");
     }
