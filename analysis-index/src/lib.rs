@@ -4,6 +4,7 @@ mod physical;
 pub mod query;
 mod result_path;
 mod space;
+pub mod visualization;
 use du_core_contracts::result::{
     ResultCompleteness, ResultItem, ResultItemKind, ResultScopeRoot, ResultVersionRead,
     SpaceAggregate,
