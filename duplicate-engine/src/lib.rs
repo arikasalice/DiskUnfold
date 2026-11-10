@@ -2,6 +2,7 @@
 //!
 //! Real content reads require an injected identity-bound port.
 pub mod candidates;
+pub mod content_port;
 
 mod content_hash;
 pub use content_hash::{RegisteredHash, RegisteredOutcome};

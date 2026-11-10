@@ -4,6 +4,9 @@
 //! successful metadata inspection as proof that content reads avoid recall or
 //! access-time changes. No duplicate-verification adapter is composed here.
 use crate::windows_observation;
+use du_core_contracts::duplicate_content::{
+    BoundContent, ContentIdentity, DuplicateContentPort, PlaceholderEvidence,
+};
 use du_core_contracts::ports::{PortError, PortErrorKind};
 use std::{fs::File, io, os::windows::io::AsRawHandle};
 use windows::Win32::{
@@ -48,6 +51,25 @@ pub enum InspectError {
     Unsupported,
     /// Required identity or metadata changed.
     IdentityChanged,
+}
+
+/// The default Windows content port refuses all opens until no-recall and
+/// no-access-time-update guarantees can both be established.
+pub struct WindowsDuplicateContent;
+
+impl DuplicateContentPort for WindowsDuplicateContent {
+    fn open_bound<'a>(
+        &'a mut self,
+        _item: &du_core_contracts::ItemRef,
+        _expected: &ContentIdentity,
+        _placeholder: PlaceholderEvidence,
+    ) -> Result<Box<dyn BoundContent + 'a>, PortError> {
+        Err(PortError {
+            kind: PortErrorKind::Unsupported,
+            reason_key: "os.content_safety_unverified".into(),
+            os_code: None,
+        })
+    }
 }
 fn invalid_attributes(value: u32) -> bool {
     value
