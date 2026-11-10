@@ -11,7 +11,10 @@ use windows::{
         FILE_CASE_SENSITIVE_INFORMATION, FileCaseSensitiveInformation, NtQueryInformationFile,
     },
     Win32::{
-        Foundation::RtlNtStatusToDosError,
+        Foundation::{
+            RtlNtStatusToDosError, STATUS_INVALID_DEVICE_REQUEST, STATUS_INVALID_INFO_CLASS,
+            STATUS_NOT_SUPPORTED,
+        },
         Storage::FileSystem::{FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_REPARSE_POINT},
         System::IO::IO_STATUS_BLOCK,
     },
@@ -50,7 +53,13 @@ fn unsupported(code: Option<i32>) -> PortError {
 
 fn query_error(status: i32) -> PortError {
     // These statuses mean the information class or operation is unsupported.
-    let unsupported_status = matches!(status as u32, 0xc000_0003 | 0xc000_0010 | 0xc000_00bb);
+    let unsupported_status = [
+        STATUS_INVALID_INFO_CLASS,
+        STATUS_INVALID_DEVICE_REQUEST,
+        STATUS_NOT_SUPPORTED,
+    ]
+    .iter()
+    .any(|candidate| candidate.0 == status);
     PortError {
         kind: if unsupported_status {
             PortErrorKind::Unsupported
@@ -256,6 +265,7 @@ mod tests {
 
     #[test]
     fn query_status_and_identity_failures_remain_distinct() {
+        use windows::Win32::Foundation::STATUS_ACCESS_DENIED;
         for (mode, state) in [
             (DirectoryCaseMode::Sensitive, DirectoryCaseState::Sensitive),
             (
@@ -274,10 +284,14 @@ mod tests {
             assert_eq!(value.state, state);
             assert_eq!(value.reason_key, None);
         }
-        for status in [0xc000_0003_u32, 0xc000_0010, 0xc000_00bb] {
-            assert_eq!(query_error(status as i32).kind, PortErrorKind::Unsupported);
+        for status in [
+            STATUS_INVALID_INFO_CLASS,
+            STATUS_INVALID_DEVICE_REQUEST,
+            STATUS_NOT_SUPPORTED,
+        ] {
+            assert_eq!(query_error(status.0).kind, PortErrorKind::Unsupported);
         }
-        assert_eq!(query_error(0xc000_0022_u32 as i32).kind, PortErrorKind::Io);
+        assert_eq!(query_error(STATUS_ACCESS_DENIED.0).kind, PortErrorKind::Io);
         for kind in [PortErrorKind::Io, PortErrorKind::IdentityChanged] {
             let value = evidence(
                 Err(PortError {
