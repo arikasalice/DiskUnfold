@@ -3,6 +3,7 @@
 pub mod geometry;
 pub mod model;
 pub mod quantity;
+pub mod rows;
 
 /// Versioned key used to select an algorithm and identify its output.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]

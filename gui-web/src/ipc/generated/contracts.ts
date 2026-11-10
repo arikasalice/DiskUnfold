@@ -36,6 +36,12 @@ kind: string, fromShapeRef: string, toShapeRef: string,
  * Drawing information, when the strategy supplies geometry for the relationship.
  */
 geometry?: VizGeometry, };
+export type VizDenominatorBasis = "parent_folder" | "scope" | "analysis_total";
+export type VizRatio = string;
+export type VizDenominator = { basis: VizDenominatorBasis, value: VizQuantity, size?: SizeValue, };
+export type VizRow = { itemRef: ItemRef | null, groupRef: string | null, displayName: string, size: SizeValue, quantity?: VizQuantity, ratio: VizRatio | null, denominator: VizDenominator, legendClassKey: string, displayFlags: Array<string>, };
+export type VizRowsRequest = { modelRef: string, resultRevision: Id, start: number, count: number, };
+export type VizRows = { rows: Array<VizRow>, totalCount: number, resultRevision: Id, observedAt: Timestamp | null, completeness: ResultCompleteness, };
 export type PathEncoding = "unix" | "windows_utf16le";
 export type PathBytes = string;
 export type OsPath = { encoding: PathEncoding, raw: PathBytes, display: string, lossy: boolean, };

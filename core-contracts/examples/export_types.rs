@@ -5,6 +5,9 @@ use du_core_contracts::scan_failures::*;
 use du_core_contracts::visualization::geometry::{Geometry, Point};
 use du_core_contracts::visualization::model::{ShapeMeta, VizRelationship};
 use du_core_contracts::visualization::quantity::{VizAmount, VizDecimal, VizQuantity};
+use du_core_contracts::visualization::rows::{
+    VizDenominator, VizDenominatorBasis, VizRatio, VizRow, VizRows, VizRowsRequest,
+};
 use du_core_contracts::*;
 use du_core_contracts::{analysis_ipc::*, job::JobState, result::ResultCompleteness};
 use du_core_contracts::{browse_ipc::*, result::ResultItemKind};
@@ -31,6 +34,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Geometry::decl(&config),
         ShapeMeta::decl(&config),
         VizRelationship::decl(&config),
+        VizDenominatorBasis::decl(&config),
+        VizRatio::decl(&config),
+        VizDenominator::decl(&config),
+        VizRow::decl(&config),
+        VizRowsRequest::decl(&config),
+        VizRows::decl(&config),
         PathEncoding::decl(&config),
         PathBytes::decl(&config),
         OsPath::decl(&config),
