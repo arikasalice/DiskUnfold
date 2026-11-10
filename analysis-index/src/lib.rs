@@ -36,6 +36,7 @@ pub use observation::Observation;
 #[derive(Debug)]
 pub struct ResultVersion {
     version_id: Id,
+    viz_models: Mutex<visualization::live_models::OwnedModels>,
     scope_version_id: Id,
     lineage_id: Option<Id>,
     completeness: ResultCompleteness,
@@ -415,6 +416,7 @@ impl BuildHandle {
         };
         let result = Arc::new(ResultVersion {
             version_id,
+            viz_models: Mutex::default(),
             scope_version_id: self.scope_version_id.clone(),
             lineage_id: self.lineage.clone(),
             completeness: result_completeness,

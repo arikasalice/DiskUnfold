@@ -5,6 +5,7 @@
 pub mod bar;
 pub mod geometry;
 pub mod histogram;
+pub mod live_models;
 pub mod model_links;
 pub mod ratio;
 pub mod registry;

@@ -15,6 +15,7 @@ pub mod space;
 mod target_enumeration;
 mod target_probe;
 mod targets;
+pub mod viz_pages;
 mod workers;
 
 #[cfg(test)]
