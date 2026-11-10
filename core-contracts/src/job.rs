@@ -196,7 +196,7 @@ pub enum JobFlowError {
 }
 /// One registered metadata I/O flow. Dropping it releases its permit.
 pub trait JobFlow: Send {
-    /// Waits at a completed unit boundary; returns cancellation when the job is cancelled.
+    /// Waits at a completed unit boundary; returns `Cancel` when the flow must stop.
     /// Call without holding queue locks, bounded sender permits, or other resources needed by other flows to reach their boundary.
     fn safe_point(&self) -> Checkpoint {
         Checkpoint::Continue
@@ -206,6 +206,10 @@ pub trait JobFlow: Send {
 }
 pub trait JobContext: Send + Sync {
     fn checkpoint(&self) -> Checkpoint;
+    /// Wakes parked metadata flows after a body failure and closes admission to new flows.
+    /// The body still reports its failure outcome. This does not request user cancellation
+    /// or interrupt metadata calls already in progress.
+    fn abort_flows(&self) {}
     /// Supplies UTC time to bodies recording evidence. A context without a clock may omit it.
     fn utc_now(&self) -> Option<Timestamp> {
         None

@@ -233,6 +233,7 @@ impl JobRuntime {
                 wake: Arc::new(Condvar::new()),
                 live_flows: 0,
                 paused_flows: 0,
+                flows_aborted: false,
                 started_at_ms: None,
                 summary: None,
                 order,

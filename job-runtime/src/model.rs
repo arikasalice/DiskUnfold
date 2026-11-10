@@ -140,6 +140,7 @@ pub(crate) struct Entry {
     pub(crate) wake: Arc<Condvar>,
     pub(crate) live_flows: usize,
     pub(crate) paused_flows: usize,
+    pub(crate) flows_aborted: bool,
     pub(crate) started_at_ms: Option<i64>,
     pub(crate) summary: Option<JobSummary>,
     pub(crate) order: u64,

@@ -8,6 +8,7 @@ use std::{
 struct HoldingBody {
     send: mpsc::Sender<Arc<dyn JobContext>>,
     release: Mutex<mpsc::Receiver<()>>,
+    completed_scope: bool,
 }
 impl JobBody for HoldingBody {
     fn kind_id(&self) -> &str {
@@ -20,7 +21,7 @@ impl JobBody for HoldingBody {
         }
         JobOutcome {
             counts: JobCounts::default(),
-            completed_scope: true,
+            completed_scope: self.completed_scope,
             failure_reason_key: None,
             unprocessed_summary: None,
             result_version_id: None,
@@ -36,6 +37,10 @@ type Setup = (
     std::thread::JoinHandle<Result<Option<Id>, RuntimeError>>,
 );
 fn setup() -> Result<Setup, Box<dyn std::error::Error>> {
+    setup_with_completion(true)
+}
+
+fn setup_with_completion(completed_scope: bool) -> Result<Setup, Box<dyn std::error::Error>> {
     let id = Id::parse("00000000-0000-7000-8000-000000000001")?;
     let events = Arc::new(Events::default());
     let runtime = Arc::new(JobRuntime::new_with_limits(
@@ -57,6 +62,7 @@ fn setup() -> Result<Setup, Box<dyn std::error::Error>> {
     let id = created(runtime.submit(sample_submission(Arc::new(HoldingBody {
         send,
         release: Mutex::new(wait),
+        completed_scope,
     }))?)?)?;
     let worker = {
         let runtime = runtime.clone();
@@ -64,6 +70,70 @@ fn setup() -> Result<Setup, Box<dyn std::error::Error>> {
     };
     let context = recv.recv_timeout(Duration::from_secs(2))?;
     Ok((runtime, events, id, context, release, worker))
+}
+
+#[test]
+fn internal_failure_wakes_parked_flow_without_cancelling_the_job()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (runtime, events, id, context, release, worker) = setup_with_completion(false)?;
+    let first = context
+        .try_start_flow()
+        .map_err(|error| format!("{error:?}"))?;
+    let in_flight = context
+        .try_start_flow()
+        .map_err(|error| format!("{error:?}"))?;
+    runtime.pause(&id)?;
+    let (parked, result) = start(first);
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        let parked_count = runtime
+            .table
+            .lock()
+            .map_err(|_| "table poisoned")?
+            .jobs
+            .get(&id)
+            .ok_or("missing job")?
+            .paused_flows;
+        if parked_count == 1 {
+            break;
+        }
+        if Instant::now() >= deadline {
+            return Err("flow did not park".into());
+        }
+        std::thread::yield_now();
+    }
+
+    context.abort_flows();
+    assert_eq!(
+        result.recv_timeout(Duration::from_secs(2))?,
+        Checkpoint::Cancel
+    );
+    parked.join().map_err(|_| "thread panic")?;
+    assert_eq!(context.checkpoint(), Checkpoint::Continue);
+    assert!(matches!(
+        context.try_start_flow(),
+        Err(JobFlowError::Closed)
+    ));
+    release.send(())?;
+    assert_eq!(runtime.state(&id)?, JobState::PauseRequested);
+    assert_eq!(in_flight.safe_point(), Checkpoint::Cancel);
+    in_flight.finish(JobCounts::default());
+    worker.join().map_err(|_| "worker panic")??;
+    runtime.flush()?;
+
+    assert_eq!(runtime.state(&id)?, JobState::Failed);
+    let events = events.0.lock().map_err(|_| "events poisoned")?;
+    assert!(!events.iter().any(|event| matches!(
+        event,
+        JobEvent::StateChanged {
+            state: JobState::Paused | JobState::CancelRequested | JobState::Cancelled,
+            ..
+        }
+    )));
+    assert!(
+        matches!(events.last(), Some(JobEvent::Finished { summary, .. }) if summary.state == JobState::Failed)
+    );
+    Ok(())
 }
 fn wait_state(
     runtime: &JobRuntime,

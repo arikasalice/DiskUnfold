@@ -85,6 +85,18 @@ impl JobContext for Context {
             Checkpoint::Continue
         }
     }
+
+    fn abort_flows(&self) {
+        let mut table = self
+            .table
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(job) = table.jobs.get_mut(&self.id) {
+            job.flows_aborted = true;
+            job.wake.notify_all();
+        }
+    }
+
     fn try_start_flow(&self) -> Result<Box<dyn JobFlow>, JobFlowError> {
         let mut table = self
             .table
@@ -93,6 +105,9 @@ impl JobContext for Context {
         let job = table.jobs.get_mut(&self.id).ok_or(JobFlowError::Closed)?;
         if self.cancellation.0.load(Ordering::Acquire) {
             return Err(JobFlowError::Cancelled);
+        }
+        if job.flows_aborted {
+            return Err(JobFlowError::Closed);
         }
         if matches!(job.state, JobState::PauseRequested | JobState::Paused) {
             return Err(JobFlowError::Busy);
@@ -145,7 +160,7 @@ impl JobFlow for Flow {
         let Some(job) = table.jobs.get_mut(&self.id) else {
             return Checkpoint::Cancel;
         };
-        if job.cancel.0.load(Ordering::Acquire) {
+        if must_stop(job) {
             return Checkpoint::Cancel;
         }
         if !matches!(job.state, JobState::PauseRequested | JobState::Paused) {
@@ -158,7 +173,7 @@ impl JobFlow for Flow {
             let Some(job) = table.jobs.get(&self.id) else {
                 return Checkpoint::Cancel;
             };
-            if job.cancel.0.load(Ordering::Acquire) || job.state == JobState::Running {
+            if must_stop(job) || job.state == JobState::Running {
                 break;
             }
             table = wake
@@ -169,7 +184,7 @@ impl JobFlow for Flow {
             return Checkpoint::Cancel;
         };
         job.paused_flows -= 1;
-        if job.cancel.0.load(Ordering::Acquire) {
+        if must_stop(job) {
             Checkpoint::Cancel
         } else {
             Checkpoint::Continue
@@ -261,7 +276,10 @@ pub(crate) fn settle_pause(table: &mut Table, id: &Id) {
     let Some(job) = table.jobs.get_mut(id) else {
         return;
     };
-    if job.state != JobState::PauseRequested || job.paused_flows != job.live_flows {
+    if job.state != JobState::PauseRequested
+        || job.flows_aborted
+        || job.paused_flows != job.live_flows
+    {
         return;
     }
     job.state = JobState::Paused;
@@ -275,4 +293,8 @@ pub(crate) fn settle_pause(table: &mut Table, id: &Id) {
             sequence,
         }),
     );
+}
+
+fn must_stop(job: &crate::model::Entry) -> bool {
+    job.flows_aborted || job.cancel.0.load(Ordering::Acquire)
 }
