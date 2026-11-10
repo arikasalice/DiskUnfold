@@ -231,7 +231,7 @@ pub(super) fn run(app: WebApp, events: Option<Events>) -> Result<(), Box<dyn Err
     };
     let failed = Rc::new(Cell::new(false));
     let ready = Rc::new(Cell::new(false));
-    let requests = Bridge::start(view.clone(), app.dispatch, events, ready.clone())?;
+    let requests = Bridge::start(view.clone(), &app, events, ready.clone())?;
     subscribe(
         &view,
         environment,

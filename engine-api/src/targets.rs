@@ -9,32 +9,41 @@ use du_core_contracts::{
     analysis_ipc::{
         AnalysisTarget, IdentitySource, TargetAccess, TargetKind, TargetList, TargetListRequest,
     },
-    volume::{CapabilityState, VolumeMount, VolumePort, VolumeTargetKind},
+    volume::{CapabilityState, VolumeEnumeration, VolumeMount, VolumePort, VolumeTargetKind},
 };
 use du_job_runtime::{JobClock, JobPriority, RuntimeError, Submission, SubmitResult};
 
 use crate::{
     api::{CallerCtx, Channel, EngineBuilder, UseCase},
     error::EngineError,
+    target_enumeration::{EnumerationWorker, StartError, WaitResult},
 };
 
-/// Registers target discovery with a shared job worker and injected deadline.
+/// Independent limits for the first listing and each subsequent device probe.
+pub(crate) struct Deadlines {
+    pub enumeration: Duration,
+    pub probe: Duration,
+}
+
+/// Registers target discovery with a shared job worker and injected deadlines.
 pub(crate) fn register_with_probe(
     builder: &mut EngineBuilder,
     volumes: Arc<dyn VolumePort>,
     clock: Arc<dyn JobClock>,
     workers: Arc<crate::workers::Workers>,
-    timeout: Duration,
+    deadlines: Deadlines,
 ) -> Result<(), RuntimeError> {
     workers
         .runtime
         .register(du_scan_engine::target_probe::descriptor())?;
     builder.register(List {
+        enumeration: EnumerationWorker::new(volumes.clone()),
+        enumeration_timeout: deadlines.enumeration,
         volumes,
         clock,
         probe: Probe {
             workers,
-            timeout,
+            timeout: deadlines.probe,
             previous: Mutex::new(None),
         },
     });
@@ -48,9 +57,25 @@ struct Probe {
 }
 
 struct List {
+    enumeration: EnumerationWorker,
+    enumeration_timeout: Duration,
     volumes: Arc<dyn VolumePort>,
     clock: Arc<dyn JobClock>,
     probe: Probe,
+}
+
+impl List {
+    fn enumerate(&self) -> Result<Box<VolumeEnumeration>, &'static str> {
+        let pending = self.enumeration.start().map_err(|error| match error {
+            StartError::Busy => "os.call_slow",
+            StartError::Shutdown | StartError::SpawnFailed => "os.query_failed",
+        })?;
+        match pending.wait(self.enumeration_timeout) {
+            WaitResult::Ready(value) => Ok(value),
+            WaitResult::TimedOut => Err("os.call_slow"),
+            WaitResult::Shutdown | WaitResult::Failed => Err("os.query_failed"),
+        }
+    }
 }
 
 impl UseCase for List {
@@ -72,7 +97,13 @@ impl UseCase for List {
         if let Some(id) = previous.take() {
             let _ = probe.workers.runtime.cancel(&id);
         }
-        let observation = self.volumes.enumerate();
+        let observation = self.enumerate();
+        let observed_at = Timestamp::from_unix_millis(self.clock.now_ms())
+            .ok_or_else(|| EngineError::reason("support.internal_error"))?;
+        let observation = match observation {
+            Ok(value) => value,
+            Err(reason) => return Ok(unavailable_list(observed_at, reason)),
+        };
         let capacity = observation.capabilities.capacity.clone();
         let path_access = observation.capabilities.path_access.clone();
         let identity_supported =
@@ -109,8 +140,6 @@ impl UseCase for List {
                 Err(error) => (Vec::new(), Some(error.reason_key)),
             }
         };
-        let observed_at = Timestamp::from_unix_millis(self.clock.now_ms())
-            .ok_or_else(|| EngineError::reason("support.internal_error"))?;
         let mut probe_job_ref = None;
         if !targets.is_empty() {
             let body = Arc::new(crate::target_probe::TargetProbe {
@@ -155,6 +184,15 @@ impl UseCase for List {
     }
 }
 
+fn unavailable_list(observed_at: Timestamp, reason: &str) -> TargetList {
+    TargetList {
+        targets: Vec::new(),
+        probe_job_ref: None,
+        observed_at,
+        unavailable_reason: Some(reason.into()),
+    }
+}
+
 fn target(mount: VolumeMount, identity_supported: bool) -> Option<AnalysisTarget> {
     let kind = mount.target_kind.map(|kind| match kind {
         VolumeTargetKind::Internal => TargetKind::Internal,
@@ -190,246 +228,4 @@ fn target(mount: VolumeMount, identity_supported: bool) -> Option<AnalysisTarget
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use du_core_contracts::{
-        ByteSize, CallEnvelope, ENVELOPE_VERSION, EventEnvelope, Id,
-        analysis_ipc::{TargetProbeEvent, TargetStatusChanged},
-        job::{HistoryAppend, JobBody, JobContext, JobHistory, JobOutcome, JobState, JobSummary},
-        ports::{PortError, PortErrorKind},
-        scan_observation::{OpenedScopeRoot, ScopeRootPort},
-        volume::{Capability, VolumeCapabilities, VolumeCapacity, VolumeEnumeration},
-    };
-    use du_job_runtime::{JobEvent, JobEvents, JobIdentity, JobRuntime};
-    use std::time::Instant;
-
-    struct Fixture;
-    impl JobIdentity for Fixture {
-        fn next_id(&self) -> Id {
-            Id::from_v7_bytes(*uuid::Uuid::now_v7().as_bytes())
-        }
-    }
-    impl JobClock for Fixture {
-        fn now_ms(&self) -> i64 {
-            1
-        }
-    }
-    impl JobEvents for Fixture {
-        fn publish(&self, _: JobEvent) {}
-    }
-    impl JobHistory for Fixture {
-        fn append(&self, _: &JobSummary) -> Result<HistoryAppend, String> {
-            Err("unexpected history".into())
-        }
-    }
-    impl JobBody for Fixture {
-        fn kind_id(&self) -> &str {
-            du_scan_engine::target_probe::TARGET_PROBE_KIND
-        }
-        fn run(&self, _: Arc<dyn JobContext>) -> JobOutcome {
-            JobOutcome {
-                counts: Default::default(),
-                completed_scope: true,
-                failure_reason_key: None,
-                unprocessed_summary: None,
-                result_version_id: None,
-            }
-        }
-    }
-    struct Volumes(Option<VolumeTargetKind>);
-    impl VolumePort for Volumes {
-        fn enumerate(&self) -> VolumeEnumeration {
-            let supported = Capability {
-                state: CapabilityState::Supported,
-                reason_key: None,
-            };
-            let partial = Capability {
-                state: CapabilityState::Partial,
-                reason_key: Some("os.unsupported"),
-            };
-            VolumeEnumeration {
-                mounts: Ok(vec![VolumeMount {
-                    mount_path: vec![67, 0, 58, 0, 92, 0],
-                    display_path: "C:\\".into(),
-                    filesystem: vec![],
-                    mount_source: vec![],
-                    role: None,
-                    topology: None,
-                    target_kind: self.0,
-                    volume_id: Some(vec![1, 2]),
-                }]),
-                capabilities: VolumeCapabilities {
-                    enumerate: supported.clone(),
-                    identity: partial,
-                    capacity: supported.clone(),
-                    path_access: supported.clone(),
-                    path_compare_rule: supported.clone(),
-                    mount_boundary: supported.clone(),
-                    alias: supported,
-                },
-            }
-        }
-        fn path_access(&self, _: &[u8]) -> Result<(), PortError> {
-            Ok(())
-        }
-        fn capacity(&self, _: &[u8]) -> Result<VolumeCapacity, PortError> {
-            Ok(VolumeCapacity {
-                total_bytes: 100,
-                available_bytes: 50,
-            })
-        }
-    }
-
-    struct NoRoots;
-    impl ScopeRootPort for NoRoots {
-        fn open_root(&self, _: &[u8]) -> Result<OpenedScopeRoot, PortError> {
-            Err(PortError {
-                kind: PortErrorKind::Unsupported,
-                reason_key: "os.unsupported".into(),
-                os_code: None,
-            })
-        }
-    }
-    fn submission() -> Submission {
-        Submission {
-            kind_id: du_scan_engine::target_probe::TARGET_PROBE_KIND.into(),
-            deduplication_key: None,
-            body: Arc::new(Fixture),
-            priority: JobPriority::Normal,
-            scope_summary: String::new(),
-            correlation_id: Fixture.next_id(),
-            sample: false,
-        }
-    }
-    fn setup() -> Result<(Arc<JobRuntime>, Arc<crate::workers::Workers>), Box<dyn std::error::Error>>
-    {
-        let fixture = Arc::new(Fixture);
-        let runtime = Arc::new(JobRuntime::new(
-            fixture.clone(),
-            fixture.clone(),
-            fixture.clone(),
-            fixture,
-        )?);
-        runtime.register(du_scan_engine::target_probe::descriptor())?;
-        let workers = Arc::new(crate::workers::Workers::start(runtime.clone())?);
-        Ok((runtime, workers))
-    }
-    fn list(workers: Arc<crate::workers::Workers>, previous: Option<Id>) -> List {
-        List {
-            volumes: Arc::new(Volumes(Some(VolumeTargetKind::Internal))),
-            clock: Arc::new(Fixture),
-            probe: Probe {
-                workers,
-                timeout: Duration::from_millis(50),
-                previous: Mutex::new(previous),
-            },
-        }
-    }
-    fn caller() -> CallerCtx {
-        CallerCtx::new(Channel::Gui, Fixture.next_id(), None)
-    }
-    #[test]
-    fn new_list_cancels_previous_and_keeps_partial_identity()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let (runtime, workers) = setup()?;
-        let old = match runtime.submit(submission())? {
-            SubmitResult::Created(id) => id,
-            _ => return Err("unexpected existing job".into()),
-        };
-        let result = list(workers, Some(old.clone()))
-            .execute(TargetListRequest { refresh: true }, &caller())
-            .map_err(|e| format!("{e:?}"))?;
-        assert_eq!(runtime.state(&old)?, JobState::Cancelled);
-        assert!(result.probe_job_ref.is_some());
-        assert!(result.targets[0].volume_id.is_some());
-        assert_eq!(result.targets[0].identity_source, IdentitySource::Confirmed);
-        Ok(())
-    }
-    #[test]
-    fn full_queue_retains_targets_and_marks_probe_deferred()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let (runtime, workers) = setup()?;
-        for _ in 0..64 {
-            runtime.submit(submission())?;
-        }
-        let result = list(workers, None)
-            .execute(TargetListRequest { refresh: false }, &caller())
-            .map_err(|e| format!("{e:?}"))?;
-        assert!(result.probe_job_ref.is_none());
-        assert_eq!(result.targets.len(), 1);
-        assert_eq!(
-            result.targets[0].reason_key.as_deref(),
-            Some("job.queue_full")
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn unclassified_target_is_listed_and_delivers_probe_then_terminal_on_the_desktop_bus()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let mut builder = EngineBuilder::default();
-        let events = crate::desktop::register(
-            &mut builder,
-            Arc::new(NoRoots),
-            Arc::new(Volumes(None)),
-            Arc::new(Fixture),
-        )?;
-        let engine = builder.build()?;
-        let ctx = caller();
-        let reply = engine.call(
-            CallEnvelope {
-                name: "target.list".into(),
-                contract_version: ENVELOPE_VERSION,
-                correlation_id: ctx.correlation_id.clone(),
-                body: serde_json::json!({ "refresh": false }),
-            },
-            &ctx,
-        );
-        assert!(reply.error.is_none());
-        assert!(
-            reply.body["targets"][0]
-                .get("kind")
-                .is_some_and(serde_json::Value::is_null)
-        );
-        let list: TargetList = serde_json::from_value(reply.body)?;
-        let job = list.probe_job_ref.ok_or("missing probe job")?;
-        assert_eq!(list.targets.len(), 1);
-        assert_eq!(list.unavailable_reason, None);
-        assert_eq!(list.targets[0].kind, None);
-        assert_eq!(list.targets[0].identity_source, IdentitySource::Confirmed);
-        assert_eq!(list.targets[0].access, TargetAccess::Checking);
-        let mut reports = Vec::new();
-        let deadline = Instant::now() + Duration::from_secs(5);
-        let terminal = loop {
-            if Instant::now() >= deadline {
-                return Err("target probe did not finish".into());
-            }
-            let Some(json) = events.next_json() else {
-                std::thread::sleep(Duration::from_millis(5));
-                continue;
-            };
-            let event: EventEnvelope = serde_json::from_str(&json)?;
-            assert_eq!(event.job_ref.as_ref(), Some(&job));
-            if event.topic == "job.finished" {
-                break event;
-            }
-            if event.topic == "target.status_changed" {
-                reports.push(serde_json::from_value::<TargetProbeEvent>(event.body)?);
-            }
-        };
-        assert_eq!(reports.len(), 1);
-        let TargetStatusChanged {
-            access,
-            total_bytes,
-            available_bytes,
-            ..
-        } = &reports[0].observation;
-        assert_eq!(*access, TargetAccess::Accessible);
-        assert_eq!(total_bytes.as_ref().map(ByteSize::as_str), Some("100"));
-        assert_eq!(available_bytes.as_ref().map(ByteSize::as_str), Some("50"));
-        assert_eq!(terminal.body["historyRecorded"], false);
-        assert!(terminal.body["sequence"].as_u64() > Some(reports[0].sequence));
-        assert!(events.next_json().is_none());
-        Ok(())
-    }
-}
+mod tests;

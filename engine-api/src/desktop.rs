@@ -21,6 +21,7 @@ const EVENT_LIMIT: usize = 1_024;
 const EVENT_INTERVAL: Duration = Duration::from_millis(100);
 // Provisional until the target probe deadline is measured across supported devices.
 const TARGET_PROBE_DEADLINE: Duration = Duration::from_secs(2);
+const TARGET_ENUMERATION_DEADLINE: Duration = Duration::from_secs(2);
 
 /// Registers the Windows desktop analysis flow and returns its event source.
 pub fn register(
@@ -51,7 +52,10 @@ pub fn register(
         volumes,
         clock,
         workers.clone(),
-        TARGET_PROBE_DEADLINE,
+        targets::Deadlines {
+            enumeration: TARGET_ENUMERATION_DEADLINE,
+            probe: TARGET_PROBE_DEADLINE,
+        },
     )?;
     scan::register(builder, workers, roots, ids)?;
     Ok(events)

@@ -21,6 +21,36 @@ struct Address {
     correlation_id: Id,
 }
 
+/// Target listing may wait for the OS independently of the ordered command lane.
+/// Full command validation still happens in dispatch after admission.
+#[cfg(windows)]
+pub(crate) fn isolates_volume_enumeration(message: &str) -> bool {
+    use std::borrow::Cow;
+
+    #[derive(Deserialize)]
+    struct Route<'a> {
+        #[serde(borrow)]
+        command: Cow<'a, str>,
+        #[serde(borrow)]
+        args: RouteArguments<'a>,
+    }
+
+    #[derive(Deserialize)]
+    struct RouteArguments<'a> {
+        #[serde(borrow)]
+        envelope: RouteEnvelope<'a>,
+    }
+
+    #[derive(Deserialize)]
+    struct RouteEnvelope<'a> {
+        #[serde(borrow)]
+        name: Cow<'a, str>,
+    }
+
+    serde_json::from_str::<Route<'_>>(message)
+        .is_ok_and(|route| route.command == "du_call" && route.args.envelope.name == "target.list")
+}
+
 pub(crate) fn dispatch(engine: &Engine, message: &str) -> Option<String> {
     let request: Request = serde_json::from_str(message).ok()?;
     let address: Address = serde_json::from_value(request.args.envelope.clone()).ok()?;
@@ -59,6 +89,32 @@ mod tests {
         error::EngineError,
     };
     use serde_json::json;
+
+    #[cfg(windows)]
+    #[test]
+    fn only_target_listing_uses_the_isolated_ipc_lane() {
+        for (body, isolated) in [
+            (
+                r#"{"command":"du_call","args":{"envelope":{"name":"target.list"}}}"#,
+                true,
+            ),
+            (
+                r#"{"command":"du_call","args":{"envelope":{"name":"target\u002elist"}}}"#,
+                true,
+            ),
+            (
+                r#"{"command":"du_call","args":{"envelope":{"name":"scope.review"}}}"#,
+                false,
+            ),
+            (
+                r#"{"command":"other","args":{"envelope":{"name":"target.list"}}}"#,
+                false,
+            ),
+            (r#"{"name":"target.list"}"#, false),
+        ] {
+            assert_eq!(isolates_volume_enumeration(body), isolated);
+        }
+    }
 
     #[test]
     fn only_the_call_channel_is_routed_and_unknown_commands_fail()

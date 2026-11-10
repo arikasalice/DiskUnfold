@@ -63,7 +63,9 @@ export function TargetPicker({
   const notice =
     error === "os.unsupported"
       ? "Automatic drive listing is unavailable. You can still enter a folder below."
-      : error;
+      : error === "os.call_slow"
+        ? "Drive listing is taking longer than expected. Refresh later or enter a folder below."
+        : error;
   const entries = targets.list?.targets ?? [];
   const pathField = (
     <PathField
@@ -92,7 +94,13 @@ export function TargetPicker({
       </div>
       {targets.loading && <Progress label="Loading targets" />}
       {notice && (
-        <Notice tone={error === "os.unsupported" ? "info" : "error"}>
+        <Notice
+          tone={
+            error === "os.unsupported" || error === "os.call_slow"
+              ? "info"
+              : "error"
+          }
+        >
           {notice}
         </Notice>
       )}

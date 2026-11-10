@@ -231,6 +231,33 @@ test("F01: a target with an unavailable type can be selected and reviewed", asyn
   );
 });
 
+test("F01: slow drive listing leaves direct folder review available", async () => {
+  const { client, calls } = fixture({
+    targetList: {
+      targets: [],
+      probeJobRef: null,
+      observedAt: timestamp,
+      unavailableReason: "os.call_slow",
+    },
+  });
+  render(<App analysis={client} />);
+  await screen.findByText(/Drive listing is taking longer/);
+  fireEvent.change(
+    screen.getByRole("textbox", { name: "Windows folder path" }),
+    {
+      target: { value: path.display },
+    },
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
+  await waitFor(() =>
+    expect(
+      calls.find(({ name }) => name === "scope.review")?.body,
+    ).toMatchObject({
+      draft: { includes: [path] },
+    }),
+  );
+});
+
 test("F01: a probe that finishes before publishing an observation leaves the target unknown", async () => {
   const { client, listeners } = fixture({
     earlyProbe: {

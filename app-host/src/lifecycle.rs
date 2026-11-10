@@ -34,6 +34,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let app = WebApp {
         asset,
         dispatch: Arc::new(move |message| crate::ipc::dispatch(&engine, message)),
+        #[cfg(windows)]
+        isolate: crate::ipc::isolates_volume_enumeration,
         icon: include_bytes!("../icons/icon.png"),
     };
     #[cfg(windows)]

@@ -23,6 +23,9 @@ pub type Events = Arc<dyn Fn() -> Option<String> + Send + Sync>;
 pub struct WebApp {
     pub asset: fn(&str) -> Option<Asset>,
     pub dispatch: Dispatch,
+    /// Routes independently waitable requests away from the ordered command lane.
+    #[cfg(target_os = "windows")]
+    pub isolate: fn(&str) -> bool,
     pub icon: &'static [u8],
 }
 
