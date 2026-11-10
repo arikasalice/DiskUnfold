@@ -6,6 +6,13 @@ use du_core_contracts::{
 };
 use std::sync::{Arc, Mutex};
 
+/// Selects the prepared result to commit at the duplicate job's terminal boundary.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DuplicateTerminal {
+    Completed,
+    Cancelled,
+}
+
 pub(super) fn valid(descriptor: &JobDescriptor, publication: Option<&Publication>) -> bool {
     match (descriptor.kind_id.as_str(), publication) {
         ("query.evaluate", Some(Publication::Query(_)))
@@ -14,11 +21,52 @@ pub(super) fn valid(descriptor: &JobDescriptor, publication: Option<&Publication
                 && descriptor.resource_classes.as_slice() == [ResourceClass::Compute]
         }
         ("query.evaluate" | "viz.compute", _) => false,
+        ("duplicate.check", Some(Publication::DuplicateTerminal { .. })) => {
+            descriptor.version == 1
+                && descriptor.history == HistoryMode::Summary
+                && descriptor.resource_classes.as_slice() == [ResourceClass::ContentIo]
+        }
         (_, publication) => publication.is_none(),
     }
 }
 
 impl JobRuntime {
+    /// Submits duplicate work with a prepared queued-cancellation outcome.
+    ///
+    /// `queued` describes the entire unprocessed scope without performing file
+    /// reads. The caller prepares its cancelled candidate before submission; for
+    /// a running job it prepares the final candidate after its flows drain.
+    /// The callback selects and atomically commits the candidate for the given
+    /// terminal state, without blocking I/O or runtime reentry. On error or panic
+    /// it must commit nothing. Failure is retained in the terminal outcome;
+    /// cancellation still wins under F24 and no result ID is reported.
+    pub fn submit_duplicate_terminal(
+        &self,
+        submission: Submission,
+        queued: JobOutcome,
+        commit: impl FnOnce(DuplicateTerminal) -> Result<Id, String> + Send + 'static,
+    ) -> Result<SubmitResult, RuntimeError> {
+        if queued.completed_scope
+            || queued.result_version_id.is_some()
+            || queued.unprocessed_summary.is_none()
+            || queued.counts.completed != 0
+            || queued.counts.overwritten != 0
+            || queued.counts.failed != 0
+            || queued.counts.skipped != 0
+        {
+            return Err(RuntimeError::InvalidState);
+        }
+        self.submit_inner(
+            submission,
+            None,
+            Some(Publication::DuplicateTerminal {
+                queued,
+                commit: Box::new(commit),
+            }),
+            |_| Ok(()),
+        )
+    }
+
     /// Submits a query evaluation whose candidate is published only at completion.
     ///
     /// The callback must be a bounded in-memory atomic transaction: on error or
@@ -159,6 +207,23 @@ impl JobRuntime {
             job.cancel.0.load(std::sync::atomic::Ordering::Acquire)
         };
         outcome.result_version_id = None;
+        if let Some(Publication::DuplicateTerminal { .. }) = publication.as_ref() {
+            if (cancelled || outcome.completed_scope)
+                && let Some(Publication::DuplicateTerminal { commit, .. }) = publication.take()
+            {
+                outcome = commit_duplicate(
+                    outcome,
+                    commit,
+                    if cancelled {
+                        DuplicateTerminal::Cancelled
+                    } else {
+                        DuplicateTerminal::Completed
+                    },
+                );
+            }
+            self.finish(id, outcome)?;
+            return Ok(());
+        }
         if !cancelled
             && outcome.completed_scope
             && let Some(publish) = publication.take()
@@ -166,6 +231,7 @@ impl JobRuntime {
             let commit = move || match publish {
                 Publication::Query(commit) => commit().map(Some),
                 Publication::Visualization(commit) => commit().map(|()| None),
+                Publication::DuplicateTerminal { .. } => Err("support.internal_error".into()),
             };
             match std::panic::catch_unwind(std::panic::AssertUnwindSafe(commit)) {
                 Ok(Ok(reference)) => outcome.result_version_id = reference,
@@ -186,4 +252,24 @@ impl JobRuntime {
         drop(publication);
         Ok(())
     }
+}
+
+pub(super) fn commit_duplicate(
+    mut outcome: JobOutcome,
+    commit: Box<dyn FnOnce(DuplicateTerminal) -> Result<Id, String> + Send>,
+    terminal: DuplicateTerminal,
+) -> JobOutcome {
+    outcome.result_version_id = None;
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| commit(terminal))) {
+        Ok(Ok(id)) => outcome.result_version_id = Some(id),
+        Ok(Err(reason)) => {
+            outcome.completed_scope = false;
+            outcome.failure_reason_key = Some(reason);
+        }
+        Err(_) => {
+            outcome.completed_scope = false;
+            outcome.failure_reason_key = Some("support.internal_error".into());
+        }
+    }
+    outcome
 }

@@ -121,6 +121,10 @@ pub(crate) struct Cancellation(pub(crate) AtomicBool);
 pub(crate) enum Publication {
     Query(Box<dyn FnOnce() -> Result<Id, String> + Send>),
     Visualization(Box<dyn FnOnce() -> Result<(), String> + Send>),
+    DuplicateTerminal {
+        queued: du_core_contracts::job::JobOutcome,
+        commit: Box<dyn FnOnce(crate::publication::DuplicateTerminal) -> Result<Id, String> + Send>,
+    },
 }
 pub(crate) struct StoredSubmission {
     pub(crate) kind_id: String,

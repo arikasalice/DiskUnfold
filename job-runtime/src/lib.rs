@@ -25,6 +25,7 @@ pub use model::{
     CancelResult, DeduplicationKey, JobClock, JobEvent, JobEvents, JobIdentity, JobPriority,
     JobRuntime, JobSnapshot, ResultBinding, RuntimeError, Submission, SubmitResult,
 };
+pub use publication::DuplicateTerminal;
 pub use shutdown::{ShutdownStatus, ShutdownTicket};
 use std::sync::{
     Arc, Condvar, Mutex,
@@ -299,7 +300,19 @@ impl JobRuntime {
         job.wake.notify_all();
         if job.state == JobState::Queued {
             job.state = JobState::CancelRequested;
+            let duplicate =
+                if matches!(job.publication, Some(Publication::DuplicateTerminal { .. })) {
+                    job.publication.take()
+                } else {
+                    None
+                };
             drop(table);
+            if let Some(Publication::DuplicateTerminal { queued, commit }) = duplicate {
+                let outcome =
+                    publication::commit_duplicate(queued, commit, DuplicateTerminal::Cancelled);
+                let sequence = self.finish(id, outcome)?;
+                return Ok((CancelResult::Accepted(JobState::Cancelled), sequence));
+            }
             let sequence = self.finish(
                 id,
                 JobOutcome {
