@@ -267,7 +267,7 @@ export function createAnalysisClient(
   };
 }
 
-/** Encodes a path typed by the user without normalizing or resolving it. */
+/** Preserves native UTF-16 code units and supplies a JSON-safe display string. */
 export function windowsPath(input: string): OsPath {
   let bytes = "";
   for (let index = 0; index < input.length; index += 1) {
@@ -278,7 +278,13 @@ export function windowsPath(input: string): OsPath {
     .replaceAll("+", "-")
     .replaceAll("/", "_")
     .replace(/=+$/, "");
-  return { encoding: "windows_utf16le", raw, display: input, lossy: false };
+  const display = input.toWellFormed();
+  return {
+    encoding: "windows_utf16le",
+    raw,
+    display,
+    lossy: display !== input,
+  };
 }
 
 export { hasWindowsAnalysisBridge } from "./bridge";

@@ -2871,38 +2871,56 @@ test("F01: a probe finished before its delayed list is not cancelled", async () 
   expect(calls.filter(({ name }) => name === "scan.start")).toHaveLength(0);
 });
 
-test("F01: a dropped folder replaces the selection and requires a fresh scope review", async () => {
-  const { client, calls } = fixture();
-  const nativeDrop = createAnalysisClient().subscribeFolderDrop;
-  if (!nativeDrop) throw new Error("Expected native drop subscription");
-  render(<App analysis={{ ...client, subscribeFolderDrop: nativeDrop }} />);
-  fireEvent.click(await screen.findByRole("radio", { name: path.display }));
-  const review = screen.getByRole("button", { name: "Review scope" });
-  const start = screen.getByRole("button", {
-    name: "Start scan",
-  }) as HTMLButtonElement;
-  fireEvent.click(review);
-  await waitFor(() => expect(start.disabled).toBe(false));
-  const dropped = "D:\\한글 폴더";
-  folderDrop({ seq: 1, pending: true });
-  folderDrop({ seq: 1, path: dropped });
-  expect(
-    (
-      screen.getByRole("textbox", {
-        name: "Windows folder path",
-      }) as HTMLInputElement
-    ).value,
-  ).toBe(dropped);
-  expect(start.disabled).toBe(true);
-  expect(calls.some(({ name }) => name === "scan.start")).toBe(false);
-  fireEvent.click(review);
-  await waitFor(() => expect(start.disabled).toBe(false));
-  expect(
-    calls.filter(({ name }) => name === "scope.review").at(-1)?.body,
-  ).toMatchObject({
-    draft: { includes: [windowsPath(dropped)] },
-  });
-});
+test.each([
+  { dropped: "D:\\한글 폴더", display: "D:\\한글 폴더", lossy: false },
+  {
+    dropped: `D:\\folder-${String.fromCharCode(0xd800)}`,
+    display: "D:\\folder-\uFFFD",
+    lossy: true,
+  },
+])(
+  "F01: a dropped folder replaces the selection and requires a fresh scope review ($display)",
+  async ({ dropped, display, lossy }) => {
+    const { client, calls } = fixture();
+    const nativeDrop = createAnalysisClient().subscribeFolderDrop;
+    if (!nativeDrop) throw new Error("Expected native drop subscription");
+    render(<App analysis={{ ...client, subscribeFolderDrop: nativeDrop }} />);
+    fireEvent.click(await screen.findByRole("radio", { name: path.display }));
+    const review = screen.getByRole("button", { name: "Review scope" });
+    const start = screen.getByRole("button", {
+      name: "Start scan",
+    }) as HTMLButtonElement;
+    fireEvent.click(review);
+    await waitFor(() => expect(start.disabled).toBe(false));
+    folderDrop({ seq: 1, pending: true });
+    folderDrop({ seq: 1, path: dropped });
+    expect(
+      (
+        screen.getByRole("textbox", {
+          name: "Windows folder path",
+        }) as HTMLInputElement
+      ).value,
+    ).toBe(display);
+    expect(start.disabled).toBe(true);
+    expect(calls.some(({ name }) => name === "scan.start")).toBe(false);
+    fireEvent.click(review);
+    await waitFor(() => expect(start.disabled).toBe(false));
+    expect(
+      calls.filter(({ name }) => name === "scope.review").at(-1)?.body,
+    ).toMatchObject({
+      draft: {
+        includes: [
+          {
+            encoding: "windows_utf16le",
+            raw: Buffer.from(dropped, "utf16le").toString("base64url"),
+            display,
+            lossy,
+          },
+        ],
+      },
+    });
+  },
+);
 
 test("F01: an invalid drop gives guidance without replacing the chosen folder", async () => {
   const { client } = fixture();

@@ -11,6 +11,94 @@ use std::{fs, io::Write};
 
 const REPLACEMENT_FILES: [(&str, u64); 2] = [("\u{00e9}.bin", 16_384), ("e\u{0301}.bin", 7)];
 
+/// Reviews and scans a raw NTFS name whose display requires a replacement character.
+#[test]
+fn lossy_display_preserves_native_scope_identity() -> Result<(), Box<dyn std::error::Error>> {
+    use std::{ffi::OsString, os::windows::ffi::OsStringExt};
+
+    let fixture = tempfile::tempdir()?;
+    let profile = tempfile::tempdir()?;
+    let mut name: Vec<_> = "folder-".encode_utf16().collect();
+    name.push(0xd800);
+    let target = fixture.path().join(OsString::from_wide(&name));
+    fs::create_dir(&target)?;
+    fs::write(target.join("item.bin"), [0; 17])?;
+
+    let database = crate::startup_database::open(profile.path())?;
+    let mut builder = EngineBuilder::default();
+    let events = du_engine_api::desktop::register(
+        &mut builder,
+        Arc::new(du_platform_os::windows_observation::WindowsScopeRoots),
+        Arc::new(du_platform_os::volume::WindowsVolumes),
+        Arc::new(database.history(|| 400)),
+        &du_platform_os::entropy::OsRandom,
+    )?;
+    let engine = builder.build()?;
+    let raw: Vec<_> = target
+        .as_os_str()
+        .encode_wide()
+        .flat_map(u16::to_le_bytes)
+        .collect();
+    let draft = json!({
+        "includes": [{"encoding": "windows_utf16le", "raw": PathBytes::from_bytes(&raw),
+            "display": target.to_string_lossy(), "lossy": true}],
+        "exclusions": [], "boundary": "current_volume", "includedMounts": [], "source": "gui"
+    });
+    let response = ipc(
+        &engine,
+        "scope.review",
+        json!({"draft": draft, "requestSeq": 1}),
+    )?;
+    assert!(response.error.is_none(), "{:?}", response.error);
+    let review: ScopeReview = serde_json::from_value(response.body)?;
+    let [reviewed] = review.scope.includes.as_slice() else {
+        return Err("expected one reviewed root".into());
+    };
+    assert!(reviewed.lossy);
+    assert!(reviewed.display.ends_with("folder-\u{fffd}"));
+    assert!(reviewed.raw.bytes()?.ends_with(&0xd800_u16.to_le_bytes()));
+
+    let response = ipc(
+        &engine,
+        "scan.start",
+        json!({"draft": draft, "reviewFingerprint": review.review_fingerprint}),
+    )?;
+    assert!(response.error.is_none(), "{:?}", response.error);
+    let scan: ScanStart = serde_json::from_value(response.body)?;
+    let batch = terminal_batch(&events, &scan.job_ref)?;
+    let finished = batch
+        .iter()
+        .find(|event| {
+            event.topic == "job.finished" && event.job_ref.as_ref() == Some(&scan.job_ref)
+        })
+        .ok_or("missing scan completion")?;
+    assert_eq!(finished.body["state"], "done");
+    let version = finished
+        .result_version
+        .as_ref()
+        .ok_or("missing result version")?;
+    let response = ipc(
+        &engine,
+        "space.total",
+        json!({"resultVersion": version, "requestSeq": 2, "target": {"kind": "scope_root"}}),
+    )?;
+    assert!(response.error.is_none(), "{:?}", response.error);
+    let total: SpaceTotal = serde_json::from_value(response.body)?;
+    assert_eq!(&total.result_version, version);
+    let logical = total
+        .sizes
+        .iter()
+        .find(|entry| entry.size.basis == SizeBasis::Logical)
+        .ok_or("missing logical total")?;
+    assert_eq!(
+        logical.size.amount,
+        SizeAmount::Exact {
+            bytes: 17_u64.into()
+        }
+    );
+    Ok(())
+}
+
 /// A stale review cannot admit a replacement, even when the pathname is unchanged.
 #[test]
 fn same_path_replacement_requires_a_new_review_before_scanning()
