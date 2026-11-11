@@ -1,5 +1,6 @@
 //! Verify bilingual search against the SQLite snapshot restored at desktop startup.
 use super::*;
+use du_user_env::scope;
 use du_user_env::settings::search::Field;
 
 #[test]
