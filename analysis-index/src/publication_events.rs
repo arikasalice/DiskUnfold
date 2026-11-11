@@ -29,12 +29,12 @@ impl PublicationEvents {
         &self,
         lineage: Option<&Id>,
         sequence: Option<u64>,
-        origin: &'static str,
         change: ResultVersionChange,
         previous: Option<&ResultVersion>,
         current: Option<&ResultVersion>,
     ) {
-        let (Some(publisher), Some(lineage), Some(sequence)) = (&self.publisher, lineage, sequence)
+        let (Some(publisher), Some(lineage), Some(sequence), Some(relevant)) =
+            (&self.publisher, lineage, sequence, current.or(previous))
         else {
             return;
         };
@@ -43,7 +43,7 @@ impl PublicationEvents {
             body: ResultVersionChanged {
                 lineage_id: lineage.clone(),
                 source_ref: lineage.clone(),
-                origin: origin.into(),
+                origin: relevant.origin().into(),
                 sequence,
                 change,
                 previous_result_version: previous.map(|result| result.version_id.clone()),

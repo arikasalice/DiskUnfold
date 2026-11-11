@@ -27,7 +27,6 @@ impl BuildHandle {
             self.events.notify(
                 self.lineage.as_ref(),
                 sequence,
-                self.origin.as_str(),
                 ResultVersionChange::Withdrawn,
                 withdrawn.as_ref().map(|entry| entry.result.as_ref()),
                 self.baseline.as_ref().map(|entry| entry.result.as_ref()),

@@ -92,6 +92,45 @@ fn replacement_keeps_old_pins_and_publishes_once_after_seal() -> Result<(), Stri
 }
 
 #[test]
+fn withdrawing_scan_partial_reports_the_restored_incremental_origin() -> Result<(), String> {
+    let notices = Arc::new(Notices::default());
+    let sink = IngestSink::with_version_publisher(notices.clone());
+    let lineage = sink
+        .bind_current_analysis("restore-incremental", id(100)?)
+        .map_err(|error| format!("{error:?}"))?;
+    let base = build(&sink, &lineage, 101)?
+        .seal(id(102)?, ResultCompleteness::Complete)
+        .map_err(|error| format!("{error:?}"))?;
+    let mut candidate = sink
+        .open_replacement(&base)
+        .map_err(|error| format!("{error:?}"))?;
+    candidate
+        .add_directory(Vec::new())
+        .map_err(|error| format!("{error:?}"))?;
+    let incremental = candidate
+        .seal(id(103)?, ResultCompleteness::Complete)
+        .map_err(|error| format!("{error:?}"))?;
+    let mut scan = build(&sink, &lineage, 104)?;
+    scan.publish_partial(id(105)?)
+        .map_err(|error| format!("{error:?}"))?;
+    scan.abort();
+
+    let current = sink
+        .pin_current(incremental.version_id())
+        .map_err(|error| format!("{error:?}"))?;
+    assert!(Arc::ptr_eq(&current, &incremental));
+    let events = notices.0.lock().map_err(|_| "notice lock poisoned")?;
+    assert_eq!(events.len(), 4);
+    assert_eq!(events[2].body.origin, "scan");
+    assert_eq!(events[3].body.change, ResultVersionChange::Withdrawn);
+    assert_eq!(events[3].body.origin, "incremental");
+    assert_eq!(events[3].body.previous_result_version, Some(id(105)?));
+    assert_eq!(events[3].result_version, Some(id(103)?));
+    assert!(events[3].validate());
+    Ok(())
+}
+
+#[test]
 fn superseded_replacement_is_discarded_without_publication() -> Result<(), String> {
     let notices = Arc::new(Notices::default());
     let sink = IngestSink::with_version_publisher(notices.clone());

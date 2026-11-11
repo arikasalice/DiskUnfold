@@ -488,7 +488,6 @@ impl BuildHandle {
         self.events.notify(
             self.lineage.as_ref(),
             sequence,
-            self.origin.as_str(),
             ResultVersionChange::Published,
             previous.as_ref().map(|entry| entry.result.as_ref()),
             Some(&result),
