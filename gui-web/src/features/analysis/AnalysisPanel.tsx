@@ -69,6 +69,15 @@ function canStart(scope: ReviewedScope | undefined): scope is ReviewedScope {
   );
 }
 
+function reviewFeedback(
+  scope: ReviewedScope | undefined,
+  problem: string | undefined,
+) {
+  const review = scope?.review;
+  const ready = canStart(scope);
+  return { review, ready, hasProblem: Boolean(problem || (review && !ready)) };
+}
+
 /** Presents target selection, scope review, background collection and pinned totals. */
 export function AnalysisPanel({
   client,
@@ -294,10 +303,11 @@ export function AnalysisPanel({
     }
   }
 
-  const review = reviewedScope?.review;
-  const ready = canStart(reviewedScope);
+  const { review, ready, hasProblem } = reviewFeedback(
+    reviewedScope,
+    reviewProblem,
+  );
   const resultActive = receipt !== null || error !== undefined;
-  const scopeProblem = Boolean(reviewProblem || (review && !ready));
   const showEditor = receipt === null || editorOpen;
   const editorBusy = isEditorBusy(working, reviewing, checkingDrop);
 
@@ -367,7 +377,7 @@ export function AnalysisPanel({
                   dropMessage?.tone === "error" ? dropMessage.text : undefined
                 }
                 pathDescription={pathDescription}
-                reviewDescriptionId={scopeProblem ? reviewProblemId : undefined}
+                reviewDescriptionId={hasProblem ? reviewProblemId : undefined}
                 feedback={
                   <ScopeReviewFeedback
                     review={review}
