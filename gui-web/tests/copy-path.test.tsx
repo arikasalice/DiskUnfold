@@ -34,16 +34,23 @@ test("copy dispatches the pinned item once and announces the actual result", asy
   });
   render(<CopyPath client={client} item={item} path={path} />);
   const button = screen.getByRole("button", { name: "Copy path" });
+  act(() => button.focus());
   fireEvent.click(button);
   fireEvent.click(button);
   expect(calls).toHaveLength(1);
   expect(calls[0]?.name).toBe("browse.copy_path");
   expect(calls[0]?.body).toEqual({ resultVersion: "result-a", items: [item] });
   expect(screen.getByRole("status").textContent).toBe("Copying path…");
+  expect(button.getAttribute("aria-disabled")).toBe("true");
+  expect(button.hasAttribute("data-pending")).toBe(false);
+  expect(document.activeElement).toBe(button);
+  expect(document.querySelector('[role="log"] [aria-labelledby]')).toBeNull();
   await act(async () =>
     finish(reply(calls[0]!, { outcome: "copied", count: 1 })),
   );
   expect(screen.getByRole("status").textContent).toBe("Copied 1 path.");
+  expect(button.getAttribute("aria-disabled")).not.toBe("true");
+  expect(document.activeElement).toBe(button);
 });
 
 test("a new item can copy while a late result cannot affect its pending request", async () => {

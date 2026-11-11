@@ -81,7 +81,7 @@ function CopyPathForItem({ client, item, path }: CopyPathProps) {
         ) : (
           "Unavailable in this scan"
         )}
-        <Action isPending={busy} onPress={copy}>
+        <Action aria-disabled={busy} onPress={copy}>
           Copy path
         </Action>
       </div>

@@ -153,13 +153,16 @@ export function Readout({
   rows,
 }: {
   label: string;
-  rows: { label: string; value: ReactNode }[];
+  rows: { label: string; value: ReactNode; wideValue?: boolean }[];
 }) {
   if (rows.length === 0) return null;
   return (
     <dl className="du-readout" aria-label={label}>
       {rows.map((row) => (
-        <div key={row.label}>
+        <div
+          key={row.label}
+          className={row.wideValue ? "du-readout__wide-value" : undefined}
+        >
           <dt>{row.label}</dt>
           <dd>{row.value}</dd>
         </div>

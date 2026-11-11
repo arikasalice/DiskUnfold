@@ -43,6 +43,7 @@ function attributes(
     },
     {
       label: "Path",
+      wideValue: true,
       value: <CopyPath client={client} item={item} path={detail.displayPath} />,
     },
     { label: "Kind", value: attribute(detail.kind) },

@@ -22,6 +22,7 @@ type ActionProps = Pick<
   | "excludeFromTabOrder"
   | "aria-expanded"
   | "aria-controls"
+  | "aria-disabled"
 > & {
   variant?: "primary" | "secondary" | "quiet";
   ref?: Ref<HTMLButtonElement>;
