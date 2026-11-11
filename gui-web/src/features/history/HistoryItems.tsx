@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   Action,
   DataTable,
+  DetailDisclosure,
   Heading,
   Notice,
   Progress,
@@ -13,9 +14,10 @@ import type {
   AnalysisClient,
   HistoryItemOutcome,
   HistoryItemRow,
+  HistoryItemsResponse,
 } from "../../ipc";
 import { useHistoryItems } from "../../state/history-items";
-import { missingLabel } from "./history-labels";
+import { displayTime, missingLabel } from "./history-labels";
 type Filter = HistoryItemOutcome | "all";
 const filters: { value: Filter; label: string }[] = [
   { value: "all", label: "All outcomes" },
@@ -32,15 +34,10 @@ export function HistoryItemSection({
   client: AnalysisClient;
   jobRef: string;
 }) {
-  const [open, setOpen] = useState(false);
   return (
-    <section className="du-results" aria-label="Item results">
-      <Heading level={3}>Item results</Heading>
-      <Action onPress={() => setOpen(!open)}>
-        {open ? "Hide item results" : "View item results"}
-      </Action>
-      {open && <HistoryItems client={client} jobRef={jobRef} />}
-    </section>
+    <DetailDisclosure title="Item results">
+      <HistoryItems client={client} jobRef={jobRef} />
+    </DetailDisclosure>
   );
 }
 export function HistoryItems({
@@ -53,12 +50,14 @@ export function HistoryItems({
   const [filter, setFilter] = useState<Filter>("all");
   return (
     <>
-      <SelectField
-        label="Outcome"
-        value={filter}
-        options={filters}
-        onChange={setFilter}
-      />
+      <div className="du-history-item-filter">
+        <SelectField
+          label="Outcome"
+          value={filter}
+          options={filters}
+          onChange={setFilter}
+        />
+      </div>
       <ItemPages
         key={`${jobRef}:${filter}`}
         client={client}
@@ -83,12 +82,12 @@ function ItemPages({
     outcome,
   );
   const [selected, setSelected] = useState<HistoryItemRow>();
-  const displaced =
-    selected && page?.rows.includes(selected)
-      ? selected.result?.displaced
-      : undefined;
+  const opener = useRef<HTMLElement>(null);
+  const table = useRef<HTMLDivElement>(null);
+  const selectedResult =
+    selected && page?.rows.includes(selected) ? selected.result : undefined;
   return (
-    <>
+    <div className="du-history-item-results">
       {refreshed && (
         <Notice>
           History changed. Item results were restarted from the first page.
@@ -108,14 +107,7 @@ function ItemPages({
       )}
       {page && (
         <>
-          {(page.completeness === "partial" ||
-            page.missingReasons.length > 0 ||
-            page.rows.some((row) => row.result === null)) && (
-            <Notice>
-              Some item information is unavailable.{" "}
-              {page.missingReasons.map(missingLabel).join(" ")}
-            </Notice>
-          )}
+          <ItemCompleteness page={page} />
           <Readout
             label="Item counts"
             rows={[
@@ -130,13 +122,30 @@ function ItemPages({
               },
             ]}
           />
-          <DataTable
-            label="Item results"
-            columns={["Item", "Recorded location", "Outcome", "Details"]}
-            columnWidths={[168, 258, 110, 254]}
-            rows={page.rows}
-            renderCells={(row) => cells(row, setSelected)}
-          />
+          {page.rows.length > 0 && (
+            <div ref={table}>
+              <DataTable
+                label="Item results"
+                columns={[
+                  "Recorded location",
+                  "Outcome",
+                  "Observed size and notes",
+                  "Details",
+                ]}
+                columnWidths={[157, 102, 136, 106]}
+                density="compact"
+                totalRows={page.nextCursor ? -1 : page.rows.length}
+                rows={page.rows}
+                getRowKey={(row) => row.itemSeq}
+                renderCells={(row) =>
+                  cells(row, (target) => {
+                    opener.current = target;
+                    setSelected(row);
+                  })
+                }
+              />
+            </div>
+          )}
           {page.rows.length === 0 && (
             <EmptyItems outcome={outcome} summary={page.counts.summary} />
           )}
@@ -147,10 +156,20 @@ function ItemPages({
           )}
         </>
       )}
-      {displaced && (
-        <DisplacedDetails key={selected?.itemSeq} displaced={displaced} />
+      {selectedResult && (
+        <RecordedItemDetails
+          key={selected?.itemSeq}
+          result={selectedResult}
+          onClose={() => {
+            setSelected(undefined);
+            const target = opener.current?.isConnected
+              ? opener.current
+              : table.current?.querySelector<HTMLElement>(".du-table-viewport");
+            target?.focus();
+          }}
+        />
       )}
-    </>
+    </div>
   );
 }
 function EmptyItems({
@@ -171,58 +190,135 @@ function EmptyItems({
   );
 }
 
-function DisplacedDetails({
-  displaced,
+function ItemCompleteness({ page }: { page: HistoryItemsResponse }) {
+  if (
+    page.completeness === "complete" &&
+    page.missingReasons.length === 0 &&
+    page.rows.every((row) => row.result !== null)
+  )
+    return null;
+  return (
+    <Notice>
+      Some item information is unavailable.{" "}
+      {page.missingReasons.map(missingLabel).join(" ")}
+    </Notice>
+  );
+}
+
+function RecordedItemDetails({
+  result,
+  onClose,
 }: {
-  displaced: NonNullable<NonNullable<HistoryItemRow["result"]>["displaced"]>;
+  result: NonNullable<HistoryItemRow["result"]>;
+  onClose: () => void;
 }) {
+  const displaced = result.displaced;
+  const title = displaced ? "Displaced item details" : "Recorded item details";
   const region = useRef<HTMLDivElement>(null);
   useEffect(() => {
     region.current?.focus();
-  }, [displaced]);
+  }, [result]);
   return (
     <div
       ref={region}
+      className="du-history-displaced"
       tabIndex={-1}
       role="region"
-      aria-label="Displaced item details"
+      aria-label={title}
     >
-      <Heading level={3}>Displaced item details</Heading>
+      <div className="du-history-header">
+        <Heading level={3}>{title}</Heading>
+        <Action variant="quiet" onPress={onClose}>
+          Close details
+        </Action>
+      </div>
       <Readout
-        label="Displaced item details"
+        label="Recorded item"
         rows={[
-          { label: "Name", value: displaced.name ?? "Unavailable" },
+          { label: "Recorded location", value: result.locationDisplay },
           {
-            label: "Original recorded location",
-            value: displaced.originalLocationDisplay ?? "Unavailable",
+            label: "Outcome",
+            value:
+              filters.find((filter) => filter.value === result.outcome)
+                ?.label ?? "Outcome unavailable",
           },
-          {
-            label: "Time moved to trash",
-            value: displayTime(displaced.trashedAtMs),
-          },
+          { label: "Observed size", value: observedSize(result) },
+          { label: "Notes", value: itemFlags(result) || "No additional notes" },
         ]}
       />
-      {displaced.ambiguous && (
-        <Notice>The displayed information is ambiguous.</Notice>
+      {displaced && (
+        <>
+          <Readout
+            label="Displaced item details"
+            rows={[
+              { label: "Name", value: displaced.name ?? "Unavailable" },
+              {
+                label: "Original recorded location",
+                value: displaced.originalLocationDisplay ?? "Unavailable",
+              },
+              {
+                label: "Time moved to trash",
+                value: displayTime(displaced.trashedAtMs, "Unavailable"),
+              },
+            ]}
+          />
+          {displaced.ambiguous && (
+            <Notice>The displayed information is ambiguous.</Notice>
+          )}
+          <Notice>
+            Check the operating system trash directly using the recorded
+            information.
+          </Notice>
+        </>
       )}
-      <Notice>
-        Check the operating system trash directly using the recorded
-        information.
-      </Notice>
     </div>
   );
 }
 
-function cells(row: HistoryItemRow, select: (row: HistoryItemRow) => void) {
+function cells(row: HistoryItemRow, select: (target: HTMLElement) => void) {
   const result = row.result;
   if (!result)
     return [
-      `Item ${row.itemSeq}`,
-      "Unavailable",
+      "Item " + row.itemSeq,
       "Unavailable",
       "Item result unavailable",
+      null,
     ];
-  const flags = [
+  const flags = itemFlags(result);
+  const size = observedSize(result);
+  return [
+    <div
+      className="du-history-item-location"
+      key="location"
+      title={result.locationDisplay}
+    >
+      <Text>{result.locationDisplay}</Text>
+    </div>,
+    filters.find((filter) => filter.value === result.outcome)?.label ??
+      "Outcome unavailable",
+    <div className="du-history-item-observation" key="observation">
+      <Text>{size}</Text>
+      {flags && <Text kind="muted">{flags}</Text>}
+    </div>,
+    <Action
+      key="displacement"
+      variant="quiet"
+      aria-label={
+        (result.displaced
+          ? "View displaced item details, item "
+          : "View item result, item ") + row.itemSeq
+      }
+      onPress={(event) => {
+        if (event.target instanceof HTMLElement) select(event.target);
+      }}
+    >
+      View item
+    </Action>,
+  ];
+}
+
+function itemFlags(result: NonNullable<HistoryItemRow["result"]>) {
+  return [
     result.reviewNeeded && "Review needed",
     result.held && "Held",
     result.outcomeUnknown && "Outcome unknown",
@@ -230,36 +326,13 @@ function cells(row: HistoryItemRow, select: (row: HistoryItemRow) => void) {
   ]
     .filter(Boolean)
     .join(" · ");
-  const size =
-    result.observedSize === null || result.observedSizeState === "unknown"
-      ? "Size unavailable"
-      : result.observedSizeState === "exact"
-        ? `${result.observedSize} bytes`
-        : result.observedSizeState === "lower_bound"
-          ? `${result.observedSize} bytes or more`
-          : "Size unavailable";
-  return [
-    <div key="item">
-      <Text>Item {row.itemSeq}</Text>
-      {result.displaced && (
-        <Action
-          aria-label={`View displaced item details, item ${row.itemSeq}`}
-          onPress={() => select(row)}
-        >
-          Displacement details
-        </Action>
-      )}
-    </div>,
-    result.locationDisplay,
-    filters.find((filter) => filter.value === result.outcome)?.label ??
-      "Outcome unavailable",
-    `${size}${flags ? ` · ${flags}` : ""}`,
-  ];
 }
-function displayTime(value: number | null) {
-  if (value === null) return "Unavailable";
-  const date = new Date(value);
-  return Number.isFinite(date.getTime())
-    ? date.toLocaleString()
-    : "Unavailable";
+
+function observedSize(result: NonNullable<HistoryItemRow["result"]>) {
+  if (result.observedSize === null) return "Size unavailable";
+  if (result.observedSizeState === "exact")
+    return result.observedSize + " bytes";
+  if (result.observedSizeState === "lower_bound")
+    return result.observedSize + " bytes or more";
+  return "Size unavailable";
 }

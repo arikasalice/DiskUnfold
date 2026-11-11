@@ -79,7 +79,8 @@ test("opens a valid row, preserves filters and scroll, and restores focus", asyn
   expect(
     call.mock.calls.filter(([name]) => name === "history.get"),
   ).toHaveLength(1);
-  expect(screen.getAllByText("Unavailable").length).toBeGreaterThanOrEqual(6);
+  expect(screen.getByText(/Some records could not be read/)).toBeDefined();
+  expect(screen.queryByLabelText("Plans and approval")).toBeNull();
   expect(screen.getByText("Follow-up information unavailable.")).toBeDefined();
   expect(screen.queryByText("No follow-up operations.")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Back to history" }));
@@ -173,9 +174,10 @@ test("late detail response cannot overwrite a later selection", async () => {
     finish?.(detail);
   });
   expect(screen.getByText("No follow-up operations.")).toBeDefined();
-  expect(
-    within(screen.getByLabelText("Effects")).getAllByText("Unavailable"),
-  ).toHaveLength(3);
+  fireEvent.click(screen.getByRole("button", { name: "Recorded evidence" }));
+  const effects = within(screen.getByLabelText("Effects"));
+  expect(effects.getAllByText("Unavailable")).toHaveLength(2);
+  expect(effects.getByText("Not yet confirmed")).toBeDefined();
 });
 
 test("renders supplied plans, approval, follow-ups and the three distinct effects", async () => {
@@ -216,6 +218,9 @@ test("renders supplied plans, approval, follow-ups and the three distinct effect
   fireEvent.click(
     (await screen.findAllByRole("button", { name: /^View details:/ }))[0]!,
   );
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Recorded evidence" }),
+  );
   const plans = await screen.findByLabelText("Plans and approval");
   expect(within(plans).getByText("plan-a, plan-b")).toBeDefined();
   expect(within(plans).getByText("matched")).toBeDefined();
@@ -223,13 +228,13 @@ test("renders supplied plans, approval, follow-ups and the three distinct effect
   expect(within(effects).getByText("10 bytes · estimated")).toBeDefined();
   expect(within(effects).getByText("4 bytes · exact")).toBeDefined();
   expect(within(effects).getByText("2 bytes · measured")).toBeDefined();
-  expect(screen.getByText("Retry · Failed · Time unavailable")).toBeDefined();
+  expect(screen.getByText("Failed · Time unavailable")).toBeDefined();
   expect(screen.queryByText("follow-up")).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "Open follow-up 1" }));
+  fireEvent.click(screen.getByRole("button", { name: /^View retry record,/ }));
   fireEvent.click(
-    await screen.findByRole("button", { name: "Open previous operation" }),
+    await screen.findByRole("button", { name: "View previous record" }),
   );
-  await screen.findByText("Retry · Failed · Time unavailable");
+  await screen.findByText("Failed · Time unavailable");
   expect(
     call.mock.calls.filter(([command]) => command === "history.get"),
   ).toEqual([
@@ -277,7 +282,7 @@ test("returns focus to the list control when refreshed history is empty", async 
     ).toHaveLength(2),
   );
   fireEvent.click(screen.getByRole("button", { name: "Back to history" }));
-  await screen.findByText("No history matches these filters.");
+  await screen.findByText("No operations recorded yet.");
   await waitFor(() =>
     expect(document.activeElement).toBe(
       screen.getByRole("button", { name: "Back to analysis" }),

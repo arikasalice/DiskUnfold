@@ -50,19 +50,23 @@ test("shows separate counts, recorded locations, and display-only displaced deta
   const call = vi.fn().mockResolvedValue(page("one"));
   render(<HistoryItems client={client(call)} jobRef="job" />);
   expect(await screen.findByText("Historical one")).toBeDefined();
+  expect(
+    screen.getByRole("columnheader", { name: "Recorded location" }),
+  ).toBeDefined();
   const counts = screen.getByLabelText("Item counts");
   expect(within(counts).getAllByText("Unavailable")).toHaveLength(2);
   expect(within(counts).getByText("1")).toBeDefined();
-  fireEvent.click(
-    screen.getByRole("button", {
-      name: "View displaced item details, item 0",
-    }),
-  );
+  const open = screen.getByRole("button", {
+    name: "View displaced item details, item 0",
+  });
+  fireEvent.click(open);
   expect(screen.getByText("Old location")).toBeDefined();
   expect(screen.getByText(/information is ambiguous/)).toBeDefined();
   expect(
     screen.getByText(/Check the operating system trash directly/),
   ).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "Close details" }));
+  expect(document.activeElement).toBe(open);
 });
 test("supports every outcome filter and ignores an earlier response", async () => {
   let resolveOld: (value: HistoryItemsResponse) => void = () => {};
@@ -175,4 +179,40 @@ test("distinguishes an empty filter from an unavailable summary", async () => {
     target: { value: "failed" },
   });
   await screen.findByText("No recorded items match this outcome.");
+});
+
+test("opens a full recorded item with a long location, lower-bound size and every flag", async () => {
+  const full = page("long");
+  const result = full.rows[0]?.result;
+  if (!result) throw new Error("Missing item fixture");
+  result.locationDisplay =
+    "D:\\" + "long-folder\\".repeat(30) + "recorded-file.txt";
+  result.displaced = null;
+  result.observedSize = "9223372036854775807";
+  result.observedSizeState = "lower_bound";
+  result.held = true;
+  result.outcomeUnknown = true;
+  result.reasonKey = "private.reason-key";
+  const call = vi.fn().mockResolvedValue(full);
+  render(<HistoryItems client={client(call)} jobRef="job" />);
+  const open = await screen.findByRole("button", {
+    name: "View item result, item 0",
+  });
+  open.focus();
+  fireEvent.keyDown(open, { key: "Enter", code: "Enter" });
+  fireEvent.keyUp(open, { key: "Enter", code: "Enter" });
+  const details = screen.getByRole("region", { name: "Recorded item details" });
+  expect(document.activeElement).toBe(details);
+  expect(within(details).getByText(result.locationDisplay)).toBeDefined();
+  expect(
+    within(details).getByText("9223372036854775807 bytes or more"),
+  ).toBeDefined();
+  expect(
+    within(details).getByText(
+      "Review needed · Held · Outcome unknown · A reason was recorded",
+    ),
+  ).toBeDefined();
+  expect(screen.queryByText("private.reason-key")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Close details" }));
+  expect(document.activeElement).toBe(open);
 });

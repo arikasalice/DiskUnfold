@@ -20,18 +20,55 @@ const missing: Record<string, string> = {
   interrupted: "The operation was interrupted before its end was recorded.",
   record_failed: "Some results could not be recorded.",
 };
+const kinds: Record<string, string> = {
+  "scan.metadata": "Disk analysis",
+  "duplicate.check": "Duplicate check",
+};
 
-export function stateLabel(value: HistoryEndState): string {
+export function kindLabel(value?: string) {
+  return value && Object.hasOwn(kinds, value)
+    ? kinds[value]
+    : "Operation type unavailable";
+}
+
+export function stateLabel(value: HistoryEndState, compact = false): string {
+  if (compact && value === "partial") return "Partial";
+  if (compact && value === "interrupted") return "Interrupted";
   return Object.hasOwn(states, value) ? states[value] : "State unavailable";
 }
+
+export function stateTone(value: HistoryEndState | null | undefined) {
+  if (value === "done") return "good";
+  if (value === "failed" || value === "partial" || value === "interrupted")
+    return "warning";
+  return "neutral";
+}
+
 export function relationLabel(value: HistoryRelation): string {
   return Object.hasOwn(relations, value)
     ? relations[value]
     : "Relation unavailable";
 }
+
 export function missingLabel(value: string): string {
   return (
     (Object.hasOwn(missing, value) ? missing[value] : undefined) ??
     "Some information is unavailable."
   );
+}
+
+const finishedTime = new Intl.DateTimeFormat(undefined, {
+  dateStyle: "medium",
+  timeStyle: "short",
+});
+
+export function displayTime(
+  value: number | null | undefined,
+  unavailable = "Time unavailable",
+) {
+  if (value == null) return unavailable;
+  const date = new Date(value);
+  return Number.isFinite(date.getTime())
+    ? finishedTime.format(date)
+    : unavailable;
 }

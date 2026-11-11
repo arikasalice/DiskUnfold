@@ -59,7 +59,14 @@ test("loads history, filters, and preserves opaque paging cursors", async () => 
   expect(
     await screen.findByRole("table", { name: "Operation history" }),
   ).toBeDefined();
-  expect(screen.getAllByText("Unavailable").length).toBeGreaterThan(0);
+  expect(screen.getByText("Time unavailable")).toBeDefined();
+  expect(screen.getByText("1 folder")).toBeDefined();
+  expect(
+    within(screen.getByRole("table", { name: "Operation history" })).getByText(
+      "Completed",
+    ),
+  ).toBeDefined();
+  expect(screen.queryByLabelText("Result counts")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Load more history" }));
   await waitFor(() => expect(call).toHaveBeenCalledTimes(2));
   expect(call.mock.calls[1]?.[1]).toMatchObject({ cursor: "opaque" });
@@ -102,7 +109,7 @@ test("ignores a late response when filters change", async () => {
   expect(screen.queryByRole("table", { name: "Operation history" })).toBeNull();
 });
 
-test("keeps each recorded count visible without numeric rounding", async () => {
+test("reveals precise result counts only in the selected record", async () => {
   const maximum = "9223372036854775807";
   const sample = {
     ...row,
@@ -117,9 +124,28 @@ test("keeps each recorded count visible without numeric rounding", async () => {
       },
     },
   };
-  const call = vi.fn().mockResolvedValue(response([sample]));
+  const call = vi
+    .fn()
+    .mockResolvedValueOnce(response([sample]))
+    .mockResolvedValueOnce({
+      summary: sample.summary,
+      workflow: { planVersions: [], executedPlan: null, approvalCheck: null },
+      followUps: [],
+      effects: { estimated: null, executed: null, confirmed: null },
+      completeness: "complete",
+      missingReasons: [],
+    });
   const client = historyEvents(call).client;
   render(<HistoryPanel client={client} onClose={() => {}} />);
+  const open = await screen.findByRole("button", { name: /^View details:/ });
+  expect(screen.queryByText(maximum)).toBeNull();
+  fireEvent.click(open);
+  const evidence = await screen.findByRole("button", {
+    name: "Recorded evidence",
+  });
+  expect(evidence.getAttribute("aria-expanded")).toBe("false");
+  expect(screen.queryByText(maximum)).toBeNull();
+  fireEvent.click(evidence);
   const counts = within(await screen.findByLabelText("Result counts"));
   for (const value of [maximum, "0", "1", "2", "3"])
     expect(counts.getByText(value)).toBeDefined();
@@ -142,7 +168,7 @@ test("restarts a stale page", async () => {
     await screen.findByRole("button", { name: "Load more history" }),
   );
   await screen.findByText("History changed. Showing the first page again.");
-  await screen.findByText("No history matches these filters.");
+  await screen.findByText("No operations recorded yet.");
   expect(call.mock.calls[2]?.[1]).toMatchObject({ cursor: null });
 });
 
@@ -200,7 +226,7 @@ test("refreshes a new committed revision once and discards an obsolete page", as
     events.send("history.changed", newer);
     events.send("history.changed", revision);
   });
-  await screen.findByText("No history matches these filters.");
+  await screen.findByText("No operations recorded yet.");
   expect(call.mock.calls[2]?.[1]).toMatchObject({ cursor: null });
   await act(async () => {
     finish?.({ ...response([row]), revision });
@@ -221,7 +247,7 @@ test("resynchronizes history after subscriber overflow", async () => {
   );
   await screen.findByRole("table", { name: "Operation history" });
   act(() => events.send("job.resync_required"));
-  await screen.findByText("No history matches these filters.");
+  await screen.findByText("No operations recorded yet.");
   expect(call).toHaveBeenCalledTimes(2);
   expect(call.mock.calls[1]?.[1]).toMatchObject({ cursor: null });
   unmount();
@@ -241,7 +267,7 @@ test("announces an error and retries the first page", async () => {
   render(<HistoryPanel client={client} onClose={() => {}} />);
   expect(await screen.findByRole("alert")).toBeDefined();
   fireEvent.click(screen.getByRole("button", { name: "Retry" }));
-  await screen.findByText("No history matches these filters.");
+  await screen.findByText("No operations recorded yet.");
   expect(call.mock.calls[1]?.[1]).toMatchObject({ cursor: null });
 });
 
@@ -260,7 +286,7 @@ test("history is a separate screen and closing returns focus", async () => {
   open.focus();
   fireEvent.keyDown(open, { key: "Enter", code: "Enter" });
   fireEvent.keyUp(open, { key: "Enter", code: "Enter" });
-  await screen.findByText("No history matches these filters.");
+  await screen.findByText("No operations recorded yet.");
   expect(document.activeElement).toBe(
     screen.getByRole("button", { name: "Back to analysis" }),
   );
@@ -268,6 +294,97 @@ test("history is a separate screen and closing returns focus", async () => {
   await waitFor(() =>
     expect(document.activeElement).toBe(
       screen.getByRole("button", { name: "Operation history" }),
+    ),
+  );
+});
+
+test("keeps secondary filters collapsed and preserves their active state", async () => {
+  const call = vi.fn().mockResolvedValue(response());
+  render(
+    <HistoryPanel client={historyEvents(call).client} onClose={() => {}} />,
+  );
+  await screen.findByText("No operations recorded yet.");
+  expect(screen.queryByLabelText("From date")).toBeNull();
+  const extra = screen.getByRole("button", { name: "Date and type filters" });
+  extra.focus();
+  fireEvent.keyDown(extra, { key: "Enter", code: "Enter" });
+  fireEvent.keyUp(extra, { key: "Enter", code: "Enter" });
+  fireEvent.change(screen.getByLabelText("From date"), {
+    target: { value: "2026-11-10" },
+  });
+  fireEvent.change(screen.getByLabelText("Through date"), {
+    target: { value: "2026-11-09" },
+  });
+  await screen.findByText("Choose a valid date range.");
+  fireEvent.change(screen.getByLabelText("Through date"), {
+    target: { value: "2026-11-10" },
+  });
+  await screen.findByText("No history matches these filters.");
+  expect(call.mock.lastCall?.[1]).toMatchObject({
+    filter: {
+      finishedFromMs: new Date("2026-11-10T00:00:00").getTime(),
+      finishedBeforeMs: new Date("2026-11-11T00:00:00").getTime(),
+    },
+  });
+  fireEvent.click(
+    screen.getByRole("button", { name: "Date and type filters (active)" }),
+  );
+  expect(screen.queryByLabelText("From date")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+  await screen.findByText("No operations recorded yet.");
+  expect(document.activeElement).toBe(screen.getByLabelText("End state"));
+  expect(call.mock.lastCall?.[1]).toMatchObject({
+    filter: {
+      finishedFromMs: null,
+      finishedBeforeMs: null,
+      kinds: [],
+      states: [],
+    },
+  });
+});
+
+test("virtualizes a long history and keeps the loaded count outside the scrolling rows", async () => {
+  const rows = Array.from({ length: 80 }, (_, index) => ({
+    ...row,
+    jobRef: "job-" + index,
+    summary: { ...row.summary, scopeSummary: "Recorded target " + (index + 1) },
+  }));
+  const call = vi.fn().mockResolvedValue(response(rows));
+  render(
+    <HistoryPanel client={historyEvents(call).client} onClose={() => {}} />,
+  );
+  const table = await screen.findByRole("table", { name: "Operation history" });
+  expect(within(table).getAllByRole("row").length).toBeLessThan(40);
+  expect(screen.queryByText("Recorded target 80")).toBeNull();
+  const region = screen.getByRole("region", {
+    name: "Operation history scroll area",
+  });
+  Object.defineProperty(region, "scrollTop", {
+    value: 80 * 64,
+    configurable: true,
+  });
+  fireEvent.scroll(region);
+  expect(screen.getByText("Recorded target 80")).toBeDefined();
+  expect(screen.getByText("80 records shown")).toBeDefined();
+  expect(table.getAttribute("aria-rowcount")).toBe("81");
+});
+
+test("moves keyboard focus to the history viewport after the last page", async () => {
+  const call = vi
+    .fn()
+    .mockResolvedValueOnce(response([row], "next"))
+    .mockResolvedValueOnce(response([{ ...row, jobRef: "two" }]));
+  render(
+    <HistoryPanel client={historyEvents(call).client} onClose={() => {}} />,
+  );
+  const more = await screen.findByRole("button", { name: "Load more history" });
+  more.focus();
+  fireEvent.keyDown(more, { key: "Enter", code: "Enter" });
+  fireEvent.keyUp(more, { key: "Enter", code: "Enter" });
+  await screen.findByText("2 records shown");
+  await waitFor(() =>
+    expect(document.activeElement).toBe(
+      screen.getByRole("region", { name: "Operation history scroll area" }),
     ),
   );
 });
