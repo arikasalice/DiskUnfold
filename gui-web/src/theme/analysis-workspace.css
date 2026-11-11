@@ -51,7 +51,6 @@
 
 .du-target-editor__header .du-heading--3,
 .du-target-picker__header .du-heading--3,
-.du-analysis__guide .du-heading--3,
 .du-result__title .du-heading--3 {
   margin: 0;
   font-size: 16px;
@@ -190,12 +189,6 @@
   padding: 6px 10px;
 }
 
-.du-analysis__guide {
-  display: grid;
-  gap: 4px;
-  padding: 4px 8px 8px;
-}
-
 .du-analysis__grid[data-result-active] .du-analysis__result {
   grid-template-rows: auto minmax(0, 1fr);
   align-self: stretch;
@@ -295,19 +288,6 @@
     grid-template-rows: minmax(0, 1fr);
   }
 
-  .du-analysis__grid:not([data-result-active]) .du-target-picker {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    align-items: start;
-    gap: 16px;
-  }
-
-  .du-analysis__grid:not([data-result-active]) .du-path-editor {
-    border-block-start: 0;
-    border-inline-start: 1px solid var(--du-border);
-    padding-block-start: 10px;
-    padding-inline-start: 14px;
-  }
-
   .du-analysis__grid[data-result-active] {
     grid-template-columns: minmax(245px, 0.86fr) minmax(0, 1.14fr);
     grid-template-rows: minmax(0, 1fr);
@@ -328,24 +308,8 @@
   }
 
   .du-analysis__grid:not([data-result-active]) {
-    grid-template-rows: minmax(0, max-content) auto;
+    grid-template-rows: minmax(0, max-content);
     align-content: start;
-  }
-
-  .du-analysis__grid:not([data-result-active]) .du-target-picker {
-    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
-  }
-
-  .du-analysis__guide {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: 4px 8px;
-    padding: 0 2px;
-  }
-
-  .du-analysis__guide .du-heading--3 {
-    font-size: 13px;
   }
 
   .du-analysis__grid[data-result-active] {
@@ -399,4 +363,59 @@
   .du-scope-path {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+/* Initial entry leads with the actual path field and keeps actions outside scrolling. */
+.du-analysis--workspace:has(.du-analysis__grid:not([data-result-active]))
+  .du-analysis__header {
+  justify-items: center;
+  padding-block: 12px;
+  text-align: center;
+}
+
+.du-analysis--workspace:has(.du-analysis__grid:not([data-result-active]))
+  .du-analysis__header
+  .du-heading--2 {
+  font-size: 22px;
+}
+
+.du-analysis__grid:not([data-result-active]) .du-target-editor {
+  inline-size: min(100%, 880px);
+  justify-self: center;
+}
+
+@media (min-width: 560px) and (min-height: 360px) {
+  .du-analysis__grid:not([data-result-active]) .du-target-picker {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .du-analysis__grid:not([data-result-active]) .du-path-editor {
+    border: 0;
+    padding: 0;
+  }
+
+  .du-analysis__grid:not([data-result-active]) .du-drive-picker {
+    border-block-start: 1px solid var(--du-border);
+    padding-block-start: 10px;
+  }
+
+  .du-analysis__grid:not([data-result-active]) .du-choices {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr));
+    gap: 6px;
+  }
+}
+
+.du-drive-picker__actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.du-drive-picker__actions .du-action:not(.du-action--icon) {
+  font-size: 12px;
+}
+/* Keep hidden accessibility content within the target scrolling region. */
+.du-target-editor__body {
+  position: relative;
 }

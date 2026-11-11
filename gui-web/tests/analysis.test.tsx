@@ -805,9 +805,10 @@ test("F02: starting progress hands off to the scan receipt and its cancel action
     screen.getByRole("progressbar", { name: "Starting scan" }),
   ).toBeDefined();
   expect(
-    screen.getByRole<HTMLButtonElement>("button", { name: "Starting scan…" })
-      .disabled,
-  ).toBe(true);
+    screen
+      .getByRole("button", { name: "Starting scan…" })
+      .getAttribute("aria-disabled"),
+  ).toBe("true");
   expect(
     screen.queryByRole("progressbar", { name: "Scanning folder" }),
   ).toBeNull();
@@ -2382,9 +2383,10 @@ test("F01 FR3: editing or removing a path rejects a late review and requires ano
     screen.getByRole("progressbar", { name: "Reviewing scope" }),
   ).toBeDefined();
   expect(
-    screen.getByRole<HTMLButtonElement>("button", { name: "Reviewing scope…" })
-      .disabled,
-  ).toBe(true);
+    screen
+      .getByRole("button", { name: "Reviewing scope…" })
+      .getAttribute("aria-disabled"),
+  ).toBe("true");
   fireEvent.change(input, { target: { value: "D:\\Changed" } });
   expect(
     screen.queryByRole("progressbar", { name: "Reviewing scope" }),
@@ -2488,11 +2490,7 @@ test("F01 FR3: failed multi-path review retains input and rejects start", async 
   expect(problem.compareDocumentPosition(review)).toBe(
     Node.DOCUMENT_POSITION_FOLLOWING,
   );
-  expect(
-    within(
-      screen.getByRole("region", { name: "Scan and results" }),
-    ).queryByText(message),
-  ).toBeNull();
+  expect(screen.queryByRole("region", { name: "Scan and results" })).toBeNull();
   expect(
     screen.getByRole<HTMLInputElement>("textbox", {
       name: "Additional folder path 2",
@@ -2550,4 +2548,78 @@ test("F01 FR3: multi-path controls have accessible labels and preserve the drop 
       })
     ).violations,
   ).toEqual([]);
+});
+
+test("F01: pending review retains focus and ignores repeated activation", async () => {
+  let release: (() => void) | undefined;
+  const { client, calls } = fixture({
+    readReview: (review) =>
+      new Promise((resolve) => {
+        release = () => resolve(review);
+      }),
+  });
+  render(<App analysis={client} />);
+  const input = await screen.findByRole<HTMLInputElement>("textbox", {
+    name: "Windows folder path",
+  });
+  expect(document.activeElement).toBe(input);
+  fireEvent.change(input, { target: { value: "C:\\fixture" } });
+  const review = screen.getByRole<HTMLButtonElement>("button", {
+    name: "Review scope",
+  });
+  review.focus();
+  fireEvent.click(review);
+  expect(document.activeElement).toBe(review);
+  expect(review.getAttribute("aria-disabled")).toBe("true");
+  fireEvent.click(review);
+  expect(calls.filter((call) => call.name === "scope.review")).toHaveLength(1);
+  if (!release) throw new Error("Review did not start");
+  await act(async () => release?.());
+  await screen.findByLabelText("Reviewed scope");
+  expect(document.activeElement).toBe(review);
+});
+
+test("F01: pending scan keeps focus and suppresses duplicate starts", async () => {
+  let release: (() => void) | undefined;
+  const { client, calls } = fixture({
+    beforeStart: () =>
+      new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+  });
+  render(<App analysis={client} />);
+  const input = await screen.findByRole("textbox", {
+    name: "Windows folder path",
+  });
+  fireEvent.change(input, { target: { value: "C:\\fixture" } });
+  fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
+  await screen.findByLabelText("Reviewed scope");
+  const start = screen.getByRole<HTMLButtonElement>("button", {
+    name: "Start scan",
+  });
+  start.focus();
+  fireEvent.click(start);
+  expect(document.activeElement).toBe(start);
+  expect(start.getAttribute("aria-disabled")).toBe("true");
+  fireEvent.click(start);
+  expect(calls.filter((call) => call.name === "scan.start")).toHaveLength(1);
+  if (!release) throw new Error("Scan did not start");
+  await act(async () => release?.());
+  await screen.findByText("At least 42 bytes");
+  expect(document.activeElement).toBe(start);
+});
+
+test("F01: adding and removing a path restores focus to the appropriate field", async () => {
+  const { client } = fixture();
+  render(<App analysis={client} />);
+  const primary = await screen.findByRole("textbox", {
+    name: "Windows folder path",
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Add path" }));
+  const extra = screen.getByRole("textbox", {
+    name: "Additional folder path 2",
+  });
+  expect(document.activeElement).toBe(extra);
+  fireEvent.click(screen.getByRole("button", { name: "Remove path 2" }));
+  expect(document.activeElement).toBe(primary);
 });

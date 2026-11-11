@@ -196,7 +196,14 @@ export function AnalysisPanel({
   );
 
   async function reviewScope() {
-    if (pendingDrop.current || selected.some((path) => !path)) return;
+    if (
+      reviewing ||
+      working ||
+      running ||
+      pendingDrop.current ||
+      selected.some((path) => !path)
+    )
+      return;
     const paths = selected.filter((path): path is OsPath => path !== undefined);
     if (paths.length === 0) return;
     const requestSeq = ++request.current;
@@ -259,11 +266,15 @@ export function AnalysisPanel({
     >
       <header className="du-analysis__header">
         <Heading level={2} id="analysis-heading">
-          {scan.total ? "Disk space results" : "Scan a drive or folder"}
+          {scan.total
+            ? "Disk space results"
+            : resultActive
+              ? "Scan a drive or folder"
+              : "Choose what to analyze"}
         </Heading>
         {!resultActive && (
           <Text kind="muted">
-            Choose a drive or enter a folder path. Review the scope before
+            Enter a folder path or choose a drive, then review the scope before
             scanning.
           </Text>
         )}
@@ -285,6 +296,7 @@ export function AnalysisPanel({
           >
             <TargetPicker
               targets={targets}
+              isInitial={!resultActive}
               disabled={working || running}
               selected={selected}
               choose={choose}
@@ -318,8 +330,11 @@ export function AnalysisPanel({
             onCancel={cancelSelection}
           />
         </section>
-        <section className="du-analysis__result" aria-label="Scan and results">
-          {resultActive ? (
+        {resultActive && (
+          <section
+            className="du-analysis__result"
+            aria-label="Scan and results"
+          >
             <ScanOutput
               client={client}
               scan={scan}
@@ -341,16 +356,8 @@ export function AnalysisPanel({
                 />
               }
             />
-          ) : (
-            <div className="du-analysis__guide">
-              <Heading level={3}>After the scan</Heading>
-              <Text kind="muted">
-                See measured space and coverage, then browse the scanned
-                folders.
-              </Text>
-            </div>
-          )}
-        </section>
+          </section>
+        )}
       </div>
     </section>
   );

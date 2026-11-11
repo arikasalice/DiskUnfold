@@ -30,6 +30,7 @@ export function TargetPicker({
   pathDescription,
   reviewDescriptionId,
   feedback,
+  isInitial,
 }: {
   targets: ReturnType<typeof useTargets>;
   disabled: boolean;
@@ -42,6 +43,7 @@ export function TargetPicker({
   pathDescription: string;
   reviewDescriptionId: string | undefined;
   feedback: ReactNode;
+  isInitial: boolean;
 }) {
   const fields = useRef(new Map<number, HTMLInputElement>());
   const focusIndex = useRef<number>(undefined);
@@ -65,6 +67,7 @@ export function TargetPicker({
   const pathField = (
     <PathField
       ref={(input) => registerField(0, input)}
+      autoFocus={isInitial}
       label="Windows folder path"
       description={pathDescription}
       placeholder={"C:\\Folder"}
@@ -73,70 +76,80 @@ export function TargetPicker({
       onChange={(path) => choose(path ? windowsPath(path) : undefined)}
     />
   );
+  const drivePicker = (
+    <DrivePicker
+      key="drives"
+      isInitial={isInitial}
+      targets={targets}
+      selected={selected[0]}
+      disabled={disabled}
+      choose={choose}
+    />
+  );
+  const pathEditor = (
+    <section
+      key="path"
+      className="du-path-editor"
+      aria-label="Folder paths"
+      aria-describedby={reviewDescriptionId}
+    >
+      <div className="du-primary-path">
+        {dropEnabled ? (
+          <FolderDropSurface isDisabled={disabled}>
+            {pathField}
+          </FolderDropSurface>
+        ) : (
+          pathField
+        )}
+        <Action isDisabled={disabled} onPress={addPath}>
+          Add path
+        </Action>
+      </div>
+      {dropError && <Notice tone="error">{dropError}</Notice>}
+      {selected.length > 1 && (
+        <section className="du-scope-paths" aria-label="Additional paths">
+          <Action isDisabled={disabled} onPress={() => remove(0)}>
+            Remove primary path
+          </Action>
+          {selected.slice(1).map((path, index) => (
+            <div className="du-scope-path" key={index}>
+              <PathField
+                ref={(input) => registerField(index + 1, input)}
+                autoFocus
+                label={`Additional folder path ${index + 2}`}
+                description="Enter a local folder or drive path."
+                placeholder={"D:\\Folder"}
+                isDisabled={disabled}
+                value={path?.display ?? ""}
+                onChange={(value) =>
+                  choose(value ? windowsPath(value) : undefined, index + 1)
+                }
+              />
+              <Action isDisabled={disabled} onPress={() => remove(index + 1)}>
+                {`Remove path ${index + 2}`}
+              </Action>
+            </div>
+          ))}
+        </section>
+      )}
+      {feedback}
+    </section>
+  );
   return (
     <div className="du-target-picker">
-      <DrivePicker
-        targets={targets}
-        selected={selected[0]}
-        disabled={disabled}
-        choose={choose}
-      />
-      <section
-        className="du-path-editor"
-        aria-label="Folder paths"
-        aria-describedby={reviewDescriptionId}
-      >
-        <div className="du-primary-path">
-          {dropEnabled ? (
-            <FolderDropSurface isDisabled={disabled}>
-              {pathField}
-            </FolderDropSurface>
-          ) : (
-            pathField
-          )}
-          <Action isDisabled={disabled} onPress={addPath}>
-            Add path
-          </Action>
-        </div>
-        {dropError && <Notice tone="error">{dropError}</Notice>}
-        {selected.length > 1 && (
-          <section className="du-scope-paths" aria-label="Additional paths">
-            <Action isDisabled={disabled} onPress={() => remove(0)}>
-              Remove primary path
-            </Action>
-            {selected.slice(1).map((path, index) => (
-              <div className="du-scope-path" key={index}>
-                <PathField
-                  ref={(input) => registerField(index + 1, input)}
-                  autoFocus
-                  label={`Additional folder path ${index + 2}`}
-                  description="Enter a local folder or drive path."
-                  placeholder={"D:\\Folder"}
-                  isDisabled={disabled}
-                  value={path?.display ?? ""}
-                  onChange={(value) =>
-                    choose(value ? windowsPath(value) : undefined, index + 1)
-                  }
-                />
-                <Action isDisabled={disabled} onPress={() => remove(index + 1)}>
-                  {`Remove path ${index + 2}`}
-                </Action>
-              </div>
-            ))}
-          </section>
-        )}
-        {feedback}
-      </section>
+      {isInitial ? [pathEditor, drivePicker] : [drivePicker, pathEditor]}
     </div>
   );
 }
 
 function DrivePicker({
+  isInitial,
   targets,
   selected,
   disabled,
   choose,
 }: {
+  isInitial: boolean;
   targets: ReturnType<typeof useTargets>;
   selected: OsPath | undefined;
   disabled: boolean;
@@ -161,13 +174,25 @@ function DrivePicker({
     <section className="du-drive-picker" aria-label="Available drives">
       <div className="du-target-picker__header">
         <Heading level={3}>Drives</Heading>
-        <Action
-          variant="quiet"
-          icon="refresh"
-          aria-label="Refresh targets"
-          isDisabled={targets.loading || disabled}
-          onPress={() => void targets.refresh(true)}
-        />
+        <div className="du-drive-picker__actions">
+          {isInitial && entries.length > 0 && (
+            <Action
+              variant="quiet"
+              aria-expanded={showDriveDetails}
+              aria-controls={driveGroupId}
+              onPress={() => setShowDriveDetails(!showDriveDetails)}
+            >
+              {showDriveDetails ? "Hide drive details" : "Drive details"}
+            </Action>
+          )}
+          <Action
+            variant="quiet"
+            icon="refresh"
+            aria-label="Refresh targets"
+            isDisabled={targets.loading || disabled}
+            onPress={() => void targets.refresh(true)}
+          />
+        </div>
       </div>
       {targets.loading && (
         <div className="du-target-picker__loading">
@@ -226,16 +251,18 @@ function DrivePicker({
               );
             })}
           </ChoiceGroup>
-          <div className="du-drive-picker__details">
-            <Action
-              variant="quiet"
-              aria-expanded={showDriveDetails}
-              aria-controls={driveGroupId}
-              onPress={() => setShowDriveDetails(!showDriveDetails)}
-            >
-              {showDriveDetails ? "Hide drive details" : "Drive details"}
-            </Action>
-          </div>
+          {!isInitial && (
+            <div className="du-drive-picker__details">
+              <Action
+                variant="quiet"
+                aria-expanded={showDriveDetails}
+                aria-controls={driveGroupId}
+                onPress={() => setShowDriveDetails(!showDriveDetails)}
+              >
+                {showDriveDetails ? "Hide drive details" : "Drive details"}
+              </Action>
+            </div>
+          )}
         </>
       )}
     </section>

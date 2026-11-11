@@ -126,6 +126,33 @@ export function ScopeReviewFeedback({
   );
 }
 
+function scopeActionState({
+  checkingDrop,
+  reviewing,
+  working,
+  running,
+  reviewEnabled,
+  startEnabled,
+}: {
+  checkingDrop: boolean;
+  reviewing: boolean;
+  working: boolean;
+  running: boolean;
+  reviewEnabled: boolean;
+  startEnabled: boolean;
+}) {
+  const blocked = reviewing || working || running;
+  const starting = working && !running;
+  return {
+    starting,
+    reviewDisabled: working || running || (!reviewEnabled && !reviewing),
+    reviewPending: reviewing || (checkingDrop && !blocked && reviewEnabled),
+    startDisabled: reviewing || (!startEnabled && !starting && !running),
+    startPending:
+      starting || running || (checkingDrop && !blocked && startEnabled),
+  };
+}
+
 export function ScopeActions({
   checkingDrop,
   reviewing,
@@ -147,8 +174,20 @@ export function ScopeActions({
   onStart: () => void;
   onCancel: () => void;
 }) {
-  const blocked = reviewing || working || running;
-  const starting = working && !running;
+  const {
+    starting,
+    reviewDisabled,
+    reviewPending,
+    startDisabled,
+    startPending,
+  } = scopeActionState({
+    checkingDrop,
+    reviewing,
+    working,
+    running,
+    reviewEnabled,
+    startEnabled,
+  });
   return (
     <footer className="du-target-editor__footer">
       <LiveStatus>
@@ -163,8 +202,8 @@ export function ScopeActions({
         <Action
           icon="folder"
           variant={startEnabled ? "secondary" : "primary"}
-          isDisabled={blocked || !reviewEnabled}
-          isPending={checkingDrop && !blocked && reviewEnabled}
+          isDisabled={reviewDisabled}
+          isPending={reviewPending}
           onPress={onReview}
         >
           {reviewing ? "Reviewing scope…" : "Review scope"}
@@ -172,8 +211,8 @@ export function ScopeActions({
         <Action
           icon="scan"
           variant={startEnabled ? "primary" : "secondary"}
-          isDisabled={blocked || !startEnabled}
-          isPending={checkingDrop && !blocked && startEnabled}
+          isDisabled={startDisabled}
+          isPending={startPending}
           onPress={onStart}
         >
           {starting ? "Starting scan…" : "Start scan"}
