@@ -274,7 +274,11 @@ fn windows_scan_store_and_jobs_feed_the_selected_visualization() -> TestResult<(
     let second = completed_model(&engine, &desktop.events, request, result)?;
     let rule = &first["model"]["tableRevisions"]["sizeRule"];
     assert!(rule["id"].as_str().is_some_and(|id| !id.is_empty()));
-    assert!(rule["revision"].as_u64().is_some_and(|revision| revision > 0));
+    assert!(
+        rule["revision"]
+            .as_u64()
+            .is_some_and(|revision| revision > 0)
+    );
     assert_eq!(second["model"]["tableRevisions"]["sizeRule"], *rule);
     assert_model(&engine, &second, &version, 1, "31")
 }
