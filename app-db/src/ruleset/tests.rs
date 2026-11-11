@@ -25,22 +25,23 @@ fn two_connections_race_and_previous_version_remains_readable() -> TestResult {
     db.append_ruleset(0, &row(1))
         .map_err(|e| format!("{e:?}"))?;
     drop(db);
+    let first = AppDb::open_gui_with_history(&path).map_err(|e| format!("{e:?}"))?;
+    let second = AppDb::open_gui_with_history(&path).map_err(|e| format!("{e:?}"))?;
     let barrier = Arc::new(Barrier::new(2));
-    let threads: Vec<_> = (0..2)
-        .map(|_| {
-            let path = path.clone();
+    let threads: Vec<_> = [first, second]
+        .into_iter()
+        .map(|mut db| {
             let barrier = Arc::clone(&barrier);
             std::thread::spawn(move || {
-                let mut db = AppDb::open_gui_with_history(&path).map_err(|e| format!("{e:?}"))?;
                 barrier.wait();
-                Ok::<_, String>(db.append_ruleset(1, &row(2)))
+                db.append_ruleset(1, &row(2))
             })
         })
         .collect();
     let mut successes = 0;
     let mut stale = 0;
     for thread in threads {
-        let result = thread.join().map_err(|_| "thread failed")??;
+        let result = thread.join().map_err(|_| "thread failed")?;
         match result {
             Ok(()) => successes += 1,
             Err(RulesetError::Stale) => stale += 1,

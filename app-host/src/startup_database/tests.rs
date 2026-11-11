@@ -60,7 +60,7 @@ fn startup_migrates_preserves_settings_and_keeps_lock_until_last_writer() -> Tes
     )?;
     assert_eq!(counts, (1, 1, 0));
     let backups = dir.path().join("db-backups");
-    assert_eq!(fs::read_dir(&backups)?.count(), 3);
+    assert_eq!(fs::read_dir(&backups)?.count(), 4);
     let original = Connection::open_with_flags(
         backups
             .join("backup-00000000000000000001")
@@ -167,4 +167,35 @@ fn interruption_counts(db: &Connection) -> rusqlite::Result<(i64, i64, i64, i64,
             ))
         },
     )
+}
+
+#[test]
+fn startup_upgrades_v4_to_v5_and_preserves_existing_settings() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("diskunfold.db");
+    drop(AppDb::create_gui(&path).map_err(open_error)?);
+    for version in 2..=4 {
+        let backup = dir.path().join(format!("initial-{version}.sqlite"));
+        assert_eq!(
+            du_app_db::migration::apply_next(&path, &backup, &HISTORY_DEFINITIONS)
+                .map_err(migration_error)?,
+            version
+        );
+    }
+    let connection = Connection::open(&path)?;
+    connection.execute_batch("INSERT INTO user_env_setting VALUES ('space.shared_table_max_entries', '200000', 'screen', 1, 2, 1); UPDATE user_env_setting_version SET settings_version=7;")?;
+    drop(connection);
+    let database = open(dir.path())?;
+    let settings = crate::settings::StartupSettings::load(&database, &["en", "ko"])?;
+    assert_eq!(settings.scan_limit_source()().entries(), 200_000);
+    let reader = AppDb::open_read_only(&path).map_err(open_error)?;
+    assert_eq!(reader.schema_version()?, 5);
+    assert_eq!(fs::read_dir(dir.path().join("db-backups"))?.count(), 1);
+    assert!(
+        reader
+            .latest_ruleset()
+            .map_err(|e| io::Error::other(format!("{e:?}")))?
+            .is_none()
+    );
+    Ok(())
 }
