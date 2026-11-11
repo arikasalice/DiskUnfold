@@ -123,7 +123,7 @@ impl UseCase for Open {
         if let Some(page) = self.browse.cached(&prepared).map_err(folder_error)? {
             #[cfg(test)]
             tests::pause_at(request_seq, 2);
-            let token = self.promote(&region)?;
+            let token = self.promote(&region, caller)?;
             return self.with_current(&token, caller, || self.opened(request_seq, page));
         }
         #[cfg(test)]
@@ -136,7 +136,7 @@ impl UseCase for Open {
                 Ok(candidate) if !ended() => {
                     #[cfg(test)]
                     tests::pause_at(request_seq, 3);
-                    let token = self.promote(&region)?;
+                    let token = self.promote(&region, caller)?;
                     return self.with_current(&token, caller, || {
                         if caller.is_cancelled() {
                             return Err(folder_error(Error::Cancelled));
@@ -162,19 +162,23 @@ impl UseCase for Open {
 }
 
 impl Open {
-    fn promote(&self, region: &RegionRequest) -> Result<Permit<QueryRegionKind>, EngineError> {
+    fn promote(
+        &self,
+        region: &RegionRequest,
+        caller: &CallerCtx,
+    ) -> Result<Permit<QueryRegionKind>, EngineError> {
         let promotion = self
             .regions
             .registry
-            .promote_validated(
+            .promote_active(
                 &self.regions.owner,
                 &region.id,
                 region.kind,
                 region.sequence,
-                Ok::<_, ()>(()),
+                caller,
             )
             .map_err(region_error)?
-            .map_err(|()| folder_error(Error::Internal))?;
+            .ok_or_else(|| folder_error(Error::Cancelled))?;
         if let Some(job) = promotion.previous_job {
             let _ = self.regions.cancel_job(&job);
         }

@@ -281,6 +281,54 @@ impl<K: Copy + Eq> RegionRegistry<K> {
             previous_job,
         ))
     }
+
+    /// Promotes only while the caller remains active. Lock order matches the
+    /// synchronous publication boundary: region first, then caller cancellation.
+    pub(crate) fn promote_active(
+        &self,
+        owner: &Owner,
+        id: &Id,
+        kind: K,
+        sequence: u32,
+        caller: &crate::contracts::CallerCtx,
+    ) -> Result<Option<Promotion<K, ()>>, RegionError> {
+        let entry = self.lookup(owner, id)?;
+        let mut region = entry.lock().map_err(|_| RegionError::Poisoned)?;
+        self.check(&region)?;
+        if region.kind != kind {
+            return Err(RegionError::WrongKind);
+        }
+        if sequence == 0 || sequence <= region.last_sequence {
+            return Err(RegionError::InvalidSequence);
+        }
+        let admitted = caller.with_active(|| {
+            let previous = region.current.take().and_then(|old| {
+                old.stopped.store(true, Ordering::Release);
+                old.job
+            });
+            let stopped = Arc::new(AtomicBool::new(false));
+            region.last_sequence = sequence;
+            region.current = Some(Current {
+                sequence,
+                stopped: stopped.clone(),
+                finished: false,
+                published: false,
+                job: None,
+            });
+            (stopped, previous)
+        });
+        drop(region);
+        Ok(admitted.map(|(stopped, previous)| Promotion {
+            permit: Permit {
+                region: entry,
+                sequence,
+                stopped,
+                session_stopped: self.stopped.clone(),
+            },
+            previous_job: previous,
+            prepared: (),
+        }))
+    }
     fn check(&self, region: &Region<K>) -> Result<(), RegionError> {
         if region.closed || self.stopped.load(Ordering::Acquire) {
             Err(RegionError::Unavailable)

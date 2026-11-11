@@ -1,6 +1,90 @@
 use super::*;
 
 #[test]
+fn cancelled_sync_preparation_preserves_active_job_and_sequence()
+-> Result<(), Box<dyn std::error::Error>> {
+    let _serial = GATE_TEST_LOCK.lock().map_err(|_| "gate lock poisoned")?;
+    let gate = PREPARE_GATE.get_or_init(super::super::super::test_gate::Gate::new);
+    for stage in [3, 2] {
+        let (engine, runtime, version) = fixture(SYNC_WORK)?;
+        let engine = Arc::new(engine);
+        let cached_location = json!({"resultVersion":version,"itemNo":1});
+        let location = if stage == 2 {
+            cached_location.clone()
+        } else {
+            json!({"resultVersion":version,"itemNo":2})
+        };
+        if stage == 2 {
+            let prime_region = region(&engine);
+            let prime = call(
+                &engine,
+                "browse.open",
+                json!({"regionRef":prime_region,"viewKind":"list","requestSeq":1,"resultVersion":version,"location":cached_location}),
+                Channel::Gui,
+            );
+            assert!(prime.error.is_none(), "cache prime: {:?}", prime.error);
+            assert_eq!(prime.body["kind"], "opened");
+        }
+        let region_ref = region(&engine);
+        let worker_gate = super::super::super::test_gate::Gate::new();
+        super::super::super::test_gate::set(Some((version.clone(), worker_gate.clone())))?;
+        let active = call(
+            &engine,
+            "browse.open",
+            json!({"regionRef":region_ref,"viewKind":"list","requestSeq":1,"resultVersion":version}),
+            Channel::Gui,
+        );
+        let active_job: Id = serde_json::from_value(active.body["jobRef"].clone())?;
+        worker_gate.entered()?;
+        PAUSE_STAGE.store(stage, std::sync::atomic::Ordering::Release);
+        let caller = CallerCtx::new(Channel::Gui, Ids.next_id(), None);
+        let (worker_engine, worker_caller, worker_region, worker_version) = (
+            engine.clone(),
+            caller.clone(),
+            region_ref.clone(),
+            version.clone(),
+        );
+        let pending = std::thread::spawn(move || {
+            worker_engine.call(CallEnvelope { name:"browse.open".into(),contract_version:ENVELOPE_VERSION,correlation_id:worker_caller.correlation_id.clone(),body:json!({"regionRef":worker_region,"viewKind":"list","requestSeq":90001,"resultVersion":worker_version,"location":location}) },&worker_caller)
+        });
+        gate.entered()?;
+        caller.cancel();
+        gate.release()?;
+        let reply = pending.join().map_err(|_| "thread panicked")?;
+        PAUSE_STAGE.store(0, std::sync::atomic::Ordering::Release);
+        let state = runtime.state(&active_job)?;
+        super::super::super::test_gate::set(None)?;
+        worker_gate.release()?;
+        assert!(reply.error.is_some());
+        assert_eq!(
+            state,
+            JobState::Running,
+            "stage {stage} cancelled prior job"
+        );
+        let prior_ref = await_query(&runtime, &active_job)?;
+        let retry = call(
+            &engine,
+            "browse.open",
+            json!({"regionRef":region_ref,"viewKind":"list","requestSeq":90001,"resultVersion":version}),
+            Channel::Gui,
+        );
+        assert!(
+            retry.error.is_none(),
+            "stage {stage} consumed sequence: {:?}",
+            retry.error
+        );
+        let page = call(
+            &engine,
+            "query.page",
+            json!({"queryRef":prior_ref,"resultVersion":version,"start":0,"count":1}),
+            Channel::Gui,
+        );
+        assert!(page.error.is_none(), "prior result lost: {:?}", page.error);
+    }
+    Ok(())
+}
+
+#[test]
 fn busy_replacement_preserves_only_an_uncancelled_prior_job()
 -> Result<(), Box<dyn std::error::Error>> {
     let _serial = GATE_TEST_LOCK.lock().map_err(|_| "gate lock poisoned")?;
