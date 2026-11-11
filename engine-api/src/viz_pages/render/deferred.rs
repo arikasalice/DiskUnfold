@@ -1,6 +1,12 @@
 //! Deferred ownership for F24 model publication.
 use super::*;
 
+pub(super) enum PrepareMode {
+    Cached,
+    Prepared,
+    Hierarchical,
+}
+
 /// Caller-owned transaction and deferred destruction storage.
 ///
 /// Keep this value alive until after the F24 publication gate is released,
@@ -79,13 +85,25 @@ impl ModelPages {
         dispatcher: &Dispatcher,
         request: Request<'_>,
         source: &current_analysis::CurrentAnalysis,
+        defer_links: bool,
         evidence: impl FnOnce(
             &current_analysis::CurrentAnalysis,
             &mut dyn FnMut() -> bool,
         ) -> Result<Vec<ChildEvidence>, Error>,
         cancelled: &mut dyn FnMut() -> bool,
     ) -> Result<PreparedRender, Error> {
-        match self.prepare_from(dispatcher, request, source, evidence, cancelled, false)? {
+        match self.prepare_from(
+            dispatcher,
+            request,
+            source,
+            evidence,
+            cancelled,
+            if defer_links {
+                PrepareMode::Hierarchical
+            } else {
+                PrepareMode::Prepared
+            },
+        )? {
             Preparation::Candidate(candidate) => Ok(candidate),
             Preparation::Cached(_) => Err(Error::Cache(super::super::Error::InvalidModel)),
         }

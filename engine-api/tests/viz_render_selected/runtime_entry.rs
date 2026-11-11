@@ -135,8 +135,20 @@ impl Fixture {
         synchronous_wait: Duration,
         max_work: NonZeroUsize,
     ) -> Result<Self, String> {
+        Self::with_tree(sizes, synchronous_wait, max_work, false)
+    }
+    fn with_tree(
+        sizes: [u64; 2],
+        synchronous_wait: Duration,
+        max_work: NonZeroUsize,
+        nested: bool,
+    ) -> Result<Self, String> {
         let sink = IngestSink::default();
-        publish_sizes(&sink, id(2), id(3), sizes)?;
+        if nested {
+            super::locate::publish_hierarchy(&sink, id(3))?;
+        } else {
+            publish_sizes(&sink, id(2), id(3), sizes)?;
+        }
         let ids = Arc::new(Identity(AtomicU8::new(15)));
         let session = Arc::new(Session::new(
             sink.clone(),
@@ -470,5 +482,6 @@ fn valid_different_condition_retires_only_the_replaced_channel() -> Result<(), S
     Ok(())
 }
 
+mod hierarchy_tests;
 mod replacement;
 mod source_selection;

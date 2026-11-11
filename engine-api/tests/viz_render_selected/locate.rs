@@ -2,7 +2,10 @@ use super::*;
 use du_analysis_index::visualization::projection::Location;
 use du_engine_api::viz_pages::Error as PageError;
 
-fn publish_hierarchy(sink: &IngestSink, revision: Id) -> Result<Arc<ResultVersion>, String> {
+pub(super) fn publish_hierarchy(
+    sink: &IngestSink,
+    revision: Id,
+) -> Result<Arc<ResultVersion>, String> {
     let lineage = sink
         .bind_current_analysis("scope", id(1))
         .map_err(|error| format!("{error:?}"))?;
@@ -21,6 +24,8 @@ fn publish_hierarchy(sink: &IngestSink, revision: Id) -> Result<Arc<ResultVersio
         vec![],
         vec![b"focus".to_vec()],
         vec![b"outside".to_vec()],
+        vec![b"third".to_vec()],
+        vec![b"fourth".to_vec()],
         vec![b"focus".to_vec(), b"deeper".to_vec()],
     ] {
         scan.add_directory(path)
@@ -31,6 +36,8 @@ fn publish_hierarchy(sink: &IngestSink, revision: Id) -> Result<Arc<ResultVersio
         (vec!["focus", "zero"], 0),
         (vec!["focus", "deeper", "nested"], 5),
         (vec!["outside", "same"], 75),
+        (vec!["third", "file"], 15),
+        (vec!["fourth", "file"], 10),
     ] {
         scan.add_file(Observation {
             path: path

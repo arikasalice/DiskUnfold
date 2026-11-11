@@ -115,6 +115,26 @@ pub(super) fn build_model(
             root_branch_ref: hierarchy.then(|| shape.meta.root_branch_ref.clone()),
         });
     }
+    for shape in &projection.descendants {
+        if cancelled() {
+            return Err(internal());
+        }
+        let item = evidence.get(&shape.item.item_no).ok_or_else(internal)?;
+        shapes.push(VizShape {
+            item_ref: Some(shape.item.clone()),
+            group_ref: None,
+            match_key: item.match_key.clone(),
+            geometry: shape.geometry.clone(),
+            size: shape.size.clone(),
+            quantity: None,
+            legend_class_key: item.presentation.legend_class_key.clone(),
+            display_flags: item.presentation.display_flags.clone(),
+            shape_ref: Some(shape.meta.shape_ref.clone()),
+            parent_shape_ref: Some(shape.meta.parent_shape_ref.clone()),
+            visible_depth: Some(shape.meta.visible_depth),
+            root_branch_ref: Some(shape.meta.root_branch_ref.clone()),
+        });
+    }
     let mut classes = std::collections::BTreeMap::<String, (u64, u64, bool)>::new();
     for row in &projection.rows {
         if cancelled() {

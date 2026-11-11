@@ -48,6 +48,7 @@ impl JobBody for Compute {
                 max_shapes: self.admitted.max_shapes,
             },
             &self.admitted.source,
+            request.format == "treemap" && request.depth_limit == 2,
             |source, item, _| {
                 let mut facts = self
                     .producer
@@ -75,6 +76,47 @@ impl JobBody for Compute {
         );
         match prepared {
             Ok(mut prepared) => {
+                if request.format == "treemap" && request.depth_limit == 2 {
+                    let result = self.session.extend_pinned(
+                        &mut prepared,
+                        &self.admitted.source,
+                        self.admitted.max_shapes,
+                        |source, item, _| {
+                            let mut facts = self
+                                .producer
+                                .child(source, item, request)
+                                .map_err(|_| render::Error::InvalidEvidence)?;
+                            if !self
+                                .admitted
+                                .facts
+                                .classes
+                                .contains_key(&facts.presentation.legend_class_key)
+                            {
+                                return Err(render::Error::InvalidEvidence);
+                            }
+                            facts.presentation.display_flags.sort_unstable();
+                            facts.presentation.display_flags.dedup();
+                            let presentation = ChildPolicyEvidence {
+                                path_compare_key: facts.presentation.path_compare_key.clone(),
+                                legend_class_key: facts.presentation.legend_class_key.clone(),
+                                display_flags: facts.presentation.display_flags.clone(),
+                            };
+                            evidence.insert(item.item_no, facts);
+                            Ok(presentation)
+                        },
+                        &mut cancelled,
+                    );
+                    if let Err(error) = result {
+                        return outcome(
+                            false,
+                            if error == render::Error::Cancelled {
+                                None
+                            } else {
+                                Some("support.internal_error")
+                            },
+                        );
+                    }
+                }
                 prepared.bind_condition(self.admitted.key.clone());
                 let reserved = self.session.reserve_prepared(prepared);
                 let model = match reserved

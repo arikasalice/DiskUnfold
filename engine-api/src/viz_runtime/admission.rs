@@ -95,7 +95,7 @@ fn validate_scope(request: &VizRenderRequest, source: &CurrentAnalysis) -> Resul
             .focus_item_ref
             .as_ref()
             .is_some_and(|x| x != &request.aggregate_scope_ref)
-        || request.depth_limit != 1
+        || (request.depth_limit != 1 && !(request.format == "treemap" && request.depth_limit == 2))
         || request.format == "treemap"
             && request
                 .expanded_depth_by_item

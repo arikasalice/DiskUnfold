@@ -488,3 +488,5 @@ fn rejects_a_strategy_that_draws_exact_zero_with_otherwise_valid_rows() -> Resul
     );
     Ok(())
 }
+
+mod hierarchy;

@@ -315,6 +315,7 @@ impl Session {
         &self,
         request: render::Request<'_>,
         source: &CurrentAnalysis,
+        defer_links: bool,
         evidence: impl FnMut(
             &CurrentAnalysis,
             &ResultItem,
@@ -327,8 +328,79 @@ impl Session {
             &self.dispatcher,
             request,
             source,
+            defer_links,
             |source, cancelled| collect_evidence(source, &parent, evidence, cancelled),
             cancelled,
         )
+    }
+}
+
+impl Session {
+    /// Adds depth-two geometry before publication; direct-child page rows are untouched.
+    pub(crate) fn extend_pinned(
+        &self,
+        candidate: &mut render::PreparedRender,
+        source: &CurrentAnalysis,
+        max_shapes: usize,
+        mut evidence: impl FnMut(
+            &CurrentAnalysis,
+            &ResultItem,
+            &mut dyn FnMut() -> bool,
+        ) -> Result<ChildPolicyEvidence, render::Error>,
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<(), render::Error> {
+        let Some(layout) = candidate.layout.as_mut() else {
+            return Ok(());
+        };
+        let model = Arc::make_mut(layout);
+        for index in 0..model.shapes.len() {
+            if cancelled() {
+                return Err(render::Error::Cancelled);
+            }
+            if model.shapes.len().saturating_add(model.descendants.len()) >= max_shapes {
+                break;
+            }
+            let row = &model.rows[model.shapes[index].row_index];
+            let parent = &source.version().items()[row.item.item_no as usize];
+            if parent.kind != du_core_contracts::result::ResultItemKind::Directory {
+                continue;
+            }
+            let mut keys = Vec::new();
+            let folder = du_analysis_index::browse::open(source.version(), Some(&row.item))
+                .map_err(|_| render::Error::Projection(projection::Error::InvalidSource))?;
+            for child in folder.children {
+                if cancelled() {
+                    return Err(render::Error::Cancelled);
+                }
+                let item = ItemRef {
+                    result_version: source.result_version().clone(),
+                    item_no: child.item_no,
+                };
+                if let Some(path_compare_key) = evidence(source, child, cancelled)?.path_compare_key
+                {
+                    keys.push(du_analysis_index::visualization::treemap::ChildKey {
+                        item,
+                        path_compare_key,
+                    });
+                }
+            }
+            projection::add_child_partition(
+                model,
+                source.version(),
+                index,
+                &keys,
+                &self.dispatcher,
+                max_shapes,
+                cancelled,
+            )
+            .map_err(|error| match error {
+                projection::Error::Cancelled => render::Error::Cancelled,
+                other => render::Error::Projection(other),
+            })?;
+        }
+        projection::finish_child_partitions(model, cancelled).map_err(|error| match error {
+            projection::Error::Cancelled => render::Error::Cancelled,
+            other => render::Error::Projection(other),
+        })
     }
 }

@@ -44,6 +44,14 @@ pub struct Shape {
     pub meta: ShapeMeta,
     pub geometry: Geometry,
 }
+/// A descendant shape backed by its own pinned observation, separate from table rows.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DescendantShape {
+    pub item: ItemRef,
+    pub size: SizeValue,
+    pub meta: ShapeMeta,
+    pub geometry: Geometry,
+}
 /// Exact byte totals for this unfiltered, ungrouped single-parent projection.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Totals {
@@ -64,6 +72,7 @@ pub struct Model {
     pub strategy: LayoutDescriptor,
     pub rows: Vec<Row>,
     pub shapes: Vec<Shape>,
+    pub descendants: Vec<DescendantShape>,
     pub relationships: Vec<VizRelationship>,
     pub omissions: Vec<typed_layout::Omission>,
     pub totals: Totals,
@@ -100,6 +109,13 @@ impl Model {
                 .is_some_and(|row| row.item == *item)
         }) {
             return Ok(Location::Shape(index));
+        }
+        if let Some(index) = self
+            .descendants
+            .iter()
+            .position(|shape| shape.item == *item)
+        {
+            return Ok(Location::Shape(self.shapes.len() + index));
         }
         Ok(
             if super::descendant(version.items(), item_no, self.parent.item_no) {
@@ -150,6 +166,26 @@ pub fn project(
     options: Options<'_>,
     cancelled: &mut dyn FnMut() -> bool,
 ) -> Result<Model, Error> {
+    project_inner(source, dispatcher, options, cancelled, true)
+}
+
+/// Builds an unpublished candidate whose links must be checked after adding branches.
+pub fn project_deferred(
+    source: Source<'_>,
+    dispatcher: &Dispatcher,
+    options: Options<'_>,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<Model, Error> {
+    project_inner(source, dispatcher, options, cancelled, false)
+}
+
+fn project_inner(
+    source: Source<'_>,
+    dispatcher: &Dispatcher,
+    options: Options<'_>,
+    cancelled: &mut dyn FnMut() -> bool,
+    validate_links: bool,
+) -> Result<Model, Error> {
     if cancelled() {
         return Err(Error::Cancelled);
     }
@@ -171,7 +207,10 @@ pub fn project(
         super::value(version, parent.item_no, &basis).map_err(|_| Error::InvalidSource)?;
     let selected = dispatcher
         .execute(options.format, options.strategy, &input, cancelled)
-        .map_err(Error::Dispatch)?;
+        .map_err(|error| match error {
+            typed_layout::DispatchError::Layout(typed_layout::Error::Cancelled) => Error::Cancelled,
+            other => Error::Dispatch(other),
+        })?;
     if selected.output.shapes.len() > options.max_shapes {
         return Err(Error::ShapeLimitExceeded);
     }
@@ -229,12 +268,14 @@ pub fn project(
         return Err(Error::InvalidLayout);
     }
     let relationships = Vec::new();
-    validate_model_links(
-        version.version_id(),
-        &shapes.iter().map(|s| s.meta.clone()).collect::<Vec<_>>(),
-        &relationships,
-    )
-    .map_err(Error::Links)?;
+    if validate_links {
+        validate_model_links(
+            version.version_id(),
+            &shapes.iter().map(|s| s.meta.clone()).collect::<Vec<_>>(),
+            &relationships,
+        )
+        .map_err(Error::Links)?;
+    }
     let rows = project_rows(version, &input, &parent_value, &omission_reasons, cancelled)?;
     if cancelled() {
         return Err(Error::Cancelled);
@@ -248,6 +289,7 @@ pub fn project(
         strategy: selected.descriptor,
         rows,
         shapes,
+        descendants: Vec::new(),
         relationships,
         omissions: selected.output.skipped,
         totals: Totals {
@@ -292,3 +334,6 @@ fn project_rows(
     }
     Ok(rows)
 }
+
+mod hierarchy;
+pub use hierarchy::{add_child_partition, finish_child_partitions};

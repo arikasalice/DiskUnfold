@@ -1,6 +1,7 @@
 //! Composes the admitted live single-parent visualization and its page registry.
 mod deferred;
 pub use deferred::DeferredRender;
+use deferred::PrepareMode;
 
 use std::{
     collections::BTreeMap,
@@ -103,7 +104,7 @@ pub enum Error {
 pub struct PreparedRender {
     owner: Weak<()>,
     input: PreparedModelInput,
-    layout: Option<Arc<projection::Model>>,
+    pub(super) layout: Option<Arc<projection::Model>>,
     fallback_reason: Option<projection::Error>,
 }
 
@@ -124,10 +125,8 @@ enum Preparation {
     Cached(Rendered),
     Candidate(PreparedRender),
 }
-
 impl ModelPages {
     /// Pins the selected live revision, renders via the strategy registry, and registers its rows.
-    /// The evidence callback must use the supplied pinned source and trusted in-process policies.
     /// The cancellation callback must be nonblocking and must not reenter the model registry.
     pub fn render_selected(
         &self,
@@ -193,7 +192,18 @@ impl ModelPages {
             request.requested_revision,
         )
         .map_err(Error::Source)?;
-        self.prepare_from(dispatcher, request, &source, evidence, cancelled, use_cache)
+        self.prepare_from(
+            dispatcher,
+            request,
+            &source,
+            evidence,
+            cancelled,
+            if use_cache {
+                PrepareMode::Cached
+            } else {
+                PrepareMode::Prepared
+            },
+        )
     }
 
     fn prepare_from(
@@ -206,7 +216,7 @@ impl ModelPages {
             &mut dyn FnMut() -> bool,
         ) -> Result<Vec<ChildEvidence>, Error>,
         cancelled: &mut dyn FnMut() -> bool,
-        use_cache: bool,
+        mode: PrepareMode,
     ) -> Result<Preparation, Error> {
         check(cancelled)?;
         if &request.parent.result_version != source.result_version() {
@@ -218,7 +228,7 @@ impl ModelPages {
         let normalized = normalize(evidence, source.result_version(), cancelled)?;
         let fingerprint = fingerprint(&request, &descriptor.strategy, &normalized, cancelled)?;
         check(cancelled)?;
-        if use_cache
+        if matches!(mode, PrepareMode::Cached)
             && let Some(cached) = self.cached_render(source.version(), &fingerprint, cancelled)?
         {
             // Cache admission may wait for source publication; observe cancellation again
@@ -234,7 +244,12 @@ impl ModelPages {
             keys.extend(key);
             presentations.push(presentation);
         }
-        let model = projection::project(
+        let project = if matches!(mode, PrepareMode::Hierarchical) {
+            projection::project_deferred
+        } else {
+            projection::project
+        };
+        let model = project(
             Source {
                 version: source.version(),
                 parent: request.parent,
