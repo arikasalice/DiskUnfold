@@ -17,7 +17,7 @@ use du_job_runtime::{JobIdentity, RuntimeError};
 use crate::{
     api::{CallerCtx, Channel},
     browse::folder::job::{ErrorKind as FolderJobError, FolderJobs},
-    query_region::commands::Regions,
+    query_region::{RegionError, commands::Regions},
     workers::Workers,
 };
 
@@ -230,6 +230,7 @@ impl SearchEntry {
         let output = query_ref.clone();
         let publish_binding = binding.clone();
         let publish_caller = caller.clone();
+        let admission_error = std::cell::Cell::new(None);
         #[cfg(test)]
         let publish_version = result_version.clone();
         let job_ref = self
@@ -240,7 +241,11 @@ impl SearchEntry {
                 body,
                 |job| {
                     let mut slot = binding.lock().map_err(|_| RuntimeError::Poisoned)?;
+                    #[cfg(test)]
+                    test_gate::pause_admission(&result_version)
+                        .map_err(|_| RuntimeError::InvalidState)?;
                     if caller.is_cancelled() {
+                        admission_error.set(Some(SearchError::Cancelled));
                         return Err(RuntimeError::InvalidState);
                     }
                     let value = self
@@ -253,7 +258,13 @@ impl SearchEntry {
                             request.request_seq,
                             job,
                         )
-                        .map_err(|_| RuntimeError::InvalidState)?;
+                        .map_err(|error| {
+                            admission_error.set(Some(match error {
+                                RegionError::InvalidSequence => SearchError::InvalidRequest,
+                                _ => SearchError::RegionUnavailable,
+                            }));
+                            RuntimeError::InvalidState
+                        })?;
                     *slot = Some(value);
                     Ok(())
                 },
@@ -299,7 +310,11 @@ impl SearchEntry {
                         .map_err(|_| "support.internal_error".to_owned())?
                 },
             )
-            .map_err(folder_job_error)?;
+            .map_err(|error| {
+                admission_error
+                    .get()
+                    .unwrap_or_else(|| folder_job_error(error))
+            })?;
         let previous = binding
             .lock()
             .map_err(|_| SearchError::Unavailable)?

@@ -160,6 +160,13 @@ fn simultaneous_same_sequence_accepts_only_one_job() -> Result<(), String> {
         .map(|t| t.join().map_err(|_| "thread panicked".to_owned()))
         .collect::<Result<_, _>>()?;
     assert_eq!(outcomes.iter().filter(|r| r.is_ok()).count(), 1);
+    assert_eq!(
+        outcomes
+            .iter()
+            .filter(|r| matches!(r, Err(SearchError::InvalidRequest)))
+            .count(),
+        1
+    );
     let accepted = outcomes
         .into_iter()
         .find_map(Result::ok)
@@ -168,5 +175,69 @@ fn simultaneous_same_sequence_accepts_only_one_job() -> Result<(), String> {
         wait_terminal(&runtime, &accepted.job_ref)?.state,
         du_core_contracts::job::JobState::Done
     );
+    let request = |sequence| SearchRequest {
+        region_ref: region.clone(),
+        request_seq: sequence,
+        result_version: Some(id(2)),
+        parent_search_ref: None,
+        condition: Condition::All(vec![]),
+        sorts: vec![SortSpec {
+            id: "sort.path".into(),
+            revision: 1,
+            basis: query::Basis::Logical,
+            descending: false,
+        }],
+        count: None,
+    };
+    let caller = CallerCtx::new(Channel::Gui, id(90), None);
+    assert!(matches!(
+        entry.execute_async(request(0), &caller),
+        Err(SearchError::InvalidRequest)
+    ));
+    let second = entry
+        .execute_async(request(2), &caller)
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(
+        wait_terminal(&runtime, &second.job_ref)?.state,
+        du_core_contracts::job::JobState::Done
+    );
+    assert!(matches!(
+        entry.execute_async(request(1), &caller),
+        Err(SearchError::InvalidRequest)
+    ));
+    let gate = test_gate::Gate::new(test_gate::Stage::Admission);
+    test_gate::set(Some((id(2), gate.clone()))).map_err(str::to_owned)?;
+    let cancelled_caller = CallerCtx::new(Channel::Gui, id(91), None);
+    let task = {
+        let (entry, caller, input) = (entry.clone(), cancelled_caller.clone(), request(3));
+        std::thread::spawn(move || entry.execute_async(input, &caller))
+    };
+    gate.entered().map_err(str::to_owned)?;
+    cancelled_caller.cancel();
+    gate.release().map_err(str::to_owned)?;
+    assert!(matches!(
+        task.join().map_err(|_| "thread panicked")?,
+        Err(SearchError::Cancelled)
+    ));
+    test_gate::set(None).map_err(str::to_owned)?;
+
+    let gate = test_gate::Gate::new(test_gate::Stage::Admission);
+    test_gate::set(Some((id(2), gate.clone()))).map_err(str::to_owned)?;
+    let task = {
+        let (entry, caller, input) = (entry.clone(), caller.clone(), request(3));
+        std::thread::spawn(move || entry.execute_async(input, &caller))
+    };
+    gate.entered().map_err(str::to_owned)?;
+    entry
+        .regions
+        .registry
+        .close(&entry.regions.owner, &region)
+        .map_err(|e| format!("{e:?}"))?;
+    gate.release().map_err(str::to_owned)?;
+    assert!(matches!(
+        task.join().map_err(|_| "thread panicked")?,
+        Err(SearchError::RegionUnavailable)
+    ));
+    test_gate::set(None).map_err(str::to_owned)?;
     Ok(())
 }

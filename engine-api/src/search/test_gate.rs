@@ -6,9 +6,13 @@ use std::time::Duration;
 const WAIT: Duration = Duration::from_secs(10);
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Stage {
+    Admission,
     Worker,
     Candidate,
     Publish,
+}
+pub(super) fn pause_admission(version: &Id) -> Result<(), &'static str> {
+    pause(version, Stage::Admission)
 }
 pub(super) struct Gate {
     entered_tx: mpsc::Sender<()>,
