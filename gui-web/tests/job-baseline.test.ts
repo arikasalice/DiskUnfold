@@ -55,7 +55,13 @@ function fixture() {
         listener = undefined;
       };
     },
-    call: () => {
+    call: (name: string) => {
+      if (name === "job.get")
+        return Promise.resolve({
+          jobRef: "job",
+          sequence: 6,
+          terminal: row(6, true).terminal,
+        });
       actions.push("list");
       return new Promise<AnalysisJobListRow[]>((resolve, reject) =>
         requests.push({ resolve, reject }),
@@ -174,6 +180,52 @@ test("terminal baseline remains pending until the history outcome is confirmed",
   await vi.waitFor(() => expect(gate.ready()).toBe(true));
   expect(gate.sequence()).toBe(3);
   expect(changed).toHaveBeenCalledTimes(1);
+  gate.dispose();
+});
+
+test("a terminal event buffered during recovery waits for its confirmed outcome", async () => {
+  let listener: ((event: EventEnvelope) => void) | undefined;
+  let finishList: ((rows: AnalysisJobListRow[]) => void) | undefined;
+  const status: { finish?: (value: unknown) => void } = {};
+  const client = {
+    subscribe: (next: (event: EventEnvelope) => void) => {
+      listener = next;
+      return () => {};
+    },
+    call: (name: string) =>
+      name === "job.list"
+        ? new Promise<AnalysisJobListRow[]>((resolve) => {
+            finishList = resolve;
+          })
+        : new Promise((resolve) => {
+            status.finish = resolve;
+          }),
+  } as unknown as AnalysisClient;
+  const changed = vi.fn();
+  const gate = watchJobBaseline(client, "job", changed, vi.fn());
+  listener?.(event("job.finished", 6));
+  finishList?.([row(3)]);
+  await vi.waitFor(() => expect(status.finish).toBeDefined());
+  expect(gate.ready()).toBe(false);
+  expect(changed).not.toHaveBeenCalled();
+  const resolveStatus = () => status.finish;
+  resolveStatus()?.({
+    jobRef: "job",
+    sequence: 5,
+    terminal: row(5, true).terminal,
+  });
+  delete status.finish;
+  await vi.waitFor(() => expect(status.finish).toBeDefined(), {
+    timeout: 2_000,
+  });
+  expect(gate.ready()).toBe(false);
+  resolveStatus()?.({
+    jobRef: "job",
+    sequence: 6,
+    terminal: row(6, true).terminal,
+  });
+  await vi.waitFor(() => expect(gate.ready()).toBe(true));
+  expect(gate.sequence()).toBe(6);
   gate.dispose();
 });
 

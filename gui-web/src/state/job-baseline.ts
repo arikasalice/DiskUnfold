@@ -66,7 +66,11 @@ export function watchJobBaseline(
                 status.terminal &&
                 status.jobRef === jobRef &&
                 status.sequence >= (row?.sequence ?? 0) &&
-                status.terminal.sequence === status.sequence
+                status.terminal.sequence === status.sequence &&
+                !pending.some(
+                  (update) =>
+                    update.terminal && update.sequence > status.sequence,
+                )
               )
                 complete(status.sequence, true);
               else retry = setTimeout(confirm, INITIAL_RETRY_MS);
@@ -76,9 +80,14 @@ export function watchJobBaseline(
             });
         };
         if (
-          row &&
-          ["done", "partial", "failed", "cancelled"].includes(row.state) &&
-          !row.terminal
+          (row &&
+            ["done", "partial", "failed", "cancelled"].includes(row.state) &&
+            !row.terminal) ||
+          pending.some(
+            (update) =>
+              update.terminal &&
+              (!row?.terminal || update.sequence > row.sequence),
+          )
         )
           confirm();
         else complete(row?.sequence ?? -1, row?.terminal !== undefined);
