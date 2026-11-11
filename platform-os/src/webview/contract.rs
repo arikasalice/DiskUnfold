@@ -20,6 +20,27 @@ pub type Dispatch = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
 #[cfg(target_os = "windows")]
 pub type Events = Arc<dyn Fn() -> Option<String> + Send + Sync>;
 
+/// Outcome of attempting to post one IPC response to the WebView.
+#[cfg(target_os = "windows")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ResponseDelivery {
+    Posted,
+    NotPosted,
+}
+
+/// One-shot notification for an IPC reply that was posted or discarded.
+///
+/// This can run on the WebView STA or a worker during teardown. It must not wait
+/// or perform I/O.
+#[cfg(target_os = "windows")]
+pub type ResponseDeliveryCallback = Box<dyn FnOnce(ResponseDelivery) + Send>;
+
+/// Runs on the IPC worker with the request and response, before the reply is queued.
+/// Return a callback only for responses that need a delivery notification.
+#[cfg(target_os = "windows")]
+pub type ResponseDeliveryObserver =
+    Arc<dyn Fn(&str, &str) -> Option<ResponseDeliveryCallback> + Send + Sync>;
+
 /// Windows dispatch lane selected by the application after parsing the request.
 #[cfg(target_os = "windows")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -37,6 +58,9 @@ pub struct WebApp {
     /// Selects a bounded Windows queue; the dispatch callback still validates every request.
     #[cfg(target_os = "windows")]
     pub route: fn(&str) -> DispatchLane,
+    /// Optionally prepares a one-shot notification for each IPC reply on its worker.
+    #[cfg(target_os = "windows")]
+    pub response_delivery: Option<ResponseDeliveryObserver>,
     pub icon: &'static [u8],
 }
 

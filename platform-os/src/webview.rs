@@ -12,7 +12,9 @@ mod windows;
 
 pub use contract::{Asset, WebApp};
 #[cfg(target_os = "windows")]
-pub use contract::{DispatchLane, Events};
+pub use contract::{
+    DispatchLane, Events, ResponseDelivery, ResponseDeliveryCallback, ResponseDeliveryObserver,
+};
 
 /// Runs the Windows webview and delivers events to its trusted top-level page.
 #[cfg(target_os = "windows")]

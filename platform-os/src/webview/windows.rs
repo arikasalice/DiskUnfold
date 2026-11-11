@@ -2,6 +2,7 @@ mod folder_drop;
 mod folder_validation;
 mod icon;
 mod messages;
+mod reply;
 
 use super::contract::{Asset, CSP, Events, WebApp, entry, resource};
 use messages::{Bridge, RequestQueue, WindowTimer};

@@ -98,6 +98,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         }),
         #[cfg(windows)]
         route: crate::ipc::dispatch_lane,
+        #[cfg(windows)]
+        response_delivery: None,
         icon: include_bytes!("../icons/icon.png"),
     };
     #[cfg(windows)]

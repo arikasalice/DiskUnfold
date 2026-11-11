@@ -1,4 +1,5 @@
 //! Bounded native folder validation for WebView2 drop requests.
+use super::reply::Reply;
 use std::{
     io,
     sync::{Arc, Mutex, mpsc},
@@ -11,7 +12,7 @@ type FolderVerifier = dyn Fn(u64, &[u16]) -> String + Send + Sync;
 
 /// Keeps directory checks bounded while allowing a later drop to bypass one slow check.
 pub(super) fn start(
-    replies: mpsc::SyncSender<String>,
+    replies: mpsc::SyncSender<Reply>,
     verify: Arc<FolderVerifier>,
 ) -> io::Result<mpsc::SyncSender<(u64, Vec<u16>)>> {
     let (sender, receiver) = mpsc::sync_channel::<(u64, Vec<u16>)>(WAITING_LIMIT);
@@ -26,7 +27,7 @@ pub(super) fn start(
                 loop {
                     let request = incoming.lock().ok().and_then(|queue| queue.recv().ok());
                     let Some((id, path)) = request else { break };
-                    if outgoing.send(verify(id, &path)).is_err() {
+                    if outgoing.send(Reply::plain(verify(id, &path))).is_err() {
                         break;
                     }
                 }
@@ -63,12 +64,12 @@ mod tests {
         started.recv_timeout(Duration::from_secs(5))?;
         queue.try_send((2, vec![2]))?;
         assert_eq!(
-            replies.recv_timeout(Duration::from_secs(5))?,
+            replies.recv_timeout(Duration::from_secs(5))?.message,
             "folder-drop:2"
         );
         release.send(())?;
         assert_eq!(
-            replies.recv_timeout(Duration::from_secs(5))?,
+            replies.recv_timeout(Duration::from_secs(5))?.message,
             "folder-drop:1"
         );
         Ok(())
