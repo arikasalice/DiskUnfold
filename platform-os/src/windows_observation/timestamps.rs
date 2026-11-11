@@ -51,4 +51,15 @@ mod tests {
         assert!(filetime(-1).is_none());
         assert!(filetime(i64::MAX).is_none());
     }
+
+    #[test]
+    fn millisecond_display_cannot_identify_a_native_filetime() {
+        let epoch = 116_444_736_000_000_000;
+        let first = filetime(epoch + 1);
+        let last = filetime(epoch + 9_999);
+        assert!(first.is_some());
+        assert_eq!(first, last);
+        assert_ne!(last, filetime(epoch + 10_000));
+        assert_ne!(epoch + 1, epoch + 9_999);
+    }
 }
