@@ -262,7 +262,7 @@ function Test-BrowseFolderInspection($name) {
   }
   "F05 native folder inspection: $name attributes shown and row focus restored"
 }
-# Scan an isolated file whose IEC representation differs from its original byte count.
+# Scan an isolated file and check both unit systems across the pinned workspace.
 function Test-ScaledFileInspection {
   $scaledScope = Join-Path $root 'scaled-scope'
   [IO.Directory]::CreateDirectory($scaledScope) | Out-Null
@@ -276,6 +276,25 @@ function Test-ScaledFileInspection {
   $null = Wait-FinalLogicalSize '1.1 KiB'
   Invoke-UI (Wait-Enabled 'Browse folders' $true)
   Test-FileInspection 'scaled.bin' '1.1 KiB · 1,100 bytes'
+  Invoke-UI (Wait-Enabled 'Back to analysis' $true)
+  Wait-Details 'Display options' 'Unit system'
+  $unitSystem = Wait-UI 'unit system selector' {
+    Find-UI 'Unit system' ([Windows.Automation.ControlType]::ComboBox)
+  }
+  Expand-UI $unitSystem
+  $si = Wait-UI 'SI unit option' { Find-UI 'SI (1000)' $null $unitSystem }
+  $si.GetCurrentPattern([Windows.Automation.SelectionItemPattern]::Pattern).Select()
+  $null = Wait-FinalLogicalSize '1.1 kB'
+  Invoke-UI (Wait-Enabled 'Browse folders' $true)
+  $null = Wait-UI 'pinned folder row in SI units' {
+    $grid = Find-UI 'Folder items' $null
+    if ($grid) { Find-UI '1.1 kB' $null $grid }
+  }
+  Test-FileInspection 'scaled.bin' '1.1 kB · 1,100 bytes'
+  Invoke-UI (Wait-Enabled 'Back to analysis' $true)
+  $null = Wait-FinalLogicalSize '1.1 kB'
+  Invoke-UI (Wait-Enabled 'Browse folders' $true)
+  'F03/F05 native display units: SI choice kept across analysis, folder rows and file inspection'
 }
 # Read the original count only from a complete result observation, regardless of IEC rounding.
 function Read-CompleteSize($basis) {
