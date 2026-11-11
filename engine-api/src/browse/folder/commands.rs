@@ -48,25 +48,28 @@ pub(crate) fn register(
         return Ok(None);
     };
     let session = Arc::new(session);
-    let jobs = FolderJobs::new(browse.clone(), workers.runtime.clone())?;
+    let jobs = Arc::new(FolderJobs::new(browse.clone(), workers.runtime.clone())?);
     let regions = Regions::register(builder, ids.clone(), random, workers.runtime.clone())?;
     builder.register(Open {
         browse,
         session: session.clone(),
-        jobs,
-        workers,
+        jobs: jobs.clone(),
+        workers: workers.clone(),
         regions: regions.clone(),
     });
     builder.register(Page(session));
     Ok(Some(Arc::new(crate::search::SearchEntry::new(
-        sets, regions, ids,
+        sets,
+        regions,
+        ids,
+        crate::search::SearchWorkers::new(jobs, workers),
     ))))
 }
 
 struct Open {
     browse: Arc<FolderBrowse>,
     session: Arc<Session>,
-    jobs: FolderJobs,
+    jobs: Arc<FolderJobs>,
     workers: Arc<Workers>,
     regions: Arc<Regions>,
 }

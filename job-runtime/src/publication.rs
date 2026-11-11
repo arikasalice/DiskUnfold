@@ -119,6 +119,26 @@ impl JobRuntime {
         )
     }
 
+    /// Submits a query publication after atomically admitting its owner binding.
+    ///
+    /// `admit` runs under the runtime table lock before the job becomes visible to
+    /// workers. It must be bounded, perform no I/O or runtime calls, and leave its
+    /// owner unchanged when it returns an error or panics. Publication uses the same
+    /// F24 terminal gate as `submit_with_publication`.
+    pub fn submit_with_publication_admission(
+        &self,
+        submission: Submission,
+        admit: impl FnOnce(&Id) -> Result<(), RuntimeError>,
+        publish: impl FnOnce() -> Result<Id, String> + Send + 'static,
+    ) -> Result<SubmitResult, RuntimeError> {
+        self.submit_inner(
+            submission,
+            None,
+            Some(Publication::Query(Box::new(publish))),
+            admit,
+        )
+    }
+
     /// Submits a visualization computation whose model is committed on completion.
     ///
     /// The callback commits a prepared model in a bounded in-memory transaction. It

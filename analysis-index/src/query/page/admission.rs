@@ -265,4 +265,39 @@ impl ResultSets {
         };
         Ok(first_page(id, result, count))
     }
+
+    /// Publishes a completed search only while its admitted source is still current.
+    /// Unlike `register_admitted_search`, a retired source does not produce a page-only
+    /// reference. The source check and insertion share the registry lock.
+    pub fn register_current_admitted_search(
+        &self,
+        id: Id,
+        candidate: ValidatedSearch,
+    ) -> Result<Page, PageError> {
+        let ValidatedSearch {
+            admission,
+            result,
+            count,
+        } = candidate;
+        if !Arc::ptr_eq(&admission.source.owner, &self.identity) {
+            return Err(PageError::InvalidResult);
+        }
+        let mut state = self.state.lock().map_err(|_| PageError::Unavailable)?;
+        let version = admission.source.version.version_id();
+        if state.used.contains(&id) {
+            return Err(PageError::DuplicateId);
+        }
+        if state.released_sources.contains(version) {
+            return Err(PageError::StaleVersion);
+        }
+        self.source
+            .with_current(&admission.source.version, || {
+                let result = state.insert(id.clone(), result, None);
+                first_page(id, result, count)
+            })
+            .map_err(|error| match error {
+                QueryError::Unavailable => PageError::Unavailable,
+                _ => PageError::StaleVersion,
+            })
+    }
 }

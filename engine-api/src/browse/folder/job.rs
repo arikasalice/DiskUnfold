@@ -284,6 +284,43 @@ impl FolderJobs {
             first,
         })
     }
+
+    /// Submits a second query kind on the same registered F24 query worker pool.
+    /// The caller owns the candidate preparation and terminal publication policy.
+    pub(crate) fn submit_search_region(
+        &self,
+        correlation: Id,
+        body: Arc<dyn JobBody>,
+        permit: crate::query_region::Permit<du_core_contracts::query_region_ipc::QueryRegionKind>,
+        publish: impl FnOnce() -> Result<Id, String> + Send + 'static,
+    ) -> Result<Id, ErrorKind> {
+        let mut channels = self.channels.lock().map_err(|_| ErrorKind::Unavailable)?;
+        reap(&self.runtime, &mut channels)?;
+        if channels.active.len() >= 4 {
+            return Err(ErrorKind::Busy);
+        }
+        let submitted = self
+            .runtime
+            .submit_with_publication_admission(
+                Submission {
+                    kind_id: "query.evaluate".into(),
+                    deduplication_key: None,
+                    body,
+                    priority: JobPriority::Normal,
+                    scope_summary: "search query".into(),
+                    correlation_id: correlation,
+                    sample: false,
+                },
+                |job| permit.bind_job(job).map_err(|_| RuntimeError::InvalidState),
+                publish,
+            )
+            .map_err(ErrorKind::Runtime)?;
+        let id = match submitted {
+            SubmitResult::Created(id) | SubmitResult::Existing(id) => id,
+        };
+        channels.active.push(id.clone());
+        Ok(id)
+    }
 }
 fn reap(runtime: &JobRuntime, channels: &mut Channels) -> Result<(), ErrorKind> {
     let mut active = Vec::new();
