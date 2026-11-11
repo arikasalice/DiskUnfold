@@ -10,7 +10,10 @@ use std::{
 
 use du_core_contracts::{
     analysis_ipc::{ScanStart, ScopeDraft},
-    scan_observation::{RecentScopeEvidence, RecentScopeObservation},
+    scan_observation::{
+        OpenedScopeRoot, OptionalRecentScopeObserver, RecentScopeEvidence, RecentScopeObservation,
+        RecentScopeObserver,
+    },
 };
 
 /// A newly admitted GUI scan and same-open deferred root observations.
@@ -18,9 +21,52 @@ pub struct RecentScopeAdmission {
     pub receipt: ScanStart,
     pub normalized_scope: ScopeDraft,
     pub(crate) fingerprint_input: Option<ScopeDraft>,
-    pub(crate) observers: Vec<du_core_contracts::scan_observation::OptionalRecentScopeObserver>,
+    pub(crate) observers: Vec<RetainedRoot>,
     pub(crate) runtime: Arc<du_job_runtime::JobRuntime>,
     pub(crate) queue_slots: Option<Arc<AtomicUsize>>,
+}
+
+/// Binds an optional observer to the identity passed to the scan worker.
+pub(crate) struct RetainedRoot {
+    volume_id: Vec<u8>,
+    file_id: Vec<u8>,
+    observer: Box<dyn RecentScopeObserver>,
+}
+
+impl RetainedRoot {
+    pub(crate) fn bind_all(
+        roots: &[OpenedScopeRoot],
+        observers: Vec<OptionalRecentScopeObserver>,
+    ) -> Option<Vec<Self>> {
+        if roots.is_empty() || roots.len() != observers.len() {
+            return None;
+        }
+        roots
+            .iter()
+            .zip(observers)
+            .map(|(root, observer)| {
+                if root.volume_id.is_empty() || root.file_id.is_empty() {
+                    return None;
+                }
+                Some(Self {
+                    volume_id: root.volume_id.clone(),
+                    file_id: root.file_id.clone(),
+                    observer: observer?.ok()?,
+                })
+            })
+            .collect()
+    }
+
+    fn observe(&self, cancelled: &AtomicBool) -> Option<RecentScopeEvidence> {
+        match self.observer.observe(cancelled) {
+            RecentScopeObservation::Observed(evidence)
+                if evidence.volume_id == self.volume_id && evidence.file_id == self.file_id =>
+            {
+                Some(evidence)
+            }
+            _ => None,
+        }
+    }
 }
 
 /// Authoritative job lifecycle view for the app-host admission consumer.
@@ -65,13 +111,7 @@ impl RecentScopeAdmission {
             if cancelled.load(Ordering::Acquire) {
                 return None;
             }
-            let observer = observer.as_ref()?.as_ref().ok()?;
-            match observer.observe(cancelled) {
-                RecentScopeObservation::Observed(item) => evidence.push(item),
-                RecentScopeObservation::Cancelled | RecentScopeObservation::Unavailable(_) => {
-                    return None;
-                }
-            }
+            evidence.push(observer.observe(cancelled)?);
         }
         (!cancelled.load(Ordering::Acquire) && !evidence.is_empty()).then_some(evidence)
     }
@@ -206,6 +246,44 @@ pub(crate) fn recent_scope_admissions(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct Evidence(Vec<u8>, Vec<u8>);
+
+    impl RecentScopeObserver for Evidence {
+        fn observe(&self, _: &AtomicBool) -> RecentScopeObservation {
+            use du_core_contracts::{OsPath, PathBytes, PathEncoding};
+            let path = OsPath {
+                encoding: PathEncoding::Unix,
+                raw: PathBytes::from_bytes(b"/fixture"),
+                display: "/fixture".into(),
+                lossy: false,
+            };
+            RecentScopeObservation::Observed(RecentScopeEvidence {
+                volume_id: self.0.clone(),
+                file_id: self.1.clone(),
+                entry_path: path,
+                relative_path: OsPath {
+                    encoding: PathEncoding::Unix,
+                    raw: PathBytes::from_bytes(&[]),
+                    display: String::new(),
+                    lossy: false,
+                },
+            })
+        }
+    }
+
+    #[test]
+    fn observation_must_match_the_original_scan_volume_and_file() {
+        let cancelled = AtomicBool::new(false);
+        for (volume, file, accepted) in [(1, 2, true), (3, 2, false), (1, 3, false)] {
+            let retained = RetainedRoot {
+                volume_id: vec![1],
+                file_id: vec![2],
+                observer: Box::new(Evidence(vec![volume], vec![file])),
+            };
+            assert_eq!(retained.observe(&cancelled).is_some(), accepted);
+        }
+    }
 
     #[test]
     fn full_counter_with_maximum_capacity_does_not_overflow() {
