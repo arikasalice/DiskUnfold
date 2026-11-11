@@ -250,6 +250,7 @@ export function useScanResult(
           // A partial result can be superseded before its first read is admitted.
           staleFailure = failure;
           queued = true;
+          queuedResult = true;
           return "resync" as const;
         }
         displayLatest = false;

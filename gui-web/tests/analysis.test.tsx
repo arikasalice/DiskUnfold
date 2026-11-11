@@ -1051,6 +1051,101 @@ test("F02: result changes recover while the job list is still resynchronizing", 
   expect(screen.getByText("Scanning")).toBeDefined();
 });
 
+test.each(["STALE_VERSION", "NOT_FOUND"] as const)(
+  "F02: %s result read retries independently of an unresponsive job list",
+  async (code) => {
+    let lists = 0;
+    let version: "none" | "a" | "b" | "old" | "foreign" = "none";
+    const { client, calls, listeners } = fixture({
+      lineageId: "lineage",
+      listJobs: () => {
+        lists += 1;
+        if (lists > 1) return new Promise(() => {});
+        return Promise.resolve([
+          {
+            jobRef: "scan",
+            kind: "scan.metadata",
+            scopeSummary: "scope",
+            state: "running",
+            waitReason: "none",
+            priority: "normal",
+            supportedControls: ["cancel"],
+            sequence: 1,
+          },
+        ]);
+      },
+      readStatus: (base) => ({
+        ...base,
+        state: "running",
+        sequence: 1,
+        resultVersion: null,
+        ...(version === "none"
+          ? {}
+          : {
+              scanResult: {
+                lineageId: version === "foreign" ? "other" : "lineage",
+                sequence:
+                  version === "a" || version === "old"
+                    ? 1
+                    : version === "b"
+                      ? 2
+                      : 3,
+                resultVersion: version,
+              },
+            }),
+      }),
+      readTotals: (result) => {
+        if (result.resultVersion === "a") {
+          version = "b";
+          throw new AnalysisError(code, "result.requery_required");
+        }
+        return { ...result, completeness: "complete" };
+      },
+    });
+    await startFixtureScan(client);
+    await screen.findByText("Scanning");
+    const beforeRecovery = calls.filter(
+      ({ name }) => name === "job.get",
+    ).length;
+    version = "a";
+    notifyResult(listeners, "job.resync_required", {});
+    await screen.findByText("Result version: Final");
+    expect(lists).toBe(2);
+    expect(calls.filter(({ name }) => name === "job.get").length).toBe(
+      beforeRecovery + 2,
+    );
+    const totals = () =>
+      calls
+        .filter(({ name }) => name === "space.total")
+        .map(({ body }) => body);
+    expect(totals()).toMatchObject([
+      { resultVersion: "a" },
+      { resultVersion: "b" },
+    ]);
+    for (const next of ["old", "foreign"] as const) {
+      version = next;
+      const before = calls.filter(({ name }) => name === "job.get").length;
+      notifyResult(listeners, "results.version_changed", {
+        lineageId: "lineage",
+        sequence: 4,
+      });
+      await waitFor(() =>
+        expect(calls.filter(({ name }) => name === "job.get").length).toBe(
+          before + 1,
+        ),
+      );
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(totals()).toHaveLength(2);
+      expect(screen.getByText("Result version: Final")).toBeDefined();
+      expect(
+        screen.queryByRole("button", { name: "Show latest result" }),
+      ).toBeNull();
+    }
+  },
+);
+
 test("F24: a failed resync keeps the last scan until automatic recovery", async () => {
   const terminal = {
     state: "cancelled" as const,
