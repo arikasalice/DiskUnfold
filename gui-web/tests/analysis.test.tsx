@@ -2872,7 +2872,7 @@ test("F01: a probe finished before its delayed list is not cancelled", async () 
 });
 
 test.each([
-  { dropped: "D:\\한글 폴더", display: "D:\\한글 폴더", lossy: false },
+  { dropped: "D:\\한글 폴더 😀", display: "D:\\한글 폴더 😀", lossy: false },
   {
     dropped: `D:\\folder-${String.fromCharCode(0xd800)}`,
     display: "D:\\folder-\uFFFD",

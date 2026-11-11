@@ -278,7 +278,8 @@ export function windowsPath(input: string): OsPath {
     .replaceAll("+", "-")
     .replaceAll("/", "_")
     .replace(/=+$/, "");
-  const display = input.toWellFormed();
+  // Unicode matching treats a surrogate pair as one supplementary code point.
+  const display = input.replace(/[\uD800-\uDFFF]/gu, "\uFFFD");
   return {
     encoding: "windows_utf16le",
     raw,
