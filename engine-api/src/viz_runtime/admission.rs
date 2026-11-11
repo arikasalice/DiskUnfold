@@ -106,6 +106,42 @@ impl Runtime {
         })
     }
     fn pin_source(&self, request: &VizRenderRequest) -> Result<CurrentAnalysis, EngineError> {
+        if let Some(selection) = &self.selection {
+            let selected = selection
+                .selected_result_revision(&request.view_channel)
+                .map_err(|_| internal())?
+                .ok_or_else(unavailable)?;
+            if request
+                .result_revision
+                .as_ref()
+                .is_some_and(|requested| requested != &selected)
+            {
+                return Err(EngineError::reason("result.version_stale"));
+            }
+            let source = crate::current_analysis::admit_selected(
+                &self.assembly.source,
+                &selected,
+                Some(&selected),
+            )
+            .map_err(|error| {
+                use crate::current_analysis::Error::*;
+                EngineError::reason(match error {
+                    NoSource => "result.version_not_found",
+                    StaleVersion => "result.version_stale",
+                    UnsupportedSource => "ref.unavailable",
+                    Unavailable => "support.internal_error",
+                })
+            })?;
+            if let Some(reference) = &request.source_ref {
+                if reference.kind != "scan" {
+                    return Err(unavailable());
+                }
+                if reference.reference != *source.lineage() {
+                    return Err(EngineError::reason("result.version_stale"));
+                }
+            }
+            return Ok(source);
+        }
         let lineage = match &request.source_ref {
             Some(reference) if reference.kind == "scan" => Some(&reference.reference),
             Some(_) => return Err(unavailable()),

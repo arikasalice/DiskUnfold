@@ -135,6 +135,32 @@ pub(super) fn fixture(
     max_work: NonZeroUsize,
     dispatcher: du_analysis_index::visualization::typed_layout::Dispatcher,
 ) -> Result<Fixture, String> {
+    fixture_inner(sink, synchronous_wait, max_work, dispatcher, None)
+}
+
+pub(super) fn fixture_with_selection(
+    sink: IngestSink,
+    synchronous_wait: Duration,
+    max_work: NonZeroUsize,
+    dispatcher: du_analysis_index::visualization::typed_layout::Dispatcher,
+    selection: Arc<dyn du_engine_api::viz_runtime::selection::WindowScanSelection>,
+) -> Result<Fixture, String> {
+    fixture_inner(
+        sink,
+        synchronous_wait,
+        max_work,
+        dispatcher,
+        Some(selection),
+    )
+}
+
+fn fixture_inner(
+    sink: IngestSink,
+    synchronous_wait: Duration,
+    max_work: NonZeroUsize,
+    dispatcher: du_analysis_index::visualization::typed_layout::Dispatcher,
+    selection: Option<Arc<dyn du_engine_api::viz_runtime::selection::WindowScanSelection>>,
+) -> Result<Fixture, String> {
     let ids = Arc::new(Identity(AtomicU8::new(15)));
     let session = Arc::new(Session::new(
         sink.clone(),
@@ -159,25 +185,27 @@ pub(super) fn fixture(
         unit_iec: AtomicBool::new(false),
     });
     let mut builder = EngineBuilder::default();
-    Runtime::register(
-        &mut builder,
-        Assembly {
-            source: sink.clone(),
-            session: session.clone(),
-            jobs: jobs.clone(),
-            ids,
-            producer: producer.clone(),
-            policy: ViewPolicy {
-                revision: 1,
-                max_scale: 4.0,
-                max_shapes: 100,
-                max_channels: NonZeroUsize::MIN.saturating_add(3),
-                max_work,
-                synchronous_wait,
-            },
+    let assembly = Assembly {
+        source: sink.clone(),
+        session: session.clone(),
+        jobs: jobs.clone(),
+        ids,
+        producer: producer.clone(),
+        policy: ViewPolicy {
+            revision: 1,
+            max_scale: 4.0,
+            max_shapes: 100,
+            max_channels: NonZeroUsize::MIN.saturating_add(3),
+            max_work,
+            synchronous_wait,
         },
-        &Entropy,
-    )?;
+    };
+    match selection {
+        Some(selection) => {
+            Runtime::register_with_selection(&mut builder, assembly, &Entropy, selection)?
+        }
+        None => Runtime::register(&mut builder, assembly, &Entropy)?,
+    };
     let engine = builder.build().map_err(|e| e.to_string())?;
     Ok(Fixture {
         engine,

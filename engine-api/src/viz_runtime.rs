@@ -42,6 +42,7 @@ mod lifecycle;
 mod ranked_bar;
 mod ranked_group_model;
 mod ranked_projection;
+pub mod selection;
 
 /// Histogram policy and bin presentation frozen by the composition owner at admission.
 #[derive(Clone)]
@@ -209,6 +210,7 @@ struct Admitted {
 /// Publication never acquires the admission serial or reenters the runtime.
 pub struct Runtime {
     assembly: Assembly,
+    selection: Option<Arc<dyn selection::WindowScanSelection>>,
     regions: RegionRegistry<()>,
     owner: Owner,
     serial: Mutex<()>,
@@ -221,6 +223,28 @@ impl Runtime {
         builder: &mut EngineBuilder,
         assembly: Assembly,
         random: &dyn Random,
+    ) -> Result<Arc<Self>, &'static str> {
+        Self::register_inner(builder, assembly, random, None)
+    }
+
+    /// Registers the opt-in runtime whose source is bound to an owning window's selection.
+    ///
+    /// Requests are rejected when the provider has no selected scan or when any
+    /// supplied source reference or result revision disagrees with that selection.
+    pub fn register_with_selection(
+        builder: &mut EngineBuilder,
+        assembly: Assembly,
+        random: &dyn Random,
+        selection: Arc<dyn selection::WindowScanSelection>,
+    ) -> Result<Arc<Self>, &'static str> {
+        Self::register_inner(builder, assembly, random, Some(selection))
+    }
+
+    fn register_inner(
+        builder: &mut EngineBuilder,
+        assembly: Assembly,
+        random: &dyn Random,
+        selection: Option<Arc<dyn selection::WindowScanSelection>>,
     ) -> Result<Arc<Self>, &'static str> {
         if assembly.policy.revision == 0
             || !assembly.policy.max_scale.is_finite()
@@ -248,6 +272,7 @@ impl Runtime {
             .map_err(|_| "visualization worker initialization failed")?;
         let runtime = Arc::new(Self {
             assembly,
+            selection,
             regions,
             owner,
             serial: Mutex::new(()),

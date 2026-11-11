@@ -22,7 +22,7 @@ use du_job_runtime::{JobClock, JobEvent, JobEvents, JobRuntime};
 use serde_json::{Value, json};
 use std::{
     collections::HashMap,
-    sync::{Mutex, mpsc},
+    sync::{Arc, Mutex, mpsc},
     time::{Duration, Instant},
 };
 struct Clock;
