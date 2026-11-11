@@ -3,7 +3,7 @@ use super::{Error as HistogramError, SelectedCandidate};
 use crate::viz_pages::{self, DeferredRows, LayoutMetadata, ModelPages, PreparedModelInput};
 use du_analysis_index::visualization::{
     geometry::{NoArea, Rect},
-    histogram::Bin,
+    histogram::{Basis, Bin},
     unit_bins::UnitBins,
 };
 use du_core_contracts::result::ResultVersionRead;
@@ -19,6 +19,8 @@ pub struct HistogramBinFrame {
 
 /// Bounded geometry and table evidence; member rows live in the pinned source.
 pub struct HistogramFrame {
+    /// Quantity represented by the axis and each bin geometry.
+    pub basis: Basis,
     pub unit_bins: UnitBins,
     pub axis_max: Option<u64>,
     pub bins: Vec<HistogramBinFrame>,
@@ -100,6 +102,7 @@ impl ModelPages {
             });
         }
         let frame = Arc::new(HistogramFrame {
+            basis: candidate.model.histogram.basis,
             unit_bins,
             axis_max: candidate.model.histogram.axis_max,
             bins,

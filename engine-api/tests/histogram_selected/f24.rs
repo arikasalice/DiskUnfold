@@ -41,6 +41,7 @@ impl JobBody for Body {
 fn candidate(
     version: &Arc<ResultVersion>,
     tag: &str,
+    basis: Basis,
 ) -> Result<histogram::SelectedCandidate, String> {
     let scope = ItemRef {
         result_version: id(2),
@@ -56,7 +57,7 @@ fn candidate(
             unit_table: &SI_UNITS,
             unit_table_revision: UNIT_TABLE_REVISION,
             bounds: bounds(),
-            basis: Basis::ItemCount,
+            basis,
             scale: Scale::Automatic,
             unknown_reason: "fixture.unknown",
         },
@@ -125,6 +126,10 @@ fn runtime() -> Result<Arc<JobRuntime>, String> {
 }
 #[test]
 fn job_gate_commits_or_withdraws_both_pages_and_frame() -> Result<(), String> {
+    check_gate(Basis::ItemCount)?;
+    check_gate(Basis::Bytes)
+}
+fn check_gate(basis: Basis) -> Result<(), String> {
     let sink = IngestSink::default();
     let version = publish(&sink, 2)?;
     let pages = Arc::new(ModelPages::new(
@@ -136,7 +141,7 @@ fn job_gate_commits_or_withdraws_both_pages_and_frame() -> Result<(), String> {
     for mode in ["done", "cancel", "replaced"] {
         let deferred = Arc::new(Mutex::new(
             pages
-                .defer_histogram_pages(candidate(&version, mode)?, &mut || false)
+                .defer_histogram_pages(candidate(&version, mode, basis)?, &mut || false)
                 .map_err(|e| format!("{e:?}"))?,
         ));
         let reference = deferred
@@ -181,13 +186,55 @@ fn job_gate_commits_or_withdraws_both_pages_and_frame() -> Result<(), String> {
         runtime.run_next().map_err(|e| format!("{e:?}"))?;
         let frame = pages.histogram_frame(&reference);
         let rows = pages.rows(&VizRowsRequest {
-            model_ref: reference,
+            model_ref: reference.clone(),
             result_revision: id(2),
             start: 0,
             count: 1,
         });
         assert_eq!(frame.is_ok(), mode == "done");
         assert_eq!(rows.is_ok(), mode == "done");
+        if mode == "done" && basis == Basis::Bytes {
+            let frame = frame.map_err(|e| format!("{e:?}"))?;
+            let rows = rows.map_err(|e| format!("{e:?}"))?;
+            assert_eq!(frame.basis, Basis::Bytes);
+            assert_eq!(frame.axis_max, Some(1000));
+            assert_eq!(
+                rows.rows[0].quantity.as_ref().ok_or("quantity")?.unit(),
+                "bytes"
+            );
+            assert_eq!(
+                rows.rows[0].quantity.as_ref(),
+                du_core_contracts::visualization::quantity::VizQuantity::exact("bytes", 5).as_ref()
+            );
+            assert!(rows.rows[0].ratio.is_some());
+            let members = pages
+                .group_rows(&reference, "g0", 0, 10)
+                .map_err(|e| format!("{e:?}"))?;
+            assert_eq!(members.rows.len(), 1);
+            assert_eq!(
+                members.group_total.amount,
+                SizeAmount::Exact {
+                    bytes: 5_u64.into()
+                }
+            );
+            assert_eq!(
+                members.rows[0].size.amount,
+                SizeAmount::Exact {
+                    bytes: 5_u64.into()
+                }
+            );
+            assert_eq!(
+                rows.rows[0]
+                    .denominator
+                    .size
+                    .as_ref()
+                    .ok_or("denominator")?
+                    .amount,
+                SizeAmount::Exact {
+                    bytes: 1005_u64.into()
+                }
+            );
+        }
     }
     Ok(())
 }

@@ -109,7 +109,6 @@ fn validate_request(
         || prepared.unit_bins().bins != request.bins
         || prepared.input().bounds != request.bounds
         || prepared.input().scale != request.scale
-        || source.histogram.basis != du_analysis_index::visualization::histogram::Basis::ItemCount
         || selected.descriptor != histogram_dispatch::histogram_descriptor()
     {
         return Err(Error::Source);

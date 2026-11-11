@@ -1,4 +1,4 @@
-//! Internal item-count histogram candidate and same-model group rows.
+//! Internal histogram candidate and same-model group rows.
 //!
 //! This module does not register a strategy or a GUI command. Labels, legend
 //! classes, group references, and missing-value reasons come from their owners.
@@ -14,6 +14,7 @@ use du_analysis_index::{
         histogram::{Basis, Bin},
         histogram_projection,
         live_models::{GroupRows, SizeRange},
+        ratio,
     },
 };
 use du_core_contracts::{
@@ -21,7 +22,7 @@ use du_core_contracts::{
     result::ResultVersionRead,
     visualization::{
         quantity::VizQuantity,
-        rows::{VizDenominator, VizDenominatorBasis, VizRow},
+        rows::{VizDenominator, VizDenominatorBasis, VizRatio, VizRow},
     },
 };
 pub use selected::{PinnedRendered, SelectedCandidate, prepare_selected};
@@ -110,19 +111,7 @@ fn assemble(
     model: histogram_projection::Model,
     cancelled: &mut dyn FnMut() -> bool,
 ) -> Result<Candidate, Error> {
-    let count = model.summary.counts.files;
-    let denominator = VizDenominator {
-        basis: VizDenominatorBasis::Scope,
-        value: if model.histogram.source_completeness
-            == du_core_contracts::result::ResultCompleteness::Complete
-        {
-            VizQuantity::exact("items", i128::from(count))
-        } else {
-            VizQuantity::lower_bound("items", count)
-        }
-        .ok_or(Error::InvalidQuantity)?,
-        size: None,
-    };
+    let denominator = denominator(&request, &model)?;
     let mut presentations = collect_presentations(
         request.item_presentation,
         request.version.version_id(),
@@ -165,13 +154,19 @@ fn assemble(
                     evidence: SizeEvidence::Unknown,
                     amount: SizeAmount::Unknown,
                 });
+            let item_ratio = if model.histogram.basis == Basis::Bytes {
+                let value = quantity("bytes", size_weight(&size)?, &request.unknown_reason)?;
+                byte_ratio(&value, &denominator)?
+            } else {
+                None
+            };
             let row = VizRow {
                 item_ref: Some(p.item.clone()),
                 group_ref: None,
                 display_name: name,
                 size,
                 quantity: None,
-                ratio: None,
+                ratio: item_ratio,
                 denominator: denominator.clone(),
                 legend_class_key: p.legend_class_key,
                 display_flags: p.display_flags,
@@ -197,19 +192,28 @@ fn assemble(
             SizeBasis::Allocated => aggregate.allocated,
             SizeBasis::UniquePhysical => aggregate.unique_physical,
         };
-        let quantity = match bin.item_count {
-            Weight::Exact(n) => VizQuantity::exact("items", i128::from(n)),
-            Weight::LowerBound(n) => VizQuantity::lower_bound("items", n),
-            Weight::Unknown => VizQuantity::unknown("items", request.unknown_reason.clone()),
+        // A bin's drawn byte amount must agree with F03's independently
+        // calculated set total; overlapping or unsupported attribution fails closed.
+        if model.histogram.basis == Basis::Bytes && size_weight(&size)? != bin.bytes {
+            return Err(Error::Source);
         }
-        .ok_or(Error::InvalidQuantity)?;
+        let (unit, weight) = match model.histogram.basis {
+            Basis::ItemCount => ("items", bin.item_count),
+            Basis::Bytes => ("bytes", bin.bytes),
+        };
+        let quantity = quantity(unit, weight, &request.unknown_reason)?;
+        let row_ratio = if model.histogram.basis == Basis::Bytes {
+            byte_ratio(&quantity, &denominator)?
+        } else {
+            None
+        };
         let row = VizRow {
             item_ref: None,
             group_ref: Some(p.group_ref.clone()),
             display_name: p.display_name,
             size: size.clone(),
             quantity: Some(quantity),
-            ratio: None,
+            ratio: row_ratio,
             denominator: denominator.clone(),
             legend_class_key: p.legend_class_key,
             display_flags: p.display_flags,
@@ -248,6 +252,78 @@ fn assemble(
         },
     })
 }
+fn quantity(unit: &str, weight: Weight, unknown_reason: &str) -> Result<VizQuantity, Error> {
+    match weight {
+        Weight::Exact(n) => VizQuantity::exact(unit, i128::from(n)),
+        Weight::LowerBound(n) => VizQuantity::lower_bound(unit, n),
+        Weight::Unknown => VizQuantity::unknown(unit, unknown_reason.to_owned()),
+    }
+    .ok_or(Error::InvalidQuantity)
+}
+
+fn byte_ratio(
+    value: &VizQuantity,
+    denominator: &VizDenominator,
+) -> Result<Option<VizRatio>, Error> {
+    ratio::calculate(value, &denominator.value)
+        .as_deref()
+        .map(VizRatio::parse)
+        .transpose()
+        .map_err(|_| Error::InvalidQuantity)
+}
+
+fn size_weight(size: &SizeValue) -> Result<Weight, Error> {
+    match &size.amount {
+        SizeAmount::Exact { bytes } => bytes
+            .as_str()
+            .parse()
+            .map(Weight::Exact)
+            .map_err(|_| Error::InvalidQuantity),
+        SizeAmount::LowerBound { bytes } => bytes
+            .as_str()
+            .parse()
+            .map(Weight::LowerBound)
+            .map_err(|_| Error::InvalidQuantity),
+        SizeAmount::Unknown => Ok(Weight::Unknown),
+    }
+}
+
+fn denominator(
+    request: &Request<'_>,
+    model: &histogram_projection::Model,
+) -> Result<VizDenominator, Error> {
+    let (value, size) = match model.histogram.basis {
+        Basis::ItemCount => {
+            let count = model.summary.counts.files;
+            let weight = if model.histogram.source_completeness
+                == du_core_contracts::result::ResultCompleteness::Complete
+            {
+                Weight::Exact(count)
+            } else {
+                Weight::LowerBound(count)
+            };
+            (quantity("items", weight, &request.unknown_reason)?, None)
+        }
+        Basis::Bytes => {
+            let source = match request.size_basis {
+                SizeBasis::Logical => &model.summary.aggregate.logical,
+                SizeBasis::Allocated => &model.summary.aggregate.allocated,
+                SizeBasis::UniquePhysical => &model.summary.aggregate.unique_physical,
+            };
+            let weight = size_weight(source)?;
+            (
+                quantity("bytes", weight, &request.unknown_reason)?,
+                Some(source.clone()),
+            )
+        }
+    };
+    Ok(VizDenominator {
+        basis: VizDenominatorBasis::Scope,
+        value,
+        size,
+    })
+}
+
 fn check(cancelled: &mut dyn FnMut() -> bool) -> Result<(), Error> {
     if cancelled() {
         Err(Error::Cancelled)

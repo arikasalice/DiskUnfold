@@ -92,7 +92,7 @@ fn group_total_uses_f03_deduplication_instead_of_summing_file_rows() -> Result<(
     }];
     let candidate = histogram::prepare(
         histogram::Request {
-            version,
+            version: version.clone(),
             scope: &scope,
             size_basis: SizeBasis::Allocated,
             bins: &bins,
@@ -145,6 +145,79 @@ fn group_total_uses_f03_deduplication_instead_of_summing_file_rows() -> Result<(
             .unit(),
         "items"
     );
+    reject_nonadditive_byte_geometry(version, &scope)?;
+    Ok(())
+}
+fn reject_nonadditive_byte_geometry(
+    version: Arc<ResultVersion>,
+    scope: &ItemRef,
+) -> Result<(), String> {
+    use du_analysis_index::visualization::{
+        bundle,
+        histogram::Basis,
+        histogram_dispatch, registry,
+        typed_layout::{Dispatcher, Strategy},
+    };
+    use du_core_contracts::size_units::{SI_UNITS, UNIT_TABLE_REVISION};
+    let mut builder = registry::Builder::<Box<dyn Strategy>>::default();
+    bundle::register_histogram_candidate(&mut builder).map_err(|e| format!("{e:?}"))?;
+    let dispatcher = Dispatcher::new(builder.build(&[]).map_err(|e| format!("{e:?}"))?);
+    let bounds = Rect {
+        left: 0,
+        top: 0,
+        right: 100,
+        bottom: 100,
+    };
+    let selected = histogram::PinnedRendered::compute(
+        version.clone(),
+        histogram_dispatch::Request {
+            version: &version,
+            scope,
+            size_basis: SizeBasis::Allocated,
+            unit_table: &SI_UNITS,
+            unit_table_revision: UNIT_TABLE_REVISION,
+            bounds,
+            basis: Basis::Bytes,
+            scale: Scale::Automatic,
+            unknown_reason: "fixture.unknown",
+        },
+        &dispatcher,
+        &mut || false,
+    )
+    .map_err(|e| format!("{e:?}"))?;
+    let bins = selected.rendered().prepared().unit_bins().bins.clone();
+    let request = histogram::Request {
+        version,
+        scope,
+        size_basis: SizeBasis::Allocated,
+        bins: &bins,
+        bounds,
+        scale: Scale::Automatic,
+        fingerprint: "hardlinks-bytes".into(),
+        unknown_reason: "fixture.unknown".into(),
+        bin_presentation: (0..bins.len())
+            .map(|i| BinPresentation {
+                group_ref: format!("g{i}"),
+                display_name: format!("bin {i}"),
+                legend_class_key: "c".into(),
+                display_flags: vec![],
+            })
+            .collect(),
+        item_presentation: (1..=2)
+            .map(|n| RowPresentation {
+                item: ItemRef {
+                    result_version: id(5),
+                    item_no: n,
+                },
+                legend_class_key: "c".into(),
+                display_flags: vec![],
+            })
+            .collect(),
+    };
+    assert!(matches!(
+        histogram::prepare_selected(request, selected, &mut || false),
+        Err(histogram::Error::Source)
+    ));
     Ok(())
 }
 fn id(n: u8) -> Id {

@@ -226,6 +226,7 @@ fn check_wrong_scale(
     Ok(())
 }
 
+mod bytes;
 mod f24;
 
 fn check_cancellation(
