@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef } from "react";
+import { useId, useLayoutEffect, useRef } from "react";
 import {
   Action,
   Heading,
@@ -424,6 +424,7 @@ function RecentScopeApplyActions({
 }) {
   const confirmButton = useRef<HTMLButtonElement>(null);
   const useButton = useRef<HTMLButtonElement>(null);
+  const descriptionId = useId();
   const pendingFocus = useRef(false);
   useLayoutEffect(() => {
     if (!pendingFocus.current) return;
@@ -443,18 +444,28 @@ function RecentScopeApplyActions({
         role="group"
         aria-label="Replace current scope"
       >
-        <Text>
-          Replace the current folder paths, exclusions, boundary, and selected
-          mounts with these saved conditions?
-        </Text>
+        <div
+          id={descriptionId}
+          className="du-recent-scopes__confirm-description"
+        >
+          <Text>
+            Replace the current folder paths, exclusions, boundary, and selected
+            mounts with these saved conditions?
+          </Text>
+        </div>
         <Action
           ref={confirmButton}
+          aria-describedby={descriptionId}
           variant="primary"
           onPress={() => onApply(value.draft, review)}
         >
           Replace current scope
         </Action>
-        <Action variant="quiet" onPress={() => toggleConfirm(false)}>
+        <Action
+          aria-describedby={descriptionId}
+          variant="quiet"
+          onPress={() => toggleConfirm(false)}
+        >
           Keep editing
         </Action>
       </div>

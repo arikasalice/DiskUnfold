@@ -145,9 +145,16 @@
   padding: 10px;
 }
 
-.du-recent-scopes__confirm > .du-text {
+.du-recent-scopes__confirm-description {
   flex-basis: 100%;
+}
+
+.du-recent-scopes__confirm-description > .du-text {
   margin: 0;
+}
+
+.du-recent-scopes__confirm > .du-action {
+  scroll-margin-block-start: 5em;
 }
 
 @container recent-scope (max-width: 520px) {

@@ -254,7 +254,14 @@ test("F01 FR8: keeps focus on valid controls through replace confirmation and pa
   fireEvent.click(screen.getByRole("button", { name: "Use this range" }));
   const replaceButton = screen.getByRole("button", {
     name: "Replace current scope",
+    description: /Replace the current folder paths, exclusions, boundary/,
   });
+  expect(
+    screen.getByRole("button", {
+      name: "Keep editing",
+      description: /Replace the current folder paths, exclusions, boundary/,
+    }),
+  ).toBeDefined();
   await waitFor(() => expect(document.activeElement).toBe(replaceButton));
   expect(document.activeElement).not.toBe(document.body);
   expect(scrollIntoView.mock.contexts.at(-1)).toBe(replaceButton);
