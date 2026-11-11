@@ -128,6 +128,17 @@ impl ModelPages {
         cancelled: &mut dyn FnMut() -> bool,
     ) -> Result<(String, Option<Arc<projection::Model>>), Error> {
         let reference = self.ids.next_id().as_str().to_owned();
+        self.register_prepared_with_reference(input, layout, cancelled, reference)
+    }
+
+    // The reference is reserved before any outer job-publication gate is held.
+    fn register_prepared_with_reference(
+        &self,
+        input: PreparedModelInput,
+        layout: Option<Arc<projection::Model>>,
+        cancelled: &mut dyn FnMut() -> bool,
+        reference: String,
+    ) -> Result<(String, Option<Arc<projection::Model>>), Error> {
         let PreparedModelInput {
             version,
             condition_fingerprint,

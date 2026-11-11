@@ -102,6 +102,13 @@ pub struct PreparedRender {
     fallback_reason: Option<projection::Error>,
 }
 
+/// A private candidate with a reference reserved before entering the F24 gate.
+/// The reference is neither registered nor returned to a wire consumer here.
+pub struct ReservedRender {
+    candidate: PreparedRender,
+    reference: String,
+}
+
 enum Preparation {
     Cached(Rendered),
     Candidate(PreparedRender),
@@ -270,6 +277,31 @@ impl ModelPages {
         cancelled: &mut dyn FnMut() -> bool,
     ) -> Result<CommittedRender, Error> {
         check(cancelled)?;
+        let reserved = self.reserve_prepared(candidate);
+        self.commit_reserved(reserved, cancelled)
+    }
+
+    /// Reserves an internal identifier without publishing the candidate.
+    /// This can call the injected identity port and must run outside F24 gates.
+    pub fn reserve_prepared(&self, candidate: PreparedRender) -> ReservedRender {
+        ReservedRender {
+            candidate,
+            reference: self.ids.next_id().as_str().to_owned(),
+        }
+    }
+
+    /// Commits with a previously reserved identifier and makes no identity-port call.
+    /// The caller must arbitrate this transaction with F24 cancellation.
+    pub fn commit_reserved(
+        &self,
+        reserved: ReservedRender,
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<CommittedRender, Error> {
+        check(cancelled)?;
+        let ReservedRender {
+            candidate,
+            reference,
+        } = reserved;
         let PreparedRender {
             owner,
             input,
@@ -285,7 +317,7 @@ impl ModelPages {
         use du_core_contracts::result::ResultVersionRead;
         let revision = input.version.version_id().clone();
         let (model_ref, model) = self
-            .register_prepared(input, layout, cancelled)
+            .register_prepared_with_reference(input, layout, cancelled, reference)
             .map_err(registration_error)?;
         if let Some(reason) = fallback_reason {
             let fallback = VizFallback {

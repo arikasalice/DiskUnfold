@@ -40,12 +40,15 @@ fn session_preparation_shares_membership_dispatcher_and_rows_with_sync_and_ipc()
         .map_err(|e| format!("{e:?}"))?;
     assert_eq!(seen.len(), 2);
     assert_eq!(ids.0.load(Ordering::SeqCst), 11);
+    let reserved = session.reserve_prepared(candidate);
+    assert_eq!(ids.0.load(Ordering::SeqCst), 12);
     let CommittedRender::Model(first) = session
-        .commit_prepared(candidate, &mut || false)
+        .commit_reserved(reserved, &mut || false)
         .map_err(|e| format!("{e:?}"))?
     else {
         return Err("expected geometry".into());
     };
+    assert_eq!(ids.0.load(Ordering::SeqCst), 12);
     let sync = session
         .render_selected(
             request(&parent, 1000),
@@ -108,17 +111,17 @@ fn session_candidate_rejects_other_owner_cancel_and_replacement() -> Result<(), 
             .map_err(|e| format!("{e:?}"))
     };
     assert!(matches!(
-        second.commit_prepared(prepare()?, &mut || false),
+        second.commit_reserved(first.reserve_prepared(prepare()?), &mut || false),
         Err(Error::Cache(viz_pages::Error::InvalidModel))
     ));
     assert!(matches!(
-        first.commit_prepared(prepare()?, &mut || true),
+        first.commit_reserved(first.reserve_prepared(prepare()?), &mut || true),
         Err(Error::Cancelled)
     ));
-    let old = prepare()?;
+    let old = first.reserve_prepared(prepare()?);
     publish(&sink, id(4), id(5))?;
     assert!(matches!(
-        first.commit_prepared(old, &mut || false),
+        first.commit_reserved(old, &mut || false),
         Err(Error::Registration(viz_pages::production::Error::Pages(
             viz_pages::Error::StaleVersion
         )))

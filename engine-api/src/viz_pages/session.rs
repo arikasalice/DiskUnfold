@@ -118,6 +118,22 @@ impl Session {
         )
     }
 
+    /// Reserves a private reference before entering the runtime publication gate.
+    pub fn reserve_prepared(&self, candidate: render::PreparedRender) -> render::ReservedRender {
+        self.pages.reserve_prepared(candidate)
+    }
+
+    /// Publishes a reserved candidate without calling the injected identity port.
+    /// The caller must serialize this commit against cancellation and must not
+    /// reenter the model or source stores from the cancellation check.
+    pub fn commit_reserved(
+        &self,
+        candidate: render::ReservedRender,
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<render::CommittedRender, render::Error> {
+        self.pages.commit_reserved(candidate, cancelled)
+    }
+
     /// Commits a candidate prepared by this session if its exact source is current.
     ///
     /// Both geometry and a table-only fallback are successful commits. The
