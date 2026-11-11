@@ -54,6 +54,25 @@ pub fn summarize(
     scope: &ItemRef,
     cancelled: &mut dyn FnMut() -> bool,
 ) -> Result<Summary, Error> {
+    summarize_inner(version, scope, cancelled, None)
+}
+
+pub(crate) fn summarize_with_files(
+    version: &ResultVersion,
+    scope: &ItemRef,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<(Summary, Vec<u32>), Error> {
+    let mut files = Vec::new();
+    let summary = summarize_inner(version, scope, cancelled, Some(&mut files))?;
+    Ok((summary, files))
+}
+
+fn summarize_inner(
+    version: &ResultVersion,
+    scope: &ItemRef,
+    cancelled: &mut dyn FnMut() -> bool,
+    mut files: Option<&mut Vec<u32>>,
+) -> Result<Summary, Error> {
     if cancelled() {
         return Err(Error::Cancelled);
     }
@@ -78,6 +97,11 @@ pub fn summarize(
         };
         if cancelled() {
             return Err(Error::Cancelled);
+        }
+        if item.kind == ResultItemKind::File
+            && let Some(files) = files.as_deref_mut()
+        {
+            files.push(item.item_no);
         }
         let count = match item.kind {
             ResultItemKind::File => &mut counts.files,

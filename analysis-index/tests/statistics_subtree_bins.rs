@@ -10,6 +10,66 @@ use du_core_contracts::{
 fn id(n: u32) -> Result<Id, String> {
     Id::parse(&format!("018f0000-0000-7000-8000-{n:012x}"))
 }
+
+#[test]
+fn large_input_cancels_during_summary_and_row_materialization() -> Result<(), String> {
+    let sink = IngestSink::default();
+    let mut build = sink.open(id(10)?).map_err(|e| format!("{e:?}"))?;
+    build.add_directory(vec![]).map_err(|e| format!("{e:?}"))?;
+    const FILES: usize = 5_000;
+    for i in 0..FILES {
+        build
+            .add_file(Observation {
+                path: vec![format!("file-{i:05}").into_bytes()],
+                size: Some(value(i as u64, false)),
+            })
+            .map_err(|e| format!("{e:?}"))?;
+    }
+    let version = build
+        .seal(id(11)?, ResultCompleteness::Complete)
+        .map_err(|e| format!("{e:?}"))?;
+    let scope = ItemRef {
+        result_version: version.version_id().clone(),
+        item_no: 0,
+    };
+    let mut checks = 0;
+    let early = subtree_bins(
+        &version,
+        &scope,
+        &SizeBasis::Logical,
+        &[0, 5000],
+        64,
+        &mut || {
+            checks += 1;
+            checks == 50
+        },
+    );
+    assert!(matches!(
+        early,
+        Err(SubtreeError::Summary(
+            du_analysis_index::statistics_summary::Error::Cancelled
+        ))
+    ));
+    assert_eq!(checks, 50);
+    checks = 0;
+    let during_rows = subtree_bins(
+        &version,
+        &scope,
+        &SizeBasis::Logical,
+        &[0, 5000],
+        FILES,
+        &mut || {
+            checks += 1;
+            checks == FILES + 10
+        },
+    );
+    assert!(matches!(
+        during_rows,
+        Err(SubtreeError::Strategy(Error::Cancelled))
+    ));
+    assert_eq!(checks, FILES + 10);
+    Ok(())
+}
 fn value(n: u64, lower: bool) -> SizeValue {
     SizeValue {
         basis: SizeBasis::Logical,

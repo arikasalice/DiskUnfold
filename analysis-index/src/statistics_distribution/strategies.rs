@@ -4,8 +4,8 @@
 //! caller owns source pinning, selected rows, model registration and publication.
 use crate::statistics_distribution::{self as distribution, Amounts, Bins, Row};
 use crate::{ResultVersion, statistics_summary};
+use du_core_contracts::ItemRef;
 use du_core_contracts::SizeBasis;
-use du_core_contracts::{ItemRef, result::ResultItemKind};
 use std::collections::BTreeMap;
 
 /// Distribution and original F03 evidence for one pinned subtree.
@@ -29,6 +29,9 @@ pub enum SubtreeError {
 /// The caller supplies boundaries and chunk size. The same pinned source also
 /// supplies the untouched F03 aggregate and completeness evidence. Missing
 /// per-file sizes remain unknown, including unavailable unique physical sizes.
+/// Traversal is stable for the pinned tree but is not a platform path comparison
+/// order. File identifiers are retained once; only one chunk of rows is built
+/// at a time, with cancellation checked during collection and materialization.
 pub fn subtree_bins(
     version: &ResultVersion,
     scope: &ItemRef,
@@ -37,43 +40,51 @@ pub fn subtree_bins(
     chunk_size: usize,
     cancelled: &mut dyn FnMut() -> bool,
 ) -> Result<SubtreeBins, SubtreeError> {
-    let summary =
-        statistics_summary::summarize(version, scope, cancelled).map_err(SubtreeError::Summary)?;
-    let mut pending = vec![scope.item_no];
-    let mut files = Vec::new();
-    while let Some(parent) = pending.pop() {
-        for item in version.children(parent) {
+    if chunk_size == 0 {
+        return Err(SubtreeError::Strategy(Error::InvalidChunkSize));
+    }
+    let (summary, files) = statistics_summary::summarize_with_files(version, scope, cancelled)
+        .map_err(SubtreeError::Summary)?;
+    let registry = bins_registry().map_err(SubtreeError::Strategy)?;
+    let key = Key {
+        id: "stat.bins".into(),
+        revision: 1,
+    };
+    let strategy = registry
+        .0
+        .get(&key)
+        .ok_or(SubtreeError::Strategy(Error::UnknownStrategy))?;
+    let mut partial = strategy
+        .calculate(&[], basis, boundaries, cancelled)
+        .map_err(SubtreeError::Strategy)?;
+    for chunk in files.chunks(chunk_size) {
+        let mut rows = Vec::new();
+        for item in chunk {
             if cancelled() {
                 return Err(SubtreeError::Strategy(Error::Cancelled));
             }
-            if item.kind == ResultItemKind::File {
-                files.push(item.item_no);
-            }
-            pending.push(item.item_no);
+            rows.push(Row {
+                size: version.item_size(*item, basis.clone()),
+                category: distribution::Category::Missing,
+            });
         }
+        let next = strategy
+            .calculate(&rows, basis, boundaries, cancelled)
+            .map_err(SubtreeError::Strategy)?;
+        if cancelled() {
+            return Err(SubtreeError::Strategy(Error::Cancelled));
+        }
+        partial = strategy
+            .combine(partial, next)
+            .map_err(SubtreeError::Strategy)?;
     }
-    files.sort_unstable();
-    let rows: Vec<_> = files
-        .iter()
-        .map(|item| Row {
-            size: version.item_size(*item, basis.clone()),
-            category: distribution::Category::Missing,
-        })
-        .collect();
-    let computed = bins_registry()
-        .map_err(SubtreeError::Strategy)?
-        .compute(
-            "stat.bins",
-            Some(1),
-            Request {
-                rows: &rows,
-                basis,
-                boundaries,
-                chunk_size,
-            },
-            cancelled,
-        )
-        .map_err(SubtreeError::Strategy)?;
+    if cancelled() {
+        return Err(SubtreeError::Strategy(Error::Cancelled));
+    }
+    let computed = Computed {
+        strategy: key,
+        bins: partial.bins,
+    };
     Ok(SubtreeBins { summary, computed })
 }
 
