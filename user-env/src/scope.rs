@@ -31,14 +31,21 @@ pub fn descriptors() -> Vec<Descriptor> {
 /// function does not itself persist a scope or authorize a filesystem action.
 #[must_use]
 pub fn remember_recent(snapshot: &SettingsSnapshot) -> bool {
-    if snapshot.schema_version != du_core_contracts::settings::SETTINGS_SCHEMA_VERSION {
-        return true;
-    }
-    snapshot
-        .values
-        .get(REMEMBER_RECENT)
-        .and_then(|v| v.as_bool())
-        .unwrap_or(true)
+    let value = if snapshot.schema_version == du_core_contracts::settings::SETTINGS_SCHEMA_VERSION {
+        snapshot
+            .values
+            .get(REMEMBER_RECENT)
+            .and_then(|v| v.as_bool())
+    } else {
+        None
+    };
+    remember_recent_value(value)
+}
+
+/// Resolves the policy for a value read inside the recent-scope write transaction.
+#[must_use]
+pub fn remember_recent_value(value: Option<bool>) -> bool {
+    value.unwrap_or(true)
 }
 
 #[cfg(test)]

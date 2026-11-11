@@ -6,7 +6,8 @@
 
 use std::num::NonZeroUsize;
 
-use rusqlite::{ErrorCode, OptionalExtension, TransactionBehavior, params};
+use du_core_contracts::settings::SETTINGS_SCHEMA_VERSION;
+use rusqlite::{ErrorCode, OptionalExtension, Transaction, TransactionBehavior, params};
 
 use crate::AppDb;
 
@@ -89,6 +90,47 @@ impl<'a> RecentScopeStore<'a> {
     /// Atomically inserts or refreshes one fingerprint and evicts oldest rows.
     /// A delayed write with an older use time cannot replace a newer use.
     pub fn put(&mut self, item: &RecentWrite<'_>) -> Result<(), RecentError> {
+        self.put_if(item, |_| Ok(true)).map(|_| ())
+    }
+
+    /// Evaluates a caller-owned setting policy in the same transaction as the write.
+    /// Missing, invalid or unreadable settings are supplied as `None`. Failures to
+    /// begin, write or commit the transaction are returned. The callback must not
+    /// access this database or do I/O.
+    pub fn put_with_setting(
+        &mut self,
+        item: &RecentWrite<'_>,
+        key: &str,
+        allowed: impl FnOnce(Option<bool>) -> bool,
+    ) -> Result<bool, RecentError> {
+        self.put_if(item, |tx| {
+            let stored: Option<(i64, Option<String>)> = tx
+                .query_row(
+                    "SELECT v.schema_version, s.value_json
+                 FROM user_env_setting_version v
+                 LEFT JOIN user_env_setting s ON s.setting_key = ?1
+                 WHERE v.version_key = 'settings'",
+                    [key],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .optional()
+                .ok()
+                .flatten();
+            let value = stored.and_then(|(schema, value)| {
+                if schema != i64::from(SETTINGS_SCHEMA_VERSION) {
+                    return None;
+                }
+                serde_json::from_str::<bool>(value.as_deref()?).ok()
+            });
+            Ok(allowed(value))
+        })
+    }
+
+    fn put_if(
+        &mut self,
+        item: &RecentWrite<'_>,
+        allowed: impl FnOnce(&Transaction<'_>) -> Result<bool, RecentError>,
+    ) -> Result<bool, RecentError> {
         if !valid_id(&item.id) || item.include_count == 0 || !(self.validate_body)(item.body) {
             return Err(RecentError::Invalid);
         }
@@ -97,6 +139,9 @@ impl<'a> RecentScopeStore<'a> {
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(map)?;
+        if !allowed(&tx)? {
+            return Ok(false);
+        }
         tx.execute(
             "INSERT INTO user_env_recent_scope(
                  recent_scope_id,scope_fingerprint,fingerprint_format,scope_body,include_count,
@@ -117,7 +162,8 @@ impl<'a> RecentScopeStore<'a> {
         )
         .map_err(map)?;
         tx.execute("DELETE FROM user_env_recent_scope WHERE recent_scope_id IN (SELECT recent_scope_id FROM user_env_recent_scope ORDER BY last_used_at_ms DESC,recent_scope_id ASC LIMIT -1 OFFSET ?1)", [self.cap]).map_err(map)?;
-        tx.commit().map_err(map)
+        tx.commit().map_err(map)?;
+        Ok(true)
     }
 
     /// Reads summaries only; corrupt rows and excess rows fail the whole read.

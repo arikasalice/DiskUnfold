@@ -64,6 +64,90 @@ fn valid(body: &str) -> bool {
 }
 
 #[test]
+fn settings_changes_cannot_interleave_with_the_recent_scope_transaction() -> TestResult {
+    use du_core_contracts::settings::{
+        SettingsChanges, SettingsCommit, SettingsSource, SettingsStore, SettingsStoreError,
+    };
+    use serde_json::json;
+
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("app.db");
+    let mut db = AppDb::create_gui_with_history(&path).map_err(|e| format!("{e:?}"))?;
+    let mut settings = AppDb::open_gui_with_history(&path).map_err(|e| format!("{e:?}"))?;
+    settings
+        .connection
+        .busy_timeout(std::time::Duration::ZERO)?;
+    let key = "scope.remember_recent";
+    let context = SettingsCommit {
+        source: SettingsSource::Screen,
+        timestamp_ms: 30,
+    };
+    let off = SettingsChanges::from([(key.into(), Some(json!(false)))]);
+    let cap = NonZeroUsize::new(2).ok_or("zero")?;
+    {
+        let mut store =
+            RecentScopeStore::new(&mut db, cap, &valid).map_err(|e| format!("{e:?}"))?;
+        assert!(
+            store
+                .put_with_setting(&write(1, 1, 10), key, |value| {
+                    assert_eq!(value, None);
+                    true
+                })
+                .map_err(|e| format!("{e:?}"))?
+        );
+        assert!(
+            store
+                .put_with_setting(&write(2, 2, 20), key, |value| {
+                    assert_eq!(value, None);
+                    assert_eq!(
+                        settings.commit(0, &off, context),
+                        Err(SettingsStoreError::Busy)
+                    );
+                    true
+                })
+                .map_err(|e| format!("{e:?}"))?
+        );
+    }
+    assert_eq!(settings.commit(0, &off, context), Ok(1));
+    let mut limited =
+        RecentScopeStore::new(&mut db, NonZeroUsize::MIN, &valid).map_err(|e| format!("{e:?}"))?;
+    assert!(
+        !limited
+            .put_with_setting(&write(3, 3, 30), key, |value| {
+                assert_eq!(value, Some(false));
+                value.unwrap_or(true)
+            })
+            .map_err(|e| format!("{e:?}"))?
+    );
+    let store = RecentScopeStore::new(&mut db, cap, &valid).map_err(|e| format!("{e:?}"))?;
+    let rows = store.list().map_err(|e| format!("{e:?}"))?;
+    assert_eq!(
+        rows.iter().map(|row| row.id).collect::<Vec<_>>(),
+        [id(2), id(1)]
+    );
+    Ok(())
+}
+
+#[test]
+fn unreadable_setting_defers_to_the_supplied_default() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let mut db =
+        AppDb::create_gui_with_history(&dir.path().join("app.db")).map_err(|e| format!("{e:?}"))?;
+    db.connection.execute("DROP TABLE user_env_setting", [])?;
+    let mut store =
+        RecentScopeStore::new(&mut db, NonZeroUsize::MIN, &valid).map_err(|e| format!("{e:?}"))?;
+    let written = store
+        .put_with_setting(&write(1, 1, 10), "scope.remember_recent", |value| {
+            assert_eq!(value, None);
+            value.unwrap_or(true)
+        })
+        .map_err(|e| format!("{e:?}"))?;
+    assert!(written);
+    assert_eq!(store.list().map_err(|e| format!("{e:?}"))?.len(), 1);
+    Ok(())
+}
+
+#[test]
 fn summaries_deduplicate_evict_and_reopen() -> TestResult {
     let dir = tempfile::tempdir()?;
     let path = dir.path().join("app.db");

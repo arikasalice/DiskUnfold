@@ -28,17 +28,22 @@ fn store_and_reopen_recent(
     };
     {
         let mut db = AppDb::create_gui_with_history(path).map_err(|e| format!("{e:?}"))?;
-        RecentScopeStore::new(&mut db, NonZeroUsize::MIN, &validate)
+        let written = RecentScopeStore::new(&mut db, NonZeroUsize::MIN, &validate)
             .and_then(|mut store| {
-                store.put(&RecentWrite {
-                    id,
-                    fingerprint: encoded.fingerprint,
-                    body: &encoded.body,
-                    include_count: encoded.include_count,
-                    now_ms: 400,
-                })
+                store.put_with_setting(
+                    &RecentWrite {
+                        id,
+                        fingerprint: encoded.fingerprint,
+                        body: &encoded.body,
+                        include_count: encoded.include_count,
+                        now_ms: 400,
+                    },
+                    du_user_env::scope::REMEMBER_RECENT,
+                    du_user_env::scope::remember_recent_value,
+                )
             })
             .map_err(|e| format!("{e:?}"))?;
+        assert!(written);
     }
     let mut db = AppDb::open_gui_with_history(path).map_err(|e| format!("{e:?}"))?;
     let row = RecentScopeStore::new(&mut db, NonZeroUsize::MIN, &validate)
