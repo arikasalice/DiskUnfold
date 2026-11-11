@@ -284,23 +284,21 @@ fn envelope(event: JobEvent, occurred_at: Timestamp) -> Option<EventEnvelope> {
             history_recorded,
             warning,
         } => {
-            let (result_version, query_ref) =
-                jobs::query_completion(&summary.kind_id, summary.state, summary.result_version_id);
-            let mut body = json!({
-                "state": summary.state, "sequence": sequence,
-                "completed": summary.counts.completed, "overwritten": summary.counts.overwritten,
-                "failed": summary.counts.failed, "skipped": summary.counts.skipped,
-                "unprocessed": summary.counts.unprocessed, "reasonKey": summary.failure_reason_key,
-                "unprocessedSummary": summary.unprocessed_summary,
-                "historyRecorded": history_recorded, "warning": warning,
-            });
-            if let Some(query_ref) = query_ref {
-                body["queryRef"] = json!(query_ref);
+            let job_ref = summary.job_id.clone();
+            let correlation_id = summary.correlation_id.clone();
+            let terminal = jobs::terminal_outcome(*summary, sequence, history_recorded, warning);
+            let result_version = terminal.result_version.clone();
+            let mut body = serde_json::to_value(terminal).ok()?;
+            let fields = body.as_object_mut()?;
+            fields.remove("resultVersion");
+            // Retain the existing event's explicit nulls for these fields.
+            for key in ["reasonKey", "unprocessedSummary", "warning"] {
+                fields.entry(key).or_insert(serde_json::Value::Null);
             }
             (
                 "job.finished",
-                Some(summary.job_id),
-                Some(summary.correlation_id),
+                Some(job_ref),
+                Some(correlation_id),
                 result_version,
                 body,
             )

@@ -3,8 +3,10 @@ use du_analysis_index::IngestSink;
 use std::sync::Arc;
 
 use du_core_contracts::analysis_ipc::{
-    AnalysisJobControl, AnalysisJobRequest, AnalysisJobStatus, JobControlOutcome,
+    AnalysisJobControl, AnalysisJobRequest, AnalysisJobStatus, AnalysisJobTerminal,
+    JobControlOutcome,
 };
+use du_core_contracts::job::JobSummary;
 use du_job_runtime::{CancelResult, JobRuntime, RuntimeError};
 
 use crate::{
@@ -163,5 +165,31 @@ pub(crate) fn query_completion(
         )
     } else {
         (value, None)
+    }
+}
+
+/// Projects the same locked terminal facts for event delivery and status recovery.
+pub(crate) fn terminal_outcome(
+    summary: JobSummary,
+    sequence: u64,
+    history_recorded: bool,
+    warning: Option<String>,
+) -> AnalysisJobTerminal {
+    let (result_version, query_ref) =
+        query_completion(&summary.kind_id, summary.state, summary.result_version_id);
+    AnalysisJobTerminal {
+        state: summary.state,
+        sequence,
+        completed: summary.counts.completed,
+        overwritten: summary.counts.overwritten,
+        failed: summary.counts.failed,
+        skipped: summary.counts.skipped,
+        unprocessed: summary.counts.unprocessed,
+        history_recorded,
+        reason_key: summary.failure_reason_key,
+        unprocessed_summary: summary.unprocessed_summary,
+        result_version,
+        query_ref,
+        warning,
     }
 }

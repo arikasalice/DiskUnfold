@@ -223,6 +223,43 @@ pub struct AnalysisJobStatus {
     pub scan_result: Option<ScanResult>,
 }
 
+/// The terminal outcome recoverable after a job event is missed.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct AnalysisJobTerminal {
+    pub state: crate::job::JobState,
+    #[cfg_attr(feature = "typescript", ts(type = "number"))]
+    pub sequence: u64,
+    #[cfg_attr(feature = "typescript", ts(type = "number"))]
+    pub completed: u64,
+    #[cfg_attr(feature = "typescript", ts(type = "number"))]
+    pub overwritten: u64,
+    #[cfg_attr(feature = "typescript", ts(type = "number"))]
+    pub failed: u64,
+    #[cfg_attr(feature = "typescript", ts(type = "number"))]
+    pub skipped: u64,
+    #[cfg_attr(feature = "typescript", ts(type = "number"))]
+    pub unprocessed: u64,
+    /// Whether the terminal summary is present in the history store.
+    pub history_recorded: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub reason_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub unprocessed_summary: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub result_version: Option<Id>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub query_ref: Option<Id>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub warning: Option<String>,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]

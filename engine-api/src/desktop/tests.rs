@@ -296,6 +296,12 @@ fn terminal_query_and_scan_results_are_distinct_on_wire() -> Result<(), Box<dyn 
             assert_eq!(wire["resultVersion"], result.as_str());
         }
         assert_eq!(wire["body"]["sequence"], 4);
+        assert_eq!(wire["body"]["historyRecorded"], false);
+        assert_eq!(wire["body"]["completed"], 0);
+        assert!(wire["body"].get("resultVersion").is_none());
+        for key in ["reasonKey", "unprocessedSummary", "warning"] {
+            assert_eq!(wire["body"].get(key), Some(&serde_json::Value::Null));
+        }
     }
     Ok(())
 }

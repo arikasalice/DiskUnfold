@@ -246,6 +246,11 @@ export type ScanFailures = { resultVersion: Id, rows: Array<ScanFailureRow>, tot
 export type JobState = "queued" | "running" | "pause_requested" | "paused" | "cancel_requested" | "done" | "partial" | "failed" | "cancelled";
 export type AnalysisJobRequest = { jobRef: Id, };
 export type ScanResult = { lineageId: Id, sequence: number, resultVersion?: Id, };
+export type AnalysisJobTerminal = { state: JobState, sequence: number, completed: number, overwritten: number, failed: number, skipped: number, unprocessed: number,
+/**
+ * Whether the terminal summary is present in the history store.
+ */
+historyRecorded: boolean, reasonKey?: string, unprocessedSummary?: string, resultVersion?: Id, queryRef?: Id, warning?: string, };
 export type AnalysisJobStatus = { jobRef: Id, kind: string, state: JobState, sequence: number, resultVersion: Id | null,
 /**
  * Published query result for a successfully completed query evaluation.
