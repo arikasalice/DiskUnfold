@@ -54,6 +54,14 @@ test("F14 FR6 opens a value-free startup report and shows the edit lock", async 
   expect(
     within(dialog).getByText("Settings editing is locked for this startup."),
   ).toBeDefined();
+  expect(within(dialog).getByText("Settings restored")).toBeDefined();
+  expect(within(dialog).getByText("Defaults in use")).toBeDefined();
+  expect(within(dialog).getByText("Issues reported")).toBeDefined();
+  expect(within(dialog).queryByLabelText("Settings format")).toBeNull();
+  fireEvent.click(
+    within(dialog).getByRole("button", { name: "Format details" }),
+  );
+  expect(within(dialog).getByLabelText("Settings format")).toBeDefined();
   expect(transport).toHaveBeenCalledExactlyOnceWith("du_call", {
     envelope: expect.objectContaining({
       name: "settings.restore_status",
@@ -76,19 +84,62 @@ test("F14 FR6 opens a value-free startup report and shows the edit lock", async 
   expect(transport).toHaveBeenCalledTimes(1);
 });
 
-test("F14 FR6 omits the restoration notice if the startup read fails", async () => {
+test("F14 FR6 keeps failure visible and retries the same read", async () => {
   const transport =
     vi.fn<NonNullable<Parameters<typeof createAnalysisClient>[0]>>();
   transport.mockRejectedValueOnce(new Error("private diagnostic"));
-  await act(async () => {
-    render(
-      <SettingsRestoration client={createAnalysisClient(transport)} visible />,
-    );
-  });
-  expect(
-    screen.queryByRole("button", { name: "Settings restoration" }),
-  ).toBeNull();
-  expect(screen.queryByRole("alert")).toBeNull();
+  transport.mockImplementationOnce(async (_, { envelope }) => ({
+    ...envelope,
+    body: {
+      items: [],
+      storedSchema: null,
+      appSchema: 1,
+      migrated: false,
+      writeLocked: false,
+    },
+  }));
+  render(
+    <SettingsRestoration client={createAnalysisClient(transport)} visible />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Settings restoration" }));
+  await screen.findByText("Settings restoration status could not be loaded.");
   expect(screen.queryByText("private diagnostic")).toBeNull();
-  expect(transport).toHaveBeenCalledTimes(1);
+  fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+  await screen.findByText("No individual settings were reported.");
+  expect(screen.queryByText("Settings restored")).toBeNull();
+  expect(transport).toHaveBeenCalledTimes(2);
+});
+
+test("F14 FR6 ignores an old client response after the client changes", async () => {
+  let release: (value: unknown) => void = () => {};
+  const oldTransport = vi.fn<
+    NonNullable<Parameters<typeof createAnalysisClient>[0]>
+  >(async (_, { envelope }) => ({
+    ...envelope,
+    body: await new Promise((resolve) => {
+      release = resolve;
+    }),
+  }));
+  const fresh: SettingsRestoreStatus = {
+    items: [],
+    storedSchema: null,
+    appSchema: 3,
+    migrated: false,
+    writeLocked: false,
+  };
+  const newTransport = vi.fn<
+    NonNullable<Parameters<typeof createAnalysisClient>[0]>
+  >(async (_, { envelope }) => ({ ...envelope, body: fresh }));
+  const { rerender } = render(
+    <SettingsRestoration client={createAnalysisClient(oldTransport)} visible />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Settings restoration" }));
+  rerender(
+    <SettingsRestoration client={createAnalysisClient(newTransport)} visible />,
+  );
+  await screen.findByText("No individual settings were reported.");
+  await act(async () => release({ ...fresh, writeLocked: true }));
+  expect(
+    screen.queryByText("Settings editing is locked for this startup."),
+  ).toBeNull();
 });
