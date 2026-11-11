@@ -9,6 +9,9 @@ pub mod scan_observation;
 pub mod volume;
 #[cfg(feature = "webview")]
 pub mod webview;
+#[cfg(target_os = "windows")]
+#[allow(unsafe_code)]
+pub mod windows_clipboard;
 #[cfg(all(windows, feature = "windows-console"))]
 #[allow(unsafe_code)]
 pub mod windows_console;
