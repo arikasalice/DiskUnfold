@@ -2318,6 +2318,59 @@ test("F02: a failed switch retains the interim totals and can be retried after f
   expect(screen.queryByText("Could not read newer totals.")).toBeNull();
 });
 
+test("F02 IF-23: a contradictory result at the same lineage sequence cannot replace a publication", async () => {
+  let version = "part";
+  let publication = 1;
+  const { client, calls, listeners } = fixture({
+    lineageId: "lineage",
+    readStatus: (base) => ({
+      ...base,
+      state: "running",
+      resultVersion: null,
+      scanResult: {
+        lineageId: "lineage",
+        sequence: publication,
+        resultVersion: version,
+      },
+    }),
+    readTotals: (result) => ({ ...result, completeness: "partial" }),
+  });
+  await startFixtureScan(client);
+  await screen.findByText("Result version: Interim");
+
+  const statusReads = calls.filter(({ name }) => name === "job.get").length;
+  version = "contradictory";
+  notifyResult(listeners, "results.version_changed", {
+    lineageId: "lineage",
+    sequence: 2,
+  });
+  await waitFor(() =>
+    expect(
+      calls.filter(({ name }) => name === "job.get").length,
+    ).toBeGreaterThan(statusReads),
+  );
+  expect(
+    screen.queryByRole("button", { name: "Show latest result" }),
+  ).toBeNull();
+  expect(screen.getByText("Result version: Interim")).toBeDefined();
+
+  version = "newer";
+  publication = 2;
+  notifyResult(listeners, "results.version_changed", {
+    lineageId: "lineage",
+    sequence: 2,
+  });
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Show latest result" }),
+  );
+  await screen.findByText("Now showing the latest result.");
+  expect(
+    calls
+      .filter(({ name }) => name === "space.total")
+      .map(({ body }) => (body as { resultVersion: string }).resultVersion),
+  ).toEqual(["part", "newer"]);
+});
+
 test("F02: an expired newer result stops showing progress after resynchronizing", async () => {
   let published = false;
   let expired = true;

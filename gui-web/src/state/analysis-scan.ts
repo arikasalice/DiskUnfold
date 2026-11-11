@@ -144,6 +144,7 @@ export function useScanResult(
       | undefined;
     let jobSequence = -1;
     let resultSequence = -1;
+    let resultAtSequence: string | null | undefined;
     let displayed: string | undefined;
     let rejected: string | undefined;
     let staleFailure: AnalysisError | undefined;
@@ -321,9 +322,16 @@ export function useScanResult(
     async function reconcileResult(next: AnalysisJobStatus) {
       const result = next.scanResult;
       if (result) {
-        if (result.sequence < resultSequence) return;
+        // A lineage sequence names one immutable publication, including a withdrawal.
+        if (
+          result.sequence < resultSequence ||
+          (result.sequence === resultSequence &&
+            result.resultVersion !== resultAtSequence)
+        )
+          return;
         lineage = result.lineageId;
         resultSequence = result.sequence;
+        resultAtSequence = result.resultVersion;
       }
       const version = result
         ? result.resultVersion
