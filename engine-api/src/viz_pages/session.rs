@@ -3,6 +3,7 @@
 //! This internal composition does not implement the public `viz.render` wire
 //! contract. The caller supplies trusted evidence from the pinned result.
 pub(crate) mod expansion;
+mod ranked_group;
 pub(crate) use expansion::Policy as ExpansionPolicy;
 
 use std::{

@@ -8,6 +8,7 @@ mod histogram_fingerprint;
 use deferred::DeferredRows;
 mod locate;
 pub mod production;
+pub mod ranked_group;
 pub mod render;
 pub mod session;
 use du_analysis_index::{
