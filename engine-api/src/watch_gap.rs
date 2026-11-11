@@ -11,6 +11,7 @@
 //! types, not a serialized wire contract.
 
 mod gaps;
+pub mod recovery;
 mod replay;
 
 use du_scan_engine::watch_coalescer::{Batch, Gap};
