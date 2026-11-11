@@ -174,6 +174,23 @@ pub(crate) struct TerminalOutcome {
     pub(crate) warning: Option<String>,
 }
 impl Entry {
+    pub(crate) fn snapshot(&self) -> JobSnapshot {
+        JobSnapshot {
+            kind_id: self.descriptor.kind_id.clone(),
+            result_binding: self.result_binding.clone(),
+            state: self.state,
+            terminal: self.terminal_snapshot(),
+            sequence: self.sequence,
+            result_version_id: self
+                .summary
+                .as_ref()
+                .and_then(|s| s.result_version_id.clone()),
+            failure_reason_key: self
+                .summary
+                .as_ref()
+                .and_then(|s| s.failure_reason_key.clone()),
+        }
+    }
     pub(crate) fn terminal_snapshot(&self) -> Option<TerminalSnapshot> {
         self.terminal
             .as_ref()

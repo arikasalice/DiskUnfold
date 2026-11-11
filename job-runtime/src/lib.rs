@@ -3,6 +3,7 @@ mod control;
 mod delivery;
 mod flows;
 mod history_recovery;
+mod listing;
 mod model;
 mod publication;
 mod result_publisher;
@@ -19,6 +20,7 @@ use du_core_contracts::{
     },
 };
 pub use history_recovery::recover_history;
+pub use listing::{JobListEntry, JobWaitReason};
 pub use model::FlowLimits;
 use model::*;
 pub use model::{
@@ -227,21 +229,7 @@ impl JobRuntime {
 
     /// Reads the state and terminal fields under the same table lock.
     pub fn snapshot(&self, id: &Id) -> Result<JobSnapshot, RuntimeError> {
-        self.read_entry(id, |job| JobSnapshot {
-            kind_id: job.descriptor.kind_id.clone(),
-            result_binding: job.result_binding.clone(),
-            state: job.state,
-            terminal: job.terminal_snapshot(),
-            sequence: job.sequence,
-            result_version_id: job
-                .summary
-                .as_ref()
-                .and_then(|summary| summary.result_version_id.clone()),
-            failure_reason_key: job
-                .summary
-                .as_ref()
-                .and_then(|summary| summary.failure_reason_key.clone()),
-        })
+        self.read_entry(id, Entry::snapshot)
     }
 
     fn read_entry<T>(&self, id: &Id, read: impl FnOnce(&Entry) -> T) -> Result<T, RuntimeError> {

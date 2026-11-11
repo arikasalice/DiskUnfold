@@ -83,6 +83,9 @@ fn blocked_history_keeps_terminal_readable_until_confirmed()
     entered.wait();
     clock.0.store(599_999, Ordering::SeqCst);
     let pending = runtime.snapshot(&id)?;
+    let list = runtime.list(Some(&[JobState::Cancelled]))?;
+    assert_eq!(list.len(), 1);
+    assert_eq!(list[0].snapshot, pending);
     assert_eq!(pending.state, JobState::Cancelled);
     assert_eq!(pending.terminal, None);
     assert_eq!(
@@ -92,6 +95,7 @@ fn blocked_history_keeps_terminal_readable_until_confirmed()
     release.wait();
     runtime.flush()?;
     let confirmed = runtime.snapshot(&id)?;
+    assert_eq!(runtime.list(None)?[0].snapshot, confirmed);
     let terminal = confirmed.terminal.as_ref().ok_or("terminal missing")?;
     assert_eq!(terminal.sequence, pending.sequence);
     assert!(terminal.history_recorded);
@@ -108,6 +112,7 @@ fn blocked_history_keeps_terminal_readable_until_confirmed()
     assert_eq!(runtime.snapshot(&id)?, confirmed);
     clock.0.store(600_000, Ordering::SeqCst);
     assert_eq!(runtime.snapshot(&id), Err(RuntimeError::NotFound));
+    assert!(runtime.list(None)?.is_empty());
     Ok(())
 }
 
@@ -133,9 +138,11 @@ fn overdue_pending_is_retained_only_until_history_finishes()
     entered.wait();
     clock.0.store(600_000, Ordering::SeqCst);
     assert_eq!(runtime.snapshot(&id)?.terminal, None);
+    assert_eq!(runtime.list(None)?.len(), 1);
     release.wait();
     runtime.flush()?;
     assert_eq!(runtime.snapshot(&id), Err(RuntimeError::NotFound));
+    assert!(runtime.list(None)?.is_empty());
     Ok(())
 }
 #[test]

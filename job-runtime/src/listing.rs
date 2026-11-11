@@ -1,0 +1,95 @@
+use crate::model::{JobPriority, JobRuntime, JobSnapshot, RuntimeError, expire};
+use du_core_contracts::{
+    Id,
+    job::{JobControl, JobState},
+};
+
+/// A wait reason supported by evidence currently retained in the job table.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum JobWaitReason {
+    Paused,
+    QueueFull,
+    None,
+    Unknown,
+}
+
+fn wait_reason(state: JobState) -> JobWaitReason {
+    match state {
+        JobState::Paused => JobWaitReason::Paused,
+        JobState::Queued => JobWaitReason::QueueFull,
+        JobState::Done | JobState::Partial | JobState::Failed | JobState::Cancelled => {
+            JobWaitReason::None
+        }
+        JobState::Running | JobState::PauseRequested | JobState::CancelRequested => {
+            JobWaitReason::Unknown
+        }
+    }
+}
+
+/// One job read from the runtime table at the same cut as the other entries.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct JobListEntry {
+    pub job_id: Id,
+    pub snapshot: JobSnapshot,
+    pub scope_summary: String,
+    pub priority: JobPriority,
+    pub wait_reason: JobWaitReason,
+    /// Controls declared by the job kind, independent of the current state.
+    pub supported_controls: Vec<JobControl>,
+}
+
+impl JobRuntime {
+    /// Reads one consistent table cut in submission order. An empty filter matches no jobs.
+    pub fn list(&self, states: Option<&[JobState]>) -> Result<Vec<JobListEntry>, RuntimeError> {
+        let now = self.clock.now_ms();
+        let mut table = self.table.lock().map_err(|_| RuntimeError::Poisoned)?;
+        expire(&mut table, now);
+        let mut rows: Vec<_> = table
+            .jobs
+            .iter()
+            .filter(|(_, job)| states.is_none_or(|filter| filter.contains(&job.state)))
+            .map(|(id, job)| {
+                (
+                    job.order,
+                    JobListEntry {
+                        job_id: id.clone(),
+                        snapshot: job.snapshot(),
+                        scope_summary: job.submission.scope_summary.clone(),
+                        priority: job.submission.priority,
+                        wait_reason: wait_reason(job.state),
+                        supported_controls: job.descriptor.controls.clone(),
+                    },
+                )
+            })
+            .collect();
+        drop(table);
+        rows.sort_unstable_by_key(|(order, _)| *order);
+        Ok(rows.into_iter().map(|(_, row)| row).collect())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reasons_do_not_infer_unobserved_waits() {
+        for state in [
+            JobState::Running,
+            JobState::PauseRequested,
+            JobState::CancelRequested,
+        ] {
+            assert_eq!(wait_reason(state), JobWaitReason::Unknown);
+        }
+        assert_eq!(wait_reason(JobState::Queued), JobWaitReason::QueueFull);
+        assert_eq!(wait_reason(JobState::Paused), JobWaitReason::Paused);
+        for state in [
+            JobState::Done,
+            JobState::Partial,
+            JobState::Failed,
+            JobState::Cancelled,
+        ] {
+            assert_eq!(wait_reason(state), JobWaitReason::None);
+        }
+    }
+}

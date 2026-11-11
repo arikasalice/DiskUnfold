@@ -244,7 +244,24 @@ export type ScanFailureRow = { kind: ScanFailureKind, stage: ScanFailureStage, p
 export type ScanFailuresRequest = { resultVersion: Id, kind?: ScanFailureKind, cursor?: string, count?: number, };
 export type ScanFailures = { resultVersion: Id, rows: Array<ScanFailureRow>, totalCount: number, nextCursor?: string, };
 export type JobState = "queued" | "running" | "pause_requested" | "paused" | "cancel_requested" | "done" | "partial" | "failed" | "cancelled";
+export type JobControl = "pause" | "resume" | "cancel" | "set_priority";
 export type AnalysisJobRequest = { jobRef: Id, };
+export type AnalysisJobListRequest = {
+/**
+ * Omission selects all states; an empty list selects none.
+ */
+states?: Array<JobState>, };
+export type AnalysisJobPriority = "high" | "normal" | "low";
+export type AnalysisJobWaitReason = "none" | "paused" | "queue_full" | "io_wait" | "device_cap" | "backpressure" | "unknown";
+export type AnalysisJobListRow = { jobRef: Id, kind: string, scopeSummary: string, state: JobState, waitReason: AnalysisJobWaitReason, priority: AnalysisJobPriority,
+/**
+ * Supported controls for the job kind, independent of state eligibility.
+ */
+supportedControls: Array<JobControl>, sequence: number,
+/**
+ * Present only after the terminal record's history outcome is confirmed.
+ */
+terminal?: AnalysisJobTerminal, };
 export type ScanResult = { lineageId: Id, sequence: number, resultVersion?: Id, };
 export type AnalysisJobTerminal = { state: JobState,
 /**

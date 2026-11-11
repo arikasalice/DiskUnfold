@@ -5,6 +5,8 @@ import {
 } from "./bridge";
 import type {
   AnalysisJobControl,
+  AnalysisJobListRequest,
+  AnalysisJobListRow,
   AnalysisJobRequest,
   AnalysisJobStatus,
   BrowseCopyPathOutcome,
@@ -59,6 +61,7 @@ import type {
 export { SIZE_UNIT_RULES } from "./generated/contracts";
 export type {
   AnalysisJobControl,
+  AnalysisJobListRow,
   AnalysisJobStatus,
   AnalysisTarget,
   BrowseCopyPathOutcome,
@@ -141,6 +144,7 @@ type Commands = {
   "scan.start": [ScanStartRequest, ScanStart];
   "scan.failures": [ScanFailuresRequest, ScanFailures];
   "job.get": [AnalysisJobRequest, AnalysisJobStatus];
+  "job.list": [AnalysisJobListRequest, AnalysisJobListRow[]];
   "job.pause": [AnalysisJobRequest, AnalysisJobControl];
   "job.resume": [AnalysisJobRequest, AnalysisJobControl];
   "job.cancel": [AnalysisJobRequest, AnalysisJobControl];

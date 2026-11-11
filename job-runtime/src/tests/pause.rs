@@ -186,6 +186,10 @@ fn pause_waits_for_every_live_flow_then_resume_preserves_job()
     assert_eq!(runtime.state(&id)?, JobState::PauseRequested);
     let (b_thread, b_result) = start(b);
     wait_state(&runtime, &id, JobState::Paused)?;
+    assert_eq!(
+        runtime.list(Some(&[JobState::Paused]))?[0].wait_reason,
+        JobWaitReason::Paused
+    );
     assert_eq!(runtime.snapshot(&id)?.sequence, seq + 1);
     assert_eq!(
         runtime.pause(&id)?.0,

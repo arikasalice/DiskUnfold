@@ -7,13 +7,14 @@ use du_core_contracts::analysis_ipc::{
     JobControlOutcome,
 };
 use du_core_contracts::job::JobSummary;
-use du_job_runtime::{CancelResult, JobRuntime, RuntimeError};
+use du_job_runtime::{CancelResult, JobRuntime, RuntimeError, TerminalSnapshot};
 
 use crate::{
     api::{CallerCtx, Channel, EngineBuilder, UseCase},
     error::EngineError,
 };
 
+mod list;
 mod suspension;
 
 /// Registers job status and cooperative controls for the composed GUI runtime.
@@ -39,6 +40,7 @@ fn register_inner(
         runtime: runtime.clone(),
         store,
     });
+    builder.register(list::List(runtime.clone()));
     builder.register(suspension::Suspension::<true>(runtime.clone()));
     builder.register(suspension::Suspension::<false>(runtime.clone()));
     builder.register(Cancel(runtime));
@@ -85,14 +87,7 @@ impl UseCase for Status {
             snapshot.state,
             snapshot.result_version_id,
         );
-        let terminal = snapshot.terminal.map(|terminal| {
-            terminal_outcome(
-                terminal.summary,
-                terminal.sequence,
-                terminal.history_recorded,
-                terminal.warning,
-            )
-        });
+        let terminal = snapshot.terminal.map(project_terminal);
         Ok(AnalysisJobStatus {
             job_ref: request.job_ref,
             kind: snapshot.kind_id,
@@ -201,4 +196,13 @@ pub(crate) fn terminal_outcome(
         query_ref,
         warning,
     }
+}
+
+fn project_terminal(terminal: TerminalSnapshot) -> AnalysisJobTerminal {
+    terminal_outcome(
+        terminal.summary,
+        terminal.sequence,
+        terminal.history_recorded,
+        terminal.warning,
+    )
 }

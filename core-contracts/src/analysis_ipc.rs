@@ -203,6 +203,63 @@ pub struct AnalysisJobRequest {
     pub job_ref: Id,
 }
 
+/// Optional state filter for a consistent desktop job table read.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AnalysisJobListRequest {
+    /// Omission selects all states; an empty list selects none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub states: Option<Vec<crate::job::JobState>>,
+}
+
+/// Scheduler priority reported by the desktop job table.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum AnalysisJobPriority {
+    High,
+    Normal,
+    Low,
+}
+
+/// The currently observed wait reason for a job.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum AnalysisJobWaitReason {
+    None,
+    Paused,
+    QueueFull,
+    IoWait,
+    DeviceCap,
+    Backpressure,
+    /// The runtime could not establish a wait reason.
+    Unknown,
+}
+
+/// One row of the desktop's in-process job table.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct AnalysisJobListRow {
+    pub job_ref: Id,
+    pub kind: String,
+    pub scope_summary: String,
+    pub state: crate::job::JobState,
+    pub wait_reason: AnalysisJobWaitReason,
+    pub priority: AnalysisJobPriority,
+    /// Supported controls for the job kind, independent of state eligibility.
+    pub supported_controls: Vec<crate::job::JobControl>,
+    #[cfg_attr(feature = "typescript", ts(type = "number"))]
+    pub sequence: u64,
+    /// Present only after the terminal record's history outcome is confirmed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub terminal: Option<AnalysisJobTerminal>,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
