@@ -154,10 +154,13 @@ mod tests {
             registry.configured_languages().collect::<Vec<_>>(),
             ["en", "ko"]
         );
+        let mut os_calls = 0;
         let startup = initialize_with_language_provider(registry, Some("ko"), || {
-            panic!("integrity failure must avoid OS lookup")
+            os_calls += 1;
+            None
         })
         .map_err(|error| error.to_string())?;
+        assert_eq!(os_calls, 0);
         assert_eq!(startup._decision.language, "en");
         assert_eq!(startup._decision.source, locale::Source::Baseline);
         assert_eq!(
@@ -184,9 +187,12 @@ mod tests {
 
     #[test]
     fn stored_registered_language_does_not_query_the_os() -> Result<(), io::Error> {
+        let mut os_calls = 0;
         let startup = initialize_with_language_provider(register()?, Some("ko"), || {
-            panic!("stored language must avoid OS lookup")
+            os_calls += 1;
+            None
         })?;
+        assert_eq!(os_calls, 0);
         assert_eq!(startup._decision.language, "ko");
         assert_eq!(startup._decision.source, locale::Source::Stored);
         Ok(())
