@@ -197,6 +197,7 @@ struct Pending {
 }
 
 impl Pending {
+    /// Queue an event or replace the batch with a resync notice at the capacity boundary.
     fn push(&mut self, mut event: EventEnvelope, now: Instant, observed_at: Timestamp) {
         if let Some(discarded) = &mut self.discarded_events {
             *discarded = discarded.saturating_add(1);
@@ -204,7 +205,7 @@ impl Pending {
         }
         self.sequence += 1;
         event.seq = self.sequence;
-        if self.queue.len() == EVENT_LIMIT {
+        if self.queue.len() + 1 >= EVENT_LIMIT {
             self.discarded_events = Some(self.queue.len() as u64 + 1);
             self.queue.clear();
             self.ready_count = 0;

@@ -82,12 +82,15 @@ fn batches_events_without_dropping_order_and_coalesces_overflow_into_resync()
         first.seq + 1
     );
     assert!(pending.take(batch_time).is_none());
-    for _ in 1..EVENT_LIMIT {
+    for _ in 1..EVENT_LIMIT - 1 {
         pending.push(event.clone(), batch_time, overflow_at.clone());
     }
-    assert_eq!(pending.queue.len(), EVENT_LIMIT);
+    assert_eq!(pending.queue.len(), EVENT_LIMIT - 1);
     assert_eq!(pending.discarded_events, None);
-    for _ in 0..3 {
+    pending.push(event.clone(), batch_time, overflow_at.clone());
+    assert_eq!(pending.queue.len(), 1);
+    assert_eq!(pending.discarded_events, Some(EVENT_LIMIT as u64));
+    for _ in 0..2 {
         pending.push(event.clone(), batch_time, overflow_at.clone());
     }
     let resync = pending
@@ -101,7 +104,7 @@ fn batches_events_without_dropping_order_and_coalesces_overflow_into_resync()
         serde_json::from_value::<JobResyncRequired>(resync.body)?,
         JobResyncRequired {
             reason: JobResyncReason::SubscriberQueueLimit,
-            discarded_events: EVENT_LIMIT as u64 + 3,
+            discarded_events: EVENT_LIMIT as u64 + 2,
             observed_at: overflow_at.clone(),
         },
     );
