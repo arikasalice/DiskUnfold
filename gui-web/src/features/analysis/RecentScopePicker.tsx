@@ -194,6 +194,7 @@ export function RecentScopePicker({
               isRequestSeqCurrent={isRequestSeqCurrent}
               hasDraftEdits={hasDraftEdits}
               confirmReplace={confirmReplace}
+              scrollContainerRef={scrollContainerRef}
               onConfirmReplace={setConfirmReplace}
               onRetry={(row) => {
                 detailHeading.current?.focus({ preventScroll: true });

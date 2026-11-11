@@ -1,4 +1,5 @@
 import { useId, useLayoutEffect, useRef } from "react";
+import type { RefObject } from "react";
 import {
   Action,
   Heading,
@@ -17,6 +18,7 @@ import type {
 } from "../../ipc";
 import { useRecentScopes } from "./use-recent-scopes";
 import { formatDate, PathValue, targetStatus } from "./RecentScopeDisplay";
+import { revealConfirmGroup } from "./recent-confirm-scroll";
 
 export type View = "closed" | "list" | "detail";
 export function detailRow(
@@ -173,6 +175,7 @@ export function RecentScopeDetailView({
   isRequestSeqCurrent,
   hasDraftEdits,
   confirmReplace,
+  scrollContainerRef,
   onConfirmReplace,
   onRetry,
   onRefresh,
@@ -184,6 +187,7 @@ export function RecentScopeDetailView({
   isRequestSeqCurrent: (requestSeq: number) => boolean;
   hasDraftEdits: boolean;
   confirmReplace: boolean;
+  scrollContainerRef: RefObject<HTMLElement | null> | undefined;
   onConfirmReplace: (confirm: boolean) => void;
   onRetry: (row: RecentScopeListRow) => void;
   onRefresh: () => void;
@@ -219,6 +223,7 @@ export function RecentScopeDetailView({
             canApply={canApply}
             hasDraftEdits={hasDraftEdits}
             confirmReplace={confirmReplace}
+            scrollContainerRef={scrollContainerRef}
             onConfirmReplace={onConfirmReplace}
             onChoosePath={onChoosePath}
             onApply={onApply}
@@ -409,6 +414,7 @@ function RecentScopeApplyActions({
   canApply,
   hasDraftEdits,
   confirmReplace,
+  scrollContainerRef,
   onConfirmReplace,
   onChoosePath,
   onApply,
@@ -418,21 +424,34 @@ function RecentScopeApplyActions({
   canApply: boolean;
   hasDraftEdits: boolean;
   confirmReplace: boolean;
+  scrollContainerRef: RefObject<HTMLElement | null> | undefined;
   onConfirmReplace: (confirm: boolean) => void;
   onChoosePath: () => void;
   onApply: (draft: ScopeDraft, review: ScopeReview) => void;
 }) {
   const confirmButton = useRef<HTMLButtonElement>(null);
+  const confirmGroup = useRef<HTMLDivElement>(null);
+  const confirmDescription = useRef<HTMLDivElement>(null);
   const useButton = useRef<HTMLButtonElement>(null);
   const descriptionId = useId();
   const pendingFocus = useRef(false);
   useLayoutEffect(() => {
     if (!pendingFocus.current) return;
     const target = confirmReplace ? confirmButton.current : useButton.current;
-    target?.focus({ preventScroll: true });
-    target?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    if (confirmReplace && confirmGroup.current && scrollContainerRef?.current) {
+      const oversized = revealConfirmGroup(
+        scrollContainerRef.current,
+        confirmGroup.current,
+      );
+      (oversized ? confirmDescription.current : target)?.focus({
+        preventScroll: true,
+      });
+    } else {
+      target?.focus({ preventScroll: true });
+      target?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
     pendingFocus.current = false;
-  }, [confirmReplace]);
+  }, [confirmReplace, scrollContainerRef]);
   function toggleConfirm(value: boolean) {
     pendingFocus.current = true;
     onConfirmReplace(value);
@@ -440,12 +459,15 @@ function RecentScopeApplyActions({
   if (confirmReplace && review)
     return (
       <div
+        ref={confirmGroup}
         className="du-recent-scopes__confirm"
         role="group"
         aria-label="Replace current scope"
       >
         <div
+          ref={confirmDescription}
           id={descriptionId}
+          tabIndex={-1}
           className="du-recent-scopes__confirm-description"
         >
           <Text>

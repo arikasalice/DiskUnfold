@@ -149,6 +149,11 @@
   flex-basis: 100%;
 }
 
+.du-recent-scopes__confirm-description:focus-visible {
+  outline: 2px solid var(--du-focus);
+  outline-offset: 3px;
+}
+
 .du-recent-scopes__confirm-description > .du-text {
   margin: 0;
 }

@@ -18,8 +18,41 @@ import type {
   ScopeReview,
 } from "../src/ipc";
 
+const propertyRestorers: (() => void)[] = [];
+
+function mockProperty(
+  target: object,
+  name: PropertyKey,
+  descriptor: PropertyDescriptor,
+) {
+  const original = Object.getOwnPropertyDescriptor(target, name);
+  Object.defineProperty(target, name, descriptor);
+  propertyRestorers.push(() => {
+    if (original) Object.defineProperty(target, name, original);
+    else Reflect.deleteProperty(target, name);
+  });
+}
+
+function mockScrollTop(target: object, initialValue: number): number[] {
+  const writes: number[] = [];
+  let value = initialValue;
+  mockProperty(target, "scrollTop", {
+    configurable: true,
+    get: () => value,
+    set: (next: number) => {
+      value = next;
+      writes.push(next);
+    },
+  });
+  return writes;
+}
+
 afterEach(() => {
   cleanup();
+  document
+    .querySelectorAll("[data-test-scroll-region]")
+    .forEach((element) => element.remove());
+  for (const restore of propertyRestorers.splice(0).reverse()) restore();
   vi.restoreAllMocks();
 });
 
@@ -293,6 +326,222 @@ test("F01 FR8: keeps focus on valid controls through replace confirmation and pa
   expect(document.activeElement).toBe(detailHeading.parentElement);
   expect(document.activeElement?.isConnected).toBe(true);
 });
+
+test.each([
+  {
+    name: "scrolls only enough to show the complete confirmation group",
+    scrollMode: "editor",
+    group: { top: 410, bottom: 470 },
+    initialScrollTop: 100,
+    expectedScrollTop: 172,
+    expectedScrollDelta: 72,
+    viewport: { top: 100, bottom: 400, height: 296, clientTop: 2 },
+    expectedFocus: "button",
+  },
+  {
+    name: "aligns the explanation when the confirmation group is taller than the viewport",
+    scrollMode: "editor",
+    group: { top: 40, bottom: 460 },
+    initialScrollTop: 100,
+    expectedScrollTop: 38,
+    expectedScrollDelta: -62,
+    viewport: { top: 100, bottom: 400, height: 296, clientTop: 2 },
+    expectedFocus: "description",
+  },
+  {
+    name: "uses the document viewport when the editor body is not scrollable",
+    scrollMode: "document",
+    group: { top: 778, bottom: 838 },
+    initialScrollTop: 100,
+    expectedScrollTop: 170,
+    expectedScrollDelta: 70,
+    viewport: { top: 0, bottom: 768, height: 768, clientTop: 0 },
+    expectedFocus: "button",
+  },
+])(
+  "F01 FR8: $name",
+  async ({
+    group,
+    initialScrollTop,
+    expectedScrollTop,
+    expectedScrollDelta,
+    scrollMode,
+    viewport,
+    expectedFocus,
+  }) => {
+    const { client } = makeClient(async (name, body) => {
+      if (name === "scope.recent_list") return list("one");
+      if (name === "scope.recent_open")
+        return opened(
+          "matched",
+          review(draft, (body as { requestSeq: number }).requestSeq),
+        );
+      throw new Error(`Unexpected command ${name}`);
+    });
+    const editorBody = document.createElement("div");
+    editorBody.className = "du-target-editor__body";
+    editorBody.dataset.testScrollRegion = "true";
+    editorBody.style.overflowY = scrollMode === "editor" ? "auto" : "hidden";
+    document.body.append(editorBody);
+    mockProperty(editorBody, "scrollHeight", {
+      configurable: true,
+      value: 1200,
+    });
+    mockProperty(editorBody, "clientHeight", {
+      configurable: true,
+      value: 296,
+    });
+    const editorScrollWrites = mockScrollTop(editorBody, initialScrollTop);
+    if (scrollMode === "document") {
+      const bodyOverflow = document.body.style.overflowY;
+      const rootOverflow = document.documentElement.style.overflowY;
+      propertyRestorers.push(() => {
+        document.body.style.overflowY = bodyOverflow;
+        document.documentElement.style.overflowY = rootOverflow;
+      });
+      document.body.style.overflowY = "visible";
+      document.documentElement.style.overflowY = "auto";
+    }
+    const documentScroller =
+      document.scrollingElement ?? document.documentElement;
+    mockProperty(documentScroller, "scrollHeight", {
+      configurable: true,
+      value: 1200,
+    });
+    const documentScrollWrites = mockScrollTop(
+      documentScroller,
+      initialScrollTop,
+    );
+    const scrollContainer =
+      scrollMode === "editor" ? editorBody : documentScroller;
+    const scrollWrites =
+      scrollMode === "editor" ? editorScrollWrites : documentScrollWrites;
+    if (scrollMode === "document") {
+      const nativeClientHeight = Object.getOwnPropertyDescriptor(
+        HTMLElement.prototype,
+        "clientHeight",
+      )?.get;
+      mockProperty(HTMLElement.prototype, "clientHeight", {
+        configurable: true,
+        get() {
+          return this === document.documentElement
+            ? viewport.height
+            : (nativeClientHeight?.call(this) ?? 0);
+        },
+      });
+    }
+    const scrollContainerRef = { current: editorBody };
+    picker(client, vi.fn(), scrollContainerRef, true);
+
+    const scrollIntoView = vi.spyOn(HTMLElement.prototype, "scrollIntoView");
+    const bounds = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect");
+    bounds.mockImplementation(function (this: HTMLElement) {
+      if (this === scrollContainer)
+        return {
+          x: 0,
+          y: viewport.top,
+          top: viewport.top,
+          right: 500,
+          bottom: viewport.bottom,
+          left: 0,
+          width: 500,
+          height: viewport.bottom - viewport.top,
+          toJSON: () => ({}),
+        };
+      if (this.classList.contains("du-recent-scopes__confirm"))
+        return {
+          x: 0,
+          y: group.top,
+          top: group.top,
+          right: 500,
+          bottom: group.bottom,
+          left: 0,
+          width: 500,
+          height: group.bottom - group.top,
+          toJSON: () => ({}),
+        };
+      return {
+        x: 0,
+        y: 0,
+        top: 0,
+        right: 0,
+        bottom: 0,
+        left: 0,
+        width: 0,
+        height: 0,
+        toJSON: () => ({}),
+      };
+    });
+    if (scrollMode === "editor") {
+      mockProperty(scrollContainer, "clientTop", {
+        configurable: true,
+        value: viewport.clientTop,
+      });
+      mockProperty(scrollContainer, "clientHeight", {
+        configurable: true,
+        value: viewport.height,
+      });
+    }
+
+    await showList();
+    fireEvent.click(screen.getByRole("button", { name: "Review range 1" }));
+    await screen.findByRole("button", { name: "Use this range" });
+    const beforeConfirm = scrollContainer.scrollTop;
+    const writesBeforeConfirm = scrollWrites.length;
+    if (scrollMode === "document") {
+      const nativeFocus = HTMLElement.prototype.focus;
+      vi.spyOn(HTMLElement.prototype, "focus").mockImplementation(function (
+        this: HTMLElement,
+        options,
+      ) {
+        nativeFocus.call(this, options);
+      });
+    }
+    fireEvent.click(screen.getByRole("button", { name: "Use this range" }));
+
+    const groupElement = screen.getByRole("group", {
+      name: "Replace current scope",
+    });
+    const description = groupElement.querySelector(
+      ".du-recent-scopes__confirm-description",
+    );
+    const replaceButton = screen.getByRole("button", {
+      name: "Replace current scope",
+    });
+    const keepEditing = screen.getByRole("button", { name: "Keep editing" });
+    expect(description).not.toBeNull();
+    expect(Array.from(groupElement.children)).toEqual([
+      description,
+      replaceButton,
+      keepEditing,
+    ]);
+    expect(description?.getAttribute("tabindex")).toBe("-1");
+    expect(replaceButton.tabIndex).toBe(0);
+    expect(keepEditing.tabIndex).toBe(0);
+    expect(scrollContainer.scrollTop).toBe(expectedScrollTop);
+    expect(
+      (scrollWrites.slice(writesBeforeConfirm).at(-1) ?? NaN) - beforeConfirm,
+    ).toBe(expectedScrollDelta);
+    expect(document.activeElement).toBe(
+      expectedFocus === "description" ? description : replaceButton,
+    );
+    expect(scrollIntoView).not.toHaveBeenCalled();
+
+    // happy-dom does not advance focus for Tab; DOM order and tabIndex cover the sequence here.
+    // Native keyboard Tab traversal remains for integration verification.
+    keepEditing.focus();
+    fireEvent.keyDown(keepEditing, { key: " " });
+    fireEvent.keyUp(keepEditing, { key: " " });
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Use this range" }),
+      ).toBeDefined(),
+    );
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Use this range" }),
+    );
+  },
+);
 
 test("F01 FR8: renders an empty list and retries a failed list read", async () => {
   let fail = true;
