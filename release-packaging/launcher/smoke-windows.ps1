@@ -14,12 +14,70 @@ param(
   [switch]$VerifySettingsRestoration,
   [switch]$VerifyOperationHistory,
   [switch]$VerifyInspectionPathDisclosure,
+  [switch]$VerifyInspectionKeyboard,
   [switch]$VerifyPathCopyContention,
   [switch]$VerifyNativeFolderDrop
 )
 
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName UIAutomationClient,UIAutomationTypes
+if ($VerifyInspectionKeyboard) {
+  Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+
+namespace DiskUnfoldSmoke {
+  public static class Keyboard {
+    [StructLayout(LayoutKind.Sequential)]
+    private struct KeyboardInput {
+      public ushort VirtualKey, ScanCode;
+      public uint Flags, Time;
+      public UIntPtr ExtraInfo;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MouseInput {
+      public int X, Y;
+      public uint Data, Flags, Time;
+      public UIntPtr ExtraInfo;
+    }
+
+    [StructLayout(LayoutKind.Explicit)]
+    private struct InputData {
+      [FieldOffset(0)] public KeyboardInput Keyboard;
+      [FieldOffset(0)] public MouseInput Mouse;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct Input {
+      public uint Type;
+      public InputData Data;
+    }
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern uint SendInput(uint count, Input[] inputs, int size);
+
+    // Use the Windows input queue so WebView2 handles a down/up sequence.
+    public static void Press(IntPtr window, ushort key) {
+      if (window == IntPtr.Zero || GetForegroundWindow() != window)
+        throw new InvalidOperationException("DiskUnfold must own the foreground window.");
+      const uint KeyboardType = 1;
+      const uint KeyUp = 2;
+      var inputs = new Input[2];
+      inputs[0].Type = inputs[1].Type = KeyboardType;
+      inputs[0].Data.Keyboard.VirtualKey = inputs[1].Data.Keyboard.VirtualKey = key;
+      inputs[1].Data.Keyboard.Flags = KeyUp;
+      if (SendInput(2, inputs, Marshal.SizeOf<Input>()) != 2)
+        throw new Win32Exception(Marshal.GetLastWin32Error(), "Could not send both keyboard events.");
+    }
+  }
+}
+'@
+}
 if (Get-CimInstance Win32_Process -Filter "Name = 'diskunfold.exe' AND ThreadCount > 0") { throw 'DiskUnfold already running' }
 $exe = (Resolve-Path -LiteralPath $Binary).Path
 $root = Join-Path ([IO.Path]::GetTempPath()) ('diskunfold-smoke-' + [guid]::NewGuid())
@@ -157,11 +215,36 @@ function Wait-FinalLogicalSize($expected, $versionLabel = 'Final') {
     }
   }
 }
+# Send a key only while the test window owns the foreground.
+function Send-InspectionKey($key) {
+  $process.Refresh()
+  [DiskUnfoldSmoke.Keyboard]::Press($process.MainWindowHandle, $key)
+}
+# The grid uses a row as its keyboard stop. File buttons stay out of the tab order.
+function Find-InspectionRow($file) {
+  $element = [Windows.Automation.TreeWalker]::RawViewWalker.GetParent($file)
+  while ($element -and $element.Current.ControlType -ne [Windows.Automation.ControlType]::DataItem) {
+    $element = [Windows.Automation.TreeWalker]::RawViewWalker.GetParent($element)
+  }
+  if (-not $element -or -not $element.Current.IsKeyboardFocusable) {
+    throw 'The file row is not keyboard focusable'
+  }
+  return $element
+}
 # Open the observed file inspector through its real WebView2 action.
 function Test-FileInspection($name, $size, $testCopyContention = $false, $expectedPath = '') {
   $file = Wait-Enabled $name $true
-  $file.SetFocus()
-  Invoke-UI (Wait-VisibleAction $name)
+  if ($VerifyInspectionKeyboard) {
+    (Find-InspectionRow $file).SetFocus()
+    $null = Wait-UI "keyboard focus on $name" {
+      $focused = $ae::FocusedElement
+      $focused -and ($focused.Current.Name -eq $name -or (Find-UI $name $button $focused))
+    }
+    Send-InspectionKey 0x0D # VK_RETURN
+  } else {
+    $file.SetFocus()
+    Invoke-UI (Wait-VisibleAction $name)
+  }
   $null = Wait-UI "file attributes for $name" {
     $details = Find-UI 'Observed file attributes' $null
     if ($details) { Find-UI $name $null $details }
@@ -177,7 +260,11 @@ function Test-FileInspection($name, $size, $testCopyContention = $false, $expect
         Select-Object -First 1
     }
   }
-  Invoke-UI (Wait-VisibleAction 'Close details')
+  if ($VerifyInspectionKeyboard) {
+    Send-InspectionKey 0x1B # VK_ESCAPE
+  } else {
+    Invoke-UI (Wait-VisibleAction 'Close details')
+  }
   try {
     $null = Wait-UI "focus returned to $name" {
       $focused = $ae::FocusedElement
@@ -190,7 +277,8 @@ function Test-FileInspection($name, $size, $testCopyContention = $false, $expect
     if ($focused) { Write-Warning "Focused element after close: $($focused.Current.ControlType.ProgrammaticName), $($focused.Current.Name)" }
     throw
   }
-  "F05/F03 native file inspection: $name, $size, focus restored"
+  $activation = if ($VerifyInspectionKeyboard) { 'Enter/Escape' } else { 'UI Automation' }
+  "F05/F03 native file inspection ($activation): $name, $size, focus restored"
 }
 # The compact inspector should make the whole path available on demand.
 function Test-InspectionPathDisclosure($expectedPath) {
