@@ -13,10 +13,11 @@ use windows::Win32::{
     Foundation::HANDLE,
     Storage::FileSystem::{
         BY_HANDLE_FILE_INFORMATION, FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_OFFLINE,
-        FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS, FILE_ATTRIBUTE_REPARSE_POINT,
+        FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS, FILE_ATTRIBUTE_REPARSE_POINT, GetDriveTypeW,
         GetVolumeInformationByHandleW, VOLUME_NAME_GUID,
     },
 };
+use windows::core::PCWSTR;
 
 /// File identity evidence recorded on the selected scan observation.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -98,6 +99,24 @@ fn volume_guid(file: &File) -> Result<Vec<u8>, InspectError> {
         windows_observation::final_path(file, VOLUME_NAME_GUID).map_err(observation_error)?;
     windows_observation::volume_name(&path).map_err(observation_error)
 }
+fn fixed_volume(volume: &[u8]) -> bool {
+    const DRIVE_FIXED: u32 = 3;
+    if volume.is_empty() || !volume.len().is_multiple_of(2) {
+        return false;
+    }
+    let mut root: Vec<u16> = volume
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|bytes| u16::from_le_bytes([bytes[0], bytes[1]]))
+        .collect();
+    if root.contains(&0) {
+        return false;
+    }
+    root.extend([u16::from(b'\\'), 0]);
+    // SAFETY: the path is NUL-terminated and valid for the duration of the call.
+    unsafe { GetDriveTypeW(PCWSTR(root.as_ptr())) == DRIVE_FIXED }
+}
 fn file_identifier(file: &File) -> Result<[u8; 16], InspectError> {
     windows_observation::file_id(file).ok_or(InspectError::Unsupported)
 }
@@ -146,6 +165,9 @@ pub fn inspect_handle(
         file: file_identifier(file)?,
         enumerated_inode: raw_index(&first),
     };
+    if !fixed_volume(&actual.volume) {
+        return Err(InspectError::Unsupported);
+    }
     if actual.enumerated_inode == 0 || &actual != expected {
         return Err(InspectError::IdentityChanged);
     }
@@ -165,4 +187,30 @@ pub fn inspect_handle(
         last_write_ticks: last_write(&second),
         change_stamp: None,
     })
+}
+
+/// Two metadata checks bound to one borrowed handle, with no content reads.
+/// Equal checks do not prove absence of intervening changes or safe recall behavior.
+pub struct MetadataInterval<'a> {
+    file: &'a File,
+    before: HandleFacts,
+}
+
+impl<'a> MetadataInterval<'a> {
+    /// Starts an interval on an already opened metadata handle.
+    pub fn begin(file: &'a File, expected: &ExpectedIdentity) -> Result<Self, InspectError> {
+        Ok(Self {
+            file,
+            before: inspect_handle(file, expected)?,
+        })
+    }
+
+    /// Compares a second observation on the exact same handle.
+    pub fn finish(self) -> Result<HandleFacts, InspectError> {
+        let after = inspect_handle(self.file, &self.before.identity)?;
+        if after != self.before {
+            return Err(InspectError::IdentityChanged);
+        }
+        Ok(after)
+    }
 }

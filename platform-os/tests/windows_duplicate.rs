@@ -52,6 +52,64 @@ fn expected(dir: &std::path::Path) -> Result<ExpectedIdentity, Box<dyn std::erro
 }
 
 #[test]
+fn metadata_only_interval_uses_one_handle_and_detects_change()
+-> Result<(), Box<dyn std::error::Error>> {
+    use du_platform_os::windows_duplicate::MetadataInterval;
+    use std::os::windows::fs::OpenOptionsExt;
+    use windows::Win32::Storage::FileSystem::{
+        FILE_FLAG_OPEN_NO_RECALL, FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES,
+    };
+    let temp = tempfile::tempdir()?;
+    let path = temp.path().join("item");
+    fs::write(&path, b"abc")?;
+    let identity = expected(temp.path())?;
+    let file = OpenOptions::new()
+        .access_mode(FILE_READ_ATTRIBUTES.0)
+        .custom_flags((FILE_FLAG_OPEN_NO_RECALL | FILE_FLAG_OPEN_REPARSE_POINT).0)
+        .open(&path)?;
+    let facts = MetadataInterval::begin(&file, &identity)
+        .map_err(|e| format!("{e:?}"))?
+        .finish()
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(facts.size, 3);
+    assert_eq!(facts.change_stamp, None);
+    let interval = MetadataInterval::begin(&file, &identity).map_err(|e| format!("{e:?}"))?;
+    OpenOptions::new().write(true).open(&path)?.set_len(10)?;
+    assert!(matches!(
+        interval.finish(),
+        Err(InspectError::IdentityChanged)
+    ));
+    Ok(())
+}
+
+#[test]
+fn restored_size_and_timestamp_cannot_prove_unchanged_content()
+-> Result<(), Box<dyn std::error::Error>> {
+    use du_platform_os::windows_duplicate::MetadataInterval;
+    use std::os::windows::fs::OpenOptionsExt;
+    use windows::Win32::Storage::FileSystem::{
+        FILE_FLAG_OPEN_NO_RECALL, FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES,
+    };
+    let temp = tempfile::tempdir()?;
+    let path = temp.path().join("item");
+    fs::write(&path, b"abc")?;
+    let modified = fs::metadata(&path)?.modified()?;
+    let identity = expected(temp.path())?;
+    let handle = OpenOptions::new()
+        .access_mode(FILE_READ_ATTRIBUTES.0)
+        .custom_flags((FILE_FLAG_OPEN_NO_RECALL | FILE_FLAG_OPEN_REPARSE_POINT).0)
+        .open(&path)?;
+    let interval = MetadataInterval::begin(&handle, &identity).map_err(|e| format!("{e:?}"))?;
+    let mut writer = OpenOptions::new().write(true).open(&path)?;
+    writer.write_all(b"xyz")?;
+    writer.flush()?;
+    writer.set_times(fs::FileTimes::new().set_modified(modified))?;
+    let observed = interval.finish().map_err(|e| format!("{e:?}"))?;
+    assert_eq!(observed.change_stamp, None);
+    Ok(())
+}
+
+#[test]
 fn inspects_scan_bound_same_handle_without_reading_content()
 -> Result<(), Box<dyn std::error::Error>> {
     let temp = tempfile::tempdir()?;
