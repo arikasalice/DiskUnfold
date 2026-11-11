@@ -2,7 +2,7 @@
 use super::*;
 use du_core_contracts::{
     SizeAmount, SizeBasis,
-    analysis_ipc::SpaceTotal,
+    analysis_ipc::{ScopeDraft, ScopeSource, SpaceTotal},
     browse_ipc::BrowseValue,
     browse_page_ipc::{BrowseOpenResponse, QueryPageResponse},
     query_region_ipc::QueryRegionOpened,
@@ -11,6 +11,12 @@ use rusqlite::Connection;
 use std::{fs, io::Write};
 
 const REPLACEMENT_FILES: [(&str, u64); 2] = [("\u{00e9}.bin", 16_384), ("e\u{0301}.bin", 7)];
+
+struct RestoredScope {
+    body: crate::recent_scope_body::RecentScopeBody,
+    draft: ScopeDraft,
+    review: ScopeReview,
+}
 
 fn scan_response(
     engine: &Engine,
@@ -32,7 +38,7 @@ fn wait_for_saved_scope(
     profile: &std::path::Path,
     engine: &Engine,
     original: &ScopeReview,
-) -> Result<crate::recent_scope_body::RecentScopeBody, Box<dyn std::error::Error>> {
+) -> Result<RestoredScope, Box<dyn std::error::Error>> {
     use rusqlite::OptionalExtension;
 
     let sql = Connection::open(profile.join(du_platform_os::application_data::DATABASE_FILE))?;
@@ -79,7 +85,43 @@ fn wait_for_saved_scope(
         opened.body["review"]["reviewFingerprint"],
         original.review_fingerprint
     );
-    Ok(decoded)
+    Ok(RestoredScope {
+        body: decoded,
+        draft: serde_json::from_value(opened.body["draft"].clone())?,
+        review: serde_json::from_value(opened.body["review"].clone())?,
+    })
+}
+
+/// Proves the explicit GUI admission accepts the restored fingerprint and rechecks identity.
+fn scan_restored_scope(
+    engine: &Engine,
+    events: &du_engine_api::desktop::DesktopEvents,
+    restored: RestoredScope,
+    target: &std::path::Path,
+) -> Result<(), Box<dyn std::error::Error>> {
+    assert_eq!(restored.draft.source, ScopeSource::Recent);
+    let mut input = restored.draft;
+    input.source = ScopeSource::Gui;
+    let input = serde_json::to_value(input)?;
+    fs::write(target.join("item.bin"), [0; 23])?;
+    let (_, _, scan) = scan_response(engine, &input, &restored.review)?;
+    assert!(!scan.existing);
+    assert_logical_total(engine, events, &scan, 23)?;
+
+    fs::rename(target, target.with_file_name("previous-directory"))?;
+    fs::create_dir(target)?;
+    let rejected = ipc(
+        engine,
+        "scan.start",
+        json!({
+            "draft": input, "reviewFingerprint": restored.review.review_fingerprint,
+        }),
+    )?;
+    assert_eq!(
+        rejected.error.ok_or("replacement was admitted")?.code,
+        ErrorCode::StaleVersion
+    );
+    Ok(())
 }
 
 /// Reviews and scans a raw NTFS name whose display requires a replacement character.
@@ -216,11 +258,21 @@ fn lossy_display_preserves_native_scope_identity() -> Result<(), Box<dyn std::er
         Err(mpsc::TryRecvError::Empty)
     ));
     assert_eq!(
-        saved.scope_draft().includes.as_slice(),
+        saved.body.scope_draft().includes.as_slice(),
         std::slice::from_ref(reviewed)
     );
-    assert!(saved.targets()[0].applied_path.lossy);
-    let batch = terminal_batch(&events, &scan.job_ref)?;
+    assert!(saved.body.targets()[0].applied_path.lossy);
+    assert_logical_total(&engine, &events, &scan, 17)?;
+    scan_restored_scope(&engine, &events, saved, &target)
+}
+
+fn assert_logical_total(
+    engine: &Engine,
+    events: &du_engine_api::desktop::DesktopEvents,
+    scan: &ScanStart,
+    expected: u64,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let batch = terminal_batch(events, &scan.job_ref)?;
     let finished = batch
         .iter()
         .find(|event| {
@@ -233,7 +285,7 @@ fn lossy_display_preserves_native_scope_identity() -> Result<(), Box<dyn std::er
         .as_ref()
         .ok_or("missing result version")?;
     let response = ipc(
-        &engine,
+        engine,
         "space.total",
         json!({"resultVersion": version, "requestSeq": 2, "target": {"kind": "scope_root"}}),
     )?;
@@ -248,7 +300,7 @@ fn lossy_display_preserves_native_scope_identity() -> Result<(), Box<dyn std::er
     assert_eq!(
         logical.size.amount,
         SizeAmount::Exact {
-            bytes: 17_u64.into()
+            bytes: expected.into()
         }
     );
     Ok(())
