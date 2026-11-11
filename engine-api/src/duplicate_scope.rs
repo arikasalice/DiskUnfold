@@ -61,14 +61,8 @@ pub struct SelectionScope {
     pub exclusions: Vec<ItemRef>,
     /// Inclusive lower bound on logical bytes.
     pub minimum_bytes: u64,
-    /// Number of observed files outside the requested roots.
-    pub outside: u64,
-    /// Number of observed files removed by exclusions.
-    pub excluded: u64,
-    /// Number of observed files below the minimum.
-    pub below_minimum: u64,
-    /// Number of observed files without required selection metadata.
-    pub unavailable: u64,
+    /// Observed file counts for the admitted selection.
+    pub counts: Counts,
     /// Completeness of the pinned scan result.
     pub source_completeness: ResultCompleteness,
     /// Source observation time when available.
@@ -79,7 +73,6 @@ pub struct SelectionScope {
 pub struct Selection {
     version: Arc<ResultVersion>,
     files: Vec<Selected>,
-    counts: Counts,
     evidence: SelectionScope,
 }
 
@@ -123,7 +116,7 @@ impl Selection {
     }
     /// Returns observed-file counts, not counts of omitted scan entries.
     pub fn counts(&self) -> &Counts {
-        &self.counts
+        &self.evidence.counts
     }
     /// Returns the request and source evidence captured with this pinned selection.
     ///
@@ -347,17 +340,13 @@ fn select_pinned(
         roots: scope.roots.to_vec(),
         exclusions: scope.exclusions.to_vec(),
         minimum_bytes: scope.min_bytes,
-        outside: counts.outside,
-        excluded: counts.excluded,
-        below_minimum: counts.below_minimum,
-        unavailable: counts.unavailable,
+        counts,
         source_completeness: version.completeness(),
         observed_at: version.observed_at().cloned(),
     };
     Ok(Selection {
         version,
         files,
-        counts,
         evidence,
     })
 }

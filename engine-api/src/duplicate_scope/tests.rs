@@ -114,10 +114,10 @@ fn selects_only_observed_files_inside_roots_and_outside_exclusions() -> Result<(
     assert_eq!(evidence.minimum_bytes, 4);
     assert_eq!(
         (
-            evidence.outside,
-            evidence.excluded,
-            evidence.below_minimum,
-            evidence.unavailable
+            evidence.counts.outside,
+            evidence.counts.excluded,
+            evidence.counts.below_minimum,
+            evidence.counts.unavailable
         ),
         (0, 1, 1, 2)
     );
@@ -145,8 +145,8 @@ fn selects_only_observed_files_inside_roots_and_outside_exclusions() -> Result<(
             .is_none()
     );
     assert_eq!(
-        selection.counts,
-        Counts {
+        selection.counts(),
+        &Counts {
             outside: 0,
             excluded: 1,
             below_minimum: 1,
@@ -278,8 +278,8 @@ fn outside_and_missing_scope_evidence_do_not_become_selected() -> Result<(), Str
         },
     )
     .map_err(|e| format!("{e:?}"))?;
-    assert_eq!(selection.counts.outside, 1);
-    assert_eq!(selection.counts.unavailable, 2);
+    assert_eq!(selection.counts().outside, 1);
+    assert_eq!(selection.counts().unavailable, 2);
     assert!(matches!(
         select(
             &source,

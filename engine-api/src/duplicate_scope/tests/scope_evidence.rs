@@ -25,8 +25,8 @@ fn overlapping_roots_and_exclusions_keep_the_admitted_scope_evidence() -> Result
     assert_eq!(selection.scope_evidence().roots, roots);
     assert_eq!(selection.scope_evidence().exclusions, exclusions);
     assert_eq!(selection.files().len(), 1);
-    assert_eq!(selection.scope_evidence().excluded, 1);
-    assert_eq!(selection.scope_evidence().below_minimum, 1);
+    assert_eq!(selection.scope_evidence().counts.excluded, 1);
+    assert_eq!(selection.scope_evidence().counts.below_minimum, 1);
     Ok(())
 }
 
