@@ -50,6 +50,10 @@ impl Gate {
 }
 type GateState = Mutex<Option<(Id, Arc<Gate>)>>;
 static GATE: OnceLock<GateState> = OnceLock::new();
+static TEST_LOCK: Mutex<()> = Mutex::new(());
+pub(super) fn serial() -> Result<std::sync::MutexGuard<'static, ()>, &'static str> {
+    TEST_LOCK.lock().map_err(|_| "test lock poisoned")
+}
 pub(super) fn set(gate: Option<(Id, Arc<Gate>)>) -> Result<(), &'static str> {
     *GATE
         .get_or_init(|| Mutex::new(None))

@@ -291,7 +291,7 @@ impl FolderJobs {
         &self,
         correlation: Id,
         body: Arc<dyn JobBody>,
-        permit: crate::query_region::Permit<du_core_contracts::query_region_ipc::QueryRegionKind>,
+        admit: impl FnOnce(&Id) -> Result<(), RuntimeError>,
         publish: impl FnOnce() -> Result<Id, String> + Send + 'static,
     ) -> Result<Id, ErrorKind> {
         let mut channels = self.channels.lock().map_err(|_| ErrorKind::Unavailable)?;
@@ -311,7 +311,7 @@ impl FolderJobs {
                     correlation_id: correlation,
                     sample: false,
                 },
-                |job| permit.bind_job(job).map_err(|_| RuntimeError::InvalidState),
+                admit,
                 publish,
             )
             .map_err(ErrorKind::Runtime)?;

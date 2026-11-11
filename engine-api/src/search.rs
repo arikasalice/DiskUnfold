@@ -216,24 +216,8 @@ impl SearchEntry {
         if caller.is_cancelled() {
             return Err(SearchError::Cancelled);
         }
-        let promotion = self
-            .regions
-            .registry
-            .promote_validated(
-                &self.regions.owner,
-                &request.region_ref,
-                QueryRegionKind::Search,
-                request.request_seq,
-                Ok::<_, ()>(prepared),
-            )
-            .map_err(|_| SearchError::RegionUnavailable)?
-            .map_err(|()| SearchError::InvalidRequest)?;
-        if let Some(job) = promotion.previous_job {
-            let _ = self.regions.cancel_job(&job);
-        }
-        let permit = promotion.permit;
-        let prepared = promotion.prepared;
         let query_ref = self.ids.next_id();
+        let binding = Arc::new(std::sync::Mutex::new(None));
         let candidate = Arc::new(std::sync::Mutex::new(None));
         let body: Arc<dyn JobBody> = Arc::new(SearchEvaluation {
             prepared: std::sync::Mutex::new(Some(prepared)),
@@ -244,42 +228,86 @@ impl SearchEntry {
         });
         let sets = self.sets.clone();
         let output = query_ref.clone();
-        let publish_permit = permit.clone();
+        let publish_binding = binding.clone();
         let publish_caller = caller.clone();
         #[cfg(test)]
         let publish_version = result_version.clone();
         let job_ref = self
             .async_workers
             .jobs
-            .submit_search_region(caller.correlation_id.clone(), body, permit, move || {
-                let candidate = candidate
-                    .lock()
-                    .map_err(|_| "support.internal_error".to_owned())?
-                    .take()
-                    .ok_or_else(|| "support.internal_error".to_owned())?;
-                publish_permit
-                    .publish(false, || {
-                        #[cfg(test)]
-                        if test_gate::pause_publish(&publish_version).is_err() {
-                            return Err("support.internal_error".to_owned());
-                        }
-                        publish_caller
-                            .with_active(|| {
-                                sets.register_current_admitted_search(output.clone(), candidate)
-                                    .map(|_| output)
-                                    .map_err(|error| {
-                                        match error {
-                                            PageError::StaleVersion => "result.requery_required",
-                                            _ => "support.internal_error",
-                                        }
-                                        .to_owned()
-                                    })
-                            })
-                            .ok_or_else(|| "support.internal_error".to_owned())?
-                    })
-                    .map_err(|_| "support.internal_error".to_owned())?
-            })
+            .submit_search_region(
+                caller.correlation_id.clone(),
+                body,
+                |job| {
+                    let mut slot = binding.lock().map_err(|_| RuntimeError::Poisoned)?;
+                    if caller.is_cancelled() {
+                        return Err(RuntimeError::InvalidState);
+                    }
+                    let value = self
+                        .regions
+                        .registry
+                        .promote_job(
+                            &self.regions.owner,
+                            &request.region_ref,
+                            QueryRegionKind::Search,
+                            request.request_seq,
+                            job,
+                        )
+                        .map_err(|_| RuntimeError::InvalidState)?;
+                    *slot = Some(value);
+                    Ok(())
+                },
+                move || {
+                    let candidate = candidate
+                        .lock()
+                        .map_err(|_| "support.internal_error".to_owned())?
+                        .take()
+                        .ok_or_else(|| "support.internal_error".to_owned())?;
+                    let permit = publish_binding
+                        .lock()
+                        .map_err(|_| "support.internal_error".to_owned())?
+                        .as_ref()
+                        .map(
+                            |(permit, _): &(
+                                crate::query_region::Permit<QueryRegionKind>,
+                                Option<Id>,
+                            )| permit.clone(),
+                        )
+                        .ok_or_else(|| "support.internal_error".to_owned())?;
+                    permit
+                        .publish(false, || {
+                            #[cfg(test)]
+                            if test_gate::pause_publish(&publish_version).is_err() {
+                                return Err("support.internal_error".to_owned());
+                            }
+                            publish_caller
+                                .with_active(|| {
+                                    sets.register_current_admitted_search(output.clone(), candidate)
+                                        .map(|_| output)
+                                        .map_err(|error| {
+                                            match error {
+                                                PageError::StaleVersion => {
+                                                    "result.requery_required"
+                                                }
+                                                _ => "support.internal_error",
+                                            }
+                                            .to_owned()
+                                        })
+                                })
+                                .ok_or_else(|| "support.internal_error".to_owned())?
+                        })
+                        .map_err(|_| "support.internal_error".to_owned())?
+                },
+            )
             .map_err(folder_job_error)?;
+        let previous = binding
+            .lock()
+            .map_err(|_| SearchError::Unavailable)?
+            .as_mut()
+            .and_then(|(_, previous)| previous.take());
+        if let Some(job) = previous {
+            let _ = self.regions.cancel_job(&job);
+        }
         self.async_workers.workers.notify();
         Ok(SearchJob {
             job_ref,

@@ -238,6 +238,49 @@ impl<K: Copy + Eq> RegionRegistry<K> {
             prepared,
         }))
     }
+    /// Binds an admitted F24 job while promoting the region in one critical section.
+    /// The caller must cancel the returned previous job only after releasing runtime locks.
+    pub(crate) fn promote_job(
+        &self,
+        owner: &Owner,
+        id: &Id,
+        kind: K,
+        sequence: u32,
+        job: &Id,
+    ) -> Result<(Permit<K>, Option<Id>), RegionError> {
+        let entry = self.lookup(owner, id)?;
+        let mut region = entry.lock().map_err(|_| RegionError::Poisoned)?;
+        self.check(&region)?;
+        if region.kind != kind {
+            return Err(RegionError::WrongKind);
+        }
+        if sequence == 0 || sequence <= region.last_sequence {
+            return Err(RegionError::InvalidSequence);
+        }
+        let previous_job = region.current.take().and_then(|old| {
+            old.stopped.store(true, Ordering::Release);
+            old.job
+        });
+        let stopped = Arc::new(AtomicBool::new(false));
+        region.last_sequence = sequence;
+        region.current = Some(Current {
+            sequence,
+            stopped: stopped.clone(),
+            finished: false,
+            published: false,
+            job: Some(job.clone()),
+        });
+        drop(region);
+        Ok((
+            Permit {
+                region: entry,
+                sequence,
+                stopped,
+                session_stopped: self.stopped.clone(),
+            },
+            previous_job,
+        ))
+    }
     fn check(&self, region: &Region<K>) -> Result<(), RegionError> {
         if region.closed || self.stopped.load(Ordering::Acquire) {
             Err(RegionError::Unavailable)

@@ -1,4 +1,5 @@
 use super::test_helpers::{finished_event, job_status, wait_terminal};
+mod busy_repro;
 use super::*;
 use crate::{
     api::EngineBuilder,
@@ -92,6 +93,7 @@ fn id(n: u8) -> Id {
 // This single trace deliberately covers ordering across source, region, and F24 gates.
 #[allow(clippy::cognitive_complexity)]
 fn invalid_cancelled_and_replaced_searches_preserve_published_results() -> Result<(), String> {
+    let _serial = test_gate::serial().map_err(str::to_owned)?;
     let store = IngestSink::default();
     let mut scan = store.open(id(1)).map_err(|error| format!("{error:?}"))?;
     scan.add_directory(vec![])
