@@ -157,6 +157,124 @@ function itemRow(index: number) {
     .closest<HTMLElement>('[role="row"]')!;
 }
 
+function rowTop(index: number) {
+  return Number.parseFloat(itemRow(index).style.insetBlockStart);
+}
+
+function measuredRows(initial: ReadonlyMap<number, number>, width = 800) {
+  let currentWidth = width;
+  const frames = new Map<number, FrameRequestCallback>();
+  let nextFrame = 0;
+  const observers: Array<{ notify: () => void }> = [];
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      private readonly callback: ResizeObserverCallback;
+
+      constructor(callback: ResizeObserverCallback) {
+        this.callback = callback;
+        observers.push({ notify: () => this.callback([], this as never) });
+      }
+
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+  );
+  vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+    const id = ++nextFrame;
+    frames.set(id, callback);
+    return id;
+  });
+  vi.spyOn(window, "cancelAnimationFrame").mockImplementation((id) => {
+    frames.delete(id);
+  });
+  vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(
+    function (this: HTMLElement) {
+      return this.classList.contains("du-browse-grid__body") ? currentWidth : 0;
+    },
+  );
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+    function (this: HTMLElement) {
+      if (this.classList.contains("du-browse-grid__body"))
+        return new DOMRect(0, 0, currentWidth, 8_000_000);
+      const index = Number(this.dataset.row);
+      if (Number.isInteger(index))
+        return new DOMRect(
+          0,
+          Number.parseFloat(this.style.insetBlockStart) || 0,
+          currentWidth,
+          initial.get(index) ?? 64,
+        );
+      return new DOMRect();
+    },
+  );
+  return {
+    async flush() {
+      await act(async () => {
+        observers.at(-1)?.notify();
+        for (let pass = 0; pass < 10 && frames.size > 0; pass += 1) {
+          const pending = [...frames];
+          frames.clear();
+          for (const [, callback] of pending) callback(0);
+        }
+      });
+    },
+    setWidth(value: number) {
+      currentWidth = value;
+      observers.at(-1)?.notify();
+    },
+  };
+}
+
+test("uses distinct measured row heights and repositions following rows", async () => {
+  const sizes = new Map([
+    [0, 96], // a wrapped name field
+    [1, 144], // a taller path field
+    [2, 80], // a different metadata field height
+  ]);
+  const layout = measuredRows(sizes);
+  render(grid(40, undefined, "measured-rows", 40));
+  await screen.findByText("Item 0");
+  await layout.flush();
+
+  expect(rowTop(0)).toBe(0);
+  expect(rowTop(1)).toBe(96);
+  expect(rowTop(2)).toBe(240);
+  expect(rowTop(3)).toBe(320);
+
+  // A late ResizeObserver report for the first row must move both neighbors.
+  sizes.set(0, 176);
+  await layout.flush();
+  expect(rowTop(1)).toBe(176);
+  expect(rowTop(2)).toBe(320);
+  expect(rowTop(3)).toBe(400);
+});
+
+test("re-measures rows after a dynamic width change and keeps the visible anchor", async () => {
+  const sizes = new Map([
+    [0, 96],
+    [1, 144],
+    [2, 80],
+  ]);
+  const layout = measuredRows(sizes);
+  render(grid(40, undefined, "width-change", 40));
+  await screen.findByText("Item 0");
+  await layout.flush();
+  const before = rowTop(3);
+  expect(before).toBe(320);
+
+  sizes.set(0, 160);
+  sizes.set(1, 208);
+  layout.setWidth(500);
+  await layout.flush();
+
+  expect(rowTop(1)).toBe(160);
+  expect(rowTop(2)).toBe(368);
+  expect(rowTop(3)).toBe(448);
+  expect(screen.getByText("Item 0")).toBeTruthy();
+});
+
 test("reveals the distant row inside the list viewport before giving it focus", async () => {
   const geometry = documentGeometry();
   const { rerender } = render(grid(count + 1));
@@ -252,6 +370,67 @@ test("keeps focus pinned, releases it on blur, and retains selection when the ro
   geometry.scrollTo(0);
   expect(itemRow(0)).not.toBe(first);
   expect(itemRow(0).getAttribute("aria-selected")).toBe("true");
+});
+
+test("Load more then End and Up keep measured terminal rows adjacent", async () => {
+  onMove.mockClear();
+  const sizes = new Map([
+    [237, 80],
+    [238, 240],
+    [239, 120],
+  ]);
+  const layout = measuredRows(sizes);
+  const { rerender } = render(grid(200, undefined, "append-page", 200));
+  await screen.findByText("Item 0");
+  await layout.flush();
+  listScroll.scrollTo(0, 128);
+  fireEvent.scroll(listRoot());
+  const focused = itemRow(2);
+  act(() => focused.focus());
+
+  rerender(grid(240, undefined, "append-page", 240));
+
+  expect(listScroll.scrollY).toBe(128);
+  expect(itemRow(2)).toBe(focused);
+  expect(document.activeElement).toBe(focused);
+  expect(screen.getByRole("grid").getAttribute("aria-rowcount")).toBe("240");
+
+  fireEvent.keyDown(focused, { key: "End" });
+  expect(onMove).toHaveBeenLastCalledWith(239, true);
+  const endFinish = vi.fn();
+  rerender(
+    grid(
+      240,
+      { index: 239, eligible: () => true, finish: endFinish },
+      "append-page",
+      240,
+    ),
+  );
+  await layout.flush();
+  await screen.findByText("Item 239");
+  await layout.flush();
+
+  const last = itemRow(239);
+  expect(document.activeElement).toBe(last);
+  expect(rowTop(239)).toBe(rowTop(238) + 240);
+  expect(endFinish).toHaveBeenCalledOnce();
+
+  fireEvent.keyDown(last, { key: "ArrowUp" });
+  expect(onMove).toHaveBeenLastCalledWith(238, false);
+  const upFinish = vi.fn();
+  rerender(
+    grid(
+      240,
+      { index: 238, eligible: () => true, finish: upFinish },
+      "append-page",
+      240,
+    ),
+  );
+  await layout.flush();
+
+  expect(document.activeElement).toBe(itemRow(238));
+  expect(rowTop(239)).toBe(rowTop(238) + 240);
+  expect(upFinish).toHaveBeenCalledOnce();
 });
 
 test("leaves guarded keys to their targets and keeps a single grid Tab stop", async () => {

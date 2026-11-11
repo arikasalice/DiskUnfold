@@ -209,7 +209,6 @@
 .du-browse-feedback .du-live-status {
   flex: 1;
 }
-.du-browse-grid [role="rowheader"] .du-action:not([aria-label]),
 .du-browse-grid [role="rowheader"] .du-text {
   display: -webkit-box;
   -webkit-line-clamp: 2;
