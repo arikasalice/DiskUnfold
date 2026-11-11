@@ -46,8 +46,14 @@ impl UseCase for Total {
     type Request = SpaceTotalRequest;
     type Response = SpaceTotal;
 
-    fn check_scope(&self, _: &SpaceTotalRequest, _: &CallerCtx) -> Result<(), EngineError> {
-        // This query has no OS path inputs. The target is checked against the pinned version.
+    fn check_scope(&self, request: &SpaceTotalRequest, _: &CallerCtx) -> Result<(), EngineError> {
+        // A folder reference must agree with an explicit result before either is looked up.
+        if let (Some(version), SpaceTarget::Folder { item }) =
+            (&request.result_version, &request.target)
+            && version != &item.result_version
+        {
+            return Err(EngineError::reason("result.requery_required"));
+        }
         Ok(())
     }
 
