@@ -10,7 +10,9 @@ use crate::{
     },
 };
 use du_core_contracts::{
-    ItemRef, SizeBasis, size_units::UnitTable, visualization::quantity::VizQuantity,
+    ItemRef, SizeBasis,
+    size_units::UnitTable,
+    visualization::{LayoutDescriptor, quantity::VizQuantity},
 };
 pub use layout::{HistogramLayout, histogram_descriptor};
 
@@ -69,13 +71,33 @@ impl Prepared {
         dispatcher: &Dispatcher,
         cancelled: &mut dyn FnMut() -> bool,
     ) -> Result<Rendered, DispatchError> {
-        let descriptor = histogram_descriptor();
+        self.render_selected(dispatcher, &histogram_descriptor(), cancelled)
+    }
+
+    /// Dispatches the exact histogram descriptor selected by the caller's registry.
+    /// The dispatcher validates registration and the format-to-strategy binding.
+    pub fn render_selected(
+        self,
+        dispatcher: &Dispatcher,
+        descriptor: &LayoutDescriptor,
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<Rendered, DispatchError> {
+        if descriptor.format != histogram_descriptor().format {
+            return Err(DispatchError::Layout(
+                super::typed_layout::Error::InvalidInput,
+            ));
+        }
         let selected = dispatcher.execute_common(
-            &descriptor.format,
+            &histogram_descriptor().format,
             Some(&descriptor.strategy),
             &self.input,
             cancelled,
         )?;
+        if selected.descriptor != *descriptor {
+            return Err(DispatchError::Layout(
+                super::typed_layout::Error::InvalidInput,
+            ));
+        }
         Ok(Rendered {
             prepared: self,
             selected,

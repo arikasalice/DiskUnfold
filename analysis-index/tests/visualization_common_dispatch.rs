@@ -167,6 +167,40 @@ fn histogram_and_extension_use_the_same_common_dispatch() -> Result<(), String> 
     );
     Ok(())
 }
+
+#[test]
+fn selected_histogram_rejects_wrong_format_and_unregistered_revision() -> Result<(), String> {
+    let sink = IngestSink::default();
+    let v = publish(&sink, 2, &[Some(10)])?;
+    let scope = ItemRef {
+        result_version: id(2),
+        item_no: 0,
+    };
+    let dispatcher = dispatcher()?;
+    let make = || {
+        histogram_dispatch::prepare(prep(&v, &scope, &SI_UNITS), &mut || false)
+            .map_err(|e| format!("{e:?}"))
+    };
+    assert!(matches!(
+        make()?.render_selected(&dispatcher, &ext(1), &mut || false),
+        Err(
+            du_analysis_index::visualization::typed_layout::DispatchError::Layout(
+                Error::InvalidInput
+            )
+        )
+    ));
+    let mut unknown = histogram_dispatch::histogram_descriptor();
+    unknown.strategy.revision = 99;
+    assert!(matches!(
+        make()?.render_selected(&dispatcher, &unknown, &mut || false),
+        Err(
+            du_analysis_index::visualization::typed_layout::DispatchError::Selection(
+                registry::SelectionError::UnknownStrategy
+            )
+        )
+    ));
+    Ok(())
+}
 #[test]
 fn pinned_result_and_unit_selection_survive_replacement() -> Result<(), String> {
     let sink = IngestSink::default();

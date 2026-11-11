@@ -59,6 +59,23 @@ impl Session {
         super::histogram::PinnedRendered::compute(source, request, &self.dispatcher, cancelled)
     }
 
+    /// Computes a histogram through the exact descriptor admitted by this session.
+    pub(crate) fn compute_histogram_selected(
+        &self,
+        source: Arc<ResultVersion>,
+        request: du_analysis_index::visualization::histogram_dispatch::Request<'_>,
+        descriptor: &du_core_contracts::visualization::LayoutDescriptor,
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<super::histogram::PinnedRendered, super::histogram::Error> {
+        super::histogram::PinnedRendered::compute_selected(
+            source,
+            request,
+            &self.dispatcher,
+            descriptor,
+            cancelled,
+        )
+    }
+
     /// Reserves histogram rows and metadata for a caller-owned publication gate.
     pub fn defer_histogram(
         &self,

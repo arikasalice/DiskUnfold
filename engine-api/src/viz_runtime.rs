@@ -170,7 +170,7 @@ struct Admitted {
     source: CurrentAnalysis,
     facts: SourceFacts,
     key: String,
-    strategy: du_core_contracts::visualization::LayoutStrategyKey,
+    descriptor: du_core_contracts::visualization::LayoutDescriptor,
     max_shapes: usize,
     histogram: Option<HistogramFacts>,
 }

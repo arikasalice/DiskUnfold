@@ -173,61 +173,12 @@ impl Fixture {
         synchronous_wait: Duration,
         max_work: NonZeroUsize,
     ) -> Result<Self, String> {
-        let ids = Arc::new(Identity(AtomicU8::new(15)));
-        let dispatcher = histogram_runtime::dispatcher()?;
-        let session = Arc::new(Session::new(
-            sink.clone(),
-            NonZeroUsize::MIN.saturating_add(3),
-            ids.clone(),
-            dispatcher,
-        ));
-        let (events_sender, events) = mpsc::channel();
-        let jobs = Arc::new(
-            JobRuntime::new(
-                ids.clone(),
-                Arc::new(Clock),
-                Arc::new(History),
-                Arc::new(Events(events_sender)),
-            )
-            .map_err(|e| format!("{e:?}"))?,
-        );
-        let (entered_sender, entered) = mpsc::channel();
-        let (release, release_receiver) = mpsc::channel();
-        let producer = Arc::new(Producer {
-            block: Mutex::new(Some((entered_sender, release_receiver))),
-            unit_iec: AtomicBool::new(false),
-        });
-        let mut builder = EngineBuilder::default();
-        Runtime::register(
-            &mut builder,
-            Assembly {
-                source: sink.clone(),
-                session: session.clone(),
-                jobs: jobs.clone(),
-                ids,
-                producer: producer.clone(),
-                policy: ViewPolicy {
-                    revision: 1,
-                    max_scale: 4.0,
-                    max_shapes: 100,
-                    max_channels: NonZeroUsize::MIN.saturating_add(3),
-                    max_work,
-                    synchronous_wait,
-                },
-            },
-            &Entropy,
-        )?;
-        let engine = builder.build().map_err(|e| e.to_string())?;
-        Ok(Self {
-            engine,
-            jobs,
+        histogram_strategy::fixture(
             sink,
-            events,
-            entered,
-            release,
-            session,
-            producer,
-        })
+            synchronous_wait,
+            max_work,
+            histogram_runtime::dispatcher()?,
+        )
     }
     fn call(&self, name: &str, body: Value) -> ResultEnvelope {
         self.engine.call(
@@ -497,3 +448,5 @@ mod hierarchy_tests;
 mod histogram_runtime;
 mod replacement;
 mod source_selection;
+
+mod histogram_strategy;

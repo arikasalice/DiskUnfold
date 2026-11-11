@@ -73,7 +73,7 @@ fn prepare(
     };
     let rendered = work
         .session
-        .compute_histogram(
+        .compute_histogram_selected(
             source.clone(),
             histogram_dispatch::Request {
                 version: source,
@@ -86,6 +86,7 @@ fn prepare(
                 scale: Scale::Automatic,
                 unknown_reason: &facts.unknown_reason,
             },
+            &admitted.descriptor,
             cancelled,
         )
         .map_err(|_| internal())?;

@@ -41,6 +41,23 @@ impl PinnedRendered {
         dispatcher: &Dispatcher,
         cancelled: &mut dyn FnMut() -> bool,
     ) -> Result<Self, Error> {
+        Self::compute_selected(
+            source,
+            request,
+            dispatcher,
+            &histogram_dispatch::histogram_descriptor(),
+            cancelled,
+        )
+    }
+
+    /// Executes a previously selected registered histogram strategy on this pinned source.
+    pub fn compute_selected(
+        source: Arc<ResultVersion>,
+        request: histogram_dispatch::Request<'_>,
+        dispatcher: &Dispatcher,
+        descriptor: &du_core_contracts::visualization::LayoutDescriptor,
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<Self, Error> {
         if !std::ptr::eq(Arc::as_ptr(&source), request.version) {
             return Err(Error::Source);
         }
@@ -51,18 +68,20 @@ impl PinnedRendered {
                 Error::Source
             }
         })?;
-        let rendered = prepared.render(dispatcher, cancelled).map_err(|e| {
-            if matches!(
-                e,
-                du_analysis_index::visualization::typed_layout::DispatchError::Layout(
-                    du_analysis_index::visualization::typed_layout::Error::Cancelled
-                )
-            ) {
-                Error::Cancelled
-            } else {
-                Error::Source
-            }
-        })?;
+        let rendered = prepared
+            .render_selected(dispatcher, descriptor, cancelled)
+            .map_err(|e| {
+                if matches!(
+                    e,
+                    du_analysis_index::visualization::typed_layout::DispatchError::Layout(
+                        du_analysis_index::visualization::typed_layout::Error::Cancelled
+                    )
+                ) {
+                    Error::Cancelled
+                } else {
+                    Error::Source
+                }
+            })?;
         Ok(Self { source, rendered })
     }
 
@@ -113,7 +132,7 @@ fn validate_request(
         || prepared.unit_bins().bins != request.bins
         || prepared.input().bounds != request.bounds
         || prepared.input().scale != request.scale
-        || selected.descriptor != histogram_dispatch::histogram_descriptor()
+        || selected.descriptor.format != histogram_dispatch::histogram_descriptor().format
     {
         return Err(Error::Source);
     }
@@ -141,6 +160,12 @@ fn bind_table_key(request: &mut Request<'_>, pinned: &PinnedRendered) {
     key.update(request.fingerprint.as_bytes());
     key.update(&prepared.unit_bins().table_revision.to_le_bytes());
     key.update(&prepared.unit_bins().base.to_le_bytes());
+    let descriptor = &pinned.rendered.selected().descriptor;
+    key.update(&(descriptor.format.len() as u64).to_le_bytes());
+    key.update(descriptor.format.as_bytes());
+    key.update(&(descriptor.strategy.id.len() as u64).to_le_bytes());
+    key.update(descriptor.strategy.id.as_bytes());
+    key.update(&descriptor.strategy.revision.to_le_bytes());
     request.fingerprint = key.finalize().to_hex().to_string();
 }
 

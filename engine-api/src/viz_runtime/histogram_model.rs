@@ -145,8 +145,8 @@ pub(super) fn build(
             reason_keys: vec![],
         },
         strategy: QueryStrategy {
-            id: admitted.strategy.id.clone(),
-            revision: admitted.strategy.revision,
+            id: admitted.descriptor.strategy.id.clone(),
+            revision: admitted.descriptor.strategy.revision,
         },
         table_revisions: admitted.facts.tables.clone(),
     };

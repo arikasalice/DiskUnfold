@@ -53,7 +53,7 @@ impl JobBody for Compute {
                     bottom: request.visible_window.bottom,
                 },
                 format: &request.format,
-                strategy: Some(&self.admitted.strategy),
+                strategy: Some(&self.admitted.descriptor.strategy),
                 max_shapes: self.admitted.max_shapes,
             },
             &self.admitted.source,

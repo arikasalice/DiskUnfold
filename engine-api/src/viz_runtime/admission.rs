@@ -33,11 +33,6 @@ impl Runtime {
         let facts = self.assembly.producer.source_facts(&source, &request)?;
         validate_facts(&facts, &source, self.assembly.policy.revision)?;
         let histogram = if request.format == "histogram" {
-            if descriptor
-                != du_analysis_index::visualization::histogram_dispatch::histogram_descriptor()
-            {
-                return Err(EngineError::reason("viz.strategy_unknown"));
-            }
             let mut supplied = self
                 .assembly
                 .producer
@@ -97,7 +92,7 @@ impl Runtime {
             source,
             facts,
             key,
-            strategy: descriptor.strategy,
+            descriptor,
             max_shapes,
             histogram,
         })
