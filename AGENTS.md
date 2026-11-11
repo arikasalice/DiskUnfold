@@ -99,6 +99,12 @@ For a CLI-only development build, use `cargo run --locked -p du-launcher --no-de
 
 ## Tests and handoff
 
+### Team coordination
+
+- Each team lead coordinates the assigned work and explicitly selects `gpt-6-luna` for every new sub-agent, including nested delegation. Close completed sub-agents. If the model of an in-flight sub-agent cannot be changed, let its current assignment finish, close it, and use Luna for further delegation. Existing team leads keep their assigned models.
+- Give each delegate a fixed starting commit, design references, owned paths, dependencies and acceptance checks. Review the returned diff and verify the affected entry point before handing off the result. Return findings with evidence and reproduction steps to the owner for correction, then review the revised result.
+- Route cross-team dependencies, shared contract changes, ownership conflicts and integration readiness through the project coordinator. Report the commit, design IDs, test evidence, unverified scope and any decision needed. The design lead reviews rendered changes against the approved design and returns visual or interaction findings to the implementation owner through the coordinator.
+
 ```sh
 cargo fmt --all -- --check
 cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
