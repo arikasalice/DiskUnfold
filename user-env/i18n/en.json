@@ -1,6 +1,8 @@
 [
   "en", "1", {}, "en", "en",
   [
+    ["locale.language.en", "English", []],
+    ["locale.language.ko", "한국어", []],
     ["ui.product.name", "DiskUnfold", []],
     ["cli.help.usage", "Usage: diskunfold [--lang LANGUAGE] [--help | --version]", []],
     ["cli.help.unsupported", "DiskUnfold: unsupported arguments. See --help.", []],

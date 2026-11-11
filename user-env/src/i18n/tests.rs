@@ -102,3 +102,87 @@ fn only_korean_integrity_failure_allows_english_to_continue() -> Result<(), Regi
     assert!(register(&[en], &[], &[]).is_err());
     Ok(())
 }
+#[test]
+fn published_bundle_revision_vectors() {
+    let resource = *blake3::hash(b"resource").as_bytes();
+    let metadata = blake3::hash(b"meta");
+    assert_eq!(
+        metadata.to_hex().as_str(),
+        "37b2bcaae91385dae953ccf1688ea09d6655c29b2e2594d6656b609a0163b37d"
+    );
+    assert_eq!(
+        super::bundle_revision("en", &resource, metadata.as_bytes()).as_deref(),
+        Some("90cb92f8873b47b4b98d516402c508458403067b2c234d8b27a66183a2ef9898")
+    );
+    assert_eq!(
+        super::bundle_revision("ko", &resource, metadata.as_bytes()).as_deref(),
+        Some("e9c33453b4b63650c7c9e6df6dd2c760b56f43da99b2a3941ae335147c82a80b")
+    );
+    let changed = blake3::hash(b"meta2");
+    assert_ne!(
+        super::bundle_revision("en", &resource, metadata.as_bytes()),
+        super::bundle_revision("en", &resource, changed.as_bytes())
+    );
+}
+
+#[test]
+fn embedded_inventory_is_derived_from_verified_bytes() -> Result<(), super::RegistrationError> {
+    let registry = super::embedded::register(&[])?;
+    for resource in super::embedded::resources()? {
+        assert_eq!(
+            registry.resource_digest(resource.language),
+            Some(*blake3::hash(resource.bytes).as_bytes())
+        );
+        let key = registry
+            .self_name_key(resource.language)
+            .ok_or(super::RegistrationError)?;
+        assert!(
+            registry
+                .bundle(resource.language)
+                .ok_or(super::RegistrationError)?
+                .messages
+                .iter()
+                .any(|(candidate, _)| candidate == key)
+        );
+        assert!(
+            registry
+                .revisions(resource.language, b"actual metadata bytes")
+                .is_some()
+        );
+    }
+    assert!(registry.revisions("unknown", b"meta").is_none());
+    Ok(())
+}
+
+#[test]
+fn korean_integrity_failure_excludes_evidence_and_revisions() -> Result<(), super::RegistrationError>
+{
+    let resources = super::embedded::resources()?;
+    let english = resources
+        .iter()
+        .find(|r| r.language == "en")
+        .ok_or(super::RegistrationError)?;
+    let korean = resources
+        .iter()
+        .find(|r| r.language == "ko")
+        .ok_or(super::RegistrationError)?;
+    let damaged = super::BundleResource {
+        language: korean.language,
+        version: korean.version,
+        bytes: korean.bytes,
+        expected_hash: [0; 32],
+    };
+    let english = super::BundleResource {
+        language: english.language,
+        version: english.version,
+        bytes: english.bytes,
+        expected_hash: english.expected_hash,
+    };
+    let registry =
+        super::Registry::register(&[english, damaged], &[], &[], super::embedded::parse_bundle)?;
+    assert!(registry.self_name_key("ko").is_none());
+    assert!(registry.resource_digest("ko").is_none());
+    assert!(registry.revisions("ko", b"meta").is_none());
+    assert!(registry.self_name_key("en").is_some());
+    Ok(())
+}

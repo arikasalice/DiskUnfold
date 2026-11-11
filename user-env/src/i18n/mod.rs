@@ -40,6 +40,7 @@ impl RegistrationError {
 #[derive(Debug)]
 pub struct Registry {
     bundles: BTreeMap<String, Bundle>,
+    resource_digests: BTreeMap<String, [u8; 32]>,
     configured_languages: Vec<String>,
     integrity_warnings: Vec<String>,
 }
@@ -67,12 +68,14 @@ impl Registry {
         // Count registration rows, including rejected Korean resources.
         unique(resources.iter().map(|resource| resource.language))?;
         let mut bundles = BTreeMap::new();
+        let mut resource_digests = BTreeMap::new();
         for resource in checked {
             let bundle = parse(resource.bytes)?;
             if bundle.language != resource.language || bundle.version != resource.version {
                 return Err(RegistrationError);
             }
             unique(bundle.messages.iter().map(|(key, _)| key.as_str()))?;
+            resource_digests.insert(bundle.language.clone(), resource.expected_hash);
             bundles.insert(bundle.language.clone(), bundle);
         }
         unique(declared_keys.iter().map(String::as_str))?;
@@ -84,11 +87,44 @@ impl Registry {
         unique(metadata_keys.iter().map(String::as_str))?;
         Ok(Self {
             bundles,
+            resource_digests,
             configured_languages: resources
                 .iter()
                 .map(|row| row.language.to_owned())
                 .collect(),
             integrity_warnings: warnings,
+        })
+    }
+
+    /// Digest of exactly the bytes that passed registration, never a reserialization.
+    pub fn resource_digest(&self, language: &str) -> Option<[u8; 32]> {
+        self.resource_digests.get(language).copied()
+    }
+
+    /// Self-name key only for an integrity-verified, registered bundle containing it.
+    pub fn self_name_key(&self, language: &str) -> Option<&'static str> {
+        let key = match language {
+            "en" => "locale.language.en",
+            "ko" => "locale.language.ko",
+            _ => return None,
+        };
+        let bundle = self.bundle(language)?;
+        bundle
+            .messages
+            .iter()
+            .any(|(candidate, message)| candidate == key && message.parameters.is_empty())
+            .then_some(key)
+    }
+
+    /// Calculate revisions from registered source bytes and exact metadata bytes.
+    /// The caller must admit and validate a real metadata table before using this
+    /// value in a bundle; the registry does not provide metadata or a wire body.
+    pub fn revisions(&self, language: &str, metadata_bytes: &[u8]) -> Option<BundleRevisions> {
+        let resource = self.resource_digest(language)?;
+        let metadata = blake3::hash(metadata_bytes);
+        Some(BundleRevisions {
+            metadata_revision: metadata.to_hex().to_string(),
+            bundle_revision: bundle_revision(language, &resource, metadata.as_bytes())?,
         })
     }
 
@@ -108,6 +144,23 @@ impl Registry {
     pub fn integrity_warnings(&self) -> &[String] {
         &self.integrity_warnings
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BundleRevisions {
+    pub metadata_revision: String,
+    pub bundle_revision: String,
+}
+
+fn bundle_revision(language: &str, resource: &[u8; 32], metadata: &[u8; 32]) -> Option<String> {
+    let length = u32::try_from(language.len()).ok()?;
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"diskunfold.locale.bundle.v1\0");
+    hasher.update(&length.to_le_bytes());
+    hasher.update(language.as_bytes());
+    hasher.update(resource);
+    hasher.update(metadata);
+    Some(hasher.finalize().to_hex().to_string())
 }
 
 fn unique<'a>(values: impl IntoIterator<Item = &'a str>) -> Result<(), RegistrationError> {

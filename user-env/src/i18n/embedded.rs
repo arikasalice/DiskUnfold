@@ -14,6 +14,8 @@ use super::{Bundle, BundleResource, Message, RegistrationError, Registry};
 
 pub const DECLARED_KEYS: &[&str] = &[
     "ui.product.name",
+    "locale.language.en",
+    "locale.language.ko",
     "cli.help.usage",
     "cli.help.unsupported",
     "locale.registration_failed",
@@ -132,6 +134,9 @@ pub fn register(metadata_keys: &[String]) -> Result<Registry, RegistrationError>
         .map(|key| (*key).to_owned())
         .collect::<Vec<_>>();
     let registry = Registry::register(&resources()?, &declared, metadata_keys, parse_bundle)?;
+    for language in registry.languages() {
+        registry.self_name_key(language).ok_or(RegistrationError)?;
+    }
     let languages: Vec<_> = registry.configured_languages().collect();
     let descriptors =
         crate::settings::builtin_descriptors(&languages).map_err(|_| RegistrationError)?;
