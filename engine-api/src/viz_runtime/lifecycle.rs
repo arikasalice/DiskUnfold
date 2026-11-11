@@ -86,6 +86,18 @@ impl Runtime {
                         *no_attribution,
                         wire_model.as_deref(),
                     ),
+                    RuntimeCommitted::RankedGroup {
+                        fallback,
+                        group_ref,
+                        row_index,
+                    } => super::ranked_group_model::response(
+                        &self.assembly.session,
+                        &admitted,
+                        fallback,
+                        group_ref,
+                        *row_index,
+                        wire_model.as_deref(),
+                    ),
                 }
             }
             JobState::Failed | JobState::Partial => Err(internal()),
@@ -137,7 +149,8 @@ impl Runtime {
         let fallback = match committed {
             RuntimeCommitted::Projection(CommittedRender::Model(model)) => model.fallback(),
             RuntimeCommitted::Projection(CommittedRender::Fallback { fallback, .. })
-            | RuntimeCommitted::Histogram { fallback, .. } => fallback,
+            | RuntimeCommitted::Histogram { fallback, .. }
+            | RuntimeCommitted::RankedGroup { fallback, .. } => fallback,
         };
         match self
             .assembly

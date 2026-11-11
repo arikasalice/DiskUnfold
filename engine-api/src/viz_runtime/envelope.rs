@@ -270,7 +270,7 @@ fn derived_total(source: &SizeValue, value: u64, lower: bool) -> Result<VizTotal
         },
     })
 }
-fn page_error(error: crate::viz_pages::Error) -> EngineError {
+pub(super) fn page_error(error: crate::viz_pages::Error) -> EngineError {
     EngineError::new(
         match error {
             crate::viz_pages::Error::StaleVersion => "result.version_stale",

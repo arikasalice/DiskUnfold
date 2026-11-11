@@ -25,7 +25,7 @@ impl Strategy for Alternate {
     }
 }
 
-fn fixture(sink: IngestSink) -> Result<Fixture, String> {
+pub(super) fn fixture(sink: IngestSink) -> Result<Fixture, String> {
     fixture_with_alternate(sink, None)
 }
 fn fixture_with_alternate(
@@ -66,7 +66,7 @@ fn selected_bar_strategy_revision_is_executed_and_returned() -> Result<(), Strin
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     Ok(())
 }
-fn request(view: &Value, seq: u32) -> Value {
+pub(super) fn request(view: &Value, seq: u32) -> Value {
     let mut body = render_body(view, seq);
     body["format"] = json!("bar");
     body

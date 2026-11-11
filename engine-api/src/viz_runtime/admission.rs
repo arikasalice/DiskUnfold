@@ -63,6 +63,13 @@ impl Runtime {
             None
         };
         let mut key = fingerprint(&request, &facts, max_shapes)?;
+        let ranked_other = bind_ranked_other(
+            &*self.assembly.producer,
+            &source,
+            &request,
+            &facts,
+            &mut key,
+        )?;
         if let Some(policy) = &histogram {
             let bins: Vec<_> = policy
                 .bins
@@ -95,6 +102,7 @@ impl Runtime {
             descriptor,
             max_shapes,
             histogram,
+            ranked_other,
         })
     }
     fn pin_source(&self, request: &VizRenderRequest) -> Result<CurrentAnalysis, EngineError> {
@@ -250,4 +258,39 @@ fn fingerprint(
     let bytes = serde_json::to_vec(&(value, &facts.tables, &facts.staleness, max_shapes))
         .map_err(|_| internal())?;
     Ok(blake3::hash(&bytes).to_hex().to_string())
+}
+
+fn bind_ranked_other(
+    producer: &dyn EvidenceProducer,
+    source: &CurrentAnalysis,
+    request: &VizRenderRequest,
+    facts: &SourceFacts,
+    key: &mut String,
+) -> Result<Option<crate::viz_pages::ranked_group::OtherPresentation>, EngineError> {
+    let mut ranked_other = if request.format == "bar" {
+        producer.ranked_other(source, request)?
+    } else {
+        None
+    };
+    if let Some(other) = &mut ranked_other {
+        if other.group_ref.is_empty()
+            || other.display_name.is_empty()
+            || !facts.classes.contains_key(&other.legend_class_key)
+            || other.display_flags.iter().any(String::is_empty)
+        {
+            return Err(invalid());
+        }
+        other.display_flags.sort_unstable();
+        other.display_flags.dedup();
+        let input = serde_json::to_vec(&(
+            &*key,
+            &other.group_ref,
+            &other.display_name,
+            &other.legend_class_key,
+            &other.display_flags,
+        ))
+        .map_err(|_| internal())?;
+        *key = blake3::hash(&input).to_hex().to_string();
+    }
+    Ok(ranked_other)
 }

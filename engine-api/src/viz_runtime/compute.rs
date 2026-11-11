@@ -206,6 +206,23 @@ pub(super) fn commit(
                 no_attribution,
             }
         }
+        Candidate::RankedGroup(candidate) => {
+            let model_ref = session
+                .commit_ranked_group(candidate, &mut || false)
+                .map_err(|_| "support.internal_error")?;
+            let (revision, group_ref, row_index) = computed
+                .ranked_group
+                .clone()
+                .ok_or("support.internal_error")?;
+            RuntimeCommitted::RankedGroup {
+                fallback: du_core_contracts::visualization::render::VizFallback {
+                    model_ref,
+                    result_revision: revision,
+                },
+                group_ref,
+                row_index,
+            }
+        }
     };
     computed.committed = Some(committed);
     Ok(())

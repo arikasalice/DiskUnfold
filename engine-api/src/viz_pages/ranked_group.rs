@@ -25,6 +25,7 @@ use std::{
 };
 
 /// Owner-provided model-local reference and display evidence for Other.
+#[derive(Clone)]
 pub struct OtherPresentation {
     /// Opaque reference scoped to this model.
     pub group_ref: String,
@@ -74,6 +75,9 @@ impl PinnedRankedBar {
     /// Returns the registered result without permitting mutation of its source binding.
     pub fn selected(&self) -> &SelectedBar {
         &self.selected
+    }
+    pub(crate) fn into_selected(self) -> SelectedBar {
+        self.selected
     }
 }
 impl DeferredRankedGroup {

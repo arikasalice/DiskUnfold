@@ -55,6 +55,21 @@ struct Producer {
     unit_iec: AtomicBool,
 }
 impl EvidenceProducer for Producer {
+    fn ranked_other(
+        &self,
+        _: &current_analysis::CurrentAnalysis,
+        _: &VizRenderRequest,
+    ) -> Result<Option<du_engine_api::viz_pages::ranked_group::OtherPresentation>, EngineError>
+    {
+        Ok(Some(
+            du_engine_api::viz_pages::ranked_group::OtherPresentation {
+                group_ref: "fixture.other".into(),
+                display_name: "Other".into(),
+                legend_class_key: "fixture.class".into(),
+                display_flags: vec![],
+            },
+        ))
+    }
     fn histogram_facts(
         &self,
         _: &current_analysis::CurrentAnalysis,
@@ -451,3 +466,4 @@ mod source_selection;
 
 mod histogram_strategy;
 mod ranked_bar_runtime;
+mod ranked_group_runtime;

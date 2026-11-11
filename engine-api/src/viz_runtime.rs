@@ -40,6 +40,8 @@ mod histogram;
 mod histogram_model;
 mod lifecycle;
 mod ranked_bar;
+mod ranked_group_model;
+mod ranked_projection;
 
 /// Histogram policy and bin presentation frozen by the composition owner at admission.
 #[derive(Clone)]
@@ -88,6 +90,14 @@ pub struct ItemEvidence {
 /// Implementations must return evidence for the supplied immutable result, and
 /// preserve semantics for the lifetime of their registered policy revisions.
 pub trait EvidenceProducer: Send + Sync + 'static {
+    /// Supplies model-local Other presentation for the pinned ranked-bar request.
+    fn ranked_other(
+        &self,
+        _source: &CurrentAnalysis,
+        _request: &VizRenderRequest,
+    ) -> Result<Option<crate::viz_pages::ranked_group::OtherPresentation>, EngineError> {
+        Ok(None)
+    }
     /// Supplies immutable byte-histogram policy for this exact admitted source.
     fn histogram_facts(
         &self,
@@ -138,12 +148,18 @@ struct Computed {
     committed: Option<RuntimeCommitted>,
     wire_model: Option<Arc<VizModel>>,
     histogram_revision: Option<Id>,
+    ranked_group: Option<(Id, String, u32)>,
 }
 enum RuntimeCommitted {
     Projection(CommittedRender),
     Histogram {
         fallback: du_core_contracts::visualization::render::VizFallback,
         no_attribution: bool,
+    },
+    RankedGroup {
+        fallback: du_core_contracts::visualization::render::VizFallback,
+        group_ref: String,
+        row_index: u32,
     },
 }
 impl Clone for RuntimeCommitted {
@@ -157,14 +173,25 @@ impl Clone for RuntimeCommitted {
                 fallback: fallback.clone(),
                 no_attribution: *no_attribution,
             },
+            Self::RankedGroup {
+                fallback,
+                group_ref,
+                row_index,
+            } => Self::RankedGroup {
+                fallback: fallback.clone(),
+                group_ref: group_ref.clone(),
+                row_index: *row_index,
+            },
         }
     }
 }
 enum Candidate {
     Projection(DeferredRender),
     Histogram(crate::viz_pages::histogram::DeferredSelectedPages),
+    RankedGroup(crate::viz_pages::ranked_group::DeferredRankedGroup),
 }
 type CandidateSlot = Mutex<Option<Candidate>>;
+type RankedWork = (Candidate, Option<VizModel>, u64, Option<(String, u32)>);
 #[derive(Clone)]
 struct Admitted {
     request: VizRenderRequest,
@@ -174,6 +201,7 @@ struct Admitted {
     descriptor: du_core_contracts::visualization::LayoutDescriptor,
     max_shapes: usize,
     histogram: Option<HistogramFacts>,
+    ranked_other: Option<crate::viz_pages::ranked_group::OtherPresentation>,
 }
 /// Owns admission, shared subscriptions and the physical F24 publication boundary.
 /// Lock order: admission serial -> F24 gate -> members -> computed -> cache/source.
