@@ -7,14 +7,8 @@ use super::{
     typed_layout::{self, Dispatcher, Strategy, Treemap},
 };
 
-/// Baseline strategies beyond the implemented treemap; each requires revision one.
-const OTHER_REQUIRED_IDS: [&str; 5] = [
-    "viz.bar",
-    "viz.trend",
-    "viz.waterfall",
-    "viz.histogram",
-    "viz.sankey",
-];
+/// Baseline strategies checked after the explicit treemap and bar requirements.
+const OTHER_REQUIRED_IDS: [&str; 4] = ["viz.trend", "viz.waterfall", "viz.histogram", "viz.sankey"];
 
 /// Composition failure; no partial dispatcher is returned for a full bundle.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -48,6 +42,21 @@ pub fn implemented_dispatcher() -> Result<Dispatcher, Error> {
     Ok(Dispatcher::new(registry))
 }
 
+/// Adds the ranked-only bar candidate to an explicitly partial development registry.
+///
+/// This does not claim type comparison or stacked support and must not be used
+/// as the application catalog until those representations are implemented.
+pub fn register_ranked_bar(
+    builder: &mut registry::Builder<Box<dyn Strategy>>,
+) -> Result<(), Error> {
+    builder
+        .register(
+            typed_layout::bar_descriptor(),
+            Box::new(typed_layout::RankedBar),
+        )
+        .map_err(Error::Registration)
+}
+
 /// Freezes a full baseline only when all six published IDs at revision one exist.
 ///
 /// The builder still enforces unique IDs, revisions, and format associations.
@@ -61,6 +70,13 @@ pub fn finish_default(builder: registry::Builder<Box<dyn Strategy>>) -> Result<D
         .is_err()
     {
         return Err(Error::MissingRequired("viz.treemap"));
+    }
+    let bar = typed_layout::bar_descriptor();
+    if registry
+        .resolve(&bar.format, &bar.strategy)
+        .map_or(true, |entry| !entry.implementation.complete_bar())
+    {
+        return Err(Error::MissingRequired("viz.bar"));
     }
     for id in OTHER_REQUIRED_IDS {
         if !registry

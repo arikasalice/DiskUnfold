@@ -3,6 +3,7 @@
 //! This is not the public F06 model: cross-format quantities, totals, groups,
 //! metadata and model references still require their published physical contract.
 use super::{
+    bar_projection,
     geometry::{NoArea, Rect, rectangle_geometry, valid_bounds},
     registry, root_ref, squarify, treemap,
 };
@@ -131,6 +132,85 @@ pub enum Error {
 /// Stateless typed strategy sharing one input and output shape.
 pub trait Strategy: Send + Sync {
     fn layout(&self, input: &Input, cancelled: &mut dyn FnMut() -> bool) -> Result<Output, Error>;
+
+    /// Calculates a bar representation when the implementation supports it.
+    fn bar(
+        &self,
+        _input: BarInput<'_>,
+        _cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<bar_projection::Ranking, BarError> {
+        Err(BarError::UnsupportedMode)
+    }
+
+    /// Whether every published bar representation is implemented.
+    fn complete_bar(&self) -> bool {
+        false
+    }
+}
+
+/// Distinct representations of the single published bar strategy.
+pub enum BarInput<'a> {
+    /// Immediate children ranked using a pinned F03 folder total.
+    Ranked(bar_projection::ChildrenRequest<'a>),
+    /// Classification evidence is not yet admitted by this typed boundary.
+    TypeComparison,
+    /// Legend-ordered segments and attribution evidence are not yet admitted.
+    Stacked,
+}
+
+/// Bar-mode rejection or failure of the pinned F03 projection.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum BarError {
+    UnsupportedMode,
+    Projection(bar_projection::Error),
+}
+
+/// Ranked bar implementation; classification and stacked modes remain unsupported.
+pub struct RankedBar;
+impl Strategy for RankedBar {
+    fn layout(
+        &self,
+        _input: &Input,
+        _cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<Output, Error> {
+        Err(Error::InvalidInput)
+    }
+    fn bar(
+        &self,
+        input: BarInput<'_>,
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<bar_projection::Ranking, BarError> {
+        match input {
+            BarInput::Ranked(request) => {
+                bar_projection::project_children(request, cancelled).map_err(BarError::Projection)
+            }
+            BarInput::TypeComparison | BarInput::Stacked => Err(BarError::UnsupportedMode),
+        }
+    }
+}
+
+/// Identity of the single bar strategy, shared by its representations.
+pub fn bar_descriptor() -> LayoutDescriptor {
+    LayoutDescriptor {
+        format: "bar".into(),
+        strategy: LayoutStrategyKey {
+            id: "viz.bar".into(),
+            revision: 1,
+        },
+    }
+}
+
+/// Selected bar result retains its pinned F03 totals and source rows.
+pub struct SelectedBar {
+    pub descriptor: LayoutDescriptor,
+    pub output: bar_projection::Ranking,
+}
+
+/// Selection failures remain distinct from unsupported modes and evidence errors.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum BarDispatchError {
+    Selection(registry::SelectionError),
+    Bar(BarError),
 }
 
 /// Treemap geometry for a single already admitted parent partition.
@@ -228,6 +308,32 @@ impl Dispatcher {
             Some(key) => self.0.resolve(format, key),
             None => self.0.latest(format),
         }
+    }
+
+    /// Selects a registered strategy and executes one bar representation.
+    pub fn execute_bar(
+        &self,
+        format: &str,
+        key: Option<&LayoutStrategyKey>,
+        input: BarInput<'_>,
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<SelectedBar, BarDispatchError> {
+        let entry = self
+            .resolve_entry(format, key)
+            .map_err(BarDispatchError::Selection)?;
+        let output = entry
+            .implementation
+            .bar(input, cancelled)
+            .map_err(BarDispatchError::Bar)?;
+        if cancelled() {
+            return Err(BarDispatchError::Bar(BarError::Projection(
+                bar_projection::Error::Cancelled,
+            )));
+        }
+        Ok(SelectedBar {
+            descriptor: entry.descriptor.clone(),
+            output,
+        })
     }
 
     pub fn execute(
