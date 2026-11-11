@@ -62,6 +62,12 @@ mod tests {
         for (reason, code, retryable) in [
             ("viz.busy", ErrorCode::Busy, true),
             ("viz.viewport_invalid", ErrorCode::InvalidArgument, false),
+            ("viz.format_unknown", ErrorCode::InvalidArgument, false),
+            ("viz.strategy_unknown", ErrorCode::InvalidArgument, false),
+            ("viz.measure_unknown", ErrorCode::InvalidArgument, false),
+            ("viz.denominator_invalid", ErrorCode::InvalidArgument, false),
+            ("cursor.mismatch", ErrorCode::InvalidArgument, false),
+            ("result.version_not_found", ErrorCode::NotFound, false),
         ] {
             let error = ErrorEnvelope::from_reason_or_internal(reason, correlation.clone(), vec![]);
             assert_eq!(error.reason_key, reason);
