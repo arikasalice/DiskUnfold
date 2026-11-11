@@ -11,6 +11,14 @@ pub enum BaseResult {
     Compatible,
 }
 
+/// Current identity evidence for a target already bound to the pinned scope.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Volume {
+    Matching,
+    Replaced,
+    Unknown,
+}
+
 /// Recovery reason supplied by the normalized whole-unit gap.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WholeUnitGap {
@@ -111,13 +119,13 @@ pub enum Decision {
 
 /// Applies the F33 range table in order without widening an excluded range.
 ///
-/// `within_scope` includes target boundaries and exclusion checks. Only trusted
-/// owner evidence can establish `volume_matches`. A directory gap is eligible
-/// here only after closure. Recovery rows never schedule automatic work.
+/// `within_scope` includes target boundaries and exclusion checks. Automatic
+/// work requires positive volume identity, but a whole-unit loss can still
+/// produce a recovery row for an unavailable target with a retained binding.
 pub fn decide(
     within_scope: bool,
     base: BaseResult,
-    volume_matches: bool,
+    volume: Volume,
     evidence: RangeEvidence,
 ) -> Decision {
     if !within_scope {
@@ -128,7 +136,7 @@ pub fn decide(
         BaseResult::RuleUnavailable => return Decision::RecoverTarget(RecoveryReason::RuleChanged),
         BaseResult::Compatible => {}
     }
-    if !volume_matches {
+    if volume == Volume::Replaced {
         return Decision::RecoverTarget(RecoveryReason::VolumeReplaced);
     }
     match evidence {
@@ -136,6 +144,7 @@ pub fn decide(
             WholeUnitGap::Unlocatable => RecoveryReason::GapUnlocatable,
             WholeUnitGap::TargetDisconnected => RecoveryReason::TargetDisconnected,
         }),
+        _ if volume == Volume::Unknown => Decision::Discard,
         RangeEvidence::ClosedDirectoryGap => Decision::QueueRange {
             include_descendants: true,
         },

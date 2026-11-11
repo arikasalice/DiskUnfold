@@ -10,6 +10,7 @@
 //! when its registry scope is released. These are in-process implementation
 //! types, not a serialized wire contract.
 
+pub mod batch;
 mod gaps;
 pub mod recovery;
 mod replay;
@@ -24,14 +25,21 @@ pub enum Update<'a> {
     /// Apply one change and its gap replacement as one transaction.
     Batch {
         batch: &'a Batch,
+        previous_gaps: &'a BTreeMap<u64, Gap>,
         gaps: &'a BTreeMap<u64, Gap>,
     },
     /// The volume mismatched; discard the batch's change ranges.
-    VolumeReplaced { watch_ref: [u8; 16] },
+    VolumeReplaced {
+        scope: [u8; 16],
+        watch_ref: [u8; 16],
+    },
     /// Replace only this unit's producer gaps and add the consumer resync gap.
     Snapshot {
         snapshot: &'a Snapshot,
         gaps: &'a BTreeMap<u64, Gap>,
+        /// True when continuity was lost or the snapshot skips unprocessed batches.
+        resync_required: bool,
+        /// Last known batch end, independent of whether resynchronization is required.
         resync_start: Option<u64>,
     },
 }
@@ -188,10 +196,15 @@ impl Ledger {
         };
         let update = if mismatch {
             Update::VolumeReplaced {
+                scope: self.scope,
                 watch_ref: batch.context.watch_ref,
             }
         } else {
-            Update::Batch { batch, gaps: &next }
+            Update::Batch {
+                batch,
+                previous_gaps: &unit.gaps,
+                gaps: &next,
+            }
         };
         if let Err(e) = sink(update) {
             unit.needs_resync = true;
@@ -278,6 +291,7 @@ impl Ledger {
         if let Err(e) = sink(Update::Snapshot {
             snapshot,
             gaps: &next,
+            resync_required: unit.needs_resync || cut.cut > unit.last_change_sequence,
             resync_start: prior,
         }) {
             unit.needs_resync = true;

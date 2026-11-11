@@ -86,7 +86,12 @@ fn port_events_reach_registry_batches_and_the_consumer() {
     assert_eq!(classified.scope, recovery::GapScope::Unit);
     assert_eq!(
         classified.range_evidence.map(|evidence| {
-            recovery::decide(true, recovery::BaseResult::Compatible, true, evidence)
+            recovery::decide(
+                true,
+                recovery::BaseResult::Compatible,
+                recovery::Volume::Matching,
+                evidence,
+            )
         }),
         Some(recovery::Decision::RecoverTarget(
             recovery::RecoveryReason::GapUnlocatable

@@ -1,6 +1,6 @@
 use super::{
-    BaseResult, ClassifiedGap, Decision, GapScope, RangeEvidence, RecoveryReason, WholeUnitGap,
-    classify_gap, decide,
+    BaseResult, ClassifiedGap, Decision, GapScope, RangeEvidence, RecoveryReason, Volume,
+    WholeUnitGap, classify_gap, decide,
 };
 use du_analysis_index::freshness::Settled;
 use du_scan_engine::watch_coalescer::{Gap, GapReason};
@@ -83,32 +83,33 @@ fn directory_loss_keeps_its_path_and_only_queues_after_closure() {
 fn first_matching_scope_or_compatibility_failure_wins() {
     use BaseResult::{Compatible, Missing, RuleUnavailable};
     use Decision::{Discard, RecoverTarget};
+    use Volume::{Matching, Replaced};
 
     let gap = RangeEvidence::WholeUnitGap(WholeUnitGap::TargetDisconnected);
     let cases = [
-        (false, Missing, false, Discard),
-        (false, Compatible, true, Discard),
+        (false, Missing, Replaced, Discard),
+        (false, Compatible, Matching, Discard),
         (
             true,
             Missing,
-            false,
+            Replaced,
             RecoverTarget(RecoveryReason::NoBaseResult),
         ),
         (
             true,
             RuleUnavailable,
-            false,
+            Replaced,
             RecoverTarget(RecoveryReason::RuleChanged),
         ),
         (
             true,
             Compatible,
-            false,
+            Replaced,
             RecoverTarget(RecoveryReason::VolumeReplaced),
         ),
     ];
-    for (within_scope, base, volume_matches, expected) in cases {
-        assert_eq!(decide(within_scope, base, volume_matches, gap), expected);
+    for (within_scope, base, volume, expected) in cases {
+        assert_eq!(decide(within_scope, base, volume, gap), expected);
     }
 }
 
@@ -130,7 +131,7 @@ fn whole_unit_gaps_create_plan_rows_without_queueing() {
             decide(
                 true,
                 BaseResult::Compatible,
-                true,
+                Volume::Unknown,
                 RangeEvidence::WholeUnitGap(gap)
             ),
             Decision::RecoverTarget(reason)
@@ -163,13 +164,13 @@ fn only_a_closed_directory_gap_widens_the_queue_to_its_descendants() {
         ),
     ] {
         assert_eq!(
-            decide(true, BaseResult::Compatible, true, evidence),
+            decide(true, BaseResult::Compatible, Volume::Matching, evidence),
             Decision::QueueRange {
                 include_descendants: expected
             }
         );
         assert_eq!(
-            decide(false, BaseResult::Compatible, true, evidence),
+            decide(false, BaseResult::Compatible, Volume::Matching, evidence),
             Decision::Discard
         );
     }

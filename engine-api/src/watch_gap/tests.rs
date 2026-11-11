@@ -72,7 +72,7 @@ impl Sink {
         }
         self.count += 1;
         match update {
-            Update::Batch { batch, gaps } => {
+            Update::Batch { batch, gaps, .. } => {
                 self.independent
                     .extend(batch.changes.iter().map(|c| c.last));
                 self.gaps.insert(batch.context.watch_ref[0], gaps.clone());
