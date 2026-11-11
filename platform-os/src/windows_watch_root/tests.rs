@@ -49,9 +49,10 @@ fn scanned_root_reports_direct_change_and_stops() -> Result<(), Box<dyn std::err
     fs::write(outside.join("target-change"), b"x")?;
     let until = Instant::now() + Duration::from_millis(200);
     while Instant::now() < until {
+        let notification = watch.native.poll()?;
         assert!(
-            watch.poll(1)?.is_none(),
-            "root-only watch reported a descendant or junction target change"
+            notification.is_none(),
+            "unexpected root completion: {notification:?}"
         );
         thread::sleep(Duration::from_millis(10));
     }
