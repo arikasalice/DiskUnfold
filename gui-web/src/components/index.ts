@@ -41,3 +41,5 @@ export type {
   DisplayPoint,
   GeometryRendererProps,
 } from "./geometry-renderer";
+
+export { ActionFeedback } from "./action-feedback";

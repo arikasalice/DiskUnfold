@@ -35,6 +35,7 @@ export function browseScrollGeometry(
 
 export function useBrowseGridViewport(
   count: number,
+  root: { current: HTMLDivElement | null },
   onLayoutScroll?: (before: number, after: number) => void,
 ) {
   const body = useRef<HTMLDivElement>(null);
@@ -60,8 +61,8 @@ export function useBrowseGridViewport(
     viewport: number;
     logical?: number;
   }>({
-    top: -window.innerHeight,
-    viewport: window.innerHeight,
+    top: 0,
+    viewport: 0,
   });
   const geometry = browseScrollGeometry(positions, scroll.viewport);
   const logicalTop = Math.min(
@@ -79,8 +80,8 @@ export function useBrowseGridViewport(
 
   const updateScroll = useCallback(() => {
     if (!body.current) return;
-    const top = -body.current.getBoundingClientRect().top;
-    const viewport = window.innerHeight;
+    const top = (root.current?.scrollTop ?? 0) - body.current.offsetTop;
+    const viewport = root.current?.clientHeight ?? 0;
     if (logicalAnchor.current?.top !== top) logicalAnchor.current = undefined;
     const logical = logicalAnchor.current?.logical;
     setScroll((old) =>
@@ -88,19 +89,20 @@ export function useBrowseGridViewport(
         ? old
         : { top, viewport, ...(logical !== undefined && { logical }) },
     );
-  }, []);
+  }, [root]);
 
   function moveViewport(physical: number, logical: number) {
     if (!body.current) return;
-    const distance = physical + body.current.getBoundingClientRect().top;
+    const distance =
+      physical - ((root.current?.scrollTop ?? 0) - body.current.offsetTop);
     if (Math.abs(distance) >= 1) {
-      const before = window.scrollY;
-      window.scrollBy(0, distance);
-      onLayoutScroll?.(before, window.scrollY);
+      const before = root.current?.scrollTop ?? 0;
+      if (root.current) root.current.scrollTop = before + distance;
+      onLayoutScroll?.(before, root.current?.scrollTop ?? 0);
     }
-    const actual = -body.current.getBoundingClientRect().top;
+    const actual = (root.current?.scrollTop ?? 0) - body.current.offsetTop;
     // A compressed scroll range can put adjacent rows in the same native pixel.
-    // Preserve the precise logical position until the document actually moves.
+    // Preserve the precise logical position until the list actually moves.
     logicalAnchor.current =
       Math.abs(physical - actual) < 1
         ? {
@@ -115,7 +117,7 @@ export function useBrowseGridViewport(
     if (!body.current) return false;
     const from = positions.offset(index);
     const to = positions.offset(index + 1);
-    const top = -body.current.getBoundingClientRect().top;
+    const top = (root.current?.scrollTop ?? 0) - body.current.offsetTop;
     const logical =
       logicalAnchor.current?.top === top
         ? logicalAnchor.current.logical
@@ -133,6 +135,7 @@ export function useBrowseGridViewport(
 
   useLayoutEffect(() => {
     if (!section) return;
+    const scrollRoot = root.current;
     let frame: number | undefined;
     function measure() {
       frame = undefined;
@@ -161,7 +164,7 @@ export function useBrowseGridViewport(
         nextWidth > 0 && nextWidth <= 640 ? NARROW_ROW : WIDE_ROW,
         measurements.current,
       );
-      const physical = -section.getBoundingClientRect().top;
+      const physical = (root.current?.scrollTop ?? 0) - section.offsetTop;
       const top =
         logicalAnchor.current?.top === physical
           ? logicalAnchor.current.logical
@@ -170,7 +173,7 @@ export function useBrowseGridViewport(
       const corrected = top + next.offset(anchor) - positions.offset(anchor);
       if (physical > 0 || top > 0) {
         correction.current = {
-          before: window.scrollY,
+          before: root.current?.scrollTop ?? 0,
           physical:
             browseScrollGeometry(next, scroll.viewport).physicalTop(corrected) -
             geometry.viewportTop(physical) +
@@ -190,25 +193,26 @@ export function useBrowseGridViewport(
     if (typeof ResizeObserver !== "undefined") {
       observer.current = new ResizeObserver(resize);
       observer.current.observe(section);
+      if (root.current) observer.current.observe(root.current);
       for (const row of section.querySelectorAll("[data-row]"))
         observer.current.observe(row);
     }
     window.addEventListener("resize", resize);
-    window.addEventListener("scroll", updateScroll, { passive: true });
+    scrollRoot?.addEventListener("scroll", updateScroll, { passive: true });
     resize();
     return () => {
       observer.current?.disconnect();
       observer.current = undefined;
       window.removeEventListener("resize", resize);
-      window.removeEventListener("scroll", updateScroll);
+      scrollRoot?.removeEventListener("scroll", updateScroll);
       if (frame !== undefined) cancelAnimationFrame(frame);
     };
-  }, [count, positions, scroll.viewport, section, updateScroll]);
+  }, [count, positions, scroll.viewport, section, updateScroll, root]);
 
   useLayoutEffect(() => {
     const pending = correction.current;
     correction.current = undefined;
-    if (pending && window.scrollY === pending.before)
+    if (pending && root.current?.scrollTop === pending.before)
       moveViewport(pending.physical, pending.logical);
   }, [positions]);
   useLayoutEffect(updateScroll);
@@ -219,6 +223,10 @@ export function useBrowseGridViewport(
     watchRow,
     reveal,
     height: geometry.height,
+    pageRows: Math.max(
+      1,
+      positions.at(logicalTop + scroll.viewport) - positions.at(logicalTop),
+    ),
     window: (pins: readonly number[]) =>
       positions.window(
         logicalTop + Math.max(0, edge),

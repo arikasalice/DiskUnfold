@@ -246,63 +246,69 @@ export function BrowsePanel({
       aria-label="Folder navigation"
       onKeyDownCapture={handleBrowseKey}
     >
-      <Heading level={2}>Folders and files</Heading>
-      {busy && <Progress label="Opening folder" />}
-      {message === "error" && (
-        <Notice tone="error">
-          Could not open this folder.{" "}
-          <Action
-            isPending={busy}
-            onPress={() =>
-              navigate(
-                lastAttempt.current?.location,
-                lastAttempt.current?.pinned,
-                true,
-              )
-            }
-          >
-            {busy ? "Retrying…" : "Retry"}
-          </Action>
-        </Notice>
-      )}
-      {message === "job" && <Notice>Folder results are being prepared.</Notice>}
+      <div className="du-browse-header">
+        <Heading level={2}>Folders and files</Heading>
+        {busy && <Progress label="Opening folder" />}
+        {message === "error" && (
+          <Notice tone="error">
+            Could not open this folder.{" "}
+            <Action
+              isPending={busy}
+              onPress={() =>
+                navigate(
+                  lastAttempt.current?.location,
+                  lastAttempt.current?.pinned,
+                  true,
+                )
+              }
+            >
+              {busy ? "Retrying…" : "Retry"}
+            </Action>
+          </Notice>
+        )}
+        {message === "job" && (
+          <Notice>Folder results are being prepared.</Notice>
+        )}
+      </div>
       {view && page && (
         <>
-          <PreviousResultNotice previous={previousResult} />
-          <div className="du-browse-context">
-            <div className="du-card__actions">
-              <Action onPress={goUp} isDisabled={!parent || previousResult}>
-                Up
-              </Action>
-              <Breadcrumbs
-                label="Folder path"
-                entries={readOnlyBreadcrumbs(
-                  folderPath(view.opened, hasVirtualRoot, (item) =>
-                    navigate(item, page.resultVersion),
-                  ),
-                  previousResult,
-                )}
-              />
+          <div className="du-browse-header">
+            <PreviousResultNotice previous={previousResult} />
+            <div className="du-browse-context">
+              <div className="du-card__actions">
+                <Action onPress={goUp} isDisabled={!parent || previousResult}>
+                  Up
+                </Action>
+                <Breadcrumbs
+                  label="Folder path"
+                  entries={readOnlyBreadcrumbs(
+                    folderPath(view.opened, hasVirtualRoot, (item) =>
+                      navigate(item, page.resultVersion),
+                    ),
+                    previousResult,
+                  )}
+                />
+              </div>
+              <Text kind="muted">
+                Pinned result · {view.opened.origin} · Observed{" "}
+                {page.observedAt ?? "Unavailable"}
+              </Text>
             </div>
+            {page.completeness !== "complete" && (
+              <Notice>
+                Results are incomplete; some items may be unavailable.
+              </Notice>
+            )}
             <Text kind="muted">
-              Pinned result · {view.opened.origin} · Observed{" "}
-              {page.observedAt ?? "Unavailable"}
+              {page.total.state === "lower_bound" ? "At least " : ""}
+              {page.total.count} items
             </Text>
+            {page.unknownCount > 0 && (
+              <Text kind="muted">
+                {page.unknownCount} items could not be evaluated.
+              </Text>
+            )}
           </div>
-          {page.completeness !== "complete" && (
-            <Notice>
-              Results are incomplete; some items may be unavailable.
-            </Notice>
-          )}
-          <Text kind="muted">
-            {page.total.state === "lower_bound" ? "At least " : ""}
-            {page.total.count} items
-          </Text>
-          {page.unknownCount > 0 && (
-            <Text kind="muted">
-              {page.unknownCount} items could not be evaluated.
-            </Text>
-          )}
           <BrowseResults
             key={view.opened.requestSeq}
             pages={view.pages}

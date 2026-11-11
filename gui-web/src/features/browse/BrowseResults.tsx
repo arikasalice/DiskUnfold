@@ -1,8 +1,9 @@
+import { useRef } from "react";
 import {
   Action,
   BrowseGrid,
   ItemActions,
-  LiveStatus,
+  ActionFeedback,
   Notice,
   Text,
 } from "../../components";
@@ -85,8 +86,15 @@ export function BrowseResults({
   copyPath: ((item: ItemRef) => Promise<BrowseCopyPathOutcome>) | undefined;
   reopen: () => void;
 }) {
-  const copy = useBrowseCopy(copyPath, navigationEpoch, navigationSeq);
+  const scrollRoot = useRef<HTMLDivElement>(null);
+  const copy = useBrowseCopy(
+    copyPath,
+    navigationEpoch,
+    navigationSeq,
+    scrollRoot,
+  );
   const paging = useBrowsePaging({
+    scrollRoot,
     pages,
     initialCursor,
     readPage,
@@ -97,63 +105,58 @@ export function BrowseResults({
     focusPanel,
   });
   return (
-    <>
-      {pages.count === 0 && <Text>No observed items in this folder.</Text>}
-      {paging.failure && (
-        <Notice tone="error">
-          {paging.failure.stale
-            ? "This result can no longer be read. Reopen this folder to continue."
-            : "Could not load the requested page."}{" "}
-          <Action
-            ref={paging.retryButton}
-            isDisabled={busy && !paging.failure.stale}
-            isPending={paging.retrying || (busy && paging.failure.stale)}
-            onPress={(event) => {
-              if (paging.failure?.stale) reopen();
-              else
-                paging.retry(
-                  event.pointerType === "keyboard" ||
-                    event.pointerType === "virtual",
-                );
-            }}
-          >
+    <div className="du-browse-results">
+      <div className="du-browse-controls">
+        {pages.count === 0 && <Text>No observed items in this folder.</Text>}
+        {paging.failure && (
+          <Notice tone="error">
             {paging.failure.stale
-              ? busy
-                ? "Reopening folder…"
-                : "Reopen folder"
-              : paging.retrying
-                ? "Retrying page…"
-                : "Retry page"}
-          </Action>
-        </Notice>
-      )}
-      <div
-        className="du-browse-status"
-        data-moving={paging.moving || undefined}
-      >
-        <LiveStatus>
-          {paging.moving ? "Loading folder items…" : paging.status}
-        </LiveStatus>
-      </div>
-      {initialCursor !== null && (
-        <div className="du-browse-more">
-          {paging.showLoadMore && (
+              ? "This result can no longer be read. Reopen this folder to continue."
+              : "Could not load the requested page."}{" "}
             <Action
-              ref={paging.loadButton}
-              onPress={(event) =>
-                paging.loadMore(
-                  event.pointerType === "keyboard" ||
-                    event.pointerType === "virtual",
-                )
-              }
-              isDisabled={busy}
+              ref={paging.retryButton}
+              isDisabled={busy && !paging.failure.stale}
+              isPending={paging.retrying || (busy && paging.failure.stale)}
+              onPress={(event) => {
+                if (paging.failure?.stale) reopen();
+                else
+                  paging.retry(
+                    event.pointerType === "keyboard" ||
+                      event.pointerType === "virtual",
+                  );
+              }}
             >
-              {paging.loadingMore ? "Loading…" : "Load more"}
+              {paging.failure.stale
+                ? busy
+                  ? "Reopening folder…"
+                  : "Reopen folder"
+                : paging.retrying
+                  ? "Retrying page…"
+                  : "Retry page"}
             </Action>
-          )}
-        </div>
-      )}
+          </Notice>
+        )}
+        {initialCursor !== null && (
+          <div className="du-browse-more">
+            {paging.showLoadMore && (
+              <Action
+                ref={paging.loadButton}
+                onPress={(event) =>
+                  paging.loadMore(
+                    event.pointerType === "keyboard" ||
+                      event.pointerType === "virtual",
+                  )
+                }
+                isDisabled={busy}
+              >
+                {paging.loadingMore ? "Loading…" : "Load more"}
+              </Action>
+            )}
+          </div>
+        )}
+      </div>
       <BrowseGrid<FolderQueryRow>
+        scrollRoot={scrollRoot}
         label="Folder items"
         columns={columns}
         count={pages.count}
@@ -192,7 +195,8 @@ export function BrowseResults({
               {
                 id: "copy",
                 label: "Copy path",
-                onAction: () => copy.copy(row),
+                onAction: (trigger: HTMLElement | null) =>
+                  copy.copy(row, trigger),
                 ...(!copyPath || busy || copy.busy
                   ? { disabledReason: "Unavailable now" }
                   : {}),
@@ -236,7 +240,16 @@ export function BrowseResults({
           <Text>{availability(row)}</Text>,
         ]}
       />
-      <LiveStatus placement="viewport">{copy.status}</LiveStatus>
-    </>
+      <ActionFeedback
+        status={
+          copy.status ||
+          (paging.moving ? "Loading folder items…" : paging.status) ||
+          ""
+        }
+        parts={copy.feedback}
+        pending={copy.busy || !copy.status}
+        onDismiss={copy.dismiss}
+      />
+    </div>
   );
 }

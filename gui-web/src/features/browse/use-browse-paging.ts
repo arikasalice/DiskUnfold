@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import type { RefObject } from "react";
 import type { BrowseGridFocus } from "../../components";
 import { AnalysisError } from "../../ipc";
 import type { QueryPageRequest, QueryPageResponse } from "../../ipc";
@@ -32,6 +33,7 @@ type Failure = { task: Task; stale: boolean };
 type FocusRequest = BrowseGridFocus & { keepLoadButton: boolean };
 
 type Options = {
+  scrollRoot: RefObject<HTMLDivElement | null>;
   pages: BrowsePages;
   initialCursor: string | null;
   readPage: (request: QueryPageRequest) => Promise<QueryPageResponse>;
@@ -43,6 +45,7 @@ type Options = {
 };
 
 export function useBrowsePaging({
+  scrollRoot,
   pages,
   initialCursor,
   readPage,
@@ -95,12 +98,13 @@ export function useBrowsePaging({
       intent.current === candidate &&
       candidate.origin.isConnected &&
       document.activeElement === candidate.origin &&
-      window.scrollY === candidate.scrollY
+      (scrollRoot.current?.scrollTop ?? 0) === candidate.scrollY
     );
   }
 
   useLayoutEffect(() => {
     live.current = true;
+    const root = scrollRoot.current;
     function cancelIntent() {
       intent.current = undefined;
     }
@@ -113,7 +117,8 @@ export function useBrowsePaging({
       if (event.target === intent.current?.origin) cancelIntent();
     }
     function onScroll() {
-      if (window.scrollY !== intent.current?.scrollY) cancelIntent();
+      if ((scrollRoot.current?.scrollTop ?? 0) !== intent.current?.scrollY)
+        cancelIntent();
     }
     function onKey(event: globalThis.KeyboardEvent) {
       if (
@@ -128,7 +133,7 @@ export function useBrowsePaging({
       window.addEventListener(event, cancelIntent, true);
     window.addEventListener("focusin", onFocus, true);
     window.addEventListener("focusout", onBlur, true);
-    window.addEventListener("scroll", onScroll, { passive: true });
+    root?.addEventListener("scroll", onScroll, { passive: true });
     window.addEventListener("keydown", onKey, true);
     return () => {
       live.current = false;
@@ -138,7 +143,7 @@ export function useBrowsePaging({
         window.removeEventListener(event, cancelIntent, true);
       window.removeEventListener("focusin", onFocus, true);
       window.removeEventListener("focusout", onBlur, true);
-      window.removeEventListener("scroll", onScroll);
+      root?.removeEventListener("scroll", onScroll);
       window.removeEventListener("keydown", onKey, true);
     };
   }, []);
@@ -273,7 +278,7 @@ export function useBrowsePaging({
     const originFocus = focusGeneration.current;
     const candidate =
       keyboard && active && active !== document.body
-        ? { origin: active, scrollY: window.scrollY }
+        ? { origin: active, scrollY: scrollRoot.current?.scrollTop ?? 0 }
         : undefined;
     intent.current = candidate;
     targetPin.current = undefined;

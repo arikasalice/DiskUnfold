@@ -1,3 +1,4 @@
+import { listRoot, listScroll } from "./browse-scroll-fixture";
 import {
   act,
   cleanup,
@@ -411,7 +412,8 @@ test.each(["directory", "file"] as const)(
     expect(load.isConnected).toBe(false);
     expect(document.activeElement).toBe(gridRow("New item"));
     expect(gridRow("New item").getAttribute("aria-rowindex")).toBe("202");
-    expect(screen.queryByText("Existing 199")).toBeNull();
+    expect(screen.queryByText("Existing 0")).toBeNull();
+    expect(screen.getByText("Existing 199")).toBeDefined();
   },
 );
 
@@ -740,58 +742,58 @@ test("keyboard paging continues at the first new row even when the button remain
 
 test("scrolling while a keyboard page is pending prevents a focus or scroll jump", async () => {
   const { pending, next, port } = delayedPage();
-  const previous = window.scrollY;
+  const previous = listScroll.scrollY;
   const focus = vi.spyOn(HTMLElement.prototype, "focus");
-  const scrollBy = vi.spyOn(window, "scrollBy");
+  const scrollBy = vi.spyOn(listScroll, "scrollBy");
   try {
-    window.scrollTo(0, 12000);
+    listScroll.scrollTo(0, 12000);
     render(<BrowsePanel port={port} resultVersion={id} />);
     const load = await screen.findByRole("button", { name: "Load more" });
     act(() => load.focus());
     pressLoadMore(load);
-    window.scrollTo(0, 600);
-    fireEvent.scroll(window);
-    const before = window.scrollY;
+    listScroll.scrollTo(0, 600);
+    fireEvent.scroll(listRoot());
+    const before = listScroll.scrollY;
     expect(before).toBe(600);
     focus.mockClear();
     scrollBy.mockClear();
     await act(async () => pending.resolve(next));
-    expect(window.scrollY).toBe(before);
+    expect(listScroll.scrollY).toBe(before);
     expect(document.activeElement).toBe(load);
     expect(focus).not.toHaveBeenCalled();
     expect(scrollBy).not.toHaveBeenCalled();
   } finally {
     focus.mockRestore();
     scrollBy.mockRestore();
-    window.scrollTo(0, previous);
+    listScroll.scrollTo(0, previous);
   }
 });
 
 test("pointer paging leaves the old viewport and focus alone when 200 rows are appended", async () => {
   const { pending, next, port } = delayedPage();
-  const previous = window.scrollY;
+  const previous = listScroll.scrollY;
   const rect = vi
     .spyOn(HTMLElement.prototype, "getBoundingClientRect")
     .mockImplementation(function (this: HTMLElement) {
       if (this.classList.contains("du-browse-grid__body"))
-        return DOMRect.fromRect({ y: -window.scrollY });
+        return DOMRect.fromRect({ y: -listScroll.scrollY });
       if (this.hasAttribute("data-row"))
         return DOMRect.fromRect({ height: 64 });
       return DOMRect.fromRect({ width: 800 });
     });
-  const scrollBy = vi.spyOn(window, "scrollBy");
+  const scrollBy = vi.spyOn(listScroll, "scrollBy");
   try {
-    window.scrollTo(0, 64 * 195);
+    listScroll.scrollTo(0, 64 * 195);
     render(<BrowsePanel port={port} resultVersion={id} />);
     const load = await screen.findByRole("button", { name: "Load more" });
     await screen.findByText("Entry 195");
-    const before = window.scrollY;
+    const before = listScroll.scrollY;
     expect(before).toBe(64 * 195);
     act(() => load.focus());
     clickLoadMore(load);
     expect(port.page).toHaveBeenCalledTimes(1);
     await act(async () => pending.resolve(next));
-    expect(window.scrollY).toBe(before);
+    expect(listScroll.scrollY).toBe(before);
     expect(document.activeElement).toBe(load);
     expect(scrollBy).not.toHaveBeenCalled();
     expect(screen.getByText("Entry 195")).toBeDefined();
@@ -800,7 +802,7 @@ test("pointer paging leaves the old viewport and focus alone when 200 rows are a
   } finally {
     rect.mockRestore();
     scrollBy.mockRestore();
-    window.scrollTo(0, previous);
+    listScroll.scrollTo(0, previous);
   }
 });
 
@@ -822,10 +824,10 @@ test.each([0, 1, 200])(
     const { pending, port } = delayedPage();
     const initial = count === 0 ? 200 : 200 + count;
     vi.mocked(port.open).mockResolvedValue(openingPage([], initial));
-    const previous = window.scrollY;
+    const previous = listScroll.scrollY;
     const focus = vi.spyOn(HTMLElement.prototype, "focus");
     try {
-      window.scrollTo(0, 600);
+      listScroll.scrollTo(0, 600);
       render(<BrowsePanel port={port} resultVersion={id} />);
       const load = await screen.findByRole("button", { name: "Load more" });
       act(() => load.focus());
@@ -837,12 +839,12 @@ test.each([0, 1, 200])(
       await act(async () => pending.resolve(page(rows, null, initial)));
       const panel = screen.getByRole("region", { name: "Folder navigation" });
       expect(load.isConnected).toBe(false);
-      expect(window.scrollY).toBe(600);
+      expect(listScroll.scrollY).toBe(600);
       expect(document.activeElement).toBe(panel);
       expect(focus).toHaveBeenCalledExactlyOnceWith({ preventScroll: true });
     } finally {
       focus.mockRestore();
-      window.scrollTo(0, previous);
+      listScroll.scrollTo(0, previous);
     }
   },
 );
@@ -855,10 +857,10 @@ test.each(["layout only", "user before layout", "user after layout"] as const)(
     let firstHeight = 64;
     let scheduled: FrameRequestCallback | undefined;
     const position = vi
-      .spyOn(window, "scrollY", "get")
+      .spyOn(listScroll, "scrollY", "get")
       .mockImplementation(() => viewport);
     const scrollBy = vi
-      .spyOn(window, "scrollBy")
+      .spyOn(listScroll, "scrollBy")
       .mockImplementation((_x, y) => {
         if (typeof y === "number") viewport += y;
       });
@@ -906,7 +908,7 @@ test.each(["layout only", "user before layout", "user after layout"] as const)(
       expect(scrollBy).toHaveBeenCalledExactlyOnceWith(0, 80);
 
       if (motion === "user after layout") viewport += 35;
-      fireEvent.scroll(window);
+      fireEvent.scroll(listRoot());
       await act(async () => pending.resolve(next));
       if (motion === "layout only") {
         expect(document.activeElement).toBe(gridRow("Entry 200"));
@@ -1135,7 +1137,7 @@ test.each([0, 1, 200, 201, 2001, 1_000_000])(
     }
     expect(grid.getAttribute("aria-rowcount")).toBe(String(count + 1));
     const direct = port.page.mock.calls.slice(callsBeforeEnd);
-    expect(direct).toEqual(
+    expect(direct.slice(0, 1)).toEqual(
       count <= 201
         ? []
         : [
@@ -1148,6 +1150,21 @@ test.each([0, 1, 200, 201, 2001, 1_000_000])(
               },
             ],
           ],
+    );
+    // The last partial page also exposes the preceding page in the list viewport.
+    expect(direct.slice(1)).toEqual(
+      count === 2001
+        ? [
+            [
+              {
+                queryRef: id,
+                resultVersion: id,
+                start: 1800,
+                count: 200,
+              },
+            ],
+          ]
+        : [],
     );
     expect(port.open).toHaveBeenCalledTimes(1);
   },
@@ -1232,16 +1249,16 @@ test("the latest request alone moves focus when End and ArrowDown resolve out of
       ? final.promise
       : adjacent.promise,
   );
-  const original = window.scrollY;
+  const original = listScroll.scrollY;
   const rect = vi
     .spyOn(HTMLElement.prototype, "getBoundingClientRect")
     .mockImplementation(function (this: HTMLElement) {
       return this.classList.contains("du-browse-grid__body")
-        ? DOMRect.fromRect({ y: -window.scrollY })
+        ? DOMRect.fromRect({ y: -listScroll.scrollY })
         : DOMRect.fromRect({ width: 800 });
     });
   try {
-    window.scrollTo(0, 64 * 191);
+    listScroll.scrollTo(0, 64 * 191);
     render(<BrowsePanel port={port} resultVersion={id} />);
     await screen.findByText("Entry 199");
     const current = gridRow("Entry 199");
@@ -1261,7 +1278,7 @@ test("the latest request alone moves focus when End and ArrowDown resolve out of
   } finally {
     cleanup();
     rect.mockRestore();
-    window.scrollTo(0, original);
+    listScroll.scrollTo(0, original);
   }
 });
 
@@ -1466,9 +1483,13 @@ test("row menus use the invoked namesake item and keep copy status after closing
   expect(within(menu).getByRole("menuitem", { name: "Inspect" })).toBeDefined();
   fireEvent.click(within(menu).getByRole("menuitem", { name: "Copy path" }));
   await waitFor(() => expect(copyPath).toHaveBeenCalledWith(ref(2)));
-  expect(screen.getByText("Copying path for Same…")).toBeDefined();
+  expect(screen.getByRole("status").textContent).toBe("Copying path for Same…");
   await act(async () => copying.resolve({ outcome: "copied", count: 1 }));
-  expect(await screen.findByText("Copied 1 path for Same.")).toBeDefined();
+  await waitFor(() =>
+    expect(screen.getByRole("status").textContent).toBe(
+      "Copied 1 path for Same.",
+    ),
+  );
 });
 
 test("Shift+F10 opens the focused row menu and Escape restores the row", async () => {
@@ -1501,18 +1522,18 @@ test("Shift+F10 opens the focused row menu and Escape restores the row", async (
 });
 
 test("visible menu copies a virtualized row and announces refusal", async () => {
-  const previous = window.scrollY;
+  const previous = listScroll.scrollY;
   const rect = vi
     .spyOn(HTMLElement.prototype, "getBoundingClientRect")
     .mockImplementation(function (this: HTMLElement) {
       if (this.classList.contains("du-browse-grid__body"))
-        return DOMRect.fromRect({ y: -window.scrollY });
+        return DOMRect.fromRect({ y: -listScroll.scrollY });
       if (this.hasAttribute("data-row"))
         return DOMRect.fromRect({ height: 64 });
       return DOMRect.fromRect({ width: 800 });
     });
   try {
-    window.scrollTo(0, 0);
+    listScroll.scrollTo(0, 0);
     const rows = Array.from({ length: 200 }, (_, index) => ({
       ...row(index + 1, `Entry ${index}`),
       kind: "file" as const,
@@ -1535,8 +1556,8 @@ test("visible menu copies a virtualized row and announces refusal", async () => 
     );
     await screen.findByRole("button", { name: "Actions for Entry 0" });
     act(() => {
-      window.scrollTo(0, 64 * 150);
-      fireEvent.scroll(window);
+      listScroll.scrollTo(0, 64 * 150);
+      fireEvent.scroll(listRoot());
     });
     const trigger = await screen.findByRole("button", {
       name: "Actions for Entry 150",
@@ -1547,12 +1568,14 @@ test("visible menu copies a virtualized row and announces refusal", async () => 
     });
     fireEvent.click(within(menu).getByRole("menuitem", { name: "Copy path" }));
     await waitFor(() => expect(copyPath).toHaveBeenCalledWith(ref(151)));
-    expect(
-      await screen.findByText("Entry 150: The clipboard is not supported."),
-    ).toBeDefined();
+    await waitFor(() =>
+      expect(screen.getByRole("status").textContent).toBe(
+        "Entry 150: The clipboard is not supported.",
+      ),
+    );
   } finally {
     rect.mockRestore();
-    window.scrollTo(0, previous);
+    listScroll.scrollTo(0, previous);
   }
 });
 
@@ -1618,7 +1641,106 @@ test("a failed navigation clears an obsolete copy and allows another", async () 
   const menu = await screen.findByRole("menu");
   fireEvent.click(within(menu).getByRole("menuitem", { name: "Copy path" }));
   await waitFor(() => expect(copyPath).toHaveBeenCalledTimes(2));
-  expect(screen.getByText("Copying path for Folder…")).toBeDefined();
+  expect(screen.getByRole("status").textContent).toBe(
+    "Copying path for Folder…",
+  );
   await act(async () => second.resolve({ outcome: "copied", count: 1 }));
-  expect(await screen.findByText("Copied 1 path for Folder.")).toBeDefined();
+  await waitFor(() =>
+    expect(screen.getByRole("status").textContent).toBe(
+      "Copied 1 path for Folder.",
+    ),
+  );
 });
+
+test.each(["origin", "elsewhere", "disconnected", "recycled"] as const)(
+  "dismissal preserves deliberate focus and restores a valid origin (%s)",
+  async (focus) => {
+    const copying = deferred<{ outcome: "copied"; count: number }>();
+    const port: BrowsePort = {
+      open: vi
+        .fn()
+        .mockResolvedValue(opened(1, [{ ...row(1, "Folder"), kind: "file" }])),
+      page: vi.fn(),
+      copyPath: vi.fn().mockReturnValue(copying.promise),
+    };
+    render(
+      <BrowsePanel
+        port={port}
+        resultVersion={id}
+        inspectFile={() => "Details"}
+      />,
+    );
+    const trigger = await screen.findByRole("button", {
+      name: "Actions for Folder",
+    });
+    const origin = trigger.closest<HTMLElement>("[data-row]")!;
+    fireEvent.click(trigger);
+    const menu = await screen.findByRole("menu");
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Copy path" }));
+    expect(screen.queryByRole("button", { name: "Dismiss" })).toBeNull();
+    expect(screen.getAllByRole("status")).toHaveLength(1);
+    await act(async () => copying.resolve({ outcome: "copied", count: 7 }));
+    await waitFor(() =>
+      expect(screen.getByRole("status").textContent).toBe(
+        "Copied 7 paths for Folder.",
+      ),
+    );
+    const dismiss = screen.getByRole("button", { name: "Dismiss" });
+    const root = listRoot();
+    if (focus === "elsewhere") act(() => root.focus());
+    else act(() => dismiss.focus());
+    if (focus === "disconnected") origin.remove();
+    if (focus === "recycled") origin.dataset.itemKey = "different-result:item";
+    const before = root.scrollTop;
+    fireEvent.click(dismiss);
+    expect(screen.queryByRole("button", { name: "Dismiss" })).toBeNull();
+    expect(document.activeElement).toBe(focus === "origin" ? origin : root);
+    expect(root.scrollTop).toBe(before);
+  },
+);
+
+test("document scroll leaves a pending list keyboard intent eligible", async () => {
+  const { pending, next, port } = delayedPage();
+  render(<BrowsePanel port={port} resultVersion={id} />);
+  const load = await screen.findByRole("button", { name: "Load more" });
+  act(() => load.focus());
+  pressLoadMore(load);
+  window.scrollTo(0, 600);
+  fireEvent.scroll(window);
+  await act(async () => pending.resolve(next));
+  expect(document.activeElement).toBe(gridRow("Entry 200"));
+  window.scrollTo(0, 0);
+});
+
+test.each(["Copy", "path", "Could not copy to the clipboard."])(
+  "feedback clamps only the exact filename when it matches message words (%s)",
+  async (name) => {
+    const copyPath = vi
+      .fn()
+      .mockResolvedValue({ outcome: "refused", reasonKey: "clipboard.failed" });
+    const port: BrowsePort = {
+      open: vi.fn().mockResolvedValue(opened(1, [row(1, name)])),
+      page: vi.fn(),
+      copyPath,
+    };
+    render(<BrowsePanel port={port} resultVersion={id} />);
+    const trigger = await screen.findByRole("button", {
+      name: `Actions for ${name}`,
+    });
+    fireEvent.click(trigger);
+    const menu = await screen.findByRole("menu");
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Copy path" }));
+    await waitFor(() =>
+      expect(screen.getByRole("status").textContent).toBe(
+        `${name}: Could not copy to the clipboard.`,
+      ),
+    );
+    expect(
+      screen.getByRole("status").querySelector(".du-feedback-name")
+        ?.textContent,
+    ).toBe(name);
+    expect(screen.getByRole("status").lastChild?.textContent).toBe(
+      ": Could not copy to the clipboard.",
+    );
+  },
+);

@@ -40,6 +40,7 @@ export type BrowseGridFocus = {
 };
 
 type GridProps<Item> = {
+  scrollRoot?: RefObject<HTMLDivElement | null>;
   label: string;
   columns: readonly string[];
   count: number;
@@ -120,6 +121,7 @@ function GridSurface({
 
 /** A sparse, bounded React Aria collection with absolute row positions. */
 export function BrowseGrid<Item>({
+  scrollRoot,
   label,
   columns,
   count,
@@ -135,7 +137,9 @@ export function BrowseGrid<Item>({
   getKey,
   renderCells,
 }: GridProps<Item>) {
-  const viewport = useBrowseGridViewport(count, onLayoutScroll);
+  const ownRoot = useRef<HTMLDivElement>(null);
+  const root = scrollRoot ?? ownRoot;
+  const viewport = useBrowseGridViewport(count, root, onLayoutScroll);
   const [focused, setFocused] = useState<number>();
   const pins = [focused, focusRequest?.index].filter(
     (index): index is number => index !== undefined,
@@ -168,6 +172,8 @@ export function BrowseGrid<Item>({
       ArrowDown: Math.min(count - 1, (index ?? -1) + 1),
       Home: 0,
       End: count - 1,
+      PageUp: Math.max(0, (index ?? 0) - viewport.pageRows),
+      PageDown: Math.min(count - 1, (index ?? 0) + viewport.pageRows),
     };
     const target = Object.hasOwn(moves, event.key)
       ? moves[event.key as keyof typeof moves]
@@ -191,6 +197,8 @@ export function BrowseGrid<Item>({
 
   return (
     <div
+      ref={root}
+      tabIndex={-1}
       className="du-browse-grid-frame"
       onFocusCapture={(event) => trackFocus(rowIndex(event.target))}
       onBlurCapture={(event) => {

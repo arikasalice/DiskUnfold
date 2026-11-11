@@ -1,3 +1,4 @@
+import { listRoot, listScroll } from "./browse-scroll-fixture";
 import {
   act,
   cleanup,
@@ -66,7 +67,8 @@ test.each([count + 1, -1])(
     expect(surface.getAttribute("aria-rowcount")).toBe(String(rowCount));
     expect(within(surface).getAllByRole("row").length).toBeLessThanOrEqual(29);
     bodyTop = -(8_000_000 - 480);
-    fireEvent.scroll(window);
+    listScroll.scrollTo(0, -bodyTop);
+    fireEvent.scroll(listRoot());
     const last = await within(surface).findByText("Item 999999");
     expect(last.closest('[role="row"]')?.getAttribute("aria-rowindex")).toBe(
       "1000001",
@@ -117,10 +119,12 @@ function documentGeometry() {
   let scroll = 0;
   const sizes = { first: 64 };
   vi.stubGlobal("innerHeight", 480);
-  vi.spyOn(window, "scrollY", "get").mockImplementation(() => scroll);
-  const scrollBy = vi.spyOn(window, "scrollBy").mockImplementation((_, y) => {
-    if (typeof y === "number") scroll += y;
-  });
+  vi.spyOn(listScroll, "scrollY", "get").mockImplementation(() => scroll);
+  const scrollBy = vi
+    .spyOn(listScroll, "scrollBy")
+    .mockImplementation((_, y) => {
+      if (typeof y === "number") scroll += y;
+    });
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
     function (this: HTMLElement) {
       if (this.classList.contains("du-browse-grid__body"))
@@ -142,7 +146,7 @@ function documentGeometry() {
     scrollBy,
     scrollTo(top: number) {
       scroll = top;
-      fireEvent.scroll(window);
+      fireEvent.scroll(listRoot());
     },
   };
 }
@@ -153,7 +157,7 @@ function itemRow(index: number) {
     .closest<HTMLElement>('[role="row"]')!;
 }
 
-test("reveals the distant row inside the document viewport before giving it focus", async () => {
+test("reveals the distant row inside the list viewport before giving it focus", async () => {
   const geometry = documentGeometry();
   const { rerender } = render(grid(count + 1));
   await screen.findByText("Item 0");
@@ -310,4 +314,18 @@ test("leaves guarded keys to their targets and keeps a single grid Tab stop", as
   expect(fireEvent.keyDown(first, { key: "Tab", shiftKey: true })).toBe(true);
   const after = screen.getByRole("button", { name: "After" });
   expect(fireEvent.keyDown(after, { key: "End", ctrlKey: true })).toBe(true);
+});
+
+test("Page keys use the actual list viewport and keep native document scrolling untouched", async () => {
+  const documentScroll = vi.spyOn(window, "scrollBy");
+  render(grid(count + 1));
+  const first = (await screen.findByText("Item 0")).closest<HTMLElement>(
+    "[data-row]",
+  )!;
+  act(() => first.focus());
+  fireEvent.keyDown(first, { key: "PageDown" });
+  expect(onMove).toHaveBeenLastCalledWith(7, false);
+  fireEvent.keyDown(first, { key: "PageUp" });
+  expect(onMove).toHaveBeenLastCalledWith(0, false);
+  expect(documentScroll).not.toHaveBeenCalled();
 });

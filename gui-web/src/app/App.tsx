@@ -41,6 +41,7 @@ export function App({ analysis }: { analysis?: AnalysisClient } = {}) {
   return (
     <main
       className="du-app"
+      data-browse-open={Boolean(browseVersion) || undefined}
       data-analysis-open={Boolean(analysisOpen) || undefined}
     >
       <header className="du-app-header">
