@@ -4,7 +4,7 @@ use std::sync::Arc;
 use du_analysis_index::visualization::projection::Location;
 use du_core_contracts::visualization::{
     locate::{VizLocate, VizLocateRequest},
-    rows::{VizRows, VizRowsRequest},
+    rows::{VizGroupRows, VizGroupRowsRequest, VizRows, VizRowsRequest, VizSizeRange},
 };
 
 use crate::{
@@ -19,12 +19,18 @@ pub fn register_rows(builder: &mut EngineBuilder, session: Arc<Session>) {
     builder.register(Rows(session));
 }
 
+/// Registers group-member reads on the same session that owns the rendered models.
+pub fn register_group_rows(builder: &mut EngineBuilder, session: Arc<Session>) {
+    builder.register(GroupRows(session));
+}
+
 /// Registers item location for the same session that owns the rendered models.
 pub fn register_locate(builder: &mut EngineBuilder, session: Arc<Session>) {
     builder.register(Locate(session));
 }
 
 struct Rows(Arc<Session>);
+struct GroupRows(Arc<Session>);
 struct Locate(Arc<Session>);
 
 impl UseCase for Rows {
@@ -76,9 +82,59 @@ impl UseCase for Locate {
     }
 }
 
+impl UseCase for GroupRows {
+    const NAME: &'static str = "viz.group_rows";
+    const CHANNELS: &'static [Channel] = &[Channel::Gui];
+    type Request = VizGroupRowsRequest;
+    type Response = VizGroupRows;
+
+    fn check_scope(&self, _: &Self::Request, _: &CallerCtx) -> Result<(), EngineError> {
+        Ok(())
+    }
+
+    fn execute(
+        &self,
+        request: Self::Request,
+        _: &CallerCtx,
+    ) -> Result<Self::Response, EngineError> {
+        if request.validate().is_err() {
+            return Err(EngineError::reason("command.body_invalid"));
+        }
+        let page = self
+            .0
+            .group_rows(
+                &request.model_ref,
+                &request.group_ref,
+                request.start,
+                request.count,
+            )
+            .map_err(rows_error)?;
+        let response = VizGroupRows {
+            rows: page.rows,
+            total_count: page.total_count,
+            group_total: page.group_total,
+            size_range: match page.size_range {
+                du_analysis_index::visualization::live_models::SizeRange::Known { min, max } => {
+                    VizSizeRange::Known { min, max }
+                }
+                du_analysis_index::visualization::live_models::SizeRange::Unknown => {
+                    VizSizeRange::Unknown
+                }
+            },
+            result_revision: page.result_revision,
+            observed_at: page.observed_at,
+            completeness: page.completeness,
+        };
+        response
+            .validate()
+            .map_err(|_| EngineError::reason("support.internal_error"))?;
+        Ok(response)
+    }
+}
+
 fn rows_error(error: Error) -> EngineError {
     EngineError::reason(match error {
-        Error::InvalidRange => "command.body_invalid",
+        Error::InvalidRange | Error::InvalidGroup => "command.body_invalid",
         Error::ModelExpired => "viz.model_expired",
         Error::StaleVersion => "result.version_stale",
         Error::ItemUnavailable => "ref.unavailable",

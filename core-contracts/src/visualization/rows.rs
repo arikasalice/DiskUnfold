@@ -265,6 +265,117 @@ impl<'de> Deserialize<'de> for VizRows {
     }
 }
 
+/// Proven minimum and maximum size for every member of a group.
+///
+/// Unknown is used when any member is unobserved or uses a different size basis.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+#[serde(rename_all = "camelCase", tag = "kind")]
+pub enum VizSizeRange {
+    Known { min: SizeValue, max: SizeValue },
+    Unknown,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SizeRangeWire {
+    kind: String,
+    #[serde(default, deserialize_with = "deserialize_range_bound")]
+    min: RangeBound,
+    #[serde(default, deserialize_with = "deserialize_range_bound")]
+    max: RangeBound,
+}
+
+#[derive(Default)]
+enum RangeBound {
+    #[default]
+    Missing,
+    Present(SizeValue),
+}
+
+fn deserialize_range_bound<'de, D: Deserializer<'de>>(d: D) -> Result<RangeBound, D::Error> {
+    SizeValue::deserialize(d).map(RangeBound::Present)
+}
+
+impl<'de> Deserialize<'de> for VizSizeRange {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let wire = SizeRangeWire::deserialize(d)?;
+        match (wire.kind.as_str(), wire.min, wire.max) {
+            ("known", RangeBound::Present(min), RangeBound::Present(max)) => {
+                Ok(Self::Known { min, max })
+            }
+            ("unknown", RangeBound::Missing, RangeBound::Missing) => Ok(Self::Unknown),
+            ("known", _, _) => Err(D::Error::custom("known size range requires min and max")),
+            ("unknown", _, _) => Err(D::Error::custom("unknown size range cannot contain bounds")),
+            _ => Err(D::Error::custom("invalid size range kind")),
+        }
+    }
+}
+
+/// One page of members and aggregate evidence from a fixed visualization result.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct VizGroupRows {
+    pub rows: Vec<VizRow>,
+    #[cfg_attr(feature = "typescript", ts(type = "number"))]
+    pub total_count: u64,
+    pub group_total: SizeValue,
+    pub size_range: VizSizeRange,
+    pub result_revision: Id,
+    pub observed_at: Option<Timestamp>,
+    pub completeness: ResultCompleteness,
+}
+
+impl VizGroupRows {
+    /// Checks page size, JSON-safe count, and item revisions; group ownership is model-bound.
+    pub fn validate(&self) -> Result<(), &'static str> {
+        if self.total_count >= (1_u64 << 53) || self.rows.len() as u64 > self.total_count {
+            return Err("invalid group row count");
+        }
+        for row in &self.rows {
+            row.validate_revision(&self.result_revision)?;
+        }
+        if let VizSizeRange::Known { min, max } = &self.size_range
+            && min.basis != max.basis
+        {
+            return Err("mixed size range basis");
+        }
+        Ok(())
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GroupRowsWire {
+    rows: Vec<VizRow>,
+    #[serde(deserialize_with = "safe_count")]
+    total_count: u64,
+    group_total: SizeValue,
+    size_range: VizSizeRange,
+    result_revision: Id,
+    #[serde(deserialize_with = "required_nullable")]
+    observed_at: Option<Timestamp>,
+    completeness: ResultCompleteness,
+}
+
+impl<'de> Deserialize<'de> for VizGroupRows {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let w = GroupRowsWire::deserialize(d)?;
+        let page = Self {
+            rows: w.rows,
+            total_count: w.total_count,
+            group_total: w.group_total,
+            size_range: w.size_range,
+            result_revision: w.result_revision,
+            observed_at: w.observed_at,
+            completeness: w.completeness,
+        };
+        page.validate().map_err(D::Error::custom)?;
+        Ok(page)
+    }
+}
+
 fn nonempty<'de, D: Deserializer<'de>>(d: D) -> Result<String, D::Error> {
     let value = String::deserialize(d)?;
     if value.is_empty() {

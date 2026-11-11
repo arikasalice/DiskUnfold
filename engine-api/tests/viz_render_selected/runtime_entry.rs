@@ -464,6 +464,7 @@ mod histogram_runtime;
 mod replacement;
 mod source_selection;
 
+mod group_rows_dispatch;
 mod histogram_strategy;
 mod ranked_bar_runtime;
 mod ranked_group_runtime;

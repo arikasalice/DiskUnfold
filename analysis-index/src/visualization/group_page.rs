@@ -98,11 +98,15 @@ impl PinnedGroup {
         if cancelled() {
             return Err(Error::Cancelled);
         }
+        let mut size_range = self.group.size_range.clone();
+        if self.source.completeness() != ResultCompleteness::Complete {
+            size_range = SizeRange::Unknown;
+        }
         Ok(Page {
             rows,
             total_count: self.group.rows.len() as u64,
             group_total: self.group.total.clone(),
-            size_range: self.group.size_range.clone(),
+            size_range,
             result_revision: self.source.version_id().clone(),
             observed_at: self.source.observed_at().cloned(),
             completeness: self.source.completeness(),

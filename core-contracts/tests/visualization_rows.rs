@@ -1,5 +1,5 @@
 use du_core_contracts::visualization::rows::{
-    VizGroupRowsRequest, VizRatio, VizRow, VizRows, VizRowsRequest,
+    VizGroupRows, VizGroupRowsRequest, VizRatio, VizRow, VizRows, VizRowsRequest, VizSizeRange,
 };
 use serde_json::{Value, json};
 const ID: &str = "018f0000-0000-7000-8000-000000000001";
@@ -149,7 +149,9 @@ fn generated_types_match_wire_declarations() {
         VizRow::decl(&config),
         VizRowsRequest::decl(&config),
         VizGroupRowsRequest::decl(&config),
+        VizSizeRange::decl(&config),
         VizRows::decl(&config),
+        VizGroupRows::decl(&config),
     ] {
         let normalized = declaration
             .lines()
@@ -161,6 +163,71 @@ fn generated_types_match_wire_declarations() {
             "missing {normalized}"
         );
     }
+}
+
+#[test]
+fn group_rows_response_round_trips_required_evidence_and_rejects_invalid_pages()
+-> Result<(), Box<dyn std::error::Error>> {
+    let known_range = json!({"kind":"known", "min":{"basis":"logical","evidence":"measured","state":"exact","bytes":"20"}, "max":{"basis":"logical","evidence":"measured","state":"exact","bytes":"40"}});
+    let make_page = |range: Value| {
+        json!({
+            "rows":[row()],
+            "totalCount":1,
+            "groupTotal":{"basis":"logical","evidence":"measured","state":"exact","bytes":"60"},
+            "sizeRange":range,
+            "resultRevision":ID,
+            "observedAt":null,
+            "completeness":"complete"
+        })
+    };
+
+    for range in [known_range, json!({"kind":"unknown"})] {
+        let value = make_page(range);
+        let parsed: VizGroupRows = serde_json::from_value(value.clone())?;
+        parsed.validate()?;
+        assert_eq!(serde_json::to_value(parsed)?, value);
+    }
+
+    let valid = make_page(json!({"kind":"unknown"}));
+    let mut wrong_revision = valid.clone();
+    wrong_revision["resultRevision"] = json!(OTHER);
+    assert!(serde_json::from_value::<VizGroupRows>(wrong_revision).is_err());
+    let mut too_many_rows = valid.clone();
+    too_many_rows["totalCount"] = json!(0);
+    assert!(serde_json::from_value::<VizGroupRows>(too_many_rows).is_err());
+    let mut unsafe_count = valid.clone();
+    unsafe_count["totalCount"] = json!(9007199254740992_u64);
+    assert!(serde_json::from_value::<VizGroupRows>(unsafe_count).is_err());
+
+    for malformed_range in [
+        json!({"kind":"known", "min":{"basis":"logical","evidence":"measured","state":"exact","bytes":"20"}}),
+        json!({"kind":"unknown", "min":{"basis":"logical","evidence":"measured","state":"exact","bytes":"20"}}),
+        json!({"kind":"unknown", "min":null}),
+        json!({"kind":"future"}),
+        json!({"min":{"basis":"logical","evidence":"measured","state":"exact","bytes":"20"},"max":{"basis":"logical","evidence":"measured","state":"exact","bytes":"40"}}),
+        json!({"kind":"known", "min":{"basis":"logical","evidence":"measured","state":"exact","bytes":"20"}, "max":{"basis":"allocated","evidence":"measured","state":"exact","bytes":"40"}}),
+    ] {
+        assert!(
+            serde_json::from_value::<VizGroupRows>(make_page(malformed_range.clone())).is_err(),
+            "{malformed_range}"
+        );
+    }
+
+    for field in [
+        "groupTotal",
+        "sizeRange",
+        "resultRevision",
+        "observedAt",
+        "completeness",
+    ] {
+        let mut missing = valid.clone();
+        missing.as_object_mut().map(|o| o.remove(field));
+        assert!(
+            serde_json::from_value::<VizGroupRows>(missing).is_err(),
+            "{field}"
+        );
+    }
+    Ok(())
 }
 
 #[test]

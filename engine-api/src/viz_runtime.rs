@@ -256,6 +256,7 @@ impl Runtime {
         });
         commands::register(builder, runtime.clone());
         crate::viz_pages::commands::register_rows(builder, runtime.assembly.session.clone());
+        crate::viz_pages::commands::register_group_rows(builder, runtime.assembly.session.clone());
         crate::viz_pages::commands::register_locate(builder, runtime.assembly.session.clone());
         let retiring = runtime.clone();
         builder.on_session_retire(move || {

@@ -1,6 +1,6 @@
 //! Row models owned by their immutable live scan result, never by the session index.
 use crate::ResultVersion;
-use du_core_contracts::{SizeValue, visualization::rows::VizRow};
+use du_core_contracts::{SizeAmount, SizeEvidence, SizeValue, visualization::rows::VizRow};
 use std::{collections::HashMap, sync::Arc};
 
 #[derive(Debug, Default)]
@@ -39,9 +39,30 @@ impl PreparedRows {
             rows: rows.into(),
             groups: groups
                 .into_iter()
-                .map(|(key, group)| (key, Arc::new(group)))
+                .map(|(key, mut group)| {
+                    guard_group_size_range(&mut group);
+                    (key, Arc::new(group))
+                })
                 .collect(),
         })
+    }
+}
+
+/// Preserve producer range values, but withhold a known range when the owned
+/// members themselves show an unobserved size or mixed size basis.
+fn guard_group_size_range(group: &mut GroupRows) {
+    let SizeRange::Known { min, max } = &group.size_range else {
+        return;
+    };
+    let expected_basis = &min.basis;
+    let all_observed_in_one_basis = min.basis == max.basis
+        && group.rows.iter().all(|row| {
+            row.size.basis == *expected_basis
+                && row.size.evidence != SizeEvidence::Unknown
+                && matches!(row.size.amount, SizeAmount::Exact { .. })
+        });
+    if !all_observed_in_one_basis {
+        group.size_range = SizeRange::Unknown;
     }
 }
 /// Internal source-owned model storage failures.
