@@ -7,8 +7,11 @@ use du_core_contracts::{
     browse_page_ipc::{BrowseOpenResponse, QueryPageResponse},
     query_region_ipc::QueryRegionOpened,
 };
-use std::fs;
+use std::{fs, io::Write};
 
+const REPLACEMENT_FILES: [(&str, u64); 2] = [("\u{00e9}.bin", 16_384), ("e\u{0301}.bin", 7)];
+
+/// A stale review cannot admit a replacement, even when the pathname is unchanged.
 #[test]
 fn same_path_replacement_requires_a_new_review_before_scanning()
 -> Result<(), Box<dyn std::error::Error>> {
@@ -65,7 +68,11 @@ fn same_path_replacement_requires_a_new_review_before_scanning()
     // Retain the original directory so Windows cannot reuse its live identity.
     fs::rename(&target, fixture.path().join("prior"))?;
     fs::create_dir(&target)?;
-    fs::write(target.join("replacement.bin"), [2; 16_384])?;
+    // NTFS can store canonically equivalent names as distinct native entries.
+    for (name, bytes) in REPLACEMENT_FILES {
+        let mut file = fs::File::create_new(target.join(name))?;
+        file.write_all(&vec![2; usize::try_from(bytes)?])?;
+    }
 
     let rejected = start(&original)?.error.ok_or("stale review was accepted")?;
     assert_eq!(rejected.code, ErrorCode::StaleVersion);
@@ -106,14 +113,18 @@ fn same_path_replacement_requires_a_new_review_before_scanning()
     assert_eq!(
         logical.size.amount,
         SizeAmount::Exact {
-            bytes: 16_384_u64.into()
+            bytes: REPLACEMENT_FILES
+                .iter()
+                .map(|(_, bytes)| bytes)
+                .sum::<u64>()
+                .into()
         }
     );
     verify_pinned_folder(&engine, &events, version)?;
     Ok(())
 }
 
-/// Opens the scanned fixture through desktop IPC and checks the region lifetime.
+/// Checks that distinct native names survive scan, indexing and pinned paging.
 fn verify_pinned_folder(
     engine: &Engine,
     events: &du_engine_api::desktop::DesktopEvents,
@@ -153,17 +164,32 @@ fn verify_pinned_folder(
         return Err("completed folder query was not available".into());
     };
     assert_eq!(&page.page.result_version, version);
-    assert_eq!(page.page.rows.len(), 1);
-    assert_eq!(
-        page.page.rows[0].display_name,
-        BrowseValue::Present {
-            value: "replacement.bin".into(),
-        }
-    );
+    assert_eq!(page.page.rows.len(), REPLACEMENT_FILES.len());
+    assert_ne!(page.page.rows[0].item, page.page.rows[1].item);
+    for (name, bytes) in REPLACEMENT_FILES {
+        let row = page
+            .page
+            .rows
+            .iter()
+            .find(
+                |row| matches!(&row.display_name, BrowseValue::Present { value } if value == name),
+            )
+            .ok_or_else(|| format!("missing native name {name:?}"))?;
+        assert_eq!(&row.item.result_version, version);
+        let BrowseValue::Present { value } = &row.logical_size else {
+            return Err(format!("missing logical size for {name:?}").into());
+        };
+        assert_eq!(
+            value.amount,
+            SizeAmount::Exact {
+                bytes: bytes.into()
+            }
+        );
+    }
     let first_page = ipc(
         engine,
         "query.page",
-        json!({"queryRef": page.page.query_ref, "resultVersion": version, "start": 0, "count": 1}),
+        json!({"queryRef": page.page.query_ref, "resultVersion": version, "start": 0, "count": REPLACEMENT_FILES.len()}),
     )?;
     assert!(first_page.error.is_none(), "{:?}", first_page.error);
     let QueryPageResponse::Folder(first_page) = serde_json::from_value(first_page.body)? else {
