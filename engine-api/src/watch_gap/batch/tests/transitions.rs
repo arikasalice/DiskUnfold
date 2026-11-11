@@ -114,11 +114,23 @@ fn replaced_volume_cannot_be_rebound_to_another_scope() {
     changed.context.volume = vec![9];
     let mut right = None;
     let result = l.apply(&changed, &mut |update| {
-        if let Update::VolumeReplaced { scope, watch_ref } = update {
+        if let Update::VolumeReplaced {
+            scope,
+            watch_ref,
+            watch_generation,
+            change_sequence,
+        } = update
+        {
+            assert_eq!((watch_generation, change_sequence), (1, 1));
             assert!(
                 prepare(
                     [2; 16],
-                    Update::VolumeReplaced { scope, watch_ref },
+                    Update::VolumeReplaced {
+                        scope,
+                        watch_ref,
+                        watch_generation,
+                        change_sequence
+                    },
                     &mut Owner,
                     256
                 )
@@ -126,7 +138,12 @@ fn replaced_volume_cannot_be_rebound_to_another_scope() {
             );
             right = prepare(
                 [1; 16],
-                Update::VolumeReplaced { scope, watch_ref },
+                Update::VolumeReplaced {
+                    scope,
+                    watch_ref,
+                    watch_generation,
+                    change_sequence,
+                },
                 &mut Owner,
                 256,
             );
@@ -137,6 +154,29 @@ fn replaced_volume_cannot_be_rebound_to_another_scope() {
     let p = right.unwrap();
     assert!(p.automatic.is_empty());
     assert_eq!(p.recovery, vec![(3, RecoveryReason::VolumeReplaced)]);
+}
+
+#[test]
+fn failed_replacement_commit_does_not_consume_the_verified_source_position() {
+    let mut consumer = ledger();
+    snap(&mut consumer, &snapshot(0, 0, vec![]));
+    let mut replaced = batch(1, vec![], vec![]);
+    replaced.context.volume = vec![9];
+    replaced.context.generation = 2;
+    let result = consumer.apply(&replaced, &mut |update| {
+        assert!(matches!(update, Update::VolumeReplaced {
+            scope, watch_ref, watch_generation: 2, change_sequence: 1
+        } if scope == [1; 16] && watch_ref == [3; 16]));
+        Err("ledger unavailable")
+    });
+    assert_eq!(result, Err(Error::Apply("ledger unavailable")));
+    let unit = consumer.unit(&[3; 16]).unwrap();
+    assert_eq!((unit.generation, unit.last_change_sequence), (1, 0));
+    assert!(!unit.volume_unverifiable);
+    assert_eq!(
+        consumer.apply(&replaced, &mut |_| Err("unexpected commit")),
+        Ok(Outcome::Resync)
+    );
 }
 
 #[test]

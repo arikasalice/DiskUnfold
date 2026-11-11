@@ -32,6 +32,10 @@ pub enum Update<'a> {
     VolumeReplaced {
         scope: [u8; 16],
         watch_ref: [u8; 16],
+        /// Validated producer generation, independent of the registration lifetime.
+        watch_generation: u64,
+        /// Validated position in this watch's change sequence.
+        change_sequence: u64,
     },
     /// Replace only this unit's producer gaps and add the consumer resync gap.
     Snapshot {
@@ -198,6 +202,8 @@ impl Ledger {
             Update::VolumeReplaced {
                 scope: self.scope,
                 watch_ref: batch.context.watch_ref,
+                watch_generation: batch.context.generation,
+                change_sequence: batch.change_sequence,
             }
         } else {
             Update::Batch {

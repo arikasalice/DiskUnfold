@@ -125,6 +125,7 @@ pub fn prepare<O: ScopeOwner>(
         Update::VolumeReplaced {
             scope: update_scope,
             watch_ref,
+            ..
         } => {
             if update_scope != scope {
                 return None;
