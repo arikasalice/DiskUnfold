@@ -325,3 +325,58 @@ fn selection_failures_never_invoke_a_registered_strategy() -> Result<(), String>
     assert_eq!(extension_calls.load(Ordering::SeqCst), 1);
     Ok(())
 }
+
+#[test]
+fn legacy_adapter_borrows_rows_without_allocating_common_rows() -> Result<(), String> {
+    let (version, parent, keys) = source()?;
+    let input = Input::admit(
+        &version,
+        &parent,
+        SizeBasis::Logical,
+        Rect {
+            left: 0,
+            top: 0,
+            right: 100,
+            bottom: 100,
+        },
+        &keys,
+    )
+    .map_err(|e| format!("{e:?}"))?;
+    let adapted = super::CommonInput::from_legacy(&input);
+    assert!(adapted.is_legacy());
+    assert_eq!(adapted.rows.len(), 0);
+    assert_eq!(adapted.rows.capacity(), 0);
+    assert_eq!(adapted.row_count(), input.rows().len());
+    assert!(std::ptr::eq(
+        adapted.legacy.ok_or("missing borrowed source")?,
+        &input
+    ));
+    Ok(())
+}
+
+#[test]
+fn histogram_rejects_legacy_input_instead_of_drawing_an_empty_result() -> Result<(), String> {
+    let (version, parent, keys) = source()?;
+    let input = Input::admit(
+        &version,
+        &parent,
+        SizeBasis::Logical,
+        Rect {
+            left: 0,
+            top: 0,
+            right: 100,
+            bottom: 100,
+        },
+        &keys,
+    )
+    .map_err(|e| format!("{e:?}"))?;
+    let mut builder = registry::Builder::<Box<dyn Strategy>>::default();
+    crate::visualization::bundle::register_histogram_candidate(&mut builder)
+        .map_err(|e| format!("{e:?}"))?;
+    let dispatcher = Dispatcher::new(builder.build(&[]).map_err(|e| format!("{e:?}"))?);
+    assert!(matches!(
+        dispatcher.execute("histogram", None, &input, &mut || false),
+        Err(super::DispatchError::Layout(LayoutError::InvalidInput))
+    ));
+    Ok(())
+}

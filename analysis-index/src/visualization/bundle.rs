@@ -57,6 +57,18 @@ pub fn register_ranked_bar(
         .map_err(Error::Registration)
 }
 
+/// Registers a histogram candidate in an explicitly partial dispatcher.
+pub fn register_histogram_candidate(
+    builder: &mut registry::Builder<Box<dyn Strategy>>,
+) -> Result<(), Error> {
+    builder
+        .register(
+            super::histogram_dispatch::histogram_descriptor(),
+            Box::new(super::histogram_dispatch::HistogramLayout),
+        )
+        .map_err(Error::Registration)
+}
+
 /// Freezes a full baseline only when all six published IDs at revision one exist.
 ///
 /// The builder still enforces unique IDs, revisions, and format associations.

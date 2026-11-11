@@ -2,6 +2,9 @@
 //!
 //! This is not the public F06 model: cross-format quantities, totals, groups,
 //! metadata and model references still require their published physical contract.
+mod numeric_layout;
+pub use numeric_layout::{CommonInput, CommonRow};
+
 use super::{
     bar_projection,
     geometry::{NoArea, Rect, rectangle_geometry, valid_bounds},
@@ -131,7 +134,32 @@ pub enum Error {
 
 /// Stateless typed strategy sharing one input and output shape.
 pub trait Strategy: Send + Sync {
-    fn layout(&self, input: &Input, cancelled: &mut dyn FnMut() -> bool) -> Result<Output, Error>;
+    fn layout(
+        &self,
+        _input: &Input,
+        _cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<Output, Error> {
+        Err(Error::InvalidInput)
+    }
+
+    /// Computes geometry for common numeric rows and view conditions.
+    fn layout_common(
+        &self,
+        input: &CommonInput<'_>,
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<Output, Error> {
+        self.layout(input.legacy.ok_or(Error::InvalidInput)?, cancelled)
+    }
+
+    /// Computes geometry and its resolved axis in one calculation.
+    fn layout_with_axis(
+        &self,
+        input: &CommonInput<'_>,
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<(Output, Option<u64>), Error> {
+        self.layout_common(input, cancelled)
+            .map(|output| (output, None))
+    }
 
     /// Calculates a bar representation when the implementation supports it.
     fn bar(
@@ -276,6 +304,8 @@ impl Strategy for Treemap {
 pub struct Selected {
     pub descriptor: LayoutDescriptor,
     pub output: Output,
+    /// Resolved axis maximum, when supplied by the selected layout.
+    pub axis_max: Option<u64>,
 }
 /// A frozen catalog with homogeneous inputs and outputs.
 pub struct Dispatcher(registry::Registry<Box<dyn Strategy>>);
@@ -343,18 +373,30 @@ impl Dispatcher {
         input: &Input,
         cancelled: &mut dyn FnMut() -> bool,
     ) -> Result<Selected, DispatchError> {
+        let common = CommonInput::from_legacy(input);
+        self.execute_common(format, key, &common, cancelled)
+    }
+
+    /// Selects a strategy and computes geometry from common numeric rows.
+    pub fn execute_common(
+        &self,
+        format: &str,
+        key: Option<&LayoutStrategyKey>,
+        input: &CommonInput<'_>,
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<Selected, DispatchError> {
         let entry = self
             .resolve_entry(format, key)
             .map_err(DispatchError::Selection)?;
-        let output = entry
+        let (output, axis_max) = entry
             .implementation
-            .layout(input, cancelled)
+            .layout_with_axis(input, cancelled)
             .map_err(DispatchError::Layout)?;
         for shape in &output.shapes {
             if cancelled() {
                 return Err(DispatchError::Layout(Error::Cancelled));
             }
-            if shape.row_index >= input.rows.len() {
+            if shape.row_index >= input.row_count() {
                 return Err(DispatchError::Layout(Error::InvalidReference));
             }
         }
@@ -362,7 +404,7 @@ impl Dispatcher {
             if cancelled() {
                 return Err(DispatchError::Layout(Error::Cancelled));
             }
-            if skip.row_index >= input.rows.len() {
+            if skip.row_index >= input.row_count() {
                 return Err(DispatchError::Layout(Error::InvalidReference));
             }
         }
@@ -372,6 +414,7 @@ impl Dispatcher {
         Ok(Selected {
             descriptor: entry.descriptor.clone(),
             output,
+            axis_max,
         })
     }
 }

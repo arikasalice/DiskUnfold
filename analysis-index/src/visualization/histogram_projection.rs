@@ -41,6 +41,19 @@ pub enum Error {
 
 /// Uses actual observed files of one pinned scope; directories are not added as files.
 pub fn project(request: Request<'_>, cancelled: &mut dyn FnMut() -> bool) -> Result<Model, Error> {
+    project_inner(request, cancelled, true)
+}
+
+/// Collects pinned histogram evidence without calculating geometry.
+pub fn prepare(request: Request<'_>, cancelled: &mut dyn FnMut() -> bool) -> Result<Model, Error> {
+    project_inner(request, cancelled, false)
+}
+
+fn project_inner(
+    request: Request<'_>,
+    cancelled: &mut dyn FnMut() -> bool,
+    with_geometry: bool,
+) -> Result<Model, Error> {
     let (summary, files) =
         statistics_summary::summarize_with_files(request.version, request.scope, cancelled)
             .map_err(|e| {
@@ -88,7 +101,12 @@ pub fn project(request: Request<'_>, cancelled: &mut dyn FnMut() -> bool) -> Res
     } else {
         summary.result_completeness
     };
-    let histogram = histogram::layout_cancellable(
+    let calculate = if with_geometry {
+        histogram::layout_cancellable
+    } else {
+        histogram::aggregate_cancellable
+    };
+    let histogram = calculate(
         request.bounds,
         request.bins,
         &items,

@@ -428,7 +428,7 @@ fn projection_runs_one_admission_before_strategy() -> Result<(), String> {
         false
     })
     .map_err(|e| format!("{e:?}"))?;
-    // One entry checkpoint belongs to project; the remainder is one admission.
+    // Legacy input is borrowed without an additional row conversion.
     assert_eq!(at_entry.load(Ordering::Relaxed), admission_checks + 1);
     Ok(())
 }

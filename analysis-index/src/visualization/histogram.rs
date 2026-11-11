@@ -115,7 +115,15 @@ pub fn layout(
     scale: Scale,
     completeness: ResultCompleteness,
 ) -> Result<Histogram, Error> {
-    calculate(bounds, bins, input, basis, scale, completeness, None)
+    calculate(
+        bounds,
+        bins,
+        input,
+        basis,
+        scale,
+        completeness,
+        (None, true),
+    )
 }
 
 /// Calculates the same histogram with cooperative cancellation.
@@ -139,7 +147,28 @@ pub fn layout_cancellable(
         basis,
         scale,
         completeness,
-        Some(cancelled),
+        (Some(cancelled), true),
+    )
+}
+
+/// Aggregates pinned observations without computing any geometry.
+pub fn aggregate_cancellable(
+    bounds: Rect,
+    bins: &[Bin],
+    input: &[Item],
+    basis: Basis,
+    scale: Scale,
+    completeness: ResultCompleteness,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<Histogram, Error> {
+    calculate(
+        bounds,
+        bins,
+        input,
+        basis,
+        scale,
+        completeness,
+        (Some(cancelled), false),
     )
 }
 
@@ -150,8 +179,9 @@ fn calculate(
     basis: Basis,
     scale: Scale,
     completeness: ResultCompleteness,
-    cancelled: Option<&mut dyn FnMut() -> bool>,
+    options: (Option<&mut dyn FnMut() -> bool>, bool),
 ) -> Result<Histogram, Error> {
+    let (cancelled, with_geometry) = options;
     let cancellable_sort = cancelled.is_some();
     let mut never_cancel = || false;
     let cancelled = cancelled.unwrap_or(&mut never_cancel);
@@ -225,30 +255,17 @@ fn calculate(
             bytes_overflowed: acc.bytes.overflowed(),
         });
     }
-    let mut interrupted = false;
-    let axis_result = resolve_axis(
-        scale,
-        output
-            .iter()
-            .map(|row| selected(row, basis))
-            .take_while(|_| {
-                if cancelled() {
-                    interrupted = true;
-                    false
-                } else {
-                    true
-                }
-            }),
-    );
-    if interrupted {
-        return Err(Error::Cancelled);
-    }
-    let axis = axis_result.map_err(|_| Error::InvalidAxis)?;
-    let count = output.len();
-    for (index, row) in output.iter_mut().enumerate() {
-        check(cancelled)?;
-        (row.rect, row.no_area) = row_rect(bounds, index, count, selected(row, basis), axis);
-    }
+    let axis = if with_geometry {
+        let values: Vec<_> = output.iter().map(|row| selected(row, basis)).collect();
+        let (axis, rectangles) = layout_values(bounds, &values, scale, cancelled)?;
+        for (row, (rect, no_area)) in output.iter_mut().zip(rectangles) {
+            row.rect = rect;
+            row.no_area = no_area;
+        }
+        axis
+    } else {
+        None
+    };
     sort_item_numbers(&mut uncertain_items, cancellable_sort, cancelled)?;
     sort_item_numbers(&mut unclassified_items, cancellable_sort, cancelled)?;
     check(cancelled)?;
@@ -263,6 +280,47 @@ fn calculate(
         source_completeness: completeness,
         total_bytes_overflowed: total.overflowed(),
     })
+}
+
+/// Per-row rectangles and omission reasons, in input order.
+pub type RowRectangles = Vec<(Option<Rect>, Option<NoArea>)>;
+
+/// Calculates row rectangles from already admitted common numeric values.
+///
+/// The returned positions follow the supplied row order and never create a
+/// rectangle for an unknown or zero value.
+pub fn layout_values(
+    bounds: Rect,
+    values: &[Weight],
+    scale: Scale,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<(Option<u64>, RowRectangles), Error> {
+    if !valid_bounds(bounds) {
+        return Err(Error::InvalidBounds);
+    }
+    let mut interrupted = false;
+    let axis = resolve_axis(
+        scale,
+        values.iter().copied().take_while(|_| {
+            if cancelled() {
+                interrupted = true;
+                false
+            } else {
+                true
+            }
+        }),
+    );
+    if interrupted {
+        return Err(Error::Cancelled);
+    }
+    let axis = axis.map_err(|_| Error::InvalidAxis)?;
+    let mut rectangles = Vec::with_capacity(values.len());
+    for (index, value) in values.iter().enumerate() {
+        check(cancelled)?;
+        rectangles.push(row_rect(bounds, index, values.len(), *value, axis));
+    }
+    check(cancelled)?;
+    Ok((axis, rectangles))
 }
 
 fn sort_item_numbers(

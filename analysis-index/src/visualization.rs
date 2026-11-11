@@ -9,6 +9,7 @@ mod cancellable_sort;
 pub mod geometry;
 pub mod group_page;
 pub mod histogram;
+pub mod histogram_dispatch;
 pub mod histogram_projection;
 pub mod live_models;
 pub mod model_links;
