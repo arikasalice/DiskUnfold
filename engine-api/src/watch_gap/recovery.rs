@@ -1,5 +1,8 @@
 //! Classifies verified watch ranges for incremental refresh and recovery planning.
 
+use du_analysis_index::freshness::Settled;
+use du_scan_engine::watch_coalescer::{Gap, GapReason, Key};
+
 /// Compatibility of the result bound to the watch scope.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BaseResult {
@@ -21,6 +24,57 @@ pub enum RangeEvidence {
     WholeUnitGap(WholeUnitGap),
     ClosedDirectoryGap,
     Change { include_descendants: bool },
+}
+
+/// Scope for the freshness evidence, independent of its refresh eligibility.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GapScope<'a> {
+    Unit,
+    Directory(&'a Key),
+}
+
+/// The published gap classification before applying scope and base-result checks.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ClassifiedGap<'a> {
+    pub scope: GapScope<'a>,
+    pub state: Settled,
+    /// `None` leaves the freshness evidence in place without scheduling work.
+    pub range_evidence: Option<RangeEvidence>,
+}
+
+/// Maps an F18 gap to its F33 freshness scope and possible recovery input.
+///
+/// Only a closed loss with a verified directory can enter automatic refresh.
+/// Use the original gap for the observation boundaries and replacement identity.
+pub fn classify_gap(gap: &Gap) -> ClassifiedGap<'_> {
+    use GapReason::{
+        BeforeStart, ConsumerResync, Overflow, PartialCapability, SignalLost, Stopped, Unavailable,
+    };
+    use GapScope::{Directory, Unit};
+    use RangeEvidence::{ClosedDirectoryGap, WholeUnitGap as Recover};
+    use Settled::{GapUnknown, Unwatched};
+
+    let (scope, state, range_evidence) = match (gap.reason, gap.path.as_ref()) {
+        (SignalLost, Some(path)) => (
+            Directory(path),
+            GapUnknown,
+            gap.end.map(|_| ClosedDirectoryGap),
+        ),
+        (BeforeStart | Overflow | ConsumerResync | SignalLost, _) => {
+            (Unit, GapUnknown, Some(Recover(WholeUnitGap::Unlocatable)))
+        }
+        (Unavailable, _) => (
+            Unit,
+            GapUnknown,
+            Some(Recover(WholeUnitGap::TargetDisconnected)),
+        ),
+        (Stopped | PartialCapability, _) => (Unit, Unwatched, None),
+    };
+    ClassifiedGap {
+        scope,
+        state,
+        range_evidence,
+    }
 }
 
 /// Stable reason attached to a recovery plan for the whole included target.

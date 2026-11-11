@@ -75,13 +75,22 @@ fn port_events_reach_registry_batches_and_the_consumer() {
             );
         }
     }
-    assert!(
-        consumer
-            .unit(&[3; 16])
-            .unwrap()
-            .gaps
-            .values()
-            .any(|gap| gap.reason == GapReason::SignalLost)
+    let lost = consumer
+        .unit(&[3; 16])
+        .unwrap()
+        .gaps
+        .values()
+        .find(|gap| gap.reason == GapReason::SignalLost)
+        .unwrap();
+    let classified = recovery::classify_gap(lost);
+    assert_eq!(classified.scope, recovery::GapScope::Unit);
+    assert_eq!(
+        classified.range_evidence.map(|evidence| {
+            recovery::decide(true, recovery::BaseResult::Compatible, true, evidence)
+        }),
+        Some(recovery::Decision::RecoverTarget(
+            recovery::RecoveryReason::GapUnlocatable
+        ))
     );
     producer.stop([3; 16], 1006).unwrap();
     assert!(
