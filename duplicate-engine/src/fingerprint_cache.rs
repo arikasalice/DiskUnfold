@@ -3,9 +3,9 @@
 //! Selection, capabilities and time are supplied by the trusted composition
 //! point. The cache is not a content-open authorization or a persistence format.
 use crate::{
-    RegisteredHash,
+    RegisteredHash, RegisteredOutcome,
     candidates::{EntryKind, FileIdentity, Placeholder, Size},
-    verification::{ReadPort, State, VerificationTarget},
+    verification::{self, FullReuse, ReadPort, State, Strategies, VerificationTarget, VerifyError},
 };
 use std::{collections::BTreeMap, num::NonZeroUsize, sync::Mutex, time::Duration};
 
@@ -26,6 +26,14 @@ pub struct ReuseCapabilities {
     pub change_stamp_supported: bool,
     /// Effective modification-time resolution, or None when unknown.
     pub modified_resolution: Option<Duration>,
+}
+
+/// Trusted per-volume capability and time sources for one selected scope.
+pub struct ReuseInputs<'a> {
+    pub capabilities: &'a dyn Fn(&FileIdentity) -> Option<ReuseCapabilities>,
+    pub clock: &'a dyn Fn() -> Option<i64>,
+    /// True only when all comparison peers in the selected scope were observed.
+    pub scope_proven: bool,
 }
 
 /// Reused full fingerprint and the time of its original successful read.
@@ -80,7 +88,7 @@ impl FingerprintCache {
         target: &VerificationTarget,
         capabilities: ReuseCapabilities,
         hash: &RegisteredHash,
-        reader: &mut impl ReadPort,
+        reader: &mut (impl ReadPort + ?Sized),
     ) -> Result<Decision, Error> {
         let Some(key) = key(target, capabilities, hash) else {
             return Ok(Decision::ReadRequired);
@@ -132,6 +140,56 @@ impl FingerprintCache {
             return Err(Error::Cancelled);
         }
         let verified_at_ms = clock().ok_or(Error::ClockUnavailable)?;
+        self.insert(key, digest, verified_at_ms)
+    }
+
+    /// Called only after the shared full-read path has verified this digest.
+    pub(crate) fn record_checked(
+        &self,
+        target: &VerificationTarget,
+        capabilities: ReuseCapabilities,
+        hash: &RegisteredHash,
+        digest: Vec<u8>,
+        verified_at_ms: i64,
+    ) -> Result<(), Error> {
+        let key = key(target, capabilities, hash).ok_or(Error::UnavailableEvidence)?;
+        self.insert(key, digest, verified_at_ms)
+    }
+
+    /// Runs the registered verifier with explicitly supplied session evidence.
+    /// Capabilities must be fresh, trusted, and specific to the selected volume.
+    /// # Errors
+    /// Returns invalid-target or unsupported-strategy errors from verification.
+    pub fn verify_with_reuse(
+        &self,
+        approved: &[VerificationTarget],
+        reader: &mut impl ReadPort,
+        hash: &RegisteredHash,
+        inputs: &ReuseInputs<'_>,
+        cancelled: impl FnMut() -> bool,
+    ) -> Result<RegisteredOutcome, VerifyError> {
+        let session = Session {
+            cache: self,
+            hash,
+            capabilities: inputs.capabilities,
+            clock: inputs.clock,
+        };
+        let strategy = hash.strategy();
+        verification::verify_for_scope_with_reuse(
+            approved,
+            reader,
+            Strategies {
+                sample: strategy,
+                full: strategy,
+            },
+            inputs.scope_proven,
+            Some(&session),
+            cancelled,
+        )
+        .map(RegisteredOutcome::from_verified)
+    }
+
+    fn insert(&self, key: Key, digest: Vec<u8>, verified_at_ms: i64) -> Result<(), Error> {
         let mut entries = self.entries.lock().map_err(|_| Error::Unavailable)?;
         if let Some(existing) = entries.get(&key) {
             if existing.verified_at_ms >= verified_at_ms {
@@ -148,6 +206,44 @@ impl FingerprintCache {
             },
         );
         Ok(())
+    }
+}
+
+struct Session<'a> {
+    cache: &'a FingerprintCache,
+    hash: &'a RegisteredHash,
+    capabilities: &'a dyn Fn(&FileIdentity) -> Option<ReuseCapabilities>,
+    clock: &'a dyn Fn() -> Option<i64>,
+}
+
+impl FullReuse for Session<'_> {
+    fn lookup(
+        &self,
+        target: &VerificationTarget,
+        reader: &mut dyn ReadPort,
+    ) -> Option<(Vec<u8>, i64)> {
+        let now = (self.clock)()?;
+        let capabilities = (self.capabilities)(target.target.identity.as_ref()?)?;
+        match self
+            .cache
+            .decide(target, capabilities, self.hash, reader)
+            .ok()?
+        {
+            Decision::Reuse(fingerprint) if now >= fingerprint.verified_at_ms => {
+                Some((fingerprint.digest, fingerprint.verified_at_ms))
+            }
+            Decision::Reuse(_) => None,
+            Decision::ReadRequired => None,
+        }
+    }
+    fn record(&self, target: &VerificationTarget, digest: &[u8]) -> Option<i64> {
+        let time = (self.clock)()?;
+        if let Some(capabilities) = target.target.identity.as_ref().and_then(self.capabilities) {
+            let _ =
+                self.cache
+                    .record_checked(target, capabilities, self.hash, digest.to_vec(), time);
+        }
+        Some(time)
     }
 }
 

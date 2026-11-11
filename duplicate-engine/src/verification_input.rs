@@ -34,3 +34,10 @@ pub(crate) fn valid_approval(
             .as_ref()
             .is_some_and(|snapshot| snapshot.identity == *identity && snapshot.size == size)
 }
+
+/// A verified-selection candidate and its aliases.
+pub(crate) struct Candidate<'a> {
+    pub(crate) approved: &'a VerificationTarget,
+    pub(crate) aliases: Vec<u32>,
+    pub(crate) identity: FileIdentity,
+}

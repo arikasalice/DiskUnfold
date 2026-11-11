@@ -21,6 +21,9 @@ pub struct RegisteredHash(&'static (dyn HashStrategy + Sync));
 pub struct RegisteredOutcome(Outcome);
 
 impl RegisteredOutcome {
+    pub(crate) fn from_verified(outcome: Outcome) -> Self {
+        Self(outcome)
+    }
     pub(crate) fn prepare_unjudged(&mut self) -> Vec<u32> {
         if self.0.cancelled {
             std::mem::take(&mut self.0.unjudged)
@@ -49,6 +52,9 @@ impl RegisteredOutcome {
 }
 
 impl RegisteredHash {
+    pub(crate) fn strategy(&self) -> &dyn HashStrategy {
+        self.0
+    }
     pub(crate) fn reuse_identity(&self) -> (&str, u32) {
         (self.0.id(), self.0.revision())
     }

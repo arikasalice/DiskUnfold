@@ -2,79 +2,41 @@
 //!
 //! These interfaces are local to duplicate-engine. OS and job runtime composition
 //! must supply the approved input list and the identity-bound read port.
-use crate::candidates::{self, Exclusion, FileIdentity, PrepareError, SampleRange, Size};
+use crate::candidates::{self, Exclusion, PrepareError, Size};
 pub use crate::read_measurement::ReadMeasurement;
 use std::collections::BTreeMap;
 
-use crate::verification_input::valid_approval;
+use crate::verification_input::{Candidate, valid_approval};
 pub use crate::verification_input::{Snapshot, VerificationTarget};
-/// Purpose-separated hash invocations must not reuse each other's digest domain.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum HashPurpose {
-    Sample,
-    Full,
+pub use crate::verification_ports::{
+    Digest, HashPurpose, HashStrategy, OpenFile, ReadError, ReadPort, Strategies,
+};
+use crate::verification_read::read_digest;
+pub(crate) use crate::verification_read::verified_full_for_reuse;
+pub use crate::verification_result::{
+    DistinctStage, FingerprintEvidence, Outcome, State, VerifiedFile, VerifiedGroup,
+};
+
+/// Only crate-owned implementations may provide fingerprints to the verifier.
+pub(crate) trait FullReuse {
+    fn lookup(
+        &self,
+        target: &VerificationTarget,
+        reader: &mut dyn ReadPort,
+    ) -> Option<(Vec<u8>, i64)>;
+    fn record(&self, target: &VerificationTarget, digest: &[u8]) -> Option<i64>;
 }
 
-/// Read failure or a failed identity-bound open.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ReadError {
-    Failed,
-    IdentityChanged,
+struct VerificationConfig<'a> {
+    strategies: Strategies<'a>,
+    reuse: Option<&'a dyn FullReuse>,
 }
-
-/// An opened file bound to its identity; reads must not follow a replacement path.
-pub trait OpenFile {
-    /// Reads metadata from the same open file used for content.
-    fn snapshot(&mut self) -> Result<Snapshot, ReadError>;
-    /// Reads at most `buffer.len()` bytes from the specified file offset.
-    fn read_at(&mut self, offset: u64, buffer: &mut [u8]) -> Result<usize, ReadError>;
-}
-
-/// Opens only the selected item and fails if its identity no longer matches.
-///
-/// The adapter must prevent placeholder downloads and access-time updates, or fail
-/// closed when it cannot provide those guarantees.
-pub trait ReadPort {
-    fn open_bound<'a>(
-        &'a mut self,
-        item_no: u32,
-        expected: &FileIdentity,
-    ) -> Result<Box<dyn OpenFile + 'a>, ReadError>;
-}
-
-/// Incremental digest state, scoped to one item and hash purpose.
-pub trait Digest {
-    fn update(&mut self, bytes: &[u8]);
-    fn finish(self: Box<Self>) -> Vec<u8>;
-}
-
-/// A pinned registered strategy; production composition must provide a trusted implementation.
-pub trait HashStrategy {
-    fn id(&self) -> &str;
-    fn revision(&self) -> u32;
-    fn collision_resistant(&self) -> bool;
-    /// Initializes a digest for the requested purpose and the confirmed file size.
-    fn start(&self, purpose: HashPurpose, approved_size: u64) -> Box<dyn Digest>;
-}
-
-/// Strategies fixed at admission for sample filtering and final full-file verification.
-pub struct Strategies<'a> {
-    pub sample: &'a dyn HashStrategy,
-    pub full: &'a dyn HashStrategy,
-}
-pub use crate::verification_result::{DistinctStage, Outcome, State, VerifiedFile, VerifiedGroup};
 
 /// Failure before any file is opened.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum VerifyError {
     InvalidTargets(PrepareError),
     UnsupportedHash,
-}
-
-struct Candidate<'a> {
-    approved: &'a VerificationTarget,
-    aliases: Vec<u32>,
-    identity: FileIdentity,
 }
 
 /// Verifies candidate files using only the supplied approved targets and injected ports.
@@ -97,6 +59,17 @@ pub(crate) fn verify_for_scope(
     reader: &mut impl ReadPort,
     strategies: Strategies<'_>,
     scope_proven: bool,
+    cancelled: impl FnMut() -> bool,
+) -> Result<Outcome, VerifyError> {
+    verify_for_scope_with_reuse(approved, reader, strategies, scope_proven, None, cancelled)
+}
+
+pub(crate) fn verify_for_scope_with_reuse(
+    approved: &[VerificationTarget],
+    reader: &mut impl ReadPort,
+    strategies: Strategies<'_>,
+    scope_proven: bool,
+    reuse: Option<&dyn FullReuse>,
     mut cancelled: impl FnMut() -> bool,
 ) -> Result<Outcome, VerifyError> {
     if strategies.full.id().is_empty()
@@ -125,6 +98,7 @@ pub(crate) fn verify_for_scope(
         interrupted: Vec::new(),
         sample_reads: ReadMeasurement::default(),
         full_reads: ReadMeasurement::default(),
+        full_fingerprints: BTreeMap::new(),
         algorithm_id: strategies.full.id().to_owned(),
         algorithm_revision: strategies.full.revision(),
         sample_algorithm_id: strategies.sample.id().to_owned(),
@@ -154,6 +128,7 @@ pub(crate) fn verify_for_scope(
         output.mark_cancelled();
         return Ok(output);
     }
+    let config = VerificationConfig { strategies, reuse };
     for group in prepared.groups {
         let group_size = group.files.len();
         let path_count = group.files.iter().map(|file| file.item_nos.len()).sum();
@@ -190,7 +165,7 @@ pub(crate) fn verify_for_scope(
                 group.size,
                 selected.len() == group_size && all_peers_known,
                 reader,
-                &strategies,
+                &config,
                 &mut cancelled,
                 &mut output,
             )
@@ -232,7 +207,7 @@ fn process_group(
     size: u64,
     all_eligible: bool,
     reader: &mut impl ReadPort,
-    strategies: &Strategies<'_>,
+    config: &VerificationConfig<'_>,
     cancelled: &mut impl FnMut() -> bool,
     output: &mut Outcome,
 ) -> bool {
@@ -246,7 +221,7 @@ fn process_group(
                 target,
                 HashPurpose::Sample,
                 reader,
-                strategies.sample,
+                config.strategies.sample,
                 &mut output.sample_reads,
             );
             if cancelled() {
@@ -277,7 +252,7 @@ fn process_group(
             size,
             all_compared,
             reader,
-            strategies.full,
+            config,
             cancelled,
             output,
         ) {
@@ -291,7 +266,7 @@ fn verify_full(
     size: u64,
     all_compared: bool,
     reader: &mut impl ReadPort,
-    hasher: &dyn HashStrategy,
+    config: &VerificationConfig<'_>,
     cancelled: &mut impl FnMut() -> bool,
     output: &mut Outcome,
 ) -> bool {
@@ -300,19 +275,45 @@ fn verify_full(
         if cancelled() {
             return false;
         }
-        let digest = read_digest(
-            target,
-            HashPurpose::Full,
-            reader,
-            hasher,
-            &mut output.full_reads,
-        );
+        let reused = config
+            .reuse
+            .and_then(|reuse| reuse.lookup(target.approved, reader));
+        let digest = match reused.as_ref() {
+            Some((digest, _)) => Ok(digest.clone()),
+            None => read_digest(
+                target,
+                HashPurpose::Full,
+                reader,
+                config.strategies.full,
+                &mut output.full_reads,
+            ),
+        };
         if cancelled() {
             output.interrupted.extend_from_slice(&target.aliases);
             return false;
         }
         match digest {
-            Ok(digest) => digests.entry(digest).or_default().push(target),
+            Ok(digest) => {
+                let (reused, verified_at_ms) = match reused {
+                    Some((_, time)) => (true, Some(time)),
+                    None => (
+                        false,
+                        config
+                            .reuse
+                            .and_then(|cache| cache.record(target.approved, &digest)),
+                    ),
+                };
+                for item in &target.aliases {
+                    output.full_fingerprints.insert(
+                        *item,
+                        FingerprintEvidence {
+                            reused,
+                            verified_at_ms,
+                        },
+                    );
+                }
+                digests.entry(digest).or_default().push(target)
+            }
             Err(state) => set_state(output, &target.aliases, state),
         }
     }
@@ -362,133 +363,5 @@ fn mark_distinct(
                 output.distinct_by.insert(*number, stage);
             }
         }
-    }
-}
-fn read_digest(
-    target: &Candidate<'_>,
-    purpose: HashPurpose,
-    reader: &mut impl ReadPort,
-    hasher: &dyn HashStrategy,
-    measurement: &mut ReadMeasurement,
-) -> Result<Vec<u8>, State> {
-    let expected = target.approved.snapshot.as_ref().ok_or(State::Unchecked)?;
-    let mut file = reader
-        .open_bound(target.approved.target.item_no, &target.identity)
-        .map_err(read_error)?;
-    if file.snapshot().map_err(read_error)? != *expected {
-        return Err(State::Changed);
-    }
-    let mut digest = hasher.start(purpose, expected.size);
-    match purpose {
-        HashPurpose::Sample => {
-            let ranges = candidates::sample_ranges(expected.size).ok_or(State::ReadFailed)?;
-            for range in ranges {
-                read_range(&mut *file, range, &mut *digest, measurement)?;
-            }
-        }
-        HashPurpose::Full => {
-            read_range(
-                &mut *file,
-                SampleRange {
-                    offset: 0,
-                    length: expected.size,
-                },
-                &mut *digest,
-                measurement,
-            )?;
-            let mut probe = [0_u8; 1];
-            if measured_read(&mut *file, expected.size, &mut probe, measurement)? != 0 {
-                return Err(State::Changed);
-            }
-        }
-    }
-    if file.snapshot().map_err(read_error)? != *expected {
-        return Err(State::Changed);
-    }
-    let digest = digest.finish();
-    if digest.is_empty() {
-        return Err(State::ReadFailed);
-    }
-    Ok(digest)
-}
-
-/// Produces a full digest only through the normal identity-bound before/after checks.
-pub(crate) fn verified_full_for_reuse(
-    target: &VerificationTarget,
-    reader: &mut impl ReadPort,
-    hasher: &dyn HashStrategy,
-) -> Result<Vec<u8>, State> {
-    let identity = target.target.identity.as_ref().ok_or(State::Unchecked)?;
-    let Size::Exact(size) = target.target.size else {
-        return Err(State::Unchecked);
-    };
-    if target.target.kind != candidates::EntryKind::File
-        || identity.volume.is_empty()
-        || identity.file.is_empty()
-        || !valid_approval(target, identity, size)
-    {
-        return Err(State::Unchecked);
-    }
-    let candidate = Candidate {
-        approved: target,
-        aliases: vec![target.target.item_no],
-        identity: identity.clone(),
-    };
-    read_digest(
-        &candidate,
-        HashPurpose::Full,
-        reader,
-        hasher,
-        &mut ReadMeasurement::default(),
-    )
-}
-fn read_range(
-    file: &mut dyn OpenFile,
-    range: SampleRange,
-    digest: &mut dyn Digest,
-    measurement: &mut ReadMeasurement,
-) -> Result<(), State> {
-    let mut remaining = range.length;
-    let mut offset = range.offset;
-    let mut buffer = [0_u8; 64 * 1024];
-    while remaining > 0 {
-        let limit =
-            usize::try_from(remaining.min(buffer.len() as u64)).map_err(|_| State::ReadFailed)?;
-        let count = measured_read(file, offset, &mut buffer[..limit], measurement)?;
-        if count == 0 {
-            return Err(State::ReadFailed);
-        }
-        digest.update(&buffer[..count]);
-        let count = count as u64;
-        offset = offset.checked_add(count).ok_or(State::ReadFailed)?;
-        remaining -= count;
-    }
-    Ok(())
-}
-fn measured_read(
-    file: &mut dyn OpenFile,
-    offset: u64,
-    buffer: &mut [u8],
-    measurement: &mut ReadMeasurement,
-) -> Result<usize, State> {
-    match file.read_at(offset, buffer) {
-        Ok(count) => {
-            measurement.record(count, buffer.len());
-            if count > buffer.len() {
-                Err(State::ReadFailed)
-            } else {
-                Ok(count)
-            }
-        }
-        Err(error) => {
-            measurement.exact = false;
-            Err(read_error(error))
-        }
-    }
-}
-fn read_error(error: ReadError) -> State {
-    match error {
-        ReadError::Failed => State::ReadFailed,
-        ReadError::IdentityChanged => State::Changed,
     }
 }

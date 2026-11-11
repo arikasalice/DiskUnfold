@@ -5,6 +5,7 @@
 use crate::{
     RegisteredHash,
     candidates::FileIdentity,
+    fingerprint_cache::{FingerprintCache, ReuseCapabilities, ReuseInputs},
     result_store::{PreparedResult, ResultStore, ScopeEvidence},
     verification::{OpenFile, ReadError, ReadPort, State, VerificationTarget, VerifyError},
 };
@@ -67,6 +68,19 @@ struct Body<P> {
     scope_proven: bool,
     scope: ScopeEvidence,
     candidates: Arc<Mutex<Candidates>>,
+    reuse: Option<JobReuse>,
+}
+
+/// Explicit session-scoped sources supplied by the composition point.
+pub type CapabilitySource = dyn Fn(&FileIdentity) -> Option<ReuseCapabilities> + Send + Sync;
+/// UTC milliseconds when available.
+pub type VerificationClock = dyn Fn() -> Option<i64> + Send + Sync;
+
+/// Explicit session-scoped sources supplied by the composition point.
+pub struct JobReuse {
+    pub cache: Arc<FingerprintCache>,
+    pub capabilities: Arc<CapabilitySource>,
+    pub clock: Arc<VerificationClock>,
 }
 
 /// Prepared job components for `submit_duplicate_terminal`.
@@ -91,6 +105,27 @@ pub fn prepare<P: ReadPort + Send + 'static>(
     input: Input<P>,
     hash: RegisteredHash,
     store: Arc<ResultStore>,
+) -> Result<PreparedJob, PrepareError> {
+    prepare_inner(input, hash, store, None)
+}
+
+/// Prepares a job with an explicitly supplied, session-scoped reuse source.
+/// # Errors
+/// Returns an error if scope or verification inputs are invalid.
+pub fn prepare_with_reuse<P: ReadPort + Send + 'static>(
+    input: Input<P>,
+    hash: RegisteredHash,
+    store: Arc<ResultStore>,
+    reuse: JobReuse,
+) -> Result<PreparedJob, PrepareError> {
+    prepare_inner(input, hash, store, Some(reuse))
+}
+
+fn prepare_inner<P: ReadPort + Send + 'static>(
+    input: Input<P>,
+    hash: RegisteredHash,
+    store: Arc<ResultStore>,
+    reuse: Option<JobReuse>,
 ) -> Result<PreparedJob, PrepareError> {
     if input.scope.roots.is_empty()
         || input
@@ -119,6 +154,7 @@ pub fn prepare<P: ReadPort + Send + 'static>(
         scope_proven,
         scope: input.scope,
         candidates: Arc::clone(&candidates),
+        reuse,
     });
     let summary = summary(count);
     let queued = JobOutcome {
@@ -190,19 +226,10 @@ impl<P: ReadPort + Send> JobBody for Body<P> {
                 Err(_) => return failure(),
             }
         };
-        let result = match flow.as_ref() {
-            Some(flow) => {
-                self.hash
-                    .verify_for_scope(&targets, &mut reader, self.scope_proven, || {
-                        flow.safe_point() == Checkpoint::Cancel
-                    })
-            }
-            None => self
-                .hash
-                .verify_for_scope(&targets, &mut reader, self.scope_proven, || {
-                    context.checkpoint() == Checkpoint::Cancel
-                }),
-        };
+        let result = self.verify(&targets, &mut reader, || match flow.as_ref() {
+            Some(flow) => flow.safe_point() == Checkpoint::Cancel,
+            None => context.checkpoint() == Checkpoint::Cancel,
+        });
         if let Some(flow) = flow {
             flow.finish(JobCounts::default());
         }
@@ -231,6 +258,29 @@ impl<P: ReadPort + Send> JobBody for Body<P> {
             failure_reason_key: None,
             unprocessed_summary,
             result_version_id: None,
+        }
+    }
+}
+
+impl<P: ReadPort + Send> Body<P> {
+    fn verify(
+        &self,
+        targets: &[VerificationTarget],
+        reader: &mut P,
+        cancelled: impl FnMut() -> bool,
+    ) -> Result<crate::RegisteredOutcome, VerifyError> {
+        if let Some(reuse) = &self.reuse {
+            let inputs = ReuseInputs {
+                capabilities: reuse.capabilities.as_ref(),
+                clock: reuse.clock.as_ref(),
+                scope_proven: self.scope_proven,
+            };
+            reuse
+                .cache
+                .verify_with_reuse(targets, reader, &self.hash, &inputs, cancelled)
+        } else {
+            self.hash
+                .verify_for_scope(targets, reader, self.scope_proven, cancelled)
         }
     }
 }

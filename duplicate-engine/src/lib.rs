@@ -24,3 +24,6 @@ mod verification_input;
 
 /// Bounded session fingerprint evidence, separate from duplicate verdicts.
 pub mod fingerprint_cache;
+
+mod verification_ports;
+mod verification_read;

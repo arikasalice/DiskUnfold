@@ -58,10 +58,19 @@ pub struct Outcome {
     pub sample_reads: ReadMeasurement,
     /// Bytes returned by full reads and EOF probes, including discarded work.
     pub full_reads: ReadMeasurement,
+    /// Per-item evidence from this run's full-fingerprint stage.
+    pub full_fingerprints: BTreeMap<u32, FingerprintEvidence>,
     pub algorithm_id: String,
     pub algorithm_revision: u32,
     pub sample_algorithm_id: String,
     pub sample_algorithm_revision: u32,
+}
+
+/// The source of a full fingerprint; this is not a duplicate verdict.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FingerprintEvidence {
+    pub reused: bool,
+    pub verified_at_ms: Option<i64>,
 }
 
 impl Outcome {
