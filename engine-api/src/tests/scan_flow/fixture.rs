@@ -3,20 +3,34 @@ use super::*;
 pub(super) fn scan_harness_with_gate(
     finish_gate: Option<Arc<Mutex<mpsc::Receiver<()>>>>,
 ) -> Result<ScanHarness, Box<dyn std::error::Error>> {
-    scan_harness_with_comparison(finish_gate, None)
+    scan_harness_with_admissions(finish_gate, None, None, false)
+}
+
+pub(super) fn scan_harness_with_recent_admissions()
+-> Result<ScanHarness, Box<dyn std::error::Error>> {
+    scan_harness_with_admissions(None, None, None, true)
 }
 
 pub(super) fn scan_harness_with_comparison(
     finish_gate: Option<Arc<Mutex<mpsc::Receiver<()>>>>,
     comparison: Option<Arc<dyn crate::scope::exclusion::PathComparison>>,
 ) -> Result<ScanHarness, Box<dyn std::error::Error>> {
-    scan_harness_with_options(finish_gate, comparison, None)
+    scan_harness_with_admissions(finish_gate, comparison, None, false)
 }
 
 pub(super) fn scan_harness_with_options(
     finish_gate: Option<Arc<Mutex<mpsc::Receiver<()>>>>,
     comparison: Option<Arc<dyn crate::scope::exclusion::PathComparison>>,
     limit: Option<crate::desktop::SharedTableLimitSource>,
+) -> Result<ScanHarness, Box<dyn std::error::Error>> {
+    scan_harness_with_admissions(finish_gate, comparison, limit, false)
+}
+
+fn scan_harness_with_admissions(
+    finish_gate: Option<Arc<Mutex<mpsc::Receiver<()>>>>,
+    comparison: Option<Arc<dyn crate::scope::exclusion::PathComparison>>,
+    limit: Option<crate::desktop::SharedTableLimitSource>,
+    recent: bool,
 ) -> Result<ScanHarness, Box<dyn std::error::Error>> {
     let ids = Arc::new(Ids {
         next: AtomicUsize::new(1),
@@ -28,6 +42,9 @@ pub(super) fn scan_harness_with_options(
         file_id: AtomicUsize::new(1),
         opens: AtomicUsize::new(0),
         reads: Arc::new(AtomicUsize::new(0)),
+        recent_observations: Arc::new(AtomicUsize::new(0)),
+        recent_opens: Arc::new(AtomicUsize::new(0)),
+        recent_live_handles: Arc::new(AtomicUsize::new(0)),
         read_handles: Arc::new(Mutex::new(Vec::new())),
         release: Arc::new(Mutex::new(blocked)),
         finish_gate,
@@ -56,8 +73,14 @@ pub(super) fn scan_harness_with_options(
         crate::scope::register_review(&mut builder, roots.clone(), clock);
     }
     let workers = Arc::new(crate::workers::Workers::start(runtime.clone())?);
-    let versions = match limit {
-        Some(limit) => crate::scan::register_with_limit(
+    let (recent_publisher, recent_scope_admissions) = if recent {
+        let (publisher, admissions) = crate::desktop::recent_scope_admissions(1);
+        (Some(publisher), Some(admissions))
+    } else {
+        (None, None)
+    };
+    let versions = match (limit, recent_publisher) {
+        (Some(limit), None) => crate::scan::register_with_limit(
             &mut builder,
             workers,
             roots.clone(),
@@ -66,13 +89,26 @@ pub(super) fn scan_harness_with_options(
             None,
         )?
         .source(),
-        None => crate::scan::register_with_comparison(
+        (None, Some(publisher)) => crate::scan::register_with_admissions(
+            &mut builder,
+            workers,
+            roots.clone(),
+            ids,
+            Arc::new(du_core_contracts::settings::SharedTableLimit::default),
+            None,
+            publisher,
+        )?
+        .source(),
+        (None, None) => crate::scan::register_with_comparison(
             &mut builder,
             workers,
             roots.clone(),
             ids,
             comparison,
         )?,
+        (Some(_), Some(_)) => {
+            return Err("test harness does not combine recent admission and custom setting".into());
+        }
     };
     crate::jobs::register_with_scan_store(&mut builder, runtime, versions.clone());
     Ok(ScanHarness {
@@ -81,5 +117,6 @@ pub(super) fn scan_harness_with_options(
         release,
         terminal,
         versions,
+        recent_scope_admissions,
     })
 }

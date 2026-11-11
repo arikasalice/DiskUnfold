@@ -439,6 +439,9 @@ fn exclusion_inside_absorbed_root_stays_bound_to_retained_root()
         file_id: AtomicUsize::new(1),
         opens: AtomicUsize::new(0),
         reads: Arc::new(AtomicUsize::new(0)),
+        recent_observations: Arc::new(AtomicUsize::new(0)),
+        recent_opens: Arc::new(AtomicUsize::new(0)),
+        recent_live_handles: Arc::new(AtomicUsize::new(0)),
         read_handles: Arc::new(Mutex::new(Vec::new())),
         release: Arc::new(Mutex::new(receiver)),
         finish_gate: None,
@@ -478,6 +481,7 @@ fn exclusion_inside_absorbed_root_stays_bound_to_retained_root()
         &review.review_fingerprint,
         &*roots,
         Some(comparison),
+        false,
     )
     .map_err(|error| format!("{error:?}"))?;
     assert_eq!(verified.roots.len(), 1);

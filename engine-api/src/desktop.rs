@@ -1,10 +1,15 @@
 //! Compose the desktop analysis use cases with injected OS and storage ports.
 use std::{
     collections::VecDeque,
+    num::NonZeroUsize,
     sync::{Arc, Mutex},
     time::{Duration, Instant, UNIX_EPOCH},
 };
 
+pub(crate) use crate::recent_scope::recent_scope_admissions;
+pub use crate::recent_scope::{
+    RecentScopeAdmission, RecentScopeAdmissionProgress, RecentScopeAdmissions,
+};
 use du_core_contracts::{
     ENVELOPE_VERSION, EventEnvelope, Id, Timestamp,
     analysis_ipc::{JobResyncReason, JobResyncRequired, TargetProbeEvent, TargetStatusChanged},
@@ -76,8 +81,11 @@ pub fn register_with_scan_diagnostics(
         volumes,
         history,
         random,
-        Arc::new(SharedTableLimit::default),
-        Some(diagnostics),
+        DesktopRegistrationOptions {
+            shared_table_limit: Arc::new(SharedTableLimit::default),
+            diagnostics: Some(diagnostics),
+            recent_admission_capacity: None,
+        },
     )?
     .events)
 }
@@ -88,6 +96,14 @@ pub struct DesktopServices {
     pub path_copy: crate::browse::copy_path::PathCopy,
     /// Internal Rust search entry point sharing the GUI query regions.
     pub search: Option<Arc<crate::search::SearchEntry>>,
+    /// Internal app-host worker queue. Only newly admitted GUI scans are sent.
+    pub recent_scope_admissions: Option<RecentScopeAdmissions>,
+}
+
+struct DesktopRegistrationOptions {
+    shared_table_limit: SharedTableLimitSource,
+    diagnostics: Option<ScanDiagnosticsFactory>,
+    recent_admission_capacity: Option<NonZeroUsize>,
 }
 
 /// Registers analysis and exposes the observed-path reader for app-host only.
@@ -105,8 +121,38 @@ pub fn register_services(
         volumes,
         history,
         random,
-        shared_table_limit,
-        None,
+        DesktopRegistrationOptions {
+            shared_table_limit,
+            diagnostics: None,
+            recent_admission_capacity: None,
+        },
+    )
+}
+
+/// Registers analysis with the opt-in deferred recent-scope worker handoff.
+///
+/// The app-host caller must release an admission after returning its scan receipt.
+/// The worker must wait until the owning runtime reports a terminal job state.
+pub fn register_services_with_recent_scope_worker(
+    builder: &mut EngineBuilder,
+    roots: Arc<dyn ScopeRootPort>,
+    volumes: Arc<dyn VolumePort>,
+    history: Arc<dyn JobHistory>,
+    random: &dyn Random,
+    shared_table_limit: SharedTableLimitSource,
+    recent_admission_capacity: NonZeroUsize,
+) -> Result<DesktopServices, Box<dyn std::error::Error>> {
+    register_services_inner(
+        builder,
+        roots,
+        volumes,
+        history,
+        random,
+        DesktopRegistrationOptions {
+            shared_table_limit,
+            diagnostics: None,
+            recent_admission_capacity: Some(recent_admission_capacity),
+        },
     )
 }
 
@@ -116,9 +162,13 @@ fn register_services_inner(
     volumes: Arc<dyn VolumePort>,
     history: Arc<dyn JobHistory>,
     random: &dyn Random,
-    shared_table_limit: SharedTableLimitSource,
-    diagnostics: Option<ScanDiagnosticsFactory>,
+    options: DesktopRegistrationOptions,
 ) -> Result<DesktopServices, Box<dyn std::error::Error>> {
+    let DesktopRegistrationOptions {
+        shared_table_limit,
+        diagnostics,
+        recent_admission_capacity,
+    } = options;
     let ids = Arc::new(SystemIdentity);
     let clock = Arc::new(SystemClock(Instant::now()));
     let events = Arc::new(DesktopEvents::default());
@@ -145,14 +195,32 @@ fn register_services_inner(
             probe: TARGET_PROBE_DEADLINE,
         },
     )?;
-    let sets = scan::register_with_limit(
-        builder,
-        workers.clone(),
-        roots,
-        ids.clone(),
-        shared_table_limit,
-        diagnostics,
-    )?;
+    let (recent_publisher, recent_scope_admissions) =
+        if let Some(capacity) = recent_admission_capacity {
+            let (publisher, admissions) = recent_scope_admissions(capacity.get());
+            (Some(publisher), Some(admissions))
+        } else {
+            (None, None)
+        };
+    let sets = match recent_publisher {
+        Some(publisher) => scan::register_with_admissions(
+            builder,
+            workers.clone(),
+            roots,
+            ids.clone(),
+            shared_table_limit,
+            diagnostics,
+            publisher,
+        )?,
+        None => scan::register_with_limit(
+            builder,
+            workers.clone(),
+            roots,
+            ids.clone(),
+            shared_table_limit,
+            diagnostics,
+        )?,
+    };
     let store = sets.source();
     let search = crate::browse::folder::commands::register(builder, sets, ids, workers, random)?;
     crate::scan_failures::register(builder, store.clone(), random);
@@ -162,6 +230,7 @@ fn register_services_inner(
         events,
         path_copy,
         search,
+        recent_scope_admissions,
     })
 }
 

@@ -186,6 +186,7 @@ fn prepare_checked(
 
 struct PreparedScope {
     roots: Vec<OpenedScopeRoot>,
+    recent_observers: Vec<du_core_contracts::scan_observation::OptionalRecentScopeObserver>,
     targets: Vec<ScopeCorrespondence>,
     notices: Vec<String>,
     review: String,
@@ -237,6 +238,7 @@ fn prepare_scope(
     draft: &ScopeDraft,
     roots: &dyn ScopeRootPort,
     evidence: Arc<dyn PathComparison>,
+    include_recent: bool,
 ) -> Result<PreparedScope, EngineError> {
     let mut plain = draft.clone();
     let rules = plain
@@ -250,8 +252,13 @@ fn prepare_scope(
         })
         .collect::<Result<Vec<_>, _>>()?;
     plain.exclusions.clear();
-    let prepared = preparation::prepare(&plain, roots, &preparation::RawRootEvidence)
-        .map_err(super::preparation_error)?;
+    let prepared = preparation::prepare_with_recent(
+        &plain,
+        roots,
+        &preparation::RawRootEvidence,
+        include_recent,
+    )
+    .map_err(super::preparation_error)?;
     let candidates = prepared
         .normalized_roots()
         .map(|root| {
@@ -353,13 +360,11 @@ fn prepare_scope(
             reason_key: None,
         })
         .collect();
-    let mut handles = prepared
-        .into_roots()
-        .into_iter()
-        .map(Some)
-        .collect::<Vec<_>>();
-    let retained = frozen
-        .roots
+    let (opened_roots, mut recent_observers) = prepared.into_roots_and_recent();
+    let mut handles = opened_roots.into_iter().map(Some).collect::<Vec<_>>();
+    let mut aligned_observers = recent_observers.drain(..).map(Some).collect::<Vec<_>>();
+    let retained_indices = frozen.roots.to_vec();
+    let retained = retained_indices
         .iter()
         .map(|&i| {
             handles[i]
@@ -367,8 +372,17 @@ fn prepare_scope(
                 .ok_or_else(|| EngineError::reason("support.internal_error"))
         })
         .collect::<Result<Vec<_>, _>>()?;
+    let retained_observers = retained_indices
+        .iter()
+        .map(|&i| {
+            aligned_observers[i]
+                .take()
+                .ok_or_else(|| EngineError::reason("support.internal_error"))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     Ok(PreparedScope {
         roots: retained,
+        recent_observers: retained_observers,
         targets,
         notices: notices.into_iter().map(str::to_owned).collect(),
         review,
@@ -384,7 +398,7 @@ pub(super) fn review(
     clock: &dyn JobClock,
     evidence: Arc<dyn PathComparison>,
 ) -> Result<ScopeReview, EngineError> {
-    let prepared = prepare_scope(&draft, roots, evidence)?;
+    let prepared = prepare_scope(&draft, roots, evidence, false)?;
     Ok(ScopeReview {
         scope: prepared.proof.draft(false),
         notices: prepared.notices,
@@ -401,14 +415,17 @@ pub(super) fn verify(
     expected: &str,
     roots: &dyn ScopeRootPort,
     evidence: Arc<dyn PathComparison>,
+    include_recent: bool,
 ) -> Result<super::VerifiedScope, EngineError> {
-    let prepared =
-        prepare_scope(draft, roots, evidence).map_err(|_| EngineError::reason("scope.changed"))?;
+    let prepared = prepare_scope(draft, roots, evidence, include_recent)
+        .map_err(|_| EngineError::reason("scope.changed"))?;
     if prepared.review != expected {
         return Err(EngineError::reason("scope.changed"));
     }
     Ok(super::VerifiedScope {
         roots: prepared.roots,
+        recent_observers: prepared.recent_observers,
+        normalized_draft: prepared.proof.draft(false),
         scope_fingerprint: super::ScopeFingerprint::Bound(prepared.proof),
         filter: Some(prepared.filter),
     })

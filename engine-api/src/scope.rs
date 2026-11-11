@@ -11,7 +11,7 @@ use du_core_contracts::{
         ScopeBoundary, ScopeCorrespondence, ScopeDraft, ScopeReview, ScopeReviewRequest,
         ScopeSource, TargetAccess,
     },
-    scan_observation::{OpenedScopeRoot, ScopeRootPort},
+    scan_observation::{OpenedScopeRoot, OptionalRecentScopeObserver, ScopeRootPort},
 };
 use du_job_runtime::JobClock;
 use du_scan_engine::target::{AccessObservation, AccessStatus, access_result};
@@ -246,6 +246,8 @@ pub(crate) fn windows_path(path: &OsPath) -> Result<OsPath, EngineError> {
 /// An anchored scope and its identity-independent fingerprint.
 pub(crate) struct VerifiedScope {
     pub roots: Vec<OpenedScopeRoot>,
+    pub recent_observers: Vec<OptionalRecentScopeObserver>,
+    pub normalized_draft: ScopeDraft,
     pub scope_fingerprint: ScopeFingerprint,
     pub filter: Option<Arc<du_scan_engine::scan::PreMetadataFilter<'static>>>,
 }
@@ -271,6 +273,7 @@ pub(crate) fn verify(
     expected: &str,
     roots: &dyn ScopeRootPort,
     comparison: Option<Arc<dyn exclusion::PathComparison>>,
+    include_recent: bool,
 ) -> Result<VerifiedScope, EngineError> {
     validate(draft, comparison.is_some())?;
     if !draft.exclusions.is_empty() {
@@ -279,22 +282,30 @@ pub(crate) fn verify(
             expected,
             roots,
             comparison.ok_or_else(|| EngineError::reason("scope.exclude_invalid"))?,
+            include_recent,
         );
     }
     let [single] = draft.includes.as_slice() else {
-        let prepared =
-            preparation::prepare(draft, roots, &preparation::RawRootEvidence).map_err(|error| {
-                match error {
-                    preparation::Error::InvalidPath => preparation_error(error),
-                    _ => EngineError::reason("scope.changed"),
-                }
-            })?;
+        let prepared = preparation::prepare_with_recent(
+            draft,
+            roots,
+            &preparation::RawRootEvidence,
+            include_recent,
+        )
+        .map_err(|error| match error {
+            preparation::Error::InvalidPath => preparation_error(error),
+            _ => EngineError::reason("scope.changed"),
+        })?;
         let (scope, review) = prepared_fingerprints(&normalized(draft, &prepared), &prepared)?;
         if review != expected {
             return Err(EngineError::reason("scope.changed"));
         }
+        let normalized_draft = normalized(draft, &prepared);
+        let (roots, recent_observers) = prepared.into_roots_and_recent();
         return Ok(VerifiedScope {
-            roots: prepared.into_roots(),
+            roots,
+            recent_observers,
+            normalized_draft,
             scope_fingerprint: ScopeFingerprint::Ready(scope.to_hex().to_string()),
             filter: None,
         });
@@ -304,9 +315,12 @@ pub(crate) fn verify(
         .raw
         .bytes()
         .map_err(|_| EngineError::reason("path.unresolvable"))?;
-    let root = roots
-        .open_root(&raw)
-        .map_err(|_| EngineError::reason("scope.changed"))?;
+    let (root, recent) = if include_recent {
+        roots.open_root_with_recent(&raw)
+    } else {
+        roots.open_root(&raw).map(|root| (root, None))
+    }
+    .map_err(|_| EngineError::reason("scope.changed"))?;
     let mut normalized = draft.clone();
     let canonical = windows_path(&root.canonical_path)?;
     normalized.includes = vec![canonical.clone()];
@@ -316,6 +330,8 @@ pub(crate) fn verify(
     }
     Ok(VerifiedScope {
         roots: vec![root],
+        recent_observers: vec![recent],
+        normalized_draft: normalized,
         scope_fingerprint: ScopeFingerprint::Ready(scope_fingerprint.to_hex().to_string()),
         filter: None,
     })

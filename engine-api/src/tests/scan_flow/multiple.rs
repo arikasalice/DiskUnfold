@@ -9,6 +9,7 @@ fn two_reviewed_paths_publish_one_result_and_denied_paths_never_start()
         release,
         terminal,
         versions,
+        ..
     } = scan_harness()?;
     let gui = |name, body| call(&engine, name, Channel::Gui, ENVELOPE_VERSION, body);
     let native = |path: &str| {

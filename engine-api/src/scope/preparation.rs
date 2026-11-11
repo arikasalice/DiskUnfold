@@ -6,7 +6,7 @@
 use du_core_contracts::{
     OsPath,
     analysis_ipc::{ScopeBoundary, ScopeDraft},
-    scan_observation::{OpenedScopeRoot, ScopeRootPort},
+    scan_observation::{OpenedScopeRoot, OptionalRecentScopeObserver, ScopeRootPort},
 };
 use du_scan_engine::scope::{Notice, Path};
 
@@ -60,11 +60,13 @@ struct Witness {
 struct Opened {
     witness: Witness,
     root: OpenedScopeRoot,
+    recent: OptionalRecentScopeObserver,
 }
 
 struct Retained {
     facts: Path,
     root: OpenedScopeRoot,
+    recent: OptionalRecentScopeObserver,
 }
 
 /// Prepared roots and all original evidence from the same observation pass.
@@ -128,6 +130,14 @@ impl Prepared {
     pub fn into_roots(self) -> Vec<OpenedScopeRoot> {
         self.retained.into_iter().map(|item| item.root).collect()
     }
+
+    /// Transfers the collection roots and aligned same-open deferred observers.
+    pub fn into_roots_and_recent(self) -> (Vec<OpenedScopeRoot>, Vec<OptionalRecentScopeObserver>) {
+        self.retained
+            .into_iter()
+            .map(|item| (item.root, item.recent))
+            .unzip()
+    }
 }
 
 /// Opens all selections once and returns normalized handles and original witnesses.
@@ -140,7 +150,17 @@ pub fn prepare(
     roots: &dyn ScopeRootPort,
     evidence: &dyn RootEvidence,
 ) -> Result<Prepared, Error> {
-    let opened = observe_all(draft, roots, evidence)?;
+    prepare_with_recent(draft, roots, evidence, false)
+}
+
+/// Opens each root once and optionally asks the adapter for a same-open deferred observer.
+pub fn prepare_with_recent(
+    draft: &ScopeDraft,
+    roots: &dyn ScopeRootPort,
+    evidence: &dyn RootEvidence,
+    include_recent: bool,
+) -> Result<Prepared, Error> {
+    let opened = observe_all(draft, roots, evidence, include_recent)?;
     let (selected_indices, notices) = normalize(&opened)?;
     let witnesses = opened.iter().map(|item| item.witness.clone()).collect();
     let mut selected = Vec::with_capacity(selected_indices.len());
@@ -150,6 +170,7 @@ pub fn prepare(
             selected.push(Retained {
                 facts: item.witness.facts,
                 root: item.root,
+                recent: item.recent,
             });
         } else {
             absorbed.push(item.root);
@@ -167,6 +188,7 @@ fn observe_all(
     draft: &ScopeDraft,
     roots: &dyn ScopeRootPort,
     evidence: &dyn RootEvidence,
+    include_recent: bool,
 ) -> Result<Vec<Opened>, Error> {
     if draft.includes.is_empty() {
         return Err(Error::Empty);
@@ -180,9 +202,18 @@ fn observe_all(
     let mut output = Vec::with_capacity(draft.includes.len());
     for path in &draft.includes {
         let requested = raw(path)?;
-        let root = roots
-            .open_root(&requested)
-            .map_err(|_| Error::Unavailable)?;
+        let (root, recent) = if include_recent {
+            roots
+                .open_root_with_recent(&requested)
+                .map_err(|_| Error::Unavailable)?
+        } else {
+            (
+                roots
+                    .open_root(&requested)
+                    .map_err(|_| Error::Unavailable)?,
+                None,
+            )
+        };
         let canonical_path =
             super::windows_path(&root.canonical_path).map_err(|_| Error::InvalidPath)?;
         let canonical = raw(&canonical_path)?;
@@ -203,6 +234,7 @@ fn observe_all(
                 facts,
             },
             root,
+            recent,
         });
     }
     output.sort_by(|a, b| {

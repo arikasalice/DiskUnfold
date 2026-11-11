@@ -40,7 +40,41 @@ pub(crate) fn register_with_limit(
     limit: SharedTableLimitSource,
     diagnostics: Option<ScanDiagnosticsFactory>,
 ) -> Result<Arc<ResultSets>, RuntimeError> {
-    register_with_options(builder, workers, roots, ids, None, limit, diagnostics)
+    register_with_options(
+        builder,
+        workers,
+        roots,
+        ids,
+        ScanRegistrationOptions {
+            comparison: None,
+            limit,
+            diagnostics,
+            admissions: None,
+        },
+    )
+}
+
+pub(crate) fn register_with_admissions(
+    builder: &mut EngineBuilder,
+    workers: Arc<Workers>,
+    roots: Arc<dyn ScopeRootPort>,
+    ids: Arc<dyn JobIdentity>,
+    limit: SharedTableLimitSource,
+    diagnostics: Option<ScanDiagnosticsFactory>,
+    admissions: crate::recent_scope::RecentScopeAdmissionPublisher,
+) -> Result<Arc<ResultSets>, RuntimeError> {
+    register_with_options(
+        builder,
+        workers,
+        roots,
+        ids,
+        ScanRegistrationOptions {
+            comparison: None,
+            limit,
+            diagnostics,
+            admissions: Some(admissions),
+        },
+    )
 }
 
 #[cfg(test)]
@@ -56,11 +90,21 @@ pub(crate) fn register_with_comparison(
         workers,
         roots,
         ids,
-        comparison,
-        Arc::new(SharedTableLimit::default),
-        None,
+        ScanRegistrationOptions {
+            comparison,
+            limit: Arc::new(SharedTableLimit::default),
+            diagnostics: None,
+            admissions: None,
+        },
     )
     .map(|sets| sets.source())
+}
+
+struct ScanRegistrationOptions {
+    comparison: Option<Arc<dyn scope::exclusion::PathComparison>>,
+    limit: SharedTableLimitSource,
+    diagnostics: Option<ScanDiagnosticsFactory>,
+    admissions: Option<crate::recent_scope::RecentScopeAdmissionPublisher>,
 }
 
 fn register_with_options(
@@ -68,9 +112,7 @@ fn register_with_options(
     workers: Arc<Workers>,
     roots: Arc<dyn ScopeRootPort>,
     ids: Arc<dyn JobIdentity>,
-    comparison: Option<Arc<dyn scope::exclusion::PathComparison>>,
-    limit: SharedTableLimitSource,
-    diagnostics: Option<ScanDiagnosticsFactory>,
+    options: ScanRegistrationOptions,
 ) -> Result<Arc<ResultSets>, RuntimeError> {
     workers
         .runtime
@@ -87,9 +129,10 @@ fn register_with_options(
         workers,
         store: store.clone(),
         admitted: Mutex::new(None),
-        comparison,
-        limit,
-        diagnostics,
+        comparison: options.comparison,
+        limit: options.limit,
+        diagnostics: options.diagnostics,
+        admissions: options.admissions,
     });
     Ok(sets)
 }
@@ -111,12 +154,18 @@ struct StartScan {
     comparison: Option<Arc<dyn scope::exclusion::PathComparison>>,
     limit: SharedTableLimitSource,
     diagnostics: Option<ScanDiagnosticsFactory>,
+    admissions: Option<crate::recent_scope::RecentScopeAdmissionPublisher>,
 }
 
 /// Retains the review identity alongside the reusable receipt while a scan is active.
 struct Admitted {
     receipt: ScanStart,
     review_fingerprint: String,
+}
+
+struct PendingRecentScope {
+    normalized_scope: du_core_contracts::analysis_ipc::ScopeDraft,
+    observers: Vec<du_core_contracts::scan_observation::OptionalRecentScopeObserver>,
 }
 
 impl UseCase for StartScan {
@@ -140,7 +189,12 @@ impl UseCase for StartScan {
             &request.review_fingerprint,
             &*self.roots,
             self.comparison.clone(),
+            self.admissions.is_some(),
         )?;
+        let recent = self.admissions.as_ref().map(|_| PendingRecentScope {
+            normalized_scope: verified.normalized_draft.clone(),
+            observers: verified.recent_observers,
+        });
         let scope_fingerprint = verified.scope_fingerprint.resolve()?;
         let scope_version = self.ids.next_id();
         let lineage = self
@@ -187,6 +241,7 @@ impl UseCase for StartScan {
             lineage,
             scope_fingerprint,
             request.review_fingerprint,
+            recent,
         )
     }
 }
@@ -199,6 +254,7 @@ impl StartScan {
         lineage: Id,
         scope_fingerprint: String,
         review_fingerprint: String,
+        recent: Option<PendingRecentScope>,
     ) -> Result<ScanStart, EngineError> {
         let mut admitted = self.admitted.lock().map_err(|_| internal())?;
         // A stable scope key can outlive a replaced root. Reuse is allowed only
@@ -234,6 +290,16 @@ impl StartScan {
                     receipt: receipt.clone(),
                     review_fingerprint,
                 });
+                if let Some(publisher) = &self.admissions {
+                    let recent = recent.ok_or_else(internal)?;
+                    publisher.enqueue(crate::recent_scope::RecentScopeAdmission {
+                        receipt: receipt.clone(),
+                        normalized_scope: recent.normalized_scope,
+                        observers: recent.observers,
+                        runtime: self.workers.runtime.clone(),
+                        queue_slots: None,
+                    });
+                }
                 self.workers.notify();
                 Ok(receipt)
             }

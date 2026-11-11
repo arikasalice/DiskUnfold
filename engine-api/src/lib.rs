@@ -13,6 +13,7 @@ pub mod history;
 pub mod jobs;
 mod pipeline;
 mod query_region;
+mod recent_scope;
 mod registry;
 pub mod scan;
 mod scan_failures;

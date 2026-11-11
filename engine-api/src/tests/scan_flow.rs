@@ -8,7 +8,8 @@ use du_core_contracts::{
     result_events::{PublishedCompleteness, ResultVersionNotice},
     scan_observation::{
         AnchoredDirectory, DirectoryObservations, MetadataObservation, ObservedEntry, ObservedKind,
-        OpenedScopeRoot, ScopeRootPort,
+        OpenedScopeRoot, RecentScopeEvidence, RecentScopeObservation, RecentScopeObserver,
+        ScopeRootPort,
     },
 };
 use du_job_runtime::{FlowLimits, JobClock, JobEvent, JobEvents, JobIdentity, JobRuntime};
@@ -63,6 +64,9 @@ struct Roots {
     file_id: AtomicUsize,
     opens: AtomicUsize,
     reads: Arc<AtomicUsize>,
+    recent_observations: Arc<AtomicUsize>,
+    recent_opens: Arc<AtomicUsize>,
+    recent_live_handles: Arc<AtomicUsize>,
     read_handles: Arc<Mutex<Vec<usize>>>,
     release: Arc<Mutex<mpsc::Receiver<()>>>,
     finish_gate: Option<Arc<Mutex<mpsc::Receiver<()>>>>,
@@ -100,6 +104,64 @@ impl ScopeRootPort for Roots {
                 release: Some(self.release.clone()),
                 finish_gate: self.finish_gate.clone(),
             }),
+        })
+    }
+
+    fn open_root_with_recent(
+        &self,
+        path: &[u8],
+    ) -> Result<
+        (
+            OpenedScopeRoot,
+            du_core_contracts::scan_observation::OptionalRecentScopeObserver,
+        ),
+        PortError,
+    > {
+        self.recent_opens.fetch_add(1, Ordering::Relaxed);
+        let root = self.open_root(path)?;
+        let observer = RecentObserver {
+            count: self.recent_observations.clone(),
+            live_handles: self.recent_live_handles.clone(),
+            volume_id: root.volume_id.clone(),
+            entry_path: root.canonical_path.clone(),
+            file_id: root.file_id.clone(),
+        };
+        observer.live_handles.fetch_add(1, Ordering::AcqRel);
+        Ok((root, Some(Ok(Box::new(observer)))))
+    }
+}
+
+struct RecentObserver {
+    count: Arc<AtomicUsize>,
+    live_handles: Arc<AtomicUsize>,
+    volume_id: Vec<u8>,
+    entry_path: OsPath,
+    file_id: Vec<u8>,
+}
+
+impl Drop for RecentObserver {
+    fn drop(&mut self) {
+        self.live_handles.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+impl RecentScopeObserver for RecentObserver {
+    fn observe(&self, cancelled: &std::sync::atomic::AtomicBool) -> RecentScopeObservation {
+        if cancelled.load(std::sync::atomic::Ordering::Acquire) {
+            return RecentScopeObservation::Cancelled;
+        }
+        self.count
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        RecentScopeObservation::Observed(RecentScopeEvidence {
+            volume_id: self.volume_id.clone(),
+            entry_path: self.entry_path.clone(),
+            relative_path: OsPath {
+                encoding: PathEncoding::WindowsUtf16le,
+                raw: PathBytes::from_bytes(&[]),
+                display: String::new(),
+                lossy: false,
+            },
+            file_id: self.file_id.clone(),
         })
     }
 }
@@ -190,6 +252,7 @@ struct ScanHarness {
     release: mpsc::Sender<()>,
     terminal: mpsc::Receiver<JobEvent>,
     versions: du_analysis_index::IngestSink,
+    recent_scope_admissions: Option<crate::desktop::RecentScopeAdmissions>,
 }
 
 fn scan_harness() -> Result<ScanHarness, Box<dyn std::error::Error>> {
@@ -197,10 +260,12 @@ fn scan_harness() -> Result<ScanHarness, Box<dyn std::error::Error>> {
 }
 
 mod fixture;
+mod recent;
 mod settings;
 mod terminal;
 mod unsupported;
 use fixture::scan_harness_with_gate;
+use fixture::scan_harness_with_recent_admissions;
 use terminal::check_terminal_scan;
 
 #[test]
@@ -212,6 +277,7 @@ fn reviewed_identity_is_rechecked_and_one_job_publishes_the_requested_result()
         release,
         terminal,
         versions,
+        ..
     } = scan_harness()?;
     let gui = |name, body| call(&engine, name, Channel::Gui, ENVELOPE_VERSION, body);
     let path: Vec<u8> = "C:\\Fixture"
