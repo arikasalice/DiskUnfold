@@ -14,6 +14,59 @@ import type { SettingsRestoreStatus } from "../src/ipc";
 
 afterEach(cleanup);
 
+test("F14 FR6 names size settings and safely identifies unknown settings and errors", async () => {
+  const report: SettingsRestoreStatus = {
+    items: [
+      { key: "display.size_unit", source: "restored", reasonKey: null },
+      {
+        key: "display.size_unit_system",
+        source: "default",
+        reasonKey: "settings.value_invalid",
+      },
+      { key: "space.default_basis", source: "default", reasonKey: null },
+      {
+        key: "future.private_one",
+        source: "default",
+        reasonKey: "future.private_error",
+      },
+      { key: "future.private_two", source: "restored", reasonKey: null },
+    ],
+    storedSchema: 1,
+    appSchema: 1,
+    migrated: false,
+    writeLocked: false,
+  };
+  const transport = vi.fn<
+    NonNullable<Parameters<typeof createAnalysisClient>[0]>
+  >(async (_, { envelope }) => ({ ...envelope, body: report }));
+  render(
+    <SettingsRestoration client={createAnalysisClient(transport)} visible />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Settings restoration" }));
+  const dialog = await screen.findByRole("dialog", {
+    name: "Settings restoration",
+  });
+  for (const label of [
+    "Size unit",
+    "Unit system",
+    "Default size basis",
+    "Unrecognized setting 1",
+    "Unrecognized setting 2",
+  ])
+    expect(await within(dialog).findByText(label)).toBeDefined();
+  expect(
+    within(dialog).getByText(
+      "Using default The saved value failed validation.",
+    ),
+  ).toBeDefined();
+  expect(
+    within(dialog).getByText("Using default A restoration issue was reported."),
+  ).toBeDefined();
+  expect(dialog.textContent).not.toMatch(
+    /display\.size_unit|space\.default_basis|future\.private/,
+  );
+});
+
 test("F14 FR6 opens a value-free startup report and shows the edit lock", async () => {
   const report: SettingsRestoreStatus = {
     items: [

@@ -16,11 +16,14 @@ import type { AnalysisClient, SettingsRestoreStatus } from "../../ipc";
 const names = new Map([
   ["a11y.app_scale", "App scale"],
   ["a11y.motion", "Motion"],
+  ["display.size_unit", "Size unit"],
+  ["display.size_unit_system", "Unit system"],
   ["locale.date_format", "Date format"],
   ["locale.display_language", "Display language"],
   ["locale.number_format", "Number format"],
   ["locale.time_zone_policy", "Time zone policy"],
   ["scope.remember_recent", "Remember recent scan scopes"],
+  ["space.default_basis", "Default size basis"],
   ["space.shared_table_max_entries", "File identity limit"],
 ]);
 
@@ -38,6 +41,7 @@ function RestoreReport({ report }: { report: SettingsRestoreStatus }) {
   const restored = report.items.some((item) => item.source === "restored");
   const defaults = report.items.some((item) => item.source === "default");
   const issues = report.items.some((item) => Boolean(item.reasonKey));
+  let unknownSetting = 0;
   return (
     <div className="du-settings-restore">
       {report.writeLocked && (
@@ -77,7 +81,8 @@ function RestoreReport({ report }: { report: SettingsRestoreStatus }) {
           <Readout
             label="Restored settings"
             rows={report.items.map(({ key, source, reasonKey }) => ({
-              label: names.get(key) ?? key,
+              label:
+                names.get(key) ?? `Unrecognized setting ${++unknownSetting}`,
               value: [
                 source === "restored" ? "Restored" : "Using default",
                 reasonKey &&
