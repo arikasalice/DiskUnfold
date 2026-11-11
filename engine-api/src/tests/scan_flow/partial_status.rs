@@ -1,4 +1,5 @@
 use super::*;
+use du_core_contracts::result::ResultCompleteness;
 
 #[test]
 fn status_exposes_partial_for_its_admitted_job_and_not_previous_scan()
@@ -38,7 +39,13 @@ fn status_exposes_partial_for_its_admitted_job_and_not_previous_scan()
         JobEvent::ResultVersionChanged(notice) => notice,
         _ => return Err("missing partial event".into()),
     };
+    let pinned = harness
+        .versions
+        .pin_current(notice.result_version.as_ref().ok_or("missing partial ID")?)
+        .map_err(|error| format!("{error:?}"))?;
     let partial = status(&first.job_ref)?;
+    assert_eq!(partial["state"], "running");
+    assert_eq!(pinned.completeness(), ResultCompleteness::Partial);
     assert_eq!(
         partial["scanResult"]["resultVersion"],
         json!(notice.result_version)
@@ -52,6 +59,9 @@ fn status_exposes_partial_for_its_admitted_job_and_not_previous_scan()
     let (summary, _) = scan_finished(&harness.terminal)?;
     let final_id = summary.result_version_id.ok_or("missing first final")?;
     let done = status(&first.job_ref)?;
+    assert_eq!(done["state"], "done");
+    assert_eq!(pinned.completeness(), ResultCompleteness::Partial);
+    assert_ne!(pinned.version_id(), &final_id);
     assert_eq!(done["resultVersion"], json!(final_id));
     assert_eq!(done["scanResult"]["resultVersion"], json!(final_id));
     let second = start()?;
