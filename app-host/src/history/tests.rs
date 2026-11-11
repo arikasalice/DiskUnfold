@@ -22,6 +22,7 @@ mod many_roots;
 mod measurement;
 mod scan_cancellation;
 mod scope_replacement;
+mod visualization;
 
 fn append(database: &SharedDatabase, n: u8, time: i64) -> Result<(), String> {
     let id = Id::from_v7_bytes([n; 16]);

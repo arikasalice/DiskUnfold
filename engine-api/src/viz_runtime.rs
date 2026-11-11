@@ -215,7 +215,7 @@ pub struct Runtime {
     owner: Owner,
     serial: Mutex<()>,
     state: Mutex<State>,
-    workers: Workers,
+    workers: Arc<Workers>,
 }
 impl Runtime {
     /// Registers real Engine use cases; do not also register standalone ViewChannels.
@@ -224,7 +224,7 @@ impl Runtime {
         assembly: Assembly,
         random: &dyn Random,
     ) -> Result<Arc<Self>, &'static str> {
-        Self::register_inner(builder, assembly, random, None)
+        Self::register_inner(builder, assembly, random, None, None)
     }
 
     /// Registers the opt-in runtime whose source is bound to an owning window's selection.
@@ -237,7 +237,18 @@ impl Runtime {
         random: &dyn Random,
         selection: Arc<dyn selection::WindowScanSelection>,
     ) -> Result<Arc<Self>, &'static str> {
-        Self::register_inner(builder, assembly, random, Some(selection))
+        Self::register_inner(builder, assembly, random, Some(selection), None)
+    }
+
+    /// Registers visualization on the analysis desktop's existing worker pool.
+    pub(crate) fn register_on_desktop(
+        builder: &mut EngineBuilder,
+        assembly: Assembly,
+        random: &dyn Random,
+        selection: Arc<dyn selection::WindowScanSelection>,
+        workers: Arc<Workers>,
+    ) -> Result<Arc<Self>, &'static str> {
+        Self::register_inner(builder, assembly, random, Some(selection), Some(workers))
     }
 
     fn register_inner(
@@ -245,6 +256,7 @@ impl Runtime {
         assembly: Assembly,
         random: &dyn Random,
         selection: Option<Arc<dyn selection::WindowScanSelection>>,
+        workers: Option<Arc<Workers>>,
     ) -> Result<Arc<Self>, &'static str> {
         if assembly.policy.revision == 0
             || !assembly.policy.max_scale.is_finite()
@@ -268,8 +280,13 @@ impl Runtime {
             .jobs
             .register(compute::descriptor())
             .map_err(|_| "visualization job registration failed")?;
-        let workers = Workers::start(assembly.jobs.clone())
-            .map_err(|_| "visualization worker initialization failed")?;
+        let workers = match workers {
+            Some(workers) => workers,
+            None => Arc::new(
+                Workers::start(assembly.jobs.clone())
+                    .map_err(|_| "visualization worker initialization failed")?,
+            ),
+        };
         let runtime = Arc::new(Self {
             assembly,
             selection,

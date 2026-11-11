@@ -23,9 +23,11 @@ use du_core_contracts::{
 use du_job_runtime::{FlowLimits, JobClock, JobEvent, JobEvents, JobIdentity, JobRuntime};
 use serde_json::json;
 
+mod visualization;
 pub use crate::scan::{ScanDiagnosticsFactory, SharedTableLimit, SharedTableLimitSource};
 use crate::{api::EngineBuilder, jobs, scan, scope, targets, workers::Workers};
 pub use du_scan_engine::scan_job::ScanDiagnostics;
+pub use visualization::{VisualizationPreview, VisualizationServices};
 
 const EVENT_LIMIT: usize = 1_024;
 const EVENT_INTERVAL: Duration = Duration::from_millis(100);
@@ -96,6 +98,8 @@ pub struct DesktopServices {
     pub path_copy: crate::browse::copy_path::PathCopy,
     /// Internal Rust search entry point sharing the GUI query regions.
     pub search: Option<Arc<crate::search::SearchEntry>>,
+    /// Internal composition handle tied to this desktop's scan store and job workers.
+    pub visualization: VisualizationServices,
     /// Internal app-host worker queue. Only newly admitted GUI scans are sent.
     pub recent_scope_admissions: Option<RecentScopeAdmissions>,
 }
@@ -222,6 +226,7 @@ fn register_services_inner(
         )?,
     };
     let store = sets.source();
+    let visualization = VisualizationServices::new(store.clone(), ids.clone(), workers.clone());
     let search = crate::browse::folder::commands::register(builder, sets, ids, workers, random)?;
     crate::scan_failures::register(builder, store.clone(), random);
     let path_copy = crate::browse::copy_path::PathCopy(store.clone());
@@ -230,6 +235,7 @@ fn register_services_inner(
         events,
         path_copy,
         search,
+        visualization,
         recent_scope_admissions,
     })
 }
