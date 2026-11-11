@@ -14,11 +14,19 @@ use du_core_contracts::size_units::{
 use du_core_contracts::space_detail_ipc::*;
 use du_core_contracts::visualization::geometry::{Geometry, Point};
 use du_core_contracts::visualization::locate::{VizLocate, VizLocateRequest};
-use du_core_contracts::visualization::model::{ShapeMeta, VizRelationship};
+use du_core_contracts::visualization::model::{
+    ShapeMeta, VizLegendEntry, VizMatchKey, VizModel, VizRelationship, VizRepresentation, VizShape,
+    VizStaleness, VizStalenessState, VizSummary, VizTableRevisions, VizTotal, VizTotals,
+};
 use du_core_contracts::visualization::quantity::{VizAmount, VizDecimal, VizQuantity};
 use du_core_contracts::visualization::render::{
     VizColorMode, VizFallback, VizLabelMode, VizRenderNonModelResponse,
 };
+use du_core_contracts::visualization::request::{
+    VizCondition, VizExpansion, VizRenderRequest, VizSourceRef, VizViewChannel, VizViewOpenRequest,
+    VizViewport, VizVisibleWindow,
+};
+use du_core_contracts::visualization::response::{VizRenderModelResponse, VizRenderResponse};
 use du_core_contracts::visualization::rows::{
     VizDenominator, VizDenominatorBasis, VizRatio, VizRow, VizRows, VizRowsRequest,
 };
@@ -77,6 +85,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         VizRenderNonModelResponse::decl(&config),
         VizColorMode::decl(&config),
         VizLabelMode::decl(&config),
+        VizViewOpenRequest::decl(&config),
+        VizViewChannel::decl(&config),
+        VizSourceRef::decl(&config),
+        VizCondition::decl(&config),
+        VizViewport::decl(&config),
+        VizVisibleWindow::decl(&config),
+        VizExpansion::decl(&config),
+        VizRenderRequest::decl(&config),
+        VizStalenessState::decl(&config),
+        VizStaleness::decl(&config),
+        VizRepresentation::decl(&config),
+        VizTotal::decl(&config),
+        VizTotals::decl(&config),
+        VizTableRevisions::decl(&config),
+        VizMatchKey::decl(&config),
+        VizShape::decl(&config),
+        VizLegendEntry::decl(&config),
+        VizSummary::decl(&config),
+        VizModel::decl(&config),
+        VizRenderModelResponse::decl(&config),
+        VizRenderResponse::decl(&config),
         Point::decl(&config),
         Geometry::decl(&config),
         ShapeMeta::decl(&config),

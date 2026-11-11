@@ -1,7 +1,5 @@
-//! Fully specified reusable fields of the F06 viz.render wire contract.
-//!
-//! The complete request and response models depend on the published architecture
-//! DLD; these types do not imply that either body is complete.
+//! Successful response branches of the F06 render wire contract.
+use super::required_nullable;
 use crate::{Id, Timestamp, result::ResultCompleteness};
 use serde::{Deserialize, Deserializer, Serialize, de::Error};
 
@@ -52,10 +50,7 @@ pub enum VizLabelMode {
     NameOnly,
 }
 
-/// The specified non-model responses from `viz.render`.
-///
-/// This is intentionally not the complete response union: the physical model
-/// body is not defined by these types.
+/// An accepted job or an unavailable rendering with an optional fallback.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[serde(
@@ -173,10 +168,4 @@ impl<'de> Deserialize<'de> for VizRenderNonModelResponse {
             }
         })
     }
-}
-
-fn required_nullable<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
-    d: D,
-) -> Result<Option<T>, D::Error> {
-    Option::<T>::deserialize(d)
 }

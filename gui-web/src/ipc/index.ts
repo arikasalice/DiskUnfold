@@ -107,11 +107,21 @@ export type {
   VolumeGapObservation,
   VolumeGapRequest,
   VolumeGapResponse,
+  VizGeometry,
+  VizLegendEntry,
   VizLocate,
   VizLocateRequest,
+  VizModel,
+  VizQuantity,
+  VizRelationship,
+  VizRenderRequest,
+  VizRenderResponse,
   VizRow,
   VizRows,
   VizRowsRequest,
+  VizShape,
+  VizViewChannel,
+  VizViewOpenRequest,
 } from "./generated/contracts";
 
 type Commands = {
