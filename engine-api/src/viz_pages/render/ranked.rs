@@ -49,7 +49,8 @@ impl ModelPages {
             ),
         }
         .map_err(Error::Registration)?;
-        let input = prepare_scoped_model_input(input, parent).map_err(registration_error)?;
+        let input =
+            prepare_scoped_model_input(input, parent, cancelled).map_err(registration_error)?;
         Ok(PreparedRender {
             owner: Arc::downgrade(&self.identity),
             input,

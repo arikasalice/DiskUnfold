@@ -276,7 +276,7 @@ impl ModelPages {
                 )
                 .map_err(Error::Registration)?;
                 check(cancelled)?;
-                let input = prepare_scoped_model_input(input, request.parent)
+                let input = prepare_scoped_model_input(input, request.parent, cancelled)
                     .map_err(registration_error)?;
                 return Ok(Preparation::Candidate(PreparedRender {
                     owner: Arc::downgrade(&self.identity),
@@ -296,8 +296,8 @@ impl ModelPages {
         )
         .map_err(Error::Registration)?;
         check(cancelled)?;
-        let input =
-            prepare_scoped_model_input(input, request.parent).map_err(registration_error)?;
+        let input = prepare_scoped_model_input(input, request.parent, cancelled)
+            .map_err(registration_error)?;
         Ok(Preparation::Candidate(PreparedRender {
             owner: Arc::downgrade(&self.identity),
             input,

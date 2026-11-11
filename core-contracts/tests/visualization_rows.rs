@@ -206,6 +206,11 @@ fn group_rows_response_round_trips_required_evidence_and_rejects_invalid_pages()
         json!({"kind":"future"}),
         json!({"min":{"basis":"logical","evidence":"measured","state":"exact","bytes":"20"},"max":{"basis":"logical","evidence":"measured","state":"exact","bytes":"40"}}),
         json!({"kind":"known", "min":{"basis":"logical","evidence":"measured","state":"exact","bytes":"20"}, "max":{"basis":"allocated","evidence":"measured","state":"exact","bytes":"40"}}),
+        json!({"kind":"known", "min":{"basis":"logical","evidence":"measured","state":"exact","bytes":"41"}, "max":{"basis":"logical","evidence":"measured","state":"exact","bytes":"40"}}),
+        json!({"kind":"known", "min":{"basis":"logical","evidence":"unknown","state":"unknown"}, "max":{"basis":"logical","evidence":"measured","state":"exact","bytes":"40"}}),
+        json!({"kind":"known", "min":{"basis":"logical","evidence":"measured","state":"lower_bound","bytes":"20"}, "max":{"basis":"logical","evidence":"measured","state":"exact","bytes":"40"}}),
+        json!({"kind":"known", "min":{"basis":"allocated","evidence":"measured","state":"exact","bytes":"20"}, "max":{"basis":"allocated","evidence":"measured","state":"exact","bytes":"40"}}),
+        json!({"kind":"known", "min":{"basis":"logical","evidence":"unknown","state":"exact","bytes":"20"}, "max":{"basis":"logical","evidence":"measured","state":"exact","bytes":"40"}}),
     ] {
         assert!(
             serde_json::from_value::<VizGroupRows>(make_page(malformed_range.clone())).is_err(),

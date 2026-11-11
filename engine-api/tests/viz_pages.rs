@@ -393,7 +393,7 @@ fn group_rows_keep_order_and_producer_evidence_and_reject_other_model_group() ->
     assert_eq!(page.rows, vec![second]);
     assert_eq!(page.total_count, 2);
     assert_eq!(page.group_total, total);
-    assert_eq!(page.size_range, range);
+    assert_eq!(page.size_range, SizeRange::Unknown);
     assert_eq!(page.result_revision, *a.version_id());
     let mut checkpoints = 0;
     let cancelled = pages.group_rows_cancellable(&model, "group-a", 0, 2, &mut || {

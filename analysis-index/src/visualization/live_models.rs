@@ -35,35 +35,118 @@ pub struct RetiredRows {
 impl PreparedRows {
     /// Builds the immutable row and group representation outside the result lock.
     pub fn new(rows: Vec<VizRow>, groups: HashMap<String, GroupRows>) -> Self {
+        let mut prepared_groups = HashMap::with_capacity(groups.len());
+        for (key, mut group) in groups {
+            let _ = guard_group_size_range(&mut group, &mut None);
+            prepared_groups.insert(key, Arc::new(group));
+        }
         Self(ModelRows {
             rows: rows.into(),
-            groups: groups
-                .into_iter()
-                .map(|(key, mut group)| {
-                    guard_group_size_range(&mut group);
-                    (key, Arc::new(group))
-                })
-                .collect(),
+            groups: prepared_groups,
         })
     }
+
+    /// Builds row storage while allowing a caller to abandon a large preparation.
+    pub fn new_cancellable(
+        rows: Vec<VizRow>,
+        groups: HashMap<String, GroupRows>,
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<Self, PrepareError> {
+        build_model_rows(rows, groups, Some(cancelled)).map(Self)
+    }
+}
+
+fn build_model_rows(
+    rows: Vec<VizRow>,
+    groups: HashMap<String, GroupRows>,
+    mut cancelled: Option<&mut dyn FnMut() -> bool>,
+) -> Result<ModelRows, PrepareError> {
+    let mut prepared_groups = HashMap::with_capacity(groups.len());
+    for (key, mut group) in groups {
+        if cancelled.as_mut().is_some_and(|check| check()) {
+            return Err(PrepareError::Cancelled);
+        }
+        if guard_group_size_range(&mut group, &mut cancelled) {
+            return Err(PrepareError::Cancelled);
+        }
+        prepared_groups.insert(key, Arc::new(group));
+    }
+    Ok(ModelRows {
+        rows: rows.into(),
+        groups: prepared_groups,
+    })
 }
 
 /// Preserve producer range values, but withhold a known range when the owned
 /// members themselves show an unobserved size or mixed size basis.
-fn guard_group_size_range(group: &mut GroupRows) {
-    let SizeRange::Known { min, max } = &group.size_range else {
-        return;
+fn guard_group_size_range(
+    group: &mut GroupRows,
+    cancelled: &mut Option<&mut dyn FnMut() -> bool>,
+) -> bool {
+    let (min, max) = match &group.size_range {
+        SizeRange::Known { min, max } => (Some(min), Some(max)),
+        SizeRange::Unknown => (None, None),
     };
-    let expected_basis = &min.basis;
-    let all_observed_in_one_basis = min.basis == max.basis
-        && group.rows.iter().all(|row| {
-            row.size.basis == *expected_basis
-                && row.size.evidence != SizeEvidence::Unknown
-                && matches!(row.size.amount, SizeAmount::Exact { .. })
-        });
-    if !all_observed_in_one_basis {
+    let expected_basis = min.map(|bound| &bound.basis);
+    let mut observed_min = None;
+    let mut observed_max = None;
+    let (low, high) = match (min, max) {
+        (Some(min), Some(max)) => (exact_bytes(min), exact_bytes(max)),
+        _ => (None, None),
+    };
+    let mut valid = match (min, max, low, high) {
+        (Some(min), Some(max), Some(low), Some(high)) => {
+            min.basis == max.basis
+                && min.basis == group.total.basis
+                && min.evidence != SizeEvidence::Unknown
+                && max.evidence != SizeEvidence::Unknown
+                && low <= high
+        }
+        _ => false,
+    };
+    if min.is_some() && group.rows.is_empty() {
+        valid = false;
+    }
+    for row in &group.rows {
+        if cancelled.as_mut().is_some_and(|check| check()) {
+            return true;
+        }
+        let Some(expected_basis) = expected_basis else {
+            continue;
+        };
+        if row.size.basis != *expected_basis || row.size.evidence == SizeEvidence::Unknown {
+            valid = false;
+            continue;
+        }
+        let Some(bytes) = exact_bytes(&row.size) else {
+            valid = false;
+            continue;
+        };
+        observed_min = Some(observed_min.map_or(bytes, |current: u64| current.min(bytes)));
+        observed_max = Some(observed_max.map_or(bytes, |current: u64| current.max(bytes)));
+    }
+    if low.is_some_and(|low| observed_min != Some(low))
+        || high.is_some_and(|high| observed_max != Some(high))
+    {
+        valid = false;
+    }
+    if !valid {
         group.size_range = SizeRange::Unknown;
     }
+    false
+}
+
+fn exact_bytes(size: &SizeValue) -> Option<u64> {
+    match &size.amount {
+        SizeAmount::Exact { bytes } => bytes.as_str().parse().ok(),
+        SizeAmount::LowerBound { .. } | SizeAmount::Unknown => None,
+    }
+}
+
+/// Preparation failures are separate from errors while storing a prepared model.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PrepareError {
+    Cancelled,
 }
 /// Internal source-owned model storage failures.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

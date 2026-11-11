@@ -28,7 +28,6 @@ use std::{
     sync::{Arc, Mutex, Weak},
 };
 
-// The strategy owns the metadata type. The shared index only retains its lifetime.
 type LayoutMetadata = Arc<dyn Any + Send + Sync>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -57,20 +56,30 @@ struct PreparedModelInput {
     scope: Option<ItemRef>,
 }
 
+#[cfg(test)]
 fn prepare_model_input(input: ModelInput) -> Result<PreparedModelInput, Error> {
-    validate_input(&input)?;
+    prepare_model_input_cancellable(input, &mut || false)
+}
+fn prepare_model_input_cancellable(
+    input: ModelInput,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<PreparedModelInput, Error> {
+    validate_input_cancellable(&input, cancelled)?;
+    let rows = live_models::PreparedRows::new_cancellable(input.rows, input.groups, cancelled)
+        .map_err(|_| Error::Cancelled)?;
     Ok(PreparedModelInput {
         version: input.version,
         condition_fingerprint: input.condition_fingerprint,
-        rows: Some(live_models::PreparedRows::new(input.rows, input.groups)),
+        rows: Some(rows),
         scope: None,
     })
 }
 fn prepare_scoped_model_input(
     input: ModelInput,
     scope: &ItemRef,
+    cancelled: &mut dyn FnMut() -> bool,
 ) -> Result<PreparedModelInput, Error> {
-    let mut result = prepare_model_input(input)?;
+    let mut result = prepare_model_input_cancellable(input, cancelled)?;
     result.scope = Some(scope.clone());
     Ok(result)
 }
@@ -137,7 +146,7 @@ impl ModelPages {
         cancelled: &mut dyn FnMut() -> bool,
         during_prepare: impl FnOnce(),
     ) -> Result<(String, Option<Arc<projection::Model>>), Error> {
-        let input = prepare_model_input(input)?;
+        let input = prepare_model_input_cancellable(input, cancelled)?;
         during_prepare();
         self.register_prepared(input, layout, cancelled)
     }
@@ -386,21 +395,19 @@ impl Drop for ModelPages {
         }
     }
 }
-fn validate_input(input: &ModelInput) -> Result<(), Error> {
+fn validate_input_cancellable(
+    input: &ModelInput,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<(), Error> {
     if input.condition_fingerprint.is_empty() || input.groups.keys().any(String::is_empty) {
         return Err(Error::InvalidModel);
     }
-    validate_rows(input, &input.rows)?;
+    validate_rows_cancellable(input, &input.rows, cancelled)?;
     for group in input.groups.values() {
-        validate_rows(input, &group.rows)?;
+        validate_rows_cancellable(input, &group.rows, cancelled)?;
     }
     Ok(())
 }
-
-fn validate_rows(input: &ModelInput, rows: &[VizRow]) -> Result<(), Error> {
-    validate_rows_cancellable(input, rows, &mut || false)
-}
-
 fn validate_rows_cancellable(
     input: &ModelInput,
     rows: &[VizRow],

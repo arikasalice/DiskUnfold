@@ -156,10 +156,12 @@ impl ModelPages {
             version: pages.version,
             condition_fingerprint: pages.condition_fingerprint,
             rows: Some(
-                du_analysis_index::visualization::live_models::PreparedRows::new(
+                du_analysis_index::visualization::live_models::PreparedRows::new_cancellable(
                     pages.rows,
                     pages.groups,
-                ),
+                    cancelled,
+                )
+                .map_err(|_| HistogramError::Cancelled)?,
             ),
             scope: Some(scope),
         };

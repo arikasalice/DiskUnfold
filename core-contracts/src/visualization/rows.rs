@@ -1,6 +1,8 @@
 //! Shared F06 row and positional-page wire contracts.
 use super::quantity::VizQuantity;
-use crate::{Id, ItemRef, SizeValue, Timestamp, result::ResultCompleteness};
+use crate::{
+    Id, ItemRef, SizeAmount, SizeEvidence, SizeValue, Timestamp, result::ResultCompleteness,
+};
 use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
 use std::collections::HashSet;
 
@@ -336,10 +338,26 @@ impl VizGroupRows {
         for row in &self.rows {
             row.validate_revision(&self.result_revision)?;
         }
-        if let VizSizeRange::Known { min, max } = &self.size_range
-            && min.basis != max.basis
-        {
-            return Err("mixed size range basis");
+        if let VizSizeRange::Known { min, max } = &self.size_range {
+            if min.basis != max.basis || min.basis != self.group_total.basis {
+                return Err("mixed size range basis");
+            }
+            let (SizeAmount::Exact { bytes: low }, SizeAmount::Exact { bytes: high }) =
+                (&min.amount, &max.amount)
+            else {
+                return Err("inexact size range");
+            };
+            if min.evidence == SizeEvidence::Unknown || max.evidence == SizeEvidence::Unknown {
+                return Err("unknown size range evidence");
+            }
+            let low = low.as_str().parse::<u64>().map_err(|_| "invalid minimum")?;
+            let high = high
+                .as_str()
+                .parse::<u64>()
+                .map_err(|_| "invalid maximum")?;
+            if low > high {
+                return Err("reversed size range");
+            }
         }
         Ok(())
     }

@@ -171,7 +171,10 @@ impl ModelPages {
         let prepared = PreparedModelInput {
             version: input.version,
             condition_fingerprint: input.condition_fingerprint,
-            rows: Some(PreparedRows::new(input.rows, input.groups)),
+            rows: Some(
+                PreparedRows::new_cancellable(input.rows, input.groups, cancelled)
+                    .map_err(|_| Error::Cancelled)?,
+            ),
             scope: Some(scope.clone()),
         };
         Ok(DeferredRankedGroup {

@@ -249,3 +249,49 @@ fn cancelled_during_cached_source_admission_preserves_existing_model() -> Result
     assert!(Arc::ptr_eq(&first.model, &next.model));
     Ok(())
 }
+
+#[test]
+fn cancellation_during_group_preparation_does_not_publish() -> Result<(), String> {
+    use du_analysis_index::visualization::live_models::{GroupRows, SizeRange};
+    let source = IngestSink::default();
+    let mut builder = source.open(id(1)?).map_err(|e| format!("{e:?}"))?;
+    builder
+        .add_directory(vec![])
+        .map_err(|e| format!("{e:?}"))?;
+    let version = builder
+        .seal(id(2)?, ResultCompleteness::Complete)
+        .map_err(|e| format!("{e:?}"))?;
+    let row: VizRow = serde_json::from_value(serde_json::json!({"itemRef":{"resultVersion":version.version_id(),"itemNo":0},"groupRef":null,"displayName":"member","size":{"basis":"logical","evidence":"measured","state":"exact","bytes":"5"},"ratio":null,"denominator":{"basis":"scope","value":{"unit":"bytes","state":"exact","value":"5"}},"legendClassKey":"x","displayFlags":[]})).map_err(|e| e.to_string())?;
+    let size = row.size.clone();
+    let group = GroupRows {
+        rows: vec![row],
+        total: size.clone(),
+        size_range: SizeRange::Known {
+            min: size.clone(),
+            max: size,
+        },
+    };
+    let pages = ModelPages::new(source, NonZeroUsize::MIN, Arc::new(Ids(AtomicU64::new(1))));
+    let input = ModelInput {
+        version,
+        condition_fingerprint: "cancelled".into(),
+        rows: vec![],
+        groups: HashMap::from([("g".into(), group)]),
+    };
+    let mut checks = 0;
+    let result = pages.register_after_prepare(
+        input,
+        None,
+        &mut || {
+            checks += 1;
+            checks == 3
+        },
+        || {},
+    );
+    assert!(matches!(result, Err(Error::Cancelled)));
+    assert_eq!(
+        pages.state.lock().map_err(|_| "cache lock")?.entries.len(),
+        0
+    );
+    Ok(())
+}
