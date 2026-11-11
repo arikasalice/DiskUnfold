@@ -102,6 +102,21 @@ export function createBrowsePort(
           );
         return { ...response, requestSeq: request.requestSeq };
       }
+      if (
+        response.requestSeq !== wireSeq ||
+        (request.resultVersion != null &&
+          response.resultVersion !== request.resultVersion)
+      ) {
+        // The receipt's jobRef is untrusted. The engine only cancels the
+        // current request when both the region and original sequence match.
+        void client
+          .call("query.cancel", {
+            regionRef,
+            target: { kind: "request", requestSeq: wireSeq },
+          })
+          .catch(() => {});
+        throw new Error("The folder query does not match the selected result.");
+      }
       const jobRef = response.jobRef;
       const checkLive = () => {
         if (disposed || entry.closed)
@@ -111,15 +126,6 @@ export function createBrowsePort(
       try {
         // A late receipt still owns its job, even if navigation was aborted.
         checkLive();
-        if (
-          response.requestSeq !== wireSeq ||
-          (request.resultVersion != null &&
-            response.resultVersion !== request.resultVersion)
-        ) {
-          throw new Error(
-            "The folder query does not match the selected result.",
-          );
-        }
         const queryRef = await waitForQuery(client, jobRef, checkLive);
         checkLive();
         const page = await client.call("query.page", {

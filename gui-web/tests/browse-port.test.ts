@@ -1,4 +1,4 @@
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { createBrowsePort } from "../src/app/browse-port";
 import { createAnalysisClient } from "../src/ipc";
 import type { BrowseOpenRequest, CallEnvelope } from "../src/ipc";
@@ -618,3 +618,67 @@ test("copy path forwards the exact item and pinned version", async () => {
     items: [item],
   });
 });
+
+test.each(["sequence", "version"] as const)(
+  "invalid job receipt (%s) cancels only its original region request",
+  async (invalid) => {
+    const calls: CallEnvelope[] = [];
+    let resolveReceipt!: (body: unknown) => void;
+    const receipt = new Promise<unknown>((resolve) => {
+      resolveReceipt = resolve;
+    });
+    let regions = 0;
+    const client = createAnalysisClient(async (_, { envelope }) => {
+      calls.push(envelope);
+      if (envelope.name === "query.region.open")
+        return reply(envelope, { regionRef: `region-${++regions}` });
+      if (envelope.name === "browse.open") {
+        const body = envelope.body as BrowseOpenRequest;
+        if (body.regionRef === "region-1" && body.requestSeq === 3)
+          return reply(envelope, await receipt);
+        return reply(envelope, {
+          kind: "opened",
+          requestSeq: body.requestSeq,
+          ...page.browseContext,
+          page,
+        });
+      }
+      if (envelope.name === "query.cancel")
+        return reply(envelope, { outcome: "accepted" });
+      throw new Error(`Unexpected command ${envelope.name}`);
+    });
+    const firstPort = createBrowsePort(client);
+    const otherPort = createBrowsePort(client);
+    const old = firstPort.open(request);
+    // Wait until the first request has been sent before the newer request.
+    await vi.waitFor(() =>
+      expect(calls.some((call) => call.name === "browse.open")).toBe(true),
+    );
+    const latest = firstPort.open({ ...request, requestSeq: 4 });
+    const other = otherPort.open(request);
+    await expect(latest).resolves.toMatchObject({ requestSeq: 4 });
+    await expect(other).resolves.toMatchObject({ requestSeq: 3 });
+    resolveReceipt({
+      kind: "job",
+      requestSeq: invalid === "sequence" ? 99 : 3,
+      resultVersion:
+        invalid === "version" ? "different-version" : request.resultVersion,
+      jobRef: "untrusted-job",
+    });
+    await expect(old).rejects.toThrow("does not match the selected result");
+    expect(
+      calls
+        .filter((call) => call.name === "query.cancel")
+        .map((call) => call.body),
+    ).toEqual([
+      { regionRef: "region-1", target: { kind: "request", requestSeq: 3 } },
+    ]);
+    expect(
+      calls.filter((call) =>
+        ["job.get", "query.page", "job.cancel", "query.region.close"].includes(
+          call.name,
+        ),
+      ),
+    ).toEqual([]);
+  },
+);
