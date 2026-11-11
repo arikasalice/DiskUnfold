@@ -10,6 +10,7 @@ mod physical;
 pub mod publication_cadence;
 mod publication_events;
 pub mod query;
+mod replacement;
 mod result_path;
 mod result_read;
 mod space;
@@ -38,6 +39,7 @@ use std::sync::{Arc, Mutex};
 use version_store::{Entry, State};
 mod build_error;
 pub use build_error::BuildError;
+mod build_abort;
 mod volume_reports;
 pub use volume_reports::{VolumeReport, VolumeReportPoint};
 mod observation;
@@ -48,6 +50,7 @@ pub use observation_range::ObservationRange;
 #[derive(Debug)]
 pub struct ResultVersion {
     version_id: Id,
+    origin: ResultOrigin,
     viz_models: Mutex<visualization::live_models::OwnedModels>,
     scope_version_id: Id,
     lineage_id: Option<Id>,
@@ -76,6 +79,19 @@ pub struct ResultVersion {
         Option<Vec<Option<du_core_contracts::scan_observation::PlaceholderObservation>>>,
     item_observed_times: Option<Vec<Option<Timestamp>>>,
     issues: Vec<du_core_contracts::scan_failures::ScanIssue>,
+}
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ResultOrigin {
+    Scan,
+    Incremental,
+}
+impl ResultOrigin {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Scan => "scan",
+            Self::Incremental => "incremental",
+        }
+    }
 }
 /// A single publication point. Readers retain their snapshot after releasing the lock.
 #[derive(Clone, Default)]
@@ -164,6 +180,9 @@ impl IngestSink {
             events: Arc::clone(&self.events),
             baseline,
             lineage,
+            expected_base: None,
+            reserved: true,
+            origin: ResultOrigin::Scan,
             published: false,
             size_rule: RegisteredRule::default_registration(),
             shared_table_limit: physical::IDENTITY_LIMIT,
@@ -184,6 +203,9 @@ pub struct BuildHandle {
     events: Arc<PublicationEvents>,
     baseline: Option<Entry>,
     lineage: Option<Id>,
+    expected_base: Option<Id>,
+    reserved: bool,
+    origin: ResultOrigin,
     published: bool,
     size_rule: RegisteredRule,
     shared_table_limit: usize,
@@ -333,6 +355,9 @@ impl BuildHandle {
         version_id: Id,
         observed_at: Option<Timestamp>,
     ) -> Result<Arc<ResultVersion>, BuildError> {
+        if self.expected_base.is_some() {
+            return Err(BuildError::Unavailable);
+        }
         self.publish(version_id, ResultCompleteness::Partial, observed_at, false)
     }
     pub fn seal(
@@ -405,6 +430,7 @@ impl BuildHandle {
         let directory_case = directory_case::bind(&built, &self.directory_case);
         let result = Arc::new(ResultVersion {
             version_id,
+            origin: self.origin,
             viz_models: Mutex::default(),
             scope_version_id: self.scope_version_id.clone(),
             lineage_id: self.lineage.clone(),
@@ -438,7 +464,13 @@ impl BuildHandle {
             .lock()
             .map_err(|_| BuildError::Unavailable)?;
         let mut state = self.state.lock().map_err(|_| BuildError::Unavailable)?;
-        let previous = match state.publish(&self.lineage, Arc::clone(&result), finish) {
+        let previous = match state.publish(
+            &self.lineage,
+            Arc::clone(&result),
+            finish,
+            self.expected_base.as_ref(),
+            self.reserved,
+        ) {
             Ok(previous) => previous,
             Err(error) => {
                 drop(state);
@@ -456,6 +488,7 @@ impl BuildHandle {
         self.events.notify(
             self.lineage.as_ref(),
             sequence,
+            self.origin.as_str(),
             ResultVersionChange::Published,
             previous.as_ref().map(|entry| entry.result.as_ref()),
             Some(&result),
@@ -463,37 +496,5 @@ impl BuildHandle {
         drop(order);
         drop(previous);
         Ok(result)
-    }
-    pub fn abort(&mut self) {
-        if !self.finished {
-            self.finished = true;
-            let order = self
-                .events
-                .order
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            let Ok(mut state) = self.state.lock() else {
-                return;
-            };
-            let withdrawn = state.abort(&self.lineage, self.baseline.clone(), self.published);
-            let sequence = withdrawn
-                .as_ref()
-                .and_then(|_| state.next_event_sequence(self.lineage.as_ref()));
-            drop(state);
-            self.events.notify(
-                self.lineage.as_ref(),
-                sequence,
-                ResultVersionChange::Withdrawn,
-                withdrawn.as_ref().map(|entry| entry.result.as_ref()),
-                self.baseline.as_ref().map(|entry| entry.result.as_ref()),
-            );
-            drop(order);
-            drop(withdrawn);
-        }
-    }
-}
-impl Drop for BuildHandle {
-    fn drop(&mut self) {
-        self.abort();
     }
 }

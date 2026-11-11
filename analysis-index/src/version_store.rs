@@ -76,12 +76,35 @@ impl State {
         }
         Ok(self.current.get(lineage).cloned())
     }
+    pub(super) fn begin_replacement(
+        &self,
+        lineage: &Lineage,
+        expected_base: &Id,
+    ) -> Result<Entry, BuildError> {
+        let entry = self
+            .current
+            .get(lineage)
+            .ok_or(BuildError::BaseSuperseded)?;
+        if entry.result.version_id != *expected_base {
+            return Err(BuildError::BaseSuperseded);
+        }
+        Ok(entry.clone())
+    }
     pub(super) fn publish(
         &mut self,
         lineage: &Lineage,
         result: Arc<ResultVersion>,
         finish: bool,
+        expected_base: Option<&Id>,
+        reserved: bool,
     ) -> Result<Option<Entry>, BuildError> {
+        if expected_base.is_some_and(|expected| {
+            self.current
+                .get(lineage)
+                .is_none_or(|entry| entry.result.version_id != *expected)
+        }) {
+            return Err(BuildError::BaseSuperseded);
+        }
         let order = self
             .next_order
             .checked_add(1)
@@ -93,7 +116,7 @@ impl State {
         let previous = self
             .current
             .insert(lineage.clone(), Entry { result, order });
-        if finish {
+        if finish && reserved {
             self.active.remove(lineage);
         }
         Ok(previous)

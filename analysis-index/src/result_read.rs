@@ -27,6 +27,11 @@ pub struct ItemDetail<'a> {
 }
 
 impl ResultVersion {
+    /// Returns the source that created this immutable result version.
+    pub fn origin(&self) -> &'static str {
+        self.origin.as_str()
+    }
+
     /// Returns the identity of the aggregation implementation used for this pinned result.
     pub fn size_rule(&self) -> crate::SizeRuleIdentity {
         self.size_rule.identity()

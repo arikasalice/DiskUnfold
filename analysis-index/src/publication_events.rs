@@ -29,6 +29,7 @@ impl PublicationEvents {
         &self,
         lineage: Option<&Id>,
         sequence: Option<u64>,
+        origin: &'static str,
         change: ResultVersionChange,
         previous: Option<&ResultVersion>,
         current: Option<&ResultVersion>,
@@ -42,7 +43,7 @@ impl PublicationEvents {
             body: ResultVersionChanged {
                 lineage_id: lineage.clone(),
                 source_ref: lineage.clone(),
-                origin: "scan".into(),
+                origin: origin.into(),
                 sequence,
                 change,
                 previous_result_version: previous.map(|result| result.version_id.clone()),

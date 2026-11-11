@@ -4,5 +4,6 @@ pub enum BuildError {
     InvalidTree,
     DuplicateVersion,
     CapacityExceeded,
+    BaseSuperseded,
     Unavailable,
 }
