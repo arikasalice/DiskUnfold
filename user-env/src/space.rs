@@ -9,7 +9,7 @@ pub const SHARED_TABLE_MAX_ENTRIES: &str = "space.shared_table_max_entries";
 
 /// Returns the F03 descriptor. Applying it to future jobs is the caller's responsibility.
 pub fn descriptors() -> Vec<Descriptor> {
-    vec![Descriptor {
+    let mut result = vec![Descriptor {
         presentation: du_core_contracts::settings::SettingPresentation::for_setting(
             SHARED_TABLE_MAX_ENTRIES,
         ),
@@ -21,7 +21,41 @@ pub fn descriptors() -> Vec<Descriptor> {
             max: SharedTableLimit::MAX_ENTRIES as i64,
         },
         editable: true,
-    }]
+    }];
+    result.extend(display_descriptors(cfg!(target_os = "windows")));
+    result
+}
+
+/// Returns display descriptors using the specified platform convention.
+/// Windows uses IEC; macOS and the supported Ubuntu target use SI.
+pub fn display_descriptors(windows: bool) -> Vec<Descriptor> {
+    let choice = |key: &str, default: &str, values: &[&str]| Descriptor {
+        presentation: du_core_contracts::settings::SettingPresentation::for_setting(key),
+        key: key.into(),
+        owner: "F03".into(),
+        default: json!(default),
+        kind: ValueKind::Choice(values.iter().map(|value| json!(value)).collect()),
+        editable: true,
+    };
+    vec![
+        choice(
+            "display.size_unit_system",
+            if windows { "iec" } else { "si" },
+            &["si", "iec"],
+        ),
+        choice(
+            "display.size_unit",
+            "auto",
+            &[
+                "auto", "B", "kB", "MB", "GB", "TB", "PB", "KiB", "MiB", "GiB", "TiB", "PiB",
+            ],
+        ),
+        choice(
+            "space.default_basis",
+            "allocated",
+            &["logical", "allocated", "unique_physical"],
+        ),
+    ]
 }
 
 /// Resolves the F03 override in a stored snapshot. An absent override uses the
@@ -64,6 +98,84 @@ mod tests {
     }
 
     #[test]
+    fn display_choices_follow_platform_defaults_and_reject_invalid_values() -> Result<(), String> {
+        for (windows, expected) in [(true, "iec"), (false, "si")] {
+            let rows = display_descriptors(windows);
+            let find = |key: &str| rows.iter().find(|row| row.key == key).ok_or("missing");
+            let system = find("display.size_unit_system")?;
+            assert_eq!(system.default, json!(expected));
+            assert!(accepts(&system.kind, &json!("si")));
+            assert!(accepts(&system.kind, &json!("iec")));
+            assert!(!accepts(&system.kind, &json!("SI")));
+            let unit = find("display.size_unit")?;
+            assert_eq!(unit.default, json!("auto"));
+            for value in ["auto", "B", "kB", "PB", "KiB", "PiB"] {
+                assert!(accepts(&unit.kind, &json!(value)));
+            }
+            assert!(!accepts(&unit.kind, &json!("KB")));
+            let basis = find("space.default_basis")?;
+            assert_eq!(basis.default, json!("allocated"));
+            for value in ["logical", "allocated", "unique_physical"] {
+                assert!(accepts(&basis.kind, &json!(value)));
+            }
+            assert!(!accepts(&basis.kind, &json!("physical")));
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn display_settings_reject_invalid_values_and_stale_reviews() -> Result<(), String> {
+        let registry = Registry::new(display_descriptors(true)).map_err(|e| format!("{e:?}"))?;
+        let service = SettingsService::open(registry, Store).map_err(|e| format!("{e:?}"))?;
+        let valid = SettingsChanges::from([("display.size_unit".into(), Some(json!("PiB")))]);
+        assert!(service.review(0, &valid).is_ok());
+        assert_eq!(service.review(1, &valid), Err(SettingsError::StaleVersion));
+        let invalid =
+            SettingsChanges::from([("space.default_basis".into(), Some(json!("physical")))]);
+        assert_eq!(
+            service.review(0, &invalid),
+            Err(SettingsError::InvalidValue)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn display_restore_quarantines_invalid_value_and_keeps_valid_override() -> Result<(), String> {
+        let registry = Registry::new(display_descriptors(true)).map_err(|e| format!("{e:?}"))?;
+        let service = SettingsService::restore(
+            registry,
+            Store,
+            |_| {
+                Ok((
+                    3,
+                    1,
+                    [
+                        ("display.size_unit".into(), "\"bogus\"".into()),
+                        ("display.size_unit_system".into(), "\"si\"".into()),
+                    ]
+                    .into(),
+                ))
+            },
+            |_, revision, invalid| {
+                assert_eq!(revision, 3);
+                assert!(invalid.contains_key("display.size_unit"));
+                Ok(4)
+            },
+        );
+        assert_eq!(
+            service.snapshot().values.get("display.size_unit_system"),
+            Some(&json!("si"))
+        );
+        assert!(!service.snapshot().values.contains_key("display.size_unit"));
+        assert_eq!(service.snapshot().revision, 4);
+        assert_eq!(
+            service.restore_status().invalid_keys,
+            vec!["display.size_unit"]
+        );
+        Ok(())
+    }
+
+    #[test]
     fn descriptor_has_published_default_and_inclusive_range() -> Result<(), String> {
         let descriptors = descriptors();
         let descriptor = descriptors.first().ok_or("missing descriptor")?;
@@ -78,7 +190,12 @@ mod tests {
         let registry = Registry::new(descriptors).map_err(|error| format!("{error:?}"))?;
         let catalog_snapshot = SettingsSnapshot::default();
         assert_eq!(
-            registry.catalog(&catalog_snapshot)[0].value,
+            registry
+                .catalog(&catalog_snapshot)
+                .into_iter()
+                .find(|row| row.descriptor.key == SHARED_TABLE_MAX_ENTRIES)
+                .ok_or("missing")?
+                .value,
             &json!(1_000_000)
         );
         let service =

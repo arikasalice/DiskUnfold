@@ -103,12 +103,12 @@ fn registration_rejects_duplicate_keys_and_wrong_metadata() -> Result<(), Regist
 }
 
 #[test]
-fn setting_presentations_cover_eight_descriptors_in_both_bundles()
+fn setting_presentations_cover_descriptors_in_both_bundles()
 -> Result<(), Box<dyn std::error::Error>> {
     let registry = register(&[]).map_err(|e| format!("{e:?}"))?;
     let descriptors =
         crate::settings::builtin_descriptors(&["en", "ko"]).map_err(|e| format!("{e:?}"))?;
-    assert_eq!(descriptors.len(), 8);
+    assert_eq!(descriptors.len(), 11);
     validate_setting_presentation(&registry, descriptors.clone()).map_err(|e| format!("{e:?}"))?;
     for language in ["en", "ko"] {
         let bundle = registry.bundle(language).ok_or("missing bundle")?;
@@ -185,7 +185,14 @@ fn registered_catalog_carries_only_published_group_and_level_pairs()
         })
         .collect();
     let pair = |group, level| Some(SettingPlacement { group, level });
-    assert_eq!(placements.len(), 8);
+    assert_eq!(placements.len(), 11);
+    for key in [
+        "display.size_unit_system",
+        "display.size_unit",
+        "space.default_basis",
+    ] {
+        assert_eq!(placements[key], None);
+    }
     assert_eq!(
         placements["locale.display_language"],
         pair(G::GeneralDisplay, L::Basic)
