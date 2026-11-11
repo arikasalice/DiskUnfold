@@ -22,6 +22,7 @@ import {
   ResultActions,
   ScopeActions,
   ScopeReviewFeedback,
+  scopeNoticeText,
 } from "./AnalysisActions";
 import { ScanOutput } from "./AnalysisViews";
 import { TargetPicker } from "./TargetPicker";
@@ -47,6 +48,20 @@ function reviewErrorText(error: unknown): string {
   return errorText(error);
 }
 
+function rejectedReviewText(review: ScopeReview): string {
+  const reason = review.targets.find(
+    (target) => target.access !== "accessible" && target.reasonKey,
+  )?.reasonKey;
+  if (reason === "path.unresolvable")
+    return "Enter a valid local folder path, then review the scope again.";
+  if (reason === "scope.target_unavailable")
+    return "Check that every selected path is an accessible local folder, then review the scope again.";
+  if (reason) return scopeNoticeText(reason);
+  if (review.targets.some((target) => target.access === "denied"))
+    return scopeNoticeText("scan.path_denied");
+  return "One or more selected paths could not be verified. Review all paths before starting.";
+}
+
 function draft(paths: OsPath[]): ScopeDraft {
   return {
     includes: paths,
@@ -58,7 +73,11 @@ function draft(paths: OsPath[]): ScopeDraft {
 }
 
 /** Keeps the original request bound to the fingerprint returned for it. */
-type ReviewedScope = { input: ScopeDraft; review: ScopeReview };
+type ReviewedScope = {
+  input: ScopeDraft;
+  review: ScopeReview;
+  revision: number;
+};
 
 function canStart(scope: ReviewedScope | undefined): scope is ReviewedScope {
   return Boolean(
@@ -72,10 +91,72 @@ function canStart(scope: ReviewedScope | undefined): scope is ReviewedScope {
 function reviewFeedback(
   scope: ReviewedScope | undefined,
   problem: string | undefined,
+  current: boolean,
+  rejected: boolean,
 ) {
   const review = scope?.review;
-  const ready = canStart(scope);
-  return { review, ready, hasProblem: Boolean(problem || (review && !ready)) };
+  const ready = canStart(scope) && current && !rejected;
+  return {
+    review,
+    ready,
+    hasProblem: Boolean(
+      problem || rejected || (review && (!canStart(scope) || !current)),
+    ),
+  };
+}
+
+function sameDraft(left: ScopeDraft, right: ScopeDraft): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function completeDraft(paths: (OsPath | undefined)[]): ScopeDraft | undefined {
+  if (paths.length === 0 || paths.some((path) => !path)) return undefined;
+  return draft(paths as OsPath[]);
+}
+
+function reviewedInputMatches(
+  scope: ReviewedScope | undefined,
+  current: ScopeDraft | undefined,
+  revision: number,
+): boolean {
+  if (!scope) return true;
+  return Boolean(
+    current && sameDraft(current, scope.input) && scope.revision === revision,
+  );
+}
+
+function reviewBlocked(
+  reviewing: boolean,
+  working: boolean,
+  running: boolean,
+  pending: boolean,
+  selected: (OsPath | undefined)[],
+): boolean {
+  return (
+    reviewing || working || running || pending || selected.some((path) => !path)
+  );
+}
+
+function isCurrentReviewResponse(
+  current: number,
+  requested: number,
+  response: number,
+): boolean {
+  return current === requested && response === requested;
+}
+
+function cancelScheduledReview(timer: { current: number | undefined }) {
+  if (timer.current === undefined) return;
+  window.clearTimeout(timer.current);
+  timer.current = undefined;
+}
+
+function suppressAutomaticRetry(
+  automatic: boolean,
+  failedDraft: { current: string | undefined },
+  submitted: ScopeDraft,
+) {
+  if (automatic) failedDraft.current = JSON.stringify(submitted);
 }
 
 /** Presents target selection, scope review, background collection and pinned totals. */
@@ -101,14 +182,20 @@ export function AnalysisPanel({
   const focusEditor = useRef(false);
   const focusOpener = useRef(false);
   const focusResult = useRef(false);
+  const autoReview = useRef<() => void>(() => undefined);
+  const autoReviewTimer = useRef<number | undefined>(undefined);
+  const failedAutoDraft = useRef<string | undefined>(undefined);
+  const editRevision = useRef(0);
   const [displayChoice, setDisplayChoice] = useState<SizeDisplay>();
   const [editorOpen, setEditorOpen] = useState(false);
   const [selected, setSelected] = useState<(OsPath | undefined)[]>([undefined]);
   const [reviewedScope, setReviewedScope] = useState<ReviewedScope>();
   const [working, setWorking] = useState(false);
   const [reviewing, setReviewing] = useState(false);
+  const [pathComposing, setPathComposing] = useState(false);
   const [resultRoots, setResultRoots] = useState<OsPath[]>([]);
   const [reviewProblem, setReviewProblem] = useState<string>();
+  const [rejectedRevision, setRejectedRevision] = useState<number>();
   const [error, setError] = useState<string>();
   const [receipt, setReceipt] = useState<ScanStart | null>(null);
   const [checkingDrop, setCheckingDrop] = useState(false);
@@ -166,12 +253,14 @@ export function AnalysisPanel({
   const editPaths = useCallback(
     (update: (current: (OsPath | undefined)[]) => (OsPath | undefined)[]) => {
       request.current += 1;
+      editRevision.current += 1;
+      failedAutoDraft.current = undefined;
       pendingDrop.current = undefined;
       setCheckingDrop(false);
       setSelected(update);
-      setReviewedScope(undefined);
       setReviewing(false);
       setReviewProblem(undefined);
+      setRejectedRevision(undefined);
       setError(undefined);
       setDropMessage(undefined);
     },
@@ -200,6 +289,7 @@ export function AnalysisPanel({
   function cancelSelection() {
     if (working || running) return;
     editPaths(() => [undefined]);
+    setReviewedScope(undefined);
     targets.cancel();
   }
 
@@ -223,6 +313,7 @@ export function AnalysisPanel({
           setEditorOpen(true);
         }
         if ("path" in drop) {
+          setReviewedScope(undefined);
           choose(drop.path);
           setDropMessage({
             text: "Folder selected. Review scope.",
@@ -241,43 +332,111 @@ export function AnalysisPanel({
     [client, choose],
   );
 
-  async function reviewScope() {
+  async function reviewScope(automatic = false) {
     if (
-      reviewing ||
-      working ||
-      running ||
-      pendingDrop.current ||
-      selected.some((path) => !path)
+      reviewBlocked(
+        reviewing,
+        working,
+        running,
+        Boolean(pendingDrop.current),
+        selected,
+      )
     )
       return;
     const paths = selected.filter((path): path is OsPath => path !== undefined);
     if (paths.length === 0) return;
+    const submittedDraft = draft(paths);
+    const submittedRevision = editRevision.current;
     const requestSeq = ++request.current;
+    if (!automatic) cancelScheduledReview(autoReviewTimer);
     setReviewing(true);
     setReviewProblem(undefined);
     try {
-      const submittedDraft = draft(paths);
       const response = await client.call("scope.review", {
         draft: submittedDraft,
         requestSeq,
       });
       if (
-        request.current === requestSeq &&
-        response.requestSeq === requestSeq
+        isCurrentReviewResponse(
+          request.current,
+          requestSeq,
+          response.requestSeq,
+        )
       ) {
-        setReviewedScope({ input: submittedDraft, review: response });
+        const candidate = {
+          input: submittedDraft,
+          review: response,
+          revision: submittedRevision,
+        };
+        if (canStart(candidate)) {
+          setReviewedScope(candidate);
+          setRejectedRevision(undefined);
+          failedAutoDraft.current = undefined;
+          setReviewProblem(undefined);
+        } else {
+          setRejectedRevision(submittedRevision);
+          setReviewProblem(rejectedReviewText(response));
+          suppressAutomaticRetry(automatic, failedAutoDraft, submittedDraft);
+        }
+      } else if (request.current === requestSeq) {
+        setRejectedRevision(submittedRevision);
+        setReviewProblem(
+          "The scope review response did not match this request. Review again.",
+        );
+        suppressAutomaticRetry(automatic, failedAutoDraft, submittedDraft);
       }
     } catch (failure) {
-      if (request.current === requestSeq)
-        setReviewProblem(reviewErrorText(failure));
+      if (request.current === requestSeq) {
+        const message = reviewedScope
+          ? "Review failed. The last successful review remains available; the current paths were not accepted."
+          : reviewErrorText(failure);
+        setReviewProblem(message);
+        if (failure instanceof AnalysisError)
+          setRejectedRevision(submittedRevision);
+        suppressAutomaticRetry(automatic, failedAutoDraft, submittedDraft);
+      }
     } finally {
       if (request.current === requestSeq) setReviewing(false);
     }
   }
 
+  autoReview.current = () => void reviewScope(true);
+
+  useEffect(() => {
+    if (
+      pathComposing ||
+      selected.length === 0 ||
+      selected.some((path) => !path)
+    )
+      return;
+    const current = draft(selected as OsPath[]);
+    if (
+      reviewedScope &&
+      reviewedScope.revision === editRevision.current &&
+      sameDraft(current, reviewedScope.input)
+    )
+      return;
+    if (failedAutoDraft.current === JSON.stringify(current)) return;
+    autoReviewTimer.current = window.setTimeout(() => {
+      autoReviewTimer.current = undefined;
+      autoReview.current();
+    }, 350);
+    return () => {
+      if (autoReviewTimer.current !== undefined) {
+        window.clearTimeout(autoReviewTimer.current);
+        autoReviewTimer.current = undefined;
+      }
+    };
+  }, [pathComposing, reviewedScope, selected]);
+
   async function start() {
     if (scanBlocksDrop.current || pendingDrop.current || reviewing) return;
-    if (!canStart(reviewedScope)) return;
+    if (
+      !canStart(reviewedScope) ||
+      !reviewedInputIsCurrent ||
+      rejectedRevision === editRevision.current
+    )
+      return;
     const { input, review } = reviewedScope;
     scanBlocksDrop.current = true;
     setWorking(true);
@@ -303,13 +462,21 @@ export function AnalysisPanel({
     }
   }
 
-  const { review, ready, hasProblem } = reviewFeedback(
-    reviewedScope,
-    reviewProblem,
-  );
   const resultActive = receipt !== null || error !== undefined;
   const showEditor = receipt === null || editorOpen;
   const editorBusy = isEditorBusy(working, reviewing, checkingDrop);
+  const currentInput = completeDraft(selected);
+  const reviewedInputIsCurrent = reviewedInputMatches(
+    reviewedScope,
+    currentInput,
+    editRevision.current,
+  );
+  const { review, ready, hasProblem } = reviewFeedback(
+    reviewedScope,
+    reviewProblem,
+    reviewedInputIsCurrent,
+    rejectedRevision === editRevision.current,
+  );
 
   return (
     <section
@@ -382,10 +549,16 @@ export function AnalysisPanel({
                   <ScopeReviewFeedback
                     review={review}
                     ready={ready}
+                    current={reviewedInputIsCurrent}
+                    latestAccepted={
+                      reviewedInputIsCurrent &&
+                      rejectedRevision !== editRevision.current
+                    }
                     problem={reviewProblem}
                     problemId={reviewProblemId}
                   />
                 }
+                onPathCompositionChange={setPathComposing}
               />
             </section>
             <ScopeActions

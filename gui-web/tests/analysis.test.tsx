@@ -665,7 +665,7 @@ test("F01 FR4.HD1.gui-web.DD1: a failed repeat review preserves the admitted dra
   const fail = rejectReview;
   if (!fail) throw new Error("Repeat review was not started");
   await act(async () => fail(new Error("Scope review unavailable")));
-  await screen.findByText("Scope review unavailable");
+  await screen.findByText(/last successful review remains available/);
   expect(screen.getByLabelText("Reviewed scope")).toBeDefined();
   expect(start.disabled).toBe(false);
   fireEvent.click(start);
@@ -675,6 +675,202 @@ test("F01 FR4.HD1.gui-web.DD1: a failed repeat review preserves the admitted dra
   expect(calls.find(({ name }) => name === "scan.start")?.body).toEqual({
     draft: firstReview.draft,
     reviewFingerprint: "first-review",
+  });
+});
+
+test("F01 FR4.HD1.gui-web.DD1: settled path edits auto-review without moving focus or scrolling", async () => {
+  const { client, calls } = fixture();
+  const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+  const scrollIntoView = vi.fn();
+  Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+    configurable: true,
+    value: scrollIntoView,
+  });
+  try {
+    render(<App analysis={client} />);
+    const input = await screen.findByRole<HTMLInputElement>("textbox", {
+      name: "Windows folder path",
+    });
+    input.focus();
+    fireEvent.compositionStart(input);
+    fireEvent.change(input, { target: { value: "C:\\漢字" } });
+    await new Promise((resolve) => window.setTimeout(resolve, 400));
+    expect(calls.filter(({ name }) => name === "scope.review")).toHaveLength(0);
+    fireEvent.compositionEnd(input);
+    await waitFor(() =>
+      expect(calls.filter(({ name }) => name === "scope.review")).toHaveLength(
+        1,
+      ),
+    );
+    expect(document.activeElement).toBe(input);
+    expect(scrollIntoView).not.toHaveBeenCalled();
+    expect(
+      calls.find(({ name }) => name === "scope.review")?.body,
+    ).toMatchObject({
+      draft: { includes: [windowsPath("C:\\漢字")] },
+    });
+  } finally {
+    if (originalScrollIntoView) {
+      Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+        configurable: true,
+        value: originalScrollIntoView,
+      });
+    } else {
+      delete (HTMLElement.prototype as Partial<HTMLElement>).scrollIntoView;
+    }
+  }
+});
+
+test.each(["manual review", "path edit"])(
+  "F01 FR4.HD1.gui-web.DD1: automatic review failure waits for %s",
+  async (retry) => {
+    let reviewCount = 0;
+    const { client, calls } = fixture({
+      readReview: (review) => {
+        reviewCount += 1;
+        if (reviewCount === 1) throw new Error("Review unavailable");
+        return review;
+      },
+    });
+    render(<App analysis={client} />);
+    const input = await screen.findByRole("textbox", {
+      name: "Windows folder path",
+    });
+    fireEvent.change(input, { target: { value: path.display } });
+    await screen.findByText("Review unavailable");
+    await new Promise((resolve) => window.setTimeout(resolve, 400));
+    expect(calls.filter(({ name }) => name === "scope.review")).toHaveLength(1);
+
+    if (retry === "manual review") {
+      fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
+    } else {
+      fireEvent.change(input, { target: { value: "D:\\other" } });
+      fireEvent.change(input, { target: { value: path.display } });
+    }
+    await waitFor(() => expect(reviewCount).toBe(2));
+    await waitFor(() =>
+      expect(
+        screen.getByRole<HTMLButtonElement>("button", { name: "Start scan" })
+          .disabled,
+      ).toBe(false),
+    );
+    expect(calls.filter(({ name }) => name === "scope.review")).toHaveLength(2);
+  },
+);
+
+test("F01 FR4.HD1.gui-web.DD1: repeated review submission does not send a duplicate request", async () => {
+  let resolveReview: ((value: ScopeReview) => void) | undefined;
+  let capturedReview: ScopeReview | undefined;
+  const { client, calls } = fixture({
+    readReview: (review) =>
+      new Promise<ScopeReview>((resolve) => {
+        capturedReview = review;
+        resolveReview = (value) => resolve(value);
+      }),
+  });
+  render(<App analysis={client} />);
+  fireEvent.click(await screen.findByRole("radio", { name: path.display }));
+  const review = screen.getByRole("button", { name: "Review scope" });
+  fireEvent.click(review);
+  fireEvent.click(review);
+  expect(calls.filter(({ name }) => name === "scope.review")).toHaveLength(1);
+  if (!resolveReview) throw new Error("Review request was not started");
+  if (!capturedReview) throw new Error("Review response was not captured");
+  await act(async () => resolveReview?.(capturedReview as ScopeReview));
+  await new Promise((resolve) => window.setTimeout(resolve, 400));
+  expect(calls.filter(({ name }) => name === "scope.review")).toHaveLength(1);
+});
+
+test("F01 FR4.HD1.gui-web.DD1: denied current edits retain but cannot start a prior reviewed scope", async () => {
+  let reviewCount = 0;
+  const { client, calls } = fixture({
+    readReview: (review) => {
+      reviewCount += 1;
+      if (reviewCount === 1)
+        return { ...review, reviewFingerprint: "accepted-A" };
+      if (reviewCount === 3)
+        return { ...review, reviewFingerprint: "accepted-A-retry" };
+      if (reviewCount === 5)
+        return { ...review, reviewFingerprint: "accepted-A-restored" };
+      return {
+        ...review,
+        targets: review.targets.map((target) => ({
+          ...target,
+          access: "denied",
+          reasonKey: "scan.path_denied",
+        })),
+      };
+    },
+  });
+  render(<App analysis={client} />);
+  fireEvent.click(await screen.findByRole("radio", { name: path.display }));
+  fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
+  await waitFor(() => expect(reviewCount).toBe(1));
+  const firstReview = calls.find(({ name }) => name === "scope.review")
+    ?.body as { draft: unknown };
+  await waitFor(() =>
+    expect(
+      screen.getByRole<HTMLButtonElement>("button", { name: "Start scan" })
+        .disabled,
+    ).toBe(false),
+  );
+
+  fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
+  await waitFor(() => expect(reviewCount).toBe(2));
+  expect(
+    screen.getByRole<HTMLButtonElement>("button", { name: "Start scan" })
+      .disabled,
+  ).toBe(true);
+  expect(
+    await screen.findByText(/Access to a selected folder was denied/),
+  ).toBeDefined();
+  expect(screen.getByLabelText("Previously reviewed scope")).toBeDefined();
+
+  fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
+  await waitFor(() => expect(reviewCount).toBe(3));
+  await waitFor(() =>
+    expect(
+      screen.getByRole<HTMLButtonElement>("button", { name: "Start scan" })
+        .disabled,
+    ).toBe(false),
+  );
+
+  const input = screen.getByRole<HTMLInputElement>("textbox", {
+    name: "Windows folder path",
+  });
+  fireEvent.change(input, { target: { value: "D:\\Denied" } });
+  expect(
+    screen.getByRole<HTMLButtonElement>("button", { name: "Start scan" })
+      .disabled,
+  ).toBe(true);
+  await waitFor(() => expect(reviewCount).toBe(4), { timeout: 2000 });
+  expect(
+    await screen.findByText(/last successful review remains available/),
+  ).toBeDefined();
+  expect(screen.getByLabelText("Previously reviewed scope")).toBeDefined();
+  expect(
+    screen.getByRole<HTMLButtonElement>("button", { name: "Start scan" })
+      .disabled,
+  ).toBe(true);
+  expect(calls.some(({ name }) => name === "scan.start")).toBe(false);
+
+  fireEvent.change(input, { target: { value: path.display } });
+  expect(
+    screen.getByRole<HTMLButtonElement>("button", { name: "Start scan" })
+      .disabled,
+  ).toBe(true);
+  await waitFor(() => expect(reviewCount).toBe(5), { timeout: 2000 });
+  await waitFor(() =>
+    expect(
+      screen.getByRole<HTMLButtonElement>("button", { name: "Start scan" })
+        .disabled,
+    ).toBe(false),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Start scan" }));
+  await screen.findByText("At least 42 bytes");
+  expect(calls.find(({ name }) => name === "scan.start")?.body).toEqual({
+    draft: firstReview.draft,
+    reviewFingerprint: "accepted-A-restored",
   });
 });
 

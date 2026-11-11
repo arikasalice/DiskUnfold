@@ -11,7 +11,7 @@ import {
 import type { JobState, ScopeReview } from "../../ipc";
 import type { ScanControl } from "../../state/analysis-scan";
 
-function noticeText(key: string): string {
+export function scopeNoticeText(key: string): string {
   switch (key) {
     case "scope.overlap_merged":
       return "Duplicate paths were combined.";
@@ -41,11 +41,13 @@ function noticeText(key: string): string {
 function ReviewNotices({
   review,
   ready,
+  current,
   problem,
   problemId,
 }: {
   review: ScopeReview | undefined;
   ready: boolean;
+  current: boolean;
   problem: string | undefined;
   problemId: string;
 }) {
@@ -56,15 +58,22 @@ function ReviewNotices({
       </Notice>
     );
   if (!review) return null;
+  if (!current)
+    return (
+      <Notice tone="info" id={problemId}>
+        The current paths changed. Review them before starting. The last
+        successful scope is shown below.
+      </Notice>
+    );
   if (ready)
     return review.notices.map((notice) => (
-      <Notice key={notice}>{noticeText(notice)}</Notice>
+      <Notice key={notice}>{scopeNoticeText(notice)}</Notice>
     ));
 
-  const messages = new Set(review.notices.map(noticeText));
+  const messages = new Set(review.notices.map(scopeNoticeText));
   for (const target of review.targets) {
     if (target.access !== "accessible" && target.reasonKey)
-      messages.add(noticeText(target.reasonKey));
+      messages.add(scopeNoticeText(target.reasonKey));
   }
   if (!messages.size)
     messages.add(
@@ -82,35 +91,38 @@ function ReviewNotices({
 export function ScopeReviewFeedback({
   review,
   ready,
+  current,
+  latestAccepted,
   problem,
   problemId,
 }: {
   review: ScopeReview | undefined;
   ready: boolean;
+  current: boolean;
+  latestAccepted: boolean;
   problem: string | undefined;
   problemId: string;
 }) {
-  const feedback = useRef<HTMLElement>(null);
-  useLayoutEffect(() => {
-    feedback.current?.scrollIntoView({ block: "nearest" });
-  }, [review, problem]);
-
   if (!review && !problem) return null;
   return (
     <section
       className="du-review-feedback"
-      ref={feedback}
       aria-label={ready ? "Reviewed scope" : "Scope review problem"}
     >
       <ReviewNotices
         review={review}
         ready={ready}
+        current={current}
         problem={problem}
         problemId={problemId}
       />
-      {review && ready && (
+      {review && (
         <Readout
-          label="Scope paths and boundary"
+          label={
+            latestAccepted
+              ? "Scope paths and boundary"
+              : "Previously reviewed scope"
+          }
           rows={[
             {
               label: "Included paths",
@@ -145,7 +157,7 @@ function scopeActionState({
   const starting = working && !running;
   return {
     starting,
-    reviewDisabled: working || running || (!reviewEnabled && !reviewing),
+    reviewDisabled: reviewing || working || running || !reviewEnabled,
     reviewPending: reviewing || (checkingDrop && !blocked && reviewEnabled),
     startDisabled: reviewing || (!startEnabled && !starting && !running),
     startPending:
@@ -161,6 +173,7 @@ export function ScopeActions({
   running,
   reviewEnabled,
   startEnabled,
+  startLabel = "Start scan",
   onReview,
   onStart,
   onCancel,
@@ -172,6 +185,7 @@ export function ScopeActions({
   running: boolean;
   reviewEnabled: boolean;
   startEnabled: boolean;
+  startLabel?: string;
   onReview: () => void;
   onStart: () => void;
   onCancel: () => void;
@@ -218,7 +232,7 @@ export function ScopeActions({
           isPending={startPending}
           onPress={onStart}
         >
-          {starting ? "Starting scan…" : "Start scan"}
+          {starting ? "Starting scan…" : startLabel}
         </Action>
       </div>
     </footer>

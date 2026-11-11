@@ -31,6 +31,7 @@ export function TargetPicker({
   reviewDescriptionId,
   feedback,
   isInitial,
+  onPathCompositionChange,
 }: {
   targets: ReturnType<typeof useTargets>;
   disabled: boolean;
@@ -44,6 +45,7 @@ export function TargetPicker({
   reviewDescriptionId: string | undefined;
   feedback: ReactNode;
   isInitial: boolean;
+  onPathCompositionChange: (composing: boolean) => void;
 }) {
   const fields = useRef(new Map<number, HTMLInputElement>());
   const focusIndex = useRef<number>(undefined);
@@ -72,6 +74,7 @@ export function TargetPicker({
       description={pathDescription}
       placeholder={"C:\\Folder"}
       isDisabled={disabled}
+      onCompositionChange={onPathCompositionChange}
       value={selected[0]?.display ?? ""}
       onChange={(path) => choose(path ? windowsPath(path) : undefined)}
     />
@@ -120,6 +123,7 @@ export function TargetPicker({
                 description="Enter a local folder or drive path."
                 placeholder={"D:\\Folder"}
                 isDisabled={disabled}
+                onCompositionChange={onPathCompositionChange}
                 value={path?.display ?? ""}
                 onChange={(value) =>
                   choose(value ? windowsPath(value) : undefined, index + 1)

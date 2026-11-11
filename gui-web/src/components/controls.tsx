@@ -76,6 +76,7 @@ export function PathField({
   onChange,
   isDisabled,
   autoFocus,
+  onCompositionChange,
   ref,
 }: {
   label: string;
@@ -85,6 +86,7 @@ export function PathField({
   onChange: (value: string) => void;
   isDisabled: boolean;
   autoFocus?: boolean;
+  onCompositionChange?: (composing: boolean) => void;
   ref?: Ref<HTMLInputElement>;
 }) {
   return (
@@ -101,6 +103,8 @@ export function PathField({
         placeholder={placeholder ?? ""}
         spellCheck={false}
         autoComplete="off"
+        onCompositionStart={() => onCompositionChange?.(true)}
+        onCompositionEnd={() => onCompositionChange?.(false)}
       />
       <Text slot="description" aria-live="polite">
         {description}

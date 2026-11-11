@@ -6,6 +6,7 @@ param(
   [Parameter(Mandatory)][string]$Binary,
   [switch]$VerifyWorkspaceLayout,
   [switch]$VerifyInitialDrive,
+  [switch]$VerifyAutomaticScopeReview,
   [switch]$VerifyCancellation,
   [switch]$VerifySuspension,
   [switch]$VerifyPopulatedWorkspace,
@@ -559,6 +560,14 @@ function Set-Scope($path, $fieldName = 'Windows folder path') {
     }
   }
 }
+# Exercise scope admission from a folder edit without invoking the review action.
+function Test-AutomaticScopeReview {
+  Set-Scope $child
+  $null = Wait-UI 'automatically reviewed scope' { Find-UI 'Reviewed scope' $null }
+  Invoke-UI (Wait-Enabled 'Start scan' $true)
+  $null = Wait-FinalLogicalSize '7 bytes'
+  'F01 native automatic review: folder edit enabled scan without invoking Review scope; pinned logical size 7 bytes'
+}
 # The operator performs the OLE gesture; UIA only observes its result.
 function Test-NativeFolderDrop {
   Set-Scope $scanRoot
@@ -882,6 +891,7 @@ try {
     'F14 native settings restoration: user-facing setting names, startup format and defaults visible, dialog closed'
   }
   if ($VerifyNativeFolderDrop) { Test-NativeFolderDrop }
+  if ($VerifyAutomaticScopeReview) { Test-AutomaticScopeReview }
   if ($VerifyDeniedSubtree) { Test-DeniedSubtree }
   if ($VerifyJunctionBoundary) { Test-JunctionBoundary }
   if ($VerifyReplacedScopeRoot) { Test-ReplacedScopeRoot }
