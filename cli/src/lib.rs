@@ -54,7 +54,8 @@ pub fn run(arguments: impl Iterator<Item = OsString>) -> ExitCode {
         args::Command::Version => {
             println!("{product_name} {}", env!("CARGO_PKG_VERSION"));
         }
-        args::Command::Unsupported => {
+        // Scan admission is parsed, but execution awaits the engine and policy composition.
+        args::Command::Scan(_) | args::Command::Unsupported => {
             let Some(unsupported) = message("cli.help.unsupported") else {
                 return registration_failed();
             };
