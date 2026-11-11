@@ -11,6 +11,7 @@ param(
   [switch]$VerifyPopulatedWorkspace,
   [switch]$VerifyPhysicalAccounting,
   [switch]$VerifyDeniedSubtree,
+  [switch]$VerifyJunctionBoundary,
   [switch]$VerifySettingsRestoration,
   [switch]$VerifyOperationHistory,
   [switch]$VerifyInspectionPathDisclosure,
@@ -774,6 +775,45 @@ function Test-DeniedSubtree {
     'F02/F03 denied NTFS subtree: access denied, pinned logical lower bound 13 bytes'
   } finally { Set-Acl -LiteralPath $denied -AclObject $original }
 }
+# A junction is a recorded link, so its target cannot contribute to the pinned total.
+function Test-JunctionBoundary {
+  $fixture = Join-Path $root 'junction-fixture'
+  $scope = Join-Path $fixture 'scope'
+  $outside = Join-Path $fixture 'outside'
+  $junction = Join-Path $scope 'redirect'
+  [IO.Directory]::CreateDirectory($scope) | Out-Null
+  [IO.Directory]::CreateDirectory($outside) | Out-Null
+  [IO.File]::WriteAllBytes((Join-Path $scope 'observed.bin'), [byte[]]::new(19))
+  [IO.File]::WriteAllBytes((Join-Path $outside 'outside-marker.bin'), [byte[]]::new(1024))
+  Push-Location -LiteralPath $fixture
+  try {
+    & cmd.exe /D /C mklink /J 'scope\redirect' outside | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'Could not create the isolated NTFS junction' }
+  } finally { Pop-Location }
+  try {
+    Set-Scope $scope
+    Invoke-UI (Wait-Enabled 'Review scope' $true)
+    Invoke-UI (Wait-Enabled 'Start scan' $true)
+    # The scan is final even though the link limits measurement completeness.
+    $null = Wait-FinalLogicalSize 'At least 19 bytes'
+    Invoke-UI (Wait-Enabled 'View scan issues' $true)
+    $issues = Wait-UI 'junction issue list' { Find-UI 'Scan issue entries' $null }
+    $names = @($issues.FindAll($scopeTree, [Windows.Automation.Condition]::TrueCondition) |
+      ForEach-Object { $_.Current.Name } | Where-Object { $_ })
+    $issueText = $names -join ' '
+    $issueRows = @(($names -match '^Issue \d+$') | Sort-Object -Unique)
+    if ($issueRows.Count -ne 1 -or $issueText -notmatch 'Untraversed links' -or
+        $issueText -notmatch 'Link traversal' -or $issueText -notmatch 'The link target was skipped' -or
+        -not ($names -match '(^|[\\/])redirect$')) {
+      throw "Expected one untraversed junction issue, observed: $issueText"
+    }
+    Invoke-UI (Wait-Enabled 'Hide scan issues' $true)
+    'F01–F03 native NTFS junction: 19-byte lower bound, one untraversed link, outside target excluded'
+  } finally {
+    # Remove only the junction entry before the fixture is cleaned up.
+    [IO.Directory]::Delete($junction)
+  }
+}
 # Read the real committed scan history and return to the same pinned analysis.
 function Test-OperationHistory {
   Invoke-UI (Wait-VisibleAction 'Operation history')
@@ -817,6 +857,7 @@ try {
   }
   if ($VerifyNativeFolderDrop) { Test-NativeFolderDrop }
   if ($VerifyDeniedSubtree) { Test-DeniedSubtree }
+  if ($VerifyJunctionBoundary) { Test-JunctionBoundary }
   if ($VerifySuspension) { Test-ScanSuspension $controlScope }
   if ($VerifyCancellation) { Test-ScanCancellation $controlScope }
   Set-Scope (Join-Path $root 'missing')
