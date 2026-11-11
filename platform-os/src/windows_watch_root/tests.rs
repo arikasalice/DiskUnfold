@@ -47,16 +47,50 @@ fn scanned_root_reports_direct_change_and_stops() -> Result<(), Box<dyn std::err
     assert!(fs::rename(&root, fixture.path().join("other")).is_err());
     fs::write(root.join("child").join("nested"), b"x")?;
     fs::write(outside.join("target-change"), b"x")?;
+    let child = native_name("child");
     let until = Instant::now() + Duration::from_millis(200);
     while Instant::now() < until {
-        let notification = watch.native.poll()?;
-        assert!(
-            notification.is_none(),
-            "unexpected root completion: {notification:?}"
-        );
+        match watch.native.poll()? {
+            None => {}
+            Some(Completion::Changes(records)) => {
+                // A nested write can update the direct child's directory metadata.
+                assert!(
+                    records.iter().all(|record| {
+                        record.relative_path == child && record.hint == ChangeHint::Modify
+                    }),
+                    "unexpected root records: {records:?}"
+                );
+            }
+            other => return Err(format!("unexpected root completion: {other:?}").into()),
+        }
         thread::sleep(Duration::from_millis(10));
     }
     fs::write(root.join("direct"), b"x")?;
+    let until = Instant::now() + Duration::from_secs(10);
+    let direct = native_name("direct");
+    loop {
+        match watch.native.poll()? {
+            Some(Completion::Changes(records)) => {
+                assert!(
+                    records.iter().all(|record| {
+                        record.relative_path == direct
+                            || (record.relative_path == child && record.hint == ChangeHint::Modify)
+                    }),
+                    "unexpected root records: {records:?}"
+                );
+                if records.iter().any(|record| record.relative_path == direct) {
+                    break;
+                }
+            }
+            None => {}
+            other => return Err(format!("unexpected root completion: {other:?}").into()),
+        }
+        if Instant::now() >= until {
+            return Err("direct file notification timed out".into());
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+    fs::write(root.join("direct"), b"updated")?;
     let until = Instant::now() + Duration::from_secs(10);
     let event = loop {
         if let Some(event) = watch.poll(2)? {
@@ -79,4 +113,8 @@ fn scanned_root_reports_direct_change_and_stops() -> Result<(), Box<dyn std::err
     fs::rename(&root, fixture.path().join("other"))?;
     fs::remove_dir(fixture.path().join("other").join("redirect"))?;
     Ok(())
+}
+
+fn native_name(name: &str) -> Vec<u8> {
+    name.encode_utf16().flat_map(u16::to_le_bytes).collect()
 }
