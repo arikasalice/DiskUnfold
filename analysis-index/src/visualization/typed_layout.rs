@@ -2,11 +2,14 @@
 //!
 //! This is not the public F06 model: cross-format quantities, totals, groups,
 //! metadata and model references still require their published physical contract.
+mod bar_strategy;
 mod numeric_layout;
+pub(super) use bar_strategy::BarLayout;
+pub use bar_strategy::RankedBar;
 pub use numeric_layout::{CommonInput, CommonRow};
 
 use super::{
-    bar_projection,
+    bar_categories, bar_projection,
     geometry::{NoArea, Rect, rectangle_geometry, valid_bounds},
     registry, root_ref, squarify, treemap,
 };
@@ -170,6 +173,15 @@ pub trait Strategy: Send + Sync {
         Err(BarError::UnsupportedMode)
     }
 
+    /// Calculates a classified representation from owner-prepared numeric rows.
+    fn category_bar(
+        &self,
+        _input: bar_categories::Input<'_>,
+        _cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<bar_categories::Layout, BarError> {
+        Err(BarError::UnsupportedMode)
+    }
+
     /// Whether every published bar representation is implemented.
     fn complete_bar(&self) -> bool {
         false
@@ -193,33 +205,7 @@ pub enum BarInput<'a> {
 pub enum BarError {
     UnsupportedMode,
     Projection(bar_projection::Error),
-}
-
-/// Ranked bar implementation; classification and stacked modes remain unsupported.
-pub struct RankedBar;
-impl Strategy for RankedBar {
-    fn layout(
-        &self,
-        _input: &Input,
-        _cancelled: &mut dyn FnMut() -> bool,
-    ) -> Result<Output, Error> {
-        Err(Error::InvalidInput)
-    }
-    fn bar(
-        &self,
-        input: BarInput<'_>,
-        cancelled: &mut dyn FnMut() -> bool,
-    ) -> Result<bar_projection::Ranking, BarError> {
-        match input {
-            BarInput::Ranked(request) => {
-                bar_projection::project_children(request, cancelled).map_err(BarError::Projection)
-            }
-            BarInput::PreparedRanked(request) => {
-                request.render(cancelled).map_err(BarError::Projection)
-            }
-            BarInput::TypeComparison | BarInput::Stacked => Err(BarError::UnsupportedMode),
-        }
-    }
+    Category(bar_categories::Error),
 }
 
 /// Identity of the single bar strategy, shared by its representations.
@@ -237,6 +223,12 @@ pub fn bar_descriptor() -> LayoutDescriptor {
 pub struct SelectedBar {
     pub descriptor: LayoutDescriptor,
     pub output: bar_projection::Ranking,
+}
+
+/// Selected category geometry and the descriptor that produced it.
+pub struct SelectedCategoryBar {
+    pub descriptor: LayoutDescriptor,
+    pub output: bar_categories::Layout,
 }
 
 /// Selection failures remain distinct from unsupported modes and evidence errors.
@@ -366,6 +358,31 @@ impl Dispatcher {
             )));
         }
         Ok(SelectedBar {
+            descriptor: entry.descriptor.clone(),
+            output,
+        })
+    }
+
+    /// Executes a classification comparison or stack through the selected bar strategy.
+    pub fn execute_category_bar(
+        &self,
+        key: Option<&LayoutStrategyKey>,
+        input: bar_categories::Input<'_>,
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<SelectedCategoryBar, BarDispatchError> {
+        let entry = self
+            .resolve_entry("bar", key)
+            .map_err(BarDispatchError::Selection)?;
+        let output = entry
+            .implementation
+            .category_bar(input, cancelled)
+            .map_err(BarDispatchError::Bar)?;
+        if cancelled() {
+            return Err(BarDispatchError::Bar(BarError::Category(
+                bar_categories::Error::Layout(super::bar::Error::Cancelled),
+            )));
+        }
+        Ok(SelectedCategoryBar {
             descriptor: entry.descriptor.clone(),
             output,
         })

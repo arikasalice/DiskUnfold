@@ -47,6 +47,14 @@ fn ranked_bar_dispatch_preserves_evidence_and_rejects_unimplemented_modes() -> R
         .execute_bar("bar", None, BarInput::Ranked(input()), &mut || false)
         .map_err(|e| format!("{e:?}"))?;
     check_prepared_dispatch(&dispatcher, input(), &selected)?;
+    let mut full_builder = registry::Builder::<Box<dyn Strategy>>::default();
+    bundle::register_bar_candidate(&mut full_builder).map_err(|e| format!("{e:?}"))?;
+    let full_dispatcher = Dispatcher::new(
+        full_builder
+            .build(&[typed_layout::bar_descriptor()])
+            .map_err(|e| format!("{e:?}"))?,
+    );
+    check_prepared_dispatch(&full_dispatcher, input(), &selected)?;
     assert_eq!(selected.descriptor, typed_layout::bar_descriptor());
     assert_eq!(
         selected.output,

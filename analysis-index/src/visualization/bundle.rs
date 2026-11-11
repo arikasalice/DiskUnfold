@@ -63,6 +63,19 @@ pub fn register_ranked_bar(
         .map_err(Error::Registration)
 }
 
+/// Registers one bar strategy for ranked, type-comparison and stacked geometry.
+/// The runtime must still supply pinned classification and attribution facts.
+pub fn register_bar_candidate(
+    builder: &mut registry::Builder<Box<dyn Strategy>>,
+) -> Result<(), Error> {
+    builder
+        .register(
+            typed_layout::bar_descriptor(),
+            Box::new(typed_layout::BarLayout),
+        )
+        .map_err(Error::Registration)
+}
+
 /// Registers a histogram candidate in an explicitly partial dispatcher.
 pub fn register_histogram_candidate(
     builder: &mut registry::Builder<Box<dyn Strategy>>,
