@@ -93,11 +93,12 @@ export function App({ analysis }: { analysis?: AnalysisClient } = {}) {
           <BrowsePanel
             port={browsePort}
             resultVersion={browseVersion}
-            inspectFile={(item) => (
+            inspectItem={(item, kind) => (
               <FileInspection
                 key={`${item.resultVersion}:${item.itemNo}`}
                 client={client}
                 item={item}
+                itemKind={kind}
               />
             )}
           />

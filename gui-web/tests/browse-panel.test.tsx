@@ -318,9 +318,9 @@ test.each(["row keyboard", "nested button", "accessibility activation"])(
         ),
       page: vi.fn(),
     };
-    const inspectFile = vi.fn(() => null);
+    const inspectItem = vi.fn(() => null);
     render(
-      <BrowsePanel port={port} resultVersion={id} inspectFile={inspectFile} />,
+      <BrowsePanel port={port} resultVersion={id} inspectItem={inspectItem} />,
     );
     const file = await screen.findByRole("button", { name: "observed.bin" });
     const fileRow = file.closest<HTMLElement>('[role="row"]')!;
@@ -335,7 +335,7 @@ test.each(["row keyboard", "nested button", "accessibility activation"])(
     const dialog = await screen.findByRole("dialog", {
       name: "File details — observed.bin",
     });
-    expect(inspectFile).toHaveBeenCalledWith(ref(1));
+    expect(inspectItem).toHaveBeenCalledWith(ref(1), "file");
     expect(port.open).toHaveBeenCalledTimes(1);
     fireEvent.click(
       within(dialog).getByRole("button", { name: "Close details" }),
@@ -1470,7 +1470,7 @@ test("row menus use the invoked namesake item and keep copy status after closing
     <BrowsePanel
       port={port}
       resultVersion={id}
-      inspectFile={() => "Details"}
+      inspectItem={() => "Details"}
     />,
   );
   const triggers = await screen.findAllByRole("button", {
@@ -1504,7 +1504,7 @@ test("Shift+F10 opens the focused row menu and Escape restores the row", async (
     <BrowsePanel
       port={port}
       resultVersion={id}
-      inspectFile={() => "Details"}
+      inspectItem={() => "Details"}
     />,
   );
   const trigger = await screen.findByRole("button", {
@@ -1519,6 +1519,43 @@ test("Shift+F10 opens the focused row menu and Escape restores the row", async (
   fireEvent.keyDown(menu, { key: "Escape" });
   await waitFor(() => expect(document.activeElement).toBe(gridrow));
   expect(port.copyPath).not.toHaveBeenCalled();
+});
+
+test("folder row inspection uses its pinned reference without navigating", async () => {
+  const open = vi
+    .fn()
+    .mockResolvedValueOnce(opened(1, [row(1, "Folder"), row(2, "Folder")]))
+    .mockResolvedValueOnce(opened(2, []));
+  const inspectItem = vi.fn(() => "Observed folder");
+  render(
+    <BrowsePanel
+      port={{ open, page: vi.fn() }}
+      resultVersion={id}
+      inspectItem={inspectItem}
+    />,
+  );
+  const triggers = await screen.findAllByRole("button", {
+    name: "Actions for Folder",
+  });
+  const folder = triggers[1]!.closest<HTMLElement>('[role="row"]')!;
+  fireEvent.contextMenu(folder);
+  const menu = await screen.findByRole("menu", { name: "Actions for Folder" });
+  fireEvent.click(within(menu).getByRole("menuitem", { name: "Inspect" }));
+  const dialog = await screen.findByRole("dialog", {
+    name: "Folder details — Folder",
+  });
+  expect(inspectItem).toHaveBeenCalledWith(ref(2), "folder");
+  expect(open).toHaveBeenCalledTimes(1);
+  fireEvent.click(
+    within(dialog).getByRole("button", { name: "Close details" }),
+  );
+  await waitFor(() => expect(document.activeElement).toBe(folder));
+  fireEvent.click(within(folder).getByRole("button", { name: "Folder" }));
+  await waitFor(() => expect(open).toHaveBeenCalledTimes(2));
+  expect(open).toHaveBeenLastCalledWith(
+    expect.objectContaining({ location: ref(2), resultVersion: id }),
+    expect.any(AbortSignal),
+  );
 });
 
 test("visible menu copies a virtualized row and announces refusal", async () => {
@@ -1551,7 +1588,7 @@ test("visible menu copies a virtualized row and announces refusal", async () => 
       <BrowsePanel
         port={port}
         resultVersion={id}
-        inspectFile={() => "Details"}
+        inspectItem={() => "Details"}
       />,
     );
     await screen.findByRole("button", { name: "Actions for Entry 0" });
@@ -1667,7 +1704,7 @@ test.each(["origin", "elsewhere", "disconnected", "recycled"] as const)(
       <BrowsePanel
         port={port}
         resultVersion={id}
-        inspectFile={() => "Details"}
+        inspectItem={() => "Details"}
       />,
     );
     const trigger = await screen.findByRole("button", {

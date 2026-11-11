@@ -211,6 +211,26 @@ function Test-BrowseCopyContention($name) {
   $null = Wait-VisibleAction $name
   "F05 native row copy: $name menu reported clipboard contention in visible feedback"
 }
+# Use the observed folder reference without navigating into the folder.
+function Test-BrowseFolderInspection($name) {
+  Expand-UI (Wait-VisibleAction "Actions for $name")
+  $inspect = Wait-UI 'folder inspect menu item' {
+    Find-UI 'Inspect' ([Windows.Automation.ControlType]::MenuItem)
+  }
+  Invoke-UI $inspect
+  $null = Wait-UI "observed attributes of $name" {
+    $attributes = Find-UI 'Observed folder attributes' $null
+    if ($attributes) { Find-UI $name $null $attributes }
+  }
+  Invoke-UI (Wait-VisibleAction 'Close details')
+  $null = Wait-UI 'returned to the same folder row' {
+    $focused = $ae::FocusedElement
+    if ($focused -and ($focused.Current.Name -eq $name -or (Find-UI $name $button $focused))) {
+      -not (Find-UI 'Close details' $button)
+    }
+  }
+  "F05 native folder inspection: $name attributes shown and row focus restored"
+}
 # Scan an isolated file whose IEC representation differs from its original byte count.
 function Test-ScaledFileInspection {
   $scaledScope = Join-Path $root 'scaled-scope'
@@ -649,6 +669,7 @@ try {
   $null = Wait-UI '11-byte root row' { Find-UI '11 bytes' $null }
   Test-FileInspection 'root.bin' '11 bytes' $VerifyPathCopyContention
   if ($VerifyPathCopyContention) { Test-BrowseCopyContention 'root.bin' }
+  Test-BrowseFolderInspection 'nested'
   $nested = Wait-UI 'nested folder button' { Find-UI 'nested' $button }
   Invoke-UI $nested
   $null = Wait-UI 'nested.bin' { Find-UI 'nested.bin' $null }

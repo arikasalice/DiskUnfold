@@ -67,7 +67,7 @@ export function BrowseResults({
   canRead,
   focusPanel,
   openFolder,
-  openFile,
+  openItem,
   copyPath,
   reopen,
 }: {
@@ -81,7 +81,7 @@ export function BrowseResults({
   canRead: () => boolean;
   focusPanel: () => void;
   openFolder: (item: ItemRef) => void;
-  openFile:
+  openItem:
     ((row: FolderQueryRow, trigger: Element | null) => void) | undefined;
   copyPath: ((item: ItemRef) => Promise<BrowseCopyPathOutcome>) | undefined;
   reopen: () => void;
@@ -167,7 +167,7 @@ export function BrowseResults({
         onOpen={(row) => {
           if (readOnly) return;
           if (row.kind === "directory") openFolder(row.item);
-          if (row.kind === "file") openFile?.(row, document.activeElement);
+          if (row.kind === "file") openItem?.(row, document.activeElement);
         }}
         onFocusRow={paging.trackFocus}
         onVisible={paging.show}
@@ -179,13 +179,13 @@ export function BrowseResults({
             rowScope
             label={`Actions for ${browseDisplayName(row.displayName)}`}
             actions={[
-              ...(row.kind === "file" && openFile
+              ...((row.kind === "file" || row.kind === "directory") && openItem
                 ? [
                     {
                       id: "inspect",
                       label: "Inspect",
                       onAction: (trigger: HTMLElement | null) =>
-                        openFile(row, trigger),
+                        openItem(row, trigger),
                       ...(busy
                         ? { disabledReason: "Unavailable while opening" }
                         : {}),
@@ -211,11 +211,11 @@ export function BrowseResults({
               >
                 {browseDisplayName(row.displayName)}
               </Action>
-            ) : row.kind === "file" && openFile ? (
+            ) : row.kind === "file" && openItem ? (
               <Action
                 excludeFromTabOrder
                 isDisabled={busy}
-                onPress={(event) => openFile(row, event.target)}
+                onPress={(event) => openItem(row, event.target)}
               >
                 {browseDisplayName(row.displayName)}
               </Action>

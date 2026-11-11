@@ -22,8 +22,8 @@ import type {
 import { BROWSE_PAGE_SIZE, BrowsePages } from "../../state/browse-pages";
 import { folderPath, rowKey } from "./browse-display";
 import { BrowseResults } from "./BrowseResults";
-import { useFileInspection } from "./use-file-inspection";
-import type { InspectedFile } from "./use-file-inspection";
+import { useItemInspection } from "./use-item-inspection";
+import type { InspectedItem } from "./use-item-inspection";
 
 /** Injected boundary for opening folders and paging through a pinned result. */
 export interface BrowsePort {
@@ -38,22 +38,23 @@ export interface BrowsePort {
 type Opened = Extract<BrowseOpenResponse, { kind: "opened" }>;
 type View = { opened: Opened; pages: BrowsePages };
 type ParentLocation = { item?: ItemRef };
-function BrowseFileDialog({
+type InspectItem = (item: ItemRef, kind: InspectedItem["kind"]) => ReactNode;
+
+function BrowseItemDialog({
   inspection,
-  inspectFile,
+  inspectItem,
   close,
 }: {
-  inspection: InspectedFile | undefined;
-  inspectFile: ((item: ItemRef) => ReactNode) | undefined;
+  inspection: InspectedItem | undefined;
+  inspectItem: InspectItem | undefined;
   close: () => void;
 }) {
-  if (!inspection || !inspectFile) return null;
+  if (!inspection || !inspectItem) return null;
+  const title =
+    inspection.kind === "folder" ? "Folder details" : "File details";
   return (
-    <InspectionDialog
-      title={`File details — ${inspection.name}`}
-      onClose={close}
-    >
-      {inspectFile(inspection.item)}
+    <InspectionDialog title={`${title} — ${inspection.name}`} onClose={close}>
+      {inspectItem(inspection.item, inspection.kind)}
     </InspectionDialog>
   );
 }
@@ -106,11 +107,11 @@ function PreviousResultNotice({ previous }: { previous: boolean }) {
 export function BrowsePanel({
   port,
   resultVersion,
-  inspectFile,
+  inspectItem,
 }: {
   port: BrowsePort;
   resultVersion?: string;
-  inspectFile?: (item: ItemRef) => ReactNode;
+  inspectItem?: InspectItem;
 }) {
   const [view, setView] = useState<View>();
   const [busy, setBusy] = useState(false);
@@ -124,7 +125,7 @@ export function BrowsePanel({
   const virtualRootVersion = useRef<string>(undefined);
   const panel = useRef<HTMLElement>(null);
   const focusAfterUpdate = useRef<Element>(undefined);
-  const inspection = useFileInspection(
+  const inspection = useItemInspection(
     resultVersion ?? view?.opened.page.resultVersion,
     panel,
   );
@@ -217,7 +218,7 @@ export function BrowsePanel({
     page !== undefined && virtualRootVersion.current === page.resultVersion;
   const parent = view && parentLocation(view.opened, hasVirtualRoot);
 
-  function openFile(row: FolderQueryRow, trigger: Element | null) {
+  function openItem(row: FolderQueryRow, trigger: Element | null) {
     if (!opening.current) inspection.open(row, trigger);
   }
 
@@ -321,7 +322,7 @@ export function BrowsePanel({
             canRead={() => opening.current === undefined && !previousResult}
             focusPanel={() => panel.current?.focus({ preventScroll: true })}
             openFolder={(item) => navigate(item, page.resultVersion)}
-            openFile={inspectFile ? openFile : undefined}
+            openItem={inspectItem ? openItem : undefined}
             copyPath={port.copyPath}
             reopen={() =>
               navigate(
@@ -333,9 +334,9 @@ export function BrowsePanel({
           />
         </>
       )}
-      <BrowseFileDialog
+      <BrowseItemDialog
         inspection={inspection.selected}
-        inspectFile={inspectFile}
+        inspectItem={inspectItem}
         close={inspection.close}
       />
     </section>

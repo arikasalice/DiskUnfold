@@ -3,20 +3,21 @@ import type { RefObject } from "react";
 import type { FolderQueryRow, ItemRef } from "../../ipc";
 import { browseDisplayName, rowKey } from "./browse-display";
 
-export type InspectedFile = {
+export type InspectedItem = {
   item: ItemRef;
+  kind: "file" | "folder";
   name: string;
   opener: HTMLElement | null;
 };
 
-/** Holds a file and its return target only for the current browse revision. */
-export function useFileInspection(
+/** Holds an observed item and its return target for the current browse revision. */
+export function useItemInspection(
   version: string | undefined,
   panel: RefObject<HTMLElement | null>,
 ) {
-  const [file, setFile] = useState<InspectedFile>();
-  const pending = useRef<InspectedFile>(undefined);
-  const selected = file?.item.resultVersion === version ? file : undefined;
+  const [item, setItem] = useState<InspectedItem>();
+  const pending = useRef<InspectedItem>(undefined);
+  const selected = item?.item.resultVersion === version ? item : undefined;
 
   useEffect(() => {
     const restore = pending.current;
@@ -41,26 +42,31 @@ export function useFileInspection(
   return {
     selected,
     open(row: FolderQueryRow, trigger: Element | null) {
-      if (row.item.resultVersion !== version) return;
+      if (
+        row.item.resultVersion !== version ||
+        (row.kind !== "file" && row.kind !== "directory")
+      )
+        return;
       const opener = trigger?.closest<HTMLElement>('[role="row"]') ?? null;
       if (opener?.dataset.itemKey !== rowKey(row.item)) return;
       // Normalize pointer, keyboard and accessibility activation before the
       // modal captures its return target. Return to the navigable row, not
       // its nested button (which is deliberately outside the tab order).
       opener.focus({ preventScroll: true });
-      setFile({
+      setItem({
         item: row.item,
+        kind: row.kind === "directory" ? "folder" : "file",
         name: browseDisplayName(row.displayName),
         opener,
       });
     },
     close() {
       pending.current = selected;
-      setFile(undefined);
+      setItem(undefined);
     },
     reset() {
       pending.current = undefined;
-      setFile(undefined);
+      setItem(undefined);
     },
   };
 }
