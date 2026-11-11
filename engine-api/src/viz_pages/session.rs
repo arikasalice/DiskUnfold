@@ -123,6 +123,21 @@ impl Session {
         self.pages.reserve_prepared(candidate)
     }
 
+    /// Allocates deferred-destruction ownership before entering the F24 gate.
+    pub fn defer_reserved(&self, candidate: render::ReservedRender) -> render::DeferredRender {
+        self.pages.defer_reserved(candidate)
+    }
+
+    /// Attempts a single commit while retaining discarded allocations in the caller.
+    /// The caller must keep `candidate` alive until after the F24 gate is released.
+    pub fn commit_deferred(
+        &self,
+        candidate: &mut render::DeferredRender,
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<render::CommittedRender, render::Error> {
+        self.pages.commit_deferred(candidate, cancelled)
+    }
+
     /// Publishes a reserved candidate without calling the injected identity port.
     /// The caller must serialize this commit against cancellation and must not
     /// reenter the model or source stores from the cancellation check.

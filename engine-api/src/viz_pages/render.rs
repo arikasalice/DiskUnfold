@@ -1,4 +1,7 @@
 //! Composes the admitted live single-parent visualization and its page registry.
+mod deferred;
+pub use deferred::DeferredRender;
+
 use std::{
     collections::BTreeMap,
     sync::{Arc, Weak},

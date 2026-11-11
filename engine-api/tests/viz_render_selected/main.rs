@@ -483,3 +483,4 @@ fn dropping_a_session_releases_only_its_models_from_the_pinned_source() -> Resul
     );
     Ok(())
 }
+mod f24_deferred;

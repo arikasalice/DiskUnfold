@@ -191,3 +191,105 @@ fn session_fallback_commit_is_success_and_rows_match_sync() -> Result<(), String
     assert_eq!(response.body, json!(rows));
     Ok(())
 }
+
+#[test]
+fn deferred_commit_retains_evicted_layout_until_owner_drops() -> Result<(), String> {
+    let sink = IngestSink::default();
+    publish(&sink, id(2), id(3))?;
+    let session = Session::new(
+        sink,
+        NonZeroUsize::MIN,
+        Arc::new(Identity(AtomicU8::new(11))),
+        bundle::implemented_dispatcher().map_err(|e| format!("{e:?}"))?,
+    );
+    let parent = ItemRef {
+        result_version: id(3),
+        item_no: 0,
+    };
+    let first = session
+        .render_selected(
+            request(&parent, 1000),
+            |_, item, _| Ok(policy(item)),
+            &mut || false,
+        )
+        .map_err(|e| format!("{e:?}"))?;
+    let old = Arc::downgrade(&first.model);
+    drop(first);
+    let candidate = session
+        .prepare_selected(
+            request(&parent, 2000),
+            |_, item, _| Ok(policy(item)),
+            &mut || false,
+        )
+        .map_err(|e| format!("{e:?}"))?;
+    let reserved = session.reserve_prepared(candidate);
+    let mut deferred = session.defer_reserved(reserved);
+    let committed = session
+        .commit_deferred(&mut deferred, &mut || false)
+        .map_err(|e| format!("{e:?}"))?;
+    assert!(matches!(committed, CommittedRender::Model(_)));
+    assert!(old.upgrade().is_some());
+    assert!(
+        session
+            .commit_deferred(&mut deferred, &mut || false)
+            .is_err()
+    );
+    drop(deferred);
+    assert!(old.upgrade().is_none());
+    Ok(())
+}
+
+#[test]
+fn deferred_cancel_stale_and_cache_hit_preserve_prior_rows() -> Result<(), String> {
+    let sink = IngestSink::default();
+    publish(&sink, id(2), id(3))?;
+    let session = Session::new(
+        sink.clone(),
+        NonZeroUsize::MIN,
+        Arc::new(Identity(AtomicU8::new(20))),
+        bundle::implemented_dispatcher().map_err(|e| format!("{e:?}"))?,
+    );
+    let parent = ItemRef {
+        result_version: id(3),
+        item_no: 0,
+    };
+    let prepare = || {
+        session
+            .prepare_selected(
+                request(&parent, 1000),
+                |_, item, _| Ok(policy(item)),
+                &mut || false,
+            )
+            .map_err(|e| format!("{e:?}"))
+    };
+    let mut cancelled = session.defer_reserved(session.reserve_prepared(prepare()?));
+    assert!(matches!(
+        session.commit_deferred(&mut cancelled, &mut || true),
+        Err(Error::Cancelled)
+    ));
+    let first = session
+        .render_selected(
+            request(&parent, 1000),
+            |_, item, _| Ok(policy(item)),
+            &mut || false,
+        )
+        .map_err(|e| format!("{e:?}"))?;
+    let mut hit = session.defer_reserved(session.reserve_prepared(prepare()?));
+    let CommittedRender::Model(cached) = session
+        .commit_deferred(&mut hit, &mut || false)
+        .map_err(|e| format!("{e:?}"))?
+    else {
+        return Err("expected model".into());
+    };
+    assert_eq!(cached.model_ref, first.model_ref);
+    assert!(Arc::ptr_eq(&cached.model, &first.model));
+    let mut stale = session.defer_reserved(session.reserve_prepared(prepare()?));
+    publish(&sink, id(4), id(5))?;
+    assert!(matches!(
+        session.commit_deferred(&mut stale, &mut || false),
+        Err(Error::Registration(viz_pages::production::Error::Pages(
+            viz_pages::Error::StaleVersion
+        )))
+    ));
+    Ok(())
+}

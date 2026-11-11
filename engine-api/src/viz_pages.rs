@@ -2,6 +2,8 @@
 //! A session index owns only weak source references; source results own row data.
 pub mod channels;
 pub mod commands;
+mod deferred;
+use deferred::DeferredRows;
 mod locate;
 pub mod production;
 pub mod render;
@@ -44,7 +46,7 @@ pub struct ModelInput {
 struct PreparedModelInput {
     version: Arc<ResultVersion>,
     condition_fingerprint: String,
-    rows: live_models::PreparedRows,
+    rows: Option<live_models::PreparedRows>,
 }
 
 fn prepare_model_input(input: ModelInput) -> Result<PreparedModelInput, Error> {
@@ -52,7 +54,7 @@ fn prepare_model_input(input: ModelInput) -> Result<PreparedModelInput, Error> {
     Ok(PreparedModelInput {
         version: input.version,
         condition_fingerprint: input.condition_fingerprint,
-        rows: live_models::PreparedRows::new(input.rows, input.groups),
+        rows: Some(live_models::PreparedRows::new(input.rows, input.groups)),
     })
 }
 struct Entry {
@@ -145,7 +147,7 @@ impl ModelPages {
             rows,
         } = input;
         let key = (version.version_id().clone(), condition_fingerprint);
-        let mut rows = Some(rows);
+        let mut rows = rows;
         let mut state = self.state.lock().map_err(|_| Error::Unavailable)?;
         if cancelled() {
             return Err(Error::Cancelled);

@@ -345,3 +345,38 @@ fn admitted_group_page_survives_eviction_and_replacement() -> Result<(), String>
 }
 
 mod cache_cancellation;
+
+#[test]
+fn deferred_rollback_keeps_inserted_rows_until_after_the_transaction() -> Result<(), String> {
+    let source = IngestSink::default();
+    let mut build = source.open(id(1)?).map_err(|e| format!("{e:?}"))?;
+    build.add_directory(vec![]).map_err(|e| format!("{e:?}"))?;
+    let version = build
+        .seal(id(2)?, ResultCompleteness::Complete)
+        .map_err(|e| format!("{e:?}"))?;
+    let pages = ModelPages::new(source, NonZeroUsize::MIN, Arc::new(Ids(AtomicU64::new(20))));
+    let input = |fingerprint: &str| ModelInput {
+        version: version.clone(),
+        condition_fingerprint: fingerprint.into(),
+        rows: vec![],
+        groups: HashMap::new(),
+    };
+    let existing = pages
+        .register(input("existing"))
+        .map_err(|e| format!("{e:?}"))?;
+    pages
+        .state
+        .lock()
+        .map_err(|_| "state poisoned")?
+        .lru
+        .clear();
+    let mut candidate = prepare_model_input(input("candidate")).map_err(|e| format!("{e:?}"))?;
+    let mut cleanup = DeferredRows::default();
+    let result = pages.register_deferred(&mut candidate, &None, "new", &mut || false, &mut cleanup);
+    assert!(matches!(result, Err(Error::Unavailable)));
+    assert!(candidate.rows.is_none());
+    assert!(cleanup.rollback.is_some());
+    assert!(version.pin_viz_rows("new").is_err());
+    assert!(version.pin_viz_rows(&existing).is_ok());
+    Ok(())
+}
