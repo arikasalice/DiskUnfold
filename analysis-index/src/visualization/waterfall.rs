@@ -76,6 +76,7 @@ impl Waterfall {
 /// Invalid geometry, duplicate change identity, or a fixed axis below a value.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {
+    Cancelled,
     InvalidBounds,
     DuplicateItem,
     InvalidAxis,
@@ -94,10 +95,25 @@ pub fn layout(
     end: Weight,
     scale: Scale,
 ) -> Result<Waterfall, Error> {
+    layout_cancellable(bounds, start, changes, end, scale, &mut || false)
+}
+
+/// Lays out the comparison bars, abandoning all geometry when cancelled.
+pub fn layout_cancellable(
+    bounds: Rect,
+    start: Weight,
+    changes: &[Change],
+    end: Weight,
+    scale: Scale,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<Waterfall, Error> {
+    if cancelled() {
+        return Err(Error::Cancelled);
+    }
     if !valid_bounds(bounds) {
         return Err(Error::InvalidBounds);
     }
-    let uncertain_changes = validate_changes(changes)?;
+    let uncertain_changes = validate_changes(changes, cancelled)?;
     let count = changes.len() + 2;
     let mut cumulative = match start {
         Weight::Exact(value) => Some(value),
@@ -110,6 +126,9 @@ pub fn layout(
     };
     let mut levels = Vec::with_capacity(changes.len());
     for change in changes {
+        if cancelled() {
+            return Err(Error::Cancelled);
+        }
         let before = cumulative;
         let after = match (cumulative, change.value, change.direction) {
             (Some(value), Weight::Exact(delta), Direction::Increase) => value.checked_add(delta),
@@ -130,14 +149,13 @@ pub fn layout(
     } else {
         fully_known = false;
     }
-    let axis = match scale {
-        Scale::Automatic => fully_known.then_some(maximum).flatten(),
-        Scale::Fixed(axis) if maximum.is_none_or(|max| axis >= max) => Some(axis),
-        Scale::Fixed(_) => return Err(Error::InvalidAxis),
-    };
+    let axis = resolve_axis(scale, fully_known, maximum)?;
     let start_bar = total_bar(bounds, 0, count, start, axis);
     let mut bars = Vec::with_capacity(changes.len());
     for (index, change) in changes.iter().enumerate() {
+        if cancelled() {
+            return Err(Error::Cancelled);
+        }
         let x = column(bounds, index + 1, count);
         let (rect, no_area) = change_rect(bounds, x, levels[index], axis, change.value);
         bars.push(Bar {
@@ -149,6 +167,9 @@ pub fn layout(
         });
     }
     let end_bar = total_bar(bounds, count - 1, count, end, axis);
+    if cancelled() {
+        return Err(Error::Cancelled);
+    }
     Ok(Waterfall {
         start: start_bar,
         changes: bars,
@@ -158,10 +179,28 @@ pub fn layout(
     })
 }
 
-fn validate_changes(changes: &[Change]) -> Result<Vec<Change>, Error> {
+fn resolve_axis(
+    scale: Scale,
+    fully_known: bool,
+    maximum: Option<u64>,
+) -> Result<Option<u64>, Error> {
+    match scale {
+        Scale::Automatic => Ok(maximum.filter(|_| fully_known)),
+        Scale::Fixed(axis) if maximum.is_none_or(|max| axis >= max) => Ok(Some(axis)),
+        Scale::Fixed(_) => Err(Error::InvalidAxis),
+    }
+}
+
+fn validate_changes(
+    changes: &[Change],
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<Vec<Change>, Error> {
     let mut seen = std::collections::HashSet::new();
     let mut uncertain = Vec::new();
     for change in changes {
+        if cancelled() {
+            return Err(Error::Cancelled);
+        }
         if !seen.insert(change.item_no) {
             return Err(Error::DuplicateItem);
         }

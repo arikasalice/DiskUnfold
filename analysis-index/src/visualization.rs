@@ -22,6 +22,7 @@ pub mod trend;
 pub mod typed_layout;
 pub mod unit_bins;
 pub mod waterfall;
+mod waterfall_dispatch;
 use crate::ResultVersion;
 use du_core_contracts::{
     Id, ItemRef, SizeAmount, SizeBasis, SizeEvidence, SizeValue,

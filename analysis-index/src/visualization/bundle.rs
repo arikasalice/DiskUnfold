@@ -75,6 +75,18 @@ pub fn register_histogram_candidate(
         .map_err(Error::Registration)
 }
 
+/// Registers waterfall geometry over an already ordered comparison result.
+pub fn register_waterfall_candidate(
+    builder: &mut registry::Builder<Box<dyn Strategy>>,
+) -> Result<(), Error> {
+    builder
+        .register(
+            super::waterfall_dispatch::descriptor(),
+            Box::new(super::waterfall_dispatch::WaterfallLayout),
+        )
+        .map_err(Error::Registration)
+}
+
 /// Freezes a full baseline only when all six published IDs at revision one exist.
 ///
 /// The builder still enforces unique IDs, revisions, and format associations.

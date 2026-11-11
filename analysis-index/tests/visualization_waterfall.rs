@@ -1,7 +1,13 @@
 use du_analysis_index::visualization::{
+    bundle,
     geometry::{NoArea, Rect, Scale, Weight},
+    registry,
+    typed_layout::{
+        CommonInput, CommonRow, DispatchError, Dispatcher, Error as LayoutError, Strategy,
+    },
     waterfall::{self, Change, Direction, Error},
 };
+use du_core_contracts::visualization::quantity::VizQuantity;
 
 fn bounds() -> Rect {
     Rect {
@@ -158,4 +164,125 @@ fn rejects_duplicate_items_and_fixed_axes_below_known_values() {
         ),
         Err(Error::InvalidAxis)
     );
+}
+
+fn registered_waterfall() -> Result<Dispatcher, String> {
+    let mut builder = registry::Builder::<Box<dyn Strategy>>::default();
+    bundle::register_waterfall_candidate(&mut builder).map_err(|error| format!("{error:?}"))?;
+    Ok(Dispatcher::new(
+        builder.build(&[]).map_err(|error| format!("{error:?}"))?,
+    ))
+}
+
+fn byte_row(value: i128) -> Result<CommonRow, String> {
+    Ok(CommonRow {
+        quantity: VizQuantity::exact("bytes", value).ok_or("invalid test quantity")?,
+    })
+}
+
+#[test]
+fn registered_strategy_preserves_comparison_order_and_signed_offsets() -> Result<(), String> {
+    let dispatcher = registered_waterfall()?;
+    let rows = [100, 40, -30, 110]
+        .into_iter()
+        .map(byte_row)
+        .collect::<Result<Vec<_>, _>>()?;
+    let input = CommonInput::new(rows, bounds(), Scale::Automatic);
+    let selected = dispatcher
+        .execute_common("waterfall", None, &input, &mut || false)
+        .map_err(|error| format!("{error:?}"))?;
+    assert_eq!(selected.descriptor.strategy.id, "viz.waterfall");
+    assert_eq!(selected.descriptor.strategy.revision, 1);
+    assert_eq!(selected.axis_max, Some(140));
+    assert_eq!(
+        selected
+            .output
+            .shapes
+            .iter()
+            .map(|shape| shape.row_index)
+            .collect::<Vec<_>>(),
+        [0, 1, 2, 3]
+    );
+    assert_eq!(selected.output.shapes[2].geometry.points()[1].y, 22);
+    assert!(selected.output.skipped.is_empty());
+    Ok(())
+}
+
+#[test]
+fn registered_strategy_keeps_unknown_offsets_separate_from_zero() -> Result<(), String> {
+    let dispatcher = registered_waterfall()?;
+    let unknown = CommonRow {
+        quantity: VizQuantity::unknown("bytes", "comparison.unavailable".into())
+            .ok_or("invalid test quantity")?,
+    };
+    let input = CommonInput::new(
+        vec![
+            byte_row(10)?,
+            unknown,
+            byte_row(3)?,
+            byte_row(0)?,
+            byte_row(15)?,
+        ],
+        bounds(),
+        Scale::Fixed(20),
+    );
+    let selected = dispatcher
+        .execute_common("waterfall", None, &input, &mut || false)
+        .map_err(|error| format!("{error:?}"))?;
+    assert_eq!(selected.axis_max, Some(20));
+    assert_eq!(
+        selected
+            .output
+            .shapes
+            .iter()
+            .map(|shape| shape.row_index)
+            .collect::<Vec<_>>(),
+        [0, 4]
+    );
+    assert_eq!(
+        selected
+            .output
+            .skipped
+            .iter()
+            .map(|row| (row.row_index, row.reason))
+            .collect::<Vec<_>>(),
+        [
+            (1, NoArea::Unknown),
+            (2, NoArea::UncertainOffset),
+            (3, NoArea::ExactZero),
+        ]
+    );
+    Ok(())
+}
+
+#[test]
+fn registered_strategy_rejects_invalid_totals_and_cancels_during_calculation() -> Result<(), String>
+{
+    let dispatcher = registered_waterfall()?;
+    let invalid = CommonInput::new(
+        vec![byte_row(-1)?, byte_row(2)?],
+        bounds(),
+        Scale::Automatic,
+    );
+    assert!(matches!(
+        dispatcher.execute_common("waterfall", None, &invalid, &mut || false),
+        Err(DispatchError::Layout(LayoutError::InvalidInput))
+    ));
+    let input = CommonInput::new(
+        vec![byte_row(10)?, byte_row(2)?, byte_row(-3)?, byte_row(9)?],
+        bounds(),
+        Scale::Automatic,
+    );
+    // Exercise cancellation through row admission, layout validation and placement.
+    for stop in [1, 4, 6, 8] {
+        let mut checkpoints = 0;
+        assert!(matches!(
+            dispatcher.execute_common("waterfall", None, &input, &mut || {
+                checkpoints += 1;
+                checkpoints == stop
+            }),
+            Err(DispatchError::Layout(LayoutError::Cancelled))
+        ));
+    }
+    Ok(())
 }
