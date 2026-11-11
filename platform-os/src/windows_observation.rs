@@ -70,7 +70,7 @@ const BATCH_SIZE: usize = 256;
 
 /// A verified, open directory. Names exposed by this adapter are UTF-16LE bytes.
 pub struct WindowsDirectory {
-    handle: File,
+    handle: Arc<File>,
     volume: u64,
     volume_guid: Arc<[u8]>,
     restart: bool,
@@ -454,7 +454,7 @@ impl AnchoredDirectory for WindowsDirectory {
             .try_clone()
             .map_err(|e| error(e.raw_os_error().unwrap_or(0)))?;
         Ok(Box::new(Self {
-            handle,
+            handle: Arc::new(handle),
             volume: self.volume,
             volume_guid: Arc::clone(&self.volume_guid),
             restart: true,

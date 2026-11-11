@@ -90,7 +90,7 @@ pub(super) fn open_verified_impl(path: &Path, stable: bool) -> Result<WindowsDir
         file = next;
     }
     Ok(WindowsDirectory {
-        handle: file,
+        handle: Arc::new(file),
         volume,
         volume_guid,
         restart: true,

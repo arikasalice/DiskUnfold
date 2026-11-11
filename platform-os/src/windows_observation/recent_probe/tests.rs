@@ -2,7 +2,7 @@ use super::*;
 use std::{cell::Cell, fs, os::windows::ffi::OsStrExt};
 
 #[test]
-fn ntfs_duplicated_handle_observation_does_not_disturb_scan_batches_in_fixture()
+fn ntfs_shared_handle_observation_does_not_disturb_scan_batches_in_fixture()
 -> Result<(), Box<dyn std::error::Error>> {
     use std::{collections::BTreeSet, sync::mpsc, time::Duration};
     let temp = tempfile::tempdir()?;
@@ -26,7 +26,6 @@ fn ntfs_duplicated_handle_observation_does_not_disturb_scan_batches_in_fixture()
     let (mut root, probe) = WindowsScopeRoots
         .open_with_recent_probe(&raw)
         .map_err(|e| format!("{e:?}"))?;
-    let probe = probe.map_err(|e| format!("{e:?}"))?;
     let expected_volume = root.volume_id.clone();
     let expected_file = root.file_id.clone();
     let (request_tx, request_rx) = mpsc::channel();
@@ -95,7 +94,6 @@ fn ntfs_same_handle_probe_preserves_scan_and_rejects_replaced_path()
     let (mut root, probe) = WindowsScopeRoots
         .open_with_recent_probe(&raw)
         .map_err(|e| format!("{e:?}"))?;
-    let probe = probe.map_err(|e| format!("{e:?}"))?;
     let stop = AtomicBool::new(false);
     let ProbeOutcome::Observed(evidence) = probe.observe(&stop) else {
         return Err("missing observation".into());
@@ -127,7 +125,7 @@ fn ntfs_same_handle_probe_preserves_scan_and_rejects_replaced_path()
 }
 
 #[test]
-fn injected_failure_and_cancellation_never_return_evidence()
+fn cancellation_and_observation_failures_never_return_partial_evidence()
 -> Result<(), Box<dyn std::error::Error>> {
     let temp = tempfile::tempdir()?;
     let raw = temp
@@ -136,22 +134,9 @@ fn injected_failure_and_cancellation_never_return_evidence()
         .encode_wide()
         .flat_map(u16::to_le_bytes)
         .collect::<Vec<_>>();
-    let (mut retained, failed) = open_with_probe_using(&raw, |_| {
-        Err(std::io::Error::other("injected duplicate failure"))
-    })
-    .map_err(|e| format!("{e:?}"))?;
-    assert!(failed.is_err());
-    assert!(retained.directory.next_batch().is_ok());
-    let (mut retained, observer) = open_port_with_recent_using(&raw, |_| {
-        Err(std::io::Error::other("injected duplicate failure"))
-    })
-    .map_err(|e| format!("{e:?}"))?;
-    assert!(observer.ok_or("missing creation outcome")?.is_err());
-    assert!(retained.directory.next_batch().is_ok());
     let (_root, probe) = WindowsScopeRoots
         .open_with_recent_probe(&raw)
         .map_err(|e| format!("{e:?}"))?;
-    let probe = probe.map_err(|e| format!("{e:?}"))?;
     let stop = AtomicBool::new(true);
     let called = Cell::new(false);
     assert_eq!(
@@ -206,7 +191,7 @@ fn injected_failure_and_cancellation_never_return_evidence()
 }
 
 #[test]
-fn port_default_and_opt_in_use_one_open_and_only_opt_in_duplicates()
+fn port_opt_in_shares_one_open_handle_without_observing_during_creation()
 -> Result<(), Box<dyn std::error::Error>> {
     use du_core_contracts::scan_observation::{OpenedScopeRoot, ScopeRootPort};
     struct DefaultPort;
@@ -223,12 +208,10 @@ fn port_default_and_opt_in_use_one_open_and_only_opt_in_duplicates()
         .flat_map(u16::to_le_bytes)
         .collect::<Vec<_>>();
     scope::OPEN_COUNT.with(|n| n.set(0));
-    DUPLICATE_COUNT.with(|n| n.set(0));
     let _root = WindowsScopeRoots
         .open_root(&raw)
         .map_err(|e| format!("{e:?}"))?;
     assert_eq!(scope::OPEN_COUNT.with(Cell::get), 1);
-    assert_eq!(DUPLICATE_COUNT.with(Cell::get), 0);
 
     scope::OPEN_COUNT.with(|n| n.set(0));
     let (_root, observer) = DefaultPort
@@ -236,7 +219,6 @@ fn port_default_and_opt_in_use_one_open_and_only_opt_in_duplicates()
         .map_err(|e| format!("{e:?}"))?;
     assert!(observer.is_none());
     assert_eq!(scope::OPEN_COUNT.with(Cell::get), 1);
-    assert_eq!(DUPLICATE_COUNT.with(Cell::get), 0);
 
     scope::OPEN_COUNT.with(|n| n.set(0));
     let (root, observer) = WindowsScopeRoots
@@ -246,15 +228,32 @@ fn port_default_and_opt_in_use_one_open_and_only_opt_in_duplicates()
         .ok_or("missing observer")?
         .map_err(|e| format!("{e:?}"))?;
     assert_eq!(scope::OPEN_COUNT.with(Cell::get), 1);
-    assert_eq!(DUPLICATE_COUNT.with(Cell::get), 1);
+    assert_eq!(OBSERVATION_COUNT.with(Cell::get), 0);
     let cancelled = AtomicBool::new(true);
     assert_eq!(observer.observe(&cancelled), ProbeOutcome::Cancelled);
+    assert_eq!(OBSERVATION_COUNT.with(Cell::get), 0);
     cancelled.store(false, Ordering::Release);
     let ProbeOutcome::Observed(evidence) = observer.observe(&cancelled) else {
         return Err("missing observed evidence".into());
     };
     assert_eq!(root.volume_id, evidence.volume_id);
     assert_eq!(root.file_id, evidence.file_id);
+    assert_eq!(OBSERVATION_COUNT.with(Cell::get), 1);
+    Ok(())
+}
+
+#[test]
+fn probe_and_enumerator_hold_the_same_arc() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = tempfile::tempdir()?;
+    let raw = temp
+        .path()
+        .as_os_str()
+        .encode_wide()
+        .flat_map(u16::to_le_bytes)
+        .collect::<Vec<_>>();
+    let (directory, identity) = scope::open_scope(&raw).map_err(|e| format!("{e:?}"))?;
+    let probe = create_probe(&directory, &identity);
+    assert!(Arc::ptr_eq(&directory.handle, &probe.handle));
     Ok(())
 }
 

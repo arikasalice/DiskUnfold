@@ -6,6 +6,7 @@ use du_core_contracts::scan_observation::{
 };
 use std::collections::VecDeque;
 use std::mem::size_of;
+use std::sync::Arc;
 use windows::{
     Wdk::Storage::FileSystem::{
         FILE_CASE_SENSITIVE_INFORMATION, FileCaseSensitiveInformation, NtQueryInformationFile,
@@ -147,7 +148,7 @@ impl WindowsDirectory {
         let name = wide(&entry.name)?;
         let handle = verified_directory(&self.handle, &name, self.volume, Some(meta.inode), false)?;
         Ok(Self {
-            handle,
+            handle: Arc::new(handle),
             volume: self.volume,
             volume_guid: self.volume_guid.clone(),
             restart: true,

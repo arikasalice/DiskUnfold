@@ -8,74 +8,65 @@ pub use du_core_contracts::scan_observation::{
     RecentScopeEvidence as RecentEvidence, RecentScopeObservation as ProbeOutcome,
 };
 
-/// A duplicate of the originally opened directory handle, for a separate worker.
+#[cfg(test)]
+thread_local! {
+    static OBSERVATION_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Shared ownership of the originally opened directory handle for later review.
 ///
 /// This is not a durable name lock. The probe may block, and cancellation does
 /// not interrupt an in-flight Windows call. It is not a persisted scope format.
 pub struct RecentProbe {
-    handle: File,
+    handle: Arc<File>,
     canonical: Vec<u8>,
     volume: Vec<u8>,
     serial: u64,
     file: u64,
 }
 
-#[cfg(test)]
-thread_local! {
-    static DUPLICATE_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-}
-
-fn duplicate_handle(handle: &File) -> std::io::Result<File> {
-    #[cfg(test)]
-    DUPLICATE_COUNT.with(|count| count.set(count.get() + 1));
-    handle.try_clone()
-}
-
 impl WindowsScopeRoots {
-    /// Opens once and optionally duplicates that exact handle for later observation.
+    /// Opens once and retains shared ownership of the scan root handle for review.
     ///
     /// This standalone opt-in entry point is not used by the normal scan port.
-    /// Handle duplication itself is synchronous; callers must not put it on a
-    /// latency-sensitive admission path without a separately designed boundary.
-    /// A duplication failure leaves the opened scan root usable.
     pub fn open_with_recent_probe(
         &self,
         path: &[u8],
-    ) -> Result<(OpenedScopeRoot, Result<RecentProbe, PortError>), PortError> {
-        open_with_probe_using(path, duplicate_handle)
+    ) -> Result<(OpenedScopeRoot, RecentProbe), PortError> {
+        open_with_probe_using(path)
     }
 }
 
 pub(super) fn open_port_with_recent(
     path: &[u8],
 ) -> Result<(OpenedScopeRoot, OptionalRecentScopeObserver), PortError> {
-    open_port_with_recent_using(path, duplicate_handle)
+    open_port_with_recent_using(path)
 }
 
 fn open_port_with_recent_using(
     path: &[u8],
-    duplicate: impl FnOnce(&File) -> std::io::Result<File>,
 ) -> Result<(OpenedScopeRoot, OptionalRecentScopeObserver), PortError> {
-    let (root, probe) = open_with_probe_using(path, duplicate)?;
-    let observer = probe.map(|value| Box::new(value) as Box<dyn RecentScopeObserver>);
-    Ok((root, Some(observer)))
+    let (root, probe) = open_with_probe_using(path)?;
+    Ok((
+        root,
+        Some(Ok(Box::new(probe) as Box<dyn RecentScopeObserver>)),
+    ))
 }
 
-fn open_with_probe_using(
-    path: &[u8],
-    duplicate: impl FnOnce(&File) -> std::io::Result<File>,
-) -> Result<(OpenedScopeRoot, Result<RecentProbe, PortError>), PortError> {
+fn open_with_probe_using(path: &[u8]) -> Result<(OpenedScopeRoot, RecentProbe), PortError> {
     let (directory, identity) = scope::open_scope(path)?;
-    let probe = duplicate(&directory.handle)
-        .map(|handle| RecentProbe {
-            handle,
-            canonical: bytes(&identity.physical_path),
-            volume: directory.volume_guid.to_vec(),
-            serial: identity.volume,
-            file: identity.file_id,
-        })
-        .map_err(|e| error(e.raw_os_error().unwrap_or(0)));
+    let probe = create_probe(&directory, &identity);
     Ok((scope::into_scope_root(directory, identity), probe))
+}
+
+fn create_probe(directory: &WindowsDirectory, identity: &DirectoryIdentity) -> RecentProbe {
+    RecentProbe {
+        handle: Arc::clone(&directory.handle),
+        canonical: bytes(&identity.physical_path),
+        volume: directory.volume_guid.to_vec(),
+        serial: identity.volume,
+        file: identity.file_id,
+    }
 }
 
 impl RecentScopeObserver for RecentProbe {
@@ -121,6 +112,8 @@ impl RecentProbe {
         cancelled: &AtomicBool,
         guid: impl FnOnce(&File) -> Result<Vec<u16>, PortError>,
     ) -> Result<RecentEvidence, PortError> {
+        #[cfg(test)]
+        OBSERVATION_COUNT.with(|count| count.set(count.get() + 1));
         let before = info(&self.handle)?;
         recall::check_handle_attributes(before.dwFileAttributes)?;
         let dos = final_path(&self.handle, FILE_NAME_NORMALIZED)?;
