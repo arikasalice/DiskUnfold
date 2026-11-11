@@ -43,14 +43,7 @@ function attributes(
     },
     {
       label: "Path",
-      value: (
-        <CopyPath
-          key={`${item.resultVersion}:${item.itemNo}`}
-          client={client}
-          item={item}
-          path={detail.displayPath}
-        />
-      ),
+      value: <CopyPath client={client} item={item} path={detail.displayPath} />,
     },
     { label: "Kind", value: attribute(detail.kind) },
     { label: "Logical size", value: size(detail.logicalSize) },

@@ -2,15 +2,22 @@ import { useEffect, useRef, useState } from "react";
 import { Action, LiveStatus, Text } from "../../components";
 import type { AnalysisClient, BrowseValue, ItemRef } from "../../ipc";
 
-export function CopyPath({
-  client,
-  item,
-  path,
-}: {
+type CopyPathProps = {
   client: AnalysisClient;
   item: ItemRef;
   path: BrowseValue<string>;
-}) {
+};
+
+export function CopyPath(props: CopyPathProps) {
+  return (
+    <CopyPathForItem
+      key={JSON.stringify([props.item.resultVersion, props.item.itemNo])}
+      {...props}
+    />
+  );
+}
+
+function CopyPathForItem({ client, item, path }: CopyPathProps) {
   const [status, setStatus] = useState("");
   const [busy, setBusy] = useState(false);
   const active = useRef(0);
@@ -46,7 +53,11 @@ export function CopyPath({
             "clipboard.unsupported": "The clipboard is not supported.",
             "clipboard.failed": "Could not copy to the clipboard.",
           };
-          setStatus(reasons[result.reasonKey]);
+          setStatus(
+            Object.hasOwn(reasons, result.reasonKey)
+              ? reasons[result.reasonKey]
+              : "Could not copy the path.",
+          );
         }
       })
       .catch(() => {
