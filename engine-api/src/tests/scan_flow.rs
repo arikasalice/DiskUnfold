@@ -190,6 +190,7 @@ fn scan_harness() -> Result<ScanHarness, Box<dyn std::error::Error>> {
 mod fixture;
 mod settings;
 mod terminal;
+mod unsupported;
 use fixture::scan_harness_with_gate;
 use terminal::check_terminal_scan;
 
@@ -220,7 +221,7 @@ fn reviewed_identity_is_rechecked_and_one_job_publishes_the_requested_result()
         "includedMounts": [],
         "source": "gui"
     });
-    check_uncomposed_scope_fails_closed(&engine, &roots, &draft)?;
+    unsupported::check_uncomposed_scope_fails_closed(&engine, &roots, &draft)?;
     let review = |seq| -> Result<ScopeReview, Box<dyn std::error::Error>> {
         Ok(serde_json::from_value(
             gui(
@@ -261,6 +262,8 @@ fn reviewed_identity_is_rechecked_and_one_job_publishes_the_requested_result()
     assert!(duplicate.existing);
     assert_eq!(receipt.job_ref, duplicate.job_ref);
     assert_eq!(receipt.scope_version, duplicate.scope_version);
+    assert_eq!(receipt.scope_fingerprint, duplicate.scope_fingerprint);
+    assert_eq!(receipt.lineage_id, duplicate.lineage_id);
     assert_ne!(receipt.scope_fingerprint, second.review_fingerprint);
     roots.file_id.store(4, Ordering::Release);
     let replacement = review(4)?;
@@ -387,54 +390,6 @@ fn scan_delivery(
             _ => return Err("missing terminal event".into()),
         }
     }
-}
-fn check_uncomposed_scope_fails_closed(
-    engine: &Engine,
-    roots: &Roots,
-    draft: &serde_json::Value,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let gui = |name, body| call(engine, name, Channel::Gui, ENVELOPE_VERSION, body);
-    // Unsupported exclusions or mount traversal must never be silently ignored.
-    for (field, value, reason) in [
-        (
-            "boundary",
-            json!("include_selected"),
-            "scope.target_unavailable",
-        ),
-        (
-            "exclusions",
-            json!([{"kind": "name_pattern", "pattern": "*.tmp"}]),
-            "scope.exclude_invalid",
-        ),
-    ] {
-        let mut unsupported = draft.clone();
-        unsupported[field] = value;
-        let rejected_review = gui(
-            "scope.review",
-            json!({"draft": unsupported, "requestSeq": 0}),
-        )?;
-        assert_eq!(
-            rejected_review
-                .error
-                .ok_or("unsupported review unexpectedly succeeded")?
-                .reason_key,
-            reason
-        );
-        let rejected_start = gui(
-            "scan.start",
-            json!({"draft": unsupported, "reviewFingerprint": "unreviewed"}),
-        )?;
-        assert_eq!(
-            rejected_start
-                .error
-                .ok_or("unsupported scan unexpectedly started")?
-                .reason_key,
-            reason
-        );
-    }
-    assert_eq!(roots.reads.load(Ordering::Acquire), 0);
-    assert_eq!(roots.opens.load(Ordering::Acquire), 0);
-    Ok(())
 }
 fn check_observed_details(
     engine: &Engine,
