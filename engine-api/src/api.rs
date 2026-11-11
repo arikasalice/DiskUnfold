@@ -37,7 +37,13 @@ impl EngineBuilder {
     }
 
     pub(crate) fn on_session_retire(&mut self, retire: impl Fn() + Send + Sync + 'static) {
-        self.session_retire = Some(Box::new(retire));
+        let previous = self.session_retire.take();
+        self.session_retire = Some(Box::new(move || {
+            if let Some(previous) = &previous {
+                previous();
+            }
+            retire();
+        }));
     }
 
     pub fn build(self) -> Result<Engine, BuildError> {
