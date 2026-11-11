@@ -23,5 +23,9 @@ du-user-env = { version = "0.1.0", path = "../user-env", optional = true }
 rusqlite.workspace = true
 tempfile.workspace = true
 
+[[example]]
+name = "q8_recent"
+required-features = ["gui"]
+
 [lints]
 workspace = true
