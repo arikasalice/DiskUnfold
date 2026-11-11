@@ -188,13 +188,19 @@ fn running_cancel_discards_inflight_hash_and_records_terminal_history() -> Resul
     Ok(())
 }
 
-struct PlatformEvidence(bool);
+struct PlatformEvidence(bool, Arc<Stats>);
 impl du_engine_api::duplicate_assembly::Preflight for PlatformEvidence {
     fn observe(
         &mut self,
         _: &ItemRef,
         expected: &ContentIdentity,
     ) -> Option<(PlaceholderEvidence, ContentObservation)> {
+        self.1.preflights.fetch_add(1, Ordering::SeqCst);
+        let gate = self.1.preflight_gate.lock().ok()?.take();
+        if let Some(gate) = gate {
+            gate.entered.send(()).ok()?;
+            gate.release.recv().ok()?;
+        }
         self.0.then(|| {
             (
                 PlaceholderEvidence::Local,
@@ -208,7 +214,7 @@ impl du_engine_api::duplicate_assembly::Preflight for PlatformEvidence {
         })
     }
 }
-fn submit_assembled(h: &Harness, result: u8, supported: bool) -> Result<Id, String> {
+fn submit_assembled_raw(h: &Harness, result: u8, supported: bool) -> Result<SubmitResult, String> {
     let selection =
         select_whole_scan(&h.source, &id(2), 0, || false).map_err(|e| format!("{e:?}"))?;
     let identities = selection
@@ -230,7 +236,7 @@ fn submit_assembled(h: &Harness, result: u8, supported: bool) -> Result<Id, Stri
         &h.runtime,
         h.store.clone(),
         selection,
-        (port, PlatformEvidence(supported)),
+        (port, PlatformEvidence(supported, h.stats.clone())),
         du_engine_api::duplicate_assembly::Request {
             result: id(result),
             correlation: id(9),
@@ -238,7 +244,10 @@ fn submit_assembled(h: &Harness, result: u8, supported: bool) -> Result<Id, Stri
         },
     )
     .map_err(|e| format!("{e:?}"))?;
-    match submitted {
+    Ok(submitted)
+}
+fn submit_assembled(h: &Harness, result: u8, supported: bool) -> Result<Id, String> {
+    match submit_assembled_raw(h, result, supported)? {
         SubmitResult::Created(job) => Ok(job),
         other => Err(format!("{other:?}")),
     }
@@ -247,6 +256,7 @@ fn submit_assembled(h: &Harness, result: u8, supported: bool) -> Result<Id, Stri
 fn assembled_supported_scope_pins_and_publishes() -> Result<(), String> {
     let h = Harness::new(NonZeroUsize::MIN.saturating_add(2))?;
     let job = submit_assembled(&h, 10, true)?;
+    assert_eq!(h.stats.preflights.load(Ordering::SeqCst), 0);
     assert_eq!(h.stats.opens.load(Ordering::SeqCst), 0);
     let mut later = h.source.open(id(3)).map_err(|e| format!("{e:?}"))?;
     later.add_directory(vec![]).map_err(|e| format!("{e:?}"))?;
@@ -276,6 +286,7 @@ fn assembled_unsupported_or_cancelled_opens_nothing() -> Result<(), String> {
     assert_eq!(h.runtime.state(&job), Ok(JobState::Done));
     assert!(result.outcome().evidence().groups.is_empty());
     assert_eq!(h.stats.opens.load(Ordering::SeqCst), 0);
+    let before = h.stats.preflights.load(Ordering::SeqCst);
     let job = submit_assembled(&h, 11, true)?;
     assert!(matches!(
         h.runtime.cancel(&job),
@@ -283,6 +294,7 @@ fn assembled_unsupported_or_cancelled_opens_nothing() -> Result<(), String> {
     ));
     let result = h.store.pin(Some(&id(11))).map_err(|e| format!("{e:?}"))?;
     assert_eq!(result.content_coverage(), ContentCoverage::Cancelled);
+    assert_eq!(h.stats.preflights.load(Ordering::SeqCst), before);
     assert_eq!(h.stats.opens.load(Ordering::SeqCst), 0);
     Ok(())
 }
@@ -310,7 +322,7 @@ fn assembled_unregistered_runtime_rejects_without_content_open() -> Result<(), S
         &runtime,
         h.store.clone(),
         selection,
-        (port, PlatformEvidence(true)),
+        (port, PlatformEvidence(true, h.stats.clone())),
         du_engine_api::duplicate_assembly::Request {
             result: id(10),
             correlation: id(9),
@@ -325,6 +337,7 @@ fn assembled_unregistered_runtime_rejects_without_content_open() -> Result<(), S
     ));
     assert_eq!(h.stats.opens.load(Ordering::SeqCst), 0);
     assert!(h.store.pin(Some(&id(10))).is_err());
+    assert_eq!(h.stats.preflights.load(Ordering::SeqCst), 0);
     Ok(())
 }
 
@@ -356,5 +369,56 @@ fn assembled_running_cancel_discards_inflight_result() -> Result<(), String> {
     assert_eq!(result.content_coverage(), ContentCoverage::Cancelled);
     assert!(result.outcome().evidence().groups.is_empty());
     assert!(result.outcome().evidence().full_fingerprints.is_empty());
+    Ok(())
+}
+
+#[test]
+fn duplicate_and_queued_cancel_do_not_observe_or_open() -> Result<(), String> {
+    let h = Harness::new(NonZeroUsize::MIN.saturating_add(2))?;
+    let first = submit_assembled(&h, 10, true)?;
+    assert_eq!(
+        submit_assembled_raw(&h, 11, true)?,
+        SubmitResult::Existing(first.clone())
+    );
+    assert_eq!(h.stats.preflights.load(Ordering::SeqCst), 0);
+    assert_eq!(h.stats.opens.load(Ordering::SeqCst), 0);
+    assert!(matches!(
+        h.runtime.cancel(&first),
+        Ok(CancelResult::Accepted(JobState::Cancelled))
+    ));
+    assert_eq!(h.stats.preflights.load(Ordering::SeqCst), 0);
+    assert_eq!(h.stats.opens.load(Ordering::SeqCst), 0);
+    Ok(())
+}
+
+#[test]
+fn cancellation_during_preflight_stops_before_next_observation_or_open() -> Result<(), String> {
+    let h = Harness::new(NonZeroUsize::MIN.saturating_add(2))?;
+    let (entered_tx, entered_rx) = std::sync::mpsc::sync_channel(1);
+    let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+    *h.stats.preflight_gate.lock().map_err(|_| "gate lock")? = Some(ReadGate {
+        entered: entered_tx,
+        release: release_rx,
+    });
+    let job = submit_assembled(&h, 10, true)?;
+    assert_eq!(h.stats.preflights.load(Ordering::SeqCst), 0);
+    let runtime = h.runtime.clone();
+    let worker = std::thread::spawn(move || runtime.run_next());
+    entered_rx
+        .recv_timeout(Duration::from_secs(5))
+        .map_err(|_| "preflight did not start")?;
+    assert!(matches!(
+        h.runtime.cancel(&job),
+        Ok(CancelResult::Accepted(JobState::CancelRequested))
+    ));
+    release_tx.send(()).map_err(|_| "release")?;
+    worker
+        .join()
+        .map_err(|_| "worker panic")?
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(h.stats.preflights.load(Ordering::SeqCst), 1);
+    assert_eq!(h.stats.opens.load(Ordering::SeqCst), 0);
+    let result = h.store.pin(Some(&id(10))).map_err(|e| format!("{e:?}"))?;
+    assert_eq!(result.content_coverage(), ContentCoverage::Cancelled);
     Ok(())
 }

@@ -89,6 +89,8 @@ impl JobEvents for Events {
 #[derive(Default)]
 struct Stats {
     opens: AtomicUsize,
+    preflights: AtomicUsize,
+    preflight_gate: Mutex<Option<ReadGate>>,
     bytes: AtomicUsize,
     gate: Mutex<Option<ReadGate>>,
 }

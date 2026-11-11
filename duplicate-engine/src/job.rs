@@ -64,12 +64,19 @@ struct Candidates {
 }
 struct Body<P> {
     input: Mutex<Option<(Vec<VerificationTarget>, P)>>,
+    deferred: Mutex<Option<DeferredEvidence<P>>>,
     hash: RegisteredHash,
     scope_proven: bool,
     scope: ScopeEvidence,
     candidates: Arc<Mutex<Candidates>>,
     reuse: Option<JobReuse>,
 }
+
+/// Runs inside the admitted content flow, with cooperative cancellation checks.
+pub type DeferredEvidence<P> = Box<
+    dyn FnOnce(&mut [VerificationTarget], &mut P, &mut dyn FnMut() -> bool) -> Result<(), ()>
+        + Send,
+>;
 
 /// Explicit session-scoped sources supplied by the composition point.
 pub type CapabilitySource = dyn Fn(&FileIdentity) -> Option<ReuseCapabilities> + Send + Sync;
@@ -106,7 +113,20 @@ pub fn prepare<P: ReadPort + Send + 'static>(
     hash: RegisteredHash,
     store: Arc<ResultStore>,
 ) -> Result<PreparedJob, PrepareError> {
-    prepare_inner(input, hash, store, None)
+    prepare_inner(input, hash, store, None, None)
+}
+
+/// Prepares a job whose platform metadata is acquired only during its admitted flow.
+/// The callback must check cancellation before and after each metadata operation.
+/// # Errors
+/// Returns an error before submission if the immutable inputs are invalid.
+pub fn prepare_deferred<P: ReadPort + Send + 'static>(
+    input: Input<P>,
+    hash: RegisteredHash,
+    store: Arc<ResultStore>,
+    deferred: DeferredEvidence<P>,
+) -> Result<PreparedJob, PrepareError> {
+    prepare_inner(input, hash, store, None, Some(deferred))
 }
 
 /// Prepares a job with an explicitly supplied, session-scoped reuse source.
@@ -118,7 +138,7 @@ pub fn prepare_with_reuse<P: ReadPort + Send + 'static>(
     store: Arc<ResultStore>,
     reuse: JobReuse,
 ) -> Result<PreparedJob, PrepareError> {
-    prepare_inner(input, hash, store, Some(reuse))
+    prepare_inner(input, hash, store, Some(reuse), None)
 }
 
 fn prepare_inner<P: ReadPort + Send + 'static>(
@@ -126,6 +146,7 @@ fn prepare_inner<P: ReadPort + Send + 'static>(
     hash: RegisteredHash,
     store: Arc<ResultStore>,
     reuse: Option<JobReuse>,
+    deferred: Option<DeferredEvidence<P>>,
 ) -> Result<PreparedJob, PrepareError> {
     if input.scope.roots.is_empty()
         || input
@@ -150,6 +171,7 @@ fn prepare_inner<P: ReadPort + Send + 'static>(
     }));
     let body = Arc::new(Body {
         input: Mutex::new(Some((input.targets, input.reader))),
+        deferred: Mutex::new(deferred),
         hash,
         scope_proven,
         scope: input.scope,
@@ -213,7 +235,8 @@ impl<P: ReadPort + Send> JobBody for Body<P> {
         "duplicate.check"
     }
     fn run(&self, context: Arc<dyn JobContext>) -> JobOutcome {
-        let Some((targets, mut reader)) = self.input.lock().ok().and_then(|mut value| value.take())
+        let Some((mut targets, mut reader)) =
+            self.input.lock().ok().and_then(|mut value| value.take())
         else {
             return failure();
         };
@@ -226,10 +249,21 @@ impl<P: ReadPort + Send> JobBody for Body<P> {
                 Err(_) => return failure(),
             }
         };
-        let result = self.verify(&targets, &mut reader, || match flow.as_ref() {
+        let mut cancelled = || match flow.as_ref() {
             Some(flow) => flow.safe_point() == Checkpoint::Cancel,
             None => context.checkpoint() == Checkpoint::Cancel,
-        });
+        };
+        let deferred = match self.deferred.lock() {
+            Ok(mut deferred) => deferred.take(),
+            Err(_) => return failure(),
+        };
+        if let Some(deferred) = deferred
+            && !cancelled()
+            && deferred(&mut targets, &mut reader, &mut cancelled).is_err()
+        {
+            return failure();
+        }
+        let result = self.verify(&targets, &mut reader, cancelled);
         if let Some(flow) = flow {
             flow.finish(JobCounts::default());
         }

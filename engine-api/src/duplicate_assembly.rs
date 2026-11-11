@@ -62,7 +62,7 @@ pub fn submit<P: DuplicateContentPort + Send + 'static>(
     runtime: &JobRuntime,
     store: Arc<ResultStore>,
     selection: Selection,
-    mut platform: (P, impl Preflight),
+    platform: (P, impl Preflight + Send + 'static),
     request: Request,
 ) -> Result<SubmitResult, Error> {
     let hash = RegisteredHash::resolve("blake3", Some(1)).map_err(|_| Error::Hash)?;
@@ -89,35 +89,9 @@ pub fn submit<P: DuplicateContentPort + Send + 'static>(
             volume: evidence.identity.volume.clone(),
             file: evidence.identity.file.clone(),
         };
-        let native = evidence.native_modified.map(|value| match value {
-            NativeModifiedTime::WindowsFiletime(t) => t.get(),
-        });
-        let current = if native.is_some() && evidence.identity.enumerated_inode.is_some() {
-            platform.1.observe(&file.item, &evidence.identity)
-        } else {
-            None
-        };
-        let (placeholder, snapshot) = match current {
-            Some((locality, observation))
-                if observation.identity == evidence.identity
-                    && observation.size == file.size
-                    && Some(observation.modified) == native =>
-            {
-                let snapshot = Snapshot {
-                    identity: identity.clone(),
-                    size: file.size,
-                    modified: observation.modified,
-                    change_stamp: observation.change_stamp,
-                };
-                (locality, Some(snapshot))
-            }
-            _ => (PlaceholderEvidence::Unknown, None),
-        };
-        let status = match placeholder {
-            PlaceholderEvidence::Local => Placeholder::Local,
-            PlaceholderEvidence::DownloadRequired => Placeholder::DownloadRequired,
-            PlaceholderEvidence::Unknown => Placeholder::Unknown,
-        };
+        let placeholder = PlaceholderEvidence::Unknown;
+        let status = Placeholder::Unknown;
+        let snapshot = None;
         targets.push(VerificationTarget {
             target: Target {
                 item_no: file.item.item_no,
@@ -135,13 +109,66 @@ pub fn submit<P: DuplicateContentPort + Send + 'static>(
         });
     }
     let source = selection.version().clone();
-    let adapter =
-        Adapter::new_owned(platform.0, &source, selected).map_err(|_| Error::InvalidSelection)?;
     let reader = PinnedReader {
-        adapter,
-        _selection: selection,
+        adapter: None,
+        selection,
+        port: Some(platform.0),
     };
-    let prepared = job::prepare(
+    let mut preflight = platform.1;
+    let deferred = Box::new(
+        move |targets: &mut [VerificationTarget],
+              reader: &mut PinnedReader<P>,
+              cancelled: &mut dyn FnMut() -> bool| {
+            for (target, item) in targets.iter_mut().zip(selected.iter_mut()) {
+                if cancelled() {
+                    return Ok(());
+                }
+                let Some(evidence) = reader.selection.content_evidence(&item.item) else {
+                    return Err(());
+                };
+                let native = evidence.native_modified.map(|value| match value {
+                    NativeModifiedTime::WindowsFiletime(t) => t.get(),
+                });
+                let current = if native.is_some() && evidence.identity.enumerated_inode.is_some() {
+                    preflight.observe(&item.item, &evidence.identity)
+                } else {
+                    None
+                };
+                if cancelled() {
+                    return Ok(());
+                }
+                if let Some((locality, observation)) = current
+                    && observation.identity == evidence.identity
+                    && target.target.size == Size::Exact(observation.size)
+                    && Some(observation.modified) == native
+                {
+                    item.placeholder = locality;
+                    target.target.placeholder = match locality {
+                        PlaceholderEvidence::Local => Placeholder::Local,
+                        PlaceholderEvidence::DownloadRequired => Placeholder::DownloadRequired,
+                        PlaceholderEvidence::Unknown => Placeholder::Unknown,
+                    };
+                    let Some(identity) = target.target.identity.clone() else {
+                        return Err(());
+                    };
+                    target.snapshot = Some(Snapshot {
+                        identity,
+                        size: observation.size,
+                        modified: observation.modified,
+                        change_stamp: observation.change_stamp,
+                    });
+                }
+            }
+            let Some(port) = reader.port.take() else {
+                return Err(());
+            };
+            reader.adapter = Some(
+                Adapter::new_owned(port, reader.selection.version(), selected).map_err(|_| ())?,
+            );
+            Ok(())
+        },
+    );
+    let prepared = job::prepare_deferred(
         Input {
             source,
             result: request.result,
@@ -151,6 +178,7 @@ pub fn submit<P: DuplicateContentPort + Send + 'static>(
         },
         hash,
         store,
+        deferred,
     )
     .map_err(Error::Prepare)?;
     let submission = Submission {
@@ -186,8 +214,9 @@ fn dedup_key(selection: &Selection) -> Result<DeduplicationKey, Error> {
 }
 
 struct PinnedReader<P: 'static> {
-    adapter: Adapter<'static, P>,
-    _selection: Selection,
+    adapter: Option<Adapter<'static, P>>,
+    selection: Selection,
+    port: Option<P>,
 }
 impl<P: DuplicateContentPort + 'static> ReadPort for PinnedReader<P> {
     fn open_bound<'a>(
@@ -195,6 +224,9 @@ impl<P: DuplicateContentPort + 'static> ReadPort for PinnedReader<P> {
         item_no: u32,
         expected: &FileIdentity,
     ) -> Result<Box<dyn OpenFile + 'a>, ReadError> {
-        self.adapter.open_bound(item_no, expected)
+        self.adapter
+            .as_mut()
+            .ok_or(ReadError::Failed)?
+            .open_bound(item_no, expected)
     }
 }
