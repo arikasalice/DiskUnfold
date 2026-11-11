@@ -34,6 +34,10 @@ pub enum Basis {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BinLayout {
     pub bin: Bin,
+    /// Observed item numbers assigned to this bin, in ascending order.
+    /// These are known members, not proof that the group is complete. Resolve
+    /// them only against the same pinned result that supplied the input.
+    pub members: Vec<u32>,
     pub item_count: Weight,
     pub bytes: Weight,
     pub rect: Option<Rect>,
@@ -94,6 +98,7 @@ pub enum Error {
 struct Accumulator {
     count: Sum,
     bytes: Sum,
+    members: Vec<u32>,
 }
 
 /// Calculates half-open bins and optional bar rectangles without reading a source.
@@ -180,12 +185,12 @@ fn calculate(
         total.add(item.value);
         match item.value {
             Weight::Exact(value) => match containing(bins, value) {
-                Some(index) => add(&mut accumulators[index], item.value),
+                Some(index) => add(&mut accumulators[index], item),
                 None => unclassified_items.push(item.item_no),
             },
             Weight::LowerBound(value) => {
                 match containing(bins, value).filter(|&index| bins[index].upper.is_none()) {
-                    Some(index) => add(&mut accumulators[index], item.value),
+                    Some(index) => add(&mut accumulators[index], item),
                     None => {
                         uncertain_items.push(item.item_no);
                         let first = bins
@@ -206,10 +211,17 @@ fn calculate(
         accumulator.bytes.add(Weight::Unknown);
     }
     let mut output = Vec::with_capacity(bins.len());
-    for (&bin, acc) in bins.iter().zip(&accumulators) {
+    for (&bin, mut acc) in bins.iter().zip(accumulators) {
         check(cancelled)?;
+        if cancellable_sort {
+            cancellable_sort::sort(&mut acc.members, u32::cmp, cancelled)
+                .map_err(|_| Error::Cancelled)?;
+        } else {
+            acc.members.sort_unstable();
+        }
         output.push(BinLayout {
             bin,
+            members: acc.members,
             item_count: acc.count.finish(),
             bytes: acc.bytes.finish(),
             rect: None,
@@ -291,9 +303,10 @@ fn containing(bins: &[Bin], value: u64) -> Option<usize> {
         .is_none_or(|upper| value < upper)
         .then_some(index)
 }
-fn add(acc: &mut Accumulator, value: Weight) {
+fn add(acc: &mut Accumulator, item: &Item) {
     acc.count.add(Weight::Exact(1));
-    acc.bytes.add(value);
+    acc.bytes.add(item.value);
+    acc.members.push(item.item_no);
 }
 fn selected(row: &BinLayout, basis: Basis) -> Weight {
     match basis {

@@ -76,6 +76,20 @@ fn pinned_subtree_preserves_boundaries_and_independent_f03_total() -> Result<(),
     assert_eq!(model.histogram.bins[0].item_count, Weight::Exact(1));
     assert_eq!(model.histogram.bins[1].item_count, Weight::Exact(1));
     assert_eq!(model.histogram.bins[1].bytes, Weight::Exact(10));
+    for (bin, name) in model
+        .histogram
+        .bins
+        .iter()
+        .zip([b"a".as_slice(), b"b".as_slice()])
+    {
+        let item_no = *bin.members.first().ok_or("missing member")?;
+        let item = version
+            .items()
+            .get(item_no as usize)
+            .ok_or("invalid member")?;
+        assert_eq!(item.name, name);
+        assert_eq!(bin.members.len(), 1);
+    }
     assert_eq!(
         model.summary.aggregate.logical,
         version.space(0).ok_or("missing total")?.logical

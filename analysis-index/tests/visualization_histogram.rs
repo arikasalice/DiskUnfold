@@ -58,6 +58,9 @@ fn half_open_bins_preserve_count_and_bytes_and_ignore_input_order() -> Result<()
         result.bins.iter().map(|b| b.bytes).collect::<Vec<_>>(),
         vec![Weight::Exact(9), Weight::Exact(29), Weight::Exact(45)]
     );
+    assert_eq!(result.bins[0].members, vec![0, 1]);
+    assert_eq!(result.bins[1].members, vec![2, 3]);
+    assert_eq!(result.bins[2].members, vec![4, 5]);
     assert_eq!(result.total_bytes, Weight::Exact(83));
     assert_eq!(
         result.bins[2].rect,
@@ -114,6 +117,9 @@ fn unknown_and_ambiguous_lower_bounds_are_not_placed_as_zero() -> Result<(), Err
         ResultCompleteness::Complete,
     )?;
     assert_eq!(result.uncertain_items, vec![2, 4]);
+    assert_eq!(result.bins[0].members, vec![1]);
+    assert!(result.bins[1].members.is_empty());
+    assert_eq!(result.bins[2].members, vec![3]);
     assert_eq!(result.bins[0].item_count, Weight::LowerBound(1));
     assert_eq!(result.bins[0].bytes, Weight::LowerBound(0));
     assert_eq!(result.bins[1].item_count, Weight::Unknown);
@@ -362,4 +368,28 @@ fn cancellation_covers_input_bins_axis_and_large_sorts() -> Result<(), Error> {
     );
     assert_eq!(actual.bins.len(), 128);
     Ok(())
+}
+
+#[test]
+fn cancellation_during_member_ordering_discards_the_result() {
+    let input: Vec<_> = (0..2048).rev().map(|n| item(n, Weight::Exact(1))).collect();
+    let one_bin = [Bin {
+        lower: 0,
+        upper: None,
+    }];
+    let mut checks = 0;
+    let output = histogram::layout_cancellable(
+        bounds(),
+        &one_bin,
+        &input,
+        Basis::ItemCount,
+        Scale::Automatic,
+        ResultCompleteness::Complete,
+        &mut || {
+            checks += 1;
+            checks == 2100
+        },
+    );
+    assert_eq!(output, Err(Error::Cancelled));
+    assert_eq!(checks, 2100);
 }
