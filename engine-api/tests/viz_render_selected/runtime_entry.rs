@@ -54,9 +54,6 @@ struct Producer {
     block: Mutex<Option<(mpsc::Sender<()>, mpsc::Receiver<()>)>>,
 }
 impl EvidenceProducer for Producer {
-    fn selected_revision(&self) -> Result<Id, EngineError> {
-        Ok(id(3))
-    }
     fn source_facts(
         &self,
         _: &current_analysis::CurrentAnalysis,
@@ -474,3 +471,4 @@ fn valid_different_condition_retires_only_the_replaced_channel() -> Result<(), S
 }
 
 mod replacement;
+mod source_selection;

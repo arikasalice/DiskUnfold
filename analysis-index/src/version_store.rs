@@ -117,6 +117,41 @@ impl State {
 }
 
 impl IngestSink {
+    /// Pins an exact current scan revision, or the latest current scan at admission.
+    /// An optional lineage limits the lookup; anonymous builds are never scan sources.
+    pub fn pin_scan(
+        &self,
+        lineage: Option<&Id>,
+        revision: Option<&Id>,
+    ) -> Result<Arc<ResultVersion>, QueryError> {
+        let state = self.state.lock().map_err(|_| QueryError::Unavailable)?;
+        if let Some(lineage) = lineage {
+            let entry = state
+                .current
+                .get(&Some(lineage.clone()))
+                .ok_or(QueryError::NotFound)?;
+            if revision.is_some_and(|expected| entry.result.version_id != *expected) {
+                return Err(QueryError::StaleVersion);
+            }
+            return Ok(Arc::clone(&entry.result));
+        }
+        if let Some(revision) = revision {
+            let result = state.pin_current(revision)?;
+            return result
+                .lineage_id
+                .is_some()
+                .then_some(result)
+                .ok_or(QueryError::NotFound);
+        }
+        state
+            .current
+            .values()
+            .filter(|entry| entry.result.lineage_id.is_some())
+            .max_by_key(|entry| entry.order)
+            .map(|entry| Arc::clone(&entry.result))
+            .ok_or(QueryError::NotFound)
+    }
+
     /// Runs an in-memory operation while the exact result remains current.
     /// The callback must not reenter this store or perform blocking I/O. The
     /// pinned result identifies its lineage, so admission does not scan other

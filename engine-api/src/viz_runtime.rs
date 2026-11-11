@@ -72,7 +72,6 @@ pub struct ItemEvidence {
 /// Implementations must return evidence for the supplied immutable result, and
 /// preserve semantics for the lifetime of their registered policy revisions.
 pub trait EvidenceProducer: Send + Sync + 'static {
-    fn selected_revision(&self) -> Result<Id, EngineError>;
     fn source_facts(
         &self,
         source: &CurrentAnalysis,

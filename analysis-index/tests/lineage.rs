@@ -189,6 +189,46 @@ fn same_scope_reuses_lineage_and_independent_currents_survive_replacement() -> R
 }
 
 #[test]
+fn scan_pinning_excludes_anonymous_results_and_limits_a_selected_lineage() -> Result<(), String> {
+    let sink = IngestSink::default();
+    let first = sink
+        .bind_current_analysis("first", id(1)?)
+        .map_err(|error| format!("{error:?}"))?;
+    let second = sink
+        .bind_current_analysis("second", id(2)?)
+        .map_err(|error| format!("{error:?}"))?;
+    let first_result = build(&sink, &first, 10)?
+        .seal(id(20)?, ResultCompleteness::Complete)
+        .map_err(|error| format!("{error:?}"))?;
+    let second_result = build(&sink, &second, 11)?
+        .seal(id(21)?, ResultCompleteness::Complete)
+        .map_err(|error| format!("{error:?}"))?;
+    let mut anonymous = sink.open(id(12)?).map_err(|error| format!("{error:?}"))?;
+    anonymous
+        .add_directory(vec![])
+        .map_err(|error| format!("{error:?}"))?;
+    anonymous
+        .seal(id(22)?, ResultCompleteness::Complete)
+        .map_err(|error| format!("{error:?}"))?;
+
+    let latest = sink.pin_scan(None, None).map_err(|e| format!("{e:?}"))?;
+    let selected = sink
+        .pin_scan(Some(&first), None)
+        .map_err(|e| format!("{e:?}"))?;
+    assert!(Arc::ptr_eq(&latest, &second_result));
+    assert!(Arc::ptr_eq(&selected, &first_result));
+    assert_eq!(
+        sink.pin_scan(Some(&first), Some(&id(21)?)).err(),
+        Some(QueryError::StaleVersion)
+    );
+    assert_eq!(
+        sink.pin_scan(None, Some(&id(22)?)).err(),
+        Some(QueryError::NotFound)
+    );
+    Ok(())
+}
+
+#[test]
 fn failure_restores_own_baseline_and_previous_focus_without_cross_lineage_replacement()
 -> Result<(), String> {
     let sink = IngestSink::default();

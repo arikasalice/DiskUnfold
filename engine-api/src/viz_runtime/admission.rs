@@ -42,10 +42,14 @@ impl Runtime {
         })
     }
     fn pin_source(&self, request: &VizRenderRequest) -> Result<CurrentAnalysis, EngineError> {
-        let revision = self.assembly.producer.selected_revision()?;
-        let source = crate::current_analysis::admit_selected(
+        let lineage = match &request.source_ref {
+            Some(reference) if reference.kind == "scan" => Some(&reference.reference),
+            Some(_) => return Err(unavailable()),
+            None => None,
+        };
+        crate::current_analysis::admit_scan(
             &self.assembly.source,
-            &revision,
+            lineage,
             request.result_revision.as_ref(),
         )
         .map_err(|error| {
@@ -56,13 +60,7 @@ impl Runtime {
                 UnsupportedSource => "ref.unavailable",
                 Unavailable => "support.internal_error",
             })
-        })?;
-        if let Some(reference) = &request.source_ref
-            && (reference.kind != "scan" || &reference.reference != source.lineage())
-        {
-            return Err(unavailable());
-        }
-        Ok(source)
+        })
     }
 }
 fn validate_scope(request: &VizRenderRequest, source: &CurrentAnalysis) -> Result<(), EngineError> {

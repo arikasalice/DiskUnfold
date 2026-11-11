@@ -53,11 +53,29 @@ pub fn admit_selected(
     if requested_revision.is_some_and(|revision| revision != selected) {
         return Err(Error::StaleVersion);
     }
-    let version = source.pin_current(selected).map_err(|error| match error {
+    let version = source.pin_current(selected).map_err(pin_error)?;
+    bind_lineage(version)
+}
+
+/// Admits a visualization request against the current scan result store.
+/// An explicit revision is never substituted with a newer one.
+pub(crate) fn admit_scan(
+    source: &IngestSink,
+    lineage: Option<&Id>,
+    revision: Option<&Id>,
+) -> Result<CurrentAnalysis, Error> {
+    bind_lineage(source.pin_scan(lineage, revision).map_err(pin_error)?)
+}
+
+fn pin_error(error: QueryError) -> Error {
+    match error {
         QueryError::NotFound => Error::NoSource,
         QueryError::StaleVersion => Error::StaleVersion,
         _ => Error::Unavailable,
-    })?;
+    }
+}
+
+fn bind_lineage(version: Arc<ResultVersion>) -> Result<CurrentAnalysis, Error> {
     let lineage = version
         .lineage_id()
         .cloned()
