@@ -18,7 +18,10 @@ import type {
   ScopeReview,
 } from "../src/ipc";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 const when = "2026-11-10T00:00:00.000Z";
 const locations = ["C:\\archive\\one", "D:\\archive\\two"];
@@ -223,6 +226,7 @@ test("F01 FR8: refuses apply when review is null or any target is unresolved", a
 });
 
 test("F01 FR8: keeps focus on valid controls through replace confirmation and path recheck", async () => {
+  const scrollIntoView = vi.spyOn(HTMLElement.prototype, "scrollIntoView");
   let requestCount = 0;
   let finishRefresh!: (value: RecentScopeOpen) => void;
   const { client } = makeClient(async (name, body) => {
@@ -253,11 +257,17 @@ test("F01 FR8: keeps focus on valid controls through replace confirmation and pa
   });
   await waitFor(() => expect(document.activeElement).toBe(replaceButton));
   expect(document.activeElement).not.toBe(document.body);
+  expect(scrollIntoView.mock.contexts.at(-1)).toBe(replaceButton);
+  expect(scrollIntoView).toHaveBeenLastCalledWith({
+    block: "nearest",
+    inline: "nearest",
+  });
 
   fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
   const useButton = screen.getByRole("button", { name: "Use this range" });
   await waitFor(() => expect(document.activeElement).toBe(useButton));
   expect(document.activeElement).not.toBe(document.body);
+  expect(scrollIntoView.mock.contexts.at(-1)).toBe(useButton);
 
   fireEvent.click(
     screen.getByRole("button", { name: "Back to recent ranges" }),

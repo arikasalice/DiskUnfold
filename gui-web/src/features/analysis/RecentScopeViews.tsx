@@ -427,9 +427,9 @@ function RecentScopeApplyActions({
   const pendingFocus = useRef(false);
   useLayoutEffect(() => {
     if (!pendingFocus.current) return;
-    (confirmReplace ? confirmButton.current : useButton.current)?.focus({
-      preventScroll: true,
-    });
+    const target = confirmReplace ? confirmButton.current : useButton.current;
+    target?.focus({ preventScroll: true });
+    target?.scrollIntoView({ block: "nearest", inline: "nearest" });
     pendingFocus.current = false;
   }, [confirmReplace]);
   function toggleConfirm(value: boolean) {

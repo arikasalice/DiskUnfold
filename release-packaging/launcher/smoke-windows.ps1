@@ -572,16 +572,30 @@ function Test-AutomaticScopeReview {
 # Exercise recent-scope reopen in a build with the storage policy supplied.
 function Test-RecentScopeReopen {
   Open-TargetEditor
-  Expand-UI (Wait-Enabled 'Recent analysis ranges' $true)
-  Invoke-UI (Wait-Enabled 'Review range 1' $true)
-  $null = Wait-UI 'stored volume matched' { Find-UI 'Volume matched' $textType }
-  Invoke-UI (Wait-Enabled 'Use this range' $true)
-  $next = Wait-UI 'scope replacement or ready scan' {
-    $replacement = Find-UI 'Replace current scope' $button
-    if ($replacement) { return $replacement }
-    Find-UI 'Start scan' $button
+  $original = $window.Current.BoundingRectangle
+  $transform = $window.GetCurrentPattern([Windows.Automation.TransformPattern]::Pattern)
+  $transform.Resize(640, 460)
+  try {
+    Expand-UI (Wait-Enabled 'Recent analysis ranges' $true)
+    Invoke-UI (Wait-Enabled 'Review range 1' $true)
+    $null = Wait-UI 'stored volume matched' { Find-UI 'Volume matched' $textType }
+    Invoke-UI (Wait-Enabled 'Use this range' $true)
+    $null = Wait-UI 'visible focused replacement in small window' {
+      $focused = $ae::FocusedElement
+      if ($focused.Current.Name -eq 'Replace current scope' -and -not $focused.Current.IsOffscreen) { $focused }
+    }
+    Invoke-UI (Wait-Enabled 'Keep editing' $true)
+    $use = Wait-UI 'visible focused apply action after keeping edits' {
+      $focused = $ae::FocusedElement
+      if ($focused.Current.Name -eq 'Use this range' -and -not $focused.Current.IsOffscreen) { $focused }
+    }
+    Invoke-UI $use
+    $confirm = Wait-Enabled 'Replace current scope' $true
+    Invoke-UI $confirm
+    'F01 native recent scope: confirmation and return actions keep visible focus in the small window'
+  } finally {
+    $transform.Resize($original.Width, $original.Height)
   }
-  if ($next.Current.Name -eq 'Replace current scope') { Invoke-UI $next }
   $null = Wait-Enabled 'Start scan' $true
   if (-not (Find-LogicalSize '18 bytes')) { throw 'Applying the saved range replaced the pinned result' }
   [IO.File]::WriteAllBytes((Join-Path $scanRoot 'root.bin'), [byte[]]::new(16))

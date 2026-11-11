@@ -6,6 +6,7 @@
 }
 
 .du-recent-scopes__panel {
+  container: recent-scope / inline-size;
   display: grid;
   gap: 10px;
   inline-size: 100%;
@@ -149,7 +150,7 @@
   margin: 0;
 }
 
-@media (max-width: 520px) {
+@container recent-scope (max-width: 520px) {
   .du-recent-scopes__header {
     align-items: flex-start;
   }
