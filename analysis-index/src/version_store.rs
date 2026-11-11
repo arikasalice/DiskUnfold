@@ -81,6 +81,12 @@ impl State {
         lineage: &Lineage,
         expected_base: &Id,
     ) -> Result<Entry, BuildError> {
+        // An active scan owns rollback of this lineage's current version. A
+        // replacement must not publish while that scan can still abort and
+        // restore its older baseline over the replacement.
+        if self.active.contains(lineage) {
+            return Err(BuildError::Busy);
+        }
         let entry = self
             .current
             .get(lineage)
@@ -98,6 +104,9 @@ impl State {
         expected_base: Option<&Id>,
         reserved: bool,
     ) -> Result<Option<Entry>, BuildError> {
+        if expected_base.is_some() && self.active.contains(lineage) {
+            return Err(BuildError::Busy);
+        }
         if expected_base.is_some_and(|expected| {
             self.current
                 .get(lineage)
