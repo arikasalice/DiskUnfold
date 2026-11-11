@@ -1,6 +1,32 @@
 //! Conservative pre-open checks for offline and virtualized Windows entries.
 use super::{BUFFER_SIZE, error, invalid, raw};
 use du_core_contracts::ports::{PortError, PortErrorKind};
+use du_core_contracts::scan_observation::{ObservedEntry, ObservedKind, PlaceholderObservation};
+
+/// `observe` only succeeds after the enumeration and handle recall guards.
+pub(super) fn observation(entry: &ObservedEntry) -> Option<PlaceholderObservation> {
+    entry.metadata.as_ref().ok().and_then(|meta| {
+        (meta.kind == ObservedKind::File)
+            .then_some(PlaceholderObservation::WindowsNoRecallDataFlags)
+    })
+}
+
+pub(super) fn timed(
+    entry: ObservedEntry,
+    clock: &dyn Fn() -> Option<du_core_contracts::Timestamp>,
+) -> du_core_contracts::scan_observation::TimedObservedEntry {
+    let observed_at = if entry.metadata.is_ok() {
+        clock()
+    } else {
+        None
+    };
+    let placeholder_observation = observation(&entry);
+    du_core_contracts::scan_observation::TimedObservedEntry {
+        entry,
+        observed_at,
+        placeholder_observation,
+    }
+}
 use std::{
     fs::File,
     mem::{offset_of, size_of},

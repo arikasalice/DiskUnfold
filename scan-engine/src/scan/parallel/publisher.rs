@@ -90,6 +90,15 @@ impl Progress {
                     timed.observed_at.as_ref(),
                 )?;
                 if gap.is_none()
+                    && entry
+                        .metadata
+                        .as_ref()
+                        .is_ok_and(|meta| meta.kind == ObservedKind::File)
+                    && let Some(observation) = timed.placeholder_observation
+                {
+                    build.retain_placeholder_observation(root_index, &path, observation)?;
+                }
+                if gap.is_none()
                     && let Some(time) = &timed.observed_at
                 {
                     build.set_item_observed_at(root_index, &path, time.clone())?;

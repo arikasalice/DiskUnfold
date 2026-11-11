@@ -10,6 +10,8 @@ pub(crate) struct StoredObservation {
     pub(crate) modified_at: Option<Timestamp>,
     pub(crate) native_modified_at: Option<NativeModifiedTime>,
     pub(crate) enumerated_inode: Option<std::num::NonZeroU64>,
+    pub(crate) placeholder_observation:
+        Option<du_core_contracts::scan_observation::PlaceholderObservation>,
     pub(crate) observed_at: Option<Timestamp>,
 }
 

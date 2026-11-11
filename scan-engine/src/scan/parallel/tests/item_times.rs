@@ -83,6 +83,7 @@ impl DirectoryObservations for TimedRoot {
         Ok(TimedFilteredBatch::Entries(vec![TimedObservedEntry {
             entry,
             observed_at,
+            placeholder_observation: (name != b"missing").then_some(du_core_contracts::scan_observation::PlaceholderObservation::WindowsNoRecallDataFlags),
         }]))
     }
 }
@@ -187,6 +188,7 @@ fn injected_clock_is_recorded_at_fake_observation_not_publication()
     );
     assert_eq!(version.item_enumerated_inode(&reference(bad)), Ok(None));
     assert_missing_enumeration(&version)?;
+    assert_placeholder_evidence(&version)?;
     assert_ne!(
         version.item_observed_at(keep.item_no),
         version.observed_at()
@@ -247,10 +249,45 @@ fn assert_version_replacement(
         )
         .map_err(|e| format!("{e:?}"))?;
     assert!(replacement.item_enumerated_inode(item).is_err());
+    assert!(replacement.item_placeholder_observation(item).is_err());
     assert_eq!(
         version.item_enumerated_inode(item),
         Ok(std::num::NonZeroU64::new(7))
     );
+    assert_eq!(
+        version.item_placeholder_observation(item),
+        Ok(Some(
+            du_core_contracts::scan_observation::PlaceholderObservation::WindowsNoRecallDataFlags
+        ))
+    );
+    Ok(())
+}
+
+fn assert_placeholder_evidence(
+    version: &du_analysis_index::ResultVersion,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use du_core_contracts::scan_observation::PlaceholderObservation::WindowsNoRecallDataFlags;
+    for (name, expected) in [
+        (b"keep".as_slice(), Some(WindowsNoRecallDataFlags)),
+        (b"bad".as_slice(), None),
+        (b"foreign".as_slice(), None),
+        (b"missing".as_slice(), None),
+        (b"mismatch".as_slice(), None),
+    ] {
+        let item = version
+            .items()
+            .iter()
+            .find(|item| item.name == name)
+            .ok_or("missing item")?;
+        let reference = ItemRef {
+            result_version: version.version_id().clone(),
+            item_no: item.item_no,
+        };
+        assert_eq!(
+            version.item_placeholder_observation(&reference),
+            Ok(expected)
+        );
+    }
     Ok(())
 }
 
@@ -304,6 +341,11 @@ fn legacy_adapter_does_not_fabricate_item_time() -> Result<(), Box<dyn std::erro
         .find(|item| item.name == b"legacy")
         .ok_or("missing item")?;
     assert_eq!(version.item_observed_at(item.item_no), None);
+    let reference = ItemRef {
+        result_version: version.version_id().clone(),
+        item_no: item.item_no,
+    };
+    assert_eq!(version.item_placeholder_observation(&reference), Ok(None));
     Ok(())
 }
 

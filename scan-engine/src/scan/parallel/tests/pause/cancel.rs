@@ -36,6 +36,7 @@ impl DirectoryObservations for LateBatch {
                     }),
                 },
                 observed_at: Timestamp::parse("2026-01-02T03:04:05.000Z").ok(),
+                placeholder_observation: None,
             })
             .collect())
     }

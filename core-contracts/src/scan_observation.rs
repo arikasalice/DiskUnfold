@@ -18,6 +18,15 @@ pub enum FilteredBatch {
 pub struct TimedObservedEntry {
     pub entry: ObservedEntry,
     pub observed_at: Option<Timestamp>,
+    /// Historical metadata-only observation; never authorizes content access.
+    pub placeholder_observation: Option<PlaceholderObservation>,
+}
+
+/// Facts observed by the scan, not a current locality or no-recall guarantee.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PlaceholderObservation {
+    /// The Windows metadata handle did not report the known offline or recall-on-data flags.
+    WindowsNoRecallDataFlags,
 }
 
 impl From<ObservedEntry> for TimedObservedEntry {
@@ -25,6 +34,7 @@ impl From<ObservedEntry> for TimedObservedEntry {
         Self {
             entry,
             observed_at: None,
+            placeholder_observation: None,
         }
     }
 }

@@ -56,6 +56,29 @@ pub(crate) fn mark_gaps(
 }
 
 impl BuildHandle {
+    /// Retains historical metadata flags only for a same-volume matched item.
+    /// The observation is not a content-open authorization.
+    pub fn retain_placeholder_observation(
+        &mut self,
+        root: u32,
+        path: &[Vec<u8>],
+        value: du_core_contracts::scan_observation::PlaceholderObservation,
+    ) -> Result<(), BuildError> {
+        if self.finished {
+            return Err(BuildError::InvalidTree);
+        }
+        let item = self
+            .observations
+            .get_mut(&(root, path.to_vec()))
+            .ok_or(BuildError::InvalidTree)?;
+        if item.kind != ResultItemKind::File {
+            return Err(BuildError::InvalidTree);
+        }
+        if item.enumerated_inode.is_some() {
+            item.placeholder_observation = Some(value);
+        }
+        Ok(())
+    }
     /// Retains a matched enumeration discriminator only with same-root volume identity.
     ///
     /// The producer must compare enumeration and metadata from the same observation.
@@ -129,6 +152,7 @@ impl BuildHandle {
                 modified_at: None,
                 native_modified_at: None,
                 enumerated_inode: None,
+                placeholder_observation: None,
                 observed_at: None,
             },
         )
@@ -188,6 +212,7 @@ impl BuildHandle {
                 modified_at: None,
                 native_modified_at: None,
                 enumerated_inode: None,
+                placeholder_observation: None,
                 observed_at: None,
             },
         )
@@ -209,6 +234,7 @@ impl BuildHandle {
                 modified_at: None,
                 native_modified_at: None,
                 enumerated_inode: None,
+                placeholder_observation: None,
                 observed_at: None,
             },
         )
@@ -230,6 +256,7 @@ impl BuildHandle {
                 modified_at: None,
                 native_modified_at: None,
                 enumerated_inode: None,
+                placeholder_observation: None,
                 observed_at: None,
             },
         )
@@ -252,6 +279,7 @@ impl BuildHandle {
                 modified_at: None,
                 native_modified_at: None,
                 enumerated_inode: None,
+                placeholder_observation: None,
                 observed_at: None,
             },
         )
@@ -273,6 +301,7 @@ impl BuildHandle {
                 modified_at: None,
                 native_modified_at: None,
                 enumerated_inode: None,
+                placeholder_observation: None,
                 observed_at: None,
             },
         )

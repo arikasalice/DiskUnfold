@@ -27,6 +27,20 @@ pub struct ItemDetail<'a> {
 }
 
 impl ResultVersion {
+    /// Reads historical metadata flags, never a current locality guarantee.
+    pub fn item_placeholder_observation(
+        &self,
+        item: &ItemRef,
+    ) -> Result<Option<du_core_contracts::scan_observation::PlaceholderObservation>, QueryError>
+    {
+        let item_no = self.detail(item)?.item.item_no;
+        Ok(self
+            .placeholder_observations
+            .as_ref()
+            .and_then(|values| values.get(item_no as usize))
+            .copied()
+            .flatten())
+    }
     /// Returns retained enumeration identity for an item in this exact snapshot.
     /// Absence means the collector could not establish the required evidence.
     pub fn item_enumerated_inode(

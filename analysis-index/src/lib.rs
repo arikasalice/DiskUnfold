@@ -64,6 +64,8 @@ pub struct ResultVersion {
     native_modified_times:
         Option<Vec<Option<du_core_contracts::scan_observation::NativeModifiedTime>>>,
     enumerated_inodes: Option<Vec<Option<std::num::NonZeroU64>>>,
+    placeholder_observations:
+        Option<Vec<Option<du_core_contracts::scan_observation::PlaceholderObservation>>>,
     item_observed_times: Option<Vec<Option<Timestamp>>>,
     issues: Vec<du_core_contracts::scan_failures::ScanIssue>,
 }
@@ -106,11 +108,9 @@ impl IngestSink {
             .map_err(|_| BuildError::Unavailable)?
             .bind(fingerprint, candidate)
     }
-
     pub fn open(&self, scope_version_id: Id) -> Result<BuildHandle, BuildError> {
         self.begin(scope_version_id, Vec::new(), None)
     }
-
     /// Opens a build whose publications all retain the same verified root evidence.
     pub fn open_observed(
         &self,
@@ -119,7 +119,6 @@ impl IngestSink {
     ) -> Result<BuildHandle, BuildError> {
         self.begin(scope_version_id, vec![root], None)
     }
-
     /// Opens one build for actual roots in producer order, without a synthetic item.
     /// Root indices are zero-based positions in `roots` and stay fixed during the build.
     pub fn open_forest(
@@ -132,7 +131,6 @@ impl IngestSink {
         }
         self.begin(scope_version_id, roots, None)
     }
-
     /// Opens a forest in a previously bound current-analysis lineage.
     pub fn open_forest_in_lineage(
         &self,
@@ -145,7 +143,6 @@ impl IngestSink {
         }
         self.begin(scope_version_id, roots, Some(lineage))
     }
-
     fn begin(
         &self,
         scope_version_id: Id,
@@ -172,7 +169,6 @@ impl IngestSink {
         })
     }
 }
-
 /// Dropping or aborting an unfinished build withdraws its partial publications.
 pub struct BuildHandle {
     state: Arc<Mutex<State>>,
@@ -203,11 +199,11 @@ impl BuildHandle {
                 modified_at: None,
                 native_modified_at: None,
                 enumerated_inode: None,
+                placeholder_observation: None,
                 observed_at: None,
             },
         )
     }
-
     /// Adds a link whose target was not traversed; its unknown contribution propagates as missing.
     pub fn add_untraversed_link(&mut self, path: Vec<Vec<u8>>) -> Result<(), BuildError> {
         self.insert(
@@ -219,6 +215,7 @@ impl BuildHandle {
                 modified_at: None,
                 native_modified_at: None,
                 enumerated_inode: None,
+                placeholder_observation: None,
                 observed_at: None,
             },
         )
@@ -241,11 +238,11 @@ impl BuildHandle {
                 modified_at: None,
                 native_modified_at: None,
                 enumerated_inode: None,
+                placeholder_observation: None,
                 observed_at: None,
             },
         )
     }
-
     /// Adds a confirmed file even if its logical size could not be read.
     pub fn add_file(&mut self, observation: Observation) -> Result<(), BuildError> {
         self.insert(
@@ -257,6 +254,7 @@ impl BuildHandle {
                 modified_at: None,
                 native_modified_at: None,
                 enumerated_inode: None,
+                placeholder_observation: None,
                 observed_at: None,
             },
         )
@@ -276,11 +274,11 @@ impl BuildHandle {
                 modified_at: None,
                 native_modified_at: None,
                 enumerated_inode: None,
+                placeholder_observation: None,
                 observed_at: None,
             },
         )
     }
-
     fn insert(
         &mut self,
         path: Vec<Vec<u8>>,
@@ -288,7 +286,6 @@ impl BuildHandle {
     ) -> Result<(), BuildError> {
         self.insert_at(0, path, observation)
     }
-
     fn valid_root(&self, root_index: u32) -> bool {
         if self.roots.is_empty() {
             root_index == 0
@@ -420,6 +417,7 @@ impl BuildHandle {
             modified_times: built.modified_times,
             native_modified_times: built.native_modified_times,
             enumerated_inodes: built.enumerated_inodes,
+            placeholder_observations: built.placeholder_observations,
             item_observed_times: built.item_observed_times,
             issues: issues::ordered(&self.issues),
             aggregates,

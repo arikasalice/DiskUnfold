@@ -415,13 +415,7 @@ impl WindowsDirectory {
                 match include(&name) {
                     FilterDecision::Admit => {
                         let entry = self.observe(name, item.FileId as u64, item.FileAttributes);
-                        let observed_at = if entry.metadata.is_ok() {
-                            clock()
-                        } else {
-                            None
-                        };
-                        self.pending
-                            .push_back(TimedObservedEntry { entry, observed_at });
+                        self.pending.push_back(recall::timed(entry, clock));
                     }
                     FilterDecision::Exclude => {}
                     FilterDecision::Undecidable => {
