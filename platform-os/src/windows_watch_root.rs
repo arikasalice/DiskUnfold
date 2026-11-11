@@ -20,6 +20,30 @@ pub enum Error {
     Native(io::Error),
 }
 
+/// Evidence available after a root notification request has been submitted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct RegistrationEvidence {
+    /// The identity-checked root handle accepted a notification request.
+    pub root_registration: RootRegistration,
+    /// Recursive coverage has not been established by this root-only adapter.
+    pub recursive_scope: RecursiveScopeEvidence,
+}
+
+/// Whether the root request was accepted by the native notification API.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RootRegistration {
+    /// The initial overlapped request was successfully submitted.
+    Submitted,
+}
+
+/// Evidence about notification coverage below the registered root.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RecursiveScopeEvidence {
+    /// No recursive registration was requested or verified.
+    NotEstablished,
+}
+
 /// Holds the verified root and ancestors until the native request is reaped.
 pub struct RootWatch {
     native: NativeWatch,
@@ -56,6 +80,17 @@ impl RootWatch {
             }),
             Some(Completion::Cancelled) | None => None,
         })
+    }
+
+    /// Reports request registration separately from descendant coverage.
+    ///
+    /// This records the initial request acceptance. Later failures are reported
+    /// by `poll`. Descendant coverage remains unestablished.
+    pub fn registration_evidence(&self) -> RegistrationEvidence {
+        RegistrationEvidence {
+            root_registration: RootRegistration::Submitted,
+            recursive_scope: RecursiveScopeEvidence::NotEstablished,
+        }
     }
 
     /// Fences and reaps the request before releasing the held root identity.

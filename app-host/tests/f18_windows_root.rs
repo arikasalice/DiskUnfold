@@ -7,7 +7,10 @@ use du_engine_api::{
     watch_gap::{Ledger, Outcome},
     watch_source::deliver,
 };
-use du_platform_os::{windows_observation::WindowsScopeRoots, windows_watch_root::RootWatch};
+use du_platform_os::{
+    windows_observation::WindowsScopeRoots,
+    windows_watch_root::{RecursiveScopeEvidence, RootRegistration, RootWatch},
+};
 use std::{
     fs,
     os::windows::ffi::OsStrExt,
@@ -15,6 +18,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+/// Native root signals reach F33 while unverified descendant coverage stays open.
 #[test]
 fn actual_root_event_reaches_consumer() -> Result<(), Box<dyn std::error::Error>> {
     let temp = tempfile::tempdir()?;
@@ -31,6 +35,11 @@ fn actual_root_event_reaches_consumer() -> Result<(), Box<dyn std::error::Error>
     assert!(RootWatch::start(&path, &root.volume_id, &[0; 8]).is_err());
     let mut native_watch =
         RootWatch::start(&path, &root.volume_id, &root.file_id).map_err(|e| format!("{e:?}"))?;
+    let evidence = native_watch.registration_evidence();
+    assert_eq!(evidence.root_registration, RootRegistration::Submitted);
+    let uncovered = match evidence.recursive_scope {
+        RecursiveScopeEvidence::NotEstablished => vec![vec![]],
+    };
     let definition = Definition {
         watch_ref: [3; 16],
         scope_revision: [1; 16],
@@ -70,7 +79,7 @@ fn actual_root_event_reaches_consumer() -> Result<(), Box<dyn std::error::Error>
             1,
             &Registration::Acquired {
                 handle: 7,
-                uncovered: vec![vec![]],
+                uncovered,
             },
             2,
         )
@@ -82,6 +91,13 @@ fn actual_root_event_reaches_consumer() -> Result<(), Box<dyn std::error::Error>
     let snapshot = registry
         .incremental_snapshot([3; 16], 3)
         .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(snapshot.state, State::Degraded);
+    assert!(
+        snapshot
+            .gaps
+            .iter()
+            .any(|gap| { gap.reason == GapReason::PartialCapability && gap.end.is_none() })
+    );
     assert_eq!(
         consumer
             .apply_snapshot(&snapshot, &mut |_| Ok::<(), ()>(()))

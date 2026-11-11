@@ -12,8 +12,17 @@ use std::{
 fn scanned_root_reports_direct_change_and_stops() -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     let root = fixture.path().join("root");
+    let outside = fixture.path().join("outside");
     fs::create_dir(&root)?;
     fs::create_dir(root.join("child"))?;
+    fs::create_dir(&outside)?;
+    let status = std::process::Command::new("cmd.exe")
+        .current_dir(fixture.path())
+        .args(["/D", "/C", "mklink", "/J", "root\\redirect", "outside"])
+        .status()?;
+    if !status.success() {
+        return Err("could not create isolated directory junction".into());
+    }
     let native: Vec<u8> = root
         .as_os_str()
         .encode_wide()
@@ -26,13 +35,23 @@ fn scanned_root_reports_direct_change_and_stops() -> Result<(), Box<dyn std::err
     assert!(matches!(bad, Err(Error::Identity(e)) if e.kind == PortErrorKind::IdentityChanged));
     let mut watch =
         RootWatch::start(&root, &scan.volume_id, &scan.file_id).map_err(|e| format!("{e:?}"))?;
+    let evidence = watch.registration_evidence();
+    assert_eq!(
+        evidence.root_registration,
+        super::RootRegistration::Submitted
+    );
+    assert_eq!(
+        evidence.recursive_scope,
+        super::RecursiveScopeEvidence::NotEstablished
+    );
     assert!(fs::rename(&root, fixture.path().join("other")).is_err());
     fs::write(root.join("child").join("nested"), b"x")?;
+    fs::write(outside.join("target-change"), b"x")?;
     let until = Instant::now() + Duration::from_millis(200);
     while Instant::now() < until {
         assert!(
             watch.poll(1)?.is_none(),
-            "root-only watch reported a nested change"
+            "root-only watch reported a descendant or junction target change"
         );
         thread::sleep(Duration::from_millis(10));
     }
@@ -57,5 +76,6 @@ fn scanned_root_reports_direct_change_and_stops() -> Result<(), Box<dyn std::err
     ));
     watch.stop()?;
     fs::rename(&root, fixture.path().join("other"))?;
+    fs::remove_dir(fixture.path().join("other").join("redirect"))?;
     Ok(())
 }
