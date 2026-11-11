@@ -12,6 +12,7 @@ param(
   [switch]$VerifyPhysicalAccounting,
   [switch]$VerifyDeniedSubtree,
   [switch]$VerifyJunctionBoundary,
+  [switch]$VerifyReplacedScopeRoot,
   [switch]$VerifySettingsRestoration,
   [switch]$VerifyOperationHistory,
   [switch]$VerifyInspectionPathDisclosure,
@@ -814,6 +815,31 @@ function Test-JunctionBoundary {
     [IO.Directory]::Delete($junction)
   }
 }
+# A reviewed path must not admit a replacement directory with a different identity.
+function Test-ReplacedScopeRoot {
+  $scope = Join-Path $root 'replaced-scope'
+  $original = Join-Path $root 'reviewed-scope-original'
+  [IO.Directory]::CreateDirectory($scope) | Out-Null
+  [IO.File]::WriteAllBytes((Join-Path $scope 'original.bin'), [byte[]]::new(23))
+  Set-Scope $scope
+  Invoke-UI (Wait-Enabled 'Review scope' $true)
+  $null = Wait-Enabled 'Start scan' $true
+
+  [IO.Directory]::Move($scope, $original)
+  [IO.Directory]::CreateDirectory($scope) | Out-Null
+  [IO.File]::WriteAllBytes((Join-Path $scope 'replacement.bin'), [byte[]]::new(71))
+  Invoke-UI (Wait-Enabled 'Start scan' $true)
+  $null = Wait-UI 'replaced directory rejection' {
+    Find-UI 'The target or result changed. Review the scope again.' $textType
+  }
+  $null = Wait-Enabled 'Start scan' $false
+  if (Find-UI 'Cancel scan' $button) { throw 'The unreviewed replacement started a scan' }
+
+  Invoke-UI (Wait-Enabled 'Review scope' $true)
+  Invoke-UI (Wait-Enabled 'Start scan' $true)
+  $null = Wait-FinalLogicalSize '71 bytes'
+  'F01 native NTFS scope replacement: changed identity rejected; fresh review admitted the new 71-byte directory'
+}
 # Read the real committed scan history and return to the same pinned analysis.
 function Test-OperationHistory {
   Invoke-UI (Wait-VisibleAction 'Operation history')
@@ -858,6 +884,7 @@ try {
   if ($VerifyNativeFolderDrop) { Test-NativeFolderDrop }
   if ($VerifyDeniedSubtree) { Test-DeniedSubtree }
   if ($VerifyJunctionBoundary) { Test-JunctionBoundary }
+  if ($VerifyReplacedScopeRoot) { Test-ReplacedScopeRoot }
   if ($VerifySuspension) { Test-ScanSuspension $controlScope }
   if ($VerifyCancellation) { Test-ScanCancellation $controlScope }
   Set-Scope (Join-Path $root 'missing')
