@@ -50,7 +50,10 @@ const list: TargetList = {
   observedAt,
   unavailableReason: null,
 };
-function fixture(early: (emit: (event: EventEnvelope) => void) => void) {
+function fixture(
+  early: (emit: (event: EventEnvelope) => void) => void,
+  refreshResponse?: () => TargetList,
+) {
   let receive: (event: EventEnvelope) => void = () => undefined;
   const cancelled: unknown[] = [];
   const client: AnalysisClient = {
@@ -58,6 +61,9 @@ function fixture(early: (emit: (event: EventEnvelope) => void) => void) {
       if (name === "job.cancel") {
         cancelled.push(body);
         return;
+      }
+      if (refreshResponse && (body as { refresh: boolean }).refresh) {
+        return refreshResponse();
       }
       early((event) => receive(event));
       return list;
@@ -122,3 +128,29 @@ test.each([
     expect(cancelled).toEqual(finished ? [] : [{ jobRef: "probe" }]);
   },
 );
+
+test("F01 FR7: a failed refresh retains known observations and ends the checking state", async () => {
+  let attempts = 0;
+  const { result, list } = fixture(
+    (emit) => emit(probe(first, 4, "accessible")),
+    () => {
+      attempts += 1;
+      if (attempts === 1) throw new Error("Target listing failed");
+      return { ...list, probeJobRef: "next-probe" };
+    },
+  );
+  await waitFor(() => expect(result.current.list).toEqual(list));
+  expect(result.current.finished).toBe(false);
+  await act(() => result.current.refresh(true));
+  expect(result.current.list).toEqual(list);
+  expect(result.current.probes[first.raw]?.access).toBe("accessible");
+  expect(result.current.finished).toBe(true);
+  expect(result.current.loading).toBe(false);
+  expect(result.current.error).toBe("Target listing failed");
+
+  await act(() => result.current.refresh(true));
+  expect(result.current.list?.probeJobRef).toBe("next-probe");
+  expect(result.current.error).toBeUndefined();
+  expect(result.current.finished).toBe(false);
+  expect(result.current.probes).toEqual({});
+});

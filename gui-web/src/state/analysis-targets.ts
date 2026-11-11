@@ -104,7 +104,7 @@ export function useTargets(client: AnalysisClient) {
         }
         state.job = response.probeJobRef;
         state.highestSequence = 0;
-        state.finished = false;
+        state.finished = response.probeJobRef === null;
         state.targetSequences = new Map(
           response.targets.map(({ path }) => [path.raw, 0]),
         );
@@ -130,6 +130,9 @@ export function useTargets(client: AnalysisClient) {
       } catch (error) {
         if (state.request === request) {
           state.early = null;
+          state.finished = true;
+          // Keep the previous list usable without claiming its old probe is still checking.
+          setFinished(true);
           setError(
             error instanceof Error ? error.message : "Target listing failed",
           );
