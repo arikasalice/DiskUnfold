@@ -144,6 +144,7 @@ export function ScopeReviewFeedback({
 
 function scopeActionState({
   checkingDrop,
+  composing,
   reviewing,
   working,
   running,
@@ -151,6 +152,7 @@ function scopeActionState({
   startEnabled,
 }: {
   checkingDrop: boolean;
+  composing: boolean;
   reviewing: boolean;
   working: boolean;
   running: boolean;
@@ -161,9 +163,11 @@ function scopeActionState({
   const starting = working && !running;
   return {
     starting,
-    reviewDisabled: reviewing || working || running || !reviewEnabled,
+    reviewDisabled:
+      composing || reviewing || working || running || !reviewEnabled,
     reviewPending: reviewing || (checkingDrop && !blocked && reviewEnabled),
-    startDisabled: reviewing || (!startEnabled && !starting && !running),
+    startDisabled:
+      composing || reviewing || (!startEnabled && !starting && !running),
     startPending:
       starting || running || (checkingDrop && !blocked && startEnabled),
   };
@@ -172,6 +176,7 @@ function scopeActionState({
 export function ScopeActions({
   reviewButton,
   checkingDrop,
+  composing,
   reviewing,
   working,
   running,
@@ -184,6 +189,7 @@ export function ScopeActions({
 }: {
   reviewButton: Ref<HTMLButtonElement>;
   checkingDrop: boolean;
+  composing: boolean;
   reviewing: boolean;
   working: boolean;
   running: boolean;
@@ -202,6 +208,7 @@ export function ScopeActions({
     startPending,
   } = scopeActionState({
     checkingDrop,
+    composing,
     reviewing,
     working,
     running,

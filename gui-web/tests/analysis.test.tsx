@@ -709,6 +709,23 @@ test("F01 FR4.HD1.gui-web.DD1: settled path edits auto-review without moving foc
     ).toMatchObject({
       draft: { includes: [windowsPath("C:\\漢字")] },
     });
+    const start = screen.getByRole<HTMLButtonElement>("button", {
+      name: "Start scan",
+    });
+    await waitFor(() => expect(start.disabled).toBe(false));
+
+    fireEvent.compositionStart(input);
+    expect(start.disabled).toBe(true);
+    expect(
+      screen.getByRole<HTMLButtonElement>("button", { name: "Review scope" })
+        .disabled,
+    ).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel selection" }));
+    expect(input.value).toBe("");
+    fireEvent.change(input, { target: { value: path.display } });
+    await waitFor(() => expect(start.disabled).toBe(false));
+    expect(calls.filter(({ name }) => name === "scope.review")).toHaveLength(2);
+    expect(calls.some(({ name }) => name === "scan.start")).toBe(false);
   } finally {
     if (originalScrollIntoView) {
       Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {

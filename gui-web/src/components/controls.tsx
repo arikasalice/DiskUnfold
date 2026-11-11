@@ -105,6 +105,7 @@ export function PathField({
         autoComplete="off"
         onCompositionStart={() => onCompositionChange?.(true)}
         onCompositionEnd={() => onCompositionChange?.(false)}
+        onBlur={() => onCompositionChange?.(false)}
       />
       <Text slot="description" aria-live="polite">
         {description}

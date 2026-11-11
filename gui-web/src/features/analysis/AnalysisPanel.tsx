@@ -281,13 +281,16 @@ export function AnalysisPanel({
     [editPaths],
   );
   const removePath = useCallback(
-    (index: number) =>
-      editPaths((current) => current.filter((_, i) => i !== index)),
+    (index: number) => {
+      setPathComposing(false);
+      editPaths((current) => current.filter((_, i) => i !== index));
+    },
     [editPaths],
   );
 
   function cancelSelection() {
     if (working || running) return;
+    setPathComposing(false);
     editPaths(() => [undefined]);
     setReviewedScope(undefined);
     targets.cancel();
@@ -313,6 +316,7 @@ export function AnalysisPanel({
           setEditorOpen(true);
         }
         if ("path" in drop) {
+          setPathComposing(false);
           setReviewedScope(undefined);
           choose(drop.path);
           setDropMessage({
@@ -338,7 +342,7 @@ export function AnalysisPanel({
         reviewing,
         working,
         running,
-        Boolean(pendingDrop.current),
+        Boolean(pendingDrop.current) || pathComposing,
         selected,
       )
     )
@@ -430,7 +434,13 @@ export function AnalysisPanel({
   }, [pathComposing, reviewedScope, selected]);
 
   async function start() {
-    if (scanBlocksDrop.current || pendingDrop.current || reviewing) return;
+    if (
+      scanBlocksDrop.current ||
+      pendingDrop.current ||
+      reviewing ||
+      pathComposing
+    )
+      return;
     if (
       !canStart(reviewedScope) ||
       !reviewedInputIsCurrent ||
@@ -564,6 +574,7 @@ export function AnalysisPanel({
             <ScopeActions
               reviewButton={reviewButton}
               checkingDrop={checkingDrop}
+              composing={pathComposing}
               reviewing={reviewing}
               working={working}
               running={running}
