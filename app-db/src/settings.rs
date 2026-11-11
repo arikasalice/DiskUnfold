@@ -70,6 +70,14 @@ impl AppDb {
         if (from, to) != (1, SETTINGS_SCHEMA_VERSION) {
             return Err(SettingsStoreError::Conflict);
         }
+        let observed: u32 = self.connection.query_row("SELECT schema_version FROM user_env_setting_version WHERE version_key = 'settings'", [], |row| row.get(0)).map_err(store_error)?;
+        if observed != from {
+            return if observed >= to {
+                Ok(false)
+            } else {
+                Err(SettingsStoreError::Conflict)
+            };
+        }
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -85,7 +93,11 @@ impl AppDb {
         if to != from.checked_add(1).ok_or(SettingsStoreError::Storage)? {
             return Err(SettingsStoreError::Conflict);
         }
-        tx.execute("UPDATE user_env_setting_version SET schema_version = ?1 WHERE version_key = 'settings' AND schema_version = ?2", params![to, from]).map_err(store_error)?;
+        let changed = tx.execute("UPDATE user_env_setting_version SET schema_version = ?1 WHERE version_key = 'settings' AND schema_version = ?2", params![to, from]).map_err(store_error)?;
+        let actual: u32 = tx.query_row("SELECT schema_version FROM user_env_setting_version WHERE version_key = 'settings'", [], |row| row.get(0)).map_err(store_error)?;
+        if changed != 1 || actual != to {
+            return Err(SettingsStoreError::Conflict);
+        }
         tx.commit().map_err(store_error)?;
         Ok(true)
     }

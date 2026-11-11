@@ -151,6 +151,34 @@ fn gui_startup_transitions_legacy_settings_and_reports_migration()
 }
 
 #[test]
+fn current_schema_restores_while_another_connection_holds_write_lock()
+-> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("locked-current.db");
+    seed(&path, 200_000)?;
+    let database = test_database(&path)?;
+    let lock = Connection::open(&path)?;
+    lock.execute_batch("BEGIN IMMEDIATE;")?;
+    let service = restore_settings(&database, 100, &["en", "ko"])?;
+    assert!(!service.restore_status().write_locked);
+    assert!(!service.restore_status().migrated);
+    assert_eq!(
+        restore_shared_table_limit(service.snapshot()).map(|v| v.entries()),
+        Some(200_000)
+    );
+    lock.execute_batch("ROLLBACK;")?;
+    lock.execute_batch("UPDATE user_env_setting_version SET schema_version=3; BEGIN IMMEDIATE;")?;
+    let newer = restore_settings(&database, 100, &["en", "ko"])?;
+    assert!(newer.restore_status().write_locked);
+    assert_eq!(
+        newer.restore_status().failure_reason,
+        Some("settings.schema_newer")
+    );
+    lock.execute_batch("ROLLBACK;")?;
+    Ok(())
+}
+
+#[test]
 fn failed_logical_transition_starts_locked_on_defaults_without_touching_rows()
 -> Result<(), Box<dyn std::error::Error>> {
     let dir = tempfile::tempdir()?;

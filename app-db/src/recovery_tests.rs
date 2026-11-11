@@ -57,6 +57,30 @@ fn concurrent_empty_transitions_apply_once() -> Result<(), Box<dyn std::error::E
 }
 
 #[test]
+fn ignored_or_rewritten_schema_update_is_rolled_back() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempfile::tempdir()?;
+    let mut db = AppDb::create_gui(&dir.path().join("ignored.db")).map_err(|e| format!("{e:?}"))?;
+    db.connection.execute_batch(
+        "UPDATE user_env_setting_version SET schema_version=1,settings_version=7;
+        INSERT INTO user_env_setting VALUES ('future.key','3','owner',1,2,3);",
+    )?;
+    for trigger in [
+        "CREATE TRIGGER prevent BEFORE UPDATE OF schema_version ON user_env_setting_version BEGIN SELECT RAISE(IGNORE); END;",
+        "CREATE TRIGGER prevent AFTER UPDATE OF schema_version ON user_env_setting_version WHEN NEW.schema_version=2 BEGIN UPDATE user_env_setting_version SET schema_version=1 WHERE version_key='settings'; END;",
+    ] {
+        db.connection.execute_batch(trigger)?;
+        assert_eq!(
+            db.advance_empty_settings_schema(1, 2),
+            Err(SettingsStoreError::Conflict)
+        );
+        let state: (i64, i64, i64) = db.connection.query_row("SELECT schema_version,settings_version,(SELECT count(*) FROM user_env_setting) FROM user_env_setting_version", [], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?)))?;
+        assert_eq!(state, (1, 7, 1));
+        db.connection.execute_batch("DROP TRIGGER prevent;")?;
+    }
+    Ok(())
+}
+
+#[test]
 fn empty_schema_transition_preserves_rows_revision_and_rolls_back_on_failure()
 -> Result<(), Box<dyn std::error::Error>> {
     let dir = tempfile::tempdir()?;
