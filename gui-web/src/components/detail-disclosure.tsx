@@ -20,12 +20,16 @@ export function DetailDisclosure({
       <Action
         variant="quiet"
         aria-expanded={expanded}
-        aria-controls={expanded ? contentId : undefined}
+        {...(expanded ? { "aria-controls": contentId } : {})}
         onPress={() => setExpanded((value) => !value)}
       >
         <span aria-hidden="true">{expanded ? "−" : "+"}</span> {title}
       </Action>
-      {expanded && <div id={contentId} className="du-detail-disclosure__content">{children}</div>}
+      {expanded && (
+        <div id={contentId} className="du-detail-disclosure__content">
+          {children}
+        </div>
+      )}
     </section>
   );
 }
