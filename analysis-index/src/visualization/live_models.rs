@@ -83,37 +83,24 @@ fn guard_group_size_range(
     group: &mut GroupRows,
     cancelled: &mut Option<&mut dyn FnMut() -> bool>,
 ) -> bool {
-    let (min, max) = match &group.size_range {
-        SizeRange::Known { min, max } => (Some(min), Some(max)),
-        SizeRange::Unknown => (None, None),
+    let SizeRange::Known { min, max } = &group.size_range else {
+        // No member traversal is needed when the producer has no range claim.
+        return false;
     };
-    let expected_basis = min.map(|bound| &bound.basis);
+    let expected_basis = &min.basis;
     let mut observed_min = None;
     let mut observed_max = None;
-    let (low, high) = match (min, max) {
-        (Some(min), Some(max)) => (exact_bytes(min), exact_bytes(max)),
-        _ => (None, None),
-    };
-    let mut valid = match (min, max, low, high) {
-        (Some(min), Some(max), Some(low), Some(high)) => {
-            min.basis == max.basis
-                && min.basis == group.total.basis
-                && min.evidence != SizeEvidence::Unknown
-                && max.evidence != SizeEvidence::Unknown
-                && low <= high
-        }
-        _ => false,
-    };
-    if min.is_some() && group.rows.is_empty() {
-        valid = false;
-    }
+    let (low, high) = (exact_bytes(min), exact_bytes(max));
+    let mut valid = min.basis == max.basis
+        && min.basis == group.total.basis
+        && min.evidence != SizeEvidence::Unknown
+        && max.evidence != SizeEvidence::Unknown
+        && matches!((low, high), (Some(low), Some(high)) if low <= high)
+        && !group.rows.is_empty();
     for row in &group.rows {
         if cancelled.as_mut().is_some_and(|check| check()) {
             return true;
         }
-        let Some(expected_basis) = expected_basis else {
-            continue;
-        };
         if row.size.basis != *expected_basis || row.size.evidence == SizeEvidence::Unknown {
             valid = false;
             continue;
