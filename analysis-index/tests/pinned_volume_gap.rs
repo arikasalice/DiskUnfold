@@ -140,12 +140,17 @@ fn selected_volume_deduplicates_and_excludes_other_volume_missing() -> Result<()
         report.volume_report_unavailable_reason,
         Some("space.volume_report_unavailable")
     );
+    assert_eq!(
+        report.gap.factors[3].value,
+        FactorValue::Exact {
+            bytes: 10,
+            evidence: SizeEvidence::Measured,
+        }
+    );
     assert!(
-        report
-            .gap
-            .factors
-            .iter()
-            .all(|r| matches!(r.value, FactorValue::Unknown { .. }))
+        report.gap.factors.iter().all(|row| {
+            row.key == "gap.dedup" || matches!(row.value, FactorValue::Unknown { .. })
+        })
     );
     let other = version
         .volume_gap(VolumeGapTarget::Volume(&[2]))
@@ -155,6 +160,10 @@ fn selected_volume_deduplicates_and_excludes_other_volume_missing() -> Result<()
         SizeAmount::LowerBound { bytes: 10.into() }
     );
     assert_eq!(other.gap.remainder, Err(RemainderUnavailable::InexactInput));
+    assert!(matches!(
+        other.gap.factors[3].value,
+        FactorValue::Unknown { .. }
+    ));
     Ok(())
 }
 #[test]
@@ -172,6 +181,13 @@ fn root_binding_rejects_other_versions_nonroots_and_unknown_volume_selection() -
         root.allocated.amount,
         SizeAmount::Exact { bytes: 10.into() }
     );
+    assert_eq!(
+        root.gap.factors[3].value,
+        FactorValue::Exact {
+            bytes: 0,
+            evidence: SizeEvidence::Measured,
+        }
+    );
     let unknown = ItemRef {
         result_version: id(2)?,
         item_no: 3,
@@ -180,6 +196,10 @@ fn root_binding_rejects_other_versions_nonroots_and_unknown_volume_selection() -
         .volume_gap(VolumeGapTarget::Root(&unknown))
         .map_err(|e| format!("{e:?}"))?;
     assert_eq!(root.volume_id, None);
+    assert!(matches!(
+        root.gap.factors[3].value,
+        FactorValue::Unknown { .. }
+    ));
     assert_eq!(
         root.gap.remainder,
         Err(RemainderUnavailable::VolumeReportUnavailable)

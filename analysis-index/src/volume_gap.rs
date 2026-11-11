@@ -249,8 +249,18 @@ impl crate::ResultVersion {
             .get(roots[0] as usize)
             .ok_or(crate::QueryError::PathUnavailable)?
             .clone();
-        crate::physical::selected_scope(self, &roots, completeness, &mut aggregate);
-        let gap = VolumeGap::calculate(used, &aggregate.allocated, &BTreeMap::new());
+        let dedup = crate::physical::selected_scope(self, &roots, completeness, &mut aggregate);
+        let mut observed = BTreeMap::new();
+        if let Some(bytes) = dedup.filter(|_| volume_id.is_some()) {
+            observed.insert(
+                Factor::Dedup,
+                FactorValue::Exact {
+                    bytes,
+                    evidence: SizeEvidence::Measured,
+                },
+            );
+        }
+        let gap = VolumeGap::calculate(used, &aggregate.allocated, &observed);
         Ok(PinnedVolumeGap {
             result_version: self.version_id.clone(),
             volume_id,

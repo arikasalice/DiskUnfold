@@ -320,7 +320,20 @@ function Test-PhysicalAccounting {
       if ($logical -ne 2MB -or $allocated -ne $singleAllocated) {
         throw "Hardlink totals differed: logical $logical, allocated $allocated, single allocation $singleAllocated"
       }
+      Invoke-UI (Wait-Enabled 'Explain volume usage' $true)
+      Wait-Details 'Observation and difference details' 'Deduplicated allocation'
+      $raw = $allocated.ToString('N0', [Globalization.CultureInfo]::InvariantCulture)
+      $null = Wait-UI 'measured hardlink deduplication in volume difference' {
+        $details = Find-UI 'Volume difference' $null
+        if ($details) {
+          $details.FindAll($scopeTree, [Windows.Automation.Condition]::TrueCondition) |
+            Where-Object { $_.Current.Name -like "*$raw bytes · Measured" } |
+            Select-Object -First 1
+        }
+      }
+      Invoke-UI (Wait-Enabled 'Hide volume explanation' $true)
       "F03 native NTFS hardlinks: logical $logical bytes across two paths; allocated $allocated bytes once"
+      "F03 native volume difference: deduplicated allocation $allocated bytes (Measured)"
     }
   }
 }

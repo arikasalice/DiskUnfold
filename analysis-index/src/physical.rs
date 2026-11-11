@@ -79,14 +79,14 @@ impl Physical {
             insertions: 0,
         }
     }
-    fn observe(&mut self, input: Option<&SpaceObservation>) {
+    fn observe(&mut self, input: Option<&SpaceObservation>) -> Option<u64> {
         let Some(input) = input else {
             self.missing = true;
-            return;
+            return None;
         };
         if input.link_count == Some(0) {
             self.missing = true;
-            return;
+            return None;
         }
         let value = input
             .allocated
@@ -110,21 +110,29 @@ impl Physical {
             });
         let Some(value) = value else {
             self.missing = true;
-            return;
+            return None;
         };
         match &input.identity {
             Some(identity) if !identity.volume.is_empty() && !identity.file.is_empty() => {
-                self.insert(identity.clone(), Some(value))
+                let per_path = (!value.lower).then_some(value.bytes);
+                self.insert(identity.clone(), Some(value));
+                per_path
             }
             _ => {
                 self.missing = true;
                 self.identity_missing = true;
+                None
             }
         }
     }
 
     /// Reads a file observation only when its identity agrees with its root evidence.
-    pub(crate) fn observe_pinned(&mut self, result: &crate::ResultVersion, index: usize) {
+    /// Returns its exact per-path allocation before identity deduplication.
+    pub(crate) fn observe_pinned(
+        &mut self,
+        result: &crate::ResultVersion,
+        index: usize,
+    ) -> Option<u64> {
         let observed = result
             .physical
             .as_ref()
@@ -137,7 +145,7 @@ impl Physical {
                 })
             })
         });
-        self.observe(if consistent { observed } else { None });
+        self.observe(if consistent { observed } else { None })
     }
 
     /// Finalizes a set total without treating missing attributes as partial matches.
@@ -378,20 +386,22 @@ pub(crate) fn scope_total(
     for item in items {
         let index = item.item_no as usize;
         if !structures[index] {
-            sum.observe(observations.and_then(|values| values[index].as_ref()));
+            let _ = sum.observe(observations.and_then(|values| values[index].as_ref()));
         }
     }
     sum.finish(completeness, output);
 }
 
-/// Reuses the same identity table for a sorted set of root observations.
+/// Reuses the same identity table for a sorted set of root observations and
+/// returns the exact difference from counting each path separately, if known.
 pub(crate) fn selected_scope(
     result: &crate::ResultVersion,
     roots: &[u32],
     completeness: ResultCompleteness,
     output: &mut SpaceAggregate,
-) {
+) -> Option<u64> {
     let mut sum = Physical::with_limit(result.shared_table_limit);
+    let mut per_path = 0u128;
     for (index, item) in result.items.iter().enumerate() {
         if roots.binary_search(&result.root_indices[index]).is_ok()
             && !matches!(
@@ -399,11 +409,17 @@ pub(crate) fn selected_scope(
                 du_core_contracts::result::ResultItemKind::Directory
                     | du_core_contracts::result::ResultItemKind::UnknownStructure
             )
+            && let Some(bytes) = sum.observe_pinned(result, index)
         {
-            sum.observe_pinned(result, index);
+            per_path += u128::from(bytes);
         }
     }
     sum.finish(completeness, output);
+    let SizeAmount::Exact { bytes } = &output.allocated.amount else {
+        return None;
+    };
+    let allocated = bytes.as_str().parse::<u64>().ok()?;
+    u64::try_from(per_path).ok()?.checked_sub(allocated)
 }
 
 pub(crate) fn apply(
@@ -434,7 +450,7 @@ pub(crate) fn apply(
     for item in items.iter().rev() {
         let index = item.item_no as usize;
         if !structures[index] {
-            sums[index]
+            let _ = sums[index]
                 .get_or_insert_with(|| Box::new(Physical::with_limit(limit)))
                 .observe(observations[index].as_ref());
         }

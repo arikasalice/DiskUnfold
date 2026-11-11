@@ -40,7 +40,7 @@ pub(crate) fn sum(
         complete &= row.kind == ResultItemKind::File;
         if complete && seen.insert(row.item_no) {
             logical.observe(row.size.as_ref());
-            physical.observe_pinned(version, row.item_no as usize);
+            let _ = physical.observe_pinned(version, row.item_no as usize);
         }
     }
     if cancelled() {
