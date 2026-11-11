@@ -5,6 +5,7 @@ import {
   DetailDisclosure,
   GeometryRenderer,
   Notice,
+  Progress,
   Readout,
   StatusBadge,
   Text,
@@ -22,6 +23,8 @@ import type { VizText } from "./model-text";
 type ModelViewProps = {
   frame: ModelResponse;
   page?: ModelRowsPage;
+  /** Supplied only while this exact row request is in flight. */
+  pendingRowsRequest?: VizRowsRequest;
   view: Pick<VizRenderRequest, "viewport" | "visibleWindow">;
   selected: VizSelection | null;
   onSelect: (selection: VizSelection) => void;
@@ -32,6 +35,9 @@ type ModelViewProps = {
 /** A committed model only. Request ordering and last-valid-model retention belong to its controller. */
 export function VisualizationModelPresenter(props: ModelViewProps) {
   const { frame, page, view, selected, text } = props;
+  const rowsPending =
+    props.pendingRowsRequest?.modelRef === frame.model.modelRef &&
+    props.pendingRowsRequest.resultRevision === frame.resultRevision;
   const adapted = useMemo(
     () =>
       adaptVizModel(frame, page, (shape, row) =>
@@ -39,7 +45,7 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
       ),
     [frame, page, text],
   );
-  const rows =
+  const rowsContent =
     adapted.rowsMatch && page ? (
       <ModelRows
         page={page}
@@ -47,9 +53,15 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
         text={text}
         {...(props.onPage ? { onPage: props.onPage } : {})}
       />
-    ) : (
-      <Notice>Rows from this graph are not available yet.</Notice>
+    ) : rowsPending ? null : (
+      <Notice>Rows have not been retrieved for this graph.</Notice>
     );
+  const rows = (
+    <>
+      {rowsPending && <Progress label="Loading rows from this graph" />}
+      {rowsContent}
+    </>
+  );
   if (!adapted.validTargets)
     return (
       <Notice tone="error">
@@ -96,8 +108,8 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
           shapes={adapted.shapes}
           relations={adapted.relations}
           selectedRowRef={selected ? selectionKey(selected, frame) : null}
-          onSelect={(key) => {
-            const selection = adapted.targets.get(key);
+          onSelect={(_rowKey, shapeRef) => {
+            const selection = adapted.targetsByShape.get(shapeRef);
             if (selection) props.onSelect(selection);
           }}
           fallback={{

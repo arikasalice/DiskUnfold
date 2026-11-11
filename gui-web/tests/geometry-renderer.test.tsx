@@ -149,9 +149,9 @@ test("graph pointer and keyboard alternative select the same source row", () => 
   const input = props();
   const { container } = render(<GeometryRenderer {...input} />);
   fireEvent.click(container.querySelector(".du-geometry-shape rect")!);
-  expect(input.onSelect).toHaveBeenLastCalledWith("row-a");
+  expect(input.onSelect).toHaveBeenLastCalledWith("row-a", "one");
   fireEvent.click(screen.getByRole("button", { name: "Item A, 10 bytes" }));
-  expect(input.onSelect).toHaveBeenLastCalledWith("row-a");
+  expect(input.onSelect).toHaveBeenLastCalledWith("row-a", "one");
   expect(container.querySelector(".du-geometry-label")?.textContent).toContain(
     "…",
   );

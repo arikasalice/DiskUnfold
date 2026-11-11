@@ -63,7 +63,9 @@ test.each([
     const adapted = adapt(input);
     expect(adapted.rowsMatch).toBe(false);
     expect(adapted.rows).toEqual([]);
-    expect(adapted.shapes[0]!.displayLabel).toContain("Item details loading");
+    expect(adapted.shapes[0]!.displayLabel).toContain(
+      "Item name not yet retrieved",
+    );
     expect(adapted.shapes[0]!.geometry).toBe(
       input.frame.model.shapes[0]!.geometry,
     );
@@ -77,7 +79,7 @@ test("group selection stays model scoped and never selects its constituent files
   shape.groupRef = "small-items";
   delete shape.shapeRef;
   const adapted = adapt(input);
-  const selection = adapted.targets.get(adapted.shapes[0]!.rowRef)!;
+  const selection = adapted.targetsByShape.get(adapted.shapes[0]!.shapeRef)!;
   expect(selection).toEqual({
     kind: "group",
     groupRef: "small-items",
@@ -97,7 +99,7 @@ test("identical names do not merge item selection and another revision is never 
   const a = adapted.shapes[0]!.rowRef;
   const b = adapted.shapes[1]!.rowRef;
   expect(a).not.toBe(b);
-  const selected = adapted.targets.get(a)!;
+  const selected = adapted.targetsByShape.get(adapted.shapes[0]!.shapeRef)!;
   input.frame.resultRevision = "new-result";
   expect(selectionKey(selected, input.frame)).toBeNull();
 });
@@ -246,4 +248,126 @@ test("page navigation retains the exact model and result revision", () => {
   fireEvent.click(screen.getByRole("button", { name: "Rows from this graph" }));
   fireEvent.click(screen.getByRole("button", { name: "Next rows" }));
   expect(onPage).toHaveBeenCalledWith({ ...input.page.request, start: 4 });
+});
+
+test("a loaded page does not imply that names of shapes outside the page are loading", () => {
+  const input = modelFixture();
+  input.page.response.rows = input.page.response.rows.slice(0, 2);
+  input.page.request.count = 2;
+  const adapted = adapt(input);
+  expect(adapted.rowsMatch).toBe(true);
+  expect(adapted.shapes[2]!.displayLabel).toBe(
+    "Item name not yet retrieved · 17179869184 bytes · measured",
+  );
+  expect(adapted.shapes[2]!.geometry).toBe(
+    input.frame.model.shapes[2]!.geometry,
+  );
+  render(
+    <VisualizationModelPresenter
+      {...input}
+      view={view}
+      selected={null}
+      onSelect={vi.fn()}
+      text={fixtureText}
+    />,
+  );
+  expect(screen.queryByRole("progressbar")).toBeNull();
+  expect(
+    screen.getAllByRole("button", { name: /Item name not yet retrieved/ }),
+  ).toHaveLength(2);
+});
+
+test("row progress requires an explicit in-flight request for this model and revision", () => {
+  const input = modelFixture();
+  const props = {
+    frame: input.frame,
+    view,
+    selected: null,
+    onSelect: vi.fn(),
+    text: fixtureText,
+  };
+  const { rerender } = render(<VisualizationModelPresenter {...props} />);
+  expect(screen.queryByRole("progressbar")).toBeNull();
+  rerender(
+    <VisualizationModelPresenter
+      {...props}
+      pendingRowsRequest={input.page.request}
+    />,
+  );
+  expect(
+    screen.getByRole("progressbar", { name: "Loading rows from this graph" }),
+  ).toBeDefined();
+  rerender(
+    <VisualizationModelPresenter
+      {...props}
+      pendingRowsRequest={{ ...input.page.request, resultRevision: "old" }}
+    />,
+  );
+  expect(screen.queryByRole("progressbar")).toBeNull();
+  rerender(
+    <VisualizationModelPresenter
+      {...props}
+      pendingRowsRequest={{ ...input.page.request, modelRef: "old-model" }}
+    />,
+  );
+  expect(screen.queryByRole("progressbar")).toBeNull();
+});
+
+test("repeated item shapes select their own evidence by pointer and keyboard while sharing the highlight", () => {
+  const input = modelFixture();
+  const first = input.frame.model.shapes[0]!;
+  const second = input.frame.model.shapes[1]!;
+  second.itemRef = first.itemRef;
+  second.size = first.size;
+  first.matchKey = { state: "unknown", reasonKey: "first-shape-evidence" };
+  second.matchKey = { state: "unknown", reasonKey: "second-shape-evidence" };
+  const select = vi.fn();
+  const props = {
+    ...input,
+    view,
+    selected: null,
+    onSelect: select,
+    text: fixtureText,
+  };
+  const { container, rerender } = render(
+    <VisualizationModelPresenter {...props} />,
+  );
+  const shapes = container.querySelectorAll(".du-geometry-shape rect");
+  fireEvent.click(shapes[0]!);
+  expect(select).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      itemRef: first.itemRef,
+      matchKey: first.matchKey,
+    }),
+  );
+  fireEvent.click(shapes[1]!);
+  expect(select).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      itemRef: second.itemRef,
+      matchKey: second.matchKey,
+    }),
+  );
+  // React Aria's keyboard press path must carry the same per-shape reference.
+  const buttons = screen.getAllByRole("button", { name: /^영상 ·/ });
+  buttons[0]!.focus();
+  fireEvent.keyDown(buttons[0]!, { key: "Enter", code: "Enter" });
+  fireEvent.keyUp(buttons[0]!, { key: "Enter", code: "Enter" });
+  expect(select).toHaveBeenLastCalledWith(
+    expect.objectContaining({ matchKey: first.matchKey }),
+  );
+  rerender(
+    <VisualizationModelPresenter
+      {...props}
+      selected={{
+        kind: "item",
+        itemRef: first.itemRef!,
+        matchKey: first.matchKey,
+        resultRevision: input.frame.resultRevision,
+        modelRef: input.frame.model.modelRef,
+      }}
+    />,
+  );
+  expect(
+    container.querySelectorAll('.du-geometry-shape[data-selected="true"]'),
+  ).toHaveLength(2);
 });

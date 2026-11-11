@@ -46,7 +46,7 @@ export type GeometryRendererProps = {
   shapes: readonly Shape[];
   relations: readonly Relation[];
   selectedRowRef: string | null;
-  onSelect: (rowRef: string) => void;
+  onSelect: (rowRef: string, shapeRef: string) => void;
   fallback: Fallback;
 };
 
@@ -309,7 +309,7 @@ export function GeometryRenderer(props: GeometryRendererProps) {
                 controls.current
                   .get(shape.shapeRef)
                   ?.focus({ preventScroll: true });
-                props.onSelect(shape.rowRef);
+                props.onSelect(shape.rowRef, shape.shapeRef);
               }}
               data-selected={
                 shape.rowRef === props.selectedRowRef ? "true" : undefined
@@ -330,7 +330,7 @@ export function GeometryRenderer(props: GeometryRendererProps) {
               else controls.current.delete(shape.shapeRef);
             }}
             aria-label={`${shape.accessibleLabel}${shape.rowRef === props.selectedRowRef ? `, ${props.selectedText}` : ""}`}
-            onPress={() => props.onSelect(shape.rowRef)}
+            onPress={() => props.onSelect(shape.rowRef, shape.shapeRef)}
           >
             {shape.displayLabel ?? shape.accessibleLabel}
           </Action>

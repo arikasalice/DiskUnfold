@@ -76,12 +76,16 @@ export function adaptVizModel(
   const rowsMatch = page !== undefined && matchingRowsPage(frame, page);
   const rows = rowsMatch ? page.response.rows : [];
   const rowByTarget = new Map(rows.map((row) => [targetKey(row), row]));
-  const targets = new Map<string, VizSelection>();
+  const targetsByShape = new Map<string, VizSelection>();
   const wireShapeKey = (ref: string) => JSON.stringify(["shape", ref]);
   let validTargets = true;
   const shapes: GeometryRendererProps["shapes"] = frame.model.shapes.map(
     (shape, index) => {
       const key = targetKey(shape);
+      const shapeRef =
+        shape.shapeRef === undefined
+          ? JSON.stringify(["flat", index])
+          : wireShapeKey(shape.shapeRef);
       if (
         !key ||
         (shape.itemRef && shape.itemRef.resultVersion !== frame.resultRevision)
@@ -93,14 +97,14 @@ export function adaptVizModel(
           resultRevision: frame.resultRevision,
         };
         if (shape.itemRef) {
-          targets.set(key, {
+          targetsByShape.set(shapeRef, {
             ...base,
             kind: "item",
             itemRef: shape.itemRef,
             matchKey: shape.matchKey,
           });
         } else if (shape.groupRef !== null) {
-          targets.set(key, {
+          targetsByShape.set(shapeRef, {
             ...base,
             kind: "group",
             groupRef: shape.groupRef,
@@ -108,10 +112,7 @@ export function adaptVizModel(
         }
       }
       return {
-        shapeRef:
-          shape.shapeRef === undefined
-            ? JSON.stringify(["flat", index])
-            : wireShapeKey(shape.shapeRef),
+        shapeRef,
         rowRef: key ?? "",
         geometry: shape.geometry,
         ...describe(shape, key ? rowByTarget.get(key) : undefined),
@@ -126,5 +127,5 @@ export function adaptVizModel(
         ? {}
         : { geometry: relation.geometry }),
     }));
-  return { shapes, relations, targets, rows, rowsMatch, validTargets };
+  return { shapes, relations, targetsByShape, rows, rowsMatch, validTargets };
 }

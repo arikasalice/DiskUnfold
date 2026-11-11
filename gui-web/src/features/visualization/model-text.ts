@@ -39,7 +39,7 @@ export function shapeLabels(
     (entry) => entry.key === shape.legendClassKey,
   );
   const denominator = row?.denominator ?? model.denominator;
-  const name = row?.displayName ?? "Item details loading";
+  const name = row?.displayName ?? "Item name not yet retrieved";
   const value = shape.quantity
     ? text.quantity(shape.quantity)
     : text.size(shape.size);
