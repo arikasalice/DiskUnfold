@@ -2,6 +2,85 @@ use super::*;
 use std::{cell::Cell, fs, os::windows::ffi::OsStrExt};
 
 #[test]
+fn ntfs_duplicated_handle_observation_does_not_disturb_scan_batches_in_fixture()
+-> Result<(), Box<dyn std::error::Error>> {
+    use std::{collections::BTreeSet, sync::mpsc, time::Duration};
+    let temp = tempfile::tempdir()?;
+    let target = temp.path().join("scan");
+    fs::create_dir(&target)?;
+    let mut expected = BTreeSet::new();
+    for index in 0..600 {
+        let name = format!("entry-{index:04}");
+        fs::write(target.join(&name), b"x")?;
+        expected.insert(
+            name.encode_utf16()
+                .flat_map(u16::to_le_bytes)
+                .collect::<Vec<_>>(),
+        );
+    }
+    let raw = target
+        .as_os_str()
+        .encode_wide()
+        .flat_map(u16::to_le_bytes)
+        .collect::<Vec<_>>();
+    let (mut root, probe) = WindowsScopeRoots
+        .open_with_recent_probe(&raw)
+        .map_err(|e| format!("{e:?}"))?;
+    let probe = probe.map_err(|e| format!("{e:?}"))?;
+    let expected_volume = root.volume_id.clone();
+    let expected_file = root.file_id.clone();
+    let (request_tx, request_rx) = mpsc::channel();
+    let (progress_tx, progress_rx) = mpsc::channel();
+    let worker = std::thread::spawn(move || {
+        let stop = AtomicBool::new(false);
+        while request_rx.recv().is_ok() {
+            let result = match probe.observe(&stop) {
+                ProbeOutcome::Observed(evidence)
+                    if evidence.volume_id == expected_volume
+                        && evidence.file_id == expected_file =>
+                {
+                    Ok(())
+                }
+                other => Err(format!("unexpected probe result: {other:?}")),
+            };
+            if progress_tx.send(result).is_err() {
+                break;
+            }
+        }
+    });
+    let mut received = BTreeSet::new();
+    let mut batches = 0usize;
+    loop {
+        let entries = root
+            .directory
+            .next_batch()
+            .map_err(|error| format!("{error:?}"))?;
+        if entries.is_empty() {
+            break;
+        }
+        batches += 1;
+        for item in entries {
+            assert!(received.insert(item.name), "duplicate scan entry");
+        }
+        // Exercise handle observation between successive scan batches.
+        request_tx.send(())?;
+        progress_rx.recv_timeout(Duration::from_secs(10))??;
+    }
+    drop(request_tx);
+    worker.join().map_err(|_| "worker panic")?;
+    assert_eq!(received, expected);
+    assert!(
+        batches > 1,
+        "fixture did not exercise multiple scan batches"
+    );
+    eprintln!(
+        "NTFS fixture: {} entries, {batches} scan batches and probe observations",
+        received.len()
+    );
+    Ok(())
+}
+
+#[test]
 fn ntfs_same_handle_probe_preserves_scan_and_rejects_replaced_path()
 -> Result<(), Box<dyn std::error::Error>> {
     let temp = tempfile::tempdir()?;
