@@ -248,6 +248,7 @@ dependencies = [
  "blake3",
  "du-analysis-index",
  "du-core-contracts",
+ "du-duplicate-engine",
  "du-job-runtime",
  "du-scan-engine",
  "serde",

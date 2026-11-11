@@ -15,5 +15,8 @@ serde.workspace = true
 serde_json.workspace = true
 uuid = { workspace = true, features = ["v7"] }
 
+[dev-dependencies]
+du-duplicate-engine = { version = "0.1.0", path = "../duplicate-engine" }
+
 [lints]
 workspace = true
