@@ -78,9 +78,11 @@ fn replacement_keeps_old_pins_and_publishes_once_after_seal() -> Result<(), Stri
     ));
     assert_eq!(old.version_id(), &id(42)?);
     assert_eq!(old.origin(), "scan");
+    assert_eq!(old.base_version_id(), None);
     assert_eq!(old.items().len(), 1);
     assert_eq!(new.version_id(), &id(43)?);
     assert_eq!(new.origin(), "incremental");
+    assert_eq!(new.base_version_id(), Some(&id(42)?));
     let notices = notices.0.lock().map_err(|_| "notice lock poisoned")?;
     assert_eq!(notices.len(), 2);
     assert_eq!(notices[1].body.change, ResultVersionChange::Published);

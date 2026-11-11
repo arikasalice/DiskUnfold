@@ -44,13 +44,16 @@ mod volume_reports;
 pub use volume_reports::{VolumeReport, VolumeReportPoint};
 mod observation;
 mod observation_range;
+mod origin;
 pub use observation::Observation;
 use observation::StoredObservation;
 pub use observation_range::ObservationRange;
+use origin::ResultOrigin;
 #[derive(Debug)]
 pub struct ResultVersion {
     version_id: Id,
     origin: ResultOrigin,
+    base_version_id: Option<Id>,
     viz_models: Mutex<visualization::live_models::OwnedModels>,
     scope_version_id: Id,
     lineage_id: Option<Id>,
@@ -79,19 +82,6 @@ pub struct ResultVersion {
         Option<Vec<Option<du_core_contracts::scan_observation::PlaceholderObservation>>>,
     item_observed_times: Option<Vec<Option<Timestamp>>>,
     issues: Vec<du_core_contracts::scan_failures::ScanIssue>,
-}
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum ResultOrigin {
-    Scan,
-    Incremental,
-}
-impl ResultOrigin {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::Scan => "scan",
-            Self::Incremental => "incremental",
-        }
-    }
 }
 /// A single publication point. Readers retain their snapshot after releasing the lock.
 #[derive(Clone, Default)]
@@ -431,6 +421,7 @@ impl BuildHandle {
         let result = Arc::new(ResultVersion {
             version_id,
             origin: self.origin,
+            base_version_id: self.expected_base.clone(),
             viz_models: Mutex::default(),
             scope_version_id: self.scope_version_id.clone(),
             lineage_id: self.lineage.clone(),

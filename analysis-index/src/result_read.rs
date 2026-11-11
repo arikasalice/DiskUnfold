@@ -32,6 +32,11 @@ impl ResultVersion {
         self.origin.as_str()
     }
 
+    /// Returns the exact result version used as the base for an incremental result.
+    pub fn base_version_id(&self) -> Option<&Id> {
+        self.base_version_id.as_ref()
+    }
+
     /// Returns the identity of the aggregation implementation used for this pinned result.
     pub fn size_rule(&self) -> crate::SizeRuleIdentity {
         self.size_rule.identity()
