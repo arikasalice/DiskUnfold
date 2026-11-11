@@ -18,6 +18,7 @@ import type {
   BrowseDetail,
   BrowseOpenRequest,
   BrowseOpenResponse,
+  DisplayPreferences,
   EventEnvelope,
   ScanFailures,
   ScanFailuresRequest,
@@ -65,6 +66,7 @@ function fixture({
   suspendJob,
   readFailures,
   readVolume,
+  readPreferences,
   lineageId,
 }: {
   stale?: boolean;
@@ -91,6 +93,7 @@ function fixture({
   readVolume?: (
     request: VolumeGapRequest,
   ) => VolumeGapResponse | Promise<VolumeGapResponse>;
+  readPreferences?: () => DisplayPreferences | Promise<DisplayPreferences>;
   lineageId?: string;
 } = {}) {
   const listeners = new Set<(event: EventEnvelope) => void>();
@@ -99,6 +102,16 @@ function fixture({
     call: (async (name: string, body: unknown) => {
       calls.push({ name, body });
       switch (name) {
+        case "space.display_preferences":
+          return (
+            readPreferences?.() ?? {
+              settingsRevision: "0",
+              unitSystem: "iec",
+              unit: "auto",
+              defaultBasis: "logical",
+              warningKey: null,
+            }
+          );
         case "target.list":
           if (earlyProbe)
             for (const listener of listeners) listener(earlyProbe);
@@ -586,7 +599,6 @@ test("F01–F03: reviewed scope starts a scan and reads its pinned partial resul
   await waitFor(() => expect(start.disabled).toBe(false));
   fireEvent.click(start);
   expect(await screen.findByText("At least 42 bytes")).toBeDefined();
-  expect(screen.getByText("Unavailable")).toBeDefined();
   expect(
     screen.getByText("Result version: Final with scan gaps"),
   ).toBeDefined();
@@ -594,10 +606,13 @@ test("F01–F03: reviewed scope starts a scan and reads its pinned partial resul
   expect(
     logical.getByText("Incomplete measurement · Reported by the file system"),
   ).toBeDefined();
-  const allocated = within(
-    screen.getByRole("group", { name: "Allocated size" }),
-  );
-  expect(allocated.getByText("Incomplete measurement")).toBeDefined();
+  expect(screen.queryByRole("group", { name: "Allocated size" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Measurement details" }));
+  expect(
+    within(screen.getByLabelText("Measurement details")).getByText(
+      /Unavailable · Incomplete measurement/,
+    ),
+  ).toBeDefined();
   const coverage = within(screen.getByLabelText("Coverage limits"));
   expect(
     coverage.getByText("Missing items").nextElementSibling?.textContent,
@@ -701,7 +716,7 @@ test("F03: changing size display does not request another result", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Measurement details" }));
   expect(
     within(screen.getByLabelText("Measurement details")).getByText(
-      "At least 1,023 bytes",
+      /At least 1,023 bytes · Incomplete measurement/,
     ),
   ).toBeDefined();
   fireEvent.change(screen.getByRole("combobox", { name: "Size unit" }), {
@@ -729,6 +744,66 @@ test("F03: changing size display does not request another result", async () => {
     screen.getByRole<HTMLSelectElement>("combobox", { name: "Size basis" })
       .value,
   ).toBe("allocated");
+});
+
+test("F03 IF-18: new preferences change presentation without replacing the pinned scan", async () => {
+  let resolveOld!: (value: DisplayPreferences) => void;
+  const old = new Promise<DisplayPreferences>((resolve) => {
+    resolveOld = resolve;
+  });
+  const newer: DisplayPreferences = {
+    settingsRevision: "9007199254740993",
+    unitSystem: "si",
+    unit: "kB",
+    defaultBasis: "logical",
+    warningKey: "settings.value_reset",
+  };
+  const readPreferences = vi
+    .fn<() => Promise<DisplayPreferences>>()
+    .mockReturnValueOnce(old)
+    .mockResolvedValue(newer);
+  const { client, calls, listeners } = fixture({ readPreferences });
+  render(<App analysis={client} />);
+  fireEvent.click(await screen.findByRole("radio", { name: path.display }));
+  fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
+  const start = screen.getByRole<HTMLButtonElement>("button", {
+    name: "Start scan",
+  });
+  await waitFor(() => expect(start.disabled).toBe(false));
+  fireEvent.click(start);
+  const allocated = await screen.findByRole("group", {
+    name: "Allocated size",
+  });
+  expect(within(allocated).getByText("Unavailable")).toBeDefined();
+  expect(screen.queryByRole("group", { name: "Logical size" })).toBeNull();
+  act(() => {
+    for (const listener of listeners) {
+      listener({
+        topic: "settings.changed",
+        contractVersion: 1,
+        seq: 1,
+        occurredAt: timestamp,
+        body: {},
+      });
+    }
+  });
+  expect(await screen.findByText("Logical size · SI · kB")).toBeDefined();
+  expect(screen.getByText(/Some display preferences/)).toBeDefined();
+  await act(async () =>
+    resolveOld({
+      ...newer,
+      settingsRevision: "9007199254740992",
+      unitSystem: "iec",
+      unit: "auto",
+      defaultBasis: "allocated",
+      warningKey: null,
+    }),
+  );
+  expect(screen.getByText("Logical size · SI · kB")).toBeDefined();
+  expect(
+    screen.getByText("Result version: Final with scan gaps"),
+  ).toBeDefined();
+  expect(calls.filter(({ name }) => name === "space.total")).toHaveLength(1);
 });
 
 test("F01: stale scope disables start and requires review again", async () => {

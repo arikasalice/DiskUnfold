@@ -25,6 +25,7 @@ import {
 } from "./AnalysisActions";
 import { ScanOutput } from "./AnalysisViews";
 import { TargetPicker } from "./TargetPicker";
+import type { AnalysisDisplayPreferences } from "./use-display-preferences";
 
 function errorText(error: unknown): string {
   if (error instanceof AnalysisError && error.code === "STALE_VERSION") {
@@ -70,10 +71,12 @@ function canStart(
 /** Presents target selection, scope review, background collection and pinned totals. */
 export function AnalysisPanel({
   client,
+  preferences,
   onBrowse,
   browseTrigger,
 }: {
   client: AnalysisClient;
+  preferences: AnalysisDisplayPreferences;
   onBrowse?: (version: string) => void;
   browseTrigger?: Ref<HTMLButtonElement>;
 }) {
@@ -396,6 +399,7 @@ export function AnalysisPanel({
           >
             <ScanOutput
               client={client}
+              preferences={preferences}
               scan={scan}
               started={receipt !== null}
               running={running}

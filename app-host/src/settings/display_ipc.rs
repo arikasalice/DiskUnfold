@@ -78,7 +78,7 @@ impl UseCase for DisplayPreferencesQuery {
             })
             .or(units.warning);
         Ok(DisplayPreferences {
-            settings_revision: revision.into(),
+            settings_revision: revision.to_string(),
             unit_system: system,
             unit: units.unit.to_owned(),
             default_basis: basis,

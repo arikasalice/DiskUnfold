@@ -9,7 +9,7 @@ export type SizeDisplay = {
 
 export const windowsSizeDisplay: SizeDisplay = { system: "iec", unit: "auto" };
 
-export type SizeBasisFilter = "all" | SizeValue["basis"];
+export type SizeBasisFilter = SizeValue["basis"];
 export const sizeLabels = {
   logical: "Logical size",
   allocated: "Allocated size",

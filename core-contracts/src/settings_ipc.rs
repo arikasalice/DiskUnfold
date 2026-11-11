@@ -33,7 +33,7 @@ pub enum DisplayUnitSystem {
 #[serde(rename_all = "camelCase")]
 pub struct DisplayPreferences {
     /// Canonical decimal representation of the settings revision.
-    pub settings_revision: crate::ByteSize,
+    pub settings_revision: String,
     /// Selected unit system.
     pub unit_system: DisplayUnitSystem,
     /// Automatic selection or a symbol supported by the selected system.
@@ -110,7 +110,7 @@ mod tests {
     fn display_preferences_revision_and_required_null_warning_serialize()
     -> Result<(), serde_json::Error> {
         let response = DisplayPreferences {
-            settings_revision: u64::MAX.into(),
+            settings_revision: u64::MAX.to_string(),
             unit_system: DisplayUnitSystem::Iec,
             unit: "auto".into(),
             default_basis: crate::SizeBasis::UniquePhysical,

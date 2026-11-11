@@ -4,7 +4,7 @@ export type DisplayPreferences = {
 /**
  * Canonical decimal representation of the settings revision.
  */
-settingsRevision: ByteSize,
+settingsRevision: string,
 /**
  * Selected unit system.
  */

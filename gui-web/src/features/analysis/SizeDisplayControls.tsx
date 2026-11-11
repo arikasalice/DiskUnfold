@@ -4,7 +4,6 @@ import { sizeLabels } from "./space-format";
 import type { SizeBasisFilter, SizeDisplay } from "./space-format";
 
 const basisOptions = [
-  { value: "all", label: "All measures" },
   { value: "logical", label: sizeLabels.logical },
   { value: "allocated", label: sizeLabels.allocated },
   { value: "unique_physical", label: sizeLabels.unique_physical },

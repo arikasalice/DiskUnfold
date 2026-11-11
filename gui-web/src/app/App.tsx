@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Action, BrandMark, Heading, LiveStatus, Text } from "../components";
 import { AnalysisPanel } from "../features/analysis/AnalysisPanel";
 import { FileInspection } from "../features/analysis/FileInspection";
+import { useDisplayPreferences } from "../features/analysis/use-display-preferences";
 import { BrowsePanel } from "../features/browse/BrowsePanel";
 import { HistoryPanel } from "../features/history/HistoryPanel";
 import { SettingsRestoration } from "../features/settings/SettingsRestoration";
@@ -14,6 +15,7 @@ const desktop = createAnalysisClient();
 
 export function App({ analysis }: { analysis?: AnalysisClient } = {}) {
   const client = analysis ?? (hasWindowsAnalysisBridge() ? desktop : undefined);
+  const preferences = useDisplayPreferences(client);
   const [connectionChecks, setConnectionChecks] = useState(0);
   const [history, setHistory] = useState(false);
   const [browseVersion, setBrowseVersion] = useState<string>();
@@ -95,6 +97,7 @@ export function App({ analysis }: { analysis?: AnalysisClient } = {}) {
         <div className="du-analysis-slot" hidden={!analysisOpen}>
           <AnalysisPanel
             client={client}
+            preferences={preferences}
             onBrowse={setBrowseVersion}
             browseTrigger={browseTrigger}
           />
@@ -122,6 +125,7 @@ export function App({ analysis }: { analysis?: AnalysisClient } = {}) {
                 client={client}
                 item={item}
                 itemKind={kind}
+                display={preferences.display}
               />
             )}
           />

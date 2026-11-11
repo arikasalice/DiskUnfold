@@ -107,14 +107,45 @@ function Wait-Details($name, $contentName) {
   }
   if ($ready -is [Windows.Automation.AutomationElement]) { Expand-UI $ready }
 }
+# Read all observed bases through the result's comparison disclosure.
+function Find-MeasurementDetails($basis) {
+  $toggle = Find-UI 'Measurement details' $button
+  if (-not $toggle) { return }
+  $pattern = $null
+  if ($toggle.TryGetCurrentPattern([Windows.Automation.ExpandCollapsePattern]::Pattern, [ref]$pattern) -and
+      $pattern.Current.ExpandCollapseState -eq [Windows.Automation.ExpandCollapseState]::Collapsed) {
+    $pattern.Expand()
+  }
+  $window.FindAll($scopeTree, [Windows.Automation.Condition]::TrueCondition) |
+    Where-Object { $_.Current.Name -eq 'Measurement details' -and $_.Current.ControlType -ne $button -and (Find-UI $basis $textType $_) } |
+    Select-Object -First 1
+}
+function Get-MeasurementNames($details, $basis) {
+  $names = @($details.FindAll($scopeTree, [Windows.Automation.Condition]::TrueCondition) |
+    ForEach-Object { $_.Current.Name })
+  $labels = @('Logical size', 'Allocated size', 'Unique physical size')
+  $start = [Array]::IndexOf($names, $basis)
+  for ($index = $start + 1; $index -lt $names.Count; $index++) {
+    $value = $names[$index]
+    if ($value -ne $basis -and $value -in $labels) { break }
+    $value
+  }
+}
+function Find-LogicalSize($expected) {
+  $metric = Find-UI 'Logical size' ([Windows.Automation.ControlType]::Group)
+  if ($metric) { return Find-UI $expected $textType $metric }
+  $details = Find-MeasurementDetails 'Logical size'
+  if ($details -and ((Get-MeasurementNames $details 'Logical size') -like "$expected · *")) {
+    return $details
+  }
+}
 # Wait for the expected total, selecting a newer result if the interim one stays pinned.
 function Wait-FinalLogicalSize($expected, $versionLabel = 'Final') {
   $selection = @{ LastSwitch = [DateTime]::MinValue }
   Wait-UI "final logical size $expected" {
     if (-not (Find-UI 'Scan finished' $textType)) { return }
-    $metric = Find-UI 'Logical size' ([Windows.Automation.ControlType]::Group)
-    if ($metric -and (Find-UI $versionLabel $textType)) {
-      $value = Find-UI $expected $textType $metric
+    if (Find-UI $versionLabel $textType) {
+      $value = Find-LogicalSize $expected
       if ($value) { return $value }
     }
     $latest = Find-UI 'Show latest result' $button
@@ -246,39 +277,12 @@ function Test-ScaledFileInspection {
   Invoke-UI (Wait-Enabled 'Browse folders' $true)
   Test-FileInspection 'scaled.bin' '1.1 KiB · 1,100 bytes'
 }
-# Read the original count only from a complete result metric, regardless of IEC rounding.
+# Read the original count only from a complete result observation, regardless of IEC rounding.
 function Read-CompleteSize($basis) {
-  $metric = Wait-UI "$basis result metric" {
-    Find-UI $basis ([Windows.Automation.ControlType]::Group)
-  }
-  $names = @($metric.FindAll($scopeTree, [Windows.Automation.Condition]::TrueCondition) |
-    ForEach-Object { $_.Current.Name })
-  if (-not ($names -cmatch '^Complete measurement(?:\s*·|$)')) {
+  $details = Wait-UI "$basis result measurement" { Find-MeasurementDetails $basis }
+  $names = @(Get-MeasurementNames $details $basis)
+  if (-not ($names -cmatch '(?:^| · )Complete measurement(?: · |$)')) {
     throw "$basis was not complete: $($names -join ' / ')"
-  }
-  if (Find-UI 'Measurement details' $button) {
-    $details = Wait-UI 'expanded exact measurement details' {
-      $toggle = Find-UI 'Measurement details' $button
-      $pattern = $null
-      if ($toggle.TryGetCurrentPattern([Windows.Automation.ExpandCollapsePattern]::Pattern, [ref]$pattern) -and
-          $pattern.Current.ExpandCollapseState -eq [Windows.Automation.ExpandCollapseState]::Collapsed) {
-        $pattern.Expand()
-      }
-      $window.FindAll($scopeTree, [Windows.Automation.Condition]::TrueCondition) |
-        Where-Object { $_.Current.Name -eq 'Measurement details' -and $_.Current.ControlType -ne $button -and (Find-UI $basis $textType $_) } |
-        Select-Object -First 1
-    }
-    $measurements = @($details.FindAll($scopeTree, [Windows.Automation.Condition]::TrueCondition) |
-      ForEach-Object { $_.Current.Name })
-    $labels = @('Logical size', 'Allocated size', 'Unique physical size')
-    $start = [Array]::IndexOf($measurements, $basis)
-    $names = @(
-      for ($index = $start + 1; $index -lt $measurements.Count; $index++) {
-        $value = $measurements[$index]
-        if ($value -ne $basis -and $value -in $labels) { break }
-        $value
-      }
-    )
   }
   foreach ($part in ($names -split '·')) {
     if ($part.Trim() -match '^(?<bytes>[0-9][0-9,\.\p{Zs}]*) bytes$') {
@@ -628,9 +632,11 @@ try {
   Invoke-UI (Wait-Enabled 'Start scan' $true)
   $null = Wait-UI 'Scan finished' { Find-UI 'Scan finished' $textType }
   $null = Wait-UI 'Result version: Final' { Find-UI 'Final' $textType }
+  $null = Wait-UI 'allocated size as the default result metric' {
+    Find-UI 'Allocated size' ([Windows.Automation.ControlType]::Group)
+  }
   $null = Wait-UI '18-byte logical total' {
-    $metric = Find-UI 'Logical size' ([Windows.Automation.ControlType]::Group)
-    if ($metric) { Find-UI '18 bytes' $textType $metric }
+    Find-LogicalSize '18 bytes'
   }
   'F02/F03 native scan: Scan finished, Result version: Final, 18 bytes'
   if ($VerifyOperationHistory) { Test-OperationHistory }
@@ -642,19 +648,17 @@ try {
   Invoke-UI (Wait-VisibleAction 'Cancel selection')
   $null = Wait-UI 'discarded scope and retained final total' {
     $field = Find-UI 'Windows folder path' $edit
-    $metric = Find-UI 'Logical size' ([Windows.Automation.ControlType]::Group)
-    if ($field -and $metric -and (Find-UI 'Final' $textType) -and
+    if ($field -and (Find-UI 'Final' $textType) -and
         $field.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern).Current.Value -eq '') {
-      Find-UI '18 bytes' $textType $metric
+      Find-LogicalSize '18 bytes'
     }
   }
   $null = Wait-Enabled 'Start scan' $false
   'F01 native selection cancellation: discarded reviewed scope and retained the final 18-byte result'
   Invoke-UI (Wait-VisibleAction 'Close target editor')
   $null = Wait-UI 'target editor closed with the result still visible' {
-    $metric = Find-UI 'Logical size' ([Windows.Automation.ControlType]::Group)
-    if ($metric -and -not (Find-UI 'Windows folder path' $edit)) {
-      Find-UI '18 bytes' $textType $metric
+    if (-not (Find-UI 'Windows folder path' $edit)) {
+      Find-LogicalSize '18 bytes'
     }
   }
   'F01–F03 native reanalysis: opened and closed target editing without replacing the pinned result'

@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { App } from "../src/app/App";
+import { createAnalysisClient } from "../src/ipc";
 
 const bridge = vi.hoisted(() => ({ available: false }));
 vi.mock("../src/ipc", async (importOriginal) => ({
@@ -63,7 +64,9 @@ test("each keyboard recheck updates the status and retains focus", () => {
 });
 
 test("an explicitly injected client takes precedence over missing native bridge", () => {
-  const client = {} as import("../src/ipc").AnalysisClient;
+  const client = createAnalysisClient(async () => {
+    throw new Error("Injected transport");
+  });
   render(<App analysis={client} />);
   expect(screen.getByText("Connected analysis")).toBeTruthy();
   expect(screen.queryByText("Desktop connection unavailable")).toBeNull();

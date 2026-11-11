@@ -23,12 +23,12 @@ import { VolumeExplanation } from "./VolumeExplanation";
 import {
   displayMeasurement,
   displayMeasurementLimit,
-  displayRawSize,
   displaySize,
+  displaySizeWithBytes,
   sizeLabels,
-  windowsSizeDisplay,
 } from "./space-format";
 import type { SizeBasisFilter, SizeDisplay } from "./space-format";
+import type { AnalysisDisplayPreferences } from "./use-display-preferences";
 import "../../theme/analysis-results.css";
 
 const resultVersionLabels = {
@@ -58,6 +58,7 @@ function Coverage({ total }: { total: SpaceTotal }) {
 /** Shows only totals from the scan's pinned result, with basis and coverage kept separate. */
 export function ScanOutput({
   client,
+  preferences,
   scan,
   started,
   running,
@@ -67,6 +68,7 @@ export function ScanOutput({
   actions,
 }: {
   client: AnalysisClient;
+  preferences: AnalysisDisplayPreferences;
   scan: ReturnType<typeof useScanResult>;
   started: boolean;
   running: boolean;
@@ -111,7 +113,12 @@ export function ScanOutput({
           />
         )}
         {scan.total ? (
-          <PinnedResult client={client} total={scan.total} roots={roots} />
+          <PinnedResult
+            client={client}
+            total={scan.total}
+            roots={roots}
+            preferences={preferences}
+          />
         ) : running ? (
           <Text kind="muted">
             {scan.status?.state === "paused"
@@ -318,24 +325,24 @@ function PinnedResult({
   client,
   total,
   roots,
+  preferences,
 }: {
   client: AnalysisClient;
   total: SpaceTotal;
   roots: readonly OsPath[];
+  preferences: AnalysisDisplayPreferences;
 }) {
-  const [display, setDisplay] = useState(windowsSizeDisplay);
-  const [basis, setBasis] = useState<SizeBasisFilter>("all");
-  const sizes = total.sizes.filter(
-    ({ size }) => basis === "all" || size.basis === basis,
-  );
-  const lead = sizes.find(({ size }) => size.basis === "logical") ?? sizes[0];
-  const supporting = sizes.filter((entry) => entry !== lead);
+  const [displayChoice, setDisplay] = useState<SizeDisplay>();
+  const [basisChoice, setBasis] = useState<SizeBasisFilter>();
+  const display = displayChoice ?? preferences.display;
+  const basis = basisChoice ?? preferences.basis;
+  const lead = total.sizes.find(({ size }) => size.basis === basis);
   const unit =
     display.unit === "auto"
       ? "Automatic"
       : (SIZE_UNIT_RULES[display.system].symbols[display.unit] ??
         "Unavailable");
-  const basisLabel = basis === "all" ? "All measures" : sizeLabels[basis];
+  const basisLabel = sizeLabels[basis];
   return (
     <div className="du-results">
       <Readout
@@ -348,37 +355,40 @@ function PinnedResult({
         ]}
       />
       <div className="du-metrics">
-        {(lead ? [lead, ...supporting] : supporting).map(
-          ({ size, completeness }) => {
-            const value = displaySize(size, display);
-            return (
-              <Metric
-                key={size.basis}
-                label={sizeLabels[size.basis]}
-                detail={displayMeasurement(size, completeness)}
-              >
-                {value}
-              </Metric>
-            );
-          },
-        )}
+        <Metric
+          label={basisLabel}
+          detail={
+            lead ? displayMeasurement(lead.size, lead.completeness) : undefined
+          }
+        >
+          {lead ? displaySize(lead.size, display) : "Unavailable"}
+        </Metric>
       </div>
       <Coverage total={total} />
       <DetailDisclosure title="Measurement details">
         <Readout
           label="Measurement details"
-          rows={sizes.map(({ size, measurementLimits }) => ({
-            label: sizeLabels[size.basis],
-            value: [
-              displayRawSize(size) ?? "Unavailable",
-              ...measurementLimits.map(displayMeasurementLimit),
-            ].join(" · "),
-          }))}
+          rows={total.sizes.map(
+            ({ size, completeness, measurementLimits }) => ({
+              label: sizeLabels[size.basis],
+              value: [
+                displaySizeWithBytes(size, display),
+                displayMeasurement(size, completeness),
+                ...measurementLimits.map(displayMeasurementLimit),
+              ].join(" · "),
+            }),
+          )}
         />
       </DetailDisclosure>
       <Text kind="muted">
         {basisLabel} · {display.system.toUpperCase()} · {unit}
       </Text>
+      {preferences.warning && (
+        <Notice>
+          Some display preferences could not be restored. Using the available
+          settings and defaults.
+        </Notice>
+      )}
       <DetailDisclosure title="Display options">
         <SizeDisplayControls
           basis={basis}
