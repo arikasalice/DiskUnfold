@@ -63,6 +63,8 @@ function rowIndex(target: Element | null): number | undefined {
 
 function guardedKeys(handler: ComponentProps<"div">["onKeyDown"]) {
   return (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.target instanceof Element && event.target.closest("button"))
+      return;
     if (
       !gridKeys.has(event.key) ||
       (canHandleBrowseKey(event) && !event.altKey)
@@ -155,7 +157,8 @@ export function BrowseGrid<Item>({
     if (
       !gridKeys.has(event.key) ||
       !(event.target instanceof Element) ||
-      !event.currentTarget.contains(event.target)
+      !event.currentTarget.contains(event.target) ||
+      event.target.closest("button")
     )
       return;
     const index = rowIndex(event.target);

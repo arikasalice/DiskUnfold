@@ -11,6 +11,17 @@
   min-inline-size: 0;
   flex: 1;
 }
+.du-item-actions--row {
+  padding: 0;
+  border: 0;
+  gap: 2px;
+  align-items: center;
+}
+.du-item-actions--row > .du-action:last-child {
+  flex: none;
+  min-inline-size: 32px;
+  padding-inline: 4px;
+}
 .du-item-menu {
   max-block-size: min(70dvh, var(--available-height, 70dvh));
   overflow-y: auto;

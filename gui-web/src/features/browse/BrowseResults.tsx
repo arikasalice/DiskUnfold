@@ -1,6 +1,14 @@
-import { Action, BrowseGrid, LiveStatus, Notice, Text } from "../../components";
+import {
+  Action,
+  BrowseGrid,
+  ItemActions,
+  LiveStatus,
+  Notice,
+  Text,
+} from "../../components";
 import type {
   FolderQueryRow,
+  BrowseCopyPathOutcome,
   ItemRef,
   QueryPageRequest,
   QueryPageResponse,
@@ -10,6 +18,7 @@ import { browseDisplayName, rowKey } from "./browse-display";
 import { formatByteUnit } from "../../i18n/bytes";
 import { SIZE_UNIT_RULES } from "../../ipc";
 import { useBrowsePaging } from "./use-browse-paging";
+import { useBrowseCopy } from "./use-browse-copy";
 
 const columns = [
   "Name",
@@ -58,6 +67,7 @@ export function BrowseResults({
   focusPanel,
   openFolder,
   openFile,
+  copyPath,
   reopen,
 }: {
   pages: BrowsePages;
@@ -72,8 +82,10 @@ export function BrowseResults({
   openFolder: (item: ItemRef) => void;
   openFile:
     ((row: FolderQueryRow, trigger: Element | null) => void) | undefined;
+  copyPath: ((item: ItemRef) => Promise<BrowseCopyPathOutcome>) | undefined;
   reopen: () => void;
 }) {
+  const copy = useBrowseCopy(copyPath, navigationEpoch, navigationSeq);
   const paging = useBrowsePaging({
     pages,
     initialCursor,
@@ -123,6 +135,7 @@ export function BrowseResults({
           {paging.moving ? "Loading folder items…" : paging.status}
         </LiveStatus>
       </div>
+      <LiveStatus>{copy.status}</LiveStatus>
       {initialCursor !== null && (
         <div className="du-browse-more">
           {paging.showLoadMore && (
@@ -160,25 +173,53 @@ export function BrowseResults({
         getRow={(index) => pages.row(index)}
         getKey={(row) => rowKey(row.item)}
         renderCells={(row) => [
-          row.kind === "directory" ? (
-            <Action
-              excludeFromTabOrder
-              isDisabled={readOnly}
-              onPress={() => openFolder(row.item)}
-            >
-              {browseDisplayName(row.displayName)}
-            </Action>
-          ) : row.kind === "file" && openFile ? (
-            <Action
-              excludeFromTabOrder
-              isDisabled={busy}
-              onPress={(event) => openFile(row, event.target)}
-            >
-              {browseDisplayName(row.displayName)}
-            </Action>
-          ) : (
-            <Text>{browseDisplayName(row.displayName)}</Text>
-          ),
+          <ItemActions
+            rowScope
+            label={`Actions for ${browseDisplayName(row.displayName)}`}
+            actions={[
+              ...(row.kind === "file" && openFile
+                ? [
+                    {
+                      id: "inspect",
+                      label: "Inspect",
+                      onAction: (trigger: HTMLElement | null) =>
+                        openFile(row, trigger),
+                      ...(busy
+                        ? { disabledReason: "Unavailable while opening" }
+                        : {}),
+                    },
+                  ]
+                : []),
+              {
+                id: "copy",
+                label: "Copy path",
+                onAction: () => copy.copy(row),
+                ...(!copyPath || busy || copy.busy
+                  ? { disabledReason: "Unavailable now" }
+                  : {}),
+              },
+            ]}
+          >
+            {row.kind === "directory" ? (
+              <Action
+                excludeFromTabOrder
+                isDisabled={readOnly}
+                onPress={() => openFolder(row.item)}
+              >
+                {browseDisplayName(row.displayName)}
+              </Action>
+            ) : row.kind === "file" && openFile ? (
+              <Action
+                excludeFromTabOrder
+                isDisabled={busy}
+                onPress={(event) => openFile(row, event.target)}
+              >
+                {browseDisplayName(row.displayName)}
+              </Action>
+            ) : (
+              <Text>{browseDisplayName(row.displayName)}</Text>
+            )}
+          </ItemActions>,
           <Text>
             {row.kind === "unknown" || row.kind === "unknown_structure"
               ? "Unavailable"

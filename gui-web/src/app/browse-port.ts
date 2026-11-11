@@ -77,6 +77,11 @@ export function createBrowsePort(
       if (region) closeRegion(region);
     },
     page: (request) => client.call("query.page", request),
+    copyPath: (item) =>
+      client.call("browse.copy_path", {
+        resultVersion: item.resultVersion,
+        items: [item],
+      }),
     async open(request, signal) {
       const { response, wireSeq, regionRef, entry } = await dispatch(
         request,

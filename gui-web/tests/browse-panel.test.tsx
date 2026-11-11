@@ -1435,3 +1435,150 @@ test("the sparse grid exposes valid row, header and selection semantics", async 
   });
   expect(result.violations).toEqual([]);
 });
+
+test("row menus use the invoked namesake item and keep copy status after closing", async () => {
+  const copying = deferred<{ outcome: "copied"; count: number }>();
+  const copyPath = vi.fn().mockReturnValue(copying.promise);
+  const port: BrowsePort = {
+    open: vi.fn().mockResolvedValue(
+      opened(1, [
+        { ...row(1, "Same"), kind: "file" },
+        { ...row(2, "Same"), kind: "file" },
+      ]),
+    ),
+    page: vi.fn(),
+    copyPath,
+  };
+  render(
+    <BrowsePanel
+      port={port}
+      resultVersion={id}
+      inspectFile={() => "Details"}
+    />,
+  );
+  const triggers = await screen.findAllByRole("button", {
+    name: "Actions for Same",
+  });
+  expect(copyPath).not.toHaveBeenCalled();
+  const secondRow = triggers[1]!.closest<HTMLElement>('[role="row"]')!;
+  fireEvent.contextMenu(secondRow);
+  const menu = await screen.findByRole("menu", { name: "Actions for Same" });
+  expect(within(menu).getByRole("menuitem", { name: "Inspect" })).toBeDefined();
+  fireEvent.click(within(menu).getByRole("menuitem", { name: "Copy path" }));
+  await waitFor(() => expect(copyPath).toHaveBeenCalledWith(ref(2)));
+  expect(screen.getByText("Copying path for Same…")).toBeDefined();
+  await act(async () => copying.resolve({ outcome: "copied", count: 1 }));
+  expect(await screen.findByText("Copied 1 path for Same.")).toBeDefined();
+});
+
+test("Shift+F10 opens the focused row menu and Escape restores the row", async () => {
+  const port: BrowsePort = {
+    open: vi
+      .fn()
+      .mockResolvedValue(opened(1, [{ ...row(3, "Keyboard"), kind: "file" }])),
+    page: vi.fn(),
+    copyPath: vi.fn(),
+  };
+  render(
+    <BrowsePanel
+      port={port}
+      resultVersion={id}
+      inspectFile={() => "Details"}
+    />,
+  );
+  const trigger = await screen.findByRole("button", {
+    name: "Actions for Keyboard",
+  });
+  const gridrow = trigger.closest<HTMLElement>('[role="row"]')!;
+  gridrow.focus();
+  fireEvent.keyDown(gridrow, { key: "F10", shiftKey: true });
+  const menu = await screen.findByRole("menu", {
+    name: "Actions for Keyboard",
+  });
+  fireEvent.keyDown(menu, { key: "Escape" });
+  await waitFor(() => expect(document.activeElement).toBe(gridrow));
+  expect(port.copyPath).not.toHaveBeenCalled();
+});
+
+test("visible menu copies a virtualized row and announces refusal", async () => {
+  const previous = window.scrollY;
+  const rect = vi
+    .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+    .mockImplementation(function (this: HTMLElement) {
+      if (this.classList.contains("du-browse-grid__body"))
+        return DOMRect.fromRect({ y: -window.scrollY });
+      if (this.hasAttribute("data-row"))
+        return DOMRect.fromRect({ height: 64 });
+      return DOMRect.fromRect({ width: 800 });
+    });
+  try {
+    window.scrollTo(0, 0);
+    const rows = Array.from({ length: 200 }, (_, index) => ({
+      ...row(index + 1, `Entry ${index}`),
+      kind: "file" as const,
+    }));
+    const copyPath = vi.fn().mockResolvedValue({
+      outcome: "refused",
+      reasonKey: "clipboard.unsupported",
+    });
+    const port: BrowsePort = {
+      open: vi.fn().mockResolvedValue(opened(1, rows)),
+      page: vi.fn(),
+      copyPath,
+    };
+    render(
+      <BrowsePanel
+        port={port}
+        resultVersion={id}
+        inspectFile={() => "Details"}
+      />,
+    );
+    await screen.findByRole("button", { name: "Actions for Entry 0" });
+    act(() => {
+      window.scrollTo(0, 64 * 150);
+      fireEvent.scroll(window);
+    });
+    const trigger = await screen.findByRole("button", {
+      name: "Actions for Entry 150",
+    });
+    fireEvent.click(trigger);
+    const menu = await screen.findByRole("menu", {
+      name: "Actions for Entry 150",
+    });
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Copy path" }));
+    await waitFor(() => expect(copyPath).toHaveBeenCalledWith(ref(151)));
+    expect(
+      await screen.findByText("Entry 150: The clipboard is not supported."),
+    ).toBeDefined();
+  } finally {
+    rect.mockRestore();
+    window.scrollTo(0, previous);
+  }
+});
+
+test("navigation fences a late copy result", async () => {
+  const copying = deferred<{ outcome: "copied"; count: number }>();
+  const next = deferred<BrowseOpenResponse>();
+  const port: BrowsePort = {
+    open: vi
+      .fn()
+      .mockResolvedValueOnce(opened(1, [row(1, "Folder")]))
+      .mockReturnValueOnce(next.promise),
+    page: vi.fn(),
+    copyPath: vi.fn().mockReturnValue(copying.promise),
+  };
+  render(<BrowsePanel port={port} resultVersion={id} />);
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Actions for Folder" }),
+  );
+  fireEvent.click(
+    within(await screen.findByRole("menu")).getByRole("menuitem", {
+      name: "Copy path",
+    }),
+  );
+  await waitFor(() => expect(port.copyPath).toHaveBeenCalledTimes(1));
+  fireEvent.click(screen.getByRole("button", { name: "Folder" }));
+  await act(async () => copying.resolve({ outcome: "copied", count: 1 }));
+  expect(screen.queryByText("Copied 1 path for Folder.")).toBeNull();
+  await act(async () => next.resolve(opened(2, [])));
+});

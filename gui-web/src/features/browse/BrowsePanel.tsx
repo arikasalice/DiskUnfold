@@ -13,6 +13,7 @@ import {
 import type {
   BrowseOpenRequest,
   BrowseOpenResponse,
+  BrowseCopyPathOutcome,
   FolderQueryRow,
   ItemRef,
   QueryPageRequest,
@@ -31,6 +32,7 @@ export interface BrowsePort {
     signal?: AbortSignal,
   ): Promise<BrowseOpenResponse>;
   page(request: QueryPageRequest): Promise<QueryPageResponse>;
+  copyPath?(item: ItemRef): Promise<BrowseCopyPathOutcome>;
 }
 
 type Opened = Extract<BrowseOpenResponse, { kind: "opened" }>;
@@ -314,6 +316,7 @@ export function BrowsePanel({
             focusPanel={() => panel.current?.focus({ preventScroll: true })}
             openFolder={(item) => navigate(item, page.resultVersion)}
             openFile={inspectFile ? openFile : undefined}
+            copyPath={port.copyPath}
             reopen={() =>
               navigate(
                 view.opened.location ?? undefined,

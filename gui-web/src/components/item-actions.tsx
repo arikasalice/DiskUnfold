@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
   Button,
@@ -12,7 +12,7 @@ import "../theme/item-actions.css";
 export type ItemAction = {
   id: string;
   label: string;
-  onAction: () => void;
+  onAction: (trigger: HTMLElement | null) => void;
   disabledReason?: string;
 };
 
@@ -21,10 +21,12 @@ export function ItemActions({
   label,
   actions,
   children,
+  rowScope = false,
 }: {
   label: string;
   actions: readonly ItemAction[];
   children: ReactNode;
+  rowScope?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -32,10 +34,45 @@ export function ItemActions({
     trigger.current?.focus({ preventScroll: true });
     setOpen(true);
   }
+  useEffect(() => {
+    if (!rowScope) return;
+    const row = trigger.current?.closest('[role="row"]');
+    if (!row) return;
+    const context = (event: Event) => {
+      if (
+        event.target instanceof Element &&
+        event.target.closest("input,textarea,[contenteditable='true']")
+      )
+        return;
+      event.preventDefault();
+      openMenu();
+    };
+    const key = (event: Event) => {
+      if (
+        !(event instanceof KeyboardEvent) ||
+        event.isComposing ||
+        event.repeat ||
+        !(
+          (event.shiftKey && event.key === "F10") ||
+          event.key === "ContextMenu"
+        )
+      )
+        return;
+      event.preventDefault();
+      openMenu();
+    };
+    row.addEventListener("contextmenu", context);
+    row.addEventListener("keydown", key);
+    return () => {
+      row.removeEventListener("contextmenu", context);
+      row.removeEventListener("keydown", key);
+    };
+  }, [rowScope]);
   return (
     <div
-      className="du-item-actions"
+      className={`du-item-actions${rowScope ? " du-item-actions--row" : ""}`}
       onContextMenu={(event) => {
+        if (rowScope) return;
         if (
           event.target instanceof Element &&
           event.target.closest("input,textarea,[contenteditable='true']")
@@ -45,6 +82,7 @@ export function ItemActions({
         openMenu();
       }}
       onKeyDown={(event) => {
+        if (rowScope) return;
         if (
           !event.nativeEvent.isComposing &&
           !event.repeat &&
@@ -62,6 +100,7 @@ export function ItemActions({
           ref={trigger}
           className="du-action du-action--quiet"
           aria-label={label}
+          excludeFromTabOrder={rowScope}
         >
           ⋯
         </Button>
@@ -74,7 +113,7 @@ export function ItemActions({
             onAction={(id) =>
               actions
                 .find((x) => x.id === id && x.disabledReason === undefined)
-                ?.onAction()
+                ?.onAction(trigger.current)
             }
           >
             {actions.map((action) => (

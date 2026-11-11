@@ -600,3 +600,21 @@ test.each(["different version", "different job"])(
     expect(calls).not.toContain("query.page");
   },
 );
+
+test("copy path forwards the exact item and pinned version", async () => {
+  const calls: CallEnvelope[] = [];
+  const client = createAnalysisClient(async (_, { envelope }) => {
+    calls.push(envelope);
+    return reply(envelope, { outcome: "copied", count: 1 });
+  });
+  const item = { resultVersion: "pinned-version", itemNo: 42 };
+  await expect(createBrowsePort(client).copyPath!(item)).resolves.toEqual({
+    outcome: "copied",
+    count: 1,
+  });
+  expect(calls[0]?.name).toBe("browse.copy_path");
+  expect(calls[0]?.body).toEqual({
+    resultVersion: "pinned-version",
+    items: [item],
+  });
+});
