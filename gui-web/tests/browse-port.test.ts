@@ -682,3 +682,106 @@ test.each(["sequence", "version"] as const)(
     ).toEqual([]);
   },
 );
+
+test.each(["sequence", "version"] as const)(
+  "aborting an in-flight request ignores its late invalid %s receipt",
+  async (invalid) => {
+    const calls: CallEnvelope[] = [];
+    const controller = new AbortController();
+    let release!: () => void;
+    let started!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const dispatched = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    let jobRefReads = 0;
+    const client = createAnalysisClient(async (_, { envelope }) => {
+      calls.push(envelope);
+      if (envelope.name === "query.region.open")
+        return reply(envelope, { regionRef: "region" });
+      if (envelope.name === "browse.open") {
+        started();
+        await pending;
+        return reply(envelope, {
+          kind: "job",
+          requestSeq: invalid === "sequence" ? 99 : 3,
+          resultVersion:
+            invalid === "version" ? "different-version" : request.resultVersion,
+          get jobRef() {
+            jobRefReads++;
+            return "untrusted-job";
+          },
+        });
+      }
+      if (envelope.name === "query.cancel")
+        return reply(envelope, { outcome: "accepted" });
+      if (envelope.name === "query.region.close") return reply(envelope, {});
+      throw new Error(`Unexpected command ${envelope.name}`);
+    });
+    const result = createBrowsePort(client).open(request, controller.signal);
+    await dispatched;
+    controller.abort();
+    release();
+    await expect(result).rejects.toMatchObject({ name: "AbortError" });
+    expect(
+      calls
+        .filter((call) => call.name === "query.cancel")
+        .map((call) => call.body),
+    ).toEqual([
+      { regionRef: "region", target: { kind: "request", requestSeq: 3 } },
+    ]);
+    expect(
+      calls
+        .filter((call) => call.name === "query.region.close")
+        .map((call) => call.body),
+    ).toEqual([{ regionRef: "region" }]);
+    expect(
+      calls.filter((call) =>
+        ["job.cancel", "job.get", "query.page"].includes(call.name),
+      ),
+    ).toEqual([]);
+    expect(jobRefReads).toBe(0);
+  },
+);
+
+test("an invalid live receipt still cancels its request if the signal aborts after dispatch", async () => {
+  const calls: CallEnvelope[] = [];
+  const controller = new AbortController();
+  const client = createAnalysisClient(async (_, { envelope }) => {
+    calls.push(envelope);
+    if (envelope.name === "query.region.open")
+      return reply(envelope, { regionRef: "region" });
+    if (envelope.name === "browse.open")
+      return reply(envelope, {
+        kind: "job",
+        get requestSeq() {
+          controller.abort();
+          return 99;
+        },
+        resultVersion: request.resultVersion,
+        jobRef: "untrusted-job",
+      });
+    if (envelope.name === "query.cancel")
+      return reply(envelope, { outcome: "accepted" });
+    throw new Error(`Unexpected command ${envelope.name}`);
+  });
+  await expect(
+    createBrowsePort(client).open(request, controller.signal),
+  ).rejects.toThrow("does not match the selected result");
+  expect(
+    calls
+      .filter((call) => call.name === "query.cancel")
+      .map((call) => call.body),
+  ).toEqual([
+    { regionRef: "region", target: { kind: "request", requestSeq: 3 } },
+  ]);
+  expect(
+    calls.filter((call) =>
+      ["query.region.close", "job.cancel", "job.get", "query.page"].includes(
+        call.name,
+      ),
+    ),
+  ).toEqual([]);
+});

@@ -107,6 +107,8 @@ export function createBrowsePort(
         (request.resultVersion != null &&
           response.resultVersion !== request.resultVersion)
       ) {
+        if (entry.closed)
+          throw new DOMException("Browse region closed", "AbortError");
         // The receipt's jobRef is untrusted. The engine only cancels the
         // current request when both the region and original sequence match.
         void client
