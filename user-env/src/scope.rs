@@ -2,6 +2,7 @@
 use crate::{Descriptor, ValueKind};
 use du_core_contracts::settings::SettingsSnapshot;
 use serde_json::json;
+pub mod recent;
 
 /// The F01 setting controlling future recent-scope writes.
 pub const REMEMBER_RECENT: &str = "scope.remember_recent";
