@@ -23,9 +23,7 @@ fn status_exposes_partial_for_its_admitted_job_and_not_previous_scan()
             .body,
         )?)
     };
-    let status = |job: &Id| -> Result<serde_json::Value, Box<dyn std::error::Error>> {
-        Ok(gui("job.status", json!({"jobRef":job}))?.body)
-    };
+    let status = |job| read_status(&harness.engine, job);
     let first = start()?;
     let duplicate = start()?;
     assert_eq!(first.lineage_id, duplicate.lineage_id);
@@ -56,14 +54,7 @@ fn status_exposes_partial_for_its_admitted_job_and_not_previous_scan()
     );
     assert!(partial["resultVersion"].is_null());
     finish.send(())?;
-    let (summary, _) = scan_finished(&harness.terminal)?;
-    let final_id = summary.result_version_id.ok_or("missing first final")?;
-    let done = status(&first.job_ref)?;
-    assert_eq!(done["state"], "done");
-    assert_eq!(pinned.completeness(), ResultCompleteness::Partial);
-    assert_ne!(pinned.version_id(), &final_id);
-    assert_eq!(done["resultVersion"], json!(final_id));
-    assert_eq!(done["scanResult"]["resultVersion"], json!(final_id));
+    assert_finalized_partial(&harness, &first.job_ref, &pinned)?;
     let second = start()?;
     assert_eq!(first.lineage_id, second.lineage_id);
     assert_ne!(first.scope_version, second.scope_version);
@@ -87,6 +78,33 @@ fn status_exposes_partial_for_its_admitted_job_and_not_previous_scan()
     );
     finish.send(())?;
     let _ = scan_finished(&harness.terminal)?;
+    Ok(())
+}
+
+fn read_status(engine: &Engine, job: &Id) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    Ok(call(
+        engine,
+        "job.status",
+        Channel::Gui,
+        ENVELOPE_VERSION,
+        json!({"jobRef": job}),
+    )?
+    .body)
+}
+
+fn assert_finalized_partial(
+    harness: &ScanHarness,
+    job: &Id,
+    pinned: &du_analysis_index::ResultVersion,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (summary, _) = scan_finished(&harness.terminal)?;
+    let final_id = summary.result_version_id.ok_or("missing first final")?;
+    let done = read_status(&harness.engine, job)?;
+    assert_eq!(done["state"], "done");
+    assert_eq!(pinned.completeness(), ResultCompleteness::Partial);
+    assert_ne!(pinned.version_id(), &final_id);
+    assert_eq!(done["resultVersion"], json!(final_id));
+    assert_eq!(done["scanResult"]["resultVersion"], json!(final_id));
     Ok(())
 }
 
