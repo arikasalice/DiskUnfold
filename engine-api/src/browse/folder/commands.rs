@@ -7,6 +7,7 @@ use std::{
 
 use du_analysis_index::query::page::ResultSets;
 use du_core_contracts::{
+    Id,
     browse_open_ipc::BrowseOpenRequest,
     browse_page_ipc::{BrowseOpenResponse, QueryPageResponse, ResultOrigin},
     ports::Random,
@@ -19,13 +20,13 @@ use super::{
     AdmissionError, Error, FolderBrowse, LiveOpen, PreparedOpen,
     admission::lower_live,
     cursor::{AdmittedQueryPage, CursorError, Session},
-    job::{ErrorKind, FolderJobs},
+    job::{ErrorKind, FolderJobs, RegionBinding},
 };
 use crate::{
     api::{CallerCtx, Channel, EngineBuilder, UseCase},
     error::EngineError,
     query_region::{
-        Permit,
+        Permit, RegionError,
         commands::{Regions, region_error},
     },
     workers::Workers,
@@ -74,6 +75,12 @@ struct Open {
     regions: Arc<Regions>,
 }
 
+struct RegionRequest {
+    id: Id,
+    kind: QueryRegionKind,
+    sequence: u32,
+}
+
 impl UseCase for Open {
     const NAME: &'static str = "browse.open";
     const CHANNELS: &'static [Channel] = &[Channel::Gui];
@@ -108,26 +115,15 @@ impl UseCase for Open {
         if caller.is_cancelled() {
             return Err(folder_error(Error::Cancelled));
         }
-        let promotion = self
-            .regions
-            .registry
-            .promote_validated(
-                &self.regions.owner,
-                &region_ref,
-                kind,
-                request_seq,
-                Ok::<_, ()>(prepared),
-            )
-            .map_err(region_error)?
-            .map_err(|()| folder_error(Error::Internal))?;
-        if let Some(job) = promotion.previous_job {
-            let _ = self.regions.cancel_job(&job);
-        }
-        let token = promotion.permit;
-        let prepared = promotion.prepared;
+        let region = RegionRequest {
+            id: region_ref,
+            kind,
+            sequence: request_seq,
+        };
         if let Some(page) = self.browse.cached(&prepared).map_err(folder_error)? {
             #[cfg(test)]
             tests::pause_at(request_seq, 2);
+            let token = self.promote(&region)?;
             return self.with_current(&token, caller, || self.opened(request_seq, page));
         }
         #[cfg(test)]
@@ -135,15 +131,12 @@ impl UseCase for Open {
         #[cfg(not(test))]
         let force_sync = false;
         if prepared.estimated_work() <= SYNC_WORK && (force_sync || start.elapsed() < SYNC_LIMIT) {
-            let ended = || {
-                token.is_stopped()
-                    || caller.is_cancelled()
-                    || (!force_sync && start.elapsed() >= SYNC_LIMIT)
-            };
+            let ended = || caller.is_cancelled() || (!force_sync && start.elapsed() >= SYNC_LIMIT);
             match self.browse.evaluate_uncached(prepared.clone(), ended) {
                 Ok(candidate) if !ended() => {
                     #[cfg(test)]
                     tests::pause_at(request_seq, 3);
+                    let token = self.promote(&region)?;
                     return self.with_current(&token, caller, || {
                         if caller.is_cancelled() {
                             return Err(folder_error(Error::Cancelled));
@@ -164,11 +157,29 @@ impl UseCase for Open {
         }
         #[cfg(test)]
         tests::pause_at(request_seq, 4);
-        self.enqueue(request_seq, caller, prepared, &token)
+        self.enqueue(&region, caller, prepared)
     }
 }
 
 impl Open {
+    fn promote(&self, region: &RegionRequest) -> Result<Permit<QueryRegionKind>, EngineError> {
+        let promotion = self
+            .regions
+            .registry
+            .promote_validated(
+                &self.regions.owner,
+                &region.id,
+                region.kind,
+                region.sequence,
+                Ok::<_, ()>(()),
+            )
+            .map_err(region_error)?
+            .map_err(|()| folder_error(Error::Internal))?;
+        if let Some(job) = promotion.previous_job {
+            let _ = self.regions.cancel_job(&job);
+        }
+        Ok(promotion.permit)
+    }
     fn with_current<T>(
         &self,
         token: &Permit<QueryRegionKind>,
@@ -195,26 +206,68 @@ impl Open {
 
     fn enqueue(
         &self,
-        request_seq: u32,
+        region: &RegionRequest,
         caller: &CallerCtx,
         prepared: PreparedOpen,
-        token: &Permit<QueryRegionKind>,
     ) -> Result<BrowseOpenResponse, EngineError> {
-        if caller.is_cancelled() || token.is_stopped() {
+        if caller.is_cancelled() {
             return Err(folder_error(Error::Cancelled));
         }
         let result_version = prepared.key.version.clone();
+        let binding: RegionBinding = Arc::new(std::sync::Mutex::new(None));
+        let admission_error = std::cell::RefCell::new(None);
         let ticket = self
             .jobs
-            .submit_region(caller.correlation_id.clone(), prepared, token.clone())
-            .map_err(job_error)?;
-        if token.bind_job(ticket.id()).is_err() {
-            let _ = self.regions.cancel_job(ticket.id());
-            return Err(folder_error(Error::Cancelled));
+            .submit_region(
+                caller.correlation_id.clone(),
+                prepared,
+                binding.clone(),
+                |job| {
+                    let mut slot = binding.lock().map_err(|_| RuntimeError::Poisoned)?;
+                    if caller.is_cancelled() {
+                        *admission_error.borrow_mut() = Some(folder_error(Error::Cancelled));
+                        return Err(RuntimeError::InvalidState);
+                    }
+                    let value = self
+                        .regions
+                        .registry
+                        .promote_job(
+                            &self.regions.owner,
+                            &region.id,
+                            region.kind,
+                            region.sequence,
+                            job,
+                        )
+                        .map_err(|error| {
+                            *admission_error.borrow_mut() = Some(match error {
+                                RegionError::Unavailable => folder_error(Error::Cancelled),
+                                other => region_error(other),
+                            });
+                            RuntimeError::InvalidState
+                        })?;
+                    *slot = Some(value);
+                    Ok(())
+                },
+            )
+            .map_err(|error| {
+                admission_error
+                    .borrow_mut()
+                    .take()
+                    .unwrap_or_else(|| job_error(error))
+            })?;
+        let previous = binding
+            .lock()
+            .map_err(|_| folder_error(Error::Internal))?
+            .as_mut()
+            .and_then(|(_, previous)| previous.take());
+        if let Some(job) = previous {
+            let _ = self.regions.cancel_job(&job);
         }
         self.workers.notify();
+        #[cfg(test)]
+        tests::pause_at(region.sequence, 5);
         Ok(BrowseOpenResponse::Job {
-            request_seq,
+            request_seq: region.sequence,
             job_ref: ticket.id().clone(),
             result_version,
         })

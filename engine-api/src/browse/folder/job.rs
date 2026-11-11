@@ -12,6 +12,14 @@ use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
 };
+pub(super) type RegionBinding = Arc<
+    Mutex<
+        Option<(
+            crate::query_region::Permit<du_core_contracts::query_region_ipc::QueryRegionKind>,
+            Option<Id>,
+        )>,
+    >,
+>;
 
 #[derive(Debug)]
 pub enum ErrorKind {
@@ -219,7 +227,8 @@ impl FolderJobs {
         &self,
         correlation: Id,
         prepared: PreparedOpen,
-        permit: crate::query_region::Permit<du_core_contracts::query_region_ipc::QueryRegionKind>,
+        binding: RegionBinding,
+        admit: impl FnOnce(&Id) -> Result<(), RuntimeError>,
     ) -> Result<FolderTicket, ErrorKind> {
         let mut channels = self.channels.lock().map_err(|_| ErrorKind::Unavailable)?;
         reap(&self.runtime, &mut channels)?;
@@ -237,7 +246,7 @@ impl FolderJobs {
         let output = first.clone();
         let result = self
             .runtime
-            .submit_with_publication(
+            .submit_with_publication_admission(
                 Submission {
                     kind_id: "query.evaluate".into(),
                     deduplication_key: None,
@@ -247,7 +256,14 @@ impl FolderJobs {
                     correlation_id: correlation,
                     sample: false,
                 },
+                admit,
                 move || {
+                    let permit = binding
+                        .lock()
+                        .map_err(|_| "support.internal_error".to_owned())?
+                        .as_ref()
+                        .map(|(permit, _)| permit.clone())
+                        .ok_or_else(|| "support.internal_error".to_owned())?;
                     permit
                         .publish(false, || {
                             let candidate = slot

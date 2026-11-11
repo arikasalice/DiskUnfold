@@ -397,6 +397,7 @@ impl<K> Permit<K> {
         Ok(current)
     }
     /// Binds a job submitted for this permit. On failure, cancel that exact job outside the lock.
+    #[cfg(test)]
     pub fn bind_job(&self, job: &Id) -> Result<(), RegionError> {
         let mut region = self.region.lock().map_err(|_| RegionError::Poisoned)?;
         let current = self.current_mut(&mut region)?;

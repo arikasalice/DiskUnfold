@@ -10,9 +10,11 @@ use du_core_contracts::{
 use du_job_runtime::{JobClock, JobRuntime};
 use serde_json::{Value, json};
 
+mod admission;
 mod completion;
 mod delivery_busy;
 mod search;
+static GATE_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 struct Ids;
 impl JobIdentity for Ids {
@@ -170,6 +172,7 @@ pub(super) fn force_sync(sequence: u32) -> bool {
 
 #[test]
 fn late_preparation_cannot_supersede_newer_open() -> Result<(), Box<dyn std::error::Error>> {
+    let _serial = GATE_TEST_LOCK.lock().map_err(|_| "gate lock poisoned")?;
     let gate = PREPARE_GATE.get_or_init(super::super::test_gate::Gate::new);
     for stage in 1..=4 {
         let (engine, runtime, version) = fixture(if stage == 4 { SYNC_WORK } else { 2 })?;
@@ -382,6 +385,7 @@ fn verify_unadmitted_cancel(
 
 #[test]
 fn rejected_open_preserves_running_job() -> Result<(), Box<dyn std::error::Error>> {
+    let _serial = GATE_TEST_LOCK.lock().map_err(|_| "gate lock poisoned")?;
     for bad_sort in [
         json!([{"id":"sort.unknown","revision":1,"descending":false}]),
         json!([{"id":"sort.path","revision":99,"descending":false}]),
