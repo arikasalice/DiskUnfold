@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import {
   displaySize,
+  displaySizeParts,
   displaySizeWithBytes,
 } from "../src/features/analysis/space-format";
 import type { SizeValue } from "../src/ipc";
@@ -54,4 +55,32 @@ test("F03 FR12: inspection retains original byte counts and value states", () =>
   expect(
     displaySizeWithBytes(exact("18446744073709551615"), display),
   ).toContain("18,446,744,073,709,551,615 bytes");
+});
+
+test("inspection separates raw bytes only when the displayed value differs", () => {
+  const display = { system: "iec", unit: "auto" } as const;
+  expect(displaySizeParts(exact("0"), display)).toEqual({
+    formatted: "0 bytes",
+    raw: undefined,
+  });
+  expect(displaySizeParts(exact("999"), display)).toEqual({
+    formatted: "999 bytes",
+    raw: undefined,
+  });
+  expect(displaySizeParts(exact("1100"), display)).toEqual({
+    formatted: "1.1 KiB",
+    raw: "1,100 bytes",
+  });
+  expect(
+    displaySizeParts(
+      { ...exact("1100"), state: "lower_bound", bytes: "1100" },
+      display,
+    ),
+  ).toEqual({ formatted: "At least 1.0 KiB", raw: "At least 1,100 bytes" });
+  expect(
+    displaySizeParts(
+      { ...exact("999"), state: "lower_bound", bytes: "999" },
+      display,
+    ),
+  ).toEqual({ formatted: "At least 999 bytes", raw: undefined });
 });

@@ -648,7 +648,7 @@ test("F01–F03: reviewed scope starts a scan and reads its pinned partial resul
   const detail = within(
     await screen.findByLabelText("Observed folder attributes"),
   );
-  expect(detail.getAllByText("0 bytes")).toHaveLength(2);
+  expect(detail.getAllByText("0 bytes")).toHaveLength(1);
   expect(detail.getByText("Exact")).toBeDefined();
   const emphasized = [
     ...screen

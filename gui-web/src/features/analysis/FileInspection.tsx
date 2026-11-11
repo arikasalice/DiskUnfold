@@ -16,8 +16,7 @@ import type {
 import { CopyPath } from "./CopyPath";
 import { ItemSpaceDetails } from "./ItemSpaceDetails";
 import {
-  displayRawSize,
-  displaySize,
+  displaySizeParts,
   displaySpaceReason,
   evidenceLabels,
   windowsSizeDisplay,
@@ -50,14 +49,25 @@ function diagnostics(detail: BrowseDetail) {
   );
 }
 
-function evidence(value: BrowseDetail["logicalSize"]): string[] {
-  if (value.state !== "present") return [];
-  const raw = displayRawSize(value.value);
-  const label = evidenceLabels[value.value.evidence];
-  const certainty = value.value.state === "exact" ? "Exact" : undefined;
-  return [raw, certainty, label].filter(
-    (note): note is string => note !== undefined,
-  );
+function sizeRow(
+  label: string,
+  field: BrowseDetail["logicalSize"],
+  display: SizeDisplay,
+) {
+  if (field.state !== "present") {
+    return { label, emphasized: true, value: attribute(field), notes: [] };
+  }
+  const { formatted, raw } = displaySizeParts(field.value, display);
+  const certainty = field.value.state === "exact" ? "Exact" : undefined;
+  const evidence = evidenceLabels[field.value.evidence];
+  return {
+    label,
+    emphasized: true,
+    value: formatted,
+    notes: [raw, certainty, evidence].filter(
+      (note): note is string => note !== undefined,
+    ),
+  };
 }
 
 function attributes(
@@ -67,8 +77,6 @@ function attributes(
   client: AnalysisClient,
   item: ItemRef,
 ) {
-  const size = (value: BrowseDetail["logicalSize"]) =>
-    attribute(value, (observed) => displaySize(observed, display));
   return [
     {
       label: itemKind === "file" ? "File name" : "Folder name",
@@ -85,18 +93,8 @@ function attributes(
           attribute(detail.displayName)
         ),
     },
-    {
-      label: "Logical size",
-      emphasized: true,
-      value: size(detail.logicalSize),
-      notes: evidence(detail.logicalSize),
-    },
-    {
-      label: "Allocated size",
-      emphasized: true,
-      value: size(detail.allocatedSize),
-      notes: evidence(detail.allocatedSize),
-    },
+    sizeRow("Logical size", detail.logicalSize, display),
+    sizeRow("Allocated size", detail.allocatedSize, display),
     { label: "Result published", value: attribute(detail.observedAt) },
     { label: "Source", value: detail.observationOnly ? "Scan record" : "Scan" },
     {

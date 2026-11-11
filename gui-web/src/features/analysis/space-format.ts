@@ -114,12 +114,18 @@ export function displaySize(
   return lowerBound ? `At least ${formatted}` : formatted;
 }
 
+/** Returns a separate raw count only when it adds information. */
+export function displaySizeParts(size: SizeValue, display: SizeDisplay) {
+  const formatted = displaySize(size, display);
+  const raw = displayRawSize(size);
+  return { formatted, raw: raw === formatted ? undefined : raw };
+}
+
 /** Shows the original byte count in details without upgrading a lower bound. */
 export function displaySizeWithBytes(
   size: SizeValue,
   display: SizeDisplay,
 ): string {
-  const formatted = displaySize(size, display);
-  const raw = displayRawSize(size);
-  return !raw || formatted === raw ? formatted : `${formatted} · ${raw}`;
+  const { formatted, raw } = displaySizeParts(size, display);
+  return raw ? `${formatted} · ${raw}` : formatted;
 }
