@@ -1,4 +1,5 @@
 //! Job registration, cooperative cancellation, and terminal handoff.
+pub mod bound_subscribers;
 mod control;
 mod delivery;
 mod flows;
@@ -8,6 +9,7 @@ mod model;
 mod publication;
 mod result_publisher;
 mod shutdown;
+pub mod subscribers;
 use control::final_state;
 use delivery::{consume, enqueue};
 #[cfg(test)]
