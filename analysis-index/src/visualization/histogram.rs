@@ -213,12 +213,7 @@ fn calculate(
     let mut output = Vec::with_capacity(bins.len());
     for (&bin, mut acc) in bins.iter().zip(accumulators) {
         check(cancelled)?;
-        if cancellable_sort {
-            cancellable_sort::sort(&mut acc.members, u32::cmp, cancelled)
-                .map_err(|_| Error::Cancelled)?;
-        } else {
-            acc.members.sort_unstable();
-        }
+        sort_item_numbers(&mut acc.members, cancellable_sort, cancelled)?;
         output.push(BinLayout {
             bin,
             members: acc.members,
@@ -254,15 +249,8 @@ fn calculate(
         check(cancelled)?;
         (row.rect, row.no_area) = row_rect(bounds, index, count, selected(row, basis), axis);
     }
-    if cancellable_sort {
-        cancellable_sort::sort(&mut uncertain_items, u32::cmp, cancelled)
-            .map_err(|_| Error::Cancelled)?;
-        cancellable_sort::sort(&mut unclassified_items, u32::cmp, cancelled)
-            .map_err(|_| Error::Cancelled)?;
-    } else {
-        uncertain_items.sort_unstable();
-        unclassified_items.sort_unstable();
-    }
+    sort_item_numbers(&mut uncertain_items, cancellable_sort, cancelled)?;
+    sort_item_numbers(&mut unclassified_items, cancellable_sort, cancelled)?;
     check(cancelled)?;
     Ok(Histogram {
         basis,
@@ -275,6 +263,19 @@ fn calculate(
         source_completeness: completeness,
         total_bytes_overflowed: total.overflowed(),
     })
+}
+
+fn sort_item_numbers(
+    items: &mut [u32],
+    cancellable: bool,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<(), Error> {
+    if cancellable {
+        cancellable_sort::sort(items, u32::cmp, cancelled).map_err(|_| Error::Cancelled)
+    } else {
+        items.sort_unstable();
+        Ok(())
+    }
 }
 
 fn validate_bins(bins: &[Bin], cancelled: &mut dyn FnMut() -> bool) -> Result<(), Error> {
