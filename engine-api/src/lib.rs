@@ -16,6 +16,7 @@ mod query_region;
 mod recent_scope;
 mod refresh_scope;
 mod registry;
+mod required_data;
 pub mod scan;
 mod scan_failures;
 pub mod scope;
