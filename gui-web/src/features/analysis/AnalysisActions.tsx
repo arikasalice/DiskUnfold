@@ -154,6 +154,7 @@ function scopeActionState({
 }
 
 export function ScopeActions({
+  reviewButton,
   checkingDrop,
   reviewing,
   working,
@@ -164,6 +165,7 @@ export function ScopeActions({
   onStart,
   onCancel,
 }: {
+  reviewButton: Ref<HTMLButtonElement>;
   checkingDrop: boolean;
   reviewing: boolean;
   working: boolean;
@@ -200,6 +202,7 @@ export function ScopeActions({
           Cancel selection
         </Action>
         <Action
+          ref={reviewButton}
           icon="folder"
           variant={startEnabled ? "secondary" : "primary"}
           isDisabled={reviewDisabled}

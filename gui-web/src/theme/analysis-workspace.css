@@ -45,6 +45,10 @@
 
 .du-target-editor__header {
   grid-row: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   padding: 10px 14px;
   border-block-end: 1px solid var(--du-border);
 }
@@ -289,9 +293,12 @@
   }
 
   .du-analysis__grid[data-result-active] {
-    grid-template-columns: minmax(245px, 0.86fr) minmax(0, 1.14fr);
     grid-template-rows: minmax(0, 1fr);
     align-items: stretch;
+  }
+
+  .du-analysis__grid[data-result-active][data-editor-open] {
+    grid-template-columns: minmax(245px, 0.86fr) minmax(0, 1.14fr);
   }
 
   .du-target-editor__body,
@@ -312,7 +319,7 @@
     align-content: start;
   }
 
-  .du-analysis__grid[data-result-active] {
+  .du-analysis__grid[data-result-active][data-editor-open] {
     grid-template-columns: minmax(280px, 0.7fr) minmax(0, 1.3fr);
   }
 }
@@ -418,4 +425,14 @@
 /* Keep hidden accessibility content within the target scrolling region. */
 .du-target-editor__body {
   position: relative;
+}
+
+.du-analysis__header > .du-action {
+  justify-self: start;
+}
+
+.du-analysis__header:has(> .du-action) {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
 }

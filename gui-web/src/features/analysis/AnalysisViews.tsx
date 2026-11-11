@@ -83,6 +83,7 @@ export function ScanOutput({
   roots: readonly OsPath[];
   actions: ReactNode;
 }) {
+  const pathsLabel = running ? "Scanning paths" : "Selected paths";
   const error =
     problem ?? scan.controlError ?? scan.error ?? scan.status?.reasonKey;
   const awaitingTotals =
@@ -106,6 +107,17 @@ export function ScanOutput({
         tabIndex={0}
       >
         {error && <Notice tone="error">{error}</Notice>}
+        {started && !scan.total && (
+          <Readout
+            label={pathsLabel}
+            rows={[
+              {
+                label: pathsLabel,
+                value: roots.map((root) => root.display).join(", "),
+              },
+            ]}
+          />
+        )}
         {scan.total ? (
           <PinnedResult client={client} total={scan.total} roots={roots} />
         ) : running ? (

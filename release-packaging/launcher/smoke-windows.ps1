@@ -141,6 +141,7 @@ function Test-ScaledFileInspection {
   [IO.Directory]::CreateDirectory($scaledScope) | Out-Null
   [IO.File]::WriteAllBytes((Join-Path $scaledScope 'scaled.bin'), [byte[]]::new(1100))
   Invoke-UI (Wait-Enabled 'Back to analysis' $true)
+  Open-TargetEditor
   Invoke-UI (Wait-Enabled 'Cancel selection' $true)
   Set-Scope $scaledScope
   Invoke-UI (Wait-Enabled 'Review scope' $true)
@@ -181,6 +182,7 @@ function Test-PhysicalAccounting {
 
   Invoke-UI (Wait-Enabled 'Back to analysis' $true)
   foreach ($expected in @('1.0 MiB', '2.0 MiB')) {
+    Open-TargetEditor
     Invoke-UI (Wait-Enabled 'Cancel selection' $true)
     Set-Scope $accounting
     Invoke-UI (Wait-Enabled 'Review scope' $true)
@@ -202,7 +204,21 @@ function Test-PhysicalAccounting {
     }
   }
 }
+# Reopen target selection when the analysis workspace shows a pinned result.
+function Open-TargetEditor {
+  $entry = Wait-UI 'target input or reanalysis action' {
+    $field = Find-UI 'Windows folder path' $edit
+    if ($field) { return $field }
+    $opener = Find-UI 'Analyze again' $button
+    if ($opener -and $opener.Current.IsEnabled) { return $opener }
+  }
+  if ($entry.Current.ControlType -eq $button) {
+    Invoke-UI $entry
+    $null = Wait-UI 'reopened target input' { Find-UI 'Windows folder path' $edit }
+  }
+}
 function Set-Scope($path, $fieldName = 'Windows folder path') {
+  Open-TargetEditor
   $item = Wait-UI $fieldName { Find-UI $fieldName $edit }
   $pattern = $item.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern)
   $pattern.SetValue($path)
@@ -467,6 +483,8 @@ try {
     if ($metric) { Find-UI '18 bytes' $textType $metric }
   }
   'F02/F03 native scan: Scan finished, Result version: Final, 18 bytes'
+  $null = Wait-VisibleAction 'Analyze again'
+  $null = Wait-UI 'target editor collapsed after accepted scan' { -not (Find-UI 'Windows folder path' $edit) }
   Set-Scope $child
   Invoke-UI (Wait-VisibleAction 'Review scope')
   $null = Wait-Enabled 'Start scan' $true
@@ -481,6 +499,14 @@ try {
   }
   $null = Wait-Enabled 'Start scan' $false
   'F01 native selection cancellation: discarded reviewed scope and retained the final 18-byte result'
+  Invoke-UI (Wait-VisibleAction 'Close target editor')
+  $null = Wait-UI 'target editor closed with the result still visible' {
+    $metric = Find-UI 'Logical size' ([Windows.Automation.ControlType]::Group)
+    if ($metric -and -not (Find-UI 'Windows folder path' $edit)) {
+      Find-UI '18 bytes' $textType $metric
+    }
+  }
+  'F01–F03 native reanalysis: opened and closed target editing without replacing the pinned result'
   Invoke-UI (Wait-Enabled 'Explain volume usage' $true)
   $null = Wait-UI 'volume explanation for the selected root' {
     Find-UI 'Selected scanned folder' $textType

@@ -7,7 +7,7 @@ import {
   useState,
 } from "react";
 import type { Ref } from "react";
-import { Heading, Text } from "../../components";
+import { Action, Heading, Text } from "../../components";
 import { AnalysisError } from "../../ipc";
 import type {
   AnalysisClient,
@@ -79,7 +79,16 @@ export function AnalysisPanel({
 }) {
   const targets = useTargets(client);
   const reviewProblemId = useId();
+  const editorId = useId();
   const scanStatusFocus = useRef<HTMLDivElement>(null);
+  const editorOpener = useRef<HTMLButtonElement>(null);
+  const editorBody = useRef<HTMLElement>(null);
+  const reviewButton = useRef<HTMLButtonElement>(null);
+  const focusReview = useRef(false);
+  const focusEditor = useRef(false);
+  const focusOpener = useRef(false);
+  const focusResult = useRef(false);
+  const [editorOpen, setEditorOpen] = useState(false);
   const [selected, setSelected] = useState<(OsPath | undefined)[]>([undefined]);
   const [review, setReview] = useState<ScopeReview>();
   const [reviewedDraft, setReviewedDraft] = useState<ScopeDraft>();
@@ -96,6 +105,7 @@ export function AnalysisPanel({
   }>();
   const request = useRef(0);
   const scanBlocksDrop = useRef(false);
+  const hasReceipt = useRef(false);
   const pendingDrop = useRef<{ seq: number; request: number } | undefined>(
     undefined,
   );
@@ -109,6 +119,25 @@ export function AnalysisPanel({
         ? "Drop a folder here or enter its path."
         : "Review this path before scanning.";
 
+  useLayoutEffect(() => {
+    if (focusEditor.current && editorOpen) {
+      editorBody.current?.focus();
+      focusEditor.current = false;
+    }
+    if (focusOpener.current && !editorOpen) {
+      editorOpener.current?.focus();
+      focusOpener.current = false;
+    }
+    if (shouldFocusReview(focusReview.current, working)) {
+      reviewButton.current?.focus();
+      focusReview.current = false;
+    }
+    if (focusResult.current && !editorOpen) {
+      scanStatusFocus.current?.focus();
+      focusResult.current = false;
+    }
+  });
+
   useLayoutEffect(
     () => () => {
       scanBlocksDrop.current = false;
@@ -118,7 +147,8 @@ export function AnalysisPanel({
 
   useLayoutEffect(() => {
     scanBlocksDrop.current = working || running;
-  }, [running, working]);
+    hasReceipt.current = receipt !== null;
+  }, [receipt, running, working]);
 
   const editPaths = useCallback(
     (update: (current: (OsPath | undefined)[]) => (OsPath | undefined)[]) => {
@@ -176,6 +206,10 @@ export function AnalysisPanel({
         pendingDrop.current = undefined;
         setCheckingDrop(false);
         if (pending.request !== request.current) return;
+        if (hasReceipt.current) {
+          focusEditor.current = true;
+          setEditorOpen(true);
+        }
         if ("path" in drop) {
           choose(drop.path);
           setDropMessage({
@@ -244,9 +278,12 @@ export function AnalysisPanel({
         reviewFingerprint: review.reviewFingerprint,
       });
       setResultRoots(review.scope.includes);
+      focusResult.current = true;
+      setEditorOpen(false);
       setReceipt(result);
     } catch (failure) {
       scanBlocksDrop.current = false;
+      focusReview.current = true;
       if (failure instanceof AnalysisError && failure.code === "STALE_VERSION")
         setReview(undefined);
       setError(errorText(failure));
@@ -258,78 +295,100 @@ export function AnalysisPanel({
   const ready = canStart(review, reviewedDraft);
   const resultActive = receipt !== null || error !== undefined;
   const scopeProblem = Boolean(reviewProblem || (review && !ready));
+  const showEditor = receipt === null || editorOpen;
+  const editorBusy = isEditorBusy(working, reviewing, checkingDrop);
 
   return (
     <section
       className="du-analysis du-analysis--workspace"
       aria-labelledby="analysis-heading"
     >
-      <header className="du-analysis__header">
-        <Heading level={2} id="analysis-heading">
-          {scan.total
-            ? "Disk space results"
-            : resultActive
-              ? "Scan a drive or folder"
-              : "Choose what to analyze"}
-        </Heading>
-        {!resultActive && (
-          <Text kind="muted">
-            Enter a folder path or choose a drive, then review the scope before
-            scanning.
-          </Text>
-        )}
-      </header>
+      <AnalysisHeader
+        hasTotal={Boolean(scan.total)}
+        resultActive={resultActive}
+        hasReceipt={receipt !== null}
+        running={running}
+        busy={editorBusy}
+        editorOpen={editorOpen}
+        editorId={editorId}
+        opener={editorOpener}
+        onOpen={() => {
+          focusEditor.current = true;
+          setEditorOpen(true);
+        }}
+      />
       <div
         className="du-analysis__grid"
         data-result-active={resultActive || undefined}
+        data-editor-open={showEditor || undefined}
       >
-        <section className="du-target-editor" aria-label="Target and scope">
-          {resultActive && (
-            <header className="du-target-editor__header">
-              <Heading level={3}>Scan targets</Heading>
-            </header>
-          )}
+        {showEditor && (
           <section
-            className="du-target-editor__body"
-            aria-label="Target selection and scope review"
-            tabIndex={0}
+            id={editorId}
+            className="du-target-editor"
+            aria-label="Target and scope"
           >
-            <TargetPicker
-              targets={targets}
-              isInitial={!resultActive}
-              disabled={working || running}
-              selected={selected}
-              choose={choose}
-              addPath={addPath}
-              removePath={removePath}
-              dropEnabled={dropEnabled}
-              dropError={
-                dropMessage?.tone === "error" ? dropMessage.text : undefined
-              }
-              pathDescription={pathDescription}
-              reviewDescriptionId={scopeProblem ? reviewProblemId : undefined}
-              feedback={
-                <ScopeReviewFeedback
-                  review={review}
-                  ready={ready}
-                  problem={reviewProblem}
-                  problemId={reviewProblemId}
-                />
-              }
+            {resultActive && (
+              <header className="du-target-editor__header">
+                <Heading level={3}>Scan targets</Heading>
+                {receipt !== null && (
+                  <Action
+                    variant="quiet"
+                    isDisabled={editorBusy}
+                    onPress={() => {
+                      focusOpener.current = true;
+                      setEditorOpen(false);
+                    }}
+                  >
+                    Close target editor
+                  </Action>
+                )}
+              </header>
+            )}
+            <section
+              ref={editorBody}
+              className="du-target-editor__body"
+              aria-label="Target selection and scope review"
+              tabIndex={0}
+            >
+              <TargetPicker
+                targets={targets}
+                isInitial={!resultActive}
+                disabled={working || running}
+                selected={selected}
+                choose={choose}
+                addPath={addPath}
+                removePath={removePath}
+                dropEnabled={dropEnabled}
+                dropError={
+                  dropMessage?.tone === "error" ? dropMessage.text : undefined
+                }
+                pathDescription={pathDescription}
+                reviewDescriptionId={scopeProblem ? reviewProblemId : undefined}
+                feedback={
+                  <ScopeReviewFeedback
+                    review={review}
+                    ready={ready}
+                    problem={reviewProblem}
+                    problemId={reviewProblemId}
+                  />
+                }
+              />
+            </section>
+            <ScopeActions
+              reviewButton={reviewButton}
+              checkingDrop={checkingDrop}
+              reviewing={reviewing}
+              working={working}
+              running={running}
+              reviewEnabled={selected.every(Boolean)}
+              startEnabled={ready}
+              onReview={() => void reviewScope()}
+              onStart={() => void start()}
+              onCancel={cancelSelection}
             />
           </section>
-          <ScopeActions
-            checkingDrop={checkingDrop}
-            reviewing={reviewing}
-            working={working}
-            running={running}
-            reviewEnabled={selected.every(Boolean)}
-            startEnabled={ready}
-            onReview={() => void reviewScope()}
-            onStart={() => void start()}
-            onCancel={cancelSelection}
-          />
-        </section>
+        )}
         {resultActive && (
           <section
             className="du-analysis__result"
@@ -361,4 +420,67 @@ export function AnalysisPanel({
       </div>
     </section>
   );
+}
+
+function AnalysisHeader({
+  hasTotal,
+  resultActive,
+  hasReceipt,
+  running,
+  busy,
+  editorOpen,
+  editorId,
+  opener,
+  onOpen,
+}: {
+  hasTotal: boolean;
+  resultActive: boolean;
+  hasReceipt: boolean;
+  running: boolean;
+  busy: boolean;
+  editorOpen: boolean;
+  editorId: string;
+  opener: Ref<HTMLButtonElement>;
+  onOpen: () => void;
+}) {
+  return (
+    <header className="du-analysis__header">
+      <Heading level={2} id="analysis-heading">
+        {hasTotal
+          ? "Disk space results"
+          : resultActive
+            ? "Scan a drive or folder"
+            : "Choose what to analyze"}
+      </Heading>
+      {hasReceipt && !running && (
+        <Action
+          ref={opener}
+          isDisabled={busy}
+          aria-expanded={editorOpen}
+          {...(editorOpen ? { "aria-controls": editorId } : {})}
+          onPress={onOpen}
+        >
+          Analyze again
+        </Action>
+      )}
+      {!resultActive && (
+        <Text kind="muted">
+          Enter a folder path or choose a drive, then review the scope before
+          scanning.
+        </Text>
+      )}
+    </header>
+  );
+}
+
+function isEditorBusy(
+  working: boolean,
+  reviewing: boolean,
+  checkingDrop: boolean,
+) {
+  return working || reviewing || checkingDrop;
+}
+
+function shouldFocusReview(pending: boolean, working: boolean) {
+  return pending && !working;
 }

@@ -1191,6 +1191,7 @@ test("F02 F24: an old resume failure cannot affect a replacement scan", async ()
   firstDone = true;
   notifyResult(listeners, "job.resync_required", {});
   await screen.findByText("Scan finished");
+  fireEvent.click(screen.getByRole("button", { name: "Analyze again" }));
   fireEvent.click(screen.getByRole("button", { name: "Start scan" }));
   await screen.findByText("Scan status: running");
   await act(async () => failResume?.(new Error("Late resume failure")));
@@ -1249,6 +1250,7 @@ test.each(["starting", "cancelling"] as const)(
     firstFinished = true;
     notifyResult(listeners, "job.resync_required", {});
     await screen.findByText("Scan finished");
+    fireEvent.click(screen.getByRole("button", { name: "Analyze again" }));
     fireEvent.click(screen.getByRole("button", { name: "Start scan" }));
     if (phase === "starting") {
       expect(
@@ -1950,6 +1952,7 @@ test("F01: cancelling a new selection preserves the prior scan and its result", 
   const { client, calls } = fixture();
   await startFixtureScan(client);
   const total = await screen.findByText("At least 42 bytes");
+  fireEvent.click(screen.getByRole("button", { name: "Analyze again" }));
   fireEvent.change(
     screen.getByRole("textbox", { name: "Windows folder path" }),
     { target: { value: "D:\\new" } },
@@ -2176,8 +2179,14 @@ test.each(["finished", "rejected"] as const)(
     }
 
     expect(screen.queryByText("Checking dropped folder…")).toBeNull();
-    expect(start.disabled).toBe(false);
-    expect(start.hasAttribute("aria-disabled")).toBe(false);
+    if (outcome === "finished") {
+      fireEvent.click(screen.getByRole("button", { name: "Analyze again" }));
+    }
+    const nextStart = screen.getByRole<HTMLButtonElement>("button", {
+      name: "Start scan",
+    });
+    expect(nextStart.disabled).toBe(false);
+    expect(nextStart.hasAttribute("aria-disabled")).toBe(false);
     const input = screen.getByRole<HTMLInputElement>("textbox", {
       name: "Windows folder path",
     });
@@ -2186,7 +2195,7 @@ test.each(["finished", "rejected"] as const)(
     expect(screen.getByText("Checking dropped folder…")).toBeDefined();
     folderDrop({ seq: 3, path: "D:\\Next scope" });
     expect(input.value).toBe("D:\\Next scope");
-    expect(start.disabled).toBe(true);
+    expect(nextStart.disabled).toBe(true);
   },
 );
 
@@ -2606,7 +2615,10 @@ test("F01: pending scan keeps focus and suppresses duplicate starts", async () =
   if (!release) throw new Error("Scan did not start");
   await act(async () => release?.());
   await screen.findByText("At least 42 bytes");
-  expect(document.activeElement).toBe(start);
+  expect(document.activeElement).toBe(
+    screen.getByText("Scan status: partial").parentElement,
+  );
+  expect(screen.queryByRole("button", { name: "Start scan" })).toBeNull();
 });
 
 test("F01: adding and removing a path restores focus to the appropriate field", async () => {
@@ -2623,3 +2635,116 @@ test("F01: adding and removing a path restores focus to the appropriate field", 
   fireEvent.click(screen.getByRole("button", { name: "Remove path 2" }));
   expect(document.activeElement).toBe(primary);
 });
+
+test("F01: result editor opens and closes with focus while keeping the result scope", async () => {
+  const { client } = fixture();
+  await startFixtureScan(client);
+  await screen.findByText("At least 42 bytes");
+  const opener = screen.getByRole("button", { name: "Analyze again" });
+  expect(
+    screen.queryByRole("textbox", { name: "Windows folder path" }),
+  ).toBeNull();
+  expect(opener.hasAttribute("aria-controls")).toBe(false);
+  fireEvent.click(opener);
+  const editorId = opener.getAttribute("aria-controls");
+  expect(editorId).not.toBeNull();
+  expect(document.getElementById(editorId!)).toBe(
+    screen.getByRole("region", { name: "Target and scope" }),
+  );
+  expect(document.activeElement).toBe(
+    screen.getByRole("region", { name: "Target selection and scope review" }),
+  );
+  const input = screen.getByRole<HTMLInputElement>("textbox", {
+    name: "Windows folder path",
+  });
+  fireEvent.change(input, { target: { value: "D:\\new" } });
+  expect(
+    screen.getByRole<HTMLButtonElement>("button", { name: "Start scan" })
+      .disabled,
+  ).toBe(true);
+  expect(screen.getByText("At least 42 bytes")).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "Close target editor" }));
+  expect(document.activeElement).toBe(opener);
+  expect(opener.getAttribute("aria-expanded")).toBe("false");
+  expect(opener.hasAttribute("aria-controls")).toBe(false);
+});
+
+test("F01: failed start keeps the editor and returns focus to scope review", async () => {
+  const { client } = fixture({ stale: true });
+  render(<App analysis={client} />);
+  fireEvent.change(
+    await screen.findByRole("textbox", { name: "Windows folder path" }),
+    {
+      target: { value: "C:\\fixture" },
+    },
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
+  await screen.findByLabelText("Reviewed scope");
+  fireEvent.click(screen.getByRole("button", { name: "Start scan" }));
+  await screen.findByText(
+    "The target or result changed. Review the scope again.",
+  );
+  expect(document.activeElement).toBe(
+    screen.getByRole("button", { name: "Review scope" }),
+  );
+  expect(
+    screen.getByRole("textbox", { name: "Windows folder path" }),
+  ).toBeDefined();
+});
+
+test("F01: pending reanalysis keeps its editor open until start settles", async () => {
+  let starts = 0;
+  let release = () => {};
+  const delayed = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const { client } = fixture({
+    beforeStart: async () => {
+      if (++starts === 2) await delayed;
+    },
+  });
+  await startFixtureScan(client);
+  await screen.findByText("At least 42 bytes");
+  fireEvent.click(screen.getByRole("button", { name: "Analyze again" }));
+  fireEvent.click(screen.getByRole("button", { name: "Start scan" }));
+  expect(
+    screen.getByRole<HTMLButtonElement>("button", {
+      name: "Close target editor",
+    }).disabled,
+  ).toBe(true);
+  await act(async () => release());
+  await waitFor(() =>
+    expect(
+      screen.queryByRole("button", { name: "Close target editor" }),
+    ).toBeNull(),
+  );
+});
+
+test("F02: scan shows its fixed paths before the first result", async () => {
+  const { client } = fixture({
+    readStatus: (base) => ({ ...base, state: "running", resultVersion: null }),
+  });
+  await startFixtureScan(client);
+  await screen.findByText("Scan status: running");
+  expect(
+    within(screen.getByLabelText("Scanning paths")).getByText(path.display),
+  ).toBeDefined();
+  expect(
+    screen.queryByRole("textbox", { name: "Windows folder path" }),
+  ).toBeNull();
+  expect(screen.getByRole("button", { name: "Pause scan" })).toBeDefined();
+  expect(screen.getByRole("button", { name: "Cancel scan" })).toBeDefined();
+});
+
+test.each(["done", "failed", "cancelled", "partial"] as const)(
+  "F02: %s scan without totals shows selected paths without implying progress",
+  async (state) => {
+    const { client } = fixture({
+      readStatus: (base) => ({ ...base, state, resultVersion: null }),
+    });
+    await startFixtureScan(client);
+    const paths = await screen.findByLabelText("Selected paths");
+    expect(within(paths).getByText(path.display)).toBeDefined();
+    expect(screen.queryByLabelText("Scanning paths")).toBeNull();
+  },
+);
