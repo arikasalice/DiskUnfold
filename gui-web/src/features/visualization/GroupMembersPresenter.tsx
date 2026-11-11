@@ -25,6 +25,7 @@ export type GroupMembersPresenterProps = {
   rangeLabel?: string;
   groupTotalLabel?: string;
   sizeBasisLabel?: string;
+  sizeRangeLabel?: string;
   observedAtLabel?: string;
   status: "loading" | "ready" | "error";
   errorMessage?: string;
@@ -47,6 +48,7 @@ export function GroupMembersPresenter({
   rangeLabel,
   groupTotalLabel,
   sizeBasisLabel,
+  sizeRangeLabel,
   observedAtLabel,
   status,
   errorMessage,
@@ -78,6 +80,7 @@ export function GroupMembersPresenter({
         rangeLabel={rangeLabel}
         groupTotalLabel={groupTotalLabel}
         sizeBasisLabel={sizeBasisLabel}
+        sizeRangeLabel={sizeRangeLabel}
         observedAtLabel={observedAtLabel}
       />
       <GroupPageFeedback
@@ -112,20 +115,29 @@ function GroupMeasurementContext({
   rangeLabel,
   groupTotalLabel,
   sizeBasisLabel,
+  sizeRangeLabel,
   observedAtLabel,
 }: {
   rangeLabel?: string | undefined;
   groupTotalLabel?: string | undefined;
   sizeBasisLabel?: string | undefined;
+  sizeRangeLabel?: string | undefined;
   observedAtLabel?: string | undefined;
 }) {
-  if (!rangeLabel && !groupTotalLabel && !sizeBasisLabel && !observedAtLabel)
+  if (
+    !rangeLabel &&
+    !groupTotalLabel &&
+    !sizeBasisLabel &&
+    !sizeRangeLabel &&
+    !observedAtLabel
+  )
     return null;
   return (
     <div className="du-review-context" aria-label="Group measurement context">
       {rangeLabel && <Text>{rangeLabel}</Text>}
       {groupTotalLabel && <Text>{groupTotalLabel}</Text>}
       {sizeBasisLabel && <Text>{sizeBasisLabel}</Text>}
+      {sizeRangeLabel && <Text>{sizeRangeLabel}</Text>}
       {observedAtLabel && <Text>{observedAtLabel}</Text>}
     </div>
   );

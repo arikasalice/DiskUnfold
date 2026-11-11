@@ -3,14 +3,19 @@ import {
   Action,
   DataTable,
   DetailDisclosure,
-  GeometryRenderer,
+  createChartRenderers,
   Notice,
   Progress,
   Readout,
   StatusBadge,
   Text,
 } from "../../components";
-import type { VizModel, VizRenderRequest, VizRowsRequest } from "../../ipc";
+import type {
+  ItemRef,
+  VizModel,
+  VizRenderRequest,
+  VizRowsRequest,
+} from "../../ipc";
 import { adaptVizModel, selectionKey } from "./model-adapter";
 import type {
   ModelResponse,
@@ -20,7 +25,9 @@ import type {
 import { rawSourceSize, shapeLabels } from "./model-text";
 import type { VizText } from "./model-text";
 
+const defaultChartRenderer = createChartRenderers([]);
 type ModelViewProps = {
+  resolveRenderer?: ReturnType<typeof createChartRenderers> | undefined;
   frame: ModelResponse;
   page?: ModelRowsPage;
   /** Supplied only while this exact row request is in flight. */
@@ -28,6 +35,11 @@ type ModelViewProps = {
   view: Pick<VizRenderRequest, "viewport" | "visibleWindow">;
   selected: VizSelection | null;
   onSelect: (selection: VizSelection) => void;
+  focus?: ItemRef | null;
+  onFocusItem?: (item: ItemRef | null) => void;
+  onFocusTargetMissing?: () => void;
+  onFocusAvailability?: (available: boolean) => void;
+  focusFirstRequest?: number;
   onPage?: (request: VizRowsRequest) => void;
   text: VizText;
 };
@@ -35,6 +47,9 @@ type ModelViewProps = {
 /** A committed model only. Request ordering and last-valid-model retention belong to its controller. */
 export function VisualizationModelPresenter(props: ModelViewProps) {
   const { frame, page, view, selected, text } = props;
+  const ChartRenderer = (props.resolveRenderer ?? defaultChartRenderer)(
+    frame.model.representation.format,
+  );
   const rowsPending =
     props.pendingRowsRequest?.modelRef === frame.model.modelRef &&
     props.pendingRowsRequest.resultRevision === frame.resultRevision;
@@ -86,60 +101,81 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
         </StatusBadge>
         <Text>{text.observedAt(frame.observedAt)}</Text>
       </div>
-      {frame.model.shapes.length === 0 ? (
-        <>
-          <Notice>
-            No drawable items in this result. Review its totals and unavailable
-            values below.
-          </Notice>
-          {rows}
-        </>
-      ) : (
-        <GeometryRenderer
-          modelRef={frame.model.modelRef}
-          resultRevision={frame.resultRevision}
-          label="Space distribution"
-          selectedText="selected"
-          fallbackNotice="This graph cannot be drawn. The rows below belong to the same result."
-          missingFallbackNotice="Rows from this result are unavailable."
-          width={view.viewport.width}
-          height={view.viewport.height}
-          viewport={view.visibleWindow}
-          shapes={adapted.shapes}
-          relations={adapted.relations}
-          selectedRowRef={selected ? selectionKey(selected, frame) : null}
-          onSelect={(_rowKey, shapeRef) => {
-            const selection = adapted.targetsByShape.get(shapeRef);
-            if (selection) props.onSelect(selection);
-          }}
-          fallback={{
-            modelRef: frame.model.modelRef,
-            resultRevision: frame.resultRevision,
-            content: rows,
-          }}
-        />
+      {frame.model.shapes.length === 0 && (
+        <Notice>
+          No drawable items in this result. Review its totals and unavailable
+          values below.
+        </Notice>
       )}
+      <ChartRenderer
+        modelRef={frame.model.modelRef}
+        resultRevision={frame.resultRevision}
+        label="Space distribution"
+        selectedText="selected"
+        fallbackNotice="This graph cannot be drawn. The rows below belong to the same result."
+        missingFallbackNotice="Rows from this result are unavailable."
+        width={view.viewport.width}
+        height={view.viewport.height}
+        viewport={view.visibleWindow}
+        shapes={adapted.shapes}
+        relations={adapted.relations}
+        selectedRowRef={selected ? selectionKey(selected, frame) : null}
+        focusedRowRef={
+          props.focus && props.focus.resultVersion === frame.resultRevision
+            ? JSON.stringify([
+                "item",
+                props.focus.resultVersion,
+                props.focus.itemNo,
+              ])
+            : null
+        }
+        {...(props.onFocusAvailability
+          ? { onFocusAvailability: props.onFocusAvailability }
+          : {})}
+        {...(props.focusFirstRequest === undefined
+          ? {}
+          : { focusFirstRequest: props.focusFirstRequest })}
+        {...(props.onFocusTargetMissing
+          ? { onFocusTargetMissing: props.onFocusTargetMissing }
+          : {})}
+        onShapeFocus={(_rowKey, shapeRef) => {
+          const target = adapted.targetsByShape.get(shapeRef);
+          if (target)
+            props.onFocusItem?.(target.kind === "item" ? target.itemRef : null);
+        }}
+        onSelect={(_rowKey, shapeRef) => {
+          const selection = adapted.targetsByShape.get(shapeRef);
+          if (selection) props.onSelect(selection);
+        }}
+        fallback={{
+          modelRef: frame.model.modelRef,
+          resultRevision: frame.resultRevision,
+          content: rows,
+        }}
+      />
       <ModelEvidence frame={frame} text={text} />
     </section>
   );
 }
 
-function ModelRows({
+export function ModelRows({
   page,
   model,
   text,
   onPage,
+  title = "Rows from this graph",
 }: {
   page: ModelRowsPage;
   model: VizModel;
   text: VizText;
   onPage?: (request: VizRowsRequest) => void;
+  title?: string;
 }) {
   const { request, response } = page;
   const next = request.start + response.rows.length;
   return (
     <DetailDisclosure
-      title="Rows from this graph"
+      title={title}
       key={`${request.modelRef}:${request.resultRevision}`}
     >
       <Text>

@@ -1,4 +1,5 @@
 import type { SizeValue, VizQuantity, VizShape } from "../src/ipc";
+import { visualizationMessage } from "../src/features/visualization/messages";
 import { SIZE_UNIT_RULES } from "../src/ipc";
 import { formatByteUnit } from "../src/i18n/bytes";
 import type {
@@ -172,6 +173,7 @@ const labels: Record<string, string> = {
 };
 
 export const fixtureText: VizText = {
+  message: (key) => visualizationMessage("en", key),
   key: (key) => labels[key] ?? "Additional result limitation",
   quantity: (value) =>
     value.state === "unknown"

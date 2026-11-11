@@ -1,3 +1,4 @@
+import type { VisualizationMessageKey } from "./messages";
 import type {
   SizeValue,
   VizModel,
@@ -8,6 +9,7 @@ import type {
 
 /** Localization belongs to the caller; unknown keys must retain a visible limit. */
 export type VizText = {
+  message: (key: VisualizationMessageKey) => string;
   key: (key: string) => string;
   quantity: (value: VizQuantity) => string;
   size: (value: SizeValue) => string;
