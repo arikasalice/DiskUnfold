@@ -998,6 +998,59 @@ test("F24: a failed baseline retries and recovers a completed scan without polli
   expect(screen.queryByText("list unavailable")).toBeNull();
 });
 
+test("F02: result changes recover while the job list is still resynchronizing", async () => {
+  let lists = 0;
+  let newest = false;
+  const { client, listeners, calls } = fixture({
+    lineageId: "lineage",
+    readTotals: (result) => ({
+      ...result,
+      completeness: result.resultVersion === "part" ? "partial" : "complete",
+    }),
+    listJobs: () => {
+      lists += 1;
+      if (lists > 1) return new Promise(() => {});
+      return Promise.resolve([
+        {
+          jobRef: "scan",
+          kind: "scan.metadata",
+          scopeSummary: "scope",
+          state: "running",
+          waitReason: "none",
+          priority: "normal",
+          supportedControls: ["cancel"],
+          sequence: 1,
+        },
+      ]);
+    },
+    readStatus: (base) => ({
+      ...base,
+      state: newest ? "done" : "running",
+      sequence: newest ? 2 : 1,
+      scanResult: {
+        lineageId: "lineage",
+        sequence: newest ? 2 : 1,
+        resultVersion: newest ? "final" : "part",
+      },
+    }),
+  });
+  await startFixtureScan(client);
+  await screen.findByText("Result version: Interim");
+  const before = calls.filter(({ name }) => name === "job.get").length;
+  newest = true;
+  notifyResult(listeners, "job.resync_required", {});
+  await waitFor(() => expect(lists).toBe(2));
+  await screen.findByRole("button", { name: "Show latest result" });
+  expect(calls.filter(({ name }) => name === "job.get").length).toBe(
+    before + 1,
+  );
+  expect(screen.getByText("Scanning")).toBeDefined();
+  expect(screen.queryByText("Scan finished")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Show latest result" }));
+  await screen.findByText("Result version: Final");
+  expect(screen.getByText("Scanning")).toBeDefined();
+});
+
 test("F24: a failed resync keeps the last scan until automatic recovery", async () => {
   const terminal = {
     state: "cancelled" as const,
@@ -1049,11 +1102,14 @@ test("F24: a failed resync keeps the last scan until automatic recovery", async 
   await screen.findByText("resync unavailable");
   expect(screen.getByText("Scanning")).toBeDefined();
   await new Promise((resolve) => setTimeout(resolve, 600));
-  expect(calls.filter(({ name }) => name === "job.get")).toHaveLength(before);
+  expect(calls.filter(({ name }) => name === "job.get")).toHaveLength(
+    before + 1,
+  );
+  expect(screen.getByText("Scanning")).toBeDefined();
   await screen.findByText("Scan cancelled", {}, { timeout: 4_000 });
   expect(attempts).toBe(3);
   expect(calls.filter(({ name }) => name === "job.get")).toHaveLength(
-    before + 1,
+    before + 2,
   );
 });
 

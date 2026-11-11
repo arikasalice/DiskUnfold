@@ -129,6 +129,8 @@ export function useScanResult(
     let terminalPending = false;
     let inFlight = false;
     let queued = false;
+    let queuedResult = false;
+    let scheduledResult = false;
     let displayLatest = false;
     let switching = false;
     let lineage = receiptLineage;
@@ -237,7 +239,7 @@ export function useScanResult(
         rejected = undefined;
         staleFailure = undefined;
         setTotal({ jobRef: scanJob, value: result });
-        setError(undefined);
+        if (baseline.ready()) setError(undefined);
       } catch (failure) {
         if (!alive) return;
         rejected = version;
@@ -267,12 +269,17 @@ export function useScanResult(
       });
     }
 
+    function matchesLineage(result: AnalysisJobStatus["scanResult"]) {
+      return !result || !lineage || result.lineageId === lineage;
+    }
+
     async function readStatus() {
       let next: AnalysisJobStatus;
       try {
         next = await client.call("job.get", { jobRef: scanJob });
       } catch (failure) {
         if (!alive) return;
+        if (!baseline.ready()) return;
         statusReadFailed = true;
         const unavailable =
           failure instanceof AnalysisError && failure.code === "NOT_FOUND";
@@ -283,19 +290,20 @@ export function useScanResult(
         recordError(failure, unavailable);
         return;
       }
+      if (!alive || next.jobRef !== scanJob) return;
+      const result = next.scanResult;
+      if (!matchesLineage(result)) return;
+      if (!baseline.ready() || next.sequence < baseline.sequence()) {
+        if (result) return reconcileResult(next);
+        return;
+      }
       if (
-        !alive ||
-        !baseline.ready() ||
-        next.sequence < baseline.sequence() ||
-        next.jobRef !== scanJob ||
         next.sequence < jobSequence ||
         (jobState !== undefined &&
           !isRunning(jobState) &&
           isRunning(next.state))
       )
         return;
-      const result = next.scanResult;
-      if (result && lineage && result.lineageId !== lineage) return;
       if (statusReadFailed) {
         statusReadFailed = false;
         setError(undefined);
@@ -333,7 +341,7 @@ export function useScanResult(
         displayed = undefined;
         displayLatest = false;
         setTotal(undefined);
-        setError(undefined);
+        if (baseline.ready()) setError(undefined);
         return;
       }
       if (
@@ -356,10 +364,11 @@ export function useScanResult(
       setSwitchingJob((current) => (current === scanJob ? undefined : current));
     }
 
-    async function refresh() {
-      if (!alive || !baseline.ready()) return;
+    async function refresh(resultOnly = false) {
+      if (!alive || (!baseline.ready() && !resultOnly)) return;
       if (inFlight) {
         queued = true;
+        queuedResult ||= resultOnly;
         return;
       }
       inFlight = true;
@@ -379,7 +388,9 @@ export function useScanResult(
           finishSwitch();
         if (queued && alive) {
           queued = false;
-          void refresh();
+          const retryResult = queuedResult;
+          queuedResult = false;
+          void refresh(retryResult);
         }
       }
     }
@@ -392,14 +403,17 @@ export function useScanResult(
       displayLatest = true;
       rejected = undefined;
       staleFailure = undefined;
-      void refresh();
+      void refresh(true);
     };
     // Notifications invalidate status. Read it once for all events in this frame.
-    function scheduleStatusRead() {
+    function scheduleStatusRead(resultOnly = false) {
+      scheduledResult ||= resultOnly;
       if (statusFrame !== undefined) return;
       statusFrame = window.requestAnimationFrame(() => {
         statusFrame = undefined;
-        void refresh();
+        const readResult = scheduledResult;
+        scheduledResult = false;
+        void refresh(readResult);
       });
     }
 
@@ -415,8 +429,11 @@ export function useScanResult(
       },
     );
     const unsubscribe = client.subscribe((event) => {
-      if (isNewLineageEvent(event, lineage, resultSequence)) {
-        scheduleStatusRead();
+      if (
+        event.topic === "job.resync_required" ||
+        isNewLineageEvent(event, lineage, resultSequence)
+      ) {
+        scheduleStatusRead(true);
       }
     });
     const timer = window.setInterval(() => {
