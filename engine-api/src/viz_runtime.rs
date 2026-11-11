@@ -36,7 +36,22 @@ mod commands;
 mod compute;
 mod control;
 mod envelope;
+mod histogram;
+mod histogram_model;
 mod lifecycle;
+
+/// Histogram policy and bin presentation frozen by the composition owner at admission.
+#[derive(Clone)]
+pub struct HistogramFacts {
+    /// Unit definitions selected for this admitted calculation.
+    pub unit_table: &'static du_core_contracts::size_units::UnitTable,
+    /// Revision assigned by the unit-table owner.
+    pub unit_table_revision: u32,
+    /// Model-local group references and presentation for each unit interval.
+    pub bins: Vec<crate::viz_pages::histogram::BinPresentation>,
+    /// Owner-provided reason for an unknown byte quantity.
+    pub unknown_reason: String,
+}
 
 /// Frozen policy limits supplied from the registered view policy.
 #[derive(Clone)]
@@ -72,6 +87,14 @@ pub struct ItemEvidence {
 /// Implementations must return evidence for the supplied immutable result, and
 /// preserve semantics for the lifetime of their registered policy revisions.
 pub trait EvidenceProducer: Send + Sync + 'static {
+    /// Supplies immutable byte-histogram policy for this exact admitted source.
+    fn histogram_facts(
+        &self,
+        _source: &CurrentAnalysis,
+        _request: &VizRenderRequest,
+    ) -> Result<Option<HistogramFacts>, EngineError> {
+        Ok(None)
+    }
     fn source_facts(
         &self,
         source: &CurrentAnalysis,
@@ -111,10 +134,36 @@ struct Work {
 }
 #[derive(Default)]
 struct Computed {
-    committed: Option<CommittedRender>,
+    committed: Option<RuntimeCommitted>,
     wire_model: Option<Arc<VizModel>>,
+    histogram_revision: Option<Id>,
 }
-type CandidateSlot = Mutex<Option<DeferredRender>>;
+enum RuntimeCommitted {
+    Projection(CommittedRender),
+    Histogram {
+        fallback: du_core_contracts::visualization::render::VizFallback,
+        no_attribution: bool,
+    },
+}
+impl Clone for RuntimeCommitted {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Projection(value) => Self::Projection(value.clone()),
+            Self::Histogram {
+                fallback,
+                no_attribution,
+            } => Self::Histogram {
+                fallback: fallback.clone(),
+                no_attribution: *no_attribution,
+            },
+        }
+    }
+}
+enum Candidate {
+    Projection(DeferredRender),
+    Histogram(crate::viz_pages::histogram::DeferredSelectedPages),
+}
+type CandidateSlot = Mutex<Option<Candidate>>;
 #[derive(Clone)]
 struct Admitted {
     request: VizRenderRequest,
@@ -123,6 +172,7 @@ struct Admitted {
     key: String,
     strategy: du_core_contracts::visualization::LayoutStrategyKey,
     max_shapes: usize,
+    histogram: Option<HistogramFacts>,
 }
 /// Owns admission, shared subscriptions and the physical F24 publication boundary.
 /// Lock order: admission serial -> F24 gate -> members -> computed -> cache/source.

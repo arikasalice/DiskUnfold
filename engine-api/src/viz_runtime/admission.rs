@@ -32,7 +32,66 @@ impl Runtime {
         normalize(&mut request, &source, &descriptor.strategy)?;
         let facts = self.assembly.producer.source_facts(&source, &request)?;
         validate_facts(&facts, &source, self.assembly.policy.revision)?;
-        let key = fingerprint(&request, &facts, max_shapes)?;
+        let histogram = if request.format == "histogram" {
+            if descriptor
+                != du_analysis_index::visualization::histogram_dispatch::histogram_descriptor()
+            {
+                return Err(EngineError::reason("viz.strategy_unknown"));
+            }
+            let mut supplied = self
+                .assembly
+                .producer
+                .histogram_facts(&source, &request)?
+                .ok_or_else(unavailable)?;
+            let mut group_refs = HashSet::new();
+            if supplied.unit_table_revision == 0
+                || supplied.unknown_reason.trim().is_empty()
+                || supplied.bins.len() != supplied.unit_table.symbols().len()
+                || supplied.bins.len() > max_shapes
+                || supplied.bins.iter().any(|bin| {
+                    bin.group_ref.is_empty()
+                        || !group_refs.insert(&bin.group_ref)
+                        || bin.display_name.is_empty()
+                        || bin.legend_class_key.is_empty()
+                        || bin.display_flags.iter().any(String::is_empty)
+                        || !facts.classes.contains_key(&bin.legend_class_key)
+                })
+            {
+                return Err(invalid());
+            }
+            for bin in &mut supplied.bins {
+                bin.display_flags.sort_unstable();
+                bin.display_flags.dedup();
+            }
+            Some(supplied)
+        } else {
+            None
+        };
+        let mut key = fingerprint(&request, &facts, max_shapes)?;
+        if let Some(policy) = &histogram {
+            let bins: Vec<_> = policy
+                .bins
+                .iter()
+                .map(|bin| {
+                    (
+                        &bin.group_ref,
+                        &bin.display_name,
+                        &bin.legend_class_key,
+                        &bin.display_flags,
+                    )
+                })
+                .collect();
+            let input = serde_json::to_vec(&(
+                &key,
+                policy.unit_table.base(),
+                policy.unit_table.symbols(),
+                policy.unit_table_revision,
+                &policy.unknown_reason,
+                bins,
+            ))
+            .map_err(|_| internal())?;
+            key = blake3::hash(&input).to_hex().to_string();
+        }
         Ok(Admitted {
             request,
             source,
@@ -40,6 +99,7 @@ impl Runtime {
             key,
             strategy: descriptor.strategy,
             max_shapes,
+            histogram,
         })
     }
     fn pin_source(&self, request: &VizRenderRequest) -> Result<CurrentAnalysis, EngineError> {

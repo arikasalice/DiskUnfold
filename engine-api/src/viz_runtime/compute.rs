@@ -29,6 +29,9 @@ impl JobBody for Compute {
     }
     fn run(&self, context: Arc<dyn JobContext>) -> JobOutcome {
         let mut cancelled = || context.checkpoint() != Checkpoint::Continue;
+        if self.admitted.histogram.is_some() {
+            return super::histogram::run(self, &mut cancelled);
+        }
         let request = &self.admitted.request;
         let hierarchy = request.format == "treemap"
             && (request.depth_limit > 1
@@ -142,7 +145,7 @@ impl JobBody for Compute {
                 let candidate = self.session.defer_reserved(reserved);
                 match (self.candidate.lock(), self.work.computed.lock()) {
                     (Ok(mut slot), Ok(mut computed)) => {
-                        *slot = Some(candidate);
+                        *slot = Some(Candidate::Projection(candidate));
                         computed.wire_model = model;
                         let mut finished = outcome(true, None);
                         finished.counts.completed = evidence.len() as u64;
@@ -156,7 +159,7 @@ impl JobBody for Compute {
         }
     }
 }
-fn outcome(completed_scope: bool, reason: Option<&str>) -> JobOutcome {
+pub(super) fn outcome(completed_scope: bool, reason: Option<&str>) -> JobOutcome {
     JobOutcome {
         counts: JobCounts::default(),
         completed_scope,
@@ -177,9 +180,30 @@ pub(super) fn commit(
     let mut slot = candidate.lock().map_err(|_| "support.internal_error")?;
     let mut computed = work.computed.lock().map_err(|_| "support.internal_error")?;
     let deferred = slot.as_mut().ok_or("support.internal_error")?;
-    let committed = session
-        .commit_deferred(deferred, &mut || false)
-        .map_err(|_| "support.internal_error")?;
+    let committed = match deferred {
+        Candidate::Projection(candidate) => RuntimeCommitted::Projection(
+            session
+                .commit_deferred(candidate, &mut || false)
+                .map_err(|_| "support.internal_error")?,
+        ),
+        Candidate::Histogram(candidate) => {
+            let no_attribution = candidate.no_attribution();
+            let model_ref = session
+                .commit_histogram(candidate, &mut || false)
+                .map_err(|_| "support.internal_error")?;
+            let revision = computed
+                .histogram_revision
+                .clone()
+                .ok_or("support.internal_error")?;
+            RuntimeCommitted::Histogram {
+                fallback: du_core_contracts::visualization::render::VizFallback {
+                    model_ref,
+                    result_revision: revision,
+                },
+                no_attribution,
+            }
+        }
+    };
     computed.committed = Some(committed);
     Ok(())
 }

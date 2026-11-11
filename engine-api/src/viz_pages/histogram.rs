@@ -34,6 +34,7 @@ use std::{
 };
 
 /// Presentation and reference evidence for a single supplied bin.
+#[derive(Clone)]
 pub struct BinPresentation {
     pub group_ref: String,
     pub display_name: String,

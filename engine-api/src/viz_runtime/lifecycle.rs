@@ -69,12 +69,24 @@ impl Runtime {
                         computed.wire_model.clone(),
                     )
                 };
-                envelope::response(
-                    &self.assembly.session,
-                    &admitted,
-                    &committed,
-                    wire_model.as_deref(),
-                )
+                match &committed {
+                    RuntimeCommitted::Projection(value) => envelope::response(
+                        &self.assembly.session,
+                        &admitted,
+                        value,
+                        wire_model.as_deref(),
+                    ),
+                    RuntimeCommitted::Histogram {
+                        fallback,
+                        no_attribution,
+                    } => super::histogram::response(
+                        &self.assembly.session,
+                        &admitted,
+                        fallback,
+                        *no_attribution,
+                        wire_model.as_deref(),
+                    ),
+                }
             }
             JobState::Failed | JobState::Partial => Err(internal()),
             _ => Ok(envelope::job(&admitted, job)),
@@ -123,8 +135,9 @@ impl Runtime {
             return Ok(false);
         };
         let fallback = match committed {
-            CommittedRender::Model(model) => model.fallback(),
-            CommittedRender::Fallback { fallback, .. } => fallback,
+            RuntimeCommitted::Projection(CommittedRender::Model(model)) => model.fallback(),
+            RuntimeCommitted::Projection(CommittedRender::Fallback { fallback, .. })
+            | RuntimeCommitted::Histogram { fallback, .. } => fallback,
         };
         match self
             .assembly

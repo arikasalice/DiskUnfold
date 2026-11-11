@@ -52,8 +52,16 @@ impl Random for Entropy {
 }
 struct Producer {
     block: Mutex<Option<(mpsc::Sender<()>, mpsc::Receiver<()>)>>,
+    unit_iec: AtomicBool,
 }
 impl EvidenceProducer for Producer {
+    fn histogram_facts(
+        &self,
+        _: &current_analysis::CurrentAnalysis,
+        _: &VizRenderRequest,
+    ) -> Result<Option<du_engine_api::viz_runtime::HistogramFacts>, EngineError> {
+        Ok(Some(histogram_runtime::facts(self)))
+    }
     fn source_facts(
         &self,
         source: &current_analysis::CurrentAnalysis,
@@ -129,6 +137,8 @@ struct Fixture {
     events: mpsc::Receiver<JobEvent>,
     entered: mpsc::Receiver<()>,
     release: mpsc::Sender<()>,
+    session: Arc<Session>,
+    producer: Arc<Producer>,
 }
 impl Fixture {
     fn new(sizes: [u64; 2]) -> Result<Self, String> {
@@ -164,11 +174,12 @@ impl Fixture {
         max_work: NonZeroUsize,
     ) -> Result<Self, String> {
         let ids = Arc::new(Identity(AtomicU8::new(15)));
+        let dispatcher = histogram_runtime::dispatcher()?;
         let session = Arc::new(Session::new(
             sink.clone(),
             NonZeroUsize::MIN.saturating_add(3),
             ids.clone(),
-            bundle::implemented_dispatcher().map_err(|e| format!("{e:?}"))?,
+            dispatcher,
         ));
         let (events_sender, events) = mpsc::channel();
         let jobs = Arc::new(
@@ -184,16 +195,17 @@ impl Fixture {
         let (release, release_receiver) = mpsc::channel();
         let producer = Arc::new(Producer {
             block: Mutex::new(Some((entered_sender, release_receiver))),
+            unit_iec: AtomicBool::new(false),
         });
         let mut builder = EngineBuilder::default();
         Runtime::register(
             &mut builder,
             Assembly {
                 source: sink.clone(),
-                session,
+                session: session.clone(),
                 jobs: jobs.clone(),
                 ids,
-                producer,
+                producer: producer.clone(),
                 policy: ViewPolicy {
                     revision: 1,
                     max_scale: 4.0,
@@ -213,6 +225,8 @@ impl Fixture {
             events,
             entered,
             release,
+            session,
+            producer,
         })
     }
     fn call(&self, name: &str, body: Value) -> ResultEnvelope {
@@ -480,5 +494,6 @@ fn valid_different_condition_retires_only_the_replaced_channel() -> Result<(), S
 }
 mod fallback_location;
 mod hierarchy_tests;
+mod histogram_runtime;
 mod replacement;
 mod source_selection;
