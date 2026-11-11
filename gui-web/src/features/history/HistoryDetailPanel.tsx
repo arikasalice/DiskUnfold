@@ -185,11 +185,8 @@ function RelatedRecords({
 }
 
 function RecordedEvidence({ detail }: { detail: HistoryDetail }) {
-  const { summary, workflow, followUps, effects } = detail;
+  const { summary, workflow, effects } = detail;
   const counts = summary?.counts;
-  const unconfirmed = followUps?.every(
-    (item) => item.relation && item.relation !== "effect_check",
-  );
   return (
     <DetailDisclosure title="Recorded evidence">
       {summary &&
@@ -260,10 +257,7 @@ function RecordedEvidence({ detail }: { detail: HistoryDetail }) {
             { label: "Executed", value: effect(effects.executed) },
             {
               label: "Confirmed",
-              value: effect(
-                effects.confirmed,
-                unconfirmed ? "Not yet confirmed" : "Unavailable",
-              ),
+              value: effect(effects.confirmed),
             },
           ]}
         />

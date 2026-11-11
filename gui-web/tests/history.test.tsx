@@ -149,6 +149,10 @@ test("reveals precise result counts only in the selected record", async () => {
   const counts = within(await screen.findByLabelText("Result counts"));
   for (const value of [maximum, "0", "1", "2", "3"])
     expect(counts.getByText(value)).toBeDefined();
+  expect(screen.queryByText("Not yet confirmed")).toBeNull();
+  expect(
+    within(screen.getByLabelText("Effects")).getAllByText("Unavailable"),
+  ).toHaveLength(3);
 });
 
 test("restarts a stale page", async () => {

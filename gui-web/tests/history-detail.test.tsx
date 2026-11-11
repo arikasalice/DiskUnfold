@@ -176,8 +176,8 @@ test("late detail response cannot overwrite a later selection", async () => {
   expect(screen.getByText("No follow-up operations.")).toBeDefined();
   fireEvent.click(screen.getByRole("button", { name: "Recorded evidence" }));
   const effects = within(screen.getByLabelText("Effects"));
-  expect(effects.getAllByText("Unavailable")).toHaveLength(2);
-  expect(effects.getByText("Not yet confirmed")).toBeDefined();
+  expect(effects.getAllByText("Unavailable")).toHaveLength(3);
+  expect(effects.queryByText("Not yet confirmed")).toBeNull();
 });
 
 test("renders supplied plans, approval, follow-ups and the three distinct effects", async () => {
