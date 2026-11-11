@@ -97,11 +97,14 @@ export function useHistory(client: AnalysisClient, filter: HistoryListFilter) {
       } else if (event.topic !== "job.resync_required") {
         return;
       }
+      generation.current += 1;
+      setPage(undefined);
+      setPending(true);
+      setError(false);
+      setRefreshed(true);
       if (frame !== undefined) return;
       frame = window.requestAnimationFrame(() => {
         frame = undefined;
-        setPage(undefined);
-        setRefreshed(true);
         void read(null);
       });
     });

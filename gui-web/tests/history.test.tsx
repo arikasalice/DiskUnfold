@@ -18,7 +18,10 @@ import type {
   HistoryListRevision,
 } from "../src/ipc";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 const response = (
   rows: HistoryListResponse["rows"] = [],
@@ -258,6 +261,60 @@ test("resynchronizes history after subscriber overflow", async () => {
   act(() => events.send("job.resync_required"));
   expect(call).toHaveBeenCalledTimes(2);
 });
+
+test.each(["history.changed", "job.resync_required"])(
+  "F21: %s invalidates an in-flight history page before the refresh frame",
+  async (topic) => {
+    let finishPage: ((page: HistoryListResponse) => void) | undefined;
+    let refreshFrame: FrameRequestCallback | undefined;
+    const deleted = {
+      ...row,
+      summary: { ...row.summary, scopeSummary: "Deleted folder" },
+    };
+    const call = vi
+      .fn()
+      .mockResolvedValueOnce(response([row], "old-cursor"))
+      .mockImplementationOnce(
+        () =>
+          new Promise<HistoryListResponse>((resolve) => {
+            finishPage = resolve;
+          }),
+      )
+      .mockResolvedValueOnce({
+        ...response(),
+        revision: { deleteGeneration: "1", maxRecordSeq: "1" },
+      });
+    const events = historyEvents(call);
+    render(<HistoryPanel client={events.client} onClose={() => {}} />);
+    const more = await screen.findByRole("button", {
+      name: "Load more history",
+    });
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      refreshFrame = callback;
+      return 123;
+    });
+    fireEvent.click(more);
+    expect(call).toHaveBeenCalledTimes(2);
+    act(() =>
+      events.send(topic, {
+        deleteGeneration: "1",
+        maxRecordSeq: "1",
+      }),
+    );
+    expect(refreshFrame).toBeDefined();
+    await act(async () => finishPage?.(response([deleted])));
+    expect(screen.queryByText("Deleted folder")).toBeNull();
+    expect(screen.queryByText("1 folder")).toBeNull();
+    expect(call).toHaveBeenCalledTimes(2);
+    act(() => refreshFrame?.(0));
+    await screen.findByText("No operations recorded yet.");
+    expect(call).toHaveBeenCalledTimes(3);
+    expect(call.mock.calls.every(([name]) => name === "history.list")).toBe(
+      true,
+    );
+    expect(call.mock.calls[2]?.[1]).toMatchObject({ cursor: null });
+  },
+);
 
 test("announces an error and retries the first page", async () => {
   const call = vi
