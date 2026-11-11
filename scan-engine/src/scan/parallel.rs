@@ -47,6 +47,12 @@ struct Frame {
 }
 struct Queue {
     ready: VecDeque<Frame>,
+    /// Maximum simultaneous frames in this shared deque, including initial roots.
+    /// Worker-local overflow, active frames and the observation channel are excluded.
+    /// Cancellation drains do not reset the peak. Each enqueue costs O(1); the
+    /// counter and its single per-scan word exist only in test builds.
+    #[cfg(test)]
+    ready_high_water: usize,
     last_root: Option<u32>,
     remaining: usize,
     root_remaining: Vec<usize>,
@@ -56,6 +62,14 @@ struct Queue {
     started: bool,
 }
 impl Queue {
+    fn push_ready(&mut self, frame: Frame) {
+        self.ready.push_back(frame);
+        #[cfg(test)]
+        {
+            self.ready_high_water = self.ready_high_water.max(self.ready.len());
+        }
+    }
+
     fn pop_fair(&mut self) -> Option<(Frame, usize)> {
         let last = self.last_root;
         let index = self
@@ -263,12 +277,33 @@ fn collect_with_policy(
 }
 
 fn run(
+    build: BuildHandle,
+    roots: Vec<Box<dyn AnchoredDirectory>>,
+    control: Control<'_>,
+    counts: &mut JobCounts,
+    devices: DevicePlan,
+    clock: &dyn MonotonicClock,
+) -> Result<(Id, bool, usize), BuildError> {
+    run_inner(
+        build,
+        roots,
+        control,
+        counts,
+        devices,
+        clock,
+        #[cfg(test)]
+        None,
+    )
+}
+
+fn run_inner(
     mut build: BuildHandle,
     roots: Vec<Box<dyn AnchoredDirectory>>,
     control: Control<'_>,
     counts: &mut JobCounts,
     devices: DevicePlan,
     clock: &dyn MonotonicClock,
+    #[cfg(test)] ready_high_water: Option<&std::sync::atomic::AtomicUsize>,
 ) -> Result<(Id, bool, usize), BuildError> {
     let Control {
         ids,
@@ -313,6 +348,8 @@ fn run(
     };
     let shared = Shared {
         queue: Mutex::new(Queue {
+            #[cfg(test)]
+            ready_high_water: root_count,
             ready: roots
                 .into_iter()
                 .enumerate()
@@ -370,6 +407,13 @@ fn run(
             shared.abort(context);
         }
     });
+    // A test-only observer receives the peak even when collection failed or was cancelled.
+    #[cfg(test)]
+    if let Some(observer) = ready_high_water
+        && let Ok(queue) = shared.queue.lock()
+    {
+        observer.store(queue.ready_high_water, Ordering::Release);
+    }
     if let Some(error) = failure {
         return Err(error);
     }

@@ -121,6 +121,7 @@ mod tests {
         let shared = Shared {
             queue: Mutex::new(Queue {
                 ready: VecDeque::new(),
+                ready_high_water: 0,
                 last_root: None,
                 remaining: 1,
                 root_remaining: vec![1],

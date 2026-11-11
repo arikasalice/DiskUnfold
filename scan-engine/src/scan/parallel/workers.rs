@@ -426,7 +426,7 @@ fn requeue(shared: &Shared, frame: Frame, local: &mut Vec<Frame>, context: &dyn 
         }
     };
     if queue.ready.len() < QUEUED_DIRECTORIES {
-        queue.ready.push_back(frame);
+        queue.push_ready(frame);
         shared.wake.notify_one();
         return;
     }
@@ -453,7 +453,7 @@ fn schedule(shared: &Shared, context: &dyn JobContext, frame: Frame) -> Option<F
     queue.remaining += 1;
     queue.root_remaining[frame.root_index as usize] += 1;
     if queue.ready.len() < QUEUED_DIRECTORIES {
-        queue.ready.push_back(frame);
+        queue.push_ready(frame);
         shared.wake.notify_one();
         return None;
     }

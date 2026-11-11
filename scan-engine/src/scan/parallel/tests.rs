@@ -436,6 +436,7 @@ fn ready_roots_take_turns_even_when_one_has_many_frames() {
     };
     let mut queue = Queue {
         ready: VecDeque::from([frame(0), frame(0), frame(1), frame(2), frame(0), frame(1)]),
+        ready_high_water: 6,
         last_root: None,
         remaining: 6,
         root_remaining: vec![3, 2, 1],
@@ -456,3 +457,56 @@ mod device;
 mod panic_boundary;
 
 mod spawn;
+
+#[test]
+fn test_hook_retains_initial_shared_ready_peak_for_each_scan()
+-> Result<(), Box<dyn std::error::Error>> {
+    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "worker test lock")?;
+    let ids = Ids(AtomicUsize::new(1));
+    let context = Context {
+        completed: Arc::new(AtomicUsize::new(0)),
+        abandoned: Arc::new(AtomicUsize::new(0)),
+    };
+    for count in [3, 1] {
+        let sink = IngestSink::default();
+        let roots = (0..count)
+            .map(|n| observed_root(&format!("C:\\{n}"), n as u8))
+            .collect();
+        let build = sink
+            .open_forest(ids.next_id(), roots)
+            .map_err(|e| format!("{e:?}"))?;
+        let dirs = (0..count)
+            .map(|_| {
+                Box::new(SmallRoot {
+                    fail: false,
+                    done: false,
+                    name: native("item"),
+                }) as Box<dyn AnchoredDirectory>
+            })
+            .collect();
+        let peak = AtomicUsize::new(usize::MAX);
+        let control = Control {
+            ids: &ids,
+            context: &context,
+            limit: 1,
+            policy: Policy::Legacy(&|_| true),
+        };
+        let mut counts = JobCounts::default();
+        let devices = DevicePlan {
+            groups: vec![0; count],
+            limit: 4,
+        };
+        run_inner(
+            build,
+            dirs,
+            control,
+            &mut counts,
+            devices,
+            &ContextClock(&context),
+            Some(&peak),
+        )
+        .map_err(|e| format!("{e:?}"))?;
+        assert_eq!(peak.load(Ordering::Acquire), count);
+    }
+    Ok(())
+}
