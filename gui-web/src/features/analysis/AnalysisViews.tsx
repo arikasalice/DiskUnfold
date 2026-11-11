@@ -2,7 +2,9 @@ import { useLayoutEffect, useRef, useState } from "react";
 import type { ReactNode, Ref } from "react";
 import {
   Action,
+  DetailDisclosure,
   Heading,
+  InspectionDialog,
   LiveStatus,
   Metric,
   Notice,
@@ -11,18 +13,11 @@ import {
   StatusBadge,
   Text,
 } from "../../components";
-import { AnalysisError } from "../../ipc";
-import type {
-  AnalysisClient,
-  BrowseDetail,
-  BrowseValue,
-  JobState,
-  OsPath,
-  SpaceTotal,
-} from "../../ipc";
+import { SIZE_UNIT_RULES } from "../../ipc";
+import type { AnalysisClient, JobState, OsPath, SpaceTotal } from "../../ipc";
 import type { ScanControl, useScanResult } from "../../state/analysis-scan";
 import { ScanIssues } from "./ScanIssues";
-import { ItemSpaceDetails } from "./ItemSpaceDetails";
+import { FileInspection } from "./FileInspection";
 import { SizeDisplayControls } from "./SizeDisplayControls";
 import { VolumeExplanation } from "./VolumeExplanation";
 import {
@@ -30,11 +25,11 @@ import {
   displayMeasurementLimit,
   displayRawSize,
   displaySize,
-  displaySizeWithBytes,
   sizeLabels,
   windowsSizeDisplay,
 } from "./space-format";
 import type { SizeBasisFilter, SizeDisplay } from "./space-format";
+import "../../theme/analysis-results.css";
 
 const resultVersionLabels = {
   complete: "Final",
@@ -52,13 +47,10 @@ function Coverage({ total }: { total: SpaceTotal }) {
   return (
     <Readout
       label="Coverage limits"
-      rows={counters
-        .filter(({ count }) => count !== "0")
-        .map(({ label, count }) => ({
-          label,
-          value:
-            count === null ? "Not recorded" : BigInt(count).toLocaleString(),
-        }))}
+      rows={counters.map(({ label, count }) => ({
+        label,
+        value: count === null ? "Not recorded" : BigInt(count).toLocaleString(),
+      }))}
     />
   );
 }
@@ -127,7 +119,7 @@ export function ScanOutput({
               : "Collecting file metadata. Totals appear when a result is ready."}
           </Text>
         ) : !awaitingTotals && !error ? (
-          <Text kind="muted">No result to display.</Text>
+          <Text kind="muted">{emptyResultMessage(scan.status?.state)}</Text>
         ) : null}
       </section>
     </>
@@ -155,7 +147,7 @@ function ScanOutputHeader({
     <header className="du-result__header">
       <div className="du-result__title">
         <Heading level={3}>
-          {scan.total ? "Space totals" : "Scan progress"}
+          {scan.total ? "Analysis result" : "Scan progress"}
         </Heading>
         {started && (
           <ScanStatus
@@ -201,21 +193,48 @@ function ScanStatus({
   pending: ScanControl | undefined;
   focusTarget: Ref<HTMLDivElement>;
 }) {
+  const labels: Record<JobState | "unavailable", string> = {
+    queued: "Waiting to scan",
+    running: "Scanning",
+    pause_requested: "Pause requested",
+    paused: "Scan paused",
+    cancel_requested: "Cancellation requested",
+    done: "Scan finished",
+    partial: "Scan ended with gaps",
+    failed: "Scan failed",
+    cancelled: "Scan cancelled",
+    unavailable: "Scan status unavailable",
+  };
   const statusText =
     pending === "cancel" || state === "cancel_requested"
-      ? "cancellation requested"
+      ? labels.cancel_requested
       : pending === "resume"
-        ? "resume requested"
+        ? "Resume requested"
         : pending === "pause" || state === "pause_requested"
-          ? "pause requested"
-          : state;
+          ? labels.pause_requested
+          : labels[state];
   return (
     <LiveStatus ref={focusTarget} focusTarget>
       <StatusBadge tone={state === "done" ? "good" : "info"}>
-        {state === "done" ? "Scan finished" : `Scan status: ${statusText}`}
+        {statusText}
       </StatusBadge>
     </LiveStatus>
   );
+}
+
+function emptyResultMessage(state: JobState | undefined): string {
+  switch (state) {
+    case "cancelled":
+      return "The scan was cancelled before a result was available.";
+    case "failed":
+      return "The scan failed before a result was available.";
+    case "partial":
+      return "The scan ended with gaps and no result is available.";
+    case "done":
+      return "The scan finished without an available result.";
+    default:
+      return "No result is available yet.";
+  }
 }
 
 function ResultVersionSummary({
@@ -311,33 +330,14 @@ function PinnedResult({
   );
   const lead = sizes.find(({ size }) => size.basis === "logical") ?? sizes[0];
   const supporting = sizes.filter((entry) => entry !== lead);
+  const unit =
+    display.unit === "auto"
+      ? "Automatic"
+      : (SIZE_UNIT_RULES[display.system].symbols[display.unit] ??
+        "Unavailable");
+  const basisLabel = basis === "all" ? "All measures" : sizeLabels[basis];
   return (
     <div className="du-results">
-      <div className="du-metrics">
-        {(lead ? [lead, ...supporting] : supporting).map(
-          ({ size, completeness, measurementLimits }, index) => {
-            const value = displaySize(size, display);
-            const raw = displayRawSize(size);
-            return (
-              <Metric
-                key={size.basis}
-                label={sizeLabels[size.basis]}
-                prominent={index === 0}
-                detail={[
-                  displayMeasurement(size, completeness),
-                  raw === value ? undefined : raw,
-                  ...measurementLimits.map(displayMeasurementLimit),
-                ]
-                  .filter(Boolean)
-                  .join(" · ")}
-              >
-                {value}
-              </Metric>
-            );
-          },
-        )}
-      </div>
-      <Coverage total={total} />
       <Readout
         label="Scanned paths"
         rows={[
@@ -347,12 +347,46 @@ function PinnedResult({
           },
         ]}
       />
-      <SizeDisplayControls
-        basis={basis}
-        display={display}
-        onBasis={setBasis}
-        onDisplay={setDisplay}
-      />
+      <div className="du-metrics">
+        {(lead ? [lead, ...supporting] : supporting).map(
+          ({ size, completeness }) => {
+            const value = displaySize(size, display);
+            return (
+              <Metric
+                key={size.basis}
+                label={sizeLabels[size.basis]}
+                detail={displayMeasurement(size, completeness)}
+              >
+                {value}
+              </Metric>
+            );
+          },
+        )}
+      </div>
+      <Coverage total={total} />
+      <DetailDisclosure title="Measurement details">
+        <Readout
+          label="Measurement details"
+          rows={sizes.map(({ size, measurementLimits }) => ({
+            label: sizeLabels[size.basis],
+            value: [
+              displayRawSize(size) ?? "Unavailable",
+              ...measurementLimits.map(displayMeasurementLimit),
+            ].join(" · "),
+          }))}
+        />
+      </DetailDisclosure>
+      <Text kind="muted">
+        {basisLabel} · {display.system.toUpperCase()} · {unit}
+      </Text>
+      <DetailDisclosure title="Display options">
+        <SizeDisplayControls
+          basis={basis}
+          display={display}
+          onBasis={setBasis}
+          onDisplay={setDisplay}
+        />
+      </DetailDisclosure>
       <VolumeExplanation
         key={`volume:${total.resultVersion}`}
         client={client}
@@ -388,104 +422,39 @@ function ScopeDetails({
   multiRoot: boolean;
   display: SizeDisplay;
 }) {
-  const [detail, setDetail] = useState<BrowseDetail>();
-  const [pending, setPending] = useState(false);
-  const [problem, setProblem] = useState<string>();
+  const [open, setOpen] = useState(false);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const restore = useRef(false);
+  useLayoutEffect(() => {
+    if (!open && restore.current) {
+      trigger.current?.focus();
+      restore.current = false;
+    }
+  }, [open]);
 
   if (multiRoot) return null;
 
-  async function toggle() {
-    if (detail) {
-      setDetail(undefined);
-      return;
-    }
-    setProblem(undefined);
-    setPending(true);
-    try {
-      const response = await client.call("browse.detail", {
-        resultVersion,
-        item: { resultVersion, itemNo: 0 },
-      });
-      if (
-        response.item.resultVersion !== resultVersion ||
-        response.item.itemNo !== 0
-      ) {
-        setProblem("The result changed. Run a new scan to see folder details.");
-        return;
-      }
-      setDetail(response);
-    } catch (error) {
-      setProblem(
-        error instanceof AnalysisError && error.code === "STALE_VERSION"
-          ? "The result changed. Run a new scan to see folder details."
-          : "Folder details are unavailable.",
-      );
-    } finally {
-      setPending(false);
-    }
-  }
-
   return (
     <section aria-label="Folder details">
-      <Action isDisabled={pending} onPress={() => void toggle()}>
-        {detail ? "Hide folder details" : "View folder details"}
+      <Action ref={trigger} onPress={() => setOpen(true)}>
+        View folder details
       </Action>
-      {pending && <Progress label="Loading folder details" />}
-      {problem && <Notice tone="error">{problem}</Notice>}
-      {detail && (
-        <>
-          <Readout
-            label="Observed folder attributes"
-            rows={[
-              { label: "Folder", value: attribute(detail.displayPath) },
-              { label: "Kind", value: attribute(detail.kind) },
-              {
-                label: "Logical size",
-                value: attribute(detail.logicalSize, (value) =>
-                  displaySizeWithBytes(value, display),
-                ),
-              },
-              {
-                label: "Allocated size",
-                value: attribute(detail.allocatedSize, (value) =>
-                  displaySizeWithBytes(value, display),
-                ),
-              },
-              { label: "Modified", value: attribute(detail.modifiedAt) },
-              { label: "Created", value: attribute(detail.createdAt) },
-              {
-                label: "Result published",
-                value: attribute(detail.observedAt),
-              },
-              {
-                label: "Source",
-                value: detail.observationOnly ? "Scan record" : "Scan",
-              },
-            ]}
-          />
-          <ItemSpaceDetails
+      {open && (
+        <InspectionDialog
+          title="Folder details"
+          onClose={() => {
+            restore.current = true;
+            setOpen(false);
+          }}
+        >
+          <FileInspection
             client={client}
-            item={detail.item}
+            item={{ resultVersion, itemNo: 0 }}
+            itemKind="folder"
             display={display}
           />
-        </>
+        </InspectionDialog>
       )}
     </section>
   );
-}
-
-function attribute<T>(
-  field: BrowseValue<T>,
-  format: (value: T) => string = String,
-): string {
-  switch (field.state) {
-    case "present":
-      return format(field.value);
-    case "absent":
-      return "No value";
-    case "unknown":
-      return field.reasonKey === "space.data_insufficient"
-        ? "Size was not established"
-        : "Unavailable in this scan";
-  }
 }

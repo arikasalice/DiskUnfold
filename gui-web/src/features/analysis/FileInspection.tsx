@@ -15,6 +15,7 @@ import type {
 } from "../../ipc";
 import { ItemSpaceDetails } from "./ItemSpaceDetails";
 import { displaySizeWithBytes, windowsSizeDisplay } from "./space-format";
+import type { SizeDisplay } from "./space-format";
 
 function attribute<T>(
   field: BrowseValue<T>,
@@ -25,13 +26,18 @@ function attribute<T>(
   return "Unavailable in this scan";
 }
 
-function attributes(detail: BrowseDetail) {
+function attributes(
+  detail: BrowseDetail,
+  itemKind: "file" | "folder",
+  display: SizeDisplay,
+) {
   const size = (value: BrowseDetail["logicalSize"]) =>
-    attribute(value, (observed) =>
-      displaySizeWithBytes(observed, windowsSizeDisplay),
-    );
+    attribute(value, (observed) => displaySizeWithBytes(observed, display));
   return [
-    { label: "File name", value: attribute(detail.displayName) },
+    {
+      label: itemKind === "file" ? "File name" : "Folder name",
+      value: attribute(detail.displayName),
+    },
     {
       label: "Path",
       value:
@@ -55,9 +61,13 @@ function attributes(detail: BrowseDetail) {
 export function FileInspection({
   client,
   item,
+  itemKind = "file",
+  display = windowsSizeDisplay,
 }: {
   client: AnalysisClient;
   item: ItemRef;
+  itemKind?: "file" | "folder";
+  display?: SizeDisplay;
 }) {
   const [detail, setDetail] = useState<BrowseDetail>();
   const [problem, setProblem] = useState<string>();
@@ -75,7 +85,7 @@ export function FileInspection({
           response.item.resultVersion !== resultVersion ||
           response.item.itemNo !== itemNo
         ) {
-          setProblem("The attributes do not match this file.");
+          setProblem(`The attributes do not match this ${itemKind}.`);
           return;
         }
         setDetail(response);
@@ -84,23 +94,28 @@ export function FileInspection({
         if (!active) return;
         setProblem(
           failure instanceof AnalysisError && failure.code === "STALE_VERSION"
-            ? "Open the latest result to see its file details."
-            : "File attributes are unavailable.",
+            ? `Open the latest result to see its ${itemKind} details.`
+            : `${itemKind === "file" ? "File" : "Folder"} attributes are unavailable.`,
         );
       });
     return () => {
       active = false;
     };
-  }, [client, resultVersion, itemNo]);
+  }, [client, resultVersion, itemNo, itemKind]);
 
   return (
     <>
       <Text kind="muted">Information observed during the scan.</Text>
       {problem && <Notice tone="error">{problem}</Notice>}
-      {!problem && !detail && <Progress label="Reading file attributes" />}
+      {!problem && !detail && (
+        <Progress label={`Reading ${itemKind} attributes`} />
+      )}
       {detail && (
         <>
-          <Readout label="Observed file attributes" rows={attributes(detail)} />
+          <Readout
+            label={`Observed ${itemKind} attributes`}
+            rows={attributes(detail, itemKind, display)}
+          />
           <DetailDisclosure title="More observed attributes">
             <Readout
               label="More observed attributes"
@@ -112,11 +127,7 @@ export function FileInspection({
           </DetailDisclosure>
         </>
       )}
-      <ItemSpaceDetails
-        client={client}
-        item={item}
-        display={windowsSizeDisplay}
-      />
+      <ItemSpaceDetails client={client} item={item} display={display} />
     </>
   );
 }

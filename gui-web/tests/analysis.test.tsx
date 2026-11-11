@@ -596,11 +596,7 @@ test("F01–F03: reviewed scope starts a scan and reads its pinned partial resul
   const allocated = within(
     screen.getByRole("group", { name: "Allocated size" }),
   );
-  expect(
-    allocated.getByText(
-      "Incomplete measurement · Some space data could not be verified",
-    ),
-  ).toBeDefined();
+  expect(allocated.getByText("Incomplete measurement")).toBeDefined();
   const coverage = within(screen.getByLabelText("Coverage limits"));
   expect(
     coverage.getByText("Missing items").nextElementSibling?.textContent,
@@ -617,13 +613,24 @@ test("F01–F03: reviewed scope starts a scan and reads its pinned partial resul
   expect(calls.find((call) => call.name === "space.total")?.body).toMatchObject(
     { resultVersion: "result", target: { kind: "scope_root" } },
   );
-  fireEvent.click(screen.getByRole("button", { name: "View folder details" }));
+  const folderDetails = screen.getByRole("button", {
+    name: "View folder details",
+  });
+  folderDetails.focus();
+  fireEvent.click(folderDetails);
   const detail = within(
     await screen.findByLabelText("Observed folder attributes"),
   );
   expect(detail.getByText("0 bytes")).toBeDefined();
-  expect(detail.getByText("No value")).toBeDefined();
-  expect(detail.getAllByText("Unavailable in this scan")).toHaveLength(2);
+  expect(detail.getByText("Unavailable in this scan")).toBeDefined();
+  fireEvent.click(
+    screen.getByRole("button", { name: "More observed attributes" }),
+  );
+  const moreAttributes = within(
+    screen.getByLabelText("More observed attributes"),
+  );
+  expect(moreAttributes.getByText("Not recorded")).toBeDefined();
+  expect(moreAttributes.getByText("Unavailable in this scan")).toBeDefined();
   expect(calls.find((call) => call.name === "browse.detail")?.body).toEqual({
     resultVersion: "result",
     item: { resultVersion: "result", itemNo: 0 },
@@ -647,6 +654,12 @@ test("F01–F03: reviewed scope starts a scan and reads its pinned partial resul
   ).toBe("Unavailable in this scan");
   expect(calls.find((call) => call.name === "space.detail")?.body).toEqual(
     calls.find((call) => call.name === "browse.detail")?.body,
+  );
+  const close = screen.getByRole("button", { name: "Close details" });
+  fireEvent.keyDown(close, { key: "Escape", code: "Escape" });
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(document.activeElement).toBe(
+    screen.getByRole("button", { name: "View folder details" }),
   );
 });
 
@@ -674,19 +687,30 @@ test("F03: changing size display does not request another result", async () => {
   await waitFor(() => expect(start.disabled).toBe(false));
   fireEvent.click(start);
   expect(await screen.findByText("At least 1,023 bytes")).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "Display options" }));
   fireEvent.change(screen.getByRole("combobox", { name: "Unit system" }), {
     target: { value: "si" },
   });
   expect(screen.getByText("At least 1.0 kB")).toBeDefined();
   expect(
     within(screen.getByRole("group", { name: "Logical size" })).getByText(
-      "Incomplete measurement · Reported by the file system · At least 1,023 bytes",
+      "Incomplete measurement · Reported by the file system",
+    ),
+  ).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "Measurement details" }));
+  expect(
+    within(screen.getByLabelText("Measurement details")).getByText(
+      "At least 1,023 bytes",
     ),
   ).toBeDefined();
   fireEvent.change(screen.getByRole("combobox", { name: "Size unit" }), {
     target: { value: "0" },
   });
-  expect(screen.getByText("At least 1,023 bytes")).toBeDefined();
+  expect(
+    within(screen.getByRole("group", { name: "Logical size" })).getByText(
+      "At least 1,023 bytes",
+    ),
+  ).toBeDefined();
   fireEvent.change(screen.getByRole("combobox", { name: "Size basis" }), {
     target: { value: "allocated" },
   });
@@ -697,6 +721,13 @@ test("F03: changing size display does not request another result", async () => {
     ),
   ).toBeDefined();
   expect(calls.filter(({ name }) => name === "space.total")).toHaveLength(1);
+  fireEvent.click(screen.getByRole("button", { name: "Display options" }));
+  expect(screen.getByText("Allocated size · SI · B")).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "Display options" }));
+  expect(
+    screen.getByRole<HTMLSelectElement>("combobox", { name: "Size basis" })
+      .value,
+  ).toBe("allocated");
 });
 
 test("F01: stale scope disables start and requires review again", async () => {
@@ -773,7 +804,7 @@ test("F24: an expired job releases the scan controls without inventing a result"
   }) as HTMLButtonElement;
   await waitFor(() => expect(start.disabled).toBe(false));
   fireEvent.click(start);
-  await screen.findByText("Scan status: unavailable");
+  await screen.findByText("Scan status unavailable");
   expect(start.disabled).toBe(false);
   expect(screen.queryByRole("button", { name: "Cancel scan" })).toBeNull();
   expect(calls.some((call) => call.name === "space.total")).toBe(false);
@@ -872,7 +903,7 @@ function notifyResult(
 test("F02 NFR5: a burst of status events results in one read per frame", async () => {
   const { client, calls, listeners } = fixture();
   await startFixtureScan(client);
-  await screen.findByText("Scan status: partial");
+  await screen.findByText("Scan ended with gaps");
   const readCount = () => calls.filter(({ name }) => name === "job.get").length;
   const before = readCount();
   const frames: FrameRequestCallback[] = [];
@@ -917,12 +948,12 @@ test("F02 FR10: cancellation is announced before acknowledgement and a rejection
       }),
   });
   await startFixtureScan(client);
-  await screen.findByText("Scan status: running");
+  await screen.findByText("Scanning");
   const cancel = screen.getByRole<HTMLButtonElement>("button", {
     name: "Cancel scan",
   });
   fireEvent.click(cancel);
-  expect(screen.getByText("Scan status: cancellation requested")).toBeDefined();
+  expect(screen.getByText("Cancellation requested")).toBeDefined();
   expect(cancel.getAttribute("aria-disabled")).toBe("true");
   expect(calls.filter(({ name }) => name === "job.cancel")).toHaveLength(1);
   await act(async () => {
@@ -936,7 +967,7 @@ test("F02 FR10: cancellation is announced before acknowledgement and a rejection
   expect(
     screen.getByText("Cancellation is unavailable for this scan."),
   ).toBeDefined();
-  expect(screen.getByText("Scan status: running")).toBeDefined();
+  expect(screen.getByText("Scanning")).toBeDefined();
   expect(cancel.getAttribute("aria-disabled")).toBeNull();
 });
 
@@ -987,7 +1018,7 @@ test.each(["keep focus", "move focus"] as const)(
     state = "cancelled";
     sequence = 5;
     notifyResult(listeners, "job.resync_required", {});
-    const status = await screen.findByText("Scan status: cancelled");
+    const status = await screen.findByText("Scan cancelled");
     expect(screen.queryByRole("button", { name: "Cancel scan" })).toBeNull();
     expect(document.activeElement).toBe(
       intent === "move focus" ? browse : status.closest('[role="status"]'),
@@ -1024,7 +1055,7 @@ test("F02 F24: pauses and resumes the same scan without replacing pinned totals"
   pause.focus();
   fireEvent.click(pause);
   fireEvent.click(pause);
-  expect(screen.getByText("Scan status: pause requested")).toBeDefined();
+  expect(screen.getByText("Pause requested")).toBeDefined();
   expect(document.activeElement).toBe(pause);
   expect(
     screen.getByRole<HTMLButtonElement>("button", { name: "Cancel scan" })
@@ -1040,8 +1071,8 @@ test("F02 F24: pauses and resumes the same scan without replacing pinned totals"
       sequence: 4,
     });
   });
-  expect(screen.getByText("Scan status: pause requested")).toBeDefined();
-  expect(screen.queryByText("Scan status: paused")).toBeNull();
+  expect(screen.getByText("Pause requested")).toBeDefined();
+  expect(screen.queryByText("Scan paused")).toBeNull();
 
   state = "pause_requested";
   sequence = 4;
@@ -1055,7 +1086,7 @@ test("F02 F24: pauses and resumes the same scan without replacing pinned totals"
   state = "paused";
   sequence = 5;
   notifyResult(listeners, "job.resync_required", {});
-  await screen.findByText("Scan status: paused");
+  await screen.findByText("Scan paused");
   expect(
     screen.queryByRole("progressbar", { name: "Scanning folder" }),
   ).toBeNull();
@@ -1064,13 +1095,13 @@ test("F02 F24: pauses and resumes the same scan without replacing pinned totals"
   expect(document.activeElement).toBe(resume);
 
   fireEvent.click(resume);
-  expect(screen.getByText("Scan status: resume requested")).toBeDefined();
+  expect(screen.getByText("Resume requested")).toBeDefined();
   await act(async () => {
     state = "running";
     sequence = 6;
     acknowledge?.({ outcome: "accepted", state, reasonKey: null, sequence });
   });
-  await screen.findByText("Scan status: running");
+  await screen.findByText("Scanning");
   expect(screen.getByRole("button", { name: "Pause scan" })).toBe(resume);
   expect(document.activeElement).toBe(resume);
   expect(screen.getByText("At least 42 bytes")).toBe(total);
@@ -1111,12 +1142,12 @@ test("F02 F24: cancellation supersedes a pending pause and terminal status canno
       sequence: 3,
     });
   });
-  expect(screen.getByText("Scan status: cancellation requested")).toBeDefined();
+  expect(screen.getByText("Cancellation requested")).toBeDefined();
   expect(screen.queryByRole("alert")).toBeNull();
   state = "cancelled";
   sequence = 5;
   notifyResult(listeners, "job.resync_required", {});
-  await screen.findByText("Scan status: cancelled");
+  await screen.findByText("Scan cancelled");
 
   state = "running";
   sequence = 6;
@@ -1127,7 +1158,7 @@ test("F02 F24: cancellation supersedes a pending pause and terminal status canno
       calls.filter(({ name }) => name === "job.get").length,
     ).toBeGreaterThan(reads),
   );
-  expect(screen.getByText("Scan status: cancelled")).toBeDefined();
+  expect(screen.getByText("Scan cancelled")).toBeDefined();
   expect(screen.queryByRole("button", { name: "Pause scan" })).toBeNull();
 });
 
@@ -1166,7 +1197,7 @@ test("F02 F24: a stale pause rejection cannot overwrite a newer status read", as
     }),
   );
   expect(screen.queryByRole("alert")).toBeNull();
-  expect(screen.getByText("Scan status: running")).toBeDefined();
+  expect(screen.getByText("Scanning")).toBeDefined();
   expect(pause.getAttribute("aria-disabled")).toBeNull();
 });
 
@@ -1190,13 +1221,13 @@ test("F02 F24: an old resume failure cannot affect a replacement scan", async ()
   });
   await startFixtureScan(client);
   fireEvent.click(await screen.findByRole("button", { name: "Resume scan" }));
-  expect(screen.getByText("Scan status: resume requested")).toBeDefined();
+  expect(screen.getByText("Resume requested")).toBeDefined();
   firstDone = true;
   notifyResult(listeners, "job.resync_required", {});
   await screen.findByText("Scan finished");
   fireEvent.click(screen.getByRole("button", { name: "Analyze again" }));
   fireEvent.click(screen.getByRole("button", { name: "Start scan" }));
-  await screen.findByText("Scan status: running");
+  await screen.findByText("Scanning");
   await act(async () => failResume?.(new Error("Late resume failure")));
   expect(screen.queryByRole("alert")).toBeNull();
   expect(screen.getByRole("button", { name: "Pause scan" })).toBeDefined();
@@ -1248,7 +1279,7 @@ test.each(["starting", "cancelling"] as const)(
             },
     });
     await startFixtureScan(client);
-    await screen.findByText("Scan status: running");
+    await screen.findByText("Scanning");
     fireEvent.click(screen.getByRole("button", { name: "Cancel scan" }));
     firstFinished = true;
     notifyResult(listeners, "job.resync_required", {});
@@ -1260,18 +1291,16 @@ test.each(["starting", "cancelling"] as const)(
         screen.getByRole("progressbar", { name: "Starting scan" }),
       ).toBeDefined();
     } else {
-      await screen.findByText("Scan status: running");
+      await screen.findByText("Scanning");
       fireEvent.click(screen.getByRole("button", { name: "Cancel scan" }));
     }
     await act(async () => settleFirstCancel());
     expect(screen.queryByRole("alert")).toBeNull();
     if (phase === "starting") {
       resolveStart();
-      await screen.findByText("Scan status: running");
+      await screen.findByText("Scanning");
     } else {
-      expect(
-        screen.getByText("Scan status: cancellation requested"),
-      ).toBeDefined();
+      expect(screen.getByText("Cancellation requested")).toBeDefined();
       expect(
         screen
           .getByRole("button", { name: "Cancel scan" })
@@ -1332,7 +1361,7 @@ test("F02 IF-23: opens an existing partial without an event, then keeps it until
   });
   await startFixtureScan(client);
   await screen.findByText("Result version: Interim");
-  expect(screen.getByText("Scan status: running")).toBeDefined();
+  expect(screen.getByText("Scanning")).toBeDefined();
 
   const previousReads = calls.filter(({ name }) => name === "job.get").length;
   notifyResult(listeners, "results.version_changed", {
@@ -1408,7 +1437,7 @@ test("F02 IF-23: opens an existing partial without an event, then keeps it until
   ).toHaveLength(0);
   expect(calls.filter(({ name }) => name === "space.total")).toHaveLength(2);
   const logical = within(screen.getByRole("group", { name: "Logical size" }));
-  expect(logical.getByText(/2,207 bytes/)).toBeDefined();
+  expect(logical.getByText("At least 2.1 KiB")).toBeDefined();
   expect(screen.queryByText("At least 255 bytes")).toBeNull();
   expect(document.activeElement).toBe(summary);
   expect(summary?.textContent).toContain("Now showing the latest result.");
@@ -1707,7 +1736,9 @@ test.each(["partial", "cancelled"] as const)(
       lineageId: "lineage",
       sequence: 2,
     });
-    await screen.findByText(`Scan status: ${outcome}`);
+    await screen.findByText(
+      outcome === "cancelled" ? "Scan cancelled" : "Scan ended with gaps",
+    );
     expect(screen.queryByText(/^Scan finished/)).toBeNull();
     expect(screen.getByText("Result version: Interim")).toBeDefined();
     fireEvent.click(
@@ -1770,7 +1801,7 @@ test("F02 IF-23: resync after withdrawal removes only this failed scan's partial
   await screen.findByText("At least 42 bytes");
   withdrawn = true;
   notifyResult(listeners, "job.resync_required", {});
-  await screen.findByText("Scan status: failed");
+  await screen.findByText("Scan failed");
   expect(screen.queryByText("At least 42 bytes")).toBeNull();
   expect(calls.filter(({ name }) => name === "space.total")).toHaveLength(1);
 });
@@ -2171,7 +2202,7 @@ test.each(["finished", "rejected"] as const)(
     folderDrop({ seq: 1, path: "D:\\During start" });
     settleStart();
     if (outcome === "finished") {
-      await screen.findByText("Scan status: running");
+      await screen.findByText("Scanning");
       folderDrop({ seq: 2, pending: true });
       folderDrop({ seq: 2, path: "D:\\During scan" });
       scanFinished = true;
@@ -2624,7 +2655,7 @@ test("F01: pending scan keeps focus and suppresses duplicate starts", async () =
   await act(async () => release?.());
   await screen.findByText("At least 42 bytes");
   expect(document.activeElement).toBe(
-    screen.getByText("Scan status: partial").parentElement,
+    screen.getByText("Scan ended with gaps").parentElement,
   );
   expect(screen.queryByRole("button", { name: "Start scan" })).toBeNull();
 });
@@ -2733,7 +2764,7 @@ test("F02: scan shows its fixed paths before the first result", async () => {
     readStatus: (base) => ({ ...base, state: "running", resultVersion: null }),
   });
   await startFixtureScan(client);
-  await screen.findByText("Scan status: running");
+  await screen.findByText("Scanning");
   expect(
     within(screen.getByLabelText("Scanning paths")).getByText(path.display),
   ).toBeDefined();

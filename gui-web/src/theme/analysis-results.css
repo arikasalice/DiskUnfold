@@ -1,0 +1,12 @@
+.du-analysis__result .du-metrics {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr));
+  gap: 8px 16px;
+}
+
+.du-analysis__result .du-metric {
+  padding: 8px 0;
+}
+
+.du-analysis__result .du-metric__value {
+  font-size: clamp(18px, 2.5vw, 24px);
+}
