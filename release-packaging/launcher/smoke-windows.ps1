@@ -13,6 +13,7 @@ param(
   [switch]$VerifyDeniedSubtree,
   [switch]$VerifySettingsRestoration,
   [switch]$VerifyOperationHistory,
+  [switch]$VerifyInspectionPathDisclosure,
   [switch]$VerifyPathCopyContention,
   [switch]$VerifyNativeFolderDrop
 )
@@ -157,7 +158,7 @@ function Wait-FinalLogicalSize($expected, $versionLabel = 'Final') {
   }
 }
 # Open the observed file inspector through its real WebView2 action.
-function Test-FileInspection($name, $size, $testCopyContention = $false) {
+function Test-FileInspection($name, $size, $testCopyContention = $false, $expectedPath = '') {
   $file = Wait-Enabled $name $true
   $file.SetFocus()
   Invoke-UI (Wait-VisibleAction $name)
@@ -166,6 +167,7 @@ function Test-FileInspection($name, $size, $testCopyContention = $false) {
     if ($details) { Find-UI $name $null $details }
   }
   if ($testCopyContention) { Test-PathCopyContention }
+  if ($expectedPath) { Test-InspectionPathDisclosure $expectedPath }
   Wait-Details 'Space measurement details' 'Observed item space'
   $null = Wait-UI "pinned space for $name" {
     $details = Find-UI 'Observed item space' $null
@@ -189,6 +191,34 @@ function Test-FileInspection($name, $size, $testCopyContention = $false) {
     throw
   }
   "F05/F03 native file inspection: $name, $size, focus restored"
+}
+# The compact inspector should make the whole path available on demand.
+function Test-InspectionPathDisclosure($expectedPath) {
+  $attributes = Find-UI 'Observed file attributes' $null
+  $pathSuffix = $expectedPath
+  if ($pathSuffix.StartsWith('\\?\')) { $pathSuffix = $pathSuffix.Substring(4) }
+  $findPath = {
+    $attributes.FindAll($scopeTree, [Windows.Automation.Condition]::TrueCondition) |
+      Where-Object { ([string]$_.Current.Name).EndsWith($pathSuffix, [StringComparison]::OrdinalIgnoreCase) } |
+      Select-Object -First 1
+  }
+  if (& $findPath) { throw 'The long path was already expanded' }
+  Expand-UI (Wait-Enabled 'Full path' $true)
+  $path = Wait-UI 'full observed path after disclosure' $findPath
+  # WebView2 may expose the path as a text leaf inside its focusable paragraph.
+  if (-not $path.Current.IsKeyboardFocusable) {
+    $path = [Windows.Automation.TreeWalker]::RawViewWalker.GetParent($path)
+  }
+  if (-not $path -or -not $path.Current.IsKeyboardFocusable) { throw 'The full path is not keyboard focusable' }
+  $toggle = Wait-Enabled 'Full path' $true
+  $disclosure = $null
+  if ($toggle.TryGetCurrentPattern([Windows.Automation.ExpandCollapsePattern]::Pattern, [ref]$disclosure)) {
+    $disclosure.Collapse()
+  } else {
+    Invoke-UI $toggle
+  }
+  $null = Wait-UI 'collapsed full path' { -not (& $findPath) }
+  'F05 native file inspection: full path expanded, focusable, and collapsed'
 }
 # Hold the clipboard open in the test process without reading or clearing it.
 function Test-PathCopyContention {
@@ -484,7 +514,11 @@ function Test-PopulatedWorkspace {
   }
   $null = Wait-VisibleAction 'Back to analysis'
   'F05 compact workspace: observation details open and close, the first row remains, and Back to analysis stays visible'
-  Test-FileInspection 'entry-000.bin' '1 bytes'
+  if ($VerifyInspectionPathDisclosure) {
+    Test-FileInspection 'entry-000.bin' '1 bytes' $false (Join-Path $roots[0] 'entry-000.bin')
+  } else {
+    Test-FileInspection 'entry-000.bin' '1 bytes'
+  }
   $more = Wait-Enabled 'Load more' $true
   Invoke-UI $more
   $null = Wait-UI 'second page loaded' {
@@ -739,7 +773,7 @@ try {
   Invoke-UI (Wait-Enabled 'Up' $true)
   $null = Wait-UI 'returned to pinned folder' { Find-UI 'root.bin' $null }
   'F05 native browse: root.bin 11 bytes, nested.bin 7 bytes, Up returns to the pinned scope'
-  if ($VerifyPopulatedWorkspace) { Test-PopulatedWorkspace }
+  if ($VerifyPopulatedWorkspace -or $VerifyInspectionPathDisclosure) { Test-PopulatedWorkspace }
   Test-ScaledFileInspection
   if ($VerifyPhysicalAccounting) { Test-PhysicalAccounting }
 } catch {
