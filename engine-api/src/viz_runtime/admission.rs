@@ -1,4 +1,5 @@
 use super::*;
+use crate::viz_pages::session::expansion::{ExpansionError, normalize_expansions};
 use du_core_contracts::visualization::{
     LayoutStrategyKey,
     geometry::COORDINATE_MAX,
@@ -28,7 +29,7 @@ impl Runtime {
                     _ => "support.internal_error",
                 })
             })?;
-        normalize(&mut request, &source, &descriptor.strategy);
+        normalize(&mut request, &source, &descriptor.strategy)?;
         let facts = self.assembly.producer.source_facts(&source, &request)?;
         validate_facts(&facts, self.assembly.policy.revision)?;
         let key = fingerprint(&request, &facts, max_shapes)?;
@@ -70,13 +71,6 @@ fn validate_scope(request: &VizRenderRequest, source: &CurrentAnalysis) -> Resul
     for item in [&request.aggregate_scope_ref, &request.navigation_scope_ref]
         .into_iter()
         .chain(request.focus_item_ref.as_ref())
-        .chain(
-            request
-                .expanded_depth_by_item
-                .iter()
-                .flatten()
-                .map(|x| &x.item_ref),
-        )
     {
         source.version().detail(item).map_err(|_| unavailable())?;
     }
@@ -96,11 +90,6 @@ fn validate_scope(request: &VizRenderRequest, source: &CurrentAnalysis) -> Resul
             .as_ref()
             .is_some_and(|x| x != &request.aggregate_scope_ref)
         || (request.depth_limit != 1 && !(request.format == "treemap" && request.depth_limit == 2))
-        || request.format == "treemap"
-            && request
-                .expanded_depth_by_item
-                .as_ref()
-                .is_some_and(|entries| entries.iter().any(|x| x.extra_depth != 0))
     {
         return Err(invalid());
     }
@@ -154,7 +143,7 @@ fn normalize(
     request: &mut VizRenderRequest,
     source: &CurrentAnalysis,
     strategy: &LayoutStrategyKey,
-) {
+) -> Result<(), EngineError> {
     request.source_ref = Some(du_core_contracts::visualization::request::VizSourceRef {
         kind: "scan".into(),
         reference: source.lineage().clone(),
@@ -164,14 +153,28 @@ fn normalize(
         id: strategy.id.clone(),
         revision: strategy.revision,
     });
-    request.expanded_depth_by_item = None;
+    let entries = request.expanded_depth_by_item.take();
+    let expansions = normalize_expansions(
+        source,
+        &request.aggregate_scope_ref,
+        request.depth_limit,
+        entries.as_deref().unwrap_or_default(),
+        &mut || false,
+    )
+    .map_err(|error| match error {
+        ExpansionError::Limit => EngineError::reason("viz.viewport_invalid"),
+        ExpansionError::Invalid => invalid(),
+        ExpansionError::Cancelled => internal(),
+    })?;
     if request.format == "treemap" {
+        request.expanded_depth_by_item = (!expansions.is_empty()).then_some(expansions);
         request.color_mode = Some(request.color_mode.unwrap_or(VizColorMode::ParentFolder));
         request.label_mode = Some(request.label_mode.unwrap_or(VizLabelMode::NameSize));
     } else {
         request.color_mode = None;
         request.label_mode = None;
     }
+    Ok(())
 }
 fn fingerprint(
     request: &VizRenderRequest,

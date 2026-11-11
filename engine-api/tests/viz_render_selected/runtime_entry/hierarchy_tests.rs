@@ -93,19 +93,78 @@ fn assert_branches_expanded(before: &[Value], after: &[Value]) {
 }
 
 #[test]
-fn nonzero_local_expansion_is_still_rejected_until_supported() -> Result<(), String> {
+fn local_expansion_keeps_the_parent_and_only_opens_the_selected_branch() -> Result<(), String> {
+    let fixture = Fixture::with_tree(
+        [25, 75],
+        Duration::from_secs(2),
+        NonZeroUsize::MIN.saturating_add(3),
+        true,
+    )?;
+    let view = fixture.open()?;
+    fixture.release.send(()).map_err(|e| e.to_string())?;
+    let initial = fixture.ok("viz.render", render_body(&view, 1))?;
+    let before = initial["model"]["shapes"].as_array().ok_or("no shapes")?;
+    let selected = before.first().ok_or("no branch to expand")?;
+    let mut request = render_body(&view, 2);
+    request["expandedDepthByItem"] = json!([{"itemRef": selected["itemRef"], "extraDepth": 1}]);
+    let expanded = fixture.ok("viz.render", request)?;
+    let after = expanded["model"]["shapes"]
+        .as_array()
+        .ok_or("no expanded shapes")?;
+    assert!(after.len() > before.len());
+    assert_eq!(&after[..before.len()], before);
+    assert!(
+        after[before.len()..]
+            .iter()
+            .all(|shape| shape["visibleDepth"] == 2
+                && shape["parentShapeRef"] == selected["shapeRef"]
+                && shape["rootBranchRef"] == selected["itemRef"])
+    );
+    assert_eq!(initial["resultRevision"], expanded["resultRevision"]);
+    assert_eq!(initial["model"]["totals"], expanded["model"]["totals"]);
+    assert_eq!(initial["model"]["legend"], expanded["model"]["legend"]);
+    let sibling = before.get(1).ok_or("no sibling to validate")?;
+    let mut equivalent = render_body(&view, 3);
+    equivalent["expandedDepthByItem"] = json!([
+        {"itemRef": sibling["itemRef"], "extraDepth": 0},
+        {"itemRef": selected["itemRef"], "extraDepth": 1}
+    ]);
+    let equivalent = fixture.ok("viz.render", equivalent)?;
+    assert_eq!(
+        expanded["model"]["modelRef"],
+        equivalent["model"]["modelRef"]
+    );
+    Ok(())
+}
+
+#[test]
+fn expansion_limits_have_policy_errors_and_invalid_entries_are_rejected() -> Result<(), String> {
     let fixture = Fixture::new([25, 75])?;
     let view = fixture.open()?;
-    let mut request = render_body(&view, 1);
-    request["expandedDepthByItem"] =
-        json!([{"itemRef":{"resultVersion":id(3),"itemNo":0},"extraDepth":1}]);
-    assert_eq!(
-        fixture
-            .call("viz.render", request)
-            .error
-            .ok_or("expansion unexpectedly accepted")?
-            .reason_key,
-        "command.body_invalid"
-    );
+    let entry = |number, depth| {
+        json!({
+            "itemRef":{"resultVersion":id(3),"itemNo":number},"extraDepth":depth
+        })
+    };
+    for (entries, reason) in [
+        (json!([entry(0, 9)]), "viz.viewport_invalid"),
+        (
+            json!((0..65).map(|number| entry(number, 0)).collect::<Vec<_>>()),
+            "viz.viewport_invalid",
+        ),
+        (json!([entry(0, 0), entry(0, 0)]), "command.body_invalid"),
+        (json!([entry(1000, 0)]), "command.body_invalid"),
+    ] {
+        let mut request = render_body(&view, 1);
+        request["expandedDepthByItem"] = entries;
+        assert_eq!(
+            fixture
+                .call("viz.render", request)
+                .error
+                .ok_or("invalid expansion accepted")?
+                .reason_key,
+            reason
+        );
+    }
     Ok(())
 }

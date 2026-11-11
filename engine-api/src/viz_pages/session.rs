@@ -2,6 +2,9 @@
 //!
 //! This internal composition does not implement the public `viz.render` wire
 //! contract. The caller supplies trusted evidence from the pinned result.
+pub(crate) mod expansion;
+pub(crate) use expansion::Policy as ExpansionPolicy;
+
 use std::{
     num::NonZeroUsize,
     sync::{Arc, Mutex},
@@ -341,7 +344,7 @@ impl Session {
         &self,
         candidate: &mut render::PreparedRender,
         source: &CurrentAnalysis,
-        max_shapes: usize,
+        policy: ExpansionPolicy<'_>,
         mut evidence: impl FnMut(
             &CurrentAnalysis,
             &ResultItem,
@@ -352,55 +355,13 @@ impl Session {
         let Some(layout) = candidate.layout.as_mut() else {
             return Ok(());
         };
-        let model = Arc::make_mut(layout);
-        for index in 0..model.shapes.len() {
-            if cancelled() {
-                return Err(render::Error::Cancelled);
-            }
-            if model.shapes.len().saturating_add(model.descendants.len()) >= max_shapes {
-                break;
-            }
-            let row = &model.rows[model.shapes[index].row_index];
-            let parent = &source.version().items()[row.item.item_no as usize];
-            if parent.kind != du_core_contracts::result::ResultItemKind::Directory {
-                continue;
-            }
-            let mut keys = Vec::new();
-            let folder = du_analysis_index::browse::open(source.version(), Some(&row.item))
-                .map_err(|_| render::Error::Projection(projection::Error::InvalidSource))?;
-            for child in folder.children {
-                if cancelled() {
-                    return Err(render::Error::Cancelled);
-                }
-                let item = ItemRef {
-                    result_version: source.result_version().clone(),
-                    item_no: child.item_no,
-                };
-                if let Some(path_compare_key) = evidence(source, child, cancelled)?.path_compare_key
-                {
-                    keys.push(du_analysis_index::visualization::treemap::ChildKey {
-                        item,
-                        path_compare_key,
-                    });
-                }
-            }
-            projection::add_child_partition(
-                model,
-                source.version(),
-                index,
-                &keys,
-                &self.dispatcher,
-                max_shapes,
-                cancelled,
-            )
-            .map_err(|error| match error {
-                projection::Error::Cancelled => render::Error::Cancelled,
-                other => render::Error::Projection(other),
-            })?;
-        }
-        projection::finish_child_partitions(model, cancelled).map_err(|error| match error {
-            projection::Error::Cancelled => render::Error::Cancelled,
-            other => render::Error::Projection(other),
-        })
+        expansion::extend(
+            Arc::make_mut(layout),
+            source,
+            &self.dispatcher,
+            policy,
+            &mut evidence,
+            cancelled,
+        )
     }
 }

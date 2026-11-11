@@ -30,6 +30,12 @@ impl JobBody for Compute {
     fn run(&self, context: Arc<dyn JobContext>) -> JobOutcome {
         let mut cancelled = || context.checkpoint() != Checkpoint::Continue;
         let request = &self.admitted.request;
+        let hierarchy = request.format == "treemap"
+            && (request.depth_limit > 1
+                || request
+                    .expanded_depth_by_item
+                    .as_ref()
+                    .is_some_and(|entries| entries.iter().any(|entry| entry.extra_depth > 0)));
         let mut evidence = HashMap::new();
         let prepared = self.session.prepare_pinned(
             render::Request {
@@ -48,7 +54,7 @@ impl JobBody for Compute {
                 max_shapes: self.admitted.max_shapes,
             },
             &self.admitted.source,
-            request.format == "treemap" && request.depth_limit == 2,
+            hierarchy,
             |source, item, _| {
                 let mut facts = self
                     .producer
@@ -76,11 +82,15 @@ impl JobBody for Compute {
         );
         match prepared {
             Ok(mut prepared) => {
-                if request.format == "treemap" && request.depth_limit == 2 {
+                if hierarchy {
                     let result = self.session.extend_pinned(
                         &mut prepared,
                         &self.admitted.source,
-                        self.admitted.max_shapes,
+                        crate::viz_pages::session::ExpansionPolicy {
+                            base_depth: request.depth_limit,
+                            entries: request.expanded_depth_by_item.as_deref().unwrap_or(&[]),
+                            max_shapes: self.admitted.max_shapes,
+                        },
                         |source, item, _| {
                             let mut facts = self
                                 .producer

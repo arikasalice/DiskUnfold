@@ -9,7 +9,7 @@ use crate::{
     Id, ItemRef, SizeBasis, browse_open_ipc::QueryCondition, browse_page_ipc::QueryStrategy,
 };
 use serde::{Deserialize, Deserializer, Serialize, de::Error};
-use std::{collections::HashSet, num::NonZeroU32};
+use std::num::NonZeroU32;
 
 /// Opens a view owned by the calling desktop session.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -142,7 +142,7 @@ pub struct VizRenderRequest {
     pub depth_limit: u32,
     #[serde(
         default,
-        deserialize_with = "expansions",
+        deserialize_with = "optional_present",
         skip_serializing_if = "Option::is_none"
     )]
     #[cfg_attr(feature = "typescript", ts(optional))]
@@ -217,20 +217,4 @@ fn area<'de, D: Deserializer<'de>>(deserializer: D) -> Result<u32, D::Error> {
         return Err(D::Error::custom("invalid visualization area"));
     }
     Ok(value)
-}
-
-fn expansions<'de, D: Deserializer<'de>>(
-    deserializer: D,
-) -> Result<Option<Vec<VizExpansion>>, D::Error> {
-    let entries = Vec::<VizExpansion>::deserialize(deserializer)?;
-    let mut seen = HashSet::new();
-    if entries.len() > 64
-        || entries.iter().any(|entry| {
-            entry.extra_depth > 8
-                || !seen.insert((&entry.item_ref.result_version, entry.item_ref.item_no))
-        })
-    {
-        return Err(D::Error::custom("invalid visualization expansions"));
-    }
-    Ok(Some(entries))
 }

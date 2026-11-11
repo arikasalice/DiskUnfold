@@ -1,6 +1,6 @@
 use super::*;
 
-/// Extends an admitted root shape with its immediate children from the same reader.
+/// Extends an admitted shape with its immediate children from the same reader.
 /// Root rows and aggregate totals remain unchanged. A branch without attribution
 /// or ordering evidence stays omitted rather than receiving invented geometry.
 pub fn add_child_partition(
@@ -18,20 +18,16 @@ pub fn add_child_partition(
     if version.version_id() != &model.result_revision {
         return Err(Error::InvalidSource);
     }
-    let shape = model.shapes.get(root_shape).ok_or(Error::InvalidLayout)?;
-    let row = model
-        .rows
-        .get(shape.row_index)
-        .ok_or(Error::InvalidLayout)?;
+    let parent = parent_shape(model, root_shape)?;
     if version
         .items()
-        .get(row.item.item_no as usize)
+        .get(parent.item.item_no as usize)
         .is_none_or(|item| item.kind != ResultItemKind::Directory)
     {
         return Err(Error::InvalidSource);
     }
-    let points = shape.geometry.points();
-    if shape.geometry.primitive() != "rect" || points.len() != 2 {
+    let points = parent.geometry.points();
+    if parent.geometry.primitive() != "rect" || points.len() != 2 {
         return Err(Error::InvalidLayout);
     }
     let bounds = Rect {
@@ -42,7 +38,7 @@ pub fn add_child_partition(
     };
     let input = match Input::admit_cancellable(
         version,
-        &row.item,
+        &parent.item,
         model.basis.clone(),
         bounds,
         keys,
@@ -79,16 +75,68 @@ pub fn add_child_partition(
         return Ok(());
     }
     let (descendants, skipped) =
-        build_descendants(shape, row, bounds, &input, selected.output, cancelled)?;
-    let row_index = shape.row_index;
+        build_descendants(&parent, bounds, &input, selected.output, cancelled)?;
     let omitted = descendants
         .iter()
         .map(|shape| version.children(shape.item.item_no).len())
         .sum::<usize>()
         + skipped;
     model.descendants.extend(descendants);
-    model.rows[row_index].omitted_children = omitted;
+    let previous = version.children(parent.item.item_no).len();
+    let row = &mut model.rows[parent.row_index];
+    row.omitted_children = row
+        .omitted_children
+        .checked_sub(previous)
+        .ok_or(Error::InvalidLayout)?
+        .checked_add(omitted)
+        .ok_or(Error::InvalidLayout)?;
     Ok(())
+}
+
+struct ParentShape {
+    item: ItemRef,
+    meta: ShapeMeta,
+    geometry: Geometry,
+    row_index: usize,
+}
+
+fn parent_shape(model: &Model, index: usize) -> Result<ParentShape, Error> {
+    if let Some(shape) = model.shapes.get(index) {
+        let row = model
+            .rows
+            .get(shape.row_index)
+            .ok_or(Error::InvalidLayout)?;
+        return Ok(ParentShape {
+            item: row.item.clone(),
+            meta: shape.meta.clone(),
+            geometry: shape.geometry.clone(),
+            row_index: shape.row_index,
+        });
+    }
+    let shape = model
+        .descendants
+        .get(
+            index
+                .checked_sub(model.shapes.len())
+                .ok_or(Error::InvalidLayout)?,
+        )
+        .ok_or(Error::InvalidLayout)?;
+    let root = shape
+        .meta
+        .root_branch_ref
+        .as_ref()
+        .ok_or(Error::InvalidLayout)?;
+    let row_index = model
+        .rows
+        .iter()
+        .position(|row| &row.item == root)
+        .ok_or(Error::InvalidLayout)?;
+    Ok(ParentShape {
+        item: shape.item.clone(),
+        meta: shape.meta.clone(),
+        geometry: shape.geometry.clone(),
+        row_index,
+    })
 }
 
 /// Validates all model-local references after every branch has been added.
@@ -121,8 +169,7 @@ pub fn finish_child_partitions(
 }
 
 fn build_descendants(
-    shape: &Shape,
-    row: &Row,
+    parent: &ParentShape,
     bounds: Rect,
     input: &Input,
     output: typed_layout::Output,
@@ -138,7 +185,7 @@ fn build_descendants(
             .rows()
             .get(child.row_index)
             .ok_or(Error::InvalidLayout)?;
-        if source.item().result_version != row.item.result_version
+        if source.item().result_version != parent.item.result_version
             || source.bytes() == 0
             || std::mem::replace(&mut visited[child.row_index], true)
         {
@@ -158,10 +205,14 @@ fn build_descendants(
             item: source.item().clone(),
             size: source.value().clone(),
             meta: ShapeMeta {
-                shape_ref: format!("s{:x}-2", source.item().item_no),
-                parent_shape_ref: Some(shape.meta.shape_ref.clone()),
-                visible_depth: 2,
-                root_branch_ref: Some(row.item.clone()),
+                shape_ref: format!(
+                    "s{:x}-{}",
+                    source.item().item_no,
+                    parent.meta.visible_depth + 1
+                ),
+                parent_shape_ref: Some(parent.meta.shape_ref.clone()),
+                visible_depth: parent.meta.visible_depth + 1,
+                root_branch_ref: parent.meta.root_branch_ref.clone(),
             },
             geometry: child.geometry,
         });

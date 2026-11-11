@@ -89,7 +89,8 @@ fn wire_rejects_out_of_bounds_and_unrecognized_fields() {
 }
 
 #[test]
-fn expansion_boundaries_keep_all_entries_on_the_same_revision() -> Result<(), serde_json::Error> {
+fn expansion_wire_preserves_entries_for_engine_policy_validation() -> Result<(), serde_json::Error>
+{
     let mut value = request();
     let expanded: Vec<_> = (0..64)
         .map(|number| json!({"itemRef": item(number, REVISION), "extraDepth": 8}))
@@ -100,11 +101,16 @@ fn expansion_boundaries_keep_all_entries_on_the_same_revision() -> Result<(), se
 
     let mut over_count = expanded.clone();
     over_count.push(json!({"itemRef": item(64, REVISION), "extraDepth": 8}));
-    value["expandedDepthByItem"] = json!(over_count);
-    assert!(from_value::<VizRenderRequest>(value.clone()).is_err());
-    value["expandedDepthByItem"] = json!([expanded[0], expanded[0]]);
-    assert!(from_value::<VizRenderRequest>(value.clone()).is_err());
-    value["expandedDepthByItem"] = json!([{"itemRef": item(0, REVISION), "extraDepth": 9}]);
-    assert!(from_value::<VizRenderRequest>(value).is_err());
+    for entries in [
+        json!(over_count),
+        json!([expanded[0], expanded[0]]),
+        json!([{"itemRef": item(0, REVISION), "extraDepth": 9}]),
+    ] {
+        value["expandedDepthByItem"] = entries;
+        assert_eq!(
+            to_value(from_value::<VizRenderRequest>(value.clone())?)?,
+            value
+        );
+    }
     Ok(())
 }
