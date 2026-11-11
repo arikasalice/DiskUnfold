@@ -1,4 +1,6 @@
 .du-breadcrumbs {
+  inline-size: 100%;
+  contain: inline-size;
   min-inline-size: 0;
   max-inline-size: 100%;
   overflow-x: auto;
