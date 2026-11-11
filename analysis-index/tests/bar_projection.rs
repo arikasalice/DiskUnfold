@@ -2,7 +2,8 @@ use du_analysis_index::{
     IngestSink, Observation, ResultVersion,
     visualization::{
         bar_projection::{
-            self, AggregateEvidence, AggregateTarget, BarIdentity, Error, Request, Row,
+            self, AggregateEvidence, AggregateTarget, BarIdentity, ChildrenRequest, Error, Request,
+            Row,
         },
         geometry::{Rect, Scale, Weight},
     },
@@ -15,6 +16,60 @@ use std::sync::Arc;
 
 fn id(n: u8) -> Id {
     Id::from_v7_bytes([n; 16])
+}
+
+#[test]
+fn pinned_children_build_the_same_ranked_model_as_verified_f03_rows() -> Result<(), String> {
+    let version = fixture(ResultCompleteness::Complete)?;
+    let scope = reference(&version, 0);
+    let all = rows(&version)?;
+    let total = aggregate(&version)?;
+    let expected =
+        bar_projection::project(request(&version, &all, &scope, &total, 2, 3), &mut || false)
+            .map_err(|e| format!("{e:?}"))?;
+    let input = || ChildrenRequest {
+        version: &version,
+        scope: &scope,
+        basis: SizeBasis::Logical,
+        bounds: Rect {
+            left: 0,
+            top: 0,
+            right: 1_000_000,
+            bottom: 1_000_000,
+        },
+        scale: Scale::Fixed(50),
+        top: 2,
+        max_bars: 3,
+    };
+    let model =
+        bar_projection::project_children(input(), &mut || false).map_err(|e| format!("{e:?}"))?;
+    assert_eq!(model, expected);
+    assert!(model.bars.iter().any(|bar| bar.geometry.is_some()));
+    assert_eq!(
+        bar_projection::project_children(input(), &mut || false),
+        Ok(model)
+    );
+    assert_eq!(
+        bar_projection::project_children(input(), &mut || true),
+        Err(Error::Cancelled)
+    );
+    let mut limited = input();
+    limited.max_bars = 2;
+    assert_eq!(
+        bar_projection::project_children(limited, &mut || false),
+        Err(Error::LimitExceeded)
+    );
+    let stale = ItemRef {
+        result_version: id(9),
+        item_no: 0,
+    };
+    let mut wrong = input();
+    wrong.scope = &stale;
+    assert_eq!(
+        bar_projection::project_children(wrong, &mut || false),
+        Err(Error::InvalidEvidence)
+    );
+    Ok(())
 }
 fn fixture(completeness: ResultCompleteness) -> Result<Arc<ResultVersion>, String> {
     let sink = IngestSink::default();

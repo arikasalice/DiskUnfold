@@ -57,6 +57,62 @@ pub struct Request<'a> {
     pub max_bars: usize,
 }
 
+/// Ranked immediate children of a folder in one immutable result.
+/// This is an internal projection, not a complete registered bar strategy.
+pub struct ChildrenRequest<'a> {
+    pub version: &'a ResultVersion,
+    pub scope: &'a ItemRef,
+    pub basis: SizeBasis,
+    pub bounds: Rect,
+    pub scale: Scale,
+    pub top: usize,
+    pub max_bars: usize,
+}
+
+/// Builds a ranked model from the folder's actual pinned children and F03 total.
+/// Scope and denominator are the same folder; filtering and stacked bars require
+/// separate owner evidence and are intentionally outside this projection.
+pub fn project_children(
+    request: ChildrenRequest<'_>,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<Ranking, Error> {
+    check(cancelled)?;
+    let scope_no = root_ref(request.version, request.scope).map_err(|_| Error::InvalidEvidence)?;
+    let total = AggregateEvidence {
+        result_version: request.version.version_id().clone(),
+        target: AggregateTarget::Folder(request.scope.clone()),
+        size: value(request.version, scope_no, &request.basis)
+            .map_err(|_| Error::InvalidEvidence)?,
+    };
+    let mut rows = Vec::new();
+    for child in request.version.children(scope_no) {
+        check(cancelled)?;
+        rows.push(Row {
+            item: ItemRef {
+                result_version: request.version.version_id().clone(),
+                item_no: child.item_no,
+            },
+            size: value(request.version, child.item_no, &request.basis)
+                .map_err(|_| Error::InvalidEvidence)?,
+        });
+    }
+    project(
+        Request {
+            version: request.version,
+            scope: request.scope,
+            basis: request.basis,
+            rows: &rows,
+            scope_total: &total,
+            denominator: &total,
+            bounds: request.bounds,
+            scale: request.scale,
+            top: request.top,
+            max_bars: request.max_bars,
+        },
+        cancelled,
+    )
+}
+
 /// Identity of a rendered individual or an F03-verified Other group.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BarIdentity {
