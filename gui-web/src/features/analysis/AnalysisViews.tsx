@@ -24,7 +24,7 @@ import {
   displayMeasurement,
   displayMeasurementLimit,
   displaySize,
-  displaySizeWithBytes,
+  displayRawSize,
   sizeLabels,
 } from "./space-format";
 import type { SizeBasisFilter, SizeDisplay } from "./space-format";
@@ -368,16 +368,20 @@ function PinnedResult({
       <DetailDisclosure title="Measurement details">
         <Readout
           label="Measurement details"
-          rows={total.sizes.map(
-            ({ size, completeness, measurementLimits }) => ({
+          rows={total.sizes.map(({ size, completeness, measurementLimits }) => {
+            const value = displaySize(size, display);
+            const raw = displayRawSize(size);
+            return {
               label: sizeLabels[size.basis],
-              value: [
-                displaySizeWithBytes(size, display),
+              value,
+              wideValue: true,
+              notes: [
+                ...(raw && raw !== value ? [raw] : []),
                 displayMeasurement(size, completeness),
                 ...measurementLimits.map(displayMeasurementLimit),
-              ].join(" · "),
-            }),
-          )}
+              ],
+            };
+          })}
         />
       </DetailDisclosure>
       <Text kind="muted">

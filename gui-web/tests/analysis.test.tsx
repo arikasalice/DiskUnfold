@@ -610,7 +610,7 @@ test("F01–F03: reviewed scope starts a scan and reads its pinned partial resul
   fireEvent.click(screen.getByRole("button", { name: "Measurement details" }));
   expect(
     within(screen.getByLabelText("Measurement details")).getByText(
-      /Unavailable · Incomplete measurement/,
+      "Unavailable",
     ),
   ).toBeDefined();
   const coverage = within(screen.getByLabelText("Coverage limits"));
@@ -716,7 +716,7 @@ test("F03: changing size display does not request another result", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Measurement details" }));
   expect(
     within(screen.getByLabelText("Measurement details")).getByText(
-      /At least 1,023 bytes · Incomplete measurement/,
+      "At least 1,023 bytes",
     ),
   ).toBeDefined();
   fireEvent.change(screen.getByRole("combobox", { name: "Size unit" }), {

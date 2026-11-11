@@ -153,7 +153,12 @@ export function Readout({
   rows,
 }: {
   label: string;
-  rows: { label: string; value: ReactNode; wideValue?: boolean }[];
+  rows: {
+    label: string;
+    value: ReactNode;
+    wideValue?: boolean;
+    notes?: readonly string[];
+  }[];
 }) {
   if (rows.length === 0) return null;
   return (
@@ -164,7 +169,14 @@ export function Readout({
           className={row.wideValue ? "du-readout__wide-value" : undefined}
         >
           <dt>{row.label}</dt>
-          <dd>{row.value}</dd>
+          <dd>
+            {row.value}
+            {row.notes?.map((note, index) => (
+              <span className="du-readout__note" key={index}>
+                {note}
+              </span>
+            ))}
+          </dd>
         </div>
       ))}
     </dl>

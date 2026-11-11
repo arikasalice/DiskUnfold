@@ -351,6 +351,12 @@ label.du-field > span {
   text-align: start;
 }
 
+.du-readout__note {
+  display: block;
+  margin-block-start: 2px;
+  color: var(--du-muted);
+}
+
 @media (max-width: 42rem) {
   .du-readout > .du-readout__wide-value {
     grid-template-columns: minmax(0, 1fr);

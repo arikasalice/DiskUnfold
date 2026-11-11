@@ -135,7 +135,7 @@ function Find-LogicalSize($expected) {
   $metric = Find-UI 'Logical size' ([Windows.Automation.ControlType]::Group)
   if ($metric) { return Find-UI $expected $textType $metric }
   $details = Find-MeasurementDetails 'Logical size'
-  if ($details -and ((Get-MeasurementNames $details 'Logical size') -like "$expected · *")) {
+  if ($details -and ((Get-MeasurementNames $details 'Logical size') -contains $expected)) {
     return $details
   }
 }
