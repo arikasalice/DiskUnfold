@@ -9,6 +9,7 @@ param(
   [switch]$VerifySuspension,
   [switch]$VerifyPopulatedWorkspace,
   [switch]$VerifyPhysicalAccounting,
+  [switch]$VerifyDeniedSubtree,
   [switch]$VerifySettingsRestoration,
   [switch]$VerifyNativeFolderDrop
 )
@@ -84,12 +85,12 @@ function Invoke-UI($item) {
   $pattern.Invoke()
 }
 # Wait for the expected total, selecting a newer result if the interim one stays pinned.
-function Wait-FinalLogicalSize($expected) {
+function Wait-FinalLogicalSize($expected, $versionLabel = 'Final') {
   $selection = @{ LastSwitch = [DateTime]::MinValue }
   Wait-UI "final logical size $expected" {
     if (-not (Find-UI 'Scan finished' $textType)) { return }
     $metric = Find-UI 'Logical size' ([Windows.Automation.ControlType]::Group)
-    if ($metric -and (Find-UI 'Final' $textType)) {
+    if ($metric -and (Find-UI $versionLabel $textType)) {
       $value = Find-UI $expected $textType $metric
       if ($value) { return $value }
     }
@@ -339,6 +340,37 @@ function Test-ScanSuspension($path) {
   $null = Wait-FinalLogicalSize '25.0 KiB'
   'F02 native pause and resume: controls visible, scan paused, final logical size 25 KiB'
 }
+# Confirm one denied subtree does not hide accessible bytes or become an exact total.
+function Test-DeniedSubtree {
+  $scope = Join-Path $root 'permission-scope'
+  $denied = Join-Path $scope 'denied-child'
+  New-Item -ItemType Directory -Path $denied -Force | Out-Null
+  [IO.File]::WriteAllBytes((Join-Path $scope 'observed.bin'), [byte[]]::new(13))
+  [IO.File]::WriteAllBytes((Join-Path $denied 'unobserved.bin'), [byte[]]::new(37))
+  $original = Get-Acl -LiteralPath $denied
+  $acl = Get-Acl -LiteralPath $denied
+  $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+    [Security.Principal.WindowsIdentity]::GetCurrent().User, 'ListDirectory', 'Deny'))
+  try {
+    Set-Acl -LiteralPath $denied -AclObject $acl
+    Set-Scope $scope
+    Invoke-UI (Wait-Enabled 'Review scope' $true)
+    Invoke-UI (Wait-Enabled 'Start scan' $true)
+    $null = Wait-FinalLogicalSize 'At least 13 bytes' 'Final with scan gaps'
+    Invoke-UI (Wait-Enabled 'View scan issues' $true)
+    $null = Wait-UI 'access denied evidence' {
+      $issues = Find-UI 'Scan issue entries' $null
+      if ($issues) {
+        $names = $issues.FindAll($scopeTree, [Windows.Automation.Condition]::TrueCondition) |
+          ForEach-Object { $_.Current.Name }
+        ($names -contains 'Unread ranges') -and ($names -contains 'Opening a folder') -and
+          ($names -contains 'Access denied') -and ($names -like '*\denied-child')
+      }
+    }
+    Invoke-UI (Wait-Enabled 'Hide scan issues' $true)
+    'F02/F03 denied NTFS subtree: access denied, pinned logical lower bound 13 bytes'
+  } finally { Set-Acl -LiteralPath $denied -AclObject $original }
+}
 try {
   $window = Wait-UI 'main window' {
     $process.Refresh()
@@ -356,6 +388,7 @@ try {
     'F14 native settings restoration: startup format and defaults visible, dialog closed'
   }
   if ($VerifyNativeFolderDrop) { Test-NativeFolderDrop }
+  if ($VerifyDeniedSubtree) { Test-DeniedSubtree }
   if ($VerifySuspension) { Test-ScanSuspension $controlScope }
   if ($VerifyCancellation) { Test-ScanCancellation $controlScope }
   Set-Scope (Join-Path $root 'missing')
