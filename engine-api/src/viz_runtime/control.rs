@@ -3,55 +3,90 @@ use du_core_contracts::visualization::cancel::{
     VizCancelResponse, VizCancelTarget, VizControlResult,
 };
 use du_job_runtime::CancelResult;
+enum SubscriptionChange<'a> {
+    Cancel,
+    Close,
+    Replace { sequence: u32, work: &'a Arc<Work> },
+}
+impl SubscriptionChange<'_> {
+    fn apply(&self, channel: &mut ChannelState) {
+        match self {
+            Self::Cancel | Self::Close => channel.active = None,
+            Self::Replace { sequence, work } => {
+                channel.sequence = *sequence;
+                channel.active = Some((*work).clone());
+            }
+        }
+    }
+}
 impl Runtime {
-    pub(super) fn detach_current(&self, channel: &Id) -> Result<VizControlResult, EngineError> {
-        let work = self
-            .state
-            .lock()
-            .map_err(|_| internal())?
-            .channels
-            .get(channel)
-            .ok_or_else(unavailable)?
-            .active
-            .clone();
-        let Some(work) = work else {
-            return Ok(VizControlResult::NoEffect);
+    pub(super) fn replace_subscription(
+        &self,
+        request: &VizRenderRequest,
+        work: &Arc<Work>,
+    ) -> Result<(), EngineError> {
+        self.change_subscription(
+            &request.view_channel,
+            SubscriptionChange::Replace {
+                sequence: request.request_seq.get(),
+                work,
+            },
+        )
+        .map(|_| ())
+    }
+
+    // Call with the serial lock held. Replacement has already staged the new
+    // membership and released its gate. Only the predecessor's gate is held
+    // while changing the channel pointer and removing predecessor membership.
+    fn change_subscription(
+        &self,
+        channel: &Id,
+        change: SubscriptionChange<'_>,
+    ) -> Result<VizControlResult, EngineError> {
+        let previous = {
+            let mut state = self.state.lock().map_err(|_| internal())?;
+            let current = state.channels.get_mut(channel).ok_or_else(unavailable)?;
+            let previous = current.active.clone();
+            let same_work = matches!(&change, SubscriptionChange::Replace { work, .. }
+                if previous.as_ref().is_some_and(|old| Arc::ptr_eq(old, work)));
+            if previous.is_none() || same_work {
+                change.apply(current);
+                return Ok(VizControlResult::NoEffect);
+            }
+            previous
         };
-        let job = work
-            .job
-            .lock()
-            .map_err(|_| internal())?
-            .clone()
-            .ok_or_else(internal)?;
-        let result = self.assembly.jobs.cancel_viz_if(&job, || {
-            let mut state = self
-                .state
-                .lock()
-                .map_err(|_| du_job_runtime::RuntimeError::Poisoned)?;
-            let mut members = work
+        let previous = previous.ok_or_else(internal)?;
+        let job = previous.job_id()?;
+        let update = || {
+            use du_job_runtime::RuntimeError;
+            let mut state = self.state.lock().map_err(|_| RuntimeError::Poisoned)?;
+            let current = state
+                .channels
+                .get_mut(channel)
+                .ok_or(RuntimeError::InvalidState)?;
+            let mut members = previous
                 .members
                 .lock()
-                .map_err(|_| du_job_runtime::RuntimeError::Poisoned)?;
+                .map_err(|_| RuntimeError::Poisoned)?;
             members.remove(channel);
-            if let Some(channel) = state.channels.get_mut(channel) {
-                channel.active = None;
-            }
+            change.apply(current);
             Ok(members.is_empty())
-        });
-        if matches!(
-            result,
+        };
+        let result = self.assembly.jobs.cancel_viz_if(&job, update);
+        match result {
             Ok(Some((CancelResult::AlreadyTerminal(_), _)))
-                | Err(du_job_runtime::RuntimeError::NotFound)
-        ) {
-            let mut state = self.state.lock().map_err(|_| internal())?;
-            work.members.lock().map_err(|_| internal())?.remove(channel);
-            if let Some(channel) = state.channels.get_mut(channel) {
-                channel.active = None;
+            | Err(du_job_runtime::RuntimeError::NotFound) => {
+                if !matches!(change, SubscriptionChange::Cancel) {
+                    update().map_err(runtime_error)?;
+                }
+                Ok(VizControlResult::AlreadyTerminal)
             }
-            Ok(VizControlResult::AlreadyTerminal)
-        } else {
-            result.map_err(runtime_error)?;
-            Ok(VizControlResult::Accepted)
+            // F24 sets cancellation and records the state before reporting
+            // delivery failure. The subscription change has already won.
+            Ok(_) | Err(du_job_runtime::RuntimeError::DeliveryUnavailable) => {
+                Ok(VizControlResult::Accepted)
+            }
+            Err(error) => Err(runtime_error(error)),
         }
     }
     pub(super) fn cancel(&self, target: VizCancelTarget) -> Result<VizCancelResponse, EngineError> {
@@ -69,7 +104,7 @@ impl Runtime {
                     });
                 }
                 drop(state);
-                self.detach_current(&view_channel)?
+                self.change_subscription(&view_channel, SubscriptionChange::Cancel)?
             }
             VizCancelTarget::Job { job_ref } => {
                 let state = self.state.lock().map_err(|_| internal())?;
@@ -102,7 +137,7 @@ impl Runtime {
     }
     pub(super) fn close(&self, channel: &Id) -> Result<(), EngineError> {
         let _serial = self.serial.lock().map_err(|_| internal())?;
-        self.detach_current(channel)?;
+        self.change_subscription(channel, SubscriptionChange::Close)?;
         self.regions
             .close(&self.owner, channel)
             .map_err(|_| unavailable())?;
@@ -124,7 +159,7 @@ impl Runtime {
             .cloned()
             .collect();
         for channel in channels {
-            self.detach_current(&channel)?;
+            self.change_subscription(&channel, SubscriptionChange::Close)?;
         }
         let _ = self.regions.close_session(&self.owner);
         let retired = {

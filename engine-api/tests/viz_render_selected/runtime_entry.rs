@@ -131,6 +131,13 @@ impl Fixture {
         Self::with_wait(sizes, Duration::ZERO)
     }
     fn with_wait(sizes: [u64; 2], synchronous_wait: Duration) -> Result<Self, String> {
+        Self::with_policy(sizes, synchronous_wait, NonZeroUsize::MIN.saturating_add(3))
+    }
+    fn with_policy(
+        sizes: [u64; 2],
+        synchronous_wait: Duration,
+        max_work: NonZeroUsize,
+    ) -> Result<Self, String> {
         let sink = IngestSink::default();
         publish_sizes(&sink, id(2), id(3), sizes)?;
         let ids = Arc::new(Identity(AtomicU8::new(15)));
@@ -169,7 +176,7 @@ impl Fixture {
                     max_scale: 4.0,
                     max_shapes: 100,
                     max_channels: NonZeroUsize::MIN.saturating_add(3),
-                    max_work: NonZeroUsize::MIN.saturating_add(3),
+                    max_work,
                     synchronous_wait,
                 },
             },
@@ -465,3 +472,5 @@ fn valid_different_condition_retires_only_the_replaced_channel() -> Result<(), S
     );
     Ok(())
 }
+
+mod replacement;

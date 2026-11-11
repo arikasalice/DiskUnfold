@@ -30,19 +30,6 @@ impl Runtime {
         let work = {
             let _serial = self.serial.lock().map_err(|_| internal())?;
             self.check_sequence(&admitted.request)?;
-            let previous = self
-                .state
-                .lock()
-                .map_err(|_| internal())?
-                .channels
-                .get(&admitted.request.view_channel)
-                .and_then(|channel| channel.active.clone());
-            if previous
-                .as_ref()
-                .is_some_and(|work| work.key != admitted.key)
-            {
-                self.detach_current(&admitted.request.view_channel)?;
-            }
             let existing = self
                 .state
                 .lock()
@@ -54,12 +41,12 @@ impl Runtime {
                 .map(|work| self.join(&admitted.request, work))
                 .transpose()?
                 .flatten();
-            if let Some(work) = joined {
-                work
-            } else {
-                self.detach_current(&admitted.request.view_channel)?;
-                self.submit(admitted.clone(), correlation)?
-            }
+            let work = match joined {
+                Some(work) => work,
+                None => self.submit(admitted.clone(), correlation)?,
+            };
+            self.replace_subscription(&admitted.request, &work)?;
+            work
         };
         self.workers.notify();
         let job = work
@@ -108,7 +95,7 @@ impl Runtime {
             if state.is_terminal() {
                 return Ok(Some(state));
             }
-            self.attach(request, &work)?;
+            Self::stage(request, &work)?;
             Ok(None)
         });
         match joined {
@@ -117,9 +104,9 @@ impl Runtime {
             Ok(Err(error)) => Err(error),
             Ok(Ok(None)) => Ok(Some(work)),
             Ok(Ok(Some(JobState::Done))) if self.cache_hit(&work)? => {
-                // A terminal job cannot reopen its physical subscription gate.
-                // This records the current cached response and its watermark only.
-                self.attach(request, &work)?;
+                // A terminal job cannot publish again. Stage the cached
+                // delivery so the channel can adopt it during replacement.
+                Self::stage(request, &work)?;
                 Ok(Some(work))
             }
             _ => Ok(None),
@@ -189,21 +176,13 @@ impl Runtime {
         }
         Ok(())
     }
-    fn attach(&self, request: &VizRenderRequest, work: &Arc<Work>) -> Result<(), EngineError> {
-        let mut state = self.state.lock().map_err(|_| internal())?;
-        let channel = state
-            .channels
-            .get_mut(&request.view_channel)
-            .ok_or_else(unavailable)?;
-        if request.request_seq.get() <= channel.sequence {
-            return Err(invalid());
-        }
+    // Stage membership under the new physical gate. The serial lock prevents
+    // channel controls until replacement has retired the old membership.
+    fn stage(request: &VizRenderRequest, work: &Work) -> Result<(), EngineError> {
         work.members
             .lock()
             .map_err(|_| internal())?
             .insert(request.view_channel.clone());
-        channel.sequence = request.request_seq.get();
-        channel.active = Some(work.clone());
         Ok(())
     }
     fn submit(&self, admitted: Arc<Admitted>, correlation: Id) -> Result<Arc<Work>, EngineError> {
@@ -255,18 +234,8 @@ impl Runtime {
                         .members
                         .lock()
                         .map_err(|_| du_job_runtime::RuntimeError::Poisoned)?;
-                    let mut state = self
-                        .state
-                        .lock()
-                        .map_err(|_| du_job_runtime::RuntimeError::Poisoned)?;
-                    let channel = state
-                        .channels
-                        .get_mut(&admitted.request.view_channel)
-                        .ok_or(du_job_runtime::RuntimeError::InvalidState)?;
                     *bound = Some(job.clone());
                     members.insert(admitted.request.view_channel.clone());
-                    channel.sequence = admitted.request.request_seq.get();
-                    channel.active = Some(binding.clone());
                     Ok(())
                 },
             )
@@ -343,25 +312,18 @@ impl Runtime {
         Ok(())
     }
     fn remove_work(&self, work: &Arc<Work>) -> Result<(), EngineError> {
-        let retired = {
-            let mut state = self.state.lock().map_err(|_| internal())?;
-            for channel in state.channels.values_mut() {
-                if channel
-                    .active
-                    .as_ref()
-                    .is_some_and(|active| Arc::ptr_eq(active, work))
-                {
-                    channel.active = None;
-                }
-            }
-            state.work.remove(&work.key)
-        };
+        let retired = self
+            .state
+            .lock()
+            .map_err(|_| internal())?
+            .work
+            .remove(&work.key);
         drop(retired);
         Ok(())
     }
 }
 impl Work {
-    fn job_id(&self) -> Result<Id, EngineError> {
+    pub(super) fn job_id(&self) -> Result<Id, EngineError> {
         self.job
             .lock()
             .map_err(|_| internal())?
