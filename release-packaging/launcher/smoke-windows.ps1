@@ -82,7 +82,10 @@ function Wait-ScopeActionsVisible {
   }
 }
 function Invoke-UI($item) {
-  $pattern = $item.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern)
+  $pattern = $null
+  if (-not $item.TryGetCurrentPattern([Windows.Automation.InvokePattern]::Pattern, [ref]$pattern)) {
+    throw "Action '$($item.Current.Name)' does not expose InvokePattern"
+  }
   $pattern.Invoke()
 }
 # Wait for the expected total, selecting a newer result if the interim one stays pinned.
@@ -213,7 +216,12 @@ function Open-TargetEditor {
     if ($opener -and $opener.Current.IsEnabled) { return $opener }
   }
   if ($entry.Current.ControlType -eq $button) {
-    Invoke-UI $entry
+    $disclosure = $null
+    if ($entry.TryGetCurrentPattern([Windows.Automation.ExpandCollapsePattern]::Pattern, [ref]$disclosure)) {
+      $disclosure.Expand()
+    } else {
+      Invoke-UI $entry
+    }
     $null = Wait-UI 'reopened target input' { Find-UI 'Windows folder path' $edit }
   }
 }
