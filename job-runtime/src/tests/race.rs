@@ -73,3 +73,126 @@ fn cancellation_and_completion_race_produces_one_terminal() -> Result<(), Box<dy
     }
     Ok(())
 }
+
+struct ReportingBody {
+    sender: std::sync::mpsc::Sender<Box<dyn du_core_contracts::job::JobFlow>>,
+}
+
+impl JobBody for ReportingBody {
+    fn kind_id(&self) -> &str {
+        "scan.metadata"
+    }
+
+    fn run(&self, context: Arc<dyn JobContext>) -> JobOutcome {
+        if let Ok(flow) = context.try_start_flow() {
+            let _ = self.sender.send(flow);
+        }
+        JobOutcome {
+            counts: JobCounts::default(),
+            completed_scope: true,
+            failure_reason_key: None,
+            unprocessed_summary: None,
+            result_version_id: None,
+        }
+    }
+}
+
+#[test]
+fn concurrent_jobs_keep_independent_sequences_and_one_final_event()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fallback = Id::parse("00000000-0000-7000-8000-000000000001")?;
+    let events = Arc::new(Events::default());
+    let runtime = Arc::new(JobRuntime::new_with_limits(
+        Arc::new(SequentialIdentity {
+            next: AtomicUsize::new(1),
+            fallback,
+        }),
+        Arc::new(Clock),
+        Arc::new(History::default()),
+        events.clone(),
+        FlowLimits {
+            metadata_io: 2,
+            queued_items: 8,
+            item_bytes: 32,
+        },
+    )?);
+    runtime.register(descriptor())?;
+    let (first_tx, first_rx) = std::sync::mpsc::channel();
+    let (second_tx, second_rx) = std::sync::mpsc::channel();
+    let first = created(runtime.submit(sample_submission(Arc::new(ReportingBody {
+        sender: first_tx,
+    }))?)?)?;
+    let second = created(runtime.submit(sample_submission(Arc::new(ReportingBody {
+        sender: second_tx,
+    }))?)?)?;
+    let workers: Vec<_> = (0..2)
+        .map(|_| {
+            let runtime = runtime.clone();
+            std::thread::spawn(move || runtime.run_next())
+        })
+        .collect();
+    let first_flow = first_rx.recv_timeout(std::time::Duration::from_secs(2))?;
+    let second_flow = second_rx.recv_timeout(std::time::Duration::from_secs(2))?;
+    first_flow
+        .report_item(b"first-1")
+        .map_err(|e| format!("{e:?}"))?;
+    second_flow
+        .report_item(b"second")
+        .map_err(|e| format!("{e:?}"))?;
+    first_flow
+        .report_item(b"first-2")
+        .map_err(|e| format!("{e:?}"))?;
+    assert!(matches!(
+        runtime.cancel(&first)?,
+        CancelResult::Accepted(JobState::CancelRequested)
+    ));
+    first_flow.finish(JobCounts::default());
+    second_flow.finish(JobCounts::default());
+    for worker in workers {
+        worker.join().map_err(|_| "worker panicked")??;
+    }
+    assert_eq!(
+        runtime.cancel(&first)?,
+        CancelResult::AlreadyTerminal(JobState::Cancelled)
+    );
+    assert_eq!(
+        runtime.cancel(&second)?,
+        CancelResult::AlreadyTerminal(JobState::Done)
+    );
+    runtime.flush()?;
+    let events = events.0.lock().map_err(|_| "events poisoned")?;
+    for (id, expected_items) in [(&first, 2), (&second, 1)] {
+        assert_eq!(
+            events
+                .iter()
+                .filter(
+                    |event| matches!(event, JobEvent::ItemResult { job_id, .. } if job_id == id)
+                )
+                .count(),
+            expected_items
+        );
+        let observed: Vec<_> = events
+            .iter()
+            .filter_map(|event| match event {
+                JobEvent::StateChanged {
+                    job_id, sequence, ..
+                }
+                | JobEvent::ItemResult {
+                    job_id, sequence, ..
+                } if job_id == id => Some((*sequence, false)),
+                JobEvent::Finished {
+                    summary, sequence, ..
+                } if &summary.job_id == id => Some((*sequence, true)),
+                _ => None,
+            })
+            .collect();
+        assert!(observed.windows(2).all(|pair| pair[0].0 < pair[1].0));
+        assert_eq!(observed.iter().filter(|(_, finished)| *finished).count(), 1);
+        assert_eq!(observed.last().map(|(_, finished)| *finished), Some(true));
+        assert_eq!(
+            runtime.snapshot(id)?.sequence,
+            observed.last().ok_or("missing event")?.0
+        );
+    }
+    Ok(())
+}
