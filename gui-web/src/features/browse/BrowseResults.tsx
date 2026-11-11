@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useLayoutEffect, useRef } from "react";
 import {
   Action,
   BrowseGrid,
@@ -104,6 +104,32 @@ export function BrowseResults({
     canRead,
     focusPanel,
   });
+  const loadHasFocus = useRef(false);
+  useLayoutEffect(() => {
+    function focusIn(event: FocusEvent) {
+      loadHasFocus.current = event.target === paging.loadButton.current;
+    }
+    function focusOut(event: FocusEvent) {
+      if (event.target === paging.loadButton.current)
+        loadHasFocus.current = false;
+    }
+    document.addEventListener("focusin", focusIn);
+    document.addEventListener("focusout", focusOut);
+    return () => {
+      document.removeEventListener("focusin", focusIn);
+      document.removeEventListener("focusout", focusOut);
+    };
+  }, [paging.loadButton]);
+  useLayoutEffect(() => {
+    if (
+      paging.failure &&
+      loadHasFocus.current &&
+      document.activeElement === document.body
+    ) {
+      loadHasFocus.current = false;
+      paging.retryButton.current?.focus({ preventScroll: true });
+    }
+  }, [paging.failure, paging.retryButton]);
   return (
     <div className="du-browse-results">
       <div className="du-browse-controls">
@@ -138,7 +164,7 @@ export function BrowseResults({
         )}
         {initialCursor !== null && (
           <div className="du-browse-more">
-            {paging.showLoadMore && (
+            {paging.showLoadMore && !paging.failure && (
               <Action
                 ref={paging.loadButton}
                 onPress={(event) =>

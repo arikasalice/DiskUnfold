@@ -719,7 +719,11 @@ function delayedPage() {
   );
   const port: BrowsePort = {
     open: vi.fn().mockResolvedValue(first),
-    page: vi.fn(() => pending.promise),
+    page: vi.fn((request) =>
+      "start" in request && request.start !== 200
+        ? Promise.resolve(syntheticPage(2200, request.start))
+        : pending.promise,
+    ),
   };
   return { pending, next, port };
 }
@@ -1929,3 +1933,155 @@ test.each(["sequence", "version", "job version"])(
     expect(open).toHaveBeenCalledTimes(2);
   },
 );
+
+test.each([false, true])(
+  "continuation failure offers one recovery and preserves keyboard focus (more: %s)",
+  async (more) => {
+    const total = more ? 401 : 201;
+    const firstPage = deferred<FolderQueryPage>();
+    const retryPage = deferred<FolderQueryPage>();
+    const port: BrowsePort = {
+      open: vi.fn().mockResolvedValue(openingPage([row(1, "Alpha")], total)),
+      page: vi
+        .fn()
+        .mockImplementationOnce(() => firstPage.promise)
+        .mockImplementationOnce(() => retryPage.promise)
+        .mockImplementation(async (request) => {
+          if (!("start" in request)) throw new Error("Expected position");
+          return syntheticPage(total, request.start);
+        }),
+    };
+    const previous = listScroll.scrollY;
+    try {
+      render(<BrowsePanel port={port} resultVersion={id} />);
+      const first = await screen.findByRole("row", { name: /Alpha/ });
+      act(() => first.focus());
+      fireEvent.keyDown(first, { key: " " });
+      const load = screen.getByRole("button", { name: "Load more" });
+      fireEvent.click(load);
+      await act(async () => firstPage.reject(new Error("page failed")));
+      const retry = await screen.findByRole("button", { name: "Retry page" });
+      expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
+      expect(first.getAttribute("aria-selected")).toBe("true");
+      const scroll = listScroll.scrollY;
+      act(() => retry.focus());
+      await act(async () => pressLoadMore(retry));
+      expect(screen.getByRole("button", { name: "Retrying page…" })).toBe(
+        retry,
+      );
+      expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
+      await act(async () => pressLoadMore(retry));
+      expect(port.page).toHaveBeenCalledTimes(2);
+      expect(listScroll.scrollY).toBe(scroll);
+      const rows = Array.from({ length: more ? 200 : 1 }, (_, index) => ({
+        ...row(201 + index, `Next ${index}`),
+        kind: "file" as const,
+      }));
+      await act(async () =>
+        retryPage.resolve(page(rows, more ? "next2" : null, total)),
+      );
+      expect(document.activeElement).toBe(gridRow("Next 0"));
+      expect(screen.queryByRole("button", { name: "Retry page" })).toBeNull();
+      expect(Boolean(screen.queryByRole("button", { name: "Load more" }))).toBe(
+        more,
+      );
+    } finally {
+      listScroll.scrollTo(0, previous);
+    }
+  },
+);
+
+test("stale continuation exposes only reopen while reopening", async () => {
+  const reopen = deferred<BrowseOpenResponse>();
+  const port: BrowsePort = {
+    open: vi
+      .fn()
+      .mockResolvedValueOnce(openingPage([row(1, "Alpha")]))
+      .mockImplementationOnce(() => reopen.promise),
+    page: vi
+      .fn()
+      .mockRejectedValue(new AnalysisError("STALE_VERSION", "query.stale")),
+  };
+  render(<BrowsePanel port={port} resultVersion={id} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Load more" }));
+  const action = await screen.findByRole("button", { name: "Reopen folder" });
+  expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
+  fireEvent.click(action);
+  expect(screen.getByRole("button", { name: "Reopening folder…" })).toBe(
+    action,
+  );
+  expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
+  expect(port.open).toHaveBeenCalledTimes(2);
+  await act(async () => reopen.resolve(opened(2, [row(1, "Alpha")])));
+});
+
+test.each([false, true])(
+  "page failure transfers focus only from the removed load action (stale: %s)",
+  async (stale) => {
+    const pending = deferred<FolderQueryPage>();
+    const port: BrowsePort = {
+      open: vi.fn().mockResolvedValue(openingPage([row(1, "Alpha")])),
+      page: vi.fn(() => pending.promise),
+    };
+    render(
+      <>
+        <BrowsePanel port={port} resultVersion={id} />
+        <button>Outside browse</button>
+      </>,
+    );
+    const load = await screen.findByRole("button", { name: "Load more" });
+    act(() => load.focus());
+    await act(async () => pressLoadMore(load));
+    const before = listScroll.scrollY;
+    await act(async () =>
+      pending.reject(
+        stale
+          ? new AnalysisError("STALE_VERSION", "query.stale")
+          : new Error("failed"),
+      ),
+    );
+    const recovery = screen.getByRole("button", {
+      name: stale ? "Reopen folder" : "Retry page",
+    });
+    expect(document.activeElement).toBe(recovery);
+    expect(listScroll.scrollY).toBe(before);
+  },
+);
+
+test("page failure does not steal focus when the user moved away", async () => {
+  const pending = deferred<FolderQueryPage>();
+  const port: BrowsePort = {
+    open: vi.fn().mockResolvedValue(openingPage([row(1, "Alpha")])),
+    page: vi.fn(() => pending.promise),
+  };
+  render(
+    <>
+      <BrowsePanel port={port} resultVersion={id} />
+      <button>Outside browse</button>
+    </>,
+  );
+  const load = await screen.findByRole("button", { name: "Load more" });
+  act(() => load.focus());
+  await act(async () => pressLoadMore(load));
+  const outside = screen.getByRole("button", { name: "Outside browse" });
+  act(() => outside.focus());
+  await act(async () => pending.reject(new Error("failed")));
+  expect(screen.getByRole("button", { name: "Retry page" })).toBeDefined();
+  expect(document.activeElement).toBe(outside);
+});
+
+test("page failure respects explicit blur of the load action", async () => {
+  const pending = deferred<FolderQueryPage>();
+  const port: BrowsePort = {
+    open: vi.fn().mockResolvedValue(openingPage([row(1, "Alpha")])),
+    page: vi.fn(() => pending.promise),
+  };
+  render(<BrowsePanel port={port} resultVersion={id} />);
+  const load = await screen.findByRole("button", { name: "Load more" });
+  act(() => load.focus());
+  await act(async () => pressLoadMore(load));
+  act(() => load.blur());
+  await act(async () => pending.reject(new Error("failed")));
+  expect(screen.getByRole("button", { name: "Retry page" })).toBeDefined();
+  expect(document.activeElement).toBe(document.body);
+});
