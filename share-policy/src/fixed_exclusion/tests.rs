@@ -71,6 +71,41 @@ fn fixed_secret_patterns_are_excluded_independently_of_declared_class() -> Resul
 }
 
 #[test]
+fn a_secret_name_declared_as_aggregate_is_still_removed() -> Result<(), Error> {
+    struct Misclassified;
+    impl Exportable for Misclassified {
+        const FIELDS: &'static [ExportField] = &[
+            ExportField {
+                path: "/Authorization",
+                class: FieldClass::Aggregate,
+            },
+            ExportField {
+                path: "/total",
+                class: FieldClass::Aggregate,
+            },
+        ];
+    }
+
+    for input in [
+        br#"{"Authorization":"synthetic-sensitive","total":4}"#.as_slice(),
+        br#"{"\u0041uthorization":"synthetic-sensitive","total":4}"#.as_slice(),
+    ] {
+        let result = begin_json::<Misclassified>(input)?;
+        assert_eq!(result.excluded, 1);
+        assert!(!result.fields.contains_key("Authorization"));
+        assert_eq!(
+            result.fields.get("total").map(|field| &field.value),
+            Some(&Value::from(4))
+        );
+    }
+    let unexpected = br#"{"Authorization":"synthetic-sensitive","total":4,"unclassified":"synthetic-sensitive"}"#;
+    let error = begin_json::<Misclassified>(unexpected).err();
+    assert_eq!(error, Some(Error::DeclarationMismatch));
+    assert!(!format!("{error:?}").contains("synthetic-sensitive"));
+    Ok(())
+}
+
+#[test]
 fn published_secret_names_and_compatible_aliases_are_excluded_after_decoding() -> Result<(), Error>
 {
     struct Names;
