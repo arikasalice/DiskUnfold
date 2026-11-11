@@ -58,3 +58,20 @@
   outline: 2px solid var(--du-focus);
   outline-offset: -2px;
 }
+
+@media (max-height: 15rem) {
+  .du-inspection-dialog {
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scroll-padding-block: 8px;
+  }
+
+  .du-inspection-dialog__header,
+  .du-inspection-dialog__body {
+    flex: none;
+  }
+
+  .du-inspection-dialog__body {
+    overflow: visible;
+  }
+}

@@ -3,7 +3,7 @@ import { Dialog, Heading, Modal, ModalOverlay } from "react-aria-components";
 import { Action } from "./controls";
 import "../theme/inspection-dialog.css";
 
-/** Presents read-only details with a fixed title and a scrollable body. */
+/** Presents read-only details. In short viewports, the title and body scroll together. */
 export function InspectionDialog({
   title,
   onClose,

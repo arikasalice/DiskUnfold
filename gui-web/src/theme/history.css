@@ -310,3 +310,13 @@
     grid-template-columns: repeat(auto-fit, minmax(min(100%, 8rem), 1fr));
   }
 }
+
+@media (max-height: 15rem) {
+  .du-history-table .du-table-viewport {
+    scroll-padding-block: 6px;
+  }
+
+  .du-history-table .du-data-table th {
+    position: static;
+  }
+}
