@@ -25,8 +25,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName UIAutomationClient,UIAutomationTypes
-if ($VerifyInspectionKeyboard) {
-  Add-Type -TypeDefinition @'
+Add-Type -TypeDefinition @'
 using System;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
@@ -81,7 +80,6 @@ namespace DiskUnfoldSmoke {
   }
 }
 '@
-}
 if (Get-CimInstance Win32_Process -Filter "Name = 'diskunfold.exe' AND ThreadCount > 0") { throw 'DiskUnfold already running' }
 $exe = (Resolve-Path -LiteralPath $Binary).Path
 $root = Join-Path ([IO.Path]::GetTempPath()) ('diskunfold-smoke-' + [guid]::NewGuid())
@@ -220,7 +218,7 @@ function Wait-FinalLogicalSize($expected, $versionLabel = 'Final') {
   }
 }
 # Send a key only while the test window owns the foreground.
-function Send-InspectionKey($key) {
+function Send-SmokeKey($key) {
   $process.Refresh()
   [DiskUnfoldSmoke.Keyboard]::Press($process.MainWindowHandle, $key)
 }
@@ -254,7 +252,7 @@ function Test-FileInspection($name, $size, $testCopyContention = $false, $expect
       $focused = Get-FocusedInspectionRow $name
       $focused -and ($focused.GetRuntimeId() -join ',') -eq $openerId -and -not $focused.Current.IsOffscreen
     }
-    Send-InspectionKey 0x0D # VK_RETURN
+    Send-SmokeKey 0x0D # VK_RETURN
   } else {
     $file.SetFocus()
     Invoke-UI (Wait-VisibleAction $name)
@@ -275,7 +273,7 @@ function Test-FileInspection($name, $size, $testCopyContention = $false, $expect
     }
   }
   if ($VerifyInspectionKeyboard) {
-    Send-InspectionKey 0x1B # VK_ESCAPE
+    Send-SmokeKey 0x1B # VK_ESCAPE
     $null = Wait-UI "file details dismissed by Escape for $name" {
       -not (Find-UI 'Close details' $button)
     }
@@ -302,9 +300,9 @@ function Test-FileInspection($name, $size, $testCopyContention = $false, $expect
 function Test-PagedInspectionKeyboard($name, $path) {
   (Find-InspectionRow (Wait-Enabled 'entry-000.bin' $true)).SetFocus()
   $null = Wait-UI 'first row focused before End' { Get-FocusedInspectionRow 'entry-000.bin' }
-  Send-InspectionKey 0x23 # VK_END
+  Send-SmokeKey 0x23 # VK_END
   $null = Wait-UI 'last row focused on the second page' { Get-FocusedInspectionRow 'entry-239.bin' }
-  Send-InspectionKey 0x26 # VK_UP
+  Send-SmokeKey 0x26 # VK_UP
   $before = Wait-UI 'long file name focused' { Get-FocusedInspectionRow $name }
   $runtimeId = $before.GetRuntimeId() -join ','
   $rowTop = $before.Current.BoundingRectangle.Top
@@ -316,7 +314,7 @@ function Test-PagedInspectionKeyboard($name, $path) {
       [Math]::Abs($after.Current.BoundingRectangle.Top - $rowTop) -gt 2) {
     throw 'Inspection did not restore the same native row and viewport position'
   }
-  Send-InspectionKey 0x28 # VK_DOWN
+  Send-SmokeKey 0x28 # VK_DOWN
   $null = Wait-UI 'next file focused after inspection' { Get-FocusedInspectionRow 'entry-239.bin' }
   'F05 paged keyboard inspection: long file name, same row and viewport position, Down reaches next file'
 }
@@ -439,26 +437,13 @@ function Test-ScaledFileInspection {
   $unitSystem = Wait-UI 'unit system selector' {
     Find-UI 'Unit system' ([Windows.Automation.ControlType]::ComboBox)
   }
-  Expand-UI $unitSystem
-  $si = Wait-UI 'SI unit option' {
-    # WebView2 may expose the portaled option as a sibling of the selector.
-    $option = Find-UI 'SI (1000)' $null $unitSystem
-    if (-not $option) { $option = Find-UI 'SI (1000)' $null }
-    $selection = $null
-    if ($option -and $option.TryGetCurrentPattern([Windows.Automation.SelectionItemPattern]::Pattern, [ref]$selection)) {
-      $selection
-    }
+  $unitSystem.SetFocus()
+  $null = Wait-UI 'keyboard focus on the unit system selector' {
+    $focused = Find-UI 'Unit system' ([Windows.Automation.ControlType]::ComboBox)
+    $focused -and $focused.Current.HasKeyboardFocus -and -not $focused.Current.IsOffscreen
   }
-  $si.Select()
-  $unitPopup = $unitSystem.GetCurrentPattern([Windows.Automation.ExpandCollapsePattern]::Pattern)
-  if ($unitPopup.Current.ExpandCollapseState -eq [Windows.Automation.ExpandCollapseState]::Expanded) {
-    # UI Automation selection can leave the popup open unlike normal activation.
-    $unitPopup.Collapse()
-    'F03 native unit selector: dismissed the open popup after UI Automation selection'
-  }
-  $null = Wait-UI 'unit selector closed before keyboard inspection' {
-    $unitPopup.Current.ExpandCollapseState -eq [Windows.Automation.ExpandCollapseState]::Collapsed
-  }
+  # The closed native selector moves directly to its last option, SI.
+  Send-SmokeKey 0x23 # VK_END
   $null = Wait-FinalLogicalSize '1.1 kB'
   Invoke-UI (Wait-Enabled 'Browse folders' $true)
   $null = Wait-UI 'pinned folder row in SI units' {
