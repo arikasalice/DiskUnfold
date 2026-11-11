@@ -182,6 +182,30 @@ function Read-CompleteSize($basis) {
   if (-not ($names -cmatch '^Complete measurement(?:\s*·|$)')) {
     throw "$basis was not complete: $($names -join ' / ')"
   }
+  if (Find-UI 'Measurement details' $button) {
+    $details = Wait-UI 'expanded exact measurement details' {
+      $toggle = Find-UI 'Measurement details' $button
+      $pattern = $null
+      if ($toggle.TryGetCurrentPattern([Windows.Automation.ExpandCollapsePattern]::Pattern, [ref]$pattern) -and
+          $pattern.Current.ExpandCollapseState -eq [Windows.Automation.ExpandCollapseState]::Collapsed) {
+        $pattern.Expand()
+      }
+      $window.FindAll($scopeTree, [Windows.Automation.Condition]::TrueCondition) |
+        Where-Object { $_.Current.Name -eq 'Measurement details' -and $_.Current.ControlType -ne $button -and (Find-UI $basis $textType $_) } |
+        Select-Object -First 1
+    }
+    $measurements = @($details.FindAll($scopeTree, [Windows.Automation.Condition]::TrueCondition) |
+      ForEach-Object { $_.Current.Name })
+    $labels = @('Logical size', 'Allocated size', 'Unique physical size')
+    $start = [Array]::IndexOf($measurements, $basis)
+    $names = @(
+      for ($index = $start + 1; $index -lt $measurements.Count; $index++) {
+        $value = $measurements[$index]
+        if ($value -ne $basis -and $value -in $labels) { break }
+        $value
+      }
+    )
+  }
   foreach ($part in ($names -split '·')) {
     if ($part.Trim() -match '^(?<bytes>[0-9][0-9,\.\p{Zs}]*) bytes$') {
       return [uint64]($Matches.bytes -replace '[^0-9]', '')
@@ -348,7 +372,7 @@ function Test-ScanCancellation($path) {
   Invoke-UI (Wait-Enabled 'Review scope' $true)
   Invoke-UI (Wait-Enabled 'Start scan' $true)
   Invoke-UI (Wait-Enabled 'Cancel scan' $true)
-  $null = Wait-UI 'cancelled scan state' { Find-UI 'Scan status: cancelled' $textType }
+  $null = Wait-UI 'cancelled scan state' { Find-UI 'Scan cancelled' $textType }
   $available = Wait-UI 'cancelled result or user-controlled result switch' {
     $switch = Find-UI 'Show latest result' $button
     if ($switch -and $switch.Current.IsEnabled) { return 'switch' }
@@ -373,7 +397,7 @@ function Test-ScanSuspension($path) {
   Invoke-UI (Wait-Enabled 'Review scope' $true)
   Invoke-UI (Wait-Enabled 'Start scan' $true)
   Invoke-UI (Wait-VisibleAction 'Pause scan')
-  $null = Wait-UI 'confirmed paused scan' { Find-UI 'Scan status: paused' $textType }
+  $null = Wait-UI 'confirmed paused scan' { Find-UI 'Scan paused' $textType }
   $null = Wait-VisibleAction 'Cancel scan'
   Invoke-UI (Wait-VisibleAction 'Resume scan')
   $null = Wait-FinalLogicalSize '25.0 KiB'
@@ -563,7 +587,7 @@ try {
     $details = Find-UI 'Observed item space' $null
     if ($details) { Find-UI 'Observed logical size' $null $details }
   }
-  Invoke-UI (Wait-Enabled 'Hide folder details' $true)
+  Invoke-UI (Wait-Enabled 'Close details' $true)
   $null = Wait-UI 'closed pinned folder details' { -not (Find-UI 'Observed item space' $null) }
   'F03 native item space: opened and closed the pinned folder observations'
   Invoke-UI (Wait-Enabled 'Browse folders' $true)
