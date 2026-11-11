@@ -11,6 +11,11 @@ DiskUnfold is an offline desktop application for understanding disk use and revi
 - The repository is a Cargo workspace with a separately locked npm UI. The deployment unit is one executable per platform. GUI and CLI are execution modes of that executable. The eventual MCP gateway runs inside the GUI process.
 - Begin with `git status --short --branch`. Preserve existing work and isolate implementation changes from `main`. Keep commits focused and include the relevant AIDA item IDs when available.
 
+## Agent delegation
+
+- Explicitly select `gpt-6-luna` for every new subagent at every delegation level. The designated Terra development and Astra design leads retain their models in their own project chats.
+- Close completed subagent sessions when the tooling supports it. Otherwise leave them completed and do not reuse them. If a running subagent on another model cannot switch models, let it finish its current assignment and review its result before closing it. Use a new Luna subagent for any follow-up work that requires delegation.
+
 ## Paths and ownership
 
 | Path | Responsibility |
