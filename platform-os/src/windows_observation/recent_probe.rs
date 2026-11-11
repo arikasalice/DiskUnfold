@@ -33,27 +33,21 @@ impl WindowsScopeRoots {
         &self,
         path: &[u8],
     ) -> Result<(OpenedScopeRoot, RecentProbe), PortError> {
-        open_with_probe_using(path)
+        open_with_probe(path)
     }
 }
 
 pub(super) fn open_port_with_recent(
     path: &[u8],
 ) -> Result<(OpenedScopeRoot, OptionalRecentScopeObserver), PortError> {
-    open_port_with_recent_using(path)
-}
-
-fn open_port_with_recent_using(
-    path: &[u8],
-) -> Result<(OpenedScopeRoot, OptionalRecentScopeObserver), PortError> {
-    let (root, probe) = open_with_probe_using(path)?;
+    let (root, probe) = open_with_probe(path)?;
     Ok((
         root,
         Some(Ok(Box::new(probe) as Box<dyn RecentScopeObserver>)),
     ))
 }
 
-fn open_with_probe_using(path: &[u8]) -> Result<(OpenedScopeRoot, RecentProbe), PortError> {
+fn open_with_probe(path: &[u8]) -> Result<(OpenedScopeRoot, RecentProbe), PortError> {
     let (directory, identity) = scope::open_scope(path)?;
     let probe = create_probe(&directory, &identity);
     Ok((scope::into_scope_root(directory, identity), probe))

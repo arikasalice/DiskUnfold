@@ -30,10 +30,23 @@ fn ntfs_shared_handle_observation_does_not_disturb_scan_batches_in_fixture()
     let expected_file = root.file_id.clone();
     let (request_tx, request_rx) = mpsc::channel();
     let (progress_tx, progress_rx) = mpsc::channel();
+    let (observing_tx, observing_rx) = mpsc::channel();
+    let (resume_tx, resume_rx) = mpsc::channel();
     let worker = std::thread::spawn(move || {
         let stop = AtomicBool::new(false);
         while request_rx.recv().is_ok() {
-            let result = match probe.observe(&stop) {
+            let observation = probe.observe_with(
+                &stop,
+                |handle| {
+                    observing_tx.send(()).map_err(|_| invalid())?;
+                    resume_rx
+                        .recv_timeout(Duration::from_secs(10))
+                        .map_err(|_| invalid())?;
+                    final_path(handle, VOLUME_NAME_GUID)
+                },
+                || {},
+            );
+            let result = match observation {
                 ProbeOutcome::Observed(evidence)
                     if evidence.volume_id == expected_volume
                         && evidence.file_id == expected_file =>
@@ -50,10 +63,15 @@ fn ntfs_shared_handle_observation_does_not_disturb_scan_batches_in_fixture()
     let mut received = BTreeSet::new();
     let mut batches = 0usize;
     loop {
+        request_tx.send(())?;
+        observing_rx.recv_timeout(Duration::from_secs(10))?;
+        // Advance the enumeration while an observation of the same handle is in progress.
         let entries = root
             .directory
             .next_batch()
             .map_err(|error| format!("{error:?}"))?;
+        resume_tx.send(())?;
+        progress_rx.recv_timeout(Duration::from_secs(10))??;
         if entries.is_empty() {
             break;
         }
@@ -61,9 +79,6 @@ fn ntfs_shared_handle_observation_does_not_disturb_scan_batches_in_fixture()
         for item in entries {
             assert!(received.insert(item.name), "duplicate scan entry");
         }
-        // Exercise handle observation between successive scan batches.
-        request_tx.send(())?;
-        progress_rx.recv_timeout(Duration::from_secs(10))??;
     }
     drop(request_tx);
     worker.join().map_err(|_| "worker panic")?;
