@@ -3519,7 +3519,7 @@ test("F01: adding and removing a path restores focus to the appropriate field", 
 });
 
 test("F01: result editor opens and closes with focus while keeping the result scope", async () => {
-  const { client } = fixture();
+  const { client, calls } = fixture();
   await startFixtureScan(client);
   await screen.findByText("At least 42 bytes");
   const opener = screen.getByRole("button", { name: "Analyze again" });
@@ -3539,6 +3539,8 @@ test("F01: result editor opens and closes with focus while keeping the result sc
   const input = screen.getByRole<HTMLInputElement>("textbox", {
     name: "Windows folder path",
   });
+  const reviews = () => calls.filter(({ name }) => name === "scope.review");
+  const beforeEdit = reviews().length;
   fireEvent.change(input, { target: { value: "D:\\new" } });
   expect(
     screen.getByRole<HTMLButtonElement>("button", { name: "Start scan" })
@@ -3549,6 +3551,22 @@ test("F01: result editor opens and closes with focus while keeping the result sc
   expect(document.activeElement).toBe(opener);
   expect(opener.getAttribute("aria-expanded")).toBe("false");
   expect(opener.hasAttribute("aria-controls")).toBe(false);
+  await act(async () => {
+    await new Promise((resolve) => window.setTimeout(resolve, 400));
+  });
+  expect(reviews()).toHaveLength(beforeEdit);
+
+  fireEvent.click(opener);
+  expect(
+    screen.getByRole<HTMLInputElement>("textbox", {
+      name: "Windows folder path",
+    }).value,
+  ).toBe("D:\\new");
+  await waitFor(() => expect(reviews()).toHaveLength(beforeEdit + 1));
+  expect(reviews().at(-1)?.body).toMatchObject({
+    draft: { includes: [windowsPath("D:\\new")] },
+  });
+  expect(screen.getByText("At least 42 bytes")).toBeDefined();
 });
 
 test("F01: failed start keeps the editor and returns focus to scope review", async () => {

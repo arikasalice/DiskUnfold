@@ -406,8 +406,11 @@ export function AnalysisPanel({
 
   autoReview.current = () => void reviewScope(true);
 
+  const showEditor = receipt === null || editorOpen;
   useEffect(() => {
+    // A closed editor retains the draft and suspends its scheduled review.
     if (
+      !showEditor ||
       pathComposing ||
       selected.length === 0 ||
       selected.some((path) => !path)
@@ -431,7 +434,7 @@ export function AnalysisPanel({
         autoReviewTimer.current = undefined;
       }
     };
-  }, [pathComposing, reviewedScope, selected]);
+  }, [pathComposing, reviewedScope, selected, showEditor]);
 
   async function start() {
     if (
@@ -473,7 +476,6 @@ export function AnalysisPanel({
   }
 
   const resultActive = receipt !== null || error !== undefined;
-  const showEditor = receipt === null || editorOpen;
   const editorBusy = isEditorBusy(working, reviewing, checkingDrop);
   const currentInput = completeDraft(selected);
   const reviewedInputIsCurrent = reviewedInputMatches(
@@ -526,6 +528,8 @@ export function AnalysisPanel({
                     variant="quiet"
                     isDisabled={editorBusy}
                     onPress={() => {
+                      cancelScheduledReview(autoReviewTimer);
+                      setPathComposing(false);
                       focusOpener.current = true;
                       setEditorOpen(false);
                     }}
