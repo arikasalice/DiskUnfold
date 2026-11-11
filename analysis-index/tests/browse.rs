@@ -1,9 +1,12 @@
 use du_analysis_index::{IngestSink, Observation, QueryError, ResultVersion, browse, query};
 use du_core_contracts::{
-    Id, ItemRef,
+    ByteSize, Id, ItemRef, SizeAmount, SizeBasis, SizeEvidence, SizeValue,
     result::{ResultCompleteness, ResultVersionRead},
 };
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+static FOLDER_PREDICATE_READS: AtomicUsize = AtomicUsize::new(0);
 
 #[test]
 fn retained_item_times_are_pinned_across_publications() -> Result<(), String> {
@@ -126,6 +129,96 @@ fn reads_only_immediate_children_and_root_to_location_breadcrumbs() -> Result<()
     let view = browse::open(&version, Some(&empty)).map_err(|e| format!("{e:?}"))?;
     assert!(view.children.is_empty());
     assert_eq!(view.breadcrumbs.len(), 3);
+    Ok(())
+}
+
+fn count_folder_reads(_: &query::Record<'_>, _: &query::Predicate) -> query::Truth {
+    FOLDER_PREDICATE_READS.fetch_add(1, Ordering::Relaxed);
+    query::Truth::Match
+}
+
+#[test]
+fn folder_query_reads_only_the_selected_parent_and_item_detail_is_direct() -> Result<(), String> {
+    let sink = IngestSink::default();
+    let mut build = sink.open(id(1)?).map_err(|e| format!("{e:?}"))?;
+    build.add_directory(vec![]).map_err(|e| format!("{e:?}"))?;
+    build
+        .add_directory(vec![b"selected".to_vec()])
+        .map_err(|e| format!("{e:?}"))?;
+    for (name, bytes) in [(b"first".as_slice(), 5), (b"second".as_slice(), 7)] {
+        build
+            .add_file(Observation {
+                path: vec![b"selected".to_vec(), name.to_vec()],
+                size: Some(SizeValue {
+                    basis: SizeBasis::Logical,
+                    evidence: SizeEvidence::OsReported,
+                    amount: SizeAmount::Exact {
+                        bytes: ByteSize::from(bytes),
+                    },
+                }),
+            })
+            .map_err(|e| format!("{e:?}"))?;
+    }
+    for index in 0..128 {
+        build
+            .add_file(Observation {
+                path: vec![format!("unrelated-{index:03}").into_bytes()],
+                size: Some(SizeValue {
+                    basis: SizeBasis::Logical,
+                    evidence: SizeEvidence::OsReported,
+                    amount: SizeAmount::Exact {
+                        bytes: ByteSize::from(1),
+                    },
+                }),
+            })
+            .map_err(|e| format!("{e:?}"))?;
+    }
+    let version = build
+        .seal(id(2)?, ResultCompleteness::Complete)
+        .map_err(|e| format!("{e:?}"))?;
+    let target = item(&version, b"selected")?;
+    let detail = version.detail(&target).map_err(|e| format!("{e:?}"))?;
+    assert!(std::ptr::eq(
+        detail.item,
+        &version.items()[target.item_no as usize]
+    ));
+
+    let mut registry = query::Registry::baseline();
+    registry
+        .register_predicate("pred.read-counter", 1, count_folder_reads)
+        .map_err(|e| format!("{e:?}"))?;
+    FOLDER_PREDICATE_READS.store(0, Ordering::Relaxed);
+    let result = query::run_folder(
+        &registry,
+        Arc::clone(&version),
+        Some(&target),
+        &query::Condition::Predicate(query::Predicate::Registered {
+            id: "pred.read-counter".into(),
+            revision: 1,
+            operand: Vec::new(),
+        }),
+        query::Sort {
+            id: "sort.name",
+            revision: 1,
+            basis: query::Basis::Logical,
+            descending: false,
+        },
+        || false,
+    )
+    .map_err(|e| format!("{e:?}"))?;
+
+    assert_eq!(FOLDER_PREDICATE_READS.load(Ordering::Relaxed), 2);
+    assert_eq!(result.items.len(), 2);
+    assert!(result.items.iter().all(|reference| {
+        version.items()[reference.item_no as usize].parent == Some(target.item_no)
+    }));
+    let total = result.space_total(|| false).map_err(|e| format!("{e:?}"))?;
+    assert_eq!(
+        total.logical.amount,
+        SizeAmount::Exact {
+            bytes: ByteSize::from(12)
+        }
+    );
     Ok(())
 }
 
