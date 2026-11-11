@@ -12,6 +12,7 @@ param(
   [switch]$VerifyPhysicalAccounting,
   [switch]$VerifyDeniedSubtree,
   [switch]$VerifySettingsRestoration,
+  [switch]$VerifyOperationHistory,
   [switch]$VerifyNativeFolderDrop
 )
 
@@ -88,6 +89,23 @@ function Invoke-UI($item) {
   }
   $pattern.Invoke()
 }
+# WebView2 may expose an aria-expanded button as a disclosure instead of Invoke.
+function Expand-UI($item) {
+  $disclosure = $null
+  if ($item.TryGetCurrentPattern([Windows.Automation.ExpandCollapsePattern]::Pattern, [ref]$disclosure)) {
+    $disclosure.Expand()
+  } else {
+    Invoke-UI $item
+  }
+}
+function Wait-Details($name, $contentName) {
+  $ready = Wait-UI "$contentName or its disclosure" {
+    if (Find-UI $contentName $null) { return 'content' }
+    $item = Find-UI $name $button
+    if ($item -and $item.Current.IsEnabled) { return $item }
+  }
+  if ($ready -is [Windows.Automation.AutomationElement]) { Expand-UI $ready }
+}
 # Wait for the expected total, selecting a newer result if the interim one stays pinned.
 function Wait-FinalLogicalSize($expected, $versionLabel = 'Final') {
   $selection = @{ LastSwitch = [DateTime]::MinValue }
@@ -115,6 +133,7 @@ function Test-FileInspection($name, $size) {
     $details = Find-UI 'Observed file attributes' $null
     if ($details) { Find-UI $name $null $details }
   }
+  Wait-Details 'Space measurement details' 'Observed item space'
   $null = Wait-UI "pinned space for $name" {
     $details = Find-UI 'Observed item space' $null
     if ($details -and (Find-UI 'Observed logical size' $null $details)) {
@@ -216,12 +235,7 @@ function Open-TargetEditor {
     if ($opener -and $opener.Current.IsEnabled) { return $opener }
   }
   if ($entry.Current.ControlType -eq $button) {
-    $disclosure = $null
-    if ($entry.TryGetCurrentPattern([Windows.Automation.ExpandCollapsePattern]::Pattern, [ref]$disclosure)) {
-      $disclosure.Expand()
-    } else {
-      Invoke-UI $entry
-    }
+    Expand-UI $entry
     $null = Wait-UI 'reopened target input' { Find-UI 'Windows folder path' $edit }
   }
 }
@@ -427,6 +441,22 @@ function Test-DeniedSubtree {
     'F02/F03 denied NTFS subtree: access denied, pinned logical lower bound 13 bytes'
   } finally { Set-Acl -LiteralPath $denied -AclObject $original }
 }
+# Read the real committed scan history and return to the same pinned analysis.
+function Test-OperationHistory {
+  Invoke-UI (Wait-VisibleAction 'Operation history')
+  $item = Wait-UI 'recorded disk analysis' {
+    $window.FindAll($scopeTree, [Windows.Automation.PropertyCondition]::new($ae::ControlTypeProperty, $button)) |
+      Where-Object { $_.Current.IsEnabled -and $_.Current.Name -like 'View details: Disk analysis,*' } |
+      Select-Object -First 1
+  }
+  Invoke-UI $item
+  $null = Wait-UI 'scope of the committed operation' { Find-UI 'metadata: 1 root' $textType }
+  Invoke-UI (Wait-VisibleAction 'Back to history')
+  $null = Wait-UI 'operation detail dismissed' { -not (Find-UI 'Back to history' $button) }
+  Invoke-UI (Wait-VisibleAction 'Back to analysis')
+  $null = Wait-FinalLogicalSize '18 bytes'
+  'F21 native history: opened a committed scan and returned to the same pinned 18-byte result'
+}
 try {
   $window = Wait-UI 'main window' {
     $process.Refresh()
@@ -437,8 +467,9 @@ try {
   if ($VerifyInitialDrive) { Test-InitialDrive }
   if ($VerifySettingsRestoration) {
     Invoke-UI (Wait-VisibleAction 'Settings restoration')
-    $null = Wait-UI 'startup settings format' { Find-UI 'App format version' $null }
     $null = Wait-UI 'startup settings defaults' { Find-UI 'Using default' $textType }
+    Wait-Details 'Format details' 'App format version'
+    $null = Wait-UI 'startup settings format' { Find-UI 'App format version' $null }
     Invoke-UI (Wait-VisibleAction 'Close details')
     $null = Wait-UI 'settings report closed' { -not (Find-UI 'App format version' $null) }
     $null = Wait-VisibleAction 'Settings restoration'
@@ -491,6 +522,7 @@ try {
     if ($metric) { Find-UI '18 bytes' $textType $metric }
   }
   'F02/F03 native scan: Scan finished, Result version: Final, 18 bytes'
+  if ($VerifyOperationHistory) { Test-OperationHistory }
   $null = Wait-VisibleAction 'Analyze again'
   $null = Wait-UI 'target editor collapsed after accepted scan' { -not (Find-UI 'Windows folder path' $edit) }
   Set-Scope $child
@@ -519,12 +551,14 @@ try {
   $null = Wait-UI 'volume explanation for the selected root' {
     Find-UI 'Selected scanned folder' $textType
   }
+  Wait-Details 'Observation and difference details' 'Scoped allocated size'
   $null = Wait-UI 'scoped allocated size' { Find-UI 'Scoped allocated size' $null }
   $null = Wait-UI 'scoped unique physical size' { Find-UI 'Scoped unique physical size' $null }
   Invoke-UI (Wait-Enabled 'Hide volume explanation' $true)
   $null = Wait-UI 'closed volume explanation' { -not (Find-UI 'Selected scanned folder' $textType) }
   'F03 native volume explanation: scoped allocation and unique physical evidence, then closed'
   Invoke-UI (Wait-Enabled 'View folder details' $true)
+  Wait-Details 'Space measurement details' 'Observed item space'
   $null = Wait-UI 'pinned folder space detail' {
     $details = Find-UI 'Observed item space' $null
     if ($details) { Find-UI 'Observed logical size' $null $details }
