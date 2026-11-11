@@ -1,4 +1,4 @@
-//! Real Windows scope review and scan admission for 65 independent roots.
+//! Real Windows scope review, scan admission, and pinned totals for multiple roots.
 use super::*;
 use du_core_contracts::{
     SizeAmount, SizeBasis,
@@ -143,5 +143,111 @@ fn verify_pinned_totals(engine: &Engine, version: &Id) -> Result<(), Box<dyn std
         json!({"resultVersion":version,"requestSeq":100,"target":{"kind":"scope_root"}}),
     )?;
     assert_eq!(logical(&repeat)?, 2145);
+    Ok(())
+}
+
+/// Uses isolated fixtures on two mounted NTFS volumes and checks one combined result.
+#[test]
+#[ignore = "requires DISKUNFOLD_TEST_SECOND_NTFS_PARENT on another writable NTFS volume"]
+fn windows_two_ntfs_volumes_keep_root_and_scope_totals_on_one_result()
+-> Result<(), Box<dyn std::error::Error>> {
+    use du_core_contracts::scan_observation::ScopeRootPort;
+    use du_platform_os::windows_observation::WindowsScopeRoots;
+
+    let second_parent = std::env::var_os("DISKUNFOLD_TEST_SECOND_NTFS_PARENT")
+        .ok_or("set DISKUNFOLD_TEST_SECOND_NTFS_PARENT to a directory on the second volume")?;
+    let first = tempfile::tempdir()?;
+    let second = tempfile::tempdir_in(second_parent)?;
+    let profile = tempfile::tempdir()?;
+    let mut includes = Vec::new();
+    let mut volumes = BTreeSet::new();
+    for (root, bytes) in [(first.path(), 13), (second.path(), 37)] {
+        fs::write(root.join("size.bin"), vec![0_u8; bytes])?;
+        let raw: Vec<_> = root
+            .as_os_str()
+            .encode_wide()
+            .flat_map(u16::to_le_bytes)
+            .collect();
+        let opened = WindowsScopeRoots
+            .open_root(&raw)
+            .map_err(|error| format!("{error:?}"))?;
+        volumes.insert(opened.volume_id);
+        includes.push(json!({"encoding":"windows_utf16le","raw":PathBytes::from_bytes(&raw),"display":root,"lossy":false}));
+    }
+    assert_eq!(
+        volumes.len(),
+        2,
+        "fixture roots must have distinct native volume identities"
+    );
+
+    let database = crate::startup_database::open(profile.path())?;
+    let mut builder = EngineBuilder::default();
+    let events = du_engine_api::desktop::register(
+        &mut builder,
+        Arc::new(WindowsScopeRoots),
+        Arc::new(du_platform_os::volume::WindowsVolumes),
+        Arc::new(database.history(|| 400)),
+        &du_platform_os::entropy::OsRandom,
+    )?;
+    let engine = builder.build()?;
+    let draft = json!({"includes":includes,"exclusions":[],"boundary":"current_volume","includedMounts":[],"source":"gui"});
+    let review: ScopeReview = read(
+        &engine,
+        "scope.review",
+        json!({"draft":draft,"requestSeq":1}),
+    )?;
+    assert_eq!(review.scope.includes.len(), 2);
+    assert_eq!(review.targets.len(), 2);
+    assert!(
+        review.targets.iter().all(
+            |target| target.access == du_core_contracts::analysis_ipc::TargetAccess::Accessible
+        )
+    );
+    let start: ScanStart = read(
+        &engine,
+        "scan.start",
+        json!({"draft":draft,"reviewFingerprint":review.review_fingerprint}),
+    )?;
+    assert!(!start.existing);
+    let events = terminal_batch(&events, &start.job_ref)?;
+    let finish = events
+        .iter()
+        .find(|event| {
+            event.topic == "job.finished" && event.job_ref.as_ref() == Some(&start.job_ref)
+        })
+        .ok_or("missing scan finish")?;
+    assert_eq!(finish.body["state"], "done");
+    for key in ["failed", "skipped", "unprocessed"] {
+        assert_eq!(finish.body[key], 0, "{key}");
+    }
+    let version = finish
+        .result_version
+        .as_ref()
+        .ok_or("missing result version")?;
+    let mut root_totals = BTreeSet::new();
+    for (seq, target) in [
+        json!({"kind":"scope_root"}),
+        json!({"kind":"folder","item":{"resultVersion":version,"itemNo":0}}),
+        json!({"kind":"folder","item":{"resultVersion":version,"itemNo":1}}),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let total: SpaceTotal = read(
+            &engine,
+            "space.total",
+            json!({"resultVersion":version,"requestSeq":seq,"target":target}),
+        )?;
+        assert_eq!(&total.result_version, version);
+        assert_eq!(total.request_seq as usize, seq);
+        assert_eq!(total.completeness, ResultCompleteness::Complete);
+        if seq == 0 {
+            assert_eq!(logical(&total)?, 50);
+        } else {
+            root_totals.insert(logical(&total)?);
+        }
+    }
+    assert_eq!(root_totals, BTreeSet::from([13, 37]));
+    eprintln!("F01_F03_WINDOWS_VOLUMES distinct=2 root_bytes=13,37 scope_bytes=50");
     Ok(())
 }
