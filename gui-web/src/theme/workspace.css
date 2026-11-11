@@ -37,27 +37,6 @@ body {
   position: absolute;
 }
 
-.du-live-status.du-live-status--viewport {
-  position: sticky;
-  inset-block-end: 16px;
-  z-index: 30;
-  max-inline-size: 40rem;
-  margin-inline: auto;
-  inline-size: 100%;
-  align-self: end;
-  overflow-wrap: anywhere;
-  pointer-events: none;
-}
-
-.du-live-status--viewport:not(:empty) {
-  padding: 10px 14px;
-  border: 1px solid var(--du-border);
-  border-radius: 8px;
-  background: var(--du-surface);
-  color: var(--du-text);
-  box-shadow: var(--du-shadow);
-}
-
 .du-app-header,
 .du-card__header {
   justify-content: space-between;
