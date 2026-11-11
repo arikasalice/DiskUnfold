@@ -446,6 +446,25 @@ function Test-PopulatedWorkspace {
   }
   Invoke-UI $firstRoot
   $null = Wait-UI 'first observed file' { Find-UI 'entry-000.bin' $null }
+  Expand-UI (Wait-Enabled 'Observation details' $true)
+  $null = Wait-UI 'pinned observation and full folder location' {
+    $details = Find-UI 'Full folder location and observation' $null
+    $details -and (Find-UI 'Location hierarchy' $null $details) -and
+      (Find-UI 'Pinned result' $null $details)
+  }
+  $toggle = Wait-Enabled 'Observation details' $true
+  $disclosure = $null
+  if ($toggle.TryGetCurrentPattern([Windows.Automation.ExpandCollapsePattern]::Pattern, [ref]$disclosure)) {
+    $disclosure.Collapse()
+  } else {
+    Invoke-UI $toggle
+  }
+  $null = Wait-UI 'collapsed folder observations with the first row retained' {
+    -not (Find-UI 'Full folder location and observation' $null) -and
+      (Find-UI 'entry-000.bin' $null)
+  }
+  $null = Wait-VisibleAction 'Back to analysis'
+  'F05 compact workspace: observation details open and close, the first row remains, and Back to analysis stays visible'
   Test-FileInspection 'entry-000.bin' '1 bytes'
   $more = Wait-Enabled 'Load more' $true
   Invoke-UI $more
