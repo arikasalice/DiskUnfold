@@ -28,3 +28,5 @@ mod workers;
 
 #[cfg(test)]
 mod tests;
+
+pub mod viz_runtime;

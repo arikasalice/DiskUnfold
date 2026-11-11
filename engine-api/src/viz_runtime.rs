@@ -1,0 +1,208 @@
+//! Registered F06 runtime for the admitted live, unfiltered single-parent path.
+//!
+//! Desktop activation requires source selection, classification, correspondence and
+//! view-policy owners. Their typed evidence is injected; this module does not infer it.
+use crate::{
+    api::EngineBuilder,
+    current_analysis::CurrentAnalysis,
+    error::EngineError,
+    query_region::{Owner, RegionRegistry},
+    viz_pages::{
+        render::{CommittedRender, DeferredRender},
+        session::{ChildPolicyEvidence, Session},
+    },
+    workers::Workers,
+};
+use du_analysis_index::IngestSink;
+use du_core_contracts::{
+    Id,
+    ports::Random,
+    result::{ResultItem, ResultVersionRead},
+    visualization::{
+        model::{VizMatchKey, VizModel, VizStaleness, VizTableRevisions},
+        request::VizRenderRequest,
+        response::VizRenderResponse,
+    },
+};
+use du_job_runtime::{JobIdentity, JobRuntime};
+use std::{
+    collections::{HashMap, HashSet},
+    num::NonZeroUsize,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
+mod admission;
+mod commands;
+mod compute;
+mod control;
+mod envelope;
+mod lifecycle;
+
+/// Frozen policy limits supplied from the registered view policy.
+#[derive(Clone)]
+pub struct ViewPolicy {
+    pub revision: u32,
+    pub max_scale: f64,
+    pub max_shapes: usize,
+    pub max_channels: NonZeroUsize,
+    pub max_work: NonZeroUsize,
+    pub synchronous_wait: Duration,
+}
+/// Legend label and canonical filter supplied by the classification owner.
+#[derive(Clone)]
+pub struct LegendClass {
+    pub label_key: String,
+    pub condition: Option<du_core_contracts::browse_open_ipc::QueryCondition>,
+}
+/// Immutable facts retained for the admitted result and policy revisions.
+#[derive(Clone)]
+pub struct SourceFacts {
+    pub staleness: VizStaleness,
+    pub tables: VizTableRevisions,
+    pub classes: HashMap<String, LegendClass>,
+    /// Formats the required-data owner evaluated for this same pinned source.
+    pub available_formats: Vec<String>,
+}
+/// Item evidence supplied by the pinned path and presentation owners.
+pub struct ItemEvidence {
+    pub presentation: ChildPolicyEvidence,
+    pub match_key: VizMatchKey,
+}
+/// Trusted composition dependency, never a wire callback or caller-supplied flag.
+/// Implementations must return evidence for the supplied immutable result, and
+/// preserve semantics for the lifetime of their registered policy revisions.
+pub trait EvidenceProducer: Send + Sync + 'static {
+    fn selected_revision(&self) -> Result<Id, EngineError>;
+    fn source_facts(
+        &self,
+        source: &CurrentAnalysis,
+        request: &VizRenderRequest,
+    ) -> Result<SourceFacts, EngineError>;
+    fn child(
+        &self,
+        source: &CurrentAnalysis,
+        item: &ResultItem,
+        request: &VizRenderRequest,
+    ) -> Result<ItemEvidence, EngineError>;
+}
+/// Dependencies owned by one desktop engine/window session.
+pub struct Assembly {
+    pub source: IngestSink,
+    pub session: Arc<Session>,
+    pub jobs: Arc<JobRuntime>,
+    pub ids: Arc<dyn JobIdentity>,
+    pub producer: Arc<dyn EvidenceProducer>,
+    pub policy: ViewPolicy,
+}
+struct ChannelState {
+    sequence: u32,
+    active: Option<Arc<Work>>,
+}
+#[derive(Default)]
+struct State {
+    closed: bool,
+    channels: HashMap<Id, ChannelState>,
+    work: HashMap<String, Arc<Work>>,
+}
+struct Work {
+    key: String,
+    job: Mutex<Option<Id>>,
+    members: Mutex<HashSet<Id>>,
+    computed: Mutex<Computed>,
+}
+#[derive(Default)]
+struct Computed {
+    committed: Option<CommittedRender>,
+    wire_model: Option<Arc<VizModel>>,
+}
+type CandidateSlot = Mutex<Option<DeferredRender>>;
+#[derive(Clone)]
+struct Admitted {
+    request: VizRenderRequest,
+    source: CurrentAnalysis,
+    facts: SourceFacts,
+    key: String,
+    strategy: du_core_contracts::visualization::LayoutStrategyKey,
+    max_shapes: usize,
+}
+/// Owns admission, shared subscriptions and the physical F24 publication boundary.
+/// Lock order: admission serial -> F24 gate -> members -> computed -> cache/source.
+/// Submission admission only writes the reserved job ID under F24's table lock.
+/// Publication never acquires the admission serial or reenters the runtime.
+pub struct Runtime {
+    assembly: Assembly,
+    regions: RegionRegistry<()>,
+    owner: Owner,
+    serial: Mutex<()>,
+    state: Mutex<State>,
+    workers: Workers,
+}
+impl Runtime {
+    /// Registers real Engine use cases; do not also register standalone ViewChannels.
+    pub fn register(
+        builder: &mut EngineBuilder,
+        assembly: Assembly,
+        random: &dyn Random,
+    ) -> Result<Arc<Self>, &'static str> {
+        if assembly.policy.revision == 0
+            || !assembly.policy.max_scale.is_finite()
+            || assembly.policy.max_scale < 1.0
+            || assembly.policy.max_shapes == 0
+        {
+            return Err("invalid visualization policy");
+        }
+        let owner = Owner {
+            session: assembly.ids.next_id(),
+            window: assembly.ids.next_id(),
+        };
+        let regions = RegionRegistry::new(
+            owner.clone(),
+            assembly.policy.max_channels.get(),
+            assembly.ids.clone(),
+            random,
+        )
+        .map_err(|_| "view channel initialization failed")?;
+        assembly
+            .jobs
+            .register(compute::descriptor())
+            .map_err(|_| "visualization job registration failed")?;
+        let workers = Workers::start(assembly.jobs.clone())
+            .map_err(|_| "visualization worker initialization failed")?;
+        let runtime = Arc::new(Self {
+            assembly,
+            regions,
+            owner,
+            serial: Mutex::new(()),
+            state: Mutex::new(State::default()),
+            workers,
+        });
+        commands::register(builder, runtime.clone());
+        crate::viz_pages::commands::register_rows(builder, runtime.assembly.session.clone());
+        crate::viz_pages::commands::register_locate(builder, runtime.assembly.session.clone());
+        let retiring = runtime.clone();
+        builder.on_session_retire(move || {
+            let _ = retiring.retire();
+        });
+        Ok(runtime)
+    }
+}
+fn internal() -> EngineError {
+    EngineError::new("support.internal_error", vec![])
+}
+fn invalid() -> EngineError {
+    EngineError::new("command.body_invalid", vec![])
+}
+fn unavailable() -> EngineError {
+    EngineError::new("ref.unavailable", vec![])
+}
+fn runtime_error(error: du_job_runtime::RuntimeError) -> EngineError {
+    EngineError::new(
+        match error {
+            du_job_runtime::RuntimeError::QueueFull
+            | du_job_runtime::RuntimeError::DeliveryBusy => "viz.busy",
+            du_job_runtime::RuntimeError::NotFound => "job.not_found",
+            _ => "support.internal_error",
+        },
+        vec![],
+    )
+}

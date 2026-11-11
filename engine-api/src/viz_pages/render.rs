@@ -45,6 +45,7 @@ pub struct ChildEvidence {
 }
 
 /// Geometry and the model reference use the same pinned source and normalization.
+#[derive(Clone)]
 pub struct Rendered {
     pub model_ref: String,
     pub model: Arc<projection::Model>,
@@ -58,6 +59,7 @@ pub enum FallbackReason {
 }
 
 /// A successfully committed geometry model or table-only fallback.
+#[derive(Clone)]
 pub enum CommittedRender {
     Model(Rendered),
     Fallback {
@@ -103,6 +105,12 @@ pub struct PreparedRender {
     input: PreparedModelInput,
     layout: Option<Arc<projection::Model>>,
     fallback_reason: Option<projection::Error>,
+}
+
+impl PreparedRender {
+    pub(crate) fn bind_condition(&mut self, fingerprint: String) {
+        self.input.condition_fingerprint = fingerprint;
+    }
 }
 
 /// A private candidate with a reference reserved before entering the F24 gate.
@@ -185,12 +193,28 @@ impl ModelPages {
             request.requested_revision,
         )
         .map_err(Error::Source)?;
+        self.prepare_from(dispatcher, request, &source, evidence, cancelled, use_cache)
+    }
+
+    fn prepare_from(
+        &self,
+        dispatcher: &Dispatcher,
+        request: Request<'_>,
+        source: &current_analysis::CurrentAnalysis,
+        evidence: impl FnOnce(
+            &current_analysis::CurrentAnalysis,
+            &mut dyn FnMut() -> bool,
+        ) -> Result<Vec<ChildEvidence>, Error>,
+        cancelled: &mut dyn FnMut() -> bool,
+        use_cache: bool,
+    ) -> Result<Preparation, Error> {
+        check(cancelled)?;
         if &request.parent.result_version != source.result_version() {
             return Err(Error::InvalidEvidence);
         }
         let descriptor = viz_catalog::select(dispatcher, request.format, request.strategy)
             .map_err(Error::Strategy)?;
-        let evidence = evidence(&source, cancelled)?;
+        let evidence = evidence(source, cancelled)?;
         let normalized = normalize(evidence, source.result_version(), cancelled)?;
         let fingerprint = fingerprint(&request, &descriptor.strategy, &normalized, cancelled)?;
         check(cancelled)?;

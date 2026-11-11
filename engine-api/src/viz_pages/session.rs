@@ -301,3 +301,34 @@ impl Session {
         })
     }
 }
+impl Session {
+    /// Resolves a strategy using this session's immutable registry.
+    pub(crate) fn select_strategy(
+        &self,
+        format: &str,
+        key: Option<&du_core_contracts::visualization::LayoutStrategyKey>,
+    ) -> Result<du_core_contracts::visualization::LayoutDescriptor, crate::viz_catalog::Error> {
+        crate::viz_catalog::select(&self.dispatcher, format, key)
+    }
+
+    pub(crate) fn prepare_pinned(
+        &self,
+        request: render::Request<'_>,
+        source: &CurrentAnalysis,
+        evidence: impl FnMut(
+            &CurrentAnalysis,
+            &ResultItem,
+            &mut dyn FnMut() -> bool,
+        ) -> Result<ChildPolicyEvidence, render::Error>,
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<render::PreparedRender, render::Error> {
+        let parent = request.parent.clone();
+        self.pages.prepare_pinned(
+            &self.dispatcher,
+            request,
+            source,
+            |source, cancelled| collect_evidence(source, &parent, evidence, cancelled),
+            cancelled,
+        )
+    }
+}

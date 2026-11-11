@@ -72,3 +72,31 @@ impl ModelPages {
         Ok(CommittedRender::Model(Rendered { model_ref, model }))
     }
 }
+
+impl ModelPages {
+    pub(in crate::viz_pages) fn prepare_pinned(
+        &self,
+        dispatcher: &Dispatcher,
+        request: Request<'_>,
+        source: &current_analysis::CurrentAnalysis,
+        evidence: impl FnOnce(
+            &current_analysis::CurrentAnalysis,
+            &mut dyn FnMut() -> bool,
+        ) -> Result<Vec<ChildEvidence>, Error>,
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<PreparedRender, Error> {
+        match self.prepare_from(dispatcher, request, source, evidence, cancelled, false)? {
+            Preparation::Candidate(candidate) => Ok(candidate),
+            Preparation::Cached(_) => Err(Error::Cache(super::super::Error::InvalidModel)),
+        }
+    }
+}
+
+impl ReservedRender {
+    pub(crate) fn preview(&self) -> Option<Rendered> {
+        self.candidate.layout.as_ref().map(|layout| Rendered {
+            model_ref: self.reference.clone(),
+            model: layout.clone(),
+        })
+    }
+}
