@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { AnalysisError } from "../ipc";
+import { watchJobBaseline } from "./job-baseline";
 import type {
   AnalysisClient,
   AnalysisJobStatus,
@@ -125,6 +126,7 @@ export function useScanResult(
     const scanJob = jobRef;
     let alive = true;
     let terminal = false;
+    let terminalPending = false;
     let inFlight = false;
     let queued = false;
     let displayLatest = false;
@@ -283,6 +285,8 @@ export function useScanResult(
       }
       if (
         !alive ||
+        !baseline.ready() ||
+        next.sequence < baseline.sequence() ||
         next.jobRef !== scanJob ||
         next.sequence < jobSequence ||
         (jobState !== undefined &&
@@ -299,6 +303,7 @@ export function useScanResult(
       jobSequence = next.sequence;
       jobState = next.state;
       terminal = !isRunning(next.state);
+      terminalPending = terminal && next.terminal === undefined;
       receiveControlStatus(next.state);
       setStatus(next);
       return reconcileResult(next);
@@ -398,17 +403,24 @@ export function useScanResult(
       });
     }
 
+    const baseline = watchJobBaseline(
+      client,
+      scanJob,
+      scheduleStatusRead,
+      (failure) => {
+        if (alive) {
+          statusReadFailed = true;
+          recordError(failure, false);
+        }
+      },
+    );
     const unsubscribe = client.subscribe((event) => {
-      if (
-        (event.jobRef === scanJob && event.topic.startsWith("job.")) ||
-        event.topic === "job.resync_required" ||
-        isNewLineageEvent(event, lineage, resultSequence)
-      ) {
+      if (isNewLineageEvent(event, lineage, resultSequence)) {
         scheduleStatusRead();
       }
     });
     const timer = window.setInterval(() => {
-      if (!terminal) void refresh();
+      if (!terminal || terminalPending) void refresh();
     }, 500);
     void refresh();
     return () => {
@@ -418,6 +430,7 @@ export function useScanResult(
       issueControl.current = undefined;
       window.clearInterval(timer);
       if (statusFrame !== undefined) window.cancelAnimationFrame(statusFrame);
+      baseline.dispose();
       unsubscribe();
     };
   }, [client, jobRef, receiptLineage]);

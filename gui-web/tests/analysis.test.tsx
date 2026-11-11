@@ -14,6 +14,7 @@ import { AnalysisError, createAnalysisClient, windowsPath } from "../src/ipc";
 import type {
   AnalysisClient,
   AnalysisJobControl,
+  AnalysisJobListRow,
   AnalysisJobStatus,
   BrowseDetail,
   BrowseOpenRequest,
@@ -68,6 +69,7 @@ function fixture({
   readVolume,
   readPreferences,
   lineageId,
+  listJobs,
 }: {
   stale?: boolean;
   earlyProbe?: EventEnvelope;
@@ -95,6 +97,7 @@ function fixture({
   ) => VolumeGapResponse | Promise<VolumeGapResponse>;
   readPreferences?: () => DisplayPreferences | Promise<DisplayPreferences>;
   lineageId?: string;
+  listJobs?: () => Promise<AnalysisJobListRow[]>;
 } = {}) {
   const listeners = new Set<(event: EventEnvelope) => void>();
   const calls: { name: string; body: unknown }[] = [];
@@ -154,6 +157,8 @@ function fixture({
             resultVersion: "result",
             reasonKey: null,
           });
+        case "job.list":
+          return listJobs?.() ?? [];
         case "job.pause":
         case "job.resume":
           if (suspendJob)
@@ -896,6 +901,55 @@ async function startFixtureScan(client: AnalysisClient) {
   await waitFor(() => expect(start.disabled).toBe(false));
   fireEvent.click(start);
 }
+
+test("F24: scan waits for its job list baseline and refreshes after a newer buffered event", async () => {
+  let complete: ((rows: AnalysisJobListRow[]) => void) | undefined;
+  let sequence = 2;
+  const { client, listeners, calls } = fixture({
+    listJobs: () =>
+      new Promise((resolve) => {
+        complete = resolve;
+      }),
+    readStatus: (base) => ({
+      ...base,
+      state: sequence === 2 ? "running" : "cancelled",
+      sequence,
+      resultVersion: null,
+    }),
+  });
+  await startFixtureScan(client);
+  await waitFor(() =>
+    expect(calls.some(({ name }) => name === "job.list")).toBe(true),
+  );
+  await act(async () => {
+    sequence = 4;
+    for (const listener of listeners)
+      listener({
+        topic: "job.state_changed",
+        contractVersion: 1,
+        jobRef: "scan",
+        seq: 4,
+        occurredAt: timestamp,
+        body: { state: "cancelled", sequence: 4 },
+      });
+  });
+  expect(screen.queryByText("Scan cancelled")).toBeNull();
+  await act(async () =>
+    complete?.([
+      {
+        jobRef: "scan",
+        kind: "scan.metadata",
+        scopeSummary: "scope",
+        state: "running",
+        waitReason: "unknown",
+        priority: "normal",
+        supportedControls: ["cancel"],
+        sequence: 2,
+      },
+    ]),
+  );
+  await screen.findByText("Scan cancelled");
+});
 
 test("F02: starting progress hands off to the scan receipt and its cancel action", async () => {
   let release = () => {};
