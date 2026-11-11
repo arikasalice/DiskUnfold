@@ -3,6 +3,7 @@ use crate::{
     OsPath, Timestamp,
     ports::{PortError, PortErrorKind},
 };
+use std::sync::atomic::AtomicBool;
 
 /// A bounded filtered enumeration step; `Progress` is not end of directory.
 pub enum FilteredBatch {
@@ -200,9 +201,49 @@ pub struct OpenedScopeRoot {
     pub directory: Box<dyn AnchoredDirectory>,
 }
 
+/// One optional point observation from the same originally opened scope handle.
+/// Identity bytes are adapter-owned, not a persisted format or proof of a current
+/// correspondence. Paths retain their native encoding and raw bytes.
+#[derive(Debug, PartialEq, Eq)]
+pub struct RecentScopeEvidence {
+    pub volume_id: Vec<u8>,
+    pub entry_path: OsPath,
+    pub relative_path: OsPath,
+    pub file_id: Vec<u8>,
+}
+
+/// A cooperative observation result; cancellation contains no partial evidence.
+#[derive(Debug, PartialEq, Eq)]
+pub enum RecentScopeObservation {
+    Observed(RecentScopeEvidence),
+    Cancelled,
+    Unavailable(PortError),
+}
+
+/// Deferred read-only observation bound to the same initially opened root.
+/// Cancellation is cooperative and does not interrupt an in-flight OS call.
+/// The caller must recheck cancellation when it publishes the observation.
+pub trait RecentScopeObserver: Send {
+    fn observe(&self, cancelled: &AtomicBool) -> RecentScopeObservation;
+}
+
+/// `None` means unsupported; an error means optional observer creation failed.
+/// Neither condition invalidates a successfully opened collection root.
+pub type OptionalRecentScopeObserver = Option<Result<Box<dyn RecentScopeObserver>, PortError>>;
+
 /// Opens a verified read-only directory for review or later collection.
 pub trait ScopeRootPort: Send + Sync {
     fn open_root(&self, absolute_path: &[u8]) -> Result<OpenedScopeRoot, PortError>;
+
+    /// Opts into an optional observer bound to this same opened root. Existing
+    /// implementations open once and provide no observer by default. Creating
+    /// an observer may block; this method does not impose an admission deadline.
+    fn open_root_with_recent(
+        &self,
+        absolute_path: &[u8],
+    ) -> Result<(OpenedScopeRoot, OptionalRecentScopeObserver), PortError> {
+        Ok((self.open_root(absolute_path)?, None))
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

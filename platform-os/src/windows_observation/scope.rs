@@ -5,8 +5,13 @@ use super::{DirectoryIdentity, WindowsDirectory, bytes, invalid, open_verified};
 use du_core_contracts::{
     OsPath, PathBytes, PathEncoding,
     ports::PortError,
-    scan_observation::{OpenedScopeRoot, ScopeRootPort},
+    scan_observation::{OpenedScopeRoot, OptionalRecentScopeObserver, ScopeRootPort},
 };
+
+#[cfg(test)]
+thread_local! {
+    pub(super) static OPEN_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
 
 /// Opens a verified scope root on a local NTFS drive.
 pub struct WindowsScopeRoots;
@@ -16,11 +21,20 @@ impl ScopeRootPort for WindowsScopeRoots {
         let (directory, identity) = open_scope(absolute_path)?;
         Ok(into_scope_root(directory, identity))
     }
+
+    fn open_root_with_recent(
+        &self,
+        absolute_path: &[u8],
+    ) -> Result<(OpenedScopeRoot, OptionalRecentScopeObserver), PortError> {
+        super::recent_probe::open_port_with_recent(absolute_path)
+    }
 }
 
 pub(super) fn open_scope(
     absolute_path: &[u8],
 ) -> Result<(WindowsDirectory, DirectoryIdentity), PortError> {
+    #[cfg(test)]
+    OPEN_COUNT.with(|count| count.set(count.get() + 1));
     let (pairs, tail) = absolute_path.as_chunks::<2>();
     if !tail.is_empty() {
         return Err(invalid());

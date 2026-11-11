@@ -142,6 +142,12 @@ fn injected_failure_and_cancellation_never_return_evidence()
     .map_err(|e| format!("{e:?}"))?;
     assert!(failed.is_err());
     assert!(retained.directory.next_batch().is_ok());
+    let (mut retained, observer) = open_port_with_recent_using(&raw, |_| {
+        Err(std::io::Error::other("injected duplicate failure"))
+    })
+    .map_err(|e| format!("{e:?}"))?;
+    assert!(observer.ok_or("missing creation outcome")?.is_err());
+    assert!(retained.directory.next_batch().is_ok());
     let (_root, probe) = WindowsScopeRoots
         .open_with_recent_probe(&raw)
         .map_err(|e| format!("{e:?}"))?;
@@ -196,5 +202,89 @@ fn injected_failure_and_cancellation_never_return_evidence()
         || stop.store(true, Ordering::Release),
     );
     assert_eq!(cancelled_after, ProbeOutcome::Cancelled);
+    Ok(())
+}
+
+#[test]
+fn port_default_and_opt_in_use_one_open_and_only_opt_in_duplicates()
+-> Result<(), Box<dyn std::error::Error>> {
+    use du_core_contracts::scan_observation::{OpenedScopeRoot, ScopeRootPort};
+    struct DefaultPort;
+    impl ScopeRootPort for DefaultPort {
+        fn open_root(&self, path: &[u8]) -> Result<OpenedScopeRoot, PortError> {
+            WindowsScopeRoots.open_root(path)
+        }
+    }
+    let temp = tempfile::tempdir()?;
+    let raw = temp
+        .path()
+        .as_os_str()
+        .encode_wide()
+        .flat_map(u16::to_le_bytes)
+        .collect::<Vec<_>>();
+    scope::OPEN_COUNT.with(|n| n.set(0));
+    DUPLICATE_COUNT.with(|n| n.set(0));
+    let _root = WindowsScopeRoots
+        .open_root(&raw)
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(scope::OPEN_COUNT.with(Cell::get), 1);
+    assert_eq!(DUPLICATE_COUNT.with(Cell::get), 0);
+
+    scope::OPEN_COUNT.with(|n| n.set(0));
+    let (_root, observer) = DefaultPort
+        .open_root_with_recent(&raw)
+        .map_err(|e| format!("{e:?}"))?;
+    assert!(observer.is_none());
+    assert_eq!(scope::OPEN_COUNT.with(Cell::get), 1);
+    assert_eq!(DUPLICATE_COUNT.with(Cell::get), 0);
+
+    scope::OPEN_COUNT.with(|n| n.set(0));
+    let (root, observer) = WindowsScopeRoots
+        .open_root_with_recent(&raw)
+        .map_err(|e| format!("{e:?}"))?;
+    let observer = observer
+        .ok_or("missing observer")?
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(scope::OPEN_COUNT.with(Cell::get), 1);
+    assert_eq!(DUPLICATE_COUNT.with(Cell::get), 1);
+    let cancelled = AtomicBool::new(true);
+    assert_eq!(observer.observe(&cancelled), ProbeOutcome::Cancelled);
+    cancelled.store(false, Ordering::Release);
+    let ProbeOutcome::Observed(evidence) = observer.observe(&cancelled) else {
+        return Err("missing observed evidence".into());
+    };
+    assert_eq!(root.volume_id, evidence.volume_id);
+    assert_eq!(root.file_id, evidence.file_id);
+    Ok(())
+}
+
+#[test]
+fn port_observer_rejects_actual_replacement_without_invalidating_open_root()
+-> Result<(), Box<dyn std::error::Error>> {
+    use du_core_contracts::scan_observation::ScopeRootPort;
+    let temp = tempfile::tempdir()?;
+    let target = temp.path().join("root");
+    fs::create_dir(&target)?;
+    let raw = target
+        .as_os_str()
+        .encode_wide()
+        .flat_map(u16::to_le_bytes)
+        .collect::<Vec<_>>();
+    let (mut root, observer) = WindowsScopeRoots
+        .open_root_with_recent(&raw)
+        .map_err(|e| format!("{e:?}"))?;
+    let observer = observer
+        .ok_or("missing observer")?
+        .map_err(|e| format!("{e:?}"))?;
+    fs::rename(&target, temp.path().join("old"))?;
+    fs::create_dir(&target)?;
+    assert!(matches!(
+        observer.observe(&AtomicBool::new(false)),
+        ProbeOutcome::Unavailable(PortError {
+            kind: PortErrorKind::IdentityChanged,
+            ..
+        })
+    ));
+    assert!(root.directory.next_batch().is_ok());
     Ok(())
 }

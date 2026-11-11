@@ -3,29 +3,10 @@ use super::*;
 use du_core_contracts::{OsPath, PathBytes, PathEncoding, scan_observation::OpenedScopeRoot};
 use std::sync::atomic::{AtomicBool, Ordering};
 
-/// Native point observations bound to the initially opened scope handle.
-#[derive(Debug, PartialEq, Eq)]
-pub struct RecentEvidence {
-    /// Volume GUID identity in UTF-16LE.
-    pub volume_id: Vec<u8>,
-    /// Drive entry path observed on the handle.
-    pub entry_path: OsPath,
-    /// Volume-relative path including the root separator.
-    pub relative_path: OsPath,
-    /// Original directory file identity.
-    pub file_id: Vec<u8>,
-}
-
-/// Result of a cooperative optional observation.
-#[derive(Debug, PartialEq, Eq)]
-pub enum ProbeOutcome {
-    /// Complete handle-bound evidence.
-    Observed(RecentEvidence),
-    /// Cancellation was observed before publication; no evidence is returned.
-    Cancelled,
-    /// Observation failed or could not be bound to the admission values.
-    Unavailable(PortError),
-}
+use du_core_contracts::scan_observation::{OptionalRecentScopeObserver, RecentScopeObserver};
+pub use du_core_contracts::scan_observation::{
+    RecentScopeEvidence as RecentEvidence, RecentScopeObservation as ProbeOutcome,
+};
 
 /// A duplicate of the originally opened directory handle, for a separate worker.
 ///
@@ -39,6 +20,17 @@ pub struct RecentProbe {
     file: u64,
 }
 
+#[cfg(test)]
+thread_local! {
+    static DUPLICATE_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+fn duplicate_handle(handle: &File) -> std::io::Result<File> {
+    #[cfg(test)]
+    DUPLICATE_COUNT.with(|count| count.set(count.get() + 1));
+    handle.try_clone()
+}
+
 impl WindowsScopeRoots {
     /// Opens once and optionally duplicates that exact handle for later observation.
     ///
@@ -50,8 +42,23 @@ impl WindowsScopeRoots {
         &self,
         path: &[u8],
     ) -> Result<(OpenedScopeRoot, Result<RecentProbe, PortError>), PortError> {
-        open_with_probe_using(path, File::try_clone)
+        open_with_probe_using(path, duplicate_handle)
     }
+}
+
+pub(super) fn open_port_with_recent(
+    path: &[u8],
+) -> Result<(OpenedScopeRoot, OptionalRecentScopeObserver), PortError> {
+    open_port_with_recent_using(path, duplicate_handle)
+}
+
+fn open_port_with_recent_using(
+    path: &[u8],
+    duplicate: impl FnOnce(&File) -> std::io::Result<File>,
+) -> Result<(OpenedScopeRoot, OptionalRecentScopeObserver), PortError> {
+    let (root, probe) = open_with_probe_using(path, duplicate)?;
+    let observer = probe.map(|value| Box::new(value) as Box<dyn RecentScopeObserver>);
+    Ok((root, Some(observer)))
 }
 
 fn open_with_probe_using(
@@ -69,6 +76,12 @@ fn open_with_probe_using(
         })
         .map_err(|e| error(e.raw_os_error().unwrap_or(0)));
     Ok((scope::into_scope_root(directory, identity), probe))
+}
+
+impl RecentScopeObserver for RecentProbe {
+    fn observe(&self, cancelled: &AtomicBool) -> ProbeOutcome {
+        RecentProbe::observe(self, cancelled)
+    }
 }
 
 impl RecentProbe {
