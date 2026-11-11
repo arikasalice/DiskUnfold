@@ -43,6 +43,25 @@ test("recheck opens analysis only once a bridge is detected", () => {
   expect(screen.queryByText("Desktop connection unavailable")).toBeNull();
 });
 
+test("each keyboard recheck updates the status and retains focus", () => {
+  render(<App />);
+  const retry = screen.getByRole("button", { name: "Check connection again" });
+  retry.focus();
+  fireEvent.keyDown(retry, { key: "Enter", code: "Enter" });
+  fireEvent.keyUp(retry, { key: "Enter", code: "Enter" });
+  expect(screen.getByRole("status").textContent).toContain(
+    "Checks completed: 1",
+  );
+  expect(document.activeElement).toBe(retry);
+  fireEvent.keyDown(retry, { key: " ", code: "Space" });
+  fireEvent.keyUp(retry, { key: " ", code: "Space" });
+  expect(screen.getByRole("status").textContent).toContain(
+    "Checks completed: 2",
+  );
+  expect(document.activeElement).toBe(retry);
+  expect(screen.queryByText("Connected analysis")).toBeNull();
+});
+
 test("an explicitly injected client takes precedence over missing native bridge", () => {
   const client = {} as import("../src/ipc").AnalysisClient;
   render(<App analysis={client} />);

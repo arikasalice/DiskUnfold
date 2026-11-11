@@ -84,7 +84,10 @@ export function App({ analysis }: { analysis?: AnalysisClient } = {}) {
             Check connection again
           </Action>
           {connectionChecks > 0 && (
-            <LiveStatus>Desktop connection is still unavailable.</LiveStatus>
+            <LiveStatus>
+              Desktop connection is still unavailable. Checks completed:{" "}
+              {connectionChecks}.
+            </LiveStatus>
           )}
         </div>
       )}
