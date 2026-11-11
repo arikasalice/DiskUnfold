@@ -1,7 +1,6 @@
 import {
   Action,
   DetailDisclosure,
-  GeometryRenderer,
   ItemActions,
   Notice,
   Readout,
@@ -11,9 +10,10 @@ import {
   Text,
 } from "../src/components";
 import type { SurfaceId } from "./surface-fixtures";
-import type { VizGeometry } from "../src/ipc";
 import { fixtures } from "./surface-fixtures";
 import { recordActions } from "./record-actions";
+import { VisualizationModelPresenter } from "../src/features/visualization/VisualizationModelPresenter";
+import { fixtureDisplayText, modelFixture } from "./model-fixture";
 
 export type SelectedRecord = { name: string; value: string; detail: string };
 
@@ -62,63 +62,36 @@ export function FixtureChart({
   onSelect: (record: SelectedRecord) => void;
 }) {
   const rows = fixtures.workspace.rows;
-  const points = [
-    [
-      { x: 0, y: 0 },
-      { x: 500000, y: 1000000 },
-    ],
-    [
-      { x: 504000, y: 0 },
-      { x: 1000000, y: 500000 },
-    ],
-    [
-      { x: 504000, y: 510000 },
-      { x: 834000, y: 1000000 },
-    ],
-    [
-      { x: 838000, y: 510000 },
-      { x: 1000000, y: 1000000 },
-    ],
-  ];
-  const geometry: VizGeometry[] = points.map((points) => ({
-    primitive: "rect",
-    points,
-  }));
+  const { frame, page } = modelFixture();
+  const index = rows.findIndex((row) => row[0] === selected);
+  const shape = frame.model.shapes[index];
   return (
     <div className="du-review-chart">
-      <GeometryRenderer
-        modelRef="synthetic-layout"
-        resultRevision="synthetic-1"
-        label="샘플 공간 분포"
-        selectedText="선택됨"
-        fallbackNotice="도형 대신 같은 샘플의 목록을 표시합니다."
-        missingFallbackNotice="같은 샘플 목록이 준비되지 않았습니다."
-        width={960}
-        height={330}
-        viewport={{ left: 0, top: 0, right: 1000000, bottom: 1000000 }}
-        shapes={rows.map(([name, value], index) => ({
-          shapeRef: `shape-${index}`,
-          rowRef: name,
-          geometry: geometry[index]!,
-          accessibleLabel: `${name} · ${value}`,
-        }))}
-        relations={[]}
-        selectedRowRef={selected}
-        onSelect={(name) => {
-          const row = rows.find((row) => row[0] === name);
-          if (row) onSelect({ name: row[0], value: row[1], detail: row[2] });
+      <VisualizationModelPresenter
+        frame={frame}
+        page={page}
+        text={fixtureDisplayText}
+        view={{
+          viewport: { width: 960, height: 330, scale: 1 },
+          visibleWindow: { left: 0, top: 0, right: 1000000, bottom: 1000000 },
         }}
-        fallback={{
-          modelRef: "synthetic-layout",
-          resultRevision: "synthetic-1",
-          content: (
-            <DetailDisclosure title="같은 분포를 목록으로 보기">
-              <Readout
-                label="샘플 분포 수치"
-                rows={rows.map(([label, value]) => ({ label, value }))}
-              />
-            </DetailDisclosure>
-          ),
+        selected={
+          shape?.itemRef
+            ? {
+                kind: "item",
+                itemRef: shape.itemRef,
+                matchKey: shape.matchKey,
+                modelRef: frame.model.modelRef,
+                resultRevision: frame.resultRevision,
+              }
+            : null
+        }
+        onSelect={(selection) => {
+          const row =
+            selection.kind === "item"
+              ? rows[selection.itemRef.itemNo - 1]
+              : undefined;
+          if (row) onSelect({ name: row[0], value: row[1], detail: row[2] });
         }}
       />
     </div>

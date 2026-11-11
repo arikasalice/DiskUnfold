@@ -18,6 +18,7 @@ type Shape = {
   rowRef: string;
   geometry: DisplayGeometry;
   accessibleLabel: string;
+  displayLabel?: string;
 };
 type Relation = {
   fromShapeRef: string;
@@ -231,11 +232,12 @@ function rectangleLabel(
   const available = Math.min(end.x, width) - left;
   if (available < 70 || Math.min(end.y, height) - top < 36) return null;
   const limit = Math.max(4, Math.floor((available - 24) / 14));
-  const label = Array.from(shape.accessibleLabel);
+  const displayLabel = shape.displayLabel ?? shape.accessibleLabel;
+  const label = Array.from(displayLabel);
   const visible =
     label.length > limit
       ? label.slice(0, limit - 1).join("") + "…"
-      : shape.accessibleLabel;
+      : displayLabel;
   return (
     <text className="du-geometry-label" x={left + 12} y={top + 24}>
       {visible}
@@ -330,7 +332,7 @@ export function GeometryRenderer(props: GeometryRendererProps) {
             aria-label={`${shape.accessibleLabel}${shape.rowRef === props.selectedRowRef ? `, ${props.selectedText}` : ""}`}
             onPress={() => props.onSelect(shape.rowRef)}
           >
-            {shape.accessibleLabel}
+            {shape.displayLabel ?? shape.accessibleLabel}
           </Action>
         ))}
       </div>
