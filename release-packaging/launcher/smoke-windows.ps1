@@ -231,14 +231,24 @@ function Find-InspectionRow($file) {
   }
   return $element
 }
+# A virtual row can own focus without its file button being a tab stop.
+function Get-FocusedInspectionRow($name) {
+  $focused = $ae::FocusedElement
+  if ($focused -and $focused.Current.ControlType -eq [Windows.Automation.ControlType]::DataItem -and
+      (Find-UI $name $button $focused)) {
+    $focused
+  }
+}
 # Open the observed file inspector through its real WebView2 action.
 function Test-FileInspection($name, $size, $testCopyContention = $false, $expectedPath = '') {
   $file = Wait-Enabled $name $true
   if ($VerifyInspectionKeyboard) {
-    (Find-InspectionRow $file).SetFocus()
+    $opener = Find-InspectionRow $file
+    $openerId = $opener.GetRuntimeId() -join ','
+    $opener.SetFocus()
     $null = Wait-UI "keyboard focus on $name" {
-      $focused = $ae::FocusedElement
-      $focused -and ($focused.Current.Name -eq $name -or (Find-UI $name $button $focused))
+      $focused = Get-FocusedInspectionRow $name
+      $focused -and ($focused.GetRuntimeId() -join ',') -eq $openerId -and -not $focused.Current.IsOffscreen
     }
     Send-InspectionKey 0x0D # VK_RETURN
   } else {
@@ -282,6 +292,29 @@ function Test-FileInspection($name, $size, $testCopyContention = $false, $expect
   }
   $activation = if ($VerifyInspectionKeyboard) { 'Enter/Escape' } else { 'UI Automation' }
   "F05/F03 native file inspection ($activation): $name, $size, focus restored"
+}
+
+# Verify the restored row and viewport position using Windows UI Automation.
+function Test-PagedInspectionKeyboard($name, $path) {
+  (Find-InspectionRow (Wait-Enabled 'entry-000.bin' $true)).SetFocus()
+  $null = Wait-UI 'first row focused before End' { Get-FocusedInspectionRow 'entry-000.bin' }
+  Send-InspectionKey 0x23 # VK_END
+  $null = Wait-UI 'last row focused on the second page' { Get-FocusedInspectionRow 'entry-239.bin' }
+  Send-InspectionKey 0x26 # VK_UP
+  $before = Wait-UI 'long file name focused' { Get-FocusedInspectionRow $name }
+  $runtimeId = $before.GetRuntimeId() -join ','
+  $rowTop = $before.Current.BoundingRectangle.Top
+  if ($before.Current.IsOffscreen) { throw 'The long file name row is offscreen before inspection' }
+
+  Test-FileInspection $name '1 bytes' $false $path
+  $after = Wait-UI 'same second-page row focused after Escape' { Get-FocusedInspectionRow $name }
+  if (($after.GetRuntimeId() -join ',') -ne $runtimeId -or $after.Current.IsOffscreen -or
+      [Math]::Abs($after.Current.BoundingRectangle.Top - $rowTop) -gt 2) {
+    throw 'Inspection did not restore the same native row and viewport position'
+  }
+  Send-InspectionKey 0x28 # VK_DOWN
+  $null = Wait-UI 'next file focused after inspection' { Get-FocusedInspectionRow 'entry-239.bin' }
+  'F05 paged keyboard inspection: long file name, same row and viewport position, Down reaches next file'
 }
 # The compact inspector should make the whole path available on demand.
 function Test-InspectionPathDisclosure($expectedPath) {
@@ -560,13 +593,15 @@ function Test-PopulatedWorkspace {
   }
   Invoke-UI (Wait-Enabled 'Back to analysis' $true)
 
+  $longFileName = 'entry-238-' + ('long-name-' * 10) + 'end.bin'
   $roots = for ($index = 1; $index -le 6; $index++) {
     $name = "drive-content-$index-" + ('long-segment-' * 6)
     $path = Join-Path $root $name
     [IO.Directory]::CreateDirectory($path) | Out-Null
     $last = if ($index -eq 1) { 239 } else { 0 }
     for ($file = 0; $file -le $last; $file++) {
-      [IO.File]::WriteAllBytes((Join-Path $path ('entry-{0:D3}.bin' -f $file)), [byte[]]::new(1))
+      $fileName = if ($VerifyInspectionKeyboard -and $file -eq 238) { $longFileName } else { 'entry-{0:D3}.bin' -f $file }
+      [IO.File]::WriteAllBytes((Join-Path $path $fileName), [byte[]]::new(1))
     }
     $path
   }
@@ -636,6 +671,9 @@ function Test-PopulatedWorkspace {
       -not (Find-UI 'Retry page' $button)
   }
   'F05 populated workspace: browsed 240 native files and loaded the second page'
+  if ($VerifyInspectionKeyboard) {
+    Test-PagedInspectionKeyboard $longFileName (Join-Path $roots[0] $longFileName)
+  }
 }
 # Exercise F02 cancellation while preserving the F03 user's pinned result.
 function Test-ScanCancellation($path) {
