@@ -29,6 +29,7 @@ fn file_entry(name: &[u8], inode: u64) -> ObservedEntry {
             link_count: None,
             space_identity: None,
             modified_at: None,
+            native_modified_at: None,
         }),
     }
 }

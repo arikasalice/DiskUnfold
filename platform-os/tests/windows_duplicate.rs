@@ -170,3 +170,44 @@ fn rejects_mismatched_volume_file_and_enumerated_identity() -> Result<(), Box<dy
     }
     Ok(())
 }
+
+#[test]
+fn scan_native_time_matches_identity_checked_handle_facts() -> Result<(), Box<dyn std::error::Error>>
+{
+    use du_core_contracts::scan_observation::NativeModifiedTime;
+    let temp = tempfile::tempdir()?;
+    let path = temp.path().join("item");
+    fs::write(&path, b"abc")?;
+    let identity = expected(temp.path())?;
+    let raw: Vec<u8> = temp
+        .path()
+        .as_os_str()
+        .encode_wide()
+        .flat_map(u16::to_le_bytes)
+        .collect();
+    let mut scope = WindowsScopeRoots
+        .open_root(&raw)
+        .map_err(|error| format!("{error:?}"))?;
+    let entries = scope
+        .directory
+        .next_batch()
+        .map_err(|error| format!("{error:?}"))?;
+    let name: Vec<u8> = "item".encode_utf16().flat_map(u16::to_le_bytes).collect();
+    let entry = entries
+        .iter()
+        .find(|entry| entry.name == name)
+        .ok_or("missing item")?;
+    let metadata = entry
+        .metadata
+        .as_ref()
+        .map_err(|error| format!("{error:?}"))?;
+    let native = metadata
+        .native_modified_at
+        .ok_or("missing native timestamp")?;
+    assert!(metadata.modified_at.is_some());
+    let facts =
+        inspect_handle(&File::open(&path)?, &identity).map_err(|error| format!("{error:?}"))?;
+    let NativeModifiedTime::WindowsFiletime(ticks) = native;
+    assert_eq!(ticks.get(), facts.last_write_ticks);
+    Ok(())
+}

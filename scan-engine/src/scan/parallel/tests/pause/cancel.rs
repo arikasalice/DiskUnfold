@@ -32,6 +32,7 @@ impl DirectoryObservations for LateBatch {
                         link_count: None,
                         space_identity: None,
                         modified_at: None,
+                        native_modified_at: None,
                     }),
                 },
                 observed_at: Timestamp::parse("2026-01-02T03:04:05.000Z").ok(),
@@ -132,6 +133,7 @@ impl DirectoryObservations for TwoBatches {
                 link_count: None,
                 space_identity: None,
                 modified_at: None,
+                native_modified_at: None,
             }),
         }])
     }

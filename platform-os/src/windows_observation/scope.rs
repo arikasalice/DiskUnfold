@@ -40,7 +40,7 @@ impl ScopeRootPort for WindowsScopeRoots {
     }
 }
 
-pub(super) fn volume_name(path: &[u16]) -> Result<Vec<u8>, PortError> {
+pub(crate) fn volume_name(path: &[u16]) -> Result<Vec<u8>, PortError> {
     let prefix: Vec<_> = r"\\?\Volume{".encode_utf16().collect();
     let identifier = path.strip_prefix(prefix.as_slice()).ok_or_else(invalid)?;
     let close = identifier

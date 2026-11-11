@@ -56,6 +56,28 @@ pub(crate) fn mark_gaps(
 }
 
 impl BuildHandle {
+    /// Retains native modification evidence for an admitted file observation.
+    ///
+    /// The collector must supply evidence from the same verified observation.
+    pub fn set_native_modified_at(
+        &mut self,
+        root: u32,
+        path: &[Vec<u8>],
+        time: du_core_contracts::scan_observation::NativeModifiedTime,
+    ) -> Result<(), BuildError> {
+        if self.finished {
+            return Err(BuildError::InvalidTree);
+        }
+        let observation = self
+            .observations
+            .get_mut(&(root, path.to_vec()))
+            .ok_or(BuildError::InvalidTree)?;
+        if observation.kind != ResultItemKind::File {
+            return Err(BuildError::InvalidTree);
+        }
+        observation.native_modified_at = Some(time);
+        Ok(())
+    }
     /// Adds a root, directory, or deliberately excluded link with no logical byte contribution.
     ///
     /// This does not indicate that an unread directory was successfully enumerated;
@@ -68,6 +90,7 @@ impl BuildHandle {
                 kind: ResultItemKind::UnknownStructure,
                 physical: None,
                 modified_at: None,
+                native_modified_at: None,
                 observed_at: None,
             },
         )
@@ -88,6 +111,7 @@ impl BuildHandle {
             .get_mut(&(root, path.to_vec()))
             .ok_or(BuildError::InvalidTree)?;
         observation.modified_at = Some(time);
+        observation.native_modified_at = None;
         Ok(())
     }
     /// Retains a time captured by the adapter immediately after item observation.
@@ -124,6 +148,7 @@ impl BuildHandle {
                 kind,
                 physical: None,
                 modified_at: None,
+                native_modified_at: None,
                 observed_at: None,
             },
         )
@@ -143,6 +168,7 @@ impl BuildHandle {
                 kind: ResultItemKind::Directory,
                 physical: None,
                 modified_at: None,
+                native_modified_at: None,
                 observed_at: None,
             },
         )
@@ -162,6 +188,7 @@ impl BuildHandle {
                 kind: ResultItemKind::File,
                 physical: None,
                 modified_at: None,
+                native_modified_at: None,
                 observed_at: None,
             },
         )
@@ -182,6 +209,7 @@ impl BuildHandle {
                 kind: ResultItemKind::File,
                 physical: Some(Box::new(space)),
                 modified_at: None,
+                native_modified_at: None,
                 observed_at: None,
             },
         )
@@ -201,6 +229,7 @@ impl BuildHandle {
                 kind: ResultItemKind::UntraversedLink,
                 physical: None,
                 modified_at: None,
+                native_modified_at: None,
                 observed_at: None,
             },
         )

@@ -22,6 +22,7 @@ fn entry(name: &str, kind: ObservedKind) -> ObservedEntry {
             link_count: None,
             space_identity: None,
             modified_at: None,
+            native_modified_at: None,
         }),
     }
 }

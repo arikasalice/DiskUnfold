@@ -341,6 +341,11 @@ fn record_at(
     {
         build.set_modified_at(root_index, path, time.clone())?;
     }
+    if meta.kind == ObservedKind::File
+        && let Some(time) = meta.native_modified_at
+    {
+        build.set_native_modified_at(root_index, path, time)?;
+    }
     counts.completed += 1;
     Ok(meta.kind == ObservedKind::Directory)
 }

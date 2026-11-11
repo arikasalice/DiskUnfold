@@ -309,12 +309,15 @@ impl WindowsDirectory {
                     } else {
                         space::Facts::default()
                     };
+                    let (modified_at, native) = timestamps::observe(&file);
+                    let native_modified_at = timestamps::matched_native(&file, &value, native);
                     Ok(MetadataObservation {
                         kind: kind(value.dwFileAttributes),
                         device: self.volume,
                         inode: identity(&value),
                         size: Ok(size),
-                        modified_at: timestamps::modified_at(&file),
+                        modified_at,
+                        native_modified_at,
                         allocated: facts.allocated,
                         link_count: facts.link_count,
                         space_identity: facts.identity,
@@ -488,13 +491,8 @@ impl AnchoredDirectory for WindowsDirectory {
     }
 }
 
-pub(crate) fn volume_name(path: &[u16]) -> Result<Vec<u8>, PortError> {
-    scope::volume_name(path)
-}
-
-pub(crate) fn file_id(file: &File) -> Option<[u8; 16]> {
-    space::file_id(file)
-}
+pub(crate) use scope::volume_name;
+pub(crate) use space::file_id;
 
 #[cfg(test)]
 mod error_tests;

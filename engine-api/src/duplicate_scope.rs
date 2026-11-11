@@ -36,6 +36,8 @@ pub struct Selected {
     pub identity: FileIdentity,
     /// Modification time observed in the scan.
     pub modified: Timestamp,
+    /// Native modification evidence from the same scan observation, when available.
+    pub native_modified: Option<du_core_contracts::scan_observation::NativeModifiedTime>,
 }
 
 /// Counts cover observed file entries only; they do not count unread ranges.
@@ -410,6 +412,7 @@ fn observe(version: &ResultVersion, item: ItemRef, size: u64) -> Option<Selected
     Some(Selected {
         path: version.native_path(&item).ok()?,
         modified: version.item_modified_at(item.item_no)?.clone(),
+        native_modified: version.item_native_modified_at(item.item_no),
         identity: identity.clone(),
         item,
         size,

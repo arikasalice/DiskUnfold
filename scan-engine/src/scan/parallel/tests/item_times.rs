@@ -37,6 +37,10 @@ impl DirectoryObservations for TimedRoot {
             name: name.to_vec(),
         };
         let mut entry = root.next_batch()?.remove(0);
+        if let Ok(meta) = &mut entry.metadata {
+            meta.native_modified_at = std::num::NonZeroU64::new(123_456_789)
+                .map(du_core_contracts::scan_observation::NativeModifiedTime::WindowsFiletime);
+        }
         if name == b"bad" {
             entry.metadata = Err(PortError {
                 kind: PortErrorKind::PermissionDenied,
@@ -158,7 +162,13 @@ fn injected_clock_is_recorded_at_fake_observation_not_publication()
         .clone()
         .ok_or("missing observed time")?;
     assert_eq!(version.item_observed_at(keep.item_no), Some(&measured));
+    assert_eq!(
+        version.item_native_modified_at(keep.item_no),
+        std::num::NonZeroU64::new(123_456_789)
+            .map(du_core_contracts::scan_observation::NativeModifiedTime::WindowsFiletime)
+    );
     assert_eq!(version.item_observed_at(bad.item_no), None);
+    assert_eq!(version.item_native_modified_at(bad.item_no), None);
     assert_ne!(
         version.item_observed_at(keep.item_no),
         version.observed_at()
@@ -169,6 +179,8 @@ fn injected_clock_is_recorded_at_fake_observation_not_publication()
         .find(|item| item.name == b"mismatch")
         .ok_or("missing mismatch")?;
     assert_eq!(version.item_observed_at(mismatch.item_no), None);
+    assert_eq!(version.item_native_modified_at(mismatch.item_no), None);
+    assert!(!version.items().iter().any(|item| item.name == b"skip"));
     let uncertain = version
         .scan_issues()
         .iter()

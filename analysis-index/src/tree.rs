@@ -9,6 +9,8 @@ pub(crate) struct BuiltItems {
     pub(crate) structures: Vec<bool>,
     pub(crate) physical: Option<Vec<Option<SpaceObservation>>>,
     pub(crate) modified_times: Option<Vec<Option<Timestamp>>>,
+    pub(crate) native_modified_times:
+        Option<Vec<Option<du_core_contracts::scan_observation::NativeModifiedTime>>>,
     pub(crate) item_observed_times: Option<Vec<Option<Timestamp>>>,
     pub(crate) keys: Vec<(u32, Vec<Vec<u8>>)>,
 }
@@ -40,6 +42,10 @@ pub(crate) fn build_items(
         .values()
         .any(|v| v.modified_at.is_some())
         .then(Vec::new);
+    let mut native_modified_times = observations
+        .values()
+        .any(|v| v.native_modified_at.is_some())
+        .then(Vec::new);
     let mut item_observed_times = observations
         .values()
         .any(|v| v.observed_at.is_some())
@@ -66,6 +72,9 @@ pub(crate) fn build_items(
         }
         if let Some(values) = &mut modified_times {
             values.push(root.modified_at.clone());
+        }
+        if let Some(values) = &mut native_modified_times {
+            values.push(root.native_modified_at);
         }
         if let Some(values) = &mut item_observed_times {
             values.push(root.observed_at.clone());
@@ -96,6 +105,9 @@ pub(crate) fn build_items(
             if let Some(values) = &mut modified_times {
                 values.push(observation.modified_at.clone());
             }
+            if let Some(values) = &mut native_modified_times {
+                values.push(observation.native_modified_at);
+            }
             if let Some(values) = &mut item_observed_times {
                 values.push(observation.observed_at.clone());
             }
@@ -110,6 +122,7 @@ pub(crate) fn build_items(
         structures: structure_flags,
         physical: physical_values,
         modified_times,
+        native_modified_times,
         item_observed_times,
         keys: paths,
     })

@@ -60,6 +60,8 @@ pub struct ResultVersion {
     volume_reports: Vec<VolumeReport>,
     observed_at: Option<Timestamp>,
     modified_times: Option<Vec<Option<Timestamp>>>,
+    native_modified_times:
+        Option<Vec<Option<du_core_contracts::scan_observation::NativeModifiedTime>>>,
     item_observed_times: Option<Vec<Option<Timestamp>>>,
     issues: Vec<du_core_contracts::scan_failures::ScanIssue>,
 }
@@ -192,6 +194,7 @@ struct StoredObservation {
     kind: ResultItemKind,
     physical: Option<Box<SpaceObservation>>,
     modified_at: Option<Timestamp>,
+    native_modified_at: Option<du_core_contracts::scan_observation::NativeModifiedTime>,
     observed_at: Option<Timestamp>,
 }
 impl BuildHandle {
@@ -204,6 +207,7 @@ impl BuildHandle {
                 kind: ResultItemKind::Directory,
                 physical: None,
                 modified_at: None,
+                native_modified_at: None,
                 observed_at: None,
             },
         )
@@ -218,6 +222,7 @@ impl BuildHandle {
                 kind: ResultItemKind::UntraversedLink,
                 physical: None,
                 modified_at: None,
+                native_modified_at: None,
                 observed_at: None,
             },
         )
@@ -238,6 +243,7 @@ impl BuildHandle {
                 kind: ResultItemKind::File,
                 physical: Some(Box::new(space)),
                 modified_at: None,
+                native_modified_at: None,
                 observed_at: None,
             },
         )
@@ -252,6 +258,7 @@ impl BuildHandle {
                 kind: ResultItemKind::File,
                 physical: None,
                 modified_at: None,
+                native_modified_at: None,
                 observed_at: None,
             },
         )
@@ -269,6 +276,7 @@ impl BuildHandle {
                 kind,
                 physical: None,
                 modified_at: None,
+                native_modified_at: None,
                 observed_at: None,
             },
         )
@@ -411,6 +419,7 @@ impl BuildHandle {
             identity_groups: std::sync::OnceLock::new(),
             shared_table_limit: self.shared_table_limit,
             modified_times: built.modified_times,
+            native_modified_times: built.native_modified_times,
             item_observed_times: built.item_observed_times,
             issues: issues::ordered(&self.issues),
             aggregates,

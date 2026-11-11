@@ -80,6 +80,17 @@ impl ResultVersion {
             .get(item_no as usize)?
             .as_ref()
     }
+    /// Returns native modification evidence retained for this exact result item.
+    pub fn item_native_modified_at(
+        &self,
+        item_no: u32,
+    ) -> Option<du_core_contracts::scan_observation::NativeModifiedTime> {
+        self.native_modified_times
+            .as_ref()?
+            .get(item_no as usize)?
+            .as_ref()
+            .copied()
+    }
     /// Returns the bound analysis lineage, or None for a legacy unbound build.
     pub fn lineage_id(&self) -> Option<&Id> {
         self.lineage_id.as_ref()

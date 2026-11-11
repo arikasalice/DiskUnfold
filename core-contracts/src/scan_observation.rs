@@ -204,6 +204,16 @@ pub enum ObservedKind {
     Unknown,
 }
 
+/// Native modification evidence retained without display-time rounding.
+///
+/// The representation does not assert the filesystem's effective timestamp
+/// resolution or authorize a content open.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NativeModifiedTime {
+    /// Windows FILETIME ticks of 100 ns since 1601-01-01 UTC, nonzero.
+    WindowsFiletime(std::num::NonZeroU64),
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MetadataObservation {
     pub kind: ObservedKind,
@@ -212,6 +222,8 @@ pub struct MetadataObservation {
     pub size: Result<u64, PortError>,
     /// Last write time observed on the verified handle, when available.
     pub modified_at: Option<Timestamp>,
+    /// Native value from the same verified metadata handle, when available.
+    pub native_modified_at: Option<NativeModifiedTime>,
     /// OS-reported allocation for the observed file, or `None` when unverified.
     pub allocated: Option<u64>,
     /// OS-reported total hard-link count, or `None` when unverified.

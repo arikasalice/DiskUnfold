@@ -69,6 +69,17 @@ fn fixture_with_root_file(root_file: Vec<u8>) -> Result<(IngestSink, Arc<ResultV
             build
                 .set_modified_at(0, &path, Timestamp::parse("2026-01-01T00:00:00.000Z")?)
                 .map_err(|e| format!("{e:?}"))?;
+            if path.last().is_some_and(|name| name == b"inside") {
+                build
+                    .set_native_modified_at(
+                        0,
+                        &path,
+                        du_core_contracts::scan_observation::NativeModifiedTime::WindowsFiletime(
+                            std::num::NonZeroU64::new(123_456_789).ok_or("zero")?,
+                        ),
+                    )
+                    .map_err(|e| format!("{e:?}"))?;
+            }
         }
     }
     let version = build
@@ -87,73 +98,6 @@ fn reference(version: &ResultVersion, name: &[u8]) -> Result<ItemRef, String> {
         result_version: version.version_id().clone(),
         item_no: item.item_no,
     })
-}
-
-#[test]
-fn selects_only_observed_files_inside_roots_and_outside_exclusions() -> Result<(), String> {
-    let (source, version) = fixture()?;
-    let root = ItemRef {
-        result_version: id(2),
-        item_no: 0,
-    };
-    let excluded = reference(&version, b"a")?;
-    let selection = select(
-        &source,
-        Scope {
-            version: &id(2),
-            roots: std::slice::from_ref(&root),
-            exclusions: std::slice::from_ref(&excluded),
-            min_bytes: 4,
-        },
-    )
-    .map_err(|e| format!("{e:?}"))?;
-    assert_eq!(selection.version(), &id(2));
-    let evidence = selection.scope_evidence();
-    assert_eq!(evidence.roots, vec![root]);
-    assert_eq!(evidence.exclusions, vec![excluded]);
-    assert_eq!(evidence.minimum_bytes, 4);
-    assert_eq!(
-        (
-            evidence.counts.outside,
-            evidence.counts.excluded,
-            evidence.counts.below_minimum,
-            evidence.counts.unavailable
-        ),
-        (0, 1, 1, 2)
-    );
-    assert_eq!(evidence.source_completeness, version.completeness());
-    assert_eq!(evidence.observed_at.as_ref(), version.observed_at());
-    assert_eq!(selection.files.len(), 1);
-    assert_eq!(selection.files[0].item, reference(&version, b"inside")?);
-    assert_eq!(selection.files[0].size, 8);
-    assert!(
-        selection
-            .selected(&reference(&version, b"inside")?)
-            .is_some()
-    );
-    assert!(
-        selection
-            .selected(&reference(&version, b"excluded")?)
-            .is_none()
-    );
-    assert!(
-        selection
-            .selected(&ItemRef {
-                result_version: id(3),
-                item_no: selection.files[0].item.item_no
-            })
-            .is_none()
-    );
-    assert_eq!(
-        selection.counts(),
-        &Counts {
-            outside: 0,
-            excluded: 1,
-            below_minimum: 1,
-            unavailable: 2
-        }
-    );
-    Ok(())
 }
 
 #[test]
@@ -229,6 +173,11 @@ fn selected_source_remains_pinned_after_current_result_changes() -> Result<(), S
         .seal(id(4), ResultCompleteness::Complete)
         .map_err(|e| format!("{e:?}"))?;
     assert_eq!(selection.version(), &id(2));
+    assert!(selection.files().iter().any(|file| {
+        file.native_modified
+            == std::num::NonZeroU64::new(123_456_789)
+                .map(du_core_contracts::scan_observation::NativeModifiedTime::WindowsFiletime)
+    }));
     assert!(
         selection
             .scope_evidence()

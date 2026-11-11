@@ -154,6 +154,8 @@ impl DirectoryObservations for Directory {
                 link_count: None,
                 space_identity: None,
                 modified_at: du_core_contracts::Timestamp::parse("2020-01-02T03:04:05.006Z").ok(),
+                native_modified_at: std::num::NonZeroU64::new(132_224_078_450_060_001)
+                    .map(du_core_contracts::scan_observation::NativeModifiedTime::WindowsFiletime),
             }),
         }])
     }

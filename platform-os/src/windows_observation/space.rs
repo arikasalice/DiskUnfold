@@ -109,7 +109,7 @@ fn consistent(first: &BY_HANDLE_FILE_INFORMATION, last: &BY_HANDLE_FILE_INFORMAT
 }
 
 // Shared by scan and duplicate metadata checks; no path is reopened.
-pub(super) fn file_id(file: &File) -> Option<[u8; 16]> {
+pub(crate) fn file_id(file: &File) -> Option<[u8; 16]> {
     let mut id = FILE_ID_INFO::default();
     // SAFETY: id is writable and correctly sized; file owns a live handle.
     let available = unsafe {
