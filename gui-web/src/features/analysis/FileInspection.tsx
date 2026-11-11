@@ -30,9 +30,22 @@ function attribute<T>(
 ) {
   if (field.state === "present") return format(field.value);
   if (field.state === "absent") return "Not recorded";
-  return (
-    displaySpaceReason(field.reasonKey) ??
-    `Unavailable in this scan (${field.reasonKey})`
+  return displaySpaceReason(field.reasonKey) ?? "Unavailable in this scan";
+}
+
+function diagnostics(detail: BrowseDetail) {
+  const fields = [
+    ["Name", detail.displayName],
+    ["Path", detail.displayPath],
+    ["Kind", detail.kind],
+    ["Logical size", detail.logicalSize],
+    ["Allocated size", detail.allocatedSize],
+    ["Modified", detail.modifiedAt],
+    ["Created", detail.createdAt],
+    ["Result published", detail.observedAt],
+  ] as const;
+  return fields.flatMap(([label, field]) =>
+    field.state === "unknown" ? [{ label, value: field.reasonKey }] : [],
   );
 }
 
@@ -149,6 +162,14 @@ export function FileInspection({
               label={`Observed ${itemKind} attributes`}
               rows={attributes(detail, itemKind, display, client, item)}
             />
+            {diagnostics(detail).length > 0 && (
+              <DetailDisclosure title="Diagnostic reasons">
+                <Readout
+                  label="Diagnostic reasons"
+                  rows={diagnostics(detail)}
+                />
+              </DetailDisclosure>
+            )}
             <DetailDisclosure title="More observed attributes">
               <Readout
                 label="More observed attributes"

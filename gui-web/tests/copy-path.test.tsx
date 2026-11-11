@@ -140,3 +140,22 @@ test("dismissing feedback does not move focus from another control", async () =>
   fireEvent.click(screen.getByRole("button", { name: "Dismiss copy result" }));
   expect(document.activeElement).toBe(disclosure);
 });
+
+test("unknown path hides internal reason while absent stays distinct", () => {
+  const client = createAnalysisClient(async (_, { envelope }) =>
+    reply(envelope, {}),
+  );
+  const view = render(
+    <CopyPath
+      client={client}
+      item={item}
+      path={{ state: "unknown", reasonKey: "internal.unmapped" }}
+    />,
+  );
+  expect(screen.getByText("Unavailable in this scan")).toBeDefined();
+  expect(screen.queryByText(/internal\.unmapped/)).toBeNull();
+  view.rerender(
+    <CopyPath client={client} item={item} path={{ state: "absent" }} />,
+  );
+  expect(screen.getByText("Not recorded")).toBeDefined();
+});

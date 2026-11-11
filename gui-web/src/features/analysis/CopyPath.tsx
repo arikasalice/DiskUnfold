@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Action, DetailDisclosure, LiveStatus, Text } from "../../components";
 import type { AnalysisClient, BrowseValue, ItemRef } from "../../ipc";
+import { displaySpaceReason } from "./space-format";
 
 type CopyPathProps = {
   client: AnalysisClient;
@@ -86,7 +87,7 @@ function CopyPathForItem({ client, item, path }: CopyPathProps) {
         ) : path.state === "absent" ? (
           "Not recorded"
         ) : (
-          `Unavailable in this scan (${path.reasonKey})`
+          (displaySpaceReason(path.reasonKey) ?? "Unavailable in this scan")
         )}
         <Action ref={copyButton} aria-disabled={busy} onPress={copy}>
           Copy path
