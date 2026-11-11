@@ -173,7 +173,10 @@ impl SearchEntry {
             .map_err(|_| SearchError::Cancelled)?
     }
 
-    /// Validates and promotes a query before enqueueing its pinned evaluation.
+    /// Admits a pinned evaluation and hands its cancellation to the query region and F24.
+    ///
+    /// The caller can abandon the request before admission. Once the region binds
+    /// the job, use query cancellation or job control to stop the evaluation.
     /// No result-set reference is registered until F24 commits the completed job.
     pub fn execute_async(
         &self,
@@ -222,14 +225,12 @@ impl SearchEntry {
         let body: Arc<dyn JobBody> = Arc::new(SearchEvaluation {
             prepared: std::sync::Mutex::new(Some(prepared)),
             candidate: candidate.clone(),
-            caller: caller.clone(),
             #[cfg(test)]
             result_version: result_version.clone(),
         });
         let sets = self.sets.clone();
         let output = query_ref.clone();
         let publish_binding = binding.clone();
-        let publish_caller = caller.clone();
         let admission_error = std::cell::Cell::new(None);
         #[cfg(test)]
         let publish_version = result_version.clone();
@@ -291,21 +292,15 @@ impl SearchEntry {
                             if test_gate::pause_publish(&publish_version).is_err() {
                                 return Err("support.internal_error".to_owned());
                             }
-                            publish_caller
-                                .with_active(|| {
-                                    sets.register_current_admitted_search(output.clone(), candidate)
-                                        .map(|_| output)
-                                        .map_err(|error| {
-                                            match error {
-                                                PageError::StaleVersion => {
-                                                    "result.requery_required"
-                                                }
-                                                _ => "support.internal_error",
-                                            }
-                                            .to_owned()
-                                        })
+                            sets.register_current_admitted_search(output.clone(), candidate)
+                                .map(|_| output)
+                                .map_err(|error| {
+                                    match error {
+                                        PageError::StaleVersion => "result.requery_required",
+                                        _ => "support.internal_error",
+                                    }
+                                    .to_owned()
                                 })
-                                .ok_or_else(|| "support.internal_error".to_owned())?
                         })
                         .map_err(|_| "support.internal_error".to_owned())?
                 },
@@ -335,7 +330,6 @@ impl SearchEntry {
 struct SearchEvaluation {
     prepared: std::sync::Mutex<Option<PreparedSearch>>,
     candidate: Arc<std::sync::Mutex<Option<du_analysis_index::query::page::ValidatedSearch>>>,
-    caller: CallerCtx,
     #[cfg(test)]
     result_version: Id,
 }
@@ -354,8 +348,7 @@ impl JobBody for SearchEvaluation {
         if test_gate::pause_worker(&self.result_version).is_err() {
             return failed("support.internal_error");
         }
-        let evaluated = prepared
-            .evaluate(|| self.caller.is_cancelled() || context.checkpoint() == Checkpoint::Cancel);
+        let evaluated = prepared.evaluate(|| context.checkpoint() == Checkpoint::Cancel);
         let candidate = match evaluated {
             Ok(candidate) => candidate,
             Err(PreparedSearchError::Query(QueryError::Cancelled)) => return cancelled(),
@@ -364,7 +357,7 @@ impl JobBody for SearchEvaluation {
             }
             Err(_) => return failed("support.internal_error"),
         };
-        if self.caller.is_cancelled() || context.checkpoint() == Checkpoint::Cancel {
+        if context.checkpoint() == Checkpoint::Cancel {
             return cancelled();
         }
         match self.candidate.lock() {

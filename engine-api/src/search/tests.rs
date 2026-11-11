@@ -262,34 +262,40 @@ fn invalid_cancelled_and_replaced_searches_preserve_published_results() -> Resul
         Err(PageError::StaleVersion)
     ));
     assert_eq!(first.items().len(), 2);
-    // Cancellation after candidate preparation still wins before F24 publication.
+    // Once admitted, abandoning the caller does not cancel or fail the F24 job.
     ids.replace_on.store(usize::MAX, Ordering::SeqCst);
     let caller = CallerCtx::new(Channel::Gui, id(6), None);
     let gate = test_gate::Gate::new(test_gate::Stage::Publish);
     test_gate::set(Some((id(82), gate.clone()))).map_err(str::to_owned)?;
-    let cancelled = entry
+    let admitted = entry
         .execute_async(
             make_request(5, "sort.path", None, Some(id(82)), Condition::All(vec![])),
             &caller,
         )
-        .map_err(|error| format!("caller-cancel async: {error:?}"))?;
+        .map_err(|error| format!("admitted async: {error:?}"))?;
     gate.entered().map_err(str::to_owned)?;
     let before_publish = runtime
-        .snapshot(&cancelled.job_ref)
+        .snapshot(&admitted.job_ref)
         .map_err(|e| format!("{e:?}"))?;
     assert_eq!(
         before_publish.state,
         du_core_contracts::job::JobState::Running
     );
     assert_eq!(before_publish.result_version_id, None);
-    assert!(job_status(&engine, &cancelled.job_ref)?["queryRef"].is_null());
+    assert!(job_status(&engine, &admitted.job_ref)?["queryRef"].is_null());
     caller.cancel();
     gate.release().map_err(str::to_owned)?;
-    let cancelled_snapshot = wait_terminal(&runtime, &cancelled.job_ref)?;
-    assert_eq!(cancelled_snapshot.result_version_id, None);
+    let completed_snapshot = wait_terminal(&runtime, &admitted.job_ref)?;
     assert_eq!(
-        finished_event(&events, &cancelled.job_ref)?["body"]["queryRef"],
-        serde_json::Value::Null
+        completed_snapshot.state,
+        du_core_contracts::job::JobState::Done
+    );
+    let query_ref = completed_snapshot
+        .result_version_id
+        .ok_or("missing admitted query")?;
+    assert_eq!(
+        finished_event(&events, &admitted.job_ref)?["body"]["queryRef"],
+        json!(query_ref)
     );
     test_gate::set(None).map_err(str::to_owned)?;
 
@@ -369,12 +375,21 @@ fn invalid_cancelled_and_replaced_searches_preserve_published_results() -> Resul
         )
         .map_err(|error| format!("F24 cancellation async: {error:?}"))?;
     gate.entered().map_err(str::to_owned)?;
-    assert!(matches!(
-        runtime.cancel(&cancelled_by_job.job_ref),
-        Ok(du_job_runtime::CancelResult::Accepted(
-            du_core_contracts::job::JobState::CancelRequested
-        ))
-    ));
+    let cancel_caller = CallerCtx::new(Channel::Gui, id(92), None);
+    let cancel = engine.call(
+        du_core_contracts::CallEnvelope {
+            name: "query.cancel".into(),
+            contract_version: du_core_contracts::ENVELOPE_VERSION,
+            correlation_id: cancel_caller.correlation_id.clone(),
+            body: json!({
+                "regionRef": region_ref,
+                "target": {"kind": "job", "jobRef": cancelled_by_job.job_ref},
+            }),
+        },
+        &cancel_caller,
+    );
+    assert!(cancel.error.is_none(), "{:?}", cancel.error);
+    assert_eq!(cancel.body["outcome"], "accepted");
     gate.release().map_err(str::to_owned)?;
     let cancelled_snapshot = wait_terminal(&runtime, &cancelled_by_job.job_ref)?;
     assert_eq!(
