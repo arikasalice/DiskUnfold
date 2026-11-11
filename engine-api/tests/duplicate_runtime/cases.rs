@@ -187,3 +187,174 @@ fn running_cancel_discards_inflight_hash_and_records_terminal_history() -> Resul
     assert_eq!(rows[1].state, JobState::Done);
     Ok(())
 }
+
+struct PlatformEvidence(bool);
+impl du_engine_api::duplicate_assembly::Preflight for PlatformEvidence {
+    fn observe(
+        &mut self,
+        _: &ItemRef,
+        expected: &ContentIdentity,
+    ) -> Option<(PlaceholderEvidence, ContentObservation)> {
+        self.0.then(|| {
+            (
+                PlaceholderEvidence::Local,
+                ContentObservation {
+                    identity: expected.clone(),
+                    size: 3,
+                    modified: 7,
+                    change_stamp: Some(9),
+                },
+            )
+        })
+    }
+}
+fn submit_assembled(h: &Harness, result: u8, supported: bool) -> Result<Id, String> {
+    let selection =
+        select_whole_scan(&h.source, &id(2), 0, || false).map_err(|e| format!("{e:?}"))?;
+    let identities = selection
+        .files()
+        .iter()
+        .map(|file| {
+            selection
+                .content_evidence(&file.item)
+                .map(|e| (file.item.item_no, e.identity))
+                .ok_or("evidence")
+        })
+        .collect::<Result<BTreeMap<_, _>, _>>()?;
+    let port = Port {
+        selected: identities,
+        stats: h.stats.clone(),
+        fail: None,
+    };
+    let submitted = du_engine_api::duplicate_assembly::submit(
+        &h.runtime,
+        h.store.clone(),
+        selection,
+        (port, PlatformEvidence(supported)),
+        du_engine_api::duplicate_assembly::Request {
+            result: id(result),
+            correlation: id(9),
+            priority: JobPriority::Normal,
+        },
+    )
+    .map_err(|e| format!("{e:?}"))?;
+    match submitted {
+        SubmitResult::Created(job) => Ok(job),
+        other => Err(format!("{other:?}")),
+    }
+}
+#[test]
+fn assembled_supported_scope_pins_and_publishes() -> Result<(), String> {
+    let h = Harness::new(NonZeroUsize::MIN.saturating_add(2))?;
+    let job = submit_assembled(&h, 10, true)?;
+    assert_eq!(h.stats.opens.load(Ordering::SeqCst), 0);
+    let mut later = h.source.open(id(3)).map_err(|e| format!("{e:?}"))?;
+    later.add_directory(vec![]).map_err(|e| format!("{e:?}"))?;
+    later
+        .seal(id(4), ResultCompleteness::Complete)
+        .map_err(|e| format!("{e:?}"))?;
+    h.runtime.run_next().map_err(|e| format!("{e:?}"))?;
+    assert_eq!(
+        h.runtime
+            .snapshot(&job)
+            .map_err(|e| format!("{e:?}"))?
+            .result_version_id,
+        Some(id(10))
+    );
+    let result = h.store.pin(Some(&id(10))).map_err(|e| format!("{e:?}"))?;
+    assert_eq!(result.source(), &id(2));
+    assert_eq!(result.outcome().evidence().groups.len(), 1);
+    assert_eq!(h.stats.bytes.load(Ordering::SeqCst), 6);
+    Ok(())
+}
+#[test]
+fn assembled_unsupported_or_cancelled_opens_nothing() -> Result<(), String> {
+    let h = Harness::new(NonZeroUsize::MIN.saturating_add(2))?;
+    let job = submit_assembled(&h, 10, false)?;
+    h.runtime.run_next().map_err(|e| format!("{e:?}"))?;
+    let result = h.store.pin(Some(&id(10))).map_err(|e| format!("{e:?}"))?;
+    assert_eq!(h.runtime.state(&job), Ok(JobState::Done));
+    assert!(result.outcome().evidence().groups.is_empty());
+    assert_eq!(h.stats.opens.load(Ordering::SeqCst), 0);
+    let job = submit_assembled(&h, 11, true)?;
+    assert!(matches!(
+        h.runtime.cancel(&job),
+        Ok(CancelResult::Accepted(JobState::Cancelled))
+    ));
+    let result = h.store.pin(Some(&id(11))).map_err(|e| format!("{e:?}"))?;
+    assert_eq!(result.content_coverage(), ContentCoverage::Cancelled);
+    assert_eq!(h.stats.opens.load(Ordering::SeqCst), 0);
+    Ok(())
+}
+
+#[test]
+fn assembled_unregistered_runtime_rejects_without_content_open() -> Result<(), String> {
+    let h = Harness::new(NonZeroUsize::MIN.saturating_add(2))?;
+    let runtime = JobRuntime::new_with_content_io_limit(
+        Arc::new(Ids(AtomicUsize::new(30))),
+        Arc::new(Clock),
+        h.history.clone(),
+        Arc::new(Events),
+        FlowLimits::disabled(),
+        1,
+    )
+    .map_err(|e| format!("{e:?}"))?;
+    let selection =
+        select_whole_scan(&h.source, &id(2), 0, || false).map_err(|e| format!("{e:?}"))?;
+    let port = Port {
+        selected: BTreeMap::new(),
+        stats: h.stats.clone(),
+        fail: None,
+    };
+    let result = du_engine_api::duplicate_assembly::submit(
+        &runtime,
+        h.store.clone(),
+        selection,
+        (port, PlatformEvidence(true)),
+        du_engine_api::duplicate_assembly::Request {
+            result: id(10),
+            correlation: id(9),
+            priority: JobPriority::Normal,
+        },
+    );
+    assert!(matches!(
+        result,
+        Err(du_engine_api::duplicate_assembly::Error::Runtime(
+            du_job_runtime::RuntimeError::KindUnknown
+        ))
+    ));
+    assert_eq!(h.stats.opens.load(Ordering::SeqCst), 0);
+    assert!(h.store.pin(Some(&id(10))).is_err());
+    Ok(())
+}
+
+#[test]
+fn assembled_running_cancel_discards_inflight_result() -> Result<(), String> {
+    let h = Harness::new(NonZeroUsize::MIN.saturating_add(2))?;
+    let (entered_tx, entered_rx) = std::sync::mpsc::sync_channel(1);
+    let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+    *h.stats.gate.lock().map_err(|_| "gate lock")? = Some(ReadGate {
+        entered: entered_tx,
+        release: release_rx,
+    });
+    let job = submit_assembled(&h, 10, true)?;
+    let runtime = h.runtime.clone();
+    let worker = std::thread::spawn(move || runtime.run_next());
+    entered_rx
+        .recv_timeout(Duration::from_secs(5))
+        .map_err(|_| "read did not start")?;
+    assert!(matches!(
+        h.runtime.cancel(&job),
+        Ok(CancelResult::Accepted(JobState::CancelRequested))
+    ));
+    release_tx.send(()).map_err(|_| "release")?;
+    worker
+        .join()
+        .map_err(|_| "worker panic")?
+        .map_err(|e| format!("{e:?}"))?;
+    let result = h.store.pin(Some(&id(10))).map_err(|e| format!("{e:?}"))?;
+    assert_eq!(result.content_coverage(), ContentCoverage::Cancelled);
+    assert!(result.outcome().evidence().groups.is_empty());
+    assert!(result.outcome().evidence().full_fingerprints.is_empty());
+    Ok(())
+}

@@ -224,6 +224,15 @@ fn scan() -> Result<(IngestSink, Selection), String> {
             .set_modified_at(0, &path, Timestamp::parse("2026-01-01T00:00:00.000Z")?)
             .map_err(|e| format!("{e:?}"))?;
         build
+            .set_native_modified_at(
+                0,
+                &path,
+                du_core_contracts::scan_observation::NativeModifiedTime::WindowsFiletime(
+                    std::num::NonZeroU64::new(7).ok_or("zero")?,
+                ),
+            )
+            .map_err(|e| format!("{e:?}"))?;
+        build
             .retain_enumerated_inode(
                 0,
                 &path,
@@ -266,9 +275,7 @@ impl Harness {
             )
             .map_err(|e| format!("{e:?}"))?,
         );
-        runtime
-            .register(job::descriptor())
-            .map_err(|e| format!("{e:?}"))?;
+        du_engine_api::duplicate_assembly::register(&runtime).map_err(|e| format!("{e:?}"))?;
         Ok(Self {
             source,
             selection,

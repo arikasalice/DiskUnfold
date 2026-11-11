@@ -6,6 +6,7 @@ mod contracts;
 pub mod current_analysis;
 mod cursor_mac;
 pub mod desktop;
+pub mod duplicate_assembly;
 pub mod duplicate_scope;
 pub mod error;
 pub mod history;

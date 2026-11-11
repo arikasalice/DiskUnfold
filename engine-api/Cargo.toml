@@ -9,14 +9,12 @@ license.workspace = true
 blake3 = "=1.8.3"
 du-analysis-index = { version = "0.1.0", path = "../analysis-index" }
 du-core-contracts = { version = "0.1.0", path = "../core-contracts" }
+du-duplicate-engine = { version = "0.1.0", path = "../duplicate-engine" }
 du-job-runtime = { version = "0.1.0", path = "../job-runtime" }
 du-scan-engine = { version = "0.1.0", path = "../scan-engine" }
 serde.workspace = true
 serde_json.workspace = true
 uuid = { workspace = true, features = ["v7"] }
-
-[dev-dependencies]
-du-duplicate-engine = { version = "0.1.0", path = "../duplicate-engine" }
 
 [lints]
 workspace = true
