@@ -304,15 +304,20 @@ impl WindowsDirectory {
                     }
                     let size =
                         (u64::from(value.nFileSizeHigh) << 32) | u64::from(value.nFileSizeLow);
-                    let facts = if kind(value.dwFileAttributes) == ObservedKind::File {
+                    let observed_kind = kind(value.dwFileAttributes);
+                    let facts = if observed_kind == ObservedKind::File {
                         space::read(&file, &value, &self.volume_guid)?
                     } else {
                         space::Facts::default()
                     };
                     let (modified_at, native) = timestamps::observe(&file);
-                    let native_modified_at = timestamps::matched_native(&file, &value, native);
+                    let native_modified_at = if observed_kind == ObservedKind::File {
+                        timestamps::matched_native(&file, &value, native)
+                    } else {
+                        None
+                    };
                     Ok(MetadataObservation {
-                        kind: kind(value.dwFileAttributes),
+                        kind: observed_kind,
                         device: self.volume,
                         inode: identity(&value),
                         size: Ok(size),
