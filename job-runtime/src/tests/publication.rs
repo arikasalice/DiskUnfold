@@ -32,7 +32,7 @@ fn setup() -> Result<(Arc<JobRuntime>, Id), Box<dyn std::error::Error>> {
 
 fn setup_kind(
     kind: &str,
-    events: Arc<Events>,
+    events: Arc<dyn JobEvents>,
 ) -> Result<(Arc<JobRuntime>, Id), Box<dyn std::error::Error>> {
     let id = Id::parse("00000000-0000-7000-8000-000000000001")?;
     let runtime = Arc::new(JobRuntime::new(

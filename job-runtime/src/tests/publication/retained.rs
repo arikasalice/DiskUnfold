@@ -1,5 +1,16 @@
 use super::*;
 use std::sync::{Mutex, Weak, mpsc};
+
+struct PausedDelivery(Mutex<mpsc::Receiver<()>>);
+
+impl JobEvents for PausedDelivery {
+    fn publish(&self, _: JobEvent) {
+        if let Ok(resume) = self.0.lock() {
+            let _ = resume.recv();
+        }
+    }
+}
+
 struct DropProbe {
     gate: Arc<Mutex<Option<Arc<Mutex<()>>>>>,
     table: Weak<Mutex<crate::model::Table>>,
@@ -22,7 +33,23 @@ impl Drop for DropProbe {
 fn retained_visualization_disposal_follows_completion_and_queued_cancel()
 -> Result<(), Box<dyn std::error::Error>> {
     for mode in ["done", "error", "panic", "cancel", "detach", "reject"] {
-        let (runtime, id) = setup_kind("viz.compute", Arc::new(Events::default()))?;
+        let (resume, paused) = mpsc::channel();
+        let (runtime, id) =
+            setup_kind("viz.compute", Arc::new(PausedDelivery(Mutex::new(paused))))?;
+        // Keep the delivery thread from taking the table lock to record a
+        // terminal outcome while the destructor probes the releasing thread.
+        // Dropping the sender also releases delivery if an assertion fails.
+        {
+            let table = runtime.table.lock().map_err(|_| "poisoned table")?;
+            crate::delivery::enqueue(
+                &table,
+                crate::model::Delivery::Event(JobEvent::StateChanged {
+                    job_id: id.clone(),
+                    state: JobState::Queued,
+                    sequence: 1,
+                }),
+            )?;
+        }
         let gate = Arc::new(Mutex::new(None));
         let (sender, receiver) = mpsc::channel();
         let probe = Arc::new(DropProbe {
@@ -92,6 +119,8 @@ fn retained_visualization_disposal_follows_completion_and_queued_cancel()
             receiver.recv_timeout(Duration::from_secs(1))?,
             "destructor held runtime lock: {mode}"
         );
+        drop(resume);
+        runtime.flush()?;
     }
     Ok(())
 }
