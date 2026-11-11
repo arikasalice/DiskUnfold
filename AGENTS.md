@@ -13,10 +13,11 @@ DiskUnfold is an offline desktop application for understanding disk use and revi
 
 ## Agent delegation
 
-- Explicitly select `gpt-6-luna` for every new subagent at every delegation level. The designated Terra development and Astra design leads retain their models in their own project chats.
+- Explicitly select `gpt-6-luna` for every new subagent at every delegation level. Assign follow-up work only to Luna subagents. When the tool cannot select Luna, the team lead handles the work directly. The designated Terra development and Astra design leads retain their models in their own project chats.
 - Close completed subagent sessions when the tooling supports it. Otherwise leave them completed and do not reuse them. If a running subagent on another model cannot switch models, let it finish its current assignment and review its result before closing it. Use a new Luna subagent for any follow-up work that requires delegation.
-- Team leads divide work by ownership and define acceptance criteria from the published design. They review each submitted diff and reproduce its relevant tests. When a finding requires a change, send the evidence and reproduction steps back to the owner and verify the correction.
-- The integration lead resolves cross-team dependencies, assigns owners for shared contracts, and reviews team submissions before merging. Escalate unresolved review findings and changes that affect another team's work to that lead.
+- Team leads give each delegate a fixed starting commit, design references, owned paths, dependencies and acceptance checks. They review each submitted diff and verify the affected entry point. Send findings with evidence and reproduction steps to the owner and review the revised result.
+- The integration lead relays cross-team findings, resolves dependencies, assigns owners for shared contracts and reviews team submissions before merging. Escalate unresolved or conflicting reviews and changes that affect another team's work to that lead. Report the commit, design IDs, test evidence, unverified scope and any decision needed.
+- The design lead checks rendered changes against the approved design and returns visual or interaction findings to the implementation owner through the integration lead.
 
 ## Paths and ownership
 
@@ -91,19 +92,7 @@ For a CLI-only development build, use `cargo run --locked -p du-launcher --no-de
 
 **Tooling.** Use the pinned Node runtime and cross-platform filesystem and process APIs for quality scripts. Run Cargo with `--locked` and npm with `ci --ignore-scripts`. Review changes to lockfiles, record new direct dependencies in the quality register, and keep CI actions pinned to commit hashes. Licensing and advisory policy changes require the project’s applicable approval and traceability.
 
-## Subagent delegation
-
-- In every DiskUnfold chat, explicitly select `gpt-6-luna` for every new subagent, including nested delegation. Follow-up assignments go only to subagents running `gpt-6-luna`. If the tool cannot select this model, the team lead handles the work directly.
-- Let an in-flight assignment finish when its subagent model cannot be changed. Review the result, then close the completed assignment and use `gpt-6-luna` for any follow-up. Close completed subagent sessions when the host supports it.
-- The Luna requirement applies to subagents. The integration, development and design leads keep their assigned models.
-
 ## Tests and handoff
-
-### Team coordination
-
-- Each team lead coordinates the assigned work and explicitly selects `gpt-6-luna` for every new sub-agent, including nested delegation. Close completed sub-agents. If the model of an in-flight sub-agent cannot be changed, let its current assignment finish, close it, and use Luna for further delegation. Existing team leads keep their assigned models.
-- Give each delegate a fixed starting commit, design references, owned paths, dependencies and acceptance checks. Review the returned diff and verify the affected entry point before handing off the result. Return findings with evidence and reproduction steps to the owner for correction, then review the revised result.
-- Route cross-team dependencies, shared contract changes, ownership conflicts and integration readiness through the project coordinator. Report the commit, design IDs, test evidence, unverified scope and any decision needed. The design lead reviews rendered changes against the approved design and returns visual or interaction findings to the implementation owner through the coordinator.
 
 ```sh
 cargo fmt --all -- --check
