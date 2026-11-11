@@ -49,6 +49,42 @@ pub struct ChildPolicyEvidence {
 }
 
 impl Session {
+    /// Runs the selected ranked-bar strategy with facts from one pinned source.
+    /// This internal candidate is not a published model or a complete bar catalog.
+    pub fn compute_ranked_bar(
+        &self,
+        source: &Arc<ResultVersion>,
+        request: du_analysis_index::visualization::bar_projection::ChildrenRequest<'_>,
+        descriptor: &du_core_contracts::visualization::LayoutDescriptor,
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<
+        du_analysis_index::visualization::typed_layout::SelectedBar,
+        du_analysis_index::visualization::typed_layout::BarDispatchError,
+    > {
+        use du_analysis_index::visualization::{
+            bar_projection,
+            typed_layout::{BarDispatchError, BarError, BarInput},
+        };
+        if !std::ptr::eq(Arc::as_ptr(source), request.version) || descriptor.format != "bar" {
+            return Err(BarDispatchError::Bar(BarError::Projection(
+                bar_projection::Error::InvalidEvidence,
+            )));
+        }
+        let prepared = bar_projection::prepare_children(request, cancelled)
+            .map_err(|error| BarDispatchError::Bar(BarError::Projection(error)))?;
+        let selected = self.dispatcher.execute_bar(
+            &descriptor.format,
+            Some(&descriptor.strategy),
+            BarInput::PreparedRanked(Box::new(prepared)),
+            cancelled,
+        )?;
+        if selected.descriptor != *descriptor {
+            return Err(BarDispatchError::Bar(BarError::Projection(
+                bar_projection::Error::InvalidEvidence,
+            )));
+        }
+        Ok(selected)
+    }
     /// Computes histogram input through the same frozen registry as other layouts.
     pub fn compute_histogram(
         &self,

@@ -180,6 +180,8 @@ pub trait Strategy: Send + Sync {
 pub enum BarInput<'a> {
     /// Immediate children ranked using a pinned F03 folder total.
     Ranked(bar_projection::ChildrenRequest<'a>),
+    /// Validated pinned ranked facts prepared independently of strategy dispatch.
+    PreparedRanked(Box<bar_projection::Prepared<'a>>),
     /// Classification evidence is not yet admitted by this typed boundary.
     TypeComparison,
     /// Legend-ordered segments and attribution evidence are not yet admitted.
@@ -211,6 +213,9 @@ impl Strategy for RankedBar {
         match input {
             BarInput::Ranked(request) => {
                 bar_projection::project_children(request, cancelled).map_err(BarError::Projection)
+            }
+            BarInput::PreparedRanked(request) => {
+                request.render(cancelled).map_err(BarError::Projection)
             }
             BarInput::TypeComparison | BarInput::Stacked => Err(BarError::UnsupportedMode),
         }

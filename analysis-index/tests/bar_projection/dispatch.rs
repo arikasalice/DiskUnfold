@@ -46,6 +46,7 @@ fn ranked_bar_dispatch_preserves_evidence_and_rejects_unimplemented_modes() -> R
     let selected = dispatcher
         .execute_bar("bar", None, BarInput::Ranked(input()), &mut || false)
         .map_err(|e| format!("{e:?}"))?;
+    check_prepared_dispatch(&dispatcher, input(), &selected)?;
     assert_eq!(selected.descriptor, typed_layout::bar_descriptor());
     assert_eq!(
         selected.output,
@@ -85,5 +86,26 @@ fn ranked_bar_dispatch_preserves_evidence_and_rejects_unimplemented_modes() -> R
             registry::SelectionError::UnknownFormat
         ))
     ));
+    Ok(())
+}
+
+fn check_prepared_dispatch(
+    dispatcher: &du_analysis_index::visualization::typed_layout::Dispatcher,
+    request: ChildrenRequest<'_>,
+    selected: &du_analysis_index::visualization::typed_layout::SelectedBar,
+) -> Result<(), String> {
+    use du_analysis_index::visualization::typed_layout::{self, BarInput};
+    let prepared =
+        bar_projection::prepare_children(request, &mut || false).map_err(|e| format!("{e:?}"))?;
+    let staged = dispatcher
+        .execute_bar(
+            "bar",
+            Some(&typed_layout::bar_descriptor().strategy),
+            BarInput::PreparedRanked(Box::new(prepared)),
+            &mut || false,
+        )
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(staged.descriptor, selected.descriptor);
+    assert_eq!(staged.output, selected.output);
     Ok(())
 }

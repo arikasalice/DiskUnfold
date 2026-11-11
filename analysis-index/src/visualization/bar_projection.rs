@@ -76,6 +76,14 @@ pub fn project_children(
     request: ChildrenRequest<'_>,
     cancelled: &mut dyn FnMut() -> bool,
 ) -> Result<Ranking, Error> {
+    prepare_children(request, cancelled)?.render(cancelled)
+}
+
+/// Freezes immediate children and their F03 scope total without calculating geometry.
+pub fn prepare_children<'a>(
+    request: ChildrenRequest<'a>,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<Prepared<'a>, Error> {
     check(cancelled)?;
     let scope_no = root_ref(request.version, request.scope).map_err(|_| Error::InvalidEvidence)?;
     let total = AggregateEvidence {
@@ -85,32 +93,36 @@ pub fn project_children(
             .map_err(|_| Error::InvalidEvidence)?,
     };
     let mut rows = Vec::new();
+    let mut input = Vec::new();
+    let mut sources = HashMap::new();
     for child in request.version.children(scope_no) {
         check(cancelled)?;
-        rows.push(Row {
-            item: ItemRef {
-                result_version: request.version.version_id().clone(),
-                item_no: child.item_no,
-            },
-            size: value(request.version, child.item_no, &request.basis)
-                .map_err(|_| Error::InvalidEvidence)?,
+        let item = ItemRef {
+            result_version: request.version.version_id().clone(),
+            item_no: child.item_no,
+        };
+        let size = value(request.version, child.item_no, &request.basis)
+            .map_err(|_| Error::InvalidEvidence)?;
+        input.push(bar::Item {
+            item_no: child.item_no,
+            value: weight(&size)?,
         });
+        sources.insert(child.item_no, item.clone());
+        rows.push(Row { item, size });
     }
-    project(
-        Request {
-            version: request.version,
-            scope: request.scope,
-            basis: request.basis,
-            rows: &rows,
-            scope_total: &total,
-            denominator: &total,
-            bounds: request.bounds,
-            scale: request.scale,
-            top: request.top,
-            max_bars: request.max_bars,
-        },
-        cancelled,
-    )
+    Ok(Prepared {
+        version: request.version,
+        basis: request.basis,
+        bounds: request.bounds,
+        scale: request.scale,
+        top: request.top,
+        max_bars: request.max_bars,
+        scope_total: total.clone(),
+        denominator: total,
+        rows,
+        input,
+        sources,
+    })
 }
 
 /// Identity of a rendered individual or an F03-verified Other group.
@@ -168,6 +180,29 @@ pub fn project(
     request: Request<'_>,
     cancelled: &mut dyn FnMut() -> bool,
 ) -> Result<Ranking, Error> {
+    prepare(request, cancelled)?.render(cancelled)
+}
+
+/// Pinned source facts validated before a ranked bar strategy is invoked.
+pub struct Prepared<'a> {
+    version: &'a ResultVersion,
+    basis: SizeBasis,
+    bounds: Rect,
+    scale: Scale,
+    top: usize,
+    max_bars: usize,
+    scope_total: AggregateEvidence,
+    denominator: AggregateEvidence,
+    rows: Vec<Row>,
+    input: Vec<bar::Item>,
+    sources: HashMap<u32, ItemRef>,
+}
+
+/// Validates the source, aggregation evidence and members without calculating geometry.
+pub fn prepare<'a>(
+    request: Request<'a>,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<Prepared<'a>, Error> {
     check(cancelled)?;
     let scope = root_ref(request.version, request.scope).map_err(|_| Error::InvalidEvidence)?;
     if request.scope_total.target != AggregateTarget::Folder(request.scope.clone()) {
@@ -204,73 +239,119 @@ pub fn project(
         sources.insert(row.item.item_no, row.item.clone());
         retained_rows.push(row.clone());
     }
-    let layout = bar::ranking_cancellable(
-        request.bounds,
-        &input,
-        request.top,
-        request.scale,
-        request.version.completeness(),
-        cancelled,
-    )
-    .map_err(|error| {
-        if error == bar::Error::Cancelled {
-            Error::Cancelled
-        } else {
-            Error::Layout(error)
-        }
-    })?;
-    if layout.bars.len() > request.max_bars {
-        return Err(Error::LimitExceeded);
-    }
-    let geometry = layout.geometry_v1_cancellable(cancelled).map_err(|e| {
-        if e == bar::GeometryError::Cancelled {
-            Error::Cancelled
-        } else {
-            Error::Geometry(e)
-        }
-    })?;
-    let mut bars = Vec::with_capacity(layout.bars.len());
-    for (bar, geometry) in layout.bars.iter().zip(geometry) {
-        check(cancelled)?;
-        let identity = match &bar.reference {
-            bar::BarRef::Item(item) => {
-                BarIdentity::Item(sources.get(item).cloned().ok_or(Error::InvalidEvidence)?)
-            }
-            bar::BarRef::Other(items) => verified_other(
-                request.version,
-                &request.basis,
-                items,
-                &sources,
-                bar.value,
-                cancelled,
-            )?,
-        };
-        bars.push(Bar {
-            identity,
-            value: bar.value,
-            geometry,
-            no_area: bar.no_area,
-        });
-    }
-    let mut unknown_items = Vec::with_capacity(layout.unknown_items.len());
-    for item in &layout.unknown_items {
-        check(cancelled)?;
-        unknown_items.push(sources.get(item).cloned().ok_or(Error::InvalidEvidence)?);
-    }
-    check(cancelled)?;
-    Ok(Ranking {
-        result_version: request.version.version_id().clone(),
-        rows: retained_rows,
-        bars,
-        unknown_items,
+    Ok(Prepared {
+        version: request.version,
+        basis: request.basis,
+        bounds: request.bounds,
+        scale: request.scale,
+        top: request.top,
+        max_bars: request.max_bars,
         scope_total: request.scope_total.clone(),
         denominator: request.denominator.clone(),
-        completeness: layout.source_completeness,
-        ranking_incomplete: layout.ranking_incomplete,
-        axis_max: layout.axis_max,
+        rows: retained_rows,
+        input,
+        sources,
     })
 }
 
+impl Prepared<'_> {
+    /// Returns the exact item values retained from the pinned source.
+    pub fn rows(&self) -> &[Row] {
+        &self.rows
+    }
+
+    /// Returns the numeric ranking input in the corresponding source order.
+    pub fn items(&self) -> &[bar::Item] {
+        &self.input
+    }
+
+    /// Returns the fixed layout window and scaling policy.
+    pub fn viewport(&self) -> (Rect, Scale) {
+        (self.bounds, self.scale)
+    }
+
+    /// Returns the admitted individual and total shape limits.
+    pub fn limits(&self) -> (usize, usize) {
+        (self.top, self.max_bars)
+    }
+
+    /// Calculates ranking and geometry from the already validated pinned facts.
+    pub fn render(self, cancelled: &mut dyn FnMut() -> bool) -> Result<Ranking, Error> {
+        let layout = bar::ranking_cancellable(
+            self.bounds,
+            &self.input,
+            self.top,
+            self.scale,
+            self.version.completeness(),
+            cancelled,
+        )
+        .map_err(|error| {
+            if error == bar::Error::Cancelled {
+                Error::Cancelled
+            } else {
+                Error::Layout(error)
+            }
+        })?;
+        if layout.bars.len() > self.max_bars {
+            return Err(Error::LimitExceeded);
+        }
+        let geometry = layout.geometry_v1_cancellable(cancelled).map_err(|e| {
+            if e == bar::GeometryError::Cancelled {
+                Error::Cancelled
+            } else {
+                Error::Geometry(e)
+            }
+        })?;
+        let mut bars = Vec::with_capacity(layout.bars.len());
+        for (bar, geometry) in layout.bars.iter().zip(geometry) {
+            check(cancelled)?;
+            let identity = match &bar.reference {
+                bar::BarRef::Item(item) => BarIdentity::Item(
+                    self.sources
+                        .get(item)
+                        .cloned()
+                        .ok_or(Error::InvalidEvidence)?,
+                ),
+                bar::BarRef::Other(items) => verified_other(
+                    self.version,
+                    &self.basis,
+                    items,
+                    &self.sources,
+                    bar.value,
+                    cancelled,
+                )?,
+            };
+            bars.push(Bar {
+                identity,
+                value: bar.value,
+                geometry,
+                no_area: bar.no_area,
+            });
+        }
+        let mut unknown_items = Vec::with_capacity(layout.unknown_items.len());
+        for item in &layout.unknown_items {
+            check(cancelled)?;
+            unknown_items.push(
+                self.sources
+                    .get(item)
+                    .cloned()
+                    .ok_or(Error::InvalidEvidence)?,
+            );
+        }
+        check(cancelled)?;
+        Ok(Ranking {
+            result_version: self.version.version_id().clone(),
+            rows: self.rows,
+            bars,
+            unknown_items,
+            scope_total: self.scope_total,
+            denominator: self.denominator,
+            completeness: layout.source_completeness,
+            ranking_incomplete: layout.ranking_incomplete,
+            axis_max: layout.axis_max,
+        })
+    }
+}
 fn validate_aggregate(
     version: &ResultVersion,
     basis: &SizeBasis,
