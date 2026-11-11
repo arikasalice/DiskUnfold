@@ -135,7 +135,6 @@ export function BrowseResults({
           {paging.moving ? "Loading folder items…" : paging.status}
         </LiveStatus>
       </div>
-      <LiveStatus placement="viewport">{copy.status}</LiveStatus>
       {initialCursor !== null && (
         <div className="du-browse-more">
           {paging.showLoadMore && (
@@ -237,6 +236,7 @@ export function BrowseResults({
           <Text>{availability(row)}</Text>,
         ]}
       />
+      <LiveStatus placement="viewport">{copy.status}</LiveStatus>
     </>
   );
 }
