@@ -225,13 +225,30 @@ fn prepare_scope(
             ))
         })
         .collect::<Result<Vec<_>, EngineError>>()?;
+    // Index raw canonical paths, rejecting inconsistent duplicate witnesses.
+    let mut witness_keys: std::collections::BTreeMap<Vec<u8>, &OsPath> =
+        std::collections::BTreeMap::new();
+    for (key, _, _, path) in &witnesses {
+        let raw = path
+            .raw
+            .bytes()
+            .map_err(|_| EngineError::reason("scope.target_unavailable"))?;
+        if let Some(previous) = witness_keys.insert(raw, key)
+            && (previous.encoding != key.encoding || previous.raw != key.raw)
+        {
+            return Err(EngineError::reason("scope.target_unavailable"));
+        }
+    }
     // The reviewed root evidence must use the same comparison key as the
     // frozen filter and scope digest. An inconsistent provider is not proof.
     for (&index, expected) in frozen.roots.iter().zip(&frozen.root_keys) {
-        let actual = witnesses
-            .iter()
-            .find(|(_, _, _, path)| path == &candidates[index].0)
-            .map(|(key, _, _, _)| key)
+        let path = candidates[index]
+            .0
+            .raw
+            .bytes()
+            .map_err(|_| EngineError::reason("scope.target_unavailable"))?;
+        let actual = witness_keys
+            .get(&path)
             .ok_or_else(|| EngineError::reason("scope.target_unavailable"))?;
         if actual.encoding != expected.encoding || actual.raw != expected.raw {
             return Err(EngineError::reason("scope.target_unavailable"));

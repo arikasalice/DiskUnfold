@@ -60,6 +60,7 @@ fn native(path: &str) -> serde_json::Value {
 struct ChangingRootKey {
     enabled: std::sync::atomic::AtomicBool,
     root_reads: std::sync::atomic::AtomicUsize,
+    change_after: usize,
 }
 
 impl PathComparison for ChangingRootKey {
@@ -67,7 +68,7 @@ impl PathComparison for ChangingRootKey {
         let mut result = ProvenComparison.path(path)?;
         if self.enabled.load(Ordering::Acquire)
             && result.components.len() == 2
-            && self.root_reads.fetch_add(1, Ordering::AcqRel) > 0
+            && self.root_reads.fetch_add(1, Ordering::AcqRel) >= self.change_after
         {
             result.serialized_key = serde_json::from_value(native("C:\\Different")).ok()?;
         }
@@ -85,6 +86,7 @@ fn start_rejects_root_key_that_changes_after_filter_preparation()
     let comparison = Arc::new(ChangingRootKey {
         enabled: std::sync::atomic::AtomicBool::new(false),
         root_reads: std::sync::atomic::AtomicUsize::new(0),
+        change_after: 1,
     });
     let ScanHarness { engine, roots, .. } =
         fixture::scan_harness_with_comparison(None, Some(comparison.clone()))?;
@@ -104,6 +106,37 @@ fn start_rejects_root_key_that_changes_after_filter_preparation()
             .reason_key,
         "scope.changed"
     );
+    assert_eq!(roots.reads.load(Ordering::Acquire), 0);
+    Ok(())
+}
+
+#[test]
+fn start_rejects_conflicting_duplicate_canonical_witness() -> Result<(), Box<dyn std::error::Error>>
+{
+    let comparison = Arc::new(ChangingRootKey {
+        enabled: std::sync::atomic::AtomicBool::new(false),
+        root_reads: std::sync::atomic::AtomicUsize::new(0),
+        change_after: 2,
+    });
+    let ScanHarness { engine, roots, .. } =
+        fixture::scan_harness_with_comparison(None, Some(comparison.clone()))?;
+    let gui = |name, body| call(&engine, name, Channel::Gui, ENVELOPE_VERSION, body);
+    let draft = json!({"includes":[native("C:\\Fixture"),native("C:\\Fixture")],"exclusions":[{"kind":"path","path":native("C:\\Fixture\\F")}],"boundary":"current_volume","includedMounts":[],"source":"gui"});
+    let review: ScopeReview =
+        serde_json::from_value(gui("scope.review", json!({"draft":draft,"requestSeq":1}))?.body)?;
+    comparison.enabled.store(true, Ordering::Release);
+    let result = gui(
+        "scan.start",
+        json!({"draft":draft,"reviewFingerprint":review.review_fingerprint}),
+    )?;
+    assert_eq!(
+        result
+            .error
+            .ok_or("duplicate conflict accepted")?
+            .reason_key,
+        "scope.changed"
+    );
+    assert_eq!(comparison.root_reads.load(Ordering::Acquire), 3);
     assert_eq!(roots.reads.load(Ordering::Acquire), 0);
     Ok(())
 }
