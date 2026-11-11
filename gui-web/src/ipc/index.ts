@@ -7,6 +7,8 @@ import type {
   AnalysisJobControl,
   AnalysisJobRequest,
   AnalysisJobStatus,
+  BrowseCopyPathOutcome,
+  BrowseCopyPathRequest,
   BrowseDetail,
   BrowseDetailRequest,
   BrowseOpenRequest,
@@ -57,6 +59,8 @@ export type {
   AnalysisJobControl,
   AnalysisJobStatus,
   AnalysisTarget,
+  BrowseCopyPathOutcome,
+  BrowseCopyPathRequest,
   BrowseDetail,
   BrowseOpenRequest,
   BrowseOpenResponse,
@@ -141,6 +145,7 @@ type Commands = {
   "space.detail": [SpaceDetailRequest, SpaceDetail];
   "space.volume_gap": [VolumeGapRequest, VolumeGapResponse];
   "browse.detail": [BrowseDetailRequest, BrowseDetail];
+  "browse.copy_path": [BrowseCopyPathRequest, BrowseCopyPathOutcome];
   "browse.open": [BrowseOpenRequest, BrowseOpenResponse];
   "query.region.open": [QueryRegionOpenRequest, QueryRegionOpened];
   "query.region.close": [QueryRegionCloseRequest, QueryRegionClosed];

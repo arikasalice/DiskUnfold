@@ -56,6 +56,24 @@ pub fn register_with_shared_table_limit(
     random: &dyn Random,
     shared_table_limit: SharedTableLimitSource,
 ) -> Result<Arc<DesktopEvents>, Box<dyn std::error::Error>> {
+    Ok(register_services(builder, roots, volumes, history, random, shared_table_limit)?.events)
+}
+
+/// Desktop resources used to compose local app-host commands and events.
+pub struct DesktopServices {
+    pub events: Arc<DesktopEvents>,
+    pub path_copy: crate::browse::copy_path::PathCopy,
+}
+
+/// Registers analysis and exposes the observed-path reader for app-host only.
+pub fn register_services(
+    builder: &mut EngineBuilder,
+    roots: Arc<dyn ScopeRootPort>,
+    volumes: Arc<dyn VolumePort>,
+    history: Arc<dyn JobHistory>,
+    random: &dyn Random,
+    shared_table_limit: SharedTableLimitSource,
+) -> Result<DesktopServices, Box<dyn std::error::Error>> {
     let ids = Arc::new(SystemIdentity);
     let clock = Arc::new(SystemClock(Instant::now()));
     let events = Arc::new(DesktopEvents::default());
@@ -92,8 +110,9 @@ pub fn register_with_shared_table_limit(
     let store = sets.source();
     crate::browse::folder::commands::register(builder, sets, ids, workers, random)?;
     crate::scan_failures::register(builder, store.clone(), random);
+    let path_copy = crate::browse::copy_path::PathCopy(store.clone());
     jobs::register_with_scan_store(builder, runtime, store);
-    Ok(events)
+    Ok(DesktopServices { events, path_copy })
 }
 
 struct SystemIdentity;

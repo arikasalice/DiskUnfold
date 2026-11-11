@@ -46,7 +46,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(windows)]
     settings.register_restore_status(&mut builder);
     #[cfg(windows)]
-    let events = du_engine_api::desktop::register_with_shared_table_limit(
+    let desktop = du_engine_api::desktop::register_services(
         &mut builder,
         Arc::new(du_platform_os::windows_observation::WindowsScopeRoots),
         Arc::new(du_platform_os::volume::WindowsVolumes),
@@ -54,6 +54,17 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         &du_platform_os::entropy::OsRandom,
         settings.scan_limit_source(),
     )?;
+    #[cfg(windows)]
+    let events = {
+        use du_platform_os::windows_clipboard::WindowsClipboard;
+        builder.register(crate::clipboard::CopyPath::new(
+            desktop.path_copy,
+            WindowsClipboard,
+            |path: &du_core_contracts::result::ResultNativePath| WindowsClipboard.path_text(path),
+            "\r\n",
+        ));
+        desktop.events
+    };
     #[cfg(windows)]
     events
         .recover_history(&recovery, crate::settings::current_time_ms())

@@ -4,6 +4,42 @@ use crate::{
     result::{ResultCompleteness, ResultItemKind},
 };
 
+/// Copies paths observed in one pinned result revision.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BrowseCopyPathRequest {
+    pub result_version: Id,
+    pub items: Vec<ItemRef>,
+}
+
+/// The local copy outcome. Clipboard contents are private to the desktop host.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+#[serde(
+    tag = "outcome",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase"
+)]
+pub enum BrowseCopyPathOutcome {
+    Copied { count: u32 },
+    Refused { reason_key: BrowseCopyPathRefusal },
+}
+
+/// Stable reason keys for a refused clipboard operation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+pub enum BrowseCopyPathRefusal {
+    #[serde(rename = "path.unrepresentable")]
+    Unrepresentable,
+    #[serde(rename = "path.multiline")]
+    Multiline,
+    #[serde(rename = "clipboard.unsupported")]
+    Unsupported,
+    #[serde(rename = "clipboard.failed")]
+    Failed,
+}
+
 /// Identifies an item only within the result version named by this request.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]

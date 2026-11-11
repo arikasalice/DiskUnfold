@@ -45,3 +45,12 @@ pub trait Random: Send + Sync {
     /// Fills the entire buffer or reports a failure; callers must discard it on error.
     fn fill(&self, bytes: &mut [u8]) -> Result<(), PortError>;
 }
+
+/// Writes a complete local text value in one clipboard operation.
+pub trait ClipboardPort: Send + Sync {
+    /// Reports whether the desktop session supports writing clipboard text.
+    fn can_write_text(&self) -> bool;
+
+    /// Writes the complete text or reports a failure.
+    fn write_text(&self, text: &str) -> Result<(), PortError>;
+}

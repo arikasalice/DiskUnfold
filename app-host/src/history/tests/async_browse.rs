@@ -9,6 +9,91 @@ use du_core_contracts::{
 use std::{fs, path::Path};
 
 #[test]
+fn copies_a_pinned_windows_scan_path_through_desktop_ipc() -> Result<(), Box<dyn std::error::Error>>
+{
+    use du_core_contracts::ports::{ClipboardPort, PortError, PortErrorKind};
+    use du_engine_api::api::{CallerCtx, Channel};
+    use du_platform_os::windows_clipboard::WindowsClipboard;
+    use std::sync::Mutex;
+
+    struct RecordingClipboard(Arc<Mutex<Vec<String>>>);
+    impl ClipboardPort for RecordingClipboard {
+        fn can_write_text(&self) -> bool {
+            true
+        }
+
+        fn write_text(&self, text: &str) -> Result<(), PortError> {
+            self.0
+                .lock()
+                .map_err(|_| PortError {
+                    kind: PortErrorKind::Io,
+                    reason_key: "clipboard.failed".into(),
+                    os_code: None,
+                })?
+                .push(text.into());
+            Ok(())
+        }
+    }
+
+    let fixture = tempfile::tempdir()?;
+    let profile = tempfile::tempdir()?;
+    let name = "한글-e\u{301}.bin";
+    fs::write(fixture.path().join(name), [1])?;
+    let database = crate::startup_database::open(profile.path())?;
+    let mut builder = EngineBuilder::default();
+    let desktop = du_engine_api::desktop::register_services(
+        &mut builder,
+        Arc::new(du_platform_os::windows_observation::WindowsScopeRoots),
+        Arc::new(du_platform_os::volume::WindowsVolumes),
+        Arc::new(database.history(|| 400)),
+        &du_platform_os::entropy::OsRandom,
+        Arc::new(du_engine_api::desktop::SharedTableLimit::default),
+    )?;
+    let writes = Arc::new(Mutex::new(Vec::new()));
+    builder.register(crate::clipboard::CopyPath::new(
+        desktop.path_copy,
+        RecordingClipboard(writes.clone()),
+        |path: &du_core_contracts::result::ResultNativePath| WindowsClipboard.path_text(path),
+        "\r\n",
+    ));
+    let engine = builder.build()?;
+    let scan = start_fixture_scan(&engine, fixture.path())?;
+    let version = read_scan_result(&engine, &desktop.events, &scan.job_ref)?;
+    let body = json!({"resultVersion": version, "items": [
+        {"resultVersion": version, "itemNo": 1},
+        {"resultVersion": version, "itemNo": 0}
+    ]});
+    for channel in [Channel::Cli, Channel::Mcp] {
+        let correlation = Id::from_v7_bytes([7; 16]);
+        let denied = engine.call(
+            du_core_contracts::CallEnvelope {
+                name: "browse.copy_path".into(),
+                contract_version: du_core_contracts::ENVELOPE_VERSION,
+                correlation_id: correlation.clone(),
+                body: body.clone(),
+            },
+            &CallerCtx::new(channel, correlation, None),
+        );
+        assert_eq!(
+            denied.error.ok_or("missing channel error")?.reason_key,
+            "command.not_provided"
+        );
+    }
+    assert!(writes.lock().map_err(|_| "clipboard test lock")?.is_empty());
+    let copied = ipc(&engine, "browse.copy_path", body)?;
+    assert!(copied.error.is_none(), "{:?}", copied.error);
+    assert_eq!(copied.body, json!({"outcome": "copied", "count": 2}));
+    let captured = writes.lock().map_err(|_| "clipboard test lock")?;
+    assert_eq!(captured.len(), 1);
+    let (root, file) = captured[0]
+        .split_once("\r\n")
+        .ok_or("missing path separator")?;
+    assert!(root.ends_with(&*fixture.path().to_string_lossy()));
+    assert_eq!(file, format!("{root}\\{name}"));
+    Ok(())
+}
+
+#[test]
 fn scanned_scope_async_browse_recovers_query_from_job_get_and_finished()
 -> Result<(), Box<dyn std::error::Error>> {
     const FILES: usize = 2_100;

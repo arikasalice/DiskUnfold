@@ -7,6 +7,8 @@
 use std::ffi::c_void;
 use std::ptr::{null, null_mut};
 
+use du_core_contracts::ports::{ClipboardPort, PortError, PortErrorKind};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClipboardWriteError {
     InvalidText,
@@ -18,6 +20,7 @@ pub enum ClipboardWriteError {
 pub struct WindowsClipboard;
 
 impl WindowsClipboard {
+    /// Converts only paths that can be represented exactly as clipboard text.
     pub fn path_text(&self, path: &du_core_contracts::result::ResultNativePath) -> Option<String> {
         if path.encoding != du_core_contracts::PathEncoding::WindowsUtf16le {
             return None;
@@ -39,9 +42,28 @@ impl WindowsClipboard {
         }
     }
 
-    pub fn write_text(&self, text: &str) -> Result<(), ClipboardWriteError> {
+    /// Writes the whole UTF-16 value while holding the native clipboard open.
+    fn write_native_text(&self, text: &str) -> Result<(), ClipboardWriteError> {
         let wide = encode_text(text)?;
         write_native(&wide)
+    }
+}
+
+impl ClipboardPort for WindowsClipboard {
+    fn can_write_text(&self) -> bool {
+        true
+    }
+
+    fn write_text(&self, text: &str) -> Result<(), PortError> {
+        self.write_native_text(text).map_err(|error| PortError {
+            kind: match error {
+                ClipboardWriteError::InvalidText => PortErrorKind::Corrupt,
+                ClipboardWriteError::Unavailable => PortErrorKind::Busy,
+                ClipboardWriteError::System => PortErrorKind::Io,
+            },
+            reason_key: "clipboard.failed".into(),
+            os_code: None,
+        })
     }
 }
 

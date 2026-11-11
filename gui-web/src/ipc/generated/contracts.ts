@@ -282,6 +282,9 @@ export type BrowseOpenResponse = { "kind": "opened", requestSeq: number, origin:
 resultVersion: Id, };
 export type BrowseDetailRequest = { resultVersion: Id, item: ItemRef, };
 export type BrowseDetail = { item: ItemRef, displayPath: BrowseValue<string>, displayName: BrowseValue<string>, kind: BrowseValue<ResultItemKind>, logicalSize: BrowseValue<SizeValue>, allocatedSize: BrowseValue<SizeValue>, modifiedAt: BrowseValue<Timestamp>, createdAt: BrowseValue<Timestamp>, observedAt: BrowseValue<Timestamp>, origin: BrowseOrigin, completeness: ResultCompleteness, currentCorrespondence: boolean, observationOnly: boolean, };
+export type BrowseCopyPathRequest = { resultVersion: Id, items: Array<ItemRef>, };
+export type BrowseCopyPathRefusal = "path.unrepresentable" | "path.multiline" | "clipboard.unsupported" | "clipboard.failed";
+export type BrowseCopyPathOutcome = { "outcome": "copied", count: number, } | { "outcome": "refused", reasonKey: BrowseCopyPathRefusal, };
 export type QueryPagePosition = { queryRef: Id, resultVersion: Id, start: number, count: number, };
 export type QueryPageContinuation = { nextCursor: string, count?: number | null, };
 export type QueryPageRequest = QueryPagePosition | QueryPageContinuation;

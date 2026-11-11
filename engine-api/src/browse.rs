@@ -1,4 +1,5 @@
 //! Projects pinned item observations into the main-window detail contract.
+pub mod copy_path;
 pub mod folder;
 use du_analysis_index::{IngestSink, QueryError, ResultVersion};
 use du_core_contracts::{
