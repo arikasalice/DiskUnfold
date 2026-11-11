@@ -47,6 +47,8 @@ fn prepare(
     let mut presentations = Vec::new();
     let folder = du_analysis_index::browse::open(source, Some(&request.aggregate_scope_ref))
         .map_err(|_| internal())?;
+    // Reserve one shape for Other only when this scope exceeds the limit.
+    let top = top_with_other_slot(folder.children.len(), admitted.max_shapes);
     for item in folder.children {
         if cancelled() {
             return Err(internal());
@@ -85,7 +87,7 @@ fn prepare(
                 bottom: request.visible_window.bottom,
             },
             scale: Scale::Automatic,
-            top: admitted.max_shapes,
+            top,
             max_bars: admitted.max_shapes,
         },
         &admitted.descriptor,
@@ -124,6 +126,15 @@ fn prepare(
     ))
 }
 
+/// Reserves one position for Other only when individual rows exceed the limit.
+fn top_with_other_slot(children: usize, limit: usize) -> usize {
+    if children > limit {
+        limit.saturating_sub(1)
+    } else {
+        limit
+    }
+}
+
 fn exact(size: &SizeValue) -> Option<u64> {
     if size.evidence == du_core_contracts::SizeEvidence::Unknown {
         return None;
@@ -145,13 +156,6 @@ fn to_projection(
     if selected.descriptor != admitted.descriptor
         || ranking.result_version != *admitted.source.result_version()
         || ranking.denominator != ranking.scope_total
-    {
-        return Err(internal());
-    }
-    if ranking
-        .bars
-        .iter()
-        .any(|bar| matches!(bar.identity, BarIdentity::Other { .. }))
     {
         return Err(internal());
     }
@@ -180,6 +184,13 @@ fn to_projection(
     }
     if sum != scope {
         return Ok(None);
+    }
+    if ranking
+        .bars
+        .iter()
+        .any(|bar| matches!(bar.identity, BarIdentity::Other { .. }))
+    {
+        return Err(internal());
     }
     let denominator =
         du_core_contracts::visualization::quantity::VizQuantity::exact("bytes", i128::from(scope))
@@ -326,4 +337,17 @@ fn map_bars(
         omissions,
         drawn,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::top_with_other_slot;
+
+    #[test]
+    fn other_slot_is_reserved_only_above_the_shape_limit() {
+        assert_eq!(top_with_other_slot(2, 3), 3);
+        assert_eq!(top_with_other_slot(3, 3), 3);
+        assert_eq!(top_with_other_slot(4, 3), 2);
+        assert_eq!(top_with_other_slot(2, 1), 0);
+    }
 }

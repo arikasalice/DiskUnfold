@@ -117,6 +117,26 @@ fn session_prepares_pinned_rows_before_selected_ranked_strategy() -> Result<(), 
             .all(|bar| bar.geometry.is_some())
     );
     assert_eq!(calls.load(Ordering::SeqCst), 1);
+    let mut limited = request();
+    limited.top = 0;
+    limited.max_bars = 1;
+    let grouped = session
+        .compute_ranked_bar(&source, limited, &descriptor, &mut || false)
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(grouped.output.bars.len(), 1);
+    match &grouped.output.bars[0].identity {
+        du_analysis_index::visualization::bar_projection::BarIdentity::Other { members, size } => {
+            assert_eq!(members.len(), 2);
+            assert_eq!(
+                size.amount,
+                SizeAmount::Exact {
+                    bytes: 50_u64.into()
+                }
+            );
+        }
+        _ => return Err("expected F03 verified Other".into()),
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
     let mut missing = descriptor.clone();
     missing.strategy.revision = 99;
     assert!(
@@ -124,7 +144,7 @@ fn session_prepares_pinned_rows_before_selected_ranked_strategy() -> Result<(), 
             .compute_ranked_bar(&source, request(), &missing, &mut || false)
             .is_err()
     );
-    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
     assert!(
         session
             .compute_ranked_bar(&source, request(), &descriptor, &mut || true)
