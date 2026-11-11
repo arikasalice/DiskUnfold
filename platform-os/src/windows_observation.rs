@@ -4,6 +4,7 @@ mod enumeration;
 #[cfg(test)]
 mod filter_tests;
 mod recall;
+pub mod recent_probe;
 mod scope;
 mod stable;
 use stable::open_verified_impl;
