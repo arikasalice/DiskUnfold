@@ -21,6 +21,15 @@ use crate::{
     error::EngineError,
 };
 
+/// Recomputes the version-one recent-scope fingerprint from its persisted comparison inputs.
+///
+/// Pass the original admitted keys, in the draft returned by the admission handoff.
+/// A matching digest verifies those inputs. It does not prove path identity or the
+/// correspondence between comparison keys and applied paths.
+pub fn recent_scope_fingerprint_v1(conditions: &ScopeDraft) -> Result<[u8; 32], EngineError> {
+    Ok(*digest::scope(conditions)?.as_bytes())
+}
+
 /// Registers read-only review for local directories, each on its current volume.
 pub fn register_review(
     builder: &mut EngineBuilder,

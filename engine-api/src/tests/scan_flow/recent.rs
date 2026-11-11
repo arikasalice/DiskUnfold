@@ -172,6 +172,12 @@ fn recent_observation_waits_for_response_ack_but_not_scan_finish()
         admission.fingerprint_conditions(),
         &admission.normalized_scope
     );
+    let fingerprint = crate::scope::recent_scope_fingerprint_v1(admission.fingerprint_conditions())
+        .map_err(|error| format!("{error:?}"))?;
+    assert_eq!(
+        blake3::Hash::from_bytes(fingerprint).to_hex().as_str(),
+        receipt.scope_fingerprint
+    );
     let evidence = admission
         .observe(&std::sync::atomic::AtomicBool::new(false))
         .ok_or("delivered GUI admission must produce evidence before scan completion")?;

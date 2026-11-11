@@ -99,6 +99,18 @@ fn exclusion_inside_absorbed_root_stays_bound_to_retained_root()
         .retained_comparison_input()
         .ok_or("missing comparison inputs")?;
     assert_ne!(hashed.exclusions, verified.normalized_draft.exclusions);
+    let fingerprint =
+        crate::scope::recent_scope_fingerprint_v1(&hashed).map_err(|error| format!("{error:?}"))?;
+    let applied = crate::scope::recent_scope_fingerprint_v1(&verified.normalized_draft)
+        .map_err(|error| format!("{error:?}"))?;
+    assert_ne!(fingerprint, applied);
+    assert_eq!(
+        blake3::Hash::from_bytes(fingerprint).to_hex().as_str(),
+        verified
+            .scope_fingerprint
+            .resolve()
+            .map_err(|error| format!("{error:?}"))?
+    );
     assert_eq!(
         serde_json::to_value(&hashed.exclusions[0])?["path"]["raw"],
         native("c:\\fixture\\nested\\private")["raw"]
