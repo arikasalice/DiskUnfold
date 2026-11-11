@@ -216,7 +216,8 @@ function RecordedItemDetails({
   const title = displaced ? "Displaced item details" : "Recorded item details";
   const region = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    region.current?.focus();
+    region.current?.focus({ preventScroll: true });
+    region.current?.scrollIntoView({ block: "start", inline: "nearest" });
   }, [result]);
   return (
     <div
