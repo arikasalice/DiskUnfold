@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Notice, Progress, Readout } from "../../components";
+import { DetailDisclosure, Notice, Progress, Readout } from "../../components";
 import { AnalysisError } from "../../ipc";
 import type {
   AnalysisClient,
@@ -163,5 +163,9 @@ export function ItemSpaceDetails({
 
   if (problem) return <Notice tone="error">{problem}</Notice>;
   if (!detail) return <Progress label="Reading item space details" />;
-  return <Readout label="Observed item space" rows={rows(detail, display)} />;
+  return (
+    <DetailDisclosure title="Space measurement details">
+      <Readout label="Observed item space" rows={rows(detail, display)} />
+    </DetailDisclosure>
+  );
 }

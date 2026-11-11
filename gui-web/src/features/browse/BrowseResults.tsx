@@ -7,6 +7,8 @@ import type {
 } from "../../ipc";
 import type { BrowsePages } from "../../state/browse-pages";
 import { browseDisplayName, rowKey } from "./browse-display";
+import { formatByteUnit } from "../../i18n/bytes";
+import { SIZE_UNIT_RULES } from "../../ipc";
 import { useBrowsePaging } from "./use-browse-paging";
 
 const columns = [
@@ -22,7 +24,15 @@ function size(value: FolderQueryRow["logicalSize"]): string {
   if (value.state === "absent") return "Not recorded";
   if (value.state !== "present" || value.value.state === "unknown")
     return "Unavailable";
-  return `${value.value.state === "lower_bound" ? "At least " : ""}${value.value.bytes} bytes`;
+  const lowerBound = value.value.state === "lower_bound";
+  const readable = formatByteUnit(
+    BigInt(value.value.bytes),
+    SIZE_UNIT_RULES.iec,
+    SIZE_UNIT_RULES.decimalPlaces,
+    "auto",
+    lowerBound,
+  );
+  return `${lowerBound ? "At least " : ""}${readable}`;
 }
 
 function availability(row: FolderQueryRow): string {

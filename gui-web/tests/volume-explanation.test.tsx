@@ -112,6 +112,11 @@ test("F03 FR9: changing volume display units keeps raw bytes and evidence on the
     <VolumeExplanation {...props} display={{ system: "si", unit: "auto" }} />,
   );
   fireEvent.click(screen.getByRole("button", { name: "Explain volume usage" }));
+  fireEvent.click(
+    await screen.findByRole("button", {
+      name: "Observation and difference details",
+    }),
+  );
   const observations = within(
     await screen.findByLabelText("Volume observations"),
   );

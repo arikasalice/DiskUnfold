@@ -1,5 +1,11 @@
 import { useEffect, useState } from "react";
-import { Notice, Progress, Readout, Text } from "../../components";
+import {
+  DetailDisclosure,
+  Notice,
+  Progress,
+  Readout,
+  Text,
+} from "../../components";
 import { AnalysisError } from "../../ipc";
 import type {
   AnalysisClient,
@@ -40,8 +46,6 @@ function attributes(detail: BrowseDetail) {
     { label: "Kind", value: attribute(detail.kind) },
     { label: "Logical size", value: size(detail.logicalSize) },
     { label: "Allocated size", value: size(detail.allocatedSize) },
-    { label: "Modified", value: attribute(detail.modifiedAt) },
-    { label: "Created", value: attribute(detail.createdAt) },
     { label: "Result published", value: attribute(detail.observedAt) },
     { label: "Source", value: detail.observationOnly ? "Scan record" : "Scan" },
   ];
@@ -95,7 +99,18 @@ export function FileInspection({
       {problem && <Notice tone="error">{problem}</Notice>}
       {!problem && !detail && <Progress label="Reading file attributes" />}
       {detail && (
-        <Readout label="Observed file attributes" rows={attributes(detail)} />
+        <>
+          <Readout label="Observed file attributes" rows={attributes(detail)} />
+          <DetailDisclosure title="More observed attributes">
+            <Readout
+              label="More observed attributes"
+              rows={[
+                { label: "Modified", value: attribute(detail.modifiedAt) },
+                { label: "Created", value: attribute(detail.createdAt) },
+              ]}
+            />
+          </DetailDisclosure>
+        </>
       )}
       <ItemSpaceDetails
         client={client}

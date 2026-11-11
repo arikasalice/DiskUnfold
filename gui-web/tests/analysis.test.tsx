@@ -628,6 +628,9 @@ test("F01–F03: reviewed scope starts a scan and reads its pinned partial resul
     resultVersion: "result",
     item: { resultVersion: "result", itemNo: 0 },
   });
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Space measurement details" }),
+  );
   const space = within(await screen.findByLabelText("Observed item space"));
   expect(
     space.getByText("At least 42 bytes · Reported by the file system"),
@@ -1368,7 +1371,7 @@ test("F02 IF-23: opens an existing partial without an event, then keeps it until
   expect(screen.queryByText(/2,207 bytes/)).toBeNull();
   expect(calls.filter(({ name }) => name === "space.total")).toHaveLength(1);
   fireEvent.click(screen.getByRole("button", { name: "Browse folders" }));
-  await screen.findByText(/^Source: scan/);
+  await screen.findByText(/^Pinned result · scan/);
   expect(calls.find(({ name }) => name === "browse.open")?.body).toMatchObject({
     resultVersion: "part",
   });
@@ -1416,7 +1419,7 @@ test("F02 IF-23: opens an existing partial without an event, then keeps it until
     screen.queryByRole("button", { name: "Show latest result" }),
   ).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Browse folders" }));
-  await screen.findByText(/^Source: scan/);
+  await screen.findByText(/^Pinned result · scan/);
   expect(
     calls.filter(({ name }) => name === "browse.open").at(-1)?.body,
   ).toMatchObject({
@@ -2281,6 +2284,11 @@ test("F01 FR3: multiple paths are reviewed together and the exact reviewed input
     target: { value: "1" },
   });
   fireEvent.click(screen.getByRole("button", { name: "Explain volume usage" }));
+  fireEvent.click(
+    await screen.findByRole("button", {
+      name: "Observation and difference details",
+    }),
+  );
   const observations = within(
     await screen.findByLabelText("Volume observations"),
   );

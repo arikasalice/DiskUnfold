@@ -267,23 +267,25 @@ export function BrowsePanel({
       {view && page && (
         <>
           <PreviousResultNotice previous={previousResult} />
-          <Text kind="muted">
-            Source: {view.opened.origin} · Observed:{" "}
-            {page.observedAt ?? "Unavailable"}
-          </Text>
-          <div className="du-card__actions">
-            <Action onPress={goUp} isDisabled={!parent || previousResult}>
-              Up
-            </Action>
-            <Breadcrumbs
-              label="Folder path"
-              entries={readOnlyBreadcrumbs(
-                folderPath(view.opened, hasVirtualRoot, (item) =>
-                  navigate(item, page.resultVersion),
-                ),
-                previousResult,
-              )}
-            />
+          <div className="du-browse-context">
+            <div className="du-card__actions">
+              <Action onPress={goUp} isDisabled={!parent || previousResult}>
+                Up
+              </Action>
+              <Breadcrumbs
+                label="Folder path"
+                entries={readOnlyBreadcrumbs(
+                  folderPath(view.opened, hasVirtualRoot, (item) =>
+                    navigate(item, page.resultVersion),
+                  ),
+                  previousResult,
+                )}
+              />
+            </div>
+            <Text kind="muted">
+              Pinned result · {view.opened.origin} · Observed{" "}
+              {page.observedAt ?? "Unavailable"}
+            </Text>
           </div>
           {page.completeness !== "complete" && (
             <Notice>

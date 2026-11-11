@@ -44,6 +44,10 @@ export function ScanIssues({ client, resultVersion }: IssueSource) {
       </Action>
       {open && (
         <>
+          <Text kind="muted">
+            These entries explain where the scan could not collect or verify
+            information.
+          </Text>
           <SelectField
             label="Issue type"
             value={filter}

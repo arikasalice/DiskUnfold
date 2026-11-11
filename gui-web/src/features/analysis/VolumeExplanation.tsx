@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import {
   Action,
+  DetailDisclosure,
   Notice,
   Progress,
   Readout,
@@ -187,14 +188,7 @@ export function VolumeExplanation({
       {report && (
         <>
           <Readout
-            label="Volume observations"
-            rows={[
-              ...observationRows("Start", report.start, display),
-              ...observationRows("End", report.end, display),
-            ]}
-          />
-          <Readout
-            label="Volume difference"
+            label="Volume usage summary"
             rows={[
               {
                 label: "Compared scope",
@@ -203,37 +197,72 @@ export function VolumeExplanation({
                   : "Selected scanned folder",
               },
               {
-                label: "Scoped allocated size",
-                value: `${displaySizeWithBytes(report.allocated.size, display)} · ${displayMeasurement(report.allocated.size, report.allocated.completeness)}`,
+                label: "Volume used at end of scan",
+                value:
+                  report.end.state === "available"
+                    ? `${volumeBytes(report.end.usedBytes, display)} · ${evidenceLabels[report.end.evidence] ?? "Evidence unavailable"} · ${report.end.observedAt ?? "Time unavailable"}`
+                    : "Unavailable",
               },
               {
-                label: "Scoped unique physical size",
-                value: `${displaySizeWithBytes(report.uniquePhysical.size, display)} · ${displayMeasurement(report.uniquePhysical.size, report.uniquePhysical.completeness)}`,
+                label: "Scanned allocation",
+                value: `${displaySizeWithBytes(report.allocated.size, display)} · ${displayMeasurement(report.allocated.size, report.allocated.completeness)}`,
               },
-              ...report.factors.map(({ key, value }) => ({
-                label: factorLabels[key] ?? key,
-                value: amount(value, display),
-              })),
               {
                 label: "Unexplained difference",
                 value: amount(report.remainder, display),
               },
-              {
-                label: "OS system categories",
-                value:
-                  report.osCategories.state === "unavailable"
-                    ? "Unavailable"
-                    : report.osCategories.rows.length === 0
-                      ? "None reported"
-                      : report.osCategories.rows
-                          .map(
-                            ({ key, value }) =>
-                              `${key} · ${amount(value, display)}`,
-                          )
-                          .join(", "),
-              },
             ]}
           />
+          <DetailDisclosure title="Observation and difference details">
+            <Readout
+              label="Volume observations"
+              rows={[
+                ...observationRows("Start", report.start, display),
+                ...observationRows("End", report.end, display),
+              ]}
+            />
+            <Readout
+              label="Volume difference"
+              rows={[
+                {
+                  label: "Compared scope",
+                  value: wholeVolume
+                    ? "All scanned folders on this volume"
+                    : "Selected scanned folder",
+                },
+                {
+                  label: "Scoped allocated size",
+                  value: `${displaySizeWithBytes(report.allocated.size, display)} · ${displayMeasurement(report.allocated.size, report.allocated.completeness)}`,
+                },
+                {
+                  label: "Scoped unique physical size",
+                  value: `${displaySizeWithBytes(report.uniquePhysical.size, display)} · ${displayMeasurement(report.uniquePhysical.size, report.uniquePhysical.completeness)}`,
+                },
+                ...report.factors.map(({ key, value }) => ({
+                  label: factorLabels[key] ?? key,
+                  value: amount(value, display),
+                })),
+                {
+                  label: "Unexplained difference",
+                  value: amount(report.remainder, display),
+                },
+                {
+                  label: "OS system categories",
+                  value:
+                    report.osCategories.state === "unavailable"
+                      ? "Unavailable"
+                      : report.osCategories.rows.length === 0
+                        ? "None reported"
+                        : report.osCategories.rows
+                            .map(
+                              ({ key, value }) =>
+                                `${key} · ${amount(value, display)}`,
+                            )
+                            .join(", "),
+                },
+              ]}
+            />
+          </DetailDisclosure>
           {!wholeVolume && roots.length > 1 && report.volumeId && (
             <Action onPress={() => void load({ volumeId: report.volumeId })}>
               Compare all scanned folders on this volume
