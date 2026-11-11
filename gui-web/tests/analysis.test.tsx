@@ -2824,3 +2824,78 @@ test("F01: a listing failure is not reported as an empty successful list", async
   expect((input as HTMLInputElement).value).toBe(path.display);
   expect(document.activeElement).toBe(input);
 });
+
+test.each(["Enter", " "])(
+  "F01: refresh keeps focus during a delayed %s request",
+  async (key) => {
+    const { client, calls } = fixture();
+    const originalCall = client.call;
+    let finish!: (value: TargetList) => void;
+    const pending = new Promise<TargetList>((resolve) => {
+      finish = resolve;
+    });
+    client.call = ((name: string, body: unknown) => {
+      if (name === "target.list" && (body as { refresh: boolean }).refresh) {
+        calls.push({ name, body });
+        return pending;
+      }
+      return originalCall(name as never, body as never);
+    }) as AnalysisClient["call"];
+    render(<App analysis={client} />);
+    await screen.findByRole("radio", { name: path.display });
+    const refresh = screen.getByRole("button", { name: "Refresh targets" });
+    refresh.focus();
+    fireEvent.keyDown(refresh, { key });
+    fireEvent.keyUp(refresh, { key });
+    await screen.findByText("Finding drives…");
+    expect((refresh as HTMLButtonElement).disabled).toBe(false);
+    expect(document.activeElement).toBe(refresh);
+    fireEvent.click(refresh);
+    fireEvent.keyDown(refresh, { key });
+    fireEvent.keyUp(refresh, { key });
+    expect(calls.filter(({ name }) => name === "target.list")).toHaveLength(2);
+    await act(async () => finish(targets));
+    expect(document.activeElement).toBe(refresh);
+  },
+);
+
+test.each(["success", "failure"])(
+  "F01: refresh %s does not steal focus and can be retried",
+  async (outcome) => {
+    const { client, calls } = fixture();
+    const originalCall = client.call;
+    let finish!: (value: TargetList) => void;
+    let fail!: (error: Error) => void;
+    const pending = new Promise<TargetList>((resolve, reject) => {
+      finish = resolve;
+      fail = reject;
+    });
+    let refreshes = 0;
+    client.call = ((name: string, body: unknown) => {
+      if (name === "target.list" && (body as { refresh: boolean }).refresh) {
+        calls.push({ name, body });
+        refreshes += 1;
+        return refreshes === 1 ? pending : Promise.resolve(targets);
+      }
+      return originalCall(name as never, body as never);
+    }) as AnalysisClient["call"];
+    render(<App analysis={client} />);
+    await screen.findByRole("radio", { name: path.display });
+    const refresh = screen.getByRole("button", { name: "Refresh targets" });
+    refresh.focus();
+    fireEvent.click(refresh);
+    await screen.findByText("Finding drives…");
+    const input = screen.getByRole("textbox", { name: "Windows folder path" });
+    input.focus();
+    await act(async () =>
+      outcome === "success"
+        ? finish(targets)
+        : fail(new Error("Listing failed")),
+    );
+    expect(document.activeElement).toBe(input);
+    if (outcome === "failure")
+      expect(await screen.findByText("Listing failed")).toBeDefined();
+    fireEvent.click(refresh);
+    await waitFor(() => expect(refreshes).toBe(2));
+  },
+);

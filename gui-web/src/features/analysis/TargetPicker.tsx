@@ -189,7 +189,8 @@ function DrivePicker({
             variant="quiet"
             icon="refresh"
             aria-label="Refresh targets"
-            isDisabled={targets.loading || disabled}
+            isDisabled={disabled}
+            isPending={targets.loading}
             onPress={() => void targets.refresh(true)}
           />
         </div>
