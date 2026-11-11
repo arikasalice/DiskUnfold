@@ -486,3 +486,4 @@ fn producer_registry_values_can_be_consumed() {
 mod snapshot_time;
 
 mod source_delivery;
+mod source_failures;
