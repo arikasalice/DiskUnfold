@@ -11,16 +11,16 @@ use std::collections::HashSet;
 /// `Weight::Unknown` represents an observation gap. A lower bound remains a
 /// positioned lower-bound observation; it is not changed into an exact value.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Point {
+pub struct Point<V = Weight> {
     pub observed_at_ms: i64,
-    pub value: Weight,
+    pub value: V,
 }
 
 /// One pre-decimated series in strictly increasing timestamp order.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Series {
+pub struct Series<V = Weight> {
     pub series_no: u32,
-    pub points: Vec<Point>,
+    pub points: Vec<Point<V>>,
 }
 
 /// Integer coordinate of an observed point within the supplied bounds.
@@ -44,9 +44,9 @@ pub struct LineSegment {
 /// An input observation and its optional geometry. Unknown points have no y
 /// coordinate and split line runs; no synthetic points are returned.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Sample {
+pub struct Sample<V = Weight> {
     pub observed_at_ms: i64,
-    pub value: Weight,
+    pub value: V,
     /// Horizontal position is retained even when the observation is unknown.
     pub x: u32,
     pub coordinate: Option<Coordinate>,
@@ -54,9 +54,9 @@ pub struct Sample {
 
 /// Positioned observations and line segments for one caller-supplied series.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SeriesLayout {
+pub struct SeriesLayout<V = Weight> {
     pub series_no: u32,
-    pub samples: Vec<Sample>,
+    pub samples: Vec<Sample<V>>,
     pub segments: Vec<LineSegment>,
 }
 
@@ -67,7 +67,7 @@ pub struct SeriesGeometry {
     pub lines: Vec<du_core_contracts::visualization::geometry::Geometry>,
 }
 
-impl SeriesLayout {
+impl<V> SeriesLayout<V> {
     /// Converts existing samples and line segments to geometry v1.
     /// Coordinates must already be on the normalized grid. Unknown samples
     /// have no point and the original line gaps are preserved.
@@ -101,18 +101,18 @@ impl SeriesLayout {
 
 /// Inclusive numeric extent used for the shared vertical axis.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ValueRange {
-    pub minimum: u64,
-    pub maximum: u64,
+pub struct ValueRange<N = u64> {
+    pub minimum: N,
+    pub maximum: N,
 }
 
 /// Trend geometry aligned to one shared time and value domain.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Trend {
+pub struct Trend<V = Weight, N = u64> {
     pub time_range_ms: Option<(i64, i64)>,
     /// `None` means every supplied observation is unknown.
-    pub value_range: Option<ValueRange>,
-    pub series: Vec<SeriesLayout>,
+    pub value_range: Option<ValueRange<N>>,
+    pub series: Vec<SeriesLayout<V>>,
 }
 
 /// Invalid geometry, ambiguous input, or a cancelled calculation.
@@ -143,6 +143,24 @@ pub fn layout_cancellable(
     input: &[Series],
     cancelled: &mut dyn FnMut() -> bool,
 ) -> Result<Trend, Error> {
+    layout_values(
+        bounds,
+        input,
+        |value| match value {
+            Weight::Exact(value) | Weight::LowerBound(value) => Some(*value),
+            Weight::Unknown => None,
+        },
+        cancelled,
+    )
+}
+
+/// Positions numeric evidence without changing the original value in any sample.
+pub(super) fn layout_values<V: Clone, N: Copy + Ord + Into<i128>>(
+    bounds: Rect,
+    input: &[Series<V>],
+    value_of: impl Fn(&V) -> Option<N>,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<Trend<V, N>, Error> {
     check_cancelled(cancelled)?;
     if !valid_bounds(bounds) {
         return Err(Error::InvalidBounds);
@@ -168,9 +186,9 @@ pub fn layout_cancellable(
                 Some(time_min.map_or(point.observed_at_ms, |v: i64| v.min(point.observed_at_ms)));
             time_max =
                 Some(time_max.map_or(point.observed_at_ms, |v: i64| v.max(point.observed_at_ms)));
-            if let Weight::Exact(value) | Weight::LowerBound(value) = point.value {
-                value_min = Some(value_min.map_or(value, |v: u64| v.min(value)));
-                value_max = Some(value_max.map_or(value, |v: u64| v.max(value)));
+            if let Some(value) = value_of(&point.value) {
+                value_min = Some(value_min.map_or(value, |v: N| v.min(value)));
+                value_max = Some(value_max.map_or(value, |v: N| v.max(value)));
             }
         }
     }
@@ -188,12 +206,12 @@ pub fn layout_cancellable(
             for (index, point) in series.points.iter().enumerate() {
                 check_cancelled(cancelled)?;
                 let x = map_time(bounds, point.observed_at_ms, time_range_ms);
-                let coordinate = match point.value {
-                    Weight::Unknown => {
+                let coordinate = match value_of(&point.value) {
+                    None => {
                         previous_known = None;
                         None
                     }
-                    Weight::Exact(value) | Weight::LowerBound(value) => {
+                    Some(value) => {
                         let coordinate = Coordinate {
                             x,
                             y: map_value(bounds, value, value_range),
@@ -212,7 +230,7 @@ pub fn layout_cancellable(
                 };
                 samples.push(Sample {
                     observed_at_ms: point.observed_at_ms,
-                    value: point.value,
+                    value: point.value.clone(),
                     x,
                     coordinate,
                 });
@@ -251,7 +269,11 @@ fn map_time(bounds: Rect, timestamp: i64, range: Option<(i64, i64)>) -> u32 {
     bounds.left + proportional(bounds.right - bounds.left, offset, span)
 }
 
-fn map_value(bounds: Rect, value: u64, range: Option<ValueRange>) -> u32 {
+fn map_value<N: Copy + Ord + Into<i128>>(
+    bounds: Rect,
+    value: N,
+    range: Option<ValueRange<N>>,
+) -> u32 {
     let Some(range) = range else {
         return bounds.top + (bounds.bottom - bounds.top) / 2;
     };
@@ -259,8 +281,8 @@ fn map_value(bounds: Rect, value: u64, range: Option<ValueRange>) -> u32 {
     if range.minimum == range.maximum {
         return bounds.top + height / 2;
     }
-    let offset = u128::from(value - range.minimum);
-    let span = u128::from(range.maximum - range.minimum);
+    let offset = (value.into() - range.minimum.into()) as u128;
+    let span = (range.maximum.into() - range.minimum.into()) as u128;
     bounds.bottom - proportional(height, offset, span)
 }
 

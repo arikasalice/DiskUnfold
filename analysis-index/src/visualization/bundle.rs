@@ -100,6 +100,18 @@ pub fn register_waterfall_candidate(
         .map_err(Error::Registration)
 }
 
+/// Registers trend geometry over owner-decimated observations and their timestamps.
+pub fn register_trend_candidate(
+    builder: &mut registry::Builder<Box<dyn Strategy>>,
+) -> Result<(), Error> {
+    builder
+        .register(
+            typed_layout::trend_descriptor(),
+            Box::new(typed_layout::TrendLayout),
+        )
+        .map_err(Error::Registration)
+}
+
 /// Freezes a full baseline only when all six published IDs at revision one exist.
 ///
 /// The builder still enforces unique IDs, revisions, and format associations.

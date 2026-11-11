@@ -4,9 +4,12 @@
 //! metadata and model references still require their published physical contract.
 mod bar_strategy;
 mod numeric_layout;
+mod trend_strategy;
 pub(super) use bar_strategy::BarLayout;
 pub use bar_strategy::RankedBar;
 pub use numeric_layout::{CommonInput, CommonRow};
+pub use trend_strategy::{SelectedTrend, TrendDispatchError, TrendError, TrendInput, TrendOutput};
+pub(super) use trend_strategy::{TrendLayout, trend_descriptor};
 
 use super::{
     bar_categories, bar_projection,
@@ -180,6 +183,15 @@ pub trait Strategy: Send + Sync {
         _cancelled: &mut dyn FnMut() -> bool,
     ) -> Result<bar_categories::Layout, BarError> {
         Err(BarError::UnsupportedMode)
+    }
+
+    /// Positions admitted observations when the strategy supports time series.
+    fn trend(
+        &self,
+        _input: TrendInput<'_>,
+        _cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<TrendOutput, TrendError> {
+        Err(TrendError::Unsupported)
     }
 
     /// Whether every published bar representation is implemented.
