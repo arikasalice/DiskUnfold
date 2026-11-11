@@ -197,6 +197,7 @@ export type VizRatio = string;
 export type VizDenominator = { basis: VizDenominatorBasis, value: VizQuantity, size?: SizeValue, };
 export type VizRow = { itemRef: ItemRef | null, groupRef: string | null, displayName: string, size: SizeValue, quantity?: VizQuantity, ratio: VizRatio | null, denominator: VizDenominator, legendClassKey: string, displayFlags: Array<string>, };
 export type VizRowsRequest = { modelRef: string, resultRevision: Id, start: number, count: number, };
+export type VizGroupRowsRequest = { modelRef: string, groupRef: string, start: number, count: number, };
 export type VizRows = { rows: Array<VizRow>, totalCount: number, resultRevision: Id, observedAt: Timestamp | null, completeness: ResultCompleteness, };
 export type VizLocateRequest = {
 /**

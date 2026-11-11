@@ -185,6 +185,35 @@ impl VizRowsRequest {
         Ok(())
     }
 }
+/// Position-based request for members of one model-local group.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct VizGroupRowsRequest {
+    #[serde(deserialize_with = "nonempty")]
+    pub model_ref: String,
+    #[serde(deserialize_with = "nonempty")]
+    pub group_ref: String,
+    pub start: u32,
+    #[serde(deserialize_with = "positive_count")]
+    pub count: u32,
+}
+impl VizGroupRowsRequest {
+    /// Checks the published request fields; group membership is checked by the engine.
+    pub fn validate(&self) -> Result<(), &'static str> {
+        if self.model_ref.is_empty() || self.group_ref.is_empty() || self.count == 0 {
+            return Err("invalid group rows request");
+        }
+        Ok(())
+    }
+}
+fn positive_count<'de, D: Deserializer<'de>>(d: D) -> Result<u32, D::Error> {
+    let value = u32::deserialize(d)?;
+    if value == 0 {
+        return Err(D::Error::custom("count must be positive"));
+    }
+    Ok(value)
+}
 /// Page from one pinned model. totalCount is a JSON-safe integer.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]

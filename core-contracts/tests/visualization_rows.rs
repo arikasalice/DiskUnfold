@@ -1,4 +1,6 @@
-use du_core_contracts::visualization::rows::{VizRatio, VizRow, VizRows, VizRowsRequest};
+use du_core_contracts::visualization::rows::{
+    VizGroupRowsRequest, VizRatio, VizRow, VizRows, VizRowsRequest,
+};
 use serde_json::{Value, json};
 const ID: &str = "018f0000-0000-7000-8000-000000000001";
 const OTHER: &str = "018f0000-0000-7000-8000-000000000002";
@@ -146,6 +148,7 @@ fn generated_types_match_wire_declarations() {
         VizDenominator::decl(&config),
         VizRow::decl(&config),
         VizRowsRequest::decl(&config),
+        VizGroupRowsRequest::decl(&config),
         VizRows::decl(&config),
     ] {
         let normalized = declaration
@@ -158,4 +161,34 @@ fn generated_types_match_wire_declarations() {
             "missing {normalized}"
         );
     }
+}
+
+#[test]
+fn group_rows_request_has_published_fields_and_rejects_invalid_values()
+-> Result<(), Box<dyn std::error::Error>> {
+    let input = serde_json::json!({"modelRef":"model", "groupRef":"group", "start":0, "count":1});
+    let request: VizGroupRowsRequest = serde_json::from_value(input.clone())?;
+    request.validate()?;
+    assert_eq!(serde_json::to_value(&request)?, input);
+    let max = serde_json::json!({"modelRef":"model", "groupRef":"group", "start":u32::MAX, "count":u32::MAX});
+    let max_request: VizGroupRowsRequest = serde_json::from_value(max.clone())?;
+    max_request.validate()?;
+    assert_eq!(serde_json::to_value(max_request)?, max);
+    for invalid in [
+        serde_json::json!({"groupRef":"group", "start":0, "count":1}),
+        serde_json::json!({"modelRef":"model", "start":0, "count":1}),
+        serde_json::json!({"modelRef":"model", "groupRef":"group", "count":1}),
+        serde_json::json!({"modelRef":"model", "groupRef":"group", "start":0}),
+        serde_json::json!({"modelRef":"model", "groupRef":"group", "start":4294967296_u64, "count":1}),
+        serde_json::json!({"modelRef":"model", "groupRef":"group", "start":0, "count":4294967296_u64}),
+        serde_json::json!({"modelRef":"model", "groupRef":"group", "start":0, "count":1.5}),
+        serde_json::json!({"modelRef":"", "groupRef":"group", "start":0, "count":1}),
+        serde_json::json!({"modelRef":"model", "groupRef":"", "start":0, "count":1}),
+        serde_json::json!({"modelRef":"model", "groupRef":"group", "start":0, "count":0}),
+        serde_json::json!({"modelRef":"model", "groupRef":"group", "start":-1, "count":1}),
+        serde_json::json!({"modelRef":"model", "groupRef":"group", "start":0, "count":1, "resultRevision":"extra"}),
+    ] {
+        assert!(serde_json::from_value::<VizGroupRowsRequest>(invalid).is_err());
+    }
+    Ok(())
 }
