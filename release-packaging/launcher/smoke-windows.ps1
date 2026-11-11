@@ -197,7 +197,8 @@ function Test-BrowseCopyContention($name) {
   try {
     Invoke-UI $copy
     $notice = Wait-UI 'visible row copy refusal' {
-      $message = Find-UI "${name}: Could not copy to the clipboard." $null
+      # The structured filename span and the reason are separate UIA text nodes.
+      $message = Find-UI ': Could not copy to the clipboard.' $null
       if ($message -and -not $message.Current.IsOffscreen) { $message }
     } 4
     if ($notice.Current.BoundingRectangle.IsEmpty) { throw 'Row copy feedback has no visible bounds' }
