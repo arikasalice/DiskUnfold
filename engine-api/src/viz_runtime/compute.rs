@@ -32,6 +32,9 @@ impl JobBody for Compute {
         if self.admitted.histogram.is_some() {
             return super::histogram::run(self, &mut cancelled);
         }
+        if self.admitted.request.format == "bar" {
+            return super::ranked_bar::run(self, &mut cancelled);
+        }
         let request = &self.admitted.request;
         let hierarchy = request.format == "treemap"
             && (request.depth_limit > 1

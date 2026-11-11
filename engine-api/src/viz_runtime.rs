@@ -39,6 +39,7 @@ mod envelope;
 mod histogram;
 mod histogram_model;
 mod lifecycle;
+mod ranked_bar;
 
 /// Histogram policy and bin presentation frozen by the composition owner at admission.
 #[derive(Clone)]

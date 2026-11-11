@@ -1,7 +1,9 @@
 //! Composes the admitted live single-parent visualization and its page registry.
 mod deferred;
+mod ranked;
 pub use deferred::DeferredRender;
 use deferred::PrepareMode;
+pub(crate) use ranked::RankedInput;
 
 use std::{
     collections::BTreeMap,
@@ -36,7 +38,6 @@ pub struct Request<'a> {
     pub strategy: Option<&'a LayoutStrategyKey>,
     pub max_shapes: usize,
 }
-
 /// Facts supplied by the path-comparison and presentation owners for one item.
 pub struct ChildEvidence {
     pub item: ItemRef,
@@ -51,7 +52,6 @@ pub struct Rendered {
     pub model_ref: String,
     pub model: Arc<projection::Model>,
 }
-
 /// Why a committed model has a table but no geometry.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FallbackReason {
@@ -110,7 +110,6 @@ impl PreparedRender {
         self.input.condition_fingerprint = fingerprint;
     }
 }
-
 /// A private candidate with a reference reserved before entering the F24 gate.
 /// The reference is neither registered nor returned to a wire consumer here.
 pub struct ReservedRender {

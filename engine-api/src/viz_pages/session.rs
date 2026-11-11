@@ -49,6 +49,15 @@ pub struct ChildPolicyEvidence {
 }
 
 impl Session {
+    /// Prepares ranked rows for the same deferred publication used by other views.
+    pub(crate) fn prepare_ranked(
+        &self,
+        source: &CurrentAnalysis,
+        input: render::RankedInput<'_>,
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<render::PreparedRender, render::Error> {
+        self.pages.prepare_ranked(source, input, cancelled)
+    }
     /// Runs the selected ranked-bar strategy with facts from one pinned source.
     /// This internal candidate is not a published model or a complete bar catalog.
     pub fn compute_ranked_bar(

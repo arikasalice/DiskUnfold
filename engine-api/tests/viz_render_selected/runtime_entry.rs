@@ -450,3 +450,4 @@ mod replacement;
 mod source_selection;
 
 mod histogram_strategy;
+mod ranked_bar_runtime;
