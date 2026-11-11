@@ -65,7 +65,7 @@ export function useTargets(client: AnalysisClient) {
   const [error, setError] = useState<string>();
   const [finished, setFinished] = useState(false);
   const enabled = useRef(true);
-  const terminal = useRef(new Set<string>());
+  const terminal = useRef(new Map<string, number>());
   const pendingLists = useRef(0);
   const probesInFlight = useRef(new Set<string>());
   const active = useRef<ProbeWindow>({
@@ -103,8 +103,6 @@ export function useTargets(client: AnalysisClient) {
           return;
         }
         state.job = response.probeJobRef;
-        if (response.probeJobRef && !terminal.current.has(response.probeJobRef))
-          probesInFlight.current.add(response.probeJobRef);
         state.highestSequence = 0;
         state.finished = false;
         state.targetSequences = new Map(
@@ -118,6 +116,14 @@ export function useTargets(client: AnalysisClient) {
           .flatMap(({ observation }) =>
             observation ? [[observation.target.raw, observation] as const] : [],
           );
+        if (state.job) {
+          // The bounded observation buffer may have filled before the terminal arrived.
+          const sequence = terminal.current.get(state.job);
+          if (sequence !== undefined)
+            accept(state, { job: state.job, sequence });
+          if (state.finished) probesInFlight.current.delete(state.job);
+          else probesInFlight.current.add(state.job);
+        }
         setProbes(Object.fromEntries(observations));
         setFinished(state.finished);
         setList(response);
@@ -166,7 +172,10 @@ export function useTargets(client: AnalysisClient) {
         !update.observation &&
         (update.job !== state.job || update.sequence > state.highestSequence)
       ) {
-        if (pendingLists.current > 0) terminal.current.add(update.job);
+        if (pendingLists.current > 0) {
+          const previous = terminal.current.get(update.job) ?? 0;
+          terminal.current.set(update.job, Math.max(previous, update.sequence));
+        }
         probesInFlight.current.delete(update.job);
       }
       if (state.early) {
