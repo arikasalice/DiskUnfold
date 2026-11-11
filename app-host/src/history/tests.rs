@@ -18,6 +18,7 @@ use std::{
 
 mod async_browse;
 mod items;
+mod many_roots;
 mod measurement;
 mod scan_cancellation;
 mod scope_replacement;
