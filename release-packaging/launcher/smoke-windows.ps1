@@ -602,11 +602,12 @@ try {
   if ($VerifySettingsRestoration) {
     Invoke-UI (Wait-VisibleAction 'Settings restoration')
     $null = Wait-UI 'startup settings defaults' { Find-UI 'Using default' $textType }
-    foreach ($label in @('Size unit', 'Unit system', 'Default size basis')) {
-      $null = Wait-UI "user-facing setting name: $label" { Find-UI $label $textType }
+    $restoredSettings = Wait-UI 'restored settings list' { Find-UI 'Restored settings' $null }
+    foreach ($settingName in @('Size unit', 'Unit system', 'Default size basis')) {
+      $null = Wait-UI "user-facing setting name: $settingName" { Find-UI $settingName $null $restoredSettings }
     }
     foreach ($key in @('display.size_unit', 'display.size_unit_system', 'space.default_basis')) {
-      if (Find-UI $key $textType) { throw "Settings restoration displayed an internal key: $key" }
+      if (Find-UI $key $null $restoredSettings) { throw "Settings restoration displayed an internal key: $key" }
     }
     Wait-Details 'Format details' 'App format version'
     $null = Wait-UI 'startup settings format' { Find-UI 'App format version' $null }
