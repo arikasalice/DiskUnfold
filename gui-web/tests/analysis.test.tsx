@@ -649,6 +649,16 @@ test("F01–F03: reviewed scope starts a scan and reads its pinned partial resul
     await screen.findByLabelText("Observed folder attributes"),
   );
   expect(detail.getByText("0 bytes")).toBeDefined();
+  expect(detail.getByText("Exact")).toBeDefined();
+  const labels = [
+    ...detail.getAllByText(/^(Folder name|Logical size|Allocated size|Path)$/),
+  ].map((element) => element.textContent);
+  expect(labels).toEqual([
+    "Folder name",
+    "Logical size",
+    "Allocated size",
+    "Path",
+  ]);
   expect(detail.getByText("Unavailable in this scan")).toBeDefined();
   fireEvent.click(
     screen.getByRole("button", { name: "More observed attributes" }),

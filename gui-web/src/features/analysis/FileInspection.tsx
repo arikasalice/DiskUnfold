@@ -52,7 +52,10 @@ function diagnostics(detail: BrowseDetail) {
 function evidence(value: BrowseDetail["logicalSize"]): string[] {
   if (value.state !== "present") return [];
   const label = evidenceLabels[value.value.evidence];
-  return label ? [label] : [];
+  const certainty = value.value.state === "exact" ? "Exact" : undefined;
+  return [certainty, label].filter(
+    (note): note is string => note !== undefined,
+  );
 }
 
 function attributes(
@@ -158,10 +161,12 @@ export function FileInspection({
         detail.item.resultVersion === resultVersion &&
         detail.item.itemNo === itemNo && (
           <>
-            <Readout
-              label={`Observed ${itemKind} attributes`}
-              rows={attributes(detail, itemKind, display, client, item)}
-            />
+            <div className="du-inspection-summary">
+              <Readout
+                label={`Observed ${itemKind} attributes`}
+                rows={attributes(detail, itemKind, display, client, item)}
+              />
+            </div>
             {diagnostics(detail).length > 0 && (
               <DetailDisclosure title="Diagnostic reasons">
                 <Readout
