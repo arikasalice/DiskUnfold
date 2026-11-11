@@ -9,6 +9,7 @@ use du_core_contracts::{
     result::{ResultCompleteness, ResultNativePath, ResultScopeRoot},
 };
 use du_engine_api::search_page::{self, ProjectionError};
+use std::sync::Arc;
 
 fn id(n: u8) -> Result<Id, String> {
     Id::parse(&format!("018f0000-0000-7000-8000-{n:012x}"))
@@ -184,5 +185,97 @@ fn absent_root_and_missing_values_remain_unknown() -> Result<(), String> {
     assert!(matches!(row.modified_at, BrowseValue::Unknown { .. }));
     assert!(matches!(row.created_at, BrowseValue::Unknown { .. }));
     assert!(row.missing_fields.is_empty() && row.reason_keys.is_empty());
+    Ok(())
+}
+
+#[test]
+fn prepared_search_preserves_indeterminate_counts_through_page_projection() -> Result<(), String> {
+    use du_analysis_index::query::{
+        Boundary, Kind, Predicate, SortSpec,
+        prepared::{PreparedSearch, PreparedSearchError, SearchInput},
+    };
+
+    let store = IngestSink::default();
+    let mut build = store.open(id(21)?).map_err(|e| format!("{e:?}"))?;
+    build.add_directory(vec![]).map_err(|e| format!("{e:?}"))?;
+    for (name, size) in [
+        (b"match".as_slice(), Some(5_u64)),
+        (b"another".as_slice(), Some(4_u64)),
+        (b"miss", Some(1)),
+        (b"unknown", None),
+    ] {
+        build
+            .add_file(Observation {
+                path: vec![name.to_vec()],
+                size: size.map(|bytes| SizeValue {
+                    basis: SizeBasis::Logical,
+                    evidence: SizeEvidence::Measured,
+                    amount: SizeAmount::Exact {
+                        bytes: bytes.into(),
+                    },
+                }),
+            })
+            .map_err(|e| format!("{e:?}"))?;
+    }
+    build
+        .seal(id(22)?, ResultCompleteness::Complete)
+        .map_err(|e| format!("{e:?}"))?;
+    let sets = Arc::new(ResultSets::new(store));
+    let registry = Registry::baseline();
+    let input = || SearchInput {
+        condition: Condition::All(vec![
+            Condition::Predicate(Predicate::Kind(Kind::File)),
+            Condition::Predicate(Predicate::Size(Basis::Logical, Boundary::AtLeast(3))),
+        ]),
+        sorts: vec![SortSpec::from(&sort())],
+        count: Some(1),
+    };
+    let admission = sets
+        .admit_search(Some(&id(22)?), None)
+        .map_err(|e| format!("{e:?}"))?;
+    let candidate = PreparedSearch::new(sets.clone(), admission, &registry, input())
+        .map_err(|e| format!("{e:?}"))?
+        .evaluate(|| false)
+        .map_err(|e| format!("{e:?}"))?;
+    let first = sets
+        .register_admitted_search(id(23)?, candidate)
+        .map_err(|e| format!("{e:?}"))?;
+    let page = search_page::project(&first, None)
+        .map_err(|e| format!("{e:?}"))?
+        .page;
+    assert_eq!(page.result_version, id(22)?);
+    assert_eq!(page.total, QueryTotal::LowerBound { count: 2 });
+    assert_eq!(page.unknown_count, 1);
+    assert_eq!(page.rows.len(), 1);
+    assert_eq!(page.rows[0].item.item_no, 1);
+    let second = sets
+        .open_page(&id(23)?, &id(22)?, 1, Some(1))
+        .map_err(|e| format!("{e:?}"))?;
+    let second = search_page::project(&second, None)
+        .map_err(|e| format!("{e:?}"))?
+        .page;
+    assert_eq!(second.total, QueryTotal::LowerBound { count: 2 });
+    assert_eq!(second.unknown_count, 1);
+    assert_eq!(second.rows[0].item.item_no, 2);
+
+    let admission = sets
+        .admit_search(Some(&id(22)?), None)
+        .map_err(|e| format!("{e:?}"))?;
+    let cancelled = PreparedSearch::new(sets.clone(), admission, &registry, input())
+        .map_err(|e| format!("{e:?}"))?
+        .evaluate(|| true);
+    assert!(matches!(
+        cancelled,
+        Err(PreparedSearchError::Query(query::Error::Cancelled))
+    ));
+    let retained = sets
+        .open_page(&id(23)?, &id(22)?, 0, Some(1))
+        .map_err(|e| format!("{e:?}"))?;
+    let retained = search_page::project(&retained, None)
+        .map_err(|e| format!("{e:?}"))?
+        .page;
+    assert_eq!(retained.total, QueryTotal::LowerBound { count: 2 });
+    assert_eq!(retained.unknown_count, 1);
+    assert_eq!(retained.rows[0].item, page.rows[0].item);
     Ok(())
 }
