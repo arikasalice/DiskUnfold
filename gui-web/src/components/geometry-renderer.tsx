@@ -47,7 +47,12 @@ export type GeometryRendererProps = {
   relations: readonly Relation[];
   selectedRowRef: string | null;
   onSelect: (rowRef: string, shapeRef: string) => void;
-  onShapeFocus?: (rowRef: string, shapeRef: string) => void;
+  /** Reports the focused shape and its actual control when the renderer supplies one. */
+  onShapeFocus?: (
+    rowRef: string,
+    shapeRef: string,
+    control?: HTMLElement,
+  ) => void;
   focusedRowRef?: string | null;
   onFocusTargetMissing?: () => void;
   onFocusAvailability?: (available: boolean) => void;
@@ -387,7 +392,15 @@ export function GeometryRenderer(props: GeometryRendererProps) {
         {visible.map(({ shape }) => (
           <Action
             key={`${modelRef}:${resultRevision}:${shape.shapeRef}`}
-            onFocus={() => props.onShapeFocus?.(shape.rowRef, shape.shapeRef)}
+            onFocus={({ currentTarget }) =>
+              props.onShapeFocus?.(
+                shape.rowRef,
+                shape.shapeRef,
+                currentTarget instanceof HTMLElement
+                  ? currentTarget
+                  : undefined,
+              )
+            }
             onBlur={() => {
               restoreFocus.current = false;
             }}

@@ -147,11 +147,21 @@ test("future format geometry uses the same rendering, clipping and selection", (
 
 test("graph pointer and keyboard alternative select the same source row", () => {
   const input = props();
-  const { container } = render(<GeometryRenderer {...input} />);
+  const onShapeFocus = vi.fn();
+  const { container } = render(
+    <GeometryRenderer {...input} onShapeFocus={onShapeFocus} />,
+  );
+  const first = screen.getByRole("button", { name: "Item A, 10 bytes" });
+  const second = screen.getByRole("button", { name: "Item B, unknown" });
   fireEvent.click(container.querySelector(".du-geometry-shape rect")!);
+  expect(document.activeElement).toBe(first);
+  expect(onShapeFocus).toHaveBeenLastCalledWith("row-a", "one", first);
   expect(input.onSelect).toHaveBeenLastCalledWith("row-a", "one");
-  fireEvent.click(screen.getByRole("button", { name: "Item A, 10 bytes" }));
-  expect(input.onSelect).toHaveBeenLastCalledWith("row-a", "one");
+  fireEvent.keyDown(first, { key: "ArrowDown" });
+  expect(document.activeElement).toBe(second);
+  expect(onShapeFocus).toHaveBeenLastCalledWith("row-b", "two", second);
+  fireEvent.click(second);
+  expect(input.onSelect).toHaveBeenLastCalledWith("row-b", "two");
   expect(container.querySelector(".du-geometry-label")?.textContent).toContain(
     "…",
   );
