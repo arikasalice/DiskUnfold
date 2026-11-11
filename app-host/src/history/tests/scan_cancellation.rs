@@ -103,6 +103,7 @@ fn gate_failed() -> PortError {
 
 struct BlockedScan {
     _fixture: tempfile::TempDir,
+    scope: std::path::PathBuf,
     _profile: tempfile::TempDir,
     engine: Engine,
     events: Arc<du_engine_api::desktop::DesktopEvents>,
@@ -113,8 +114,10 @@ struct BlockedScan {
 
 fn blocked_scan() -> Result<BlockedScan, Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
+    let scope = fixture.path().join("scope");
+    fs::create_dir(&scope)?;
     for file in 0..300 {
-        fs::write(fixture.path().join(format!("file-{file:03}")), [1_u8])?;
+        fs::write(scope.join(format!("file-{file:03}")), [1_u8])?;
     }
     let profile = tempfile::tempdir()?;
     let database = crate::startup_database::open(profile.path())?;
@@ -141,10 +144,11 @@ fn blocked_scan() -> Result<BlockedScan, Box<dyn std::error::Error>> {
     )
     .map_err(|error| format!("{error:?}"))?;
     let engine = builder.build()?;
-    let scan = start_scan(&engine, fixture.path())?;
+    let scan = start_scan(&engine, &scope)?;
     reached.recv_timeout(Duration::from_secs(10))?;
     Ok(BlockedScan {
         _fixture: fixture,
+        scope,
         _profile: profile,
         engine,
         events,
@@ -158,6 +162,9 @@ fn blocked_scan() -> Result<BlockedScan, Box<dyn std::error::Error>> {
 fn cancellation_drains_the_inflight_native_batch_without_a_new_read()
 -> Result<(), Box<dyn std::error::Error>> {
     let test = blocked_scan()?;
+    // `blocked_scan` returns only after the scan.start app-host IPC response
+    // has been decoded and the native scanner is held in its second batch.
+    assert_eq!(status(&test)?.state, JobState::Running);
     let accepted = control(&test, "job.cancel")?;
     assert_eq!(accepted.outcome, JobControlOutcome::Accepted);
     assert_eq!(accepted.state, JobState::CancelRequested);
@@ -185,6 +192,52 @@ fn cancellation_drains_the_inflight_native_batch_without_a_new_read()
         control(&test, "job.cancel")?.outcome,
         JobControlOutcome::AlreadyTerminal,
     );
+    Ok(())
+}
+
+#[test]
+fn completed_scan_keeps_the_same_open_ntfs_root_after_path_replacement()
+-> Result<(), Box<dyn std::error::Error>> {
+    let test = blocked_scan()?;
+    assert_eq!(status(&test)?.state, JobState::Running);
+
+    // The real NTFS root is already open and its second batch is gated. Replace
+    // the path with a different directory; traversal must finish against the
+    // original opened root, not reopen the replacement by path.
+    let moved_scope = test._fixture.path().join("moved-scope");
+    fs::rename(&test.scope, &moved_scope)?;
+    fs::create_dir(&test.scope)?;
+    fs::write(test.scope.join("replacement.bin"), vec![2_u8; 4096])?;
+    test.release.send(())?;
+
+    let events = terminal_batch(&test.events, &test.job)?;
+    let finished = events
+        .iter()
+        .find(|event| event.topic == "job.finished" && event.job_ref.as_ref() == Some(&test.job))
+        .ok_or("missing completion")?;
+    assert_eq!(finished.body["state"], "done");
+    let result = finished
+        .result_version
+        .as_ref()
+        .ok_or("missing result version")?;
+    let total: SpaceTotal = read(
+        &test.engine,
+        "space.total",
+        json!({"resultVersion": result, "requestSeq": 2, "target": {"kind": "scope_root"}}),
+    )?;
+    assert_eq!(total.completeness, ResultCompleteness::Complete);
+    let logical = total
+        .sizes
+        .iter()
+        .find(|entry| entry.size.basis == SizeBasis::Logical)
+        .ok_or("missing logical total")?;
+    assert_eq!(
+        logical.size.amount,
+        SizeAmount::Exact {
+            bytes: 300_u64.into()
+        }
+    );
+    assert_eq!(test.batches.load(Ordering::SeqCst), 3);
     Ok(())
 }
 
