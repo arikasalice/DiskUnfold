@@ -1,5 +1,5 @@
 import { useId, useLayoutEffect, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import type { ReactNode, RefObject } from "react";
 import {
   Action,
   Choice,
@@ -32,6 +32,7 @@ export function TargetPicker({
   feedback,
   isInitial,
   onPathCompositionChange,
+  primaryPathRef,
 }: {
   targets: ReturnType<typeof useTargets>;
   disabled: boolean;
@@ -46,6 +47,7 @@ export function TargetPicker({
   feedback: ReactNode;
   isInitial: boolean;
   onPathCompositionChange: (composing: boolean) => void;
+  primaryPathRef?: RefObject<HTMLInputElement | null>;
 }) {
   const fields = useRef(new Map<number, HTMLInputElement>());
   const focusIndex = useRef<number>(undefined);
@@ -68,7 +70,10 @@ export function TargetPicker({
 
   const pathField = (
     <PathField
-      ref={(input) => registerField(0, input)}
+      ref={(input) => {
+        registerField(0, input);
+        if (primaryPathRef) primaryPathRef.current = input;
+      }}
       autoFocus={isInitial}
       label="Windows folder path"
       description={pathDescription}

@@ -33,6 +33,7 @@ export function focusTransition({
   returnedRow,
   scrollContainer,
   savedScrollTop,
+  editorScrollTop,
   applied,
   path,
   applyFocus,
@@ -47,25 +48,36 @@ export function focusTransition({
   returnedRow: string | undefined;
   scrollContainer: HTMLElement | null | undefined;
   savedScrollTop: number;
+  editorScrollTop: number;
   applied: { current: boolean };
   path: { current: boolean };
   applyFocus: HTMLElement | null | undefined;
   pathFocus: HTMLElement | null | undefined;
   opener: HTMLButtonElement | null;
 }) {
-  if (view === "list" && previous === "closed") listHeading.current?.focus();
-  else if (view === "list" && previous === "detail") {
-    if (scrollContainer) scrollContainer.scrollTop = savedScrollTop;
-    (rowButtons.current.get(returnedRow ?? "") ?? listHeading.current)?.focus();
+  if (view === "list") {
+    if (previous === "detail") {
+      if (scrollContainer) scrollContainer.scrollTop = savedScrollTop;
+      (rowButtons.current.get(returnedRow ?? "") ?? listHeading.current)?.focus(
+        {
+          preventScroll: true,
+        },
+      );
+    } else {
+      listHeading.current?.focus();
+    }
   } else if (view === "detail") detailHeading.current?.focus();
-  else if (view === "closed") {
+  else {
     if (applied.current) {
       (applyFocus ?? opener)?.focus();
       applied.current = false;
     } else if (path.current) {
       (pathFocus ?? opener)?.focus();
       path.current = false;
-    } else opener?.focus();
+    } else {
+      opener?.focus({ preventScroll: true });
+      if (scrollContainer) scrollContainer.scrollTop = editorScrollTop;
+    }
   }
 }
 

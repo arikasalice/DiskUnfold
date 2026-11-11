@@ -19,6 +19,7 @@ param(
   [switch]$VerifyInspectionPathDisclosure,
   [switch]$VerifyInspectionKeyboard,
   [switch]$VerifyPathCopyContention,
+  [switch]$VerifyRecentScope,
   [switch]$VerifyNativeFolderDrop
 )
 
@@ -568,6 +569,33 @@ function Test-AutomaticScopeReview {
   $null = Wait-FinalLogicalSize '7 bytes'
   'F01 native automatic review: folder edit enabled scan without invoking Review scope; pinned logical size 7 bytes'
 }
+# Exercise recent-scope reopen in a build with the storage policy supplied.
+function Test-RecentScopeReopen {
+  Open-TargetEditor
+  Invoke-UI (Wait-Enabled 'Recent analysis ranges' $true)
+  Invoke-UI (Wait-Enabled 'Review range 1' $true)
+  $null = Wait-UI 'stored volume matched' { Find-UI 'Volume matched' $textType }
+  Invoke-UI (Wait-Enabled 'Use this range' $true)
+  $next = Wait-UI 'scope replacement or ready scan' {
+    $replacement = Find-UI 'Replace current scope' $button
+    if ($replacement) { return $replacement }
+    Find-UI 'Start scan' $button
+  }
+  if ($next.Current.Name -eq 'Replace current scope') { Invoke-UI $next }
+  $null = Wait-Enabled 'Start scan' $true
+  if (-not (Find-LogicalSize '18 bytes')) { throw 'Applying the saved range replaced the pinned result' }
+  [IO.File]::WriteAllBytes((Join-Path $scanRoot 'root.bin'), [byte[]]::new(16))
+  Invoke-UI (Wait-Enabled 'Start scan' $true)
+  $null = Wait-FinalLogicalSize '23 bytes'
+  'F01 native recent scope: matched saved volume, preserved pinned 18-byte result until explicit scan, then read 23 bytes'
+
+  [IO.File]::WriteAllBytes((Join-Path $scanRoot 'root.bin'), [byte[]]::new(11))
+  Set-Scope $child
+  Set-Scope $scanRoot
+  Invoke-UI (Wait-Enabled 'Review scope' $true)
+  Invoke-UI (Wait-Enabled 'Start scan' $true)
+  $null = Wait-FinalLogicalSize '18 bytes'
+}
 # The operator performs the OLE gesture; UIA only observes its result.
 function Test-NativeFolderDrop {
   Set-Scope $scanRoot
@@ -942,6 +970,7 @@ try {
     Find-LogicalSize '18 bytes'
   }
   'F02/F03 native scan: Scan finished, Result version: Final, 18 bytes'
+  if ($VerifyRecentScope) { Test-RecentScopeReopen }
   if ($VerifyOperationHistory) { Test-OperationHistory }
   $null = Wait-VisibleAction 'Analyze again'
   $null = Wait-UI 'target editor collapsed after accepted scan' { -not (Find-UI 'Windows folder path' $edit) }

@@ -185,6 +185,7 @@ fn a_blocked_list_lane_does_not_queue_scope_review_behind_it()
             }
         },
         response_delivery: None,
+        initialization_script: None,
         icon: &[],
     };
     let (send, replies) = mpsc::sync_channel(2);
@@ -222,6 +223,7 @@ fn original_ordered_lane_blocks_close_behind_open() -> Result<(), Box<dyn std::e
             }
         },
         response_delivery: None,
+        initialization_script: None,
         icon: &[],
     };
     let (send, replies) = mpsc::sync_channel(4);
@@ -284,6 +286,7 @@ fn query_controls_overtake_blocked_open_and_volume_without_reordering_normal_req
             _ => DispatchLane::Ordered,
         },
         response_delivery: None,
+        initialization_script: None,
         icon: &[],
     };
     let (send, replies) = mpsc::sync_channel(16);
@@ -342,6 +345,7 @@ fn job_controls_keep_order_while_review_and_query_control_are_blocked()
             _ => DispatchLane::Ordered,
         },
         response_delivery: None,
+        initialization_script: None,
         icon: &[],
     };
     let (send, replies) = mpsc::sync_channel(8);

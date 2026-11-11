@@ -261,19 +261,10 @@ pub(super) fn run(app: WebApp, events: Option<Events>) -> Result<(), Box<dyn Err
         ready,
         failed.clone(),
     )?;
-    let bootstrap_view = view.clone();
-    AddScriptToExecuteOnDocumentCreatedCompletedHandler::wait_for_async_operation(
-        Box::new(move |handler| {
-            let script = HSTRING::from(BRIDGE);
-            // SAFETY: The script and handler are valid for this STA call.
-            unsafe {
-                bootstrap_view
-                    .AddScriptToExecuteOnDocumentCreated(PCWSTR(script.as_ptr()), &handler)
-            }?;
-            Ok(())
-        }),
-        Box::new(|status, _| status),
-    )?;
+    install_script(&view, BRIDGE)?;
+    if let Some(script) = app.initialization_script {
+        install_script(&view, script)?;
+    }
     if phase.get() == WindowPhase::CloseRequested {
         return Ok(());
     }
@@ -297,6 +288,19 @@ pub(super) fn run(app: WebApp, events: Option<Events>) -> Result<(), Box<dyn Err
         return Err("DiskUnfold webview could not load the embedded page".into());
     }
     Ok(())
+}
+
+fn install_script(view: &ICoreWebView2, source: &'static str) -> Result<(), webview2_com::Error> {
+    let view = view.clone();
+    AddScriptToExecuteOnDocumentCreatedCompletedHandler::wait_for_async_operation(
+        Box::new(move |handler| {
+            let script = HSTRING::from(source);
+            // SAFETY: The script and handler are valid for this STA call.
+            unsafe { view.AddScriptToExecuteOnDocumentCreated(PCWSTR(script.as_ptr()), &handler) }?;
+            Ok(())
+        }),
+        Box::new(|status, _| status),
+    )
 }
 
 fn subscribe(

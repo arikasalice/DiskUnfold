@@ -8,6 +8,7 @@ type NativeRequest = (payload: string) => Promise<string>;
 
 interface NativeWindow extends Window {
   __diskunfoldRequest?: NativeRequest;
+  __diskunfoldRecentScopes?: unknown;
   webkit?: {
     messageHandlers?: { diskunfold?: { postMessage: NativeRequest } };
   };
@@ -20,6 +21,15 @@ export function hasWindowsAnalysisBridge(): boolean {
     host.top === host &&
     host.location.origin === "https://diskunfold.invalid" &&
     typeof host.__diskunfoldRequest === "function"
+  );
+}
+
+/** Reports the capability of the current desktop composition. */
+export function hasRecentScopes(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    hasWindowsAnalysisBridge() &&
+    (window as NativeWindow).__diskunfoldRecentScopes === true
   );
 }
 

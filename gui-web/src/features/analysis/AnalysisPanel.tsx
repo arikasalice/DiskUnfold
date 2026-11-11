@@ -25,6 +25,7 @@ import {
   scopeNoticeText,
 } from "./AnalysisActions";
 import { ScanOutput } from "./AnalysisViews";
+import { RecentScopePicker } from "./RecentScopePicker";
 import { TargetPicker } from "./TargetPicker";
 import type { SizeDisplay } from "../../i18n/bytes";
 import type { AnalysisDisplayPreferences } from "./use-display-preferences";
@@ -62,12 +63,12 @@ function rejectedReviewText(review: ScopeReview): string {
   return "One or more selected paths could not be verified. Review all paths before starting.";
 }
 
-function draft(paths: OsPath[]): ScopeDraft {
+function draft(paths: OsPath[], saved?: ScopeDraft): ScopeDraft {
   return {
     includes: paths,
-    exclusions: [],
-    boundary: "current_volume",
-    includedMounts: [],
+    exclusions: saved?.exclusions ?? [],
+    boundary: saved?.boundary ?? "current_volume",
+    includedMounts: saved?.includedMounts ?? [],
     source: "gui",
   };
 }
@@ -109,9 +110,12 @@ function sameDraft(left: ScopeDraft, right: ScopeDraft): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
-function completeDraft(paths: (OsPath | undefined)[]): ScopeDraft | undefined {
+function completeDraft(
+  paths: (OsPath | undefined)[],
+  saved?: ScopeDraft,
+): ScopeDraft | undefined {
   if (paths.length === 0 || paths.some((path) => !path)) return undefined;
-  return draft(paths as OsPath[]);
+  return draft(paths as OsPath[], saved);
 }
 
 function reviewedInputMatches(
@@ -177,6 +181,7 @@ export function AnalysisPanel({
   const scanStatusFocus = useRef<HTMLDivElement>(null);
   const editorOpener = useRef<HTMLButtonElement>(null);
   const editorBody = useRef<HTMLElement>(null);
+  const firstPath = useRef<HTMLInputElement>(null);
   const reviewButton = useRef<HTMLButtonElement>(null);
   const focusReview = useRef(false);
   const focusEditor = useRef(false);
@@ -190,6 +195,11 @@ export function AnalysisPanel({
   const [editorOpen, setEditorOpen] = useState(false);
   const [selected, setSelected] = useState<(OsPath | undefined)[]>([undefined]);
   const [reviewedScope, setReviewedScope] = useState<ReviewedScope>();
+  const [restoredInput, setRestoredInput] = useState<{
+    input: ScopeDraft;
+    revision: number;
+  }>();
+  const [recentOpen, setRecentOpen] = useState(false);
   const [working, setWorking] = useState(false);
   const [reviewing, setReviewing] = useState(false);
   const [pathComposing, setPathComposing] = useState(false);
@@ -211,6 +221,7 @@ export function AnalysisPanel({
   );
   const scan = useScanResult(client, receipt);
   const running = scan.running;
+  const restoredIsCurrent = restoredInput?.revision === editRevision.current;
   const dropEnabled = client.subscribeFolderDrop !== undefined;
   const pathDescription =
     dropMessage?.tone === "info"
@@ -246,9 +257,9 @@ export function AnalysisPanel({
   );
 
   useLayoutEffect(() => {
-    scanBlocksDrop.current = working || running;
+    scanBlocksDrop.current = working || running || recentOpen;
     hasReceipt.current = receipt !== null;
-  }, [receipt, running, working]);
+  }, [receipt, running, working, recentOpen]);
 
   const editPaths = useCallback(
     (update: (current: (OsPath | undefined)[]) => (OsPath | undefined)[]) => {
@@ -293,7 +304,36 @@ export function AnalysisPanel({
     setPathComposing(false);
     editPaths(() => [undefined]);
     setReviewedScope(undefined);
+    setRestoredInput(undefined);
     targets.cancel();
+  }
+
+  function changeRecentView(open: boolean) {
+    setRecentOpen(open);
+    if (!open) return;
+    cancelScheduledReview(autoReviewTimer);
+    request.current += 1;
+    pendingDrop.current = undefined;
+    setCheckingDrop(false);
+    setReviewing(false);
+  }
+
+  function applyRecent(saved: ScopeDraft, review: ScopeReview) {
+    if (request.current !== review.requestSeq || scan.running || working)
+      return;
+    const input = draft(saved.includes, saved);
+    editPaths(() => input.includes);
+    const revision = editRevision.current;
+    setRestoredInput({ input, revision });
+    setReviewedScope({ input, review, revision });
+  }
+
+  function chooseRecentPath() {
+    if (!restoredIsCurrent) return;
+    setReviewedScope(undefined);
+    setReviewProblem(
+      "Choose a path or reopen the saved range before scanning.",
+    );
   }
 
   useEffect(
@@ -338,6 +378,8 @@ export function AnalysisPanel({
 
   async function reviewScope(automatic = false) {
     if (
+      recentOpen ||
+      restoredIsCurrent ||
       reviewBlocked(
         reviewing,
         working,
@@ -349,7 +391,7 @@ export function AnalysisPanel({
       return;
     const paths = selected.filter((path): path is OsPath => path !== undefined);
     if (paths.length === 0) return;
-    const submittedDraft = draft(paths);
+    const submittedDraft = draft(paths, restoredInput?.input);
     const submittedRevision = editRevision.current;
     const requestSeq = ++request.current;
     if (!automatic) cancelScheduledReview(autoReviewTimer);
@@ -411,12 +453,14 @@ export function AnalysisPanel({
     // A closed editor retains the draft and suspends its scheduled review.
     if (
       !showEditor ||
+      recentOpen ||
+      restoredIsCurrent ||
       pathComposing ||
       selected.length === 0 ||
       selected.some((path) => !path)
     )
       return;
-    const current = draft(selected as OsPath[]);
+    const current = draft(selected as OsPath[], restoredInput?.input);
     if (
       reviewedScope &&
       reviewedScope.revision === editRevision.current &&
@@ -434,7 +478,15 @@ export function AnalysisPanel({
         autoReviewTimer.current = undefined;
       }
     };
-  }, [pathComposing, reviewedScope, selected, showEditor]);
+  }, [
+    pathComposing,
+    recentOpen,
+    restoredInput,
+    restoredIsCurrent,
+    reviewedScope,
+    selected,
+    showEditor,
+  ]);
 
   async function start() {
     if (
@@ -466,9 +518,19 @@ export function AnalysisPanel({
       setReceipt(result);
     } catch (failure) {
       scanBlocksDrop.current = false;
-      focusReview.current = true;
-      if (failure instanceof AnalysisError && failure.code === "STALE_VERSION")
+      if (restoredIsCurrent) editorBody.current?.focus();
+      else focusReview.current = true;
+      if (
+        failure instanceof AnalysisError &&
+        failure.code === "STALE_VERSION"
+      ) {
         setReviewedScope(undefined);
+        if (restoredIsCurrent) {
+          setReviewProblem(
+            "Reopen the saved range or select its paths again before scanning.",
+          );
+        }
+      }
       setError(errorText(failure));
     } finally {
       setWorking(false);
@@ -477,7 +539,7 @@ export function AnalysisPanel({
 
   const resultActive = receipt !== null || error !== undefined;
   const editorBusy = isEditorBusy(working, reviewing, checkingDrop);
-  const currentInput = completeDraft(selected);
+  const currentInput = completeDraft(selected, restoredInput?.input);
   const reviewedInputIsCurrent = reviewedInputMatches(
     reviewedScope,
     currentInput,
@@ -489,6 +551,82 @@ export function AnalysisPanel({
     reviewedInputIsCurrent,
     rejectedRevision === editRevision.current,
   );
+
+  function renderEditorBody() {
+    return (
+      <>
+        <section
+          ref={editorBody}
+          className="du-target-editor__body"
+          aria-label="Target selection and scope review"
+          tabIndex={0}
+        >
+          {client.recentScopesEnabled && (
+            <RecentScopePicker
+              client={client}
+              currentDraft={currentInput}
+              nextRequestSeq={() => ++request.current}
+              isRequestSeqCurrent={(seq) => request.current === seq}
+              onApply={applyRecent}
+              onChoosePath={chooseRecentPath}
+              onOpenChange={changeRecentView}
+              isDisabled={working || running || pathComposing}
+              pathFocusRef={firstPath}
+              applyFocusRef={editorBody}
+              scrollContainerRef={editorBody}
+            />
+          )}
+          <div hidden={recentOpen}>
+            <TargetPicker
+              targets={targets}
+              isInitial={!resultActive}
+              disabled={working || running}
+              selected={selected}
+              choose={choose}
+              addPath={addPath}
+              removePath={removePath}
+              dropEnabled={dropEnabled}
+              dropError={
+                dropMessage?.tone === "error" ? dropMessage.text : undefined
+              }
+              pathDescription={pathDescription}
+              reviewDescriptionId={hasProblem ? reviewProblemId : undefined}
+              feedback={
+                <ScopeReviewFeedback
+                  review={review}
+                  ready={ready}
+                  current={reviewedInputIsCurrent}
+                  latestAccepted={
+                    reviewedInputIsCurrent &&
+                    rejectedRevision !== editRevision.current
+                  }
+                  problem={reviewProblem}
+                  problemId={reviewProblemId}
+                />
+              }
+              onPathCompositionChange={setPathComposing}
+              primaryPathRef={firstPath}
+            />
+          </div>
+        </section>
+        {!recentOpen && (
+          <ScopeActions
+            reviewButton={reviewButton}
+            checkingDrop={checkingDrop}
+            composing={pathComposing}
+            reviewing={reviewing}
+            working={working}
+            running={running}
+            reviewEnabled={!restoredIsCurrent && selected.every(Boolean)}
+            startEnabled={ready}
+            onReview={() => void reviewScope()}
+            onStart={() => void start()}
+            onCancel={cancelSelection}
+          />
+        )}
+      </>
+    );
+  }
 
   return (
     <section
@@ -530,6 +668,7 @@ export function AnalysisPanel({
                     onPress={() => {
                       cancelScheduledReview(autoReviewTimer);
                       setPathComposing(false);
+                      changeRecentView(false);
                       focusOpener.current = true;
                       setEditorOpen(false);
                     }}
@@ -539,55 +678,7 @@ export function AnalysisPanel({
                 )}
               </header>
             )}
-            <section
-              ref={editorBody}
-              className="du-target-editor__body"
-              aria-label="Target selection and scope review"
-              tabIndex={0}
-            >
-              <TargetPicker
-                targets={targets}
-                isInitial={!resultActive}
-                disabled={working || running}
-                selected={selected}
-                choose={choose}
-                addPath={addPath}
-                removePath={removePath}
-                dropEnabled={dropEnabled}
-                dropError={
-                  dropMessage?.tone === "error" ? dropMessage.text : undefined
-                }
-                pathDescription={pathDescription}
-                reviewDescriptionId={hasProblem ? reviewProblemId : undefined}
-                feedback={
-                  <ScopeReviewFeedback
-                    review={review}
-                    ready={ready}
-                    current={reviewedInputIsCurrent}
-                    latestAccepted={
-                      reviewedInputIsCurrent &&
-                      rejectedRevision !== editRevision.current
-                    }
-                    problem={reviewProblem}
-                    problemId={reviewProblemId}
-                  />
-                }
-                onPathCompositionChange={setPathComposing}
-              />
-            </section>
-            <ScopeActions
-              reviewButton={reviewButton}
-              checkingDrop={checkingDrop}
-              composing={pathComposing}
-              reviewing={reviewing}
-              working={working}
-              running={running}
-              reviewEnabled={selected.every(Boolean)}
-              startEnabled={ready}
-              onReview={() => void reviewScope()}
-              onStart={() => void start()}
-              onCancel={cancelSelection}
-            />
+            {renderEditorBody()}
           </section>
         )}
         {resultActive && (

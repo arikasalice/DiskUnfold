@@ -11,6 +11,13 @@ use std::num::NonZeroUsize;
 static MANIFEST: &str = include_str!(concat!(env!("OUT_DIR"), "/assets.txt"));
 static ASSETS: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/assets.bin"));
 
+#[cfg(windows)]
+const RECENT_SCOPE_BOOTSTRAP: &str = r#"
+if (window === window.top && location.href === 'https://diskunfold.invalid/index.html') {
+    Object.defineProperty(window, '__diskunfoldRecentScopes', { value: true });
+}
+"#;
+
 fn asset(path: &str) -> Option<Asset> {
     let mut fields = MANIFEST.lines().find_map(|line| {
         let (name, data) = line.split_once('\t')?;
@@ -164,6 +171,8 @@ fn run_app(
         route: crate::ipc::dispatch_lane,
         #[cfg(windows)]
         response_delivery: recent_worker.as_ref().map(RecentScopeWorker::observer),
+        #[cfg(windows)]
+        initialization_script: recent_worker.as_ref().map(|_| RECENT_SCOPE_BOOTSTRAP),
         icon: include_bytes!("../icons/icon.png"),
     };
     #[cfg(windows)]

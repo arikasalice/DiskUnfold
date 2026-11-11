@@ -414,9 +414,10 @@ test("F01 FR8: preserves long paths and returns focus to the originating row", a
     throw new Error(`Unexpected command ${name}`);
   });
   const scrollContainerRef = { current: document.createElement("div") };
-  scrollContainerRef.current.scrollTop = 125;
+  scrollContainerRef.current.scrollTop = 225;
   picker(client, vi.fn(), scrollContainerRef);
   await showList();
+  scrollContainerRef.current.scrollTop = 125;
   const row = screen.getByRole("button", { name: "Review range 1" });
   fireEvent.click(row);
   await screen.findAllByText(longPath);
@@ -431,4 +432,6 @@ test("F01 FR8: preserves long paths and returns focus to the originating row", a
   expect(
     screen.getByRole("heading", { name: "Recent analysis ranges" }),
   ).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "Close recent ranges" }));
+  expect(scrollContainerRef.current.scrollTop).toBe(225);
 });

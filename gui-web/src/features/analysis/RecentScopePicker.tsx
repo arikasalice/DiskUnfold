@@ -25,6 +25,8 @@ export function RecentScopePicker({
   isRequestSeqCurrent,
   onApply,
   onChoosePath,
+  onOpenChange,
+  isDisabled = false,
   openerRef,
   pathFocusRef,
   applyFocusRef,
@@ -39,6 +41,8 @@ export function RecentScopePicker({
   /** Apply the unmodified recent draft/review to editor state; never starts a scan. */
   onApply: (draft: ScopeDraft, review: ScopeReview) => void;
   onChoosePath: () => void;
+  onOpenChange?: (open: boolean) => void;
+  isDisabled?: boolean;
   openerRef?: RefObject<HTMLButtonElement | null>;
   pathFocusRef?: RefObject<HTMLElement | null>;
   /** Host focus target for the editor scope summary or first editable path. */
@@ -56,6 +60,7 @@ export function RecentScopePicker({
   const focusPathAfterClose = useRef(false);
   const focusAppliedAfterClose = useRef(false);
   const savedScrollTop = useRef(0);
+  const editorScrollTop = useRef(0);
   const previousView = useRef<View>("closed");
   const { list, detail, loadList, openRow, invalidate } = useRecentScopes(
     client,
@@ -74,6 +79,7 @@ export function RecentScopePicker({
         returnedRow: returnedRow.current,
         scrollContainer: scrollContainerRef?.current,
         savedScrollTop: savedScrollTop.current,
+        editorScrollTop: editorScrollTop.current,
         applied: focusAppliedAfterClose,
         path: focusPathAfterClose,
         applyFocus: applyFocusRef?.current,
@@ -85,6 +91,9 @@ export function RecentScopePicker({
   }, [applyFocusRef, openerRef, pathFocusRef, scrollContainerRef, view]);
 
   function openList() {
+    if (view === "closed")
+      editorScrollTop.current = scrollContainerRef?.current?.scrollTop ?? 0;
+    onOpenChange?.(true);
     setConfirmReplace(false);
     setView("list");
     void loadList();
@@ -92,6 +101,7 @@ export function RecentScopePicker({
 
   function close() {
     invalidate();
+    onOpenChange?.(false);
     setConfirmReplace(false);
     setView("closed");
   }
@@ -121,6 +131,7 @@ export function RecentScopePicker({
       <Action
         ref={pickerOpener}
         variant="quiet"
+        isDisabled={isDisabled}
         aria-expanded={view !== "closed"}
         onPress={openList}
       >

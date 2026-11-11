@@ -61,6 +61,9 @@ pub struct WebApp {
     /// Optionally prepares a one-shot notification for each IPC reply on its worker.
     #[cfg(target_os = "windows")]
     pub response_delivery: Option<ResponseDeliveryObserver>,
+    /// Optional application-owned script installed before navigating to the entry document.
+    #[cfg(target_os = "windows")]
+    pub initialization_script: Option<&'static str>,
     pub icon: &'static [u8],
 }
 

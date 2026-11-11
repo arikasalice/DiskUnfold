@@ -1,4 +1,5 @@
 import {
+  hasRecentScopes,
   invokeNative,
   subscribeNative,
   subscribeNativeFolderDrop,
@@ -178,6 +179,7 @@ type Commands = {
 };
 
 export interface AnalysisClient {
+  readonly recentScopesEnabled?: boolean;
   call<K extends keyof Commands>(
     name: K,
     body: Commands[K][0],
@@ -234,6 +236,7 @@ export function createAnalysisClient(
   transport: Transport = invokeNative,
 ): AnalysisClient {
   return {
+    recentScopesEnabled: hasRecentScopes(),
     async call<K extends keyof Commands>(
       name: K,
       body: Commands[K][0],
