@@ -15,6 +15,8 @@ DiskUnfold is an offline desktop application for understanding disk use and revi
 
 - Explicitly select `gpt-6-luna` for every new subagent at every delegation level. The designated Terra development and Astra design leads retain their models in their own project chats.
 - Close completed subagent sessions when the tooling supports it. Otherwise leave them completed and do not reuse them. If a running subagent on another model cannot switch models, let it finish its current assignment and review its result before closing it. Use a new Luna subagent for any follow-up work that requires delegation.
+- Team leads divide work by ownership and define acceptance criteria from the published design. They review each submitted diff and reproduce its relevant tests. When a finding requires a change, send the evidence and reproduction steps back to the owner and verify the correction.
+- The integration lead resolves cross-team dependencies, assigns owners for shared contracts, and reviews team submissions before merging. Escalate unresolved review findings and changes that affect another team's work to that lead.
 
 ## Paths and ownership
 
