@@ -11,6 +11,8 @@ mod space;
 mod timestamps;
 mod volume_space;
 mod watch_identity;
+pub(crate) use scope::volume_name;
+pub(crate) use space::file_id;
 pub use volume_space::WindowsVolumeSpace;
 pub use watch_identity::open_matching_scan_root;
 
@@ -305,16 +307,14 @@ impl WindowsDirectory {
                     let size =
                         (u64::from(value.nFileSizeHigh) << 32) | u64::from(value.nFileSizeLow);
                     let observed_kind = kind(value.dwFileAttributes);
-                    let facts = if observed_kind == ObservedKind::File {
-                        space::read(&file, &value, &self.volume_guid)?
-                    } else {
-                        space::Facts::default()
-                    };
                     let (modified_at, native) = timestamps::observe(&file);
-                    let native_modified_at = if observed_kind == ObservedKind::File {
-                        timestamps::matched_native(&file, &value, native)
+                    let (facts, native_modified_at) = if observed_kind == ObservedKind::File {
+                        (
+                            space::read(&file, &value, &self.volume_guid)?,
+                            timestamps::matched_native(&file, &value, native),
+                        )
                     } else {
-                        None
+                        (space::Facts::default(), None)
                     };
                     Ok(MetadataObservation {
                         kind: observed_kind,
@@ -495,9 +495,6 @@ impl AnchoredDirectory for WindowsDirectory {
         self.ancestors.as_ref().map(|chain| chain.ids.as_slice())
     }
 }
-
-pub(crate) use scope::volume_name;
-pub(crate) use space::file_id;
 
 #[cfg(test)]
 mod error_tests;
