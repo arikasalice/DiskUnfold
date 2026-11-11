@@ -139,7 +139,7 @@ fn unavailable_recent_observer_preserves_scan_receipt_and_completion()
 }
 
 #[test]
-fn recent_observation_waits_for_response_ack_and_authoritative_job_finish()
+fn recent_observation_waits_for_response_ack_but_not_scan_finish()
 -> Result<(), Box<dyn std::error::Error>> {
     let harness = scan_harness_with_recent_admissions()?;
     let admissions = harness
@@ -166,21 +166,19 @@ fn recent_observation_waits_for_response_ack_and_authoritative_job_finish()
     ));
 
     assert!(admissions.response_sent(&receipt.job_ref));
+    assert!(!admissions.response_sent(&receipt.job_ref));
     let admission = admissions.try_next()?;
     assert_eq!(
         admission.fingerprint_conditions(),
         &admission.normalized_scope
     );
-    assert_eq!(
-        admission.progress(),
-        crate::desktop::RecentScopeAdmissionProgress::Running
-    );
-    assert!(
-        admission
-            .observe(&std::sync::atomic::AtomicBool::new(false))
-            .is_none()
-    );
-    assert_eq!(harness.roots.recent_observations.load(Ordering::Acquire), 0);
+    let evidence = admission
+        .observe(&std::sync::atomic::AtomicBool::new(false))
+        .ok_or("delivered GUI admission must produce evidence before scan completion")?;
+    assert_eq!(evidence.len(), 1);
+    assert_eq!(evidence[0].entry_path.display, "C:\\Fixture");
+    assert_eq!(evidence[0].file_id, 1usize.to_le_bytes());
+    assert_eq!(harness.roots.recent_observations.load(Ordering::Acquire), 1);
     harness.release.send(())?;
     let (summary, _) = scan_finished(&harness.terminal)?;
     assert_eq!(summary.job_id, receipt.job_ref);
@@ -189,17 +187,6 @@ fn recent_observation_waits_for_response_ack_and_authoritative_job_finish()
         Err(mpsc::TryRecvError::Empty)
     ));
 
-    let evidence = admission
-        .observe(&std::sync::atomic::AtomicBool::new(false))
-        .ok_or("completed GUI admission did not produce recent-scope evidence")?;
-    assert_eq!(evidence.len(), 1);
-    assert_eq!(
-        admission.progress(),
-        crate::desktop::RecentScopeAdmissionProgress::Ready
-    );
-    assert_eq!(evidence[0].entry_path.display, "C:\\Fixture");
-    assert_eq!(evidence[0].file_id, 1usize.to_le_bytes());
-    assert_eq!(harness.roots.recent_observations.load(Ordering::Acquire), 1);
     Ok(())
 }
 
@@ -250,7 +237,7 @@ fn rejected_or_cancelled_scan_start_has_no_worker_handoff_or_observation()
 }
 
 #[test]
-fn runtime_cancelled_job_cannot_be_observed_for_recent_scope()
+fn scan_cancellation_after_response_preserves_recent_scope_evidence()
 -> Result<(), Box<dyn std::error::Error>> {
     let harness = scan_harness_with_recent_admissions()?;
     let admissions = harness
@@ -268,22 +255,24 @@ fn runtime_cancelled_job_cannot_be_observed_for_recent_scope()
         .body,
     )?;
     assert!(admissions.response_sent(&receipt.job_ref));
-    let admission = admissions.try_next()?;
+    assert!(!admissions.cancel_before_response(&receipt.job_ref));
     let cancelled = call("job.cancel", json!({"jobRef": receipt.job_ref}))?;
     assert!(cancelled.error.is_none());
     harness.release.send(())?;
     let (summary, _) = scan_finished(&harness.terminal)?;
     assert_eq!(summary.state, du_core_contracts::job::JobState::Cancelled);
+    let admission = admissions.try_next()?;
     assert!(
         admission
-            .observe(&std::sync::atomic::AtomicBool::new(false))
+            .observe(&std::sync::atomic::AtomicBool::new(true))
             .is_none()
     );
-    assert_eq!(
-        admission.progress(),
-        crate::desktop::RecentScopeAdmissionProgress::TerminalWithoutEvidence
-    );
     assert_eq!(harness.roots.recent_observations.load(Ordering::Acquire), 0);
+    let evidence = admission
+        .observe(&std::sync::atomic::AtomicBool::new(false))
+        .ok_or("cancelling the scan cannot revoke its delivered admission")?;
+    assert_eq!(evidence[0].file_id, 1usize.to_le_bytes());
+    assert_eq!(harness.roots.recent_observations.load(Ordering::Acquire), 1);
     Ok(())
 }
 

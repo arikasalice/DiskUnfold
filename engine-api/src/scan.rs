@@ -304,7 +304,6 @@ impl StartScan {
                         normalized_scope: recent.normalized_scope,
                         fingerprint_input: recent.fingerprint_input,
                         observers: recent.observers,
-                        runtime: self.workers.runtime.clone(),
                         queue_slots: None,
                     });
                 }

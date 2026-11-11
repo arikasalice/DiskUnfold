@@ -16,13 +16,12 @@ use du_core_contracts::{
     },
 };
 
-/// A newly admitted GUI scan and same-open deferred root observations.
+/// A newly admitted GUI scan and deferred observations of its original roots.
 pub struct RecentScopeAdmission {
     pub receipt: ScanStart,
     pub normalized_scope: ScopeDraft,
     pub(crate) fingerprint_input: Option<ScopeDraft>,
     pub(crate) observers: Vec<RetainedRoot>,
-    pub(crate) runtime: Arc<du_job_runtime::JobRuntime>,
     pub(crate) queue_slots: Option<Arc<AtomicUsize>>,
 }
 
@@ -69,14 +68,6 @@ impl RetainedRoot {
     }
 }
 
-/// Authoritative job lifecycle view for the app-host admission consumer.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum RecentScopeAdmissionProgress {
-    Running,
-    Ready,
-    TerminalWithoutEvidence,
-}
-
 impl RecentScopeAdmission {
     /// Returns the admitted scope inputs hashed for the receipt fingerprint.
     /// Consumers must not reconstruct comparison keys from display or applied paths.
@@ -86,26 +77,12 @@ impl RecentScopeAdmission {
             .unwrap_or(&self.normalized_scope)
     }
 
-    /// Lets the app-host retain a candidate while its owning job is running.
-    pub fn progress(&self) -> RecentScopeAdmissionProgress {
-        match self.runtime.state(&self.receipt.job_ref) {
-            Ok(
-                du_core_contracts::job::JobState::Done | du_core_contracts::job::JobState::Partial,
-            ) => RecentScopeAdmissionProgress::Ready,
-            Ok(state) if !state.is_terminal() => RecentScopeAdmissionProgress::Running,
-            Ok(_) | Err(_) => RecentScopeAdmissionProgress::TerminalWithoutEvidence,
-        }
-    }
-
-    /// Collects evidence only after the owning job runtime reports this job done or partial.
+    /// Collects same-root evidence for an admission released by successful GUI delivery.
     ///
-    /// This returns candidate evidence, not authorization to persist it. Callers
-    /// must check cancellation again at the persistence boundary. Failed-job
-    /// recent-scope semantics remain unimplemented pending a design decision.
+    /// `cancelled` belongs to the recent-scope worker. The scan lifecycle is independent
+    /// of this handoff. Recheck the current setting and worker cancellation at the
+    /// persistence boundary before committing the evidence.
     pub fn observe(&self, cancelled: &AtomicBool) -> Option<Vec<RecentScopeEvidence>> {
-        if self.progress() != RecentScopeAdmissionProgress::Ready {
-            return None;
-        }
         let mut evidence = Vec::with_capacity(self.observers.len());
         for observer in &self.observers {
             if cancelled.load(Ordering::Acquire) {
@@ -162,7 +139,7 @@ pub struct RecentScopeAdmissions {
 }
 
 impl RecentScopeAdmissions {
-    /// Releases deferred evidence only after app-host has returned the scan receipt.
+    /// Releases deferred observations after app-host successfully delivers the new scan receipt.
     pub fn response_sent(&self, job_ref: &du_core_contracts::Id) -> bool {
         let Ok(mut queue) = self.pending.lock() else {
             return false;
@@ -184,7 +161,7 @@ impl RecentScopeAdmissions {
         true
     }
 
-    /// Drops an admission cancelled before its scan receipt was returned.
+    /// Drops an admission whose new scan receipt will not be delivered.
     pub fn cancel_before_response(&self, job_ref: &du_core_contracts::Id) -> bool {
         let Ok(mut queue) = self.pending.lock() else {
             return false;
