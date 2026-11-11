@@ -21,6 +21,42 @@ before UTF-16 conversion. Counts include two root items. Results in bytes:
 | seeded 64-byte ASCII names | 10,002 | 600 | 980,137 | 520,756 | 521,428 |
 | repeated 1,023-byte UTF-8 names | 102 | 600 | 105,837 | 398 | 1,070 |
 | seeded ASCII names encoded UTF-16LE | 10,002 | 615 | 1,620,139 | 712,102 | 712,789 |
+| unique siblings with shared prefix | 10,002 | 600 | 560,137 | 26,671 | 27,343 |
+
+The repeated-name cases include duplicate sibling names and are compression
+stress vectors, not legal directory listings. The unique-siblings case uses
+`common-prefix-` plus an eight-digit unique number and alternates two parents;
+it has no duplicate names per parent. This still does not establish path order.
+
+## Counting compression before writing
+
+For every fixture, a count-only sink and a `Vec` sink receive independent
+zstd encoders with the same level, checksum, exact input bytes and schedule:
+8,192-byte chunks, either no explicit flush or flush after every four chunks,
+then finish. Within each schedule the count matches the Vec length, and two
+independent Vec outputs match byte-for-byte. An injected count-sink failure propagates. This demonstrates equality
+for these fixtures and library version, not all possible producers or versions.
+The two schedules themselves need not match: for the unique case they produced
+26,671 and 25,832 bytes respectively. Stable input, encoder settings, library,
+chunk/flush sequence, and successful finish would all need to be pinned across
+both passes; a mismatch must fail before publication.
+
+One Windows debug run, single observation, measured count-only / Vec time
+in microseconds as follows: repeated 2,471/2,446, random 19,257/19,257,
+UTF-16 random 35,123/36,629, unique 2,950/2,922 (no explicit flush).
+This excludes generating the record stream, disk I/O, reservation, DB work,
+and any production pipeline. It is not an NFR or performance acceptance run.
+The preflight does a second compression pass; the pinned source must survive
+both passes without changing. F07 HLD 116 refers GUI response to F02 NFR4–6
+and specifies returning the job reference promptly, so where preflight runs
+relative to admission and job submission is a design decision, not settled
+by this measurement. Published F07 DLD body remains unavailable to this run.
+
+The output sink here is memory, not an actual file. We have not measured
+available filesystem bytes or allocation costs, performed a pre-write free
+space check, or tested concurrent ENOSPC and atomic preservation. Those are
+separate prerequisites before treating exact compressed bytes as a safe space
+admission value. This fixture does not implement or change a public contract.
 
 The fixture checks sealed validation and byte-for-byte recovered records,
 rejects a changed envelope hash, rejects a name containing a separator, and
