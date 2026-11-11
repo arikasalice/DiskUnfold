@@ -213,6 +213,7 @@ function DrivePicker({
           {notice}
         </Notice>
       )}
+      <EmptyDriveNotice targets={targets} />
       {entries.length > 0 && (
         <>
           <ChoiceGroup
@@ -266,5 +267,25 @@ function DrivePicker({
         </>
       )}
     </section>
+  );
+}
+
+function EmptyDriveNotice({
+  targets,
+}: {
+  targets: ReturnType<typeof useTargets>;
+}) {
+  if (
+    targets.loading ||
+    !targets.list ||
+    targets.error ||
+    targets.list.unavailableReason ||
+    targets.list.targets.length > 0
+  )
+    return null;
+  return (
+    <Notice tone="info">
+      No drives were found. You can still enter a folder path.
+    </Notice>
   );
 }

@@ -537,6 +537,7 @@ test("F01: slow drive listing leaves direct folder review available", async () =
   });
   render(<App analysis={client} />);
   await screen.findByText(/Drive listing is taking longer/);
+  expect(screen.queryByText(/No drives were found/)).toBeNull();
   fireEvent.change(
     screen.getByRole("textbox", { name: "Windows folder path" }),
     {
@@ -2787,3 +2788,39 @@ test.each(["done", "failed", "cancelled", "partial"] as const)(
     expect(screen.queryByLabelText("Scanning paths")).toBeNull();
   },
 );
+
+test("F01: empty target discovery preserves the typed path and focus", async () => {
+  let resolveList!: (list: TargetList) => void;
+  const targetList = new Promise<TargetList>((resolve) => {
+    resolveList = resolve;
+  });
+  const { client } = fixture({ targetList });
+  render(<App analysis={client} />);
+  const input = screen.getByRole("textbox", { name: "Windows folder path" });
+  fireEvent.change(input, { target: { value: path.display } });
+  input.focus();
+  expect(screen.queryByText(/No drives were found/)).toBeNull();
+  await act(async () =>
+    resolveList({ ...targets, targets: [], probeJobRef: null }),
+  );
+  expect(await screen.findByText(/No drives were found/)).toBeDefined();
+  expect((input as HTMLInputElement).value).toBe(path.display);
+  expect(document.activeElement).toBe(input);
+});
+
+test("F01: a listing failure is not reported as an empty successful list", async () => {
+  let rejectList!: (error: Error) => void;
+  const targetList = new Promise<TargetList>((_resolve, reject) => {
+    rejectList = reject;
+  });
+  const { client } = fixture({ targetList });
+  render(<App analysis={client} />);
+  const input = screen.getByRole("textbox", { name: "Windows folder path" });
+  fireEvent.change(input, { target: { value: path.display } });
+  input.focus();
+  await act(async () => rejectList(new Error("Drive listing failed")));
+  expect(await screen.findByText("Drive listing failed")).toBeDefined();
+  expect(screen.queryByText(/No drives were found/)).toBeNull();
+  expect((input as HTMLInputElement).value).toBe(path.display);
+  expect(document.activeElement).toBe(input);
+});
