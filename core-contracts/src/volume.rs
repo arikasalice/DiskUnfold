@@ -1,5 +1,8 @@
 //! Read-only volume discovery contracts.
-use crate::ports::{PortError, PortErrorKind};
+use crate::{
+    OsPath,
+    ports::{PortError, PortErrorKind},
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CapabilityState {
@@ -116,4 +119,34 @@ pub trait VolumePort: Send + Sync {
             capacity: should_read_capacity().then(|| self.capacity(path)),
         })
     }
+}
+
+/// One currently confirmed entry for a saved volume identity.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RecentVolumeEntry {
+    pub path: OsPath,
+    /// The provider confirmed whether this is the saved entry.
+    pub same_entry: bool,
+}
+
+/// Complete current evidence for one recognized, saved volume identity.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RecentVolumeObservation {
+    /// Kind independently recognized by the provider, for identity comparisons.
+    pub identity_kind: &'static [u8],
+    /// All verified entries. Empty requires confirmed absence of the saved identity.
+    pub entries: Vec<RecentVolumeEntry>,
+}
+
+/// Supplies volume evidence for recent-scope review without reopening a saved scope.
+pub trait RecentVolumePort: Send + Sync {
+    /// Recognizes the saved identity kind and obtains its complete current entry set.
+    /// `None` means the kind, identity, entry comparison or completeness is unverified.
+    /// Call the checkpoint between OS calls and discard an incomplete observation.
+    fn recent_volume(
+        &self,
+        saved_id: &[u8],
+        saved_entry: &OsPath,
+        continue_work: &dyn Fn() -> bool,
+    ) -> Option<RecentVolumeObservation>;
 }

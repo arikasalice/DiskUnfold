@@ -2,6 +2,7 @@
 mod digest;
 pub mod exclusion;
 pub mod preparation;
+pub mod recent;
 
 use std::sync::Arc;
 

@@ -60,8 +60,22 @@ fn wait_for_saved_scope(
     let fingerprint = fingerprint
         .try_into()
         .map_err(|_| "invalid stored fingerprint width")?;
-    crate::recent_scope_body::RecentScopeBody::decode(&body, format, &fingerprint, count)
-        .map_err(|e| format!("{e:?}").into())
+    let decoded =
+        crate::recent_scope_body::RecentScopeBody::decode(&body, format, &fingerprint, count)
+            .map_err(|e| format!("{e:?}"))?;
+    let target = decoded.targets().first().ok_or("missing restored target")?;
+    let volume = target.volume_id.bytes()?;
+    let matched = du_engine_api::scope::recent::review_recent_volume(
+        &du_platform_os::volume::WindowsVolumes,
+        &volume,
+        &target.entry_path,
+        &|| true,
+    );
+    assert_eq!(
+        matched,
+        du_engine_api::scope::recent::RecentVolumeMatch::Matched
+    );
+    Ok(decoded)
 }
 
 /// Reviews and scans a raw NTFS name whose display requires a replacement character.

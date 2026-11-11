@@ -1,4 +1,6 @@
 //! Read-only Windows logical-drive observations, using UTF-16LE path bytes.
+mod drive;
+mod recent;
 use du_core_contracts::{
     ports::{PortError, PortErrorKind},
     volume::{
@@ -70,12 +72,12 @@ fn root(path: &[u8]) -> Result<Vec<u16>, PortError> {
         .iter()
         .map(|c| u16::from_le_bytes([c[0], c[1]]))
         .collect();
-    if !matches!(units.as_slice(), [letter, 58, 92] if (65..=90).contains(letter) || (97..=122).contains(letter))
-    {
+    if drive::letter(&units).is_none() {
         return Err(invalid());
     }
     Ok(units)
 }
+
 fn terminated(path: &[u16]) -> Vec<u16> {
     path.iter().copied().chain([0]).collect()
 }
