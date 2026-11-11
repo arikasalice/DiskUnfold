@@ -21,6 +21,11 @@ are uncontrolled. The second scan follows the first and is not an independent
 cold-cache run. The default metadata scan config has four scan workers and the
 desktop runtime's metadata I/O cap is 16. No GUI is started.
 
+The current test also calls `space.total` with the final result version from
+each `job.finished` event. It expects exact logical totals of 100,000 and
+100,001 bytes after growing one file by one byte between scans. The number of
+files stays fixed. The query timing includes response decoding and assertions.
+
 Two test invocations on 2026-11-11 used Windows 11 Pro 10.0.26200, x64, an Intel
 Core i7-13700KF with 24 logical processors, and 34,103,939,072 bytes of visible
 RAM. The temporary fixture was on a fixed NTFS C: volume on an NVMe WD_BLACK
@@ -54,10 +59,10 @@ scheduling delays. UTC values are notification emission timestamps with
 millisecond resolution, not the atomic registration or terminal timestamps.
 No UI polling or rendering was measured.
 
-F02 NFR1 requires scan admission and first result registration timestamps;
-NFR2 requires start and end with counts; NFR3 requires scan memory high water,
-channel occupancy and queued-directory counts. Exact boundary timestamps,
-per-scan memory, channel occupancy and queued-directory peaks are not exposed
-by this test or the current production diagnostics. The corresponding values
-remain unmeasured. F02 DLD 94 Q1 leaves performance targets for a later
-decision; these observations are not pass/fail judgments or release targets.
+F02 NFR1 requires scan admission and first result registration timestamps.
+NFR2 requires start and end with counts. NFR3 requires scan memory high water,
+channel occupancy and queued-directory counts. The current test measures the
+shared ready queue peak. Worker-local overflow, in-flight entries and the
+observation channel are outside that count. Exact boundary timestamps,
+per-scan memory and channel occupancy remain unmeasured. F02 DLD 94 Q1 leaves
+performance targets for a later decision.
