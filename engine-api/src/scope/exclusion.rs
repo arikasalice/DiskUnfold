@@ -201,7 +201,7 @@ fn prepare_scope(
         .map(|&i| candidates[i].0.clone())
         .collect();
     let mut key_draft = output.clone();
-    key_draft.includes = frozen.root_keys;
+    key_draft.includes = frozen.root_keys.clone();
     key_draft.exclusions = frozen
         .rule_keys
         .into_iter()
@@ -225,6 +225,18 @@ fn prepare_scope(
             ))
         })
         .collect::<Result<Vec<_>, EngineError>>()?;
+    // The reviewed root evidence must use the same comparison key as the
+    // frozen filter and scope digest. An inconsistent provider is not proof.
+    for (&index, expected) in frozen.roots.iter().zip(&frozen.root_keys) {
+        let actual = witnesses
+            .iter()
+            .find(|(_, _, _, path)| path == &candidates[index].0)
+            .map(|(key, _, _, _)| key)
+            .ok_or_else(|| EngineError::reason("scope.target_unavailable"))?;
+        if actual.encoding != expected.encoding || actual.raw != expected.raw {
+            return Err(EngineError::reason("scope.target_unavailable"));
+        }
+    }
     let refs = witnesses
         .iter()
         .map(|(path, volume, file, _)| digest::ReviewRoot {

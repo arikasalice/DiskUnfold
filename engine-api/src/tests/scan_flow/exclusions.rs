@@ -57,6 +57,57 @@ fn native(path: &str) -> serde_json::Value {
     json!({"encoding": "windows_utf16le", "raw": PathBytes::from_bytes(&bytes), "display": "untrusted", "lossy": false})
 }
 
+struct ChangingRootKey {
+    enabled: std::sync::atomic::AtomicBool,
+    root_reads: std::sync::atomic::AtomicUsize,
+}
+
+impl PathComparison for ChangingRootKey {
+    fn path(&self, path: &OsPath) -> Option<ComparisonPath> {
+        let mut result = ProvenComparison.path(path)?;
+        if self.enabled.load(Ordering::Acquire)
+            && result.components.len() == 2
+            && self.root_reads.fetch_add(1, Ordering::AcqRel) > 0
+        {
+            result.serialized_key = serde_json::from_value(native("C:\\Different")).ok()?;
+        }
+        Some(result)
+    }
+
+    fn component(&self, root: &ComparisonPath, parent: &[Vec<u8>], raw: &[u8]) -> Option<Vec<u8>> {
+        ProvenComparison.component(root, parent, raw)
+    }
+}
+
+#[test]
+fn start_rejects_root_key_that_changes_after_filter_preparation()
+-> Result<(), Box<dyn std::error::Error>> {
+    let comparison = Arc::new(ChangingRootKey {
+        enabled: std::sync::atomic::AtomicBool::new(false),
+        root_reads: std::sync::atomic::AtomicUsize::new(0),
+    });
+    let ScanHarness { engine, roots, .. } =
+        fixture::scan_harness_with_comparison(None, Some(comparison.clone()))?;
+    let gui = |name, body| call(&engine, name, Channel::Gui, ENVELOPE_VERSION, body);
+    let draft = json!({"includes":[native("C:\\Fixture")],"exclusions":[{"kind":"path","path":native("C:\\Fixture\\F")}],"boundary":"current_volume","includedMounts":[],"source":"gui"});
+    let review: ScopeReview =
+        serde_json::from_value(gui("scope.review", json!({"draft":draft,"requestSeq":1}))?.body)?;
+    comparison.enabled.store(true, Ordering::Release);
+    let response = gui(
+        "scan.start",
+        json!({"draft":draft,"reviewFingerprint":review.review_fingerprint}),
+    )?;
+    assert_eq!(
+        response
+            .error
+            .ok_or("inconsistent evidence accepted")?
+            .reason_key,
+        "scope.changed"
+    );
+    assert_eq!(roots.reads.load(Ordering::Acquire), 0);
+    Ok(())
+}
+
 #[test]
 fn reviewed_exclusions_are_bound_to_start_and_filter_the_job()
 -> Result<(), Box<dyn std::error::Error>> {
