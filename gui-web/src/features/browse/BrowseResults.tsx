@@ -135,7 +135,7 @@ export function BrowseResults({
           {paging.moving ? "Loading folder items…" : paging.status}
         </LiveStatus>
       </div>
-      <LiveStatus>{copy.status}</LiveStatus>
+      <LiveStatus placement="viewport">{copy.status}</LiveStatus>
       {initialCursor !== null && (
         <div className="du-browse-more">
           {paging.showLoadMore && (

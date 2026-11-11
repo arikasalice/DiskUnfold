@@ -23,8 +23,9 @@ export function useBrowseCopy(
   function copy(row: FolderQueryRow) {
     if (!copyPath || pending.current) return;
     const request = generation.current;
+    const requestNavigation = navigationSeq();
     const isCurrent = () =>
-      generation.current === request && navigationSeq() === epoch;
+      generation.current === request && navigationSeq() === requestNavigation;
     pending.current = true;
     setBusy(true);
     const name = browseDisplayName(row.displayName);
@@ -52,9 +53,10 @@ export function useBrowseCopy(
         if (isCurrent()) setStatus(`Could not copy the path for ${name}.`);
       })
       .finally(() => {
-        if (isCurrent()) {
+        if (generation.current === request) {
           pending.current = false;
           setBusy(false);
+          if (!isCurrent()) setStatus("");
         }
       });
   }

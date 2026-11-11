@@ -1582,3 +1582,43 @@ test("navigation fences a late copy result", async () => {
   expect(screen.queryByText("Copied 1 path for Folder.")).toBeNull();
   await act(async () => next.resolve(opened(2, [])));
 });
+
+test("a failed navigation clears an obsolete copy and allows another", async () => {
+  const first = deferred<{ outcome: "copied"; count: number }>();
+  const second = deferred<{ outcome: "copied"; count: number }>();
+  const next = deferred<BrowseOpenResponse>();
+  const copyPath = vi
+    .fn()
+    .mockReturnValueOnce(first.promise)
+    .mockReturnValueOnce(second.promise);
+  const port: BrowsePort = {
+    open: vi
+      .fn()
+      .mockResolvedValueOnce(opened(1, [row(1, "Folder")]))
+      .mockReturnValueOnce(next.promise),
+    page: vi.fn(),
+    copyPath,
+  };
+  render(<BrowsePanel port={port} resultVersion={id} />);
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Actions for Folder" }),
+  );
+  fireEvent.click(
+    within(await screen.findByRole("menu")).getByRole("menuitem", {
+      name: "Copy path",
+    }),
+  );
+  await waitFor(() => expect(copyPath).toHaveBeenCalledTimes(1));
+  fireEvent.click(screen.getByRole("button", { name: "Folder" }));
+  await act(async () => next.reject(new Error("open failed")));
+  expect(await screen.findByText("Could not open this folder.")).toBeDefined();
+  await act(async () => first.resolve({ outcome: "copied", count: 1 }));
+  expect(screen.queryByText("Copied 1 path for Folder.")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Actions for Folder" }));
+  const menu = await screen.findByRole("menu");
+  fireEvent.click(within(menu).getByRole("menuitem", { name: "Copy path" }));
+  await waitFor(() => expect(copyPath).toHaveBeenCalledTimes(2));
+  expect(screen.getByText("Copying path for Folder…")).toBeDefined();
+  await act(async () => second.resolve({ outcome: "copied", count: 1 }));
+  expect(await screen.findByText("Copied 1 path for Folder.")).toBeDefined();
+});

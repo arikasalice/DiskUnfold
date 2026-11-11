@@ -97,16 +97,18 @@ export function StatusBadge({
 export function LiveStatus({
   children,
   focusTarget = false,
+  placement = "flow",
   ref,
 }: {
   children: ReactNode;
   focusTarget?: boolean;
+  placement?: "flow" | "viewport";
   ref?: Ref<HTMLDivElement>;
 }) {
   return (
     <div
       ref={ref}
-      className="du-live-status"
+      className={`du-live-status${placement === "viewport" ? " du-live-status--viewport" : ""}`}
       role="status"
       tabIndex={focusTarget ? -1 : undefined}
     >
