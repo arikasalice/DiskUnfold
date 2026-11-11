@@ -126,4 +126,44 @@ mod tests {
         assert_eq!(response(id, &unc), rejected);
         Ok(())
     }
+
+    #[test]
+    fn rejects_a_junction_and_a_folder_reached_through_it() -> Result<(), Box<dyn std::error::Error>>
+    {
+        use std::{fs, os::windows::ffi::OsStrExt, path::Path, process::Command};
+
+        let fixture = tempfile::tempdir()?;
+        let target = fixture.path().join("target");
+        let junction = fixture.path().join("redirect");
+        let nested = target.join("nested");
+        fs::create_dir_all(&nested)?;
+        let created = Command::new("cmd.exe")
+            .args(["/D", "/C", "mklink", "/J", "redirect", "target"])
+            .current_dir(fixture.path())
+            .output()?;
+        if !created.status.success() {
+            return Err(format!(
+                "junction fixture: {}",
+                String::from_utf8_lossy(&created.stderr)
+            )
+            .into());
+        }
+
+        let validate =
+            |path: &Path| response(44, &path.as_os_str().encode_wide().collect::<Vec<_>>());
+        let direct = validate(&nested);
+        let redirected = validate(&junction);
+        let below_redirect = validate(&junction.join("nested"));
+        // Remove the junction itself before the temporary directory is cleaned up.
+        fs::remove_dir(junction)?;
+
+        let rejected = reason_message(44, Reason::InvalidTarget);
+        assert_eq!(
+            direct,
+            path_message(44, &nested.as_os_str().encode_wide().collect::<Vec<_>>())
+        );
+        assert_eq!(redirected, rejected);
+        assert_eq!(below_redirect, rejected);
+        Ok(())
+    }
 }
