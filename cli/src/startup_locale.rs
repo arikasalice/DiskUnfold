@@ -10,11 +10,35 @@ pub(super) fn select(
     registry: &i18n::Registry,
     argument: Option<&str>,
 ) -> Result<(Decision, bool), DecisionError> {
+    select_with(registry, argument, stored_language, preferred_ui_languages)
+}
+
+fn select_with(
+    registry: &i18n::Registry,
+    argument: Option<&str>,
+    read_stored: impl FnOnce() -> Result<Option<String>, ()>,
+    read_os: impl FnOnce() -> Option<Vec<String>>,
+) -> Result<(Decision, bool), DecisionError> {
     let registered = registry.languages().collect::<Vec<_>>();
+    let korean_integrity_failed = registry
+        .integrity_warnings()
+        .iter()
+        .any(|warning| warning == "i18n.bundle_integrity_failed");
     let (stored, tags) = if argument.is_some() {
         (Ok(None), None)
     } else {
-        (stored_language(), preferred_ui_languages())
+        let stored = read_stored();
+        let usable = stored
+            .as_ref()
+            .ok()
+            .and_then(|value| value.as_deref())
+            .is_some_and(|language| registered.contains(&language));
+        let tags = if usable || korean_integrity_failed {
+            None
+        } else {
+            read_os()
+        };
+        (stored, tags)
     };
     let tags = tags
         .as_ref()
@@ -26,9 +50,77 @@ pub(super) fn select(
         registered: &registered,
         stored: stored.as_ref().ok().and_then(|value| value.as_deref()),
         os,
-        korean_integrity_failed: !registry.integrity_warnings().is_empty(),
+        korean_integrity_failed,
     };
     locale::decide_cli(&inputs, argument).map(|decision| (decision, stored.is_err()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stored_language_short_circuits_os_lookup() -> Result<(), Box<dyn std::error::Error>> {
+        let registry = i18n::embedded::register(&[]).map_err(|e| format!("{e:?}"))?;
+        let (decision, unavailable) = select_with(
+            &registry,
+            None,
+            || Ok(Some("en".into())),
+            || panic!("stored language must avoid OS lookup"),
+        )
+        .map_err(|e| format!("{e:?}"))?;
+        assert_eq!(decision.language, "en");
+        assert_eq!(decision.source, locale::Source::Stored);
+        assert!(!unavailable);
+        Ok(())
+    }
+
+    #[test]
+    fn invalid_stored_language_uses_os_once() -> Result<(), Box<dyn std::error::Error>> {
+        let registry = i18n::embedded::register(&[]).map_err(|e| format!("{e:?}"))?;
+        let mut calls = 0;
+        let (decision, _) = select_with(
+            &registry,
+            None,
+            || Ok(Some("fr".into())),
+            || {
+                calls += 1;
+                Some(vec!["ko-KR".into()])
+            },
+        )
+        .map_err(|e| format!("{e:?}"))?;
+        assert_eq!(calls, 1);
+        assert_eq!(decision.language, "ko");
+        assert!(decision.stored_unavailable);
+        Ok(())
+    }
+
+    #[test]
+    fn korean_integrity_failure_skips_os_and_preserves_warning()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut resources = i18n::embedded::resources().map_err(|e| format!("{e:?}"))?;
+        for resource in &mut resources {
+            if resource.language == "ko" {
+                resource.expected_hash = [0; 32];
+            }
+        }
+        let registry = i18n::Registry::register(&resources, &[], &[], i18n::embedded::parse_bundle)
+            .map_err(|e| format!("{e:?}"))?;
+        let (decision, _) = select_with(
+            &registry,
+            None,
+            || Ok(Some("ko".into())),
+            || panic!("integrity failure must avoid OS lookup"),
+        )
+        .map_err(|e| format!("{e:?}"))?;
+        assert_eq!(decision.language, "en");
+        assert_eq!(decision.source, locale::Source::Baseline);
+        assert_eq!(
+            registry.integrity_warnings(),
+            ["i18n.bundle_integrity_failed"]
+        );
+        Ok(())
+    }
 }
 
 #[cfg(windows)]

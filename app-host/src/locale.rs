@@ -24,7 +24,23 @@ pub(super) fn initialize(
     registry: i18n::Registry,
     stored: Option<&str>,
 ) -> Result<StartupLocale, io::Error> {
-    let tags = du_platform_os::windows_ui_language::preferred_ui_languages().ok();
+    initialize_with_language_provider(registry, stored, || {
+        du_platform_os::windows_ui_language::preferred_ui_languages().ok()
+    })
+}
+
+fn initialize_with_language_provider(
+    registry: i18n::Registry,
+    stored: Option<&str>,
+    provider: impl FnOnce() -> Option<Vec<String>>,
+) -> Result<StartupLocale, io::Error> {
+    let tags = if stored.is_some_and(|language| registry.bundle(language).is_some())
+        || korean_integrity_failed(&registry)
+    {
+        None
+    } else {
+        provider()
+    };
     let tags = tags
         .as_ref()
         .map(|tags| tags.iter().map(String::as_str).collect::<Vec<_>>());
@@ -51,10 +67,7 @@ fn initialize_with_report(
     os: locale::OsLanguage<'_>,
     mut report: impl FnMut(&str),
 ) -> Result<StartupLocale, io::Error> {
-    let korean_integrity_failed = registry
-        .integrity_warnings()
-        .iter()
-        .any(|warning| warning == "i18n.bundle_integrity_failed");
+    let korean_integrity_failed = korean_integrity_failed(&registry);
     let registered: Vec<_> = registry.languages().collect();
     let decision = locale::decide(&locale::Inputs {
         registered: &registered,
@@ -70,6 +83,13 @@ fn initialize_with_report(
         _registry: registry,
         _decision: decision,
     })
+}
+
+fn korean_integrity_failed(registry: &i18n::Registry) -> bool {
+    registry
+        .integrity_warnings()
+        .iter()
+        .any(|warning| warning == "i18n.bundle_integrity_failed")
 }
 
 #[cfg(test)]
@@ -134,7 +154,10 @@ mod tests {
             registry.configured_languages().collect::<Vec<_>>(),
             ["en", "ko"]
         );
-        let startup = initialize(registry, Some("ko")).map_err(|error| error.to_string())?;
+        let startup = initialize_with_language_provider(registry, Some("ko"), || {
+            panic!("integrity failure must avoid OS lookup")
+        })
+        .map_err(|error| error.to_string())?;
         assert_eq!(startup._decision.language, "en");
         assert_eq!(startup._decision.source, locale::Source::Baseline);
         assert_eq!(
@@ -156,6 +179,30 @@ mod tests {
         let startup = initialize(register()?, Some("ko"))?;
         assert_eq!(startup._decision.language, "ko");
         assert_eq!(startup._decision.source, locale::Source::Stored);
+        Ok(())
+    }
+
+    #[test]
+    fn stored_registered_language_does_not_query_the_os() -> Result<(), io::Error> {
+        let startup = initialize_with_language_provider(register()?, Some("ko"), || {
+            panic!("stored language must avoid OS lookup")
+        })?;
+        assert_eq!(startup._decision.language, "ko");
+        assert_eq!(startup._decision.source, locale::Source::Stored);
+        Ok(())
+    }
+
+    #[test]
+    fn unavailable_stored_language_queries_os_once() -> Result<(), io::Error> {
+        let mut calls = 0;
+        let startup = initialize_with_language_provider(register()?, Some("fr"), || {
+            calls += 1;
+            Some(vec!["ko-KR".to_owned()])
+        })?;
+        assert_eq!(calls, 1);
+        assert_eq!(startup._decision.language, "ko");
+        assert_eq!(startup._decision.source, locale::Source::Os);
+        assert!(startup._decision.stored_unavailable);
         Ok(())
     }
 
