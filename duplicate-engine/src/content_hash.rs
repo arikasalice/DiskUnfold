@@ -49,6 +49,17 @@ impl RegisteredOutcome {
 }
 
 impl RegisteredHash {
+    pub(crate) fn reuse_identity(&self) -> (&str, u32) {
+        (self.0.id(), self.0.revision())
+    }
+
+    pub(crate) fn verified_full_for_reuse(
+        &self,
+        target: &VerificationTarget,
+        reader: &mut impl ReadPort,
+    ) -> Result<Vec<u8>, verification::State> {
+        verification::verified_full_for_reuse(target, reader, self.0)
+    }
     /// Resolves an exact revision, or the highest registered revision when omitted.
     pub fn resolve(id: &str, revision: Option<u32>) -> Result<Self, VerifyError> {
         let strategy = REGISTERED

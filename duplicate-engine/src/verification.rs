@@ -411,6 +411,37 @@ fn read_digest(
     }
     Ok(digest)
 }
+
+/// Produces a full digest only through the normal identity-bound before/after checks.
+pub(crate) fn verified_full_for_reuse(
+    target: &VerificationTarget,
+    reader: &mut impl ReadPort,
+    hasher: &dyn HashStrategy,
+) -> Result<Vec<u8>, State> {
+    let identity = target.target.identity.as_ref().ok_or(State::Unchecked)?;
+    let Size::Exact(size) = target.target.size else {
+        return Err(State::Unchecked);
+    };
+    if target.target.kind != candidates::EntryKind::File
+        || identity.volume.is_empty()
+        || identity.file.is_empty()
+        || !valid_approval(target, identity, size)
+    {
+        return Err(State::Unchecked);
+    }
+    let candidate = Candidate {
+        approved: target,
+        aliases: vec![target.target.item_no],
+        identity: identity.clone(),
+    };
+    read_digest(
+        &candidate,
+        HashPurpose::Full,
+        reader,
+        hasher,
+        &mut ReadMeasurement::default(),
+    )
+}
 fn read_range(
     file: &mut dyn OpenFile,
     range: SampleRange,
