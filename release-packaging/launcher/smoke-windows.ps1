@@ -13,6 +13,7 @@ param(
   [switch]$VerifyDeniedSubtree,
   [switch]$VerifySettingsRestoration,
   [switch]$VerifyOperationHistory,
+  [switch]$VerifyPathCopyContention,
   [switch]$VerifyNativeFolderDrop
 )
 
@@ -46,8 +47,8 @@ $ae = [Windows.Automation.AutomationElement]
 $edit = [Windows.Automation.ControlType]::Edit
 $button = [Windows.Automation.ControlType]::Button
 $textType = [Windows.Automation.ControlType]::Text
-function Wait-UI($label, [scriptblock]$probe) {
-  $deadline = [DateTime]::UtcNow.AddSeconds(22)
+function Wait-UI($label, [scriptblock]$probe, $seconds = 22) {
+  $deadline = [DateTime]::UtcNow.AddSeconds($seconds)
   do {
     if ($process.HasExited) { throw "Application exited while waiting for $label" }
     try { $found = & $probe; if ($found) { return $found } }
@@ -125,7 +126,7 @@ function Wait-FinalLogicalSize($expected, $versionLabel = 'Final') {
   }
 }
 # Open the observed file inspector through its real WebView2 action.
-function Test-FileInspection($name, $size) {
+function Test-FileInspection($name, $size, $testCopyContention = $false) {
   $file = Wait-Enabled $name $true
   $file.SetFocus()
   Invoke-UI (Wait-VisibleAction $name)
@@ -133,6 +134,7 @@ function Test-FileInspection($name, $size) {
     $details = Find-UI 'Observed file attributes' $null
     if ($details) { Find-UI $name $null $details }
   }
+  if ($testCopyContention) { Test-PathCopyContention }
   Wait-Details 'Space measurement details' 'Observed item space'
   $null = Wait-UI "pinned space for $name" {
     $details = Find-UI 'Observed item space' $null
@@ -156,6 +158,32 @@ function Test-FileInspection($name, $size) {
     throw
   }
   "F05/F03 native file inspection: $name, $size, focus restored"
+}
+# Hold the clipboard open in the test process without reading or clearing it.
+function Test-PathCopyContention {
+  if (-not ('DiskUnfoldSmoke.ClipboardLock' -as [type])) {
+    Add-Type -Namespace DiskUnfoldSmoke -Name ClipboardLock -MemberDefinition @'
+[System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
+public static extern bool OpenClipboard(System.IntPtr window);
+[System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
+public static extern bool CloseClipboard();
+'@
+  }
+  $copy = Wait-VisibleAction 'Copy path'
+  if (-not [DiskUnfoldSmoke.ClipboardLock]::OpenClipboard([IntPtr]::Zero)) {
+    throw 'Could not acquire the clipboard for the contention test'
+  }
+  try {
+    Invoke-UI $copy
+    $null = Wait-UI 'clipboard write refusal' { Find-UI 'Could not copy to the clipboard.' $null } 4
+  } finally {
+    if (-not [DiskUnfoldSmoke.ClipboardLock]::CloseClipboard()) {
+      throw 'Could not release the clipboard contention test lock'
+    }
+  }
+  $null = Wait-Enabled 'Copy path' $true
+  $null = Wait-Enabled 'Close details' $true
+  'F05 native path copy: clipboard contention reported and file detail stayed open'
 }
 # Scan an isolated file whose IEC representation differs from its original byte count.
 function Test-ScaledFileInspection {
@@ -593,7 +621,7 @@ try {
   Invoke-UI (Wait-Enabled 'Browse folders' $true)
   $null = Wait-UI 'root.bin' { Find-UI 'root.bin' $null }
   $null = Wait-UI '11-byte root row' { Find-UI '11 bytes' $null }
-  Test-FileInspection 'root.bin' '11 bytes'
+  Test-FileInspection 'root.bin' '11 bytes' $VerifyPathCopyContention
   $nested = Wait-UI 'nested folder button' { Find-UI 'nested' $button }
   Invoke-UI $nested
   $null = Wait-UI 'nested.bin' { Find-UI 'nested.bin' $null }
