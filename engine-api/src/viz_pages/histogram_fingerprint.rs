@@ -20,14 +20,16 @@ pub(super) fn candidate_fingerprint(
     model: &Histogram,
     rows: &[VizRow],
     groups: &HashMap<String, GroupRows>,
+    no_attribution: bool,
     cancelled: &mut dyn FnMut() -> bool,
 ) -> Result<String, Error> {
     if model.bins.len() != rows.len() || groups.len() != rows.len() {
         return Err(Error::Source);
     }
     let mut h = blake3::Hasher::new();
-    bytes(&mut h, b"diskunfold.histogram-page-candidate.v1")?;
+    bytes(&mut h, b"diskunfold.histogram-page-candidate.v2")?;
     bytes(&mut h, seed.as_bytes())?;
+    byte(&mut h, u8::from(no_attribution));
     byte(
         &mut h,
         match model.basis {
@@ -232,13 +234,18 @@ mod tests {
             total_bytes_overflowed: false,
         };
         let rows = [row];
-        let first = candidate_fingerprint("condition", &model, &rows, &groups, &mut || false)?;
+        let first =
+            candidate_fingerprint("condition", &model, &rows, &groups, false, &mut || false)?;
+        let fallback =
+            candidate_fingerprint("condition", &model, &rows, &groups, true, &mut || false)?;
+        assert_ne!(first, fallback);
         model.bins[0].bin.upper = Some(100);
-        let second = candidate_fingerprint("condition", &model, &rows, &groups, &mut || false)?;
+        let second =
+            candidate_fingerprint("condition", &model, &rows, &groups, false, &mut || false)?;
         assert_ne!(first, second);
         let mut checks = 0;
         assert_eq!(
-            candidate_fingerprint("condition", &model, &rows, &groups, &mut || {
+            candidate_fingerprint("condition", &model, &rows, &groups, false, &mut || {
                 checks += 1;
                 checks == 1000
             }),

@@ -133,34 +133,7 @@ fn check_case(unknown: bool, mixed: bool) -> Result<(), String> {
     );
     let candidate = candidate.map_err(|e| format!("{e:?}"))?;
     if mixed {
-        assert!(candidate.no_attribution());
-        assert!(
-            candidate
-                .model()
-                .histogram
-                .bins
-                .iter()
-                .all(|bin| bin.rect.is_none())
-        );
-        let pages = ModelPages::new(sink, NonZeroUsize::MIN, Arc::new(Ids(AtomicU8::new(10))));
-        let mut pending = pages
-            .defer_histogram_pages(candidate, &mut || false)
-            .map_err(|e| format!("{e:?}"))?;
-        assert!(pending.no_attribution());
-        let reference = pages
-            .commit_histogram_pages(&mut pending, &mut || false)
-            .map_err(|e| format!("{e:?}"))?;
-        assert!(pages.histogram_frame(&reference).is_err());
-        let rows = pages
-            .rows(&VizRowsRequest {
-                model_ref: reference,
-                result_revision: id(2),
-                start: 0,
-                count: 10,
-            })
-            .map_err(|e| format!("{e:?}"))?;
-        assert_eq!(rows.rows.len(), bins.len());
-        return Ok(());
+        return check_fallback(candidate, sink, version, scope, bins, d);
     }
     let rows = &candidate.pages().rows;
     assert_eq!(rows.len(), bins.len());
@@ -231,5 +204,147 @@ fn check_case(unknown: bool, mixed: bool) -> Result<(), String> {
         published.rows[0].quantity.as_ref().ok_or("q")?.unit(),
         "bytes"
     );
+    Ok(())
+}
+
+fn check_fallback(
+    candidate: histogram::SelectedCandidate,
+    sink: IngestSink,
+    version: Arc<ResultVersion>,
+    scope: ItemRef,
+    bins: Vec<du_analysis_index::visualization::histogram::Bin>,
+    d: Dispatcher,
+) -> Result<(), String> {
+    assert!(candidate.no_attribution());
+    assert!(
+        candidate
+            .model()
+            .histogram
+            .bins
+            .iter()
+            .all(|bin| bin.rect.is_none())
+    );
+    let pages = ModelPages::new(
+        sink,
+        NonZeroUsize::MIN.saturating_add(3),
+        Arc::new(Ids(AtomicU8::new(10))),
+    );
+    let mut pending = pages
+        .defer_histogram_pages(candidate, &mut || false)
+        .map_err(|e| format!("{e:?}"))?;
+    assert!(pending.no_attribution());
+    let reference = pages
+        .commit_histogram_pages(&mut pending, &mut || false)
+        .map_err(|e| format!("{e:?}"))?;
+    drop(pending);
+    let make = |basis| -> Result<histogram::SelectedCandidate, String> {
+        let selected = PinnedRendered::compute(
+            version.clone(),
+            histogram_dispatch::Request {
+                version: &version,
+                scope: &scope,
+                size_basis: SizeBasis::Logical,
+                unit_table: &SI_UNITS,
+                unit_table_revision: UNIT_TABLE_REVISION,
+                bounds: bounds(),
+                basis,
+                scale: Scale::Automatic,
+                unknown_reason: "fixture.unknown",
+            },
+            &d,
+            &mut || false,
+        )
+        .map_err(|e| format!("{e:?}"))?;
+        let items = selected
+            .rendered()
+            .prepared()
+            .model()
+            .histogram
+            .bins
+            .iter()
+            .flat_map(|bin| bin.members.iter().copied())
+            .map(|item_no| RowPresentation {
+                item: ItemRef {
+                    result_version: id(2),
+                    item_no,
+                },
+                legend_class_key: "c".into(),
+                display_flags: vec![],
+            })
+            .collect();
+        histogram::prepare_selected(
+            histogram::Request {
+                version: version.clone(),
+                scope: &scope,
+                size_basis: SizeBasis::Logical,
+                bins: &bins,
+                bounds: bounds(),
+                scale: Scale::Automatic,
+                fingerprint: "mixed".into(),
+                unknown_reason: "fixture.unknown".into(),
+                bin_presentation: (0..bins.len())
+                    .map(|i| BinPresentation {
+                        group_ref: format!("g{i}"),
+                        display_name: format!("bin {i}"),
+                        legend_class_key: "c".into(),
+                        display_flags: vec![],
+                    })
+                    .collect(),
+                item_presentation: items,
+            },
+            selected,
+            &mut || false,
+        )
+        .map_err(|e| format!("{e:?}"))
+    };
+    let mut repeated = pages
+        .defer_histogram_pages(make(Basis::Bytes)?, &mut || false)
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(
+        pages
+            .commit_histogram_pages(&mut repeated, &mut || false)
+            .map_err(|e| format!("{e:?}"))?,
+        reference
+    );
+    let mut ready = pages
+        .defer_histogram_pages(make(Basis::ItemCount)?, &mut || false)
+        .map_err(|e| format!("{e:?}"))?;
+    let ready_ref = pages
+        .commit_histogram_pages(&mut ready, &mut || false)
+        .map_err(|e| format!("{e:?}"))?;
+    assert_ne!(ready_ref, reference);
+    assert_eq!(
+        pages
+            .histogram_frame(&ready_ref)
+            .map_err(|e| format!("{e:?}"))?
+            .status,
+        histogram::HistogramStatus::Ready
+    );
+    let frame = pages
+        .histogram_frame(&reference)
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(
+        frame.status.reason_key(),
+        Some("viz.unavailable.no_attribution")
+    );
+    assert_eq!(frame.basis, Basis::Bytes);
+    assert_eq!(frame.unit_bins.bins, bins);
+    assert_eq!(frame.unit_bins.table_revision, UNIT_TABLE_REVISION);
+    assert_eq!(frame.axis_max, None);
+    assert!(
+        frame
+            .bins
+            .iter()
+            .all(|bin| bin.rect.is_none() && bin.no_area.is_none())
+    );
+    let rows = pages
+        .rows(&VizRowsRequest {
+            model_ref: reference,
+            result_revision: id(2),
+            start: 0,
+            count: 10,
+        })
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(rows.rows.len(), bins.len());
     Ok(())
 }

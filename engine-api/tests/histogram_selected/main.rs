@@ -191,6 +191,17 @@ fn selected_registered_geometry_binds_to_pages_and_rejects_replaced_source() -> 
     let model_ref = pages
         .commit_histogram_pages(&mut deferred, &mut || false)
         .map_err(|e| format!("{e:?}"))?;
+    let repeated = histogram::prepare_selected(request(), compute()?, &mut || false)
+        .map_err(|e| format!("{e:?}"))?;
+    let mut repeated = pages
+        .defer_histogram_pages(repeated, &mut || false)
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(
+        pages
+            .commit_histogram_pages(&mut repeated, &mut || false)
+            .map_err(|e| format!("{e:?}"))?,
+        model_ref
+    );
     assert!(
         pages
             .commit_histogram_pages(&mut deferred, &mut || false)
@@ -276,6 +287,7 @@ fn check_published(
     let frame = pages
         .histogram_frame(model_ref)
         .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(frame.status, histogram::HistogramStatus::Ready);
     assert_eq!(frame.axis_max, axis);
     assert_eq!(frame.unit_bins.bins, bins);
     assert_eq!(frame.bins[0].group_ref, "g0");

@@ -6,7 +6,9 @@ mod deferred_selected;
 mod selected;
 use super::{ModelInput, production::RowPresentation};
 use crate::browse;
-pub use deferred_selected::{DeferredSelectedPages, HistogramBinFrame, HistogramFrame};
+pub use deferred_selected::{
+    DeferredSelectedPages, HistogramBinFrame, HistogramFrame, HistogramStatus,
+};
 use du_analysis_index::{
     ResultVersion,
     visualization::{
@@ -247,6 +249,7 @@ fn assemble(
         &model.histogram,
         &rows,
         &groups,
+        no_attribution,
         cancelled,
     )?;
     Ok(Candidate {

@@ -19,11 +19,29 @@ pub struct HistogramBinFrame {
 
 /// Bounded geometry and table evidence; member rows live in the pinned source.
 pub struct HistogramFrame {
+    pub status: HistogramStatus,
     /// Quantity represented by the axis and each bin geometry.
     pub basis: Basis,
     pub unit_bins: UnitBins,
     pub axis_max: Option<u64>,
     pub bins: Vec<HistogramBinFrame>,
+}
+
+/// Whether this fixed histogram model has publishable geometry.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HistogramStatus {
+    Ready,
+    NoAttribution,
+}
+
+impl HistogramStatus {
+    /// The published unavailable reason, when only fixed rows are available.
+    pub fn reason_key(self) -> Option<&'static str> {
+        match self {
+            Self::Ready => None,
+            Self::NoAttribution => Some("viz.unavailable.no_attribution"),
+        }
+    }
 }
 
 /// One reserved registration, including cleanup retained outside the outer gate.
@@ -33,7 +51,7 @@ pub struct DeferredSelectedPages {
     reference: String,
     cleanup: DeferredRows,
     used: bool,
-    frame: Option<LayoutMetadata>,
+    frame: LayoutMetadata,
     no_attribution: bool,
 }
 impl DeferredSelectedPages {
@@ -106,13 +124,16 @@ impl ModelPages {
                 no_area: bin.no_area,
             });
         }
-        let frame: Option<LayoutMetadata> = (!candidate.no_attribution).then(|| {
-            Arc::new(HistogramFrame {
-                basis: candidate.model.histogram.basis,
-                unit_bins,
-                axis_max: candidate.model.histogram.axis_max,
-                bins,
-            }) as LayoutMetadata
+        let frame: LayoutMetadata = Arc::new(HistogramFrame {
+            status: if candidate.no_attribution {
+                HistogramStatus::NoAttribution
+            } else {
+                HistogramStatus::Ready
+            },
+            basis: candidate.model.histogram.basis,
+            unit_bins,
+            axis_max: candidate.model.histogram.axis_max,
+            bins,
         });
         let scope = candidate.model.summary.scope;
         if scope.result_version != *candidate.pages.version.version_id()
@@ -172,7 +193,7 @@ impl ModelPages {
         }
         let (reference, _) = self.register_deferred(
             &mut deferred.input,
-            &(None, deferred.frame.clone()),
+            &(None, Some(deferred.frame.clone())),
             &deferred.reference,
             cancelled,
             &mut deferred.cleanup,

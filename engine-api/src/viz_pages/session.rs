@@ -49,6 +49,52 @@ pub struct ChildPolicyEvidence {
 }
 
 impl Session {
+    /// Computes histogram input through the same frozen registry as other layouts.
+    pub fn compute_histogram(
+        &self,
+        source: Arc<ResultVersion>,
+        request: du_analysis_index::visualization::histogram_dispatch::Request<'_>,
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<super::histogram::PinnedRendered, super::histogram::Error> {
+        super::histogram::PinnedRendered::compute(source, request, &self.dispatcher, cancelled)
+    }
+
+    /// Reserves histogram rows and metadata for a caller-owned publication gate.
+    pub fn defer_histogram(
+        &self,
+        candidate: super::histogram::SelectedCandidate,
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<super::histogram::DeferredSelectedPages, super::histogram::Error> {
+        self.pages.defer_histogram_pages(candidate, cancelled)
+    }
+
+    /// Commits the reserved histogram while the caller owns its publication gate.
+    pub fn commit_histogram(
+        &self,
+        candidate: &mut super::histogram::DeferredSelectedPages,
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<String, Error> {
+        self.pages.commit_histogram_pages(candidate, cancelled)
+    }
+
+    /// Reads the committed histogram's table and geometry status.
+    pub fn histogram_frame(
+        &self,
+        reference: &str,
+    ) -> Result<Arc<super::histogram::HistogramFrame>, Error> {
+        self.pages.histogram_frame(reference)
+    }
+
+    /// Reads members from a group in the same committed histogram model.
+    pub fn histogram_group_rows(
+        &self,
+        reference: &str,
+        group: &str,
+        start: u32,
+        count: u32,
+    ) -> Result<super::GroupPage, Error> {
+        self.pages.group_rows(reference, group, start, count)
+    }
     /// Creates a session from a frozen registry and an empty model store.
     pub fn new(
         source: IngestSink,
