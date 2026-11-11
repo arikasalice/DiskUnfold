@@ -151,6 +151,7 @@ fn verify_pinned_totals(engine: &Engine, version: &Id) -> Result<(), Box<dyn std
 #[ignore = "requires DISKUNFOLD_TEST_SECOND_NTFS_PARENT on another writable NTFS volume"]
 fn windows_two_ntfs_volumes_keep_root_and_scope_totals_on_one_result()
 -> Result<(), Box<dyn std::error::Error>> {
+    use du_core_contracts::analysis_ipc::{IdentitySource, TargetList};
     use du_core_contracts::scan_observation::ScopeRootPort;
     use du_platform_os::windows_observation::WindowsScopeRoots;
 
@@ -171,7 +172,7 @@ fn windows_two_ntfs_volumes_keep_root_and_scope_totals_on_one_result()
         let opened = WindowsScopeRoots
             .open_root(&raw)
             .map_err(|error| format!("{error:?}"))?;
-        volumes.insert(opened.volume_id);
+        volumes.insert(PathBytes::from_bytes(&opened.volume_id).as_str().to_owned());
         includes.push(json!({"encoding":"windows_utf16le","raw":PathBytes::from_bytes(&raw),"display":root,"lossy":false}));
     }
     assert_eq!(
@@ -190,6 +191,18 @@ fn windows_two_ntfs_volumes_keep_root_and_scope_totals_on_one_result()
         &du_platform_os::entropy::OsRandom,
     )?;
     let engine = builder.build()?;
+    let targets: TargetList = read(&engine, "target.list", json!({"refresh":false}))?;
+    assert_eq!(targets.unavailable_reason, None);
+    for volume in &volumes {
+        assert!(
+            targets.targets.iter().any(|target| {
+                target.connected
+                    && target.identity_source == IdentitySource::Confirmed
+                    && target.volume_id.as_ref() == Some(volume)
+            }),
+            "target discovery omitted a selected volume"
+        );
+    }
     let draft = json!({"includes":includes,"exclusions":[],"boundary":"current_volume","includedMounts":[],"source":"gui"});
     let review: ScopeReview = read(
         &engine,
@@ -248,6 +261,6 @@ fn windows_two_ntfs_volumes_keep_root_and_scope_totals_on_one_result()
         }
     }
     assert_eq!(root_totals, BTreeSet::from([13, 37]));
-    eprintln!("F01_F03_WINDOWS_VOLUMES distinct=2 root_bytes=13,37 scope_bytes=50");
+    eprintln!("F01_F03_WINDOWS_VOLUMES discovered=2 distinct=2 root_bytes=13,37 scope_bytes=50");
     Ok(())
 }
