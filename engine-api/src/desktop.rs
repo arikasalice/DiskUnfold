@@ -7,7 +7,7 @@ use std::{
 
 use du_core_contracts::{
     ENVELOPE_VERSION, EventEnvelope, Id, Timestamp,
-    analysis_ipc::{TargetProbeEvent, TargetStatusChanged},
+    analysis_ipc::{JobResyncReason, JobResyncRequired, TargetProbeEvent, TargetStatusChanged},
     history_ipc::{HISTORY_CHANGED, HistoryChangedBody},
     job::{HistoryChangeReason, HistoryChanged, HistoryRecovery, JobHistory},
     ports::Random,
@@ -147,27 +147,29 @@ fn utc_now_ms() -> i64 {
 struct Pending {
     queue: VecDeque<EventEnvelope>,
     sequence: u64,
-    overflow: bool,
+    discarded_events: Option<u64>,
     release_at: Option<Instant>,
     ready_count: usize,
 }
 
 impl Pending {
-    fn push(&mut self, mut event: EventEnvelope, now: Instant) {
-        if self.overflow {
+    fn push(&mut self, mut event: EventEnvelope, now: Instant, observed_at: Timestamp) {
+        if let Some(discarded) = &mut self.discarded_events {
+            *discarded = discarded.saturating_add(1);
             return;
         }
         self.sequence += 1;
         event.seq = self.sequence;
         if self.queue.len() == EVENT_LIMIT {
+            self.discarded_events = Some(self.queue.len() as u64 + 1);
             self.queue.clear();
             self.ready_count = 0;
-            self.overflow = true;
             event.topic = "job.resync_required".into();
             event.job_ref = None;
             event.correlation_id = None;
             event.result_version = None;
-            event.body = json!({});
+            event.occurred_at = observed_at;
+            event.body = serde_json::Value::Null;
         }
         self.release_at.get_or_insert(now + EVENT_INTERVAL);
         self.queue.push_back(event);
@@ -179,9 +181,16 @@ impl Pending {
             self.ready_count = self.queue.len();
             self.release_at = None;
         }
-        let event = self.queue.pop_front()?;
+        let mut event = self.queue.pop_front()?;
         self.ready_count -= 1;
-        self.overflow = false;
+        if let Some(discarded_events) = self.discarded_events.take() {
+            event.body = serde_json::to_value(JobResyncRequired {
+                reason: JobResyncReason::SubscriberQueueLimit,
+                discarded_events,
+                observed_at: event.occurred_at.clone(),
+            })
+            .ok()?;
+        }
         Some(event)
     }
 }
@@ -210,8 +219,10 @@ impl DesktopEvents {
     }
 
     fn enqueue(&self, event: EventEnvelope) {
+        let observed_at =
+            Timestamp::from_unix_millis(utc_now_ms()).unwrap_or_else(|| event.occurred_at.clone());
         if let Ok(mut pending) = self.0.lock() {
-            pending.push(event, Instant::now());
+            pending.push(event, Instant::now(), observed_at);
         }
     }
 }

@@ -170,6 +170,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         AnalysisJobPriority::decl(&config),
         AnalysisJobWaitReason::decl(&config),
         AnalysisJobListRow::decl(&config),
+        JobResyncReason::decl(&config),
+        JobResyncRequired::decl(&config),
         ScanResult::decl(&config),
         AnalysisJobTerminal::decl(&config),
         AnalysisJobStatus::decl(&config),

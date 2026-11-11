@@ -55,6 +55,7 @@ fn batches_events_without_dropping_order_and_coalesces_overflow_into_resync()
 -> Result<(), Box<dyn std::error::Error>> {
     let job = Id::parse("0195f856-ab83-7a59-9343-10d29775c9a9")?;
     let occurred_at = Timestamp::from_unix_millis(0).ok_or("invalid time")?;
+    let overflow_at = Timestamp::from_unix_millis(1_000).ok_or("invalid overflow time")?;
     let event = envelope(
         JobEvent::StateChanged {
             job_id: job,
@@ -66,19 +67,28 @@ fn batches_events_without_dropping_order_and_coalesces_overflow_into_resync()
     .ok_or("missing state event")?;
     let mut pending = Pending::default();
     let now = Instant::now();
-    pending.push(event.clone(), now);
-    pending.push(event.clone(), now + Duration::from_millis(50));
+    pending.push(event.clone(), now, overflow_at.clone());
+    pending.push(
+        event.clone(),
+        now + Duration::from_millis(50),
+        overflow_at.clone(),
+    );
     assert!(pending.take(now + Duration::from_millis(99)).is_none());
     let batch_time = now + EVENT_INTERVAL;
     let first = pending.take(batch_time).ok_or("missing first event")?;
-    pending.push(event.clone(), batch_time);
+    pending.push(event.clone(), batch_time, overflow_at.clone());
     assert_eq!(
         pending.take(batch_time).ok_or("missing second event")?.seq,
         first.seq + 1
     );
     assert!(pending.take(batch_time).is_none());
-    for _ in 0..EVENT_LIMIT + 1 {
-        pending.push(event.clone(), batch_time);
+    for _ in 1..EVENT_LIMIT {
+        pending.push(event.clone(), batch_time, overflow_at.clone());
+    }
+    assert_eq!(pending.queue.len(), EVENT_LIMIT);
+    assert_eq!(pending.discarded_events, None);
+    for _ in 0..3 {
+        pending.push(event.clone(), batch_time, overflow_at.clone());
     }
     let resync = pending
         .take(batch_time + EVENT_INTERVAL)
@@ -86,8 +96,17 @@ fn batches_events_without_dropping_order_and_coalesces_overflow_into_resync()
     assert_eq!(resync.topic, "job.resync_required");
     assert!(resync.job_ref.is_none());
     assert!(resync.seq > first.seq + 1);
+    assert_eq!(resync.occurred_at, overflow_at);
+    assert_eq!(
+        serde_json::from_value::<JobResyncRequired>(resync.body)?,
+        JobResyncRequired {
+            reason: JobResyncReason::SubscriberQueueLimit,
+            discarded_events: EVENT_LIMIT as u64 + 3,
+            observed_at: overflow_at.clone(),
+        },
+    );
     assert!(pending.take(batch_time + EVENT_INTERVAL).is_none());
-    pending.push(event, batch_time + EVENT_INTERVAL);
+    pending.push(event, batch_time + EVENT_INTERVAL, overflow_at);
     assert_eq!(
         pending
             .take(batch_time + EVENT_INTERVAL * 2)
@@ -223,7 +242,8 @@ fn preserves_lineage_sequence_and_withdrawal_without_a_replacement()
             occurred.clone(),
         )
         .ok_or("missing result version event")?;
-        pending.push(event, now);
+        let observed_at = event.occurred_at.clone();
+        pending.push(event, now, observed_at);
     }
     let published = pending
         .take(now + EVENT_INTERVAL)

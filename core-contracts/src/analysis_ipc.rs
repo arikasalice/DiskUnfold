@@ -260,6 +260,25 @@ pub struct AnalysisJobListRow {
     pub terminal: Option<AnalysisJobTerminal>,
 }
 
+/// The observed reason that the desktop event relay discarded a batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum JobResyncReason {
+    SubscriberQueueLimit,
+}
+
+/// Describes the dropped events up to the delivery of the resync notice.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct JobResyncRequired {
+    pub reason: JobResyncReason,
+    #[cfg_attr(feature = "typescript", ts(type = "number"))]
+    pub discarded_events: u64,
+    pub observed_at: crate::Timestamp,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
