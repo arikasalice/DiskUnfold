@@ -4,10 +4,12 @@
 //! metadata and model references still require their published physical contract.
 mod bar_strategy;
 mod numeric_layout;
+pub(super) mod sankey_strategy;
 mod trend_strategy;
 pub(super) use bar_strategy::BarLayout;
 pub use bar_strategy::RankedBar;
 pub use numeric_layout::{CommonInput, CommonRow};
+pub use sankey_strategy::{SankeyDispatchError, SankeyInput, SankeyOutput, SankeySelected};
 pub use trend_strategy::{SelectedTrend, TrendDispatchError, TrendError, TrendInput, TrendOutput};
 pub(super) use trend_strategy::{TrendLayout, trend_descriptor};
 
@@ -197,6 +199,15 @@ pub trait Strategy: Send + Sync {
     /// Whether every published bar representation is implemented.
     fn complete_bar(&self) -> bool {
         false
+    }
+
+    /// Calculates a Sankey representation from trusted pinned attribution facts.
+    fn sankey(
+        &self,
+        _input: sankey_strategy::SankeyInput<'_>,
+        _cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<sankey_strategy::SankeyOutput, sankey_strategy::SankeyDispatchError> {
+        Err(sankey_strategy::SankeyDispatchError::Unsupported)
     }
 }
 
@@ -395,6 +406,25 @@ impl Dispatcher {
             )));
         }
         Ok(SelectedCategoryBar {
+            descriptor: entry.descriptor.clone(),
+            output,
+        })
+    }
+
+    /// Selects a registered strategy from this dispatcher and calculates Sankey geometry.
+    pub fn execute_sankey(
+        &self,
+        key: Option<&LayoutStrategyKey>,
+        input: sankey_strategy::SankeyInput<'_>,
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<sankey_strategy::SankeySelected, sankey_strategy::SankeyDispatchError> {
+        let entry = match key {
+            Some(key) => self.0.resolve("sankey", key),
+            None => self.0.latest("sankey"),
+        }
+        .map_err(sankey_strategy::SankeyDispatchError::Selection)?;
+        let output = entry.implementation.sankey(input, cancelled)?;
+        Ok(sankey_strategy::SankeySelected {
             descriptor: entry.descriptor.clone(),
             output,
         })

@@ -32,6 +32,8 @@ pub struct Relations {
 /// Failure never returns a partial graph; the source graph remains available.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {
+    /// Cooperative cancellation interrupted validation or geometry creation.
+    Cancelled,
     /// Endpoint identity, uniqueness, or exact byte conservation failed.
     InvalidGraph,
     /// A positive slot has no height or the two node columns have no gap.
@@ -48,9 +50,23 @@ impl Graph {
     /// opposite node's display order. An unrepresentable positive connection
     /// fails the entire conversion; callers retain this graph for a table.
     pub fn geometry_v1(&self) -> Result<Relations, Error> {
-        let index = Index::validate(self)?;
-        let first = volume_relations(self)?;
-        let second = category_relations(self, &index)?;
+        self.geometry_v1_cancellable(&mut || false)
+    }
+
+    /// Produces geometry with cancellation checks during graph traversal.
+    pub fn geometry_v1_cancellable(
+        &self,
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<Relations, Error> {
+        if cancelled() {
+            return Err(Error::Cancelled);
+        }
+        let index = Index::validate(self, cancelled)?;
+        let first = volume_relations(self, cancelled)?;
+        let second = category_relations(self, &index, cancelled)?;
+        if cancelled() {
+            return Err(Error::Cancelled);
+        }
         Ok(Relations {
             volume_to_folder: first,
             folder_to_category: second,
@@ -63,7 +79,7 @@ struct Index {
     categories: BTreeMap<CategoryKey, usize>,
 }
 impl Index {
-    fn validate(graph: &Graph) -> Result<Self, Error> {
+    fn validate(graph: &Graph, cancelled: &mut dyn FnMut() -> bool) -> Result<Self, Error> {
         if graph.volume.bytes != graph.total {
             return Err(Error::InvalidGraph);
         }
@@ -71,12 +87,18 @@ impl Index {
         let mut folders = BTreeMap::new();
         let mut categories = BTreeMap::new();
         for (i, node) in graph.folders.iter().enumerate() {
+            if cancelled() {
+                return Err(Error::Cancelled);
+            }
             validate_node(node)?;
             if folders.insert(node.key, i).is_some() {
                 return Err(Error::InvalidGraph);
             }
         }
         for (i, node) in graph.categories.iter().enumerate() {
+            if cancelled() {
+                return Err(Error::Cancelled);
+            }
             validate_node(node)?;
             if categories.insert(node.key, i).is_some() {
                 return Err(Error::InvalidGraph);
@@ -86,6 +108,9 @@ impl Index {
         let mut category_sum = vec![0_u64; categories.len()];
         let mut pairs = BTreeSet::new();
         for link in &graph.links {
+            if cancelled() {
+                return Err(Error::Cancelled);
+            }
             let f = *folders.get(&link.folder).ok_or(Error::InvalidGraph)?;
             let c = *categories.get(&link.category).ok_or(Error::InvalidGraph)?;
             if !pairs.insert((f, c)) {
@@ -144,10 +169,16 @@ fn validate_node<K>(node: &Node<K>) -> Result<(), Error> {
     Ok(())
 }
 
-fn volume_relations(graph: &Graph) -> Result<Vec<Relation>, Error> {
+fn volume_relations(
+    graph: &Graph,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<Vec<Relation>, Error> {
     let mut used = 0;
     let mut out = Vec::with_capacity(graph.folders.len());
     for folder in &graph.folders {
+        if cancelled() {
+            return Err(Error::Cancelled);
+        }
         let geometry = band(&graph.volume, folder, &mut used, &mut 0, folder.bytes)?;
         out.push(Relation {
             from: Endpoint::Volume,
@@ -159,7 +190,11 @@ fn volume_relations(graph: &Graph) -> Result<Vec<Relation>, Error> {
     Ok(out)
 }
 
-fn category_relations(graph: &Graph, index: &Index) -> Result<Vec<Relation>, Error> {
+fn category_relations(
+    graph: &Graph,
+    index: &Index,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<Vec<Relation>, Error> {
     let mut links: Vec<_> = graph.links.iter().collect();
     links.sort_by_key(|link| {
         (
@@ -171,6 +206,9 @@ fn category_relations(graph: &Graph, index: &Index) -> Result<Vec<Relation>, Err
     let mut category_used = vec![0; graph.categories.len()];
     let mut out = Vec::with_capacity(links.len());
     for link in links {
+        if cancelled() {
+            return Err(Error::Cancelled);
+        }
         let f = index.folders[&link.folder];
         let c = index.categories[&link.category];
         let geometry = band(

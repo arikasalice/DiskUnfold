@@ -112,6 +112,16 @@ pub fn register_trend_candidate(
         .map_err(Error::Registration)
 }
 
+/// Registers the Sankey strategy over caller supplied pinned attribution facts.
+pub fn register_sankey_candidate(
+    builder: &mut registry::Builder<Box<dyn Strategy>>,
+) -> Result<(), registry::RegistrationError> {
+    builder.register(
+        typed_layout::sankey_strategy::descriptor(),
+        Box::new(typed_layout::sankey_strategy::SankeyLayout),
+    )
+}
+
 /// Freezes a full baseline only when all six published IDs at revision one exist.
 ///
 /// The builder still enforces unique IDs, revisions, and format associations.

@@ -96,6 +96,7 @@ pub enum Outcome {
     Graph(Graph),
     Unavailable(Unavailable),
     Invalid(Invalid),
+    Cancelled,
 }
 
 #[derive(Default)]
@@ -119,6 +120,25 @@ pub fn layout(
     folder_budget: usize,
     category_order: &[u32],
 ) -> Outcome {
+    layout_cancellable(
+        columns,
+        scope,
+        rows,
+        folder_budget,
+        category_order,
+        &mut || false,
+    )
+}
+
+/// Builds a Sankey graph while checking cancellation during row validation.
+pub fn layout_cancellable(
+    columns: Columns,
+    scope: Weight,
+    rows: &[Row],
+    folder_budget: usize,
+    category_order: &[u32],
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Outcome {
     if !valid_columns(columns) {
         return Outcome::Invalid(Invalid::Columns);
     }
@@ -140,6 +160,9 @@ pub fn layout(
     let mut orders = BTreeMap::<u32, u32>::new();
     let mut attributed = 0u64;
     for row in rows {
+        if cancelled() {
+            return Outcome::Cancelled;
+        }
         let Some(bytes) = row.bytes else {
             return Outcome::Unavailable(Unavailable::UnknownAttribution);
         };
@@ -182,6 +205,9 @@ pub fn layout(
     }
     if attributed > total {
         return Outcome::Invalid(Invalid::ExceedsScope);
+    }
+    if cancelled() {
+        return Outcome::Cancelled;
     }
     let remainder = total - attributed;
     let mut ranked: Vec<_> = folders.into_iter().collect();
