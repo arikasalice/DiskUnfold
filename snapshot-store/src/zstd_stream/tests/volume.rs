@@ -5,6 +5,7 @@ use crate::records::{
 };
 use std::sync::atomic::Ordering;
 mod q11_measurement;
+mod root_links;
 mod source_metadata_tests;
 mod windows_sealed_tests;
 fn record(kind: u8, body: &[u8], into: &mut Vec<u8>) {

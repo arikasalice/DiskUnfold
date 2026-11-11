@@ -14,6 +14,7 @@ pub(super) struct Validator {
     last_item: u32,
     volume_required: bool,
     pending_roots: HashSet<u32>,
+    folders: Vec<u8>,
 }
 
 impl Validator {
@@ -30,6 +31,7 @@ impl Validator {
             last_item: 0,
             volume_required: false,
             pending_roots: HashSet::new(),
+            folders: Vec::new(),
         }
     }
 
@@ -104,7 +106,17 @@ impl Validator {
                     return Err(());
                 }
                 self.last_item = item.number;
-                if self.pending_roots.remove(&item.number) {
+                let parent_index = item.parent.saturating_sub(1) as usize;
+                if item.parent != 0
+                    && !self
+                        .folders
+                        .get(parent_index / 8)
+                        .is_some_and(|byte| byte & (1 << (parent_index % 8)) != 0)
+                {
+                    return Err(());
+                }
+                let linked_root = self.pending_roots.remove(&item.number);
+                if linked_root {
                     let placeholder: &[u8] = match self.encoding {
                         NameEncoding::Bytes => b"@",
                         NameEncoding::WindowsUtf16Le => &[b'@', 0],
@@ -115,6 +127,14 @@ impl Validator {
                     {
                         return Err(());
                     }
+                }
+                let index = (item.number - 1) as usize;
+                if index.is_multiple_of(8) {
+                    self.folders.try_reserve(1).map_err(|_| ())?;
+                    self.folders.push(0);
+                }
+                if item.kind == item::Kind::Folder {
+                    *self.folders.last_mut().ok_or(())? |= 1 << (index % 8);
                 }
             } else if let Some(count) = self.root_count {
                 gap::decode(&body, self.encoding, count).map_err(|_| ())?;
