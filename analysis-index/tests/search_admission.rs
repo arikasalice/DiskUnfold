@@ -170,6 +170,11 @@ fn refinement_cannot_publish_rows_outside_the_admitted_parent() -> Result<(), St
         sets.validate_search_candidate(child.clone(), widened, None),
         Err(PageError::InvalidResult)
     ));
+    // Rejecting an invalid candidate must leave the already admitted parent readable.
+    let parent_page = sets
+        .open_page(&parent_ref, &id(2)?, 0, None)
+        .map_err(|error| format!("{error:?}"))?;
+    assert!(parent_page.items().is_empty());
 
     sets.release(&parent_ref)
         .map_err(|error| format!("{error:?}"))?;

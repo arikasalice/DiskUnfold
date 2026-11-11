@@ -42,23 +42,25 @@ pub(crate) fn register(
     ids: Arc<dyn JobIdentity>,
     workers: Arc<Workers>,
     random: &dyn Random,
-) -> Result<(), RuntimeError> {
-    let browse = Arc::new(FolderBrowse::with_result_sets(sets, ids.clone()));
+) -> Result<Option<Arc<crate::search::SearchEntry>>, RuntimeError> {
+    let browse = Arc::new(FolderBrowse::with_result_sets(sets.clone(), ids.clone()));
     let Ok(session) = Session::try_new(browse.clone(), random) else {
-        return Ok(());
+        return Ok(None);
     };
     let session = Arc::new(session);
     let jobs = FolderJobs::new(browse.clone(), workers.runtime.clone())?;
-    let regions = Regions::register(builder, ids, random, workers.runtime.clone())?;
+    let regions = Regions::register(builder, ids.clone(), random, workers.runtime.clone())?;
     builder.register(Open {
         browse,
         session: session.clone(),
         jobs,
         workers,
-        regions,
+        regions: regions.clone(),
     });
     builder.register(Page(session));
-    Ok(())
+    Ok(Some(Arc::new(crate::search::SearchEntry::new(
+        sets, regions, ids,
+    ))))
 }
 
 struct Open {

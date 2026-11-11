@@ -86,6 +86,8 @@ pub fn register_with_scan_diagnostics(
 pub struct DesktopServices {
     pub events: Arc<DesktopEvents>,
     pub path_copy: crate::browse::copy_path::PathCopy,
+    /// Internal Rust search entry point sharing the GUI query regions.
+    pub search: Option<Arc<crate::search::SearchEntry>>,
 }
 
 /// Registers analysis and exposes the observed-path reader for app-host only.
@@ -152,11 +154,15 @@ fn register_services_inner(
         diagnostics,
     )?;
     let store = sets.source();
-    crate::browse::folder::commands::register(builder, sets, ids, workers, random)?;
+    let search = crate::browse::folder::commands::register(builder, sets, ids, workers, random)?;
     crate::scan_failures::register(builder, store.clone(), random);
     let path_copy = crate::browse::copy_path::PathCopy(store.clone());
     jobs::register_with_scan_store(builder, runtime, store);
-    Ok(DesktopServices { events, path_copy })
+    Ok(DesktopServices {
+        events,
+        path_copy,
+        search,
+    })
 }
 
 struct SystemIdentity;
