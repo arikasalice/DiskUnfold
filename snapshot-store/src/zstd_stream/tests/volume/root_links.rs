@@ -1,5 +1,84 @@
 use super::*;
 
+/// Exercises one sealed file with several volumes, shared roots, and an unread root.
+#[test]
+fn sealed_multivolume_keeps_unread_root_gap_in_the_same_file() -> Result<(), String> {
+    use crate::records::{
+        gap::Gap,
+        volume::{Observation, RootLink, Volume, VolumeEntry},
+    };
+
+    let metadata = example_metadata(&["Lw", "L2E", "L2I", "L2M"])?;
+    let volume = Volume {
+        roots: vec![
+            RootLink {
+                volume_index: Some(0),
+                item_number: Some(1),
+            },
+            RootLink {
+                volume_index: Some(0),
+                item_number: Some(2),
+            },
+            RootLink {
+                volume_index: Some(1),
+                item_number: None,
+            },
+            RootLink {
+                volume_index: None,
+                item_number: None,
+            },
+        ],
+        volumes: [b"first".as_slice(), b"second".as_slice()]
+            .into_iter()
+            .map(|id| VolumeEntry {
+                id,
+                basis: "native",
+                start: Observation::NotAttempted,
+                end: Observation::NotAttempted,
+            })
+            .collect(),
+    };
+    let body = volume.encode().map_err(|e| format!("{e:?}"))?;
+    for (gap_root, expected) in [(2, true), (3, true), (4, false)] {
+        let gap = Gap {
+            root_index: gap_root,
+            path: vec![],
+            reason_key: "scan.denied",
+            observed_at_ms: None,
+        }
+        // Allow encoding the out-of-range case so the sealed-file reader rejects it.
+        .encode(NameEncoding::Bytes, 5)
+        .map_err(|e| format!("{e:?}"))?;
+        let mut records = Vec::new();
+        record(1, &body, &mut records);
+        for n in 1..=2 {
+            record(
+                2,
+                &encoded_item(n, 0, b"@", NameEncoding::Bytes)?,
+                &mut records,
+            );
+        }
+        record(3, &gap, &mut records);
+        record(127, &[], &mut records);
+        let mut spool = envelope_for_records(&metadata, &records, 5)?;
+        let stage = Stage::default();
+        let discarded = stage.discarded.clone();
+        let result = validate_records_in_sealed(&mut spool, stage, || false);
+        assert_eq!(discarded.load(Ordering::SeqCst), usize::from(!expected));
+        if expected {
+            let (staged, roots) = result.map_err(|e| format!("gap root {gap_root}: {e:?}"))?;
+            assert_eq!(staged.bytes, records);
+            assert_eq!(roots.roots().len(), 4);
+            let decoded = crate::records::volume::decode(&staged.bytes[5..5 + body.len()], 4)
+                .map_err(|e| format!("{e:?}"))?;
+            assert_eq!(decoded, volume);
+        } else {
+            assert!(matches!(result, Err(Error::Records)), "gap root {gap_root}");
+        }
+    }
+    Ok(())
+}
+
 #[test]
 fn sealed_multivolume_preserves_unlinked_roots_and_rejects_nonfolder_parents() -> Result<(), String>
 {
