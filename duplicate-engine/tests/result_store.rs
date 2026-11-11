@@ -225,6 +225,11 @@ fn published_verified_group_is_read_from_the_pinned_outcome() -> Result<(), Stri
     assert_eq!(evidence.groups.len(), 1);
     assert_eq!(evidence.states[&1], State::Verified);
     assert_eq!(evidence.groups[0].files.len(), 2);
+    let groups = evidence.groups.clone();
+    store.retire_source(&id(1)).map_err(|e| format!("{e:?}"))?;
+    assert!(matches!(store.pin(Some(&id(2))), Err(StoreError::Stale)));
+    assert_eq!(pin.outcome().evidence().groups, groups);
+    assert_eq!(pin.outcome().evidence().states[&1], State::Verified);
     Ok(())
 }
 
