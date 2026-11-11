@@ -5,6 +5,7 @@
 param(
   [Parameter(Mandatory)][string]$Binary,
   [switch]$VerifyWorkspaceLayout,
+  [switch]$VerifyInitialDrive,
   [switch]$VerifyCancellation,
   [switch]$VerifySuspension,
   [switch]$VerifyPopulatedWorkspace,
@@ -340,6 +341,37 @@ function Test-ScanSuspension($path) {
   $null = Wait-FinalLogicalSize '25.0 KiB'
   'F02 native pause and resume: controls visible, scan paused, final logical size 25 KiB'
 }
+# Select and review a real drive without starting a scan of the entire volume.
+function Test-InitialDrive {
+  $drive = [IO.Path]::GetPathRoot($root)
+  $original = $window.Current.BoundingRectangle
+  $transform = $window.GetCurrentPattern([Windows.Automation.TransformPattern]::Pattern)
+  $transform.Resize(640, 460)
+  try {
+    $option = Wait-UI 'visible fixture drive in the small window' {
+      $bounds = $window.Current.BoundingRectangle
+      if ($bounds.Width -gt 650 -or $bounds.Height -gt 470) { return }
+      $radio = Find-UI $drive ([Windows.Automation.ControlType]::RadioButton)
+      if ($radio -and $radio.Current.IsEnabled -and -not $radio.Current.IsOffscreen) { $radio }
+    }
+    $null = Wait-UI 'initial path visible' {
+      $field = Find-UI 'Windows folder path' $edit
+      if ($field -and -not $field.Current.IsOffscreen) { $field }
+    }
+    Wait-ScopeActionsVisible
+    $option.GetCurrentPattern([Windows.Automation.SelectionItemPattern]::Pattern).Select()
+    $null = Wait-UI 'drive path selected' {
+      $field = Find-UI 'Windows folder path' $edit
+      $field -and $field.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern).Current.Value -eq $drive
+    }
+    $null = Wait-Enabled 'Start scan' $false
+    Invoke-UI (Wait-VisibleAction 'Review scope')
+    $null = Wait-VisibleAction 'Start scan'
+    Invoke-UI (Wait-VisibleAction 'Cancel selection')
+    $null = Wait-Enabled 'Start scan' $false
+    'F01 initial drive: native drive selected and reviewed in the small window; scan not started'
+  } finally { $transform.Resize($original.Width, $original.Height) }
+}
 # Confirm one denied subtree does not hide accessible bytes or become an exact total.
 function Test-DeniedSubtree {
   $scope = Join-Path $root 'permission-scope'
@@ -378,6 +410,7 @@ try {
   }
   $null = Wait-UI 'path field' { Find-UI 'Windows folder path' $edit }
   $null = Wait-Enabled 'Start scan' $false
+  if ($VerifyInitialDrive) { Test-InitialDrive }
   if ($VerifySettingsRestoration) {
     Invoke-UI (Wait-VisibleAction 'Settings restoration')
     $null = Wait-UI 'startup settings format' { Find-UI 'App format version' $null }
