@@ -196,3 +196,69 @@ fn concurrent_jobs_keep_independent_sequences_and_one_final_event()
     }
     Ok(())
 }
+
+#[test]
+fn terminal_gate_rejects_late_flow_reports_without_advancing_sequence()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fallback = Id::parse("00000000-0000-7000-8000-000000000001")?;
+    let events = Arc::new(Events::default());
+    let runtime = Arc::new(JobRuntime::new_with_limits(
+        Arc::new(SequentialIdentity {
+            next: AtomicUsize::new(1),
+            fallback,
+        }),
+        Arc::new(Clock),
+        Arc::new(History::default()),
+        events.clone(),
+        FlowLimits {
+            metadata_io: 1,
+            queued_items: 2,
+            item_bytes: 32,
+        },
+    )?);
+    runtime.register(descriptor())?;
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let id = created(runtime.submit(sample_submission(Arc::new(ReportingBody { sender }))?)?)?;
+    let worker_runtime = runtime.clone();
+    let worker = std::thread::spawn(move || worker_runtime.run_next());
+    let flow = receiver.recv_timeout(std::time::Duration::from_secs(2))?;
+    flow.report_item(b"before").map_err(|e| format!("{e:?}"))?;
+
+    // Exercise the internal terminal gate with a still-held flow. Normal run_next
+    // waits for registered flows before it commits the terminal outcome.
+    let terminal_sequence = runtime.finish(
+        &id,
+        JobOutcome {
+            counts: JobCounts::default(),
+            completed_scope: true,
+            failure_reason_key: None,
+            unprocessed_summary: None,
+            result_version_id: None,
+        },
+    )?;
+    assert_eq!(
+        flow.report_item(b"late"),
+        Err(du_core_contracts::job::JobFlowError::Closed)
+    );
+    flow.finish(JobCounts::default());
+    worker.join().map_err(|_| "worker panicked")??;
+    runtime.flush()?;
+    assert_eq!(runtime.snapshot(&id)?.sequence, terminal_sequence);
+    let events = events.0.lock().map_err(|_| "events poisoned")?;
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| matches!(event, JobEvent::Finished { .. }))
+            .count(),
+        1
+    );
+    assert!(
+        matches!(events.last(), Some(JobEvent::Finished { sequence, .. }) if *sequence == terminal_sequence)
+    );
+    assert!(
+        !events.iter().any(
+            |event| matches!(event, JobEvent::ItemResult { payload, .. } if payload == b"late")
+        )
+    );
+    Ok(())
+}
