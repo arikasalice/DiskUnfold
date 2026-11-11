@@ -207,6 +207,7 @@ struct ScanHarness {
     release: mpsc::Sender<()>,
     terminal: mpsc::Receiver<JobEvent>,
     versions: du_analysis_index::IngestSink,
+    completed_scans: crate::desktop::CompletedScanSource,
     recent_scope_admissions: Option<crate::desktop::RecentScopeAdmissions>,
 }
 

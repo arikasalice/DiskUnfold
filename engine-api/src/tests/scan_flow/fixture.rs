@@ -51,11 +51,14 @@ fn scan_harness_with_admissions(
         finish_gate,
     });
     let clock = Arc::new(Clock);
+    let events = Arc::new(crate::desktop::scan_completion::ScanEvents::new(Arc::new(
+        Events(send),
+    )));
     let runtime = Arc::new(JobRuntime::new_with_limits(
         ids.clone(),
         clock.clone(),
         Arc::new(History),
-        Arc::new(Events(send)),
+        events.clone(),
         FlowLimits {
             metadata_io: 2,
             queued_items: 4,
@@ -111,6 +114,7 @@ fn scan_harness_with_admissions(
             return Err("test harness does not combine recent admission and custom setting".into());
         }
     };
+    let completed_scans = events.bind(versions.clone())?;
     crate::jobs::register_with_scan_store(&mut builder, runtime, versions.clone());
     Ok(ScanHarness {
         engine: builder.build()?,
@@ -118,6 +122,7 @@ fn scan_harness_with_admissions(
         release,
         terminal,
         versions,
+        completed_scans,
         recent_scope_admissions,
     })
 }

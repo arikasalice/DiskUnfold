@@ -1,7 +1,7 @@
 //! Exercises the desktop's shared scan and visualization composition on Windows.
 use super::*;
 use du_core_contracts::{
-    result::ResultItem,
+    result::{ResultItem, ResultVersionRead},
     visualization::{
         model::{VizMatchKey, VizStaleness, VizStalenessState},
         request::VizRenderRequest,
@@ -254,6 +254,11 @@ fn windows_scan_store_and_jobs_feed_the_selected_visualization() -> TestResult<(
     )?;
     let engine = builder.build()?;
     let version = scan_two_roots(&engine, &desktop.events)?;
+    let completed = desktop
+        .completed_scans
+        .admit(&version)
+        .map_err(|error| format!("{error:?}"))?;
+    assert_eq!(completed.version().observed_roots().len(), 2);
     let view = ok(&engine, "viz.view.open", json!({}))?["viewChannel"].clone();
     let request = render_request(&view, &version, 0, 1);
     assert!(ipc(&engine, "viz.render", request.clone())?.error.is_some());

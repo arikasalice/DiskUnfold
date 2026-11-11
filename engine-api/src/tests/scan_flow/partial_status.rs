@@ -1,4 +1,5 @@
 use super::*;
+use du_analysis_index::{CompletedScanError, QueryError, ScanCompletion};
 use du_core_contracts::result::ResultCompleteness;
 
 #[test]
@@ -44,6 +45,10 @@ fn status_exposes_partial_for_its_admitted_job_and_not_previous_scan()
     let partial = status(&first.job_ref)?;
     assert_eq!(partial["state"], "running");
     assert_eq!(pinned.completeness(), ResultCompleteness::Partial);
+    assert!(matches!(
+        harness.completed_scans.admit(pinned.version_id()),
+        Err(CompletedScanError::Unconfirmed)
+    ));
     assert_eq!(
         partial["scanResult"]["resultVersion"],
         json!(notice.result_version)
@@ -105,6 +110,16 @@ fn assert_finalized_partial(
     assert_ne!(pinned.version_id(), &final_id);
     assert_eq!(done["resultVersion"], json!(final_id));
     assert_eq!(done["scanResult"]["resultVersion"], json!(final_id));
+    let admitted = harness
+        .completed_scans
+        .admit(&final_id)
+        .map_err(|error| format!("{error:?}"))?;
+    assert_eq!(admitted.version().version_id(), &final_id);
+    assert_eq!(admitted.completion(), ScanCompletion::Done);
+    assert!(matches!(
+        harness.completed_scans.admit(pinned.version_id()),
+        Err(CompletedScanError::Lookup(QueryError::StaleVersion))
+    ));
     Ok(())
 }
 

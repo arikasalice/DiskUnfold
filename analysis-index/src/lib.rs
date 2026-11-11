@@ -40,6 +40,8 @@ use version_store::{Entry, State};
 mod build_error;
 pub use build_error::BuildError;
 mod build_abort;
+mod completed_scan;
+pub use completed_scan::{CompletedScan, CompletedScanError, ScanCompletion};
 mod volume_reports;
 pub use volume_reports::{VolumeReport, VolumeReportPoint};
 mod observation;

@@ -23,10 +23,12 @@ use du_core_contracts::{
 use du_job_runtime::{FlowLimits, JobClock, JobEvent, JobEvents, JobIdentity, JobRuntime};
 use serde_json::json;
 
+pub(crate) mod scan_completion;
 mod visualization;
 pub use crate::scan::{ScanDiagnosticsFactory, SharedTableLimit, SharedTableLimitSource};
 use crate::{api::EngineBuilder, jobs, scan, scope, targets, workers::Workers};
 pub use du_scan_engine::scan_job::ScanDiagnostics;
+pub use scan_completion::CompletedScanSource;
 pub use visualization::{VisualizationPreview, VisualizationServices};
 
 const EVENT_LIMIT: usize = 1_024;
@@ -100,6 +102,8 @@ pub struct DesktopServices {
     pub search: Option<Arc<crate::search::SearchEntry>>,
     /// Internal composition handle tied to this desktop's scan store and job workers.
     pub visualization: VisualizationServices,
+    /// Internal comparison admission tied to the exact completed desktop result.
+    pub completed_scans: CompletedScanSource,
     /// Internal app-host worker queue. Only newly admitted GUI scans are sent.
     pub recent_scope_admissions: Option<RecentScopeAdmissions>,
 }
@@ -176,11 +180,12 @@ fn register_services_inner(
     let ids = Arc::new(SystemIdentity);
     let clock = Arc::new(SystemClock(Instant::now()));
     let events = Arc::new(DesktopEvents::default());
+    let scan_events = Arc::new(scan_completion::ScanEvents::new(events.clone()));
     let runtime = Arc::new(JobRuntime::new_with_limits(
         ids.clone(),
         clock.clone(),
         history,
-        events.clone(),
+        scan_events.clone(),
         FlowLimits {
             metadata_io: 16,
             queued_items: 64,
@@ -226,6 +231,7 @@ fn register_services_inner(
         )?,
     };
     let store = sets.source();
+    let completed_scans = scan_events.bind(store.clone())?;
     let visualization = VisualizationServices::new(store.clone(), ids.clone(), workers.clone());
     let search = crate::browse::folder::commands::register(builder, sets, ids, workers, random)?;
     crate::scan_failures::register(builder, store.clone(), random);
@@ -236,6 +242,7 @@ fn register_services_inner(
         path_copy,
         search,
         visualization,
+        completed_scans,
         recent_scope_admissions,
     })
 }

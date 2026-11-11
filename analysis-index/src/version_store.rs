@@ -1,9 +1,9 @@
 //! Session result lineages and current-version ownership.
-use crate::{BuildError, IngestSink, QueryError, ResultVersion};
-use du_core_contracts::{Id, analysis_ipc::ScanResult};
+use crate::{BuildError, IngestSink, QueryError, ResultOrigin, ResultVersion, ScanCompletion};
+use du_core_contracts::{Id, analysis_ipc::ScanResult, result::ResultCompleteness};
 use std::{
     collections::{HashMap, HashSet},
-    sync::Arc,
+    sync::{Arc, OnceLock, Weak},
 };
 
 type Lineage = Option<Id>;
@@ -12,6 +12,7 @@ type Lineage = Option<Id>;
 pub(super) struct Entry {
     pub(super) result: Arc<ResultVersion>,
     order: u64,
+    pub(super) completion: Option<Arc<OnceLock<ScanCompletion>>>,
 }
 
 #[derive(Default)]
@@ -22,6 +23,7 @@ pub(super) struct State {
     event_sequences: HashMap<Id, u64>,
     active: HashSet<Lineage>,
     used_versions: HashSet<Id>,
+    pub(super) awaiting_terminal: HashMap<Id, Weak<OnceLock<ScanCompletion>>>,
 }
 impl State {
     pub(super) fn next_event_sequence(&mut self, lineage: Option<&Id>) -> Option<u64> {
@@ -51,12 +53,17 @@ impl State {
             .map(|entry| Arc::clone(&entry.result))
     }
     pub(super) fn pin_current(&self, expected: &Id) -> Result<Arc<ResultVersion>, QueryError> {
-        if let Some(result) = self
+        self.current_entry(expected)
+            .map(|entry| Arc::clone(&entry.result))
+    }
+
+    pub(super) fn current_entry(&self, expected: &Id) -> Result<&Entry, QueryError> {
+        if let Some(entry) = self
             .current
             .values()
             .find(|value| value.result.version_id == *expected)
         {
-            return Ok(Arc::clone(&result.result));
+            return Ok(entry);
         }
         if self.current.is_empty() {
             Err(QueryError::NotFound)
@@ -122,13 +129,42 @@ impl State {
             return Err(BuildError::DuplicateVersion);
         }
         self.next_order = order;
-        let previous = self
-            .current
-            .insert(lineage.clone(), Entry { result, order });
+        let completion = self.await_terminal(&result, finish);
+        let previous = self.current.insert(
+            lineage.clone(),
+            Entry {
+                result,
+                order,
+                completion,
+            },
+        );
         if finish && reserved {
             self.active.remove(lineage);
         }
         Ok(previous)
+    }
+
+    fn await_terminal(
+        &mut self,
+        result: &ResultVersion,
+        finish: bool,
+    ) -> Option<Arc<OnceLock<ScanCompletion>>> {
+        if !finish
+            || result.origin != ResultOrigin::Scan
+            || result.lineage_id.is_none()
+            || !matches!(
+                result.completeness,
+                ResultCompleteness::Complete | ResultCompleteness::Partial
+            )
+        {
+            return None;
+        }
+        self.awaiting_terminal
+            .retain(|_, proof| proof.strong_count() != 0);
+        let proof = Arc::new(OnceLock::new());
+        self.awaiting_terminal
+            .insert(result.version_id.clone(), Arc::downgrade(&proof));
+        Some(proof)
     }
     pub(super) fn abort(
         &mut self,
