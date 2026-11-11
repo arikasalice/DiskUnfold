@@ -13,15 +13,13 @@ use du_core_contracts::{
 };
 
 pub(super) fn run(work: &compute::Compute, cancelled: &mut dyn FnMut() -> bool) -> JobOutcome {
-    match prepare(work, cancelled) {
-        Ok((candidate, model)) => {
+    let mut frozen = None;
+    match prepare(work, cancelled, &mut frozen) {
+        Ok((candidate, model, progress)) => {
             let deferred = match work.session.defer_histogram(candidate, cancelled) {
                 Ok(value) => value,
                 Err(_) => {
-                    return compute::outcome(
-                        false,
-                        (!cancelled()).then_some("support.internal_error"),
-                    );
+                    return unfinished(cancelled(), frozen);
                 }
             };
             match (work.candidate.lock(), work.work.computed.lock()) {
@@ -30,19 +28,39 @@ pub(super) fn run(work: &compute::Compute, cancelled: &mut dyn FnMut() -> bool) 
                     computed.wire_model = model.map(Arc::new);
                     computed.histogram_revision =
                         Some(work.admitted.source.result_version().clone());
-                    compute::outcome(true, None)
+                    let mut outcome = compute::outcome(true, None);
+                    outcome.counts.completed = progress.total;
+                    outcome
                 }
                 _ => compute::outcome(false, Some("support.internal_error")),
             }
         }
-        Err(_) => compute::outcome(false, (!cancelled()).then_some("support.internal_error")),
+        Err(_) => unfinished(cancelled(), frozen),
     }
+}
+
+fn unfinished(cancelled: bool, frozen: Option<FrozenProgress>) -> JobOutcome {
+    let mut outcome = compute::outcome(false, (!cancelled).then_some("support.internal_error"));
+    // No model rows have been finalized when private candidate preparation is
+    // interrupted. Preserve the frozen observed scope when it is available.
+    if cancelled && let Some(progress) = frozen {
+        outcome.counts.unprocessed = progress.total;
+    }
+    outcome
 }
 
 fn prepare(
     work: &compute::Compute,
     cancelled: &mut dyn FnMut() -> bool,
-) -> Result<(histogram::SelectedCandidate, Option<VizModel>), EngineError> {
+    frozen: &mut Option<FrozenProgress>,
+) -> Result<
+    (
+        histogram::SelectedCandidate,
+        Option<VizModel>,
+        FrozenProgress,
+    ),
+    EngineError,
+> {
     let admitted = &work.admitted;
     let facts = admitted.histogram.as_ref().ok_or_else(internal)?;
     let source = admitted.source.version();
@@ -72,6 +90,8 @@ fn prepare(
         )
         .map_err(|_| internal())?;
     let bins = rendered.rendered().prepared().unit_bins().bins.clone();
+    let progress = FrozenProgress::from_model(rendered.rendered().prepared().model())?;
+    *frozen = Some(progress);
     let mut items = Vec::new();
     for item_no in rendered
         .rendered()
@@ -132,7 +152,37 @@ fn prepare(
             admitted, &candidate, cancelled,
         )?)
     };
-    Ok((candidate, model))
+    Ok((candidate, model, progress))
+}
+
+/// The exact number of observed files in the pinned scope, including files
+/// whose size cannot be assigned to a finite histogram interval. This is an
+/// item count, not a count of bins, shapes, bytes, or unobserved source gaps.
+#[derive(Clone, Copy)]
+struct FrozenProgress {
+    total: u64,
+}
+
+impl FrozenProgress {
+    fn from_model(
+        model: &du_analysis_index::visualization::histogram_projection::Model,
+    ) -> Result<Self, EngineError> {
+        let histogram = &model.histogram;
+        let mut observed =
+            u64::try_from(histogram.uncertain_items.len()).map_err(|_| internal())?;
+        observed = observed
+            .checked_add(u64::try_from(histogram.unclassified_items.len()).map_err(|_| internal())?)
+            .ok_or_else(internal)?;
+        for bin in &histogram.bins {
+            observed = observed
+                .checked_add(u64::try_from(bin.members.len()).map_err(|_| internal())?)
+                .ok_or_else(internal)?;
+        }
+        if observed != model.summary.counts.files || observed != histogram.observed_items {
+            return Err(internal());
+        }
+        Ok(Self { total: observed })
+    }
 }
 
 pub(super) fn response(

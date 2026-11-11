@@ -43,6 +43,30 @@ fn render(fixture: &Fixture, view: &Value, seq: u32, allocated: bool) -> Result<
     }
     fixture.ok("viz.render", body)
 }
+fn finished_counts(
+    fixture: &Fixture,
+    job: &Id,
+    state: JobState,
+) -> Result<du_core_contracts::job::JobCounts, String> {
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while let Ok(event) = fixture
+        .events
+        .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+    {
+        if let JobEvent::Finished {
+            summary,
+            history_recorded,
+            ..
+        } = event
+            && &summary.job_id == job
+        {
+            assert_eq!(summary.state, state);
+            assert!(!history_recorded);
+            return Ok(summary.counts.clone());
+        }
+    }
+    Err("terminal F24 event missing".into())
+}
 fn exercise(fixture: &Fixture, allocated: bool) -> Result<Value, String> {
     let view = fixture.open()?;
     let first = job(&render(fixture, &view, 1, allocated)?)?;
@@ -51,7 +75,9 @@ fn exercise(fixture: &Fixture, allocated: bool) -> Result<Value, String> {
         .recv_timeout(Duration::from_secs(3))
         .map_err(|e| e.to_string())?;
     fixture.release.send(()).map_err(|e| e.to_string())?;
-    fixture.finished(&first, JobState::Done)?;
+    let counts = finished_counts(fixture, &first, JobState::Done)?;
+    assert_eq!(counts.completed, 2);
+    assert_eq!(counts.failed + counts.skipped + counts.unprocessed, 0);
     let result = render(fixture, &view, 2, allocated)?;
     let reference = if allocated {
         &result["fallback"]["modelRef"]
@@ -206,7 +232,8 @@ fn histogram_cancel_and_source_replacement_prevent_publication() -> Result<(), S
             assert_eq!(fixture.detach(&view, 1)?["controlResult"], "accepted");
         }
         fixture.release.send(()).map_err(|e| e.to_string())?;
-        fixture.finished(
+        let counts = finished_counts(
+            &fixture,
             &physical,
             if replacement {
                 JobState::Failed
@@ -214,6 +241,8 @@ fn histogram_cancel_and_source_replacement_prevent_publication() -> Result<(), S
                 JobState::Cancelled
             },
         )?;
+        assert_eq!(counts.completed, 0);
+        assert_eq!(counts.unprocessed, if replacement { 0 } else { 2 });
         if replacement {
             let mut body = render_body(&view, 2);
             body["format"] = json!("histogram");
@@ -283,5 +312,86 @@ fn histogram_unit_is_frozen_before_worker_runs() -> Result<(), String> {
             .base,
         1024
     );
+    Ok(())
+}
+
+#[test]
+fn completed_count_includes_unknown_observations_and_excludes_bins() -> Result<(), String> {
+    for empty in [false, true] {
+        let sink = IngestSink::default();
+        let lineage = sink
+            .bind_current_analysis("scope", id(1))
+            .map_err(|e| format!("{e:?}"))?;
+        let root = ResultScopeRoot {
+            path: ResultNativePath {
+                encoding: PathEncoding::Unix,
+                raw: PathBytes::from_bytes(b"/fixture"),
+            },
+            volume_id: vec![1],
+            file_id: vec![2],
+        };
+        let mut build = sink
+            .open_forest_in_lineage(id(2), vec![root], lineage)
+            .map_err(|e| format!("{e:?}"))?;
+        build.add_directory(vec![]).map_err(|e| format!("{e:?}"))?;
+        if !empty {
+            for (name, size) in [
+                (
+                    b'a',
+                    Some(SizeValue {
+                        basis: SizeBasis::Logical,
+                        evidence: SizeEvidence::Measured,
+                        amount: SizeAmount::Exact {
+                            bytes: 25_u64.into(),
+                        },
+                    }),
+                ),
+                (b'b', None),
+            ] {
+                build
+                    .add_file(Observation {
+                        path: vec![vec![name]],
+                        size,
+                    })
+                    .map_err(|e| format!("{e:?}"))?;
+            }
+        }
+        build
+            .seal(id(3), ResultCompleteness::Complete)
+            .map_err(|e| format!("{e:?}"))?;
+        let fixture =
+            Fixture::from_sink(sink, Duration::ZERO, NonZeroUsize::MIN.saturating_add(3))?;
+        let view = fixture.open()?;
+        let response = render(&fixture, &view, 1, false)?;
+        let physical = if response["kind"] == "job" {
+            Some(job(&response)?)
+        } else {
+            None
+        };
+        if !empty {
+            fixture
+                .entered
+                .recv_timeout(Duration::from_secs(3))
+                .map_err(|e| e.to_string())?;
+            fixture.release.send(()).map_err(|e| e.to_string())?;
+        }
+        let counts = if let Some(physical) = physical {
+            finished_counts(&fixture, &physical, JobState::Done)?
+        } else {
+            assert_eq!(response["kind"], "model");
+            loop {
+                let event = fixture
+                    .events
+                    .recv_timeout(Duration::from_secs(3))
+                    .map_err(|e| e.to_string())?;
+                if let JobEvent::Finished { summary, .. } = event {
+                    assert_eq!(summary.state, JobState::Done);
+                    break summary.counts.clone();
+                }
+            }
+        };
+        assert_eq!(counts.completed, if empty { 0 } else { 2 });
+        assert_eq!(counts.failed + counts.skipped + counts.unprocessed, 0);
+    }
     Ok(())
 }
