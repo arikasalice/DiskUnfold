@@ -118,9 +118,13 @@ pub struct Submission {
     pub sample: bool,
 }
 pub(crate) struct Cancellation(pub(crate) AtomicBool);
+pub(crate) type RetiredVizJob = (Option<Arc<dyn JobBody>>, Option<Publication>);
 pub(crate) enum Publication {
     Query(Box<dyn FnOnce() -> Result<Id, String> + Send>),
-    Visualization(Box<dyn FnOnce() -> Result<(), String> + Send>),
+    Visualization {
+        commit: Box<dyn FnOnce() -> Result<(), String> + Send>,
+        retained: Option<Arc<dyn Send + Sync>>,
+    },
     DuplicateTerminal {
         queued: du_core_contracts::job::JobOutcome,
         commit: Box<dyn FnOnce(crate::publication::DuplicateTerminal) -> Result<Id, String> + Send>,

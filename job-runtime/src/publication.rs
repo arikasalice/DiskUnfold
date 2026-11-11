@@ -16,7 +16,7 @@ pub enum DuplicateTerminal {
 pub(super) fn valid(descriptor: &JobDescriptor, publication: Option<&Publication>) -> bool {
     match (descriptor.kind_id.as_str(), publication) {
         ("query.evaluate", Some(Publication::Query(_)))
-        | ("viz.compute", Some(Publication::Visualization(_))) => {
+        | ("viz.compute", Some(Publication::Visualization { .. })) => {
             descriptor.history == HistoryMode::None
                 && descriptor.resource_classes.as_slice() == [ResourceClass::Compute]
         }
@@ -31,6 +31,37 @@ pub(super) fn valid(descriptor: &JobDescriptor, publication: Option<&Publication
 }
 
 impl JobRuntime {
+    /// Waits at most `timeout` for this visualization's authoritative state.
+    /// The runtime table lock is released while waiting; no publication gate is held.
+    pub fn wait_viz_terminal(
+        &self,
+        id: &Id,
+        timeout: std::time::Duration,
+    ) -> Result<JobState, RuntimeError> {
+        let table = self.table.lock().map_err(|_| RuntimeError::Poisoned)?;
+        let job = table.jobs.get(id).ok_or(RuntimeError::NotFound)?;
+        if job.descriptor.kind_id != "viz.compute" {
+            return Err(RuntimeError::InvalidDescriptor);
+        }
+        if timeout.is_zero() || job.state.is_terminal() {
+            return Ok(job.state);
+        }
+        let wake = job.wake.clone();
+        let (table, _) = wake
+            .wait_timeout_while(table, timeout, |table| {
+                table
+                    .jobs
+                    .get(id)
+                    .is_some_and(|job| !job.state.is_terminal())
+            })
+            .map_err(|_| RuntimeError::Poisoned)?;
+        table
+            .jobs
+            .get(id)
+            .map(|job| job.state)
+            .ok_or(RuntimeError::NotFound)
+    }
+
     /// Submits duplicate work with a prepared queued-cancellation outcome.
     ///
     /// `queued` describes the entire unprocessed scope without performing file
@@ -117,7 +148,30 @@ impl JobRuntime {
         self.submit_inner(
             submission,
             None,
-            Some(Publication::Visualization(Box::new(publish))),
+            Some(Publication::Visualization {
+                commit: Box::new(publish),
+                retained: None,
+            }),
+            admit,
+        )
+    }
+
+    /// Like visualization admission, retaining caller-owned deferred disposal until
+    /// after the publication gate on success, failure, panic, and cancellation.
+    pub fn submit_viz_with_retained_admission(
+        &self,
+        submission: Submission,
+        retained: Arc<dyn Send + Sync>,
+        publish: impl FnOnce() -> Result<(), String> + Send + 'static,
+        admit: impl FnOnce(&Id) -> Result<(), RuntimeError>,
+    ) -> Result<SubmitResult, RuntimeError> {
+        self.submit_inner(
+            submission,
+            None,
+            Some(Publication::Visualization {
+                commit: Box::new(publish),
+                retained: Some(retained),
+            }),
             admit,
         )
     }
@@ -144,12 +198,13 @@ impl JobRuntime {
         id: &Id,
         detach: impl FnOnce() -> Result<bool, RuntimeError>,
     ) -> Result<Option<(CancelResult, u64)>, RuntimeError> {
+        let mut retired = None;
         self.with_viz_gate(id, |state, sequence| {
             if state.is_terminal() {
                 return Ok(Some((CancelResult::AlreadyTerminal(state), sequence)));
             }
             if detach()? {
-                self.cancel_under_gate(id).map(Some)
+                self.cancel_under_gate(id, &mut retired).map(Some)
             } else {
                 Ok(None)
             }
@@ -200,6 +255,12 @@ impl JobRuntime {
             return self.finish(id, outcome).map(|_| ());
         }
         let gate = gate.ok_or(RuntimeError::InvalidState)?;
+        // Keep this ownership outside the callback's unwind boundary and alive
+        // until after the gate on every exit, including `finish` errors.
+        let retained = match publication.as_mut() {
+            Some(Publication::Visualization { retained, .. }) => retained.take(),
+            _ => None,
+        };
         let guard = gate.lock().map_err(|_| RuntimeError::Poisoned)?;
         let cancelled = {
             let table = self.table.lock().map_err(|_| RuntimeError::Poisoned)?;
@@ -228,19 +289,26 @@ impl JobRuntime {
             && outcome.completed_scope
             && let Some(publish) = publication.take()
         {
+            let viz = matches!(&publish, Publication::Visualization { .. });
             let commit = move || match publish {
                 Publication::Query(commit) => commit().map(Some),
-                Publication::Visualization(commit) => commit().map(|()| None),
+                Publication::Visualization { commit, .. } => commit().map(|()| None),
                 Publication::DuplicateTerminal { .. } => Err("support.internal_error".into()),
             };
             match std::panic::catch_unwind(std::panic::AssertUnwindSafe(commit)) {
                 Ok(Ok(reference)) => outcome.result_version_id = reference,
                 Ok(Err(reason)) => {
+                    if viz {
+                        outcome.counts = Default::default();
+                    }
                     outcome.completed_scope = false;
                     outcome.failure_reason_key = Some(reason);
                     outcome.result_version_id = None;
                 }
                 Err(_) => {
+                    if viz {
+                        outcome.counts = Default::default();
+                    }
                     outcome.completed_scope = false;
                     outcome.failure_reason_key = Some("support.internal_error".into());
                     outcome.result_version_id = None;
@@ -250,6 +318,7 @@ impl JobRuntime {
         self.finish(id, outcome)?;
         drop(guard);
         drop(publication);
+        drop(retained);
         Ok(())
     }
 }

@@ -253,16 +253,21 @@ impl JobRuntime {
 
     /// Applies cancellation and returns the sequence of the acknowledged state.
     pub fn cancel_with_sequence(&self, id: &Id) -> Result<(CancelResult, u64), RuntimeError> {
+        let mut retired = None;
         let gate = self.publication_gate(id)?;
         let _publication_guard = gate
             .as_ref()
             .map(|g| g.lock())
             .transpose()
             .map_err(|_| RuntimeError::Poisoned)?;
-        self.cancel_under_gate(id)
+        self.cancel_under_gate(id, &mut retired)
     }
 
-    fn cancel_under_gate(&self, id: &Id) -> Result<(CancelResult, u64), RuntimeError> {
+    fn cancel_under_gate(
+        &self,
+        id: &Id,
+        retired: &mut Option<RetiredVizJob>,
+    ) -> Result<(CancelResult, u64), RuntimeError> {
         let now = self.clock.now_ms();
         let mut table = self.table.lock().map_err(|_| RuntimeError::Poisoned)?;
         expire(&mut table, now);
@@ -280,6 +285,9 @@ impl JobRuntime {
         job.wake.notify_all();
         if job.state == JobState::Queued {
             job.state = JobState::CancelRequested;
+            if matches!(job.publication, Some(Publication::Visualization { .. })) {
+                *retired = Some((job.body.take(), job.publication.take()));
+            }
             let duplicate =
                 if matches!(job.publication, Some(Publication::DuplicateTerminal { .. })) {
                     job.publication.take()
@@ -444,6 +452,9 @@ impl JobRuntime {
         let released_publication = job.publication.take();
         job.submission.deduplication_key = None;
         job.summary = Some(summary.clone());
+        if job.descriptor.kind_id == "viz.compute" {
+            job.wake.notify_all();
+        }
         let record = job.descriptor.history != HistoryMode::None && !job.submission.sample;
         let delivery = enqueue(
             &table,

@@ -285,3 +285,5 @@ fn failed_publication_reports_failure_without_result() -> Result<(), Box<dyn std
     assert_eq!(snapshot.result_version_id, None);
     Ok(())
 }
+
+mod retained;
