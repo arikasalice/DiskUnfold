@@ -112,6 +112,22 @@ fn defaults_auto_and_bytes_work_for_both_systems() -> Result<(), String> {
             warning: None
         })
     );
+    let mut service = setup(Some("si"), Some("MB"))?;
+    let reset_system = SettingsChanges::from([(SIZE_UNIT_SYSTEM.into(), None)]);
+    assert_eq!(
+        service.review(0, &reset_system),
+        Err(SettingsError::InvalidValue)
+    );
+    let reset_both =
+        SettingsChanges::from([(SIZE_UNIT_SYSTEM.into(), None), (SIZE_UNIT.into(), None)]);
+    let hash = service
+        .review(0, &reset_both)
+        .map_err(|e| format!("{e:?}"))?;
+    service
+        .apply(0, &reset_both, hash, context())
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(service.display_units().ok_or("missing")?.unit, "auto");
+    assert!(service.store.0.values.is_empty());
     Ok(())
 }
 
