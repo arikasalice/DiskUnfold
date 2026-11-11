@@ -15,7 +15,8 @@ use du_engine_api::{
     api::{CallerCtx, Channel, Engine, EngineBuilder},
     error::EngineError,
     viz_runtime::{
-        Assembly, EvidenceProducer, ItemEvidence, LegendClass, Runtime, SourceFacts, ViewPolicy,
+        Assembly, EvidenceProducer, ItemEvidence, LegendClass, Runtime, SourceFacts,
+        SourcePolicyFacts, ViewPolicy,
     },
 };
 use du_job_runtime::{JobClock, JobEvent, JobEvents, JobRuntime};
@@ -55,6 +56,13 @@ struct Producer {
     unit_iec: AtomicBool,
 }
 impl EvidenceProducer for Producer {
+    fn source_policy_facts(
+        &self,
+        _: &current_analysis::CurrentAnalysis,
+        request: &VizRenderRequest,
+    ) -> Result<Option<SourcePolicyFacts>, EngineError> {
+        Ok(source_selection::owner_policy(request))
+    }
     fn ranked_other(
         &self,
         _: &current_analysis::CurrentAnalysis,
@@ -82,6 +90,9 @@ impl EvidenceProducer for Producer {
         source: &current_analysis::CurrentAnalysis,
         request: &VizRenderRequest,
     ) -> Result<SourceFacts, EngineError> {
+        if request.classification_criterion == "fixture.owner_rule" {
+            return Err(EngineError::new("fixture.legacy_called", vec![]));
+        }
         let applied = source.version().size_rule();
         let mut size_rule = QueryStrategy {
             id: applied.id.into(),

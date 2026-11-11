@@ -82,6 +82,17 @@ pub struct SourceFacts {
     /// Formats the required-data owner evaluated for this same pinned source.
     pub available_formats: Vec<String>,
 }
+/// Policy-owned facts that deliberately exclude the F03 aggregation rule.
+/// The runtime obtains that rule from the admitted immutable result instead.
+pub struct SourcePolicyFacts {
+    pub staleness: VizStaleness,
+    pub interpretation_revision: u32,
+    pub required_data_revision: u32,
+    pub legend_revision: u32,
+    pub view_policy_revision: u32,
+    pub classes: HashMap<String, LegendClass>,
+    pub available_formats: Vec<String>,
+}
 /// Item evidence supplied by the pinned path and presentation owners.
 pub struct ItemEvidence {
     pub presentation: ChildPolicyEvidence,
@@ -91,6 +102,15 @@ pub struct ItemEvidence {
 /// Implementations must return evidence for the supplied immutable result, and
 /// preserve semantics for the lifetime of their registered policy revisions.
 pub trait EvidenceProducer: Send + Sync + 'static {
+    /// Opt in to owner-bound F03 rule evidence without providing a rule copy.
+    /// `None` keeps the existing compatibility contract and its mismatch check.
+    fn source_policy_facts(
+        &self,
+        _source: &CurrentAnalysis,
+        _request: &VizRenderRequest,
+    ) -> Result<Option<SourcePolicyFacts>, EngineError> {
+        Ok(None)
+    }
     /// Supplies model-local Other presentation for the pinned ranked-bar request.
     fn ranked_other(
         &self,
@@ -109,9 +129,11 @@ pub trait EvidenceProducer: Send + Sync + 'static {
     }
     fn source_facts(
         &self,
-        source: &CurrentAnalysis,
-        request: &VizRenderRequest,
-    ) -> Result<SourceFacts, EngineError>;
+        _source: &CurrentAnalysis,
+        _request: &VizRenderRequest,
+    ) -> Result<SourceFacts, EngineError> {
+        Err(EngineError::new("ref.unavailable", vec![]))
+    }
     fn child(
         &self,
         source: &CurrentAnalysis,

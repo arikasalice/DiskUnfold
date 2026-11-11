@@ -348,3 +348,116 @@ fn selection_provider_failure_does_not_fall_back_to_latest() -> Result<(), Strin
     assert!(fixture.entered.try_recv().is_err());
     Ok(())
 }
+
+struct MutableSelection(Mutex<Option<Id>>);
+impl du_engine_api::viz_runtime::selection::WindowScanSelection for MutableSelection {
+    fn selected_result_revision(
+        &self,
+        _: &Id,
+    ) -> Result<Option<Id>, du_engine_api::viz_runtime::selection::SelectionError> {
+        self.0
+            .lock()
+            .map(|selected| selected.clone())
+            .map_err(|_| du_engine_api::viz_runtime::selection::SelectionError::Unavailable)
+    }
+}
+
+#[test]
+fn owner_bound_rule_uses_only_the_selected_pinned_result() -> Result<(), String> {
+    let sink = du_analysis_index::IngestSink::default();
+    publish_sizes(&sink, id(2), id(3), [25, 75])?;
+    let selected = Arc::new(MutableSelection(Mutex::new(None)));
+    let fixture = super::histogram_strategy::fixture_with_selection(
+        sink.clone(),
+        Duration::from_secs(2),
+        NonZeroUsize::MIN.saturating_add(3),
+        super::histogram_runtime::dispatcher()?,
+        selected.clone(),
+    )?;
+    let view = fixture.open()?;
+    let mut request = render_body(&view, 1);
+    request["classificationCriterion"] = json!("fixture.owner_rule");
+    assert_eq!(
+        fixture
+            .call("viz.render", request.clone())
+            .error
+            .ok_or("missing selection accepted")?
+            .reason_key,
+        "ref.unavailable"
+    );
+    *selected.0.lock().map_err(|e| e.to_string())? = Some(id(3));
+    let mut missing_policy = request.clone();
+    missing_policy["classificationCriterion"] = json!("fixture.owner_missing_policy");
+    assert_eq!(
+        fixture
+            .call("viz.render", missing_policy)
+            .error
+            .ok_or("missing policy accepted")?
+            .reason_key,
+        "support.internal_error"
+    );
+    assert!(fixture.entered.try_recv().is_err());
+    fixture.release.send(()).map_err(|e| e.to_string())?;
+    let first = fixture.ok("viz.render", request.clone())?;
+    let first_rule = sink
+        .pin_current(&id(3))
+        .map_err(|e| format!("{e:?}"))?
+        .size_rule();
+    assert_eq!(
+        first["model"]["tableRevisions"]["sizeRule"],
+        json!({"id":first_rule.id,"revision":first_rule.revision})
+    );
+    publish_sizes(&sink, id(2), id(4), [40, 60])?;
+    request["requestSeq"] = json!(2);
+    assert_eq!(
+        fixture
+            .call("viz.render", request.clone())
+            .error
+            .ok_or("replaced revision accepted")?
+            .reason_key,
+        "result.version_stale"
+    );
+    *selected.0.lock().map_err(|e| e.to_string())? = Some(id(4));
+    request["requestSeq"] = json!(3);
+    request["resultRevision"] = json!(id(4));
+    request["aggregateScopeRef"]["resultVersion"] = json!(id(4));
+    request["navigationScopeRef"]["resultVersion"] = json!(id(4));
+    let second = fixture.ok("viz.render", request)?;
+    let second_rule = sink
+        .pin_current(&id(4))
+        .map_err(|e| format!("{e:?}"))?
+        .size_rule();
+    assert_eq!(second["resultRevision"], json!(id(4)));
+    assert_eq!(
+        second["model"]["tableRevisions"]["sizeRule"],
+        json!({"id":second_rule.id,"revision":second_rule.revision})
+    );
+    assert_ne!(first["model"]["modelRef"], second["model"]["modelRef"]);
+    Ok(())
+}
+
+pub(super) fn owner_policy(request: &VizRenderRequest) -> Option<SourcePolicyFacts> {
+    if !["fixture.owner_rule", "fixture.owner_missing_policy"]
+        .contains(&request.classification_criterion.as_str())
+    {
+        return None;
+    }
+    Some(SourcePolicyFacts {
+        staleness: VizStaleness {
+            state: VizStalenessState::Current,
+            reason_key: None,
+        },
+        interpretation_revision: 1,
+        required_data_revision: 1,
+        legend_revision: u32::from(request.classification_criterion == "fixture.owner_rule"),
+        view_policy_revision: 1,
+        classes: HashMap::from([(
+            "fixture.class".into(),
+            LegendClass {
+                label_key: "fixture.label".into(),
+                condition: None,
+            },
+        )]),
+        available_formats: vec![],
+    })
+}

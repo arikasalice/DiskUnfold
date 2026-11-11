@@ -30,7 +30,14 @@ impl Runtime {
                 })
             })?;
         normalize(&mut request, &source, &descriptor.strategy)?;
-        let facts = self.assembly.producer.source_facts(&source, &request)?;
+        let facts = match self
+            .assembly
+            .producer
+            .source_policy_facts(&source, &request)?
+        {
+            Some(policy) => owner_bound_facts(&source, policy),
+            None => self.assembly.producer.source_facts(&source, &request)?,
+        };
         validate_facts(&facts, &source, self.assembly.policy.revision)?;
         let histogram = if request.format == "histogram" {
             let mut supplied = self
@@ -138,6 +145,25 @@ impl Runtime {
             request.result_revision.as_ref(),
         )
         .map_err(source_error)
+    }
+}
+
+fn owner_bound_facts(source: &CurrentAnalysis, policy: SourcePolicyFacts) -> SourceFacts {
+    let rule = source.version().size_rule();
+    SourceFacts {
+        staleness: policy.staleness,
+        tables: VizTableRevisions {
+            interpretation: policy.interpretation_revision,
+            required_data: policy.required_data_revision,
+            legend: policy.legend_revision,
+            view_policy: policy.view_policy_revision,
+            size_rule: du_core_contracts::browse_page_ipc::QueryStrategy {
+                id: rule.id.into(),
+                revision: rule.revision,
+            },
+        },
+        classes: policy.classes,
+        available_formats: policy.available_formats,
     }
 }
 

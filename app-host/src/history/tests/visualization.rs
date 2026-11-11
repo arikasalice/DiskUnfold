@@ -1,10 +1,9 @@
 //! Exercises the desktop's shared scan and visualization composition on Windows.
 use super::*;
 use du_core_contracts::{
-    browse_page_ipc::QueryStrategy,
     result::ResultItem,
     visualization::{
-        model::{VizMatchKey, VizStaleness, VizStalenessState, VizTableRevisions},
+        model::{VizMatchKey, VizStaleness, VizStalenessState},
         request::VizRenderRequest,
     },
 };
@@ -14,7 +13,7 @@ use du_engine_api::{
     error::EngineError,
     viz_pages::session::ChildPolicyEvidence,
     viz_runtime::{
-        EvidenceProducer, ItemEvidence, LegendClass, SourceFacts, ViewPolicy,
+        EvidenceProducer, ItemEvidence, LegendClass, SourcePolicyFacts, ViewPolicy,
         selection::{SelectionError, WindowScanSelection},
     },
 };
@@ -43,27 +42,20 @@ impl WindowScanSelection for Selection {
 struct FixtureEvidence(Mutex<Option<mpsc::Receiver<()>>>);
 
 impl EvidenceProducer for FixtureEvidence {
-    fn source_facts(
+    fn source_policy_facts(
         &self,
-        source: &CurrentAnalysis,
+        _: &CurrentAnalysis,
         _: &VizRenderRequest,
-    ) -> Result<SourceFacts, EngineError> {
-        let rule = source.version().size_rule();
-        Ok(SourceFacts {
+    ) -> Result<Option<SourcePolicyFacts>, EngineError> {
+        Ok(Some(SourcePolicyFacts {
             staleness: VizStaleness {
                 state: VizStalenessState::Current,
                 reason_key: None,
             },
-            tables: VizTableRevisions {
-                interpretation: 1,
-                required_data: 1,
-                legend: 1,
-                view_policy: 1,
-                size_rule: QueryStrategy {
-                    id: rule.id.into(),
-                    revision: rule.revision,
-                },
-            },
+            interpretation_revision: 1,
+            required_data_revision: 1,
+            legend_revision: 1,
+            view_policy_revision: 1,
             classes: HashMap::from([(
                 "fixture.class".into(),
                 LegendClass {
@@ -72,7 +64,7 @@ impl EvidenceProducer for FixtureEvidence {
                 },
             )]),
             available_formats: vec![],
-        })
+        }))
     }
 
     fn child(
@@ -280,5 +272,9 @@ fn windows_scan_store_and_jobs_feed_the_selected_visualization() -> TestResult<(
     let request = render_request(&view, &version, 1, 3);
     let result = ok(&engine, "viz.render", request.clone())?;
     let second = completed_model(&engine, &desktop.events, request, result)?;
+    let rule = &first["model"]["tableRevisions"]["sizeRule"];
+    assert!(rule["id"].as_str().is_some_and(|id| !id.is_empty()));
+    assert!(rule["revision"].as_u64().is_some_and(|revision| revision > 0));
+    assert_eq!(second["model"]["tableRevisions"]["sizeRule"], *rule);
     assert_model(&engine, &second, &version, 1, "31")
 }
