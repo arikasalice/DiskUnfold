@@ -129,6 +129,19 @@ impl ResultVersion {
         self.lineage_id.as_ref()
     }
 
+    /// Returns cached observation bounds for an item subtree in this pinned version.
+    pub fn observation_range(&self, item_no: u32) -> Option<crate::ObservationRange<'_>> {
+        self.observation_ranges
+            .get(item_no as usize)
+            .map(|range| range.resolve(self.item_observed_times.as_deref()))
+    }
+
+    /// Returns cached observation bounds across all roots in this pinned version.
+    pub fn scope_observation_range(&self) -> crate::ObservationRange<'_> {
+        self.scope_observation_range
+            .resolve(self.item_observed_times.as_deref())
+    }
+
     /// The scope-wide aggregate, deduplicated across all observed roots.
     pub fn scope_total(&self) -> &SpaceAggregate {
         self.scope_total.as_ref().unwrap_or(&self.aggregates[0])

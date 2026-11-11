@@ -41,8 +41,10 @@ pub use build_error::BuildError;
 mod volume_reports;
 pub use volume_reports::{VolumeReport, VolumeReportPoint};
 mod observation;
+mod observation_range;
 pub use observation::Observation;
 use observation::StoredObservation;
+pub use observation_range::ObservationRange;
 #[derive(Debug)]
 pub struct ResultVersion {
     version_id: Id,
@@ -53,6 +55,8 @@ pub struct ResultVersion {
     size_rule: RegisteredRule,
     items: Vec<ResultItem>,
     aggregates: Vec<SpaceAggregate>,
+    observation_ranges: Vec<observation_range::RangeIndices>,
+    scope_observation_range: observation_range::RangeIndices,
     physical: Option<Vec<Option<SpaceObservation>>>,
     identity_groups: std::sync::OnceLock<Result<space_detail::IdentityGroups, ()>>,
     shared_table_limit: usize,
@@ -396,6 +400,8 @@ impl BuildHandle {
             }
             Some(total)
         };
+        let (observation_ranges, scope_observation_range) =
+            observation_range::build(&built, &aggregates, completeness);
         let directory_case = directory_case::bind(&built, &self.directory_case);
         let result = Arc::new(ResultVersion {
             version_id,
@@ -415,6 +421,8 @@ impl BuildHandle {
             item_observed_times: built.item_observed_times,
             issues: issues::ordered(&self.issues),
             aggregates,
+            observation_ranges,
+            scope_observation_range,
             roots: self.roots.clone(),
             root_indices: built.keys.into_iter().map(|(root, _)| root).collect(),
             gaps: self.gaps.clone(),

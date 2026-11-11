@@ -456,3 +456,38 @@ fn volume_reports_are_frozen_independently_of_aggregates() -> Result<(), String>
     );
     Ok(())
 }
+
+#[test]
+fn observation_range_merges_forest_roots_and_respects_local_gaps() -> Result<(), String> {
+    let sink = IngestSink::default();
+    let mut build = sink
+        .open_forest(id(90)?, vec![root("C:\\First", 1), root("D:\\Second", 2)])
+        .map_err(|e| format!("{e:?}"))?;
+    let early = du_core_contracts::Timestamp::from_unix_millis(1).ok_or("time")?;
+    let late = du_core_contracts::Timestamp::from_unix_millis(2).ok_or("time")?;
+    for index in 0..2 {
+        build
+            .add_directory_at(index, vec![])
+            .map_err(|e| format!("{e:?}"))?;
+    }
+    build
+        .set_item_observed_at(0, &[], early.clone())
+        .map_err(|e| format!("{e:?}"))?;
+    build
+        .set_item_observed_at(1, &[], late.clone())
+        .map_err(|e| format!("{e:?}"))?;
+    build
+        .record_gap_at(1, vec![], "scan.path_denied".into(), None)
+        .map_err(|e| format!("{e:?}"))?;
+    let result = build
+        .seal(id(91)?, ResultCompleteness::Complete)
+        .map_err(|e| format!("{e:?}"))?;
+    assert!(result.observation_range(0).ok_or("root")?.complete);
+    assert!(!result.observation_range(1).ok_or("root")?.complete);
+    let scope = result.scope_observation_range();
+    assert_eq!(
+        (scope.min, scope.max, scope.complete),
+        (Some(&early), Some(&late), false)
+    );
+    Ok(())
+}
