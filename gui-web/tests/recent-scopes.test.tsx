@@ -9,6 +9,7 @@ import {
 import type { RefObject } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 import { RecentScopePicker } from "../src/features/analysis/RecentScopePicker";
+import { focusTransition } from "../src/features/analysis/RecentScopeViews";
 import { windowsPath } from "../src/ipc";
 import type {
   AnalysisClient,
@@ -756,4 +757,129 @@ test("F01 FR8: preserves long paths and returns focus to the originating row", a
   ).toBeDefined();
   fireEvent.click(screen.getByRole("button", { name: "Close recent ranges" }));
   expect(scrollContainerRef.current.scrollTop).toBe(225);
+});
+
+test.each(["editor element", "document"] as const)(
+  "F01 FR8: brings an offscreen returned row into view in the %s scroll viewport",
+  async (viewport) => {
+    const scrollIntoView = vi.spyOn(HTMLElement.prototype, "scrollIntoView");
+    const scrollContainerRef =
+      viewport === "editor element"
+        ? { current: document.createElement("div") }
+        : undefined;
+    if (scrollContainerRef) scrollContainerRef.current.scrollTop = 125;
+
+    const { client } = makeClient(async (name, body) => {
+      if (name === "scope.recent_list") return list("one", "two");
+      if (name === "scope.recent_open")
+        return opened(
+          "matched",
+          review(draft, (body as { requestSeq: number }).requestSeq),
+        );
+      throw new Error(`Unexpected command ${name}`);
+    });
+    picker(client, vi.fn(), scrollContainerRef);
+    await showList();
+    const row = screen.getByRole("button", { name: "Review range 1" });
+    fireEvent.click(row);
+    await screen.findAllByText("C:\\archive\\one");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Back to recent ranges" }),
+    );
+
+    const returnedRow = screen.getByRole("button", { name: "Review range 1" });
+    await waitFor(() => expect(document.activeElement).toBe(returnedRow));
+    expect(returnedRow.tabIndex).toBe(0);
+    const tabStops = Array.from(
+      document.querySelectorAll<HTMLButtonElement>("button:not([disabled])"),
+    );
+    expect(
+      tabStops[tabStops.indexOf(returnedRow as HTMLButtonElement) + 1]
+        ?.textContent,
+    ).toContain("Review range 2");
+    expect(scrollIntoView).toHaveBeenCalledWith({
+      block: "nearest",
+      inline: "nearest",
+    });
+    expect(scrollIntoView.mock.contexts.at(-1)).toBe(returnedRow);
+  },
+);
+
+test("F01 FR8: keeps the restored scroll position when the returned row is already visible", async () => {
+  const scrollIntoView = vi.spyOn(HTMLElement.prototype, "scrollIntoView");
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+    function (this: HTMLElement) {
+      return this.textContent?.includes("Review range 1")
+        ? new DOMRect(0, 120, 240, 40)
+        : new DOMRect();
+    },
+  );
+  const scrollContainerRef = { current: document.createElement("div") };
+  const writes = mockScrollTop(scrollContainerRef.current, 0);
+  const { client } = makeClient(async (name, body) => {
+    if (name === "scope.recent_list") return list("one");
+    if (name === "scope.recent_open")
+      return opened(
+        "matched",
+        review(draft, (body as { requestSeq: number }).requestSeq),
+      );
+    throw new Error(`Unexpected command ${name}`);
+  });
+  picker(client, vi.fn(), scrollContainerRef);
+  await showList();
+  scrollContainerRef.current.scrollTop = 125;
+  const row = screen.getByRole("button", { name: "Review range 1" });
+  fireEvent.click(row);
+  await screen.findAllByText("C:\\archive\\one");
+  // The user may have scrolled while reviewing; return to the saved list position.
+  scrollContainerRef.current.scrollTop = 0;
+  writes.length = 0;
+  fireEvent.click(
+    screen.getByRole("button", { name: "Back to recent ranges" }),
+  );
+
+  const returnedRow = screen.getByRole("button", { name: "Review range 1" });
+  await waitFor(() => expect(document.activeElement).toBe(returnedRow));
+  expect(scrollContainerRef.current.scrollTop).toBe(125);
+  expect(writes).toEqual([125]);
+  expect(scrollIntoView).toHaveBeenCalledWith({
+    block: "nearest",
+    inline: "nearest",
+  });
+});
+
+test("F01 FR8: focuses the list heading and keeps it in view when the originating row disappeared", () => {
+  const heading = document.createElement("div");
+  heading.tabIndex = -1;
+  document.body.append(heading);
+  const focus = vi.spyOn(heading, "focus");
+  const scrollIntoView = vi.spyOn(heading, "scrollIntoView");
+  const scrollContainer = document.createElement("div");
+  const writes = mockScrollTop(scrollContainer, 0);
+
+  focusTransition({
+    view: "list",
+    previous: "detail",
+    listHeading: { current: heading },
+    detailHeading: { current: null },
+    rowButtons: { current: new Map() },
+    returnedRow: "removed-row",
+    scrollContainer,
+    savedScrollTop: 180,
+    editorScrollTop: 0,
+    applied: { current: false },
+    path: { current: false },
+    applyFocus: undefined,
+    pathFocus: undefined,
+    opener: null,
+  });
+
+  expect(writes).toEqual([180]);
+  expect(focus).toHaveBeenCalledWith({ preventScroll: true });
+  expect(document.activeElement).toBe(heading);
+  expect(scrollIntoView).toHaveBeenCalledWith({
+    block: "nearest",
+    inline: "nearest",
+  });
+  heading.remove();
 });

@@ -1,7 +1,10 @@
 .du-recent-scopes {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   justify-items: start;
   gap: 8px;
+  inline-size: 100%;
+  max-inline-size: 100%;
   min-inline-size: 0;
 }
 
@@ -10,6 +13,7 @@
   display: grid;
   gap: 10px;
   inline-size: 100%;
+  max-inline-size: 100%;
   min-inline-size: 0;
   padding: 10px;
   border: 1px solid var(--du-border);
@@ -147,6 +151,22 @@
 
 .du-recent-scopes__confirm-description {
   flex-basis: 100%;
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+
+.du-recent-scopes .du-action {
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.du-recent-scopes__path .du-text {
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .du-recent-scopes__confirm-description:focus-visible {

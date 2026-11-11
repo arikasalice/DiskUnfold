@@ -61,11 +61,10 @@ export function focusTransition({
   if (view === "list") {
     if (previous === "detail") {
       if (scrollContainer) scrollContainer.scrollTop = savedScrollTop;
-      (rowButtons.current.get(returnedRow ?? "") ?? listHeading.current)?.focus(
-        {
-          preventScroll: true,
-        },
-      );
+      const target =
+        rowButtons.current.get(returnedRow ?? "") ?? listHeading.current;
+      target?.focus({ preventScroll: true });
+      target?.scrollIntoView({ block: "nearest", inline: "nearest" });
     } else {
       listHeading.current?.focus();
     }
