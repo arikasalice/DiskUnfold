@@ -10,6 +10,8 @@ mod ipc;
 mod lifecycle;
 #[cfg(all(feature = "gui", windows))]
 mod locale;
+#[cfg(feature = "gui")]
+pub mod recent_scope_body;
 #[cfg(all(feature = "gui", windows))]
 mod settings;
 #[cfg(all(feature = "gui", windows))]

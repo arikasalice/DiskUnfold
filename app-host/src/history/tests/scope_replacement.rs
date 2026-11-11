@@ -11,6 +11,44 @@ use std::{fs, io::Write};
 
 const REPLACEMENT_FILES: [(&str, u64); 2] = [("\u{00e9}.bin", 16_384), ("e\u{0301}.bin", 7)];
 
+fn store_and_reopen_recent(
+    path: &std::path::Path,
+    encoded: crate::recent_scope_body::EncodedRecentScope,
+) -> Result<crate::recent_scope_body::RecentScopeBody, Box<dyn std::error::Error>> {
+    use crate::recent_scope_body::RecentScopeBody;
+    use du_app_db::{
+        AppDb,
+        recent_scope::{RecentScopeStore, RecentWrite},
+    };
+    use std::num::NonZeroUsize;
+
+    let id = [0, 0, 0, 0, 0, 0, 0x70, 0, 0x80, 0, 0, 0, 0, 0, 0, 1];
+    let validate = |body: &str| {
+        RecentScopeBody::decode(body, 1, &encoded.fingerprint, encoded.include_count).is_ok()
+    };
+    {
+        let mut db = AppDb::create_gui_with_history(path).map_err(|e| format!("{e:?}"))?;
+        RecentScopeStore::new(&mut db, NonZeroUsize::MIN, &validate)
+            .and_then(|mut store| {
+                store.put(&RecentWrite {
+                    id,
+                    fingerprint: encoded.fingerprint,
+                    body: &encoded.body,
+                    include_count: encoded.include_count,
+                    now_ms: 400,
+                })
+            })
+            .map_err(|e| format!("{e:?}"))?;
+    }
+    let mut db = AppDb::open_gui_with_history(path).map_err(|e| format!("{e:?}"))?;
+    let row = RecentScopeStore::new(&mut db, NonZeroUsize::MIN, &validate)
+        .and_then(|store| store.get(&id))
+        .map_err(|e| format!("{e:?}"))?
+        .ok_or("missing recent scope after reopen")?;
+    RecentScopeBody::decode(&row.body, 1, &row.fingerprint, row.summary.include_count)
+        .map_err(|e| format!("{e:?}").into())
+}
+
 /// Reviews and scans a raw NTFS name whose display requires a replacement character.
 #[test]
 fn lossy_display_preserves_native_scope_identity() -> Result<(), Box<dyn std::error::Error>> {
@@ -26,13 +64,19 @@ fn lossy_display_preserves_native_scope_identity() -> Result<(), Box<dyn std::er
 
     let database = crate::startup_database::open(profile.path())?;
     let mut builder = EngineBuilder::default();
-    let events = du_engine_api::desktop::register(
+    let services = du_engine_api::desktop::register_services_with_recent_scope_worker(
         &mut builder,
         Arc::new(du_platform_os::windows_observation::WindowsScopeRoots),
         Arc::new(du_platform_os::volume::WindowsVolumes),
         Arc::new(database.history(|| 400)),
         &du_platform_os::entropy::OsRandom,
+        Arc::new(du_core_contracts::settings::SharedTableLimit::default),
+        std::num::NonZeroUsize::MIN,
     )?;
+    let events = services.events;
+    let admissions = services
+        .recent_scope_admissions
+        .ok_or("missing recent-scope consumer")?;
     let engine = builder.build()?;
     let raw: Vec<_> = target
         .as_os_str()
@@ -65,6 +109,27 @@ fn lossy_display_preserves_native_scope_identity() -> Result<(), Box<dyn std::er
     )?;
     assert!(response.error.is_none(), "{:?}", response.error);
     let scan: ScanStart = serde_json::from_value(response.body)?;
+    assert!(matches!(
+        admissions.try_next(),
+        Err(std::sync::mpsc::TryRecvError::Empty)
+    ));
+    admissions
+        .delivery()
+        .claim(&scan.job_ref)
+        .ok_or("missing delivery receipt")?
+        .posted();
+    let admission = admissions.try_next()?;
+    let encoded = crate::recent_scope_body::RecentScopeBody::encode_admission(
+        &admission,
+        &std::sync::atomic::AtomicBool::new(false),
+    )
+    .map_err(|e| format!("{e:?}"))?;
+    let saved = store_and_reopen_recent(&profile.path().join("recent-fixture.db"), encoded)?;
+    assert_eq!(
+        saved.scope_draft().includes.as_slice(),
+        std::slice::from_ref(reviewed)
+    );
+    assert!(saved.targets()[0].applied_path.lossy);
     let batch = terminal_batch(&events, &scan.job_ref)?;
     let finished = batch
         .iter()

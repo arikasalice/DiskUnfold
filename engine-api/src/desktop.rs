@@ -131,8 +131,8 @@ pub fn register_services(
 
 /// Registers analysis with the opt-in deferred recent-scope worker handoff.
 ///
-/// The app-host caller must release an admission after returning its scan receipt.
-/// The worker must wait until the owning runtime reports a terminal job state.
+/// App-host confirms delivery of each new scan receipt before its storage worker
+/// can observe that admission. The scan job may still be running.
 pub fn register_services_with_recent_scope_worker(
     builder: &mut EngineBuilder,
     roots: Arc<dyn ScopeRootPort>,

@@ -19,8 +19,8 @@ use du_core_contracts::{
 
 /// A newly admitted GUI scan and deferred observations of its original roots.
 pub struct RecentScopeAdmission {
-    pub receipt: ScanStart,
-    pub normalized_scope: ScopeDraft,
+    pub(crate) receipt: ScanStart,
+    pub(crate) normalized_scope: ScopeDraft,
     pub(crate) fingerprint_input: Option<ScopeDraft>,
     pub(crate) observers: Vec<RetainedRoot>,
     pub(crate) queue_slots: Option<Arc<AtomicUsize>>,
@@ -70,6 +70,16 @@ impl RetainedRoot {
 }
 
 impl RecentScopeAdmission {
+    /// Returns the receipt delivered for this admission.
+    pub fn receipt(&self) -> &ScanStart {
+        &self.receipt
+    }
+
+    /// Returns the applied conditions in the same order as the retained roots.
+    pub fn normalized_scope(&self) -> &ScopeDraft {
+        &self.normalized_scope
+    }
+
     /// Returns the admitted scope inputs hashed for the receipt fingerprint.
     /// Consumers must not reconstruct comparison keys from display or applied paths.
     pub fn fingerprint_conditions(&self) -> &ScopeDraft {
