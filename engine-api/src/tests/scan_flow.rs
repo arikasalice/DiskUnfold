@@ -8,8 +8,7 @@ use du_core_contracts::{
     result_events::{PublishedCompleteness, ResultVersionNotice},
     scan_observation::{
         AnchoredDirectory, DirectoryObservations, MetadataObservation, ObservedEntry, ObservedKind,
-        OpenedScopeRoot, RecentScopeEvidence, RecentScopeObservation, RecentScopeObserver,
-        ScopeRootPort,
+        OpenedScopeRoot, ScopeRootPort,
     },
 };
 use du_job_runtime::{FlowLimits, JobClock, JobEvent, JobEvents, JobIdentity, JobRuntime};
@@ -117,52 +116,7 @@ impl ScopeRootPort for Roots {
         ),
         PortError,
     > {
-        self.recent_opens.fetch_add(1, Ordering::Relaxed);
-        let root = self.open_root(path)?;
-        let observer = RecentObserver {
-            count: self.recent_observations.clone(),
-            live_handles: self.recent_live_handles.clone(),
-            volume_id: root.volume_id.clone(),
-            entry_path: root.canonical_path.clone(),
-            file_id: root.file_id.clone(),
-        };
-        observer.live_handles.fetch_add(1, Ordering::AcqRel);
-        Ok((root, Some(Ok(Box::new(observer)))))
-    }
-}
-
-struct RecentObserver {
-    count: Arc<AtomicUsize>,
-    live_handles: Arc<AtomicUsize>,
-    volume_id: Vec<u8>,
-    entry_path: OsPath,
-    file_id: Vec<u8>,
-}
-
-impl Drop for RecentObserver {
-    fn drop(&mut self) {
-        self.live_handles.fetch_sub(1, Ordering::AcqRel);
-    }
-}
-
-impl RecentScopeObserver for RecentObserver {
-    fn observe(&self, cancelled: &std::sync::atomic::AtomicBool) -> RecentScopeObservation {
-        if cancelled.load(std::sync::atomic::Ordering::Acquire) {
-            return RecentScopeObservation::Cancelled;
-        }
-        self.count
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        RecentScopeObservation::Observed(RecentScopeEvidence {
-            volume_id: self.volume_id.clone(),
-            entry_path: self.entry_path.clone(),
-            relative_path: OsPath {
-                encoding: PathEncoding::WindowsUtf16le,
-                raw: PathBytes::from_bytes(&[]),
-                display: String::new(),
-                lossy: false,
-            },
-            file_id: self.file_id.clone(),
-        })
+        recent::open_with_observer(self, path)
     }
 }
 

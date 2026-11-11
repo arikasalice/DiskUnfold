@@ -147,7 +147,9 @@ impl RecentScopeAdmissions {
         else {
             return false;
         };
-        queue.pending.remove(index).is_some()
+        let removed = queue.pending.remove(index);
+        drop(queue);
+        removed.is_some()
     }
 
     /// Retrieves one admission without waiting for another scan.
@@ -170,8 +172,11 @@ impl Drop for RecentScopeAdmissions {
     fn drop(&mut self) {
         if let Ok(mut queue) = self.pending.lock() {
             queue.receiver_open = false;
-            queue.pending.clear();
-            queue.ready.clear();
+            // Dropping an observer can close a native handle. Release the queue first.
+            let pending = std::mem::take(&mut queue.pending);
+            let ready = std::mem::take(&mut queue.ready);
+            drop(queue);
+            drop((pending, ready));
         }
     }
 }
