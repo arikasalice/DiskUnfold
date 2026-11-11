@@ -12,7 +12,8 @@ import axe from "axe-core";
 import { afterEach, expect, test, vi } from "vitest";
 import { BrowsePanel } from "../src/features/browse/BrowsePanel";
 import type { BrowsePort } from "../src/features/browse/BrowsePanel";
-import { AnalysisError } from "../src/ipc";
+import { AnalysisError, createAnalysisClient } from "../src/ipc";
+import { createBrowsePort } from "../src/app/browse-port";
 import type {
   BrowseOpenResponse,
   FolderQueryPage,
@@ -182,6 +183,7 @@ test("announces empty results, failure, and asynchronous work", async () => {
           kind: "job",
           requestSeq: request.requestSeq,
           jobRef: id,
+          resultVersion: "third",
         }),
       ),
     page: vi.fn(),
@@ -1779,5 +1781,151 @@ test.each(["Copy", "path", "Could not copy to the clipboard."])(
     expect(screen.getByRole("status").lastChild?.textContent).toBe(
       ": Could not copy to the clipboard.",
     );
+  },
+);
+
+test.each(["sequence", "version", "job version"])(
+  "recovers from a current %s mismatch through the real browse port",
+  async (mismatch) => {
+    let calls = 0;
+    const client = createAnalysisClient(async (_, { envelope }) => {
+      const reply = (body: unknown) => ({
+        name: envelope.name,
+        correlationId: envelope.correlationId,
+        contractVersion: envelope.contractVersion,
+        body,
+      });
+      if (envelope.name === "query.region.open")
+        return reply({ regionRef: "region" });
+      if (envelope.name === "browse.open") {
+        calls += 1;
+        const seq = (envelope.body as { requestSeq: number }).requestSeq;
+        if (calls === 2 && mismatch === "job version")
+          return reply({
+            kind: "job",
+            requestSeq: seq,
+            resultVersion: "wrong",
+            jobRef: "job",
+          });
+        const result = opened(
+          mismatch === "sequence" && calls === 2 ? seq + 1 : seq,
+          [row(calls, calls === 1 ? "Original" : "Recovered")],
+        );
+        if (result.kind !== "opened") throw new Error("wrong fixture");
+        if (mismatch === "version" && calls === 2)
+          result.page.resultVersion = "wrong";
+        return reply(result);
+      }
+      throw new Error(`Unexpected command ${envelope.name}`);
+    });
+    const port = createBrowsePort(client);
+    render(
+      <BrowsePanel
+        port={port}
+        resultVersion={id}
+        inspectItem={() => "Details"}
+      />,
+    );
+    const original = await screen.findByRole("button", { name: "Original" });
+    fireEvent.click(original);
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "Could not open",
+    );
+    expect(screen.getByRole("button", { name: "Original" })).toBeDefined();
+    expect(calls).toBe(2);
+    const originalRow = gridRow("Original");
+    fireEvent.contextMenu(originalRow);
+    const menu = await screen.findByRole("menu", {
+      name: "Actions for Original",
+    });
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Inspect" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "Folder details — Original",
+    });
+    const close = within(dialog).getByRole("button", { name: "Close details" });
+    act(() => close.focus());
+    expect(document.activeElement).toBe(close);
+    fireEvent.click(close);
+    await waitFor(() => expect(document.activeElement).toBe(originalRow));
+    const retry = screen.getByRole("button", { name: "Retry" });
+    act(() => retry.focus());
+    fireEvent.click(retry);
+    await screen.findByRole("button", { name: "Recovered" });
+    expect(calls).toBe(3);
+    expect(document.activeElement).toBe(
+      screen.getByRole("region", { name: "Folder navigation" }),
+    );
+    port.dispose();
+  },
+);
+
+test("real browse port ignores a superseded malformed response", async () => {
+  const late = deferred<unknown>();
+  let opens = 0;
+  const client = createAnalysisClient(async (_, { envelope }) => {
+    const reply = (body: unknown) => ({
+      name: envelope.name,
+      correlationId: envelope.correlationId,
+      contractVersion: envelope.contractVersion,
+      body,
+    });
+    if (envelope.name === "query.region.open")
+      return reply({ regionRef: `region-${opens}` });
+    if (
+      envelope.name === "query.cancel" ||
+      envelope.name === "query.region.close"
+    )
+      return reply({});
+    if (envelope.name === "browse.open") {
+      opens += 1;
+      if (opens === 1) return reply(opened(1, [row(1, "Original")]));
+      if (opens === 2) return reply(await late.promise);
+      const response = opened(
+        (envelope.body as { requestSeq: number }).requestSeq,
+        [row(3, "Latest")],
+      );
+      if (response.kind !== "opened") throw new Error("wrong fixture");
+      response.page.resultVersion = "latest";
+      response.page.rows[0]!.item.resultVersion = "latest";
+      return reply(response);
+    }
+    throw new Error(`Unexpected command ${envelope.name}`);
+  });
+  const port = createBrowsePort(client);
+  const { rerender } = render(<BrowsePanel port={port} resultVersion={id} />);
+  await screen.findByRole("button", { name: "Original" });
+  rerender(<BrowsePanel port={port} resultVersion="second" />);
+  await waitFor(() => expect(opens).toBe(2));
+  rerender(<BrowsePanel port={port} resultVersion="latest" />);
+  await screen.findByRole("button", { name: "Latest" });
+  await act(async () => late.resolve(opened(99, [row(2, "Stale")])));
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(screen.queryByText("Stale")).toBeNull();
+  expect(opens).toBe(3);
+  port.dispose();
+});
+
+test.each(["sequence", "version", "job version"])(
+  "the panel reports a current %s mismatch returned by its port",
+  async (mismatch) => {
+    const bad = opened(mismatch === "sequence" ? 99 : 2, [row(2, "Invalid")]);
+    if (bad.kind !== "opened") throw new Error("wrong fixture");
+    if (mismatch === "version") bad.page.resultVersion = "wrong";
+    const open = vi
+      .fn()
+      .mockResolvedValueOnce(opened(1, [row(1, "Original")]))
+      .mockResolvedValueOnce(
+        mismatch === "job version"
+          ? { kind: "job", requestSeq: 2, resultVersion: "wrong", jobRef: id }
+          : bad,
+      );
+    render(<BrowsePanel port={{ open, page: vi.fn() }} resultVersion={id} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Original" }));
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "Could not open",
+    );
+    expect(screen.getByRole("button", { name: "Original" })).toBeDefined();
+    expect(screen.queryByText("Invalid")).toBeNull();
+    expect(open).toHaveBeenCalledTimes(2);
   },
 );

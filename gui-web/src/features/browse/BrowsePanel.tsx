@@ -162,12 +162,20 @@ export function BrowsePanel({
         if (sequence.current !== requestSeq) return;
         opening.current = undefined;
         setBusy(false);
-        if (response.requestSeq !== requestSeq) return;
+        if (
+          response.requestSeq !== requestSeq ||
+          (pinned &&
+            (response.kind === "job"
+              ? response.resultVersion !== pinned
+              : response.page.resultVersion !== pinned))
+        ) {
+          setMessage("error");
+          return;
+        }
         if (response.kind === "job") {
           setMessage("job");
           return;
         }
-        if (pinned && response.page.resultVersion !== pinned) return;
         const pages = new BrowsePages(response.page);
         if (response.rootKind === "virtual_root") {
           virtualRootVersion.current = response.page.resultVersion;
