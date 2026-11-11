@@ -38,12 +38,22 @@ fn native_scan_100k() -> Result<(), Box<dyn std::error::Error>> {
     }
     let database = crate::startup_database::open(profile.path())?;
     let mut builder = EngineBuilder::default();
-    let events = du_engine_api::desktop::register(
+    let diagnostics = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let capture = diagnostics.clone();
+    let events = du_engine_api::desktop::register_with_scan_diagnostics(
         &mut builder,
         Arc::new(du_platform_os::windows_observation::WindowsScopeRoots),
         Arc::new(du_platform_os::volume::WindowsVolumes),
         Arc::new(database.history(|| 400)),
         &du_platform_os::entropy::OsRandom,
+        Arc::new(move || {
+            let scan = Arc::new(du_engine_api::desktop::ScanDiagnostics::default());
+            capture
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .push(scan.clone());
+            scan
+        }),
     )?;
     let engine = builder.build()?;
     let raw: Vec<_> = fixture
@@ -125,6 +135,15 @@ fn native_scan_100k() -> Result<(), Box<dyn std::error::Error>> {
             terminal.1,
             terminal.2,
             process_peak_working_set()
+        );
+        let peak = diagnostics
+            .lock()
+            .map_err(|_| "diagnostics lock poisoned")?
+            .get(run - 1)
+            .and_then(|scan| scan.shared_ready_peak())
+            .ok_or("missing ready queue peak")?;
+        eprintln!(
+            "F02_MEASURE run={run} shared_ready_queue_peak_frames={peak} excludes=worker_local_overflow,inflight,observation_channel"
         );
         if terminal.2["state"] != "done" {
             return Err("scan did not finish successfully".into());

@@ -57,10 +57,15 @@ pub(super) fn scan_harness_with_options(
     }
     let workers = Arc::new(crate::workers::Workers::start(runtime.clone())?);
     let versions = match limit {
-        Some(limit) => {
-            crate::scan::register_with_limit(&mut builder, workers, roots.clone(), ids, limit)?
-                .source()
-        }
+        Some(limit) => crate::scan::register_with_limit(
+            &mut builder,
+            workers,
+            roots.clone(),
+            ids,
+            limit,
+            None,
+        )?
+        .source(),
         None => crate::scan::register_with_comparison(
             &mut builder,
             workers,

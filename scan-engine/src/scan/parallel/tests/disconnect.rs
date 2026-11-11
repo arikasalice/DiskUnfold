@@ -199,7 +199,7 @@ fn a_batch_already_in_flight_is_drained_after_another_root_disconnects()
     ];
     let shared = Shared {
         queue: Mutex::new(Queue {
-            ready_high_water: 2,
+            ready_high_water: Some(2),
             ready: roots
                 .into_iter()
                 .enumerate()

@@ -19,7 +19,7 @@ fn default_four_per_key_does_not_block_a_distinct_key() {
         case_observed: false,
     };
     let mut queue = Queue {
-        ready_high_water: 6,
+        ready_high_water: Some(6),
         ready: (0..6).map(frame).collect(),
         last_root: None,
         remaining: 6,

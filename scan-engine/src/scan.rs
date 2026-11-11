@@ -12,7 +12,7 @@ use du_core_contracts::{
     scan_observation::{AnchoredDirectory, MetadataObservation, ObservedEntry, ObservedKind},
 };
 pub(crate) use parallel::{
-    DevicePlan, collect_open_build, collect_open_forest_filtered, collect_open_forest_with_groups,
+    DevicePlan, collect_open_build, collect_open_forest_diagnostic, collect_open_forest_filtered,
 };
 use std::collections::VecDeque;
 

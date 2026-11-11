@@ -1,5 +1,6 @@
 //! Bounded handle-based workers and a single result publisher.
 use super::{PreMetadataFilter, ResultIds, record_at};
+mod queue;
 use du_analysis_index::{BuildError, BuildHandle, publication_cadence::PublicationCadence};
 use du_core_contracts::{
     Id,
@@ -50,9 +51,8 @@ struct Queue {
     /// Maximum simultaneous frames in this shared deque, including initial roots.
     /// Worker-local overflow, active frames and the observation channel are excluded.
     /// Cancellation drains do not reset the peak. Each enqueue costs O(1); the
-    /// counter and its single per-scan word exist only in test builds.
-    #[cfg(test)]
-    ready_high_water: usize,
+    /// counter is updated only when diagnostics are enabled.
+    ready_high_water: Option<usize>,
     last_root: Option<u32>,
     remaining: usize,
     root_remaining: Vec<usize>,
@@ -61,38 +61,7 @@ struct Queue {
     device_limit: usize,
     started: bool,
 }
-impl Queue {
-    fn push_ready(&mut self, frame: Frame) {
-        self.ready.push_back(frame);
-        #[cfg(test)]
-        {
-            self.ready_high_water = self.ready_high_water.max(self.ready.len());
-        }
-    }
 
-    fn pop_fair(&mut self) -> Option<(Frame, usize)> {
-        let last = self.last_root;
-        let index = self
-            .ready
-            .iter()
-            .enumerate()
-            .filter(|(_, frame)| {
-                self.active_groups[self.root_groups[frame.root_index as usize]] < self.device_limit
-            })
-            .min_by_key(|(_, frame)| {
-                (
-                    last.is_some_and(|value| frame.root_index <= value),
-                    frame.root_index,
-                )
-            })
-            .map(|(index, _)| index)?;
-        let frame = self.ready.remove(index)?;
-        self.last_root = Some(frame.root_index);
-        let group = self.root_groups[frame.root_index as usize];
-        self.active_groups[group] += 1;
-        Some((frame, group))
-    }
-}
 struct Shared {
     queue: Mutex<Queue>,
     wake: Condvar,
@@ -152,19 +121,7 @@ impl MonotonicClock for ContextClock<'_> {
         self.0.monotonic_now()
     }
 }
-pub(crate) struct DevicePlan {
-    pub groups: Vec<usize>,
-    pub limit: usize,
-}
-impl DevicePlan {
-    fn valid(&self, count: usize) -> bool {
-        count != 0
-            && u32::try_from(count).is_ok()
-            && self.groups.len() == count
-            && self.limit != 0
-            && self.groups.iter().all(|&group| group < count)
-    }
-}
+pub(crate) use queue::DevicePlan;
 
 /// Runs the same collector against a build prepared with source evidence.
 pub(crate) fn collect_open_build(
@@ -215,7 +172,7 @@ pub(crate) fn collect_open_forest_with_groups(
         context,
         limit,
         Policy::Legacy(include),
-        devices,
+        (devices, None),
     )
 }
 
@@ -235,8 +192,22 @@ pub(crate) fn collect_open_forest_filtered(
         context,
         limit,
         Policy::BeforeMetadata(include),
-        devices,
+        (devices, None),
     )
+}
+
+pub(crate) fn collect_open_forest_diagnostic(
+    build: Result<BuildHandle, BuildError>,
+    roots: Vec<Box<dyn AnchoredDirectory>>,
+    ids: &dyn ResultIds,
+    context: &dyn JobContext,
+    limit: usize,
+    filter: Option<&PreMetadataFilter<'_>>,
+    options: (DevicePlan, Option<&crate::scan_job::ScanDiagnostics>),
+) -> JobOutcome {
+    let include = |_: &[Vec<u8>]| true;
+    let policy = filter.map_or(Policy::Legacy(&include), Policy::BeforeMetadata);
+    collect_with_policy(build, roots, ids, context, limit, policy, options)
 }
 
 fn collect_with_policy(
@@ -246,8 +217,9 @@ fn collect_with_policy(
     context: &dyn JobContext,
     limit: usize,
     policy: Policy<'_>,
-    devices: DevicePlan,
+    options: (DevicePlan, Option<&crate::scan_job::ScanDiagnostics>),
 ) -> JobOutcome {
+    let (devices, diagnostics) = options;
     let mut counts = JobCounts::default();
     let control = Control {
         ids,
@@ -256,7 +228,17 @@ fn collect_with_policy(
         policy,
     };
     let clock = ContextClock(context);
-    let result = build.and_then(|build| run(build, roots, control, &mut counts, devices, &clock));
+    let result = build.and_then(|build| {
+        run(
+            build,
+            roots,
+            control,
+            &mut counts,
+            devices,
+            &clock,
+            diagnostics,
+        )
+    });
     match result {
         Ok((id, cancelled, unprocessed_roots)) => JobOutcome {
             counts,
@@ -277,33 +259,13 @@ fn collect_with_policy(
 }
 
 fn run(
-    build: BuildHandle,
-    roots: Vec<Box<dyn AnchoredDirectory>>,
-    control: Control<'_>,
-    counts: &mut JobCounts,
-    devices: DevicePlan,
-    clock: &dyn MonotonicClock,
-) -> Result<(Id, bool, usize), BuildError> {
-    run_inner(
-        build,
-        roots,
-        control,
-        counts,
-        devices,
-        clock,
-        #[cfg(test)]
-        None,
-    )
-}
-
-fn run_inner(
     mut build: BuildHandle,
     roots: Vec<Box<dyn AnchoredDirectory>>,
     control: Control<'_>,
     counts: &mut JobCounts,
     devices: DevicePlan,
     clock: &dyn MonotonicClock,
-    #[cfg(test)] ready_high_water: Option<&std::sync::atomic::AtomicUsize>,
+    diagnostics: Option<&crate::scan_job::ScanDiagnostics>,
 ) -> Result<(Id, bool, usize), BuildError> {
     let Control {
         ids,
@@ -348,8 +310,7 @@ fn run_inner(
     };
     let shared = Shared {
         queue: Mutex::new(Queue {
-            #[cfg(test)]
-            ready_high_water: root_count,
+            ready_high_water: diagnostics.map(|_| root_count),
             ready: roots
                 .into_iter()
                 .enumerate()
@@ -407,13 +368,8 @@ fn run_inner(
             shared.abort(context);
         }
     });
-    // A test-only observer receives the peak even when collection failed or was cancelled.
-    #[cfg(test)]
-    if let Some(observer) = ready_high_water
-        && let Ok(queue) = shared.queue.lock()
-    {
-        observer.store(queue.ready_high_water, Ordering::Release);
-    }
+    // Preserve the peak after workers stop, including failure and cancellation.
+    queue::record_ready_peak(&shared, diagnostics);
     if let Some(error) = failure {
         return Err(error);
     }

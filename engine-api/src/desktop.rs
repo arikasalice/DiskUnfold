@@ -18,8 +18,9 @@ use du_core_contracts::{
 use du_job_runtime::{FlowLimits, JobClock, JobEvent, JobEvents, JobIdentity, JobRuntime};
 use serde_json::json;
 
-pub use crate::scan::{SharedTableLimit, SharedTableLimitSource};
+pub use crate::scan::{ScanDiagnosticsFactory, SharedTableLimit, SharedTableLimitSource};
 use crate::{api::EngineBuilder, jobs, scan, scope, targets, workers::Workers};
+pub use du_scan_engine::scan_job::ScanDiagnostics;
 
 const EVENT_LIMIT: usize = 1_024;
 const EVENT_INTERVAL: Duration = Duration::from_millis(100);
@@ -59,6 +60,28 @@ pub fn register_with_shared_table_limit(
     Ok(register_services(builder, roots, volumes, history, random, shared_table_limit)?.events)
 }
 
+/// Registers the desktop flow with an opt-in, per-scan diagnostic factory.
+/// This is a Rust composition hook; it does not expose diagnostics over IPC.
+pub fn register_with_scan_diagnostics(
+    builder: &mut EngineBuilder,
+    roots: Arc<dyn ScopeRootPort>,
+    volumes: Arc<dyn VolumePort>,
+    history: Arc<dyn JobHistory>,
+    random: &dyn Random,
+    diagnostics: ScanDiagnosticsFactory,
+) -> Result<Arc<DesktopEvents>, Box<dyn std::error::Error>> {
+    Ok(register_services_inner(
+        builder,
+        roots,
+        volumes,
+        history,
+        random,
+        Arc::new(SharedTableLimit::default),
+        Some(diagnostics),
+    )?
+    .events)
+}
+
 /// Desktop resources used to compose local app-host commands and events.
 pub struct DesktopServices {
     pub events: Arc<DesktopEvents>,
@@ -73,6 +96,26 @@ pub fn register_services(
     history: Arc<dyn JobHistory>,
     random: &dyn Random,
     shared_table_limit: SharedTableLimitSource,
+) -> Result<DesktopServices, Box<dyn std::error::Error>> {
+    register_services_inner(
+        builder,
+        roots,
+        volumes,
+        history,
+        random,
+        shared_table_limit,
+        None,
+    )
+}
+
+fn register_services_inner(
+    builder: &mut EngineBuilder,
+    roots: Arc<dyn ScopeRootPort>,
+    volumes: Arc<dyn VolumePort>,
+    history: Arc<dyn JobHistory>,
+    random: &dyn Random,
+    shared_table_limit: SharedTableLimitSource,
+    diagnostics: Option<ScanDiagnosticsFactory>,
 ) -> Result<DesktopServices, Box<dyn std::error::Error>> {
     let ids = Arc::new(SystemIdentity);
     let clock = Arc::new(SystemClock(Instant::now()));
@@ -106,6 +149,7 @@ pub fn register_services(
         roots,
         ids.clone(),
         shared_table_limit,
+        diagnostics,
     )?;
     let store = sets.source();
     crate::browse::folder::commands::register(builder, sets, ids, workers, random)?;

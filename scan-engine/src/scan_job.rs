@@ -15,10 +15,7 @@ use du_core_contracts::{
     scan_observation::OpenedScopeRoot,
 };
 
-use crate::scan::{
-    DevicePlan, PreMetadataFilter, ResultIds, collect_open_forest_filtered,
-    collect_open_forest_with_groups,
-};
+use crate::scan::{DevicePlan, PreMetadataFilter, ResultIds, collect_open_forest_diagnostic};
 
 type DeviceRoots = Vec<(OpenedScopeRoot, Option<Vec<u8>>)>;
 
@@ -40,6 +37,30 @@ pub fn descriptor() -> JobDescriptor {
     }
 }
 
+/// Per-scan opt-in evidence for the shared directory-ready deque.
+///
+/// This is not scan memory or channel occupancy. A result is unavailable until
+/// the workers stop, or if collection exits before creating the queue. Initial
+/// roots count; worker-local overflow and in-flight frames do not. Use one
+/// instance per scan.
+#[derive(Default)]
+pub struct ScanDiagnostics {
+    ready_peak: Mutex<Option<usize>>,
+}
+
+impl ScanDiagnostics {
+    /// Returns the greatest simultaneous shared-ready deque length, if observed.
+    pub fn shared_ready_peak(&self) -> Option<usize> {
+        self.ready_peak.lock().ok().and_then(|peak| *peak)
+    }
+
+    pub(crate) fn record_ready_peak(&self, value: usize) {
+        if let Ok(mut peak) = self.ready_peak.lock() {
+            *peak = Some(value);
+        }
+    }
+}
+
 /// Collects from the handle established during scan admission.
 pub struct MetadataScan {
     roots: Mutex<Option<DeviceRoots>>,
@@ -49,6 +70,7 @@ pub struct MetadataScan {
     ids: Arc<dyn ResultIds>,
     filter: Option<Arc<PreMetadataFilter<'static>>>,
     shared_table_limit: Option<usize>,
+    diagnostics: Option<Arc<ScanDiagnostics>>,
 }
 
 impl MetadataScan {
@@ -96,6 +118,7 @@ impl MetadataScan {
             ids,
             filter: None,
             shared_table_limit: None,
+            diagnostics: None,
         }
     }
     /// Binds this scan to the stable lineage of its verified scope and source.
@@ -107,6 +130,12 @@ impl MetadataScan {
     /// Freezes a caller-validated identity-table capacity for this scan.
     pub fn with_shared_table_limit(mut self, limit: usize) -> Self {
         self.shared_table_limit = Some(limit);
+        self
+    }
+
+    /// Enables in-process diagnostics for this scan only.
+    pub fn with_diagnostics(mut self, diagnostics: Arc<ScanDiagnostics>) -> Self {
+        self.diagnostics = Some(diagnostics);
         self
     }
 
@@ -158,26 +187,15 @@ impl JobBody for MetadataScan {
                     Ok(build)
                 });
                 let devices = DevicePlan { groups, limit: 4 };
-                match &self.filter {
-                    Some(filter) => collect_open_forest_filtered(
-                        build,
-                        directories,
-                        &*self.ids,
-                        &*context,
-                        DEFAULT_SCAN_WORKERS,
-                        &**filter,
-                        devices,
-                    ),
-                    None => collect_open_forest_with_groups(
-                        build,
-                        directories,
-                        &*self.ids,
-                        &*context,
-                        DEFAULT_SCAN_WORKERS,
-                        &|_| true,
-                        devices,
-                    ),
-                }
+                collect_open_forest_diagnostic(
+                    build,
+                    directories,
+                    &*self.ids,
+                    &*context,
+                    DEFAULT_SCAN_WORKERS,
+                    self.filter.as_deref(),
+                    (devices, self.diagnostics.as_deref()),
+                )
             }
             _ => JobOutcome {
                 counts: Default::default(),

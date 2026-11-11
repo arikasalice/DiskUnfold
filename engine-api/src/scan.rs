@@ -24,6 +24,10 @@ use crate::{
 
 pub use du_core_contracts::settings::SharedTableLimit;
 
+/// Creates in-process scan diagnostics for one submission attempt.
+pub type ScanDiagnosticsFactory =
+    Arc<dyn Fn() -> Arc<du_scan_engine::scan_job::ScanDiagnostics> + Send + Sync>;
+
 /// Reads an already validated setting snapshot when a new scan is admitted.
 pub type SharedTableLimitSource = Arc<dyn Fn() -> SharedTableLimit + Send + Sync>;
 
@@ -34,8 +38,9 @@ pub(crate) fn register_with_limit(
     roots: Arc<dyn ScopeRootPort>,
     ids: Arc<dyn JobIdentity>,
     limit: SharedTableLimitSource,
+    diagnostics: Option<ScanDiagnosticsFactory>,
 ) -> Result<Arc<ResultSets>, RuntimeError> {
-    register_with_options(builder, workers, roots, ids, None, limit)
+    register_with_options(builder, workers, roots, ids, None, limit, diagnostics)
 }
 
 #[cfg(test)]
@@ -53,6 +58,7 @@ pub(crate) fn register_with_comparison(
         ids,
         comparison,
         Arc::new(SharedTableLimit::default),
+        None,
     )
     .map(|sets| sets.source())
 }
@@ -64,6 +70,7 @@ fn register_with_options(
     ids: Arc<dyn JobIdentity>,
     comparison: Option<Arc<dyn scope::exclusion::PathComparison>>,
     limit: SharedTableLimitSource,
+    diagnostics: Option<ScanDiagnosticsFactory>,
 ) -> Result<Arc<ResultSets>, RuntimeError> {
     workers
         .runtime
@@ -82,6 +89,7 @@ fn register_with_options(
         admitted: Mutex::new(None),
         comparison,
         limit,
+        diagnostics,
     });
     Ok(sets)
 }
@@ -102,6 +110,7 @@ struct StartScan {
     admitted: Mutex<Option<Admitted>>,
     comparison: Option<Arc<dyn scope::exclusion::PathComparison>>,
     limit: SharedTableLimitSource,
+    diagnostics: Option<ScanDiagnosticsFactory>,
 }
 
 /// Retains the review identity alongside the reusable receipt while a scan is active.
@@ -147,6 +156,9 @@ impl UseCase for StartScan {
         )
         .with_lineage(lineage.clone())
         .with_shared_table_limit((self.limit)().entries());
+        if let Some(factory) = &self.diagnostics {
+            job = job.with_diagnostics(factory());
+        }
         if let Some(filter) = verified.filter {
             job = job.with_pre_metadata_filter(filter);
         }

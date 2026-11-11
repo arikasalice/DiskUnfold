@@ -35,7 +35,7 @@ fn permit_is_released_during_panic_unwind() {
     let shared = Shared {
         queue: Mutex::new(Queue {
             ready: VecDeque::from([frame]),
-            ready_high_water: 1,
+            ready_high_water: Some(1),
             last_root: None,
             remaining: 1,
             root_remaining: vec![1],
@@ -99,7 +99,7 @@ fn ready_peak_tracks_simultaneous_frames_and_overflow() {
     let shared = Shared {
         queue: Mutex::new(Queue {
             ready: VecDeque::new(),
-            ready_high_water: 0,
+            ready_high_water: Some(0),
             last_root: None,
             remaining: 0,
             root_remaining: vec![0],
@@ -120,12 +120,12 @@ fn ready_peak_tracks_simultaneous_frames_and_overflow() {
         .queue
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    assert_eq!(queue.ready_high_water, QUEUED_DIRECTORIES);
+    assert_eq!(queue.ready_high_water, Some(QUEUED_DIRECTORIES));
     assert!(queue.pop_fair().is_some());
     queue.active_groups[0] -= 1;
     assert_eq!(queue.ready.len(), QUEUED_DIRECTORIES - 1);
     queue.push_ready(frame());
-    assert_eq!(queue.ready_high_water, QUEUED_DIRECTORIES);
+    assert_eq!(queue.ready_high_water, Some(QUEUED_DIRECTORIES));
     drop(queue);
     let (sender, _receiver) = std::sync::mpsc::sync_channel(1);
     assert!(super::cancel_drain::drain(
@@ -140,5 +140,5 @@ fn ready_peak_tracks_simultaneous_frames_and_overflow() {
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     assert!(queue.ready.is_empty());
-    assert_eq!(queue.ready_high_water, QUEUED_DIRECTORIES);
+    assert_eq!(queue.ready_high_water, Some(QUEUED_DIRECTORIES));
 }
