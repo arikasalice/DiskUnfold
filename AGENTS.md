@@ -84,6 +84,11 @@ For a CLI-only development build, use `cargo run --locked -p du-launcher --no-de
 
 **Tooling.** Use the pinned Node runtime and cross-platform filesystem and process APIs for quality scripts. Run Cargo with `--locked` and npm with `ci --ignore-scripts`. Review changes to lockfiles, record new direct dependencies in the quality register, and keep CI actions pinned to commit hashes. Licensing and advisory policy changes require the project’s applicable approval and traceability.
 
+## Subagent delegation
+
+- Use `gpt-6-luna` for every new subagent and delegated follow-up. Select it explicitly. If the tool cannot select it, the team lead handles the work directly.
+- Close completed subagents where the tool supports it. Let existing work finish when its model cannot be changed in place, then use Luna for any replacement. Apply these rules in every project chat and pass them to any delegated team.
+
 ## Tests and handoff
 
 ```sh
