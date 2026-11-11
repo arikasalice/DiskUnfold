@@ -123,18 +123,24 @@ impl Index {
                 .checked_add(link.bytes)
                 .ok_or(Error::InvalidGraph)?;
         }
-        if graph
-            .folders
-            .iter()
-            .zip(&folder_sum)
-            .any(|(node, sum)| node.bytes != *sum)
-            || graph
-                .categories
-                .iter()
-                .zip(&category_sum)
-                .any(|(node, sum)| node.bytes != *sum)
-            || sum_nodes(&graph.folders)? != graph.total
-            || sum_nodes(&graph.categories)? != graph.total
+        for (node, sum) in graph.folders.iter().zip(&folder_sum) {
+            if cancelled() {
+                return Err(Error::Cancelled);
+            }
+            if node.bytes != *sum {
+                return Err(Error::InvalidGraph);
+            }
+        }
+        for (node, sum) in graph.categories.iter().zip(&category_sum) {
+            if cancelled() {
+                return Err(Error::Cancelled);
+            }
+            if node.bytes != *sum {
+                return Err(Error::InvalidGraph);
+            }
+        }
+        if sum_nodes(&graph.folders, cancelled)? != graph.total
+            || sum_nodes(&graph.categories, cancelled)? != graph.total
         {
             return Err(Error::InvalidGraph);
         }
@@ -144,10 +150,15 @@ impl Index {
         })
     }
 }
-fn sum_nodes<K>(nodes: &[Node<K>]) -> Result<u64, Error> {
-    nodes.iter().try_fold(0_u64, |sum, node| {
-        sum.checked_add(node.bytes).ok_or(Error::InvalidGraph)
-    })
+fn sum_nodes<K>(nodes: &[Node<K>], cancelled: &mut dyn FnMut() -> bool) -> Result<u64, Error> {
+    let mut sum = 0_u64;
+    for node in nodes {
+        if cancelled() {
+            return Err(Error::Cancelled);
+        }
+        sum = sum.checked_add(node.bytes).ok_or(Error::InvalidGraph)?;
+    }
+    Ok(sum)
 }
 fn validate_node<K>(node: &Node<K>) -> Result<(), Error> {
     if let Some(rect) = node.rect {
@@ -202,6 +213,9 @@ fn category_relations(
             index.categories[&link.category],
         )
     });
+    if cancelled() {
+        return Err(Error::Cancelled);
+    }
     let mut folder_used = vec![0; graph.folders.len()];
     let mut category_used = vec![0; graph.categories.len()];
     let mut out = Vec::with_capacity(links.len());

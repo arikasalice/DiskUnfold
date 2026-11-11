@@ -316,6 +316,26 @@ fn selected_strategy_fails_closed_for_unknown_negative_invalid_and_overflow_fact
         SankeyDispatchError::Cancelled
     );
     let mut checks = 0;
+    let mut cancel_during_aggregation = || {
+        checks += 1;
+        checks >= 11
+    };
+    let aggregation_cancel = dispatcher.execute_sankey(
+        None,
+        SankeyInput {
+            columns: columns(),
+            scope: Weight::Exact(15),
+            rows: &[row(1, 10, 5), row(2, 20, 7), row(3, 10, 2)],
+            folder_budget: 2,
+            category_order: &[10, 20],
+        },
+        &mut cancel_during_aggregation,
+    );
+    assert_eq!(
+        aggregation_cancel.unwrap_err(),
+        SankeyDispatchError::Cancelled
+    );
+    let mut checks = 0;
     let mut cancel_during_geometry = || {
         checks += 1;
         checks >= 15

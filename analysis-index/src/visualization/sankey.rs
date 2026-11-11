@@ -216,6 +216,9 @@ pub fn layout_cancellable(
             .cmp(&a.1.total)
             .then_with(|| a.1.order.cmp(&b.1.order))
     });
+    if cancelled() {
+        return Outcome::Cancelled;
+    }
     make_graph(
         columns,
         total,
@@ -223,6 +226,7 @@ pub fn layout_cancellable(
         ranked,
         folder_budget,
         category_order,
+        cancelled,
     )
 }
 
@@ -233,6 +237,7 @@ fn make_graph(
     ranked: Vec<(u32, Folder)>,
     budget: usize,
     category_order: &[u32],
+    cancelled: &mut dyn FnMut() -> bool,
 ) -> Outcome {
     let cutoff = if ranked.len() > budget {
         budget - 1
@@ -246,6 +251,9 @@ fn make_graph(
     let mut members = Vec::new();
     let mut other_total = 0u64;
     for (index, (id, folder)) in ranked.into_iter().enumerate() {
+        if cancelled() {
+            return Outcome::Cancelled;
+        }
         let key = if index < cutoff {
             FolderKey::Folder(id)
         } else {
@@ -257,6 +265,9 @@ fn make_graph(
             folder_values.push((key, folder.total, Vec::new()));
         }
         for (category, bytes) in folder.categories {
+            if cancelled() {
+                return Outcome::Cancelled;
+            }
             *category_totals.entry(category).or_default() += bytes;
             if key == FolderKey::Other {
                 *grouped.entry(category).or_default() += bytes;
@@ -272,6 +283,9 @@ fn make_graph(
     if !members.is_empty() {
         folder_values.push((FolderKey::Other, other_total, members));
         for (category, bytes) in grouped {
+            if cancelled() {
+                return Outcome::Cancelled;
+            }
             link_values.push(Link {
                 folder: FolderKey::Other,
                 category: CategoryKey::Category(category),
@@ -289,6 +303,9 @@ fn make_graph(
     }
     let mut category_values = Vec::new();
     for key in category_order {
+        if cancelled() {
+            return Outcome::Cancelled;
+        }
         if let Some(bytes) = category_totals.remove(key) {
             category_values.push((CategoryKey::Category(*key), bytes, Vec::new()));
         }
@@ -296,17 +313,30 @@ fn make_graph(
     if remainder > 0 {
         category_values.push((CategoryKey::Unattributed, remainder, Vec::new()));
     }
-    let folders = nodes(columns.folders, total, folder_values);
-    let categories = nodes(columns.categories, total, category_values);
+    let Some(folders) = nodes(columns.folders, total, folder_values, cancelled) else {
+        return Outcome::Cancelled;
+    };
+    let Some(categories) = nodes(columns.categories, total, category_values, cancelled) else {
+        return Outcome::Cancelled;
+    };
     let mut positions = BTreeMap::new();
     for (index, node) in folders.iter().enumerate() {
+        if cancelled() {
+            return Outcome::Cancelled;
+        }
         positions.insert(node.key, index);
     }
     let mut category_positions = BTreeMap::new();
     for (index, node) in categories.iter().enumerate() {
+        if cancelled() {
+            return Outcome::Cancelled;
+        }
         category_positions.insert(node.key, index);
     }
     link_values.sort_by_key(|link| (positions[&link.folder], category_positions[&link.category]));
+    if cancelled() {
+        return Outcome::Cancelled;
+    }
     Outcome::Graph(Graph {
         total,
         volume: Node {
@@ -322,34 +352,41 @@ fn make_graph(
     })
 }
 
-fn nodes<K>(column: Rect, total: u64, values: Vec<(K, u64, Vec<u32>)>) -> Vec<Node<K>> {
+fn nodes<K>(
+    column: Rect,
+    total: u64,
+    values: Vec<(K, u64, Vec<u32>)>,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Option<Vec<Node<K>>> {
     let mut previous = 0u32;
     let mut cumulative = 0u64;
-    values
-        .into_iter()
-        .map(|(key, bytes, members)| {
-            cumulative += bytes;
-            let edge = if total == 0 {
-                0
-            } else {
-                (u128::from(column.bottom - column.top) * u128::from(cumulative)
-                    / u128::from(total)) as u32
-            };
-            let rect = (edge > previous).then_some(Rect {
-                left: column.left,
-                right: column.right,
-                top: column.top + previous,
-                bottom: column.top + edge,
-            });
-            previous = edge;
-            Node {
-                key,
-                bytes,
-                rect,
-                members,
-            }
-        })
-        .collect()
+    let mut out = Vec::with_capacity(values.len());
+    for (key, bytes, members) in values {
+        if cancelled() {
+            return None;
+        }
+        cumulative += bytes;
+        let edge = if total == 0 {
+            0
+        } else {
+            (u128::from(column.bottom - column.top) * u128::from(cumulative) / u128::from(total))
+                as u32
+        };
+        let rect = (edge > previous).then_some(Rect {
+            left: column.left,
+            right: column.right,
+            top: column.top + previous,
+            bottom: column.top + edge,
+        });
+        previous = edge;
+        out.push(Node {
+            key,
+            bytes,
+            rect,
+            members,
+        });
+    }
+    Some(out)
 }
 
 fn valid_columns(c: Columns) -> bool {
