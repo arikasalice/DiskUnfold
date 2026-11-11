@@ -16,6 +16,8 @@ import type { IconName } from "./presentation";
 type ActionProps = Pick<
   ButtonProps,
   | "onPress"
+  | "onFocus"
+  | "onBlur"
   | "isDisabled"
   | "isPending"
   | "autoFocus"

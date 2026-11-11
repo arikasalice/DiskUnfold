@@ -254,3 +254,98 @@ test("keeps subpixel and boundary-only rectangles in the table without invisible
   expect(screen.queryAllByRole("button")).toHaveLength(0);
   expect(screen.getByText("Original row A")).toBeTruthy();
 });
+
+test("duplicate row references are not offered as focus recovery targets", () => {
+  const input = props();
+  input.shapes = [
+    input.shapes[0]!,
+    { ...input.shapes[0]!, shapeRef: "duplicate" },
+  ];
+  input.relations = [];
+  const availability = vi.fn();
+  const { rerender } = render(
+    <GeometryRenderer
+      {...input}
+      onFocusAvailability={availability}
+      focusFirstRequest={0}
+    />,
+  );
+  expect(availability).toHaveBeenLastCalledWith(false);
+  const first = screen.getAllByRole("button")[0]!;
+  first.focus();
+  rerender(
+    <GeometryRenderer
+      {...input}
+      modelRef="next"
+      fallback={{ ...input.fallback, modelRef: "next" }}
+      focusedRowRef="row-a"
+      onFocusTargetMissing={availability}
+      focusFirstRequest={1}
+    />,
+  );
+  expect(document.activeElement).not.toBe(screen.getAllByRole("button")[0]);
+  expect(availability).toHaveBeenCalledWith();
+});
+
+test("subpixel geometry is not offered as an accessible focus target", () => {
+  const input = props();
+  input.shapes = [
+    {
+      ...input.shapes[0]!,
+      geometry: {
+        primitive: "rect",
+        points: [
+          { x: 0, y: 0 },
+          { x: 1, y: 1 },
+        ],
+      },
+    },
+  ];
+  input.relations = [];
+  const availability = vi.fn();
+  render(<GeometryRenderer {...input} onFocusAvailability={availability} />);
+  expect(screen.queryAllByRole("button")).toHaveLength(0);
+  expect(availability).toHaveBeenLastCalledWith(false);
+});
+
+test.each(["fallback", "replacement", "unmount"] as const)(
+  "does not steal external focus on %s",
+  (scenario) => {
+    const input = props();
+    const missing = vi.fn();
+    const result = render(
+      <>
+        <button>Outside</button>
+        <GeometryRenderer {...input} onFocusTargetMissing={missing} />
+      </>,
+    );
+    screen.getByRole("button", { name: "Item A, 10 bytes" }).focus();
+    const outside = screen.getByRole("button", { name: "Outside" });
+    outside.focus();
+    if (scenario === "unmount") {
+      result.rerender(<button>Outside</button>);
+    } else {
+      const next = {
+        ...input,
+        modelRef: "next",
+        fallback: { ...input.fallback, modelRef: "next" },
+      };
+      if (scenario === "fallback")
+        next.viewport = { left: 0, top: 0, right: 0, bottom: 0 };
+      result.rerender(
+        <>
+          <button>Outside</button>
+          <GeometryRenderer
+            {...next}
+            focusedRowRef="row-a"
+            onFocusTargetMissing={missing}
+          />
+        </>,
+      );
+    }
+    expect(document.activeElement).toBe(outside);
+    expect(missing).not.toHaveBeenCalled();
+    if (scenario === "fallback")
+      expect(screen.getByText("Original row A")).toBeTruthy();
+  },
+);

@@ -1,4 +1,4 @@
-import { useId, useRef } from "react";
+import { useId, useLayoutEffect, useRef } from "react";
 import type { KeyboardEvent, ReactNode } from "react";
 import { Action } from "./controls";
 import { Notice } from "./presentation";
@@ -47,6 +47,11 @@ export type GeometryRendererProps = {
   relations: readonly Relation[];
   selectedRowRef: string | null;
   onSelect: (rowRef: string, shapeRef: string) => void;
+  onShapeFocus?: (rowRef: string, shapeRef: string) => void;
+  focusedRowRef?: string | null;
+  onFocusTargetMissing?: () => void;
+  onFocusAvailability?: (available: boolean) => void;
+  focusFirstRequest?: number;
   fallback: Fallback;
 };
 
@@ -249,6 +254,8 @@ function rectangleLabel(
 export function GeometryRenderer(props: GeometryRendererProps) {
   const clip = useId();
   const controls = useRef(new Map<string, HTMLButtonElement>());
+  const restoreFocus = useRef(false);
+  const lastFocusFirstRequest = useRef(props.focusFirstRequest);
   const { shapes, relations, viewport, fallback, modelRef, resultRevision } =
     props;
   const fallbackMatches =
@@ -257,6 +264,59 @@ export function GeometryRenderer(props: GeometryRendererProps) {
   const valid =
     viewportValid(viewport, props.width, props.height) &&
     modelSupported(shapes, relations);
+  const targetCounts = new Map<string, number>();
+  for (const shape of shapes)
+    targetCounts.set(shape.rowRef, (targetCounts.get(shape.rowRef) ?? 0) + 1);
+  const firstTarget =
+    valid && fallbackMatches
+      ? shapes.find(
+          (shape) =>
+            targetCounts.get(shape.rowRef) === 1 &&
+            intersects(shape.geometry, viewport) &&
+            primitive(
+              shape.geometry,
+              viewport,
+              Math.round(props.width),
+              Math.round(props.height),
+            ) !== null,
+        )
+      : undefined;
+  useLayoutEffect(() => {
+    props.onFocusAvailability?.(firstTarget !== undefined);
+  }, [modelRef, resultRevision, firstTarget?.shapeRef]);
+  useLayoutEffect(() => {
+    if (
+      props.focusFirstRequest !== lastFocusFirstRequest.current &&
+      firstTarget
+    )
+      controls.current
+        .get(firstTarget.shapeRef)
+        ?.focus({ preventScroll: true });
+    lastFocusFirstRequest.current = props.focusFirstRequest;
+  }, [props.focusFirstRequest]);
+  useLayoutEffect(() => {
+    if (
+      restoreFocus.current &&
+      (document.activeElement === document.body ||
+        !document.activeElement?.isConnected)
+    ) {
+      const matches = props.focusedRowRef
+        ? props.shapes.filter((shape) => shape.rowRef === props.focusedRowRef)
+        : [];
+      const target =
+        matches.length === 1
+          ? controls.current.get(matches[0]!.shapeRef)
+          : undefined;
+      if (target) target.focus({ preventScroll: true });
+      else props.onFocusTargetMissing?.();
+    }
+    restoreFocus.current = false;
+    return () => {
+      restoreFocus.current ||= Array.from(controls.current.values()).some(
+        (button) => button === document.activeElement,
+      );
+    };
+  }, [props.modelRef, props.resultRevision]);
   if (!fallbackMatches)
     return <Notice tone="error">{props.missingFallbackNotice}</Notice>;
   if (!valid)
@@ -266,6 +326,8 @@ export function GeometryRenderer(props: GeometryRendererProps) {
         {fallback.content}
       </section>
     );
+  if (shapes.length === 0)
+    return <section aria-label={props.label}>{fallback.content}</section>;
   const width = Math.round(props.width);
   const height = Math.round(props.height);
   const visible = shapes.flatMap((shape) => {
@@ -324,10 +386,21 @@ export function GeometryRenderer(props: GeometryRendererProps) {
       <div role="group" aria-label={props.label} onKeyDown={moveFocus}>
         {visible.map(({ shape }) => (
           <Action
-            key={shape.shapeRef}
+            key={`${modelRef}:${resultRevision}:${shape.shapeRef}`}
+            onFocus={() => props.onShapeFocus?.(shape.rowRef, shape.shapeRef)}
+            onBlur={() => {
+              restoreFocus.current = false;
+            }}
             ref={(element) => {
               if (element) controls.current.set(shape.shapeRef, element);
-              else controls.current.delete(shape.shapeRef);
+              else {
+                if (
+                  controls.current.get(shape.shapeRef) ===
+                  document.activeElement
+                )
+                  restoreFocus.current = true;
+                controls.current.delete(shape.shapeRef);
+              }
             }}
             aria-label={`${shape.accessibleLabel}${shape.rowRef === props.selectedRowRef ? `, ${props.selectedText}` : ""}`}
             onPress={() => props.onSelect(shape.rowRef, shape.shapeRef)}
