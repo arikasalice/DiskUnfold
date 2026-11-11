@@ -316,6 +316,54 @@ test.each(["history.changed", "job.resync_required"])(
   },
 );
 
+test("F21: an older refreshed revision stays hidden until a successful manual retry", async () => {
+  let frame: FrameRequestCallback | undefined;
+  const revision = { deleteGeneration: "1", maxRecordSeq: "10" };
+  const call = vi
+    .fn()
+    .mockResolvedValueOnce({
+      ...response([row]),
+      revision: { deleteGeneration: "0", maxRecordSeq: "9" },
+    })
+    .mockResolvedValueOnce({
+      ...response([row]),
+      revision: { deleteGeneration: "0", maxRecordSeq: "100" },
+    })
+    .mockResolvedValueOnce({
+      ...response([row]),
+      revision: { deleteGeneration: "1", maxRecordSeq: "9" },
+    })
+    .mockResolvedValueOnce({ ...response(), revision });
+  const events = historyEvents(call);
+  render(<HistoryPanel client={events.client} onClose={() => {}} />);
+  await screen.findByText("1 folder");
+  const schedule = vi
+    .spyOn(window, "requestAnimationFrame")
+    .mockImplementation((callback) => {
+      frame = callback;
+      return 123;
+    });
+  act(() => {
+    events.send("history.changed", revision);
+    events.send("history.changed", revision);
+  });
+  expect(schedule).toHaveBeenCalledTimes(1);
+  expect(call).toHaveBeenCalledTimes(1);
+  act(() => frame?.(0));
+  await screen.findByRole("alert");
+  expect(screen.queryByText("1 folder")).toBeNull();
+  expect(call).toHaveBeenCalledTimes(2);
+  fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+  await screen.findByRole("alert");
+  expect(screen.queryByText("1 folder")).toBeNull();
+  expect(call).toHaveBeenCalledTimes(3);
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  expect(call).toHaveBeenCalledTimes(3);
+  fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+  await screen.findByText("No operations recorded yet.");
+  expect(call).toHaveBeenCalledTimes(4);
+});
+
 test("announces an error and retries the first page", async () => {
   const call = vi
     .fn()

@@ -54,6 +54,14 @@ export function useHistory(client: AnalysisClient, filter: HistoryListFilter) {
           count: null,
         });
         if (generation.current !== request) return;
+        if (
+          knownRevision.current &&
+          isNewer(knownRevision.current, next.revision)
+        ) {
+          setPage(undefined);
+          setError(true);
+          return;
+        }
         if (isNewer(next.revision, knownRevision.current))
           knownRevision.current = next.revision;
         setPage((previous) =>
