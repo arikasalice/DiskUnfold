@@ -11,6 +11,7 @@ pub(crate) struct BuiltItems {
     pub(crate) modified_times: Option<Vec<Option<Timestamp>>>,
     pub(crate) native_modified_times:
         Option<Vec<Option<du_core_contracts::scan_observation::NativeModifiedTime>>>,
+    pub(crate) enumerated_inodes: Option<Vec<Option<std::num::NonZeroU64>>>,
     pub(crate) item_observed_times: Option<Vec<Option<Timestamp>>>,
     pub(crate) keys: Vec<(u32, Vec<Vec<u8>>)>,
 }
@@ -50,6 +51,10 @@ pub(crate) fn build_items(
         .values()
         .any(|v| v.observed_at.is_some())
         .then(Vec::new);
+    let mut enumerated_inodes = observations
+        .values()
+        .any(|v| v.enumerated_inode.is_some())
+        .then(Vec::new);
     for index in 0..root_count {
         let root_index = u32::try_from(index).map_err(|_| BuildError::CapacityExceeded)?;
         let root = observations
@@ -75,6 +80,9 @@ pub(crate) fn build_items(
         }
         if let Some(values) = &mut native_modified_times {
             values.push(root.native_modified_at);
+        }
+        if let Some(values) = &mut enumerated_inodes {
+            values.push(root.enumerated_inode);
         }
         if let Some(values) = &mut item_observed_times {
             values.push(root.observed_at.clone());
@@ -108,6 +116,9 @@ pub(crate) fn build_items(
             if let Some(values) = &mut native_modified_times {
                 values.push(observation.native_modified_at);
             }
+            if let Some(values) = &mut enumerated_inodes {
+                values.push(observation.enumerated_inode);
+            }
             if let Some(values) = &mut item_observed_times {
                 values.push(observation.observed_at.clone());
             }
@@ -123,6 +134,7 @@ pub(crate) fn build_items(
         physical: physical_values,
         modified_times,
         native_modified_times,
+        enumerated_inodes,
         item_observed_times,
         keys: paths,
     })

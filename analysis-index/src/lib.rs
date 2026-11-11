@@ -25,7 +25,7 @@ use du_core_contracts::result::{
     ResultCompleteness, ResultItem, ResultItemKind, ResultScopeGap, ResultScopeRoot, SpaceAggregate,
 };
 use du_core_contracts::result_events::{ResultVersionChange, ResultVersionPublisher};
-use du_core_contracts::{Id, SizeValue, Timestamp};
+use du_core_contracts::{Id, Timestamp};
 pub use physical::{FileIdentity, SharingEvidence, SpaceObservation};
 use publication_events::PublicationEvents;
 use result_read::ensure_directory;
@@ -39,6 +39,7 @@ mod volume_reports;
 pub use volume_reports::{VolumeReport, VolumeReportPoint};
 mod observation;
 pub use observation::Observation;
+use observation::StoredObservation;
 #[derive(Debug)]
 pub struct ResultVersion {
     version_id: Id,
@@ -62,6 +63,7 @@ pub struct ResultVersion {
     modified_times: Option<Vec<Option<Timestamp>>>,
     native_modified_times:
         Option<Vec<Option<du_core_contracts::scan_observation::NativeModifiedTime>>>,
+    enumerated_inodes: Option<Vec<Option<std::num::NonZeroU64>>>,
     item_observed_times: Option<Vec<Option<Timestamp>>>,
     issues: Vec<du_core_contracts::scan_failures::ScanIssue>,
 }
@@ -189,14 +191,6 @@ pub struct BuildHandle {
     volume_reports: Vec<VolumeReport>,
     finished: bool,
 }
-struct StoredObservation {
-    size: Option<SizeValue>,
-    kind: ResultItemKind,
-    physical: Option<Box<SpaceObservation>>,
-    modified_at: Option<Timestamp>,
-    native_modified_at: Option<du_core_contracts::scan_observation::NativeModifiedTime>,
-    observed_at: Option<Timestamp>,
-}
 impl BuildHandle {
     /// Adds a confirmed directory with no independent logical-size contribution.
     pub fn add_directory(&mut self, path: Vec<Vec<u8>>) -> Result<(), BuildError> {
@@ -208,6 +202,7 @@ impl BuildHandle {
                 physical: None,
                 modified_at: None,
                 native_modified_at: None,
+                enumerated_inode: None,
                 observed_at: None,
             },
         )
@@ -223,6 +218,7 @@ impl BuildHandle {
                 physical: None,
                 modified_at: None,
                 native_modified_at: None,
+                enumerated_inode: None,
                 observed_at: None,
             },
         )
@@ -244,6 +240,7 @@ impl BuildHandle {
                 physical: Some(Box::new(space)),
                 modified_at: None,
                 native_modified_at: None,
+                enumerated_inode: None,
                 observed_at: None,
             },
         )
@@ -259,6 +256,7 @@ impl BuildHandle {
                 physical: None,
                 modified_at: None,
                 native_modified_at: None,
+                enumerated_inode: None,
                 observed_at: None,
             },
         )
@@ -277,6 +275,7 @@ impl BuildHandle {
                 physical: None,
                 modified_at: None,
                 native_modified_at: None,
+                enumerated_inode: None,
                 observed_at: None,
             },
         )
@@ -420,6 +419,7 @@ impl BuildHandle {
             shared_table_limit: self.shared_table_limit,
             modified_times: built.modified_times,
             native_modified_times: built.native_modified_times,
+            enumerated_inodes: built.enumerated_inodes,
             item_observed_times: built.item_observed_times,
             issues: issues::ordered(&self.issues),
             aggregates,

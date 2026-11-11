@@ -56,6 +56,43 @@ pub(crate) fn mark_gaps(
 }
 
 impl BuildHandle {
+    /// Retains a matched enumeration discriminator only with same-root volume identity.
+    ///
+    /// The producer must compare enumeration and metadata from the same observation.
+    /// A missing root or physical identity leaves this evidence unavailable.
+    pub fn retain_enumerated_inode(
+        &mut self,
+        root: u32,
+        path: &[Vec<u8>],
+        inode: std::num::NonZeroU64,
+    ) -> Result<(), BuildError> {
+        if self.finished {
+            return Err(BuildError::InvalidTree);
+        }
+        let observation = self
+            .observations
+            .get_mut(&(root, path.to_vec()))
+            .ok_or(BuildError::InvalidTree)?;
+        if observation.kind != ResultItemKind::File {
+            return Err(BuildError::InvalidTree);
+        }
+        let root_volume = self
+            .roots
+            .get(root as usize)
+            .map(|root| root.volume_id.as_slice());
+        let identity = observation
+            .physical
+            .as_deref()
+            .and_then(|physical| physical.identity.as_ref());
+        if let (Some(volume), Some(identity)) = (root_volume, identity)
+            && !volume.is_empty()
+            && !identity.file.is_empty()
+            && identity.volume == volume
+        {
+            observation.enumerated_inode = Some(inode);
+        }
+        Ok(())
+    }
     /// Retains native modification evidence for an admitted file observation.
     ///
     /// The collector must supply evidence from the same verified observation.
@@ -91,6 +128,7 @@ impl BuildHandle {
                 physical: None,
                 modified_at: None,
                 native_modified_at: None,
+                enumerated_inode: None,
                 observed_at: None,
             },
         )
@@ -149,6 +187,7 @@ impl BuildHandle {
                 physical: None,
                 modified_at: None,
                 native_modified_at: None,
+                enumerated_inode: None,
                 observed_at: None,
             },
         )
@@ -169,6 +208,7 @@ impl BuildHandle {
                 physical: None,
                 modified_at: None,
                 native_modified_at: None,
+                enumerated_inode: None,
                 observed_at: None,
             },
         )
@@ -189,6 +229,7 @@ impl BuildHandle {
                 physical: None,
                 modified_at: None,
                 native_modified_at: None,
+                enumerated_inode: None,
                 observed_at: None,
             },
         )
@@ -210,6 +251,7 @@ impl BuildHandle {
                 physical: Some(Box::new(space)),
                 modified_at: None,
                 native_modified_at: None,
+                enumerated_inode: None,
                 observed_at: None,
             },
         )
@@ -230,6 +272,7 @@ impl BuildHandle {
                 physical: None,
                 modified_at: None,
                 native_modified_at: None,
+                enumerated_inode: None,
                 observed_at: None,
             },
         )

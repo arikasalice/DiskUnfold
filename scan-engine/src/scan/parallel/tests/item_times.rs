@@ -25,6 +25,8 @@ impl DirectoryObservations for TimedRoot {
             2 => b"keep",
             3 => b"bad",
             4 => b"mismatch",
+            5 => b"foreign",
+            6 => b"missing",
             _ => return Ok(TimedFilteredBatch::End),
         };
         if include(name) == FilterDecision::Exclude {
@@ -38,6 +40,12 @@ impl DirectoryObservations for TimedRoot {
         };
         let mut entry = root.next_batch()?.remove(0);
         if let Ok(meta) = &mut entry.metadata {
+            if name != b"missing" {
+                meta.space_identity = Some(du_core_contracts::scan_observation::SpaceIdentity {
+                    volume: if name == b"foreign" { vec![2] } else { vec![1] },
+                    file: vec![7],
+                });
+            }
             meta.native_modified_at = std::num::NonZeroU64::new(123_456_789)
                 .map(du_core_contracts::scan_observation::NativeModifiedTime::WindowsFiletime);
         }
@@ -169,6 +177,16 @@ fn injected_clock_is_recorded_at_fake_observation_not_publication()
     );
     assert_eq!(version.item_observed_at(bad.item_no), None);
     assert_eq!(version.item_native_modified_at(bad.item_no), None);
+    let reference = |item: &du_core_contracts::result::ResultItem| ItemRef {
+        result_version: version.version_id().clone(),
+        item_no: item.item_no,
+    };
+    assert_eq!(
+        version.item_enumerated_inode(&reference(keep)),
+        Ok(std::num::NonZeroU64::new(7))
+    );
+    assert_eq!(version.item_enumerated_inode(&reference(bad)), Ok(None));
+    assert_missing_enumeration(&version)?;
     assert_ne!(
         version.item_observed_at(keep.item_no),
         version.observed_at()
@@ -180,6 +198,10 @@ fn injected_clock_is_recorded_at_fake_observation_not_publication()
         .ok_or("missing mismatch")?;
     assert_eq!(version.item_observed_at(mismatch.item_no), None);
     assert_eq!(version.item_native_modified_at(mismatch.item_no), None);
+    assert_eq!(
+        version.item_enumerated_inode(&reference(mismatch)),
+        Ok(None)
+    );
     assert!(!version.items().iter().any(|item| item.name == b"skip"));
     let uncertain = version
         .scan_issues()
@@ -197,8 +219,56 @@ fn injected_clock_is_recorded_at_fake_observation_not_publication()
         .find(|issue| issue.relative == vec![b"bad".to_vec()])
         .ok_or("missing failed issue")?;
     assert_eq!(failure.observed_at, None);
-    assert_eq!(probes.load(Ordering::SeqCst), 3);
+    assert_eq!(probes.load(Ordering::SeqCst), 5);
+    assert_version_replacement(&store, &ids, &version, &reference(keep))?;
     assert!(!version.items().iter().any(|item| item.name == b"skip"));
+    Ok(())
+}
+
+fn assert_version_replacement(
+    store: &IngestSink,
+    ids: &Ids,
+    version: &du_analysis_index::ResultVersion,
+    item: &ItemRef,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let wrong = ItemRef {
+        result_version: Id::from_v7_bytes([9; 16]),
+        item_no: item.item_no,
+    };
+    assert!(version.item_enumerated_inode(&wrong).is_err());
+    let mut replacement = store.open(ids.next_id()).map_err(|e| format!("{e:?}"))?;
+    replacement
+        .add_directory(vec![])
+        .map_err(|e| format!("{e:?}"))?;
+    let replacement = replacement
+        .seal(
+            ids.next_id(),
+            du_core_contracts::result::ResultCompleteness::Complete,
+        )
+        .map_err(|e| format!("{e:?}"))?;
+    assert!(replacement.item_enumerated_inode(item).is_err());
+    assert_eq!(
+        version.item_enumerated_inode(item),
+        Ok(std::num::NonZeroU64::new(7))
+    );
+    Ok(())
+}
+
+fn assert_missing_enumeration(
+    version: &du_analysis_index::ResultVersion,
+) -> Result<(), Box<dyn std::error::Error>> {
+    for name in [b"foreign".as_slice(), b"missing".as_slice()] {
+        let item = version
+            .items()
+            .iter()
+            .find(|item| item.name == name)
+            .ok_or("missing fixture")?;
+        let reference = ItemRef {
+            result_version: version.version_id().clone(),
+            item_no: item.item_no,
+        };
+        assert_eq!(version.item_enumerated_inode(&reference), Ok(None));
+    }
     Ok(())
 }
 

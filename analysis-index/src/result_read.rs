@@ -27,6 +27,20 @@ pub struct ItemDetail<'a> {
 }
 
 impl ResultVersion {
+    /// Returns retained enumeration identity for an item in this exact snapshot.
+    /// Absence means the collector could not establish the required evidence.
+    pub fn item_enumerated_inode(
+        &self,
+        item: &ItemRef,
+    ) -> Result<Option<std::num::NonZeroU64>, QueryError> {
+        let item_no = self.detail(item)?.item.item_no;
+        Ok(self
+            .enumerated_inodes
+            .as_ref()
+            .and_then(|values| values.get(item_no as usize))
+            .copied()
+            .flatten())
+    }
     /// Calculates the F03 set total for file references in this pinned version.
     ///
     /// The caller must establish whether membership is complete. Incomplete

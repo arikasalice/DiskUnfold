@@ -336,6 +336,11 @@ fn record_at(
             )?;
         }
     }
+    if meta.kind == ObservedKind::File
+        && let Some(inode) = std::num::NonZeroU64::new(entry.enumerated_inode)
+    {
+        build.retain_enumerated_inode(root_index, path, inode)?;
+    }
     if matches!(meta.kind, ObservedKind::File | ObservedKind::Directory)
         && let Some(time) = &meta.modified_at
     {
