@@ -57,8 +57,16 @@ import type {
   TargetListRequest,
   VolumeGapRequest,
   VolumeGapResponse,
+  VizCancelRequest,
+  VizCancelResponse,
+  VizGroupRowsRequest,
+  VizGroupRows,
   VizLocate,
   VizLocateRequest,
+  VizRenderRequest,
+  VizRenderResponse,
+  VizViewChannel,
+  VizViewOpenRequest,
   VizRows,
   VizRowsRequest,
 } from "./generated/contracts";
@@ -128,6 +136,8 @@ export type {
   VolumeGapResponse,
   VizCancelRequest,
   VizCancelResponse,
+  VizGroupRowsRequest,
+  VizGroupRows,
   VizCancelTarget,
   VizControlResult,
   VizGeometry,
@@ -142,6 +152,7 @@ export type {
   VizRow,
   VizRows,
   VizRowsRequest,
+  VizSizeRange,
   VizShape,
   VizViewChannel,
   VizViewOpenRequest,
@@ -174,6 +185,11 @@ type Commands = {
   "query.region.close": [QueryRegionCloseRequest, QueryRegionClosed];
   "query.cancel": [QueryCancelRequest, QueryCancelled];
   "query.page": [QueryPageRequest, QueryPageResponse];
+  "viz.view.open": [VizViewOpenRequest, VizViewChannel];
+  "viz.view.close": [VizViewChannel, VizViewOpenRequest];
+  "viz.render": [VizRenderRequest, VizRenderResponse];
+  "viz.cancel": [VizCancelRequest, VizCancelResponse];
+  "viz.group_rows": [VizGroupRowsRequest, VizGroupRows];
   "viz.rows": [VizRowsRequest, VizRows];
   "viz.locate": [VizLocateRequest, VizLocate];
 };
