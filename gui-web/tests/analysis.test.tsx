@@ -825,6 +825,11 @@ test("F01 FR4.HD1.gui-web.DD1: denied current edits retain but cannot start a pr
     await screen.findByText(/Access to a selected folder was denied/),
   ).toBeDefined();
   expect(screen.getByLabelText("Previously reviewed scope")).toBeDefined();
+  expect(
+    screen.getByText(
+      "Previously reviewed scope. Review the current paths before starting.",
+    ),
+  ).toBeDefined();
 
   fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
   await waitFor(() => expect(reviewCount).toBe(3));
@@ -848,6 +853,11 @@ test("F01 FR4.HD1.gui-web.DD1: denied current edits retain but cannot start a pr
     await screen.findByText(/Access to a selected folder was denied/),
   ).toBeDefined();
   expect(screen.getByLabelText("Previously reviewed scope")).toBeDefined();
+  expect(
+    screen.getByText(
+      "Previously reviewed scope. Review the current paths before starting.",
+    ),
+  ).toBeDefined();
   expect(
     screen.getByRole<HTMLButtonElement>("button", { name: "Start scan" })
       .disabled,

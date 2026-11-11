@@ -61,8 +61,7 @@ function ReviewNotices({
   if (!current)
     return (
       <Notice tone="info" id={problemId}>
-        The current paths changed. Review them before starting. The last
-        successful scope is shown below.
+        The current paths changed.
       </Notice>
     );
   if (ready)
@@ -116,6 +115,11 @@ export function ScopeReviewFeedback({
         problem={problem}
         problemId={problemId}
       />
+      {review && !latestAccepted && (
+        <Text kind="muted">
+          Previously reviewed scope. Review the current paths before starting.
+        </Text>
+      )}
       {review && (
         <Readout
           label={
