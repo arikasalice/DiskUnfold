@@ -59,6 +59,8 @@ function Coverage({ total }: { total: SpaceTotal }) {
 export function ScanOutput({
   client,
   preferences,
+  displayChoice,
+  onDisplayChoice,
   scan,
   started,
   running,
@@ -69,6 +71,8 @@ export function ScanOutput({
 }: {
   client: AnalysisClient;
   preferences: AnalysisDisplayPreferences;
+  displayChoice: SizeDisplay | undefined;
+  onDisplayChoice: (choice: SizeDisplay) => void;
   scan: ReturnType<typeof useScanResult>;
   started: boolean;
   running: boolean;
@@ -118,6 +122,8 @@ export function ScanOutput({
             total={scan.total}
             roots={roots}
             preferences={preferences}
+            displayChoice={displayChoice}
+            onDisplayChoice={onDisplayChoice}
           />
         ) : running ? (
           <Text kind="muted">
@@ -326,13 +332,16 @@ function PinnedResult({
   total,
   roots,
   preferences,
+  displayChoice,
+  onDisplayChoice,
 }: {
   client: AnalysisClient;
   total: SpaceTotal;
   roots: readonly OsPath[];
   preferences: AnalysisDisplayPreferences;
+  displayChoice: SizeDisplay | undefined;
+  onDisplayChoice: (choice: SizeDisplay) => void;
 }) {
-  const [displayChoice, setDisplay] = useState<SizeDisplay>();
   const [basisChoice, setBasis] = useState<SizeBasisFilter>();
   const display = displayChoice ?? preferences.display;
   const basis = basisChoice ?? preferences.basis;
@@ -398,7 +407,7 @@ function PinnedResult({
           basis={basis}
           display={display}
           onBasis={setBasis}
-          onDisplay={setDisplay}
+          onDisplay={onDisplayChoice}
         />
       </DetailDisclosure>
       <VolumeExplanation

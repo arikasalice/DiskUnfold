@@ -1,3 +1,4 @@
+import type { SizeDisplay } from "../../i18n/bytes";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { KeyboardEvent, ReactNode } from "react";
 import {
@@ -110,10 +111,12 @@ export function BrowsePanel({
   port,
   resultVersion,
   inspectItem,
+  display = { system: "iec", unit: "auto" },
 }: {
   port: BrowsePort;
   resultVersion?: string;
   inspectItem?: InspectItem;
+  display?: SizeDisplay;
 }) {
   const [view, setView] = useState<View>();
   const [busy, setBusy] = useState(false);
@@ -312,6 +315,7 @@ export function BrowsePanel({
           <BrowseResults
             key={view.opened.requestSeq}
             pages={view.pages}
+            display={display}
             initialCursor={page.nextCursor}
             readPage={(request) => port.page(request)}
             busy={busy || previousResult}

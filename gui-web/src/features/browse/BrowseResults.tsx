@@ -17,6 +17,7 @@ import type {
 import type { BrowsePages } from "../../state/browse-pages";
 import { browseDisplayName, rowKey } from "./browse-display";
 import { formatByteUnit } from "../../i18n/bytes";
+import type { SizeDisplay } from "../../i18n/bytes";
 import { SIZE_UNIT_RULES } from "../../ipc";
 import { useBrowsePaging } from "./use-browse-paging";
 import { useBrowseCopy } from "./use-browse-copy";
@@ -30,16 +31,19 @@ const columns = [
   "Availability",
 ];
 
-function size(value: FolderQueryRow["logicalSize"]): string {
+function size(
+  value: FolderQueryRow["logicalSize"],
+  display: SizeDisplay,
+): string {
   if (value.state === "absent") return "Not recorded";
   if (value.state !== "present" || value.value.state === "unknown")
     return "Unavailable";
   const lowerBound = value.value.state === "lower_bound";
   const readable = formatByteUnit(
     BigInt(value.value.bytes),
-    SIZE_UNIT_RULES.iec,
+    SIZE_UNIT_RULES[display.system],
     SIZE_UNIT_RULES.decimalPlaces,
-    "auto",
+    display.unit,
     lowerBound,
   );
   return `${lowerBound ? "At least " : ""}${readable}`;
@@ -58,6 +62,7 @@ function availability(row: FolderQueryRow): string {
 
 export function BrowseResults({
   pages,
+  display,
   initialCursor,
   readPage,
   busy,
@@ -72,6 +77,7 @@ export function BrowseResults({
   reopen,
 }: {
   pages: BrowsePages;
+  display: SizeDisplay;
   initialCursor: string | null;
   readPage: (request: QueryPageRequest) => Promise<QueryPageResponse>;
   busy: boolean;
@@ -254,8 +260,8 @@ export function BrowseResults({
               ? "Unavailable"
               : row.kind}
           </Text>,
-          <Text>{size(row.logicalSize)}</Text>,
-          <Text>{size(row.allocatedSize)}</Text>,
+          <Text>{size(row.logicalSize, display)}</Text>,
+          <Text>{size(row.allocatedSize, display)}</Text>,
           <Text>
             {row.modifiedAt.state === "present"
               ? row.modifiedAt.value

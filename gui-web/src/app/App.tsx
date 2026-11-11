@@ -1,3 +1,4 @@
+import type { SizeDisplay } from "../i18n/bytes";
 import diskUnfoldIcon from "./assets/diskunfold-icon.svg";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Action, BrandMark, Heading, LiveStatus, Text } from "../components";
@@ -18,7 +19,12 @@ export function App({ analysis }: { analysis?: AnalysisClient } = {}) {
   const preferences = useDisplayPreferences(client);
   const [connectionChecks, setConnectionChecks] = useState(0);
   const [history, setHistory] = useState(false);
-  const [browseVersion, setBrowseVersion] = useState<string>();
+  const [browseSelection, setBrowseSelection] = useState<{
+    version: string;
+    choice: SizeDisplay | undefined;
+  }>();
+  const { version: browseVersion, choice: browseChoice } =
+    browseState(browseSelection);
   const browseTrigger = useRef<HTMLButtonElement>(null);
   const restoreBrowseFocus = useRef(false);
   const browsePort = useMemo(
@@ -41,6 +47,7 @@ export function App({ analysis }: { analysis?: AnalysisClient } = {}) {
     }
   }, [browseVersion]);
   const analysisOpen = client && !history && browseVersion === undefined;
+  const browseDisplay = effectiveDisplay(browseChoice, preferences.display);
   return (
     <main
       className="du-app"
@@ -57,7 +64,7 @@ export function App({ analysis }: { analysis?: AnalysisClient } = {}) {
             visible={Boolean(browseVersion)}
             onPress={() => {
               restoreBrowseFocus.current = true;
-              setBrowseVersion(undefined);
+              setBrowseSelection(undefined);
             }}
           />
           {client && (
@@ -105,7 +112,9 @@ export function App({ analysis }: { analysis?: AnalysisClient } = {}) {
           <AnalysisPanel
             client={client}
             preferences={preferences}
-            onBrowse={setBrowseVersion}
+            onBrowse={(version, choice) => {
+              setBrowseSelection({ version, choice });
+            }}
             browseTrigger={browseTrigger}
           />
         </div>
@@ -115,13 +124,14 @@ export function App({ analysis }: { analysis?: AnalysisClient } = {}) {
           <BrowsePanel
             port={browsePort}
             resultVersion={browseVersion}
+            display={browseDisplay}
             inspectItem={(item, kind) => (
               <FileInspection
                 key={`${item.resultVersion}:${item.itemNo}`}
                 client={client}
                 item={item}
                 itemKind={kind}
-                display={preferences.display}
+                display={browseDisplay}
               />
             )}
           />
@@ -153,4 +163,17 @@ function BrowseReturn({
       Back to analysis
     </Action>
   );
+}
+
+function effectiveDisplay(
+  choice: SizeDisplay | undefined,
+  fallback: SizeDisplay,
+): SizeDisplay {
+  return choice ?? fallback;
+}
+
+function browseState(
+  selection: { version: string; choice: SizeDisplay | undefined } | undefined,
+) {
+  return selection ?? { version: undefined, choice: undefined };
 }

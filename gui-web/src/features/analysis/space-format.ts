@@ -2,10 +2,8 @@ import type { SizeValue, SpaceTotal } from "../../ipc";
 import { SIZE_UNIT_RULES } from "../../ipc";
 import { formatByteUnit } from "../../i18n/bytes";
 
-export type SizeDisplay = {
-  system: "iec" | "si";
-  unit: number | "auto";
-};
+import type { SizeDisplay } from "../../i18n/bytes";
+export type { SizeDisplay } from "../../i18n/bytes";
 
 export const windowsSizeDisplay: SizeDisplay = { system: "iec", unit: "auto" };
 

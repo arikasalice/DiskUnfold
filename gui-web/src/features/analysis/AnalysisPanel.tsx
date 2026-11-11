@@ -25,6 +25,7 @@ import {
 } from "./AnalysisActions";
 import { ScanOutput } from "./AnalysisViews";
 import { TargetPicker } from "./TargetPicker";
+import type { SizeDisplay } from "../../i18n/bytes";
 import type { AnalysisDisplayPreferences } from "./use-display-preferences";
 
 function errorText(error: unknown): string {
@@ -77,7 +78,7 @@ export function AnalysisPanel({
 }: {
   client: AnalysisClient;
   preferences: AnalysisDisplayPreferences;
-  onBrowse?: (version: string) => void;
+  onBrowse?: (version: string, choice: SizeDisplay | undefined) => void;
   browseTrigger?: Ref<HTMLButtonElement>;
 }) {
   const targets = useTargets(client);
@@ -91,6 +92,7 @@ export function AnalysisPanel({
   const focusEditor = useRef(false);
   const focusOpener = useRef(false);
   const focusResult = useRef(false);
+  const [displayChoice, setDisplayChoice] = useState<SizeDisplay>();
   const [editorOpen, setEditorOpen] = useState(false);
   const [selected, setSelected] = useState<(OsPath | undefined)[]>([undefined]);
   const [review, setReview] = useState<ScopeReview>();
@@ -280,6 +282,7 @@ export function AnalysisPanel({
         draft: reviewedDraft,
         reviewFingerprint: review.reviewFingerprint,
       });
+      if (result.jobRef !== receipt?.jobRef) setDisplayChoice(undefined);
       setResultRoots(review.scope.includes);
       focusResult.current = true;
       setEditorOpen(false);
@@ -400,6 +403,8 @@ export function AnalysisPanel({
             <ScanOutput
               client={client}
               preferences={preferences}
+              displayChoice={displayChoice}
+              onDisplayChoice={setDisplayChoice}
               scan={scan}
               started={receipt !== null}
               running={running}
@@ -409,7 +414,7 @@ export function AnalysisPanel({
               actions={
                 <ResultActions
                   version={scan.total?.resultVersion}
-                  onBrowse={onBrowse}
+                  onBrowse={bindBrowse(onBrowse, displayChoice)}
                   trigger={browseTrigger}
                   running={running}
                   state={scan.status?.state}
@@ -487,4 +492,12 @@ function isEditorBusy(
 
 function shouldFocusReview(pending: boolean, working: boolean) {
   return pending && !working;
+}
+
+function bindBrowse(
+  open:
+    ((version: string, choice: SizeDisplay | undefined) => void) | undefined,
+  choice: SizeDisplay | undefined,
+): ((version: string) => void) | undefined {
+  return open ? (version) => open(version, choice) : undefined;
 }

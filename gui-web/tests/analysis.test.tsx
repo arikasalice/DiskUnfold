@@ -3285,3 +3285,170 @@ test.each(["success", "failure"])(
     await waitFor(() => expect(refreshes).toBe(2));
   },
 );
+
+test("F03 F05: temporary units follow the pinned result into browse and inspection", async () => {
+  let scans = 0;
+  const base = fixture({
+    startJob: () => (++scans === 1 ? "scan" : "other-scan"),
+    readPreferences: () => ({
+      settingsRevision: "1",
+      unitSystem: "si",
+      unit: "auto",
+      defaultBasis: "logical",
+      warningKey: null,
+    }),
+  });
+  const value = {
+    basis: "logical",
+    evidence: "measured",
+    state: "exact",
+    bytes: "1100",
+  } as const;
+  const client: AnalysisClient = {
+    ...base.client,
+    call: (async (name: string, body: unknown) => {
+      if (name === "scan.start") {
+        const response = await base.client.call("scan.start", body as never);
+        return { ...response, existing: true };
+      }
+      if (name === "browse.open") {
+        const original = await base.client.call(
+          "browse.open",
+          body as BrowseOpenRequest,
+        );
+        if (original.kind !== "opened")
+          throw new Error("Expected opened result");
+        return {
+          ...original,
+          page: {
+            ...original.page,
+            total: { state: "exact", count: 1 },
+            rows: [
+              {
+                item: { resultVersion: "result", itemNo: 1 },
+                displayName: { state: "present", value: "Sample file" },
+                kind: "file",
+                logicalSize: { state: "present", value },
+                allocatedSize: { state: "unknown", reasonKey: "unavailable" },
+                modifiedAt: { state: "absent" },
+                hasChildFolder: { state: "absent" },
+                flags: {
+                  unenumerated: { state: "absent" },
+                  excluded: { state: "absent" },
+                },
+                correspondence: { state: "absent" },
+              },
+            ],
+          },
+        };
+      }
+      if (name === "browse.detail") {
+        const detail = await base.client.call(
+          "browse.detail",
+          body as {
+            resultVersion: string;
+            item: { resultVersion: string; itemNo: number };
+          },
+        );
+        return {
+          ...detail,
+          item: { resultVersion: "result", itemNo: 1 },
+          displayName: { state: "present", value: "Sample file" },
+          kind: { state: "present", value: "file" },
+          logicalSize: { state: "present", value },
+        };
+      }
+      return base.client.call(name as never, body as never);
+    }) as AnalysisClient["call"],
+  };
+  await startFixtureScan(client);
+  await screen.findByText("At least 42 bytes");
+  fireEvent.click(screen.getByRole("button", { name: "Browse folders" }));
+  const defaultFile = await screen.findByRole("button", {
+    name: "Sample file",
+  });
+  expect(defaultFile.closest('[role="row"]')?.textContent).toContain("1.1 kB");
+  fireEvent.click(screen.getByRole("button", { name: "Back to analysis" }));
+  fireEvent.click(screen.getByRole("button", { name: "Display options" }));
+  const totalsBefore = base.calls.filter(
+    ({ name }) => name === "space.total",
+  ).length;
+  fireEvent.change(screen.getByRole("combobox", { name: "Unit system" }), {
+    target: { value: "iec" },
+  });
+  expect(base.calls.filter(({ name }) => name === "space.total")).toHaveLength(
+    totalsBefore,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Browse folders" }));
+  const file = await screen.findByRole("button", { name: "Sample file" });
+  const row = file.closest('[role="row"]');
+  expect(row?.textContent).toContain("1.1 KiB");
+  fireEvent.click(file);
+  const dialog = await screen.findByRole("dialog", {
+    name: /File details — Sample file/,
+  });
+  expect(
+    await within(dialog).findByText(/1\.1 KiB.*1,100 bytes/),
+  ).toBeDefined();
+  fireEvent.click(
+    within(dialog).getByRole("button", { name: "Close details" }),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Back to analysis" }));
+  expect(
+    screen.getByRole<HTMLSelectElement>("combobox", { name: "Unit system" })
+      .value,
+  ).toBe("iec");
+  expect(base.calls.filter(({ name }) => name === "space.total")).toHaveLength(
+    totalsBefore,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Analyze again" }));
+  fireEvent.click(screen.getByRole("button", { name: "Start scan" }));
+  await waitFor(() =>
+    expect(
+      screen.queryByRole("button", { name: "Close target editor" }),
+    ).toBeNull(),
+  );
+  const options = await screen.findByRole("button", {
+    name: "Display options",
+  });
+  if (!screen.queryByRole("combobox", { name: "Unit system" }))
+    fireEvent.click(options);
+  expect(
+    screen.getByRole<HTMLSelectElement>("combobox", { name: "Unit system" })
+      .value,
+  ).toBe("si");
+});
+
+test("F03: reusing the same existing scan keeps its temporary unit choice", async () => {
+  const base = fixture();
+  const client: AnalysisClient = {
+    ...base.client,
+    call: (async (name: string, body: unknown) => {
+      if (name === "scan.start") {
+        const response = await base.client.call("scan.start", body as never);
+        return { ...response, existing: true };
+      }
+      return base.client.call(name as never, body as never);
+    }) as AnalysisClient["call"],
+  };
+  await startFixtureScan(client);
+  await screen.findByText("At least 42 bytes");
+  fireEvent.click(screen.getByRole("button", { name: "Display options" }));
+  fireEvent.change(screen.getByRole("combobox", { name: "Unit system" }), {
+    target: { value: "si" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Analyze again" }));
+  fireEvent.click(screen.getByRole("button", { name: "Start scan" }));
+  await waitFor(() =>
+    expect(
+      screen.queryByRole("button", { name: "Close target editor" }),
+    ).toBeNull(),
+  );
+  expect(
+    screen.getByRole<HTMLSelectElement>("combobox", { name: "Unit system" })
+      .value,
+  ).toBe("si");
+  expect(base.calls.filter(({ name }) => name === "scan.start")).toHaveLength(
+    2,
+  );
+});

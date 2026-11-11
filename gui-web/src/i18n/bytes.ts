@@ -1,3 +1,6 @@
+/** Unit selection used only to format the retained byte values. */
+export type SizeDisplay = { system: "iec" | "si"; unit: number | "auto" };
+
 type UnitTable = { base: number; symbols: readonly string[] };
 
 /** Converts unsigned byte counts using exact arithmetic until display. */
