@@ -13,6 +13,7 @@ import {
 import type { SurfaceId } from "./surface-fixtures";
 import type { VizGeometry } from "../src/ipc";
 import { fixtures } from "./surface-fixtures";
+import { recordActions } from "./record-actions";
 
 export type SelectedRecord = { name: string; value: string; detail: string };
 
@@ -37,21 +38,7 @@ export function FixtureRecords({
           <ItemActions
             key={name}
             label={`${name} 동작`}
-            actions={[
-              { id: "details", label: "자세히 보기", onAction: open },
-              {
-                id: "location",
-                label: "파일 위치 열기",
-                disabledReason: "실제 대상 연결 전",
-                onAction: () => {},
-              },
-              {
-                id: "plan",
-                label: "정리 계획에서 검토",
-                disabledReason: "실제 대상 검증과 계획 연결 전",
-                onAction: () => {},
-              },
-            ]}
+            actions={recordActions(surface, name, open)}
           >
             <div>
               <Action variant="quiet" onPress={open}>
