@@ -185,6 +185,31 @@ public static extern bool CloseClipboard();
   $null = Wait-Enabled 'Close details' $true
   'F05 native path copy: clipboard contention reported and file detail stayed open'
 }
+# Exercise the row menu without changing or inspecting clipboard contents.
+function Test-BrowseCopyContention($name) {
+  Expand-UI (Wait-VisibleAction "Actions for $name")
+  $copy = Wait-UI 'row copy menu item' {
+    Find-UI 'Copy path' ([Windows.Automation.ControlType]::MenuItem)
+  }
+  if (-not [DiskUnfoldSmoke.ClipboardLock]::OpenClipboard([IntPtr]::Zero)) {
+    throw 'Could not acquire the clipboard for the row menu test'
+  }
+  try {
+    Invoke-UI $copy
+    $notice = Wait-UI 'visible row copy refusal' {
+      $message = Find-UI "${name}: Could not copy to the clipboard." $null
+      if ($message -and -not $message.Current.IsOffscreen) { $message }
+    } 4
+    if ($notice.Current.BoundingRectangle.IsEmpty) { throw 'Row copy feedback has no visible bounds' }
+  } finally {
+    if (-not [DiskUnfoldSmoke.ClipboardLock]::CloseClipboard()) {
+      throw 'Could not release the row menu clipboard lock'
+    }
+  }
+  $null = Wait-UI 'closed row menu' { -not (Find-UI 'Copy path' ([Windows.Automation.ControlType]::MenuItem)) }
+  $null = Wait-VisibleAction $name
+  "F05 native row copy: $name menu reported clipboard contention in visible feedback"
+}
 # Scan an isolated file whose IEC representation differs from its original byte count.
 function Test-ScaledFileInspection {
   $scaledScope = Join-Path $root 'scaled-scope'
@@ -622,6 +647,7 @@ try {
   $null = Wait-UI 'root.bin' { Find-UI 'root.bin' $null }
   $null = Wait-UI '11-byte root row' { Find-UI '11 bytes' $null }
   Test-FileInspection 'root.bin' '11 bytes' $VerifyPathCopyContention
+  if ($VerifyPathCopyContention) { Test-BrowseCopyContention 'root.bin' }
   $nested = Wait-UI 'nested folder button' { Find-UI 'nested' $button }
   Invoke-UI $nested
   $null = Wait-UI 'nested.bin' { Find-UI 'nested.bin' $null }
