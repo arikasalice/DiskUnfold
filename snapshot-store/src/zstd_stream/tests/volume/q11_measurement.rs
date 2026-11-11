@@ -260,3 +260,14 @@ fn q11_fixture_measurements() -> Result<(), String> {
     );
     Ok(())
 }
+
+#[test]
+#[ignore = "large synthetic measurement; run explicitly"]
+fn q11_million_measurement() -> Result<(), String> {
+    measure(
+        "unique_siblings_million",
+        1_000_000,
+        FixtureNames::UniqueSiblings,
+        NameEncoding::Bytes,
+    )
+}

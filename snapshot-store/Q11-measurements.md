@@ -22,6 +22,7 @@ before UTF-16 conversion. Counts include two root items. Results in bytes:
 | repeated 1,023-byte UTF-8 names | 102 | 600 | 105,837 | 398 | 1,070 |
 | seeded ASCII names encoded UTF-16LE | 10,002 | 615 | 1,620,139 | 712,102 | 712,789 |
 | unique siblings with shared prefix | 10,002 | 600 | 560,137 | 26,671 | 27,343 |
+| unique siblings with shared prefix, million | 1,000,002 | 600 | 56,000,137 | 2,843,339 | 2,844,011 |
 
 The repeated-name cases include duplicate sibling names and are compression
 stress vectors, not legal directory listings. The unique-siblings case uses
@@ -51,6 +52,20 @@ both passes without changing. F07 HLD 116 refers GUI response to F02 NFR4–6
 and specifies returning the job reference promptly, so where preflight runs
 relative to admission and job submission is a design decision, not settled
 by this measurement. Published F07 DLD body remains unavailable to this run.
+
+A later single Windows debug observation of the million-name vector measured
+292,315 microseconds for count-only and 302,407 microseconds for Vec output
+without explicit flush (316,312 and 325,179 microseconds with periodic flush).
+This starts with already serialized in-memory records and is neither a full
+admission timing nor a percentile. The fixture is not a pinned scan result.
+Run this large fixture explicitly with `cargo test --locked -p du-snapshot-store
+q11_million_measurement -- --ignored --nocapture`.
+
+The bundled upstream zstd 1.5.7 `zstd.h` documents `ZSTD_compressBound` for
+one-pass compression, not a general bound for the selected streaming and
+explicit-flush schedule. A one-pass alternative requires its own validation
+of memory, frame format, checksum settings, inputs and maximum size; it is not
+the present streaming pipeline and is not selected as an implementation here.
 
 The output sink here is memory, not an actual file. We have not measured
 available filesystem bytes or allocation costs, performed a pre-write free
