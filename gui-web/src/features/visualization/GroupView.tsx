@@ -210,6 +210,8 @@ function isOriginForOpenGroup(
     !frame ||
     origin.modelRef !== frame.modelRef ||
     origin.resultRevision !== frame.resultRevision ||
+    origin.observedAt !== frame.observedAt ||
+    origin.completeness !== frame.completeness ||
     origin.groupRef !== groupRef
   )
     return false;

@@ -5,12 +5,15 @@ import type {
   VisualizationSnapshot,
 } from "./controller";
 import type { GroupController } from "./group-controller";
+import { matchingRowsPage } from "./model-adapter";
 import type { ModelResponse, VizSelection } from "./model-adapter";
 
 export type GroupOrigin = {
   element: HTMLElement;
   modelRef: string;
   resultRevision: string;
+  observedAt: ModelResponse["observedAt"];
+  completeness: ModelResponse["completeness"];
   groupRef: string;
   groupLabel?: string;
   returnTarget?: HTMLElement | null;
@@ -25,33 +28,42 @@ export function isCurrentTable(
     graph &&
     table &&
     table.model.modelRef === graph.frame.model.modelRef &&
-    table.resultRevision === graph.frame.resultRevision,
+    table.resultRevision === graph.frame.resultRevision &&
+    table.observedAt === graph.frame.observedAt &&
+    table.completeness === graph.frame.completeness,
   );
 }
 
 export function getTableOnlyFrame(
-  graph: VisualizationSnapshot["graph"],
+  _graph: VisualizationSnapshot["graph"],
   table: VisualizationSnapshot["table"],
   state: VisualizationSnapshot,
 ): ModelResponse | null {
   const page = state.tablePage;
-  if (
-    graph ||
-    !table ||
-    !page ||
-    page.request.modelRef !== table.model.modelRef ||
-    page.request.resultRevision !== table.resultRevision
-  )
-    return null;
+  if (!table || !page || !matchingRowsPage(table, page)) return null;
   return table;
 }
 
-export function getGroupRowFrame(
-  currentTable: boolean,
+export function getGroupRowFrame(tableFrame: ModelResponse | null) {
+  return tableFrame;
+}
+
+export function getGroupViewFrame(
+  origin: GroupOrigin | null,
   graph: VisualizationSnapshot["graph"],
-  tableOnlyFrame: ModelResponse | null,
+  tableFrame: ModelResponse | null,
 ) {
-  return currentTable ? (graph?.frame ?? null) : tableOnlyFrame;
+  const candidates = [graph?.frame ?? null, tableFrame];
+  if (!origin) return candidates[0] ?? candidates[1] ?? null;
+  return (
+    candidates.find(
+      (frame) =>
+        frame?.model.modelRef === origin.modelRef &&
+        frame.resultRevision === origin.resultRevision &&
+        frame.observedAt === origin.observedAt &&
+        frame.completeness === origin.completeness,
+    ) ?? null
+  );
 }
 
 export function getGroupReturnTargetRef(
@@ -65,13 +77,17 @@ export function getGroupReturnTargetRef(
   if (
     origin?.kind === "row" &&
     graph?.frame.model.modelRef === origin.modelRef &&
-    graph.frame.resultRevision === origin.resultRevision
+    graph.frame.resultRevision === origin.resultRevision &&
+    graph.frame.observedAt === origin.observedAt &&
+    graph.frame.completeness === origin.completeness
   )
     return graphRowsTargetRef;
   if (
     origin?.kind === "row" &&
     table?.model.modelRef === origin.modelRef &&
-    table.resultRevision === origin.resultRevision
+    table.resultRevision === origin.resultRevision &&
+    table.observedAt === origin.observedAt &&
+    table.completeness === origin.completeness
   )
     return tableTargetRef;
   return graph ? visualizationTargetRef : tableTargetRef;
@@ -95,6 +111,8 @@ export function createGroupRowOpener(
       kind: "row",
       modelRef: frame.model.modelRef,
       resultRevision: frame.resultRevision,
+      observedAt: frame.observedAt,
+      completeness: frame.completeness,
       groupRef,
       ...(groupLabel.trim() ? { groupLabel } : {}),
       returnTarget,
@@ -161,6 +179,8 @@ export function rememberFocusedGroupShape(
     shapeRef,
     modelRef: frame.model.modelRef,
     resultRevision: frame.resultRevision,
+    observedAt: frame.observedAt,
+    completeness: frame.completeness,
     groupRef: selection.groupRef,
     ...(groupLabel?.trim() ? { groupLabel } : {}),
     ...(returnTarget === undefined ? {} : { returnTarget }),

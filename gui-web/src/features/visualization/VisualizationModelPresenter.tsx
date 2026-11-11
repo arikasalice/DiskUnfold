@@ -244,6 +244,9 @@ export function ModelRows({
   const rowsRegion = useRef<HTMLElement>(null);
   const { request, response } = page;
   const next = request.start + response.rows.length;
+  const hasOpenableGroups =
+    onOpenGroup !== undefined &&
+    response.rows.some((row) => row.groupRef !== null && row.itemRef === null);
   useLayoutEffect(() => {
     if (returnTargetRef) returnTargetRef.current = rowsRegion.current;
   }, [
@@ -277,7 +280,7 @@ export function ModelRows({
           density="compact"
           columns={[
             "Name",
-            "Actions",
+            ...(hasOpenableGroups ? ["Actions"] : []),
             "Value",
             "Ratio",
             "Denominator",
@@ -290,26 +293,32 @@ export function ModelRows({
             let trigger: HTMLButtonElement | null = null;
             return [
               row.displayName,
-              row.groupRef !== null && row.itemRef === null && onOpenGroup ? (
-                <Action
-                  ref={(element) => {
-                    trigger = element;
-                  }}
-                  onPress={() => {
-                    if (trigger && row.groupRef !== null)
-                      onOpenGroup(
-                        row.groupRef,
-                        row.size,
-                        trigger,
-                        row.displayName.trim() || "Other items",
-                        returnTargetRef?.current ?? rowsRegion.current,
-                      );
-                  }}
-                  aria-label={`View members of ${row.displayName.trim() || "Other items"}`}
-                >
-                  View group members
-                </Action>
-              ) : null,
+              ...(hasOpenableGroups
+                ? [
+                    row.groupRef !== null &&
+                    row.itemRef === null &&
+                    onOpenGroup ? (
+                      <Action
+                        ref={(element) => {
+                          trigger = element;
+                        }}
+                        onPress={() => {
+                          if (trigger && row.groupRef !== null)
+                            onOpenGroup(
+                              row.groupRef,
+                              row.size,
+                              trigger,
+                              row.displayName.trim() || "Other items",
+                              returnTargetRef?.current ?? rowsRegion.current,
+                            );
+                        }}
+                        aria-label={`View members of ${row.displayName.trim() || "Other items"}`}
+                      >
+                        View group members
+                      </Action>
+                    ) : null,
+                  ]
+                : []),
               row.quantity ? text.quantity(row.quantity) : text.size(row.size),
               row.ratio ?? "Unavailable",
               `${text.quantity(row.denominator.value)} · ${text.key(row.denominator.basis)}`,

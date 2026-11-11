@@ -1,4 +1,10 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { fixtureText, modelFixture } from "../preview/model-fixture";
 import {
@@ -7,7 +13,10 @@ import {
 } from "../src/features/visualization/model-adapter";
 import type { ModelRowsPage } from "../src/features/visualization/model-adapter";
 import { shapeLabels } from "../src/features/visualization/model-text";
-import { VisualizationModelPresenter } from "../src/features/visualization/VisualizationModelPresenter";
+import {
+  ModelRows,
+  VisualizationModelPresenter,
+} from "../src/features/visualization/VisualizationModelPresenter";
 
 afterEach(cleanup);
 const view = {
@@ -232,6 +241,154 @@ test("a valid empty model shows its state without inventing zero-area shapes", (
   );
   expect(container.querySelector("svg.du-geometry")).toBeNull();
   expect(screen.getByText(/No drawable items/)).toBeDefined();
+});
+
+test("rows only expose Actions when this page has a group and an open handler", () => {
+  const input = modelFixture();
+  const groupRow = input.page.response.rows[0]!;
+  groupRow.itemRef = null;
+  groupRow.groupRef = "fixture-group";
+  const { rerender } = render(
+    <ModelRows
+      page={input.page}
+      model={input.frame.model}
+      text={fixtureText}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Rows from this graph" }));
+  let table = screen.getByRole("table", { name: "Loaded graph rows" });
+  expect(
+    within(table).queryByRole("columnheader", { name: "Actions" }),
+  ).toBeNull();
+  let bodyRows = within(table).getAllByRole("row").slice(1);
+  expect(bodyRows).toHaveLength(4);
+  expect(bodyRows.every((row) => row.children.length === 6)).toBe(true);
+
+  rerender(
+    <ModelRows
+      page={input.page}
+      model={input.frame.model}
+      text={fixtureText}
+      onOpenGroup={vi.fn()}
+    />,
+  );
+  table = screen.getByRole("table", { name: "Loaded graph rows" });
+  expect(
+    within(table).getByRole("columnheader", { name: "Actions" }),
+  ).toBeDefined();
+  bodyRows = within(table).getAllByRole("row").slice(1);
+  expect(bodyRows).toHaveLength(4);
+  expect(bodyRows.every((row) => row.children.length === 7)).toBe(true);
+  expect(
+    within(bodyRows[0]!).getByRole("button", {
+      name: "View members of 영상",
+    }),
+  ).toBeDefined();
+  expect(within(bodyRows[1]!).queryByRole("button")).toBeNull();
+});
+
+test("rows omit Actions when the displayed page has no valid group row", () => {
+  const input = modelFixture();
+  // A group reference alone is not actionable when the row also identifies an item.
+  input.page.response.rows[0]!.groupRef = "not-an-openable-group";
+  render(
+    <ModelRows
+      page={input.page}
+      model={input.frame.model}
+      text={fixtureText}
+      onOpenGroup={vi.fn()}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Rows from this graph" }));
+  const table = screen.getByRole("table", { name: "Loaded graph rows" });
+  expect(
+    within(table).queryByRole("columnheader", { name: "Actions" }),
+  ).toBeNull();
+  expect(
+    within(table)
+      .getAllByRole("row")
+      .slice(1)
+      .every((row) => row.children.length === 6),
+  ).toBe(true);
+});
+
+test("Actions follows normal item and group page transitions with a handler", () => {
+  const input = modelFixture();
+  const onOpenGroup = vi.fn();
+  const pageA = input.page;
+  const groupRow = {
+    ...pageA.response.rows[0]!,
+    itemRef: null,
+    groupRef: "fixture-group",
+  };
+  const pageB: ModelRowsPage = {
+    request: { ...pageA.request, start: pageA.request.count },
+    response: {
+      ...pageA.response,
+      rows: [groupRow],
+      totalCount: pageA.response.totalCount + 1,
+    },
+  };
+  const { rerender } = render(
+    <ModelRows
+      page={pageA}
+      model={input.frame.model}
+      text={fixtureText}
+      onOpenGroup={onOpenGroup}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Rows from this graph" }));
+
+  let table = screen.getByRole("table", { name: "Loaded graph rows" });
+  expect(
+    within(table).queryByRole("columnheader", { name: "Actions" }),
+  ).toBeNull();
+  let bodyRows = within(table).getAllByRole("row").slice(1);
+  expect(bodyRows).toHaveLength(4);
+  expect(bodyRows.every((row) => row.children.length === 6)).toBe(true);
+  expect(
+    within(table).queryByRole("button", { name: /View members of/ }),
+  ).toBeNull();
+
+  rerender(
+    <ModelRows
+      page={pageB}
+      model={input.frame.model}
+      text={fixtureText}
+      onOpenGroup={onOpenGroup}
+    />,
+  );
+  table = screen.getByRole("table", { name: "Loaded graph rows" });
+  expect(
+    within(table).getByRole("columnheader", { name: "Actions" }),
+  ).toBeDefined();
+  bodyRows = within(table).getAllByRole("row").slice(1);
+  expect(bodyRows).toHaveLength(1);
+  expect(bodyRows[0]!.children.length).toBe(7);
+  expect(
+    within(bodyRows[0]!).getByRole("button", {
+      name: "View members of 영상",
+    }),
+  ).toBeDefined();
+
+  rerender(
+    <ModelRows
+      page={pageA}
+      model={input.frame.model}
+      text={fixtureText}
+      onOpenGroup={onOpenGroup}
+    />,
+  );
+  table = screen.getByRole("table", { name: "Loaded graph rows" });
+  expect(
+    within(table).queryByRole("columnheader", { name: "Actions" }),
+  ).toBeNull();
+  bodyRows = within(table).getAllByRole("row").slice(1);
+  expect(bodyRows).toHaveLength(4);
+  expect(bodyRows.every((row) => row.children.length === 6)).toBe(true);
+  expect(
+    within(table).queryByRole("button", { name: /View members of/ }),
+  ).toBeNull();
 });
 
 test("page navigation retains the exact model and result revision", () => {

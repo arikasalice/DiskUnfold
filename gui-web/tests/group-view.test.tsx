@@ -163,6 +163,8 @@ test("a replaced frame returns a focused group panel to the new view title", asy
         kind: "row",
         modelRef: frame.model.modelRef,
         resultRevision: frame.resultRevision,
+        observedAt: frame.observedAt,
+        completeness: frame.completeness,
         groupRef,
         returnTarget: oldTitle,
       }}
@@ -185,6 +187,8 @@ test("a replaced frame returns a focused group panel to the new view title", asy
         kind: "row",
         modelRef: frame.model.modelRef,
         resultRevision: frame.resultRevision,
+        observedAt: frame.observedAt,
+        completeness: frame.completeness,
         groupRef,
         returnTarget: oldTitle,
       }}
@@ -242,6 +246,8 @@ test("a virtualized away table row keeps the group open and closes to a safe not
         kind: "row",
         modelRef: frame.model.modelRef,
         resultRevision: frame.resultRevision,
+        observedAt: frame.observedAt,
+        completeness: frame.completeness,
         groupRef,
       }}
       text={fixtureText}
@@ -261,6 +267,8 @@ test("a virtualized away table row keeps the group open and closes to a safe not
         kind: "row",
         modelRef: frame.model.modelRef,
         resultRevision: frame.resultRevision,
+        observedAt: frame.observedAt,
+        completeness: frame.completeness,
         groupRef,
       }}
       text={fixtureText}
@@ -310,6 +318,8 @@ test("a connected but disabled original target falls back to the group notice", 
         kind: "row",
         modelRef: frame.model.modelRef,
         resultRevision: frame.resultRevision,
+        observedAt: frame.observedAt,
+        completeness: frame.completeness,
         groupRef,
       }}
       text={fixtureText}

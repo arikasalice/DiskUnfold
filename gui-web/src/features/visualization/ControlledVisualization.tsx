@@ -25,6 +25,7 @@ import type {
 import type { VizRow, VizRowsRequest } from "../../ipc";
 import type { createChartRenderers } from "../../components";
 import type { VizText } from "./model-text";
+import { matchingRowsPage } from "./model-adapter";
 import { visualizationFormatName, visualizationReason } from "./messages";
 import { GroupView } from "./GroupView";
 import type { GroupController } from "./group-controller";
@@ -33,6 +34,7 @@ import {
   createGroupRowOpener,
   getGroupReturnTargetRef,
   getGroupRowFrame,
+  getGroupViewFrame,
   getTableOnlyFrame,
   isCurrentTable,
   rememberFocusedGroupShape,
@@ -78,7 +80,12 @@ export function ControlledVisualization({
   const tableOnlyFrame = getTableOnlyFrame(graph, table, state);
   useFirstRows(controller, state, autoLoadRows === true);
   const currentTable = isCurrentTable(graph, table);
-  const rowGroupFrame = getGroupRowFrame(currentTable, graph, tableOnlyFrame);
+  const graphRowsFrame =
+    graph && state.graphPage && matchingRowsPage(graph.frame, state.graphPage)
+      ? graph.frame
+      : null;
+  const tableRowsFrame = getGroupRowFrame(tableOnlyFrame);
+  const groupViewFrame = getGroupViewFrame(groupOrigin, graph, tableOnlyFrame);
   const groupReturnTargetRef = getGroupReturnTargetRef(
     groupOrigin,
     graph,
@@ -87,9 +94,14 @@ export function ControlledVisualization({
     visualizationTargetRef,
     tableTargetRef,
   );
-  const openGroupFromRows = createGroupRowOpener(
+  const openGroupFromGraphRows = createGroupRowOpener(
     groupController,
-    rowGroupFrame,
+    graphRowsFrame,
+    setGroupOrigin,
+  );
+  const openGroupFromTableRows = createGroupRowOpener(
+    groupController,
+    tableRowsFrame,
     setGroupOrigin,
   );
   return (
@@ -150,7 +162,9 @@ export function ControlledVisualization({
               },
             )
           }
-          {...(openGroupFromRows ? { onOpenGroup: openGroupFromRows } : {})}
+          {...(openGroupFromGraphRows
+            ? { onOpenGroup: openGroupFromGraphRows }
+            : {})}
           returnTargetRef={visualizationTargetRef}
           rowsReturnTargetRef={graphRowsTargetRef}
           text={text}
@@ -170,7 +184,7 @@ export function ControlledVisualization({
       {groupController && (
         <GroupView
           controller={groupController}
-          frame={graph?.frame ?? tableOnlyFrame}
+          frame={groupViewFrame}
           selection={state.selection}
           origin={groupOrigin}
           returnTargetRef={groupReturnTargetRef}
@@ -200,7 +214,9 @@ export function ControlledVisualization({
         controller={controller}
         text={text}
         currentTable={currentTable}
-        {...(openGroupFromRows ? { onOpenGroup: openGroupFromRows } : {})}
+        {...(openGroupFromTableRows
+          ? { onOpenGroup: openGroupFromTableRows }
+          : {})}
         returnTargetRef={tableTargetRef}
       />
     </>
