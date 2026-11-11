@@ -13,7 +13,7 @@ use du_analysis_index::{
     visualization::{group_page, live_models, projection},
 };
 use du_core_contracts::{
-    Id,
+    Id, ItemRef,
     result::ResultVersionRead,
     visualization::rows::{MAX_PAGE_COUNT, VizRow, VizRows, VizRowsRequest},
 };
@@ -47,6 +47,7 @@ struct PreparedModelInput {
     version: Arc<ResultVersion>,
     condition_fingerprint: String,
     rows: Option<live_models::PreparedRows>,
+    scope: Option<ItemRef>,
 }
 
 fn prepare_model_input(input: ModelInput) -> Result<PreparedModelInput, Error> {
@@ -55,13 +56,23 @@ fn prepare_model_input(input: ModelInput) -> Result<PreparedModelInput, Error> {
         version: input.version,
         condition_fingerprint: input.condition_fingerprint,
         rows: Some(live_models::PreparedRows::new(input.rows, input.groups)),
+        scope: None,
     })
+}
+fn prepare_scoped_model_input(
+    input: ModelInput,
+    scope: &ItemRef,
+) -> Result<PreparedModelInput, Error> {
+    let mut result = prepare_model_input(input)?;
+    result.scope = Some(scope.clone());
+    Ok(result)
 }
 struct Entry {
     source: Weak<ResultVersion>,
     revision: Id,
     fingerprint: String,
     layout: Option<Arc<projection::Model>>,
+    scope: Option<ItemRef>,
 }
 #[derive(Default)]
 struct State {
@@ -145,6 +156,7 @@ impl ModelPages {
             version,
             condition_fingerprint,
             rows,
+            scope,
         } = input;
         let key = (version.version_id().clone(), condition_fingerprint);
         let mut rows = rows;
@@ -172,6 +184,9 @@ impl ModelPages {
                         return Err(Error::StaleVersion);
                     }
                     if layout.is_some() && entry.layout.is_none() {
+                        return Err(Error::InvalidModel);
+                    }
+                    if entry.scope != scope {
                         return Err(Error::InvalidModel);
                     }
                     let layout = entry.layout.clone();
@@ -227,6 +242,7 @@ impl ModelPages {
                         revision: key.0.clone(),
                         fingerprint: key.1.clone(),
                         layout: layout.clone(),
+                        scope: scope.clone(),
                     },
                 );
                 state.conditions.insert(key.clone(), reference.clone());

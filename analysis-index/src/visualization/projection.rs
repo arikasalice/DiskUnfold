@@ -126,6 +126,24 @@ impl Model {
         )
     }
 }
+/// Locates an item relative to a pinned scope with no available shapes.
+///
+/// Both references must belong to the supplied result. In-scope items remain
+/// available for table navigation even when there is no geometry to select.
+pub fn locate_without_shapes(
+    version: &ResultVersion,
+    scope: &ItemRef,
+    item: &ItemRef,
+) -> Result<Location, crate::QueryError> {
+    let scope = version.detail(scope)?.item.item_no;
+    let item = version.detail(item)?.item.item_no;
+    Ok(if super::descendant(version.items(), item, scope) {
+        Location::OutsideView
+    } else {
+        Location::OutsideScope
+    })
+}
+
 /// No model is produced on failure or cancellation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {

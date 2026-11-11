@@ -11,7 +11,7 @@ use std::{
 };
 
 use du_analysis_index::{
-    IngestSink, QueryError, ResultVersion,
+    IngestSink, ResultVersion,
     visualization::{
         projection::{self, Location},
         typed_layout::Dispatcher,
@@ -205,6 +205,7 @@ struct PinnedModel {
     source: Arc<ResultVersion>,
     rows: Arc<[VizRow]>,
     layout: Option<Arc<projection::Model>>,
+    scope: Option<ItemRef>,
 }
 
 impl Session {
@@ -233,12 +234,14 @@ impl Session {
             return Err(Error::StaleVersion);
         }
         let layout = entry.layout.clone();
+        let scope = entry.scope.clone();
         let rows = source.pin_viz_rows(model_ref).map_err(super::model_error)?;
         *slot = Some(PinnedModel {
             reference: model_ref.to_owned(),
             source,
             rows,
             layout,
+            scope,
         });
         Ok(())
     }
@@ -283,8 +286,7 @@ impl Session {
         })
     }
 
-    /// Locates an item in the exact retained source and layout.
-    /// Table-only models return `InvalidModel` because they have no layout.
+    /// Locates an item in the exact retained source and its recorded scope.
     pub fn pinned_locate(&self, model_ref: &str, item: &ItemRef) -> Result<Location, Error> {
         let slot = self.pinned.lock().map_err(|_| Error::Unavailable)?;
         let pin = slot
@@ -295,13 +297,10 @@ impl Session {
             return Err(Error::StaleVersion);
         }
         let source = pin.source.clone();
-        let layout = pin.layout.clone().ok_or(Error::InvalidModel)?;
+        let layout = pin.layout.clone();
+        let scope = pin.scope.clone();
         drop(slot);
-        layout.locate(&source, item).map_err(|error| match error {
-            QueryError::NotFound => Error::ItemUnavailable,
-            QueryError::StaleVersion => Error::StaleVersion,
-            _ => Error::Unavailable,
-        })
+        super::locate::locate(&source, layout.as_deref(), scope.as_ref(), item)
     }
 }
 impl Session {

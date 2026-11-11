@@ -20,7 +20,7 @@ use du_core_contracts::{
 };
 
 use super::{
-    ModelPages, PreparedModelInput, prepare_model_input,
+    ModelPages, PreparedModelInput, prepare_scoped_model_input,
     production::{self, RowPresentation},
 };
 use crate::{current_analysis, viz_catalog};
@@ -97,10 +97,7 @@ pub enum Error {
 }
 
 /// An unpublished model candidate bound to the source pinned during preparation.
-///
-/// This value contains no model reference and is not visible through row paging.
-/// Drop it to discard the calculation. Commit rejects another model registry
-/// and revalidates the exact source identity. The caller must preserve the dispatcher.
+/// Commit revalidates source and registry; the caller must preserve the dispatcher.
 pub struct PreparedRender {
     owner: Weak<()>,
     input: PreparedModelInput,
@@ -231,8 +228,7 @@ impl ModelPages {
         if matches!(mode, PrepareMode::Cached)
             && let Some(cached) = self.cached_render(source.version(), &fingerprint, cancelled)?
         {
-            // Cache admission may wait for source publication; observe cancellation again
-            // after its locks are released and before returning the model.
+            // Recheck cancellation after cache-admission locks are released.
             check(cancelled)?;
             return Ok(Preparation::Cached(cached));
         }
@@ -281,9 +277,11 @@ impl ModelPages {
                 )
                 .map_err(Error::Registration)?;
                 check(cancelled)?;
+                let input = prepare_scoped_model_input(input, request.parent)
+                    .map_err(registration_error)?;
                 return Ok(Preparation::Candidate(PreparedRender {
                     owner: Arc::downgrade(&self.identity),
-                    input: prepare_model_input(input).map_err(registration_error)?,
+                    input,
                     layout: None,
                     fallback_reason: Some(reason),
                 }));
@@ -299,9 +297,11 @@ impl ModelPages {
         )
         .map_err(Error::Registration)?;
         check(cancelled)?;
+        let input =
+            prepare_scoped_model_input(input, request.parent).map_err(registration_error)?;
         Ok(Preparation::Candidate(PreparedRender {
             owner: Arc::downgrade(&self.identity),
-            input: prepare_model_input(input).map_err(registration_error)?,
+            input,
             layout: Some(Arc::new(model)),
             fallback_reason: None,
         }))

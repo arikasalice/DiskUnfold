@@ -1,7 +1,10 @@
 //! Admit one live model for a read-only item-location lookup.
 use std::sync::Arc;
 
-use du_analysis_index::{QueryError, visualization::projection::Location};
+use du_analysis_index::{
+    QueryError,
+    visualization::projection::{self, Location},
+};
 use du_core_contracts::ItemRef;
 
 use super::{Error, ModelPages, source_error, touch};
@@ -28,13 +31,27 @@ impl ModelPages {
         if !Arc::ptr_eq(&pinned, &version) {
             return Err(Error::StaleVersion);
         }
-        let layout = entry.layout.clone().ok_or(Error::InvalidModel)?;
+        let layout = entry.layout.clone();
+        let scope = entry.scope.clone();
         touch(&mut state.lru, model_ref);
         drop(state);
-        layout.locate(&version, item).map_err(|error| match error {
-            QueryError::NotFound => Error::ItemUnavailable,
-            QueryError::StaleVersion => Error::StaleVersion,
-            _ => Error::Unavailable,
-        })
+        locate(&version, layout.as_deref(), scope.as_ref(), item)
     }
+}
+
+pub(super) fn locate(
+    version: &du_analysis_index::ResultVersion,
+    layout: Option<&du_analysis_index::visualization::projection::Model>,
+    scope: Option<&ItemRef>,
+    item: &ItemRef,
+) -> Result<Location, Error> {
+    match layout {
+        Some(layout) => layout.locate(version, item),
+        None => projection::locate_without_shapes(version, scope.ok_or(Error::InvalidModel)?, item),
+    }
+    .map_err(|error| match error {
+        QueryError::NotFound => Error::ItemUnavailable,
+        QueryError::StaleVersion => Error::StaleVersion,
+        _ => Error::Unavailable,
+    })
 }

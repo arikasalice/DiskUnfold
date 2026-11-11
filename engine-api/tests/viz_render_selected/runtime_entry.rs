@@ -156,6 +156,13 @@ impl Fixture {
         } else {
             publish_sizes(&sink, id(2), id(3), sizes)?;
         }
+        Self::from_sink(sink, synchronous_wait, max_work)
+    }
+    fn from_sink(
+        sink: IngestSink,
+        synchronous_wait: Duration,
+        max_work: NonZeroUsize,
+    ) -> Result<Self, String> {
         let ids = Arc::new(Identity(AtomicU8::new(15)));
         let session = Arc::new(Session::new(
             sink.clone(),
@@ -347,23 +354,6 @@ fn last_detach_and_session_retirement_cancel_without_cache_publication() -> Resu
     Ok(())
 }
 #[test]
-fn missing_order_evidence_returns_same_revision_fallback() -> Result<(), String> {
-    let fixture = Fixture::new([50, 50])?;
-    let a = fixture.open()?;
-    let first = job(&fixture.render(&a, 1)?)?;
-    fixture
-        .entered
-        .recv_timeout(Duration::from_secs(3))
-        .map_err(|e| e.to_string())?;
-    fixture.release.send(()).map_err(|e| e.to_string())?;
-    fixture.finished(&first, JobState::Done)?;
-    let result = fixture.render(&a, 2)?;
-    assert_eq!(result["kind"], "unavailable");
-    assert_eq!(result["fallback"]["resultRevision"], json!(id(3)));
-    assert_eq!(fixture.ok("viz.rows",json!({"modelRef":result["fallback"]["modelRef"],"resultRevision":id(3),"start":0,"count":10}))?["totalCount"], 2);
-    Ok(())
-}
-#[test]
 fn source_replacement_beats_commit_for_the_original_admitted_revision() -> Result<(), String> {
     let fixture = Fixture::new([25, 75])?;
     let a = fixture.open()?;
@@ -488,7 +478,7 @@ fn valid_different_condition_retires_only_the_replaced_channel() -> Result<(), S
     );
     Ok(())
 }
-
+mod fallback_location;
 mod hierarchy_tests;
 mod replacement;
 mod source_selection;

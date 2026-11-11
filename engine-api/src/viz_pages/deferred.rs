@@ -46,6 +46,9 @@ impl ModelPages {
                     if layout.is_some() && entry.layout.is_none() {
                         return Err(Error::InvalidModel);
                     }
+                    if entry.scope != input.scope {
+                        return Err(Error::InvalidModel);
+                    }
                     let layout = entry.layout.clone();
                     touch(&mut state.lru, &existing);
                     return Ok((existing, layout));
@@ -99,6 +102,7 @@ impl ModelPages {
                         revision: key.0.clone(),
                         fingerprint: key.1.clone(),
                         layout: layout.clone(),
+                        scope: input.scope.clone(),
                     },
                 );
                 state.conditions.insert(key, reference.to_owned());

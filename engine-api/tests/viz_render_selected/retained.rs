@@ -59,7 +59,7 @@ fn retained_fallback_keeps_its_rows_when_the_source_advances() -> Result<(), Str
         .map_err(|e| format!("{e:?}"))?;
     assert_eq!(
         session.pinned_locate(&fallback.model_ref, &item),
-        Err(viz_pages::Error::InvalidModel)
+        Ok(du_analysis_index::visualization::projection::Location::OutsideView)
     );
     scan.add_file(Observation {
         path: vec![b"later".to_vec()],
@@ -73,6 +73,10 @@ fn retained_fallback_keeps_its_rows_when_the_source_advances() -> Result<(), Str
             .pinned_rows(&request)
             .map_err(|e| format!("{e:?}"))?,
         before
+    );
+    assert_eq!(
+        session.pinned_locate(&fallback.model_ref, &item),
+        Ok(du_analysis_index::visualization::projection::Location::OutsideView)
     );
     let wrong = VizRowsRequest {
         result_revision: id(4),
