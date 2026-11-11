@@ -56,7 +56,7 @@ function BrowseItemDialog({
   const title =
     inspection.kind === "folder" ? "Folder details" : "File details";
   return (
-    <InspectionDialog title={`${title} — ${inspection.name}`} onClose={close}>
+    <InspectionDialog title={title} onClose={close}>
       {inspectItem(inspection.item, inspection.kind)}
     </InspectionDialog>
   );

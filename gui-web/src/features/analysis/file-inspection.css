@@ -1,0 +1,19 @@
+.du-inspection-name > .du-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+.du-inspection-path {
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+
+.du-inspection-path > .du-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}

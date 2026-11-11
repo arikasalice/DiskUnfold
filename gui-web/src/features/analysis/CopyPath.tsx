@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Action, LiveStatus, Text } from "../../components";
+import { Action, DetailDisclosure, LiveStatus, Text } from "../../components";
 import type { AnalysisClient, BrowseValue, ItemRef } from "../../ipc";
 
 type CopyPathProps = {
@@ -22,6 +22,8 @@ function CopyPathForItem({ client, item, path }: CopyPathProps) {
   const [busy, setBusy] = useState(false);
   const active = useRef(0);
   const pending = useRef(false);
+  const copyButton = useRef<HTMLButtonElement>(null);
+  const dismissButton = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     const generation = ++active.current;
     setStatus("");
@@ -73,19 +75,45 @@ function CopyPathForItem({ client, item, path }: CopyPathProps) {
     <>
       <div className="du-copy-path">
         {path.state === "present" ? (
-          <Text kind="path" focusable>
-            {path.value}
-          </Text>
+          <div className="du-inspection-path">
+            <Text kind="path">{abbreviate(path.value)}</Text>
+            <DetailDisclosure title="Full path">
+              <Text kind="path" focusable>
+                {path.value}
+              </Text>
+            </DetailDisclosure>
+          </div>
         ) : path.state === "absent" ? (
           "Not recorded"
         ) : (
-          "Unavailable in this scan"
+          `Unavailable in this scan (${path.reasonKey})`
         )}
-        <Action aria-disabled={busy} onPress={copy}>
+        <Action ref={copyButton} aria-disabled={busy} onPress={copy}>
           Copy path
         </Action>
       </div>
       <LiveStatus>{status}</LiveStatus>
+      {status && !busy && (
+        <Action
+          variant="quiet"
+          ref={dismissButton}
+          onPress={() => {
+            const restoreFocus =
+              document.activeElement === dismissButton.current;
+            setStatus("");
+            if (restoreFocus) copyButton.current?.focus();
+          }}
+        >
+          Dismiss copy result
+        </Action>
+      )}
     </>
   );
+}
+
+function abbreviate(path: string): string {
+  const characters = Array.from(path);
+  return characters.length <= 40
+    ? path
+    : `${characters.slice(0, 19).join("")}…${characters.slice(-19).join("")}`;
 }

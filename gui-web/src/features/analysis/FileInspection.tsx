@@ -15,7 +15,13 @@ import type {
 } from "../../ipc";
 import { CopyPath } from "./CopyPath";
 import { ItemSpaceDetails } from "./ItemSpaceDetails";
-import { displaySizeWithBytes, windowsSizeDisplay } from "./space-format";
+import {
+  displaySizeWithBytes,
+  displaySpaceReason,
+  evidenceLabels,
+  windowsSizeDisplay,
+} from "./space-format";
+import "./file-inspection.css";
 import type { SizeDisplay } from "./space-format";
 
 function attribute<T>(
@@ -24,7 +30,16 @@ function attribute<T>(
 ) {
   if (field.state === "present") return format(field.value);
   if (field.state === "absent") return "Not recorded";
-  return "Unavailable in this scan";
+  return (
+    displaySpaceReason(field.reasonKey) ??
+    `Unavailable in this scan (${field.reasonKey})`
+  );
+}
+
+function evidence(value: BrowseDetail["logicalSize"]): string[] {
+  if (value.state !== "present") return [];
+  const label = evidenceLabels[value.value.evidence];
+  return label ? [label] : [];
 }
 
 function attributes(
@@ -39,18 +54,37 @@ function attributes(
   return [
     {
       label: itemKind === "file" ? "File name" : "Folder name",
-      value: attribute(detail.displayName),
+      wideValue: true,
+      value:
+        detail.displayName.state === "present" ? (
+          <div className="du-inspection-name">
+            <Text>{detail.displayName.value}</Text>
+            <DetailDisclosure title="Full name">
+              <Text focusable>{detail.displayName.value}</Text>
+            </DetailDisclosure>
+          </div>
+        ) : (
+          attribute(detail.displayName)
+        ),
     },
+    {
+      label: "Logical size",
+      value: size(detail.logicalSize),
+      notes: evidence(detail.logicalSize),
+    },
+    {
+      label: "Allocated size",
+      value: size(detail.allocatedSize),
+      notes: evidence(detail.allocatedSize),
+    },
+    { label: "Result published", value: attribute(detail.observedAt) },
+    { label: "Source", value: detail.observationOnly ? "Scan record" : "Scan" },
     {
       label: "Path",
       wideValue: true,
       value: <CopyPath client={client} item={item} path={detail.displayPath} />,
     },
     { label: "Kind", value: attribute(detail.kind) },
-    { label: "Logical size", value: size(detail.logicalSize) },
-    { label: "Allocated size", value: size(detail.allocatedSize) },
-    { label: "Result published", value: attribute(detail.observedAt) },
-    { label: "Source", value: detail.observationOnly ? "Scan record" : "Scan" },
   ];
 }
 

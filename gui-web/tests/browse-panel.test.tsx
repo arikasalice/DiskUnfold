@@ -335,7 +335,7 @@ test.each(["row keyboard", "nested button", "accessibility activation"])(
       fireEvent.click(file);
     }
     const dialog = await screen.findByRole("dialog", {
-      name: "File details — observed.bin",
+      name: "File details",
     });
     expect(inspectItem).toHaveBeenCalledWith(ref(1), "file");
     expect(port.open).toHaveBeenCalledTimes(1);
@@ -1548,7 +1548,7 @@ test("folder row inspection uses its pinned reference without navigating", async
   const menu = await screen.findByRole("menu", { name: "Actions for Folder" });
   fireEvent.click(within(menu).getByRole("menuitem", { name: "Inspect" }));
   const dialog = await screen.findByRole("dialog", {
-    name: "Folder details — Folder",
+    name: "Folder details",
   });
   expect(inspectItem).toHaveBeenCalledWith(ref(2), "folder");
   expect(open).toHaveBeenCalledTimes(1);
@@ -1844,7 +1844,7 @@ test.each(["sequence", "version", "job version"])(
     });
     fireEvent.click(within(menu).getByRole("menuitem", { name: "Inspect" }));
     const dialog = await screen.findByRole("dialog", {
-      name: "Folder details — Original",
+      name: "Folder details",
     });
     const close = within(dialog).getByRole("button", { name: "Close details" });
     act(() => close.focus());

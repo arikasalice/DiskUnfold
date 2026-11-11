@@ -98,3 +98,45 @@ test.each([
     expect(screen.getByRole("status").textContent).toBe(expected),
   );
 });
+
+test("full path is available by disclosure and copy feedback can be dismissed", async () => {
+  const fullPath = `C:/자료/${"long-folder/".repeat(12)}file.txt`;
+  const client = createAnalysisClient(async (_, { envelope }) =>
+    reply(envelope, { outcome: "refused", reasonKey: "clipboard.failed" }),
+  );
+  render(
+    <CopyPath
+      client={client}
+      item={item}
+      path={{ state: "present", value: fullPath }}
+    />,
+  );
+  expect(screen.queryByText(fullPath)).toBeNull();
+  const disclosure = screen.getByRole("button", { name: /Full path/ });
+  fireEvent.click(disclosure);
+  expect(screen.getByText(fullPath).getAttribute("tabindex")).toBe("0");
+  const copy = screen.getByRole("button", { name: "Copy path" });
+  fireEvent.click(copy);
+  await screen.findByText("Could not copy to the clipboard.");
+  const dismiss = screen.getByRole("button", { name: "Dismiss copy result" });
+  act(() => dismiss.focus());
+  fireEvent.click(dismiss);
+  expect(screen.getByRole("status").textContent).toBe("");
+  expect(document.activeElement).toBe(copy);
+  fireEvent.click(copy);
+  await screen.findByText("Could not copy to the clipboard.");
+});
+
+test("dismissing feedback does not move focus from another control", async () => {
+  const client = createAnalysisClient(async (_, { envelope }) =>
+    reply(envelope, { outcome: "copied", count: 1 }),
+  );
+  render(<CopyPath client={client} item={item} path={path} />);
+  const copy = screen.getByRole("button", { name: "Copy path" });
+  fireEvent.click(copy);
+  await screen.findByText("Copied 1 path.");
+  const disclosure = screen.getByRole("button", { name: /Full path/ });
+  act(() => disclosure.focus());
+  fireEvent.click(screen.getByRole("button", { name: "Dismiss copy result" }));
+  expect(document.activeElement).toBe(disclosure);
+});

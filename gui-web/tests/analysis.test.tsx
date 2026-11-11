@@ -649,7 +649,9 @@ test("F01–F03: reviewed scope starts a scan and reads its pinned partial resul
     await screen.findByLabelText("Observed folder attributes"),
   );
   expect(detail.getByText("0 bytes")).toBeDefined();
-  expect(detail.getByText("Unavailable in this scan")).toBeDefined();
+  expect(
+    detail.getByText("Unavailable in this scan (ref.unavailable)"),
+  ).toBeDefined();
   fireEvent.click(
     screen.getByRole("button", { name: "More observed attributes" }),
   );
@@ -657,7 +659,9 @@ test("F01–F03: reviewed scope starts a scan and reads its pinned partial resul
     screen.getByLabelText("More observed attributes"),
   );
   expect(moreAttributes.getByText("Not recorded")).toBeDefined();
-  expect(moreAttributes.getByText("Unavailable in this scan")).toBeDefined();
+  expect(
+    moreAttributes.getByText("Unavailable in this scan (ref.unavailable)"),
+  ).toBeDefined();
   expect(calls.find((call) => call.name === "browse.detail")?.body).toEqual({
     resultVersion: "result",
     item: { resultVersion: "result", itemNo: 0 },
@@ -3469,7 +3473,7 @@ test("F03 F05: temporary units follow the pinned result into browse and inspecti
   expect(row?.textContent).toContain("1.1 KiB");
   fireEvent.click(file);
   const dialog = await screen.findByRole("dialog", {
-    name: /File details — Sample file/,
+    name: "File details",
   });
   expect(
     await within(dialog).findByText(/1\.1 KiB.*1,100 bytes/),
