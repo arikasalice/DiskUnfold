@@ -108,14 +108,21 @@ fn rows_command_reads_the_session_model_and_rejects_stale_and_invalid_calls() ->
             .reason_key,
         "command.not_provided"
     );
+    let mut mismatched = body.clone();
+    mismatched["resultRevision"] = json!(id(5));
+    let mismatched_rows = call(mismatched, Channel::Gui)
+        .error
+        .ok_or("mismatched revision accepted for a current model")?;
+    assert!(call(body.clone(), Channel::Gui).error.is_none());
+
     publish(&sink, id(4), id(5))?;
     let stale_location = locate(&item).error.ok_or("stale locate accepted")?;
     let stale_rows = call(body, Channel::Gui)
         .error
         .ok_or("stale rows accepted")?;
-    for error in [stale_location, stale_rows] {
+    for error in [mismatched_rows, stale_location, stale_rows] {
         assert_eq!(error.code, ErrorCode::StaleVersion);
-        assert_eq!(error.reason_key, "result.requery_required");
+        assert_eq!(error.reason_key, "result.version_stale");
     }
     Ok(())
 }

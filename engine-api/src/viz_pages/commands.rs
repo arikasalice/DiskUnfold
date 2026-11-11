@@ -76,12 +76,11 @@ impl UseCase for Locate {
     }
 }
 
-/// Maps page and location failures to the F06 GUI query contract.
 fn rows_error(error: Error) -> EngineError {
     EngineError::reason(match error {
         Error::InvalidRange => "command.body_invalid",
         Error::ModelExpired => "viz.model_expired",
-        Error::StaleVersion => "result.requery_required",
+        Error::StaleVersion => "result.version_stale",
         Error::ItemUnavailable => "ref.unavailable",
         _ => "support.internal_error",
     })

@@ -110,7 +110,7 @@ fn fallback_selection_location_and_folder_navigation_keep_the_pinned_source() ->
             .error
             .ok_or("stale accepted")?
             .reason_key,
-        "result.requery_required"
+        "result.version_stale"
     );
     assert_eq!(
         fixture
