@@ -125,7 +125,7 @@ fn unavailable_recent_observer_preserves_scan_receipt_and_completion()
     );
     let receipt: ScanStart = serde_json::from_value(started.body)?;
     assert!(!receipt.existing);
-    assert!(!admissions.response_sent(&receipt.job_ref));
+    assert!(admissions.delivery().claim(&receipt.job_ref).is_none());
     assert!(matches!(
         admissions.try_next(),
         Err(mpsc::TryRecvError::Empty)
@@ -165,8 +165,17 @@ fn recent_observation_waits_for_response_ack_but_not_scan_finish()
         Err(mpsc::TryRecvError::Empty)
     ));
 
-    assert!(admissions.response_sent(&receipt.job_ref));
-    assert!(!admissions.response_sent(&receipt.job_ref));
+    let delivery = admissions.delivery();
+    let ticket = delivery
+        .claim(&receipt.job_ref)
+        .ok_or("missing delivery receipt")?;
+    assert!(delivery.claim(&receipt.job_ref).is_none());
+    assert!(matches!(
+        admissions.try_next(),
+        Err(mpsc::TryRecvError::Empty)
+    ));
+    ticket.posted();
+    assert!(delivery.claim(&receipt.job_ref).is_none());
     let admission = admissions.try_next()?;
     assert_eq!(
         admission.fingerprint_conditions(),
@@ -230,12 +239,18 @@ fn rejected_or_cancelled_scan_start_has_no_worker_handoff_or_observation()
         )?
         .body,
     )?;
-    assert!(admissions.cancel_before_response(&receipt.job_ref));
-    assert!(!admissions.response_sent(&receipt.job_ref));
+    let delivery = admissions.delivery();
+    let ticket = delivery
+        .claim(&receipt.job_ref)
+        .ok_or("missing delivery receipt")?;
+    drop(ticket);
+    assert!(delivery.claim(&receipt.job_ref).is_none());
+    assert_eq!(harness.roots.recent_live_handles.load(Ordering::Acquire), 1);
     assert!(matches!(
         admissions.try_next(),
         Err(mpsc::TryRecvError::Empty)
     ));
+    assert_eq!(harness.roots.recent_live_handles.load(Ordering::Acquire), 0);
     assert_eq!(harness.roots.recent_observations.load(Ordering::Acquire), 0);
     harness.release.send(())?;
     let _ = scan_finished(&harness.terminal)?;
@@ -260,8 +275,11 @@ fn scan_cancellation_after_response_preserves_recent_scope_evidence()
         )?
         .body,
     )?;
-    assert!(admissions.response_sent(&receipt.job_ref));
-    assert!(!admissions.cancel_before_response(&receipt.job_ref));
+    admissions
+        .delivery()
+        .claim(&receipt.job_ref)
+        .ok_or("missing delivery receipt")?
+        .posted();
     let cancelled = call("job.cancel", json!({"jobRef": receipt.job_ref}))?;
     assert!(cancelled.error.is_none());
     harness.release.send(())?;
@@ -296,9 +314,19 @@ fn receiver_drop_releases_pending_handle_without_rejecting_scan_start()
         )?
         .body,
     )?;
+    let delivery = harness
+        .recent_scope_admissions
+        .as_ref()
+        .ok_or("recent admission queue missing")?
+        .delivery();
+    let ticket = delivery
+        .claim(&receipt.job_ref)
+        .ok_or("missing delivery receipt")?;
     assert_eq!(harness.roots.recent_live_handles.load(Ordering::Acquire), 1);
     drop(harness.recent_scope_admissions.take());
     assert_eq!(harness.roots.recent_live_handles.load(Ordering::Acquire), 0);
+    ticket.posted();
+    assert!(delivery.claim(&receipt.job_ref).is_none());
     harness.release.send(())?;
     let (summary, _) = scan_finished(&harness.terminal)?;
     assert_eq!(summary.job_id, receipt.job_ref);
@@ -325,7 +353,11 @@ fn delayed_worker_keeps_capacity_without_rejecting_scan_start()
     )?;
     harness.release.send(())?;
     let _ = scan_finished(&harness.terminal)?;
-    assert!(admissions.response_sent(&first.job_ref));
+    let delivery = admissions.delivery();
+    delivery
+        .claim(&first.job_ref)
+        .ok_or("missing delivery receipt")?
+        .posted();
     let first_admission = admissions.try_next()?;
 
     let mut other = draft();
@@ -344,7 +376,7 @@ fn delayed_worker_keeps_capacity_without_rejecting_scan_start()
         .body,
     )?;
     assert!(!second.existing);
-    assert!(!admissions.response_sent(&second.job_ref));
+    assert!(delivery.claim(&second.job_ref).is_none());
     harness.release.send(())?;
     let (summary, _) = scan_finished(&harness.terminal)?;
     assert_eq!(summary.job_id, second.job_ref);

@@ -3,12 +3,13 @@ use std::{
     collections::VecDeque,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering},
         mpsc,
     },
 };
 
 use du_core_contracts::{
+    Id,
     analysis_ipc::{ScanStart, ScopeDraft},
     scan_observation::{
         OpenedScopeRoot, OptionalRecentScopeObserver, RecentScopeEvidence, RecentScopeObservation,
@@ -104,9 +105,18 @@ impl Drop for RecentScopeAdmission {
 
 #[derive(Default)]
 struct AdmissionQueue {
-    pending: VecDeque<RecentScopeAdmission>,
-    ready: VecDeque<RecentScopeAdmission>,
+    pending: VecDeque<QueuedAdmission>,
     receiver_open: bool,
+}
+
+const UNCLAIMED: u8 = 0;
+const CLAIMED: u8 = 1;
+const POSTED: u8 = 2;
+const DISCARDED: u8 = 3;
+
+struct QueuedAdmission {
+    admission: RecentScopeAdmission,
+    delivery: Arc<AtomicU8>,
 }
 
 type PendingAdmissions = Arc<Mutex<AdmissionQueue>>;
@@ -128,68 +138,95 @@ impl RecentScopeAdmissionPublisher {
         {
             let mut admission = admission;
             admission.queue_slots = Some(self.2.clone());
-            pending.pending.push_back(admission);
+            pending.pending.push_back(QueuedAdmission {
+                admission,
+                delivery: Arc::new(AtomicU8::new(UNCLAIMED)),
+            });
         }
     }
 }
 
-/// Receiver consumed by app-host's background recent-scope worker.
+/// Lets an IPC worker claim the delivery outcome for a new scan receipt.
+#[derive(Clone)]
+pub struct RecentScopeDelivery {
+    pending: PendingAdmissions,
+}
+
+impl RecentScopeDelivery {
+    /// Claims the delivery once, without transferring the scan's retained handles.
+    pub fn claim(&self, job_ref: &Id) -> Option<RecentScopeDeliveryReceipt> {
+        let queue = self.pending.lock().ok()?;
+        let candidate = queue
+            .pending
+            .iter()
+            .find(|item| &item.admission.receipt.job_ref == job_ref)?;
+        candidate
+            .delivery
+            .compare_exchange(UNCLAIMED, CLAIMED, Ordering::AcqRel, Ordering::Acquire)
+            .ok()?;
+        Some(RecentScopeDeliveryReceipt(candidate.delivery.clone()))
+    }
+}
+
+/// A one-shot receipt whose completion can run on the WebView thread.
+/// Dropping it without confirming delivery discards the candidate.
+pub struct RecentScopeDeliveryReceipt(Arc<AtomicU8>);
+
+impl RecentScopeDeliveryReceipt {
+    /// Records that the GUI transport accepted the reply. This does no I/O.
+    pub fn posted(self) {
+        self.0.store(POSTED, Ordering::Release);
+    }
+}
+
+impl Drop for RecentScopeDeliveryReceipt {
+    fn drop(&mut self) {
+        let _ = self
+            .0
+            .compare_exchange(CLAIMED, DISCARDED, Ordering::AcqRel, Ordering::Acquire);
+    }
+}
+
+/// Receiver owned by app-host's background recent-scope worker.
 pub struct RecentScopeAdmissions {
     pending: PendingAdmissions,
 }
 
 impl RecentScopeAdmissions {
-    /// Releases deferred observations after app-host successfully delivers the new scan receipt.
-    pub fn response_sent(&self, job_ref: &du_core_contracts::Id) -> bool {
-        let Ok(mut queue) = self.pending.lock() else {
-            return false;
-        };
-        if !queue.receiver_open {
-            return false;
+    /// Returns a delivery handle that can be passed to the IPC workers.
+    pub fn delivery(&self) -> RecentScopeDelivery {
+        RecentScopeDelivery {
+            pending: self.pending.clone(),
         }
-        let Some(index) = queue
-            .pending
-            .iter()
-            .position(|item| &item.receipt.job_ref == job_ref)
-        else {
-            return false;
-        };
-        let Some(admission) = queue.pending.remove(index) else {
-            return false;
-        };
-        queue.ready.push_back(admission);
-        true
     }
 
-    /// Drops an admission whose new scan receipt will not be delivered.
-    pub fn cancel_before_response(&self, job_ref: &du_core_contracts::Id) -> bool {
-        let Ok(mut queue) = self.pending.lock() else {
-            return false;
-        };
-        let Some(index) = queue
-            .pending
-            .iter()
-            .position(|item| &item.receipt.job_ref == job_ref)
-        else {
-            return false;
-        };
-        let removed = queue.pending.remove(index);
-        drop(queue);
-        removed.is_some()
-    }
-
-    /// Retrieves one admission without waiting for another scan.
+    /// Discards undelivered candidates and retrieves one delivered admission.
+    /// Call this off the GUI thread because discarding can close native handles.
     pub fn try_next(&self) -> Result<RecentScopeAdmission, mpsc::TryRecvError> {
-        let Ok(mut queue) = self.pending.lock() else {
-            return Err(mpsc::TryRecvError::Disconnected);
-        };
-        if let Some(admission) = queue.ready.pop_front() {
-            return Ok(admission);
-        }
-        if queue.receiver_open {
-            Err(mpsc::TryRecvError::Empty)
-        } else {
-            Err(mpsc::TryRecvError::Disconnected)
+        loop {
+            let mut queue = self
+                .pending
+                .lock()
+                .map_err(|_| mpsc::TryRecvError::Disconnected)?;
+            let Some((index, posted)) =
+                queue.pending.iter().enumerate().find_map(|(index, item)| {
+                    match item.delivery.load(Ordering::Acquire) {
+                        POSTED => Some((index, true)),
+                        DISCARDED => Some((index, false)),
+                        _ => None,
+                    }
+                })
+            else {
+                return Err(mpsc::TryRecvError::Empty);
+            };
+            let item = queue
+                .pending
+                .remove(index)
+                .ok_or(mpsc::TryRecvError::Disconnected)?;
+            drop(queue);
+            if posted {
+                return Ok(item.admission);
+            }
         }
     }
 }
@@ -200,9 +237,8 @@ impl Drop for RecentScopeAdmissions {
             queue.receiver_open = false;
             // Dropping an observer can close a native handle. Release the queue first.
             let pending = std::mem::take(&mut queue.pending);
-            let ready = std::mem::take(&mut queue.ready);
             drop(queue);
-            drop((pending, ready));
+            drop(pending);
         }
     }
 }

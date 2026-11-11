@@ -7,7 +7,9 @@ use std::{
 };
 
 pub(crate) use crate::recent_scope::recent_scope_admissions;
-pub use crate::recent_scope::{RecentScopeAdmission, RecentScopeAdmissions};
+pub use crate::recent_scope::{
+    RecentScopeAdmission, RecentScopeAdmissions, RecentScopeDelivery, RecentScopeDeliveryReceipt,
+};
 use du_core_contracts::{
     ENVELOPE_VERSION, EventEnvelope, Id, Timestamp,
     analysis_ipc::{JobResyncReason, JobResyncRequired, TargetProbeEvent, TargetStatusChanged},
