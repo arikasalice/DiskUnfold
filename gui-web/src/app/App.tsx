@@ -1,6 +1,6 @@
 import diskUnfoldIcon from "./assets/diskunfold-icon.svg";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Action, BrandMark, Heading } from "../components";
+import { Action, BrandMark, Heading, LiveStatus, Text } from "../components";
 import { AnalysisPanel } from "../features/analysis/AnalysisPanel";
 import { FileInspection } from "../features/analysis/FileInspection";
 import { BrowsePanel } from "../features/browse/BrowsePanel";
@@ -14,6 +14,7 @@ const desktop = createAnalysisClient();
 
 export function App({ analysis }: { analysis?: AnalysisClient } = {}) {
   const client = analysis ?? (hasWindowsAnalysisBridge() ? desktop : undefined);
+  const [connectionChecks, setConnectionChecks] = useState(0);
   const [history, setHistory] = useState(false);
   const [browseVersion, setBrowseVersion] = useState<string>();
   const browseTrigger = useRef<HTMLButtonElement>(null);
@@ -68,6 +69,25 @@ export function App({ analysis }: { analysis?: AnalysisClient } = {}) {
           )}
         </div>
       </header>
+      {!client && (
+        <div className="du-analysis-slot">
+          <Heading level={2}>Desktop connection unavailable</Heading>
+          <Text>
+            DiskUnfold cannot connect to its desktop host. Analysis is
+            unavailable until the connection is ready.
+          </Text>
+          <Text>
+            Open DiskUnfold from the desktop application. If it is already open,
+            close and reopen it, then check the connection again.
+          </Text>
+          <Action onPress={() => setConnectionChecks((count) => count + 1)}>
+            Check connection again
+          </Action>
+          {connectionChecks > 0 && (
+            <LiveStatus>Desktop connection is still unavailable.</LiveStatus>
+          )}
+        </div>
+      )}
       {client && (
         <div className="du-analysis-slot" hidden={!analysisOpen}>
           <AnalysisPanel
