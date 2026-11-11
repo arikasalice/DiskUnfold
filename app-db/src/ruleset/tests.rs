@@ -1,5 +1,6 @@
 use super::{RulesetError, RulesetRow};
 use crate::{AppDb, HISTORY_DEFINITIONS, migration};
+use du_core_contracts::ruleset::{RulesetRead, RulesetReadError};
 use std::sync::{Arc, Barrier};
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 fn row(version: i64) -> RulesetRow {
@@ -15,6 +16,48 @@ fn row(version: i64) -> RulesetRow {
         body: "{\"rules\":[]}".into(),
         created_at_ms: 1,
     }
+}
+
+#[test]
+fn read_port_pins_owned_raw_row_and_distinguishes_failures() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("port.sqlite");
+    let mut writer = AppDb::create_gui_with_history(&path).map_err(|e| format!("{e:?}"))?;
+    let reader = AppDb::open_read_only(&path).map_err(|e| format!("{e:?}"))?;
+    let port: &dyn RulesetRead = &reader;
+    assert_eq!(port.read_current(), Ok(None));
+    writer
+        .append_ruleset(0, &row(1))
+        .map_err(|e| format!("{e:?}"))?;
+    let pinned = port
+        .read_version(1)
+        .map_err(|e| format!("{e:?}"))?
+        .ok_or("missing")?;
+    let mut next = row(2);
+    next.body = "{\"rules\":[1]}".into();
+    writer
+        .append_ruleset(1, &next)
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(pinned, row(1));
+    assert_eq!(port.read_version(1), Ok(Some(row(1))));
+    assert_eq!(port.read_current(), Ok(Some(next)));
+    assert_eq!(port.read_version(3), Ok(None));
+    writer.connection.execute_batch("DROP TRIGGER change_planner_ruleset_no_update; PRAGMA ignore_check_constraints=ON; UPDATE change_planner_ruleset SET body='broken' WHERE version=2;")?;
+    assert_eq!(port.read_current(), Err(RulesetReadError::Corrupt));
+    assert_eq!(port.read_version(2), Err(RulesetReadError::Corrupt));
+    assert_eq!(port.read_version(1), Ok(Some(row(1))));
+    writer
+        .connection
+        .execute_batch("DROP TABLE change_planner_ruleset;")?;
+    assert_eq!(
+        port.read_current(),
+        Err(RulesetReadError::StorageUnavailable)
+    );
+    assert_eq!(
+        port.read_version(1),
+        Err(RulesetReadError::StorageUnavailable)
+    );
+    Ok(())
 }
 #[test]
 fn two_connections_race_and_previous_version_remains_readable() -> TestResult {

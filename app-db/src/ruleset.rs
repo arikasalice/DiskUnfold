@@ -1,21 +1,8 @@
 //! Raw F29 ruleset persistence. Domain code validates format and hash.
 use crate::AppDb;
+pub use du_core_contracts::ruleset::RulesetRow;
+use du_core_contracts::ruleset::{RulesetRead, RulesetReadError};
 use rusqlite::{OptionalExtension, TransactionBehavior, params};
-
-/// An unverified persisted record. It must not be used as a protection decision.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct RulesetRow {
-    pub version: i64,
-    pub ruleset_hash: Vec<u8>,
-    pub hash_format: String,
-    pub class_table_version: String,
-    pub known_location_table_version: String,
-    pub rule_format_version: i64,
-    pub origin: String,
-    pub change_summary: String,
-    pub body: String,
-    pub created_at_ms: i64,
-}
 
 /// Failure to read or append a ruleset row.
 #[derive(Debug)]
@@ -26,6 +13,26 @@ pub enum RulesetError {
     Corrupt,
     /// SQLite rejected or could not perform the operation.
     Sqlite(rusqlite::Error),
+}
+
+impl RulesetRead for AppDb {
+    fn read_current(&self) -> Result<Option<RulesetRow>, RulesetReadError> {
+        self.latest_ruleset().map_err(read_error)
+    }
+
+    fn read_version(&self, version: i64) -> Result<Option<RulesetRow>, RulesetReadError> {
+        self.ruleset_version(version).map_err(read_error)
+    }
+}
+
+fn read_error(error: RulesetError) -> RulesetReadError {
+    match error {
+        RulesetError::Corrupt
+        | RulesetError::Sqlite(rusqlite::Error::InvalidColumnType(..))
+        | RulesetError::Sqlite(rusqlite::Error::IntegralValueOutOfRange(..))
+        | RulesetError::Sqlite(rusqlite::Error::Utf8Error(..)) => RulesetReadError::Corrupt,
+        RulesetError::Stale | RulesetError::Sqlite(_) => RulesetReadError::StorageUnavailable,
+    }
 }
 impl From<rusqlite::Error> for RulesetError {
     fn from(value: rusqlite::Error) -> Self {
