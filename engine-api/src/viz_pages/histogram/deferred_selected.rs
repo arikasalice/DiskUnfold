@@ -33,9 +33,14 @@ pub struct DeferredSelectedPages {
     reference: String,
     cleanup: DeferredRows,
     used: bool,
-    frame: LayoutMetadata,
+    frame: Option<LayoutMetadata>,
+    no_attribution: bool,
 }
 impl DeferredSelectedPages {
+    /// True when only the fixed fallback rows can be published.
+    pub fn no_attribution(&self) -> bool {
+        self.no_attribution
+    }
     /// Returns the reserved model reference; it is not readable until commit succeeds.
     pub fn reserved_reference(&self) -> &str {
         &self.reference
@@ -101,11 +106,13 @@ impl ModelPages {
                 no_area: bin.no_area,
             });
         }
-        let frame = Arc::new(HistogramFrame {
-            basis: candidate.model.histogram.basis,
-            unit_bins,
-            axis_max: candidate.model.histogram.axis_max,
-            bins,
+        let frame: Option<LayoutMetadata> = (!candidate.no_attribution).then(|| {
+            Arc::new(HistogramFrame {
+                basis: candidate.model.histogram.basis,
+                unit_bins,
+                axis_max: candidate.model.histogram.axis_max,
+                bins,
+            }) as LayoutMetadata
         });
         let scope = candidate.model.summary.scope;
         if scope.result_version != *candidate.pages.version.version_id()
@@ -142,6 +149,7 @@ impl ModelPages {
             cleanup: DeferredRows::default(),
             used: false,
             frame,
+            no_attribution: candidate.no_attribution,
         })
     }
     /// Commits one reserved candidate while retaining retired rows in its owner.
@@ -164,7 +172,7 @@ impl ModelPages {
         }
         let (reference, _) = self.register_deferred(
             &mut deferred.input,
-            &(None, Some(deferred.frame.clone())),
+            &(None, deferred.frame.clone()),
             &deferred.reference,
             cancelled,
             &mut deferred.cleanup,

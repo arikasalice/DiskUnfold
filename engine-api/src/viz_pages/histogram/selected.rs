@@ -13,6 +13,10 @@ use std::sync::Arc;
 pub struct SelectedCandidate(pub(super) Candidate);
 
 impl SelectedCandidate {
+    /// Whether geometry is unavailable while the fixed source rows remain usable.
+    pub fn no_attribution(&self) -> bool {
+        self.0.no_attribution
+    }
     /// Returns the geometry and source aggregate without exposing mutation.
     pub fn model(&self) -> &histogram_projection::Model {
         &self.0.model

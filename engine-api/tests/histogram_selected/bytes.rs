@@ -131,11 +131,37 @@ fn check_case(unknown: bool, mixed: bool) -> Result<(), String> {
         selected,
         &mut || false,
     );
+    let candidate = candidate.map_err(|e| format!("{e:?}"))?;
     if mixed {
-        assert!(matches!(candidate, Err(histogram::Error::Source)));
+        assert!(candidate.no_attribution());
+        assert!(
+            candidate
+                .model()
+                .histogram
+                .bins
+                .iter()
+                .all(|bin| bin.rect.is_none())
+        );
+        let pages = ModelPages::new(sink, NonZeroUsize::MIN, Arc::new(Ids(AtomicU8::new(10))));
+        let mut pending = pages
+            .defer_histogram_pages(candidate, &mut || false)
+            .map_err(|e| format!("{e:?}"))?;
+        assert!(pending.no_attribution());
+        let reference = pages
+            .commit_histogram_pages(&mut pending, &mut || false)
+            .map_err(|e| format!("{e:?}"))?;
+        assert!(pages.histogram_frame(&reference).is_err());
+        let rows = pages
+            .rows(&VizRowsRequest {
+                model_ref: reference,
+                result_revision: id(2),
+                start: 0,
+                count: 10,
+            })
+            .map_err(|e| format!("{e:?}"))?;
+        assert_eq!(rows.rows.len(), bins.len());
         return Ok(());
     }
-    let candidate = candidate.map_err(|e| format!("{e:?}"))?;
     let rows = &candidate.pages().rows;
     assert_eq!(rows.len(), bins.len());
     assert!(

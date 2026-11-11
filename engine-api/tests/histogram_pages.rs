@@ -214,10 +214,18 @@ fn reject_nonadditive_byte_geometry(
             })
             .collect(),
     };
-    assert!(matches!(
-        histogram::prepare_selected(request, selected, &mut || false),
-        Err(histogram::Error::Source)
-    ));
+    let candidate = histogram::prepare_selected(request, selected, &mut || false)
+        .map_err(|e| format!("{e:?}"))?;
+    assert!(candidate.no_attribution());
+    assert!(
+        candidate
+            .model()
+            .histogram
+            .bins
+            .iter()
+            .all(|bin| bin.rect.is_none())
+    );
+    assert_eq!(candidate.pages().groups["g0"].rows.len(), 2);
     Ok(())
 }
 fn id(n: u8) -> Id {

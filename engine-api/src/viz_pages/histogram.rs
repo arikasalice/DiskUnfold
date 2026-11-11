@@ -56,6 +56,7 @@ pub struct Candidate {
     pub model: histogram_projection::Model,
     pub pages: ModelInput,
     pub unit_bins: Option<du_analysis_index::visualization::unit_bins::UnitBins>,
+    pub no_attribution: bool,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {
@@ -108,7 +109,7 @@ pub fn prepare(
 
 fn assemble(
     request: Request<'_>,
-    model: histogram_projection::Model,
+    mut model: histogram_projection::Model,
     cancelled: &mut dyn FnMut() -> bool,
 ) -> Result<Candidate, Error> {
     let denominator = denominator(&request, &model)?;
@@ -120,6 +121,7 @@ fn assemble(
     let mut groups = HashMap::new();
     let mut rows = Vec::new();
     let mut seen = HashSet::new();
+    let mut no_attribution = false;
     for (bin, p) in model.histogram.bins.iter().zip(request.bin_presentation) {
         check(cancelled)?;
         if p.group_ref.is_empty()
@@ -194,12 +196,11 @@ fn assemble(
         };
         // A bin's drawn byte amount must agree with F03's independently
         // calculated set total; overlapping or unsupported attribution fails closed.
-        if model.histogram.basis == Basis::Bytes && size_weight(&size)? != bin.bytes {
-            return Err(Error::Source);
-        }
+        let source_weight = size_weight(&size)?;
+        no_attribution |= model.histogram.basis == Basis::Bytes && source_weight != bin.bytes;
         let (unit, weight) = match model.histogram.basis {
             Basis::ItemCount => ("items", bin.item_count),
-            Basis::Bytes => ("bytes", bin.bytes),
+            Basis::Bytes => ("bytes", source_weight),
         };
         let quantity = quantity(unit, weight, &request.unknown_reason)?;
         let row_ratio = if model.histogram.basis == Basis::Bytes {
@@ -233,6 +234,13 @@ fn assemble(
     if !presentations.is_empty() {
         return Err(Error::MissingPresentation);
     }
+    if no_attribution {
+        model.histogram.axis_max = None;
+        for bin in &mut model.histogram.bins {
+            bin.rect = None;
+            bin.no_area = None;
+        }
+    }
     check(cancelled)?;
     let fingerprint = super::histogram_fingerprint::candidate_fingerprint(
         &request.fingerprint,
@@ -244,6 +252,7 @@ fn assemble(
     Ok(Candidate {
         model,
         unit_bins: None,
+        no_attribution,
         pages: ModelInput {
             version: request.version,
             condition_fingerprint: fingerprint,
