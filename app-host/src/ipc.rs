@@ -28,7 +28,7 @@ pub(crate) fn dispatch_lane(message: &str) -> du_platform_os::webview::DispatchL
     use du_platform_os::webview::DispatchLane;
 
     match gui_command_name(message).as_deref() {
-        Some("target.list") => DispatchLane::Volume,
+        Some("target.list" | "scope.recent_open") => DispatchLane::Volume,
         Some("query.cancel" | "query.region.close") => DispatchLane::QueryControl,
         Some("job.cancel" | "job.pause" | "job.resume") => DispatchLane::JobControl,
         _ => DispatchLane::Ordered,

@@ -37,14 +37,14 @@ pub struct RecentSummary {
     pub last_used_at_ms: i64,
 }
 
-/// A complete selected row after its body passes the owner's validator.
+/// A selected row with validated metadata. The owner validates its body.
 #[derive(Debug, PartialEq, Eq)]
 pub struct RecentItem {
     /// List summary.
     pub summary: RecentSummary,
     /// Persisted scope fingerprint.
     pub fingerprint: [u8; 32],
-    /// Owner-validated serialized scope body.
+    /// Serialized scope body.
     pub body: String,
 }
 
@@ -170,23 +170,34 @@ impl<'a> RecentScopeStore<'a> {
 
     /// Reads one row and validates its body before returning it.
     pub fn get(&self, id: &[u8; 16]) -> Result<Option<RecentItem>, RecentError> {
-        if !valid_id(id) {
-            return Err(RecentError::Invalid);
+        let row = read_recent_scope(self.db, id)?;
+        if row
+            .as_ref()
+            .is_some_and(|row| !(self.validate_body)(&row.body))
+        {
+            return Err(RecentError::Corrupt);
         }
-        let raw = self.db.connection.query_row("SELECT recent_scope_id,include_count,last_used_at_ms,scope_fingerprint,fingerprint_format,scope_body FROM user_env_recent_scope WHERE recent_scope_id=?1", [id.as_slice()], |row| Ok((read_summary(row)?, row.get::<_, Vec<u8>>(3)?, row.get::<_, i64>(4)?, row.get::<_, String>(5)?))).optional().map_err(map)?;
-        raw.map(|(summary, fingerprint, format, body)| {
-            let fingerprint = fingerprint.try_into().map_err(|_| RecentError::Corrupt)?;
-            if format != 1 || !(self.validate_body)(&body) {
-                return Err(RecentError::Corrupt);
-            }
-            Ok(RecentItem {
-                summary: summary.validate()?,
-                fingerprint,
-                body,
-            })
-        })
-        .transpose()
+        Ok(row)
     }
+}
+
+/// Reads one row's metadata and serialized body for owner validation.
+pub fn read_recent_scope(db: &AppDb, id: &[u8; 16]) -> Result<Option<RecentItem>, RecentError> {
+    if !valid_id(id) {
+        return Err(RecentError::Invalid);
+    }
+    let raw = db.connection.query_row("SELECT recent_scope_id,include_count,last_used_at_ms,scope_fingerprint,fingerprint_format,scope_body FROM user_env_recent_scope WHERE recent_scope_id=?1", [id.as_slice()], |row| Ok((read_summary(row)?, row.get::<_, Vec<u8>>(3)?, row.get::<_, i64>(4)?, row.get::<_, String>(5)?))).optional().map_err(map)?;
+    raw.map(|(summary, fingerprint, format, body)| {
+        if format != 1 {
+            return Err(RecentError::Corrupt);
+        }
+        Ok(RecentItem {
+            summary: summary.validate()?,
+            fingerprint: fingerprint.try_into().map_err(|_| RecentError::Corrupt)?,
+            body,
+        })
+    })
+    .transpose()
 }
 
 /// Reads the bounded summary projection without decoding stored bodies.

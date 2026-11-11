@@ -89,6 +89,12 @@ fn run_app(
         let random = &du_platform_os::entropy::OsRandom;
         let scan_limit = settings.scan_limit_source();
         if recent.is_some() {
+            crate::recent_scope_open::register(
+                &mut builder,
+                recovery.clone(),
+                roots.clone(),
+                volumes.clone(),
+            );
             // Bound retained handles independently from the number of persisted rows.
             const PENDING_ADMISSIONS: NonZeroUsize = NonZeroUsize::new(32).unwrap();
             desktop::register_services_with_recent_scope_worker(

@@ -15,6 +15,8 @@ pub mod recent_scope_body;
 #[cfg(all(feature = "gui", windows))]
 mod recent_scope_list;
 #[cfg(all(feature = "gui", windows))]
+mod recent_scope_open;
+#[cfg(all(feature = "gui", windows))]
 mod recent_scope_worker;
 #[cfg(all(feature = "gui", windows))]
 mod settings;

@@ -38,6 +38,13 @@ string_value!(Id, |s: &str| uuid::Uuid::parse_str(s).is_ok_and(|v| v
     && v.get_variant() == uuid::Variant::RFC4122
     && v.to_string() == s));
 impl Id {
+    /// Returns the native UUID bytes for an already validated reference.
+    pub fn v7_bytes(&self) -> Option<[u8; 16]> {
+        uuid::Uuid::parse_str(self.as_str())
+            .ok()
+            .map(|id| *id.as_bytes())
+    }
+
     /// Builds a UUID v7 from bytes with a supplied timestamp and random data.
     pub fn from_v7_bytes(bytes: [u8; 16]) -> Self {
         Self(

@@ -2,6 +2,13 @@
 use crate::{ByteSize, Id, ItemRef, OsPath, SizeValue, Timestamp};
 use serde::{Deserialize, Serialize};
 
+mod recent_scope;
+
+pub use recent_scope::{
+    RecentScopeList, RecentScopeListRequest, RecentScopeListRow, RecentScopeOpen,
+    RecentScopeOpenRequest, RecentScopeOpenTarget, RecentScopeTargetState,
+};
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
@@ -138,31 +145,6 @@ pub struct ScopeDraft {
 pub struct ScopeReviewRequest {
     pub draft: ScopeDraft,
     pub request_seq: u32,
-}
-
-/// Empty GUI request for the recent-scope summaries.
-#[derive(Deserialize)]
-#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
-#[cfg_attr(feature = "typescript", ts(type = "Record<string, never>"))]
-#[serde(deny_unknown_fields)]
-pub struct RecentScopeListRequest {}
-
-/// A recent-scope summary containing only the published list fields.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
-#[serde(rename_all = "camelCase")]
-pub struct RecentScopeListRow {
-    pub recent_scope_ref: Id,
-    pub include_count: u32,
-    pub last_used_at: Timestamp,
-}
-
-/// Recent-scope summaries ordered by last use and then by reference.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
-#[serde(rename_all = "camelCase")]
-pub struct RecentScopeList {
-    pub rows: Vec<RecentScopeListRow>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

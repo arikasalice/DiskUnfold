@@ -31,6 +31,7 @@ fn scan_response(
 fn wait_for_saved_scope(
     profile: &std::path::Path,
     engine: &Engine,
+    original: &ScopeReview,
 ) -> Result<crate::recent_scope_body::RecentScopeBody, Box<dyn std::error::Error>> {
     use rusqlite::OptionalExtension;
 
@@ -63,17 +64,20 @@ fn wait_for_saved_scope(
     let decoded =
         crate::recent_scope_body::RecentScopeBody::decode(&body, format, &fingerprint, count)
             .map_err(|e| format!("{e:?}"))?;
-    let target = decoded.targets().first().ok_or("missing restored target")?;
-    let volume = target.volume_id.bytes()?;
-    let matched = du_engine_api::scope::recent::review_recent_volume(
-        &du_platform_os::volume::WindowsVolumes,
-        &volume,
-        &target.entry_path,
-        &|| true,
-    );
+    let opened = ipc(
+        engine,
+        "scope.recent_open",
+        json!({
+            "recentScopeRef": listed.body["rows"][0]["recentScopeRef"], "requestSeq": 19,
+        }),
+    )?;
+    assert!(opened.error.is_none());
+    assert_eq!(opened.body["targets"][0]["state"], "matched");
+    assert_eq!(opened.body["review"]["scope"]["source"], "recent");
+    assert_eq!(opened.body["review"]["requestSeq"], 19);
     assert_eq!(
-        matched,
-        du_engine_api::scope::recent::RecentVolumeMatch::Matched
+        opened.body["review"]["reviewFingerprint"],
+        original.review_fingerprint
     );
     Ok(decoded)
 }
@@ -110,6 +114,12 @@ fn lossy_display_preserves_native_scope_identity() -> Result<(), Box<dyn std::er
     let (warn, warnings) = mpsc::channel();
     let cap = NonZeroUsize::new(2).ok_or("zero retention cap")?;
     crate::recent_scope_list::register(&mut builder, database.clone(), cap);
+    crate::recent_scope_open::register(
+        &mut builder,
+        database.clone(),
+        Arc::new(du_platform_os::windows_observation::WindowsScopeRoots),
+        Arc::new(du_platform_os::volume::WindowsVolumes),
+    );
     let worker = crate::recent_scope_worker::RecentScopeWorker::start(
         admissions,
         database,
@@ -200,7 +210,7 @@ fn lossy_display_preserves_native_scope_identity() -> Result<(), Box<dyn std::er
     assert!(!scan.existing);
     let delivery = observer(&request, &response).ok_or("missing response callback")?;
     delivery(ResponseDelivery::Posted);
-    let saved = wait_for_saved_scope(profile.path(), &engine)?;
+    let saved = wait_for_saved_scope(profile.path(), &engine, &review)?;
     assert!(matches!(
         warnings.try_recv(),
         Err(mpsc::TryRecvError::Empty)

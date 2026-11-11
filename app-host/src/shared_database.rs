@@ -12,7 +12,10 @@ use std::{
 
 use du_app_db::{
     AppDb,
-    recent_scope::{RecentError, RecentScopeStore, RecentSummary, RecentWrite, list_recent_scopes},
+    recent_scope::{
+        RecentError, RecentItem, RecentScopeStore, RecentSummary, RecentWrite, list_recent_scopes,
+        read_recent_scope,
+    },
 };
 use du_core_contracts::{
     job::{
@@ -98,6 +101,12 @@ impl SharedDatabase {
     ) -> Result<Vec<RecentSummary>, RecentError> {
         let connection = self.0.connection.lock().map_err(|_| RecentError::Storage)?;
         list_recent_scopes(&connection, cap)
+    }
+
+    /// Reads a stored row before the application validates its body and rechecks the scope.
+    pub(super) fn recent_scope(&self, id: &[u8; 16]) -> Result<Option<RecentItem>, RecentError> {
+        let connection = self.0.connection.lock().map_err(|_| RecentError::Storage)?;
+        read_recent_scope(&connection, id)
     }
 }
 
