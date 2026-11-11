@@ -40,18 +40,21 @@ fn startup_definitions_preserve_settings_and_report_four_backup_boundary()
     assert_eq!(state(&first)?, (1, 7, "\"ko\"".into()));
     assert_eq!(state(&second)?, (2, 7, "\"ko\"".into()));
     assert_eq!(state(&third)?, (3, 7, "\"ko\"".into()));
-    drop(AppDb::open_gui_with_history(&path).map_err(|e| format!("{e:?}"))?);
-    let current = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
     assert_eq!(
         inspect_retention(&root)
             .map_err(|e| format!("{e:?}"))?
             .content_valid,
         3
     );
+    let outcome =
+        apply_next_managed(&path, &root, &HISTORY_DEFINITIONS).map_err(|e| format!("{e:?}"))?;
+    assert_eq!(outcome.revision, 5);
+    assert_eq!(state(&path)?, (5, 7, "\"ko\"".into()));
     assert_eq!(
-        publish(&current, 4, &root).map_err(|e| format!("{e:?}"))?,
-        4
+        state(&root.join("backup-00000000000000000004").join(COPY))?,
+        (4, 7, "\"ko\"".into())
     );
+    drop(AppDb::open_gui_with_history(&path).map_err(|e| format!("{e:?}"))?);
     let report = inspect_retention(&root).map_err(|e| format!("{e:?}"))?;
     assert_eq!(report.content_valid, 4);
     assert!(report.cleanup_unavailable);

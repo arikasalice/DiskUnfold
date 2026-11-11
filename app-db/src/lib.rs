@@ -13,6 +13,7 @@ mod history_schema;
 mod job_history;
 pub mod migration;
 mod recent_scope_schema;
+pub mod ruleset;
 mod settings;
 
 pub use history_schema::{HISTORY_DEFINITIONS, HISTORY_SCHEMA_VERSION};
