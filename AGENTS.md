@@ -86,8 +86,9 @@ For a CLI-only development build, use `cargo run --locked -p du-launcher --no-de
 
 ## Subagent delegation
 
-- Use `gpt-6-luna` for every new subagent and delegated follow-up. Select it explicitly. If the tool cannot select it, the team lead handles the work directly.
-- Close completed subagents where the tool supports it. Let existing work finish when its model cannot be changed in place, then use Luna for any replacement. Apply these rules in every project chat and pass them to any delegated team.
+- In every DiskUnfold chat, explicitly select `gpt-6-luna` for every new subagent, including nested delegation. Follow-up assignments go only to subagents running `gpt-6-luna`. If the tool cannot select this model, the team lead handles the work directly.
+- Let an in-flight assignment finish when its subagent model cannot be changed. Review the result, then close the completed assignment and use `gpt-6-luna` for any follow-up. Close completed subagent sessions when the host supports it.
+- The Luna requirement applies to subagents. The integration, development and design leads keep their assigned models.
 
 ## Tests and handoff
 
