@@ -57,15 +57,15 @@ function draft(paths: OsPath[]): ScopeDraft {
   };
 }
 
-function canStart(
-  review: ScopeReview | undefined,
-  input: ScopeDraft | undefined,
-): boolean {
+/** Keeps the original request bound to the fingerprint returned for it. */
+type ReviewedScope = { input: ScopeDraft; review: ScopeReview };
+
+function canStart(scope: ReviewedScope | undefined): scope is ReviewedScope {
   return Boolean(
-    review?.scope.includes.length &&
-    input?.includes.length &&
-    review.targets.length === input.includes.length &&
-    review.targets.every((target) => target.access === "accessible"),
+    scope?.review.scope.includes.length &&
+    scope.input.includes.length &&
+    scope.review.targets.length === scope.input.includes.length &&
+    scope.review.targets.every((target) => target.access === "accessible"),
   );
 }
 
@@ -95,8 +95,7 @@ export function AnalysisPanel({
   const [displayChoice, setDisplayChoice] = useState<SizeDisplay>();
   const [editorOpen, setEditorOpen] = useState(false);
   const [selected, setSelected] = useState<(OsPath | undefined)[]>([undefined]);
-  const [review, setReview] = useState<ScopeReview>();
-  const [reviewedDraft, setReviewedDraft] = useState<ScopeDraft>();
+  const [reviewedScope, setReviewedScope] = useState<ReviewedScope>();
   const [working, setWorking] = useState(false);
   const [reviewing, setReviewing] = useState(false);
   const [resultRoots, setResultRoots] = useState<OsPath[]>([]);
@@ -161,8 +160,7 @@ export function AnalysisPanel({
       pendingDrop.current = undefined;
       setCheckingDrop(false);
       setSelected(update);
-      setReview(undefined);
-      setReviewedDraft(undefined);
+      setReviewedScope(undefined);
       setReviewing(false);
       setReviewProblem(undefined);
       setError(undefined);
@@ -246,8 +244,6 @@ export function AnalysisPanel({
     const paths = selected.filter((path): path is OsPath => path !== undefined);
     if (paths.length === 0) return;
     const requestSeq = ++request.current;
-    setReview(undefined);
-    setReviewedDraft(undefined);
     setReviewing(true);
     setReviewProblem(undefined);
     try {
@@ -260,8 +256,7 @@ export function AnalysisPanel({
         request.current === requestSeq &&
         response.requestSeq === requestSeq
       ) {
-        setReview(response);
-        setReviewedDraft(submittedDraft);
+        setReviewedScope({ input: submittedDraft, review: response });
       }
     } catch (failure) {
       if (request.current === requestSeq)
@@ -272,14 +267,15 @@ export function AnalysisPanel({
   }
 
   async function start() {
-    if (scanBlocksDrop.current || pendingDrop.current) return;
-    if (!review || !reviewedDraft || !canStart(review, reviewedDraft)) return;
+    if (scanBlocksDrop.current || pendingDrop.current || reviewing) return;
+    if (!canStart(reviewedScope)) return;
+    const { input, review } = reviewedScope;
     scanBlocksDrop.current = true;
     setWorking(true);
     setError(undefined);
     try {
       const result = await client.call("scan.start", {
-        draft: reviewedDraft,
+        draft: input,
         reviewFingerprint: review.reviewFingerprint,
       });
       if (result.jobRef !== receipt?.jobRef) setDisplayChoice(undefined);
@@ -291,14 +287,15 @@ export function AnalysisPanel({
       scanBlocksDrop.current = false;
       focusReview.current = true;
       if (failure instanceof AnalysisError && failure.code === "STALE_VERSION")
-        setReview(undefined);
+        setReviewedScope(undefined);
       setError(errorText(failure));
     } finally {
       setWorking(false);
     }
   }
 
-  const ready = canStart(review, reviewedDraft);
+  const review = reviewedScope?.review;
+  const ready = canStart(reviewedScope);
   const resultActive = receipt !== null || error !== undefined;
   const scopeProblem = Boolean(reviewProblem || (review && !ready));
   const showEditor = receipt === null || editorOpen;

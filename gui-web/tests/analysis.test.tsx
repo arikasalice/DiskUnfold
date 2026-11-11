@@ -598,6 +598,86 @@ test("F01: a probe that finishes before publishing an observation leaves the tar
   expect(screen.queryByText("accessible")).toBeNull();
 });
 
+test("F01 FR4.HD1.gui-web.DD1: a review response must match its draft sequence before scan start", async () => {
+  let reviewCount = 0;
+  const { client, calls } = fixture({
+    readReview: (review) => {
+      reviewCount += 1;
+      return reviewCount === 1
+        ? {
+            ...review,
+            requestSeq: review.requestSeq + 1,
+            reviewFingerprint: "rejected",
+          }
+        : { ...review, reviewFingerprint: "accepted" };
+    },
+  });
+  render(<App analysis={client} />);
+  fireEvent.click(await screen.findByRole("radio", { name: path.display }));
+  const reviewButton = screen.getByRole("button", { name: "Review scope" });
+  const start = screen.getByRole<HTMLButtonElement>("button", {
+    name: "Start scan",
+  });
+
+  fireEvent.click(reviewButton);
+  await waitFor(() => expect(reviewCount).toBe(1));
+  expect(start.disabled).toBe(true);
+  expect(calls.some(({ name }) => name === "scan.start")).toBe(false);
+
+  fireEvent.click(reviewButton);
+  await waitFor(() => expect(start.disabled).toBe(false));
+  const reviewRequest = calls
+    .filter(({ name }) => name === "scope.review")
+    .at(-1)?.body as { draft: unknown; requestSeq: number };
+  fireEvent.click(start);
+  await screen.findByText("At least 42 bytes");
+
+  expect(calls.find(({ name }) => name === "scan.start")?.body).toEqual({
+    draft: reviewRequest.draft,
+    reviewFingerprint: "accepted",
+  });
+  expect(reviewRequest).toMatchObject({
+    draft: { exclusions: [] },
+    requestSeq: 3,
+  });
+});
+
+test("F01 FR4.HD1.gui-web.DD1: a failed repeat review preserves the admitted draft and fingerprint", async () => {
+  let rejectReview: ((reason: Error) => void) | undefined;
+  const { client, calls } = fixture({
+    readReview: (review) =>
+      calls.filter(({ name }) => name === "scope.review").length === 1
+        ? { ...review, reviewFingerprint: "first-review" }
+        : new Promise<ScopeReview>((_, reject) => {
+            rejectReview = reject;
+          }),
+  });
+  render(<App analysis={client} />);
+  fireEvent.click(await screen.findByRole("radio", { name: path.display }));
+  const reviewButton = screen.getByRole("button", { name: "Review scope" });
+  const start = screen.getByRole<HTMLButtonElement>("button", {
+    name: "Start scan",
+  });
+  fireEvent.click(reviewButton);
+  await waitFor(() => expect(start.disabled).toBe(false));
+  fireEvent.click(reviewButton);
+  expect(start.disabled).toBe(true);
+  const fail = rejectReview;
+  if (!fail) throw new Error("Repeat review was not started");
+  await act(async () => fail(new Error("Scope review unavailable")));
+  await screen.findByText("Scope review unavailable");
+  expect(screen.getByLabelText("Reviewed scope")).toBeDefined();
+  expect(start.disabled).toBe(false);
+  fireEvent.click(start);
+  await screen.findByText("At least 42 bytes");
+  const firstReview = calls.find(({ name }) => name === "scope.review")
+    ?.body as { draft: unknown };
+  expect(calls.find(({ name }) => name === "scan.start")?.body).toEqual({
+    draft: firstReview.draft,
+    reviewFingerprint: "first-review",
+  });
+});
+
 test("F01–F03: reviewed scope starts a scan and reads its pinned partial result", async () => {
   const { client, calls } = fixture();
   render(<App analysis={client} />);
