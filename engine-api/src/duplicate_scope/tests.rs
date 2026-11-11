@@ -1,3 +1,5 @@
+mod scope_evidence;
+
 use super::*;
 use du_analysis_index::{Observation, SharingEvidence, SpaceObservation};
 use du_core_contracts::{
@@ -99,13 +101,28 @@ fn selects_only_observed_files_inside_roots_and_outside_exclusions() -> Result<(
         &source,
         Scope {
             version: &id(2),
-            roots: &[root],
-            exclusions: &[excluded],
+            roots: std::slice::from_ref(&root),
+            exclusions: std::slice::from_ref(&excluded),
             min_bytes: 4,
         },
     )
     .map_err(|e| format!("{e:?}"))?;
     assert_eq!(selection.version(), &id(2));
+    let evidence = selection.scope_evidence();
+    assert_eq!(evidence.roots, vec![root]);
+    assert_eq!(evidence.exclusions, vec![excluded]);
+    assert_eq!(evidence.minimum_bytes, 4);
+    assert_eq!(
+        (
+            evidence.outside,
+            evidence.excluded,
+            evidence.below_minimum,
+            evidence.unavailable
+        ),
+        (0, 1, 1, 2)
+    );
+    assert_eq!(evidence.source_completeness, version.completeness());
+    assert_eq!(evidence.observed_at.as_ref(), version.observed_at());
     assert_eq!(selection.files.len(), 1);
     assert_eq!(selection.files[0].item, reference(&version, b"inside")?);
     assert_eq!(selection.files[0].size, 8);
@@ -212,6 +229,17 @@ fn selected_source_remains_pinned_after_current_result_changes() -> Result<(), S
         .seal(id(4), ResultCompleteness::Complete)
         .map_err(|e| format!("{e:?}"))?;
     assert_eq!(selection.version(), &id(2));
+    assert!(
+        selection
+            .scope_evidence()
+            .roots
+            .iter()
+            .all(|root| root.result_version == id(2))
+    );
+    assert_eq!(
+        selection.scope_evidence().source_completeness,
+        ResultCompleteness::Complete
+    );
     assert!(
         selection
             .files

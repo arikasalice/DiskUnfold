@@ -52,11 +52,35 @@ pub struct Counts {
     pub unavailable: u64,
 }
 
+/// The request and source observations captured with one selected scan result.
+#[derive(Debug, PartialEq, Eq)]
+pub struct SelectionScope {
+    /// Root references validated against the pinned result.
+    pub roots: Vec<ItemRef>,
+    /// Exclusion references validated against the pinned result.
+    pub exclusions: Vec<ItemRef>,
+    /// Inclusive lower bound on logical bytes.
+    pub minimum_bytes: u64,
+    /// Number of observed files outside the requested roots.
+    pub outside: u64,
+    /// Number of observed files removed by exclusions.
+    pub excluded: u64,
+    /// Number of observed files below the minimum.
+    pub below_minimum: u64,
+    /// Number of observed files without required selection metadata.
+    pub unavailable: u64,
+    /// Completeness of the pinned scan result.
+    pub source_completeness: ResultCompleteness,
+    /// Source observation time when available.
+    pub observed_at: Option<Timestamp>,
+}
+
 /// Retains the exact source while selected references are in use.
 pub struct Selection {
     version: Arc<ResultVersion>,
     files: Vec<Selected>,
     counts: Counts,
+    evidence: SelectionScope,
 }
 
 impl Selection {
@@ -100,6 +124,12 @@ impl Selection {
     /// Returns observed-file counts, not counts of omitted scan entries.
     pub fn counts(&self) -> &Counts {
         &self.counts
+    }
+    /// Returns the request and source evidence captured with this pinned selection.
+    ///
+    /// This is historical scope evidence, not authorization to open a file.
+    pub fn scope_evidence(&self) -> &SelectionScope {
+        &self.evidence
     }
 }
 
@@ -313,10 +343,22 @@ fn select_pinned(
     if cancelled() {
         return Err(Error::Cancelled);
     }
+    let evidence = SelectionScope {
+        roots: scope.roots.to_vec(),
+        exclusions: scope.exclusions.to_vec(),
+        minimum_bytes: scope.min_bytes,
+        outside: counts.outside,
+        excluded: counts.excluded,
+        below_minimum: counts.below_minimum,
+        unavailable: counts.unavailable,
+        source_completeness: version.completeness(),
+        observed_at: version.observed_at().cloned(),
+    };
     Ok(Selection {
         version,
         files,
         counts,
+        evidence,
     })
 }
 
