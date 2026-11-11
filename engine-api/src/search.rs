@@ -163,12 +163,13 @@ impl SearchEntry {
         let query_ref = self.ids.next_id();
         permit
             .publish(true, || {
-                if caller.is_cancelled() {
-                    return Err(SearchError::Cancelled);
-                }
-                self.sets
-                    .register_admitted_search(query_ref, candidate)
-                    .map_err(page_error)
+                caller
+                    .with_active(|| {
+                        self.sets
+                            .register_admitted_search(query_ref, candidate)
+                            .map_err(page_error)
+                    })
+                    .ok_or(SearchError::Cancelled)?
             })
             .map_err(|_| SearchError::Cancelled)?
     }
