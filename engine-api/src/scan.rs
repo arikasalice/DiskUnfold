@@ -132,10 +132,11 @@ impl UseCase for StartScan {
             &*self.roots,
             self.comparison.clone(),
         )?;
+        let scope_fingerprint = verified.scope_fingerprint.resolve()?;
         let scope_version = self.ids.next_id();
         let lineage = self
             .store
-            .bind_current_analysis(&verified.scope_fingerprint, self.ids.next_id())
+            .bind_current_analysis(&scope_fingerprint, self.ids.next_id())
             .map_err(|_| internal())?;
         let root_count = verified.roots.len();
         let mut job = MetadataScan::new_roots(
@@ -153,7 +154,7 @@ impl UseCase for StartScan {
         let submission = Submission {
             kind_id: body.kind_id().into(),
             deduplication_key: Some(DeduplicationKey {
-                scope: verified.scope_fingerprint.clone(),
+                scope: scope_fingerprint.clone(),
                 input: "metadata-default".into(),
                 channel: "gui".into(),
                 key: String::new(),
@@ -172,7 +173,7 @@ impl UseCase for StartScan {
             submission,
             scope_version,
             lineage,
-            verified.scope_fingerprint,
+            scope_fingerprint,
             request.review_fingerprint,
         )
     }

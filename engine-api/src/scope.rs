@@ -246,8 +246,23 @@ pub(crate) fn windows_path(path: &OsPath) -> Result<OsPath, EngineError> {
 /// An anchored scope and its identity-independent fingerprint.
 pub(crate) struct VerifiedScope {
     pub roots: Vec<OpenedScopeRoot>,
-    pub scope_fingerprint: String,
+    pub scope_fingerprint: ScopeFingerprint,
     pub filter: Option<Arc<du_scan_engine::scan::PreMetadataFilter<'static>>>,
+}
+
+/// The verified source of a scope fingerprint for the scan submission.
+pub(crate) enum ScopeFingerprint {
+    Ready(String),
+    Bound(exclusion::BoundScopeProof),
+}
+
+impl ScopeFingerprint {
+    pub(crate) fn resolve(self) -> Result<String, EngineError> {
+        match self {
+            Self::Ready(fingerprint) => Ok(fingerprint),
+            Self::Bound(proof) => proof.fingerprint(),
+        }
+    }
 }
 
 /// Revalidates the review against fresh handle evidence before starting work.
@@ -280,7 +295,7 @@ pub(crate) fn verify(
         }
         return Ok(VerifiedScope {
             roots: prepared.into_roots(),
-            scope_fingerprint: scope.to_hex().to_string(),
+            scope_fingerprint: ScopeFingerprint::Ready(scope.to_hex().to_string()),
             filter: None,
         });
     };
@@ -301,7 +316,7 @@ pub(crate) fn verify(
     }
     Ok(VerifiedScope {
         roots: vec![root],
-        scope_fingerprint: scope_fingerprint.to_hex().to_string(),
+        scope_fingerprint: ScopeFingerprint::Ready(scope_fingerprint.to_hex().to_string()),
         filter: None,
     })
 }

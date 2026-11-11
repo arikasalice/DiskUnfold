@@ -1,4 +1,5 @@
 use super::*;
+mod invalid;
 use crate::scope::exclusion::{ComparisonPath, PathComparison};
 use du_core_contracts::analysis_ipc::ScopeReview;
 
@@ -55,6 +56,80 @@ impl PathComparison for ProvenComparison {
 fn native(path: &str) -> serde_json::Value {
     let bytes: Vec<_> = path.encode_utf16().flat_map(u16::to_le_bytes).collect();
     json!({"encoding": "windows_utf16le", "raw": PathBytes::from_bytes(&bytes), "display": "untrusted", "lossy": false})
+}
+
+#[test]
+fn original_rules_stay_paired_with_single_observed_comparison_evidence()
+-> Result<(), Box<dyn std::error::Error>> {
+    use crate::scope::exclusion::prepare;
+    use du_core_contracts::scan_observation::FilterDecision;
+    let path = |s: &str| -> Result<OsPath, serde_json::Error> { serde_json::from_value(native(s)) };
+    let roots = vec![(path("C:\\Fixture")?, vec![1])];
+    let rules = vec![
+        path("C:\\FIXTURE\\F")?,
+        path("D:\\Other\\X")?,
+        path("C:\\FIXTURE\\F")?,
+    ];
+    let frozen = prepare(Arc::new(ProvenComparison), &roots, &rules).ok_or("missing evidence")?;
+    assert!(frozen.ineffective_rule);
+    assert_eq!(frozen.rules.len(), 3);
+    for (bound, original) in frozen.rules.iter().zip(&rules) {
+        assert_eq!(bound.original(), original);
+        let expected = ProvenComparison
+            .path(original)
+            .ok_or("missing expected key")?;
+        assert_eq!(bound.comparison().serialized_key, expected.serialized_key);
+        assert_eq!(bound.comparison().volume, expected.volume);
+        assert_eq!(bound.comparison().components, expected.components);
+    }
+    assert_eq!(
+        (frozen.filter)(0, &[], &native_component("F")),
+        FilterDecision::Exclude
+    );
+    assert_eq!(
+        (frozen.filter)(0, &[], &native_component("else")),
+        FilterDecision::Admit
+    );
+    let reversed = rules.iter().rev().cloned().collect::<Vec<_>>();
+    let again = prepare(Arc::new(ProvenComparison), &roots, &reversed).ok_or("missing evidence")?;
+    let keys = |values: &[crate::scope::exclusion::VerifiedExclusion]| {
+        let mut keys = values
+            .iter()
+            .map(|value| value.comparison().serialized_key.raw.bytes())
+            .collect::<Result<Vec<_>, _>>()?;
+        keys.sort();
+        Ok::<_, Box<dyn std::error::Error>>(keys)
+    };
+    assert_eq!(keys(&frozen.rules)?, keys(&again.rules)?);
+    Ok(())
+}
+
+#[test]
+fn repeated_and_ineffective_rules_keep_review_binding_when_reordered()
+-> Result<(), Box<dyn std::error::Error>> {
+    let ScanHarness { engine, .. } =
+        fixture::scan_harness_with_comparison(None, Some(Arc::new(ProvenComparison)))?;
+    let gui = |name, body| call(&engine, name, Channel::Gui, ENVELOPE_VERSION, body);
+    let mut draft = json!({"includes":[native("C:\\Fixture")],"exclusions":[{"kind":"path","path":native("C:\\Fixture\\F")},{"kind":"path","path":native("D:\\Other\\X")},{"kind":"path","path":native("C:\\Fixture\\F")}],"boundary":"current_volume","includedMounts":[],"source":"gui"});
+    let review: ScopeReview =
+        serde_json::from_value(gui("scope.review", json!({"draft":draft,"requestSeq":1}))?.body)?;
+    assert!(
+        review
+            .notices
+            .iter()
+            .any(|notice| notice == "scope.exclusion_ineffective")
+    );
+    draft["exclusions"]
+        .as_array_mut()
+        .ok_or("invalid rules")?
+        .rotate_left(1);
+    let result = gui(
+        "scan.start",
+        json!({"draft":draft,"reviewFingerprint":review.review_fingerprint}),
+    )?;
+    assert!(result.error.is_none());
+    let _: ScanStart = serde_json::from_value(result.body)?;
+    Ok(())
 }
 
 struct ChangingRootKey {
@@ -156,6 +231,9 @@ fn reviewed_exclusions_are_bound_to_start_and_filter_the_job()
     let review: ScopeReview =
         serde_json::from_value(gui("scope.review", json!({"draft": draft, "requestSeq": 1}))?.body)
             .map_err(|error| format!("{error:?}"))?;
+    let requested: du_core_contracts::analysis_ipc::ScopeDraft =
+        serde_json::from_value(draft.clone())?;
+    assert_eq!(review.scope.exclusions, requested.exclusions);
     let mut equivalent = draft.clone();
     equivalent["includes"][0] = native("c:\\fixture");
     equivalent["exclusions"][0]["path"] = native("c:\\fixture\\f");
