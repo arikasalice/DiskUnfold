@@ -55,7 +55,7 @@ impl ModelPages {
         let (model_ref, model) = self
             .register_deferred(
                 &mut candidate.input,
-                &candidate.layout,
+                &(candidate.layout.clone(), None),
                 &deferred.reserved.reference,
                 cancelled,
                 &mut deferred.cleanup,

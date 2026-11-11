@@ -89,6 +89,23 @@ impl Rendered {
         &self.prepared
     }
 
+    /// Consumes the rendered value and moves its evidence without cloning members.
+    pub fn into_parts(
+        self,
+    ) -> (
+        unit_bins::UnitBins,
+        SizeBasis,
+        histogram_projection::Model,
+        Selected,
+    ) {
+        (
+            self.prepared.unit_bins,
+            self.prepared.size_basis,
+            self.prepared.model,
+            self.selected,
+        )
+    }
+
     /// Returns the selected strategy, its geometry and its resolved axis.
     pub fn selected(&self) -> &Selected {
         &self.selected

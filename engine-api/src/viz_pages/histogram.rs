@@ -2,8 +2,11 @@
 //!
 //! This module does not register a strategy or a GUI command. Labels, legend
 //! classes, group references, and missing-value reasons come from their owners.
+mod deferred_selected;
+mod selected;
 use super::{ModelInput, production::RowPresentation};
 use crate::browse;
+pub use deferred_selected::{DeferredSelectedPages, HistogramBinFrame, HistogramFrame};
 use du_analysis_index::{
     ResultVersion,
     visualization::{
@@ -21,6 +24,7 @@ use du_core_contracts::{
         rows::{VizDenominator, VizDenominatorBasis, VizRow},
     },
 };
+pub use selected::{PinnedRendered, SelectedCandidate, prepare_selected};
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
@@ -50,6 +54,7 @@ pub struct Request<'a> {
 pub struct Candidate {
     pub model: histogram_projection::Model,
     pub pages: ModelInput,
+    pub unit_bins: Option<du_analysis_index::visualization::unit_bins::UnitBins>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {
@@ -97,6 +102,14 @@ pub fn prepare(
             Error::Source
         }
     })?;
+    assemble(request, model, cancelled)
+}
+
+fn assemble(
+    request: Request<'_>,
+    model: histogram_projection::Model,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<Candidate, Error> {
     let count = model.summary.counts.files;
     let denominator = VizDenominator {
         basis: VizDenominatorBasis::Scope,
@@ -226,6 +239,7 @@ pub fn prepare(
     )?;
     Ok(Candidate {
         model,
+        unit_bins: None,
         pages: ModelInput {
             version: request.version,
             condition_fingerprint: fingerprint,

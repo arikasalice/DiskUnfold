@@ -21,10 +21,14 @@ use du_core_contracts::{
 };
 use du_job_runtime::JobIdentity;
 use std::{
+    any::Any,
     collections::{HashMap, VecDeque},
     num::NonZeroUsize,
     sync::{Arc, Mutex, Weak},
 };
+
+// The strategy owns the metadata type. The shared index only retains its lifetime.
+type LayoutMetadata = Arc<dyn Any + Send + Sync>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {
@@ -74,6 +78,7 @@ struct Entry {
     revision: Id,
     fingerprint: String,
     layout: Option<Arc<projection::Model>>,
+    metadata: Option<LayoutMetadata>,
     scope: Option<ItemRef>,
 }
 #[derive(Default)]
@@ -188,7 +193,7 @@ impl ModelPages {
                     if layout.is_some() && entry.layout.is_none() {
                         return Err(Error::InvalidModel);
                     }
-                    if entry.scope != scope {
+                    if entry.scope != scope || entry.metadata.is_some() {
                         return Err(Error::InvalidModel);
                     }
                     let layout = entry.layout.clone();
@@ -244,6 +249,7 @@ impl ModelPages {
                         revision: key.0.clone(),
                         fingerprint: key.1.clone(),
                         layout: layout.clone(),
+                        metadata: None,
                         scope: scope.clone(),
                     },
                 );
@@ -391,10 +397,21 @@ fn validate_input(input: &ModelInput) -> Result<(), Error> {
 }
 
 fn validate_rows(input: &ModelInput, rows: &[VizRow]) -> Result<(), Error> {
+    validate_rows_cancellable(input, rows, &mut || false)
+}
+
+fn validate_rows_cancellable(
+    input: &ModelInput,
+    rows: &[VizRow],
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<(), Error> {
     if rows.len() as u64 >= (1_u64 << 53) {
         return Err(Error::InvalidModel);
     }
     for row in rows {
+        if cancelled() {
+            return Err(Error::Cancelled);
+        }
         row.validate_revision(input.version.version_id())
             .map_err(|_| Error::InvalidModel)?;
         if let Some(item) = &row.item_ref

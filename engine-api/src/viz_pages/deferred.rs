@@ -14,11 +14,12 @@ impl ModelPages {
     pub(super) fn register_deferred(
         &self,
         input: &mut PreparedModelInput,
-        layout: &Option<Arc<projection::Model>>,
+        layouts: &(Option<Arc<projection::Model>>, Option<LayoutMetadata>),
         reference: &str,
         cancelled: &mut dyn FnMut() -> bool,
         cleanup: &mut DeferredRows,
     ) -> Result<(String, Option<Arc<projection::Model>>), Error> {
+        let (layout, metadata) = layouts;
         let version = &input.version;
         let key = (
             version.version_id().clone(),
@@ -44,6 +45,11 @@ impl ModelPages {
                         return Err(Error::StaleVersion);
                     }
                     if layout.is_some() && entry.layout.is_none() {
+                        return Err(Error::InvalidModel);
+                    }
+                    if metadata.as_deref().map(Any::type_id)
+                        != entry.metadata.as_deref().map(Any::type_id)
+                    {
                         return Err(Error::InvalidModel);
                     }
                     if entry.scope != input.scope {
@@ -102,6 +108,7 @@ impl ModelPages {
                         revision: key.0.clone(),
                         fingerprint: key.1.clone(),
                         layout: layout.clone(),
+                        metadata: metadata.clone(),
                         scope: input.scope.clone(),
                     },
                 );
@@ -110,5 +117,30 @@ impl ModelPages {
                 Ok((reference.to_owned(), layout.clone()))
             })
             .map_err(source_error)?
+    }
+
+    /// Reads strategy-owned metadata only while its model source is current.
+    pub(super) fn layout_metadata<T: Any + Send + Sync>(
+        &self,
+        reference: &str,
+    ) -> Result<Arc<T>, Error> {
+        let state = self.state.lock().map_err(|_| Error::Unavailable)?;
+        let entry = state.entries.get(reference).ok_or(Error::ModelExpired)?;
+        let current = self
+            .source
+            .pin_current(&entry.revision)
+            .map_err(source_error)?;
+        if !entry
+            .source
+            .upgrade()
+            .is_some_and(|source| Arc::ptr_eq(&source, &current))
+        {
+            return Err(Error::StaleVersion);
+        }
+        entry
+            .metadata
+            .clone()
+            .and_then(|metadata| metadata.downcast().ok())
+            .ok_or(Error::InvalidModel)
     }
 }
