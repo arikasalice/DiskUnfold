@@ -572,7 +572,7 @@ function Test-AutomaticScopeReview {
 # Exercise recent-scope reopen in a build with the storage policy supplied.
 function Test-RecentScopeReopen {
   Open-TargetEditor
-  Invoke-UI (Wait-Enabled 'Recent analysis ranges' $true)
+  Expand-UI (Wait-Enabled 'Recent analysis ranges' $true)
   Invoke-UI (Wait-Enabled 'Review range 1' $true)
   $null = Wait-UI 'stored volume matched' { Find-UI 'Volume matched' $textType }
   Invoke-UI (Wait-Enabled 'Use this range' $true)
