@@ -87,6 +87,7 @@ impl<'a> RecentScopeStore<'a> {
     }
 
     /// Atomically inserts or refreshes one fingerprint and evicts oldest rows.
+    /// A delayed write with an older use time cannot replace a newer use.
     pub fn put(&mut self, item: &RecentWrite<'_>) -> Result<(), RecentError> {
         if !valid_id(&item.id) || item.include_count == 0 || !(self.validate_body)(item.body) {
             return Err(RecentError::Invalid);
@@ -96,7 +97,25 @@ impl<'a> RecentScopeStore<'a> {
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(map)?;
-        tx.execute("INSERT INTO user_env_recent_scope(recent_scope_id,scope_fingerprint,fingerprint_format,scope_body,include_count,last_used_at_ms,created_at_ms,updated_at_ms,row_version) VALUES(?1,?2,1,?3,?4,?5,?5,?5,1) ON CONFLICT(scope_fingerprint,fingerprint_format) DO UPDATE SET last_used_at_ms=excluded.last_used_at_ms,updated_at_ms=excluded.updated_at_ms,row_version=row_version+1", params![item.id.as_slice(), item.fingerprint.as_slice(), item.body, item.include_count, item.now_ms]).map_err(map)?;
+        tx.execute(
+            "INSERT INTO user_env_recent_scope(
+                 recent_scope_id,scope_fingerprint,fingerprint_format,scope_body,include_count,
+                 last_used_at_ms,created_at_ms,updated_at_ms,row_version
+             ) VALUES(?1,?2,1,?3,?4,?5,?5,?5,1)
+             ON CONFLICT(scope_fingerprint,fingerprint_format) DO UPDATE SET
+                 last_used_at_ms=excluded.last_used_at_ms,
+                 updated_at_ms=excluded.updated_at_ms,
+                 row_version=row_version+1
+             WHERE excluded.last_used_at_ms >= user_env_recent_scope.last_used_at_ms",
+            params![
+                item.id.as_slice(),
+                item.fingerprint.as_slice(),
+                item.body,
+                item.include_count,
+                item.now_ms
+            ],
+        )
+        .map_err(map)?;
         tx.execute("DELETE FROM user_env_recent_scope WHERE recent_scope_id IN (SELECT recent_scope_id FROM user_env_recent_scope ORDER BY last_used_at_ms DESC,recent_scope_id ASC LIMIT -1 OFFSET ?1)", [self.cap]).map_err(map)?;
         tx.commit().map_err(map)
     }

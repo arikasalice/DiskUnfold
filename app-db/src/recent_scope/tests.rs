@@ -109,6 +109,35 @@ fn summaries_deduplicate_evict_and_reopen() -> TestResult {
     Ok(())
 }
 
+/// A delayed observation cannot demote a more recently used scope before eviction.
+#[test]
+fn delayed_duplicate_preserves_recent_order_across_connections() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("app.db");
+    let mut first = AppDb::create_gui_with_history(&path).map_err(|e| format!("{e:?}"))?;
+    let mut second = AppDb::open_gui_with_history(&path).map_err(|e| format!("{e:?}"))?;
+    let cap = NonZeroUsize::new(2).ok_or("zero")?;
+    let mut newest =
+        RecentScopeStore::new(&mut first, cap, &valid).map_err(|e| format!("{e:?}"))?;
+    let mut delayed =
+        RecentScopeStore::new(&mut second, cap, &valid).map_err(|e| format!("{e:?}"))?;
+    newest.put(&write(1, 1, 30)).map_err(|e| format!("{e:?}"))?;
+    newest.put(&write(2, 2, 20)).map_err(|e| format!("{e:?}"))?;
+    delayed
+        .put(&write(3, 1, 10))
+        .map_err(|e| format!("{e:?}"))?;
+    newest.put(&write(4, 4, 40)).map_err(|e| format!("{e:?}"))?;
+    let retained = delayed.list().map_err(|e| format!("{e:?}"))?;
+    assert_eq!(
+        retained
+            .iter()
+            .map(|entry| (entry.id, entry.last_used_at_ms))
+            .collect::<Vec<_>>(),
+        vec![(id(4), 40), (id(1), 30)]
+    );
+    Ok(())
+}
+
 #[test]
 fn summary_corruption_and_unvalidated_body_never_become_partial_success() -> TestResult {
     let dir = tempfile::tempdir()?;
