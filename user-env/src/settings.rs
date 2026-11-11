@@ -75,6 +75,7 @@ impl<S: SettingsStore> SettingsService<S> {
             ..RestoreStatus::default()
         };
         status.record_items(&registry, &snapshot);
+        mark_display_warning(&mut status, &registry, &snapshot);
         Ok(Self {
             registry,
             store,
@@ -165,6 +166,7 @@ impl<S: SettingsStore> SettingsService<S> {
             }
         }
         status.record_items(&registry, &snapshot);
+        mark_display_warning(&mut status, &registry, &snapshot);
         Self {
             registry,
             store,
@@ -186,6 +188,13 @@ impl<S: SettingsStore> SettingsService<S> {
 
     pub fn snapshot(&self) -> &SettingsSnapshot {
         &self.snapshot
+    }
+
+    /// Returns the effective display unit settings without rewriting stored values.
+    /// An incompatible stored pair projects to automatic units with a warning.
+    /// Returns `None` if the descriptors or individually valid values are unavailable.
+    pub fn display_units(&self) -> Option<crate::space::DisplayUnits<'_>> {
+        display_units(&self.registry, &self.snapshot, None)
     }
 
     /// Returns the catalog and its revision from the same immutable settings snapshot.
@@ -288,7 +297,47 @@ impl<S: SettingsStore> SettingsService<S> {
                 return Err(SettingsError::InvalidValue);
             }
         }
+        if (changes.contains_key(crate::space::SIZE_UNIT_SYSTEM)
+            || changes.contains_key(crate::space::SIZE_UNIT))
+            && display_units(&self.registry, &self.snapshot, Some(changes))
+                .is_none_or(|units| units.warning.is_some())
+        {
+            return Err(SettingsError::InvalidValue);
+        }
         Ok(())
+    }
+}
+
+fn display_units<'a>(
+    registry: &'a Registry,
+    snapshot: &'a SettingsSnapshot,
+    changes: Option<&'a SettingsChanges>,
+) -> Option<crate::space::DisplayUnits<'a>> {
+    let resolve = |key: &str| {
+        let default = &registry.descriptors.get(key)?.default;
+        let value = match changes.and_then(|changes| changes.get(key)) {
+            Some(Some(value)) => value,
+            Some(None) => default,
+            None => snapshot.values.get(key).unwrap_or(default),
+        };
+        value.as_str()
+    };
+    crate::space::project_display_units(
+        resolve(crate::space::SIZE_UNIT_SYSTEM)?,
+        resolve(crate::space::SIZE_UNIT)?,
+    )
+}
+
+fn mark_display_warning(
+    status: &mut RestoreStatus,
+    registry: &Registry,
+    snapshot: &SettingsSnapshot,
+) {
+    if display_units(registry, snapshot, None).is_some_and(|units| units.warning.is_some())
+        && let Some(item) = status.items.get_mut(crate::space::SIZE_UNIT)
+    {
+        item.source = RestoreSource::Default;
+        item.reason = Some("settings.value_reset");
     }
 }
 
@@ -302,3 +351,6 @@ mod restore_tests;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod display_units_tests;

@@ -14,6 +14,44 @@ pub const SIZE_UNIT: &str = "display.size_unit";
 /// The registered key for the default size basis.
 pub const DEFAULT_BASIS: &str = "space.default_basis";
 
+/// Effective display unit settings and any non-destructive restore warning.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DisplayUnits<'a> {
+    /// The validated selected unit system.
+    pub system: &'a str,
+    /// The selected symbol, or `auto` when the stored pair is incompatible.
+    pub unit: &'a str,
+    /// Warning reported when an incompatible pair was projected to `auto`.
+    pub warning: Option<&'static str>,
+}
+
+/// Tests a unit symbol against the published table for the selected system.
+pub fn compatible_units(system: &str, unit: &str) -> bool {
+    let table = match system {
+        "si" => &SI_UNITS,
+        "iec" => &IEC_UNITS,
+        _ => return false,
+    };
+    unit == "auto" || table.symbols().contains(&unit)
+}
+
+/// Projects individually validated settings without changing their stored values.
+pub fn project_display_units<'a>(system: &'a str, unit: &'a str) -> Option<DisplayUnits<'a>> {
+    if !matches!(system, "si" | "iec")
+        || !(unit == "auto"
+            || SI_UNITS.symbols().contains(&unit)
+            || IEC_UNITS.symbols().contains(&unit))
+    {
+        return None;
+    }
+    let compatible = compatible_units(system, unit);
+    Some(DisplayUnits {
+        system,
+        unit: if compatible { unit } else { "auto" },
+        warning: (!compatible).then_some("settings.value_reset"),
+    })
+}
+
 /// Returns the F03 descriptor. Applying it to future jobs is the caller's responsibility.
 pub fn descriptors() -> Vec<Descriptor> {
     let mut result = vec![Descriptor {
