@@ -117,6 +117,7 @@ export type {
   VizRenderRequest,
   VizRenderResponse,
   VizRow,
+  VizGeometry,
   VizRows,
   VizRowsRequest,
   VizShape,

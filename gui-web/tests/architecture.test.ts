@@ -57,12 +57,18 @@ test("enforces GUI dependency boundaries", { timeout: 20_000 }, () => {
     );
     write("src/features/a/cycle-a.ts", 'import "./cycle-b";');
     write("src/features/a/cycle-b.ts", 'import "./cycle-a";');
+    write("preview/fixture.ts", "export const synthetic = true;");
+    write(
+      "src/preview-leak.ts",
+      'export { synthetic } from "../preview/fixture";',
+    );
     const failed = check();
     expect(failed.status).not.toBe(0);
     for (const rule of [
       "native-bridge-only-in-ipc",
       "feature-isolation",
       "no-circular",
+      "no-preview-in-product",
     ]) {
       expect(failed.output).toContain(rule);
     }

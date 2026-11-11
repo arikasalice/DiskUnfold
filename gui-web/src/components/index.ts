@@ -28,6 +28,11 @@ export { canHandleBrowseKey } from "./browse-keys";
 export { DataTable } from "./data-table";
 export { DetailDisclosure } from "./detail-disclosure";
 export { InspectionDialog } from "./inspection-dialog";
+export { ContentState, ReviewSurface, ReviewSection } from "./review-surface";
+export type { SurfaceState } from "./review-surface";
+export { ItemActions } from "./item-actions";
+export type { ItemAction } from "./item-actions";
+export { ReviewField, ReviewCheck } from "./review-field";
 
 export { createChartRenderers } from "./chart-renderers";
 export { GeometryRenderer } from "./geometry-renderer";

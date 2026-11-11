@@ -8,6 +8,8 @@
     "node": "26.13.0"
   },
   "scripts": {
+    "preview:ui": "vite --config preview/vite.config.ts",
+    "build:preview": "vite build --config preview/vite.config.ts",
     "build": "vite build",
     "check": "npm run typecheck && npm run lint && npm run format:check && npm run arch",
     "typecheck": "node node_modules/typescript-compiler/bin/tsc --noEmit",

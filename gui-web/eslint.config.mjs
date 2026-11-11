@@ -8,7 +8,12 @@ const nativeBoundary = {
 
 export default [
   {
-    ignores: ["dist/**", "coverage/**", "src/ipc/generated/**"],
+    ignores: [
+      "dist/**",
+      "preview-dist/**",
+      "coverage/**",
+      "src/ipc/generated/**",
+    ],
   },
   ...tseslint.configs.recommended,
   {

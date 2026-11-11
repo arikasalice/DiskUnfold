@@ -3,6 +3,12 @@ const zone = (name) => `^src/${name}(?:/|$)`;
 module.exports = {
   forbidden: [
     {
+      name: "no-preview-in-product",
+      severity: "error",
+      from: { path: "^src/" },
+      to: { path: "^preview/" },
+    },
+    {
       name: "no-circular",
       severity: "error",
       from: {},

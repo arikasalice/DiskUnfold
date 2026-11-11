@@ -1,6 +1,7 @@
 /target/
 /gui-web/node_modules/
 /gui-web/dist/
+/gui-web/preview-dist/
 /gui-web/coverage/
 /quality-output/
 *.db-wal
