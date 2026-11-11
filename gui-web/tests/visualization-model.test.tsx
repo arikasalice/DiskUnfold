@@ -133,13 +133,16 @@ test("pointer selection returns the generated identity and does not open details
     />,
   );
   fireEvent.click(container.querySelector(".du-geometry-shape rect")!);
-  expect(select).toHaveBeenCalledWith({
-    kind: "item",
-    itemRef: input.frame.model.shapes[0]!.itemRef,
-    matchKey: input.frame.model.shapes[0]!.matchKey,
-    modelRef: input.frame.model.modelRef,
-    resultRevision: input.frame.resultRevision,
-  });
+  expect(select).toHaveBeenCalledWith(
+    {
+      kind: "item",
+      itemRef: input.frame.model.shapes[0]!.itemRef,
+      matchKey: input.frame.model.shapes[0]!.matchKey,
+      modelRef: input.frame.model.modelRef,
+      resultRevision: input.frame.resultRevision,
+    },
+    JSON.stringify(["shape", "fixture-shape-0"]),
+  );
   expect(screen.queryByRole("dialog")).toBeNull();
 });
 
@@ -339,6 +342,7 @@ test("repeated item shapes select their own evidence by pointer and keyboard whi
       itemRef: first.itemRef,
       matchKey: first.matchKey,
     }),
+    JSON.stringify(["shape", "fixture-shape-0"]),
   );
   fireEvent.click(shapes[1]!);
   expect(select).toHaveBeenLastCalledWith(
@@ -346,6 +350,7 @@ test("repeated item shapes select their own evidence by pointer and keyboard whi
       itemRef: second.itemRef,
       matchKey: second.matchKey,
     }),
+    JSON.stringify(["shape", "fixture-shape-1"]),
   );
   // React Aria's keyboard press path must carry the same per-shape reference.
   const buttons = screen.getAllByRole("button", { name: /^영상 ·/ });
@@ -354,6 +359,7 @@ test("repeated item shapes select their own evidence by pointer and keyboard whi
   fireEvent.keyUp(buttons[0]!, { key: "Enter", code: "Enter" });
   expect(select).toHaveBeenLastCalledWith(
     expect.objectContaining({ matchKey: first.matchKey }),
+    JSON.stringify(["shape", "fixture-shape-0"]),
   );
   rerender(
     <VisualizationModelPresenter

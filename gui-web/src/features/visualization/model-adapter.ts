@@ -77,15 +77,11 @@ export function adaptVizModel(
   const rows = rowsMatch ? page.response.rows : [];
   const rowByTarget = new Map(rows.map((row) => [targetKey(row), row]));
   const targetsByShape = new Map<string, VizSelection>();
-  const wireShapeKey = (ref: string) => JSON.stringify(["shape", ref]);
   let validTargets = true;
   const shapes: GeometryRendererProps["shapes"] = frame.model.shapes.map(
     (shape, index) => {
       const key = targetKey(shape);
-      const shapeRef =
-        shape.shapeRef === undefined
-          ? JSON.stringify(["flat", index])
-          : wireShapeKey(shape.shapeRef);
+      const shapeRef = visualizationShapeRef(shape.shapeRef, index);
       if (
         !key ||
         (shape.itemRef && shape.itemRef.resultVersion !== frame.resultRevision)
@@ -121,11 +117,20 @@ export function adaptVizModel(
   );
   const relations: GeometryRendererProps["relations"] =
     frame.model.relationships.map((relation) => ({
-      fromShapeRef: wireShapeKey(relation.fromShapeRef),
-      toShapeRef: wireShapeKey(relation.toShapeRef),
+      fromShapeRef: visualizationShapeRef(relation.fromShapeRef, 0),
+      toShapeRef: visualizationShapeRef(relation.toShapeRef, 0),
       ...(relation.geometry === undefined
         ? {}
         : { geometry: relation.geometry }),
     }));
   return { shapes, relations, targetsByShape, rows, rowsMatch, validTargets };
+}
+
+export function visualizationShapeRef(
+  shapeRef: string | undefined,
+  index: number,
+) {
+  return shapeRef === undefined
+    ? JSON.stringify(["flat", index])
+    : JSON.stringify(["shape", shapeRef]);
 }

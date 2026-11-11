@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useId, useLayoutEffect, useMemo, useRef } from "react";
 import {
   Action,
   DataTable,
@@ -9,11 +9,13 @@ import {
   Readout,
   StatusBadge,
   Text,
+  Heading,
 } from "../../components";
 import type {
   ItemRef,
   VizModel,
   VizRenderRequest,
+  VizRow,
   VizRowsRequest,
 } from "../../ipc";
 import { adaptVizModel, selectionKey } from "./model-adapter";
@@ -34,19 +36,37 @@ type ModelViewProps = {
   pendingRowsRequest?: VizRowsRequest;
   view: Pick<VizRenderRequest, "viewport" | "visibleWindow">;
   selected: VizSelection | null;
-  onSelect: (selection: VizSelection) => void;
+  onSelect: (selection: VizSelection, shapeRef: string) => void;
+  onFocusedGroupShape?: (
+    selection: VizSelection | null,
+    shapeRef: string,
+    target: HTMLElement | null,
+    groupLabel?: string,
+    returnTarget?: HTMLElement | null,
+  ) => void;
   focus?: ItemRef | null;
   onFocusItem?: (item: ItemRef | null) => void;
   onFocusTargetMissing?: () => void;
   onFocusAvailability?: (available: boolean) => void;
   focusFirstRequest?: number;
   onPage?: (request: VizRowsRequest) => void;
+  onOpenGroup?: (
+    groupRef: string,
+    size: VizRow["size"],
+    origin: HTMLElement,
+    groupLabel: string,
+    returnTarget: HTMLElement | null,
+  ) => void;
+  returnTargetRef?: { current: HTMLElement | null } | undefined;
+  rowsReturnTargetRef?: { current: HTMLElement | null } | undefined;
   text: VizText;
 };
 
 /** A committed model only. Request ordering and last-valid-model retention belong to its controller. */
 export function VisualizationModelPresenter(props: ModelViewProps) {
   const { frame, page, view, selected, text } = props;
+  const visualizationRef = useRef<HTMLElement>(null);
+  const headingId = useId();
   const ChartRenderer = (props.resolveRenderer ?? defaultChartRenderer)(
     frame.model.representation.format,
   );
@@ -66,6 +86,8 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
         page={page}
         model={frame.model}
         text={text}
+        returnTargetRef={props.rowsReturnTargetRef}
+        {...(props.onOpenGroup ? { onOpenGroup: props.onOpenGroup } : {})}
         {...(props.onPage ? { onPage: props.onPage } : {})}
       />
     ) : rowsPending ? null : (
@@ -84,7 +106,22 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
       </Notice>
     );
   return (
-    <section className="du-review-stack" aria-label="Storage visualization">
+    <section
+      ref={(element) => {
+        const previous = visualizationRef.current;
+        visualizationRef.current = element;
+        if (element && props.returnTargetRef)
+          props.returnTargetRef.current = element;
+        else if (props.returnTargetRef?.current === previous)
+          props.returnTargetRef.current = null;
+      }}
+      className="du-review-stack"
+      tabIndex={-1}
+      aria-labelledby={headingId}
+    >
+      <Heading level={2} id={headingId}>
+        Storage visualization
+      </Heading>
       <div className="du-review-context">
         <StatusBadge
           tone={frame.completeness === "complete" ? "neutral" : "warning"}
@@ -139,13 +176,26 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
           ? { onFocusTargetMissing: props.onFocusTargetMissing }
           : {})}
         onShapeFocus={(_rowKey, shapeRef) => {
-          const target = adapted.targetsByShape.get(shapeRef);
+          const target = uniqueShapeTarget(adapted, shapeRef);
           if (target)
             props.onFocusItem?.(target.kind === "item" ? target.itemRef : null);
+          const active = document.activeElement;
+          props.onFocusedGroupShape?.(
+            target,
+            shapeRef,
+            props.resolveRenderer === undefined &&
+              active instanceof HTMLButtonElement &&
+              visualizationRef.current?.contains(active)
+              ? active
+              : null,
+            adapted.shapes.find((shape) => shape.shapeRef === shapeRef)
+              ?.accessibleLabel,
+            visualizationRef.current,
+          );
         }}
         onSelect={(_rowKey, shapeRef) => {
-          const selection = adapted.targetsByShape.get(shapeRef);
-          if (selection) props.onSelect(selection);
+          const selection = uniqueShapeTarget(adapted, shapeRef);
+          if (selection) props.onSelect(selection, shapeRef);
         }}
         fallback={{
           modelRef: frame.model.modelRef,
@@ -158,80 +208,144 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
   );
 }
 
+function uniqueShapeTarget(
+  adapted: ReturnType<typeof adaptVizModel>,
+  shapeRef: string,
+) {
+  const matches = adapted.shapes.filter((shape) => shape.shapeRef === shapeRef);
+  return matches.length === 1
+    ? (adapted.targetsByShape.get(shapeRef) ?? null)
+    : null;
+}
+
 export function ModelRows({
   page,
   model,
   text,
   onPage,
+  onOpenGroup,
+  returnTargetRef,
   title = "Rows from this graph",
 }: {
   page: ModelRowsPage;
   model: VizModel;
   text: VizText;
   onPage?: (request: VizRowsRequest) => void;
+  onOpenGroup?: (
+    groupRef: string,
+    size: VizRow["size"],
+    origin: HTMLElement,
+    groupLabel: string,
+    returnTarget: HTMLElement | null,
+  ) => void;
+  returnTargetRef?: { current: HTMLElement | null } | undefined;
   title?: string;
 }) {
+  const rowsRegion = useRef<HTMLElement>(null);
   const { request, response } = page;
   const next = request.start + response.rows.length;
+  useLayoutEffect(() => {
+    if (returnTargetRef) returnTargetRef.current = rowsRegion.current;
+  }, [
+    request.modelRef,
+    request.resultRevision,
+    request.start,
+    response.rows,
+    returnTargetRef,
+  ]);
   return (
-    <DetailDisclosure
-      title={title}
-      key={`${request.modelRef}:${request.resultRevision}`}
+    <div
+      ref={(element) => {
+        rowsRegion.current = element;
+        if (returnTargetRef) returnTargetRef.current = element;
+      }}
+      {...(returnTargetRef
+        ? { role: "group", tabIndex: -1, "aria-label": title }
+        : {})}
     >
-      <Text>
-        {response.rows.length === 0
-          ? "No rows in this page"
-          : `Rows ${request.start + 1}–${next} of ${response.totalCount}`}
-      </Text>
-      <DataTable
-        label="Loaded graph rows"
-        density="compact"
-        columns={[
-          "Name",
-          "Value",
-          "Ratio",
-          "Denominator",
-          "Classification",
-          "Flags",
-        ]}
-        rows={response.rows}
-        getRowKey={(row) => JSON.stringify([row.itemRef, row.groupRef])}
-        renderCells={(row) => [
-          row.displayName,
-          row.quantity ? text.quantity(row.quantity) : text.size(row.size),
-          row.ratio ?? "Unavailable",
-          `${text.quantity(row.denominator.value)} · ${text.key(row.denominator.basis)}`,
-          text.key(
-            model.legend.find((entry) => entry.key === row.legendClassKey)
-              ?.labelKey ?? row.legendClassKey,
-          ),
-          row.displayFlags.map(text.key).join(" · "),
-        ]}
-      />
-      {onPage && (
-        <div className="du-review-actions">
-          <Action
-            isDisabled={request.start === 0}
-            onPress={() =>
-              onPage({
-                ...request,
-                start: Math.max(0, request.start - request.count),
-              })
-            }
-          >
-            Previous rows
-          </Action>
-          <Action
-            isDisabled={
-              next >= response.totalCount || response.rows.length === 0
-            }
-            onPress={() => onPage({ ...request, start: next })}
-          >
-            Next rows
-          </Action>
-        </div>
-      )}
-    </DetailDisclosure>
+      <DetailDisclosure
+        title={title}
+        key={`${request.modelRef}:${request.resultRevision}`}
+      >
+        <Text>
+          {response.rows.length === 0
+            ? "No rows in this page"
+            : `Rows ${request.start + 1}–${next} of ${response.totalCount}`}
+        </Text>
+        <DataTable
+          label="Loaded graph rows"
+          density="compact"
+          columns={[
+            "Name",
+            "Actions",
+            "Value",
+            "Ratio",
+            "Denominator",
+            "Classification",
+            "Flags",
+          ]}
+          rows={response.rows}
+          getRowKey={(row) => JSON.stringify([row.itemRef, row.groupRef])}
+          renderCells={(row) => {
+            let trigger: HTMLButtonElement | null = null;
+            return [
+              row.displayName,
+              row.groupRef !== null && row.itemRef === null && onOpenGroup ? (
+                <Action
+                  ref={(element) => {
+                    trigger = element;
+                  }}
+                  onPress={() => {
+                    if (trigger && row.groupRef !== null)
+                      onOpenGroup(
+                        row.groupRef,
+                        row.size,
+                        trigger,
+                        row.displayName.trim() || "Other items",
+                        returnTargetRef?.current ?? rowsRegion.current,
+                      );
+                  }}
+                  aria-label={`View members of ${row.displayName.trim() || "Other items"}`}
+                >
+                  View group members
+                </Action>
+              ) : null,
+              row.quantity ? text.quantity(row.quantity) : text.size(row.size),
+              row.ratio ?? "Unavailable",
+              `${text.quantity(row.denominator.value)} · ${text.key(row.denominator.basis)}`,
+              text.key(
+                model.legend.find((entry) => entry.key === row.legendClassKey)
+                  ?.labelKey ?? row.legendClassKey,
+              ),
+              row.displayFlags.map(text.key).join(" · "),
+            ];
+          }}
+        />
+        {onPage && (
+          <div className="du-review-actions">
+            <Action
+              isDisabled={request.start === 0}
+              onPress={() =>
+                onPage({
+                  ...request,
+                  start: Math.max(0, request.start - request.count),
+                })
+              }
+            >
+              Previous rows
+            </Action>
+            <Action
+              isDisabled={
+                next >= response.totalCount || response.rows.length === 0
+              }
+              onPress={() => onPage({ ...request, start: next })}
+            >
+              Next rows
+            </Action>
+          </div>
+        )}
+      </DetailDisclosure>
+    </div>
   );
 }
 

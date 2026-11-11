@@ -1,11 +1,19 @@
 import {
   useEffect,
+  useId,
   useLayoutEffect,
   useRef,
   useState,
   useSyncExternalStore,
 } from "react";
-import { Action, LiveStatus, Notice, Progress, Text } from "../../components";
+import {
+  Action,
+  Heading,
+  LiveStatus,
+  Notice,
+  Progress,
+  Text,
+} from "../../components";
 import {
   ModelRows,
   VisualizationModelPresenter,
@@ -14,12 +22,22 @@ import type {
   VisualizationController,
   VisualizationSnapshot,
 } from "./controller";
-import type { VizRowsRequest } from "../../ipc";
+import type { VizRow, VizRowsRequest } from "../../ipc";
 import type { createChartRenderers } from "../../components";
 import type { VizText } from "./model-text";
 import { visualizationFormatName, visualizationReason } from "./messages";
 import { GroupView } from "./GroupView";
 import type { GroupController } from "./group-controller";
+import type { GroupOrigin } from "./group-navigation";
+import {
+  createGroupRowOpener,
+  getGroupReturnTargetRef,
+  getGroupRowFrame,
+  getTableOnlyFrame,
+  isCurrentTable,
+  rememberFocusedGroupShape,
+  selectVisualizationGroup,
+} from "./group-navigation";
 
 /** Injectable entry point. Visual design and product assembly remain with the host. */
 export function ControlledVisualization({
@@ -45,18 +63,35 @@ export function ControlledVisualization({
   const [graphTargets, setGraphTargets] = useState(false);
   const [focusRequest, setFocusRequest] = useState(0);
   const focusNotice = useRef<HTMLDivElement>(null);
+  const visualizationTargetRef = useRef<HTMLElement | null>(null);
+  const graphRowsTargetRef = useRef<HTMLElement | null>(null);
+  const tableTargetRef = useRef<HTMLElement | null>(null);
+  const [groupOrigin, setGroupOrigin] = useState<GroupOrigin | null>(null);
+  const focusedGroupShape =
+    useRef<ReturnType<typeof rememberFocusedGroupShape>>(null);
   useLayoutEffect(() => {
     if (focusLost && document.activeElement === document.body)
       focusNotice.current?.focus({ preventScroll: true });
   }, [focusLost]);
   const graph = state.graph;
   const table = state.table;
+  const tableOnlyFrame = getTableOnlyFrame(graph, table, state);
   useFirstRows(controller, state, autoLoadRows === true);
-  const currentTable =
-    !!graph &&
-    !!table &&
-    table.model.modelRef === graph.frame.model.modelRef &&
-    table.resultRevision === graph.frame.resultRevision;
+  const currentTable = isCurrentTable(graph, table);
+  const rowGroupFrame = getGroupRowFrame(currentTable, graph, tableOnlyFrame);
+  const groupReturnTargetRef = getGroupReturnTargetRef(
+    groupOrigin,
+    graph,
+    table,
+    graphRowsTargetRef,
+    visualizationTargetRef,
+    tableTargetRef,
+  );
+  const openGroupFromRows = createGroupRowOpener(
+    groupController,
+    rowGroupFrame,
+    setGroupOrigin,
+  );
   return (
     <>
       <VisualizationStatus
@@ -86,7 +121,38 @@ export function ControlledVisualization({
           onFocusTargetMissing={() => setFocusLost(true)}
           onFocusAvailability={setGraphTargets}
           focusFirstRequest={focusRequest}
-          onSelect={(selection) => controller.select(selection)}
+          onFocusedGroupShape={(
+            selection,
+            shapeRef,
+            target,
+            groupLabel,
+            viewTarget,
+          ) =>
+            (focusedGroupShape.current = rememberFocusedGroupShape(
+              graph.frame,
+              selection,
+              shapeRef,
+              target,
+              groupLabel,
+              viewTarget,
+            ))
+          }
+          onSelect={(selection, shapeRef) =>
+            selectVisualizationGroup(
+              selection,
+              shapeRef,
+              graph.frame,
+              controller,
+              focusedGroupShape.current,
+              setGroupOrigin,
+              () => {
+                focusedGroupShape.current = null;
+              },
+            )
+          }
+          {...(openGroupFromRows ? { onOpenGroup: openGroupFromRows } : {})}
+          returnTargetRef={visualizationTargetRef}
+          rowsReturnTargetRef={graphRowsTargetRef}
           text={text}
           {...(state.graphPage ? { page: state.graphPage } : {})}
           {...(state.pendingRows && currentTable
@@ -104,8 +170,10 @@ export function ControlledVisualization({
       {groupController && (
         <GroupView
           controller={groupController}
-          frame={graph?.frame ?? null}
+          frame={graph?.frame ?? tableOnlyFrame}
           selection={state.selection}
+          origin={groupOrigin}
+          returnTargetRef={groupReturnTargetRef}
           text={text}
         />
       )}
@@ -132,6 +200,8 @@ export function ControlledVisualization({
         controller={controller}
         text={text}
         currentTable={currentTable}
+        {...(openGroupFromRows ? { onOpenGroup: openGroupFromRows } : {})}
+        returnTargetRef={tableTargetRef}
       />
     </>
   );
@@ -175,18 +245,44 @@ function SeparateModelTable({
   controller,
   text,
   currentTable,
+  onOpenGroup,
+  returnTargetRef,
 }: {
   state: VisualizationSnapshot;
   controller: VisualizationController;
   text: VizText;
   currentTable: boolean;
+  onOpenGroup?: (
+    groupRef: string,
+    size: VizRow["size"],
+    origin: HTMLElement,
+    groupLabel: string,
+    returnTarget: HTMLElement | null,
+  ) => void;
+  returnTargetRef: { current: HTMLElement | null };
 }) {
   const graph = state.graph;
   const table = state.table;
+  const sectionRef = useRef<HTMLElement>(null);
+  const headingId = useId();
   return (
     <>
-      {table && !currentTable && (
-        <section aria-label={text.message("newerRegion")}>
+      {table && (!graph || !currentTable) && (
+        <section
+          ref={(element) => {
+            const previous = sectionRef.current;
+            sectionRef.current = element;
+            if (element) returnTargetRef.current = element;
+            else if (returnTargetRef.current === previous)
+              returnTargetRef.current = null;
+          }}
+          className="du-review-stack"
+          tabIndex={-1}
+          aria-labelledby={headingId}
+        >
+          <Heading level={2} id={headingId}>
+            {text.message("newerRegion")}
+          </Heading>
           <Text>
             {text.message("newTableObservation")}{" "}
             {text.observedAt(table.observedAt)}
@@ -226,6 +322,7 @@ function SeparateModelTable({
               onPage={(request) => {
                 void controller.rows(request);
               }}
+              {...(onOpenGroup ? { onOpenGroup } : {})}
             />
           )}
         </section>

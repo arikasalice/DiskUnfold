@@ -1,4 +1,5 @@
 import { createChartRenderers } from "../src/components";
+import type { GeometryRendererProps } from "../src/components";
 import { visualizationMessage } from "../src/features/visualization/messages";
 import {
   act,
@@ -13,9 +14,11 @@ import { afterEach, expect, test, vi } from "vitest";
 import { fixtureText, modelFixture } from "../preview/model-fixture";
 import { VisualizationController } from "../src/features/visualization/controller";
 import { ControlledVisualization } from "../src/features/visualization/ControlledVisualization";
+import { GroupController } from "../src/features/visualization/group-controller";
 import type {
   VizRenderRequest,
   VizRenderResponse,
+  VizGroupRows,
   VizRowsRequest,
 } from "../src/ipc";
 
@@ -64,6 +67,260 @@ function deferred<T>() {
   });
   return { promise, resolve, reject };
 }
+
+test.each(["keyboard", "pointer"] as const)(
+  "returns to the actual adapted group shape after %s activation",
+  async (activation) => {
+    const result = frame(1);
+    const shape = result.model.shapes[0]!;
+    shape.itemRef = null;
+    shape.groupRef = "group-origin";
+    const visualization = new VisualizationController({
+      render: vi.fn().mockResolvedValue(result),
+      rows: vi.fn(),
+      cancel: vi.fn(),
+      canDisplay: () => true,
+    });
+    const groups = new GroupController({
+      rows: vi.fn().mockResolvedValue({
+        rows: [],
+        totalCount: 0,
+        groupTotal: shape.size,
+        sizeRange: { kind: "unknown" },
+        resultRevision: result.resultRevision,
+        observedAt: result.observedAt,
+        completeness: result.completeness,
+      } satisfies VizGroupRows),
+    });
+    render(
+      <ControlledVisualization
+        controller={visualization}
+        groupController={groups}
+        text={fixtureText}
+      />,
+    );
+    await act(async () => visualization.render(request(1)));
+    const shapeButton = within(
+      screen.getByRole("group", { name: "Space distribution" }),
+    ).getAllByRole("button")[0]!;
+    shapeButton.focus();
+    if (activation === "keyboard") {
+      fireEvent.keyDown(shapeButton, { key: " ", code: "Space" });
+      fireEvent.keyUp(shapeButton, { key: " ", code: "Space" });
+    } else fireEvent.click(shapeButton);
+    fireEvent.click(screen.getByRole("button", { name: "View group members" }));
+    const back = await screen.findByRole("button", {
+      name: "Back to visualization",
+    });
+    expect(
+      screen
+        .getAllByRole("heading")
+        .some((heading) => heading.textContent?.includes("Other members")),
+    ).toBe(false);
+    back.focus();
+    fireEvent.click(back);
+    expect(document.activeElement).toBe(shapeButton);
+  },
+);
+
+test("selection while an unrelated control has focus does not become a shape origin", async () => {
+  const result = frame(1);
+  const shape = result.model.shapes[0]!;
+  shape.itemRef = null;
+  shape.groupRef = "group-origin";
+  const selection = {
+    kind: "group" as const,
+    groupRef: "group-origin",
+    modelRef: result.model.modelRef,
+    resultRevision: result.resultRevision,
+  };
+  const visualization = new VisualizationController({
+    render: vi.fn().mockResolvedValue(result),
+    rows: vi.fn(),
+    cancel: vi.fn(),
+    canDisplay: () => true,
+  });
+  const groups = new GroupController({
+    rows: vi.fn().mockResolvedValue({
+      rows: [],
+      totalCount: 0,
+      groupTotal: shape.size,
+      sizeRange: { kind: "unknown" },
+      resultRevision: result.resultRevision,
+      observedAt: result.observedAt,
+      completeness: result.completeness,
+    } satisfies VizGroupRows),
+  });
+  render(
+    <>
+      <button>Unrelated control</button>
+      <ControlledVisualization
+        controller={visualization}
+        groupController={groups}
+        text={fixtureText}
+      />
+    </>,
+  );
+  await act(async () => visualization.render(request(1)));
+  const external = screen.getByRole("button", { name: "Unrelated control" });
+  external.focus();
+  act(() => visualization.select(selection));
+  fireEvent.click(screen.getByRole("button", { name: "View group members" }));
+  const back = await screen.findByRole("button", {
+    name: "Back to visualization",
+  });
+  back.focus();
+  fireEvent.click(back);
+  await screen.findByText(
+    "The original group target is no longer available. Return to the visualization.",
+  );
+  expect(document.activeElement?.getAttribute("aria-labelledby")).toBeTruthy();
+  expect(document.activeElement).not.toBe(external);
+});
+
+test("an injected chart renderer cannot claim a button as a verified shape origin", async () => {
+  const result = frame(1);
+  const shape = result.model.shapes[0]!;
+  shape.itemRef = null;
+  shape.groupRef = "group-origin";
+  const visualization = new VisualizationController({
+    render: vi.fn().mockResolvedValue(result),
+    rows: vi.fn(),
+    cancel: vi.fn(),
+    canDisplay: () => true,
+  });
+  const groups = new GroupController({
+    rows: vi.fn().mockResolvedValue({
+      rows: [],
+      totalCount: 0,
+      groupTotal: shape.size,
+      sizeRange: { kind: "unknown" },
+      resultRevision: result.resultRevision,
+      observedAt: result.observedAt,
+      completeness: result.completeness,
+    } satisfies VizGroupRows),
+  });
+  const ForgedRenderer = (props: GeometryRendererProps) => {
+    const rendered = props.shapes[0];
+    if (!rendered) return null;
+    return (
+      <button
+        onFocus={() => props.onShapeFocus?.(rendered.rowRef, rendered.shapeRef)}
+        onClick={() => props.onSelect(rendered.rowRef, rendered.shapeRef)}
+      >
+        {rendered.accessibleLabel}
+      </button>
+    );
+  };
+  render(
+    <ControlledVisualization
+      controller={visualization}
+      groupController={groups}
+      resolveRenderer={createChartRenderers([["treemap", ForgedRenderer]])}
+      text={fixtureText}
+    />,
+  );
+  await act(async () => visualization.render(request(1)));
+  const fakeShape = within(
+    screen.getByRole("region", { name: "Storage visualization" }),
+  ).getAllByRole("button")[0]!;
+  fakeShape.focus();
+  fireEvent.click(fakeShape);
+  fireEvent.click(screen.getByRole("button", { name: "View group members" }));
+  const back = await screen.findByRole("button", {
+    name: "Back to visualization",
+  });
+  back.focus();
+  fireEvent.click(back);
+  expect(
+    await screen.findByText(
+      "The original group target is no longer available. Return to the visualization.",
+    ),
+  ).toBeTruthy();
+  expect(document.activeElement).not.toBe(fakeShape);
+});
+
+test("a removed graph group row returns to its rows title with an explanation", async () => {
+  const result = frame(1);
+  const fixturePage = modelFixture().page;
+  const groupRow = {
+    ...fixturePage.response.rows[0]!,
+    itemRef: null,
+    groupRef: "row-group",
+    displayName: "Other items",
+  };
+  const rows = vi
+    .fn()
+    .mockResolvedValueOnce({
+      ...fixturePage.response,
+      resultRevision: result.resultRevision,
+      rows: [groupRow],
+    })
+    .mockResolvedValueOnce({
+      ...fixturePage.response,
+      resultRevision: result.resultRevision,
+      rows: [],
+    });
+  const visualization = new VisualizationController({
+    render: vi.fn().mockResolvedValue(result),
+    rows,
+    cancel: vi.fn(),
+    canDisplay: () => true,
+  });
+  const groups = new GroupController({
+    rows: vi.fn().mockResolvedValue({
+      rows: [],
+      totalCount: 0,
+      groupTotal: result.model.shapes[0]!.size,
+      sizeRange: { kind: "unknown" },
+      resultRevision: result.resultRevision,
+      observedAt: result.observedAt,
+      completeness: result.completeness,
+    } satisfies VizGroupRows),
+  });
+  render(
+    <ControlledVisualization
+      controller={visualization}
+      groupController={groups}
+      text={fixtureText}
+    />,
+  );
+  await act(async () => visualization.render(request(1)));
+  await act(async () =>
+    visualization.rows({
+      modelRef: result.model.modelRef,
+      resultRevision: result.resultRevision,
+      start: 0,
+      count: 100,
+    }),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Rows from this graph" }));
+  fireEvent.click(
+    screen.getByRole("button", { name: "View members of Other items" }),
+  );
+  const back = await screen.findByRole("button", {
+    name: "Back to visualization",
+  });
+  await act(async () =>
+    visualization.rows({
+      modelRef: result.model.modelRef,
+      resultRevision: result.resultRevision,
+      start: 100,
+      count: 100,
+    }),
+  );
+  expect(
+    screen.queryByRole("button", { name: "View members of Other items" }),
+  ).toBeNull();
+  back.focus();
+  fireEvent.click(back);
+  await screen.findByText(
+    "The original group target is no longer available. Return to the visualization.",
+  );
+  expect(document.activeElement).toBe(
+    screen.getByRole("group", { name: "Rows from this graph" }),
+  );
+});
 
 test("latest request alone commits and current failure retains the last valid graph", async () => {
   const a = deferred<VizRenderResponse>(),
