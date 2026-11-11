@@ -266,7 +266,7 @@ fn calculate(
 }
 
 fn sort_item_numbers(
-    items: &mut [u32],
+    items: &mut Vec<u32>,
     cancellable: bool,
     cancelled: &mut dyn FnMut() -> bool,
 ) -> Result<(), Error> {
