@@ -109,19 +109,13 @@ fn rows_command_reads_the_session_model_and_rejects_stale_and_invalid_calls() ->
         "command.not_provided"
     );
     publish(&sink, id(4), id(5))?;
-    assert_eq!(
-        locate(&item)
-            .error
-            .ok_or("stale locate accepted")?
-            .reason_key,
-        "result.version_stale"
-    );
-    assert_eq!(
-        call(body, Channel::Gui)
-            .error
-            .ok_or("stale accepted")?
-            .reason_key,
-        "result.version_stale"
-    );
+    let stale_location = locate(&item).error.ok_or("stale locate accepted")?;
+    let stale_rows = call(body, Channel::Gui)
+        .error
+        .ok_or("stale rows accepted")?;
+    for error in [stale_location, stale_rows] {
+        assert_eq!(error.code, ErrorCode::StaleVersion);
+        assert_eq!(error.reason_key, "result.requery_required");
+    }
     Ok(())
 }
