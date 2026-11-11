@@ -2,10 +2,17 @@
 
 use crate::{Descriptor, ValueKind};
 use du_core_contracts::settings::{SettingsSnapshot, SharedTableLimit};
+use du_core_contracts::size_units::{IEC_UNITS, SI_UNITS};
 use serde_json::json;
 
 /// The registered key for the per-table identity capacity.
 pub const SHARED_TABLE_MAX_ENTRIES: &str = "space.shared_table_max_entries";
+/// The registered key for the size unit system.
+pub const SIZE_UNIT_SYSTEM: &str = "display.size_unit_system";
+/// The registered key for automatic or fixed size unit selection.
+pub const SIZE_UNIT: &str = "display.size_unit";
+/// The registered key for the default size basis.
+pub const DEFAULT_BASIS: &str = "space.default_basis";
 
 /// Returns the F03 descriptor. Applying it to future jobs is the caller's responsibility.
 pub fn descriptors() -> Vec<Descriptor> {
@@ -29,6 +36,12 @@ pub fn descriptors() -> Vec<Descriptor> {
 /// Returns display descriptors using the specified platform convention.
 /// Windows uses IEC; macOS and the supported Ubuntu target use SI.
 pub fn display_descriptors(windows: bool) -> Vec<Descriptor> {
+    let mut symbols = vec!["auto"];
+    for symbol in SI_UNITS.symbols().iter().chain(IEC_UNITS.symbols()) {
+        if !symbols.contains(symbol) {
+            symbols.push(symbol);
+        }
+    }
     let choice = |key: &str, default: &str, values: &[&str]| Descriptor {
         presentation: du_core_contracts::settings::SettingPresentation::for_setting(key),
         key: key.into(),
@@ -39,19 +52,13 @@ pub fn display_descriptors(windows: bool) -> Vec<Descriptor> {
     };
     vec![
         choice(
-            "display.size_unit_system",
+            SIZE_UNIT_SYSTEM,
             if windows { "iec" } else { "si" },
             &["si", "iec"],
         ),
+        choice(SIZE_UNIT, "auto", &symbols),
         choice(
-            "display.size_unit",
-            "auto",
-            &[
-                "auto", "B", "kB", "MB", "GB", "TB", "PB", "KiB", "MiB", "GiB", "TiB", "PiB",
-            ],
-        ),
-        choice(
-            "space.default_basis",
+            DEFAULT_BASIS,
             "allocated",
             &["logical", "allocated", "unique_physical"],
         ),
@@ -109,6 +116,9 @@ mod tests {
             assert!(!accepts(&system.kind, &json!("SI")));
             let unit = find("display.size_unit")?;
             assert_eq!(unit.default, json!("auto"));
+            for symbol in SI_UNITS.symbols().iter().chain(IEC_UNITS.symbols()) {
+                assert!(accepts(&unit.kind, &json!(symbol)));
+            }
             for value in ["auto", "B", "kB", "PB", "KiB", "PiB"] {
                 assert!(accepts(&unit.kind, &json!(value)));
             }
