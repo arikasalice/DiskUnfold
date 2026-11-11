@@ -21,6 +21,29 @@ fn process_peak_working_set() -> Option<u64> {
         .ok()
 }
 
+/// Reads the scope aggregate pinned to the version advertised by a scan event.
+fn read_pinned_total(
+    engine: &Engine,
+    version: &Id,
+    request_seq: u32,
+) -> Result<Option<SpaceTotal>, Box<dyn std::error::Error>> {
+    let response = ipc(
+        engine,
+        "space.total",
+        json!({"resultVersion":version,"requestSeq":request_seq,"target":{"kind":"scope_root"}}),
+    )?;
+    if let Some(error) = response.error {
+        if error.code == ErrorCode::StaleVersion {
+            return Ok(None);
+        }
+        return Err(format!("space.total failed: {error:?}").into());
+    }
+    let total: SpaceTotal = serde_json::from_value(response.body)?;
+    assert_eq!(&total.result_version, version);
+    assert_eq!(total.request_seq, request_seq);
+    Ok(Some(total))
+}
+
 /// Checks the exact logical total through the desktop query pinned to the finished scan.
 fn verify_pinned_logical_total(
     engine: &Engine,
@@ -28,17 +51,8 @@ fn verify_pinned_logical_total(
     request_seq: u32,
     expected_bytes: u64,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let response = ipc(
-        engine,
-        "space.total",
-        json!({"resultVersion":version,"requestSeq":request_seq,"target":{"kind":"scope_root"}}),
-    )?;
-    if let Some(error) = response.error {
-        return Err(format!("space.total failed: {error:?}").into());
-    }
-    let total: SpaceTotal = serde_json::from_value(response.body)?;
-    assert_eq!(&total.result_version, version);
-    assert_eq!(total.request_seq, request_seq);
+    let total =
+        read_pinned_total(engine, version, request_seq)?.ok_or("terminal result is stale")?;
     assert_eq!(total.completeness, ResultCompleteness::Complete);
     let logical = total
         .sizes
@@ -136,6 +150,7 @@ fn native_scan_100k() -> Result<(), Box<dyn std::error::Error>> {
         }
         let deadline = Instant::now() + Duration::from_secs(1_200);
         let mut first = None;
+        let mut first_partial_read = None;
         let mut terminal = None;
         while Instant::now() < deadline {
             if let Some(json) = events.next_json() {
@@ -143,13 +158,25 @@ fn native_scan_100k() -> Result<(), Box<dyn std::error::Error>> {
                 if event.topic == RESULT_VERSION_CHANGED
                     && event.body["lineageId"].as_str()
                         == receipt.lineage_id.as_ref().map(Id::as_str)
-                    && first.is_none()
                 {
-                    first = Some((
-                        sent.elapsed().as_millis(),
-                        event.occurred_at.as_str().to_owned(),
-                        event.body.clone(),
-                    ));
+                    first.get_or_insert_with(|| {
+                        (
+                            sent.elapsed().as_millis(),
+                            event.occurred_at.as_str().to_owned(),
+                            event.body.clone(),
+                        )
+                    });
+                    if first_partial_read.is_none() && event.body["completeness"] == "partial" {
+                        let version = event
+                            .result_version
+                            .as_ref()
+                            .ok_or("missing partial version")?;
+                        if let Some(total) = read_pinned_total(&engine, version, run)? {
+                            assert_eq!(total.completeness, ResultCompleteness::Partial);
+                            first_partial_read =
+                                Some((sent.elapsed().as_millis(), version.clone()));
+                        }
+                    }
                 }
                 if event.topic == "job.finished" && event.job_ref.as_ref() == Some(&receipt.job_ref)
                 {
@@ -196,6 +223,10 @@ fn native_scan_100k() -> Result<(), Box<dyn std::error::Error>> {
             .1
             .result_version
             .ok_or("missing final result version")?;
+        let (partial_ms, partial_version) =
+            first_partial_read.ok_or("no readable partial result")?;
+        assert_ne!(partial_version, version);
+        eprintln!("F02_MEASURE run={run} first_pinned_partial_read_ms={partial_ms}");
         assert_ne!(previous_version.as_ref(), Some(&version));
         let expected_bytes = (DIRECTORIES * FILES_PER_DIRECTORY) as u64 + u64::from(run - 1);
         let query_start = Instant::now();
