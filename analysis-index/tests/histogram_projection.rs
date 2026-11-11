@@ -7,8 +7,8 @@ use du_analysis_index::{
     },
 };
 use du_core_contracts::{
-    Id, ItemRef, SizeAmount, SizeBasis, SizeEvidence, SizeValue,
-    result::{ResultCompleteness, ResultVersionRead},
+    Id, ItemRef, PathBytes, PathEncoding, SizeAmount, SizeBasis, SizeEvidence, SizeValue,
+    result::{ResultCompleteness, ResultNativePath, ResultScopeRoot, ResultVersionRead},
 };
 
 #[test]
@@ -146,5 +146,168 @@ fn unknown_file_sizes_and_partial_scope_are_not_fabricated() -> Result<(), Strin
     assert_eq!(result.histogram.uncertain_items.len(), 1);
     assert_eq!(result.histogram.bins[0].bytes, Weight::Unknown);
     assert!(result.histogram.bins[0].rect.is_none());
+    Ok(())
+}
+
+#[test]
+fn source_state_is_preserved_when_scope_has_an_untraversed_link() -> Result<(), String> {
+    let id = |n| Id::from_v7_bytes([n; 16]);
+    for (source_state, expected) in [
+        (ResultCompleteness::Complete, ResultCompleteness::Partial),
+        (ResultCompleteness::Partial, ResultCompleteness::Partial),
+        (ResultCompleteness::Missing, ResultCompleteness::Missing),
+        (ResultCompleteness::Cancelled, ResultCompleteness::Cancelled),
+    ] {
+        let sink = IngestSink::default();
+        let mut build = sink.open(id(7)).map_err(|e| format!("{e:?}"))?;
+        build.add_directory(vec![]).map_err(|e| format!("{e:?}"))?;
+        build
+            .add_untraversed_link(vec![b"link".to_vec()])
+            .map_err(|e| format!("{e:?}"))?;
+        let version = build
+            .seal(id(8), source_state)
+            .map_err(|e| format!("{e:?}"))?;
+        let scope = ItemRef {
+            result_version: id(8),
+            item_no: 0,
+        };
+        let bins = [Bin {
+            lower: 0,
+            upper: None,
+        }];
+        let model = histogram_projection::project(
+            Request {
+                version: &version,
+                scope: &scope,
+                size_basis: SizeBasis::Logical,
+                bins: &bins,
+                bounds: Rect {
+                    left: 0,
+                    top: 0,
+                    right: 100,
+                    bottom: 100,
+                },
+                histogram_basis: Basis::ItemCount,
+                scale: Scale::Automatic,
+            },
+            &mut || false,
+        )
+        .map_err(|e| format!("{e:?}"))?;
+        assert_eq!(model.summary.result_completeness, source_state);
+        assert_eq!(model.histogram.source_completeness, expected);
+        assert_eq!(model.summary.counts.untraversed_links, 1);
+    }
+    Ok(())
+}
+
+#[test]
+fn recorded_gap_does_not_erase_missing_or_cancelled_state() -> Result<(), String> {
+    let id = |n| Id::from_v7_bytes([n; 16]);
+    for requested in [ResultCompleteness::Complete, ResultCompleteness::Cancelled] {
+        let sink = IngestSink::default();
+        let mut build = sink.open(id(11)).map_err(|e| format!("{e:?}"))?;
+        build.add_directory(vec![]).map_err(|e| format!("{e:?}"))?;
+        build
+            .record_gap_at(0, vec![], "scan.path_denied".into(), None)
+            .map_err(|e| format!("{e:?}"))?;
+        let version = build
+            .seal(id(12), requested)
+            .map_err(|e| format!("{e:?}"))?;
+        let scope = ItemRef {
+            result_version: id(12),
+            item_no: 0,
+        };
+        let bins = [Bin {
+            lower: 0,
+            upper: None,
+        }];
+        let model = histogram_projection::project(
+            Request {
+                version: &version,
+                scope: &scope,
+                size_basis: SizeBasis::Logical,
+                bins: &bins,
+                bounds: Rect {
+                    left: 0,
+                    top: 0,
+                    right: 100,
+                    bottom: 100,
+                },
+                histogram_basis: Basis::ItemCount,
+                scale: Scale::Automatic,
+            },
+            &mut || false,
+        )
+        .map_err(|e| format!("{e:?}"))?;
+        let expected = if requested == ResultCompleteness::Complete {
+            ResultCompleteness::Missing
+        } else {
+            requested
+        };
+        assert_eq!(model.histogram.source_completeness, expected);
+        assert_eq!(model.summary.result_completeness, expected);
+        assert_eq!(model.summary.source_gaps.len(), 1);
+    }
+    Ok(())
+}
+
+#[test]
+fn another_root_gap_stays_visible_without_rewriting_source_state() -> Result<(), String> {
+    let id = |n| Id::from_v7_bytes([n; 16]);
+    let root = |name: &[u8], n| ResultScopeRoot {
+        path: ResultNativePath {
+            encoding: PathEncoding::Unix,
+            raw: PathBytes::from_bytes(name),
+        },
+        volume_id: vec![n],
+        file_id: vec![n],
+    };
+    let sink = IngestSink::default();
+    let mut build = sink
+        .open_forest(id(13), vec![root(b"/a", 1), root(b"/b", 2)])
+        .map_err(|e| format!("{e:?}"))?;
+    for n in 0..2 {
+        build
+            .add_directory_at(n, vec![])
+            .map_err(|e| format!("{e:?}"))?;
+    }
+    build
+        .record_gap_at(1, vec![], "scan.path_denied".into(), None)
+        .map_err(|e| format!("{e:?}"))?;
+    let version = build
+        .seal(id(14), ResultCompleteness::Complete)
+        .map_err(|e| format!("{e:?}"))?;
+    let scope = ItemRef {
+        result_version: id(14),
+        item_no: 0,
+    };
+    let bins = [Bin {
+        lower: 0,
+        upper: None,
+    }];
+    let model = histogram_projection::project(
+        Request {
+            version: &version,
+            scope: &scope,
+            size_basis: SizeBasis::Logical,
+            bins: &bins,
+            bounds: Rect {
+                left: 0,
+                top: 0,
+                right: 100,
+                bottom: 100,
+            },
+            histogram_basis: Basis::ItemCount,
+            scale: Scale::Automatic,
+        },
+        &mut || false,
+    )
+    .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(model.summary.source_gaps[0].root_index, 1);
+    assert_eq!(model.summary.aggregate.inaccessible_ranges, None);
+    assert_eq!(
+        model.histogram.source_completeness,
+        ResultCompleteness::Missing
+    );
     Ok(())
 }

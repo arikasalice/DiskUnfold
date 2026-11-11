@@ -23,6 +23,9 @@ pub struct Request<'a> {
 }
 
 /// F03 aggregate and coverage are independent of the histogram's observed sums.
+/// The summary retains all source gaps, including gaps outside the selected root.
+/// Histogram completeness retains any non-complete source state; a complete source
+/// is downgraded only when the selected root has possible omissions.
 pub struct Model {
     pub summary: statistics_summary::Summary,
     pub histogram: Histogram,
@@ -61,11 +64,26 @@ pub fn project(request: Request<'_>, cancelled: &mut dyn FnMut() -> bool) -> Res
             )?,
         });
     }
-    // Unknown kinds or untraversed links can conceal additional file observations.
-    let completeness = if summary.counts.unknown_kind > 0
-        || summary.counts.untraversed_links > 0
-        || !summary.source_gaps.is_empty()
-    {
+    // Root identity is retained even when native path-comparison evidence is not.
+    // A gap in this root may cover the scope, so do not discard it based on raw names.
+    let root = request
+        .version
+        .root_indices
+        .get(request.scope.item_no as usize)
+        .ok_or(Error::Source(statistics_summary::Error::InvalidScope))?;
+    let mut possible_gap = false;
+    for gap in &summary.source_gaps {
+        if cancelled() {
+            return Err(Error::Cancelled);
+        }
+        if gap.root_index == *root {
+            possible_gap = true;
+            break;
+        }
+    }
+    let omissions =
+        summary.counts.unknown_kind > 0 || summary.counts.untraversed_links > 0 || possible_gap;
+    let completeness = if summary.result_completeness == ResultCompleteness::Complete && omissions {
         ResultCompleteness::Partial
     } else {
         summary.result_completeness
