@@ -87,8 +87,34 @@ fn recent_scope_setting_is_registered_and_persists_without_erasing_other_setting
 -> Result<(), Box<dyn std::error::Error>> {
     let dir = tempfile::tempdir()?;
     let path = dir.path().join("settings.db");
-    seed(&path, 200_000)?;
-    let mut service = open_settings(&path, 100)?;
+    let mut database = AppDb::create_gui_with_history(&path).map_err(|e| format!("{e:?}"))?;
+    database
+        .commit(
+            0,
+            &SettingsChanges::from([
+                (space::SHARED_TABLE_MAX_ENTRIES.into(), Some(json!(200_000))),
+                ("future.setting".into(), Some(json!("preserved"))),
+            ]),
+            context(),
+        )
+        .map_err(|e| format!("{e:?}"))?;
+    drop(database);
+    let reopen =
+        |timestamp| -> Result<SettingsService<SharedSettings>, Box<dyn std::error::Error>> {
+            let db = AppDb::open_gui_with_history(&path).map_err(|e| format!("{e:?}"))?;
+            Ok(restore_settings(
+                &SharedDatabase::new(db, None),
+                timestamp,
+                &["en", "ko"],
+            )?)
+        };
+    let db = Connection::open(&path)?;
+    db.execute(
+        "INSERT INTO user_env_recent_scope VALUES(?1,?2,1,?3,1,10,10,10,1)",
+        rusqlite::params![vec![1_u8; 16], vec![2_u8; 32], "{}"],
+    )?;
+    drop(db);
+    let mut service = reopen(100)?;
     assert!(scope::remember_recent(service.snapshot()));
     let off = SettingsChanges::from([(scope::REMEMBER_RECENT.into(), Some(json!(false)))]);
     let fingerprint = service.review(1, &off).map_err(|e| format!("{e:?}"))?;
@@ -96,8 +122,14 @@ fn recent_scope_setting_is_registered_and_persists_without_erasing_other_setting
         .apply(1, &off, fingerprint, context())
         .map_err(|e| format!("{e:?}"))?;
     assert!(!scope::remember_recent(service.snapshot()));
+    let db = Connection::open(&path)?;
+    let count: i64 = db.query_row("SELECT count(*) FROM user_env_recent_scope", [], |row| {
+        row.get(0)
+    })?;
+    assert_eq!(count, 1);
+    drop(db);
     drop(service);
-    let mut service = open_settings(&path, 101)?;
+    let mut service = reopen(101)?;
     assert!(!scope::remember_recent(service.snapshot()));
     assert_eq!(
         service.snapshot().values.get("future.setting"),
@@ -110,9 +142,12 @@ fn recent_scope_setting_is_registered_and_persists_without_erasing_other_setting
         .map_err(|e| format!("{e:?}"))?;
     assert!(scope::remember_recent(service.snapshot()));
     drop(service);
-    assert!(scope::remember_recent(
-        open_settings(&path, 102)?.snapshot()
-    ));
+    assert!(scope::remember_recent(reopen(102)?.snapshot()));
+    let db = Connection::open(&path)?;
+    let count: i64 = db.query_row("SELECT count(*) FROM user_env_recent_scope", [], |row| {
+        row.get(0)
+    })?;
+    assert_eq!(count, 1);
     Ok(())
 }
 
