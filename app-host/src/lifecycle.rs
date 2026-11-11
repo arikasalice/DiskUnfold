@@ -46,6 +46,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(windows)]
     settings.register_restore_status(&mut builder);
     #[cfg(windows)]
+    settings.clone().register_display_preferences(&mut builder);
+    #[cfg(windows)]
     let desktop = du_engine_api::desktop::register_services(
         &mut builder,
         Arc::new(du_platform_os::windows_observation::WindowsScopeRoots),

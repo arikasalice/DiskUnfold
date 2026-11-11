@@ -46,6 +46,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     fs::create_dir_all(&dir)?;
     let config = ts_rs::Config::default();
     let declarations = [
+        DisplayPreferencesRequest::decl(&config),
+        DisplayUnitSystem::decl(&config),
+        DisplayPreferences::decl(&config),
         SettingsRestoreRequest::decl(&config),
         SettingsRestoreSource::decl(&config),
         SettingsRestoreItem::decl(&config),

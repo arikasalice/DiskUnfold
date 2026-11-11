@@ -12,6 +12,7 @@ use rusqlite::Connection;
 use serde_json::json;
 use std::path::Path;
 
+mod display_preferences;
 mod recent_scope;
 mod schema;
 mod search;

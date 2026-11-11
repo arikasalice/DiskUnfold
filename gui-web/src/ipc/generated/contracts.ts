@@ -1,3 +1,26 @@
+export type DisplayPreferencesRequest = Record<symbol, never>;
+export type DisplayUnitSystem = "si" | "iec";
+export type DisplayPreferences = {
+/**
+ * Canonical decimal representation of the settings revision.
+ */
+settingsRevision: ByteSize,
+/**
+ * Selected unit system.
+ */
+unitSystem: DisplayUnitSystem,
+/**
+ * Automatic selection or a symbol supported by the selected system.
+ */
+unit: string,
+/**
+ * Default size basis for new views.
+ */
+defaultBasis: SizeBasis,
+/**
+ * Settings restoration or unit-pair warning, if present.
+ */
+warningKey: string | null, };
 export type SettingsRestoreRequest = Record<symbol, never>;
 export type SettingsRestoreSource = "restored" | "default";
 export type SettingsRestoreItem = {

@@ -14,6 +14,8 @@ import type {
   BrowseOpenRequest,
   BrowseOpenResponse,
   CallEnvelope,
+  DisplayPreferences,
+  DisplayPreferencesRequest,
   EventEnvelope,
   HistoryDetail,
   HistoryDetailRequest,
@@ -70,6 +72,7 @@ export type {
   QueryPageRequest,
   QueryPageResponse,
   BrowseValue,
+  DisplayPreferences,
   EventEnvelope,
   HistoryChangedBody,
   HistoryDetail,
@@ -145,6 +148,7 @@ type Commands = {
   "history.get": [HistoryDetailRequest, HistoryDetail];
   "history.items": [HistoryItemsRequest, HistoryItemsResponse];
   "settings.restore_status": [SettingsRestoreRequest, SettingsRestoreStatus];
+  "space.display_preferences": [DisplayPreferencesRequest, DisplayPreferences];
   "space.total": [SpaceTotalRequest, SpaceTotal];
   "space.detail": [SpaceDetailRequest, SpaceDetail];
   "space.volume_gap": [VolumeGapRequest, VolumeGapResponse];
