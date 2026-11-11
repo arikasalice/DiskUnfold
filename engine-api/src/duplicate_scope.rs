@@ -38,6 +38,25 @@ pub struct Selected {
     pub modified: Timestamp,
     /// Native modification evidence from the same scan observation, when available.
     pub native_modified: Option<du_core_contracts::scan_observation::NativeModifiedTime>,
+    /// Matched enumeration discriminator, when retained by the scan.
+    pub enumerated_inode: Option<std::num::NonZeroU64>,
+    /// Historical metadata observation; this does not establish current locality.
+    pub placeholder_observation:
+        Option<du_core_contracts::scan_observation::PlaceholderObservation>,
+}
+
+/// Scan-owned inputs for a selected content candidate, not permission to open it.
+#[derive(Debug, PartialEq, Eq)]
+pub struct ContentEvidence {
+    /// Identity from the pinned scan, including any matched enumeration discriminator.
+    pub identity: du_core_contracts::duplicate_content::ContentIdentity,
+    /// Native modification time from the same scan observation.
+    pub native_modified: Option<du_core_contracts::scan_observation::NativeModifiedTime>,
+    /// Historical recall-related flags, if the scan was able to establish them.
+    pub placeholder_observation:
+        Option<du_core_contracts::scan_observation::PlaceholderObservation>,
+    /// Current locality remains unknown until checked by the platform adapter.
+    pub placeholder: du_core_contracts::duplicate_content::PlaceholderEvidence,
 }
 
 /// Counts cover observed file entries only; they do not count unread ranges.
@@ -100,6 +119,21 @@ impl Selection {
     /// Returns the selected observations in item-number order.
     pub fn files(&self) -> &[Selected] {
         &self.files
+    }
+    /// Supplies only evidence retained for a member of this pinned selection.
+    /// Historical placeholder flags do not establish present content locality.
+    pub fn content_evidence(&self, item: &ItemRef) -> Option<ContentEvidence> {
+        let selected = self.selected(item)?;
+        Some(ContentEvidence {
+            identity: du_core_contracts::duplicate_content::ContentIdentity {
+                volume: selected.identity.volume.clone(),
+                file: selected.identity.file.clone(),
+                enumerated_inode: selected.enumerated_inode.map(std::num::NonZeroU64::get),
+            },
+            native_modified: selected.native_modified,
+            placeholder_observation: selected.placeholder_observation,
+            placeholder: du_core_contracts::duplicate_content::PlaceholderEvidence::Unknown,
+        })
     }
     /// Returns the scan-owned root and raw components for a member of this selection.
     /// An adapter must still revalidate the root and the target's identity before reading.
@@ -413,6 +447,8 @@ fn observe(version: &ResultVersion, item: ItemRef, size: u64) -> Option<Selected
         path: version.native_path(&item).ok()?,
         modified: version.item_modified_at(item.item_no)?.clone(),
         native_modified: version.item_native_modified_at(item.item_no),
+        enumerated_inode: version.item_enumerated_inode(&item).ok()?,
+        placeholder_observation: version.item_placeholder_observation(&item).ok()?,
         identity: identity.clone(),
         item,
         size,

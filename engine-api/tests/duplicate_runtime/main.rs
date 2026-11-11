@@ -223,6 +223,13 @@ fn scan() -> Result<(IngestSink, Selection), String> {
         build
             .set_modified_at(0, &path, Timestamp::parse("2026-01-01T00:00:00.000Z")?)
             .map_err(|e| format!("{e:?}"))?;
+        build
+            .retain_enumerated_inode(
+                0,
+                &path,
+                std::num::NonZeroU64::new(u64::from(n) + 100).ok_or("missing fixture inode")?,
+            )
+            .map_err(|e| format!("{e:?}"))?;
     }
     build
         .seal(id(2), ResultCompleteness::Complete)
@@ -289,19 +296,22 @@ impl Harness {
         let mut targets = Vec::new();
         let mut identities = BTreeMap::new();
         for file in self.selection.files() {
+            let pinned = self
+                .selection
+                .content_evidence(&file.item)
+                .ok_or("missing pinned content identity")?;
+            assert_eq!(pinned.placeholder, PlaceholderEvidence::Unknown);
+            let content = pinned.identity;
+            assert!(content.enumerated_inode.is_some());
             let identity = FileIdentity {
-                volume: file.identity.volume.clone(),
-                file: file.identity.file.clone(),
-            };
-            let content = ContentIdentity {
-                volume: identity.volume.clone(),
-                file: identity.file.clone(),
-                enumerated_inode: None,
+                volume: content.volume.clone(),
+                file: content.file.clone(),
             };
             identities.insert(file.item.item_no, content.clone());
             selected.push(SelectedContent {
                 item: file.item.clone(),
                 identity: content,
+                // The test adapter independently supplies locality and change stamps.
                 placeholder: PlaceholderEvidence::Local,
             });
             targets.push(VerificationTarget {

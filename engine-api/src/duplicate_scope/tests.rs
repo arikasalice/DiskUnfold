@@ -71,6 +71,12 @@ fn fixture_with_root_file(root_file: Vec<u8>) -> Result<(IngestSink, Arc<ResultV
                 .map_err(|e| format!("{e:?}"))?;
             if path.last().is_some_and(|name| name == b"inside") {
                 build
+                    .retain_enumerated_inode(0, &path, std::num::NonZeroU64::new(42).ok_or("zero")?)
+                    .map_err(|e| format!("{e:?}"))?;
+                build
+                    .retain_placeholder_observation(0, &path, du_core_contracts::scan_observation::PlaceholderObservation::WindowsNoRecallDataFlags)
+                    .map_err(|e| format!("{e:?}"))?;
+                build
                     .set_native_modified_at(
                         0,
                         &path,
@@ -152,7 +158,9 @@ fn source_version_and_reference_must_match_at_admission() -> Result<(), String> 
 
 #[test]
 fn selected_source_remains_pinned_after_current_result_changes() -> Result<(), String> {
-    let (source, _) = fixture()?;
+    let (source, version) = fixture()?;
+    let inside = reference(&version, b"inside")?;
+    let small = reference(&version, b"small")?;
     let root = ItemRef {
         result_version: id(2),
         item_no: 0,
@@ -173,6 +181,41 @@ fn selected_source_remains_pinned_after_current_result_changes() -> Result<(), S
         .seal(id(4), ResultCompleteness::Complete)
         .map_err(|e| format!("{e:?}"))?;
     assert_eq!(selection.version(), &id(2));
+    let evidence = selection
+        .content_evidence(&inside)
+        .ok_or("missing evidence")?;
+    assert_eq!(evidence.identity.volume, vec![1]);
+    assert_eq!(evidence.identity.file, vec![3]);
+    assert_eq!(evidence.identity.enumerated_inode, Some(42));
+    assert_eq!(
+        evidence.placeholder_observation,
+        Some(du_core_contracts::scan_observation::PlaceholderObservation::WindowsNoRecallDataFlags)
+    );
+    assert_eq!(
+        evidence.placeholder,
+        du_core_contracts::duplicate_content::PlaceholderEvidence::Unknown
+    );
+    assert_eq!(
+        evidence.native_modified,
+        std::num::NonZeroU64::new(123_456_789)
+            .map(du_core_contracts::scan_observation::NativeModifiedTime::WindowsFiletime)
+    );
+    let absent = selection.content_evidence(&small).ok_or("missing small")?;
+    assert_eq!(absent.identity.enumerated_inode, None);
+    assert_eq!(absent.native_modified, None);
+    assert_eq!(absent.placeholder_observation, None);
+    assert_eq!(
+        absent.placeholder,
+        du_core_contracts::duplicate_content::PlaceholderEvidence::Unknown
+    );
+    assert!(
+        selection
+            .content_evidence(&ItemRef {
+                result_version: id(4),
+                item_no: inside.item_no
+            })
+            .is_none()
+    );
     assert!(selection.files().iter().any(|file| {
         file.native_modified
             == std::num::NonZeroU64::new(123_456_789)
