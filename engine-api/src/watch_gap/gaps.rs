@@ -6,6 +6,13 @@ pub(super) fn valid(g: &Gap) -> bool {
         && g.reason != GapReason::ConsumerResync
         && !matches!((g.start, g.end), (Some(a), Some(b)) if a > b)
 }
+
+/// A snapshot cannot contain a gap boundary later than its observation cut.
+pub(super) fn valid_at(g: &Gap, observed_at: u64) -> bool {
+    valid(g)
+        && g.start.is_none_or(|start| start <= observed_at)
+        && g.end.is_none_or(|end| end <= observed_at)
+}
 fn rank(r: GapReason) -> u8 {
     match r {
         GapReason::BeforeStart => 1,

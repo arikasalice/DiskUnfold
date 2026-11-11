@@ -308,6 +308,7 @@ fn closed_replacement_and_snapshot_order_are_fenced() {
     snap(&mut l, &cut, &mut sink).unwrap();
     let mut older = cut.clone();
     older.observed_at = 4;
+    older.last_observed = Some(4);
     assert_eq!(snap(&mut l, &older, &mut sink), Ok(Outcome::Resync));
     assert_eq!(
         l.unit(&[3; 16])
@@ -324,7 +325,7 @@ fn closed_replacement_and_snapshot_order_are_fenced() {
 fn snapshot_gap_order_does_not_change_identity_but_changed_evidence_does() {
     let mut ledger = ledger();
     let mut sink = Sink::default();
-    let mut cut = snapshot(3, 0, 1);
+    let mut cut = snapshot(3, 0, 2);
     cut.gaps = vec![gap(1), gap(2)];
     assert_eq!(snap(&mut ledger, &cut, &mut sink), Ok(Outcome::Applied));
     let count = sink.count;
@@ -339,6 +340,7 @@ fn snapshot_gap_order_does_not_change_identity_but_changed_evidence_does() {
     assert!(!ledger.unit(&[3; 16]).unwrap().needs_resync);
 
     reordered.gaps[0].end = Some(3);
+    reordered.observed_at = 3;
     assert_eq!(
         snap(&mut ledger, &reordered, &mut sink),
         Ok(Outcome::Resync)
@@ -419,6 +421,7 @@ fn future_cut_then_older_time_or_conflicting_equal_status_requires_resync() {
     let count = sink.count;
     let mut older = current.clone();
     older.observed_at = 50;
+    older.last_observed = Some(50);
     older.gaps.clear();
     assert_eq!(snap(&mut l, &older, &mut sink), Ok(Outcome::Resync));
     assert_eq!(sink.gaps, before);
@@ -479,3 +482,5 @@ fn producer_registry_values_can_be_consumed() {
     assert_eq!(snap(&mut l, &cut, &mut sink), Ok(Outcome::Applied));
     assert_eq!(l.unit(&[3; 16]).unwrap().gaps.len(), 1);
 }
+
+mod snapshot_time;

@@ -224,13 +224,24 @@ impl Ledger {
             unit.needs_resync = true;
             return Ok(Outcome::Resync);
         }
+        if snapshot
+            .last_observed
+            .is_some_and(|at| at > snapshot.observed_at)
+            || snapshot
+                .gaps
+                .iter()
+                .any(|gap| !gaps::valid_at(gap, snapshot.observed_at))
+        {
+            unit.needs_resync = true;
+            return Err(Error::InvalidSnapshot);
+        }
         let cut = snapshot_cut(snapshot);
         if let Some(outcome) = snapshot_order(unit, &cut) {
             return Ok(outcome);
         }
         let mut next = BTreeMap::new();
         for gap in &snapshot.gaps {
-            if !gaps::valid(gap) || next.insert(gap.id, gap.clone()).is_some() {
+            if next.insert(gap.id, gap.clone()).is_some() {
                 unit.needs_resync = true;
                 return Err(Error::InvalidSnapshot);
             }
