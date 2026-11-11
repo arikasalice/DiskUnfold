@@ -155,6 +155,18 @@ impl<E: SubscriberEvent> SubscriberBus<E> {
         }
         true
     }
+
+    /// Forgets the sequence guard once the bound runtime has drained delivery.
+    /// Queued events have already passed the guard and retain their delivery order.
+    pub(crate) fn retire_job(&self, id: &Id) -> bool {
+        let Ok(mut state) = self.0.lock() else {
+            return false;
+        };
+        for slot in state.slots.values_mut() {
+            slot.cuts.remove(id);
+        }
+        true
+    }
 }
 
 impl<E: SubscriberEvent> Slot<E> {
@@ -227,6 +239,11 @@ impl<E: SubscriberEvent> Slot<E> {
 }
 
 impl<E: SubscriberEvent> Subscription<E> {
+    #[cfg(test)]
+    pub(crate) fn retained_cut_count(&self) -> Option<usize> {
+        Some(self.state.lock().ok()?.slots.get(&self.id)?.cuts.len())
+    }
+
     pub(crate) fn is_poisoned(&self) -> bool {
         self.state.is_poisoned()
     }

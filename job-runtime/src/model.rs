@@ -28,6 +28,9 @@ pub trait JobEvents: Send + Sync {
 
     /// Deliver a committed history invalidation to interested subscribers.
     fn publish_history_changed(&self, _event: HistoryChanged) {}
+
+    /// Reports expiry after all earlier delivery for this job has finished.
+    fn retire_job(&self, _id: &Id) {}
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum JobEvent {
@@ -230,16 +233,23 @@ pub(crate) enum Delivery {
         sequence: u64,
         record: bool,
     },
+    Retired(Id),
     #[cfg(test)]
     Fence(mpsc::Sender<()>),
     Stop(mpsc::Sender<()>),
 }
 
 pub(crate) fn expire(table: &mut Table, now: i64) {
-    table.jobs.retain(|_, job| {
-        job.summary.as_ref().is_none_or(|summary| {
+    let sender = table.sender.as_ref();
+    table.jobs.retain(|id, job| {
+        let retain = job.summary.as_ref().is_none_or(|summary| {
             job.terminal.is_none() || now.saturating_sub(summary.finished_at_ms) < 600_000
-        })
+        });
+        if !retain && let Some(sender) = sender {
+            // Expiry shares the job-table lock and delivery order with terminal events.
+            let _ = sender.send(Delivery::Retired(id.clone()));
+        }
+        retain
     });
 }
 

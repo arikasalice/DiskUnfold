@@ -48,6 +48,7 @@ pub(super) fn consume(
                 let _ = sender.send(());
             }
             Delivery::Event(event) => events.publish(event),
+            Delivery::Retired(id) => events.retire_job(&id),
             Delivery::Item(event, pending) => {
                 events.publish(event);
                 pending.fetch_sub(1, Ordering::AcqRel);

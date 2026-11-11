@@ -56,6 +56,12 @@ impl JobEvents for Fanout {
     fn publish_history_changed(&self, event: HistoryChanged) {
         self.downstream.publish_history_changed(event);
     }
+    fn retire_job(&self, id: &Id) {
+        if !self.bus.retire_job(id) {
+            self.failed.store(true, Ordering::Release);
+        }
+        self.downstream.retire_job(id);
+    }
 }
 
 /// A runtime and the only job-event bus to which its snapshots are bound.
