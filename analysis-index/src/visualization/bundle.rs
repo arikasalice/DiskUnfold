@@ -6,9 +6,15 @@ use super::{
     registry,
     typed_layout::{self, Dispatcher, Strategy, Treemap},
 };
+use du_core_contracts::visualization::LayoutStrategyKey;
 
-/// Baseline strategies checked after the explicit treemap and bar requirements.
-const OTHER_REQUIRED_IDS: [&str; 4] = ["viz.trend", "viz.waterfall", "viz.histogram", "viz.sankey"];
+/// Baseline format and strategy pairs checked after treemap and bar.
+const OTHER_REQUIRED: [(&str, &str); 4] = [
+    ("trend", "viz.trend"),
+    ("waterfall", "viz.waterfall"),
+    ("histogram", "viz.histogram"),
+    ("sankey", "viz.sankey"),
+];
 
 /// Composition failure; no partial dispatcher is returned for a full bundle.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -90,13 +96,16 @@ pub fn finish_default(builder: registry::Builder<Box<dyn Strategy>>) -> Result<D
     {
         return Err(Error::MissingRequired("viz.bar"));
     }
-    for id in OTHER_REQUIRED_IDS {
-        if !registry
-            .catalog()
-            .any(|entry| entry.strategy.id == id && entry.strategy.revision == 1)
-        {
-            return Err(Error::MissingRequired(id));
-        }
+    for (format, id) in OTHER_REQUIRED {
+        registry
+            .resolve(
+                format,
+                &LayoutStrategyKey {
+                    id: id.into(),
+                    revision: 1,
+                },
+            )
+            .map_err(|_| Error::MissingRequired(id))?;
     }
     Ok(Dispatcher::new(registry))
 }

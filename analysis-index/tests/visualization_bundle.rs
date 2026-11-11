@@ -60,6 +60,71 @@ fn wrong_treemap_format_cannot_satisfy_default_registration() -> Result<(), Stri
     Ok(())
 }
 
+struct RegistrationFixture;
+
+impl Strategy for RegistrationFixture {
+    fn complete_bar(&self) -> bool {
+        true
+    }
+}
+
+#[test]
+fn default_requires_the_published_format_and_revision_for_each_strategy() -> Result<(), String> {
+    let required = [
+        ("trend", "viz.trend"),
+        ("waterfall", "viz.waterfall"),
+        ("histogram", "viz.histogram"),
+        ("sankey", "viz.sankey"),
+    ];
+    let make_bundle = |replacement: Option<(&str, &str, u32)>| {
+        let mut builder = registry::Builder::<Box<dyn Strategy>>::default();
+        bundle::register_implemented(&mut builder).map_err(|e| format!("{e:?}"))?;
+        builder
+            .register(
+                typed_layout::bar_descriptor(),
+                Box::new(RegistrationFixture),
+            )
+            .map_err(|e| format!("{e:?}"))?;
+        for (format, id) in required {
+            let (format, revision) = match replacement {
+                Some((target, replacement_format, replacement_revision)) if id == target => {
+                    (replacement_format, replacement_revision)
+                }
+                _ => (format, 1),
+            };
+            builder
+                .register(
+                    LayoutDescriptor {
+                        format: format.into(),
+                        strategy: LayoutStrategyKey {
+                            id: id.into(),
+                            revision,
+                        },
+                    },
+                    Box::new(RegistrationFixture),
+                )
+                .map_err(|e| format!("{e:?}"))?;
+        }
+        Ok::<_, String>(bundle::finish_default(builder))
+    };
+    assert_eq!(
+        make_bundle(None)?
+            .map_err(|e| format!("{e:?}"))?
+            .catalog()
+            .count(),
+        6
+    );
+    for (format, id) in required {
+        for replacement in [(id, "fixture.wrong", 1), (id, format, 2)] {
+            assert!(matches!(
+                make_bundle(Some(replacement))?,
+                Err(Error::MissingRequired(missing)) if missing == id
+            ));
+        }
+    }
+    Ok(())
+}
+
 #[test]
 fn partial_dispatcher_executes_the_actual_treemap() -> Result<(), String> {
     let sink = IngestSink::default();
