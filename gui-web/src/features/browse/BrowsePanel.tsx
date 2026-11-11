@@ -3,6 +3,8 @@ import type { KeyboardEvent, ReactNode } from "react";
 import {
   Action,
   Breadcrumbs,
+  DetailDisclosure,
+  Readout,
   canHandleBrowseKey,
   Heading,
   InspectionDialog,
@@ -298,24 +300,13 @@ export function BrowsePanel({
                   )}
                 />
               </div>
-              <Text kind="muted">
-                Pinned result · {view.opened.origin} · Observed{" "}
-                {page.observedAt ?? "Unavailable"}
-              </Text>
             </div>
+            <ObservationSummary
+              opened={view.opened}
+              hasVirtualRoot={hasVirtualRoot}
+            />
             {page.completeness !== "complete" && (
-              <Notice>
-                Results are incomplete; some items may be unavailable.
-              </Notice>
-            )}
-            <Text kind="muted">
-              {page.total.state === "lower_bound" ? "At least " : ""}
-              {page.total.count} items
-            </Text>
-            {page.unknownCount > 0 && (
-              <Text kind="muted">
-                {page.unknownCount} items could not be evaluated.
-              </Text>
+              <Notice>Results are incomplete.</Notice>
             )}
           </div>
           <BrowseResults
@@ -348,5 +339,61 @@ export function BrowsePanel({
         close={inspection.close}
       />
     </section>
+  );
+}
+
+function ObservationSummary({
+  opened,
+  hasVirtualRoot,
+}: {
+  opened: Opened;
+  hasVirtualRoot: boolean;
+}) {
+  const page = opened.page;
+  return (
+    <div className="du-browse-observation">
+      <Text kind="muted">
+        {opened.origin} · {page.observedAt?.slice(0, 10) ?? "Unavailable"} ·{" "}
+        {page.total.state === "lower_bound" ? "At least " : ""}
+        {page.total.count} items
+        {page.completeness === "complete" ? " · Complete" : ""}
+      </Text>
+      <DetailDisclosure title="Observation details">
+        <section tabIndex={0} aria-label="Full folder location and observation">
+          <Readout
+            label="Folder location and observation"
+            rows={[
+              {
+                label: "Location hierarchy",
+                value: folderPath(opened, hasVirtualRoot, () => undefined)
+                  .map((entry) => entry.label)
+                  .join(" / "),
+                wideValue: true,
+              },
+              { label: "Source", value: opened.origin },
+              {
+                label: "Observed",
+                value: page.observedAt ?? "Unavailable",
+                wideValue: true,
+              },
+              { label: "Result", value: "Pinned result" },
+              {
+                label: "Completeness",
+                value:
+                  page.completeness === "complete" ? "Complete" : "Incomplete",
+              },
+            ]}
+          />
+          {page.unknownCount > 0 && (
+            <Text kind="muted">
+              {page.unknownCount} items could not be evaluated.
+            </Text>
+          )}
+          {page.completeness !== "complete" && (
+            <Text>Some items may be unavailable.</Text>
+          )}
+        </section>
+      </DetailDisclosure>
+    </div>
   );
 }

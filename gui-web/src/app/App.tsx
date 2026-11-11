@@ -53,6 +53,13 @@ export function App({ analysis }: { analysis?: AnalysisClient } = {}) {
           <Heading level={1}>DiskUnfold</Heading>
         </div>
         <div className="du-app-header__actions">
+          <BrowseReturn
+            visible={Boolean(browseVersion)}
+            onPress={() => {
+              restoreBrowseFocus.current = true;
+              setBrowseVersion(undefined);
+            }}
+          />
           {client && (
             <SettingsRestoration
               client={client}
@@ -105,17 +112,6 @@ export function App({ analysis }: { analysis?: AnalysisClient } = {}) {
       )}
       {client && browsePort && browseVersion && (
         <div className="du-browse-shell">
-          <Action
-            variant="quiet"
-            icon="back"
-            autoFocus
-            onPress={() => {
-              restoreBrowseFocus.current = true;
-              setBrowseVersion(undefined);
-            }}
-          >
-            Back to analysis
-          </Action>
           <BrowsePanel
             port={browsePort}
             resultVersion={browseVersion}
@@ -141,5 +137,20 @@ export function App({ analysis }: { analysis?: AnalysisClient } = {}) {
         />
       )}
     </main>
+  );
+}
+
+function BrowseReturn({
+  visible,
+  onPress,
+}: {
+  visible: boolean;
+  onPress: () => void;
+}) {
+  if (!visible) return null;
+  return (
+    <Action variant="quiet" icon="back" autoFocus onPress={onPress}>
+      Back to analysis
+    </Action>
   );
 }

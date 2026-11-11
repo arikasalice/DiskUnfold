@@ -1636,7 +1636,7 @@ test("F02 IF-23: opens an existing partial without an event, then keeps it until
   expect(screen.queryByText(/2,207 bytes/)).toBeNull();
   expect(calls.filter(({ name }) => name === "space.total")).toHaveLength(1);
   fireEvent.click(screen.getByRole("button", { name: "Browse folders" }));
-  await screen.findByText(/^Pinned result · scan/);
+  await screen.findByRole("region", { name: "Folder navigation" });
   expect(calls.find(({ name }) => name === "browse.open")?.body).toMatchObject({
     resultVersion: "part",
   });
@@ -1684,7 +1684,7 @@ test("F02 IF-23: opens an existing partial without an event, then keeps it until
     screen.queryByRole("button", { name: "Show latest result" }),
   ).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Browse folders" }));
-  await screen.findByText(/^Pinned result · scan/);
+  await screen.findByRole("region", { name: "Folder navigation" });
   expect(
     calls.filter(({ name }) => name === "browse.open").at(-1)?.body,
   ).toMatchObject({

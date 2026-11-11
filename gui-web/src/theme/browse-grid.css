@@ -232,3 +232,81 @@
   outline: 2px solid var(--du-focus);
   outline-offset: -2px;
 }
+
+/* Keep navigation compact while preserving the full observation on request. */
+.du-browse-shell {
+  grid-template-rows: minmax(0, 1fr);
+  padding-block-start: 6px;
+}
+.du-browse-panel {
+  gap: 4px;
+}
+.du-browse-header:first-child > .du-heading {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.du-browse-context {
+  padding-block: 0;
+}
+.du-browse-context .du-card__actions {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  min-inline-size: 0;
+}
+.du-browse-observation {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0 8px;
+  min-inline-size: 0;
+}
+.du-browse-observation > .du-text {
+  font-size: 12px;
+}
+.du-browse-observation .du-detail-disclosure {
+  border-block-start: 0;
+}
+.du-browse-observation .du-detail-disclosure > .du-action {
+  min-block-size: 32px;
+  padding-block: 4px;
+}
+.du-browse-observation .du-detail-disclosure:has([aria-expanded="true"]) {
+  flex-basis: 100%;
+}
+.du-browse-observation [tabindex="0"]:focus-visible {
+  outline: 2px solid var(--du-focus);
+  outline-offset: -2px;
+}
+.du-browse-header > .du-notice {
+  padding: 6px 8px;
+}
+/* Expanded context and failures may grow; let the document scroll instead of
+   reducing the virtual list to an unusable sliver. */
+.du-app[data-browse-open]:has(
+    .du-browse-observation [aria-expanded="true"],
+    .du-browse-header .du-notice--error
+  ) {
+  block-size: auto;
+  min-block-size: 100dvh;
+}
+.du-app[data-browse-open]:has(
+    .du-browse-observation [aria-expanded="true"],
+    .du-browse-header .du-notice--error
+  )
+  .du-browse-grid-frame {
+  block-size: max(18rem, 50dvh);
+}
+@media (max-height: 350px) {
+  .du-app[data-browse-open] {
+    block-size: auto;
+    min-block-size: 100dvh;
+  }
+  .du-browse-grid-frame {
+    block-size: max(18rem, 50dvh);
+  }
+}
