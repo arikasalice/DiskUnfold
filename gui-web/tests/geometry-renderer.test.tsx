@@ -145,6 +145,18 @@ test("future format geometry uses the same rendering, clipping and selection", (
   expect(screen.getByRole("table", { name: "Same model rows" })).toBeTruthy();
 });
 
+test("graph pointer and keyboard alternative select the same source row", () => {
+  const input = props();
+  const { container } = render(<GeometryRenderer {...input} />);
+  fireEvent.click(container.querySelector(".du-geometry-shape rect")!);
+  expect(input.onSelect).toHaveBeenLastCalledWith("row-a");
+  fireEvent.click(screen.getByRole("button", { name: "Item A, 10 bytes" }));
+  expect(input.onSelect).toHaveBeenLastCalledWith("row-a");
+  expect(container.querySelector(".du-geometry-label")?.textContent).toContain(
+    "…",
+  );
+});
+
 test("a dedicated display can be registered without changing common fallback", () => {
   function DedicatedRenderer(input: GeometryRendererProps) {
     return <GeometryRenderer {...input} label="Dedicated graph" />;

@@ -1,4 +1,4 @@
-import { useId } from "react";
+import { useId, useRef } from "react";
 import type { KeyboardEvent, ReactNode } from "react";
 import { Action } from "./controls";
 import { Notice } from "./presentation";
@@ -217,9 +217,36 @@ function moveFocus(event: KeyboardEvent<HTMLDivElement>) {
   buttons[next]?.focus();
 }
 
+function rectangleLabel(
+  shape: Shape,
+  view: Viewport,
+  width: number,
+  height: number,
+) {
+  if (shape.geometry.primitive !== "rect") return null;
+  const start = project(shape.geometry.points[0]!, view, width, height);
+  const end = project(shape.geometry.points[1]!, view, width, height);
+  const left = Math.max(start.x, 0);
+  const top = Math.max(start.y, 0);
+  const available = Math.min(end.x, width) - left;
+  if (available < 70 || Math.min(end.y, height) - top < 36) return null;
+  const limit = Math.max(4, Math.floor((available - 24) / 14));
+  const label = Array.from(shape.accessibleLabel);
+  const visible =
+    label.length > limit
+      ? label.slice(0, limit - 1).join("") + "…"
+      : shape.accessibleLabel;
+  return (
+    <text className="du-geometry-label" x={left + 12} y={top + 24}>
+      {visible}
+    </text>
+  );
+}
+
 /** Draws all supported common primitives or presents the supplied same-model table. */
 export function GeometryRenderer(props: GeometryRendererProps) {
   const clip = useId();
+  const controls = useRef(new Map<string, HTMLButtonElement>());
   const { shapes, relations, viewport, fallback, modelRef, resultRevision } =
     props;
   const fallbackMatches =
@@ -276,11 +303,18 @@ export function GeometryRenderer(props: GeometryRendererProps) {
             <g
               className="du-geometry-shape"
               key={shape.shapeRef}
+              onClick={() => {
+                controls.current
+                  .get(shape.shapeRef)
+                  ?.focus({ preventScroll: true });
+                props.onSelect(shape.rowRef);
+              }}
               data-selected={
                 shape.rowRef === props.selectedRowRef ? "true" : undefined
               }
             >
               {drawing}
+              {rectangleLabel(shape, viewport, width, height)}
             </g>
           ))}
         </g>
@@ -289,6 +323,10 @@ export function GeometryRenderer(props: GeometryRendererProps) {
         {visible.map(({ shape }) => (
           <Action
             key={shape.shapeRef}
+            ref={(element) => {
+              if (element) controls.current.set(shape.shapeRef, element);
+              else controls.current.delete(shape.shapeRef);
+            }}
             aria-label={`${shape.accessibleLabel}${shape.rowRef === props.selectedRowRef ? `, ${props.selectedText}` : ""}`}
             onPress={() => props.onSelect(shape.rowRef)}
           >

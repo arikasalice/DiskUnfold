@@ -36,6 +36,7 @@
 }
 
 .du-inspection-dialog__header .du-heading {
+  font-size: clamp(20px, 2.5vw, 24px);
   flex: 1 1 12rem;
   min-inline-size: 0;
   max-block-size: 3.6em;
