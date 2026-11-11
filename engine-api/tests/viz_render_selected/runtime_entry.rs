@@ -56,9 +56,19 @@ struct Producer {
 impl EvidenceProducer for Producer {
     fn source_facts(
         &self,
-        _: &current_analysis::CurrentAnalysis,
-        _: &VizRenderRequest,
+        source: &current_analysis::CurrentAnalysis,
+        request: &VizRenderRequest,
     ) -> Result<SourceFacts, EngineError> {
+        let applied = source.version().size_rule();
+        let mut size_rule = QueryStrategy {
+            id: applied.id.into(),
+            revision: applied.revision,
+        };
+        match request.classification_criterion.as_str() {
+            "fixture.bad_rule_id" => size_rule.id = "fixture.other_rule".into(),
+            "fixture.bad_rule_revision" => size_rule.revision += 1,
+            _ => {}
+        }
         Ok(SourceFacts {
             staleness: VizStaleness {
                 state: VizStalenessState::Current,
@@ -69,10 +79,7 @@ impl EvidenceProducer for Producer {
                 required_data: 1,
                 legend: 1,
                 view_policy: 1,
-                size_rule: QueryStrategy {
-                    id: "fixture.size_rule".into(),
-                    revision: 1,
-                },
+                size_rule,
             },
             available_formats: vec![],
             classes: HashMap::from([(

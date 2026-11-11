@@ -31,7 +31,7 @@ impl Runtime {
             })?;
         normalize(&mut request, &source, &descriptor.strategy)?;
         let facts = self.assembly.producer.source_facts(&source, &request)?;
-        validate_facts(&facts, self.assembly.policy.revision)?;
+        validate_facts(&facts, &source, self.assembly.policy.revision)?;
         let key = fingerprint(&request, &facts, max_shapes)?;
         Ok(Admitted {
             request,
@@ -120,16 +120,23 @@ fn validate_viewport(
     }
     Ok(max_shapes)
 }
-fn validate_facts(facts: &SourceFacts, view_policy: u32) -> Result<(), EngineError> {
+fn validate_facts(
+    facts: &SourceFacts,
+    source: &CurrentAnalysis,
+    view_policy: u32,
+) -> Result<(), EngineError> {
+    // The scan build binds the rule before publication. Model evidence must
+    // describe that same rule, including when the configured default changes.
+    let applied = source.version().size_rule();
     if facts.tables.view_policy != view_policy
+        || facts.tables.size_rule.id != applied.id
+        || facts.tables.size_rule.revision != applied.revision
         || [
             facts.tables.interpretation,
             facts.tables.required_data,
             facts.tables.legend,
-            facts.tables.size_rule.revision,
         ]
         .contains(&0)
-        || facts.tables.size_rule.id.is_empty()
         || facts
             .classes
             .iter()
