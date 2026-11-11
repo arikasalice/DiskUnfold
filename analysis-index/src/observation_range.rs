@@ -26,6 +26,29 @@ pub(crate) struct RangeIndices {
 }
 
 impl RangeIndices {
+    pub(crate) fn selection(complete: bool) -> Self {
+        Self {
+            complete,
+            ..Self::default()
+        }
+    }
+
+    pub(crate) fn observe_file(&mut self, item_no: u32, times: Option<&[Option<Timestamp>]>) {
+        let observed = get_time(times, Some(item_no)).is_some();
+        self.merge(
+            Self {
+                min: observed.then_some(item_no),
+                max: observed.then_some(item_no),
+                complete: observed,
+            },
+            times,
+        );
+    }
+
+    pub(crate) fn mark_incomplete(&mut self) {
+        self.complete = false;
+    }
+
     fn merge(&mut self, other: Self, times: Option<&[Option<Timestamp>]>) {
         self.min = select(self.min, other.min, times, Ordering::Greater);
         self.max = select(self.max, other.max, times, Ordering::Less);

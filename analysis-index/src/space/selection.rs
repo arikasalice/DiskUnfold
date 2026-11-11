@@ -25,6 +25,34 @@ pub(crate) fn sum(
     version: &ResultVersion,
     items: &[ItemRef],
     membership_complete: bool,
+    cancelled: impl FnMut() -> bool,
+) -> Result<SpaceAggregate, Error> {
+    calculate(version, items, membership_complete, None, cancelled)
+}
+
+pub(crate) fn sum_with_range(
+    version: &ResultVersion,
+    items: &[ItemRef],
+    membership_complete: bool,
+    cancelled: impl FnMut() -> bool,
+) -> Result<(SpaceAggregate, crate::observation_range::RangeIndices), Error> {
+    let complete = membership_complete && version.completeness() == ResultCompleteness::Complete;
+    let mut range = crate::observation_range::RangeIndices::selection(complete);
+    let total = calculate(
+        version,
+        items,
+        membership_complete,
+        Some(&mut range),
+        cancelled,
+    )?;
+    Ok((total, range))
+}
+
+fn calculate(
+    version: &ResultVersion,
+    items: &[ItemRef],
+    membership_complete: bool,
+    mut range: Option<&mut crate::observation_range::RangeIndices>,
     mut cancelled: impl FnMut() -> bool,
 ) -> Result<SpaceAggregate, Error> {
     let mut seen = BTreeSet::new();
@@ -37,8 +65,18 @@ pub(crate) fn sum(
             return Err(Error::Cancelled);
         }
         let row = version.detail(reference).map_err(Error::Item)?.item;
-        complete &= row.kind == ResultItemKind::File;
-        if complete && seen.insert(row.item_no) {
+        let file = row.kind == ResultItemKind::File;
+        complete &= file;
+        if !file && let Some(range) = &mut range {
+            range.mark_incomplete();
+        }
+        if file && (complete || range.is_some()) && seen.insert(row.item_no) {
+            if let Some(range) = &mut range {
+                range.observe_file(row.item_no, version.item_observed_times.as_deref());
+            }
+            if !complete {
+                continue;
+            }
             logical.observe(row.size.as_ref());
             let _ = physical.observe_pinned(version, row.item_no as usize);
         }

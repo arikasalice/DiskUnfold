@@ -98,4 +98,18 @@ impl RegisteredRule {
             }
         }
     }
+
+    pub(crate) fn selection_total_with_range(
+        self,
+        version: &ResultVersion,
+        items: &[ItemRef],
+        membership_complete: bool,
+        cancelled: impl FnMut() -> bool,
+    ) -> Result<(SpaceAggregate, crate::observation_range::RangeIndices), SpaceTotalError> {
+        match self {
+            Self::SubtreeUnique => {
+                space::selection::sum_with_range(version, items, membership_complete, cancelled)
+            }
+        }
+    }
 }

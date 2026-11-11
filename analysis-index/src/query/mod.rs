@@ -5,7 +5,9 @@ pub mod page;
 pub(crate) mod plan;
 pub mod prepared;
 mod sorting;
+mod total;
 pub use condition::{Basis, Boundary, Condition, Kind, NameEncoding, NameTest, Predicate, Truth};
+pub use total::TotalWithObservationRange;
 /// Checks condition depth and group sizes before recursive normalization.
 pub fn validate_condition(condition: &Condition) -> Result<(), Error> {
     plan::check_shape(condition, 0)
