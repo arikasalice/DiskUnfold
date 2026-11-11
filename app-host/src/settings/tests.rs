@@ -114,6 +114,15 @@ fn recent_scope_setting_is_registered_and_persists_without_erasing_other_setting
         rusqlite::params![vec![1_u8; 16], vec![2_u8; 32], "{}"],
     )?;
     drop(db);
+    let recent_rows = || -> rusqlite::Result<Vec<Vec<rusqlite::types::Value>>> {
+        let db = Connection::open(&path)?;
+        let mut query =
+            db.prepare("SELECT * FROM user_env_recent_scope ORDER BY recent_scope_id")?;
+        let rows = query.query_map([], |row| (0..9).map(|index| row.get(index)).collect())?;
+        rows.collect()
+    };
+    let original_rows = recent_rows()?;
+    assert_eq!(original_rows.len(), 1);
     let mut service = reopen(100)?;
     assert!(scope::remember_recent(service.snapshot()));
     let off = SettingsChanges::from([(scope::REMEMBER_RECENT.into(), Some(json!(false)))]);
@@ -122,15 +131,11 @@ fn recent_scope_setting_is_registered_and_persists_without_erasing_other_setting
         .apply(1, &off, fingerprint, context())
         .map_err(|e| format!("{e:?}"))?;
     assert!(!scope::remember_recent(service.snapshot()));
-    let db = Connection::open(&path)?;
-    let count: i64 = db.query_row("SELECT count(*) FROM user_env_recent_scope", [], |row| {
-        row.get(0)
-    })?;
-    assert_eq!(count, 1);
-    drop(db);
+    assert_eq!(recent_rows()?, original_rows);
     drop(service);
     let mut service = reopen(101)?;
     assert!(!scope::remember_recent(service.snapshot()));
+    assert_eq!(recent_rows()?, original_rows);
     assert_eq!(
         service.snapshot().values.get("future.setting"),
         Some(&json!("preserved"))
@@ -143,11 +148,7 @@ fn recent_scope_setting_is_registered_and_persists_without_erasing_other_setting
     assert!(scope::remember_recent(service.snapshot()));
     drop(service);
     assert!(scope::remember_recent(reopen(102)?.snapshot()));
-    let db = Connection::open(&path)?;
-    let count: i64 = db.query_row("SELECT count(*) FROM user_env_recent_scope", [], |row| {
-        row.get(0)
-    })?;
-    assert_eq!(count, 1);
+    assert_eq!(recent_rows()?, original_rows);
     Ok(())
 }
 
