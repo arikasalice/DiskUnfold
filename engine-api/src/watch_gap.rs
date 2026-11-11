@@ -1,8 +1,14 @@
 //! F33's session-only IF-10/IF-11 consumer, before composition with IF-17.
 //!
-//! Calls are serialized by the scope owner. The supplied callback represents
-//! one atomic IF-17 update: it must leave its ledger unchanged on failure.
-//! These are in-process implementation types, not a serialized wire contract.
+//! Calls are serialized by the scope owner. The supplied callback is the
+//! synchronous IF-17 commit boundary: it must stage one normalized update and
+//! publish its ledger state only if the complete update succeeds. Returning an
+//! error means no part of that update was committed. The consumer advances its
+//! cursor only after this boundary succeeds.
+//!
+//! A replacement scope revision uses a new `Ledger`; release the old instance
+//! when its registry scope is released. These are in-process implementation
+//! types, not a serialized wire contract.
 
 mod gaps;
 mod replay;
@@ -139,7 +145,9 @@ impl Ledger {
     ///
     /// A newly registered unit has no trusted change-sequence baseline. Until
     /// its snapshot callback succeeds, batches request resynchronization and
-    /// neither the sink nor the consumer cursor is advanced.
+    /// neither the sink nor the consumer cursor is advanced. The callback is
+    /// the transaction's linearization point and must roll back all staged
+    /// ledger changes before returning an error.
     pub fn apply<E>(
         &mut self,
         batch: &Batch,

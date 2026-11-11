@@ -4,6 +4,7 @@ use du_scan_engine::watch_coalescer::{Change, ChangeKind, Context, GapReason, Tr
 use std::collections::BTreeSet;
 
 mod initial_snapshot;
+mod scope_replacement;
 
 fn definition(id: u8) -> Definition {
     Definition {
