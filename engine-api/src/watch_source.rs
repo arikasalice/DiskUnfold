@@ -4,9 +4,13 @@
 //! watch unit and does not assert which item changed. The caller owns the
 //! registration, retains rejected inputs, and publishes every returned action.
 use du_core_contracts::change_notify::{WatchError, WatchEvent};
+pub use du_scan_engine::watch_coalescer::GapReason;
+pub use du_scan_engine::watch_lifecycle::{
+    Action, Capability, Completion, Definition, Registration, Registry, State, Support,
+};
 use du_scan_engine::{
     watch_coalescer::{ChangeKind, Signal},
-    watch_lifecycle::{Action, Error, Interruption, Registry},
+    watch_lifecycle::{Error, Interruption},
 };
 
 /// Deliver a port event to its bound lifecycle attempt and generation.
