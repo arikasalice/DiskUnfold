@@ -5,6 +5,8 @@
 use du_core_contracts::{SizeAmount, SizeBasis, SizeEvidence, SizeValue};
 use std::collections::BTreeMap;
 
+pub mod strategies;
+
 /// An upstream classification result, preserving missing and unclassified values.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Category {
