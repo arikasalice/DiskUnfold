@@ -66,6 +66,7 @@ impl ErrorEnvelope {
             | "browse.not_folder"
             | "predicate.unknown"
             | "sort.key_unknown"
+            | "viz.viewport_invalid"
             | "space.target_out_of_scope"
             | "scope.empty"
             | "scope.target_unavailable"
@@ -84,7 +85,9 @@ impl ErrorEnvelope {
             | "history.removed"
             | "viz.model_expired" => ErrorCode::NotFound,
             "path.outside_scope" | "path.link_escape" => ErrorCode::ScopeDenied,
-            "db.busy" | "job.queue_full" | "job.shutting_down" | "query.busy" => ErrorCode::Busy,
+            "db.busy" | "job.queue_full" | "job.shutting_down" | "query.busy" | "viz.busy" => {
+                ErrorCode::Busy
+            }
             "db.schema_mismatch" | "support.internal_error" | "history.storage_unavailable" => {
                 ErrorCode::Internal
             }

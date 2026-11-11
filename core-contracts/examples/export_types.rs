@@ -12,6 +12,9 @@ use du_core_contracts::size_units::{
     DISPLAY_DECIMAL_PLACES, IEC_UNITS, SI_UNITS, UNIT_TABLE_REVISION,
 };
 use du_core_contracts::space_detail_ipc::*;
+use du_core_contracts::visualization::cancel::{
+    VizCancelRequest, VizCancelResponse, VizCancelTarget, VizControlResult,
+};
 use du_core_contracts::visualization::geometry::{Geometry, Point};
 use du_core_contracts::visualization::locate::{VizLocate, VizLocateRequest};
 use du_core_contracts::visualization::model::{
@@ -85,6 +88,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         VizRenderNonModelResponse::decl(&config),
         VizColorMode::decl(&config),
         VizLabelMode::decl(&config),
+        VizCancelRequest::decl(&config),
+        VizCancelTarget::decl(&config),
+        VizControlResult::decl(&config),
+        VizCancelResponse::decl(&config),
         VizViewOpenRequest::decl(&config),
         VizViewChannel::decl(&config),
         VizSourceRef::decl(&config),
