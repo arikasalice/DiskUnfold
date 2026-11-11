@@ -52,7 +52,7 @@ fn preserves_factor_evidence_and_calculates_in_published_order() {
     assert_eq!(
         gap.remainder,
         Ok(GapRemainder {
-            bytes: 5.into(),
+            bytes: 7.into(),
             evidence: SizeEvidence::Estimated
         })
     );
@@ -71,6 +71,25 @@ fn preserves_factor_evidence_and_calculates_in_published_order() {
     );
     assert_eq!(gap.factors[2].value, exact(0));
     assert_eq!(gap.factors[6].value, exact(4));
+}
+
+#[test]
+fn dedup_explains_scoped_allocation_without_changing_the_remainder() {
+    let mut factors = observed();
+    let dedup = FactorValue::Exact {
+        bytes: 90,
+        evidence: SizeEvidence::Estimated,
+    };
+    factors.insert(Factor::Dedup, dedup.clone());
+    let gap = VolumeGap::calculate(Some(100), &allocated(75), &factors);
+    assert_eq!(gap.factors[3].value, dedup);
+    assert_eq!(
+        gap.remainder,
+        Ok(GapRemainder {
+            bytes: 7.into(),
+            evidence: SizeEvidence::OsReported,
+        })
+    );
 }
 
 #[test]
@@ -96,6 +115,11 @@ fn unobserved_factors_and_inexact_allocation_never_become_zero() {
     };
     assert_eq!(gap.factors[2].value, absent);
     assert_eq!(gap.factors[7].value, absent);
+    let mut missing_dedup = observed();
+    missing_dedup.remove(&Factor::Dedup);
+    let gap = VolumeGap::calculate(Some(100), &allocated(75), &missing_dedup);
+    assert_eq!(gap.factors[3].value, absent);
+    assert_eq!(gap.remainder, Err(RemainderUnavailable::InexactInput));
     let lower_bound = SizeValue {
         amount: SizeAmount::LowerBound { bytes: 75.into() },
         ..allocated(75)
@@ -116,7 +140,7 @@ fn unobserved_factors_and_inexact_allocation_never_become_zero() {
 fn exact_zero_missing_report_and_negative_difference_are_distinct() {
     let mut factors = observed();
     assert_eq!(
-        VolumeGap::calculate(Some(95), &allocated(75), &factors).remainder,
+        VolumeGap::calculate(Some(93), &allocated(75), &factors).remainder,
         Ok(GapRemainder {
             bytes: 0.into(),
             evidence: SizeEvidence::OsReported
@@ -127,7 +151,7 @@ fn exact_zero_missing_report_and_negative_difference_are_distinct() {
         Err(RemainderUnavailable::VolumeReportUnavailable)
     );
     assert_eq!(
-        VolumeGap::calculate(Some(94), &allocated(75), &factors).remainder,
+        VolumeGap::calculate(Some(92), &allocated(75), &factors).remainder,
         Err(RemainderUnavailable::NegativeDifference)
     );
     factors.insert(Factor::OutOfScope, exact(u64::MAX));

@@ -81,7 +81,9 @@ pub struct VolumeGap {
 impl VolumeGap {
     /// Subtracts exact allocated bytes and independently attributed factors from
     /// reported used bytes. The caller supplies evidence from the same pinned
-    /// volume and scope. Omitted factors remain unknown.
+    /// volume and scope. Deduplication is reported separately because scoped
+    /// allocation already counts each shared allocation once. Omitted factors
+    /// remain unknown and prevent an exact remainder.
     pub fn calculate(
         used_bytes: Option<u64>,
         scoped: &SizeValue,
@@ -119,7 +121,7 @@ fn remainder(
     let mut known = [0; FACTORS.len()];
     let mut evidence =
         crate::space::weaker(Some(SizeEvidence::OsReported), scoped.evidence.clone());
-    for (bytes, row) in known.iter_mut().zip(factors) {
+    for ((factor, _), (bytes, row)) in FACTORS.into_iter().zip(known.iter_mut().zip(factors)) {
         let FactorValue::Exact {
             bytes: value,
             evidence: source,
@@ -127,6 +129,9 @@ fn remainder(
         else {
             return Err(InexactInput);
         };
+        if factor == Factor::Dedup {
+            continue;
+        }
         *bytes = *value;
         evidence = crate::space::weaker(Some(evidence), source.clone());
     }
