@@ -84,28 +84,43 @@ test("F14 FR6 opens a value-free startup report and shows the edit lock", async 
   expect(transport).toHaveBeenCalledTimes(1);
 });
 
-test("F14 FR6 keeps failure visible and retries the same read", async () => {
+test("F14 FR6 retries restoration without losing focus outside the dialog", async () => {
   const transport =
     vi.fn<NonNullable<Parameters<typeof createAnalysisClient>[0]>>();
+  let completeRetry = () => {};
   transport.mockRejectedValueOnce(new Error("private diagnostic"));
-  transport.mockImplementationOnce(async (_, { envelope }) => ({
-    ...envelope,
-    body: {
-      items: [],
-      storedSchema: null,
-      appSchema: 1,
-      migrated: false,
-      writeLocked: false,
-    },
-  }));
+  transport.mockImplementationOnce(async (_, { envelope }) => {
+    await new Promise<void>((resolve) => {
+      completeRetry = resolve;
+    });
+    return {
+      ...envelope,
+      body: {
+        items: [],
+        storedSchema: null,
+        appSchema: 1,
+        migrated: false,
+        writeLocked: false,
+      },
+    };
+  });
   render(
     <SettingsRestoration client={createAnalysisClient(transport)} visible />,
   );
   fireEvent.click(screen.getByRole("button", { name: "Settings restoration" }));
   await screen.findByText("Settings restoration status could not be loaded.");
   expect(screen.queryByText("private diagnostic")).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+  const retry = screen.getByRole("button", { name: "Retry" });
+  retry.focus();
+  fireEvent.click(retry);
+  await screen.findByRole("progressbar", {
+    name: "Loading restoration status",
+  });
+  const close = screen.getByRole("button", { name: "Close details" });
+  await waitFor(() => expect(document.activeElement).toBe(close));
+  await act(async () => completeRetry());
   await screen.findByText("No individual settings were reported.");
+  expect(document.activeElement).toBe(close);
   expect(screen.queryByText("Settings restored")).toBeNull();
   expect(transport).toHaveBeenCalledTimes(2);
 });
