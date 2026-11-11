@@ -165,6 +165,7 @@ struct Admitted {
 
 struct PendingRecentScope {
     normalized_scope: du_core_contracts::analysis_ipc::ScopeDraft,
+    fingerprint_input: Option<du_core_contracts::analysis_ipc::ScopeDraft>,
     observers: Vec<du_core_contracts::scan_observation::OptionalRecentScopeObserver>,
 }
 
@@ -192,7 +193,8 @@ impl UseCase for StartScan {
             self.admissions.is_some(),
         )?;
         let recent = self.admissions.as_ref().map(|_| PendingRecentScope {
-            normalized_scope: verified.normalized_draft.clone(),
+            normalized_scope: verified.normalized_draft,
+            fingerprint_input: verified.scope_fingerprint.retained_comparison_input(),
             observers: verified.recent_observers,
         });
         let scope_fingerprint = verified.scope_fingerprint.resolve()?;
@@ -295,6 +297,7 @@ impl StartScan {
                     publisher.enqueue(crate::recent_scope::RecentScopeAdmission {
                         receipt: receipt.clone(),
                         normalized_scope: recent.normalized_scope,
+                        fingerprint_input: recent.fingerprint_input,
                         observers: recent.observers,
                         runtime: self.workers.runtime.clone(),
                         queue_slots: None,

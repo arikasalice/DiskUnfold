@@ -17,6 +17,7 @@ use du_core_contracts::{
 pub struct RecentScopeAdmission {
     pub receipt: ScanStart,
     pub normalized_scope: ScopeDraft,
+    pub(crate) fingerprint_input: Option<ScopeDraft>,
     pub(crate) observers: Vec<du_core_contracts::scan_observation::OptionalRecentScopeObserver>,
     pub(crate) runtime: Arc<du_job_runtime::JobRuntime>,
     pub(crate) queue_slots: Option<Arc<AtomicUsize>>,
@@ -31,6 +32,14 @@ pub enum RecentScopeAdmissionProgress {
 }
 
 impl RecentScopeAdmission {
+    /// Returns the admitted scope inputs hashed for the receipt fingerprint.
+    /// Consumers must not reconstruct comparison keys from display or applied paths.
+    pub fn fingerprint_conditions(&self) -> &ScopeDraft {
+        self.fingerprint_input
+            .as_ref()
+            .unwrap_or(&self.normalized_scope)
+    }
+
     /// Lets the app-host retain a candidate while its owning job is running.
     pub fn progress(&self) -> RecentScopeAdmissionProgress {
         match self.runtime.state(&self.receipt.job_ref) {

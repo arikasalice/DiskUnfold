@@ -259,6 +259,14 @@ pub(crate) enum ScopeFingerprint {
 }
 
 impl ScopeFingerprint {
+    /// Returns the hash inputs when the scope used verified comparison keys.
+    pub(crate) fn retained_comparison_input(&self) -> Option<ScopeDraft> {
+        match self {
+            Self::Ready(_) => None,
+            Self::Bound(proof) => Some(proof.draft(true)),
+        }
+    }
+
     pub(crate) fn resolve(self) -> Result<String, EngineError> {
         match self {
             Self::Ready(fingerprint) => Ok(fingerprint),

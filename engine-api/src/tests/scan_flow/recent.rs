@@ -126,6 +126,10 @@ fn recent_observation_waits_for_response_ack_and_authoritative_job_finish()
     assert!(admissions.response_sent(&receipt.job_ref));
     let admission = admissions.try_next()?;
     assert_eq!(
+        admission.fingerprint_conditions(),
+        &admission.normalized_scope
+    );
+    assert_eq!(
         admission.progress(),
         crate::desktop::RecentScopeAdmissionProgress::Running
     );

@@ -204,7 +204,7 @@ pub(crate) struct BoundScopeProof {
 }
 
 impl BoundScopeProof {
-    fn draft(&self, keys: bool) -> ScopeDraft {
+    pub(super) fn draft(&self, keys: bool) -> ScopeDraft {
         ScopeDraft {
             includes: self
                 .root_pairs

@@ -485,6 +485,15 @@ fn exclusion_inside_absorbed_root_stays_bound_to_retained_root()
     )
     .map_err(|error| format!("{error:?}"))?;
     assert_eq!(verified.roots.len(), 1);
+    let hashed = verified
+        .scope_fingerprint
+        .retained_comparison_input()
+        .ok_or("missing comparison inputs")?;
+    assert_ne!(hashed.exclusions, verified.normalized_draft.exclusions);
+    assert_eq!(
+        serde_json::to_value(&hashed.exclusions[0])?["path"]["raw"],
+        native("c:\\fixture\\nested\\private")["raw"]
+    );
     let filter = verified.filter.ok_or("missing filter")?;
     assert_eq!(
         filter(
