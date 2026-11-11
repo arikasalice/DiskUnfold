@@ -71,6 +71,86 @@ fn fixed_secret_patterns_are_excluded_independently_of_declared_class() -> Resul
 }
 
 #[test]
+fn published_secret_names_and_compatible_aliases_are_excluded_after_decoding() -> Result<(), Error>
+{
+    struct Names;
+    impl Exportable for Names {
+        const FIELDS: &'static [ExportField] = &[
+            ExportField {
+                path: "/Authorization",
+                class: FieldClass::ItemMetadata,
+            },
+            ExportField {
+                path: "/PASSWORD",
+                class: FieldClass::ItemMetadata,
+            },
+            ExportField {
+                path: "/Passphrase",
+                class: FieldClass::ItemMetadata,
+            },
+            ExportField {
+                path: "/previewPassword",
+                class: FieldClass::ItemMetadata,
+            },
+            ExportField {
+                path: "/verifier",
+                class: FieldClass::ItemMetadata,
+            },
+            ExportField {
+                path: "/connectionKey",
+                class: FieldClass::ItemMetadata,
+            },
+            ExportField {
+                path: "/apiKey",
+                class: FieldClass::ItemMetadata,
+            },
+            ExportField {
+                path: "/token",
+                class: FieldClass::ItemMetadata,
+            },
+            ExportField {
+                path: "/approvalToken",
+                class: FieldClass::ItemMetadata,
+            },
+            ExportField {
+                path: "/secret",
+                class: FieldClass::ItemMetadata,
+            },
+            ExportField {
+                path: "/connection_key",
+                class: FieldClass::ItemMetadata,
+            },
+            ExportField {
+                path: "/credential",
+                class: FieldClass::ItemMetadata,
+            },
+            ExportField {
+                path: "/preview_password",
+                class: FieldClass::ItemMetadata,
+            },
+            ExportField {
+                path: "/approval_token",
+                class: FieldClass::ItemMetadata,
+            },
+            ExportField {
+                path: "/api_key",
+                class: FieldClass::ItemMetadata,
+            },
+            ExportField {
+                path: "/password_hint",
+                class: FieldClass::ItemMetadata,
+            },
+        ];
+    }
+    let input = br#"{"Authorization":0,"PASSWORD":0,"Passphrase":0,"preview\u0050assword":0,"verifier":0,"connectionKey":0,"apiKey":0,"token":0,"approvalToken":0,"secret":0,"connection_key":0,"credential":0,"preview_password":0,"approval_token":0,"api_key":0,"password_hint":0}"#;
+    let result = begin_json::<Names>(input)?;
+    assert_eq!(result.excluded, 15);
+    assert_eq!(result.fields.len(), 1);
+    assert!(result.fields.contains_key("password_hint"));
+    Ok(())
+}
+
+#[test]
 fn invalid_or_ambiguous_json_never_returns_intermediate() {
     for input in [
         b"{".as_slice(),

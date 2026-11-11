@@ -170,6 +170,9 @@ fn check_value(
             .iter()
             .try_for_each(|value| check_value(snapshot, value)),
         Value::Object(values) => values.iter().try_for_each(|(key, value)| {
+            if crate::fixed_exclusion::secret_name(key) {
+                return Err(RenderedSecretFound);
+            }
             check_text(snapshot, key)?;
             check_value(snapshot, value)
         }),

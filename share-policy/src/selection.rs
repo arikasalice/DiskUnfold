@@ -86,10 +86,30 @@ pub enum Error {
 /// Selected mode before strategy lookup, filtering, or release authorization.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Selection {
-    pub channel: Channel,
-    pub mode: Mode,
+    channel: Channel,
+    mode: Mode,
     /// True when no channel policy was provided and aggregate-only was chosen.
-    pub defaulted: bool,
+    defaulted: bool,
+}
+
+impl Selection {
+    /// Returns the registered channel used for this selection.
+    #[must_use]
+    pub const fn channel(self) -> Channel {
+        self.channel
+    }
+
+    /// Returns the selected effective mode.
+    #[must_use]
+    pub const fn mode(self) -> Mode {
+        self.mode
+    }
+
+    /// Returns whether the default mode was selected.
+    #[must_use]
+    pub const fn defaulted(self) -> bool {
+        self.defaulted
+    }
 }
 
 /// Selects the channel mode, intersects the session policy, then checks options.

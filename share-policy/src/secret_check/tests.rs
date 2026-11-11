@@ -205,6 +205,8 @@ fn invalid_unavailable_or_detected_output_never_passes() -> Result<(), fixed_exc
         br#"{"x":"BEARER example"}"#.as_slice(),
         br#"{"x":"synthetic\u002dmarker"}"#.as_slice(),
         br#"{"synthetic\u002dmarker":0}"#.as_slice(),
+        br#"{"nested":[{"ConnecTION_Key":"value"}]}"#.as_slice(),
+        br#"{"connection\u005fkey":"value"}"#.as_slice(),
     ] {
         assert_eq!(checked.check_rendered_json(bytes), Err(RenderedSecretFound));
     }
@@ -225,6 +227,44 @@ fn invalid_unavailable_or_detected_output_never_passes() -> Result<(), fixed_exc
             Err(RenderedSecretFound)
         );
     }
+    Ok(())
+}
+
+#[test]
+fn rendered_keys_cover_published_names_and_explicit_aliases() -> Result<(), fixed_exclusion::Error>
+{
+    let checked = check(input("ordinary")?, Some(Box::new(SyntheticSnapshot)));
+    for name in [
+        "authorization",
+        "PASSWORD",
+        "passphrase",
+        "previewPassword",
+        "verifier",
+        "connectionKey",
+        "apiKey",
+        "token",
+        "approvalToken",
+        "secret",
+        "connection_key",
+        "credential",
+        "preview_password",
+        "approval_token",
+        "api_key",
+    ] {
+        let bytes = format!("{{\"outer\":[{{\"{name}\":0}}]}}");
+        assert_eq!(
+            checked.check_rendered_json(bytes.as_bytes()),
+            Err(RenderedSecretFound)
+        );
+    }
+    assert_eq!(
+        checked.check_rendered_json(br#"{"outer":{"api\u004bey":0}}"#),
+        Err(RenderedSecretFound)
+    );
+    assert_eq!(
+        checked.check_rendered_json(br#"{"password_hint":0}"#),
+        Ok(())
+    );
     Ok(())
 }
 

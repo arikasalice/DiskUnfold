@@ -90,15 +90,25 @@ pub fn begin_json<T: Exportable>(bytes: &[u8]) -> Result<Intermediate, Error> {
     })
 }
 
-fn secret_name(key: &str) -> bool {
-    // This conservative list is not a substitute for the later secret port.
+pub(crate) fn secret_name(key: &str) -> bool {
+    // Explicit aliases preserve existing snake_case names without guessing how
+    // arbitrary punctuation should be normalized.
     [
-        "connection_key",
-        "verifier",
-        "credential",
         "authorization",
+        "password",
+        "passphrase",
+        "previewPassword",
+        "verifier",
+        "connectionKey",
+        "apiKey",
+        "token",
+        "approvalToken",
+        "secret",
+        "connection_key",
+        "credential",
         "preview_password",
         "approval_token",
+        "api_key",
     ]
     .iter()
     .any(|name| key.eq_ignore_ascii_case(name))
