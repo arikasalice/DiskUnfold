@@ -4,6 +4,7 @@ use crate::records::{
     item::{Item, Kind, Size},
 };
 use std::sync::atomic::Ordering;
+mod q11_measurement;
 mod source_metadata_tests;
 mod windows_sealed_tests;
 fn record(kind: u8, body: &[u8], into: &mut Vec<u8>) {
