@@ -10,7 +10,9 @@ pub(super) use bar_strategy::BarLayout;
 pub use bar_strategy::RankedBar;
 pub use numeric_layout::{CommonInput, CommonRow};
 pub use sankey_strategy::{SankeyDispatchError, SankeyInput, SankeyOutput, SankeySelected};
-pub use trend_strategy::{SelectedTrend, TrendDispatchError, TrendError, TrendInput, TrendOutput};
+pub use trend_strategy::{
+    SelectedTrend, TrendBreak, TrendDispatchError, TrendError, TrendInput, TrendOutput,
+};
 pub(super) use trend_strategy::{TrendLayout, trend_descriptor};
 
 use super::{

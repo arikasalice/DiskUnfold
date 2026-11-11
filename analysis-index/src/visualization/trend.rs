@@ -16,7 +16,7 @@ pub struct Point<V = Weight> {
     pub value: V,
 }
 
-/// One pre-decimated series in strictly increasing timestamp order.
+/// One pre-decimated series in the source owner's timestamp order.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Series<V = Weight> {
     pub series_no: u32,
@@ -30,7 +30,7 @@ pub struct Coordinate {
     pub y: u32,
 }
 
-/// A line between two consecutive known observations in one series.
+/// A line between two consecutive known observations at distinct times.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LineSegment {
     pub from: Coordinate,
@@ -124,12 +124,37 @@ pub enum Error {
     Cancelled,
 }
 
+/// Controls whether separately identified observations can share a timestamp.
+#[derive(Clone, Copy)]
+pub(super) enum TimestampOrder<'a> {
+    Strict,
+    SourceSequence(&'a HashSet<(u32, usize)>),
+}
+
+impl TimestampOrder<'_> {
+    fn accepts(self, earlier: i64, later: i64, incoming: (u32, usize)) -> bool {
+        match self {
+            Self::Strict => earlier < later,
+            Self::SourceSequence(breaks) => earlier <= later || breaks.contains(&incoming),
+        }
+    }
+
+    fn connects(self, earlier: i64, later: i64, incoming: (u32, usize)) -> bool {
+        earlier < later
+            && match self {
+                Self::Strict => true,
+                Self::SourceSequence(breaks) => !breaks.contains(&incoming),
+            }
+    }
+}
+
 /// Places supplied trend observations in a shared plot rectangle.
 ///
 /// All timestamps across all series share one horizontal axis, so their actual
 /// temporal spacing is retained. Known values share one vertical axis. A
 /// constant value domain is placed at the vertical midpoint. Unknown values
 /// retain their timestamp as a gap and prevent a line from crossing that gap.
+/// This entry point requires strictly increasing timestamps within each series.
 /// Input series order and point order are preserved for deterministic output.
 pub fn layout(bounds: Rect, input: &[Series]) -> Result<Trend, Error> {
     layout_cancellable(bounds, input, &mut || false)
@@ -146,6 +171,7 @@ pub fn layout_cancellable(
     layout_values(
         bounds,
         input,
+        TimestampOrder::Strict,
         |value| match value {
             Weight::Exact(value) | Weight::LowerBound(value) => Some(*value),
             Weight::Unknown => None,
@@ -158,6 +184,7 @@ pub fn layout_cancellable(
 pub(super) fn layout_values<V: Clone, N: Copy + Ord + Into<i128>>(
     bounds: Rect,
     input: &[Series<V>],
+    order: TimestampOrder<'_>,
     value_of: impl Fn(&V) -> Option<N>,
     cancelled: &mut dyn FnMut() -> bool,
 ) -> Result<Trend<V, N>, Error> {
@@ -176,9 +203,11 @@ pub(super) fn layout_values<V: Clone, N: Copy + Ord + Into<i128>>(
             return Err(Error::DuplicateSeries);
         }
         let mut previous = None;
-        for point in &series.points {
+        for (index, point) in series.points.iter().enumerate() {
             check_cancelled(cancelled)?;
-            if previous.is_some_and(|time| point.observed_at_ms <= time) {
+            if previous.is_some_and(|time| {
+                !order.accepts(time, point.observed_at_ms, (series.series_no, index))
+            }) {
                 return Err(Error::NonIncreasingTime);
             }
             previous = Some(point.observed_at_ms);
@@ -216,7 +245,13 @@ pub(super) fn layout_values<V: Clone, N: Copy + Ord + Into<i128>>(
                             x,
                             y: map_value(bounds, value, value_range),
                         };
-                        if let Some((from_sample, from)) = previous_known {
+                        if let Some((from_sample, from_time, from)) = previous_known
+                            && order.connects(
+                                from_time,
+                                point.observed_at_ms,
+                                (series.series_no, index),
+                            )
+                        {
                             segments.push(LineSegment {
                                 from,
                                 to: coordinate,
@@ -224,7 +259,7 @@ pub(super) fn layout_values<V: Clone, N: Copy + Ord + Into<i128>>(
                                 to_sample: index,
                             });
                         }
-                        previous_known = Some((index, coordinate));
+                        previous_known = Some((index, point.observed_at_ms, coordinate));
                         Some(coordinate)
                     }
                 };

@@ -6,11 +6,21 @@ use du_core_contracts::visualization::{
     LayoutDescriptor, LayoutStrategyKey,
     quantity::{VizAmount, VizQuantity},
 };
+use std::collections::{HashMap, HashSet};
 
-/// Owner-prepared series with actual observation timestamps and original quantities.
+/// Owner-prepared series with actual timestamps, source tie order and original quantities.
 pub struct TrendInput<'a> {
     pub bounds: Rect,
     pub series: &'a [trend::Series<VizQuantity>],
+    /// Source-confirmed discontinuities before the indexed observations.
+    pub breaks: &'a [TrendBreak],
+}
+
+/// Disallows a line from the preceding observation in the same source series.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TrendBreak {
+    pub series_no: u32,
+    pub to_sample: usize,
 }
 
 /// Trend geometry retains signed byte deltas and the original observation evidence.
@@ -21,6 +31,7 @@ pub type TrendOutput = trend::Trend<VizQuantity, i128>;
 pub enum TrendError {
     Unsupported,
     InvalidUnit,
+    InvalidBreak,
     InsufficientObservations,
     Layout(trend::Error),
 }
@@ -74,17 +85,59 @@ impl Strategy for TrendLayout {
         cancelled: &mut dyn FnMut() -> bool,
     ) -> Result<TrendOutput, TrendError> {
         validate(input.series, cancelled)?;
-        trend::layout_values(input.bounds, input.series, numeric, cancelled)
-            .map_err(TrendError::Layout)
+        let breaks = validated_breaks(input.series, input.breaks, cancelled)?;
+        trend::layout_values(
+            input.bounds,
+            input.series,
+            trend::TimestampOrder::SourceSequence(&breaks),
+            numeric,
+            cancelled,
+        )
+        .map_err(TrendError::Layout)
     }
+}
+
+fn validated_breaks(
+    series: &[trend::Series<VizQuantity>],
+    breaks: &[TrendBreak],
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<HashSet<(u32, usize)>, TrendError> {
+    let mut validated = HashSet::new();
+    if breaks.is_empty() {
+        return Ok(validated);
+    }
+    let mut series_lengths = HashMap::new();
+    for series in series {
+        if cancelled() {
+            return Err(TrendError::Layout(trend::Error::Cancelled));
+        }
+        series_lengths.insert(series.series_no, series.points.len());
+    }
+    for TrendBreak {
+        series_no,
+        to_sample,
+    } in breaks.iter().copied()
+    {
+        if cancelled() {
+            return Err(TrendError::Layout(trend::Error::Cancelled));
+        }
+        if to_sample == 0
+            || series_lengths
+                .get(&series_no)
+                .is_none_or(|&len| to_sample >= len)
+            || !validated.insert((series_no, to_sample))
+        {
+            return Err(TrendError::InvalidBreak);
+        }
+    }
+    Ok(validated)
 }
 
 fn validate(
     series: &[trend::Series<VizQuantity>],
     cancelled: &mut dyn FnMut() -> bool,
 ) -> Result<(), TrendError> {
-    let mut first = None;
-    let mut distinct = false;
+    let mut observations = 0_u8;
     for series in series {
         for point in &series.points {
             if cancelled() {
@@ -93,15 +146,13 @@ fn validate(
             if point.value.unit() != "bytes" {
                 return Err(TrendError::InvalidUnit);
             }
-            if numeric(&point.value).is_some() {
-                distinct |= *first.get_or_insert(point.observed_at_ms) != point.observed_at_ms;
-            }
+            observations = (observations + 1).min(2);
         }
     }
     if cancelled() {
         return Err(TrendError::Layout(trend::Error::Cancelled));
     }
-    distinct
+    (observations == 2)
         .then_some(())
         .ok_or(TrendError::InsufficientObservations)
 }
