@@ -111,27 +111,12 @@ impl Runtime {
                 .selected_result_revision(&request.view_channel)
                 .map_err(|_| internal())?
                 .ok_or_else(unavailable)?;
-            if request
-                .result_revision
-                .as_ref()
-                .is_some_and(|requested| requested != &selected)
-            {
-                return Err(EngineError::reason("result.version_stale"));
-            }
             let source = crate::current_analysis::admit_selected(
                 &self.assembly.source,
                 &selected,
-                Some(&selected),
+                request.result_revision.as_ref(),
             )
-            .map_err(|error| {
-                use crate::current_analysis::Error::*;
-                EngineError::reason(match error {
-                    NoSource => "result.version_not_found",
-                    StaleVersion => "result.version_stale",
-                    UnsupportedSource => "ref.unavailable",
-                    Unavailable => "support.internal_error",
-                })
-            })?;
+            .map_err(source_error)?;
             if let Some(reference) = &request.source_ref {
                 if reference.kind != "scan" {
                     return Err(unavailable());
@@ -152,17 +137,20 @@ impl Runtime {
             lineage,
             request.result_revision.as_ref(),
         )
-        .map_err(|error| {
-            use crate::current_analysis::Error::*;
-            EngineError::reason(match error {
-                NoSource => "result.version_not_found",
-                StaleVersion => "result.version_stale",
-                UnsupportedSource => "ref.unavailable",
-                Unavailable => "support.internal_error",
-            })
-        })
+        .map_err(source_error)
     }
 }
+
+fn source_error(error: crate::current_analysis::Error) -> EngineError {
+    use crate::current_analysis::Error::*;
+    EngineError::reason(match error {
+        NoSource => "result.version_not_found",
+        StaleVersion => "result.version_stale",
+        UnsupportedSource => "ref.unavailable",
+        Unavailable => "support.internal_error",
+    })
+}
+
 fn validate_scope(request: &VizRenderRequest, source: &CurrentAnalysis) -> Result<(), EngineError> {
     request
         .validate_revision(source.result_version())
