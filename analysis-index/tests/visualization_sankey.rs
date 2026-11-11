@@ -183,7 +183,8 @@ fn registered_selection_executes_conserved_pinned_provider_facts() {
     // This fixture exercises the intended trusted provider boundary only;
     // no production provider is wired into analysis-index yet.
     let rows = [row(1, 10, 5), row(2, 20, 7), row(3, 10, 2)];
-    let selected = selected_sankey()
+    let selected = bundle::default_dispatcher()
+        .unwrap()
         .execute_sankey(
             Some(&LayoutStrategyKey {
                 id: "viz.sankey".into(),

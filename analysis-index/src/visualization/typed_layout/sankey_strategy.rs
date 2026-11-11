@@ -53,7 +53,7 @@ impl super::Strategy for SankeyLayout {
             }
             Err(error) => {
                 return Err(SankeyDispatchError::Geometry {
-                    graph: Box::new(graph.clone()),
+                    graph: Box::new(graph),
                     error,
                 });
             }
@@ -91,6 +91,27 @@ pub enum SankeyDispatchError {
 pub struct SankeySelected {
     pub descriptor: LayoutDescriptor,
     pub output: SankeyOutput,
+}
+
+impl super::Dispatcher {
+    /// Selects a registered strategy and calculates Sankey geometry.
+    pub fn execute_sankey(
+        &self,
+        key: Option<&LayoutStrategyKey>,
+        input: SankeyInput<'_>,
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<SankeySelected, SankeyDispatchError> {
+        let entry = match key {
+            Some(key) => self.0.resolve("sankey", key),
+            None => self.0.latest("sankey"),
+        }
+        .map_err(SankeyDispatchError::Selection)?;
+        let output = entry.implementation.sankey(input, cancelled)?;
+        Ok(SankeySelected {
+            descriptor: entry.descriptor.clone(),
+            output,
+        })
+    }
 }
 
 /// F06 Sankey descriptor at the published strategy revision.

@@ -319,20 +319,12 @@ fn make_graph(
     let Some(categories) = nodes(columns.categories, total, category_values, cancelled) else {
         return Outcome::Cancelled;
     };
-    let mut positions = BTreeMap::new();
-    for (index, node) in folders.iter().enumerate() {
-        if cancelled() {
-            return Outcome::Cancelled;
-        }
-        positions.insert(node.key, index);
-    }
-    let mut category_positions = BTreeMap::new();
-    for (index, node) in categories.iter().enumerate() {
-        if cancelled() {
-            return Outcome::Cancelled;
-        }
-        category_positions.insert(node.key, index);
-    }
+    let Some(positions) = node_positions(&folders, cancelled) else {
+        return Outcome::Cancelled;
+    };
+    let Some(category_positions) = node_positions(&categories, cancelled) else {
+        return Outcome::Cancelled;
+    };
     link_values.sort_by_key(|link| (positions[&link.folder], category_positions[&link.category]));
     if cancelled() {
         return Outcome::Cancelled;
@@ -350,6 +342,20 @@ fn make_graph(
         links: link_values,
         unattributed: remainder,
     })
+}
+
+fn node_positions<K: Copy + Ord>(
+    nodes: &[Node<K>],
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Option<BTreeMap<K, usize>> {
+    let mut positions = BTreeMap::new();
+    for (index, node) in nodes.iter().enumerate() {
+        if cancelled() {
+            return None;
+        }
+        positions.insert(node.key, index);
+    }
+    Some(positions)
 }
 
 fn nodes<K>(

@@ -1,7 +1,7 @@
 //! Composition of implemented typed visualization layout strategies.
 //!
-//! The typed boundary admits a single-parent treemap from attributable bytes.
-//! A partial bundle is not a release-ready F06 default bundle or catalog.
+//! The typed registry selects layout implementations. Desktop composition
+//! supplies the pinned evidence and exposed formats for each request.
 use super::{
     registry,
     typed_layout::{self, Dispatcher, Strategy, Treemap},
@@ -112,14 +112,30 @@ pub fn register_trend_candidate(
         .map_err(Error::Registration)
 }
 
-/// Registers the Sankey strategy over caller supplied pinned attribution facts.
+/// Registers the Sankey strategy over pinned attribution facts from their owner.
 pub fn register_sankey_candidate(
     builder: &mut registry::Builder<Box<dyn Strategy>>,
-) -> Result<(), registry::RegistrationError> {
-    builder.register(
-        typed_layout::sankey_strategy::descriptor(),
-        Box::new(typed_layout::sankey_strategy::SankeyLayout),
-    )
+) -> Result<(), Error> {
+    builder
+        .register(
+            typed_layout::sankey_strategy::descriptor(),
+            Box::new(typed_layout::sankey_strategy::SankeyLayout),
+        )
+        .map_err(Error::Registration)
+}
+
+/// Builds the published six-strategy registry with the actual layout implementations.
+///
+/// The caller still supplies format-specific evidence, request policy and IPC wiring.
+pub fn default_dispatcher() -> Result<Dispatcher, Error> {
+    let mut builder = registry::Builder::<Box<dyn Strategy>>::default();
+    register_implemented(&mut builder)?;
+    register_bar_candidate(&mut builder)?;
+    register_trend_candidate(&mut builder)?;
+    register_waterfall_candidate(&mut builder)?;
+    register_histogram_candidate(&mut builder)?;
+    register_sankey_candidate(&mut builder)?;
+    finish_default(builder)
 }
 
 /// Freezes a full baseline only when all six published IDs at revision one exist.

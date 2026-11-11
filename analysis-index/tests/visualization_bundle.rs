@@ -126,6 +126,34 @@ fn default_requires_the_published_format_and_revision_for_each_strategy() -> Res
 }
 
 #[test]
+fn default_dispatcher_registers_all_published_layouts() -> Result<(), String> {
+    let dispatcher = bundle::default_dispatcher().map_err(|error| format!("{error:?}"))?;
+    let mut descriptors: Vec<_> = dispatcher
+        .catalog()
+        .map(|entry| {
+            (
+                entry.format.as_str(),
+                entry.strategy.id.as_str(),
+                entry.strategy.revision,
+            )
+        })
+        .collect();
+    descriptors.sort_unstable();
+    assert_eq!(
+        descriptors,
+        [
+            ("bar", "viz.bar", 1),
+            ("histogram", "viz.histogram", 1),
+            ("sankey", "viz.sankey", 1),
+            ("treemap", "viz.treemap", 1),
+            ("trend", "viz.trend", 1),
+            ("waterfall", "viz.waterfall", 1),
+        ]
+    );
+    Ok(())
+}
+
+#[test]
 fn partial_dispatcher_executes_the_actual_treemap() -> Result<(), String> {
     let sink = IngestSink::default();
     let mut builder = sink.open(id(1)?).map_err(|e| format!("{e:?}"))?;

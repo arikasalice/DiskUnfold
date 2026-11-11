@@ -411,25 +411,6 @@ impl Dispatcher {
         })
     }
 
-    /// Selects a registered strategy from this dispatcher and calculates Sankey geometry.
-    pub fn execute_sankey(
-        &self,
-        key: Option<&LayoutStrategyKey>,
-        input: sankey_strategy::SankeyInput<'_>,
-        cancelled: &mut dyn FnMut() -> bool,
-    ) -> Result<sankey_strategy::SankeySelected, sankey_strategy::SankeyDispatchError> {
-        let entry = match key {
-            Some(key) => self.0.resolve("sankey", key),
-            None => self.0.latest("sankey"),
-        }
-        .map_err(sankey_strategy::SankeyDispatchError::Selection)?;
-        let output = entry.implementation.sankey(input, cancelled)?;
-        Ok(sankey_strategy::SankeySelected {
-            descriptor: entry.descriptor.clone(),
-            output,
-        })
-    }
-
     pub fn execute(
         &self,
         format: &str,
