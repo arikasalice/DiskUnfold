@@ -439,6 +439,7 @@ fn exclusion_inside_absorbed_root_stays_bound_to_retained_root()
         file_id: AtomicUsize::new(1),
         opens: AtomicUsize::new(0),
         reads: Arc::new(AtomicUsize::new(0)),
+        read_handles: Arc::new(Mutex::new(Vec::new())),
         release: Arc::new(Mutex::new(receiver)),
         finish_gate: None,
     })));

@@ -28,6 +28,7 @@ pub(super) fn scan_harness_with_options(
         file_id: AtomicUsize::new(1),
         opens: AtomicUsize::new(0),
         reads: Arc::new(AtomicUsize::new(0)),
+        read_handles: Arc::new(Mutex::new(Vec::new())),
         release: Arc::new(Mutex::new(blocked)),
         finish_gate,
     });

@@ -63,13 +63,14 @@ struct Roots {
     file_id: AtomicUsize,
     opens: AtomicUsize,
     reads: Arc<AtomicUsize>,
+    read_handles: Arc<Mutex<Vec<usize>>>,
     release: Arc<Mutex<mpsc::Receiver<()>>>,
     finish_gate: Option<Arc<Mutex<mpsc::Receiver<()>>>>,
 }
 
 impl ScopeRootPort for Roots {
     fn open_root(&self, path: &[u8]) -> Result<OpenedScopeRoot, PortError> {
-        self.opens.fetch_add(1, Ordering::Relaxed);
+        let handle = self.opens.fetch_add(1, Ordering::Relaxed) + 1;
         if path.first() == Some(&b'Z') {
             return Err(PortError {
                 kind: PortErrorKind::PermissionDenied,
@@ -93,6 +94,8 @@ impl ScopeRootPort for Roots {
             volume_id: vec![1],
             file_id: identity.to_le_bytes().to_vec(),
             directory: Box::new(Directory {
+                handle,
+                read_handles: self.read_handles.clone(),
                 reads: self.reads.clone(),
                 release: Some(self.release.clone()),
                 finish_gate: self.finish_gate.clone(),
@@ -102,6 +105,8 @@ impl ScopeRootPort for Roots {
 }
 
 struct Directory {
+    handle: usize,
+    read_handles: Arc<Mutex<Vec<usize>>>,
     reads: Arc<AtomicUsize>,
     release: Option<Arc<Mutex<mpsc::Receiver<()>>>>,
     finish_gate: Option<Arc<Mutex<mpsc::Receiver<()>>>>,
@@ -126,6 +131,10 @@ impl DirectoryObservations for Directory {
         }
     }
     fn next_batch(&mut self) -> Result<Vec<ObservedEntry>, PortError> {
+        self.read_handles
+            .lock()
+            .map_err(|_| io_error())?
+            .push(self.handle);
         self.reads.fetch_add(1, Ordering::Relaxed);
         let Some(release) = self.release.take() else {
             if let Some(gate) = self.finish_gate.take() {
@@ -256,6 +265,7 @@ fn reviewed_identity_is_rechecked_and_one_job_publishes_the_requested_result()
     assert_eq!(roots.reads.load(Ordering::Acquire), 0);
 
     let second = review(3)?;
+    let created_handle = roots.opens.load(Ordering::Acquire) + 1;
     let receipt: ScanStart = serde_json::from_value(start(&second.review_fingerprint)?.body)?;
     let duplicate: ScanStart = serde_json::from_value(start(&second.review_fingerprint)?.body)?;
     assert!(!receipt.existing);
@@ -287,6 +297,13 @@ fn reviewed_identity_is_rechecked_and_one_job_publishes_the_requested_result()
     assert_eq!(response.body["sizes"][0]["size"]["bytes"], "64");
     check_observed_details(&engine, &versions, version.clone(), path)?;
     assert_eq!(roots.reads.load(Ordering::Acquire), 2);
+    assert_eq!(
+        *roots
+            .read_handles
+            .lock()
+            .map_err(|_| "handle log poisoned")?,
+        vec![created_handle, created_handle]
+    );
 
     check_replacement_submission(
         &receipt,
