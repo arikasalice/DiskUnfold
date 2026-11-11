@@ -16,7 +16,8 @@ import type {
 import { CopyPath } from "./CopyPath";
 import { ItemSpaceDetails } from "./ItemSpaceDetails";
 import {
-  displaySizeWithBytes,
+  displayRawSize,
+  displaySize,
   displaySpaceReason,
   evidenceLabels,
   windowsSizeDisplay,
@@ -51,9 +52,10 @@ function diagnostics(detail: BrowseDetail) {
 
 function evidence(value: BrowseDetail["logicalSize"]): string[] {
   if (value.state !== "present") return [];
+  const raw = displayRawSize(value.value);
   const label = evidenceLabels[value.value.evidence];
   const certainty = value.value.state === "exact" ? "Exact" : undefined;
-  return [certainty, label].filter(
+  return [raw, certainty, label].filter(
     (note): note is string => note !== undefined,
   );
 }
@@ -66,7 +68,7 @@ function attributes(
   item: ItemRef,
 ) {
   const size = (value: BrowseDetail["logicalSize"]) =>
-    attribute(value, (observed) => displaySizeWithBytes(observed, display));
+    attribute(value, (observed) => displaySize(observed, display));
   return [
     {
       label: itemKind === "file" ? "File name" : "Folder name",
@@ -85,11 +87,13 @@ function attributes(
     },
     {
       label: "Logical size",
+      emphasized: true,
       value: size(detail.logicalSize),
       notes: evidence(detail.logicalSize),
     },
     {
       label: "Allocated size",
+      emphasized: true,
       value: size(detail.allocatedSize),
       notes: evidence(detail.allocatedSize),
     },

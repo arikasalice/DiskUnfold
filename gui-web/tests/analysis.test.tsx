@@ -648,8 +648,14 @@ test("F01–F03: reviewed scope starts a scan and reads its pinned partial resul
   const detail = within(
     await screen.findByLabelText("Observed folder attributes"),
   );
-  expect(detail.getByText("0 bytes")).toBeDefined();
+  expect(detail.getAllByText("0 bytes")).toHaveLength(2);
   expect(detail.getByText("Exact")).toBeDefined();
+  const emphasized = [
+    ...screen
+      .getByLabelText("Observed folder attributes")
+      .querySelectorAll(".du-readout__emphasized dt"),
+  ].map((element) => element.textContent);
+  expect(emphasized).toEqual(["Logical size", "Allocated size"]);
   const labels = [
     ...detail.getAllByText(/^(Folder name|Logical size|Allocated size|Path)$/),
   ].map((element) => element.textContent);
@@ -3481,9 +3487,10 @@ test("F03 F05: temporary units follow the pinned result into browse and inspecti
   const dialog = await screen.findByRole("dialog", {
     name: "File details",
   });
-  expect(
-    await within(dialog).findByText(/1\.1 KiB.*1,100 bytes/),
-  ).toBeDefined();
+  const logical = (await within(dialog).findByText("Logical size"))
+    .parentElement;
+  expect(logical?.textContent).toContain("1.1 KiB");
+  expect(logical?.textContent).toContain("1,100 bytes");
   fireEvent.click(
     within(dialog).getByRole("button", { name: "Close details" }),
   );

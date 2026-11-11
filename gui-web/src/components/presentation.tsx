@@ -157,6 +157,7 @@ export function Readout({
     label: string;
     value: ReactNode;
     wideValue?: boolean;
+    emphasized?: boolean;
     notes?: readonly string[];
   }[];
 }) {
@@ -166,7 +167,14 @@ export function Readout({
       {rows.map((row) => (
         <div
           key={row.label}
-          className={row.wideValue ? "du-readout__wide-value" : undefined}
+          className={
+            [
+              row.wideValue && "du-readout__wide-value",
+              row.emphasized && "du-readout__emphasized",
+            ]
+              .filter(Boolean)
+              .join(" ") || undefined
+          }
         >
           <dt>{row.label}</dt>
           <dd>
