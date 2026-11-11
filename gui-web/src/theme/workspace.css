@@ -475,3 +475,13 @@ label.du-field > span {
   min-block-size: 38px;
   padding-block: 6px;
 }
+.du-copy-path {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+.du-copy-path .du-text--path {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}

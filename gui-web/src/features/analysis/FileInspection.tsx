@@ -13,6 +13,7 @@ import type {
   BrowseValue,
   ItemRef,
 } from "../../ipc";
+import { CopyPath } from "./CopyPath";
 import { ItemSpaceDetails } from "./ItemSpaceDetails";
 import { displaySizeWithBytes, windowsSizeDisplay } from "./space-format";
 import type { SizeDisplay } from "./space-format";
@@ -30,6 +31,8 @@ function attributes(
   detail: BrowseDetail,
   itemKind: "file" | "folder",
   display: SizeDisplay,
+  client: AnalysisClient,
+  item: ItemRef,
 ) {
   const size = (value: BrowseDetail["logicalSize"]) =>
     attribute(value, (observed) => displaySizeWithBytes(observed, display));
@@ -40,14 +43,14 @@ function attributes(
     },
     {
       label: "Path",
-      value:
-        detail.displayPath.state === "present" ? (
-          <Text kind="path" focusable>
-            {detail.displayPath.value}
-          </Text>
-        ) : (
-          attribute(detail.displayPath)
-        ),
+      value: (
+        <CopyPath
+          key={`${item.resultVersion}:${item.itemNo}`}
+          client={client}
+          item={item}
+          path={detail.displayPath}
+        />
+      ),
     },
     { label: "Kind", value: attribute(detail.kind) },
     { label: "Logical size", value: size(detail.logicalSize) },
@@ -110,23 +113,25 @@ export function FileInspection({
       {!problem && !detail && (
         <Progress label={`Reading ${itemKind} attributes`} />
       )}
-      {detail && (
-        <>
-          <Readout
-            label={`Observed ${itemKind} attributes`}
-            rows={attributes(detail, itemKind, display)}
-          />
-          <DetailDisclosure title="More observed attributes">
+      {detail &&
+        detail.item.resultVersion === resultVersion &&
+        detail.item.itemNo === itemNo && (
+          <>
             <Readout
-              label="More observed attributes"
-              rows={[
-                { label: "Modified", value: attribute(detail.modifiedAt) },
-                { label: "Created", value: attribute(detail.createdAt) },
-              ]}
+              label={`Observed ${itemKind} attributes`}
+              rows={attributes(detail, itemKind, display, client, item)}
             />
-          </DetailDisclosure>
-        </>
-      )}
+            <DetailDisclosure title="More observed attributes">
+              <Readout
+                label="More observed attributes"
+                rows={[
+                  { label: "Modified", value: attribute(detail.modifiedAt) },
+                  { label: "Created", value: attribute(detail.createdAt) },
+                ]}
+              />
+            </DetailDisclosure>
+          </>
+        )}
       <ItemSpaceDetails client={client} item={item} display={display} />
     </>
   );
