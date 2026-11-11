@@ -26,6 +26,18 @@ struct Address {
 #[cfg(windows)]
 pub(crate) fn dispatch_lane(message: &str) -> du_platform_os::webview::DispatchLane {
     use du_platform_os::webview::DispatchLane;
+
+    match gui_command_name(message).as_deref() {
+        Some("target.list") => DispatchLane::Volume,
+        Some("query.cancel" | "query.region.close") => DispatchLane::QueryControl,
+        Some("job.cancel" | "job.pause" | "job.resume") => DispatchLane::JobControl,
+        _ => DispatchLane::Ordered,
+    }
+}
+
+/// Reads the GUI command name for routing without decoding the request body.
+#[cfg(windows)]
+pub(crate) fn gui_command_name(message: &str) -> Option<std::borrow::Cow<'_, str>> {
     use std::borrow::Cow;
 
     #[derive(Deserialize)]
@@ -48,15 +60,8 @@ pub(crate) fn dispatch_lane(message: &str) -> du_platform_os::webview::DispatchL
         name: Cow<'a, str>,
     }
 
-    match serde_json::from_str::<Route<'_>>(message) {
-        Ok(route) if route.command == "du_call" => match route.args.envelope.name.as_ref() {
-            "target.list" => DispatchLane::Volume,
-            "query.cancel" | "query.region.close" => DispatchLane::QueryControl,
-            "job.cancel" | "job.pause" | "job.resume" => DispatchLane::JobControl,
-            _ => DispatchLane::Ordered,
-        },
-        _ => DispatchLane::Ordered,
-    }
+    let route = serde_json::from_str::<Route<'_>>(message).ok()?;
+    (route.command == "du_call").then_some(route.args.envelope.name)
 }
 
 pub(crate) fn dispatch(engine: &Engine, message: &str) -> Option<String> {

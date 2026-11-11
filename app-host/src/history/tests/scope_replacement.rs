@@ -7,57 +7,63 @@ use du_core_contracts::{
     browse_page_ipc::{BrowseOpenResponse, QueryPageResponse},
     query_region_ipc::QueryRegionOpened,
 };
+use rusqlite::Connection;
 use std::{fs, io::Write};
 
 const REPLACEMENT_FILES: [(&str, u64); 2] = [("\u{00e9}.bin", 16_384), ("e\u{0301}.bin", 7)];
 
-fn store_and_reopen_recent(
-    path: &std::path::Path,
-    encoded: crate::recent_scope_body::EncodedRecentScope,
-) -> Result<crate::recent_scope_body::RecentScopeBody, Box<dyn std::error::Error>> {
-    use crate::recent_scope_body::RecentScopeBody;
-    use du_app_db::{
-        AppDb,
-        recent_scope::{RecentScopeStore, RecentWrite},
-    };
-    use std::num::NonZeroUsize;
+fn scan_response(
+    engine: &Engine,
+    draft: &Value,
+    review: &ScopeReview,
+) -> Result<(String, String, ScanStart), Box<dyn std::error::Error>> {
+    let message = json!({"command":"du_call", "args":{"envelope":{
+        "name":"scan.start", "contractVersion":1, "correlationId":Id::from_v7_bytes([42; 16]),
+        "body":{"draft":draft,"reviewFingerprint":review.review_fingerprint}
+    }}})
+    .to_string();
+    let response = crate::ipc::dispatch(engine, &message).ok_or("missing scan response")?;
+    let envelope: ResultEnvelope = serde_json::from_str(&response)?;
+    assert!(envelope.error.is_none(), "{:?}", envelope.error);
+    Ok((message, response, serde_json::from_value(envelope.body)?))
+}
 
-    let id = [0, 0, 0, 0, 0, 0, 0x70, 0, 0x80, 0, 0, 0, 0, 0, 0, 1];
-    let validate = |body: &str| {
-        RecentScopeBody::decode(body, 1, &encoded.fingerprint, encoded.include_count).is_ok()
+fn wait_for_saved_scope(
+    profile: &std::path::Path,
+) -> Result<crate::recent_scope_body::RecentScopeBody, Box<dyn std::error::Error>> {
+    use rusqlite::OptionalExtension;
+
+    let sql = Connection::open(profile.join(du_platform_os::application_data::DATABASE_FILE))?;
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let (body, format, fingerprint, count): (String, u32, Vec<u8>, u32) = loop {
+        let row = sql.query_row(
+            "SELECT scope_body, fingerprint_format, scope_fingerprint, include_count FROM user_env_recent_scope",
+            [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        ).optional()?;
+        if let Some(row) = row {
+            break row;
+        }
+        if Instant::now() >= deadline {
+            return Err("recent scope worker did not write".into());
+        }
+        std::thread::sleep(Duration::from_millis(10));
     };
-    {
-        let mut db = AppDb::create_gui_with_history(path).map_err(|e| format!("{e:?}"))?;
-        let written = RecentScopeStore::new(&mut db, NonZeroUsize::MIN, &validate)
-            .and_then(|mut store| {
-                store.put_with_setting(
-                    &RecentWrite {
-                        id,
-                        fingerprint: encoded.fingerprint,
-                        body: &encoded.body,
-                        include_count: encoded.include_count,
-                        now_ms: 400,
-                    },
-                    du_user_env::scope::REMEMBER_RECENT,
-                    du_user_env::scope::remember_recent_value,
-                )
-            })
-            .map_err(|e| format!("{e:?}"))?;
-        assert!(written);
-    }
-    let mut db = AppDb::open_gui_with_history(path).map_err(|e| format!("{e:?}"))?;
-    let row = RecentScopeStore::new(&mut db, NonZeroUsize::MIN, &validate)
-        .and_then(|store| store.get(&id))
-        .map_err(|e| format!("{e:?}"))?
-        .ok_or("missing recent scope after reopen")?;
-    RecentScopeBody::decode(&row.body, 1, &row.fingerprint, row.summary.include_count)
+    let rows: u32 = sql.query_row("SELECT count(*) FROM user_env_recent_scope", [], |row| {
+        row.get(0)
+    })?;
+    assert_eq!(rows, 1);
+    let fingerprint = fingerprint
+        .try_into()
+        .map_err(|_| "invalid stored fingerprint width")?;
+    crate::recent_scope_body::RecentScopeBody::decode(&body, format, &fingerprint, count)
         .map_err(|e| format!("{e:?}").into())
 }
 
 /// Reviews and scans a raw NTFS name whose display requires a replacement character.
 #[test]
 fn lossy_display_preserves_native_scope_identity() -> Result<(), Box<dyn std::error::Error>> {
-    use std::{ffi::OsString, os::windows::ffi::OsStringExt};
+    use du_platform_os::webview::ResponseDelivery;
+    use std::{ffi::OsString, num::NonZeroUsize, os::windows::ffi::OsStringExt, sync::mpsc};
 
     let fixture = tempfile::tempdir()?;
     let profile = tempfile::tempdir()?;
@@ -76,12 +82,22 @@ fn lossy_display_preserves_native_scope_identity() -> Result<(), Box<dyn std::er
         Arc::new(database.history(|| 400)),
         &du_platform_os::entropy::OsRandom,
         Arc::new(du_core_contracts::settings::SharedTableLimit::default),
-        std::num::NonZeroUsize::MIN,
+        NonZeroUsize::new(2).ok_or("zero pending capacity")?,
     )?;
     let events = services.events;
     let admissions = services
         .recent_scope_admissions
         .ok_or("missing recent-scope consumer")?;
+    let (warn, warnings) = mpsc::channel();
+    let worker = crate::recent_scope_worker::RecentScopeWorker::start(
+        admissions,
+        database,
+        NonZeroUsize::new(2).ok_or("zero retention cap")?,
+        move |warning| {
+            let _ = warn.send(warning);
+        },
+    )?;
+    let observer = worker.observer();
     let engine = builder.build()?;
     let raw: Vec<_> = target
         .as_os_str()
@@ -107,29 +123,67 @@ fn lossy_display_preserves_native_scope_identity() -> Result<(), Box<dyn std::er
     assert!(reviewed.display.ends_with("folder-\u{fffd}"));
     assert!(reviewed.raw.bytes()?.ends_with(&0xd800_u16.to_le_bytes()));
 
-    let response = ipc(
-        &engine,
-        "scan.start",
-        json!({"draft": draft, "reviewFingerprint": review.review_fingerprint}),
+    let discarded = fixture.path().join("discarded");
+    fs::create_dir(&discarded)?;
+    let raw: Vec<_> = discarded
+        .as_os_str()
+        .encode_wide()
+        .flat_map(u16::to_le_bytes)
+        .collect();
+    let mut discarded_draft = draft.clone();
+    discarded_draft["includes"][0]["raw"] = json!(PathBytes::from_bytes(&raw));
+    let discarded_review: ScopeReview = serde_json::from_value(
+        ipc(
+            &engine,
+            "scope.review",
+            json!({"draft": discarded_draft, "requestSeq": 2}),
+        )?
+        .body,
     )?;
-    assert!(response.error.is_none(), "{:?}", response.error);
-    let scan: ScanStart = serde_json::from_value(response.body)?;
+    let (request, response, unposted) =
+        scan_response(&engine, &discarded_draft, &discarded_review)?;
+    assert!(observer(&request, "{}").is_none());
+    let delivery = observer(&request, &response).ok_or("missing response callback")?;
+    assert!(observer(&request, &response).is_none());
+    delivery(ResponseDelivery::NotPosted);
+    terminal_batch(&events, &unposted.job_ref)?;
+    let sql = Connection::open(
+        profile
+            .path()
+            .join(du_platform_os::application_data::DATABASE_FILE),
+    )?;
+    let rows: u32 = sql.query_row("SELECT count(*) FROM user_env_recent_scope", [], |row| {
+        row.get(0)
+    })?;
+    assert_eq!(rows, 0);
+
+    sql.execute_batch(
+        "CREATE TRIGGER test_recent_fail BEFORE INSERT ON user_env_recent_scope
+        BEGIN SELECT RAISE(ABORT, 'fixture write failure'); END;",
+    )?;
+    let (request, response, failed_write) = scan_response(&engine, &draft, &review)?;
+    observer(&request, &response).ok_or("missing failed-write callback")?(ResponseDelivery::Posted);
+    assert_eq!(
+        warnings.recv_timeout(Duration::from_secs(5))?,
+        crate::RecentScopeWriteWarning::StorageUnavailable
+    );
+    let finished = terminal_batch(&events, &failed_write.job_ref)?;
+    assert!(
+        finished
+            .iter()
+            .any(|event| event.topic == "job.finished" && event.body["state"] == "done")
+    );
+    sql.execute_batch("DROP TRIGGER test_recent_fail")?;
+
+    let (request, response, scan) = scan_response(&engine, &draft, &review)?;
+    assert!(!scan.existing);
+    let delivery = observer(&request, &response).ok_or("missing response callback")?;
+    delivery(ResponseDelivery::Posted);
+    let saved = wait_for_saved_scope(profile.path())?;
     assert!(matches!(
-        admissions.try_next(),
-        Err(std::sync::mpsc::TryRecvError::Empty)
+        warnings.try_recv(),
+        Err(mpsc::TryRecvError::Empty)
     ));
-    admissions
-        .delivery()
-        .claim(&scan.job_ref)
-        .ok_or("missing delivery receipt")?
-        .posted();
-    let admission = admissions.try_next()?;
-    let encoded = crate::recent_scope_body::RecentScopeBody::encode_admission(
-        &admission,
-        &std::sync::atomic::AtomicBool::new(false),
-    )
-    .map_err(|e| format!("{e:?}"))?;
-    let saved = store_and_reopen_recent(&profile.path().join("recent-fixture.db"), encoded)?;
     assert_eq!(
         saved.scope_draft().includes.as_slice(),
         std::slice::from_ref(reviewed)

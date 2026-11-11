@@ -13,6 +13,8 @@ mod locale;
 #[cfg(feature = "gui")]
 pub mod recent_scope_body;
 #[cfg(all(feature = "gui", windows))]
+mod recent_scope_worker;
+#[cfg(all(feature = "gui", windows))]
 mod settings;
 #[cfg(all(feature = "gui", windows))]
 mod shared_database;
@@ -21,3 +23,7 @@ mod startup_database;
 
 #[cfg(feature = "gui")]
 pub use lifecycle::run;
+#[cfg(all(feature = "gui", windows))]
+pub use lifecycle::run_with_recent_scope;
+#[cfg(all(feature = "gui", windows))]
+pub use recent_scope_worker::RecentScopeWriteWarning;

@@ -3,10 +3,17 @@
 use std::{
     collections::BTreeMap,
     fs::File,
-    sync::{Arc, Mutex},
+    num::NonZeroUsize,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
-use du_app_db::AppDb;
+use du_app_db::{
+    AppDb,
+    recent_scope::{RecentError, RecentScopeStore, RecentWrite},
+};
 use du_core_contracts::{
     job::{
         HistoryAppend, HistoryAppendOutcome, HistoryInterruptionReceipt, HistoryRecovery,
@@ -63,6 +70,25 @@ impl SharedDatabase {
             database: self.clone(),
             now_ms,
         }
+    }
+
+    /// Commits an owner-validated body on the shared Windows GUI connection.
+    pub(super) fn put_recent_scope(
+        &self,
+        cap: NonZeroUsize,
+        item: &RecentWrite<'_>,
+        stopped: &AtomicBool,
+    ) -> Result<(), RecentError> {
+        let mut connection = self.0.connection.lock().map_err(|_| RecentError::Storage)?;
+        let exact_body = |body: &str| body == item.body;
+        RecentScopeStore::new(&mut connection, cap, &exact_body)?.put_with_setting(
+            item,
+            du_user_env::scope::REMEMBER_RECENT,
+            |value| {
+                !stopped.load(Ordering::Acquire) && du_user_env::scope::remember_recent_value(value)
+            },
+        )?;
+        Ok(())
     }
 }
 
