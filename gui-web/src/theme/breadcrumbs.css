@@ -1,11 +1,15 @@
 .du-breadcrumbs {
   min-inline-size: 0;
   max-inline-size: 100%;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  scroll-padding-inline: 4px;
 }
 
 .du-breadcrumbs ol {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  inline-size: max-content;
   align-items: center;
   gap: 8px;
   margin: 0;
@@ -17,21 +21,29 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  flex: none;
   min-inline-size: 0;
-  max-inline-size: 100%;
-  overflow-wrap: anywhere;
+  max-inline-size: clamp(8rem, 28vw, 16rem);
 }
 
 .du-breadcrumbs li > [aria-hidden] {
   color: var(--du-muted);
 }
 
-.du-breadcrumbs .du-action {
+.du-breadcrumbs .du-action,
+.du-breadcrumbs li > span:not([aria-hidden]) {
   min-inline-size: 0;
-  max-inline-size: 100%;
+  max-inline-size: clamp(8rem, 28vw, 16rem);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   text-align: start;
 }
 
 .du-breadcrumbs [aria-current="location"] {
   font-weight: 650;
+}
+
+.du-breadcrumbs .du-action:focus-visible {
+  outline-offset: -2px;
 }
