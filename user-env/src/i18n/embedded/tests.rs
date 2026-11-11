@@ -170,7 +170,7 @@ fn registered_catalog_carries_only_published_group_and_level_pairs()
     let registry = crate::Registry::new(descriptors).map_err(|e| format!("{e:?}"))?;
     let snapshot = SettingsSnapshot {
         revision: 17,
-        schema_version: 1,
+        schema_version: 2,
         values: BTreeMap::from([("scope.remember_recent".into(), serde_json::json!(false))]),
     };
     let before = snapshot.clone();

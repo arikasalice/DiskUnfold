@@ -25,7 +25,7 @@ fn builtin_catalog_and_registered_resources_share_one_snapshot()
     let resources = embedded::register(&[]).map_err(|e| format!("{e:?}"))?;
     let snapshot = SettingsSnapshot {
         revision: 7,
-        schema_version: 1,
+        schema_version: 2,
         ..SettingsSnapshot::default()
     };
     for (query, field) in [
@@ -120,7 +120,7 @@ fn service_search_uses_same_revision_and_override_as_catalog()
     let registry = Registry::new(descriptors).map_err(|e| format!("{e:?}"))?;
     let snapshot = SettingsSnapshot {
         revision: 9,
-        schema_version: 1,
+        schema_version: 2,
         values: BTreeMap::from([(
             "locale.display_language".to_owned(),
             serde_json::json!("ko"),

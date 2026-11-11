@@ -98,7 +98,7 @@ mod tests {
         assert_eq!(catalog[0].value, &json!("auto"));
         let custom = SettingsSnapshot {
             revision: 1,
-            schema_version: 1,
+            schema_version: 2,
             values: BTreeMap::from([("locale.language".into(), json!("ko"))]),
         };
         let catalog = registry.catalog(&custom);

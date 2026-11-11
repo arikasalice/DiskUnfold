@@ -199,7 +199,7 @@ fn descriptors_use_f14_types_and_absent_default_does_not_erase_explicit_english(
         assert!(row.editable && crate::accepts(&row.kind, &row.default));
     }
     let snapshot = SettingsSnapshot {
-        schema_version: 1,
+        schema_version: 2,
         ..SettingsSnapshot::default()
     };
     let mut service = SettingsService::open(registry(&["en", "ko"])?, MemoryStore(snapshot))
@@ -243,7 +243,7 @@ fn descriptors_use_f14_types_and_absent_default_does_not_erase_explicit_english(
 #[test]
 fn corrupt_korean_does_not_invalidate_persisted_language() -> Result<(), String> {
     let snapshot = SettingsSnapshot {
-        schema_version: 1,
+        schema_version: 2,
         values: [("locale.display_language".into(), json!("ko"))].into(),
         ..SettingsSnapshot::default()
     };
@@ -316,7 +316,7 @@ fn embedded_korean_integrity_failure_preserves_the_configured_language() -> Resu
     assert_eq!(warnings, ["i18n.bundle_integrity_failed"]);
 
     let snapshot = SettingsSnapshot {
-        schema_version: 1,
+        schema_version: 2,
         revision: 7,
         values: [(DISPLAY_LANGUAGE_KEY.into(), json!("ko"))].into(),
     };
@@ -344,7 +344,7 @@ fn embedded_korean_integrity_failure_preserves_the_configured_language() -> Resu
 #[test]
 fn settings_language_choices_select_from_each_snapshot() -> Result<(), String> {
     let snapshot = SettingsSnapshot {
-        schema_version: 1,
+        schema_version: 2,
         ..SettingsSnapshot::default()
     };
     let mut service = SettingsService::open(registry(&["en", "ko"])?, MemoryStore(snapshot))
@@ -402,7 +402,7 @@ fn settings_language_choices_select_from_each_snapshot() -> Result<(), String> {
 #[test]
 fn stale_or_invalid_language_changes_leave_the_snapshot_untouched() -> Result<(), String> {
     let snapshot = SettingsSnapshot {
-        schema_version: 1,
+        schema_version: 2,
         revision: 3,
         values: [(DISPLAY_LANGUAGE_KEY.into(), json!("ko"))].into(),
     };

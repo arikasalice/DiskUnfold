@@ -160,7 +160,7 @@ fn new_store_commits_atomically_and_reopens_read_only() -> Result<(), Box<dyn st
     let mut first = AppDb::create_gui(&path).map_err(|e| format!("{e:?}"))?;
     let mut second = AppDb::open_gui(&path).map_err(|e| format!("{e:?}"))?;
     let initial = first.load().map_err(|e| format!("{e:?}"))?;
-    assert_eq!((initial.revision, initial.schema_version), (0, 1));
+    assert_eq!((initial.revision, initial.schema_version), (0, 2));
     let changes = SettingsChanges::from([
         ("one".into(), Some(json!(1))),
         ("two".into(), Some(json!(true))),

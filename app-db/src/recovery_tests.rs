@@ -4,6 +4,112 @@ use du_core_contracts::settings::{
 };
 use serde_json::json;
 use std::collections::BTreeMap;
+type StoredSettingRow = (String, String, String, i64, i64, i64);
+
+#[test]
+fn read_only_legacy_settings_load_does_not_advance_schema() -> Result<(), Box<dyn std::error::Error>>
+{
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("readonly.db");
+    let db = AppDb::create_gui(&path).map_err(|e| format!("{e:?}"))?;
+    db.connection.execute_batch(
+        "UPDATE user_env_setting_version SET schema_version=1, settings_version=5;
+        INSERT INTO user_env_setting VALUES ('future.key', '3', 'owner', 1, 2, 3);",
+    )?;
+    drop(db);
+    let before = std::fs::read(&path)?;
+    let mut reader = AppDb::open_read_only(&path).map_err(|e| format!("{e:?}"))?;
+    let snapshot = reader.load().map_err(|e| format!("{e:?}"))?;
+    assert_eq!((snapshot.schema_version, snapshot.revision), (1, 5));
+    drop(reader);
+    assert_eq!(std::fs::read(&path)?, before);
+    Ok(())
+}
+
+#[test]
+fn concurrent_empty_transitions_apply_once() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("race.db");
+    let db = AppDb::create_gui(&path).map_err(|e| format!("{e:?}"))?;
+    db.connection
+        .execute_batch("UPDATE user_env_setting_version SET schema_version=1;")?;
+    drop(db);
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+    let workers: Vec<_> = (0..2)
+        .map(|_| {
+            let path = path.clone();
+            let barrier = barrier.clone();
+            std::thread::spawn(move || {
+                let mut db = AppDb::open_gui(&path).map_err(|e| format!("{e:?}"))?;
+                barrier.wait();
+                db.advance_empty_settings_schema(1, 2)
+                    .map_err(|e| format!("{e:?}"))
+            })
+        })
+        .collect();
+    let mut results = Vec::new();
+    for worker in workers {
+        results.push(worker.join().map_err(|_| "thread failed")??);
+    }
+    results.sort();
+    assert_eq!(results, [false, true]);
+    Ok(())
+}
+
+#[test]
+fn empty_schema_transition_preserves_rows_revision_and_rolls_back_on_failure()
+-> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("app.db");
+    let mut db = AppDb::create_gui(&path).map_err(|e| format!("{e:?}"))?;
+    let mut stale = AppDb::open_gui(&path).map_err(|e| format!("{e:?}"))?;
+    db.connection.execute_batch("UPDATE user_env_setting_version SET schema_version=1, settings_version=7, updated_at_ms=9;
+        INSERT INTO user_env_setting VALUES ('future.key', '{\"x\": 1}', 'owner', 3, 4, 5);
+        INSERT INTO user_env_setting VALUES ('locale.display_language', '\"ko\"', 'screen', 6, 7, 8);")?;
+    let rows = || -> Result<Vec<StoredSettingRow>, rusqlite::Error> {
+        let reader = rusqlite::Connection::open(&path)?;
+        let mut q = reader.prepare("SELECT setting_key,value_json,modified_source,created_at_ms,updated_at_ms,row_version FROM user_env_setting ORDER BY setting_key")?;
+        q.query_map([], |r| {
+            Ok((
+                r.get(0)?,
+                r.get(1)?,
+                r.get(2)?,
+                r.get(3)?,
+                r.get(4)?,
+                r.get(5)?,
+            ))
+        })?
+        .collect()
+    };
+    let before = rows()?;
+    db.connection.execute_batch("CREATE TRIGGER reject_schema BEFORE UPDATE OF schema_version ON user_env_setting_version BEGIN SELECT RAISE(ABORT, 'injected'); END;")?;
+    assert_eq!(
+        db.advance_empty_settings_schema(1, 2),
+        Err(SettingsStoreError::Storage)
+    );
+    assert_eq!(rows()?, before);
+    let version: (i64, i64, i64) = db.connection.query_row(
+        "SELECT settings_version,schema_version,updated_at_ms FROM user_env_setting_version",
+        [],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+    )?;
+    assert_eq!(version, (7, 1, 9));
+    db.connection.execute_batch("DROP TRIGGER reject_schema")?;
+    assert_eq!(db.advance_empty_settings_schema(1, 2), Ok(true));
+    assert_eq!(stale.advance_empty_settings_schema(1, 2), Ok(false));
+    assert_eq!(rows()?, before);
+    let version: (i64, i64, i64) = db.connection.query_row(
+        "SELECT settings_version,schema_version,updated_at_ms FROM user_env_setting_version",
+        [],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+    )?;
+    assert_eq!(version, (7, 2, 9));
+    assert_eq!(
+        db.advance_empty_settings_schema(2, 3),
+        Err(SettingsStoreError::Conflict)
+    );
+    Ok(())
+}
 
 #[test]
 fn commit_rejects_schema_or_revision_changes_without_touching_rows()
@@ -26,7 +132,7 @@ fn commit_rejects_schema_or_revision_changes_without_touching_rows()
     );
     other
         .connection
-        .execute_batch("UPDATE user_env_setting_version SET schema_version = 2;")?;
+        .execute_batch("UPDATE user_env_setting_version SET schema_version = 3;")?;
     assert_eq!(
         first.commit(1, &changes, ctx),
         Err(SettingsStoreError::Conflict)
@@ -36,7 +142,7 @@ fn commit_rejects_schema_or_revision_changes_without_touching_rows()
         [],
         |r| Ok((r.get(0)?, r.get(1)?)),
     )?;
-    assert_eq!(version, (1, 2));
+    assert_eq!(version, (1, 3));
     let raw: String = first.connection.query_row(
         "SELECT value_json FROM user_env_setting WHERE setting_key = 'key'",
         [],
@@ -59,11 +165,11 @@ fn database_open_and_settings_category_failures_are_separate()
         Err(SettingsStoreError::Storage)
     );
     db.connection
-        .execute_batch("UPDATE user_env_setting_version SET schema_version = 2;")?;
+        .execute_batch("UPDATE user_env_setting_version SET schema_version = 3;")?;
     let (revision, schema, rows) = db
         .load_settings_for_restore()
         .map_err(|e| format!("{e:?}"))?;
-    assert_eq!((revision, schema, rows.len()), (0, 2, 0));
+    assert_eq!((revision, schema, rows.len()), (0, 3, 0));
     Ok(())
 }
 
@@ -139,7 +245,7 @@ fn raw_restore_retains_malformed_rows_and_can_quarantine_them()
     let (revision, schema, rows) = db
         .load_settings_for_restore()
         .map_err(|e| format!("{e:?}"))?;
-    assert_eq!((revision, schema), (0, 1));
+    assert_eq!((revision, schema), (0, 2));
     assert_eq!(rows.get("bad").map(String::as_str), Some("{bad"));
     assert_eq!(db.quarantine_settings(0, &rows, 5), Ok(1));
     let raw: String = db.connection.query_row(
@@ -181,7 +287,7 @@ fn quarantine_mid_batch_delete_failure_rolls_back_and_can_retry_after_reopen()
     let (revision, schema, rows) = reopened
         .load_settings_for_restore()
         .map_err(|e| format!("{e:?}"))?;
-    assert_eq!((revision, schema), (1, 1));
+    assert_eq!((revision, schema), (1, 2));
     assert_eq!(
         rows,
         BTreeMap::from([
@@ -209,7 +315,7 @@ fn quarantine_mid_batch_delete_failure_rolls_back_and_can_retry_after_reopen()
     let (revision, schema, rows) = final_reader
         .load_settings_for_restore()
         .map_err(|e| format!("{e:?}"))?;
-    assert_eq!((revision, schema), (2, 1));
+    assert_eq!((revision, schema), (2, 2));
     assert_eq!(rows, BTreeMap::from([("z.valid".into(), "3".into())]));
     let mut stmt = final_reader.connection.prepare("SELECT setting_key, raw_value_json, quarantined_at_ms FROM user_env_setting_quarantine ORDER BY setting_key")?;
     let quarantined = stmt

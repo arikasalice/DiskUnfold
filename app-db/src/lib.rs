@@ -225,6 +225,10 @@ fn create_gui_with(
 
 fn initialize_settings(tx: &Transaction<'_>) -> Result<(), OpenError> {
     tx.execute_batch(settings::SCHEMA)?;
+    tx.execute(
+        "UPDATE user_env_setting_version SET schema_version = ?1 WHERE version_key = 'settings'",
+        [du_core_contracts::settings::SETTINGS_SCHEMA_VERSION],
+    )?;
     tx.pragma_update(None, "user_version", SCHEMA_VERSION)?;
     Ok(())
 }

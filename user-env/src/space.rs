@@ -68,7 +68,7 @@ pub fn display_descriptors(windows: bool) -> Vec<Descriptor> {
 /// Resolves the F03 override in a stored snapshot. An absent override uses the
 /// descriptor default; an unreadable or out-of-range override requires recovery.
 pub fn restore_shared_table_limit(snapshot: &SettingsSnapshot) -> Option<SharedTableLimit> {
-    if snapshot.schema_version != 1 {
+    if snapshot.schema_version != du_core_contracts::settings::SETTINGS_SCHEMA_VERSION {
         return None;
     }
     match snapshot.values.get(SHARED_TABLE_MAX_ENTRIES) {
@@ -90,7 +90,7 @@ mod tests {
     impl SettingsStore for Store {
         fn load(&mut self) -> Result<SettingsSnapshot, SettingsStoreError> {
             Ok(SettingsSnapshot {
-                schema_version: 1,
+                schema_version: 2,
                 ..SettingsSnapshot::default()
             })
         }
@@ -158,7 +158,7 @@ mod tests {
             |_| {
                 Ok((
                     3,
-                    1,
+                    2,
                     [
                         ("display.size_unit".into(), "\"bogus\"".into()),
                         ("display.size_unit_system".into(), "\"si\"".into()),
@@ -229,7 +229,7 @@ mod tests {
     #[test]
     fn restores_valid_overrides_without_consulting_unrelated_keys() {
         let mut snapshot = SettingsSnapshot {
-            schema_version: 1,
+            schema_version: 2,
             ..SettingsSnapshot::default()
         };
         snapshot
@@ -253,7 +253,7 @@ mod tests {
             .insert(SHARED_TABLE_MAX_ENTRIES.into(), json!(99_999));
         assert_eq!(restore_shared_table_limit(&snapshot), None);
         snapshot.values.clear();
-        snapshot.schema_version = 2;
+        snapshot.schema_version = 3;
         assert_eq!(restore_shared_table_limit(&snapshot), None);
     }
 }

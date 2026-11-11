@@ -53,7 +53,7 @@ impl Default for RestoreStatus {
             write_locked: false,
             stored_revision: None,
             stored_schema: None,
-            app_schema: 1,
+            app_schema: du_core_contracts::settings::SETTINGS_SCHEMA_VERSION,
             migrated: false,
             items: BTreeMap::new(),
         }

@@ -86,12 +86,22 @@ fn restore_settings(
         .map_err(|error| io::Error::other(error.reason_key()))?;
     let registry = Registry::new(descriptors)
         .map_err(|error| io::Error::other(format!("settings.registration_failed: {error:?}")))?;
-    Ok(SettingsService::restore(
+    let mut store = database.settings();
+    let transition = store.advance_schema();
+    let migrated = transition == Ok(true);
+    let mut service = SettingsService::restore(
         registry,
-        database.settings(),
-        SharedSettings::load_for_restore,
+        store,
+        |store| match transition {
+            Ok(_) => SharedSettings::load_for_restore(store),
+            Err(error) => Err(error),
+        },
         |database, revision, invalid| database.quarantine(revision, invalid, timestamp_ms),
-    ))
+    );
+    if migrated {
+        service.record_migration(du_user_env::settings::EMPTY_SCHEMA_TRANSITION.0);
+    }
+    Ok(service)
 }
 
 pub(super) fn current_time_ms() -> i64 {

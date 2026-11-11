@@ -274,7 +274,7 @@ fn check_legacy_baseline(connection: &Connection) -> Result<(), MigrationError> 
         ))
     })?;
     let versions = rows.collect::<Result<Vec<_>, _>>()?;
-    if versions.len() != 1 || versions[0].0 != "settings" || versions[0].1 < 0 || versions[0].2 != 1
+    if versions.len() != 1 || versions[0].0 != "settings" || versions[0].1 < 0 || versions[0].2 < 1
     {
         return Err(MigrationError::UnrecognizedBaseline);
     }

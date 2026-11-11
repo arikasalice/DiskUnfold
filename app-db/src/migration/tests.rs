@@ -368,13 +368,42 @@ fn concurrent_gui_attempts_do_not_apply_the_definition_twice()
 }
 
 #[test]
+fn physical_baseline_does_not_treat_newer_logical_schema_as_table_change()
+-> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("app.db");
+    let db = AppDb::create_gui(&path).map_err(|e| format!("{e:?}"))?;
+    db.connection.execute_batch(
+        "UPDATE user_env_setting_version SET schema_version=3, settings_version=4;",
+    )?;
+    drop(db);
+    let steps = definitions();
+    apply_next(
+        &path,
+        &dir.path().join("backup.db"),
+        &Definitions {
+            baseline: 1,
+            steps: &steps,
+        },
+    )
+    .map_err(|e| format!("{e:?}"))?;
+    let db = Connection::open(&path)?;
+    let row: (u32, u32) = db.query_row(
+        "SELECT schema_version,settings_version FROM user_env_setting_version",
+        [],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )?;
+    assert_eq!(row, (3, 4));
+    Ok(())
+}
+
+#[test]
 fn only_the_complete_known_legacy_schema_and_version_row_are_accepted()
 -> Result<(), Box<dyn std::error::Error>> {
     let cases = [
         "DROP INDEX ix_user_env_setting_quarantine_key;",
         "CREATE TABLE unexplained_partial(value INTEGER);",
         "CREATE TABLE sqlitex_unexpected(value INTEGER);",
-        "UPDATE user_env_setting_version SET schema_version=2;",
         "DELETE FROM user_env_setting_version;",
         "CREATE TABLE app_db_schema_meta(migration_no INTEGER, definition_hash BLOB);",
     ];

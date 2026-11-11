@@ -75,7 +75,14 @@ fn stored_language() -> Result<Option<String>, ()> {
     };
     let mut database = AppDb::open_read_only(&path.join(DATABASE_FILE)).map_err(|_| ())?;
     let snapshot = database.load().map_err(|_| ())?;
-    if snapshot.schema_version != 1 {
+    language_from_snapshot(&snapshot)
+}
+
+#[cfg(windows)]
+fn language_from_snapshot(
+    snapshot: &du_core_contracts::settings::SettingsSnapshot,
+) -> Result<Option<String>, ()> {
+    if snapshot.schema_version != du_core_contracts::settings::SETTINGS_SCHEMA_VERSION {
         return Err(());
     }
     match snapshot.values.get(locale::DISPLAY_LANGUAGE_KEY) {
@@ -103,6 +110,16 @@ fn preferred_ui_languages() -> Option<Vec<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn old_schema_uses_unavailable_settings_without_migration() {
+        let snapshot = du_core_contracts::settings::SettingsSnapshot {
+            schema_version: 1,
+            ..Default::default()
+        };
+        assert_eq!(language_from_snapshot(&snapshot), Err(()));
+    }
 
     #[test]
     fn stored_language_short_circuits_os_lookup() -> Result<(), Box<dyn std::error::Error>> {

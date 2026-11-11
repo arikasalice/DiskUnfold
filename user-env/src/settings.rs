@@ -1,12 +1,16 @@
 //! Review and atomic commit for supported setting kinds.
 use du_core_contracts::settings::{
-    SettingsChanges, SettingsCommit, SettingsSnapshot, SettingsStore, SettingsStoreError,
+    SETTINGS_SCHEMA_VERSION, SettingsChanges, SettingsCommit, SettingsSnapshot, SettingsStore,
+    SettingsStoreError,
 };
 
 use crate::{CatalogEntry, Registry};
 mod restore_status;
 pub mod search;
 pub use restore_status::{RestoreItem, RestoreSource, RestoreStatus};
+
+/// Registered additive-only transition for the F03 display descriptors.
+pub const EMPTY_SCHEMA_TRANSITION: (u32, u32) = (1, SETTINGS_SCHEMA_VERSION);
 
 /// Builds the shared startup catalog from each feature's registered descriptors.
 pub fn builtin_descriptors(
@@ -50,10 +54,10 @@ pub struct SettingsService<S> {
 impl<S: SettingsStore> SettingsService<S> {
     pub fn open(registry: Registry, mut store: S) -> Result<Self, SettingsError> {
         let snapshot = store.load().map_err(SettingsError::Store)?;
-        if snapshot.schema_version > 1 {
+        if snapshot.schema_version > SETTINGS_SCHEMA_VERSION {
             return Err(SettingsError::SchemaNewer);
         }
-        if snapshot.schema_version != 1 {
+        if snapshot.schema_version != SETTINGS_SCHEMA_VERSION {
             return Err(SettingsError::SchemaUnsupported);
         }
         for (key, value) in &snapshot.values {
@@ -107,7 +111,7 @@ impl<S: SettingsStore> SettingsService<S> {
             status.stored_schema = Some(*schema);
         }
         let mut snapshot = match loaded {
-            Ok((revision, 1, rows)) => {
+            Ok((revision, SETTINGS_SCHEMA_VERSION, rows)) => {
                 let mut values = std::collections::BTreeMap::new();
                 for (key, raw) in rows {
                     let value = serde_json::from_str::<serde_json::Value>(&raw);
@@ -123,19 +127,19 @@ impl<S: SettingsStore> SettingsService<S> {
                 }
                 SettingsSnapshot {
                     revision,
-                    schema_version: 1,
+                    schema_version: SETTINGS_SCHEMA_VERSION,
                     values,
                 }
             }
             Ok((_, schema_version, _)) => {
                 status.write_locked = true;
-                status.failure_reason = Some(if schema_version > 1 {
+                status.failure_reason = Some(if schema_version > SETTINGS_SCHEMA_VERSION {
                     "settings.schema_newer"
                 } else {
                     "settings.schema_unsupported"
                 });
                 SettingsSnapshot {
-                    schema_version: 1,
+                    schema_version: SETTINGS_SCHEMA_VERSION,
                     ..SettingsSnapshot::default()
                 }
             }
@@ -143,7 +147,7 @@ impl<S: SettingsStore> SettingsService<S> {
                 status.write_locked = true;
                 status.failure_reason = Some("settings.restore_failed");
                 SettingsSnapshot {
-                    schema_version: 1,
+                    schema_version: SETTINGS_SCHEMA_VERSION,
                     ..SettingsSnapshot::default()
                 }
             }
@@ -167,6 +171,12 @@ impl<S: SettingsStore> SettingsService<S> {
             snapshot,
             restore_status: status,
         }
+    }
+
+    /// Records a successfully committed GUI-only logical schema transition.
+    pub fn record_migration(&mut self, from: u32) {
+        self.restore_status.migrated = true;
+        self.restore_status.stored_schema = Some(from);
     }
 
     /// Returns the immutable startup restoration outcome.

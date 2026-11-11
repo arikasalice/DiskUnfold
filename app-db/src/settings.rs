@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 
 use du_core_contracts::settings::{
-    SettingsChanges, SettingsCommit, SettingsSnapshot, SettingsSource, SettingsStore,
-    SettingsStoreError,
+    SETTINGS_SCHEMA_VERSION, SettingsChanges, SettingsCommit, SettingsSnapshot, SettingsSource,
+    SettingsStore, SettingsStoreError,
 };
 use rusqlite::{Error, ErrorCode, TransactionBehavior, params};
 
@@ -60,6 +60,35 @@ fn store_error(error: Error) -> SettingsStoreError {
 }
 
 impl AppDb {
+    /// Advances an additive-only logical schema while preserving all setting rows.
+    /// The caller must hold the GUI startup lock and supply a registered transition.
+    pub fn advance_empty_settings_schema(
+        &mut self,
+        from: u32,
+        to: u32,
+    ) -> Result<bool, SettingsStoreError> {
+        if (from, to) != (1, SETTINGS_SCHEMA_VERSION) {
+            return Err(SettingsStoreError::Conflict);
+        }
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(store_error)?;
+        let schema: u32 = tx.query_row("SELECT schema_version FROM user_env_setting_version WHERE version_key = 'settings'", [], |row| row.get(0)).map_err(store_error)?;
+        if schema != from {
+            return if schema >= to {
+                Ok(false)
+            } else {
+                Err(SettingsStoreError::Conflict)
+            };
+        }
+        if to != from.checked_add(1).ok_or(SettingsStoreError::Storage)? {
+            return Err(SettingsStoreError::Conflict);
+        }
+        tx.execute("UPDATE user_env_setting_version SET schema_version = ?1 WHERE version_key = 'settings' AND schema_version = ?2", params![to, from]).map_err(store_error)?;
+        tx.commit().map_err(store_error)?;
+        Ok(true)
+    }
     /// Reads the category revision, schema and raw rows from one database snapshot.
     /// Raw values allow the policy layer to isolate a malformed registered row.
     pub fn load_settings_for_restore(
@@ -67,7 +96,7 @@ impl AppDb {
     ) -> Result<(u64, u32, BTreeMap<String, String>), SettingsStoreError> {
         let tx = self.connection.transaction().map_err(store_error)?;
         let (revision, schema): (i64, u32) = tx.query_row("SELECT settings_version, schema_version FROM user_env_setting_version WHERE version_key = 'settings'", [], |row| Ok((row.get(0)?, row.get(1)?))).map_err(store_error)?;
-        let rows = if schema != 1 {
+        let rows = if schema != SETTINGS_SCHEMA_VERSION {
             BTreeMap::new()
         } else {
             let mut statement = tx
@@ -114,7 +143,7 @@ impl AppDb {
         let (revision, schema): (i64, u32) = tx.query_row(
             "SELECT settings_version, schema_version FROM user_env_setting_version WHERE version_key = 'settings'", [], |row| Ok((row.get(0)?, row.get(1)?))
         ).map_err(store_error)?;
-        if revision != expected || schema != 1 {
+        if revision != expected || schema != SETTINGS_SCHEMA_VERSION {
             return Err(SettingsStoreError::Conflict);
         }
         for (key, expected_value) in invalid {
@@ -200,8 +229,8 @@ impl SettingsStore for AppDb {
             .map_err(store_error)?;
         if tx
             .execute(
-                "UPDATE user_env_setting_version SET settings_version = ?1, updated_at_ms = ?2 WHERE version_key = 'settings' AND settings_version = ?3 AND schema_version = 1",
-                params![next, context.timestamp_ms, expected],
+                "UPDATE user_env_setting_version SET settings_version = ?1, updated_at_ms = ?2 WHERE version_key = 'settings' AND settings_version = ?3 AND schema_version = ?4",
+                params![next, context.timestamp_ms, expected, SETTINGS_SCHEMA_VERSION],
             )
             .map_err(store_error)?
             != 1
