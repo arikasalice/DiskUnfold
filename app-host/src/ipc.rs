@@ -29,7 +29,9 @@ pub(crate) fn dispatch_lane(message: &str) -> du_platform_os::webview::DispatchL
 
     match gui_command_name(message).as_deref() {
         Some("target.list" | "scope.recent_open") => DispatchLane::Volume,
-        Some("query.cancel" | "query.region.close") => DispatchLane::QueryControl,
+        Some("query.cancel" | "query.region.close" | "viz.cancel" | "viz.view.close") => {
+            DispatchLane::QueryControl
+        }
         Some("job.cancel" | "job.pause" | "job.resume") => DispatchLane::JobControl,
         _ => DispatchLane::Ordered,
     }
@@ -123,6 +125,18 @@ mod tests {
             (
                 r#"{"command":"du_call","args":{"envelope":{"name":"query.region.close"}}}"#,
                 QueryControl,
+            ),
+            (
+                r#"{"command":"du_call","args":{"envelope":{"name":"viz.cancel"}}}"#,
+                QueryControl,
+            ),
+            (
+                r#"{"command":"du_call","args":{"envelope":{"name":"viz.view.close"}}}"#,
+                QueryControl,
+            ),
+            (
+                r#"{"command":"du_call","args":{"envelope":{"name":"viz.render"}}}"#,
+                Ordered,
             ),
             (
                 r#"{"command":"du_call","args":{"envelope":{"name":"browse.open"}}}"#,
