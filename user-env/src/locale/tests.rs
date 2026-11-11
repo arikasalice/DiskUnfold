@@ -340,3 +340,84 @@ fn embedded_korean_integrity_failure_preserves_the_configured_language() -> Resu
     assert_eq!(service.snapshot(), &snapshot);
     Ok(())
 }
+
+#[test]
+fn settings_language_choices_select_from_each_snapshot() -> Result<(), String> {
+    let snapshot = SettingsSnapshot {
+        schema_version: 1,
+        ..SettingsSnapshot::default()
+    };
+    let mut service = SettingsService::open(registry(&["en", "ko"])?, MemoryStore(snapshot))
+        .map_err(|error| format!("{error:?}"))?;
+    let context = SettingsCommit {
+        source: SettingsSource::Screen,
+        timestamp_ms: 0,
+    };
+
+    // A missing override follows the observed OS language on the next startup.
+    let initial = decide(&input(
+        &["en", "ko"],
+        None,
+        OsLanguage::Supported(&["ko-KR"]),
+    ))
+    .map_err(|error| format!("{error:?}"))?;
+    assert_eq!(
+        (initial.language.as_str(), initial.source),
+        ("ko", Source::Os)
+    );
+
+    for (revision, choice, expected, source) in [
+        (0, json!("ko"), "ko", Source::Stored),
+        (1, json!("en"), "en", Source::Stored),
+        (2, Value::Null, "ko", Source::Os),
+    ] {
+        let changes = SettingsChanges::from([(DISPLAY_LANGUAGE_KEY.to_owned(), Some(choice))]);
+        let reviewed = service
+            .review(revision, &changes)
+            .map_err(|e| format!("{e:?}"))?;
+        service
+            .apply(revision, &changes, reviewed, context)
+            .map_err(|e| format!("{e:?}"))?;
+        let stored = service
+            .snapshot()
+            .values
+            .get(DISPLAY_LANGUAGE_KEY)
+            .and_then(Value::as_str);
+        let selected = decide(&input(
+            &["en", "ko"],
+            stored,
+            OsLanguage::Supported(&["ko-KR"]),
+        ))
+        .map_err(|error| format!("{error:?}"))?;
+        assert_eq!(
+            (selected.language.as_str(), selected.source),
+            (expected, source)
+        );
+        assert_eq!(service.snapshot().revision, revision + 1);
+    }
+    assert!(!service.snapshot().values.contains_key(DISPLAY_LANGUAGE_KEY));
+    Ok(())
+}
+
+#[test]
+fn stale_or_invalid_language_changes_leave_the_snapshot_untouched() -> Result<(), String> {
+    let snapshot = SettingsSnapshot {
+        schema_version: 1,
+        revision: 3,
+        values: [(DISPLAY_LANGUAGE_KEY.into(), json!("ko"))].into(),
+    };
+    let service = SettingsService::open(registry(&["en", "ko"])?, MemoryStore(snapshot.clone()))
+        .map_err(|error| format!("{error:?}"))?;
+    let english = SettingsChanges::from([(DISPLAY_LANGUAGE_KEY.into(), Some(json!("en")))]);
+    let unknown = SettingsChanges::from([(DISPLAY_LANGUAGE_KEY.into(), Some(json!("fr")))]);
+    assert_eq!(
+        service.review(2, &english),
+        Err(SettingsError::StaleVersion)
+    );
+    assert_eq!(
+        service.review(3, &unknown),
+        Err(SettingsError::InvalidValue)
+    );
+    assert_eq!(service.snapshot(), &snapshot);
+    Ok(())
+}
