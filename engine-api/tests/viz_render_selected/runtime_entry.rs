@@ -438,7 +438,9 @@ fn valid_different_condition_retires_only_the_replaced_channel() -> Result<(), S
     changed["labelMode"] = json!("name_only");
     let replacement = fixture.ok("viz.render", changed.clone())?;
     if replacement["kind"] == "job" {
-        assert_ne!(job(&replacement)?, original);
+        let job = job(&replacement)?;
+        assert_ne!(job, original);
+        fixture.finished(&job, JobState::Done)?;
     } else {
         assert_eq!(replacement["kind"], "model");
     }
