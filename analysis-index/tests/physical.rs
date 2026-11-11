@@ -74,15 +74,17 @@ fn hardlinks_are_counted_once_per_subtree_and_versions_are_pinned()
     // With no shared extents, the unique total is derived from OS-reported allocation.
     assert_eq!(root.unique_physical.evidence, SizeEvidence::OsReported);
     assert_eq!(first.space(0).ok_or("root")?.allocated.amount, lower(8));
-    let dir = end
-        .items()
-        .iter()
-        .find(|i| i.name == b"b")
-        .ok_or("directory")?;
-    assert_eq!(
-        end.space(dir.item_no).ok_or("space")?.allocated.amount,
-        exact(8)
-    );
+    // Each subtree retains the shared file, even though the scope counts it once.
+    for name in [b"a", b"b"] {
+        let dir = end
+            .items()
+            .iter()
+            .find(|i| i.name == name)
+            .ok_or("directory")?;
+        let aggregate = end.space(dir.item_no).ok_or("space")?;
+        assert_eq!(aggregate.allocated.amount, exact(8));
+        assert_eq!(aggregate.unique_physical.amount, exact(8));
+    }
     Ok(())
 }
 
