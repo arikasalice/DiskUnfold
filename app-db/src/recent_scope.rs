@@ -76,10 +76,7 @@ impl<'a> RecentScopeStore<'a> {
         cap: NonZeroUsize,
         validate_body: &'a dyn Fn(&str) -> bool,
     ) -> Result<Self, RecentError> {
-        let cap = i64::try_from(cap.get()).map_err(|_| RecentError::Invalid)?;
-        if cap == i64::MAX {
-            return Err(RecentError::Invalid);
-        }
+        let cap = sql_cap(cap)?;
         Ok(Self {
             db,
             cap,
@@ -168,18 +165,7 @@ impl<'a> RecentScopeStore<'a> {
 
     /// Reads summaries only; corrupt rows and excess rows fail the whole read.
     pub fn list(&self) -> Result<Vec<RecentSummary>, RecentError> {
-        let mut statement = self.db.connection.prepare("SELECT recent_scope_id,include_count,last_used_at_ms FROM user_env_recent_scope ORDER BY last_used_at_ms DESC,recent_scope_id ASC LIMIT ?1").map_err(map)?;
-        let rows = statement
-            .query_map([self.cap + 1], read_summary)
-            .map_err(map)?;
-        let mut result = Vec::new();
-        for row in rows {
-            result.push(row.map_err(map)?.validate()?);
-            if result.len() > self.cap as usize {
-                return Err(RecentError::Corrupt);
-            }
-        }
-        Ok(result)
+        read_summaries(self.db, self.cap)
     }
 
     /// Reads one row and validates its body before returning it.
@@ -201,6 +187,35 @@ impl<'a> RecentScopeStore<'a> {
         })
         .transpose()
     }
+}
+
+/// Reads the bounded summary projection without decoding stored bodies.
+pub fn list_recent_scopes(
+    db: &AppDb,
+    cap: NonZeroUsize,
+) -> Result<Vec<RecentSummary>, RecentError> {
+    read_summaries(db, sql_cap(cap)?)
+}
+
+fn sql_cap(cap: NonZeroUsize) -> Result<i64, RecentError> {
+    let cap = i64::try_from(cap.get()).map_err(|_| RecentError::Invalid)?;
+    if cap == i64::MAX {
+        return Err(RecentError::Invalid);
+    }
+    Ok(cap)
+}
+
+fn read_summaries(db: &AppDb, cap: i64) -> Result<Vec<RecentSummary>, RecentError> {
+    let mut statement = db.connection.prepare("SELECT recent_scope_id,include_count,last_used_at_ms FROM user_env_recent_scope ORDER BY last_used_at_ms DESC,recent_scope_id ASC LIMIT ?1").map_err(map)?;
+    let rows = statement.query_map([cap + 1], read_summary).map_err(map)?;
+    let mut result = Vec::new();
+    for row in rows {
+        result.push(row.map_err(map)?.validate()?);
+        if result.len() > cap as usize {
+            return Err(RecentError::Corrupt);
+        }
+    }
+    Ok(result)
 }
 
 struct RawSummary {

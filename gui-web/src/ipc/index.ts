@@ -35,6 +35,8 @@ import type {
   QueryCancelRequest,
   QueryCancelled,
   QueryPageResponse,
+  RecentScopeList,
+  RecentScopeListRequest,
   ResultEnvelope,
   ScanFailures,
   ScanFailuresRequest,
@@ -96,6 +98,8 @@ export type {
   Id,
   JobState,
   OsPath,
+  RecentScopeList,
+  RecentScopeListRow,
   ScanFailureKind,
   ScanFailureRow,
   ScanFailureStage,
@@ -141,6 +145,7 @@ export type {
 type Commands = {
   "target.list": [TargetListRequest, TargetList];
   "scope.review": [ScopeReviewRequest, ScopeReview];
+  "scope.recent_list": [RecentScopeListRequest, RecentScopeList];
   "scan.start": [ScanStartRequest, ScanStart];
   "scan.failures": [ScanFailuresRequest, ScanFailures];
   "job.get": [AnalysisJobRequest, AnalysisJobStatus];

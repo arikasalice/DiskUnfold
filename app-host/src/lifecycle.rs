@@ -110,6 +110,7 @@ fn run_app(
             let admissions = desktop
                 .recent_scope_admissions
                 .ok_or_else(|| std::io::Error::other("recent scope admission queue unavailable"))?;
+            crate::recent_scope_list::register(&mut builder, recovery.clone(), options.cap);
             RecentScopeWorker::start(admissions, recovery.clone(), options.cap, options.warning)
         })
         .transpose()?;

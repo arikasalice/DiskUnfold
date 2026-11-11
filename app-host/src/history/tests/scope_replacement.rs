@@ -30,6 +30,7 @@ fn scan_response(
 
 fn wait_for_saved_scope(
     profile: &std::path::Path,
+    engine: &Engine,
 ) -> Result<crate::recent_scope_body::RecentScopeBody, Box<dyn std::error::Error>> {
     use rusqlite::OptionalExtension;
 
@@ -52,6 +53,10 @@ fn wait_for_saved_scope(
         row.get(0)
     })?;
     assert_eq!(rows, 1);
+    let listed = ipc(engine, "scope.recent_list", json!({}))?;
+    assert!(listed.error.is_none());
+    assert_eq!(listed.body["rows"].as_array().map(Vec::len), Some(1));
+    assert_eq!(listed.body["rows"][0]["includeCount"], 1);
     let fingerprint = fingerprint
         .try_into()
         .map_err(|_| "invalid stored fingerprint width")?;
@@ -89,10 +94,12 @@ fn lossy_display_preserves_native_scope_identity() -> Result<(), Box<dyn std::er
         .recent_scope_admissions
         .ok_or("missing recent-scope consumer")?;
     let (warn, warnings) = mpsc::channel();
+    let cap = NonZeroUsize::new(2).ok_or("zero retention cap")?;
+    crate::recent_scope_list::register(&mut builder, database.clone(), cap);
     let worker = crate::recent_scope_worker::RecentScopeWorker::start(
         admissions,
         database,
-        NonZeroUsize::new(2).ok_or("zero retention cap")?,
+        cap,
         move |warning| {
             let _ = warn.send(warning);
         },
@@ -179,7 +186,7 @@ fn lossy_display_preserves_native_scope_identity() -> Result<(), Box<dyn std::er
     assert!(!scan.existing);
     let delivery = observer(&request, &response).ok_or("missing response callback")?;
     delivery(ResponseDelivery::Posted);
-    let saved = wait_for_saved_scope(profile.path())?;
+    let saved = wait_for_saved_scope(profile.path(), &engine)?;
     assert!(matches!(
         warnings.try_recv(),
         Err(mpsc::TryRecvError::Empty)

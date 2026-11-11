@@ -12,7 +12,7 @@ use std::{
 
 use du_app_db::{
     AppDb,
-    recent_scope::{RecentError, RecentScopeStore, RecentWrite},
+    recent_scope::{RecentError, RecentScopeStore, RecentSummary, RecentWrite, list_recent_scopes},
 };
 use du_core_contracts::{
     job::{
@@ -89,6 +89,15 @@ impl SharedDatabase {
             },
         )?;
         Ok(())
+    }
+
+    /// Reads recent-scope summaries on the shared Windows GUI connection.
+    pub(super) fn recent_scope_summaries(
+        &self,
+        cap: NonZeroUsize,
+    ) -> Result<Vec<RecentSummary>, RecentError> {
+        let connection = self.0.connection.lock().map_err(|_| RecentError::Storage)?;
+        list_recent_scopes(&connection, cap)
     }
 }
 
