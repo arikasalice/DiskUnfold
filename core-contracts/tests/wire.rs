@@ -83,6 +83,32 @@ fn errors_and_event_bounds() {
 }
 
 #[test]
+fn search_validation_reasons_survive_error_envelope_conversion()
+-> Result<(), Box<dyn std::error::Error>> {
+    let correlation = Id::parse("018f5e7b-1234-7123-8123-123456789abc")?;
+    for reason in [
+        "query.syntax_invalid",
+        "condition.ambiguous",
+        "condition.timezone_unavailable",
+        "predicate.unknown",
+        "predicate.not_allowed",
+        "sort.key_unknown",
+    ] {
+        let error = ErrorEnvelope::from_reason_or_internal(reason, correlation.clone(), vec![]);
+        let body = to_value(error)?;
+        assert_eq!(body["code"], "INVALID_ARGUMENT");
+        assert_eq!(body["reasonKey"], reason);
+        assert_eq!(body["messageKey"], reason);
+        assert_eq!(body["correlationId"], correlation.as_str());
+        assert_eq!(body["retryable"], false);
+    }
+    let unknown = ErrorEnvelope::from_reason_or_internal("query.unknown", correlation, vec![]);
+    assert_eq!(unknown.code, ErrorCode::Internal);
+    assert_eq!(unknown.reason_key, "support.internal_error");
+    Ok(())
+}
+
+#[test]
 fn scope_review_rejects_unknown_fields_and_keeps_native_paths() {
     use du_core_contracts::analysis_ipc::{ScopeDraft, ScopeReviewRequest};
     let draft = json!({
