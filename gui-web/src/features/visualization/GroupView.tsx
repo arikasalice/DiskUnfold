@@ -255,7 +255,10 @@ function getConnectedOrigin(
   origin: GroupOrigin | null,
   originMatches: boolean,
 ) {
-  return originMatches && origin?.element.isConnected ? origin.element : null;
+  if (!originMatches || !origin?.element.isConnected) return null;
+  if (origin.returnTarget && !origin.returnTarget.contains(origin.element))
+    return null;
+  return origin.element;
 }
 
 function focusGroupStatus(

@@ -34,18 +34,12 @@ export function isCurrentTable(
   );
 }
 
-export function getTableOnlyFrame(
-  _graph: VisualizationSnapshot["graph"],
+export function getMatchingTableFrame(
   table: VisualizationSnapshot["table"],
-  state: VisualizationSnapshot,
+  page: VisualizationSnapshot["tablePage"],
 ): ModelResponse | null {
-  const page = state.tablePage;
   if (!table || !page || !matchingRowsPage(table, page)) return null;
   return table;
-}
-
-export function getGroupRowFrame(tableFrame: ModelResponse | null) {
-  return tableFrame;
 }
 
 export function getGroupViewFrame(
@@ -143,6 +137,8 @@ export function selectVisualizationGroup(
       focusedGroupShape?.shapeRef === shapeRef &&
       focusedGroupShape.modelRef === frame.model.modelRef &&
       focusedGroupShape.resultRevision === frame.resultRevision &&
+      focusedGroupShape.observedAt === frame.observedAt &&
+      focusedGroupShape.completeness === frame.completeness &&
       focusedGroupShape.groupRef === selection.groupRef &&
       focusedGroupShape.element.isConnected &&
       document.activeElement === focusedGroupShape.element;

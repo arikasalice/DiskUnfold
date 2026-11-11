@@ -33,9 +33,8 @@ import type { GroupOrigin } from "./group-navigation";
 import {
   createGroupRowOpener,
   getGroupReturnTargetRef,
-  getGroupRowFrame,
+  getMatchingTableFrame,
   getGroupViewFrame,
-  getTableOnlyFrame,
   isCurrentTable,
   rememberFocusedGroupShape,
   selectVisualizationGroup,
@@ -77,15 +76,14 @@ export function ControlledVisualization({
   }, [focusLost]);
   const graph = state.graph;
   const table = state.table;
-  const tableOnlyFrame = getTableOnlyFrame(graph, table, state);
+  const tableRowsFrame = getMatchingTableFrame(table, state.tablePage);
   useFirstRows(controller, state, autoLoadRows === true);
   const currentTable = isCurrentTable(graph, table);
   const graphRowsFrame =
     graph && state.graphPage && matchingRowsPage(graph.frame, state.graphPage)
       ? graph.frame
       : null;
-  const tableRowsFrame = getGroupRowFrame(tableOnlyFrame);
-  const groupViewFrame = getGroupViewFrame(groupOrigin, graph, tableOnlyFrame);
+  const groupViewFrame = getGroupViewFrame(groupOrigin, graph, tableRowsFrame);
   const groupReturnTargetRef = getGroupReturnTargetRef(
     groupOrigin,
     graph,

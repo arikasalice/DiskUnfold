@@ -8,6 +8,8 @@ import {
 } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { fixtureText, modelFixture } from "../preview/model-fixture";
+import { createChartRenderers, GeometryRenderer } from "../src/components";
+import type { GeometryRendererProps } from "../src/components";
 import { ControlledVisualization } from "../src/features/visualization/ControlledVisualization";
 import { VisualizationController } from "../src/features/visualization/controller";
 import { GroupController } from "../src/features/visualization/group-controller";
@@ -361,3 +363,55 @@ test("graph and newer table rows with one group ref use and return to their own 
   pressEnter(screen.getByRole("button", { name: "Back to visualization" }));
   expect(document.activeElement).toBe(newerTableRow);
 });
+
+test.each([true, false])(
+  "registered renderer returns to its shape only when it supplies the control (%s)",
+  async (suppliesControl) => {
+    const graph = frame("shape-model", "shape-result", 1, "complete");
+    const visualization = new VisualizationController({
+      render: vi.fn().mockResolvedValue(graph),
+      rows: vi.fn().mockResolvedValue(rowsPage(graph).response),
+      cancel: vi.fn(),
+      canDisplay: () => true,
+    });
+    const groups = new GroupController({
+      rows: vi.fn().mockResolvedValue(groupPage(graph)),
+    });
+    function RegisteredRenderer(props: GeometryRendererProps) {
+      return (
+        <GeometryRenderer
+          {...props}
+          label="Registered geometry"
+          onShapeFocus={(rowRef, shapeRef, control) =>
+            props.onShapeFocus?.(
+              rowRef,
+              shapeRef,
+              suppliesControl ? control : undefined,
+            )
+          }
+        />
+      );
+    }
+    render(
+      <ControlledVisualization
+        controller={visualization}
+        groupController={groups}
+        resolveRenderer={createChartRenderers([
+          ["treemap", RegisteredRenderer],
+        ])}
+        text={fixtureText}
+        autoLoadRows
+      />,
+    );
+    await act(async () => visualization.render(renderRequest(graph)));
+    const shape = await screen.findByRole("button", { name: /Shared group/ });
+    pressEnter(shape);
+    pressEnter(screen.getByRole("button", { name: "View group members" }));
+    await screen.findByText("Member from shape-model");
+    pressEnter(screen.getByRole("button", { name: "Back to visualization" }));
+    const target = suppliesControl
+      ? shape
+      : screen.getByRole("region", { name: "Storage visualization" });
+    expect(document.activeElement).toBe(target);
+  },
+);

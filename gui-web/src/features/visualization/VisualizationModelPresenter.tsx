@@ -175,26 +175,26 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
         {...(props.onFocusTargetMissing
           ? { onFocusTargetMissing: props.onFocusTargetMissing }
           : {})}
-        onShapeFocus={(_rowKey, shapeRef) => {
-          const target = uniqueShapeTarget(adapted, shapeRef);
+        onShapeFocus={(rowRef, shapeRef, control) => {
+          const shape = eventShape(adapted, shapeRef, rowRef);
+          const target = shape
+            ? (adapted.targetsByShape.get(shapeRef) ?? null)
+            : null;
           if (target)
             props.onFocusItem?.(target.kind === "item" ? target.itemRef : null);
-          const active = document.activeElement;
           props.onFocusedGroupShape?.(
             target,
             shapeRef,
-            props.resolveRenderer === undefined &&
-              active instanceof HTMLButtonElement &&
-              visualizationRef.current?.contains(active)
-              ? active
+            control && visualizationRef.current?.contains(control)
+              ? control
               : null,
-            adapted.shapes.find((shape) => shape.shapeRef === shapeRef)
-              ?.accessibleLabel,
+            shape?.accessibleLabel,
             visualizationRef.current,
           );
         }}
-        onSelect={(_rowKey, shapeRef) => {
-          const selection = uniqueShapeTarget(adapted, shapeRef);
+        onSelect={(rowRef, shapeRef) => {
+          if (!eventShape(adapted, shapeRef, rowRef)) return;
+          const selection = adapted.targetsByShape.get(shapeRef);
           if (selection) props.onSelect(selection, shapeRef);
         }}
         fallback={{
@@ -208,14 +208,15 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
   );
 }
 
-function uniqueShapeTarget(
+/** Matches a renderer event to one shape and its source row in this model. */
+function eventShape(
   adapted: ReturnType<typeof adaptVizModel>,
   shapeRef: string,
+  rowRef: string,
 ) {
   const matches = adapted.shapes.filter((shape) => shape.shapeRef === shapeRef);
-  return matches.length === 1
-    ? (adapted.targetsByShape.get(shapeRef) ?? null)
-    : null;
+  const shape = matches[0];
+  return matches.length === 1 && shape?.rowRef === rowRef ? shape : null;
 }
 
 export function ModelRows({
