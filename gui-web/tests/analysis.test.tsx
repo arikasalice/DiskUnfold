@@ -21,6 +21,7 @@ import type {
   BrowseOpenResponse,
   DisplayPreferences,
   EventEnvelope,
+  HistoryListResponse,
   ScanFailures,
   ScanFailuresRequest,
   ScopeReview,
@@ -70,6 +71,7 @@ function fixture({
   readPreferences,
   lineageId,
   listJobs,
+  readHistory,
 }: {
   stale?: boolean;
   earlyProbe?: EventEnvelope;
@@ -98,6 +100,7 @@ function fixture({
   readPreferences?: () => DisplayPreferences | Promise<DisplayPreferences>;
   lineageId?: string;
   listJobs?: () => Promise<AnalysisJobListRow[]>;
+  readHistory?: () => HistoryListResponse | Promise<HistoryListResponse>;
 } = {}) {
   const listeners = new Set<(event: EventEnvelope) => void>();
   const calls: { name: string; body: unknown }[] = [];
@@ -159,6 +162,9 @@ function fixture({
           });
         case "job.list":
           return listJobs?.() ?? [];
+        case "history.list":
+          if (readHistory) return readHistory();
+          throw new Error("History unavailable");
         case "job.pause":
         case "job.resume":
           if (suspendJob)
@@ -1145,6 +1151,84 @@ test.each(["STALE_VERSION", "NOT_FOUND"] as const)(
     }
   },
 );
+
+test("F21 F24: history and a pinned result recover separately after a shared delivery gap", async () => {
+  let lists = 0;
+  let changed = false;
+  const { client, listeners, calls } = fixture({
+    lineageId: "lineage",
+    listJobs: () => {
+      lists += 1;
+      if (lists > 1) return new Promise(() => {});
+      return Promise.resolve([
+        {
+          jobRef: "scan",
+          kind: "scan.metadata",
+          scopeSummary: "scope",
+          state: "running",
+          waitReason: "none",
+          priority: "normal",
+          supportedControls: ["cancel"],
+          sequence: 1,
+        },
+      ]);
+    },
+    readStatus: (base) => ({
+      ...base,
+      state: changed ? "done" : "running",
+      sequence: changed ? 2 : 1,
+      scanResult: {
+        lineageId: "lineage",
+        sequence: changed ? 2 : 1,
+        resultVersion: changed ? "final" : "part",
+      },
+    }),
+    readTotals: (result) => ({
+      ...result,
+      completeness: result.resultVersion === "part" ? "partial" : "complete",
+    }),
+    readHistory: () => ({
+      revision: { deleteGeneration: "0", maxRecordSeq: changed ? "2" : "1" },
+      nextCursor: null,
+      rows: [
+        {
+          jobRef: "scan",
+          missingReasons: [],
+          summary: {
+            kindId: "scan.metadata",
+            kindVersion: 1,
+            scopeSummary: changed ? "New history" : "Previous history",
+            state: "done",
+            counts: null,
+            startedAtMs: null,
+            finishedAtMs: null,
+            predecessorJobRef: null,
+            relation: null,
+            sessionRestoreAvailable: null,
+          },
+        },
+      ],
+    }),
+  });
+  await startFixtureScan(client);
+  await screen.findByText("Result version: Interim");
+  fireEvent.click(screen.getByRole("button", { name: "Operation history" }));
+  await screen.findByText("Previous history");
+  changed = true;
+  notifyResult(listeners, "job.resync_required", {});
+  await screen.findByText("New history");
+  expect(screen.queryByText("Previous history")).toBeNull();
+  expect(lists).toBe(2);
+  fireEvent.click(screen.getByRole("button", { name: "Back to analysis" }));
+  expect(await screen.findByText("Result version: Interim")).toBeDefined();
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Show latest result" }),
+  );
+  await screen.findByText("Result version: Final");
+  expect(screen.getByText("Scanning")).toBeDefined();
+  expect(calls.filter(({ name }) => name === "history.list")).toHaveLength(2);
+  expect(lists).toBe(2);
+});
 
 test("F24: a failed resync keeps the last scan until automatic recovery", async () => {
   const terminal = {

@@ -1,7 +1,7 @@
 use super::*;
 use du_core_contracts::{
     CallEnvelope, ErrorCode, EventEnvelope, PathBytes, ResultEnvelope,
-    analysis_ipc::{ScanStart, ScopeReview},
+    analysis_ipc::{AnalysisJobListRow, AnalysisJobStatus, ScanStart, ScopeReview, SpaceTotal},
     history_ipc::{
         HISTORY_CHANGED, HistoryChangedBody, HistoryDetail, HistoryDetailCompleteness,
         HistoryEndState, HistoryFollowUp, HistoryListResponse, HistoryRelation,
@@ -285,6 +285,53 @@ fn windows_scan_delivers_a_history_change_only_for_a_committed_revision()
     assert_eq!(changed.revision, after.revision);
     assert_eq!(after.revision.max_record_seq, "1");
     assert_eq!(after.rows[0].job_ref.as_ref(), Some(&saved.job_ref));
+    assert_recovered_views(&engine, &saved, &committed)?;
+    Ok(())
+}
+
+fn assert_recovered_views(
+    engine: &Engine,
+    saved: &ScanStart,
+    committed: &[EventEnvelope],
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Treat the drained terminal, result, and committed history events as lost
+    // to the window. Recover each view through the ordinary GUI IPC entrypoint.
+    let list = ipc(engine, "job.list", json!({}))?;
+    assert!(list.error.is_none(), "{:?}", list.error);
+    let list: Vec<AnalysisJobListRow> = serde_json::from_value(list.body)?;
+    let row = list
+        .iter()
+        .find(|row| row.job_ref == saved.job_ref)
+        .ok_or("missing job")?;
+    let status = ipc(engine, "job.get", json!({"jobRef": saved.job_ref}))?;
+    assert!(status.error.is_none(), "{:?}", status.error);
+    let status: AnalysisJobStatus = serde_json::from_value(status.body)?;
+    let terminal = status.terminal.as_ref().ok_or("unconfirmed terminal")?;
+    assert_eq!(row.terminal.as_ref(), Some(terminal));
+    assert_eq!(status.state, JobState::Done);
+    assert!(terminal.history_recorded);
+    let result = status.scan_result.as_ref().ok_or("missing scan lineage")?;
+    assert_eq!(Some(&result.lineage_id), saved.lineage_id.as_ref());
+    let version = result
+        .result_version
+        .as_ref()
+        .ok_or("missing result version")?;
+    assert_eq!(status.result_version.as_ref(), Some(version));
+    assert!(
+        committed
+            .iter()
+            .any(|event| event.topic == "results.version_changed"
+                && event.result_version.as_ref() == Some(version))
+    );
+    let totals = ipc(
+        engine,
+        "space.total",
+        json!({"resultVersion": version, "requestSeq": 7, "target": {"kind": "scope_root"}}),
+    )?;
+    assert!(totals.error.is_none(), "{:?}", totals.error);
+    let totals: SpaceTotal = serde_json::from_value(totals.body)?;
+    assert_eq!(&totals.result_version, version);
+    assert_eq!(totals.request_seq, 7);
     Ok(())
 }
 
