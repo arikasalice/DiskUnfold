@@ -249,4 +249,143 @@ mod tests {
         worker.join().map_err(|_| "join")?;
         Ok(())
     }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_file_cancel_drain_waits_for_full_consumer_queue() -> Result<(), String> {
+        use std::{fs, time::SystemTime};
+        struct Fixture(std::path::PathBuf);
+        impl Drop for Fixture {
+            fn drop(&mut self) {
+                let _ = fs::remove_file(self.0.join("observed"));
+                let _ = fs::remove_dir(&self.0);
+            }
+        }
+        let nonce = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .map_err(|e| e.to_string())?
+            .as_nanos();
+        let path =
+            std::env::temp_dir().join(format!("du-f02-queue-{}-{nonce}", std::process::id()));
+        fs::create_dir(&path).map_err(|e| e.to_string())?;
+        let fixture = Fixture(path);
+        fs::write(fixture.0.join("observed"), b"ntfs").map_err(|e| e.to_string())?;
+        let file = fs::read_dir(&fixture.0)
+            .map_err(|e| e.to_string())?
+            .next()
+            .ok_or("file missing")?
+            .map_err(|e| e.to_string())?;
+        let length = file.metadata().map_err(|e| e.to_string())?.len();
+        let name: Vec<u8> = file
+            .file_name()
+            .to_string_lossy()
+            .encode_utf16()
+            .flat_map(u16::to_le_bytes)
+            .collect();
+        let observed = TimedObservedEntry::from(ObservedEntry {
+            name: name.clone(),
+            enumerated_inode: 1,
+            enumerated_kind: ObservedKind::File,
+            metadata: Ok(du_core_contracts::scan_observation::MetadataObservation {
+                kind: ObservedKind::File,
+                device: 1,
+                inode: 1,
+                size: Ok(length),
+                allocated: None,
+                link_count: None,
+                space_identity: None,
+                modified_at: None,
+                native_modified_at: None,
+            }),
+        });
+        assert_eq!(BUFFERED_OBSERVATIONS, 8_192);
+        let (sender, receiver) = mpsc::sync_channel(BUFFERED_OBSERVATIONS);
+        for _ in 0..BUFFERED_OBSERVATIONS {
+            sender
+                .send(Event::RootBatch(0, None, None))
+                .map_err(|_| "fill")?;
+        }
+        let pending = Frame {
+            root_index: 0,
+            path: Vec::new(),
+            directory: Box::new(Empty),
+            entries: VecDeque::from([observed]),
+            deferred: VecDeque::new(),
+            root: true,
+            first_batch: false,
+            root_published: false,
+            batch_pending: false,
+            case_observed: false,
+        };
+        let (entered, started) = mpsc::channel();
+        let (finished, done) = mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let shared = Shared {
+                queue: Mutex::new(Queue {
+                    ready: VecDeque::new(),
+                    ready_high_water: None,
+                    last_root: None,
+                    remaining: 1,
+                    root_remaining: vec![1],
+                    root_groups: vec![0],
+                    active_groups: vec![0],
+                    device_limit: 1,
+                    started: true,
+                }),
+                wake: Condvar::new(),
+                abort: AtomicBool::new(false),
+                disconnects: disconnect::Disconnects::new(1, &[]),
+            };
+            let cancelled = Flip(std::sync::atomic::AtomicUsize::new(1));
+            let _ = entered.send(());
+            let result = super::super::process(
+                pending,
+                &shared,
+                &sender,
+                &cancelled,
+                Policy::Legacy(&|_| true),
+                &mut Vec::new(),
+            );
+            let _ = finished.send(result);
+        });
+        started
+            .recv_timeout(Duration::from_secs(3))
+            .map_err(|e| e.to_string())?;
+        assert!(matches!(
+            done.recv_timeout(Duration::from_millis(100)),
+            Err(mpsc::RecvTimeoutError::Timeout)
+        ));
+        receiver
+            .recv_timeout(Duration::from_secs(3))
+            .map_err(|e| e.to_string())?;
+        assert!(
+            done.recv_timeout(Duration::from_secs(3))
+                .map_err(|e| e.to_string())?
+        );
+        let remaining: Vec<_> = receiver.try_iter().collect();
+        assert_eq!(remaining.len(), BUFFERED_OBSERVATIONS);
+        let events: Vec<_> = remaining
+            .iter()
+            .filter_map(|event| match event {
+                Event::Item(_, _, entry) => Some(entry),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].entry.name, name);
+        assert_eq!(
+            events[0]
+                .entry
+                .metadata
+                .as_ref()
+                .map_err(|_| "metadata")?
+                .size,
+            Ok(4)
+        );
+        worker.join().map_err(|_| "worker panic")?;
+        eprintln!(
+            "f02 windows cancelled=true queue={BUFFERED_OBSERVATIONS} held_ms>=100 retained_file_bytes={length}"
+        );
+        Ok(())
+    }
 }

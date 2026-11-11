@@ -1,6 +1,9 @@
 use super::*;
 use du_core_contracts::{Timestamp, scan_observation::TimedObservedEntry};
 
+#[cfg(windows)]
+mod native_files;
+
 struct LateBatch {
     entered: mpsc::Sender<()>,
     release: mpsc::Receiver<()>,
