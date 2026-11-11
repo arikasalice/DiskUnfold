@@ -221,6 +221,10 @@ pub struct AnalysisJobStatus {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "typescript", ts(optional))]
     pub scan_result: Option<ScanResult>,
+    /// Confirmed terminal outcome, omitted while history handling is pending.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub terminal: Option<AnalysisJobTerminal>,
 }
 
 /// The terminal outcome recoverable after a job event is missed.
@@ -229,6 +233,7 @@ pub struct AnalysisJobStatus {
 #[serde(rename_all = "camelCase")]
 pub struct AnalysisJobTerminal {
     pub state: crate::job::JobState,
+    /// Per-job sequence of the terminal event.
     #[cfg_attr(feature = "typescript", ts(type = "number"))]
     pub sequence: u64,
     #[cfg_attr(feature = "typescript", ts(type = "number"))]
@@ -249,12 +254,14 @@ pub struct AnalysisJobTerminal {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "typescript", ts(optional))]
     pub unprocessed_summary: Option<String>,
+    /// Immutable analysis version, if the job produced one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "typescript", ts(optional))]
     pub result_version: Option<Id>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "typescript", ts(optional))]
     pub query_ref: Option<Id>,
+    /// History storage warning, absent when recording succeeded or was skipped.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "typescript", ts(optional))]
     pub warning: Option<String>,

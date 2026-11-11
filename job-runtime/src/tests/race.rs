@@ -236,6 +236,9 @@ fn terminal_gate_rejects_late_flow_reports_without_advancing_sequence()
             result_version_id: None,
         },
     )?;
+    runtime.flush()?;
+    let confirmed = runtime.snapshot(&id)?;
+    assert!(confirmed.terminal.is_some());
     assert_eq!(
         flow.report_item(b"late"),
         Err(du_core_contracts::job::JobFlowError::Closed)
@@ -243,7 +246,8 @@ fn terminal_gate_rejects_late_flow_reports_without_advancing_sequence()
     flow.finish(JobCounts::default());
     worker.join().map_err(|_| "worker panicked")??;
     runtime.flush()?;
-    assert_eq!(runtime.snapshot(&id)?.sequence, terminal_sequence);
+    assert_eq!(runtime.snapshot(&id)?, confirmed);
+    assert_eq!(confirmed.sequence, terminal_sequence);
     let events = events.0.lock().map_err(|_| "events poisoned")?;
     assert_eq!(
         events

@@ -85,6 +85,14 @@ impl UseCase for Status {
             snapshot.state,
             snapshot.result_version_id,
         );
+        let terminal = snapshot.terminal.map(|terminal| {
+            terminal_outcome(
+                terminal.summary,
+                terminal.sequence,
+                terminal.history_recorded,
+                terminal.warning,
+            )
+        });
         Ok(AnalysisJobStatus {
             job_ref: request.job_ref,
             kind: snapshot.kind_id,
@@ -94,6 +102,7 @@ impl UseCase for Status {
             query_ref,
             reason_key: snapshot.failure_reason_key,
             scan_result,
+            terminal,
         })
     }
 }

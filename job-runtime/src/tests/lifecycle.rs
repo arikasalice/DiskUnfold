@@ -37,6 +37,7 @@ fn terminal_body_is_released_and_entry_expires_after_ten_minutes()
     drop(body);
     assert!(weak.upgrade().is_some());
     runtime.cancel(&id)?;
+    runtime.flush()?;
     assert!(weak.upgrade().is_none());
     clock.0.store(599_999, Ordering::SeqCst);
     assert_eq!(runtime.state(&id)?, JobState::Cancelled);
@@ -56,6 +57,85 @@ fn terminal_body_is_released_and_entry_expires_after_ten_minutes()
     assert_eq!(runtime.snapshot(&second)?.result_binding, None);
     assert_eq!(runtime.run_next()?, Some(second));
     assert!(weak.upgrade().is_none());
+    Ok(())
+}
+
+#[test]
+fn blocked_history_keeps_terminal_readable_until_confirmed()
+-> Result<(), Box<dyn std::error::Error>> {
+    let clock = Arc::new(MutableClock(AtomicI64::new(0)));
+    let entered = Arc::new(Barrier::new(2));
+    let release = Arc::new(Barrier::new(2));
+    let events = Arc::new(Events::default());
+    let runtime = JobRuntime::new(
+        Arc::new(Identity(Id::parse("00000000-0000-7000-8000-000000000001")?)),
+        clock.clone(),
+        Arc::new(FirstBlockingHistory {
+            entered: entered.clone(),
+            release: release.clone(),
+            first: AtomicBool::new(true),
+        }),
+        events.clone(),
+    )?;
+    runtime.register(descriptor())?;
+    let id = created(runtime.submit(sample_submission(Arc::new(InstantBody))?)?)?;
+    runtime.cancel(&id)?;
+    entered.wait();
+    clock.0.store(599_999, Ordering::SeqCst);
+    let pending = runtime.snapshot(&id)?;
+    assert_eq!(pending.state, JobState::Cancelled);
+    assert_eq!(pending.terminal, None);
+    assert_eq!(
+        runtime.cancel(&id)?,
+        CancelResult::AlreadyTerminal(JobState::Cancelled)
+    );
+    release.wait();
+    runtime.flush()?;
+    let confirmed = runtime.snapshot(&id)?;
+    let terminal = confirmed.terminal.as_ref().ok_or("terminal missing")?;
+    assert_eq!(terminal.sequence, pending.sequence);
+    assert!(terminal.history_recorded);
+    assert_eq!(terminal.warning, None);
+    let observed = events.0.lock().map_err(|_| "events poisoned")?;
+    assert!(
+        matches!(observed.last(), Some(JobEvent::Finished { summary, sequence, history_recorded: true, warning: None }) if **summary == terminal.summary && *sequence == terminal.sequence)
+    );
+    drop(observed);
+    assert_eq!(
+        runtime.cancel(&id)?,
+        CancelResult::AlreadyTerminal(JobState::Cancelled)
+    );
+    assert_eq!(runtime.snapshot(&id)?, confirmed);
+    clock.0.store(600_000, Ordering::SeqCst);
+    assert_eq!(runtime.snapshot(&id), Err(RuntimeError::NotFound));
+    Ok(())
+}
+
+#[test]
+fn overdue_pending_is_retained_only_until_history_finishes()
+-> Result<(), Box<dyn std::error::Error>> {
+    let clock = Arc::new(MutableClock(AtomicI64::new(0)));
+    let entered = Arc::new(Barrier::new(2));
+    let release = Arc::new(Barrier::new(2));
+    let runtime = JobRuntime::new(
+        Arc::new(Identity(Id::parse("00000000-0000-7000-8000-000000000001")?)),
+        clock.clone(),
+        Arc::new(FirstBlockingHistory {
+            entered: entered.clone(),
+            release: release.clone(),
+            first: AtomicBool::new(true),
+        }),
+        Arc::new(Events::default()),
+    )?;
+    runtime.register(descriptor())?;
+    let id = created(runtime.submit(sample_submission(Arc::new(InstantBody))?)?)?;
+    runtime.cancel(&id)?;
+    entered.wait();
+    clock.0.store(600_000, Ordering::SeqCst);
+    assert_eq!(runtime.snapshot(&id)?.terminal, None);
+    release.wait();
+    runtime.flush()?;
+    assert_eq!(runtime.snapshot(&id), Err(RuntimeError::NotFound));
     Ok(())
 }
 #[test]

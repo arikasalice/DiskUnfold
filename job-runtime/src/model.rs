@@ -93,6 +93,17 @@ pub struct JobSnapshot {
     pub result_version_id: Option<Id>,
     pub failure_reason_key: Option<String>,
     pub result_binding: Option<ResultBinding>,
+    /// The confirmed terminal result, absent until history handling completes.
+    pub terminal: Option<TerminalSnapshot>,
+}
+
+/// The immutable result shared by terminal events and subsequent reads.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TerminalSnapshot {
+    pub summary: JobSummary,
+    pub sequence: u64,
+    pub history_recorded: bool,
+    pub warning: Option<String>,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DeduplicationKey {
@@ -154,7 +165,26 @@ pub(crate) struct Entry {
     pub(crate) flows_aborted: bool,
     pub(crate) started_at_ms: Option<i64>,
     pub(crate) summary: Option<JobSummary>,
+    pub(crate) terminal: Option<TerminalOutcome>,
     pub(crate) order: u64,
+}
+pub(crate) struct TerminalOutcome {
+    pub(crate) sequence: u64,
+    pub(crate) history_recorded: bool,
+    pub(crate) warning: Option<String>,
+}
+impl Entry {
+    pub(crate) fn terminal_snapshot(&self) -> Option<TerminalSnapshot> {
+        self.terminal
+            .as_ref()
+            .zip(self.summary.as_ref())
+            .map(|(outcome, summary)| TerminalSnapshot {
+                summary: summary.clone(),
+                sequence: outcome.sequence,
+                history_recorded: outcome.history_recorded,
+                warning: outcome.warning.clone(),
+            })
+    }
 }
 #[derive(Default)]
 pub(crate) struct Table {
@@ -190,9 +220,9 @@ pub(crate) enum Delivery {
 
 pub(crate) fn expire(table: &mut Table, now: i64) {
     table.jobs.retain(|_, job| {
-        job.summary
-            .as_ref()
-            .is_none_or(|summary| now.saturating_sub(summary.finished_at_ms) < 600_000)
+        job.summary.as_ref().is_none_or(|summary| {
+            job.terminal.is_none() || now.saturating_sub(summary.finished_at_ms) < 600_000
+        })
     });
 }
 

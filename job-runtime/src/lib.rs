@@ -24,6 +24,7 @@ use model::*;
 pub use model::{
     CancelResult, DeduplicationKey, JobClock, JobEvent, JobEvents, JobIdentity, JobPriority,
     JobRuntime, JobSnapshot, ResultBinding, RuntimeError, Submission, SubmitResult,
+    TerminalSnapshot,
 };
 pub use publication::DuplicateTerminal;
 pub use shutdown::{ShutdownStatus, ShutdownTicket};
@@ -214,6 +215,7 @@ impl JobRuntime {
                 flows_aborted: false,
                 started_at_ms: None,
                 summary: None,
+                terminal: None,
                 order,
             },
         );
@@ -229,6 +231,7 @@ impl JobRuntime {
             kind_id: job.descriptor.kind_id.clone(),
             result_binding: job.result_binding.clone(),
             state: job.state,
+            terminal: job.terminal_snapshot(),
             sequence: job.sequence,
             result_version_id: job
                 .summary

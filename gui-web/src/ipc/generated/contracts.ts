@@ -246,16 +246,32 @@ export type ScanFailures = { resultVersion: Id, rows: Array<ScanFailureRow>, tot
 export type JobState = "queued" | "running" | "pause_requested" | "paused" | "cancel_requested" | "done" | "partial" | "failed" | "cancelled";
 export type AnalysisJobRequest = { jobRef: Id, };
 export type ScanResult = { lineageId: Id, sequence: number, resultVersion?: Id, };
-export type AnalysisJobTerminal = { state: JobState, sequence: number, completed: number, overwritten: number, failed: number, skipped: number, unprocessed: number,
+export type AnalysisJobTerminal = { state: JobState,
+/**
+ * Per-job sequence of the terminal event.
+ */
+sequence: number, completed: number, overwritten: number, failed: number, skipped: number, unprocessed: number,
 /**
  * Whether the terminal summary is present in the history store.
  */
-historyRecorded: boolean, reasonKey?: string, unprocessedSummary?: string, resultVersion?: Id, queryRef?: Id, warning?: string, };
+historyRecorded: boolean, reasonKey?: string, unprocessedSummary?: string,
+/**
+ * Immutable analysis version, if the job produced one.
+ */
+resultVersion?: Id, queryRef?: Id,
+/**
+ * History storage warning, absent when recording succeeded or was skipped.
+ */
+warning?: string, };
 export type AnalysisJobStatus = { jobRef: Id, kind: string, state: JobState, sequence: number, resultVersion: Id | null,
 /**
  * Published query result for a successfully completed query evaluation.
  */
-queryRef?: Id, reasonKey: string | null, scanResult?: ScanResult, };
+queryRef?: Id, reasonKey: string | null, scanResult?: ScanResult,
+/**
+ * Confirmed terminal outcome, omitted while history handling is pending.
+ */
+terminal?: AnalysisJobTerminal, };
 export type JobControlOutcome = "accepted" | "no_effect" | "unsupported" | "already_terminal";
 export type AnalysisJobControl = { outcome: JobControlOutcome, state: JobState, reasonKey: string | null, sequence: number, };
 export type SpaceTarget = { "kind": "scope_root", } | { "kind": "folder", item: ItemRef, } | { "kind": "query_result", queryRef: Id, };

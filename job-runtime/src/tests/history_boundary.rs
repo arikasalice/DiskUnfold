@@ -71,6 +71,7 @@ fn terminal_delivery_preserves_recording_boundaries() -> Result<(), Box<dyn std:
         runtime.flush()?;
         assert_eq!(runtime.state(&id)?, JobState::Done);
         let snapshot = runtime.snapshot(&id)?;
+        let terminal = snapshot.terminal.as_ref().ok_or("terminal missing")?;
         let (cancel, cancel_sequence) = runtime.cancel_with_sequence(&id)?;
         assert_eq!(cancel, CancelResult::AlreadyTerminal(JobState::Done));
         assert_eq!(cancel_sequence, snapshot.sequence);
@@ -81,7 +82,9 @@ fn terminal_delivery_preserves_recording_boundaries() -> Result<(), Box<dyn std:
             JobEvent::Finished { summary, sequence: terminal_seq, history_recorded, warning }
         ] if *job_id == id && summary.job_id == id && *terminal_seq == *sequence + 1
             && *terminal_seq == snapshot.sequence
-            && *history_recorded == recorded && warning.is_some() == warned));
+            && *history_recorded == recorded && warning.is_some() == warned
+            && terminal.summary == **summary && terminal.sequence == *terminal_seq
+            && terminal.history_recorded == *history_recorded && terminal.warning == *warning));
     }
     Ok(())
 }

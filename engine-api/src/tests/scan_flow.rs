@@ -189,7 +189,9 @@ fn scan_harness() -> Result<ScanHarness, Box<dyn std::error::Error>> {
 
 mod fixture;
 mod settings;
+mod terminal;
 use fixture::scan_harness_with_gate;
+use terminal::check_terminal_scan;
 
 #[test]
 fn reviewed_identity_is_rechecked_and_one_job_publishes_the_requested_result()
@@ -269,10 +271,7 @@ fn reviewed_identity_is_rechecked_and_one_job_publishes_the_requested_result()
     assert_eq!(busy.reason_key, "job.queue_full");
     release.send(())?;
     let (summary, history_recorded) = scan_finished_with_publications(&terminal)?;
-    assert_eq!(summary.job_id, receipt.job_ref);
-    assert_eq!(summary.scope_summary, "metadata: 1 root");
-    assert!(history_recorded);
-    let version = summary.result_version_id.ok_or("missing result version")?;
+    let version = check_terminal_scan(&engine, *summary, history_recorded, &receipt.job_ref)?;
     let response = gui(
         "space.total",
         json!({

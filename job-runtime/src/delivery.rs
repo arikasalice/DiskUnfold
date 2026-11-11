@@ -69,6 +69,7 @@ pub(super) fn consume(
                 } else {
                     (false, None, None)
                 };
+                store_terminal(&table, &summary, sequence + 1, history_recorded, &warning);
                 events.publish(JobEvent::StateChanged {
                     job_id: summary.job_id.clone(),
                     state: summary.state,
@@ -92,5 +93,25 @@ pub(super) fn consume(
                 outstanding.fetch_sub(1, Ordering::AcqRel);
             }
         }
+    }
+}
+
+fn store_terminal(
+    table: &std::sync::Weak<Mutex<Table>>,
+    summary: &du_core_contracts::job::JobSummary,
+    sequence: u64,
+    history_recorded: bool,
+    warning: &Option<String>,
+) {
+    if let Some(table) = table.upgrade()
+        && let Ok(mut table) = table.lock()
+        && let Some(job) = table.jobs.get_mut(&summary.job_id)
+        && job.terminal.is_none()
+    {
+        job.terminal = Some(TerminalOutcome {
+            sequence,
+            history_recorded,
+            warning: warning.clone(),
+        });
     }
 }
