@@ -202,3 +202,73 @@ fn parent_kind_bitmap_checks_across_byte_boundaries() -> Result<(), String> {
     }
     Ok(())
 }
+
+#[test]
+fn sealed_multiple_roots_share_volume_without_inventing_unknown_links() -> Result<(), String> {
+    use crate::records::volume::{Observation, RootLink, Volume, VolumeEntry};
+    let metadata = example_metadata(&["Lw", "L2E", "L2I", "L2M"])?;
+    let volume = Volume {
+        roots: vec![
+            RootLink {
+                volume_index: Some(0),
+                item_number: Some(1),
+            },
+            RootLink {
+                volume_index: Some(0),
+                item_number: Some(2),
+            },
+            RootLink {
+                volume_index: Some(1),
+                item_number: Some(3),
+            },
+            RootLink {
+                volume_index: None,
+                item_number: None,
+            },
+        ],
+        volumes: vec![
+            VolumeEntry {
+                id: b"observed",
+                basis: "native",
+                start: Observation::NotAttempted,
+                end: Observation::NotAttempted,
+            },
+            VolumeEntry {
+                id: b"",
+                basis: "",
+                start: Observation::NotAttempted,
+                end: Observation::NotAttempted,
+            },
+        ],
+    };
+    let body = volume.encode().map_err(|e| format!("{e:?}"))?;
+    let mut records = Vec::new();
+    record(1, &body, &mut records);
+    for n in 1..=3 {
+        record(
+            2,
+            &encoded_item(n, 0, b"@", NameEncoding::Bytes)?,
+            &mut records,
+        );
+    }
+    record(127, &[], &mut records);
+    let mut spool = envelope_for_records(&metadata, &records, 5)?;
+    let (stage, roots) = validate_records_in_sealed(&mut spool, Stage::default(), || false)
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(stage.bytes, records);
+    assert_eq!(
+        roots.roots(),
+        &[
+            b"/".to_vec(),
+            b"/a".to_vec(),
+            b"/b".to_vec(),
+            b"/c".to_vec()
+        ]
+    );
+    let decoded =
+        crate::records::volume::decode(&stage.bytes[5..5 + body.len()], roots.roots().len())
+            .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(decoded, volume);
+    assert_eq!(decoded.encode().map_err(|e| format!("{e:?}"))?, body);
+    Ok(())
+}
