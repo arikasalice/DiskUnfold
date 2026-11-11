@@ -66,6 +66,7 @@ struct Roots {
     recent_observations: Arc<AtomicUsize>,
     recent_opens: Arc<AtomicUsize>,
     recent_live_handles: Arc<AtomicUsize>,
+    recent_unavailable: std::sync::atomic::AtomicBool,
     read_handles: Arc<Mutex<Vec<usize>>>,
     release: Arc<Mutex<mpsc::Receiver<()>>>,
     finish_gate: Option<Arc<Mutex<mpsc::Receiver<()>>>>,

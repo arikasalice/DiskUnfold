@@ -50,6 +50,7 @@ fn exclusion_inside_absorbed_root_stays_bound_to_retained_root()
         recent_observations: Arc::new(AtomicUsize::new(0)),
         recent_opens: Arc::new(AtomicUsize::new(0)),
         recent_live_handles: Arc::new(AtomicUsize::new(0)),
+        recent_unavailable: std::sync::atomic::AtomicBool::new(false),
         read_handles: Arc::new(Mutex::new(Vec::new())),
         release: Arc::new(Mutex::new(receiver)),
         finish_gate: None,

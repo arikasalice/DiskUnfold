@@ -9,6 +9,9 @@ pub(super) fn open_with_observer(
 ) -> Result<(OpenedScopeRoot, OptionalRecentScopeObserver), PortError> {
     roots.recent_opens.fetch_add(1, Ordering::Relaxed);
     let root = roots.open_root(path)?;
+    if roots.recent_unavailable.load(Ordering::Acquire) {
+        return Ok((root, None));
+    }
     let observer = RecentObserver {
         count: roots.recent_observations.clone(),
         live_handles: roots.recent_live_handles.clone(),
@@ -93,6 +96,45 @@ fn normal_scan_entry_does_not_create_recent_observer() -> Result<(), Box<dyn std
     assert_eq!(summary.job_id, receipt.job_ref);
     assert_eq!(harness.roots.recent_observations.load(Ordering::Acquire), 0);
     assert_eq!(harness.roots.recent_opens.load(Ordering::Acquire), 0);
+    Ok(())
+}
+
+#[test]
+fn unavailable_recent_observer_preserves_scan_receipt_and_completion()
+-> Result<(), Box<dyn std::error::Error>> {
+    let harness = scan_harness_with_recent_admissions()?;
+    harness
+        .roots
+        .recent_unavailable
+        .store(true, Ordering::Release);
+    let admissions = harness
+        .recent_scope_admissions
+        .as_ref()
+        .ok_or("recent admission queue missing")?;
+    let call = |name, body| call(&harness.engine, name, Channel::Gui, ENVELOPE_VERSION, body);
+    let reviewed = call("scope.review", json!({"draft": draft(), "requestSeq": 1}))?;
+    let review: ScopeReview = serde_json::from_value(reviewed.body)?;
+    let started = call(
+        "scan.start",
+        json!({"draft": draft(), "reviewFingerprint": review.review_fingerprint}),
+    )?;
+    assert!(
+        started.error.is_none(),
+        "unexpected scan error: {:?}",
+        started.error
+    );
+    let receipt: ScanStart = serde_json::from_value(started.body)?;
+    assert!(!receipt.existing);
+    assert!(!admissions.response_sent(&receipt.job_ref));
+    assert!(matches!(
+        admissions.try_next(),
+        Err(mpsc::TryRecvError::Empty)
+    ));
+    assert_eq!(harness.roots.recent_live_handles.load(Ordering::Acquire), 0);
+    harness.release.send(())?;
+    let (summary, _) = scan_finished(&harness.terminal)?;
+    assert_eq!(summary.job_id, receipt.job_ref);
+    assert_eq!(summary.state, du_core_contracts::job::JobState::Done);
     Ok(())
 }
 

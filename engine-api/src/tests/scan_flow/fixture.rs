@@ -45,6 +45,7 @@ fn scan_harness_with_admissions(
         recent_observations: Arc::new(AtomicUsize::new(0)),
         recent_opens: Arc::new(AtomicUsize::new(0)),
         recent_live_handles: Arc::new(AtomicUsize::new(0)),
+        recent_unavailable: std::sync::atomic::AtomicBool::new(false),
         read_handles: Arc::new(Mutex::new(Vec::new())),
         release: Arc::new(Mutex::new(blocked)),
         finish_gate,

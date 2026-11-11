@@ -297,8 +297,8 @@ impl StartScan {
                     receipt: receipt.clone(),
                     review_fingerprint,
                 });
-                if let Some(publisher) = &self.admissions {
-                    let recent = recent.ok_or_else(internal)?;
+                // A scan can retain its root even when recent-scope observation is unavailable.
+                if let (Some(publisher), Some(recent)) = (&self.admissions, recent) {
                     publisher.enqueue(crate::recent_scope::RecentScopeAdmission {
                         receipt: receipt.clone(),
                         normalized_scope: recent.normalized_scope,
