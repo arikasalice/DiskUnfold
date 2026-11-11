@@ -93,6 +93,7 @@ function picker(
   client: AnalysisClient,
   onApply = vi.fn(),
   scrollContainerRef?: RefObject<HTMLElement | null>,
+  hasDraftEdits = false,
 ) {
   const sequences = [70, 71, 72];
   const onChoosePath = vi.fn();
@@ -108,7 +109,7 @@ function picker(
   const view = render(
     <RecentScopePicker
       client={client}
-      currentDraft={undefined}
+      hasDraftEdits={hasDraftEdits}
       nextRequestSeq={nextRequestSeq}
       isRequestSeqCurrent={isRequestSeqCurrent}
       onApply={onApply}
@@ -125,7 +126,7 @@ function picker(
       view.rerender(
         <RecentScopePicker
           client={client}
-          currentDraft={undefined}
+          hasDraftEdits={hasDraftEdits}
           nextRequestSeq={nextRequestSeq}
           isRequestSeqCurrent={isRequestSeqCurrent}
           onApply={onApply}
@@ -219,6 +220,61 @@ test("F01 FR8: refuses apply when review is null or any target is unresolved", a
   ).toBeDefined();
   expect(screen.queryByRole("button", { name: "Use this range" })).toBeNull();
   expect(onApply).not.toHaveBeenCalled();
+});
+
+test("F01 FR8: keeps focus on valid controls through replace confirmation and path recheck", async () => {
+  let requestCount = 0;
+  let finishRefresh!: (value: RecentScopeOpen) => void;
+  const { client } = makeClient(async (name, body) => {
+    if (name === "scope.recent_list") return list("one");
+    if (name === "scope.recent_open") {
+      requestCount += 1;
+      if (requestCount === 3)
+        return new Promise<RecentScopeOpen>((resolve) => {
+          finishRefresh = resolve;
+        });
+      return opened(
+        "matched",
+        requestCount === 2
+          ? null
+          : review(draft, (body as { requestSeq: number }).requestSeq),
+      );
+    }
+    throw new Error(`Unexpected command ${name}`);
+  });
+  picker(client, vi.fn(), undefined, true);
+  await showList();
+  fireEvent.click(screen.getByRole("button", { name: "Review range 1" }));
+  await screen.findByRole("button", { name: "Use this range" });
+
+  fireEvent.click(screen.getByRole("button", { name: "Use this range" }));
+  const replaceButton = screen.getByRole("button", {
+    name: "Replace current scope",
+  });
+  await waitFor(() => expect(document.activeElement).toBe(replaceButton));
+  expect(document.activeElement).not.toBe(document.body);
+
+  fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
+  const useButton = screen.getByRole("button", { name: "Use this range" });
+  await waitFor(() => expect(document.activeElement).toBe(useButton));
+  expect(document.activeElement).not.toBe(document.body);
+
+  fireEvent.click(
+    screen.getByRole("button", { name: "Back to recent ranges" }),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Review range 1" }));
+  await screen.findByRole("button", { name: "Choose a path again" });
+  fireEvent.click(screen.getByRole("button", { name: "Check paths again" }));
+  const detailHeading = screen.getByRole("heading", {
+    name: "Review saved range",
+  });
+  await screen.findByText("Checking saved paths and access…");
+  expect(document.activeElement).toBe(detailHeading.parentElement);
+  expect(document.activeElement?.isConnected).toBe(true);
+  await act(async () => finishRefresh(opened("matched", review(draft, 72))));
+  await screen.findByRole("button", { name: "Use this range" });
+  expect(document.activeElement).toBe(detailHeading.parentElement);
+  expect(document.activeElement?.isConnected).toBe(true);
 });
 
 test("F01 FR8: renders an empty list and retries a failed list read", async () => {

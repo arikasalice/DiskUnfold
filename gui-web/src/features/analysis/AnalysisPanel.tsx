@@ -118,6 +118,10 @@ function completeDraft(
   return draft(paths as OsPath[], saved);
 }
 
+function hasPathEdits(paths: (OsPath | undefined)[]): boolean {
+  return paths.length > 1 || paths.some((path) => path !== undefined);
+}
+
 function reviewedInputMatches(
   scope: ReviewedScope | undefined,
   current: ScopeDraft | undefined,
@@ -564,7 +568,7 @@ export function AnalysisPanel({
           {client.recentScopesEnabled && (
             <RecentScopePicker
               client={client}
-              currentDraft={currentInput}
+              hasDraftEdits={hasPathEdits(selected)}
               nextRequestSeq={() => ++request.current}
               isRequestSeqCurrent={(seq) => request.current === seq}
               onApply={applyRecent}

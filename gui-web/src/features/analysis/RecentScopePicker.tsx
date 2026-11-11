@@ -20,7 +20,7 @@ import type { View } from "./RecentScopeViews";
 /** Provides an inline review flow for reopening one saved analysis range. */
 export function RecentScopePicker({
   client,
-  currentDraft,
+  hasDraftEdits,
   nextRequestSeq,
   isRequestSeqCurrent,
   onApply,
@@ -33,7 +33,7 @@ export function RecentScopePicker({
   scrollContainerRef,
 }: {
   client: AnalysisClient;
-  currentDraft: ScopeDraft | undefined;
+  hasDraftEdits: boolean;
   /** Must share the editor's monotonically increasing scope-review sequence. */
   nextRequestSeq: () => number;
   /** Rejects saved-range results when the host editor has moved to another scope generation. */
@@ -192,10 +192,13 @@ export function RecentScopePicker({
             <RecentScopeDetailView
               detail={detail}
               isRequestSeqCurrent={isRequestSeqCurrent}
-              currentDraft={currentDraft}
+              hasDraftEdits={hasDraftEdits}
               confirmReplace={confirmReplace}
               onConfirmReplace={setConfirmReplace}
-              onRetry={(row) => void openRow(row)}
+              onRetry={(row) => {
+                detailHeading.current?.focus({ preventScroll: true });
+                void openRow(row);
+              }}
               onRefresh={() => {
                 setView("list");
                 void loadList();

@@ -16,9 +16,12 @@ const path = windowsPath("C:\\saved\uD800");
 const timestamp = "2026-11-12T00:00:00.000Z";
 const draft: ScopeDraft = {
   includes: [path],
-  exclusions: [{ kind: "name_pattern", pattern: "fixture.tmp" }],
-  boundary: "current_volume",
-  includedMounts: [],
+  exclusions: [
+    { kind: "name_pattern", pattern: "fixture.tmp" },
+    { kind: "path", path: windowsPath("C:\\saved\\excluded") },
+  ],
+  boundary: "include_selected",
+  includedMounts: [windowsPath("C:\\saved\\mounted")],
   source: "recent",
 };
 
@@ -102,6 +105,9 @@ test("explicit scan uses the restored native paths, conditions and review", asyn
       }) as HTMLInputElement
     ).value,
   ).toBe(path.display);
+  expect(screen.getByText("Selected mounts")).toBeDefined();
+  expect(screen.getByText("C:\\saved\\mounted")).toBeDefined();
+  expect(screen.getByText("fixture.tmp, C:\\saved\\excluded")).toBeDefined();
   fireEvent.click(start);
   await waitFor(() =>
     expect(calls.find(({ name }) => name === "scan.start")?.body).toEqual({
@@ -110,6 +116,37 @@ test("explicit scan uses the restored native paths, conditions and review", asyn
     }),
   );
   expect(calls.some(({ name }) => name === "scope.review")).toBe(false);
+});
+
+test("reopening a saved scope protects a partially filled draft", async () => {
+  const { calls, client } = fixture();
+  render(<App analysis={client} />);
+  const primary = screen.getByRole<HTMLInputElement>("textbox", {
+    name: "Windows folder path",
+  });
+  fireEvent.change(primary, { target: { value: "C:\\unfinished" } });
+  fireEvent.click(screen.getByRole("button", { name: "Add path" }));
+  fireEvent.click(
+    screen.getByRole("button", { name: "Recent analysis ranges" }),
+  );
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Review range 1" }),
+  );
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Use this range" }),
+  );
+  expect(
+    screen.getByRole("button", { name: "Replace current scope" }),
+  ).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
+  fireEvent.click(screen.getByRole("button", { name: "Close recent ranges" }));
+  expect(primary.value).toBe("C:\\unfinished");
+  expect(
+    screen.getByRole<HTMLInputElement>("textbox", {
+      name: "Additional folder path 2",
+    }).value,
+  ).toBe("");
+  expect(calls.some(({ name }) => name === "scan.start")).toBe(false);
 });
 
 test("a stale restored scope cannot be re-reviewed as ordinary path input", async () => {

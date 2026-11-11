@@ -8,7 +8,7 @@ import {
   Readout,
   Text,
 } from "../../components";
-import type { JobState, ScopeReview } from "../../ipc";
+import type { JobState, ScopeDraft, ScopeReview } from "../../ipc";
 import type { ScanControl } from "../../state/analysis-scan";
 
 export function scopeNoticeText(key: string): string {
@@ -127,19 +127,45 @@ export function ScopeReviewFeedback({
               ? "Scope paths and boundary"
               : "Previously reviewed scope"
           }
-          rows={[
-            {
-              label: "Included paths",
-              value: review.scope.includes
-                .map((path) => path.display)
-                .join(", "),
-            },
-            { label: "Boundary", value: "Current volume" },
-          ]}
+          rows={reviewRows(review.scope)}
         />
       )}
     </section>
   );
+}
+
+/** Presents the reviewed conditions that will govern the explicit scan. */
+function reviewRows(scope: ScopeDraft) {
+  const rows = [
+    {
+      label: "Included paths",
+      value: scope.includes.map((path) => path.display).join(", "),
+    },
+    {
+      label: "Boundary",
+      value:
+        scope.boundary === "include_selected"
+          ? "Selected mounts"
+          : "Current volume",
+    },
+  ];
+  if (scope.includedMounts.length > 0) {
+    rows.push({
+      label: "Included mounts",
+      value: scope.includedMounts.map((path) => path.display).join(", "),
+    });
+  }
+  if (scope.exclusions.length > 0) {
+    rows.push({
+      label: "Exclusions",
+      value: scope.exclusions
+        .map((rule) =>
+          rule.kind === "path" ? rule.path.display : rule.pattern,
+        )
+        .join(", "),
+    });
+  }
+  return rows;
 }
 
 function scopeActionState({

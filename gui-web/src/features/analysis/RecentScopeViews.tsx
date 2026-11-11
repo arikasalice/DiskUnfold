@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef } from "react";
 import {
   Action,
   Heading,
@@ -170,7 +171,7 @@ function RecentScopeRows({
 export function RecentScopeDetailView({
   detail,
   isRequestSeqCurrent,
-  currentDraft,
+  hasDraftEdits,
   confirmReplace,
   onConfirmReplace,
   onRetry,
@@ -181,7 +182,7 @@ export function RecentScopeDetailView({
 }: {
   detail: RecentState["detail"];
   isRequestSeqCurrent: (requestSeq: number) => boolean;
-  currentDraft: ScopeDraft | undefined;
+  hasDraftEdits: boolean;
   confirmReplace: boolean;
   onConfirmReplace: (confirm: boolean) => void;
   onRetry: (row: RecentScopeListRow) => void;
@@ -216,7 +217,7 @@ export function RecentScopeDetailView({
             value={active}
             review={review}
             canApply={canApply}
-            currentDraft={currentDraft}
+            hasDraftEdits={hasDraftEdits}
             confirmReplace={confirmReplace}
             onConfirmReplace={onConfirmReplace}
             onChoosePath={onChoosePath}
@@ -406,7 +407,7 @@ function RecentScopeApplyActions({
   value,
   review,
   canApply,
-  currentDraft,
+  hasDraftEdits,
   confirmReplace,
   onConfirmReplace,
   onChoosePath,
@@ -415,12 +416,26 @@ function RecentScopeApplyActions({
   value: RecentScopeOpen;
   review: ScopeReview | undefined;
   canApply: boolean;
-  currentDraft: ScopeDraft | undefined;
+  hasDraftEdits: boolean;
   confirmReplace: boolean;
   onConfirmReplace: (confirm: boolean) => void;
   onChoosePath: () => void;
   onApply: (draft: ScopeDraft, review: ScopeReview) => void;
 }) {
+  const confirmButton = useRef<HTMLButtonElement>(null);
+  const useButton = useRef<HTMLButtonElement>(null);
+  const pendingFocus = useRef(false);
+  useLayoutEffect(() => {
+    if (!pendingFocus.current) return;
+    (confirmReplace ? confirmButton.current : useButton.current)?.focus({
+      preventScroll: true,
+    });
+    pendingFocus.current = false;
+  }, [confirmReplace]);
+  function toggleConfirm(value: boolean) {
+    pendingFocus.current = true;
+    onConfirmReplace(value);
+  }
   if (confirmReplace && review)
     return (
       <div
@@ -432,10 +447,14 @@ function RecentScopeApplyActions({
           Replace the current folder paths, exclusions, boundary, and selected
           mounts with these saved conditions?
         </Text>
-        <Action variant="primary" onPress={() => onApply(value.draft, review)}>
+        <Action
+          ref={confirmButton}
+          variant="primary"
+          onPress={() => onApply(value.draft, review)}
+        >
           Replace current scope
         </Action>
-        <Action variant="quiet" onPress={() => onConfirmReplace(false)}>
+        <Action variant="quiet" onPress={() => toggleConfirm(false)}>
           Keep editing
         </Action>
       </div>
@@ -444,9 +463,10 @@ function RecentScopeApplyActions({
     <div className="du-recent-scopes__actions">
       {canApply && review && (
         <Action
+          ref={useButton}
           variant="primary"
           onPress={() =>
-            currentDraft ? onConfirmReplace(true) : onApply(value.draft, review)
+            hasDraftEdits ? toggleConfirm(true) : onApply(value.draft, review)
           }
         >
           Use this range
