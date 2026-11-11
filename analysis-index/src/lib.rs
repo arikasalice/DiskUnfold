@@ -1,4 +1,5 @@
 //! In-memory result publication and conservative per-subtree space aggregation.
+mod aggregation_rule;
 pub mod browse;
 mod directory_case;
 mod forest;
@@ -21,6 +22,8 @@ mod tree;
 mod version_store;
 pub mod visualization;
 pub mod volume_gap;
+use aggregation_rule::RegisteredRule;
+pub use aggregation_rule::SizeRuleIdentity;
 use du_core_contracts::result::{
     ResultCompleteness, ResultItem, ResultItemKind, ResultScopeGap, ResultScopeRoot, SpaceAggregate,
 };
@@ -47,6 +50,7 @@ pub struct ResultVersion {
     scope_version_id: Id,
     lineage_id: Option<Id>,
     completeness: ResultCompleteness,
+    size_rule: SizeRuleIdentity,
     items: Vec<ResultItem>,
     aggregates: Vec<SpaceAggregate>,
     physical: Option<Vec<Option<SpaceObservation>>>,
@@ -157,6 +161,7 @@ impl IngestSink {
             baseline,
             lineage,
             published: false,
+            size_rule: RegisteredRule::default_registration(),
             shared_table_limit: physical::IDENTITY_LIMIT,
             scope_version_id,
             roots,
@@ -176,6 +181,7 @@ pub struct BuildHandle {
     baseline: Option<Entry>,
     lineage: Option<Id>,
     published: bool,
+    size_rule: RegisteredRule,
     shared_table_limit: usize,
     scope_version_id: Id,
     roots: Vec<ResultScopeRoot>,
@@ -363,15 +369,9 @@ impl BuildHandle {
                 return Err(error);
             }
         };
-        let mut aggregates = space::aggregate(&built.items, &built.structures, completeness);
-        physical::apply(
-            &built.items,
-            &built.structures,
-            built.physical.as_deref(),
-            completeness,
-            self.shared_table_limit,
-            &mut aggregates,
-        );
+        let mut aggregates =
+            self.size_rule
+                .aggregate(&built, completeness, self.shared_table_limit);
         let exact_gaps = match forest::mark_gaps(&built, &self.gaps, &mut aggregates) {
             Ok(exact) => exact,
             Err(error) => {
@@ -389,15 +389,8 @@ impl BuildHandle {
             None
         } else {
             let mut total =
-                space::scope_total(&built.items, &built.structures, result_completeness);
-            physical::scope_total(
-                &built.items,
-                &built.structures,
-                built.physical.as_deref(),
-                result_completeness,
-                self.shared_table_limit,
-                &mut total,
-            );
+                self.size_rule
+                    .scope_total(&built, result_completeness, self.shared_table_limit);
             if !self.gaps.is_empty() {
                 space::mark_inaccessible(&mut total, self.gaps.len() as u64);
             }
@@ -410,6 +403,7 @@ impl BuildHandle {
             scope_version_id: self.scope_version_id.clone(),
             lineage_id: self.lineage.clone(),
             completeness: result_completeness,
+            size_rule: self.size_rule.identity(),
             items: built.items,
             physical: built.physical,
             identity_groups: std::sync::OnceLock::new(),

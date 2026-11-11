@@ -27,6 +27,10 @@ pub struct ItemDetail<'a> {
 }
 
 impl ResultVersion {
+    /// Returns the identity of the aggregation implementation used for this pinned result.
+    pub fn size_rule(&self) -> crate::SizeRuleIdentity {
+        self.size_rule
+    }
     /// Reads historical metadata flags, never a current locality guarantee.
     pub fn item_placeholder_observation(
         &self,

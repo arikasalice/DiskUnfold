@@ -67,6 +67,9 @@ fn hardlinks_are_counted_once_per_subtree_and_versions_are_pinned()
     let end = b
         .seal(id(3)?, ResultCompleteness::Complete)
         .map_err(error)?;
+    assert_eq!(first.size_rule(), end.size_rule());
+    assert_eq!(end.size_rule().id, "size.agg.subtree-unique");
+    assert_eq!(end.size_rule().revision, 1);
     let root = end.space(0).ok_or("root")?;
     assert_eq!(root.logical.amount, exact(16));
     assert_eq!(root.allocated.amount, exact(8));
@@ -85,6 +88,32 @@ fn hardlinks_are_counted_once_per_subtree_and_versions_are_pinned()
         assert_eq!(aggregate.allocated.amount, exact(8));
         assert_eq!(aggregate.unique_physical.amount, exact(8));
     }
+    Ok(())
+}
+
+#[test]
+fn replacement_and_independent_builds_keep_the_used_rule_and_totals()
+-> Result<(), Box<dyn std::error::Error>> {
+    let sink = IngestSink::default();
+    let build =
+        |sink: &IngestSink, scope: u8, version: u8| -> Result<_, Box<dyn std::error::Error>> {
+            let mut build = sink.open(id(scope)?).map_err(error)?;
+            build.add_structure(vec![]).map_err(error)?;
+            build.add_structure(vec![b"dir".to_vec()]).map_err(error)?;
+            add(&mut build, &["dir", "file"], 7, 8, SharingEvidence::None).map_err(error)?;
+            Ok(build
+                .seal(id(version)?, ResultCompleteness::Complete)
+                .map_err(error)?)
+        };
+    let old = build(&sink, 1, 2)?;
+    let replacement = build(&sink, 3, 4)?;
+    let other = build(&IngestSink::default(), 5, 6)?;
+    assert_eq!(old.size_rule(), replacement.size_rule());
+    assert_eq!(old.size_rule(), other.size_rule());
+    assert_eq!(old.space(0), replacement.space(0));
+    assert_eq!(old.space(0), other.space(0));
+    assert_eq!(old.space(0).ok_or("root")?.allocated.amount, exact(8));
+    assert_eq!(old.size_rule().id, "size.agg.subtree-unique");
     Ok(())
 }
 
