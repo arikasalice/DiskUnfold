@@ -845,7 +845,7 @@ test("F01 FR4.HD1.gui-web.DD1: denied current edits retain but cannot start a pr
   ).toBe(true);
   await waitFor(() => expect(reviewCount).toBe(4), { timeout: 2000 });
   expect(
-    await screen.findByText(/last successful review remains available/),
+    await screen.findByText(/Access to a selected folder was denied/),
   ).toBeDefined();
   expect(screen.getByLabelText("Previously reviewed scope")).toBeDefined();
   expect(
