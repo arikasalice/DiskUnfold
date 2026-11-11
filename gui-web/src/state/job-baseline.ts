@@ -2,6 +2,8 @@ import type { AnalysisClient, EventEnvelope } from "../ipc";
 
 const MAX_PENDING = 1024;
 const TIMEOUT_MS = 10_000;
+const INITIAL_RETRY_MS = 1_000;
+const MAX_RETRY_MS = 8_000;
 type Update = { sequence: number; terminal: boolean };
 
 /** Maintains one active job's list baseline and orders later job notifications. */
@@ -19,6 +21,7 @@ export function watchJobBaseline(
   let pending: Update[] = [];
   let timeout: ReturnType<typeof setTimeout> | undefined;
   let retry: ReturnType<typeof setTimeout> | undefined;
+  let retryDelay = INITIAL_RETRY_MS;
 
   function accept(update: Update) {
     if (terminal || update.sequence <= sequence) return false;
@@ -34,12 +37,7 @@ export function watchJobBaseline(
     if (timeout !== undefined) clearTimeout(timeout);
     if (retry !== undefined) clearTimeout(retry);
     timeout = setTimeout(() => {
-      if (!alive || request !== epoch) return;
-      epoch += 1;
-      timeout = undefined;
-      if (retry !== undefined) clearTimeout(retry);
-      retry = undefined;
-      failed(new Error("Job list timed out"));
+      fail(request, new Error("Job list timed out"));
     }, TIMEOUT_MS);
     void client
       .call("job.list", {})
@@ -56,6 +54,7 @@ export function watchJobBaseline(
           for (const update of pending) accept(update);
           pending = [];
           ready = true;
+          retryDelay = INITIAL_RETRY_MS;
           changed();
         };
         const confirm = () => {
@@ -70,13 +69,10 @@ export function watchJobBaseline(
                 status.terminal.sequence === status.sequence
               )
                 complete(status.sequence, true);
-              else retry = setTimeout(confirm, 250);
+              else retry = setTimeout(confirm, INITIAL_RETRY_MS);
             })
             .catch((reason: unknown) => {
-              if (!alive || request !== epoch) return;
-              if (timeout !== undefined) clearTimeout(timeout);
-              timeout = undefined;
-              failed(reason);
+              fail(request, reason);
             });
         };
         if (
@@ -88,11 +84,20 @@ export function watchJobBaseline(
         else complete(row?.sequence ?? -1, row?.terminal !== undefined);
       })
       .catch((reason: unknown) => {
-        if (!alive || request !== epoch) return;
-        if (timeout !== undefined) clearTimeout(timeout);
-        timeout = undefined;
-        failed(reason);
+        fail(request, reason);
       });
+  }
+
+  function fail(request: number, reason: unknown) {
+    if (!alive || request !== epoch) return;
+    epoch += 1;
+    if (timeout !== undefined) clearTimeout(timeout);
+    if (retry !== undefined) clearTimeout(retry);
+    timeout = undefined;
+    const delay = retryDelay;
+    retryDelay = Math.min(retryDelay * 2, MAX_RETRY_MS);
+    retry = setTimeout(restart, delay);
+    failed(reason);
   }
 
   function receive(event: EventEnvelope) {

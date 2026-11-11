@@ -357,7 +357,7 @@ export function useScanResult(
     }
 
     async function refresh() {
-      if (!alive) return;
+      if (!alive || !baseline.ready()) return;
       if (inFlight) {
         queued = true;
         return;
@@ -420,7 +420,13 @@ export function useScanResult(
       }
     });
     const timer = window.setInterval(() => {
-      if (!terminal || terminalPending) void refresh();
+      if (
+        baseline.ready() &&
+        !inFlight &&
+        statusFrame === undefined &&
+        (!terminal || terminalPending)
+      )
+        void refresh();
     }, 500);
     void refresh();
     return () => {

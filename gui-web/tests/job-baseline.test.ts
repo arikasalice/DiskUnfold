@@ -123,11 +123,35 @@ test("timeout rejects a late result and disposal cancels future updates", async 
   f.requests[0]?.resolve([row(50)]);
   await Promise.resolve();
   expect(f.gate.ready()).toBe(false);
-  f.send(event("job.resync_required"));
+  await vi.advanceTimersByTimeAsync(1_000);
+  expect(f.requests).toHaveLength(2);
   f.gate.dispose();
   f.requests[1]?.resolve([row(100)]);
   await Promise.resolve();
   expect(f.changed).not.toHaveBeenCalled();
+});
+
+test("retry uses bounded backoff and a new resync or disposal cancels it", async () => {
+  vi.useFakeTimers();
+  const f = fixture();
+  f.requests[0]?.reject(new Error("offline"));
+  await vi.advanceTimersByTimeAsync(0);
+  expect(f.failed).toHaveBeenCalledTimes(1);
+  await vi.advanceTimersByTimeAsync(999);
+  expect(f.requests).toHaveLength(1);
+  await vi.advanceTimersByTimeAsync(1);
+  expect(f.requests).toHaveLength(2);
+  f.requests[1]?.reject(new Error("offline again"));
+  await vi.advanceTimersByTimeAsync(0);
+  f.send(event("job.resync_required"));
+  expect(f.requests).toHaveLength(3);
+  await vi.advanceTimersByTimeAsync(2_000);
+  expect(f.requests).toHaveLength(3);
+  f.requests[2]?.reject(new Error("offline third"));
+  await vi.advanceTimersByTimeAsync(0);
+  f.gate.dispose();
+  await vi.advanceTimersByTimeAsync(10_000);
+  expect(f.requests).toHaveLength(3);
 });
 
 test("terminal baseline remains pending until the history outcome is confirmed", async () => {

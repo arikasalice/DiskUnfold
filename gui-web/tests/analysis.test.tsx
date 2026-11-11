@@ -951,6 +951,112 @@ test("F24: scan waits for its job list baseline and refreshes after a newer buff
   await screen.findByText("Scan cancelled");
 });
 
+test("F24: a failed baseline retries and recovers a completed scan without polling early", async () => {
+  const terminal = {
+    state: "cancelled" as const,
+    sequence: 4,
+    completed: 0,
+    overwritten: 0,
+    failed: 0,
+    skipped: 0,
+    unprocessed: 0,
+    historyRecorded: true,
+  };
+  let attempts = 0;
+  const { client, calls } = fixture({
+    listJobs: () => {
+      attempts += 1;
+      if (attempts === 1) return Promise.reject(new Error("list unavailable"));
+      return Promise.resolve([
+        {
+          jobRef: "scan",
+          kind: "scan.metadata",
+          scopeSummary: "scope",
+          state: "cancelled",
+          waitReason: "none",
+          priority: "normal",
+          supportedControls: ["cancel"],
+          sequence: 4,
+          terminal,
+        },
+      ]);
+    },
+    readStatus: (base) => ({
+      ...base,
+      state: "cancelled",
+      sequence: 4,
+      resultVersion: null,
+      terminal,
+    }),
+  });
+  await startFixtureScan(client);
+  await screen.findByText("list unavailable");
+  expect(calls.filter(({ name }) => name === "job.get")).toHaveLength(0);
+  await screen.findByText("Scan cancelled", {}, { timeout: 4_000 });
+  expect(attempts).toBe(2);
+  expect(calls.filter(({ name }) => name === "job.get")).toHaveLength(1);
+  expect(screen.queryByText("list unavailable")).toBeNull();
+});
+
+test("F24: a failed resync keeps the last scan until automatic recovery", async () => {
+  const terminal = {
+    state: "cancelled" as const,
+    sequence: 4,
+    completed: 0,
+    overwritten: 0,
+    failed: 0,
+    skipped: 0,
+    unprocessed: 0,
+    historyRecorded: true,
+  };
+  let attempts = 0;
+  let done = false;
+  const { client, calls, listeners } = fixture({
+    listJobs: () => {
+      attempts += 1;
+      if (attempts === 2)
+        return Promise.reject(new Error("resync unavailable"));
+      return Promise.resolve([
+        {
+          jobRef: "scan",
+          kind: "scan.metadata",
+          scopeSummary: "scope",
+          state: done ? "cancelled" : "running",
+          waitReason: done ? "none" : "unknown",
+          priority: "normal",
+          supportedControls: ["cancel"],
+          sequence: done ? 4 : 3,
+          ...(done ? { terminal } : {}),
+        },
+      ]);
+    },
+    readStatus: (base) =>
+      done
+        ? {
+            ...base,
+            state: "cancelled",
+            sequence: 4,
+            resultVersion: null,
+            terminal,
+          }
+        : { ...base, state: "running", sequence: 3, resultVersion: null },
+  });
+  await startFixtureScan(client);
+  await screen.findByText("Scanning");
+  const before = calls.filter(({ name }) => name === "job.get").length;
+  done = true;
+  notifyResult(listeners, "job.resync_required", {});
+  await screen.findByText("resync unavailable");
+  expect(screen.getByText("Scanning")).toBeDefined();
+  await new Promise((resolve) => setTimeout(resolve, 600));
+  expect(calls.filter(({ name }) => name === "job.get")).toHaveLength(before);
+  await screen.findByText("Scan cancelled", {}, { timeout: 4_000 });
+  expect(attempts).toBe(3);
+  expect(calls.filter(({ name }) => name === "job.get")).toHaveLength(
+    before + 1,
+  );
+});
+
 test("F02: starting progress hands off to the scan receipt and its cancel action", async () => {
   let release = () => {};
   const pending = new Promise<void>((resolve) => {
