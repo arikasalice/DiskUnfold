@@ -1,15 +1,16 @@
 use std::sync::Arc;
 
 use du_analysis_index::{
-    IngestSink, Observation,
+    FileIdentity, IngestSink, Observation, SharingEvidence, SpaceObservation,
     query::{
         self, Basis, Condition, Predicate, Registry, Sort,
         page::{MultiFolderKey, PageError, ResultSets, RowKind},
     },
 };
 use du_core_contracts::{
-    CallEnvelope, ENVELOPE_VERSION, Id, SizeAmount, SizeBasis, SizeEvidence, SizeValue,
-    result::ResultCompleteness,
+    CallEnvelope, ENVELOPE_VERSION, Id, PathBytes, PathEncoding, SizeAmount, SizeBasis,
+    SizeEvidence, SizeValue,
+    result::{ResultCompleteness, ResultNativePath, ResultScopeRoot},
 };
 use du_engine_api::{
     api::{CallerCtx, Channel, EngineBuilder},
@@ -223,5 +224,102 @@ fn registered_total_consumes_only_the_admitted_search_snapshot()
             bytes: 7_u64.into()
         }
     );
+    Ok(())
+}
+
+#[test]
+fn search_total_uses_pinned_scope_identity_rules_across_roots_and_volumes()
+-> Result<(), Box<dyn std::error::Error>> {
+    let store = IngestSink::default();
+    let roots = [(b"/one".as_slice(), 1), (b"/two", 1), (b"/three", 2)]
+        .into_iter()
+        .enumerate()
+        .map(|(index, (path, volume))| ResultScopeRoot {
+            path: ResultNativePath {
+                encoding: PathEncoding::Unix,
+                raw: PathBytes::from_bytes(path),
+            },
+            volume_id: vec![volume],
+            file_id: (index as u32).to_le_bytes().to_vec(),
+        })
+        .collect();
+    let mut build = store
+        .open_forest(id(1)?, roots)
+        .map_err(|e| format!("{e:?}"))?;
+    for (index, volume) in [(0, 1), (1, 1), (2, 2)] {
+        build
+            .add_directory_at(index, vec![])
+            .map_err(|e| format!("{e:?}"))?;
+        build
+            .add_with_space_at(
+                index,
+                Observation {
+                    path: vec![b"match.bin".to_vec()],
+                    size: Some(SizeValue {
+                        basis: SizeBasis::Logical,
+                        evidence: SizeEvidence::Measured,
+                        amount: SizeAmount::Exact {
+                            bytes: 9_u64.into(),
+                        },
+                    }),
+                },
+                SpaceObservation {
+                    allocated: Some(SizeValue {
+                        basis: SizeBasis::Allocated,
+                        evidence: SizeEvidence::OsReported,
+                        amount: SizeAmount::Exact {
+                            bytes: 16_u64.into(),
+                        },
+                    }),
+                    identity: Some(FileIdentity {
+                        volume: vec![volume],
+                        file: vec![8],
+                    }),
+                    link_count: Some(if volume == 1 { 2 } else { 1 }),
+                    sharing: SharingEvidence::None,
+                },
+            )
+            .map_err(|e| format!("{e:?}"))?;
+    }
+    let version = build
+        .seal(id(2)?, ResultCompleteness::Complete)
+        .map_err(|e| format!("{e:?}"))?;
+    let selection = query::run(
+        &Registry::baseline(),
+        version,
+        &Condition::Predicate(Predicate::Kind(query::Kind::File)),
+        sort(),
+        || false,
+    )
+    .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(selection.items.len(), 3);
+    let sets = Arc::new(ResultSets::new(store));
+    sets.register(id(3)?, selection)
+        .map_err(|e| format!("{e:?}"))?;
+    let mut builder = EngineBuilder::default();
+    space::register_total_with_queries(&mut builder, sets);
+    let engine = builder.build()?;
+    let caller = CallerCtx::new(Channel::Gui, id(4)?, None);
+    let result_version = id(2)?;
+    let total = |target| {
+        engine.call(
+            CallEnvelope {
+                name: "space.total".into(),
+                contract_version: ENVELOPE_VERSION,
+                correlation_id: caller.correlation_id.clone(),
+                body: json!({"target": target, "resultVersion": result_version, "requestSeq": 1}),
+            },
+            &caller,
+        )
+    };
+    let scoped = total(json!({"kind": "scope_root"}));
+    let queried = total(json!({"kind": "query_result", "queryRef": id(3)?}));
+    assert!(scoped.error.is_none(), "{:?}", scoped.error);
+    assert!(queried.error.is_none(), "{:?}", queried.error);
+    assert_eq!(queried.body["sizes"], scoped.body["sizes"]);
+    for (index, expected) in ["27", "32", "32"].into_iter().enumerate() {
+        assert_eq!(queried.body["sizes"][index]["size"]["state"], "exact");
+        assert_eq!(queried.body["sizes"][index]["size"]["bytes"], expected);
+    }
     Ok(())
 }

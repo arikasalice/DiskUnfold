@@ -2,7 +2,8 @@
 //!
 //! This is not the shared strategy contract or a settings-based selection API.
 //! Only the implemented subtree rule is bound; first-path is not registered here.
-use crate::{physical, space, tree::BuiltItems};
+use crate::{ResultVersion, physical, query::SpaceTotalError, space, tree::BuiltItems};
+use du_core_contracts::ItemRef;
 use du_core_contracts::result::{ResultCompleteness, SpaceAggregate};
 
 /// Identity of the implementation that produced a result version's aggregates.
@@ -79,6 +80,21 @@ impl RegisteredRule {
                     &mut total,
                 );
                 total
+            }
+        }
+    }
+
+    /// Applies the pinned rule to the observed members of a materialized search.
+    pub(crate) fn selection_total(
+        self,
+        version: &ResultVersion,
+        items: &[ItemRef],
+        membership_complete: bool,
+        cancelled: impl FnMut() -> bool,
+    ) -> Result<SpaceAggregate, SpaceTotalError> {
+        match self {
+            Self::SubtreeUnique => {
+                space::selection::sum(version, items, membership_complete, cancelled)
             }
         }
     }

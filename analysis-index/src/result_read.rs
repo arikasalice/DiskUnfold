@@ -29,7 +29,7 @@ pub struct ItemDetail<'a> {
 impl ResultVersion {
     /// Returns the identity of the aggregation implementation used for this pinned result.
     pub fn size_rule(&self) -> crate::SizeRuleIdentity {
-        self.size_rule
+        self.size_rule.identity()
     }
     /// Reads historical metadata flags, never a current locality guarantee.
     pub fn item_placeholder_observation(
@@ -74,7 +74,8 @@ impl ResultVersion {
         membership_complete: bool,
         cancelled: impl FnMut() -> bool,
     ) -> Result<SpaceAggregate, crate::query::SpaceTotalError> {
-        crate::space::selection::sum(self, items, membership_complete, cancelled)
+        self.size_rule
+            .selection_total(self, items, membership_complete, cancelled)
     }
 
     /// Reads reported gaps for the item's exact observed path in this immutable version.
