@@ -286,3 +286,92 @@ fn other_with_unverifiable_folder_members_fails_closed() -> Result<(), String> {
     );
     Ok(())
 }
+
+#[test]
+fn denominator_must_be_scope_or_whole_analysis_even_for_equal_sibling_values() -> Result<(), String>
+{
+    let sink = IngestSink::default();
+    let mut build = sink.open(id(1)).map_err(|e| format!("{e:?}"))?;
+    build.add_directory(vec![]).map_err(|e| format!("{e:?}"))?;
+    for name in [b"a".as_slice(), b"b".as_slice()] {
+        build
+            .add_directory(vec![name.to_vec()])
+            .map_err(|e| format!("{e:?}"))?;
+        build
+            .add_file(Observation {
+                path: vec![name.to_vec(), b"file".to_vec()],
+                size: Some(SizeValue {
+                    basis: SizeBasis::Logical,
+                    evidence: SizeEvidence::Measured,
+                    amount: SizeAmount::Exact { bytes: 10.into() },
+                }),
+            })
+            .map_err(|e| format!("{e:?}"))?;
+    }
+    let version = build
+        .seal(id(2), ResultCompleteness::Complete)
+        .map_err(|e| format!("{e:?}"))?;
+    let find = |name: &[u8]| {
+        version
+            .items()
+            .iter()
+            .find(|item| item.name == name)
+            .map(|item| item.item_no)
+            .ok_or("missing folder")
+    };
+    let a = find(b"a")?;
+    let b = find(b"b")?;
+    let scope = reference(&version, a);
+    let scope_evidence = AggregateEvidence {
+        result_version: version.version_id().clone(),
+        target: AggregateTarget::Folder(scope.clone()),
+        size: version.space(a).ok_or("missing scope")?.logical.clone(),
+    };
+    let sibling = AggregateEvidence {
+        result_version: version.version_id().clone(),
+        target: AggregateTarget::Folder(reference(&version, b)),
+        size: version.space(b).ok_or("missing sibling")?.logical.clone(),
+    };
+    assert_eq!(scope_evidence.size, sibling.size);
+    let rows: Vec<Row> = version
+        .items()
+        .iter()
+        .filter(|item| item.parent == Some(a))
+        .map(|item| {
+            Ok(Row {
+                item: reference(&version, item.item_no),
+                size: version
+                    .space(item.item_no)
+                    .ok_or("missing row")?
+                    .logical
+                    .clone(),
+            })
+        })
+        .collect::<Result<_, &str>>()?;
+    let base = || request(&version, &rows, &scope, &scope_evidence, 2, 2);
+    let valid = bar_projection::project(base(), &mut || false).map_err(|e| format!("{e:?}"))?;
+    assert_eq!(valid.denominator, scope_evidence);
+    let wrong = Request {
+        denominator: &sibling,
+        ..base()
+    };
+    assert_eq!(
+        bar_projection::project(wrong, &mut || false),
+        Err(Error::InvalidEvidence)
+    );
+    let whole = AggregateEvidence {
+        result_version: version.version_id().clone(),
+        target: AggregateTarget::Analysis,
+        size: version.scope_total().logical.clone(),
+    };
+    let valid = bar_projection::project(
+        Request {
+            denominator: &whole,
+            ..base()
+        },
+        &mut || false,
+    )
+    .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(valid.denominator, whole);
+    Ok(())
+}

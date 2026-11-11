@@ -25,7 +25,10 @@ pub struct Row {
     pub size: SizeValue,
 }
 
-/// Identifies the pinned F03 aggregate that supplies a denominator.
+/// Identifies a pinned F03 folder or whole-analysis aggregate.
+///
+/// The ranked projection accepts a folder denominator only for its own scope.
+/// A distinct focus and its parent are not represented by this internal request.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AggregateTarget {
     Folder(ItemRef),
@@ -103,6 +106,8 @@ pub enum Error {
 /// Other is accepted only if F03 independently confirms an exact group total
 /// equal to the layout sum. Unverifiable overlapping or incomplete groups fail
 /// closed. `max_bars` limits returned bars, including Other, without truncation.
+/// The denominator must be the aggregation scope or the whole analysis; this
+/// request cannot establish a separate focused item's parent denominator.
 pub fn project(
     request: Request<'_>,
     cancelled: &mut dyn FnMut() -> bool,
@@ -110,6 +115,11 @@ pub fn project(
     check(cancelled)?;
     let scope = root_ref(request.version, request.scope).map_err(|_| Error::InvalidEvidence)?;
     if request.scope_total.target != AggregateTarget::Folder(request.scope.clone()) {
+        return Err(Error::InvalidEvidence);
+    }
+    if let AggregateTarget::Folder(folder) = &request.denominator.target
+        && folder != request.scope
+    {
         return Err(Error::InvalidEvidence);
     }
     validate_aggregate(request.version, &request.basis, request.scope_total)?;
