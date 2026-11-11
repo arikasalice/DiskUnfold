@@ -35,6 +35,10 @@ pub struct Coordinate {
 pub struct LineSegment {
     pub from: Coordinate,
     pub to: Coordinate,
+    /// Index of the earlier observation in the owning series.
+    pub from_sample: usize,
+    /// Index of the later observation in the owning series.
+    pub to_sample: usize,
 }
 
 /// An input observation and its optional geometry. Unknown points have no y
@@ -111,12 +115,13 @@ pub struct Trend {
     pub series: Vec<SeriesLayout>,
 }
 
-/// Invalid geometry or ambiguous input ordering/identity.
+/// Invalid geometry, ambiguous input, or a cancelled calculation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {
     InvalidBounds,
     DuplicateSeries,
     NonIncreasingTime,
+    Cancelled,
 }
 
 /// Places supplied trend observations in a shared plot rectangle.
@@ -127,6 +132,18 @@ pub enum Error {
 /// retain their timestamp as a gap and prevent a line from crossing that gap.
 /// Input series order and point order are preserved for deterministic output.
 pub fn layout(bounds: Rect, input: &[Series]) -> Result<Trend, Error> {
+    layout_cancellable(bounds, input, &mut || false)
+}
+
+/// Places the observations, checking cancellation during validation and placement.
+///
+/// Cancellation discards the entire candidate, including any positioned series.
+pub fn layout_cancellable(
+    bounds: Rect,
+    input: &[Series],
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<Trend, Error> {
+    check_cancelled(cancelled)?;
     if !valid_bounds(bounds) {
         return Err(Error::InvalidBounds);
     }
@@ -136,11 +153,13 @@ pub fn layout(bounds: Rect, input: &[Series]) -> Result<Trend, Error> {
     let mut value_min = None;
     let mut value_max = None;
     for series in input {
+        check_cancelled(cancelled)?;
         if !seen.insert(series.series_no) {
             return Err(Error::DuplicateSeries);
         }
         let mut previous = None;
         for point in &series.points {
+            check_cancelled(cancelled)?;
             if previous.is_some_and(|time| point.observed_at_ms <= time) {
                 return Err(Error::NonIncreasingTime);
             }
@@ -162,10 +181,12 @@ pub fn layout(bounds: Rect, input: &[Series]) -> Result<Trend, Error> {
     let series = input
         .iter()
         .map(|series| {
+            check_cancelled(cancelled)?;
             let mut samples = Vec::with_capacity(series.points.len());
             let mut segments = Vec::new();
             let mut previous_known = None;
-            for point in &series.points {
+            for (index, point) in series.points.iter().enumerate() {
+                check_cancelled(cancelled)?;
                 let x = map_time(bounds, point.observed_at_ms, time_range_ms);
                 let coordinate = match point.value {
                     Weight::Unknown => {
@@ -177,13 +198,15 @@ pub fn layout(bounds: Rect, input: &[Series]) -> Result<Trend, Error> {
                             x,
                             y: map_value(bounds, value, value_range),
                         };
-                        if let Some(from) = previous_known {
+                        if let Some((from_sample, from)) = previous_known {
                             segments.push(LineSegment {
                                 from,
                                 to: coordinate,
+                                from_sample,
+                                to_sample: index,
                             });
                         }
-                        previous_known = Some(coordinate);
+                        previous_known = Some((index, coordinate));
                         Some(coordinate)
                     }
                 };
@@ -194,18 +217,26 @@ pub fn layout(bounds: Rect, input: &[Series]) -> Result<Trend, Error> {
                     coordinate,
                 });
             }
-            SeriesLayout {
+            Ok(SeriesLayout {
                 series_no: series.series_no,
                 samples,
                 segments,
-            }
+            })
         })
-        .collect();
+        .collect::<Result<_, _>>()?;
+    check_cancelled(cancelled)?;
     Ok(Trend {
         time_range_ms,
         value_range,
         series,
     })
+}
+
+fn check_cancelled(cancelled: &mut dyn FnMut() -> bool) -> Result<(), Error> {
+    if cancelled() {
+        return Err(Error::Cancelled);
+    }
+    Ok(())
 }
 
 fn map_time(bounds: Rect, timestamp: i64, range: Option<(i64, i64)>) -> u32 {

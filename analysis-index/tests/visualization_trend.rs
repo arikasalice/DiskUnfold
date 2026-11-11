@@ -68,6 +68,8 @@ fn unknown_observations_break_lines_without_becoming_zero() {
     assert_eq!(plotted.samples[1].x, 43);
     assert_eq!(plotted.samples[1].coordinate, None);
     assert_eq!(plotted.segments.len(), 1);
+    assert_eq!(plotted.segments[0].from_sample, 2);
+    assert_eq!(plotted.segments[0].to_sample, 3);
     assert_eq!(
         plotted.segments[0].from,
         plotted.samples[2].coordinate.unwrap()
@@ -75,6 +77,52 @@ fn unknown_observations_break_lines_without_becoming_zero() {
     assert_eq!(
         plotted.segments[0].to,
         plotted.samples[3].coordinate.unwrap()
+    );
+}
+
+#[test]
+fn coincident_coordinates_retain_their_distinct_observations() {
+    let series = Series {
+        series_no: 1,
+        points: vec![
+            point(0, Weight::Exact(10)),
+            point(1, Weight::Exact(10)),
+            point(2, Weight::LowerBound(10)),
+            point(1000, Weight::Exact(10)),
+        ],
+    };
+    let result = trend::layout(bounds(), &[series]).unwrap();
+    let first = result.series[0].segments[0];
+    let second = result.series[0].segments[1];
+    assert_eq!((first.from, first.to), (second.from, second.to));
+    assert_eq!((first.from_sample, first.to_sample), (0, 1));
+    assert_eq!((second.from_sample, second.to_sample), (1, 2));
+}
+
+#[test]
+fn cancellation_during_validation_placement_or_return_discards_the_trend() {
+    let series = [Series {
+        series_no: 1,
+        points: vec![
+            point(0, Weight::Exact(10)),
+            point(1, Weight::Unknown),
+            point(2, Weight::Exact(20)),
+        ],
+    }];
+    for checkpoint in [1, 3, 8, 10] {
+        let mut checks = 0;
+        assert_eq!(
+            trend::layout_cancellable(bounds(), &series, &mut || {
+                checks += 1;
+                checks == checkpoint
+            }),
+            Err(trend::Error::Cancelled)
+        );
+        assert_eq!(checks, checkpoint);
+    }
+    assert_eq!(
+        trend::layout_cancellable(bounds(), &series, &mut || false),
+        trend::layout(bounds(), &series)
     );
 }
 
