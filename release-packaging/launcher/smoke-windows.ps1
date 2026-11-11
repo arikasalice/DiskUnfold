@@ -262,6 +262,9 @@ function Test-FileInspection($name, $size, $testCopyContention = $false, $expect
   }
   if ($VerifyInspectionKeyboard) {
     Send-InspectionKey 0x1B # VK_ESCAPE
+    $null = Wait-UI "file details dismissed by Escape for $name" {
+      -not (Find-UI 'Close details' $button)
+    }
   } else {
     Invoke-UI (Wait-VisibleAction 'Close details')
   }
@@ -400,8 +403,25 @@ function Test-ScaledFileInspection {
     Find-UI 'Unit system' ([Windows.Automation.ControlType]::ComboBox)
   }
   Expand-UI $unitSystem
-  $si = Wait-UI 'SI unit option' { Find-UI 'SI (1000)' $null $unitSystem }
-  $si.GetCurrentPattern([Windows.Automation.SelectionItemPattern]::Pattern).Select()
+  $si = Wait-UI 'SI unit option' {
+    # WebView2 may expose the portaled option as a sibling of the selector.
+    $option = Find-UI 'SI (1000)' $null $unitSystem
+    if (-not $option) { $option = Find-UI 'SI (1000)' $null }
+    $selection = $null
+    if ($option -and $option.TryGetCurrentPattern([Windows.Automation.SelectionItemPattern]::Pattern, [ref]$selection)) {
+      $selection
+    }
+  }
+  $si.Select()
+  $unitPopup = $unitSystem.GetCurrentPattern([Windows.Automation.ExpandCollapsePattern]::Pattern)
+  if ($unitPopup.Current.ExpandCollapseState -eq [Windows.Automation.ExpandCollapseState]::Expanded) {
+    # UI Automation selection can leave the popup open unlike normal activation.
+    $unitPopup.Collapse()
+    'F03 native unit selector: dismissed the open popup after UI Automation selection'
+  }
+  $null = Wait-UI 'unit selector closed before keyboard inspection' {
+    $unitPopup.Current.ExpandCollapseState -eq [Windows.Automation.ExpandCollapseState]::Collapsed
+  }
   $null = Wait-FinalLogicalSize '1.1 kB'
   Invoke-UI (Wait-Enabled 'Browse folders' $true)
   $null = Wait-UI 'pinned folder row in SI units' {
