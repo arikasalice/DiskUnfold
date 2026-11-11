@@ -10,7 +10,7 @@ use stable::open_verified_impl;
 mod space;
 mod timestamps;
 mod volume_space;
-mod watch_identity;
+pub(crate) mod watch_identity;
 pub(crate) use scope::volume_name;
 pub(crate) use space::file_id;
 pub use volume_space::WindowsVolumeSpace;

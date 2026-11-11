@@ -24,6 +24,7 @@ mod targets;
 pub mod viz_catalog;
 pub mod viz_pages;
 pub mod watch_gap;
+pub mod watch_source;
 mod workers;
 
 #[cfg(test)]

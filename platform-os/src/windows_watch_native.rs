@@ -19,8 +19,8 @@ use windows::{
             FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OVERLAPPED, FILE_LIST_DIRECTORY,
             FILE_NOTIFY_CHANGE_ATTRIBUTES, FILE_NOTIFY_CHANGE_DIR_NAME,
             FILE_NOTIFY_CHANGE_FILE_NAME, FILE_NOTIFY_CHANGE_LAST_WRITE,
-            FILE_NOTIFY_CHANGE_SECURITY, FILE_NOTIFY_CHANGE_SIZE, FILE_SHARE_DELETE,
-            FILE_SHARE_READ, FILE_SHARE_WRITE, ReadDirectoryChangesW,
+            FILE_NOTIFY_CHANGE_SECURITY, FILE_NOTIFY_CHANGE_SIZE, FILE_READ_ATTRIBUTES,
+            FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, ReadDirectoryChangesW,
         },
         System::{
             IO::{CancelIoEx, GetOverlappedResult, OVERLAPPED},
@@ -31,6 +31,8 @@ use windows::{
 };
 
 const NOTIFICATION_BYTES: usize = 64 * 1024;
+#[cfg(test)]
+thread_local! { static SUBMISSIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
 
 /// The Windows notification API requires DWORD alignment for its output buffer.
 #[repr(align(4))]
@@ -44,6 +46,7 @@ pub struct NativeWatch {
     buffer: Box<NotificationBuffer>,
     pending: bool,
     stopped: bool,
+    recursive: bool,
     deferred_interruption: Option<WatchError>,
     #[cfg(test)]
     fail_next_submit: Option<i32>,
@@ -53,11 +56,37 @@ impl NativeWatch {
     /// Opens a directory and submits its first recursive notification request.
     /// The caller must independently establish volume and mount boundaries.
     pub fn start(path: &Path) -> io::Result<Self> {
+        Self::open(path, true, None)
+    }
+
+    /// Observes only entries immediately below the opened directory.
+    /// This does not establish recursive watch coverage.
+    pub(crate) fn start_root_only(path: &Path, volume: &[u8], file_id: u64) -> io::Result<Self> {
+        Self::open(path, false, Some((volume, file_id)))
+    }
+
+    fn open(path: &Path, recursive: bool, expected: Option<(&[u8], u64)>) -> io::Result<Self> {
         let directory = OpenOptions::new()
-            .access_mode(FILE_LIST_DIRECTORY.0)
+            .access_mode(
+                FILE_LIST_DIRECTORY.0
+                    | if expected.is_some() {
+                        FILE_READ_ATTRIBUTES.0
+                    } else {
+                        0
+                    },
+            )
             .share_mode(FILE_SHARE_READ.0 | FILE_SHARE_WRITE.0 | FILE_SHARE_DELETE.0)
             .custom_flags(FILE_FLAG_BACKUP_SEMANTICS.0 | FILE_FLAG_OVERLAPPED.0)
             .open(path)?;
+        if let Some((volume, file_id)) = expected {
+            let same = crate::windows_observation::watch_identity::matches_watch_handle(
+                &directory, volume, file_id,
+            )
+            .map_err(|_| io::Error::other("watch directory identity unavailable"))?;
+            if !same {
+                return Err(io::Error::other("watch directory identity mismatch"));
+            }
+        }
         // SAFETY: The event has default security, starts unsignaled and has no name.
         let event_handle =
             unsafe { CreateEventW(None, true, false, PCWSTR::null()) }.map_err(to_io)?;
@@ -72,6 +101,7 @@ impl NativeWatch {
             buffer: Box::new(NotificationBuffer([0; NOTIFICATION_BYTES])),
             pending: false,
             stopped: false,
+            recursive,
             deferred_interruption: None,
             #[cfg(test)]
             fail_next_submit: None,
@@ -86,6 +116,8 @@ impl NativeWatch {
 
     fn submit(&mut self) -> io::Result<()> {
         #[cfg(test)]
+        SUBMISSIONS.with(|count| count.set(count.get() + 1));
+        #[cfg(test)]
         if let Some(code) = self.fail_next_submit.take() {
             return Err(io::Error::from_raw_os_error(code));
         }
@@ -99,7 +131,7 @@ impl NativeWatch {
                 self.handle(),
                 self.buffer.0.as_mut_ptr().cast(),
                 NOTIFICATION_BYTES as u32,
-                true,
+                self.recursive,
                 FILE_NOTIFY_CHANGE_FILE_NAME
                     | FILE_NOTIFY_CHANGE_DIR_NAME
                     | FILE_NOTIFY_CHANGE_ATTRIBUTES
@@ -231,6 +263,47 @@ mod tests {
         fs, thread,
         time::{Duration, Instant},
     };
+
+    #[test]
+    fn wrong_opened_handle_identity_never_submits() -> Result<(), Box<dyn std::error::Error>> {
+        use crate::windows_observation::{WindowsScopeRoots, open_matching_scan_root};
+        use du_core_contracts::scan_observation::ScopeRootPort;
+        use std::os::windows::ffi::OsStrExt;
+        let directory = tempfile::tempdir()?;
+        let raw: Vec<u8> = directory
+            .path()
+            .as_os_str()
+            .encode_wide()
+            .flat_map(u16::to_le_bytes)
+            .collect();
+        let scan = WindowsScopeRoots
+            .open_root(&raw)
+            .map_err(|e| format!("{e:?}"))?;
+        let guard = open_matching_scan_root(directory.path(), &scan.volume_id, &scan.file_id)
+            .map_err(|e| format!("{e:?}"))?;
+        let identity = guard.identity().map_err(|e| format!("{e:?}"))?;
+        let mut wrong_volume = scan.volume_id.clone();
+        let digit = wrong_volume
+            .len()
+            .checked_sub(4)
+            .ok_or("short volume GUID")?;
+        wrong_volume[digit] = if wrong_volume[digit] == b'0' {
+            b'1'
+        } else {
+            b'0'
+        };
+        SUBMISSIONS.with(|count| count.set(0));
+        assert!(
+            NativeWatch::start_root_only(directory.path(), &scan.volume_id, identity.file_id ^ 1)
+                .is_err()
+        );
+        assert!(
+            NativeWatch::start_root_only(directory.path(), &wrong_volume, identity.file_id)
+                .is_err()
+        );
+        assert_eq!(SUBMISSIONS.with(std::cell::Cell::get), 0);
+        Ok(())
+    }
 
     #[test]
     fn real_registration_change_and_release() -> Result<(), Box<dyn std::error::Error>> {

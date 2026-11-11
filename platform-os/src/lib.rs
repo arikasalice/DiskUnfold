@@ -40,3 +40,5 @@ pub mod windows_watch_events;
 #[cfg(target_os = "windows")]
 #[allow(unsafe_code)]
 pub mod windows_watch_native;
+#[cfg(target_os = "windows")]
+pub mod windows_watch_root;

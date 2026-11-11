@@ -1,7 +1,24 @@
 //! Stable scan-root identity verification for future F18 registration.
-use super::{WindowsDirectory, open_verified_stable};
+use super::{
+    VOLUME_NAME_GUID, WindowsDirectory, final_path, identity, info, open_verified_stable,
+    volume_name,
+};
 use du_core_contracts::ports::{PortError, PortErrorKind};
-use std::path::Path;
+use std::{fs::File, path::Path};
+
+/// Compares the actual notification handle against the scan root identity.
+pub(crate) fn matches_watch_handle(
+    handle: &File,
+    volume: &[u8],
+    file_id: u64,
+) -> Result<bool, PortError> {
+    if volume.is_empty() || file_id == 0 {
+        return Ok(false);
+    }
+    let actual_volume = volume_name(&final_path(handle, VOLUME_NAME_GUID)?)?;
+    let actual_file = identity(&info(handle)?);
+    Ok(actual_volume == volume && actual_file == file_id)
+}
 
 /// Opens a stable local NTFS root and checks the scan's exact volume and file IDs.
 ///
