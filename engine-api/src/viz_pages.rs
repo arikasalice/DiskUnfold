@@ -3,6 +3,8 @@
 pub mod channels;
 pub mod commands;
 mod deferred;
+pub mod histogram;
+mod histogram_fingerprint;
 use deferred::DeferredRows;
 mod locate;
 pub mod production;
