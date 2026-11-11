@@ -273,6 +273,7 @@ export function BrowseGrid<Item>({
                         onKeyDown={guardedKeys(element.onKeyDown)}
                         aria-rowindex={index + 2}
                         data-row={index}
+                        data-item-key={key}
                       />
                     );
                   }}

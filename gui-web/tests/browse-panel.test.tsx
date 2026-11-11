@@ -306,36 +306,44 @@ test("keyboard opens a folder and breadcrumbs return to the virtual root", async
   expect(await screen.findByRole("button", { name: "Alpha" })).toBeDefined();
 });
 
-test("Enter opens pinned file details and closing returns focus to the file", async () => {
-  const port: BrowsePort = {
-    open: vi
-      .fn()
-      .mockResolvedValue(
-        opened(1, [{ ...row(1, "observed.bin"), kind: "file" }]),
-      ),
-    page: vi.fn(),
-  };
-  const inspectFile = vi.fn(() => null);
-  render(
-    <BrowsePanel port={port} resultVersion={id} inspectFile={inspectFile} />,
-  );
-  const file = await screen.findByRole("button", { name: "observed.bin" });
-  const fileRow = file.closest<HTMLElement>('[role="row"]')!;
-  act(() => fileRow.focus());
-  fireEvent.keyDown(fileRow, { key: "Enter", code: "Enter" });
-  fireEvent.keyUp(fileRow, { key: "Enter", code: "Enter" });
-  const dialog = await screen.findByRole("dialog", {
-    name: "File details — observed.bin",
-  });
-  expect(inspectFile).toHaveBeenCalledWith(ref(1));
-  expect(port.open).toHaveBeenCalledTimes(1);
-  fireEvent.click(
-    within(dialog).getByRole("button", { name: "Close details" }),
-  );
-  await act(async () => {});
-  expect(screen.queryByRole("dialog")).toBeNull();
-  expect(document.activeElement).toBe(fileRow);
-});
+test.each(["row keyboard", "nested button", "accessibility activation"])(
+  "%s opens pinned file details and closing returns focus to the file row",
+  async (activation) => {
+    const port: BrowsePort = {
+      open: vi
+        .fn()
+        .mockResolvedValue(
+          opened(1, [{ ...row(1, "observed.bin"), kind: "file" }]),
+        ),
+      page: vi.fn(),
+    };
+    const inspectFile = vi.fn(() => null);
+    render(
+      <BrowsePanel port={port} resultVersion={id} inspectFile={inspectFile} />,
+    );
+    const file = await screen.findByRole("button", { name: "observed.bin" });
+    const fileRow = file.closest<HTMLElement>('[role="row"]')!;
+    if (activation === "row keyboard") {
+      act(() => fileRow.focus());
+      fireEvent.keyDown(fileRow, { key: "Enter", code: "Enter" });
+      fireEvent.keyUp(fileRow, { key: "Enter", code: "Enter" });
+    } else {
+      act(() => (activation === "nested button" ? file : fileRow).focus());
+      fireEvent.click(file);
+    }
+    const dialog = await screen.findByRole("dialog", {
+      name: "File details — observed.bin",
+    });
+    expect(inspectFile).toHaveBeenCalledWith(ref(1));
+    expect(port.open).toHaveBeenCalledTimes(1);
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Close details" }),
+    );
+    await act(async () => {});
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(fileRow);
+  },
+);
 
 test("rejects a page from another result without discarding visible rows", async () => {
   const bad = page([row(2, "Wrong")]);
