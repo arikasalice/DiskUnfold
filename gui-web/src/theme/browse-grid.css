@@ -289,14 +289,16 @@
    reducing the virtual list to an unusable sliver. */
 .du-app[data-browse-open]:has(
     .du-browse-observation [aria-expanded="true"],
-    .du-browse-header .du-notice--error
+    .du-browse-header .du-notice--error,
+    .du-browse-controls .du-notice--error
   ) {
   block-size: auto;
   min-block-size: 100dvh;
 }
 .du-app[data-browse-open]:has(
     .du-browse-observation [aria-expanded="true"],
-    .du-browse-header .du-notice--error
+    .du-browse-header .du-notice--error,
+    .du-browse-controls .du-notice--error
   )
   .du-browse-grid-frame {
   block-size: max(18rem, 50dvh);
