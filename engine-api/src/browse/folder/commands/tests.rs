@@ -11,6 +11,7 @@ use du_job_runtime::{JobClock, JobRuntime};
 use serde_json::{Value, json};
 
 mod completion;
+mod delivery_busy;
 mod search;
 
 struct Ids;

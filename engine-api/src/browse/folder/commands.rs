@@ -287,7 +287,8 @@ fn cursor_error(error: CursorError, continuation: bool) -> EngineError {
 
 fn job_error(error: ErrorKind) -> EngineError {
     match error {
-        ErrorKind::Busy | ErrorKind::Runtime(RuntimeError::QueueFull) => {
+        ErrorKind::Busy
+        | ErrorKind::Runtime(RuntimeError::QueueFull | RuntimeError::DeliveryBusy) => {
             EngineError::reason("query.busy")
         }
         ErrorKind::Runtime(RuntimeError::ShuttingDown) => EngineError::reason("job.shutting_down"),

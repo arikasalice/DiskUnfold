@@ -1,5 +1,13 @@
 use super::test_helpers::{finished_event, job_status, wait_terminal};
 mod busy_repro;
+
+#[test]
+fn delivery_backlog_is_search_busy() {
+    assert!(matches!(
+        folder_job_error(FolderJobError::Runtime(RuntimeError::DeliveryBusy)),
+        SearchError::Busy
+    ));
+}
 use super::*;
 use crate::{
     api::EngineBuilder,

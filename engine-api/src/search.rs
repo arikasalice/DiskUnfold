@@ -401,7 +401,8 @@ fn failed(reason: &str) -> JobOutcome {
 
 fn folder_job_error(error: FolderJobError) -> SearchError {
     match error {
-        FolderJobError::Busy | FolderJobError::Runtime(RuntimeError::QueueFull) => {
+        FolderJobError::Busy
+        | FolderJobError::Runtime(RuntimeError::QueueFull | RuntimeError::DeliveryBusy) => {
             SearchError::Busy
         }
         FolderJobError::Runtime(_) => SearchError::Runtime,
