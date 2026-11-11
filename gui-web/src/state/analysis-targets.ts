@@ -15,8 +15,8 @@ type ProbeUpdate = {
 type ProbeWindow = {
   request: number;
   job: string | null;
-  sequence: number;
-  targets: Set<string>;
+  highestSequence: number;
+  targetSequences: Map<string, number>;
   finished: boolean;
   early: ProbeUpdate[] | null;
 };
@@ -41,18 +41,19 @@ function decode(event: EventEnvelope): ProbeUpdate | undefined {
     };
 }
 
-/** Accepts only increasing observations for the current, unfinished probe. */
+/** Orders observations per target and the terminal marker across the whole probe job. */
 function accept(window: ProbeWindow, update: ProbeUpdate): boolean {
-  if (
-    window.finished ||
-    update.job !== window.job ||
-    update.sequence <= window.sequence ||
-    (update.observation && !window.targets.has(update.observation.target.raw))
-  ) {
-    return false;
+  if (window.finished || update.job !== window.job) return false;
+  if (!update.observation) {
+    if (update.sequence <= window.highestSequence) return false;
+    window.finished = true;
+    return true;
   }
-  window.sequence = update.sequence;
-  window.finished = !update.observation;
+  const key = update.observation.target.raw;
+  const previous = window.targetSequences.get(key);
+  if (previous === undefined || update.sequence <= previous) return false;
+  window.targetSequences.set(key, update.sequence);
+  window.highestSequence = Math.max(window.highestSequence, update.sequence);
   return true;
 }
 
@@ -70,9 +71,9 @@ export function useTargets(client: AnalysisClient) {
   const active = useRef<ProbeWindow>({
     request: 0,
     job: null,
-    sequence: 0,
+    highestSequence: 0,
     finished: false,
-    targets: new Set(),
+    targetSequences: new Map(),
     early: null,
   });
 
@@ -104,9 +105,11 @@ export function useTargets(client: AnalysisClient) {
         state.job = response.probeJobRef;
         if (response.probeJobRef && !terminal.current.has(response.probeJobRef))
           probesInFlight.current.add(response.probeJobRef);
-        state.sequence = 0;
+        state.highestSequence = 0;
         state.finished = false;
-        state.targets = new Set(response.targets.map(({ path }) => path.raw));
+        state.targetSequences = new Map(
+          response.targets.map(({ path }) => [path.raw, 0]),
+        );
         // An OS probe may finish before the IPC reply identifying its job.
         const early = state.early ?? [];
         state.early = null;
@@ -143,7 +146,7 @@ export function useTargets(client: AnalysisClient) {
     probesInFlight.current.clear();
     state.job = null;
     state.early = null;
-    state.targets.clear();
+    state.targetSequences.clear();
     // Keep already observed drives selectable after the draft is discarded.
     setFinished(true);
     setLoading(false);
@@ -159,7 +162,10 @@ export function useTargets(client: AnalysisClient) {
       }
       const update = decode(event);
       if (!update) return;
-      if (!update.observation) {
+      if (
+        !update.observation &&
+        (update.job !== state.job || update.sequence > state.highestSequence)
+      ) {
         if (pendingLists.current > 0) terminal.current.add(update.job);
         probesInFlight.current.delete(update.job);
       }
