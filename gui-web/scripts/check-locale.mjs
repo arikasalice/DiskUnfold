@@ -5,23 +5,54 @@ const root = new URL("../", import.meta.url);
 const resources = new URL("../user-env/i18n/", root);
 const languageIds = ["en", "ko"];
 
+function validateTemplate(language, key, message, parameters) {
+  const expectedForms = language === "en" ? "one,other" : "other";
+  const used = new Set();
+  let variants = [message];
+  if (message?.kind === "plural") {
+    if (
+      Object.keys(message.variants ?? {})
+        .sort()
+        .join(",") !== expectedForms ||
+      !parameters.some(
+        ([name, kind]) => name === message.parameter && kind === "count",
+      )
+    ) {
+      throw new Error(`${language} has an invalid plural template for ${key}`);
+    }
+    used.add(message.parameter);
+    variants = Object.values(message.variants);
+  }
+  for (const variant of variants) {
+    if (typeof variant !== "string" || variant.length === 0)
+      throw new Error(
+        `${language} has an empty or invalid template for ${key}`,
+      );
+    for (const [token, parameter] of variant.matchAll(
+      /\{\{|\}\}|\{([a-zA-Z_][a-zA-Z_0-9]*)\}|[{}]/g,
+    )) {
+      if (parameter) used.add(parameter);
+      else if (token.length === 1)
+        throw new Error(`${language} has an invalid placeholder for ${key}`);
+    }
+  }
+  if (
+    used.size !== parameters.length ||
+    parameters.some(([name]) => !used.has(name))
+  ) {
+    throw new Error(`${language} template parameters differ for ${key}`);
+  }
+}
+
 async function readBundle(language) {
   const data = JSON.parse(
     await readFile(new URL(`${language}.json`, resources), "utf8"),
   );
   const templates = new Map();
-  const expectedPluralForms = language === "en" ? "one,other" : "other";
   for (const [key, message, parameters] of data[5]) {
     if (templates.has(key))
       throw new Error(`${language} has a duplicate message key: ${key}`);
-    if (
-      message?.kind === "plural" &&
-      Object.keys(message.variants ?? {})
-        .sort()
-        .join(",") !== expectedPluralForms
-    ) {
-      throw new Error(`${language} has invalid plural forms for ${key}`);
-    }
+    validateTemplate(language, key, message, parameters);
     templates.set(
       key,
       JSON.stringify(
@@ -64,14 +95,10 @@ async function usedKeys() {
     );
     function visit(node) {
       if (
-        ts.isCallExpression(node) &&
-        ts.isIdentifier(node.expression) &&
-        node.expression.text === "text"
-      ) {
-        const [key] = node.arguments;
-        if (key && ts.isStringLiteral(key) && key.text.startsWith("ui."))
-          used.add(key.text);
-      }
+        ts.isStringLiteralLike(node) &&
+        /^ui\.[a-zA-Z0-9_.]+$/.test(node.text)
+      )
+        used.add(node.text);
       ts.forEachChild(node, visit);
     }
     visit(file);
