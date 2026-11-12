@@ -170,22 +170,18 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn quit_request_defaults_confirmation_and_rejects_unknown_input() {
-        let normal: AppQuitRequest = serde_json::from_value(json!({"mode":"normal"}))
-            .expect("normal shutdown request should deserialize");
+    fn quit_request_defaults_confirmation_and_rejects_unknown_input()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let normal: AppQuitRequest = serde_json::from_value(json!({"mode":"normal"}))?;
         assert_eq!(normal.mode, AppQuitMode::Normal);
         assert_eq!(normal.confirm_unfinished_changes, None);
         assert!(!normal.confirms_unfinished_changes());
-        assert_eq!(
-            serde_json::to_value(normal).expect("default request serializes"),
-            json!({"mode":"normal"})
-        );
+        assert_eq!(serde_json::to_value(normal)?, json!({"mode":"normal"}));
 
         let confirmed: AppQuitRequest = serde_json::from_value(json!({
             "mode":"without_waiting",
             "confirmUnfinishedChanges":true
-        }))
-        .expect("confirmed waitless request should deserialize");
+        }))?;
         assert_eq!(confirmed.mode, AppQuitMode::WithoutWaiting);
         assert_eq!(confirmed.confirm_unfinished_changes, Some(true));
         assert!(confirmed.confirms_unfinished_changes());
@@ -204,16 +200,18 @@ mod tests {
             )
             .is_err()
         );
+        Ok(())
     }
 
     #[test]
-    fn quit_request_and_response_use_the_inferred_camel_case_shape() {
+    fn quit_request_and_response_use_the_inferred_camel_case_shape()
+    -> Result<(), Box<dyn std::error::Error>> {
         let request = AppQuitRequest {
             mode: AppQuitMode::WithoutWaiting,
             confirm_unfinished_changes: Some(true),
         };
         assert_eq!(
-            serde_json::to_value(request).expect("request serializes"),
+            serde_json::to_value(request)?,
             json!({"mode":"without_waiting","confirmUnfinishedChanges":true})
         );
 
@@ -222,35 +220,34 @@ mod tests {
             in_progress_change_count: Some(2),
         };
         assert_eq!(
-            serde_json::to_value(response).expect("response serializes"),
+            serde_json::to_value(response)?,
             json!({"outcome":"confirm_required","inProgressChangeCount":2})
         );
 
         let envelope = CallEnvelope {
             name: "app.quit".to_owned(),
             contract_version: 1,
-            correlation_id: Id::parse("0195f856-ab83-7a59-9343-10d29775c9a9")
-                .expect("valid UUIDv7 correlation id"),
+            correlation_id: Id::parse("0195f856-ab83-7a59-9343-10d29775c9a9")?,
             body: serde_json::to_value(AppQuitRequest {
                 mode: AppQuitMode::Normal,
                 confirm_unfinished_changes: None,
-            })
-            .expect("request body serializes"),
+            })?,
         };
-        let wire = serde_json::to_value(envelope).expect("call envelope serializes");
+        let wire = serde_json::to_value(envelope)?;
         assert_eq!(wire["name"], "app.quit");
         assert!(wire["correlationId"].is_string());
         assert!(wire["body"].get("correlationId").is_none());
+        Ok(())
     }
 
     #[test]
-    fn unknown_response_enums_and_extra_fields_are_tolerated() {
+    fn unknown_response_enums_and_extra_fields_are_tolerated()
+    -> Result<(), Box<dyn std::error::Error>> {
         assert_eq!(
             serde_json::from_value::<AppQuitResponse>(json!({
                 "outcome":"future_outcome",
                 "futureField":true
-            }))
-            .expect("unknown response values remain readable")
+            }))?
             .outcome,
             AppQuitOutcome::Unknown
         );
@@ -262,15 +259,15 @@ mod tests {
             "stateSequence":3,
             "observedAt":"2026-11-13T00:00:00.000Z",
             "futureField":true
-        }))
-        .expect("event readers accept unknown fields and states");
+        }))?;
         assert_eq!(lifecycle.state, AppLifecycleState::Unknown);
         assert_eq!(lifecycle.previous_state, AppLifecycleState::Running);
         assert_eq!(lifecycle.state_sequence, 3);
         assert_eq!(
-            serde_json::to_value(AppLifecycleState::Unknown).expect("unknown state serializes"),
+            serde_json::to_value(AppLifecycleState::Unknown)?,
             json!("unknown")
         );
+        Ok(())
     }
 
     #[test]
