@@ -27,6 +27,9 @@ pub(super) fn response(
 ) -> Result<VizRenderResponse, EngineError> {
     let response = match committed {
         CommittedRender::Fallback { reason, fallback } => {
+            if fallback.result_revision != *admitted.source.result_version() {
+                return Err(internal());
+            }
             // Resolving a single row revalidates model/source identity, including an
             // empty fallback. A stale or evicted model is never returned as a hit.
             session
@@ -42,10 +45,22 @@ pub(super) fn response(
                 result_revision: fallback.result_revision.clone(),
                 observed_at: admitted.source.version().observed_at().cloned(),
                 completeness: admitted.source.version().completeness(),
-                reason_key: fallback_reason(*reason).into(),
+                reason_key: match admitted
+                    .required_data
+                    .as_ref()
+                    .map(|value| value.evaluation)
+                {
+                    Some(crate::required_data::Evaluation::Unavailable(reason)) => reason.key(),
+                    Some(crate::required_data::Evaluation::Available) | None => {
+                        fallback_reason(*reason)
+                    }
+                }
+                .into(),
                 available_formats: admitted
-                    .facts
-                    .available_formats
+                    .required_data
+                    .as_ref()
+                    .map(|value| value.formats.as_slice())
+                    .unwrap_or(&admitted.facts.available_formats)
                     .iter()
                     .filter(|format| **format != admitted.request.format)
                     .cloned()
@@ -54,6 +69,15 @@ pub(super) fn response(
             })
         }
         CommittedRender::Model(rendered) => {
+            if matches!(
+                admitted
+                    .required_data
+                    .as_ref()
+                    .map(|value| value.evaluation),
+                Some(crate::required_data::Evaluation::Unavailable(_))
+            ) {
+                return Err(internal());
+            }
             let mut model = wire_model.ok_or_else(internal)?.clone();
             model.model_ref.clone_from(&rendered.model_ref);
             session

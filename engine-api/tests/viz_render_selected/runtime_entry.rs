@@ -54,8 +54,53 @@ impl Random for Entropy {
 struct Producer {
     block: Mutex<Option<(mpsc::Sender<()>, mpsc::Receiver<()>)>>,
     unit_iec: AtomicBool,
+    required_data_opt_in: AtomicBool,
 }
 impl EvidenceProducer for Producer {
+    fn required_data_facts(
+        &self,
+        source: &current_analysis::CurrentAnalysis,
+        request: &VizRenderRequest,
+    ) -> Result<Option<du_engine_api::required_data::FactValues>, EngineError> {
+        use du_engine_api::required_data::Evidence;
+        if !self.required_data_opt_in.load(Ordering::Relaxed) {
+            return Ok(None);
+        }
+        let parent = request.aggregate_scope_ref.item_no;
+        let children: Vec<_> = source
+            .version()
+            .items()
+            .iter()
+            .filter(|item| item.parent == Some(parent))
+            .collect();
+        let folder = !children.is_empty();
+        let sizes = !children.is_empty() && children.iter().all(|item| item.size.is_some());
+        Ok(Some(du_engine_api::required_data::FactValues {
+            folder_hierarchy: if folder {
+                Evidence::Known(())
+            } else {
+                Evidence::Absent
+            },
+            item_sizes: if sizes {
+                Evidence::Known(())
+            } else {
+                Evidence::Absent
+            },
+            numeric_values: if sizes {
+                Evidence::Known(())
+            } else {
+                Evidence::Absent
+            },
+            trend_observations: Evidence::Unknown,
+            comparison: Evidence::Unknown,
+            histogram_bins: if self.histogram_facts(source, request)?.is_some() {
+                Evidence::Known(())
+            } else {
+                Evidence::Unknown
+            },
+            attribution: Evidence::Unknown,
+        }))
+    }
     fn source_policy_facts(
         &self,
         _: &current_analysis::CurrentAnalysis,
@@ -318,33 +363,6 @@ fn registered_render_shares_work_replaces_sequence_and_reads_committed_model() -
     Ok(())
 }
 #[test]
-fn last_detach_and_session_retirement_cancel_without_cache_publication() -> Result<(), String> {
-    let fixture = Fixture::new([25, 75])?;
-    let a = fixture.open()?;
-    let first = job(&fixture.render(&a, 1)?)?;
-    fixture
-        .entered
-        .recv_timeout(Duration::from_secs(3))
-        .map_err(|e| e.to_string())?;
-    assert_eq!(fixture.detach(&a, 1)?["controlResult"], "accepted");
-    assert_eq!(
-        fixture.jobs.state(&first).map_err(|e| e.to_string())?,
-        JobState::CancelRequested
-    );
-    fixture.engine.retire_window_session();
-    fixture.release.send(()).map_err(|e| e.to_string())?;
-    fixture.finished(&first, JobState::Cancelled)?;
-    assert_eq!(
-        fixture
-            .call("viz.render", render_body(&a, 2))
-            .error
-            .ok_or("retired channel accepted")?
-            .reason_key,
-        "ref.unavailable"
-    );
-    Ok(())
-}
-#[test]
 fn source_replacement_beats_commit_for_the_original_admitted_revision() -> Result<(), String> {
     let fixture = Fixture::new([25, 75])?;
     let a = fixture.open()?;
@@ -411,23 +429,6 @@ fn direct_cancel_stops_all_members_and_cancelling_work_rejects_new_members() -> 
     Ok(())
 }
 #[test]
-fn fast_physical_completion_returns_model_within_configured_wait() -> Result<(), String> {
-    let fixture = Fixture::with_wait([25, 75], Duration::from_secs(2))?;
-    let a = fixture.open()?;
-    fixture.release.send(()).map_err(|e| e.to_string())?;
-    let model = fixture.render(&a, 1)?;
-    assert_eq!(model["kind"], "model");
-    assert_eq!(
-        model["model"]["representation"]["colorMode"],
-        "parent_folder"
-    );
-    assert_eq!(
-        model["model"]["totals"]["scope"]["quantity"]["value"],
-        "100"
-    );
-    Ok(())
-}
-#[test]
 fn valid_different_condition_retires_only_the_replaced_channel() -> Result<(), String> {
     let fixture = Fixture::new([25, 75])?;
     let a = fixture.open()?;
@@ -479,3 +480,9 @@ mod group_rows_dispatch;
 mod histogram_strategy;
 mod ranked_bar_runtime;
 mod ranked_group_runtime;
+
+mod required_data_runtime;
+
+mod retirement_runtime;
+
+mod fast_completion_runtime;

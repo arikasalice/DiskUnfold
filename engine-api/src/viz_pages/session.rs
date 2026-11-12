@@ -50,6 +50,19 @@ pub struct ChildPolicyEvidence {
 }
 
 impl Session {
+    /// Returns formats that have both a registered strategy and a runtime compute path.
+    pub(crate) fn required_data_formats(&self) -> Vec<String> {
+        let runtime_formats = ["treemap", "bar", "histogram"];
+        let mut formats = Vec::new();
+        for descriptor in self.dispatcher.catalog() {
+            if runtime_formats.contains(&descriptor.format.as_str())
+                && !formats.contains(&descriptor.format)
+            {
+                formats.push(descriptor.format.clone());
+            }
+        }
+        formats
+    }
     /// Prepares ranked rows for the same deferred publication used by other views.
     pub(crate) fn prepare_ranked(
         &self,

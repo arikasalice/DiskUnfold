@@ -4,13 +4,11 @@
 //! absence: it must remain an internal unresolved result until the owning
 //! provider can supply evidence. This module does not select or synthesize a
 //! source, and its tests do not stand in for production providers.
-#![allow(dead_code)] // Production evidence ports are not part of this change.
-
 use du_core_contracts::Id;
 
 /// Whether a pinned source proves a required fact, proves its absence, or cannot tell.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Evidence<T> {
+pub enum Evidence<T> {
     /// The pinned source proves the value.
     Known(T),
     /// The owner successfully read the pinned source and found no such value.
@@ -21,21 +19,21 @@ pub(super) enum Evidence<T> {
 
 /// Evidence needed by the F06 format table.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct FactValues {
+pub struct FactValues {
     /// Whether folder hierarchy is established by the pinned result.
-    pub(super) folder_hierarchy: Evidence<()>,
+    pub folder_hierarchy: Evidence<()>,
     /// Whether item size values are present in the pinned result.
-    pub(super) item_sizes: Evidence<()>,
+    pub item_sizes: Evidence<()>,
     /// Whether numeric item or category values are available to a bar format.
-    pub(super) numeric_values: Evidence<()>,
+    pub numeric_values: Evidence<()>,
     /// Number of real observation points in a pinned F27 trend result.
-    pub(super) trend_observations: Evidence<usize>,
+    pub trend_observations: Evidence<usize>,
     /// Whether a pinned F08 comparison result is available.
-    pub(super) comparison: Evidence<()>,
+    pub comparison: Evidence<()>,
     /// Whether histogram unit boundaries are available.
-    pub(super) histogram_bins: Evidence<()>,
+    pub histogram_bins: Evidence<()>,
     /// Attribution evidence for the pinned source and requested scope.
-    pub(super) attribution: Evidence<Attribution>,
+    pub attribution: Evidence<Attribution>,
 }
 
 /// Evidence bundle labeled with the source revision inspected by its provider.
@@ -101,7 +99,7 @@ impl PinnedFacts {
 
 /// Established properties of a pinned attribution summary.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct Attribution {
+pub struct Attribution {
     /// Whether any flow is negative; Sankey cannot represent negative flow width.
     pub has_negative_flow: bool,
 }
@@ -167,39 +165,32 @@ enum Requirement {
 
 struct FormatRule {
     format: &'static str,
-    strategy_id: &'static str,
     requirements: &'static [Requirement],
 }
 
 const FORMAT_RULES: &[FormatRule] = &[
     FormatRule {
         format: "treemap",
-        strategy_id: "viz.treemap",
         requirements: &[Requirement::FolderHierarchy, Requirement::ItemSizes],
     },
     FormatRule {
         format: "bar",
-        strategy_id: "viz.bar",
         requirements: &[Requirement::NumericValues],
     },
     FormatRule {
         format: "trend",
-        strategy_id: "viz.trend",
         requirements: &[Requirement::TrendObservations],
     },
     FormatRule {
         format: "waterfall",
-        strategy_id: "viz.waterfall",
         requirements: &[Requirement::Comparison],
     },
     FormatRule {
         format: "histogram",
-        strategy_id: "viz.histogram",
         requirements: &[Requirement::ItemSizes, Requirement::HistogramBins],
     },
     FormatRule {
         format: "sankey",
-        strategy_id: "viz.sankey",
         requirements: &[Requirement::NonNegativeAttribution],
     },
 ];
@@ -217,7 +208,6 @@ pub(super) fn evaluate(
         .iter()
         .find(|rule| rule.format == format)
         .ok_or(Error::UnknownFormat)?;
-    let _strategy_id = rule.strategy_id;
     for requirement in rule.requirements {
         match check(*requirement, &pinned.facts.values)? {
             Evaluation::Available => {}

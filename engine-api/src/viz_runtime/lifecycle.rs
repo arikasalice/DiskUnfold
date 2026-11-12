@@ -69,6 +69,22 @@ impl Runtime {
                         computed.wire_model.clone(),
                     )
                 };
+                if matches!(
+                    admitted
+                        .required_data
+                        .as_ref()
+                        .map(|value| value.evaluation),
+                    Some(crate::required_data::Evaluation::Unavailable(_))
+                ) && !matches!(
+                    committed,
+                    RuntimeCommitted::Projection(CommittedRender::Fallback { .. })
+                        | RuntimeCommitted::Histogram {
+                            no_attribution: true,
+                            ..
+                        }
+                ) {
+                    return Err(internal());
+                }
                 match &committed {
                     RuntimeCommitted::Projection(value) => envelope::response(
                         &self.assembly.session,

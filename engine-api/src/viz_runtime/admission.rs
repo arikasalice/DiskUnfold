@@ -39,6 +39,7 @@ impl Runtime {
             None => self.assembly.producer.source_facts(&source, &request)?,
         };
         validate_facts(&facts, &source, self.assembly.policy.revision)?;
+        let required_data = required_data_admission(&self.assembly, &source, &request)?;
         let histogram = if request.format == "histogram" {
             let mut supplied = self
                 .assembly
@@ -110,6 +111,7 @@ impl Runtime {
             max_shapes,
             histogram,
             ranked_other,
+            required_data,
         })
     }
     fn pin_source(&self, request: &VizRenderRequest) -> Result<CurrentAnalysis, EngineError> {
@@ -146,6 +148,31 @@ impl Runtime {
         )
         .map_err(source_error)
     }
+}
+
+fn required_data_admission(
+    assembly: &Assembly,
+    source: &CurrentAnalysis,
+    request: &VizRenderRequest,
+) -> Result<Option<RequiredDataAdmission>, EngineError> {
+    let Some(values) = assembly.producer.required_data_facts(source, request)? else {
+        return Ok(None);
+    };
+    let source_key = crate::required_data::SourceKey::from_current(source);
+    let facts = crate::required_data::Facts::bind(source, values);
+    let pinned = crate::required_data::PinnedFacts::bind(source, facts);
+    let evaluation = crate::required_data::evaluate(&request.format, &source_key, &pinned)
+        .map_err(|_| internal())?;
+    let formats = assembly.session.required_data_formats();
+    let available = crate::required_data::available_formats(&formats, &source_key, &pinned)
+        .map_err(|_| internal())?
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+    Ok(Some(RequiredDataAdmission {
+        formats: available,
+        evaluation,
+    }))
 }
 
 fn owner_bound_facts(source: &CurrentAnalysis, policy: SourcePolicyFacts) -> SourceFacts {

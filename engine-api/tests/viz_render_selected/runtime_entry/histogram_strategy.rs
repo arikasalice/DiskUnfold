@@ -183,6 +183,7 @@ fn fixture_inner(
     let producer = Arc::new(Producer {
         block: Mutex::new(Some((entered_sender, release_receiver))),
         unit_iec: AtomicBool::new(false),
+        required_data_opt_in: AtomicBool::new(false),
     });
     let mut builder = EngineBuilder::default();
     let assembly = Assembly {

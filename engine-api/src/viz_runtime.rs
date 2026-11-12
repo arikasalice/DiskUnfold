@@ -102,6 +102,16 @@ pub struct ItemEvidence {
 /// Implementations must return evidence for the supplied immutable result, and
 /// preserve semantics for the lifetime of their registered policy revisions.
 pub trait EvidenceProducer: Send + Sync + 'static {
+    /// Optionally supplies F06 facts read from this exact pinned source and request.
+    /// `None` preserves the legacy source-facts behavior. Unknown evidence is an
+    /// unresolved internal decision and must never be reported as data absence.
+    fn required_data_facts(
+        &self,
+        _source: &CurrentAnalysis,
+        _request: &VizRenderRequest,
+    ) -> Result<Option<crate::required_data::FactValues>, EngineError> {
+        Ok(None)
+    }
     /// Opt in to owner-bound F03 rule evidence without providing a rule copy.
     /// `None` keeps the existing compatibility contract and its mismatch check.
     fn source_policy_facts(
@@ -225,6 +235,12 @@ struct Admitted {
     max_shapes: usize,
     histogram: Option<HistogramFacts>,
     ranked_other: Option<crate::viz_pages::ranked_group::OtherPresentation>,
+    required_data: Option<RequiredDataAdmission>,
+}
+#[derive(Clone)]
+struct RequiredDataAdmission {
+    formats: Vec<String>,
+    evaluation: crate::required_data::Evaluation,
 }
 /// Owns admission, shared subscriptions and the physical F24 publication boundary.
 /// Lock order: admission serial -> F24 gate -> members -> computed -> cache/source.
