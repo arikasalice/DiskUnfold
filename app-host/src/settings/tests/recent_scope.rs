@@ -115,7 +115,7 @@ fn recent_scope_setting_defaults_on_when_restoration_fails()
 }
 
 #[test]
-fn shared_database_reads_limit_per_write_and_list_keeps_old_rows_until_then()
+fn shared_database_preserves_the_explicit_cap_for_writes_and_list_reads()
 -> Result<(), Box<dyn std::error::Error>> {
     use du_app_db::recent_scope::RecentWrite;
     use std::{num::NonZeroUsize, sync::atomic::AtomicBool};
@@ -134,7 +134,6 @@ fn shared_database_reads_limit_per_write_and_list_keeps_old_rows_until_then()
     .map_err(|e| format!("{e:?}"))?;
     let database = SharedDatabase::new(db, None);
     let cap = NonZeroUsize::new(2).ok_or("zero compatibility cap")?;
-    let physical_limit = NonZeroUsize::new(scope::RECENT_LIMIT_MAX).ok_or("zero list limit")?;
     let stopped = AtomicBool::new(false);
     let make_write = |index: usize, time: i64| {
         let mut id = [0; 16];
@@ -151,11 +150,31 @@ fn shared_database_reads_limit_per_write_and_list_keeps_old_rows_until_then()
             now_ms: time,
         }
     };
-    for index in 1..=60 {
+    for index in 1..=3 {
         database
             .put_recent_scope(cap, &make_write(index, index as i64), &stopped)
             .map_err(|e| format!("{e:?}"))?;
     }
+    let existing = database
+        .recent_scope_summaries(cap)
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(
+        existing.iter().map(|row| row.id).collect::<Vec<_>>(),
+        [make_write(3, 3).id, make_write(2, 2).id]
+    );
+    assert!(
+        database
+            .recent_scope(&make_write(1, 1).id)
+            .map_err(|e| format!("{e:?}"))?
+            .is_none()
+    );
+    assert!(
+        database
+            .recent_scope(&make_write(2, 2).id)
+            .map_err(|e| format!("{e:?}"))?
+            .is_some()
+    );
+
     let mut settings = database.settings();
     settings
         .commit(
@@ -164,21 +183,24 @@ fn shared_database_reads_limit_per_write_and_list_keeps_old_rows_until_then()
             context(),
         )
         .map_err(|e| format!("{e:?}"))?;
-    let existing = database
-        .recent_scope_summaries(physical_limit)
-        .map_err(|e| format!("{e:?}"))?;
-    assert_eq!(existing.len(), 60);
-    assert_eq!(existing.first().map(|row| row.last_used_at_ms), Some(60));
+    assert_eq!(
+        database
+            .recent_scope_summaries(cap)
+            .map_err(|e| format!("{e:?}"))?
+            .len(),
+        2
+    );
 
     database
-        .put_recent_scope(cap, &make_write(61, 61), &stopped)
+        .put_recent_scope(cap, &make_write(4, 4), &stopped)
         .map_err(|e| format!("{e:?}"))?;
     let retained = database
-        .recent_scope_summaries(physical_limit)
+        .recent_scope_summaries(cap)
         .map_err(|e| format!("{e:?}"))?;
-    assert_eq!(retained.len(), 50);
-    assert_eq!(retained.first().map(|row| row.last_used_at_ms), Some(61));
-    assert_eq!(retained.last().map(|row| row.last_used_at_ms), Some(12));
+    assert_eq!(
+        retained.iter().map(|row| row.id).collect::<Vec<_>>(),
+        [make_write(4, 4).id, make_write(3, 3).id]
+    );
 
     settings
         .commit(
@@ -188,14 +210,20 @@ fn shared_database_reads_limit_per_write_and_list_keeps_old_rows_until_then()
         )
         .map_err(|e| format!("{e:?}"))?;
     database
-        .put_recent_scope(cap, &make_write(62, 62), &stopped)
+        .put_recent_scope(cap, &make_write(5, 5), &stopped)
         .map_err(|e| format!("{e:?}"))?;
     assert_eq!(
         database
-            .recent_scope_summaries(physical_limit)
+            .recent_scope_summaries(cap)
             .map_err(|e| format!("{e:?}"))?
             .len(),
-        50
+        2
+    );
+    assert!(
+        database
+            .recent_scope(&make_write(5, 5).id)
+            .map_err(|e| format!("{e:?}"))?
+            .is_none()
     );
     Ok(())
 }

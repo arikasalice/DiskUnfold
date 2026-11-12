@@ -14,7 +14,7 @@ import type { SettingsRestoreStatus } from "../src/ipc";
 
 afterEach(cleanup);
 
-test("F14 FR6 names size settings and safely identifies unknown settings and errors", async () => {
+test("F14 FR6 and F01 Q8 name restored settings and identify unknown settings and errors", async () => {
   const report: SettingsRestoreStatus = {
     items: [
       { key: "display.size_unit", source: "restored", reasonKey: null },
@@ -23,6 +23,8 @@ test("F14 FR6 names size settings and safely identifies unknown settings and err
         source: "default",
         reasonKey: "settings.value_invalid",
       },
+      { key: "scope.remember_recent", source: "restored", reasonKey: null },
+      { key: "scope.recent_limit", source: "default", reasonKey: null },
       { key: "space.default_basis", source: "default", reasonKey: null },
       {
         key: "future.private_one",
@@ -49,6 +51,8 @@ test("F14 FR6 names size settings and safely identifies unknown settings and err
   for (const label of [
     "Size unit",
     "Unit system",
+    "Remember recent scan scopes",
+    "Recent scope limit",
     "Default size basis",
     "Unrecognized setting 1",
     "Unrecognized setting 2",

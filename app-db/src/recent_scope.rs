@@ -123,12 +123,15 @@ impl<'a> RecentScopeStore<'a> {
         })
     }
 
-    /// Reads the remember and retention settings together before a product write.
+    /// Reads the remember and retention settings together before a settings-driven write.
     ///
     /// FR8.HD1.app-host.DD2 and FR14.HD1.app-host.DD1: settings are read under
     /// the same immediate transaction as insertion, refresh, and eviction.
-    /// Missing rows and incompatible setting schemas reach `resolve` as `None`;
-    /// SQL failures abort the transaction. `None` from `resolve` skips the write.
+    /// Missing or malformed setting values reach `resolve` as `None`. A missing
+    /// settings table also reaches `resolve` as `None` only when the error is a
+    /// known missing-table error and the active transaction passes a read probe.
+    /// Other SQL failures abort the transaction. `None` from `resolve` skips
+    /// the write.
     pub fn put_with_settings(
         &mut self,
         item: &RecentWrite<'_>,
@@ -138,10 +141,10 @@ impl<'a> RecentScopeStore<'a> {
     ) -> Result<bool, RecentError> {
         self.put_if(item, |tx, _static_cap| {
             let stored: Option<(
-                i64,
+                rusqlite::types::Value,
                 Option<rusqlite::types::Value>,
                 Option<rusqlite::types::Value>,
-            )> = tx
+            )> = match tx
                 .query_row(
                     "SELECT v.schema_version, remember.value_json, retention.value_json
                  FROM user_env_setting_version v
@@ -152,9 +155,19 @@ impl<'a> RecentScopeStore<'a> {
                     |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
                 )
                 .optional()
-                .map_err(map)?;
+            {
+                Ok(stored) => stored,
+                Err(error) if settings_table_unavailable(tx, &error)? => None,
+                Err(error) => return Err(map(error)),
+            };
             let (remember, limit) = stored
-                .filter(|(schema, _, _)| *schema == i64::from(SETTINGS_SCHEMA_VERSION))
+                .filter(|(schema, _, _)| {
+                    matches!(
+                        schema,
+                        rusqlite::types::Value::Integer(version)
+                            if *version == i64::from(SETTINGS_SCHEMA_VERSION)
+                    )
+                })
                 .map_or((None, None), |(_, remember, limit)| {
                     (setting_text(remember), setting_text(limit))
                 });
@@ -262,6 +275,30 @@ fn setting_text(value: Option<rusqlite::types::Value>) -> Option<String> {
         Some(rusqlite::types::Value::Text(value)) => Some(value),
         Some(_) | None => None,
     }
+}
+
+fn settings_table_unavailable(
+    tx: &Transaction<'_>,
+    error: &rusqlite::Error,
+) -> Result<bool, RecentError> {
+    let expected_missing_table = matches!(
+        error,
+        rusqlite::Error::SqliteFailure(code, Some(message))
+            if code.code == ErrorCode::Unknown
+                && matches!(
+                    message.as_str(),
+                    "no such table: user_env_setting"
+                        | "no such table: user_env_setting_version"
+                )
+    );
+    if !expected_missing_table || tx.is_autocommit() {
+        return Ok(false);
+    }
+
+    let probe: i64 = tx
+        .query_row("SELECT 1", [], |row| row.get(0))
+        .map_err(map)?;
+    Ok(probe == 1 && !tx.is_autocommit())
 }
 
 fn read_summaries(db: &AppDb, cap: i64) -> Result<Vec<RecentSummary>, RecentError> {

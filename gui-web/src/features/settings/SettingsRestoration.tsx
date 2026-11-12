@@ -23,6 +23,7 @@ const names = new Map([
   ["locale.number_format", "Number format"],
   ["locale.time_zone_policy", "Time zone policy"],
   ["scope.remember_recent", "Remember recent scan scopes"],
+  ["scope.recent_limit", "Recent scope limit"],
   ["space.default_basis", "Default size basis"],
   ["space.shared_table_max_entries", "File identity limit"],
 ]);

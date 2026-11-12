@@ -1,5 +1,7 @@
 use super::*;
 
+mod setting_failures;
+
 fn test_write_limit(remember: Option<&str>, limit: Option<&str>) -> Option<NonZeroUsize> {
     if !remember
         .and_then(|value| serde_json::from_str::<bool>(value).ok())
@@ -118,7 +120,8 @@ fn persisted_cap_changes_apply_only_to_the_next_successful_write() -> TestResult
 }
 
 #[test]
-fn product_settings_write_uses_one_immediate_transaction_and_fails_on_sql_errors() -> TestResult {
+fn product_settings_write_uses_one_immediate_transaction_and_defaults_invalid_values() -> TestResult
+{
     use du_core_contracts::settings::{
         SettingsChanges, SettingsCommit, SettingsSource, SettingsStore, SettingsStoreError,
     };
@@ -184,12 +187,12 @@ fn product_settings_write_uses_one_immediate_transaction_and_fails_on_sql_errors
     }
 
     db.connection.execute(
-        "UPDATE user_env_setting SET value_json='true' WHERE setting_key='scope.remember_recent'",
-        [],
+        "UPDATE user_env_setting SET value_json=?1 WHERE setting_key='scope.remember_recent'",
+        [serde_json::json!("not-boolean").to_string()],
     )?;
     db.connection.execute(
         "UPDATE user_env_setting SET value_json=?1 WHERE setting_key='scope.recent_limit'",
-        [serde_json::json!("51").to_string()],
+        [serde_json::json!(500).to_string()],
     )?;
     {
         let mut store =
@@ -197,32 +200,36 @@ fn product_settings_write_uses_one_immediate_transaction_and_fails_on_sql_errors
         assert!(
             store
                 .put_with_settings(
-                    &write(4, 4, 40),
+                    &write(3, 3, 30),
                     "scope.remember_recent",
                     "scope.recent_limit",
-                    |remember, limit| {
-                        assert_eq!(remember, Some("true"));
-                        assert_eq!(limit, Some("\"51\""));
-                        test_write_limit(remember, limit)
-                    },
+                    test_write_limit,
                 )
                 .map_err(|e| format!("{e:?}"))?
         );
         assert_eq!(store.list().map_err(|e| format!("{e:?}"))?.len(), 2);
     }
 
-    db.connection.execute("DROP TABLE user_env_setting", [])?;
+    db.connection.execute(
+        "UPDATE user_env_setting SET value_json='true' WHERE setting_key='scope.remember_recent'",
+        [],
+    )?;
+    db.connection.execute(
+        "UPDATE user_env_setting SET value_json=?1 WHERE setting_key='scope.recent_limit'",
+        [serde_json::json!("51").to_string()],
+    )?;
     let mut store = RecentScopeStore::new(&mut db, cap, &valid).map_err(|e| format!("{e:?}"))?;
-    assert_eq!(
-        store.put_with_settings(
-            &write(3, 3, 30),
-            "scope.remember_recent",
-            "scope.recent_limit",
-            test_write_limit,
-        ),
-        Err(RecentError::Storage)
+    assert!(
+        store
+            .put_with_settings(
+                &write(4, 4, 40),
+                "scope.remember_recent",
+                "scope.recent_limit",
+                test_write_limit,
+            )
+            .map_err(|e| format!("{e:?}"))?
     );
-    assert_eq!(store.list().map_err(|e| format!("{e:?}"))?.len(), 2);
+    assert_eq!(store.list().map_err(|e| format!("{e:?}"))?.len(), 3);
     Ok(())
 }
 

@@ -13,12 +13,13 @@ use du_engine_api::{
 use crate::shared_database::SharedDatabase;
 
 /// Registers the list on the application-owned GUI command boundary.
-pub(crate) fn register(builder: &mut EngineBuilder, database: SharedDatabase, _cap: NonZeroUsize) {
-    builder.register(List { database });
+pub(crate) fn register(builder: &mut EngineBuilder, database: SharedDatabase, cap: NonZeroUsize) {
+    builder.register(List { database, cap });
 }
 
 struct List {
     database: SharedDatabase,
+    cap: NonZeroUsize,
 }
 
 impl UseCase for List {
@@ -31,14 +32,11 @@ impl UseCase for List {
         Ok(())
     }
 
-    /// FR8.HD1.app-host.DD2: listing is independent of the current write limit.
     fn execute(&self, _: Self::Request, _: &CallerCtx) -> Result<Self::Response, EngineError> {
         let unavailable = || EngineError::new("support.internal_error", Vec::new());
-        let cap =
-            NonZeroUsize::new(du_user_env::scope::RECENT_LIMIT_MAX).ok_or_else(unavailable)?;
         let rows = self
             .database
-            .recent_scope_summaries(cap)
+            .recent_scope_summaries(self.cap)
             .map_err(|_| unavailable())?;
         let rows = rows
             .into_iter()

@@ -148,7 +148,7 @@ fn corrupt_summary_or_read_failure_is_an_internal_error_with_no_rows() -> TestRe
 }
 
 #[test]
-fn list_uses_the_500_row_physical_bound_independent_of_the_write_setting() -> TestResult {
+fn list_uses_the_explicit_cap_supplied_by_fixed_composition() -> TestResult {
     let dir = tempfile::tempdir()?;
     let seed = |name: &str, count: usize| -> Result<AppDb, Box<dyn std::error::Error>> {
         let path = dir.path().join(name);
@@ -166,11 +166,11 @@ fn list_uses_the_500_row_physical_bound_independent_of_the_write_setting() -> Te
         Ok(db)
     };
 
-    let at_limit = ipc(&engine(seed("at-limit.db", 500)?)?, json!({}))?;
+    let at_limit = ipc(&engine(seed("at-limit.db", 3)?)?, json!({}))?;
     assert!(at_limit.error.is_none());
-    assert_eq!(at_limit.body["rows"].as_array().map(Vec::len), Some(500));
+    assert_eq!(at_limit.body["rows"].as_array().map(Vec::len), Some(3));
 
-    let over_limit = ipc(&engine(seed("over-limit.db", 501)?)?, json!({}))?;
+    let over_limit = ipc(&engine(seed("over-limit.db", 4)?)?, json!({}))?;
     assert_eq!(
         over_limit.error.ok_or("missing overflow error")?.reason_key,
         "support.internal_error"
