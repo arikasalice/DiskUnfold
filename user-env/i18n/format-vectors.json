@@ -94,7 +94,7 @@
       "profile": { "numberFormatId": "lang_default", "dateFormatId": "lang_default", "timeZonePolicy": "utc", "sizeUnitSystem": "iec", "sizeUnit": "auto" },
       "localOffsetSeconds": null,
       "expected": {
-        "visual": { "kind": "literal", "text": "1023 B" },
+        "visual": { "kind": "literal", "text": "1,023 B" },
         "screenReader": { "kind": "quantity", "number": "1023", "unitId": "B" },
         "markers": [], "unknownReason": null, "warnings": []
       }

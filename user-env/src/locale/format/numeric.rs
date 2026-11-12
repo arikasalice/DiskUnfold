@@ -14,7 +14,7 @@ pub(super) fn format_count(request: &FormatRequest<'_>) -> FormatOutput {
 fn count_output(request: &FormatRequest<'_>, value: u64, lower_bound: bool) -> FormatOutput {
     let mut warnings = Vec::new();
     let grouped = use_grouping(request.profile.number_format_id, &mut warnings);
-    let separators = number_separators(request.table, &mut warnings);
+    let separators = number_separators(&request.table, &mut warnings);
     let text = format_integer(value.to_string(), grouped, separators);
     let mut output = known_output(
         text,
@@ -39,7 +39,7 @@ pub(super) fn format_number_value(request: &FormatRequest<'_>) -> FormatOutput {
 fn decimal_output(request: &FormatRequest<'_>, value: Decimal, lower_bound: bool) -> FormatOutput {
     let mut warnings = Vec::new();
     let grouped = use_grouping(request.profile.number_format_id, &mut warnings);
-    let separators = number_separators(request.table, &mut warnings);
+    let separators = number_separators(&request.table, &mut warnings);
     let visual = format_decimal(value, grouped, separators);
     let spoken = format_decimal(value, false, separators);
     let mut output = known_output(visual, ScreenReaderOutput::Plain(spoken), lower_bound);
@@ -58,7 +58,7 @@ pub(super) fn format_capacity(request: &FormatRequest<'_>) -> FormatOutput {
     };
     let mut warnings = Vec::new();
     let grouped = use_grouping(request.profile.number_format_id, &mut warnings);
-    let separators = number_separators(request.table, &mut warnings);
+    let separators = number_separators(&request.table, &mut warnings);
     let unit_table = size_unit_table(request.profile.size_unit_system, &mut warnings);
     let unit_index = selected_unit(bytes, request.profile.size_unit, unit_table, &mut warnings);
     let unit_id = unit_table.symbols()[unit_index];
@@ -162,6 +162,7 @@ fn format_tenths_or_integer(
     format_decimal_parts(integer, fraction, false, grouped, separators)
 }
 
+#[derive(Clone, Copy)]
 struct NumberSeparators<'a> {
     decimal: &'a str,
     grouping: &'a str,
