@@ -375,6 +375,7 @@ export {
   hasDesktopLocaleBridge,
   hasStartupStatusBridge,
   hasWindowsAnalysisBridge,
+  NativeIpcTransportError,
 } from "./bridge";
 export type { CallEnvelope, ResultEnvelope } from "./generated/contracts";
 export function createIpcClient(transport: Transport = invokeNative) {

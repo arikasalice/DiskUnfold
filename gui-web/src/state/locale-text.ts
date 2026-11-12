@@ -22,6 +22,11 @@ function plainMessage(bundle: LocaleBundleBody, key: string) {
     : undefined;
 }
 
+/** Renders parameterless text only from a bundle supplied by the native host. */
+export function createVerifiedBundleText(bundle: LocaleBundleBody): LocaleText {
+  return (key) => plainMessage(bundle, key) ?? key;
+}
+
 function integer(value: string | bigint | undefined) {
   if (typeof value === "bigint") return value;
   return value !== undefined && /^-?(0|[1-9][0-9]*)$/.test(value)

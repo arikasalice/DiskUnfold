@@ -5,7 +5,10 @@ import { LocaleTextContext, useLocaleText } from "../i18n/presentation";
 import { RegionalFormatContext } from "../i18n/regional-format";
 import type { RegionalFormat } from "../i18n/regional-format";
 import type { AnalysisClient } from "../ipc";
-import { createLocaleText } from "../state/locale-text";
+import {
+  createLocaleText,
+  createVerifiedBundleText,
+} from "../state/locale-text";
 import { makeLocaleReporter } from "../state/locale-missing";
 import { useLocale } from "../state/use-locale";
 import type { LocaleView } from "../state/use-locale";
@@ -70,7 +73,8 @@ export function DesktopLocale({
   children?: ReactNode;
 }) {
   const fallbackText = useLocaleText();
-  const { view, save, retry, errorKey, commandError } = useLocale(client);
+  const { view, startupFallbackBundle, save, retry, errorKey, commandError } =
+    useLocale(client, children != null);
   const reporter = useMemo(() => makeLocaleReporter(client), [client]);
   useEffect(() => () => reporter.cancel(), [reporter]);
   const format = useMemo(() => view && regionalFormat(view), [view]);
@@ -80,6 +84,16 @@ export function DesktopLocale({
   );
   useLocalePresentation(view);
   if (!view || !text) {
+    if (children && startupFallbackBundle) {
+      const startupText = createVerifiedBundleText(startupFallbackBundle);
+      return (
+        <LocaleTextContext.Provider value={startupText}>
+          <Notice tone="error">{startupText("ui.locale.failed", "")}</Notice>
+          <Action onPress={retry}>{startupText("ui.common.retry", "")}</Action>
+          {children}
+        </LocaleTextContext.Provider>
+      );
+    }
     return (
       <main className="du-app">
         {errorKey ? (

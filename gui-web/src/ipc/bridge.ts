@@ -8,6 +8,14 @@ import type {
 
 type NativeRequest = (payload: string) => Promise<string>;
 
+/** Distinguishes a native reply failure from a structured command error. */
+export class NativeIpcTransportError extends Error {
+  constructor() {
+    super("DiskUnfold native IPC reply failed");
+    this.name = "NativeIpcTransportError";
+  }
+}
+
 interface NativeWindow extends Window {
   __diskunfoldRequest?: NativeRequest;
   __diskunfoldLocale?: boolean;
@@ -205,7 +213,12 @@ export async function invokeNative(
     throw new Error("DiskUnfold IPC requires the main frame");
   const invoke = host.__diskunfoldRequest ?? handler?.postMessage.bind(handler);
   if (!invoke) throw new Error("DiskUnfold native IPC is unavailable");
-  const rawResult = await invoke(payload);
+  let rawResult: string;
+  try {
+    rawResult = await invoke(payload);
+  } catch {
+    throw new NativeIpcTransportError();
+  }
   let parsedResult: unknown;
   try {
     parsedResult = JSON.parse(rawResult) as unknown;

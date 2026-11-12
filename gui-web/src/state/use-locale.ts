@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useSyncExternalStore } from "react";
-import { AnalysisError } from "../ipc";
+import { AnalysisError, NativeIpcTransportError } from "../ipc";
 import type {
   AnalysisClient,
   EventEnvelope,
@@ -18,6 +18,7 @@ export type LocaleView = {
 
 type LocaleState = {
   view?: LocaleView;
+  startupFallbackBundle?: LocaleBundleBody;
   errorKey?: string;
   commandError?: { code: string; reasonKey: string };
 };
@@ -46,7 +47,10 @@ function localeRevision(event: EventEnvelope) {
   return undefined;
 }
 
-function makeLocaleSession(client: AnalysisClient) {
+function makeLocaleSession(
+  client: AnalysisClient,
+  allowStartupFallback: boolean,
+) {
   let state = initialState;
   let active = false;
   let request = 0;
@@ -96,13 +100,76 @@ function makeLocaleSession(client: AnalysisClient) {
     };
   }
 
+  async function loadStartupFallbackBundle() {
+    const response = await client.call("i18n.get_bundle", {
+      language: baselineLanguage,
+    });
+    if (!response.bundleRevision || !response.bundle)
+      throw new Error("Verified baseline bundle is unavailable");
+    return response.bundle;
+  }
+
+  async function startupFallbackBundleFor(
+    stage: "profile" | "bundles",
+    error: unknown,
+  ) {
+    if (
+      stage !== "profile" ||
+      !allowStartupFallback ||
+      state.view ||
+      !(error instanceof NativeIpcTransportError)
+    )
+      return undefined;
+    try {
+      return await loadStartupFallbackBundle();
+    } catch {
+      return undefined;
+    }
+  }
+
+  function failedState(
+    errorKey?: string,
+    commandError?: LocaleState["commandError"],
+  ): LocaleState {
+    const previous = { ...state };
+    delete previous.startupFallbackBundle;
+    return {
+      ...previous,
+      errorKey: errorKey ?? loadError,
+      ...(commandError && { commandError }),
+    };
+  }
+
+  async function publishRefreshFailure(
+    ticket: number,
+    stage: "profile" | "bundles",
+    error: unknown,
+    errorKey?: string,
+    commandError?: LocaleState["commandError"],
+  ) {
+    if (!active || ticket !== request) return;
+    const startupFallbackBundle = await startupFallbackBundleFor(stage, error);
+    if (!active || ticket !== request) return;
+    if (startupFallbackBundle) {
+      publish({
+        startupFallbackBundle,
+        errorKey: errorKey ?? loadError,
+        ...(commandError && { commandError }),
+      });
+      return;
+    }
+    publish(failedState(errorKey, commandError));
+  }
+
   async function refresh(
     errorKey?: string,
     commandError?: LocaleState["commandError"],
   ) {
     const ticket = ++request;
+    let stage: "profile" | "bundles" = "profile";
     try {
       const profile = await client.call("i18n.get_profile", {});
+      stage = "bundles";
       const current = state.view?.profile;
       if (
         current &&
@@ -116,13 +183,8 @@ function makeLocaleSession(client: AnalysisClient) {
           ...(errorKey && { errorKey }),
           ...(commandError && { commandError }),
         });
-    } catch {
-      if (active && ticket === request)
-        publish({
-          ...state,
-          errorKey: errorKey ?? loadError,
-          ...(commandError && { commandError }),
-        });
+    } catch (error) {
+      await publishRefreshFailure(ticket, stage, error, errorKey, commandError);
     }
   }
 
@@ -202,8 +264,14 @@ function makeLocaleSession(client: AnalysisClient) {
   };
 }
 
-export function useLocale(client: AnalysisClient) {
-  const session = useMemo(() => makeLocaleSession(client), [client]);
+export function useLocale(
+  client: AnalysisClient,
+  allowStartupFallback = false,
+) {
+  const session = useMemo(
+    () => makeLocaleSession(client, allowStartupFallback),
+    [client, allowStartupFallback],
+  );
   const state = useSyncExternalStore(session.subscribe, session.snapshot);
   useEffect(() => session.start(), [session]);
   return { ...state, retry: session.retry, save: session.save };
