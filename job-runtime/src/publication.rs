@@ -231,9 +231,42 @@ impl JobRuntime {
         })
     }
 
+    /// Validates a query binding and conditionally cancels under its publication gate.
+    ///
+    /// `check_and_detach` must verify the exact caller-owned binding. It returns
+    /// `false` for a nonmatching binding and may detach only while the supplied
+    /// state is nonterminal. It must release its own locks before returning, do
+    /// no I/O, avoid runtime reentry, and leave no partial change on error or panic.
+    /// A matching terminal job is reported without changing its published result.
+    pub fn cancel_query_if(
+        &self,
+        id: &Id,
+        check_and_detach: impl FnOnce(JobState) -> Result<bool, RuntimeError>,
+    ) -> Result<Option<(CancelResult, u64)>, RuntimeError> {
+        let mut retired = None;
+        self.with_publication_gate(id, "query.evaluate", |state, sequence| {
+            if !check_and_detach(state)? {
+                return Ok(None);
+            }
+            if state.is_terminal() {
+                return Ok(Some((CancelResult::AlreadyTerminal(state), sequence)));
+            }
+            self.cancel_under_gate(id, &mut retired).map(Some)
+        })
+    }
+
     fn with_viz_gate<T>(
         &self,
         id: &Id,
+        operation: impl FnOnce(JobState, u64) -> Result<T, RuntimeError>,
+    ) -> Result<T, RuntimeError> {
+        self.with_publication_gate(id, "viz.compute", operation)
+    }
+
+    fn with_publication_gate<T>(
+        &self,
+        id: &Id,
+        kind: &str,
         operation: impl FnOnce(JobState, u64) -> Result<T, RuntimeError>,
     ) -> Result<T, RuntimeError> {
         let gate = self
@@ -243,7 +276,7 @@ impl JobRuntime {
         let (state, sequence) = {
             let table = self.table.lock().map_err(|_| RuntimeError::Poisoned)?;
             let job = table.jobs.get(id).ok_or(RuntimeError::NotFound)?;
-            if job.descriptor.kind_id != "viz.compute" {
+            if job.descriptor.kind_id != kind {
                 return Err(RuntimeError::InvalidDescriptor);
             }
             (job.state, job.sequence)

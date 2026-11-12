@@ -2,6 +2,7 @@ use super::*;
 use std::sync::atomic::AtomicBool;
 
 mod duplicate_completion;
+mod query_gate;
 mod subscriptions;
 
 struct QueryBody {
