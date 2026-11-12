@@ -264,6 +264,15 @@ impl JobRuntime {
         let now = self.clock.now_ms();
         let mut table = self.table.lock().map_err(|_| RuntimeError::Poisoned)?;
         expire(&mut table, now);
+        self.cancel_locked(id, retired, table)
+    }
+
+    fn cancel_locked(
+        &self,
+        id: &Id,
+        retired: &mut Option<RetiredVizJob>,
+        mut table: std::sync::MutexGuard<'_, Table>,
+    ) -> Result<(CancelResult, u64), RuntimeError> {
         let job = table.jobs.get_mut(id).ok_or(RuntimeError::NotFound)?;
         if job.state.is_terminal() {
             return Ok((CancelResult::AlreadyTerminal(job.state), job.sequence));

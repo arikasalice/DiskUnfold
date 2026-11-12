@@ -224,6 +224,10 @@ fn region_stop_and_runtime_cancel_share_the_publication_gate()
         })
     };
     region_stopped.wait();
+    assert!(matches!(
+        runtime.table.try_lock(),
+        Err(std::sync::TryLockError::WouldBlock)
+    ));
     body_release.wait();
     assert!(!committed.load(Ordering::SeqCst));
     cancel_release.wait();
@@ -235,5 +239,185 @@ fn region_stop_and_runtime_cancel_share_the_publication_gate()
     worker.join().map_err(|_| "worker panicked")??;
     assert_eq!(runtime.state(&id)?, JobState::Cancelled);
     assert!(!committed.load(Ordering::SeqCst));
+    Ok(())
+}
+
+#[test]
+fn delivery_failure_after_stop_leaves_cancel_intent_and_terminal_recoverable()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (runtime, id) = setup()?;
+    let entered = Arc::new(Barrier::new(2));
+    let release = Arc::new(Barrier::new(2));
+    let published = Arc::new(AtomicBool::new(false));
+    let commit = published.clone();
+    let reference = id.clone();
+    runtime.submit_with_publication(
+        submission(entered.clone(), release.clone(), id.clone()),
+        move || {
+            commit.store(true, Ordering::SeqCst);
+            Ok(reference)
+        },
+    )?;
+    let worker = {
+        let runtime = runtime.clone();
+        std::thread::spawn(move || runtime.run_next())
+    };
+    entered.wait();
+    let sender = runtime.table.lock().map_err(|_| "poisoned")?.sender.take();
+    let stopped = AtomicBool::new(false);
+    assert_eq!(
+        runtime.cancel_query_if(&id, |_| {
+            stopped.store(true, Ordering::SeqCst);
+            Ok(true)
+        }),
+        Err(RuntimeError::DeliveryUnavailable)
+    );
+    assert!(stopped.load(Ordering::SeqCst));
+    assert_eq!(runtime.state(&id)?, JobState::CancelRequested);
+    runtime.table.lock().map_err(|_| "poisoned")?.sender = sender;
+    release.wait();
+    worker.join().map_err(|_| "worker panicked")??;
+    assert_eq!(runtime.snapshot(&id)?.state, JobState::Cancelled);
+    assert_eq!(runtime.snapshot(&id)?.result_version_id, None);
+    assert!(!published.load(Ordering::SeqCst));
+    Ok(())
+}
+
+#[test]
+fn poisoned_runtime_rejects_before_region_change_and_cannot_report()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (runtime, id) = setup()?;
+    runtime.submit_with_publication(
+        submission(
+            Arc::new(Barrier::new(1)),
+            Arc::new(Barrier::new(1)),
+            id.clone(),
+        ),
+        {
+            let id = id.clone();
+            move || Ok(id)
+        },
+    )?;
+    let poisoned = runtime.clone();
+    let _ = std::thread::spawn(move || {
+        let _guard = poisoned.table.lock().unwrap_or_else(|e| e.into_inner());
+        std::panic::resume_unwind(Box::new("injected table poison"));
+    })
+    .join();
+    let stopped = AtomicBool::new(false);
+    assert_eq!(
+        runtime.cancel_query_if(&id, |_| {
+            stopped.store(true, Ordering::SeqCst);
+            Ok(true)
+        }),
+        Err(RuntimeError::Poisoned)
+    );
+    assert!(!stopped.load(Ordering::SeqCst));
+    assert_eq!(runtime.state(&id), Err(RuntimeError::Poisoned));
+    assert_eq!(runtime.run_next(), Err(RuntimeError::Poisoned));
+    Ok(())
+}
+
+#[test]
+fn poison_after_cancel_blocks_publication_but_prevents_terminal_report()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (runtime, id) = setup()?;
+    let entered = Arc::new(Barrier::new(2));
+    let release = Arc::new(Barrier::new(2));
+    let published = Arc::new(AtomicBool::new(false));
+    let commit = published.clone();
+    let reference = id.clone();
+    runtime.submit_with_publication(
+        submission(entered.clone(), release.clone(), id.clone()),
+        move || {
+            commit.store(true, Ordering::SeqCst);
+            Ok(reference)
+        },
+    )?;
+    let worker = {
+        let runtime = runtime.clone();
+        std::thread::spawn(move || runtime.run_next())
+    };
+    entered.wait();
+    assert!(matches!(
+        runtime.cancel_query_if(&id, |_| Ok(true))?,
+        Some((CancelResult::Accepted(JobState::CancelRequested), _))
+    ));
+    let poisoned = runtime.clone();
+    let _ = std::thread::spawn(move || {
+        let _guard = poisoned.table.lock().unwrap_or_else(|e| e.into_inner());
+        std::panic::resume_unwind(Box::new("injected table poison"));
+    })
+    .join();
+    release.wait();
+    assert_eq!(
+        worker.join().map_err(|_| "worker panicked")?,
+        Err(RuntimeError::Poisoned)
+    );
+    assert!(!published.load(Ordering::SeqCst));
+    assert_eq!(runtime.state(&id), Err(RuntimeError::Poisoned));
+    Ok(())
+}
+
+#[test]
+fn queued_delivery_failure_retains_cancelled_snapshot() -> Result<(), Box<dyn std::error::Error>> {
+    let (runtime, id) = setup()?;
+    runtime.submit_with_publication(
+        submission(
+            Arc::new(Barrier::new(1)),
+            Arc::new(Barrier::new(1)),
+            id.clone(),
+        ),
+        {
+            let id = id.clone();
+            move || Ok(id)
+        },
+    )?;
+    let sender = runtime.table.lock().map_err(|_| "poisoned")?.sender.take();
+    assert_eq!(
+        runtime.cancel_query_if(&id, |_| Ok(true)),
+        Err(RuntimeError::DeliveryUnavailable)
+    );
+    assert_eq!(runtime.snapshot(&id)?.state, JobState::Cancelled);
+    assert_eq!(runtime.snapshot(&id)?.result_version_id, None);
+    runtime.table.lock().map_err(|_| "poisoned")?.sender = sender;
+    assert_eq!(runtime.run_next()?, None);
+    Ok(())
+}
+
+#[test]
+fn unsupported_cancel_never_calls_region() -> Result<(), Box<dyn std::error::Error>> {
+    let (runtime, id) = setup()?;
+    runtime.submit_with_publication(
+        submission(
+            Arc::new(Barrier::new(1)),
+            Arc::new(Barrier::new(1)),
+            id.clone(),
+        ),
+        {
+            let id = id.clone();
+            move || Ok(id)
+        },
+    )?;
+    runtime
+        .table
+        .lock()
+        .map_err(|_| "poisoned")?
+        .jobs
+        .get_mut(&id)
+        .ok_or("missing")?
+        .descriptor
+        .controls
+        .clear();
+    let called = AtomicBool::new(false);
+    assert_eq!(
+        runtime.cancel_query_if(&id, |_| {
+            called.store(true, Ordering::SeqCst);
+            Ok(true)
+        }),
+        Err(RuntimeError::InvalidDescriptor)
+    );
+    assert!(!called.load(Ordering::SeqCst));
+    assert_eq!(runtime.state(&id)?, JobState::Queued);
     Ok(())
 }

@@ -235,24 +235,48 @@ impl JobRuntime {
     ///
     /// `check_and_detach` must verify the exact caller-owned binding. It returns
     /// `false` for a nonmatching binding and may detach only while the supplied
-    /// state is nonterminal. It must release its own locks before returning, do
-    /// no I/O, avoid runtime reentry, and leave no partial change on error or panic.
+    /// state is nonterminal. It runs under the runtime table lock, following the
+    /// table-to-owner lock order of admission; it must be bounded, release owner
+    /// locks before returning, do no I/O or runtime reentry, and leave no partial
+    /// change on error or panic. A nonterminal query without cancellation support
+    /// is rejected before invoking it.
     /// A matching terminal job is reported without changing its published result.
     pub fn cancel_query_if(
         &self,
         id: &Id,
         check_and_detach: impl FnOnce(JobState) -> Result<bool, RuntimeError>,
     ) -> Result<Option<(CancelResult, u64)>, RuntimeError> {
+        let gate = self
+            .publication_gate(id)?
+            .ok_or(RuntimeError::InvalidState)?;
+        let _guard = gate.lock().map_err(|_| RuntimeError::Poisoned)?;
+        let now = self.clock.now_ms();
+        let mut table = self.table.lock().map_err(|_| RuntimeError::Poisoned)?;
+        crate::expire(&mut table, now);
+        let job = table.jobs.get(id).ok_or(RuntimeError::NotFound)?;
+        if job.descriptor.kind_id != "query.evaluate" {
+            return Err(RuntimeError::InvalidDescriptor);
+        }
+        let (state, sequence) = (job.state, job.sequence);
+        if !state.is_terminal()
+            && !job
+                .descriptor
+                .controls
+                .contains(&du_core_contracts::job::JobControl::Cancel)
+        {
+            return Err(RuntimeError::InvalidDescriptor);
+        }
+        let matched =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| check_and_detach(state)))
+                .map_err(|_| RuntimeError::InvalidState)??;
+        if !matched {
+            return Ok(None);
+        }
+        if state.is_terminal() {
+            return Ok(Some((CancelResult::AlreadyTerminal(state), sequence)));
+        }
         let mut retired = None;
-        self.with_publication_gate(id, "query.evaluate", |state, sequence| {
-            if !check_and_detach(state)? {
-                return Ok(None);
-            }
-            if state.is_terminal() {
-                return Ok(Some((CancelResult::AlreadyTerminal(state), sequence)));
-            }
-            self.cancel_under_gate(id, &mut retired).map(Some)
-        })
+        self.cancel_locked(id, &mut retired, table).map(Some)
     }
 
     fn with_viz_gate<T>(
