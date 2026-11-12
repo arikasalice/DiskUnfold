@@ -368,6 +368,15 @@ function VisualizationStatus({
         <Notice>{text.message("cancelled")}</Notice>
       )}
       <RenderRetry state={state} controller={controller} text={text} />
+      {state.revisionCheck && (
+        <Notice>
+          {text.message(
+            state.revisionCheck === "stale"
+              ? "revisionStale"
+              : "revisionUnverified",
+          )}
+        </Notice>
+      )}
       {state.phase === "unavailable" &&
         state.response?.kind === "unavailable" && (
           <Notice>

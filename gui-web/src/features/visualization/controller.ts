@@ -1,3 +1,4 @@
+import { AnalysisError } from "../../ipc";
 import type {
   AnalysisJobStatus,
   ItemRef,
@@ -47,6 +48,7 @@ export type VisualizationSnapshot = {
   previousSelection: VizSelection | null;
   previousSelectionEvidence: SelectionEvidence | null;
   offeredRevision: string | null;
+  revisionCheck: "stale" | "unverified" | null;
   phase:
     | "initial"
     | "loading"
@@ -70,6 +72,19 @@ function sameItem(
 }
 function pageFor(frame: ModelResponse | null, page: ModelRowsPage | null) {
   return !!frame && !!page && matchingRowsPage(frame, page);
+}
+function visibleFrames(
+  graph: ModelResponse | undefined,
+  table: ModelResponse | null,
+) {
+  if (!graph) return table ? [table] : [];
+  if (
+    !table ||
+    (table.model.modelRef === graph.model.modelRef &&
+      table.resultRevision === graph.resultRevision)
+  )
+    return [graph];
+  return [graph, table];
 }
 function validFrame(frame: ModelResponse) {
   return adaptVizModel(frame, undefined, () => ({
@@ -190,6 +205,7 @@ export class VisualizationController {
     previousSelection: null,
     previousSelectionEvidence: null,
     offeredRevision: null,
+    revisionCheck: null,
     phase: "initial",
     response: null,
     job: null,
@@ -203,6 +219,7 @@ export class VisualizationController {
   private lastEvidence: readonly Reconciled[] = [];
   private focusHasKey = false;
   private rowsSeq = 0;
+  private revisionCheckSeq = 0;
   private listeners = new Set<() => void>();
   constructor(private readonly port: VisualizationPort) {}
   getSnapshot = () => this.state;
@@ -224,6 +241,49 @@ export class VisualizationController {
   offerRevision(revision: string) {
     if (revision !== this.state.graph?.frame.resultRevision)
       this.update({ offeredRevision: revision });
+  }
+  /** Rechecks the exact visible models without replacing their source or row pages. */
+  async recheckVisibleModels(alive: () => boolean) {
+    const graph = this.state.graph;
+    const table = this.state.table;
+    const seq = ++this.revisionCheckSeq;
+    const frames = visibleFrames(graph?.frame, table);
+    const results = await Promise.all(
+      frames.map((frame) => this.checkFrame(frame)),
+    );
+    if (
+      !alive() ||
+      seq !== this.revisionCheckSeq ||
+      graph !== this.state.graph ||
+      table !== this.state.table
+    )
+      return;
+    const revisionCheck = results.includes("stale")
+      ? "stale"
+      : results.includes("unverified")
+        ? "unverified"
+        : null;
+    if (revisionCheck !== this.state.revisionCheck)
+      this.update({ revisionCheck });
+  }
+  private async checkFrame(frame: ModelResponse) {
+    const request = {
+      modelRef: frame.model.modelRef,
+      resultRevision: frame.resultRevision,
+      start: 0,
+      count: 1,
+    };
+    try {
+      const response = await this.port.rows(request);
+      return matchingRowsPage(frame, { request, response })
+        ? null
+        : "unverified";
+    } catch (error) {
+      return error instanceof AnalysisError &&
+        ["STALE_VERSION", "NOT_FOUND"].includes(error.code)
+        ? "stale"
+        : "unverified";
+    }
   }
   select(selection: VizSelection | null) {
     const frame = this.state.graph?.frame;
@@ -381,6 +441,7 @@ export class VisualizationController {
         canDisplay && this.state.offeredRevision === response.resultRevision
           ? null
           : this.state.offeredRevision,
+      revisionCheck: null,
       phase: "model",
       job: null,
       response,

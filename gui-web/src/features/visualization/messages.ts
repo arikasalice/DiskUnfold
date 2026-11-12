@@ -26,6 +26,10 @@ export const visualizationMessages = {
     newerAvailable:
       "A newer result is available. This graph remains pinned to the earlier observation.",
     reviewNewer: "Review newer result",
+    revisionStale:
+      "A displayed result is no longer available for lookup. Reopen the visualization to review the selected result.",
+    revisionUnverified:
+      "Could not recheck a displayed result. Reopen the visualization to check the selected result.",
     newerRegion: "Items in this result",
     loadNewer: "Load items in this result",
     loadingNewer: "Loading items in this result",
@@ -81,6 +85,10 @@ export const visualizationMessages = {
     newerAvailable:
       "새 결과가 있습니다. 현재 그래프는 이전 관측에 고정되어 있습니다.",
     reviewNewer: "새 결과 검토",
+    revisionStale:
+      "표시된 결과를 더 이상 조회할 수 없습니다. 선택한 결과를 보려면 시각화를 다시 여세요.",
+    revisionUnverified:
+      "표시된 결과를 다시 확인하지 못했습니다. 선택한 결과를 확인하려면 시각화를 다시 여세요.",
     newerRegion: "이번 결과의 항목",
     loadNewer: "이번 결과의 항목 불러오기",
     loadingNewer: "이번 결과의 항목 불러오는 중",
