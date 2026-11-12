@@ -80,6 +80,60 @@ fn older_macos_database_is_preserved_and_startup_stops_without_migrating() -> Te
 }
 
 #[test]
+fn existing_older_database_wal_and_shm_survive_startup_refusal() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join(DATABASE_FILE);
+    drop(AppDb::create_gui(&path).map_err(open_error)?);
+
+    // Create a committed WAL frame and keep its connection open so SQLite must use the
+    // existing WAL/SHM state when startup performs its read-only schema probe.
+    let writer = Connection::open(&path)?;
+    writer.pragma_update(None, "wal_autocheckpoint", 0)?;
+    writer.execute_batch(
+        "CREATE TABLE wal_fixture (value INTEGER NOT NULL);
+         INSERT INTO wal_fixture (value) VALUES (41);",
+    )?;
+    let wal = path.with_extension("db-wal");
+    let shm = path.with_extension("db-shm");
+    let db_before = fs::read(&path)?;
+    let wal_before = fs::read(&wal)?;
+    let shm_len_before = shm.metadata()?.len();
+
+    let error = open(dir.path())
+        .err()
+        .ok_or("older database with WAL was accepted")?;
+    assert!(error.to_string().contains("startup.migration_failed"));
+    assert!(error.to_string().contains("is preserved"));
+    assert_eq!(fs::read(&path)?, db_before);
+    assert_eq!(fs::read(&wal)?, wal_before);
+    assert!(shm.exists(), "existing SHM sidecar was removed");
+    assert_eq!(shm.metadata()?.len(), shm_len_before);
+    assert_eq!(
+        writer.query_row("SELECT value FROM wal_fixture", [], |row| row
+            .get::<_, i64>(0))?,
+        41
+    );
+    drop(writer);
+    Ok(())
+}
+
+#[test]
+fn corrupt_macos_database_is_reported_and_preserved() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join(DATABASE_FILE);
+    let bytes = b"not a SQLite database";
+    fs::write(&path, bytes)?;
+
+    let error = open(dir.path())
+        .err()
+        .ok_or("corrupt database was accepted")?;
+    assert!(error.to_string().contains("db.corrupt"));
+    assert_eq!(fs::read(&path)?, bytes);
+    assert!(!dir.path().join("db-backups").exists());
+    Ok(())
+}
+
+#[test]
 fn newer_macos_database_is_preserved_and_refused() -> TestResult {
     let dir = tempfile::tempdir()?;
     let path = dir.path().join(DATABASE_FILE);
@@ -98,5 +152,55 @@ fn newer_macos_database_is_preserved_and_refused() -> TestResult {
         AppDb::probe_schema_version_read_only(&path).map_err(open_error)?,
         HISTORY_SCHEMA_VERSION + 1
     );
+    Ok(())
+}
+
+#[test]
+fn startup_observes_newer_version_in_uncheckpointed_wal_and_preserves_database_files() -> TestResult
+{
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join(DATABASE_FILE);
+    drop(AppDb::create_gui_with_history(&path).map_err(open_error)?);
+
+    // Keep the writer open and disable automatic checkpoints so user_version remains only in
+    // the latest committed WAL frame while the main database header keeps the current version.
+    let writer = Connection::open(&path)?;
+    writer.pragma_update(None, "wal_autocheckpoint", 0)?;
+    let newer = HISTORY_SCHEMA_VERSION + 7;
+    writer.pragma_update(None, "user_version", newer)?;
+    let wal = path.with_extension("db-wal");
+    let shm = path.with_extension("db-shm");
+    assert!(wal.metadata()?.len() > 32);
+    let header = fs::read(&path)?;
+    assert_eq!(
+        u32::from_be_bytes(header[60..64].try_into()?),
+        HISTORY_SCHEMA_VERSION
+    );
+
+    assert_eq!(
+        AppDb::probe_schema_version_read_only(&path).map_err(open_error)?,
+        newer
+    );
+
+    let main_before = fs::read(&path)?;
+    let wal_before = fs::read(&wal)?;
+    let shm_before = fs::read(&shm)?;
+    let error = open(dir.path())
+        .err()
+        .ok_or("newer WAL schema was accepted")?;
+    assert!(error.to_string().contains("db.schema_mismatch"));
+    assert_eq!(fs::read(&path)?, main_before);
+    assert_eq!(fs::read(&wal)?, wal_before);
+    assert_eq!(shm.metadata()?.len(), shm_before.len() as u64);
+    assert_eq!(
+        writer.query_row("PRAGMA user_version", [], |row| row.get::<_, u32>(0))?,
+        newer
+    );
+    writer.pragma_update(None, "user_version", newer + 1)?;
+    assert_eq!(
+        AppDb::probe_schema_version_read_only(&path).map_err(open_error)?,
+        newer + 1
+    );
+    drop(writer);
     Ok(())
 }

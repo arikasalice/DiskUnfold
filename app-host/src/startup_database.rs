@@ -75,8 +75,10 @@ pub(super) fn open_with_status(data_dir: &Path) -> Result<OpenedDatabase, io::Er
 
 /// Opens or atomically creates the current macOS GUI database under its per-directory lock.
 ///
-/// Existing lower-format files are left untouched and startup stops while the published
-/// F14/F15 migration failure contract conflict remains unresolved.
+/// Existing lower-format databases are not migrated while the published F14/F15 migration
+/// failure contract conflict remains unresolved. The SQLite read-only probe may initialize WAL
+/// sidecars; it preserves the main database and existing WAL frames and leaves sidecars under
+/// SQLite's normal locking and recovery behavior.
 #[cfg(target_os = "macos")]
 pub(super) fn open_with_status(data_dir: &Path) -> Result<OpenedDatabase, io::Error> {
     let data_dir = std::path::absolute(data_dir).map_err(|error| data_folder_error(Some(error)))?;
