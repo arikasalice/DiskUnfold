@@ -1,5 +1,5 @@
 use super::*;
-use rusqlite::Connection;
+use rusqlite::{Connection, OpenFlags};
 use std::os::unix::fs::PermissionsExt;
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
@@ -49,8 +49,14 @@ fn linux_start_migrates_legacy_database_only_after_managed_backup() -> TestResul
     let database = open(dir.path())?;
     let settings = crate::settings::StartupSettings::load(&database, &["en", "ko"])?;
     assert_eq!(settings.stored_language()?, None);
-    assert_eq!(settings.scan_limit_source()().entries(), 200_000);
     assert_eq!(fs::read_dir(dir.path().join("db-backups"))?.count(), 4);
+    let sql = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    let stored_limit: String = sql.query_row(
+        "SELECT value_json FROM user_env_setting WHERE setting_key = 'space.shared_table_max_entries'",
+        [],
+        |row| row.get(0),
+    )?;
+    assert_eq!(stored_limit, "200000");
     let reader = AppDb::open_read_only(&path).map_err(open_error)?;
     assert_eq!(reader.schema_version()?, HISTORY_SCHEMA_VERSION);
     drop(database);

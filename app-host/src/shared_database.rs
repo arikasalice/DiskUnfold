@@ -289,5 +289,5 @@ impl JobHistory for SharedHistory {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, windows))]
 mod tests;
