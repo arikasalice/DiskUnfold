@@ -277,15 +277,15 @@ function DrivePicker({
               );
               const kind = target.kind
                 ? ({
-                    internal: text("ui.analysis.target_internal", "Internal"),
-                    external: text("ui.analysis.target_external", "External"),
+                    internal: text("ui.analysis.target_internal", "internal"),
+                    external: text("ui.analysis.target_external", "external"),
                     network_mount: text(
                       "ui.analysis.target_network_mount",
-                      "Network mount",
+                      "network mount",
                     ),
                     folder_mount: text(
                       "ui.analysis.target_folder_mount",
-                      "Folder mount",
+                      "folder mount",
                     ),
                   }[target.kind] ?? target.kind.replaceAll("_", " "))
                 : text(
@@ -306,31 +306,31 @@ function DrivePicker({
                       {
                         checking: text(
                           "ui.analysis.target_access_checking",
-                          "Checking",
+                          "checking",
                         ),
                         accessible: text(
                           "ui.analysis.target_access_accessible",
-                          "Accessible",
+                          "accessible",
                         ),
                         denied: text(
                           "ui.analysis.target_access_denied",
-                          "Access denied",
+                          "denied",
                         ),
                         disconnected: text(
                           "ui.analysis.target_access_disconnected",
-                          "Disconnected",
+                          "disconnected",
                         ),
                         missing: text(
                           "ui.analysis.target_access_missing",
-                          "Missing",
+                          "missing",
                         ),
                         unresponsive: text(
                           "ui.analysis.target_access_unresponsive",
-                          "Unresponsive",
+                          "unresponsive",
                         ),
                         unknown: text(
                           "ui.analysis.target_access_unknown",
-                          "Unknown",
+                          "unknown",
                         ),
                       }[access] ?? access,
                     tone: access === "accessible" ? "good" : "neutral",
