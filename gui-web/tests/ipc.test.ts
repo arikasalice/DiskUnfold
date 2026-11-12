@@ -54,6 +54,25 @@ test("the default transport sends the native message and rejects unrelated repli
   await expect(client.call(request)).rejects.toThrow("mismatched response");
 });
 
+test("uses the Mac WebKit reply handler as the native IPC transport", async () => {
+  const result: ResultEnvelope = { ...request, body: { access: "unknown" } };
+  const postMessage = vi.fn().mockResolvedValue(JSON.stringify(result));
+  const host: {
+    top?: unknown;
+    webkit?: {
+      messageHandlers?: { diskunfold?: { postMessage: typeof postMessage } };
+    };
+  } = {};
+  host.top = host;
+  host.webkit = { messageHandlers: { diskunfold: { postMessage } } };
+  vi.stubGlobal("window", host);
+
+  await expect(createIpcClient().call(request)).resolves.toEqual(result);
+  expect(postMessage).toHaveBeenCalledExactlyOnceWith(
+    JSON.stringify({ command: "du_call", args: { envelope: request } }),
+  );
+});
+
 test("validates a native error envelope and keeps additive fields", async () => {
   const response = {
     ...request,

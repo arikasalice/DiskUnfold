@@ -371,7 +371,11 @@ export function windowsPath(input: string): OsPath {
   };
 }
 
-export { hasDesktopLocaleBridge, hasWindowsAnalysisBridge } from "./bridge";
+export {
+  hasDesktopLocaleBridge,
+  hasStartupStatusBridge,
+  hasWindowsAnalysisBridge,
+} from "./bridge";
 export type { CallEnvelope, ResultEnvelope } from "./generated/contracts";
 export function createIpcClient(transport: Transport = invokeNative) {
   return {

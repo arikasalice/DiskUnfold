@@ -4,8 +4,10 @@ import { DesktopLocale } from "./app/DesktopLocale";
 import {
   createAnalysisClient,
   hasDesktopLocaleBridge,
+  hasStartupStatusBridge,
   hasWindowsAnalysisBridge,
 } from "./ipc";
+import { StartupStatusScreen } from "./features/startup/StartupStatusScreen";
 import "./theme/tokens.css";
 import "./theme/workspace.css";
 import "./theme/analysis-workspace.css";
@@ -21,6 +23,8 @@ createRoot(root).render(
       client={createAnalysisClient()}
       analysisEnabled={hasWindowsAnalysisBridge()}
     />
+  ) : hasStartupStatusBridge() ? (
+    <StartupStatusScreen client={createAnalysisClient()} />
   ) : (
     <App />
   ),

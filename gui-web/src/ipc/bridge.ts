@@ -85,6 +85,16 @@ export function hasDesktopLocaleBridge(): boolean {
   );
 }
 
+/** Detects the Mac startup-only bridge without claiming locale services exist. */
+export function hasStartupStatusBridge(): boolean {
+  const host = window as NativeWindow;
+  return (
+    host.top === host &&
+    host.location.href === "diskunfold://app/index.html" &&
+    typeof host.webkit?.messageHandlers?.diskunfold?.postMessage === "function"
+  );
+}
+
 /** Detects Windows analysis support before presenting analysis controls. */
 export function hasWindowsAnalysisBridge(): boolean {
   return (
