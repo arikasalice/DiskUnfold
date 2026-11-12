@@ -1,4 +1,5 @@
 import { Checkbox, Input, Label, Text, TextField } from "react-aria-components";
+import { useImeComposition } from "./ime-composition";
 
 export function ReviewField({
   label,
@@ -13,6 +14,8 @@ export function ReviewField({
   description: string;
   isDisabled?: boolean;
 }) {
+  const imeComposition = useImeComposition();
+
   return (
     <TextField
       className="du-field"
@@ -21,7 +24,7 @@ export function ReviewField({
       isDisabled={isDisabled}
     >
       <Label>{label}</Label>
-      <Input />
+      <Input {...imeComposition} />
       <Text slot="description">{description}</Text>
     </TextField>
   );

@@ -12,6 +12,7 @@ import {
 import type { ButtonProps } from "react-aria-components";
 import { Icon, StatusBadge } from "./presentation";
 import type { IconName } from "./presentation";
+import { useImeComposition } from "./ime-composition";
 
 type ActionProps = Pick<
   ButtonProps,
@@ -91,6 +92,8 @@ export function PathField({
   onCompositionChange?: (composing: boolean) => void;
   ref?: Ref<HTMLInputElement>;
 }) {
+  const imeComposition = useImeComposition(onCompositionChange);
+
   return (
     <TextField
       value={value}
@@ -105,9 +108,7 @@ export function PathField({
         placeholder={placeholder ?? ""}
         spellCheck={false}
         autoComplete="off"
-        onCompositionStart={() => onCompositionChange?.(true)}
-        onCompositionEnd={() => onCompositionChange?.(false)}
-        onBlur={() => onCompositionChange?.(false)}
+        {...imeComposition}
       />
       <Text slot="description" aria-live="polite">
         {description}
