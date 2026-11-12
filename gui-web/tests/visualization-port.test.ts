@@ -3,6 +3,7 @@ import { createAnalysisClient } from "../src/ipc";
 import type {
   CallEnvelope,
   EventEnvelope,
+  VizAvailabilityRequest,
   VizGroupRowsRequest,
   VizRenderRequest,
 } from "../src/ipc";
@@ -67,22 +68,36 @@ test("visualization port forwards published commands through the real typed clie
     legendRuleRevision: 1,
   };
   const request = fixtureRequest(revision);
+  const availabilityRequest: VizAvailabilityRequest = {
+    sourceRef: { kind: "scan", ref: "source" },
+    resultRevision: revision,
+    aggregateScopeRef: fixture.frame.model.aggregateScopeRef,
+  };
+  const availabilityResponse = {
+    formats: [
+      { format: "treemap", available: true, reasonKey: null },
+      { format: "sunburst", available: false, reasonKey: "viz.not_supported" },
+    ],
+    requiredDataTableRevision: 1,
+  };
   const client = createAnalysisClient(async (_, { envelope }) => {
     calls.push(envelope);
     const body =
       envelope.name === "viz.catalog"
         ? catalog
-        : envelope.name === "viz.view.open"
-          ? { viewChannel: "view" }
-          : envelope.name === "viz.render"
-            ? fixture.frame
-            : envelope.name === "viz.rows"
-              ? fixture.page.response
-              : envelope.name === "viz.group_rows"
-                ? groupResponse
-                : envelope.name === "viz.cancel"
-                  ? { controlResult: "accepted" }
-                  : {};
+        : envelope.name === "viz.availability"
+          ? availabilityResponse
+          : envelope.name === "viz.view.open"
+            ? { viewChannel: "view" }
+            : envelope.name === "viz.render"
+              ? fixture.frame
+              : envelope.name === "viz.rows"
+                ? fixture.page.response
+                : envelope.name === "viz.group_rows"
+                  ? groupResponse
+                  : envelope.name === "viz.cancel"
+                    ? { controlResult: "accepted" }
+                    : {};
     return {
       name: envelope.name,
       correlationId: envelope.correlationId,
@@ -92,6 +107,9 @@ test("visualization port forwards published commands through the real typed clie
   });
   const port = createVisualizationPort(client, () => true);
   expect(await port.catalog()).toEqual(catalog);
+  expect(await port.availability(availabilityRequest)).toEqual(
+    availabilityResponse,
+  );
   expect(await port.open()).toEqual({ viewChannel: "view" });
   expect(await port.render(request)).toEqual(fixture.frame);
   const rows = {
@@ -110,6 +128,7 @@ test("visualization port forwards published commands through the real typed clie
   await port.close("view");
   expect(calls.map(({ name, body }) => ({ name, body }))).toEqual([
     { name: "viz.catalog", body: {} },
+    { name: "viz.availability", body: availabilityRequest },
     { name: "viz.view.open", body: {} },
     { name: "viz.render", body: request },
     { name: "viz.rows", body: rows },
@@ -146,6 +165,16 @@ test("host failures propagate instead of returning a fabricated model", async ()
       count: 10,
     }),
   ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  await expect(
+    createVisualizationPort(client, () => true).availability({
+      sourceRef: { kind: "scan", ref: "source" },
+      resultRevision: "result",
+      aggregateScopeRef: { resultVersion: "result", itemNo: 7 },
+    }),
+  ).rejects.toMatchObject({
+    code: "NOT_FOUND",
+    reasonKey: "ref.unavailable",
+  });
 });
 
 test("job observer uses typed job.get and re-queries the same pinned request", async () => {

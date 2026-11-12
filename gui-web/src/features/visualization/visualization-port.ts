@@ -1,5 +1,7 @@
 import type {
   AnalysisClient,
+  VizAvailabilityRequest,
+  VizAvailabilityResponse,
   VizCatalog,
   VizGroupRows,
   VizGroupRowsRequest,
@@ -13,12 +15,16 @@ export function createVisualizationPort(
   canDisplay: VisualizationPort["canDisplay"],
 ): VisualizationPort & {
   catalog(): Promise<VizCatalog>;
+  availability(
+    request: VizAvailabilityRequest,
+  ): Promise<VizAvailabilityResponse>;
   open(): Promise<VizViewChannel>;
   close(viewChannel: string): Promise<void>;
   groupRows(request: VizGroupRowsRequest): Promise<VizGroupRows>;
 } {
   return {
     catalog: () => client.call("viz.catalog", {}),
+    availability: (request) => client.call("viz.availability", request),
     open: () => client.call("viz.view.open", {}),
     async close(viewChannel) {
       await client.call("viz.view.close", { viewChannel });

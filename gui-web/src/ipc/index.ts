@@ -57,6 +57,8 @@ import type {
   TargetListRequest,
   VolumeGapRequest,
   VolumeGapResponse,
+  VizAvailabilityRequest,
+  VizAvailabilityResponse,
   VizCancelRequest,
   VizCancelResponse,
   VizCatalog,
@@ -136,6 +138,8 @@ export type {
   VolumeGapObservation,
   VolumeGapRequest,
   VolumeGapResponse,
+  VizAvailabilityRequest,
+  VizAvailabilityResponse,
   VizCancelRequest,
   VizCancelResponse,
   VizCatalog,
@@ -158,6 +162,7 @@ export type {
   VizRowsRequest,
   VizSizeRange,
   VizShape,
+  VizSourceRef,
   VizViewChannel,
   VizViewOpenRequest,
 } from "./generated/contracts";
@@ -192,6 +197,7 @@ type Commands = {
   "viz.view.open": [VizViewOpenRequest, VizViewChannel];
   "viz.view.close": [VizViewChannel, VizViewOpenRequest];
   "viz.render": [VizRenderRequest, VizRenderResponse];
+  "viz.availability": [VizAvailabilityRequest, VizAvailabilityResponse];
   "viz.catalog": [VizCatalogRequest, VizCatalog];
   "viz.cancel": [VizCancelRequest, VizCancelResponse];
   "viz.group_rows": [VizGroupRowsRequest, VizGroupRows];
