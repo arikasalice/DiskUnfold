@@ -11,6 +11,7 @@ use du_engine_api::{
     current_analysis::CurrentAnalysis,
     desktop::{DesktopEvents, VisualizationPreview},
     error::EngineError,
+    viz_catalog,
     viz_pages::session::ChildPolicyEvidence,
     viz_runtime::{
         EvidenceProducer, ItemEvidence, LegendClass, SourcePolicyFacts, ViewPolicy,
@@ -234,25 +235,58 @@ fn windows_scan_store_and_jobs_feed_the_selected_visualization() -> TestResult<(
         Arc::new(du_core_contracts::settings::SharedTableLimit::default),
     )?;
     let selection = Arc::new(Selection::default());
+    let view_policy = ViewPolicy {
+        revision: 1,
+        max_scale: 4.0,
+        max_shapes: 100,
+        max_channels: NonZeroUsize::MIN.saturating_add(3),
+        max_work: NonZeroUsize::MIN.saturating_add(3),
+        synchronous_wait: Duration::from_millis(100),
+    };
+    let catalog_policy = || viz_catalog::Policy {
+        measures: vec!["size".into()],
+        color_criteria: vec!["type".into()],
+        denominator_criteria: vec!["scope".into()],
+        interpretation_table_revision: 1,
+        required_data_table_revision: 1,
+        legend_rule_revision: 1,
+    };
+    assert_eq!(
+        desktop.visualization.register_preview_with_catalog(
+            &mut builder,
+            random,
+            VisualizationPreview {
+                producer: Arc::new(FixtureEvidence(Mutex::new(None))),
+                selection: selection.clone(),
+                policy: ViewPolicy {
+                    max_shapes: 0,
+                    ..view_policy.clone()
+                },
+                model_capacity: NonZeroUsize::MIN,
+            },
+            catalog_policy(),
+        ),
+        Err("invalid visualization policy")
+    );
     let (release, gate) = mpsc::channel();
-    desktop.visualization.register_preview(
+    desktop.visualization.register_preview_with_catalog(
         &mut builder,
         random,
         VisualizationPreview {
             producer: Arc::new(FixtureEvidence(Mutex::new(Some(gate)))),
             selection: selection.clone(),
-            policy: ViewPolicy {
-                revision: 1,
-                max_scale: 4.0,
-                max_shapes: 100,
-                max_channels: NonZeroUsize::MIN.saturating_add(3),
-                max_work: NonZeroUsize::MIN.saturating_add(3),
-                synchronous_wait: Duration::from_millis(100),
-            },
+            policy: view_policy,
             model_capacity: NonZeroUsize::MIN.saturating_add(3),
         },
+        catalog_policy(),
     )?;
     let engine = builder.build()?;
+    let catalog = ok(&engine, "viz.catalog", json!({}))?;
+    assert_eq!(catalog["formats"], json!(["treemap"]));
+    assert_eq!(
+        catalog["strategies"],
+        json!([{"id":"viz.treemap","revision":1}])
+    );
     let version = scan_two_roots(&engine, &desktop.events)?;
     let completed = desktop
         .completed_scans
@@ -274,6 +308,17 @@ fn windows_scan_store_and_jobs_feed_the_selected_visualization() -> TestResult<(
     release.send(())?;
     let first = completed_model(&engine, &desktop.events, request, job)?;
     assert_model(&engine, &first, &version, 0, "17")?;
+    assert_eq!(first["model"]["strategy"], catalog["strategies"][0]);
+    for (model, catalog_field) in [
+        ("interpretation", "interpretationTableRevision"),
+        ("requiredData", "requiredDataTableRevision"),
+        ("legend", "legendRuleRevision"),
+    ] {
+        assert_eq!(
+            first["model"]["tableRevisions"][model],
+            catalog[catalog_field]
+        );
+    }
     let request = render_request(&view, &version, 1, 3);
     let result = ok(&engine, "viz.render", request.clone())?;
     let second = completed_model(&engine, &desktop.events, request, result)?;

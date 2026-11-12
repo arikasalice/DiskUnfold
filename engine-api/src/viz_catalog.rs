@@ -50,6 +50,11 @@ pub fn register(
     dispatcher: &Dispatcher,
     policy: Policy,
 ) -> Result<(), Error> {
+    builder.register(prepare(dispatcher, policy)?);
+    Ok(())
+}
+
+pub(crate) fn prepare(dispatcher: &Dispatcher, policy: Policy) -> Result<ReadCatalog, Error> {
     let catalog = snapshot(dispatcher)?;
     if ![
         &policy.measures,
@@ -67,7 +72,7 @@ pub fn register(
     {
         return Err(Error::InvalidPolicy);
     }
-    builder.register(ReadCatalog(VizCatalog {
+    Ok(ReadCatalog(VizCatalog {
         formats: catalog.formats,
         strategies: catalog
             .strategies
@@ -83,8 +88,7 @@ pub fn register(
         interpretation_table_revision: policy.interpretation_table_revision,
         required_data_table_revision: policy.required_data_table_revision,
         legend_rule_revision: policy.legend_rule_revision,
-    }));
-    Ok(())
+    }))
 }
 
 fn valid_keys(values: &[String]) -> bool {
@@ -95,7 +99,7 @@ fn valid_keys(values: &[String]) -> bool {
             .all(|key| !key.trim().is_empty() && seen.insert(key))
 }
 
-struct ReadCatalog(VizCatalog);
+pub(crate) struct ReadCatalog(VizCatalog);
 
 impl UseCase for ReadCatalog {
     const NAME: &'static str = "viz.catalog";

@@ -1,12 +1,16 @@
 //! Bind visualization to the same source and worker pool as desktop analysis.
 use std::{num::NonZeroUsize, sync::Arc};
 
-use du_analysis_index::{IngestSink, visualization::bundle};
+use du_analysis_index::{
+    IngestSink,
+    visualization::{bundle, typed_layout::Dispatcher},
+};
 use du_core_contracts::ports::Random;
 use du_job_runtime::JobIdentity;
 
 use crate::{
     api::EngineBuilder,
+    viz_catalog,
     viz_pages::session::Session,
     viz_runtime::{
         Assembly, EvidenceProducer, Runtime, ViewPolicy, selection::WindowScanSelection,
@@ -54,6 +58,35 @@ impl VisualizationServices {
     ) -> Result<(), &'static str> {
         let dispatcher = bundle::implemented_dispatcher()
             .map_err(|_| "visualization preview strategy registration failed")?;
+        self.register_preview_runtime(builder, random, options, dispatcher)
+    }
+
+    /// Registers the preview and its catalog against the same frozen layout registry.
+    ///
+    /// Catalog criteria must be supplied by the policy owners for this preview.
+    pub fn register_preview_with_catalog(
+        &self,
+        builder: &mut EngineBuilder,
+        random: &dyn Random,
+        options: VisualizationPreview,
+        catalog: viz_catalog::Policy,
+    ) -> Result<(), &'static str> {
+        let dispatcher = bundle::implemented_dispatcher()
+            .map_err(|_| "visualization preview strategy registration failed")?;
+        let catalog = viz_catalog::prepare(&dispatcher, catalog)
+            .map_err(|_| "visualization preview catalog registration failed")?;
+        self.register_preview_runtime(builder, random, options, dispatcher)?;
+        builder.register(catalog);
+        Ok(())
+    }
+
+    fn register_preview_runtime(
+        &self,
+        builder: &mut EngineBuilder,
+        random: &dyn Random,
+        options: VisualizationPreview,
+        dispatcher: Dispatcher,
+    ) -> Result<(), &'static str> {
         let session = Arc::new(Session::new(
             self.source.clone(),
             options.model_capacity,
