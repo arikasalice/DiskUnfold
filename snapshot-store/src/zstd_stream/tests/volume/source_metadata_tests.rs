@@ -103,3 +103,22 @@ fn per_root_rules_are_checked_without_inference() -> Result<(), String> {
     }
     Ok(())
 }
+
+#[test]
+fn item_gap_validation_does_not_expose_unvalidated_path_rules() -> Result<(), String> {
+    let mut metadata: serde_json::Value =
+        serde_json::from_str(&example_metadata(&["Lw"])?).map_err(|e| e.to_string())?;
+    metadata
+        .get_mut("source")
+        .and_then(serde_json::Value::as_object_mut)
+        .ok_or("source")?
+        .remove("pathRules");
+    let volume = [1, 1, 0, 0, 0, 255, 255, 0, 0, 0, 0];
+    let mut spool = input(&volume, None, &metadata.to_string())?;
+    let (_, roots) = validate_items_and_gaps_in_sealed(&mut spool, Stage::default(), || false)
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(roots.roots().len(), 1);
+    assert!(roots.path_rules().is_none());
+    assert!(roots.volume_record().is_none());
+    Ok(())
+}

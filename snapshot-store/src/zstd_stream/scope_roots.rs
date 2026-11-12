@@ -5,11 +5,105 @@ use serde_json::Value;
 mod source_metadata;
 mod unique;
 
-/// Native scope roots in source order, without a display-string conversion.
+/// A parsed path separator from one validated path rule descriptor.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PathSeparator {
+    /// Unix-style forward slash.
+    Slash,
+    /// Windows-style backslash.
+    Backslash,
+}
+
+/// A validated case-sensitivity value from one path rule descriptor.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PathCaseSensitivity {
+    /// Case-sensitive path comparison.
+    Sensitive,
+    /// Case-insensitive path comparison.
+    Insensitive,
+}
+
+/// A validated Unicode normalization value from one path rule descriptor.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PathNormalization {
+    /// No Unicode normalization.
+    None,
+    /// NFC normalization.
+    Nfc,
+    /// NFD normalization.
+    Nfd,
+}
+
+/// One original source path-rule descriptor with its validated known fields.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PathRuleDescriptor {
+    original: Value,
+    separator: PathSeparator,
+    case_sensitivity: Option<PathCaseSensitivity>,
+    normalization: Option<PathNormalization>,
+}
+
+impl PathRuleDescriptor {
+    /// Returns the unchanged descriptor value parsed from the sealed metadata.
+    pub fn original(&self) -> &Value {
+        &self.original
+    }
+
+    /// Returns the validated separator.
+    pub fn separator(&self) -> PathSeparator {
+        self.separator
+    }
+
+    /// Returns the known sensitivity, or none when the source recorded it as unknown.
+    pub fn case_sensitivity(&self) -> Option<PathCaseSensitivity> {
+        self.case_sensitivity
+    }
+
+    /// Returns the known normalization, or none when the source recorded it as unknown.
+    pub fn normalization(&self) -> Option<PathNormalization> {
+        self.normalization
+    }
+
+    fn parse(value: &Value, expected_separator: &str) -> Result<Self, ()> {
+        let object = value.as_object().ok_or(())?;
+        let separator = match object.get("separator").and_then(Value::as_str) {
+            Some("/") if expected_separator == "/" => PathSeparator::Slash,
+            Some("\\") if expected_separator == "\\" => PathSeparator::Backslash,
+            _ => return Err(()),
+        };
+        let case_sensitivity = match object.get("caseSensitivity") {
+            Some(Value::Null) => None,
+            Some(Value::String(value)) if value == "sensitive" => {
+                Some(PathCaseSensitivity::Sensitive)
+            }
+            Some(Value::String(value)) if value == "insensitive" => {
+                Some(PathCaseSensitivity::Insensitive)
+            }
+            _ => return Err(()),
+        };
+        let normalization = match object.get("normalization") {
+            Some(Value::Null) => None,
+            Some(Value::String(value)) if value == "none" => Some(PathNormalization::None),
+            Some(Value::String(value)) if value == "NFC" => Some(PathNormalization::Nfc),
+            Some(Value::String(value)) if value == "NFD" => Some(PathNormalization::Nfd),
+            _ => return Err(()),
+        };
+        Ok(Self {
+            original: value.clone(),
+            separator,
+            case_sensitivity,
+            normalization,
+        })
+    }
+}
+
+/// Native scope roots and independently ordered metadata from one sealed snapshot.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ScopeRoots {
     encoding: NameEncoding,
     roots: Vec<Vec<u8>>,
+    path_rules: Option<Vec<PathRuleDescriptor>>,
+    volume_record: Option<super::ValidatedVolumeRecord>,
 }
 impl ScopeRoots {
     /// The original path encoding.
@@ -20,9 +114,27 @@ impl ScopeRoots {
     pub fn roots(&self) -> &[Vec<u8>] {
         &self.roots
     }
+
+    /// Original path rules in source order, only when stable source metadata passed validation.
+    /// The rule list remains independent of the root list; matching lengths do not bind indices.
+    pub fn path_rules(&self) -> Option<&[PathRuleDescriptor]> {
+        self.path_rules.as_deref()
+    }
+
+    /// The same sealed file's validated Volume record, when Volume validation ran.
+    pub fn volume_record(&self) -> Option<&super::ValidatedVolumeRecord> {
+        self.volume_record.as_ref()
+    }
+
+    pub(super) fn set_validated_volume_record(
+        &mut self,
+        volume_record: super::ValidatedVolumeRecord,
+    ) {
+        self.volume_record = Some(volume_record);
+    }
 }
 
-/// Validates root and, when required, Volume metadata from one parsed object.
+/// Validates roots and, when required, stable source metadata from one parsed object.
 pub(super) fn parse(metadata: &str, require_volume: bool) -> Result<ScopeRoots, ()> {
     let json: Value = serde_json::from_str(metadata).map_err(|_| ())?;
     unique::validate(metadata)?;
@@ -40,9 +152,9 @@ pub(super) fn parse(metadata: &str, require_volume: bool) -> Result<ScopeRoots, 
         .and_then(|v| v.get("scopeRoots"))
         .and_then(Value::as_array)
         .ok_or(())?;
-    if require_volume {
-        source_metadata::validate(&json, encoding, entries.len())?;
-    }
+    let path_rules = require_volume
+        .then(|| source_metadata::validate(&json, encoding, entries.len()))
+        .transpose()?;
     let mut roots = Vec::with_capacity(entries.len());
     for entry in entries {
         let encoded = entry.as_str().ok_or(())?;
@@ -55,7 +167,12 @@ pub(super) fn parse(metadata: &str, require_volume: bool) -> Result<ScopeRoots, 
         }
         roots.push(bytes);
     }
-    Ok(ScopeRoots { encoding, roots })
+    Ok(ScopeRoots {
+        encoding,
+        roots,
+        path_rules,
+        volume_record: None,
+    })
 }
 
 // These checks cover the published identity and observation fields, not the

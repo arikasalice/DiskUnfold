@@ -19,15 +19,30 @@ fn fixture() -> Result<(String, Vec<u8>), String> {
             .map_err(|e| e.to_string())?;
     metadata["pathEncoding"] = "utf16le".into();
     metadata["source"]["pathRules"] = serde_json::json!([
-        {"separator":"\\","caseSensitivity":"insensitive","normalization":null},
+        {"separator":"\\","caseSensitivity":null,"normalization":null},
         {"separator":"\\","caseSensitivity":"sensitive","normalization":"NFC"}
     ]);
     let mut records = Vec::new();
-    record(
-        1,
-        &[1, 2, 0, 0, 0, 255, 255, 1, 0, 0, 0, 255, 255, 2, 0, 0, 0],
-        &mut records,
-    );
+    let volume = crate::records::volume::Volume {
+        roots: vec![
+            crate::records::volume::RootLink {
+                volume_index: Some(0),
+                item_number: Some(1),
+            },
+            crate::records::volume::RootLink {
+                volume_index: None,
+                item_number: Some(2),
+            },
+        ],
+        volumes: vec![crate::records::volume::VolumeEntry {
+            id: b"windows-volume-0",
+            basis: "native",
+            start: crate::records::volume::Observation::NotAttempted,
+            end: crate::records::volume::Observation::NotAttempted,
+        }],
+    };
+    let volume_body = volume.encode().map_err(|e| format!("{e:?}"))?;
+    record(1, &volume_body, &mut records);
     for n in 1..=2 {
         record(
             2,
@@ -39,14 +54,81 @@ fn fixture() -> Result<(String, Vec<u8>), String> {
     Ok((metadata.to_string(), records))
 }
 
+fn expected_windows_roots() -> Vec<Vec<u8>> {
+    ["C:\\", "D:\\folder"]
+        .iter()
+        .map(|path| path.encode_utf16().flat_map(u16::to_le_bytes).collect())
+        .collect()
+}
+
+fn assert_windows_path_rules(roots: &crate::zstd_stream::ScopeRoots) -> Result<(), String> {
+    let path_rules = roots.path_rules().ok_or("validated path rules missing")?;
+    assert_eq!(path_rules.len(), 2);
+    assert_eq!(
+        path_rules[0].separator(),
+        crate::zstd_stream::PathSeparator::Backslash
+    );
+    assert_eq!(path_rules[0].case_sensitivity(), None);
+    assert_eq!(path_rules[0].normalization(), None);
+    assert_eq!(
+        path_rules[1].case_sensitivity(),
+        Some(crate::zstd_stream::PathCaseSensitivity::Sensitive)
+    );
+    assert_eq!(
+        path_rules[1].normalization(),
+        Some(crate::zstd_stream::PathNormalization::Nfc)
+    );
+    assert_eq!(
+        path_rules[0].original(),
+        &serde_json::json!({
+            "separator":"\\",
+            "caseSensitivity":null,
+            "normalization":null
+        })
+    );
+    Ok(())
+}
+
+fn assert_windows_volume_membership(roots: &crate::zstd_stream::ScopeRoots) -> Result<(), String> {
+    let volume = roots
+        .volume_record()
+        .ok_or("validated Volume record missing")?
+        .decode()
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(
+        volume.roots,
+        vec![
+            crate::records::volume::RootLink {
+                volume_index: Some(0),
+                item_number: Some(1),
+            },
+            crate::records::volume::RootLink {
+                volume_index: None,
+                item_number: Some(2),
+            },
+        ]
+    );
+    assert_eq!(volume.volumes.len(), 1);
+    assert_eq!(volume.volumes[0].id, b"windows-volume-0");
+    Ok(())
+}
+
 #[test]
-fn windows_multi_root_rules_and_staging_failures() -> Result<(), String> {
+fn windows_multi_root_metadata_and_volume_links_are_preserved() -> Result<(), String> {
     let (metadata, records) = fixture()?;
     let mut spool = envelope_for_records(&metadata, &records, 4)?;
-    let (previous, roots) = validate_records_in_sealed(&mut spool, Stage::default(), || false)
+    let (staged, roots) = validate_records_in_sealed(&mut spool, Stage::default(), || false)
         .map_err(|e| format!("{e:?}"))?;
-    assert_eq!(previous.bytes, records);
-    assert_eq!(roots.roots().len(), 2);
+    assert_eq!(staged.bytes, records);
+    assert_eq!(roots.roots(), expected_windows_roots());
+    assert_windows_path_rules(&roots)?;
+    assert_windows_volume_membership(&roots)?;
+    Ok(())
+}
+
+#[test]
+fn windows_invalid_path_rule_discards_staging() -> Result<(), String> {
+    let (metadata, records) = fixture()?;
     let mut invalid: serde_json::Value =
         serde_json::from_str(&metadata).map_err(|e| e.to_string())?;
     invalid["source"]["pathRules"][1]["separator"] = "/".into();
@@ -58,7 +140,12 @@ fn windows_multi_root_rules_and_staging_failures() -> Result<(), String> {
         Err(Error::Metadata)
     ));
     assert_eq!(discarded.load(Ordering::SeqCst), 1);
-    assert_eq!(previous.bytes, records);
+    Ok(())
+}
+
+#[test]
+fn windows_staging_write_failure_discards_partial_output() -> Result<(), String> {
+    let (metadata, records) = fixture()?;
     let mut spool = envelope_for_records(&metadata, &records, 4)?;
     let stage = Stage {
         fail_write: true,
@@ -70,7 +157,50 @@ fn windows_multi_root_rules_and_staging_failures() -> Result<(), String> {
         Err(Error::Sink(_))
     ));
     assert_eq!(discarded.load(Ordering::SeqCst), 1);
-    assert_eq!(previous.bytes, records);
+    Ok(())
+}
+
+#[test]
+fn windows_missing_path_rules_discards_staging() -> Result<(), String> {
+    let (metadata, records) = fixture()?;
+    let mut metadata: serde_json::Value =
+        serde_json::from_str(&metadata).map_err(|e| e.to_string())?;
+    metadata
+        .get_mut("source")
+        .and_then(serde_json::Value::as_object_mut)
+        .ok_or("source")?
+        .remove("pathRules");
+    let mut spool = envelope_for_records(&metadata.to_string(), &records, 4)?;
+    let stage = Stage::default();
+    let discarded = stage.discarded.clone();
+    assert!(matches!(
+        validate_records_in_sealed(&mut spool, stage, || false),
+        Err(Error::Metadata)
+    ));
+    assert_eq!(discarded.load(Ordering::SeqCst), 1);
+    Ok(())
+}
+
+#[test]
+fn windows_metadata_outputs_are_owned_from_the_same_sealed_copy() -> Result<(), String> {
+    let (mut metadata, records) = fixture()?;
+    let mut spool = envelope_for_records(&metadata, &records, 4)?;
+    metadata.clear();
+    let (staged, roots) = validate_records_in_sealed(&mut spool, Stage::default(), || false)
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(staged.bytes, records);
+    let expected_roots: Vec<Vec<u8>> = ["C:\\", "D:\\folder"]
+        .iter()
+        .map(|path| path.encode_utf16().flat_map(u16::to_le_bytes).collect())
+        .collect();
+    assert_eq!(roots.roots(), expected_roots);
+    assert_eq!(roots.path_rules().map(|rules| rules.len()), Some(2));
+    let volume = roots
+        .volume_record()
+        .ok_or("validated Volume record missing")?
+        .decode()
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(volume.volumes[0].id, b"windows-volume-0");
     Ok(())
 }
 

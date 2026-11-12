@@ -13,6 +13,7 @@ pub(super) struct Validator {
     kind: u8,
     last_item: u32,
     volume_required: bool,
+    volume_body: Option<Vec<u8>>,
     pending_roots: HashSet<u32>,
     folders: Vec<u8>,
 }
@@ -30,6 +31,7 @@ impl Validator {
             kind: 0,
             last_item: 0,
             volume_required: false,
+            volume_body: None,
             pending_roots: HashSet::new(),
             folders: Vec::new(),
         }
@@ -39,11 +41,11 @@ impl Validator {
         self.volume_required = true;
     }
 
-    pub(super) fn finish(&self) -> Result<(), ()> {
+    pub(super) fn finish(self) -> Result<Option<Vec<u8>>, ()> {
         if self.volume_required || !self.pending_roots.is_empty() {
             Err(())
         } else {
-            Ok(())
+            Ok(self.volume_body)
         }
     }
 
@@ -100,6 +102,7 @@ impl Validator {
                 let volume = volume::decode(&body, self.root_count.ok_or(())?).map_err(|_| ())?;
                 self.pending_roots = volume.roots.iter().filter_map(|r| r.item_number).collect();
                 self.volume_required = false;
+                self.volume_body = Some(body);
             } else if self.kind == 2 {
                 let item = item::decode(&body, self.encoding).map_err(|_| ())?;
                 if self.last_item.checked_add(1) != Some(item.number) {

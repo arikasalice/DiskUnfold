@@ -10,7 +10,27 @@ use std::io::{self, BufRead, BufReader, Read, Write};
 use crate::{envelope, record_framing, zstd_frame};
 mod item_validation;
 mod scope_roots;
-pub use scope_roots::ScopeRoots;
+pub use scope_roots::{
+    PathCaseSensitivity, PathNormalization, PathRuleDescriptor, PathSeparator, ScopeRoots,
+};
+
+/// An immutable, already validated Volume record retained from one sealed spool.
+///
+/// This is record-level evidence only; it does not establish full snapshot validity or publication.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ValidatedVolumeRecord {
+    body: Vec<u8>,
+    root_count: usize,
+}
+
+impl ValidatedVolumeRecord {
+    /// Returns a typed view of the immutable Volume body that passed record validation.
+    pub fn decode(
+        &self,
+    ) -> Result<crate::records::volume::Volume<'_>, crate::records::volume::Error> {
+        crate::records::volume::decode(&self.body, self.root_count)
+    }
+}
 
 /// A failure while verifying or streaming a DUSNAP frame.
 #[derive(Debug)]
@@ -123,7 +143,7 @@ pub fn validate_and_decode_sealed<S: SealedSpool, W: StagingSink>(
     sink: W,
     cancelled: impl FnMut() -> bool,
 ) -> Result<W, Error> {
-    decode_sealed(spool, sink, None, None, false, cancelled)
+    decode_sealed(spool, sink, None, None, false, cancelled).map(|(sink, _)| sink)
 }
 
 /// Stages records after checking framing and Item bodies against the verified spool.
@@ -137,7 +157,7 @@ pub fn validate_items_in_sealed<S: SealedSpool, W: StagingSink>(
     encoding: crate::records::NameEncoding,
     cancelled: impl FnMut() -> bool,
 ) -> Result<W, Error> {
-    decode_sealed(spool, sink, Some(encoding), None, false, cancelled)
+    decode_sealed(spool, sink, Some(encoding), None, false, cancelled).map(|(sink, _)| sink)
 }
 
 /// Checks framing and Item and Gap bodies using the verified sealed spool.
@@ -172,7 +192,7 @@ fn validate_scoped_records<S: SealedSpool, W: StagingSink>(
     require_volume: bool,
     cancelled: impl FnMut() -> bool,
 ) -> Result<(W, ScopeRoots), Error> {
-    let roots = match scope_roots::parse(spool.metadata(), require_volume) {
+    let mut roots = match scope_roots::parse(spool.metadata(), require_volume) {
         Ok(roots) => roots,
         Err(()) => {
             return match sink.discard() {
@@ -184,7 +204,7 @@ fn validate_scoped_records<S: SealedSpool, W: StagingSink>(
             };
         }
     };
-    let sink = decode_sealed(
+    let (sink, volume_body) = decode_sealed(
         spool,
         sink,
         Some(roots.encoding()),
@@ -192,6 +212,12 @@ fn validate_scoped_records<S: SealedSpool, W: StagingSink>(
         require_volume,
         cancelled,
     )?;
+    if let Some(body) = volume_body {
+        roots.set_validated_volume_record(ValidatedVolumeRecord {
+            body,
+            root_count: roots.roots().len(),
+        });
+    }
     Ok((sink, roots))
 }
 
@@ -202,7 +228,7 @@ fn decode_sealed<S: SealedSpool, W: StagingSink>(
     root_count: Option<usize>,
     validate_volume: bool,
     mut cancelled: impl FnMut() -> bool,
-) -> Result<W, Error> {
+) -> Result<(W, Option<Vec<u8>>), Error> {
     let result = (|| {
         if cancelled() {
             return Err(Error::Cancelled);
@@ -230,17 +256,18 @@ fn decode_sealed<S: SealedSpool, W: StagingSink>(
             },
         )?;
         records.finish().map_err(|()| Error::Records)?;
-        if let Some(items) = items {
-            items.finish().map_err(|()| Error::Records)?;
-        }
+        let volume_body = match items {
+            Some(items) => items.finish().map_err(|()| Error::Records)?,
+            None => None,
+        };
         // Do not return a staged result when cancellation arrived during final checks.
         if cancelled() {
             return Err(Error::Cancelled);
         }
-        Ok(())
+        Ok(volume_body)
     })();
     match result {
-        Ok(()) => Ok(sink),
+        Ok(volume_body) => Ok((sink, volume_body)),
         Err(failure) => match sink.discard() {
             Ok(()) => Err(failure),
             Err(cleanup) => Err(Error::Discard {

@@ -1,9 +1,14 @@
 //! Validation of stable source metadata, independent of snapshot publication.
+use super::PathRuleDescriptor;
 use crate::records::NameEncoding;
 use serde_json::Value;
 use std::collections::HashSet;
 
-pub(super) fn validate(json: &Value, encoding: NameEncoding, root_count: usize) -> Result<(), ()> {
+pub(super) fn validate(
+    json: &Value,
+    encoding: NameEncoding,
+    root_count: usize,
+) -> Result<Vec<PathRuleDescriptor>, ()> {
     let source = json.get("source").and_then(Value::as_object).ok_or(())?;
     let marker = source.get("scopeMarker").ok_or(())?;
     if !marker.is_null()
@@ -34,15 +39,10 @@ pub(super) fn validate(json: &Value, encoding: NameEncoding, root_count: usize) 
         NameEncoding::Bytes => "/",
         NameEncoding::WindowsUtf16Le => "\\",
     };
-    for rule in rules {
-        let rule = rule.as_object().ok_or(())?;
-        if rule.get("separator").and_then(Value::as_str) != Some(separator)
-            || !enum_or_null(rule.get("caseSensitivity"), &["sensitive", "insensitive"])
-            || !enum_or_null(rule.get("normalization"), &["none", "NFC", "NFD"])
-        {
-            return Err(());
-        }
-    }
+    let path_rules = rules
+        .iter()
+        .map(|rule| PathRuleDescriptor::parse(rule, separator))
+        .collect::<Result<Vec<_>, _>>()?;
     let _ = entries(source.get("conditionSummary"))?;
     if let Some(values) = entries(source.get("algorithms"))? {
         let mut seen = HashSet::new();
@@ -68,11 +68,7 @@ pub(super) fn validate(json: &Value, encoding: NameEncoding, root_count: usize) 
             }
         }
     }
-    Ok(())
-}
-
-fn enum_or_null(value: Option<&Value>, options: &[&str]) -> bool {
-    value.is_some_and(|v| v.is_null() || v.as_str().is_some_and(|s| options.contains(&s)))
+    Ok(path_rules)
 }
 
 fn entries(value: Option<&Value>) -> Result<Option<&Vec<Value>>, ()> {
