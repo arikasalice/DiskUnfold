@@ -1,5 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ReactNode, Ref } from "react";
+import { useLocaleText } from "../../i18n/presentation";
+import type { LocaleText } from "../../i18n/presentation";
 import { displayInteger, useRegionalFormat } from "../../i18n/regional-format";
 import {
   Action,
@@ -32,28 +34,47 @@ import type { SizeBasisFilter, SizeDisplay } from "./space-format";
 import type { AnalysisDisplayPreferences } from "./use-display-preferences";
 import "../../theme/analysis-results.css";
 
-const resultVersionLabels = {
-  complete: "Final",
-  partial: "Interim",
-  missing: "Final with scan gaps",
-  cancelled: "Cancelled",
-} satisfies Record<SpaceTotal["completeness"], string>;
+function resultVersionLabel(
+  state: SpaceTotal["completeness"],
+  text: LocaleText,
+) {
+  switch (state) {
+    case "complete":
+      return text("ui.analysis.version_final", "Final");
+    case "partial":
+      return text("ui.analysis.version_interim", "Interim");
+    case "missing":
+      return text("ui.analysis.version_gaps", "Final with scan gaps");
+    case "cancelled":
+      return text("ui.analysis.version_cancelled", "Cancelled");
+  }
+}
 
 function Coverage({ total }: { total: SpaceTotal }) {
   const regional = useRegionalFormat();
+  const text = useLocaleText();
   const counters = [
-    { label: "Missing items", count: total.missingItems },
-    { label: "Inaccessible ranges", count: total.inaccessibleRanges },
-    { label: "Untraversed links", count: total.untraversedLinks },
+    {
+      label: text("ui.analysis.missing_items", "Missing items"),
+      count: total.missingItems,
+    },
+    {
+      label: text("ui.analysis.inaccessible_ranges", "Inaccessible ranges"),
+      count: total.inaccessibleRanges,
+    },
+    {
+      label: text("ui.analysis.untraversed_links", "Untraversed links"),
+      count: total.untraversedLinks,
+    },
   ];
   return (
     <Readout
-      label="Coverage limits"
+      label={text("ui.analysis.coverage_limits", "Coverage limits")}
       rows={counters.map(({ label, count }) => ({
         label,
         value:
           count === null
-            ? "Not recorded"
+            ? text("ui.analysis.not_recorded", "Not recorded")
             : displayInteger(BigInt(count), regional),
       }))}
     />
@@ -89,7 +110,10 @@ export function ScanOutput({
   roots: readonly OsPath[];
   actions: ReactNode;
 }) {
-  const pathsLabel = running ? "Scanning paths" : "Selected paths";
+  const text = useLocaleText();
+  const pathsLabel = running
+    ? text("ui.analysis.scanning_paths", "Scanning paths")
+    : text("ui.analysis.selected_paths", "Selected paths");
   const error =
     problem ?? scan.controlError ?? scan.error ?? scan.status?.reasonKey;
   const awaitingTotals =
@@ -109,7 +133,7 @@ export function ScanOutput({
       />
       <section
         className="du-result__body"
-        aria-label="Result details"
+        aria-label={text("ui.analysis.result_details", "Result details")}
         tabIndex={0}
       >
         {error && <Notice tone="error">{error}</Notice>}
@@ -137,11 +161,19 @@ export function ScanOutput({
         ) : running ? (
           <Text kind="muted">
             {scan.status?.state === "paused"
-              ? "The scan is paused. Resume to continue collecting file metadata."
-              : "Collecting file metadata. Totals appear when a result is ready."}
+              ? text(
+                  "ui.analysis.paused_hint",
+                  "The scan is paused. Resume to continue collecting file metadata.",
+                )
+              : text(
+                  "ui.analysis.collecting_hint",
+                  "Collecting file metadata. Totals appear when a result is ready.",
+                )}
           </Text>
         ) : !awaitingTotals && !error ? (
-          <Text kind="muted">{emptyResultMessage(scan.status?.state)}</Text>
+          <Text kind="muted">
+            {emptyResultMessage(scan.status?.state, text)}
+          </Text>
         ) : null}
       </section>
     </>
@@ -163,13 +195,16 @@ function ScanOutputHeader({
   statusFocus: Ref<HTMLDivElement>;
   actions: ReactNode;
 }) {
+  const text = useLocaleText();
   const cancelling =
     scan.control === "cancel" || scan.status?.state === "cancel_requested";
   return (
     <header className="du-result__header">
       <div className="du-result__title">
         <Heading level={3}>
-          {scan.total ? "Analysis result" : "Scan progress"}
+          {scan.total
+            ? text("ui.analysis.result_heading", "Analysis result")
+            : text("ui.analysis.progress_heading", "Scan progress")}
         </Heading>
         {started && (
           <ScanStatus
@@ -191,15 +226,26 @@ function ScanOutputHeader({
       </div>
       {running && (cancelling || scan.status?.state !== "paused") && (
         <Progress
-          label={cancelling ? "Waiting for cancellation" : "Scanning folder"}
+          label={
+            cancelling
+              ? text("ui.analysis.waiting_cancel", "Waiting for cancellation")
+              : text("ui.analysis.scanning_folder", "Scanning folder")
+          }
         />
       )}
       {awaitingTotals && (
         <div className="du-result__loading">
           <LiveStatus>
-            <Text>Reading space totals…</Text>
+            <Text>
+              {text(
+                "ui.analysis.reading_totals_pending",
+                "Reading space totals…",
+              )}
+            </Text>
           </LiveStatus>
-          <Progress label="Reading space totals" />
+          <Progress
+            label={text("ui.analysis.reading_totals", "Reading space totals")}
+          />
         </div>
       )}
     </header>
@@ -215,23 +261,30 @@ function ScanStatus({
   pending: ScanControl | undefined;
   focusTarget: Ref<HTMLDivElement>;
 }) {
+  const text = useLocaleText();
   const labels: Record<JobState | "unavailable", string> = {
-    queued: "Waiting to scan",
-    running: "Scanning",
-    pause_requested: "Pause requested",
-    paused: "Scan paused",
-    cancel_requested: "Cancellation requested",
-    done: "Scan finished",
-    partial: "Scan ended with gaps",
-    failed: "Scan failed",
-    cancelled: "Scan cancelled",
-    unavailable: "Scan status unavailable",
+    queued: text("ui.analysis.waiting_scan", "Waiting to scan"),
+    running: text("ui.analysis.scanning", "Scanning"),
+    pause_requested: text("ui.analysis.pause_requested", "Pause requested"),
+    paused: text("ui.analysis.scan_paused", "Scan paused"),
+    cancel_requested: text(
+      "ui.analysis.cancel_requested",
+      "Cancellation requested",
+    ),
+    done: text("ui.analysis.scan_finished", "Scan finished"),
+    partial: text("ui.analysis.scan_partial", "Scan ended with gaps"),
+    failed: text("ui.analysis.scan_failed", "Scan failed"),
+    cancelled: text("ui.analysis.scan_cancelled", "Scan cancelled"),
+    unavailable: text(
+      "ui.analysis.status_unavailable",
+      "Scan status unavailable",
+    ),
   };
   const statusText =
     pending === "cancel" || state === "cancel_requested"
       ? labels.cancel_requested
       : pending === "resume"
-        ? "Resume requested"
+        ? text("ui.analysis.resume_requested", "Resume requested")
         : pending === "pause" || state === "pause_requested"
           ? labels.pause_requested
           : labels[state];
@@ -244,18 +297,33 @@ function ScanStatus({
   );
 }
 
-function emptyResultMessage(state: JobState | undefined): string {
+function emptyResultMessage(
+  state: JobState | undefined,
+  text: LocaleText,
+): string {
   switch (state) {
     case "cancelled":
-      return "The scan was cancelled before a result was available.";
+      return text(
+        "ui.analysis.empty_cancelled",
+        "The scan was cancelled before a result was available.",
+      );
     case "failed":
-      return "The scan failed before a result was available.";
+      return text(
+        "ui.analysis.empty_failed",
+        "The scan failed before a result was available.",
+      );
     case "partial":
-      return "The scan ended with gaps and no result is available.";
+      return text(
+        "ui.analysis.empty_partial",
+        "The scan ended with gaps and no result is available.",
+      );
     case "done":
-      return "The scan finished without an available result.";
+      return text(
+        "ui.analysis.empty_done",
+        "The scan finished without an available result.",
+      );
     default:
-      return "No result is available yet.";
+      return text("ui.analysis.empty_result", "No result is available yet.");
   }
 }
 
@@ -272,6 +340,7 @@ function ResultVersionSummary({
   switching: boolean;
   finished: boolean;
 }) {
+  const text = useLocaleText();
   const button = useRef<HTMLButtonElement>(null);
   const summary = useRef<HTMLDivElement>(null);
   const [selection, setSelection] = useState<{
@@ -300,12 +369,21 @@ function ResultVersionSummary({
       <LiveStatus ref={summary} focusTarget={total !== undefined}>
         {total && (
           <Text kind="muted">
-            Result version: {resultVersionLabels[total.completeness]}
+            {text("ui.analysis.result_version", "Result version: {status}", {
+              status: resultVersionLabel(total.completeness, text),
+            })}
           </Text>
         )}
-        {hasNewResult && <Text>{newerResultMessage(finished, total)}</Text>}
+        {hasNewResult && (
+          <Text>{newerResultMessage(finished, total, text)}</Text>
+        )}
         {!hasNewResult && shownLatest && (
-          <Text>Now showing the latest result.</Text>
+          <Text>
+            {text(
+              "ui.analysis.latest_visible",
+              "Now showing the latest result.",
+            )}
+          </Text>
         )}
       </LiveStatus>
       {version && (hasNewResult || waitingToSwitch) && (
@@ -317,7 +395,9 @@ function ResultVersionSummary({
             showLatest();
           }}
         >
-          {switching ? "Reading latest result…" : "Show latest result"}
+          {switching
+            ? text("ui.analysis.reading_latest", "Reading latest result…")
+            : text("ui.analysis.show_latest", "Show latest result")}
         </Action>
       )}
     </div>
@@ -327,12 +407,22 @@ function ResultVersionSummary({
 function newerResultMessage(
   finished: boolean,
   total: SpaceTotal | undefined,
+  text: LocaleText,
 ): string {
   if (!finished)
-    return "Newer result available. Showing the current result until you switch.";
+    return text(
+      "ui.analysis.newer_available",
+      "Newer result available. Showing the current result until you switch.",
+    );
   return total?.completeness === "partial"
-    ? "You’re still viewing an interim result."
-    : "You’re still viewing an earlier result.";
+    ? text(
+        "ui.analysis.still_interim",
+        "You’re still viewing an interim result.",
+      )
+    : text(
+        "ui.analysis.still_earlier",
+        "You’re still viewing an earlier result.",
+      );
 }
 
 /** Displays the selected result without replacing it on later publications. */
@@ -356,6 +446,7 @@ function PinnedResult({
 }) {
   const [basisChoice, setBasis] = useState<SizeBasisFilter>();
   const regional = useRegionalFormat();
+  const text = useLocaleText();
   const choice = displayChoice ?? preferences.display;
   const display = regional ? { ...choice, regional } : choice;
   const basis = basisChoice ?? preferences.basis;
@@ -363,19 +454,29 @@ function PinnedResult({
     onSizeBasisChange?.(total.resultVersion, basis);
   }, [basis, onSizeBasisChange, total.resultVersion]);
   const lead = total.sizes.find(({ size }) => size.basis === basis);
+  const unavailable = text("ui.analysis.unavailable", "Unavailable");
   const unit =
     display.unit === "auto"
-      ? "Automatic"
-      : (SIZE_UNIT_RULES[display.system].symbols[display.unit] ??
-        "Unavailable");
-  const basisLabel = sizeLabels[basis];
+      ? text("ui.analysis.automatic", "Automatic")
+      : (SIZE_UNIT_RULES[display.system].symbols[display.unit] ?? unavailable);
+  const basisLabels = {
+    logical: text("ui.analysis.logical_size", sizeLabels.logical),
+    allocated: text("ui.analysis.allocated_size", sizeLabels.allocated),
+    unique_physical: text(
+      "ui.analysis.unique_physical_size",
+      sizeLabels.unique_physical,
+    ),
+  };
+  const basisLabel = basisLabels[basis];
+  const pathsLabel = text("ui.analysis.scanned_paths", "Scanned paths");
+  const measurements = text("ui.analysis.measurements", "Measurement details");
   return (
     <div className="du-results">
       <Readout
-        label="Scanned paths"
+        label={pathsLabel}
         rows={[
           {
-            label: "Scanned paths",
+            label: pathsLabel,
             value: roots.map((root) => root.display).join(", "),
           },
         ]}
@@ -387,18 +488,18 @@ function PinnedResult({
             lead ? displayMeasurement(lead.size, lead.completeness) : undefined
           }
         >
-          {lead ? displaySize(lead.size, display) : "Unavailable"}
+          {lead ? displaySize(lead.size, display, text) : unavailable}
         </Metric>
       </div>
       <Coverage total={total} />
-      <DetailDisclosure title="Measurement details">
+      <DetailDisclosure title={measurements}>
         <Readout
-          label="Measurement details"
+          label={measurements}
           rows={total.sizes.map(({ size, completeness, measurementLimits }) => {
-            const value = displaySize(size, display);
-            const raw = displayRawSize(size);
+            const value = displaySize(size, display, text);
+            const raw = displayRawSize(size, regional, text);
             return {
-              label: sizeLabels[size.basis],
+              label: basisLabels[size.basis],
               value,
               wideValue: true,
               notes: [
@@ -415,11 +516,15 @@ function PinnedResult({
       </Text>
       {preferences.warning && (
         <Notice>
-          Some display preferences could not be restored. Using the available
-          settings and defaults.
+          {text(
+            "ui.analysis.display_restore_warning",
+            "Some display preferences could not be restored. Using the available settings and defaults.",
+          )}
         </Notice>
       )}
-      <DetailDisclosure title="Display options">
+      <DetailDisclosure
+        title={text("ui.analysis.display_options", "Display options")}
+      >
         <SizeDisplayControls
           basis={basis}
           display={display}
@@ -463,6 +568,8 @@ function ScopeDetails({
   display: SizeDisplay;
 }) {
   const [open, setOpen] = useState(false);
+  const text = useLocaleText();
+  const title = text("ui.analysis.folder_details", "Folder details");
   const trigger = useRef<HTMLButtonElement>(null);
   const restore = useRef(false);
   useLayoutEffect(() => {
@@ -475,13 +582,13 @@ function ScopeDetails({
   if (multiRoot) return null;
 
   return (
-    <section aria-label="Folder details">
+    <section aria-label={title}>
       <Action ref={trigger} onPress={() => setOpen(true)}>
-        View folder details
+        {text("ui.analysis.view_folder_details", "View folder details")}
       </Action>
       {open && (
         <InspectionDialog
-          title="Folder details"
+          title={title}
           onClose={() => {
             restore.current = true;
             setOpen(false);

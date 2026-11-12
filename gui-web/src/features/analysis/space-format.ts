@@ -3,6 +3,7 @@ import { SIZE_UNIT_RULES } from "../../ipc";
 import { formatByteUnit } from "../../i18n/bytes";
 import { displayInteger } from "../../i18n/regional-format";
 import type { RegionalFormat } from "../../i18n/regional-format";
+import type { LocaleText } from "../../i18n/presentation";
 
 import type { SizeDisplay } from "../../i18n/bytes";
 export type { SizeDisplay } from "../../i18n/bytes";
@@ -87,10 +88,20 @@ export function formatBytes(bytes: string, regional?: RegionalFormat): string {
 export function displayRawSize(
   size: SizeValue,
   regional?: RegionalFormat,
+  text?: LocaleText,
 ): string | undefined {
   if (size.state === "unknown") return undefined;
   const rawBytes = formatBytes(size.bytes, regional);
-  return size.state === "lower_bound" ? `At least ${rawBytes}` : rawBytes;
+  return size.state === "lower_bound"
+    ? lowerBoundLabel(rawBytes, text)
+    : rawBytes;
+}
+
+function lowerBoundLabel(value: string, text?: LocaleText) {
+  return (
+    text?.("ui.analysis.size_lower_bound", "At least {value}", { value }) ??
+    `At least ${value}`
+  );
 }
 
 /** Converts a wire byte count using exact arithmetic before display rounding. */
@@ -113,11 +124,13 @@ export function formatSizeBytes(
 export function displaySize(
   size: SizeValue,
   display: SizeDisplay = windowsSizeDisplay,
+  text?: LocaleText,
 ): string {
-  if (size.state === "unknown") return "Unavailable";
+  if (size.state === "unknown")
+    return text?.("ui.analysis.unavailable", "Unavailable") ?? "Unavailable";
   const lowerBound = size.state === "lower_bound";
   const formatted = formatSizeBytes(size.bytes, display, lowerBound);
-  return lowerBound ? `At least ${formatted}` : formatted;
+  return lowerBound ? lowerBoundLabel(formatted, text) : formatted;
 }
 
 /** Returns a separate raw count only when it adds information. */

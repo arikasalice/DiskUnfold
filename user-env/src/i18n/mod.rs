@@ -7,6 +7,7 @@ use du_core_contracts::locale_bundle::{
 };
 
 mod bundle_body;
+mod declared;
 pub mod embedded;
 mod metadata;
 mod missing;

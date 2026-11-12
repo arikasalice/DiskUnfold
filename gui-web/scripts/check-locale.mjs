@@ -67,7 +67,7 @@ async function usedKeys() {
 
 const [english, korean] = await Promise.all(languageIds.map(readBundle));
 const declared = declaredKeys(
-  await readFile(new URL("../user-env/src/i18n/embedded.rs", root), "utf8"),
+  await readFile(new URL("../user-env/src/i18n/declared.rs", root), "utf8"),
 );
 const used = await usedKeys();
 const errors = [];
