@@ -182,28 +182,33 @@ impl ResultVersion {
         self.aggregates.get(item_no as usize)
     }
 
-    /// Reads observed file size or the same folder aggregate used by the space query.
+    /// Reads a file size or folder aggregate only when its recorded basis matches `basis`.
+    ///
+    /// Missing or mismatched file evidence remains absent; this method does not convert
+    /// between bases or infer a replacement value.
     pub fn item_size(&self, item_no: u32, basis: SizeBasis) -> Option<&SizeValue> {
         let item = self.items.get(item_no as usize)?;
-        if item.kind == ResultItemKind::Directory {
+        let size = if item.kind == ResultItemKind::Directory {
             let aggregate = self.space(item.item_no)?;
-            return Some(match basis {
+            match &basis {
                 SizeBasis::Logical => &aggregate.logical,
                 SizeBasis::Allocated => &aggregate.allocated,
                 SizeBasis::UniquePhysical => &aggregate.unique_physical,
-            });
-        }
-        match basis {
-            SizeBasis::Logical => item.size.as_ref(),
-            SizeBasis::Allocated => self
-                .physical
-                .as_ref()?
-                .get(item.item_no as usize)?
-                .as_ref()?
-                .allocated
-                .as_ref(),
-            SizeBasis::UniquePhysical => None,
-        }
+            }
+        } else {
+            match &basis {
+                SizeBasis::Logical => item.size.as_ref(),
+                SizeBasis::Allocated => self
+                    .physical
+                    .as_ref()?
+                    .get(item.item_no as usize)?
+                    .as_ref()?
+                    .allocated
+                    .as_ref(),
+                SizeBasis::UniquePhysical => None,
+            }?
+        };
+        (size.basis == basis).then_some(size)
     }
 
     /// Resolves an item reference against this snapshot, including an older snapshot held open.
