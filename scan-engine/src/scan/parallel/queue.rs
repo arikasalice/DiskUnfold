@@ -16,86 +16,135 @@ pub(super) enum PriorityDecision {
 #[derive(Default)]
 struct OutstandingNode {
     count: usize,
-    children: HashMap<Vec<u8>, OutstandingNode>,
+    children: HashMap<Vec<u8>, usize>,
 }
 
-/// Counts outstanding directory work while sharing raw path component prefixes.
-/// Nodes are pruned when their last outstanding directory task completes.
+/// Counts outstanding directory work in a flat arena, sharing raw path prefixes.
+/// Nodes are pruned iteratively when their last outstanding task completes.
 pub(super) struct OutstandingPaths {
-    roots: Vec<OutstandingNode>,
+    roots: Vec<usize>,
+    nodes: Vec<OutstandingNode>,
+    free: Vec<usize>,
 }
 
 impl OutstandingPaths {
     pub(super) fn new(root_count: usize) -> Self {
         Self {
-            roots: (0..root_count)
+            roots: (0..root_count).collect(),
+            nodes: (0..root_count)
                 .map(|_| OutstandingNode::default())
                 .collect(),
+            free: Vec::new(),
         }
     }
 
     pub(super) fn register(&mut self, root_index: u32, path: &[Vec<u8>]) -> bool {
-        let Some(mut node) = self.roots.get_mut(root_index as usize) else {
+        let Some(&root) = self.roots.get(root_index as usize) else {
             return false;
         };
-        node.count += 1;
+        let mut chain = vec![root];
+        let mut node = root;
         for component in path {
-            node = node.children.entry(component.clone()).or_default();
-            node.count += 1;
+            let Some(current) = self.nodes.get(node) else {
+                return false;
+            };
+            let child = if let Some(&child) = current.children.get(component) {
+                Some(child)
+            } else {
+                self.add_child(node, component)
+            };
+            let Some(child) = child else {
+                return false;
+            };
+            node = child;
+            chain.push(node);
+        }
+        for node in chain {
+            self.nodes[node].count += 1;
         }
         true
     }
 
     pub(super) fn complete(&mut self, root_index: u32, path: &[Vec<u8>]) -> bool {
-        let Some(root) = self.roots.get_mut(root_index as usize) else {
+        let Some(&root) = self.roots.get(root_index as usize) else {
             return false;
         };
-        release_path(root, path).is_ok()
+        let mut chain = vec![root];
+        let mut node = root;
+        for component in path {
+            let Some(&child) = self
+                .nodes
+                .get(node)
+                .and_then(|node| node.children.get(component))
+            else {
+                return false;
+            };
+            node = child;
+            chain.push(node);
+        }
+        if chain.iter().any(|&index| self.nodes[index].count == 0) {
+            return false;
+        }
+        for &index in &chain {
+            self.nodes[index].count -= 1;
+        }
+        for depth in (1..chain.len()).rev() {
+            let child = chain[depth];
+            if self.nodes[child].count != 0 || !self.nodes[child].children.is_empty() {
+                break;
+            }
+            let parent = chain[depth - 1];
+            self.nodes[parent].children.remove(&path[depth - 1]);
+            self.nodes[child] = OutstandingNode::default();
+            self.free.push(child);
+        }
+        true
     }
 
     pub(super) fn count(&self, root_index: u32, path: &[Vec<u8>]) -> usize {
-        let Some(mut node) = self.roots.get(root_index as usize) else {
+        let Some(&root) = self.roots.get(root_index as usize) else {
             return 0;
         };
+        let mut node = root;
         for component in path {
-            let Some(child) = node.children.get(component) else {
+            let Some(&child) = self.nodes[node].children.get(component) else {
                 return 0;
             };
             node = child;
         }
-        node.count
+        self.nodes[node].count
     }
-}
 
-fn release_path(node: &mut OutstandingNode, path: &[Vec<u8>]) -> Result<bool, ()> {
-    if node.count == 0 {
-        return Err(());
-    }
-    node.count -= 1;
-    if let Some((component, rest)) = path.split_first() {
-        let prune_child = match node
-            .children
-            .get_mut(component)
-            .ok_or(())
-            .and_then(|child| release_path(child, rest))
-        {
-            Ok(prune_child) => prune_child,
-            Err(()) => {
-                node.count += 1;
-                return Err(());
-            }
-        };
-        if prune_child {
-            node.children.remove(component);
+    fn add_child(&mut self, parent: usize, component: &[u8]) -> Option<usize> {
+        if self.nodes.get(parent)?.children.contains_key(component) {
+            return None;
         }
+        let index = if let Some(index) = self.free.pop() {
+            *self.nodes.get_mut(index)? = OutstandingNode::default();
+            index
+        } else {
+            let index = self.nodes.len();
+            self.nodes.push(OutstandingNode::default());
+            index
+        };
+        self.nodes
+            .get_mut(parent)?
+            .children
+            .insert(component.to_vec(), index);
+        Some(index)
     }
-    Ok(node.count == 0 && node.children.is_empty())
 }
 
 impl Queue {
     /// Changes only the next scheduling order. The caller resolves scope authority.
     pub(super) fn prioritize(&mut self, region: PriorityRegion) -> PriorityDecision {
-        let remaining = self.outstanding.count(region.root_index, &region.path);
+        let Some(outstanding) = self.outstanding.as_ref() else {
+            return PriorityDecision::NoEffect {
+                same_region: false,
+                remaining: 0,
+            };
+        };
+        let remaining = outstanding.count(region.root_index, &region.path);
         if self.priority.as_ref() == Some(&region) {
             return PriorityDecision::NoEffect {
                 same_region: true,
@@ -113,13 +162,16 @@ impl Queue {
     }
 
     pub(super) fn complete_path(&mut self, root_index: u32, path: &[Vec<u8>]) -> bool {
-        if !self.outstanding.complete(root_index, path) {
+        let Some(outstanding) = self.outstanding.as_mut() else {
+            return true;
+        };
+        if !outstanding.complete(root_index, path) {
             return false;
         }
         if self
             .priority
             .as_ref()
-            .is_some_and(|region| self.outstanding.count(region.root_index, &region.path) == 0)
+            .is_some_and(|region| outstanding.count(region.root_index, &region.path) == 0)
         {
             self.priority = None;
         }
@@ -140,6 +192,19 @@ impl Queue {
         } else {
             2
         }
+    }
+
+    pub(super) fn best_ready_rank(&self) -> Option<u8> {
+        if !self.started {
+            return None;
+        }
+        self.ready
+            .iter()
+            .filter(|frame| {
+                self.active_groups[self.root_groups[frame.root_index as usize]] < self.device_limit
+            })
+            .map(|frame| self.priority_rank(frame))
+            .min()
     }
 
     pub(super) fn push_ready(&mut self, frame: Frame) {

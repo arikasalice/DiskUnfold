@@ -124,11 +124,7 @@ mod tests {
                 ready_high_water: Some(0),
                 last_root: None,
                 priority: None,
-                outstanding: {
-                    let mut paths = super::super::queue::OutstandingPaths::new(1);
-                    assert!(paths.register(0, &[]));
-                    paths
-                },
+                outstanding: None,
                 remaining: 1,
                 root_remaining: vec![1],
                 root_groups: vec![0],
@@ -139,6 +135,7 @@ mod tests {
             wake: Arc::new(Condvar::new()),
             abort: AtomicBool::new(false),
             disconnects: disconnect::Disconnects::new(1, &[]),
+            track_priority_paths: false,
         };
         let context = Flip(std::sync::atomic::AtomicUsize::new(0));
         let (sender, receiver) = mpsc::sync_channel(4);
@@ -332,11 +329,7 @@ mod tests {
                     ready_high_water: None,
                     last_root: None,
                     priority: None,
-                    outstanding: {
-                        let mut paths = super::super::queue::OutstandingPaths::new(1);
-                        assert!(paths.register(0, &[]));
-                        paths
-                    },
+                    outstanding: None,
                     remaining: 1,
                     root_remaining: vec![1],
                     root_groups: vec![0],
@@ -347,6 +340,7 @@ mod tests {
                 wake: Arc::new(Condvar::new()),
                 abort: AtomicBool::new(false),
                 disconnects: disconnect::Disconnects::new(1, &[]),
+                track_priority_paths: false,
             };
             let cancelled = Flip(std::sync::atomic::AtomicUsize::new(1));
             let _ = entered.send(());

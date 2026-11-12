@@ -59,7 +59,7 @@ struct Queue {
     ready_high_water: Option<usize>,
     last_root: Option<u32>,
     priority: Option<queue::PriorityRegion>,
-    outstanding: queue::OutstandingPaths,
+    outstanding: Option<queue::OutstandingPaths>,
     remaining: usize,
     root_remaining: Vec<usize>,
     root_groups: Vec<usize>,
@@ -73,6 +73,7 @@ struct Shared {
     wake: Arc<Condvar>,
     abort: AtomicBool,
     disconnects: disconnect::Disconnects,
+    track_priority_paths: bool,
 }
 impl Shared {
     /// Stops all scan flows after an internal failure, without requesting user cancellation.

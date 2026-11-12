@@ -20,6 +20,7 @@ pub mod result_events;
 pub mod ruleset;
 pub mod scan_failures;
 pub mod scan_observation;
+pub mod scan_priority;
 pub mod settings;
 pub mod settings_events;
 pub mod settings_ipc;

@@ -7,7 +7,10 @@
 use super::*;
 mod cancel_drain;
 mod disconnected;
+mod dispatch;
 mod entries;
+#[cfg(test)]
+mod priority_dispatch_tests;
 mod read_batch;
 use entries::process_entry;
 use read_batch::{ReadFailure, next_entries};
@@ -41,7 +44,7 @@ fn worker_loop(
         if flow.safe_point() == Checkpoint::Cancel {
             break;
         }
-        let claim = take(shared, context, &mut local, prefer_shared, flow);
+        let claim = dispatch::take(shared, context, &mut local, prefer_shared, flow);
         prefer_shared = !prefer_shared;
         let Some(Claim {
             frame,
@@ -78,97 +81,6 @@ impl Drop for Permit<'_> {
 struct Claim<'a> {
     frame: Frame,
     permit: Permit<'a>,
-}
-
-fn claim_ready<'a>(shared: &'a Shared, queue: &mut Queue) -> Option<Claim<'a>> {
-    if queue.started {
-        let (frame, group) = queue.pop_fair()?;
-        Some(Claim {
-            frame,
-            permit: Permit { shared, group },
-        })
-    } else {
-        None
-    }
-}
-
-fn claim_local<'a>(
-    shared: &'a Shared,
-    queue: &mut Queue,
-    local: &mut Vec<Frame>,
-) -> Option<Claim<'a>> {
-    if !queue.started {
-        return None;
-    }
-    let index = local
-        .iter()
-        .enumerate()
-        .filter(|(_, frame)| {
-            let group = queue.root_groups[frame.root_index as usize];
-            queue.active_groups[group] < queue.device_limit
-        })
-        .min_by_key(|(index, frame)| (queue.priority_rank(frame), usize::MAX - *index))
-        .map(|(index, _)| index)?;
-    let frame = local.remove(index);
-    let group = queue.root_groups[frame.root_index as usize];
-    queue.active_groups[group] += 1;
-    Some(Claim {
-        frame,
-        permit: Permit { shared, group },
-    })
-}
-
-fn take<'a>(
-    shared: &'a Shared,
-    context: &dyn JobContext,
-    local: &mut Vec<Frame>,
-    prefer_shared: bool,
-    flow: &dyn JobFlow,
-) -> Option<Claim<'a>> {
-    let mut queue = match shared.queue.lock() {
-        Ok(queue) => queue,
-        Err(error) => {
-            drop(error.into_inner());
-            shared.abort(context);
-            return None;
-        }
-    };
-    loop {
-        if context.checkpoint() == Checkpoint::Cancel || shared.abort.load(Ordering::Acquire) {
-            return None;
-        }
-        let claim = if prefer_shared {
-            claim_ready(shared, &mut queue).or_else(|| claim_local(shared, &mut queue, local))
-        } else {
-            claim_local(shared, &mut queue, local).or_else(|| claim_ready(shared, &mut queue))
-        };
-        if claim.is_some() {
-            return claim;
-        }
-        if queue.remaining == 0 {
-            return None;
-        }
-        queue = match shared.wake.wait_timeout(queue, Duration::from_millis(25)) {
-            Ok((queue, _)) => queue,
-            Err(error) => {
-                drop(error.into_inner());
-                shared.abort(context);
-                return None;
-            }
-        };
-        drop(queue);
-        if flow.safe_point() == Checkpoint::Cancel {
-            return None;
-        }
-        queue = match shared.queue.lock() {
-            Ok(queue) => queue,
-            Err(error) => {
-                drop(error.into_inner());
-                shared.abort(context);
-                return None;
-            }
-        };
-    }
 }
 
 fn process(
@@ -391,10 +303,17 @@ fn schedule(
             return Some(frame);
         }
     };
-    if !registered && !queue.outstanding.register(frame.root_index, &frame.path) {
-        drop(queue);
-        shared.abort(context);
-        return Some(frame);
+    if shared.track_priority_paths && !registered {
+        let Some(outstanding) = queue.outstanding.as_mut() else {
+            drop(queue);
+            shared.abort(context);
+            return Some(frame);
+        };
+        if !outstanding.register(frame.root_index, &frame.path) {
+            drop(queue);
+            shared.abort(context);
+            return Some(frame);
+        }
     }
     queue.remaining += 1;
     queue.root_remaining[frame.root_index as usize] += 1;
@@ -413,7 +332,11 @@ fn register_path(
 ) -> bool {
     match shared.queue.lock() {
         Ok(mut queue) => {
-            if queue.outstanding.register(root_index, path) {
+            if queue
+                .outstanding
+                .as_mut()
+                .is_some_and(|outstanding| outstanding.register(root_index, path))
+            {
                 true
             } else {
                 drop(queue);
@@ -457,7 +380,7 @@ fn complete(shared: &Shared, root_index: u32, path: &[Vec<u8>], context: &dyn Jo
         Ok(mut queue) => {
             queue.remaining -= 1;
             queue.root_remaining[root_index as usize] -= 1;
-            if !queue.complete_path(root_index, path) {
+            if shared.track_priority_paths && !queue.complete_path(root_index, path) {
                 drop(queue);
                 shared.abort(context);
                 return;

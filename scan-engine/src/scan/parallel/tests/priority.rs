@@ -280,8 +280,11 @@ fn scan_fixture() -> Result<Fixture, TestError> {
         scope.clone(),
         ids,
     )
+    .with_priority_control()
     .with_lineage(lineage.clone());
-    let handle = job.control_handle();
+    let handle = job
+        .control_handle()
+        .ok_or("priority control was not enabled")?;
     let context = Arc::new(SingleFlowContext {
         occupied: Arc::new(AtomicBool::new(false)),
         cancelled: Arc::new(AtomicBool::new(false)),

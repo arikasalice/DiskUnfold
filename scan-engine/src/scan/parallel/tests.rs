@@ -444,13 +444,7 @@ fn ready_roots_take_turns_even_when_one_has_many_frames() {
         ready_high_water: Some(6),
         last_root: None,
         priority: None,
-        outstanding: {
-            let mut paths = queue::OutstandingPaths::new(3);
-            for root in [0, 0, 1, 2, 0, 1] {
-                assert!(paths.register(root, &[]));
-            }
-            paths
-        },
+        outstanding: None,
         remaining: 6,
         root_remaining: vec![3, 2, 1],
         root_groups: vec![0, 1, 2],

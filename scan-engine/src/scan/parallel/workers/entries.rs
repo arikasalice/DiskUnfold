@@ -65,7 +65,9 @@ fn reserve_child(
     let can_descend = eligible
         && context.checkpoint() != Checkpoint::Cancel
         && !shared.disconnects.closed(frame.root_index);
-    let registered = if can_descend && !recorded {
+    let registered = if !shared.track_priority_paths {
+        false
+    } else if can_descend && !recorded {
         if !register_path(shared, frame.root_index, path, context) {
             return Err(());
         }
@@ -126,7 +128,7 @@ fn open_and_schedule(
             registered,
         )),
         Err(error) => {
-            if !release_path(shared, frame.root_index, &path, context) {
+            if registered && !release_path(shared, frame.root_index, &path, context) {
                 return Err(());
             }
             let reason = reason(&error);

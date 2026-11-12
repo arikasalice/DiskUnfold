@@ -12,12 +12,17 @@ pub(super) fn create(
     if !devices.valid(root_count) {
         return Err(BuildError::Unavailable);
     }
-    let mut outstanding = queue::OutstandingPaths::new(root_count);
-    for index in 0..root_count {
-        if !outstanding.register(index as u32, &[]) {
-            return Err(BuildError::Unavailable);
+    let outstanding = if control.is_some() {
+        let mut paths = queue::OutstandingPaths::new(root_count);
+        for index in 0..root_count {
+            if !paths.register(index as u32, &[]) {
+                return Err(BuildError::Unavailable);
+            }
         }
-    }
+        Some(paths)
+    } else {
+        None
+    };
     let shared = Shared {
         queue: Arc::new(Mutex::new(Queue {
             ready_high_water: diagnostics.map(|_| root_count),
@@ -50,6 +55,7 @@ pub(super) fn create(
         wake: Arc::new(Condvar::new()),
         abort: AtomicBool::new(false),
         disconnects,
+        track_priority_paths: control.is_some(),
     };
     if let Some(control) = control {
         control.attach(&shared.queue, &shared.wake);

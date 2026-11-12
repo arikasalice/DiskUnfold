@@ -38,13 +38,13 @@ fn replacement_and_root_component_boundaries_preserve_fair_order() {
         ready_high_water: None,
         last_root: None,
         priority: None,
-        outstanding: {
+        outstanding: Some({
             let mut outstanding = scheduler_queue::OutstandingPaths::new(2);
             for (root, path) in &paths {
                 assert!(outstanding.register(*root, path));
             }
             outstanding
-        },
+        }),
         remaining: paths.len(),
         root_remaining: vec![4, 1],
         root_groups: vec![0, 1],
@@ -104,4 +104,20 @@ fn replacement_and_root_component_boundaries_preserve_fair_order() {
             remaining: 0,
         }
     ));
+}
+
+#[test]
+fn deep_outstanding_paths_are_released_without_recursive_stack_use() {
+    let mut outstanding = scheduler_queue::OutstandingPaths::new(1);
+    let path = vec![vec![b'x']; 32_768];
+
+    assert!(outstanding.register(0, &[]));
+    assert!(outstanding.register(0, &path));
+    assert_eq!(outstanding.count(0, &[]), 2);
+    assert_eq!(outstanding.count(0, &path), 1);
+
+    assert!(outstanding.complete(0, &path));
+    assert_eq!(outstanding.count(0, &path), 0);
+    assert!(outstanding.complete(0, &[]));
+    assert_eq!(outstanding.count(0, &[]), 0);
 }

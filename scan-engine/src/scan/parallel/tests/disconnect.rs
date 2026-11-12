@@ -218,12 +218,7 @@ fn a_batch_already_in_flight_is_drained_after_another_root_disconnects()
                 .collect(),
             last_root: None,
             priority: None,
-            outstanding: {
-                let mut paths = queue::OutstandingPaths::new(2);
-                assert!(paths.register(0, &[]));
-                assert!(paths.register(1, &[]));
-                paths
-            },
+            outstanding: None,
             remaining: 2,
             root_remaining: vec![1; 2],
             root_groups: vec![0; 2],
@@ -234,6 +229,7 @@ fn a_batch_already_in_flight_is_drained_after_another_root_disconnects()
         wake: Arc::new(Condvar::new()),
         abort: AtomicBool::new(false),
         disconnects: super::super::disconnect::Disconnects::new(2, &[vec![1], vec![1]]),
+        track_priority_paths: false,
     };
     let context = Context {
         completed: Arc::new(AtomicUsize::new(0)),

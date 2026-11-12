@@ -74,7 +74,8 @@ pub struct MetadataScan {
     filter: Option<Arc<PreMetadataFilter<'static>>>,
     shared_table_limit: Option<usize>,
     diagnostics: Option<Arc<ScanDiagnostics>>,
-    control: Arc<ScanControlSession>,
+    root_count: usize,
+    control: Option<Arc<ScanControlSession>>,
 }
 
 impl MetadataScan {
@@ -114,7 +115,7 @@ impl MetadataScan {
         scope: Id,
         ids: Arc<dyn ResultIds>,
     ) -> Self {
-        let control = Arc::new(ScanControlSession::new(roots.len()));
+        let root_count = roots.len();
         Self {
             roots: Mutex::new(Some(roots)),
             store,
@@ -124,7 +125,8 @@ impl MetadataScan {
             filter: None,
             shared_table_limit: None,
             diagnostics: None,
-            control,
+            root_count,
+            control: None,
         }
     }
     /// Binds this scan to the stable lineage of its verified scope and source.
@@ -145,14 +147,25 @@ impl MetadataScan {
         self
     }
 
+    /// Enables directory-priority control for this metadata job.
+    ///
+    /// The opt-in allocates bounded outstanding-path accounting for the live
+    /// scheduler. Jobs that do not expose priority control avoid that work.
+    pub fn with_priority_control(mut self) -> Self {
+        if self.control.is_none() {
+            self.control = Some(Arc::new(ScanControlSession::new(self.root_count)));
+        }
+        self
+    }
+
     /// Returns a weak control handle bound to this scan's worker scheduler.
     ///
     /// Store the handle with the admitted job reference. A caller must resolve
     /// each region from the same scan's current pinned result before forwarding
     /// its root index and raw relative components. The handle cannot extend the
     /// job or scheduler lifetime.
-    pub fn control_handle(&self) -> ScanControlHandle {
-        self.control.handle()
+    pub fn control_handle(&self) -> Option<ScanControlHandle> {
+        self.control.as_ref().map(ScanControlSession::handle)
     }
 
     /// Installs an immutable pre-metadata decision for every root of this job.
@@ -210,11 +223,17 @@ impl JobBody for MetadataScan {
                     &*context,
                     DEFAULT_SCAN_WORKERS,
                     self.filter.as_deref(),
-                    (devices, self.diagnostics.as_deref(), Some(&self.control)),
+                    (
+                        devices,
+                        self.diagnostics.as_deref(),
+                        self.control.as_deref(),
+                    ),
                 )
             }
             _ => {
-                self.control.finish();
+                if let Some(control) = &self.control {
+                    control.finish();
+                }
                 JobOutcome {
                     counts: Default::default(),
                     completed_scope: false,

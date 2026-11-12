@@ -38,11 +38,7 @@ fn permit_is_released_during_panic_unwind() {
             ready_high_water: Some(1),
             last_root: None,
             priority: None,
-            outstanding: {
-                let mut paths = queue::OutstandingPaths::new(1);
-                assert!(paths.register(0, &[]));
-                paths
-            },
+            outstanding: None,
             remaining: 1,
             root_remaining: vec![1],
             root_groups: vec![0],
@@ -53,13 +49,14 @@ fn permit_is_released_during_panic_unwind() {
         wake: Arc::new(Condvar::new()),
         abort: AtomicBool::new(false),
         disconnects: disconnect::Disconnects::new(1, &[]),
+        track_priority_paths: false,
     };
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let mut queue = shared
             .queue
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let claim = claim_ready(&shared, &mut queue);
+        let claim = dispatch::claim_ready(&shared, &mut queue);
         drop(queue);
         let _claim = claim;
         assert!(
@@ -108,7 +105,7 @@ fn ready_peak_tracks_simultaneous_frames_and_overflow() -> Result<(), Box<dyn st
             ready_high_water: Some(0),
             last_root: None,
             priority: None,
-            outstanding: queue::OutstandingPaths::new(1),
+            outstanding: None,
             remaining: 0,
             root_remaining: vec![0],
             root_groups: vec![0],
@@ -119,6 +116,7 @@ fn ready_peak_tracks_simultaneous_frames_and_overflow() -> Result<(), Box<dyn st
         wake: Arc::new(Condvar::new()),
         abort: AtomicBool::new(false),
         disconnects: disconnect::Disconnects::new(1, &[]),
+        track_priority_paths: false,
     };
     for _ in 0..QUEUED_DIRECTORIES {
         assert!(schedule(&shared, &Context, frame(), false).is_none());
