@@ -7,9 +7,21 @@ pub const DATABASE_FILE: &str = "diskunfold.db";
 
 /// Returns the explicit data override or this platform's per-user application directory.
 pub fn directory() -> Option<PathBuf> {
-    std::env::var_os("DISKUNFOLD_DATA_DIR")
-        .map(PathBuf::from)
-        .or_else(platform_directory)
+    explicit_or_platform_directory(
+        std::env::var_os("DISKUNFOLD_DATA_DIR").map(PathBuf::from),
+        platform_directory,
+    )
+}
+
+fn explicit_or_platform_directory(
+    explicit: Option<PathBuf>,
+    platform: impl FnOnce() -> Option<PathBuf>,
+) -> Option<PathBuf> {
+    match explicit {
+        Some(path) if !path.as_os_str().is_empty() => Some(path),
+        Some(_) => None,
+        None => platform(),
+    }
 }
 
 #[cfg(windows)]
@@ -43,7 +55,7 @@ fn linux_directory(xdg_data_home: Option<PathBuf>, home: Option<PathBuf>) -> Opt
 
 #[cfg(all(test, target_os = "linux"))]
 mod tests {
-    use super::linux_directory;
+    use super::{explicit_or_platform_directory, linux_directory};
     use std::path::PathBuf;
 
     #[test]
@@ -73,6 +85,21 @@ mod tests {
         assert_eq!(linux_directory(None, None), None);
         assert_eq!(
             linux_directory(Some(PathBuf::from("")), Some(PathBuf::from("user"))),
+            None
+        );
+    }
+
+    #[test]
+    fn explicit_data_override_is_used_and_empty_override_fails_closed() {
+        let fallback = PathBuf::from("/home/user/.local/share/DiskUnfold");
+        assert_eq!(
+            explicit_or_platform_directory(Some(PathBuf::from("relative/test-data")), || Some(
+                fallback.clone()
+            ),),
+            Some(PathBuf::from("relative/test-data"))
+        );
+        assert_eq!(
+            explicit_or_platform_directory(Some(PathBuf::new()), || Some(fallback)),
             None
         );
     }
