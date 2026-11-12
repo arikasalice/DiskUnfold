@@ -2,7 +2,8 @@
 //!
 //! Each JSON bundle is a six-element array: language, version, format table,
 //! plural rule, fallback language, and message rows. Each message row contains
-//! key, text, and parameter rows; each parameter row contains name and kind.
+//! key, a text string or a plural template, and parameter rows; each parameter
+//! row contains name and kind.
 //! Arrays retain duplicate keys so registration can reject them. Registration
 //! validates the published format table and fallback rules before startup.
 
@@ -10,7 +11,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::Value;
 
-use super::{Bundle, BundleResource, Message, ReasonMetadataResource, RegistrationError, Registry};
+use super::{
+    Bundle, BundleResource, Message, PluralMessage, ReasonMetadataResource, RegistrationError,
+    Registry, template,
+};
 use du_core_contracts::locale_bundle::LocaleFormatTable;
 
 pub use super::declared::DECLARED_KEYS;
@@ -73,7 +77,6 @@ pub fn parse_bundle(bytes: &[u8]) -> Result<Bundle, RegistrationError> {
     for value in rows {
         let fields = row(value, 3)?;
         let key = string(&fields[0])?;
-        let text = string(&fields[1])?;
         let entries = fields[2].as_array().ok_or(RegistrationError)?;
         let mut parameters = BTreeMap::new();
         for entry in entries {
@@ -85,7 +88,7 @@ pub fn parse_bundle(bytes: &[u8]) -> Result<Bundle, RegistrationError> {
                 return Err(RegistrationError);
             }
         }
-        messages.push((key, Message { text, parameters }));
+        messages.push((key, parse_message(&fields[1], parameters, &plural_rule)?));
     }
     Ok(Bundle {
         language,
@@ -94,6 +97,59 @@ pub fn parse_bundle(bytes: &[u8]) -> Result<Bundle, RegistrationError> {
         format_table: fields[2].clone(),
         plural_rule,
         fallback_language,
+    })
+}
+
+fn parse_message(
+    value: &Value,
+    parameters: BTreeMap<String, String>,
+    plural_rule: &str,
+) -> Result<Message, RegistrationError> {
+    if let Some(text) = value.as_str() {
+        template::validate([text], None, parameters.keys().map(String::as_str))?;
+        return Ok(Message {
+            text: text.to_owned(),
+            parameters,
+            plural: None,
+        });
+    }
+    let fields = value.as_object().ok_or(RegistrationError)?;
+    if fields.len() != 3 || fields.get("kind").and_then(Value::as_str) != Some("plural") {
+        return Err(RegistrationError);
+    }
+    let parameter = string(fields.get("parameter").ok_or(RegistrationError)?)?;
+    if parameters.get(&parameter).map(String::as_str) != Some("count") {
+        return Err(RegistrationError);
+    }
+    let variants = fields
+        .get("variants")
+        .and_then(Value::as_object)
+        .ok_or(RegistrationError)?;
+    let expected: &[&str] = if plural_rule == "en" {
+        &["one", "other"]
+    } else {
+        &["other"]
+    };
+    if variants.len() != expected.len() || expected.iter().any(|key| !variants.contains_key(*key)) {
+        return Err(RegistrationError);
+    }
+    let variants: BTreeMap<_, _> = variants
+        .iter()
+        .map(|(key, value)| Ok((key.clone(), string(value)?)))
+        .collect::<Result<_, RegistrationError>>()?;
+    template::validate(
+        variants.values().map(String::as_str),
+        Some(&parameter),
+        parameters.keys().map(String::as_str),
+    )?;
+    let text = variants.get("other").ok_or(RegistrationError)?.clone();
+    Ok(Message {
+        text,
+        parameters,
+        plural: Some(PluralMessage {
+            parameter,
+            variants,
+        }),
     })
 }
 

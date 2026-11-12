@@ -7,21 +7,32 @@ use du_core_contracts::locale_bundle::{
     LocaleBundleBody, LocaleFormatTable, MessageParameterKind, MessageTemplate, ReasonMessageMeta,
 };
 
-use super::{Bundle, RegistrationError};
+use super::{Bundle, Message, RegistrationError};
 
 pub(super) fn find_message(bundle: &Bundle, key: &str) -> Option<MessageTemplate> {
     let message = bundle
         .messages
         .iter()
         .find_map(|(candidate, message)| (candidate == key).then_some(message))?;
+    typed_message(message)
+}
+
+fn typed_message(message: &Message) -> Option<MessageTemplate> {
     let parameters = message
         .parameters
         .iter()
-        .filter_map(|(name, kind)| Some((name.clone(), parse_parameter_kind(kind)?)))
-        .collect::<BTreeMap<_, _>>();
-    Some(MessageTemplate::Text {
-        parameters,
-        template: message.text.clone(),
+        .map(|(name, kind)| Some((name.clone(), parse_parameter_kind(kind)?)))
+        .collect::<Option<BTreeMap<_, _>>>()?;
+    Some(match &message.plural {
+        Some(plural) => MessageTemplate::Plural {
+            parameters,
+            parameter: plural.parameter.clone(),
+            variants: plural.variants.clone(),
+        },
+        None => MessageTemplate::Text {
+            parameters,
+            template: message.text.clone(),
+        },
     })
 }
 
@@ -45,20 +56,10 @@ pub(super) fn from_verified_bundle(
 ) -> Result<LocaleBundleBody, RegistrationError> {
     let mut messages = BTreeMap::new();
     for (key, message) in &bundle.messages {
-        let mut parameters = BTreeMap::new();
-        for (name, kind) in &message.parameters {
-            parameters.insert(
-                name.clone(),
-                parse_parameter_kind(kind).ok_or(RegistrationError)?,
-            );
-        }
         if messages
             .insert(
                 key.clone(),
-                MessageTemplate::Text {
-                    parameters,
-                    template: message.text.clone(),
-                },
+                typed_message(message).ok_or(RegistrationError)?,
             )
             .is_some()
         {

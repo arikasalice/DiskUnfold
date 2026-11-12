@@ -320,11 +320,11 @@ function HistoryPages({
       {(shown > 0 || hasMore) && (
         <footer className="du-history-footer">
           <LiveStatus>
-            {shown === 1
-              ? text("ui.history.one_record_shown", "1 record shown")
-              : text("ui.history.records_shown", "{count} records shown", {
-                  count: BigInt(shown),
-                })}
+            {text(
+              "ui.history.records_shown",
+              shown === 1 ? "{count} record shown" : "{count} records shown",
+              { count: BigInt(shown) },
+            )}
           </LiveStatus>
           {hasMore && (
             <Action

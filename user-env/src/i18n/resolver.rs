@@ -3,11 +3,11 @@
 use std::collections::BTreeMap;
 
 use du_core_contracts::locale_bundle::{
-    LocaleMissingEntry, LocaleMissingMarker, LocaleReportMissingRequest, MessageTemplate,
-    ReasonCertainty, ReasonStatus,
+    LocaleMessageValue, LocaleMissingEntry, LocaleMissingMarker, LocaleReportMissingRequest,
+    MessageTemplate, ReasonCertainty, ReasonStatus,
 };
 
-use super::{Registry, bundle_body::find_message, missing::current_time_ms};
+use super::{Registry, bundle_body::find_message, missing::current_time_ms, template};
 
 /// Generic message key used when a reason has no owner metadata row.
 pub const UNKNOWN_REASON_MESSAGE_KEY: &str = "ui.common.error_generic";
@@ -21,6 +21,14 @@ pub struct ResolvedMessage {
     pub template: MessageTemplate,
     /// Missing marker to show with the resolved template, if any.
     pub marker: Option<LocaleMissingMarker>,
+}
+
+/// Rendered copy and its translation or parameter status.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RenderedMessage {
+    pub text: String,
+    pub marker: Option<LocaleMissingMarker>,
+    pub unknown_parameter: bool,
 }
 
 /// Resolved reason details; unknown reasons retain their key and no guessed action.
@@ -56,6 +64,7 @@ impl Registry {
         if !parameters.is_empty() {
             return None;
         }
+        let template = template::render(&template, |_| String::new()).ok()?;
         if resolved.marker.is_none() {
             return Some(template);
         }
@@ -67,6 +76,72 @@ impl Registry {
             Some(format!("{template} ({marker})"))
         } else {
             Some(template)
+        }
+    }
+
+    /// Renders a registered template with one-level nested keys and typed values.
+    pub fn render_text<'a>(
+        &self,
+        language: &str,
+        key: &str,
+        values: &BTreeMap<&str, LocaleMessageValue<'a>>,
+        format_value: impl Fn(LocaleMessageValue<'a>) -> Option<String>,
+    ) -> RenderedMessage {
+        let resolved = self.resolve_message(language, key);
+        let mut unknown_parameter = false;
+        let (source, parameters) = match &resolved.template {
+            MessageTemplate::Text {
+                template,
+                parameters,
+            } => (template.as_str(), parameters),
+            MessageTemplate::Plural {
+                variants,
+                parameter,
+                parameters,
+            } => {
+                let count = match values.get(parameter.as_str()) {
+                    Some(LocaleMessageValue::Count(value)) => Some(*value),
+                    _ => None,
+                };
+                unknown_parameter = count.is_none();
+                let category = if self
+                    .bundle(&resolved.language)
+                    .is_some_and(|bundle| bundle.plural_rule == "en")
+                    && count == Some(1)
+                {
+                    "one"
+                } else {
+                    "other"
+                };
+                let selected = variants.get(category).or_else(|| variants.get("other"));
+                (selected.map_or(key, String::as_str), parameters)
+            }
+        };
+        let text = template::render(source, |name| {
+            let value = values
+                .get(name)
+                .copied()
+                .filter(|value| parameters.get(name) == Some(&value.kind()));
+            let rendered = value.and_then(|value| match value {
+                LocaleMessageValue::Name(value) | LocaleMessageValue::Path(value) => {
+                    Some(value.to_owned())
+                }
+                LocaleMessageValue::MessageKey(key) => {
+                    self.resolve_plain_text(&resolved.language, key)
+                }
+                value => format_value(value),
+            });
+            rendered.unwrap_or_else(|| {
+                unknown_parameter = true;
+                self.resolve_plain_text(&resolved.language, "value.unknown")
+                    .unwrap_or_else(|| "value.unknown".to_owned())
+            })
+        })
+        .unwrap_or_else(|_| key.to_owned());
+        RenderedMessage {
+            text,
+            marker: resolved.marker,
+            unknown_parameter,
         }
     }
 

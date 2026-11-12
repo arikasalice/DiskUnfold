@@ -25,6 +25,40 @@ pub enum MessageParameterKind {
     MessageKey,
 }
 
+/// Typed raw input supplied to a human-readable message renderer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LocaleMessageValue<'a> {
+    /// Count used for display or plural selection.
+    Count(u64),
+    /// Original unsigned byte count.
+    Size(u64),
+    /// Original UTC timestamp string.
+    Timestamp(&'a str),
+    /// Exact decimal coefficient and decimal scale.
+    Number { coefficient: i128, scale: u8 },
+    /// Original path presentation string.
+    Path(&'a str),
+    /// Original item name or already prepared display label.
+    Name(&'a str),
+    /// Nested plain message key, resolved once.
+    MessageKey(&'a str),
+}
+
+impl LocaleMessageValue<'_> {
+    /// Kind checked against the template's declared parameter type.
+    pub const fn kind(self) -> MessageParameterKind {
+        match self {
+            Self::Count(_) => MessageParameterKind::Count,
+            Self::Size(_) => MessageParameterKind::Size,
+            Self::Timestamp(_) => MessageParameterKind::Timestamp,
+            Self::Number { .. } => MessageParameterKind::Number,
+            Self::Path(_) => MessageParameterKind::Path,
+            Self::Name(_) => MessageParameterKind::Name,
+            Self::MessageKey(_) => MessageParameterKind::MessageKey,
+        }
+    }
+}
+
 /// One localized message template and its declared parameters.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]

@@ -16,6 +16,7 @@ fn parse(bytes: &[u8]) -> Result<Bundle, RegistrationError> {
             Message {
                 text: key.to_owned(),
                 parameters: BTreeMap::from([("count".to_owned(), kind.to_owned())]),
+                plural: None,
             },
         ));
     }

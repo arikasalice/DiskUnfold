@@ -124,6 +124,37 @@ fn built_in_resources_register_with_exact_declared_keys_and_parameters()
 }
 
 #[test]
+fn embedded_history_uses_typed_plural_rules_and_unknown_values() -> Result<(), RegistrationError> {
+    use du_core_contracts::locale_bundle::LocaleMessageValue;
+    let registry = register(&[])?;
+    let key = "ui.history.records_shown";
+    let format = |value| match value {
+        LocaleMessageValue::Count(count) => Some(count.to_string()),
+        _ => None,
+    };
+    for (language, count, expected) in [
+        ("en", 0, "0 records shown"),
+        ("en", 1, "1 record shown"),
+        ("en", 2, "2 records shown"),
+        ("ko", 1, "기록 1개 표시"),
+    ] {
+        let rendered = registry.render_text(
+            language,
+            key,
+            &BTreeMap::from([("count", LocaleMessageValue::Count(count))]),
+            format,
+        );
+        assert_eq!(rendered.text, expected);
+        assert_eq!(rendered.marker, None);
+        assert!(!rendered.unknown_parameter);
+    }
+    let rendered = registry.render_text("en", key, &BTreeMap::new(), format);
+    assert!(rendered.unknown_parameter);
+    assert_eq!(rendered.text, "Unknown value records shown");
+    Ok(())
+}
+
+#[test]
 fn startup_rejects_malformed_format_tables() -> Result<(), RegistrationError> {
     for alter in [
         (|bundle: &mut Value| bundle[2]["groupingSize"] = json!(0)) as fn(&mut Value),

@@ -12,14 +12,23 @@ pub mod embedded;
 mod metadata;
 mod missing;
 mod resolver;
+mod template;
 
 pub use missing::{MISSING_MESSAGE_CAPACITY, MissingMessageRecord};
-pub use resolver::{ResolvedMessage, ResolvedReason, UNKNOWN_REASON_MESSAGE_KEY};
+pub use resolver::{RenderedMessage, ResolvedMessage, ResolvedReason, UNKNOWN_REASON_MESSAGE_KEY};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Message {
     pub text: String,
     pub parameters: BTreeMap<String, String>,
+    pub plural: Option<PluralMessage>,
+}
+
+/// Count selector and templates supplied by an embedded plural message.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PluralMessage {
+    pub parameter: String,
+    pub variants: BTreeMap<String, String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
