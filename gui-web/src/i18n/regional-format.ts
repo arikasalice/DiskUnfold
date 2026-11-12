@@ -10,6 +10,7 @@ export type RegionalFormat = {
   groupNumbers: boolean;
   timeZonePolicy: "local" | "utc";
   localTimeZoneStatus: "identified" | "offset_only" | "unavailable";
+  byteUnitText?: string;
 };
 
 export const RegionalFormatContext = createContext<RegionalFormat | undefined>(

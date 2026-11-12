@@ -39,7 +39,13 @@ export function LocaleSettings({
   const languageDefault = text("ui.locale.default");
   return (
     <>
-      <Action variant="quiet" onPress={() => setOpen(true)}>
+      <Action
+        variant="quiet"
+        icon="language"
+        aria-label={title}
+        compact
+        onPress={() => setOpen(true)}
+      >
         {title}
       </Action>
       {open && (

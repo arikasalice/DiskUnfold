@@ -28,6 +28,7 @@ type ActionProps = Pick<
   | "aria-disabled"
 > & {
   variant?: "primary" | "secondary" | "quiet";
+  compact?: boolean;
   ref?: Ref<HTMLButtonElement>;
 } & (
     | { children: ReactNode; icon?: IconName; "aria-label"?: string }
@@ -38,16 +39,21 @@ type ActionProps = Pick<
 export function Action({
   children,
   variant = "secondary",
+  compact = false,
   icon,
   ...props
 }: ActionProps) {
   return (
     <Button
       {...props}
-      className={`du-action du-action--${variant}${children == null ? " du-action--icon" : ""}`}
+      className={`du-action du-action--${variant}${children == null ? " du-action--icon" : ""}${compact ? " du-action--compact" : ""}`}
     >
       {icon && <Icon name={icon} />}
-      {children}
+      {compact ? (
+        <span className="du-action__caption">{children}</span>
+      ) : (
+        children
+      )}
     </Button>
   );
 }

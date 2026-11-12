@@ -81,7 +81,7 @@ export function displayMeasurement(
 
 /** Formats exact wire bytes without converting them to a floating-point number. */
 export function formatBytes(bytes: string, regional?: RegionalFormat): string {
-  return `${displayInteger(BigInt(bytes), regional)} bytes`;
+  return `${displayInteger(BigInt(bytes), regional)} ${regional?.byteUnitText ?? "bytes"}`;
 }
 
 /** Retains the lower-bound qualifier when showing original bytes. */
@@ -134,9 +134,13 @@ export function displaySize(
 }
 
 /** Returns a separate raw count only when it adds information. */
-export function displaySizeParts(size: SizeValue, display: SizeDisplay) {
-  const formatted = displaySize(size, display);
-  const raw = displayRawSize(size, display.regional);
+export function displaySizeParts(
+  size: SizeValue,
+  display: SizeDisplay,
+  text?: LocaleText,
+) {
+  const formatted = displaySize(size, display, text);
+  const raw = displayRawSize(size, display.regional, text);
   return { formatted, raw: raw === formatted ? undefined : raw };
 }
 

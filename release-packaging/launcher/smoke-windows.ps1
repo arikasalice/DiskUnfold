@@ -966,10 +966,19 @@ try {
     $process.Refresh()
     if ($process.MainWindowHandle -ne 0) { $ae::FromHandle($process.MainWindowHandle) }
   }
-  if ($VerifyLocaleSwitch -or $VerifyKoreanIme) { Test-LocaleSwitch }
+  if ($VerifyLocaleSwitch -or $VerifyKoreanIme) {
+    $startupLanguage = Wait-UI 'initial locale' {
+      if (Find-UI '언어 및 표시' $button) { 'ko' }
+      elseif (Find-UI 'Language and display' $button) { 'en' }
+    }
+    if ($startupLanguage -eq 'ko') {
+      Select-SmokeLanguage '언어 및 표시' '표시 언어' 'English' 'Display language' 'Close'
+    }
+  }
   $null = Wait-UI 'path field' { Find-UI 'Windows folder path' $edit }
   $null = Wait-Enabled 'Start scan' $false
   if ($VerifyInitialDrive) { Test-InitialDrive }
+  if ($VerifyLocaleSwitch -or $VerifyKoreanIme) { Test-LocaleSwitch }
   if ($VerifySettingsRestoration) {
     Invoke-UI (Wait-VisibleAction 'Settings restoration')
     $null = Wait-UI 'startup settings defaults' { Find-UI 'Using default' $textType }
@@ -1042,7 +1051,7 @@ try {
   if ($VerifyLocaleSwitch) {
     Select-SmokeLanguage 'Language and display' 'Display language' '한국어' '표시 언어' '닫기'
     $null = Wait-UI 'localized pinned result' {
-      if (Find-UI '디스크 공간 분석 결과' $null) { Find-LogicalSize '18 bytes' }
+      if (Find-UI '디스크 공간 분석 결과' $null) { Find-UI '최종' $textType }
     }
     Select-SmokeLanguage '언어 및 표시' '표시 언어' 'English' 'Display language' 'Close'
     $null = Wait-FinalLogicalSize '18 bytes'

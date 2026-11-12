@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::*;
+use crate::i18n::declared::DECLARED_PARAMETERS;
 use crate::i18n::parameter_mismatches;
 use du_core_contracts::settings::SETTINGS_SCHEMA_VERSION;
 use serde_json::{Value, json};
@@ -65,7 +66,19 @@ fn built_in_resources_register_with_exact_declared_keys_and_parameters()
     assert_eq!(declared.len(), DECLARED_KEYS.len());
     let declarations: BTreeMap<_, _> = DECLARED_KEYS
         .iter()
-        .map(|key| ((*key).to_owned(), BTreeMap::new()))
+        .map(|key| {
+            let parameters = DECLARED_PARAMETERS
+                .iter()
+                .find_map(|(message_key, params)| (message_key == key).then_some(*params))
+                .unwrap_or_default();
+            (
+                (*key).to_owned(),
+                parameters
+                    .iter()
+                    .map(|(name, kind)| (name.to_string(), kind.to_string()))
+                    .collect(),
+            )
+        })
         .collect();
     for language in ["en", "ko"] {
         let bundle = registry.bundle(language).ok_or(RegistrationError)?;

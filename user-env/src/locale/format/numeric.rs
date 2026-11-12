@@ -214,7 +214,7 @@ fn format_integer(integer: String, grouped: bool, separators: NumberSeparators<'
     let mut output = String::with_capacity(integer.len() + integer.len() / separators.size);
     for (index, character) in integer.chars().enumerate() {
         if (index == first && first != 0)
-            || (index > first && (index - first) % separators.size == 0)
+            || (index > first && (index - first).is_multiple_of(separators.size))
         {
             output.push_str(separators.grouping);
         }

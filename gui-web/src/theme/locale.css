@@ -3,6 +3,12 @@
   gap: 12px;
 }
 
+@media (max-width: 680px) {
+  .du-action--compact .du-action__caption {
+    display: none;
+  }
+}
+
 :root {
   zoom: var(--du-app-scale, 1);
 }

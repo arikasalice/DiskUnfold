@@ -13,6 +13,7 @@ import { App } from "./App";
 function regionalFormat({ selected, profile }: LocaleView): RegionalFormat {
   const { decimalSeparator, groupingSeparator, groupingSize, datePatterns } =
     selected.formatTable;
+  const byteUnit = selected.messages["ui.unit.byte"];
   return {
     decimalSeparator,
     groupingSeparator,
@@ -25,6 +26,7 @@ function regionalFormat({ selected, profile }: LocaleView): RegionalFormat {
     groupNumbers: profile.numberFormat === "lang_default",
     timeZonePolicy: profile.timeZonePolicy,
     localTimeZoneStatus: profile.localTimeZoneStatus,
+    ...(byteUnit?.kind === "text" && { byteUnitText: byteUnit.template }),
   };
 }
 

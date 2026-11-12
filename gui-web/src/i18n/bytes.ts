@@ -84,7 +84,9 @@ export function formatByteUnit(
       lowerBound,
       regional,
     );
-    return value.unitId === "B" ? `${value.visualNumber} bytes` : value.visual;
+    return value.unitId === "B"
+      ? `${value.visualNumber} ${regional.byteUnitText ?? "bytes"}`
+      : value.visual;
   }
   const { index, integer, remainder, unitId } = byteQuantity(
     bytes,
