@@ -101,6 +101,16 @@ fn valid_keys(values: &[String]) -> bool {
 
 pub(crate) struct ReadCatalog(VizCatalog);
 
+impl ReadCatalog {
+    pub(crate) fn formats(&self) -> &[String] {
+        &self.0.formats
+    }
+
+    pub(crate) fn required_data_table_revision(&self) -> u32 {
+        self.0.required_data_table_revision
+    }
+}
+
 impl UseCase for ReadCatalog {
     const NAME: &'static str = "viz.catalog";
     const CHANNELS: &'static [Channel] = &[Channel::Gui];

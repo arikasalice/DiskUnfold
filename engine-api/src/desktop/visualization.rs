@@ -58,7 +58,7 @@ impl VisualizationServices {
     ) -> Result<(), &'static str> {
         let dispatcher = bundle::implemented_dispatcher()
             .map_err(|_| "visualization preview strategy registration failed")?;
-        self.register_preview_runtime(builder, random, options, dispatcher)
+        self.register_preview_runtime(builder, random, options, dispatcher, None)
     }
 
     /// Registers the preview and its catalog against the same frozen layout registry.
@@ -75,7 +75,42 @@ impl VisualizationServices {
             .map_err(|_| "visualization preview strategy registration failed")?;
         let catalog = viz_catalog::prepare(&dispatcher, catalog)
             .map_err(|_| "visualization preview catalog registration failed")?;
-        self.register_preview_runtime(builder, random, options, dispatcher)?;
+        self.register_preview_runtime(builder, random, options, dispatcher, None)?;
+        builder.register(catalog);
+        Ok(())
+    }
+
+    /// Registers a preview with its GUI availability query and shared policy catalog.
+    ///
+    /// Availability is opt-in: the preview's `EvidenceProducer` must opt in and
+    /// answer both availability and render evidence for the same pinned result.
+    /// Render evidence may apply additional basis-specific restrictions. The
+    /// dispatcher and required-data table revisions are shared with `viz.catalog`.
+    pub fn register_preview_with_catalog_and_availability(
+        &self,
+        builder: &mut EngineBuilder,
+        random: &dyn Random,
+        options: VisualizationPreview,
+        catalog_policy: viz_catalog::Policy,
+    ) -> Result<(), &'static str> {
+        let dispatcher = bundle::implemented_dispatcher()
+            .map_err(|_| "visualization preview strategy registration failed")?;
+        let catalog = viz_catalog::prepare(&dispatcher, catalog_policy)
+            .map_err(|_| "visualization preview catalog registration failed")?;
+        let producer = options.producer.clone();
+        let availability = crate::viz_availability::prepare(
+            self.source.clone(),
+            catalog.formats().to_vec(),
+            catalog.required_data_table_revision(),
+            producer,
+        )
+        .map_err(|error| match error {
+            crate::viz_availability::RegistrationError::EvidenceNotSupported => {
+                "visualization producer does not support availability"
+            }
+            _ => "visualization availability registration failed",
+        })?;
+        self.register_preview_runtime(builder, random, options, dispatcher, Some(availability))?;
         builder.register(catalog);
         Ok(())
     }
@@ -86,6 +121,7 @@ impl VisualizationServices {
         random: &dyn Random,
         options: VisualizationPreview,
         dispatcher: Dispatcher,
+        availability: Option<crate::viz_availability::ReadAvailability>,
     ) -> Result<(), &'static str> {
         let session = Arc::new(Session::new(
             self.source.clone(),
@@ -107,6 +143,9 @@ impl VisualizationServices {
             options.selection,
             self.workers.clone(),
         )?;
+        if let Some(availability) = availability {
+            builder.register(availability);
+        }
         Ok(())
     }
 }

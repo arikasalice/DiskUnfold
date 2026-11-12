@@ -29,6 +29,7 @@ mod target_probe;
 mod targets;
 pub mod trend_decimation;
 pub mod trend_series;
+pub mod viz_availability;
 pub mod viz_catalog;
 pub mod viz_pages;
 pub mod watch_gap;

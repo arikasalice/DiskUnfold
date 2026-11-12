@@ -1,5 +1,6 @@
 //! Open keys shared by visualization strategy registration and its consumers.
 
+pub mod availability;
 pub mod cancel;
 pub mod catalog;
 pub mod geometry;

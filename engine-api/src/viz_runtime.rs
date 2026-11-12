@@ -15,7 +15,7 @@ use crate::{
 };
 use du_analysis_index::IngestSink;
 use du_core_contracts::{
-    Id,
+    Id, ItemRef,
     ports::Random,
     result::{ResultItem, ResultVersionRead},
     visualization::{
@@ -102,6 +102,30 @@ pub struct ItemEvidence {
 /// Implementations must return evidence for the supplied immutable result, and
 /// preserve semantics for the lifetime of their registered policy revisions.
 pub trait EvidenceProducer: Send + Sync + 'static {
+    /// Explicitly opts this owner into the scope-only availability query.
+    ///
+    /// Preview composition gives availability and render the same producer
+    /// instance. Render evidence may apply additional basis-specific restrictions
+    /// because it also receives the complete render request.
+    fn supports_required_data_availability(&self) -> bool {
+        false
+    }
+    /// Reads FR16 evidence for one explicitly pinned result and aggregate folder.
+    ///
+    /// The scope is validated as a directory in `source`; this method must read
+    /// only facts for that exact immutable result and folder. Unknown evidence
+    /// must remain `Unknown`, since it cannot be reported as known absence. For
+    /// a render request with the same source and `aggregate_scope_ref`, the base
+    /// facts must agree with `required_data_facts`; render may add
+    /// request-specific restrictions. The current product has no paired test of
+    /// those owner reads, so that agreement remains a wiring obligation.
+    fn required_data_facts_for_scope(
+        &self,
+        _source: &CurrentAnalysis,
+        _aggregate_scope_ref: &ItemRef,
+    ) -> Result<crate::required_data::FactValues, EngineError> {
+        Err(EngineError::new("support.internal_error", vec![]))
+    }
     /// Optionally supplies F06 facts read from this exact pinned source and request.
     /// `None` preserves the legacy source-facts behavior. Unknown evidence is an
     /// unresolved internal decision and must never be reported as data absence.

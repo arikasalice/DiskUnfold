@@ -4,7 +4,10 @@
 //! absence: it must remain an internal unresolved result until the owning
 //! provider can supply evidence. This module does not select or synthesize a
 //! source, and its tests do not stand in for production providers.
-use du_core_contracts::Id;
+use du_core_contracts::{Id, ItemRef};
+
+/// Revision of the FR16 format applicability table defined by F06 DLD 93.
+pub const TABLE_REVISION: u32 = 1;
 
 /// Whether a pinned source proves a required fact, proves its absence, or cannot tell.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -44,12 +47,16 @@ pub(super) struct Facts {
 }
 
 impl Facts {
-    /// Associates one provider read with the current-analysis revision it inspected.
-    pub fn bind(source: &crate::current_analysis::CurrentAnalysis, values: FactValues) -> Self {
-        Self {
-            source: SourceKey::from_current(source),
+    /// Associates one provider read with its pinned result and aggregate folder.
+    pub fn bind(
+        source: &crate::current_analysis::CurrentAnalysis,
+        aggregate_scope_ref: &ItemRef,
+        values: FactValues,
+    ) -> Result<Self, Error> {
+        Ok(Self {
+            source: SourceKey::from_current(source, aggregate_scope_ref)?,
             values,
-        }
+        })
     }
 }
 
@@ -58,20 +65,35 @@ impl Facts {
 pub(super) struct SourceKey {
     lineage: Id,
     revision: Id,
+    aggregate_scope_ref: ItemRef,
 }
 
 impl SourceKey {
-    /// Captures the identity from the already pinned current-analysis result.
-    pub fn from_current(source: &crate::current_analysis::CurrentAnalysis) -> Self {
-        Self {
+    /// Captures the selected lineage, revision and folder scope as one evidence key.
+    pub fn from_current(
+        source: &crate::current_analysis::CurrentAnalysis,
+        aggregate_scope_ref: &ItemRef,
+    ) -> Result<Self, Error> {
+        if aggregate_scope_ref.result_version != *source.result_version() {
+            return Err(Error::SourceMismatch);
+        }
+        Ok(Self {
             lineage: source.lineage().clone(),
             revision: source.result_version().clone(),
-        }
+            aggregate_scope_ref: aggregate_scope_ref.clone(),
+        })
     }
 
     #[cfg(test)]
-    fn fixture(lineage: Id, revision: Id) -> Self {
-        Self { lineage, revision }
+    fn fixture(lineage: Id, revision: Id, scope_item: u32) -> Self {
+        Self {
+            lineage,
+            aggregate_scope_ref: ItemRef {
+                result_version: revision.clone(),
+                item_no: scope_item,
+            },
+            revision,
+        }
     }
 }
 
@@ -83,12 +105,20 @@ pub(super) struct PinnedFacts {
 }
 
 impl PinnedFacts {
-    /// Binds owner evidence to the immutable source identity used to obtain it.
-    pub fn bind(source: &crate::current_analysis::CurrentAnalysis, facts: Facts) -> Self {
-        Self {
-            source: SourceKey::from_current(source),
-            facts,
+    /// Binds owner evidence to the exact result and folder passed to its provider.
+    pub fn bind(
+        source: &crate::current_analysis::CurrentAnalysis,
+        aggregate_scope_ref: &ItemRef,
+        facts: Facts,
+    ) -> Result<Self, Error> {
+        let source_key = SourceKey::from_current(source, aggregate_scope_ref)?;
+        if facts.source != source_key {
+            return Err(Error::SourceMismatch);
         }
+        Ok(Self {
+            source: source_key,
+            facts,
+        })
     }
 
     #[cfg(test)]
@@ -106,7 +136,7 @@ pub struct Attribution {
 
 /// Stable reasons from the published F06 unavailable response contract.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
-pub(super) enum Reason {
+pub(crate) enum Reason {
     /// Required baseline or comparison result is absent.
     NoBaseline,
     /// F27 has fewer than two real observation points.
@@ -121,7 +151,7 @@ pub(super) enum Reason {
 
 impl Reason {
     /// Returns the published F06 reason key for this known missing-data condition.
-    pub const fn key(self) -> &'static str {
+    pub(crate) const fn key(self) -> &'static str {
         match self {
             Self::NoBaseline => "viz.unavailable.no_baseline",
             Self::SingleObservation => "viz.unavailable.single_observation",
@@ -134,7 +164,7 @@ impl Reason {
 
 /// Result of evaluating one format against one pinned source.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
-pub(super) enum Evaluation {
+pub(crate) enum Evaluation {
     /// The pinned evidence satisfies every table row for this format.
     Available,
     /// A required value is known to be absent or incompatible.
@@ -143,7 +173,7 @@ pub(super) enum Evaluation {
 
 /// Internal evaluation failures that must not be represented as a public absence reason.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Error {
+pub(crate) enum Error {
     /// The caller evaluated facts against a different source revision.
     SourceMismatch,
     /// The source owner could not determine whether a requirement is present.
@@ -224,6 +254,27 @@ pub(super) fn evaluate(
 pub(super) struct FormatAvailability<'a> {
     pub available: Vec<&'a str>,
     pub unresolved: Vec<&'a str>,
+}
+
+/// One registered format evaluated against the exact pinned facts.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct FormatDecision<'a> {
+    pub format: &'a str,
+    pub evaluation: Evaluation,
+}
+
+/// Evaluates every registered format in its frozen registry order.
+pub(crate) fn evaluate_formats<'a>(
+    formats: &'a [String],
+    source: &SourceKey,
+    pinned: &PinnedFacts,
+) -> Result<Vec<FormatDecision<'a>>, Error> {
+    formats
+        .iter()
+        .map(|format| {
+            evaluate(format, source, pinned).map(|evaluation| FormatDecision { format, evaluation })
+        })
+        .collect()
 }
 
 /// Omits unresolved formats from the public positive list while retaining them internally.

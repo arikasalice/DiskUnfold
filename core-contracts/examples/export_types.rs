@@ -12,6 +12,9 @@ use du_core_contracts::size_units::{
     DISPLAY_DECIMAL_PLACES, IEC_UNITS, SI_UNITS, UNIT_TABLE_REVISION,
 };
 use du_core_contracts::space_detail_ipc::*;
+use du_core_contracts::visualization::availability::{
+    VizAvailabilityRequest, VizAvailabilityResponse, VizFormatAvailability,
+};
 use du_core_contracts::visualization::cancel::{
     VizCancelRequest, VizCancelResponse, VizCancelTarget, VizControlResult,
 };
@@ -97,6 +100,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         VizCancelTarget::decl(&config),
         VizControlResult::decl(&config),
         VizCancelResponse::decl(&config),
+        VizAvailabilityRequest::decl(&config),
+        VizFormatAvailability::decl(&config),
+        VizAvailabilityResponse::decl(&config),
         VizCatalogRequest::decl(&config),
         VizCatalog::decl(&config),
         VizViewOpenRequest::decl(&config),

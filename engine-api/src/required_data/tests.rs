@@ -19,7 +19,7 @@ fn source_key(suffix: u8) -> SourceKey {
     lineage[15] = suffix;
     let mut revision = lineage;
     revision[14] = suffix;
-    SourceKey::fixture(Id::from_v7_bytes(lineage), Id::from_v7_bytes(revision))
+    SourceKey::fixture(Id::from_v7_bytes(lineage), Id::from_v7_bytes(revision), 0)
 }
 
 /// One logical pinned-source fixture; it is not a production evidence provider.
@@ -179,6 +179,17 @@ fn facts_from_a_different_result_revision_are_rejected() {
 
     assert_eq!(
         evaluate("bar", &other_source, &pinned),
+        Err(Error::SourceMismatch)
+    );
+}
+
+#[test]
+fn facts_from_a_different_folder_scope_are_rejected() {
+    let (source, pinned) = pinned(complete_fixture());
+    let other_scope = SourceKey::fixture(source.lineage.clone(), source.revision.clone(), 7);
+
+    assert_eq!(
+        evaluate("bar", &other_scope, &pinned),
         Err(Error::SourceMismatch)
     );
 }
