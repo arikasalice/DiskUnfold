@@ -137,7 +137,10 @@ impl EvidenceProducer for Producer {
         _: &VizRenderRequest,
     ) -> Result<Option<du_engine_api::viz_runtime::HistogramFacts>, EngineError> {
         if self.histogram_bins_absent.load(Ordering::Relaxed) {
-            return Ok(None);
+            return Err(EngineError::new(
+                "fixture.histogram_must_not_be_consulted",
+                vec![],
+            ));
         }
         Ok(Some(histogram_runtime::facts(self)))
     }

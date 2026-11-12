@@ -40,26 +40,33 @@ impl Runtime {
         };
         validate_facts(&facts, &source, self.assembly.policy.revision)?;
         let required_data = required_data_admission(&self.assembly, &source, &request)?;
-        let histogram = if request.format == "histogram" {
-            histogram_policy(
+        let required_data_unavailable = matches!(
+            required_data.as_ref().map(|value| value.evaluation),
+            Some(crate::required_data::Evaluation::Unavailable(_))
+        );
+        let histogram = if request.format == "histogram" && !required_data_unavailable {
+            Some(histogram_policy(
                 &self.assembly,
                 &source,
                 &request,
-                required_data.as_ref(),
                 max_shapes,
                 &facts.classes,
-            )?
+            )?)
         } else {
             None
         };
         let mut key = fingerprint(&request, &facts, max_shapes, required_data.as_ref())?;
-        let ranked_other = bind_ranked_other(
-            &*self.assembly.producer,
-            &source,
-            &request,
-            &facts,
-            &mut key,
-        )?;
+        let ranked_other = if required_data_unavailable {
+            None
+        } else {
+            bind_ranked_other(
+                &*self.assembly.producer,
+                &source,
+                &request,
+                &facts,
+                &mut key,
+            )?
+        };
         if let Some(policy) = &histogram {
             let bins: Vec<_> = policy
                 .bins
@@ -136,20 +143,13 @@ fn histogram_policy(
     assembly: &Assembly,
     source: &CurrentAnalysis,
     request: &VizRenderRequest,
-    required_data: Option<&RequiredDataAdmission>,
     max_shapes: usize,
     classes: &HashMap<String, LegendClass>,
-) -> Result<Option<HistogramFacts>, EngineError> {
-    let Some(mut supplied) = assembly.producer.histogram_facts(source, request)? else {
-        return if matches!(
-            required_data.map(|value| value.evaluation),
-            Some(crate::required_data::Evaluation::Unavailable(_))
-        ) {
-            Ok(None)
-        } else {
-            Err(unavailable())
-        };
-    };
+) -> Result<HistogramFacts, EngineError> {
+    let mut supplied = assembly
+        .producer
+        .histogram_facts(source, request)?
+        .ok_or_else(unavailable)?;
     let mut group_refs = HashSet::new();
     if supplied.unit_table_revision == 0
         || supplied.unknown_reason.trim().is_empty()
@@ -170,7 +170,7 @@ fn histogram_policy(
         bin.display_flags.sort_unstable();
         bin.display_flags.dedup();
     }
-    Ok(Some(supplied))
+    Ok(supplied)
 }
 
 fn required_data_admission(

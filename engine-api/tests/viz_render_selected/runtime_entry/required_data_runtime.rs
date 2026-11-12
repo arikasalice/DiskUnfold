@@ -251,6 +251,41 @@ fn assert_missing_histogram_edges(fixture: Fixture, expected_rows: usize) -> Res
 }
 
 #[test]
+fn known_missing_histogram_bins_skip_the_layout_provider() -> Result<(), String> {
+    let fixture = Fixture::with_wait([25, 75], Duration::from_secs(2))?;
+    fixture
+        .producer
+        .required_data_mode
+        .store(1, Ordering::Relaxed);
+    fixture
+        .producer
+        .histogram_bins_absent
+        .store(true, Ordering::Relaxed);
+    fixture
+        .release
+        .send(())
+        .map_err(|error| error.to_string())?;
+    let view = fixture.open()?;
+    let response = fixture.ok("viz.render", histogram_body(&view, 1))?;
+    assert_eq!(response["kind"], "unavailable");
+    assert_eq!(response["reasonKey"], "viz.unavailable.no_item_sizes");
+    assert_eq!(response["availableFormats"], json!(["treemap"]));
+    let fallback = &response["fallback"];
+    let rows = fixture.ok(
+        "viz.rows",
+        json!({
+            "modelRef": fallback["modelRef"],
+            "resultRevision": fallback["resultRevision"],
+            "start": 0,
+            "count": 10
+        }),
+    )?;
+    assert_eq!(rows["resultRevision"], json!(id(3)));
+    assert_eq!(rows["totalCount"], 2);
+    Ok(())
+}
+
+#[test]
 fn missing_histogram_edges_keep_rows_from_the_pinned_source() -> Result<(), String> {
     assert_missing_histogram_edges(Fixture::with_wait([25, 75], Duration::from_secs(2))?, 2)
 }
