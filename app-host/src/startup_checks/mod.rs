@@ -364,12 +364,6 @@ pub(super) fn register(
     builder.register(StartupAccessQuery { access });
 }
 
-/// Registers IF-20 when the platform startup database path is absent.
-#[cfg(target_os = "macos")]
-pub(super) fn register_access(builder: &mut EngineBuilder, access: Arc<StartupAccessSession>) {
-    builder.register(StartupAccessQuery { access });
-}
-
 struct StartupStatusQuery {
     report: StartupStatus,
     access: Arc<StartupAccessSession>,

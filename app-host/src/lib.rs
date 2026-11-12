@@ -22,13 +22,19 @@ mod recent_scope_open;
 mod recent_scope_worker;
 #[cfg(all(feature = "gui", any(windows, target_os = "linux")))]
 mod settings;
-#[cfg(all(feature = "gui", any(windows, target_os = "linux")))]
+#[cfg(all(
+    feature = "gui",
+    any(windows, target_os = "linux", target_os = "macos")
+))]
 mod shared_database;
 #[cfg(all(test, feature = "gui"))]
 mod shutdown;
 #[cfg(feature = "gui")]
 mod startup_checks;
-#[cfg(all(feature = "gui", any(windows, target_os = "linux")))]
+#[cfg(all(
+    feature = "gui",
+    any(windows, target_os = "linux", target_os = "macos")
+))]
 mod startup_database;
 
 #[cfg(feature = "gui")]

@@ -1,7 +1,8 @@
 //! Own one shared settings and history writer for a desktop GUI.
 
+#[cfg(any(windows, target_os = "linux"))]
+use std::collections::BTreeMap;
 use std::{
-    collections::BTreeMap,
     fs::File,
     sync::{Arc, Mutex},
 };
@@ -23,11 +24,14 @@ use du_core_contracts::job::{
     HistoryAppend, HistoryAppendOutcome, HistoryInterruptionReceipt, HistoryRecovery, JobHistory,
     JobSummary,
 };
+#[cfg(any(windows, target_os = "linux"))]
 use du_core_contracts::settings::{
     SettingsChanges, SettingsCommit, SettingsSnapshot, SettingsStore, SettingsStoreError,
 };
 #[cfg(target_os = "linux")]
 use du_platform_os::linux_instance_lock::LinuxInstanceLock;
+#[cfg(target_os = "macos")]
+use du_platform_os::macos_instance_lock::MacOsInstanceLock;
 #[cfg(windows)]
 use du_platform_os::windows_instance_lock::WindowsInstanceLock;
 
@@ -37,6 +41,8 @@ enum InstanceGuard {
     Windows(WindowsInstanceLock),
     #[cfg(target_os = "linux")]
     Linux(LinuxInstanceLock),
+    #[cfg(target_os = "macos")]
+    MacOs(MacOsInstanceLock),
 }
 
 /// One application-owned database connection for settings and history writes.
@@ -180,6 +186,14 @@ impl DatabaseGuard {
             _instance: InstanceGuard::Linux(instance),
         }
     }
+
+    #[cfg(target_os = "macos")]
+    pub(super) fn new(file: File, instance: MacOsInstanceLock) -> Self {
+        Self {
+            _file: file,
+            _instance: InstanceGuard::MacOs(instance),
+        }
+    }
 }
 
 impl SharedDatabase {
@@ -270,6 +284,7 @@ impl SharedDatabase {
     }
 
     /// A settings port backed by the same connection as the history port.
+    #[cfg(any(windows, target_os = "linux"))]
     pub(super) fn settings(&self) -> SharedSettings {
         SharedSettings(self.clone())
     }
@@ -372,8 +387,10 @@ impl HistoryRecovery for SharedDatabase {
 }
 
 /// Settings service adapter. Every operation acquires the shared connection.
+#[cfg(any(windows, target_os = "linux"))]
 pub(super) struct SharedSettings(SharedDatabase);
 
+#[cfg(any(windows, target_os = "linux"))]
 impl SharedSettings {
     /// Applies the registered additive-only transition under the GUI startup lock.
     pub(super) fn advance_schema(&mut self) -> Result<Option<u32>, SettingsStoreError> {
@@ -425,6 +442,7 @@ impl SharedSettings {
     }
 }
 
+#[cfg(any(windows, target_os = "linux"))]
 impl SettingsStore for SharedSettings {
     fn load(&mut self) -> Result<SettingsSnapshot, SettingsStoreError> {
         self.0

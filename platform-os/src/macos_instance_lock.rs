@@ -1,6 +1,13 @@
 //! Per-data-directory exclusion for the macOS GUI writer.
 
-use std::{error::Error, fmt, fs::File, io, os::unix::fs::MetadataExt, path::Path};
+use std::{
+    error::Error,
+    fmt,
+    fs::{self, File},
+    io,
+    os::unix::fs::MetadataExt,
+    path::Path,
+};
 
 use rustix::{
     fs::{CWD, FlockOperation, Mode, OFlags, flock, openat},
@@ -22,6 +29,8 @@ pub enum MacOsInstanceLockError {
     InvalidDatabase,
     /// A requested child path is not a real directory.
     InvalidChildDirectory,
+    /// A checked path no longer names the object held by this guard.
+    PathChanged,
     /// A native file operation failed.
     Io(io::Error),
 }
@@ -34,6 +43,9 @@ impl fmt::Display for MacOsInstanceLockError {
             Self::InvalidSentinel => formatter.write_str("invalid GUI instance lock file"),
             Self::InvalidDatabase => formatter.write_str("invalid database file"),
             Self::InvalidChildDirectory => formatter.write_str("invalid child directory"),
+            Self::PathChanged => {
+                formatter.write_str("a managed database path changed during startup")
+            }
             Self::Io(error) => write!(formatter, "{error}"),
         }
     }
@@ -150,6 +162,91 @@ impl MacOsInstanceLock {
         Ok(Some(file))
     }
 
+    /// Checks that the configured data-directory path still names the pinned directory.
+    ///
+    /// This detects a persistent replacement at a startup checkpoint. It does not prevent a
+    /// same-user process from replacing the path immediately before a SQLite path open.
+    pub fn verify_data_directory_path(&self, path: &Path) -> Result<(), MacOsInstanceLockError> {
+        if !path.is_absolute() {
+            return Err(MacOsInstanceLockError::InvalidDirectory);
+        }
+        let path_metadata = fs::symlink_metadata(path).map_err(MacOsInstanceLockError::Io)?;
+        let pinned_metadata = self
+            .directory
+            .metadata()
+            .map_err(MacOsInstanceLockError::Io)?;
+        if !path_metadata.is_dir()
+            || path_metadata.file_type().is_symlink()
+            || !same_file(&path_metadata, &pinned_metadata)
+        {
+            return Err(MacOsInstanceLockError::PathChanged);
+        }
+        Ok(())
+    }
+
+    /// Checks that the sentinel name still identifies the file whose advisory lock is held.
+    ///
+    /// This catches an unlinked or persistently replaced sentinel, but the advisory lock alone
+    /// cannot exclude an unrelated process that mutates files in this same-user directory.
+    pub fn verify_sentinel_path(&self) -> Result<(), MacOsInstanceLockError> {
+        let current = openat(
+            &self.directory,
+            LOCK_FILE,
+            OFlags::RDONLY | OFlags::CLOEXEC | OFlags::NOFOLLOW | OFlags::NONBLOCK,
+            Mode::empty(),
+        )
+        .map_err(|error| {
+            if error == Errno::NOENT || error == Errno::LOOP || error == Errno::ISDIR {
+                MacOsInstanceLockError::PathChanged
+            } else {
+                MacOsInstanceLockError::Io(error.into())
+            }
+        })?;
+        let current = File::from(current);
+        let current_metadata = current.metadata().map_err(MacOsInstanceLockError::Io)?;
+        let held_metadata = self
+            ._sentinel
+            .metadata()
+            .map_err(MacOsInstanceLockError::Io)?;
+        if !current_metadata.is_file()
+            || current_metadata.nlink() != 1
+            || !same_file(&current_metadata, &held_metadata)
+        {
+            return Err(MacOsInstanceLockError::PathChanged);
+        }
+        Ok(())
+    }
+
+    /// Checks that the database name still identifies the pinned regular file.
+    ///
+    /// This detects a persistent replacement at a startup checkpoint. It does not bind a later
+    /// SQLite path open to the pinned descriptor or close the check/open race.
+    pub fn verify_database_path(&self, pinned: &File) -> Result<(), MacOsInstanceLockError> {
+        let current = openat(
+            &self.directory,
+            crate::application_data::DATABASE_FILE,
+            OFlags::RDONLY | OFlags::CLOEXEC | OFlags::NOFOLLOW | OFlags::NONBLOCK,
+            Mode::empty(),
+        )
+        .map_err(|error| {
+            if error == Errno::NOENT || error == Errno::LOOP || error == Errno::ISDIR {
+                MacOsInstanceLockError::PathChanged
+            } else {
+                MacOsInstanceLockError::Io(error.into())
+            }
+        })?;
+        let current = File::from(current);
+        if !single_link_regular_file(&current)? {
+            return Err(MacOsInstanceLockError::InvalidDatabase);
+        }
+        let current_metadata = current.metadata().map_err(MacOsInstanceLockError::Io)?;
+        let pinned_metadata = pinned.metadata().map_err(MacOsInstanceLockError::Io)?;
+        if !same_file(&current_metadata, &pinned_metadata) {
+            return Err(MacOsInstanceLockError::PathChanged);
+        }
+        Ok(())
+    }
+
     /// Opens a direct child directory without following a symbolic link.
     ///
     /// The child name must be one path component. The returned descriptor pins
@@ -195,6 +292,10 @@ impl MacOsInstanceLock {
 fn single_link_regular_file(file: &File) -> Result<bool, MacOsInstanceLockError> {
     let metadata = file.metadata().map_err(MacOsInstanceLockError::Io)?;
     Ok(metadata.is_file() && metadata.nlink() == 1)
+}
+
+fn same_file(left: &std::fs::Metadata, right: &std::fs::Metadata) -> bool {
+    left.dev() == right.dev() && left.ino() == right.ino()
 }
 
 #[cfg(test)]
@@ -284,6 +385,20 @@ mod tests {
     }
 
     #[test]
+    fn sentinel_replacement_is_detected_by_path_validation()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let (_temp, data) = data_dir()?;
+        let lock = MacOsInstanceLock::acquire(&data)?;
+        fs::remove_file(data.join(".diskunfold.instance.lock"))?;
+        fs::write(data.join(".diskunfold.instance.lock"), b"replacement")?;
+        assert!(matches!(
+            lock.verify_sentinel_path(),
+            Err(MacOsInstanceLockError::PathChanged)
+        ));
+        Ok(())
+    }
+
+    #[test]
     fn database_pin_rejects_symlinks_and_hard_links() -> Result<(), Box<dyn std::error::Error>> {
         let (_temp, data) = data_dir()?;
         let target = data.join("database-target");
@@ -299,6 +414,39 @@ mod tests {
         assert!(matches!(
             lock.pin_database(),
             Err(MacOsInstanceLockError::InvalidDatabase)
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn database_path_replacement_is_detected_while_the_original_file_is_pinned()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let (_temp, data) = data_dir()?;
+        let database = data.join(DATABASE_FILE);
+        fs::write(&database, b"original")?;
+        let lock = MacOsInstanceLock::acquire(&data)?;
+        let pinned = lock.pin_database()?.ok_or("database missing")?;
+        fs::remove_file(&database)?;
+        fs::write(&database, b"replacement")?;
+        assert!(matches!(
+            lock.verify_database_path(&pinned),
+            Err(MacOsInstanceLockError::PathChanged)
+        ));
+        assert_eq!(fs::read(database)?, b"replacement");
+        Ok(())
+    }
+
+    #[test]
+    fn data_directory_replacement_is_detected_at_a_path_checkpoint()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let (temp, data) = data_dir()?;
+        let lock = MacOsInstanceLock::acquire(&data)?;
+        let moved = temp.path().join("moved-data");
+        fs::rename(&data, moved)?;
+        fs::create_dir(&data)?;
+        assert!(matches!(
+            lock.verify_data_directory_path(&data),
+            Err(MacOsInstanceLockError::PathChanged)
         ));
         Ok(())
     }

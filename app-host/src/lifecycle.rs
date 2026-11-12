@@ -92,10 +92,8 @@ fn run_app(
     let startup_access = Arc::new(crate::startup_checks::StartupAccessSession::new(
         capabilities.clone(),
     ));
-    #[cfg(any(windows, target_os = "linux"))]
+    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
     let mut startup_observed = vec![webview_observation];
-    #[cfg(target_os = "macos")]
-    let _webview_observation = webview_observation;
     #[cfg(windows)]
     let (locale, settings, history, history_reader, recovery, first_run) = {
         let bundles = crate::locale::register().map_err(|error| {
@@ -173,9 +171,25 @@ fn run_app(
         );
         (locale, settings, first_run)
     };
+    #[cfg(target_os = "macos")]
+    let (database, first_run) = {
+        let data_dir = du_platform_os::application_data::directory()
+            .ok_or_else(|| crate::startup_database::data_folder_error(None))
+            .map_err(|error| {
+                crate::startup_checks::report_pre_window_error(capabilities.as_ref(), error)
+            })?;
+        let opened = crate::startup_database::open_with_status(&data_dir).map_err(|error| {
+            crate::startup_checks::report_pre_window_error(capabilities.as_ref(), error)
+        })?;
+        let first_run = opened.first_run;
+        startup_observed.push(crate::startup_checks::data_format_and_open_observation(
+            first_run,
+        ));
+        (opened.database, first_run)
+    };
     #[allow(unused_mut)]
     let mut builder = EngineBuilder::default();
-    #[cfg(any(windows, target_os = "linux"))]
+    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
     {
         let startup_status =
             crate::startup_checks::status(first_run, startup_access.current(), &startup_observed)
@@ -187,8 +201,6 @@ fn run_app(
             })?;
         crate::startup_checks::register(&mut builder, startup_status, startup_access.clone());
     }
-    #[cfg(target_os = "macos")]
-    crate::startup_checks::register_access(&mut builder, startup_access.clone());
     #[cfg(windows)]
     settings.register_restore_status(&mut builder);
     #[cfg(windows)]
@@ -334,7 +346,14 @@ fn run_app(
         engine.retire_window_session();
         result
     }
-    #[cfg(not(any(windows, target_os = "linux")))]
+    #[cfg(target_os = "macos")]
+    {
+        let result = du_platform_os::webview::run(app);
+        engine.retire_window_session();
+        drop(database);
+        result
+    }
+    #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
     {
         let _ = startup_access;
         du_platform_os::webview::run(app)

@@ -2,17 +2,21 @@
 
 use std::{fs, io, path::Path};
 
+use du_app_db::{AppDb, HISTORY_SCHEMA_VERSION, OpenError, migration::MigrationError};
+#[cfg(any(windows, target_os = "linux"))]
 use du_app_db::{
-    AppDb, HISTORY_DEFINITIONS, HISTORY_SCHEMA_VERSION, OpenError,
-    migration::{
-        MigrationError,
-        managed::{RetentionDiagnostic, apply_managed_run},
-    },
+    HISTORY_DEFINITIONS,
+    migration::managed::{RetentionDiagnostic, apply_managed_run},
 };
 #[cfg(target_os = "linux")]
 use du_platform_os::{
     application_data::DATABASE_FILE,
     linux_instance_lock::{LinuxInstanceLock, LinuxInstanceLockError},
+};
+#[cfg(target_os = "macos")]
+use du_platform_os::{
+    application_data::DATABASE_FILE,
+    macos_instance_lock::{MacOsInstanceLock, MacOsInstanceLockError},
 };
 #[cfg(windows)]
 use du_platform_os::{
@@ -69,6 +73,68 @@ pub(super) fn open_with_status(data_dir: &Path) -> Result<OpenedDatabase, io::Er
     })
 }
 
+/// Opens or atomically creates the current macOS GUI database under its per-directory lock.
+///
+/// Existing lower-format files are left untouched and startup stops while the published
+/// F14/F15 migration failure contract conflict remains unresolved.
+#[cfg(target_os = "macos")]
+pub(super) fn open_with_status(data_dir: &Path) -> Result<OpenedDatabase, io::Error> {
+    let data_dir = std::path::absolute(data_dir).map_err(|error| data_folder_error(Some(error)))?;
+    create_data_directory(&data_dir).map_err(|error| data_folder_error(Some(error)))?;
+    let instance = MacOsInstanceLock::acquire(&data_dir).map_err(macos_lock_error)?;
+    verify_macos_paths(&instance, &data_dir, None)?;
+    let path = data_dir.join(DATABASE_FILE);
+    let (database, file, first_run) = match instance.pin_database().map_err(macos_lock_error)? {
+        Some(file) => {
+            verify_macos_paths(&instance, &data_dir, Some(&file))?;
+            let database = open_existing_macos(&path, &data_dir, &instance, &file)?;
+            (database, file, false)
+        }
+        None => {
+            let database = AppDb::create_gui_with_history(&path).map_err(open_error)?;
+            verify_macos_paths(&instance, &data_dir, None)?;
+            let file = instance
+                .pin_database()
+                .map_err(macos_lock_error)?
+                .ok_or_else(|| io::Error::other("db.open_failed: published database is missing"))?;
+            verify_macos_paths(&instance, &data_dir, Some(&file))?;
+            (database, file, true)
+        }
+    };
+    Ok(OpenedDatabase {
+        database: SharedDatabase::new(database, Some(DatabaseGuard::new(file, instance))),
+        first_run,
+    })
+}
+
+#[cfg(all(test, target_os = "macos"))]
+pub(super) fn open(data_dir: &Path) -> Result<SharedDatabase, io::Error> {
+    open_with_status(data_dir).map(|opened| opened.database)
+}
+
+#[cfg(target_os = "macos")]
+fn open_existing_macos(
+    path: &Path,
+    data_dir: &Path,
+    instance: &MacOsInstanceLock,
+    pinned_file: &fs::File,
+) -> Result<AppDb, io::Error> {
+    verify_macos_paths(instance, data_dir, Some(pinned_file))?;
+    let version = AppDb::probe_schema_version_read_only(path).map_err(open_error)?;
+    verify_macos_paths(instance, data_dir, Some(pinned_file))?;
+    if version < HISTORY_SCHEMA_VERSION {
+        return Err(io::Error::other(format!(
+            "startup.migration_failed: database schema {version} is preserved; migration awaits the published F14/F15 policy resolution"
+        )));
+    }
+    if version > HISTORY_SCHEMA_VERSION {
+        return Err(io::Error::other("db.schema_mismatch"));
+    }
+    let database = AppDb::open_gui_with_history_after_version_probe(path).map_err(open_error)?;
+    verify_macos_paths(instance, data_dir, Some(pinned_file))?;
+    Ok(database)
+}
+
 /// Creates or migrates the database in the application's Linux data directory.
 #[cfg(all(target_os = "linux", test))]
 pub(super) fn open(data_dir: &Path) -> Result<SharedDatabase, io::Error> {
@@ -99,6 +165,7 @@ pub(super) fn open_with_status(data_dir: &Path) -> Result<OpenedDatabase, io::Er
     })
 }
 
+#[cfg(any(windows, target_os = "linux"))]
 fn open_existing(
     path: &Path,
     data_dir: &Path,
@@ -126,6 +193,7 @@ fn open_existing(
     AppDb::open_gui_with_history(path).map_err(open_error)
 }
 
+#[cfg(any(windows, target_os = "linux"))]
 fn migrate(
     path: &Path,
     backups: &Path,
@@ -185,6 +253,13 @@ fn create_data_directory(path: &Path) -> io::Result<()> {
     builder.recursive(true).mode(0o700).create(path)
 }
 
+#[cfg(target_os = "macos")]
+fn create_data_directory(path: &Path) -> io::Result<()> {
+    use std::os::unix::fs::DirBuilderExt;
+    let mut builder = fs::DirBuilder::new();
+    builder.recursive(true).mode(0o700).create(path)
+}
+
 #[cfg(windows)]
 fn create_backup_directory(path: &Path) -> io::Result<()> {
     fs::create_dir_all(path)
@@ -210,6 +285,7 @@ fn create_backup_directory(path: &Path) -> io::Result<()> {
         })
 }
 
+#[cfg(any(windows, target_os = "linux"))]
 fn report_retention(retention: &RetentionDiagnostic) {
     if retention.inspection_failed || (retention.cleanup_unavailable && retention.content_valid > 3)
     {
@@ -237,6 +313,33 @@ fn linux_lock_error(error: LinuxInstanceLockError) -> io::Error {
         ),
         error => io::Error::other(format!("db.open_failed: {error:?}")),
     }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_lock_error(error: MacOsInstanceLockError) -> io::Error {
+    match error {
+        MacOsInstanceLockError::Busy => io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            "DiskUnfold is already running for this data directory",
+        ),
+        error => io::Error::other(format!("db.open_failed: {error:?}")),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn verify_macos_paths(
+    instance: &MacOsInstanceLock,
+    data_dir: &Path,
+    database_file: Option<&fs::File>,
+) -> Result<(), io::Error> {
+    instance
+        .verify_data_directory_path(data_dir)
+        .and_then(|()| instance.verify_sentinel_path())
+        .and_then(|()| match database_file {
+            Some(file) => instance.verify_database_path(file),
+            None => Ok(()),
+        })
+        .map_err(macos_lock_error)
 }
 
 fn open_error(error: OpenError) -> io::Error {
@@ -267,3 +370,6 @@ mod tests;
 
 #[cfg(all(test, target_os = "linux"))]
 mod linux_tests;
+
+#[cfg(all(test, target_os = "macos"))]
+mod macos_tests;
