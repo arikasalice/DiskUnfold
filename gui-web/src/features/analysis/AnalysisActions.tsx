@@ -11,31 +11,68 @@ import {
 import type { JobState, ScopeDraft, ScopeReview } from "../../ipc";
 import type { ScanControl } from "../../state/analysis-scan";
 import { useLocaleText } from "../../i18n/presentation";
+import type { LocaleText } from "../../i18n/presentation";
 
-export function scopeNoticeText(key: string): string {
+export function scopeNoticeText(
+  key: string,
+  text: LocaleText = (messageKey, fallback) => fallback || messageKey,
+): string {
   switch (key) {
     case "scope.overlap_merged":
-      return "Duplicate paths were combined.";
+      return text(
+        "ui.analysis.scope_overlap",
+        "Duplicate paths were combined.",
+      );
     case "scope.alias_merged":
-      return "Paths to the same location were combined.";
+      return text(
+        "ui.analysis.scope_alias",
+        "Paths to the same location were combined.",
+      );
     case "scope.descendant_absorbed":
-      return "A selected folder is already inside another selected folder.";
+      return text(
+        "ui.analysis.scope_descendant",
+        "A selected folder is already inside another selected folder.",
+      );
     case "scope.correspondence_unknown":
-      return "Some path relationships could not be confirmed.";
+      return text(
+        "ui.analysis.scope_uncertain",
+        "Some path relationships could not be confirmed.",
+      );
     case "scope.excluded":
-      return "An exclusion removed a selected folder from the scan.";
+      return text(
+        "ui.analysis.scope_excluded",
+        "An exclusion removed a selected folder from the scan.",
+      );
     case "scope.exclusion_ineffective":
-      return "An exclusion falls outside the selected folders.";
+      return text(
+        "ui.analysis.scope_exclusion_outside",
+        "An exclusion falls outside the selected folders.",
+      );
     case "scan.path_vanished":
-      return "A selected folder no longer exists. Check the path and review the scope again.";
+      return text(
+        "ui.analysis.scope_missing",
+        "A selected folder no longer exists. Check the path and review the scope again.",
+      );
     case "scan.path_denied":
-      return "Access to a selected folder was denied. Check its permissions and review the scope again.";
+      return text(
+        "ui.analysis.scope_denied",
+        "Access to a selected folder was denied. Check its permissions and review the scope again.",
+      );
     case "scan.disconnected":
-      return "A selected drive was disconnected. Reconnect it and review the scope again.";
+      return text(
+        "ui.analysis.scope_disconnected",
+        "A selected drive was disconnected. Reconnect it and review the scope again.",
+      );
     case "path.unresolvable":
-      return "A selected folder path could not be resolved. Check the path and review the scope again.";
+      return text(
+        "ui.analysis.scope_unresolvable",
+        "A selected folder path could not be resolved. Check the path and review the scope again.",
+      );
     default:
-      return "A selected path needs attention. Check the folder paths and review the scope again.";
+      return text(
+        "ui.analysis.scope_needs_review",
+        "A selected path needs attention. Check the folder paths and review the scope again.",
+      );
   }
 }
 
@@ -52,6 +89,7 @@ function ReviewNotices({
   problem: string | undefined;
   problemId: string;
 }) {
+  const text = useLocaleText();
   if (problem)
     return (
       <Notice tone="error" id={problemId}>
@@ -62,22 +100,27 @@ function ReviewNotices({
   if (!current)
     return (
       <Notice tone="info" id={problemId}>
-        The current paths changed.
+        {text("ui.analysis.scope_changed", "The current paths changed.")}
       </Notice>
     );
   if (ready)
     return review.notices.map((notice) => (
-      <Notice key={notice}>{scopeNoticeText(notice)}</Notice>
+      <Notice key={notice}>{scopeNoticeText(notice, text)}</Notice>
     ));
 
-  const messages = new Set(review.notices.map(scopeNoticeText));
+  const messages = new Set(
+    review.notices.map((notice) => scopeNoticeText(notice, text)),
+  );
   for (const target of review.targets) {
     if (target.access !== "accessible" && target.reasonKey)
-      messages.add(scopeNoticeText(target.reasonKey));
+      messages.add(scopeNoticeText(target.reasonKey, text));
   }
   if (!messages.size)
     messages.add(
-      "One or more selected paths could not be verified. Review all paths before starting.",
+      text(
+        "ui.analysis.scope_unverified",
+        "One or more selected paths could not be verified. Review all paths before starting.",
+      ),
     );
   return (
     <Notice tone="error" id={problemId}>
@@ -103,11 +146,16 @@ export function ScopeReviewFeedback({
   problem: string | undefined;
   problemId: string;
 }) {
+  const text = useLocaleText();
   if (!review && !problem) return null;
   return (
     <section
       className="du-review-feedback"
-      aria-label={ready ? "Reviewed scope" : "Scope review problem"}
+      aria-label={
+        ready
+          ? text("ui.analysis.reviewed_scope", "Reviewed scope")
+          : text("ui.analysis.scope_problem", "Scope review problem")
+      }
     >
       <ReviewNotices
         review={review}
@@ -118,17 +166,20 @@ export function ScopeReviewFeedback({
       />
       {review && !latestAccepted && (
         <Text kind="muted">
-          Previously reviewed scope. Review the current paths before starting.
+          {text(
+            "ui.analysis.review_current_paths",
+            "Previously reviewed scope. Review the current paths before starting.",
+          )}
         </Text>
       )}
       {review && (
         <Readout
           label={
             latestAccepted
-              ? "Scope paths and boundary"
-              : "Previously reviewed scope"
+              ? text("ui.analysis.scope_boundary", "Scope paths and boundary")
+              : text("ui.analysis.previous_scope", "Previously reviewed scope")
           }
-          rows={reviewRows(review.scope)}
+          rows={reviewRows(review.scope, text)}
         />
       )}
     </section>
@@ -136,29 +187,29 @@ export function ScopeReviewFeedback({
 }
 
 /** Presents the reviewed conditions that will govern the explicit scan. */
-function reviewRows(scope: ScopeDraft) {
+function reviewRows(scope: ScopeDraft, text: LocaleText) {
   const rows = [
     {
-      label: "Included paths",
+      label: text("ui.analysis.included_paths", "Included paths"),
       value: scope.includes.map((path) => path.display).join(", "),
     },
     {
-      label: "Boundary",
+      label: text("ui.analysis.boundary", "Boundary"),
       value:
         scope.boundary === "include_selected"
-          ? "Selected mounts"
-          : "Current volume",
+          ? text("ui.analysis.selected_mounts", "Selected mounts")
+          : text("ui.analysis.current_volume", "Current volume"),
     },
   ];
   if (scope.includedMounts.length > 0) {
     rows.push({
-      label: "Included mounts",
+      label: text("ui.analysis.included_mounts", "Included mounts"),
       value: scope.includedMounts.map((path) => path.display).join(", "),
     });
   }
   if (scope.exclusions.length > 0) {
     rows.push({
-      label: "Exclusions",
+      label: text("ui.analysis.exclusions", "Exclusions"),
       value: scope.exclusions
         .map((rule) =>
           rule.kind === "path" ? rule.path.display : rule.pattern,

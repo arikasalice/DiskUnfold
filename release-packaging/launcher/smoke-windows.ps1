@@ -16,6 +16,7 @@ param(
   [switch]$VerifyReplacedScopeRoot,
   [switch]$VerifySettingsRestoration,
   [switch]$VerifyLocaleSwitch,
+  [switch]$VerifyKoreanIme,
   [switch]$VerifyOperationHistory,
   [switch]$VerifyInspectionPathDisclosure,
   [switch]$VerifyInspectionKeyboard,
@@ -896,15 +897,43 @@ function Test-OperationHistory {
 function Select-SmokeLanguage($settingsName, $fieldName, $languageName, $nextFieldName, $closeName) {
   Invoke-UI (Wait-VisibleAction $settingsName)
   $field = Wait-UI $fieldName { Find-UI $fieldName ([Windows.Automation.ControlType]::ComboBox) }
+  $field.SetFocus()
   Expand-UI $field
-  $choice = Wait-UI $languageName { Find-UI $languageName ([Windows.Automation.ControlType]::ListItem) }
-  $selection = $null
-  if (-not $choice.TryGetCurrentPattern([Windows.Automation.SelectionItemPattern]::Pattern, [ref]$selection)) {
-    throw "Language '$languageName' does not expose SelectionItemPattern"
-  }
-  $selection.Select()
+  if ($languageName -eq 'English') { Send-SmokeKey 0x24 } else { Send-SmokeKey 0x23 }
+  Send-SmokeKey 0x0D
   $null = Wait-UI $nextFieldName { Find-UI $nextFieldName ([Windows.Automation.ControlType]::ComboBox) }
   Invoke-UI (Wait-VisibleAction $closeName)
+}
+function Enter-KoreanImeText($field, $prefix) {
+  $field.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern).SetValue($prefix)
+  $field.SetFocus()
+  Send-SmokeKey 0x23
+  Send-SmokeKey 0x52
+  Send-SmokeKey 0x4B
+  Send-SmokeKey 0x0D
+}
+function Test-KoreanIme($field, $directory) {
+  $expected = Join-Path $directory '가'
+  New-Item -ItemType Directory -Path $expected | Out-Null
+  $prefix = $directory.TrimEnd('\') + '\'
+  $toggled = $false
+  try {
+    Enter-KoreanImeText $field $prefix
+    Start-Sleep -Milliseconds 150
+    if ($field.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern).Current.Value -eq ($prefix + 'rk')) {
+      Send-SmokeKey 0x15
+      $toggled = $true
+      Enter-KoreanImeText $field $prefix
+    }
+    $null = Wait-UI 'committed Korean IME composition' {
+      $value = $field.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern).Current.Value
+      $value -eq $expected
+    }
+    if (Find-UI '스캔 진행 상황' $null) { throw 'IME confirmation started a scan' }
+    'F13 native Korean IME: Enter committed the composed path without starting a scan'
+  } finally {
+    if ($toggled) { Send-SmokeKey 0x15 }
+  }
 }
 function Test-LocaleSwitch {
   $field = Wait-UI 'localized path field' {
@@ -926,6 +955,7 @@ function Test-LocaleSwitch {
   if ($localized.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern).Current.Value -ne $draftPath) {
     throw 'Locale switch discarded the current scope draft'
   }
+  if ($VerifyKoreanIme) { Test-KoreanIme $localized $draftPath }
   Select-SmokeLanguage '언어 및 표시' '표시 언어' 'English' 'Display language' 'Close'
   $english = Wait-UI 'English path field' { Find-UI 'Windows folder path' $edit }
   $english.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern).SetValue('')
@@ -936,7 +966,7 @@ try {
     $process.Refresh()
     if ($process.MainWindowHandle -ne 0) { $ae::FromHandle($process.MainWindowHandle) }
   }
-  if ($VerifyLocaleSwitch) { Test-LocaleSwitch }
+  if ($VerifyLocaleSwitch -or $VerifyKoreanIme) { Test-LocaleSwitch }
   $null = Wait-UI 'path field' { Find-UI 'Windows folder path' $edit }
   $null = Wait-Enabled 'Start scan' $false
   if ($VerifyInitialDrive) { Test-InitialDrive }
