@@ -259,7 +259,8 @@ fn renders_table_without_local_staging_paths() -> Result<(), Box<dyn Error>> {
     let markdown = render_markdown(&inventory);
     assert!(markdown.contains("DiskUnfold-0.1.0-x64.msi"));
     assert!(markdown.contains("channel command"));
-    assert!(markdown.contains("are not verified by this tool"));
+    assert!(markdown.contains("not verified or created by this tool"));
+    assert!(markdown.contains("not a release gate"));
     assert!(!markdown.contains(staging.path().to_string_lossy().as_ref()));
     Ok(())
 }

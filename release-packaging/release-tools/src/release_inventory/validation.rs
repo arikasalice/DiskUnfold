@@ -1,7 +1,8 @@
 use sha2::{Digest, Sha256};
 use std::{
     cmp::Ordering,
-    fmt, fs,
+    fmt,
+    fs::{self, File},
     io::Read,
     path::{Component, Path, PathBuf},
 };
@@ -11,8 +12,11 @@ use super::*;
 /// Validates release data, normalizes its ordering, and rehashes every declared staged file.
 ///
 /// The staging root must contain package and executable files referenced by the input manifest.
-/// This function does not inspect package contents, establish executable membership, validate
-/// signatures, create or verify build provenance, or publish anything.
+/// Hashes describe the file handles read during this call; the staging tree is not locked and files
+/// can change after this function returns. Callers must keep staging immutable and rehash final
+/// published artifacts in the release gate. This function does not inspect package contents,
+/// establish executable membership, validate signatures, create or verify build provenance, or
+/// publish anything.
 pub fn prepare_inventory(
     mut manifest: ReleaseManifest,
     staging_root: &Path,
@@ -256,8 +260,8 @@ fn verify_staged_files(
                     row.file_name, row.executable_file_name
                 )));
             }
-            let resolved = resolve_staged_file(&root, &staged.relative_path)?;
-            let actual = hash_file(&resolved)?;
+            let (file, resolved) = open_staged_file(&root, &staged.relative_path)?;
+            let actual = hash_file(file, &resolved)?;
             let expected = match kind {
                 StagedFileKind::Package => &row.sha256,
                 StagedFileKind::Executable => &row.executable_sha256,
@@ -284,7 +288,7 @@ fn verify_staged_files(
     Ok(verified)
 }
 
-fn resolve_staged_file(root: &Path, relative: &Path) -> Result<PathBuf, InventoryError> {
+fn open_staged_file(root: &Path, relative: &Path) -> Result<(File, PathBuf), InventoryError> {
     let candidate = root.join(relative);
     let metadata = fs::symlink_metadata(&candidate).map_err(|source| InventoryError::Io {
         path: candidate.clone(),
@@ -306,14 +310,38 @@ fn resolve_staged_file(root: &Path, relative: &Path) -> Result<PathBuf, Inventor
             relative.display()
         )));
     }
-    Ok(resolved)
-}
-
-fn hash_file(path: &Path) -> Result<Sha256Digest, InventoryError> {
-    let mut file = fs::File::open(path).map_err(|source| InventoryError::Io {
-        path: path.to_path_buf(),
+    let file = File::open(&resolved).map_err(|source| InventoryError::Io {
+        path: resolved.clone(),
         source,
     })?;
+    let opened_metadata = file.metadata().map_err(|source| InventoryError::Io {
+        path: resolved.clone(),
+        source,
+    })?;
+    let current_path_metadata =
+        fs::symlink_metadata(&resolved).map_err(|source| InventoryError::Io {
+            path: resolved.clone(),
+            source,
+        })?;
+    let current_path = fs::canonicalize(&resolved).map_err(|source| InventoryError::Io {
+        path: resolved.clone(),
+        source,
+    })?;
+    if !opened_metadata.is_file()
+        || current_path_metadata.file_type().is_symlink()
+        || !current_path_metadata.is_file()
+        || current_path != resolved
+        || !current_path.starts_with(root)
+    {
+        return Err(InventoryError::InvalidStagedFile(format!(
+            "{} changed while it was being opened",
+            relative.display()
+        )));
+    }
+    Ok((file, resolved))
+}
+
+fn hash_file(mut file: File, path: &Path) -> Result<Sha256Digest, InventoryError> {
     let mut hasher = Sha256::new();
     let mut buffer = [0_u8; 64 * 1024];
     loop {

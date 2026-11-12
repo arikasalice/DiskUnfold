@@ -1,6 +1,7 @@
 //! Build local release inventory and checksum files from one manifest.
 use du_release_tools::release_inventory::{
-    ReleaseManifest, prepare_inventory, render_checksums, render_json, render_markdown,
+    ReleaseManifest, prepare_inventory, render_checksums, render_executable_checksums, render_json,
+    render_markdown,
 };
 use std::{env, error::Error, fs, io, path::PathBuf, process};
 
@@ -32,11 +33,16 @@ fn run() -> Result<(), Box<dyn Error>> {
     let json = render_json(&inventory)?;
     let markdown = render_markdown(&inventory);
     let checksums = render_checksums(&verified);
+    let executable_checksums = render_executable_checksums(&inventory)?;
 
     fs::create_dir_all(&output_dir)?;
     write_output(&output_dir.join("release-inventory.json"), json.as_bytes())?;
     write_output(&output_dir.join("DISTRIBUTION.md"), markdown.as_bytes())?;
     write_output(&output_dir.join("SHA256SUMS"), checksums.as_bytes())?;
+    write_output(
+        &output_dir.join("EXECUTABLE-SHA256.json"),
+        executable_checksums.as_bytes(),
+    )?;
     Ok(())
 }
 

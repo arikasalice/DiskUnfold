@@ -6,7 +6,7 @@ mod tests;
 mod validation;
 
 pub use model::*;
-pub use render::{render_checksums, render_json, render_markdown};
+pub use render::{render_checksums, render_executable_checksums, render_json, render_markdown};
 pub use validation::{prepare_inventory, validate_and_sort};
 
 impl ReleaseInventory {
