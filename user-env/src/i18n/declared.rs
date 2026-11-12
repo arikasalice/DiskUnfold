@@ -31,19 +31,6 @@ fn parse(source: &str) -> Result<Declarations, RegistrationError> {
     Ok(output)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn accepts_case_sensitive_message_keys() -> Result<(), RegistrationError> {
-        let manifest = parse("ui.visualization.viewMembersOf name:name")?;
-        assert!(manifest.contains_key("ui.visualization.viewMembersOf"));
-        assert!(!manifest.contains_key("ui.visualization.viewmembersof"));
-        Ok(())
-    }
-}
-
 fn parameter_row<'a>(
     tokens: impl Iterator<Item = &'a str>,
 ) -> Result<BTreeMap<String, String>, RegistrationError> {
@@ -61,4 +48,17 @@ fn parameter_row<'a>(
         }
     }
     Ok(output)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn accepts_case_sensitive_message_keys() -> Result<(), RegistrationError> {
+        let manifest = parse("ui.visualization.viewMembersOf name:name")?;
+        assert!(manifest.contains_key("ui.visualization.viewMembersOf"));
+        assert!(!manifest.contains_key("ui.visualization.viewmembersof"));
+        Ok(())
+    }
 }
