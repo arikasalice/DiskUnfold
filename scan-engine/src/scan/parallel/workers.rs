@@ -7,7 +7,9 @@
 use super::*;
 mod cancel_drain;
 mod disconnected;
+mod entries;
 mod read_batch;
+use entries::process_entry;
 use read_batch::{ReadFailure, next_entries};
 
 pub(super) fn worker(
@@ -98,10 +100,15 @@ fn claim_local<'a>(
     if !queue.started {
         return None;
     }
-    let index = local.iter().rposition(|frame| {
-        let group = queue.root_groups[frame.root_index as usize];
-        queue.active_groups[group] < queue.device_limit
-    })?;
+    let index = local
+        .iter()
+        .enumerate()
+        .filter(|(_, frame)| {
+            let group = queue.root_groups[frame.root_index as usize];
+            queue.active_groups[group] < queue.device_limit
+        })
+        .min_by_key(|(index, frame)| (queue.priority_rank(frame), usize::MAX - *index))
+        .map(|(index, _)| index)?;
     let frame = local.remove(index);
     let group = queue.root_groups[frame.root_index as usize];
     queue.active_groups[group] += 1;
@@ -259,7 +266,7 @@ fn process_batch(
         Err(ReadFailure::Filter) => context.checkpoint() == Checkpoint::Cancel,
         Ok(Some(batch)) if batch.is_empty() => {
             if context.checkpoint() == Checkpoint::Cancel {
-                complete(shared, frame.root_index, context);
+                complete(shared, frame.root_index, &frame.path, context);
                 return true;
             }
             finish_directory(&frame, sender, shared, context)
@@ -288,7 +295,7 @@ fn process_batch(
                 stage: du_core_contracts::scan_failures::ScanFailureStage::Enumerate,
                 observed_at: context.utc_now(),
             });
-            complete(shared, frame.root_index, context);
+            complete(shared, frame.root_index, &frame.path, context);
             true
         }
     }
@@ -303,7 +310,7 @@ fn finish_directory(
     if frame.root && !frame.root_published && !send_root_batch(frame, sender, shared, context) {
         return false;
     }
-    complete(shared, frame.root_index, context);
+    complete(shared, frame.root_index, &frame.path, context);
     true
 }
 
@@ -344,77 +351,6 @@ fn send_root_batch(
         .is_ok()
 }
 
-fn process_entry(
-    frame: &mut Frame,
-    timed: TimedObservedEntry,
-    recorded: bool,
-    shared: &Shared,
-    sender: &SyncSender<Event>,
-    context: &dyn JobContext,
-    policy: Policy<'_>,
-) -> Result<Option<Frame>, ()> {
-    let entry = &timed.entry;
-    let mut path = frame.path.clone();
-    path.push(entry.name.clone());
-    if !recorded
-        && let Policy::Legacy(include) = policy
-        && !include(&path)
-    {
-        return Ok(None);
-    }
-    if !recorded {
-        sender
-            .send(Event::Item(
-                frame.root_index,
-                path.clone(),
-                Box::new(timed.clone()),
-            ))
-            .map_err(|_| ())?;
-    }
-    if !eligible_directory(entry)
-        || context.checkpoint() == Checkpoint::Cancel
-        || shared.disconnects.closed(frame.root_index)
-    {
-        return Ok(None);
-    }
-    if frame.root && !frame.root_published {
-        frame.deferred.push_back(timed);
-        return Ok(None);
-    }
-    match frame.directory.open_child(entry) {
-        Ok(directory) => Ok(schedule(
-            shared,
-            context,
-            Frame {
-                root_index: frame.root_index,
-                path,
-                directory,
-                entries: VecDeque::new(),
-                deferred: VecDeque::new(),
-                root: false,
-                first_batch: false,
-                root_published: false,
-                batch_pending: false,
-                case_observed: false,
-            },
-        )),
-        Err(error) => {
-            let reason = reason(&error);
-            shared.disconnects.observe_reason(frame.root_index, reason);
-            sender
-                .send(Event::Failure {
-                    root_index: frame.root_index,
-                    path,
-                    root: false,
-                    reason,
-                    stage: du_core_contracts::scan_failures::ScanFailureStage::OpenDirectory,
-                    observed_at: context.utc_now(),
-                })
-                .map_err(|_| ())?;
-            Ok(None)
-        }
-    }
-}
 fn requeue(shared: &Shared, frame: Frame, local: &mut Vec<Frame>, context: &dyn JobContext) {
     let mut queue = match shared.queue.lock() {
         Ok(queue) => queue,
@@ -441,7 +377,12 @@ fn eligible_directory(entry: &du_core_contracts::scan_observation::ObservedEntry
             && (entry.enumerated_kind == ObservedKind::Unknown || entry.enumerated_kind == m.kind)
     })
 }
-fn schedule(shared: &Shared, context: &dyn JobContext, frame: Frame) -> Option<Frame> {
+fn schedule(
+    shared: &Shared,
+    context: &dyn JobContext,
+    frame: Frame,
+    registered: bool,
+) -> Option<Frame> {
     let mut queue = match shared.queue.lock() {
         Ok(queue) => queue,
         Err(error) => {
@@ -450,6 +391,11 @@ fn schedule(shared: &Shared, context: &dyn JobContext, frame: Frame) -> Option<F
             return Some(frame);
         }
     };
+    if !registered && !queue.outstanding.register(frame.root_index, &frame.path) {
+        drop(queue);
+        shared.abort(context);
+        return Some(frame);
+    }
     queue.remaining += 1;
     queue.root_remaining[frame.root_index as usize] += 1;
     if queue.ready.len() < QUEUED_DIRECTORIES {
@@ -459,11 +405,63 @@ fn schedule(shared: &Shared, context: &dyn JobContext, frame: Frame) -> Option<F
     }
     Some(frame)
 }
-fn complete(shared: &Shared, root_index: u32, context: &dyn JobContext) {
+fn register_path(
+    shared: &Shared,
+    root_index: u32,
+    path: &[Vec<u8>],
+    context: &dyn JobContext,
+) -> bool {
+    match shared.queue.lock() {
+        Ok(mut queue) => {
+            if queue.outstanding.register(root_index, path) {
+                true
+            } else {
+                drop(queue);
+                shared.abort(context);
+                false
+            }
+        }
+        Err(error) => {
+            drop(error.into_inner());
+            shared.abort(context);
+            false
+        }
+    }
+}
+fn release_path(
+    shared: &Shared,
+    root_index: u32,
+    path: &[Vec<u8>],
+    context: &dyn JobContext,
+) -> bool {
+    match shared.queue.lock() {
+        Ok(mut queue) => {
+            if queue.complete_path(root_index, path) {
+                shared.wake.notify_all();
+                true
+            } else {
+                drop(queue);
+                shared.abort(context);
+                false
+            }
+        }
+        Err(error) => {
+            drop(error.into_inner());
+            shared.abort(context);
+            false
+        }
+    }
+}
+fn complete(shared: &Shared, root_index: u32, path: &[Vec<u8>], context: &dyn JobContext) {
     match shared.queue.lock() {
         Ok(mut queue) => {
             queue.remaining -= 1;
             queue.root_remaining[root_index as usize] -= 1;
+            if !queue.complete_path(root_index, path) {
+                drop(queue);
+                shared.abort(context);
+                return;
+            }
             shared.wake.notify_all();
         }
         Err(error) => {

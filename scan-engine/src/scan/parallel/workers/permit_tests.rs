@@ -33,18 +33,24 @@ fn permit_is_released_during_panic_unwind() {
         case_observed: false,
     };
     let shared = Shared {
-        queue: Mutex::new(Queue {
+        queue: Arc::new(Mutex::new(Queue {
             ready: VecDeque::from([frame]),
             ready_high_water: Some(1),
             last_root: None,
+            priority: None,
+            outstanding: {
+                let mut paths = queue::OutstandingPaths::new(1);
+                assert!(paths.register(0, &[]));
+                paths
+            },
             remaining: 1,
             root_remaining: vec![1],
             root_groups: vec![0],
             active_groups: vec![0],
             device_limit: 1,
             started: true,
-        }),
-        wake: Condvar::new(),
+        })),
+        wake: Arc::new(Condvar::new()),
         abort: AtomicBool::new(false),
         disconnects: disconnect::Disconnects::new(1, &[]),
     };
@@ -74,7 +80,7 @@ fn permit_is_released_during_panic_unwind() {
 }
 
 #[test]
-fn ready_peak_tracks_simultaneous_frames_and_overflow() {
+fn ready_peak_tracks_simultaneous_frames_and_overflow() -> Result<(), Box<dyn std::error::Error>> {
     struct Context;
     impl JobContext for Context {
         fn checkpoint(&self) -> Checkpoint {
@@ -97,25 +103,27 @@ fn ready_peak_tracks_simultaneous_frames_and_overflow() {
         case_observed: false,
     };
     let shared = Shared {
-        queue: Mutex::new(Queue {
+        queue: Arc::new(Mutex::new(Queue {
             ready: VecDeque::new(),
             ready_high_water: Some(0),
             last_root: None,
+            priority: None,
+            outstanding: queue::OutstandingPaths::new(1),
             remaining: 0,
             root_remaining: vec![0],
             root_groups: vec![0],
             active_groups: vec![0],
             device_limit: 1,
             started: true,
-        }),
-        wake: Condvar::new(),
+        })),
+        wake: Arc::new(Condvar::new()),
         abort: AtomicBool::new(false),
         disconnects: disconnect::Disconnects::new(1, &[]),
     };
     for _ in 0..QUEUED_DIRECTORIES {
-        assert!(schedule(&shared, &Context, frame()).is_none());
+        assert!(schedule(&shared, &Context, frame(), false).is_none());
     }
-    assert!(schedule(&shared, &Context, frame()).is_some());
+    let mut local = vec![schedule(&shared, &Context, frame(), false).ok_or("overflow frame")?];
     let mut queue = shared
         .queue
         .lock()
@@ -130,7 +138,7 @@ fn ready_peak_tracks_simultaneous_frames_and_overflow() {
     let (sender, _receiver) = std::sync::mpsc::sync_channel(1);
     assert!(super::cancel_drain::drain(
         &shared,
-        &mut Vec::new(),
+        &mut local,
         &sender,
         &Context,
         Policy::Legacy(&|_| true)
@@ -141,4 +149,6 @@ fn ready_peak_tracks_simultaneous_frames_and_overflow() {
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     assert!(queue.ready.is_empty());
     assert_eq!(queue.ready_high_water, Some(QUEUED_DIRECTORIES));
+    drop(queue);
+    Ok(())
 }

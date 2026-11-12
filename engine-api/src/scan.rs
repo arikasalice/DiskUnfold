@@ -161,6 +161,7 @@ struct StartScan {
 struct Admitted {
     receipt: ScanStart,
     review_fingerprint: String,
+    _control: du_scan_engine::scan::ScanControlHandle,
 }
 
 struct PendingRecentScope {
@@ -223,6 +224,7 @@ impl UseCase for StartScan {
         if let Some(filter) = verified.filter {
             job = job.with_pre_metadata_filter(filter);
         }
+        let control = job.control_handle();
         let body = Arc::new(job);
         let submission = Submission {
             kind_id: body.kind_id().into(),
@@ -249,6 +251,7 @@ impl UseCase for StartScan {
             scope_fingerprint,
             request.review_fingerprint,
             recent,
+            control,
         )
     }
 }
@@ -262,6 +265,7 @@ impl StartScan {
         scope_fingerprint: String,
         review_fingerprint: String,
         recent: Option<PendingRecentScope>,
+        control: du_scan_engine::scan::ScanControlHandle,
     ) -> Result<ScanStart, EngineError> {
         let mut admitted = self.admitted.lock().map_err(|_| internal())?;
         // A stable scope key can outlive a replaced root. Reuse is allowed only
@@ -296,6 +300,7 @@ impl StartScan {
                 *admitted = Some(Admitted {
                     receipt: receipt.clone(),
                     review_fingerprint,
+                    _control: control,
                 });
                 // A scan can retain its root even when recent-scope observation is unavailable.
                 if let (Some(publisher), Some(recent)) = (&self.admissions, recent) {

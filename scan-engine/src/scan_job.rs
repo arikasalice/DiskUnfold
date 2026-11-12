@@ -15,7 +15,10 @@ use du_core_contracts::{
     scan_observation::OpenedScopeRoot,
 };
 
-use crate::scan::{DevicePlan, PreMetadataFilter, ResultIds, collect_open_forest_diagnostic};
+use crate::scan::{
+    DevicePlan, PreMetadataFilter, ResultIds, ScanControlHandle, ScanControlSession,
+    collect_open_forest_diagnostic,
+};
 
 type DeviceRoots = Vec<(OpenedScopeRoot, Option<Vec<u8>>)>;
 
@@ -71,6 +74,7 @@ pub struct MetadataScan {
     filter: Option<Arc<PreMetadataFilter<'static>>>,
     shared_table_limit: Option<usize>,
     diagnostics: Option<Arc<ScanDiagnostics>>,
+    control: Arc<ScanControlSession>,
 }
 
 impl MetadataScan {
@@ -110,6 +114,7 @@ impl MetadataScan {
         scope: Id,
         ids: Arc<dyn ResultIds>,
     ) -> Self {
+        let control = Arc::new(ScanControlSession::new(roots.len()));
         Self {
             roots: Mutex::new(Some(roots)),
             store,
@@ -119,6 +124,7 @@ impl MetadataScan {
             filter: None,
             shared_table_limit: None,
             diagnostics: None,
+            control,
         }
     }
     /// Binds this scan to the stable lineage of its verified scope and source.
@@ -137,6 +143,16 @@ impl MetadataScan {
     pub fn with_diagnostics(mut self, diagnostics: Arc<ScanDiagnostics>) -> Self {
         self.diagnostics = Some(diagnostics);
         self
+    }
+
+    /// Returns a weak control handle bound to this scan's worker scheduler.
+    ///
+    /// Store the handle with the admitted job reference. A caller must resolve
+    /// each region from the same scan's current pinned result before forwarding
+    /// its root index and raw relative components. The handle cannot extend the
+    /// job or scheduler lifetime.
+    pub fn control_handle(&self) -> ScanControlHandle {
+        self.control.handle()
     }
 
     /// Installs an immutable pre-metadata decision for every root of this job.
@@ -194,16 +210,19 @@ impl JobBody for MetadataScan {
                     &*context,
                     DEFAULT_SCAN_WORKERS,
                     self.filter.as_deref(),
-                    (devices, self.diagnostics.as_deref()),
+                    (devices, self.diagnostics.as_deref(), Some(&self.control)),
                 )
             }
-            _ => JobOutcome {
-                counts: Default::default(),
-                completed_scope: false,
-                failure_reason_key: Some("support.internal_error".into()),
-                unprocessed_summary: None,
-                result_version_id: None,
-            },
+            _ => {
+                self.control.finish();
+                JobOutcome {
+                    counts: Default::default(),
+                    completed_scope: false,
+                    failure_reason_key: Some("support.internal_error".into()),
+                    unprocessed_summary: None,
+                    result_version_id: None,
+                }
+            }
         }
     }
 }

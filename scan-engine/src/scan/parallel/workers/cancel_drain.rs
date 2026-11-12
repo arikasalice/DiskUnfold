@@ -119,18 +119,24 @@ mod tests {
             case_observed: false,
         };
         let shared = Shared {
-            queue: Mutex::new(Queue {
+            queue: Arc::new(Mutex::new(Queue {
                 ready: VecDeque::new(),
                 ready_high_water: Some(0),
                 last_root: None,
+                priority: None,
+                outstanding: {
+                    let mut paths = super::super::queue::OutstandingPaths::new(1);
+                    assert!(paths.register(0, &[]));
+                    paths
+                },
                 remaining: 1,
                 root_remaining: vec![1],
                 root_groups: vec![0],
                 active_groups: vec![0],
                 device_limit: 1,
                 started: true,
-            }),
-            wake: Condvar::new(),
+            })),
+            wake: Arc::new(Condvar::new()),
             abort: AtomicBool::new(false),
             disconnects: disconnect::Disconnects::new(1, &[]),
         };
@@ -321,18 +327,24 @@ mod tests {
         let (finished, done) = mpsc::channel();
         let worker = std::thread::spawn(move || {
             let shared = Shared {
-                queue: Mutex::new(Queue {
+                queue: Arc::new(Mutex::new(Queue {
                     ready: VecDeque::new(),
                     ready_high_water: None,
                     last_root: None,
+                    priority: None,
+                    outstanding: {
+                        let mut paths = super::super::queue::OutstandingPaths::new(1);
+                        assert!(paths.register(0, &[]));
+                        paths
+                    },
                     remaining: 1,
                     root_remaining: vec![1],
                     root_groups: vec![0],
                     active_groups: vec![0],
                     device_limit: 1,
                     started: true,
-                }),
-                wake: Condvar::new(),
+                })),
+                wake: Arc::new(Condvar::new()),
                 abort: AtomicBool::new(false),
                 disconnects: disconnect::Disconnects::new(1, &[]),
             };
