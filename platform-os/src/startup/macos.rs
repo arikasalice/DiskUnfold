@@ -1,6 +1,9 @@
 use super::{PrivacySettingsOpenOutcome, StartupDialogOutcome};
 use objc2::MainThreadMarker;
-use objc2_app_kit::{NSAlert, NSApplication, NSApplicationActivationPolicy, NSWorkspace};
+use objc2_app_kit::{
+    NSAlert, NSAlertFirstButtonReturn, NSApplication, NSApplicationActivationPolicy,
+    NSModalResponse, NSModalResponseCancel, NSWorkspace,
+};
 use objc2_foundation::{NSString, NSURL};
 
 const PRIVACY_SETTINGS_URL: &str =
@@ -23,12 +26,42 @@ pub(super) fn show_pre_window_error_dialog(title: &str, detail: &str) -> Startup
         return StartupDialogOutcome::Unsupported;
     };
     let application = NSApplication::sharedApplication(main_thread);
-    application.setActivationPolicy(NSApplicationActivationPolicy::Regular);
+    if !application.setActivationPolicy(NSApplicationActivationPolicy::Regular) {
+        return StartupDialogOutcome::Failed;
+    }
 
     let alert = NSAlert::new(main_thread);
     alert.setMessageText(&NSString::from_str(title));
     alert.setInformativeText(&NSString::from_str(detail));
-    alert.runModal();
+    dialog_outcome_from_response(alert.runModal())
+}
 
-    StartupDialogOutcome::Acknowledged
+fn dialog_outcome_from_response(response: NSModalResponse) -> StartupDialogOutcome {
+    if response == NSAlertFirstButtonReturn || response == NSModalResponseCancel {
+        StartupDialogOutcome::Acknowledged
+    } else {
+        StartupDialogOutcome::Failed
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use objc2_app_kit::NSModalResponseAbort;
+
+    #[test]
+    fn pre_window_dialog_reports_only_user_dismissals_as_acknowledged() {
+        assert_eq!(
+            dialog_outcome_from_response(NSAlertFirstButtonReturn),
+            StartupDialogOutcome::Acknowledged
+        );
+        assert_eq!(
+            dialog_outcome_from_response(NSModalResponseCancel),
+            StartupDialogOutcome::Acknowledged
+        );
+        assert_eq!(
+            dialog_outcome_from_response(NSModalResponseAbort),
+            StartupDialogOutcome::Failed
+        );
+    }
 }
