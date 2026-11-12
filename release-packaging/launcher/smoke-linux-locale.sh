@@ -100,6 +100,7 @@ EXPECTED = {
         "number": "Number format",
         "zone": "Time zone",
         "scale": "App scale",
+        "close": "Close",
     },
     "ko": {
         "button": "언어 및 표시",
@@ -108,6 +109,7 @@ EXPECTED = {
         "number": "숫자 형식",
         "zone": "시간대",
         "scale": "앱 배율",
+        "close": "닫기",
     },
 }
 
@@ -231,6 +233,20 @@ def visible_window_ids():
     return [line for line in result.stdout.splitlines() if line.strip()]
 
 
+def log_window_geometry(window_id):
+    result = run(["xdotool", "getwindowgeometry", "--shell", window_id], timeout=5)
+    fields = {}
+    for line in result.stdout.splitlines():
+        key, separator, value = line.partition("=")
+        if separator:
+            fields[key] = value
+    print(
+        "WINDOW: "
+        f"{fields.get('WIDTH', '?')}x{fields.get('HEIGHT', '?')} px "
+        f"at {fields.get('X', '?')},{fields.get('Y', '?')}"
+    )
+
+
 def wait_for_window(proc):
     def probe():
         ids = visible_window_ids()
@@ -276,9 +292,19 @@ def activate(button):
 
 def combo(language, field, proc=None):
     expected = EXPECTED[language][field]
+
+    def find_selector():
+        for node in tree_snapshot():
+            name = node_name(node)
+            if role_name(node) == "combo box" and (
+                name == expected or name.startswith(expected + " ")
+            ):
+                return node
+        return None
+
     return wait_for(
         f"accessible {field} selector named {expected!r}",
-        lambda: next(iter(find_named(expected, ("combo box",))), None),
+        find_selector,
         proc,
     )
 
@@ -308,6 +334,14 @@ def selected_option(node):
         return "selected option not exposed"
 
 
+def selector_value(language, field, node):
+    label = EXPECTED[language][field]
+    name = node_name(node)
+    if name.startswith(label + " "):
+        return name[len(label) :].strip()
+    return selected_option(node)
+
+
 def window_activate(window_id):
     run(["xdotool", "windowactivate", "--sync", window_id], timeout=5)
 
@@ -325,30 +359,44 @@ def keyboard_select(window_id, selector, edge):
 
 
 def open_locale(language, proc):
-    button = locale_button(language)
+    button = locale_button(language, proc)
     assert_showing(button, f"{language} language settings button")
     activate(button)
-    language_control = wait_for(
-        f"{language} display-language control",
-        lambda: next(
-            iter(find_named(EXPECTED[language]["language"], ("combo box",))), None
-        ),
-        proc,
-    )
+    language_control = combo(language, "language", proc)
     assert_showing(language_control, f"{language} display-language control")
     return language_control
+
+
+def close_locale(language, proc):
+    close_name = EXPECTED[language]["close"]
+    close_button = wait_for(
+        f"accessible locale dialog close button named {close_name!r}",
+        lambda: next(iter(find_named(close_name, ("push button", "button"))), None),
+        proc,
+    )
+    assert_showing(close_button, f"{language} locale dialog close button")
+    activate(close_button)
+    button = locale_button(language, proc)
+    assert_showing(button, f"{language} locale settings button after its dialog closed")
 
 
 def choose_language(current_language, target_language, proc, window_id):
     control = combo(current_language, "language", proc)
     edge = "Home" if target_language == "en" else "End"
     keyboard_select(window_id, control, edge)
-    button = locale_button(target_language, proc)
+    dialog = wait_for(
+        f"live-switched {target_language} locale dialog title",
+        lambda: next(
+            iter(find_named(EXPECTED[target_language]["button"], ("dialog",))), None
+        ),
+        proc,
+    )
     field = combo(target_language, "language", proc)
-    assert_showing(button, f"live-switched {target_language} language settings button")
+    assert_showing(dialog, f"live-switched {target_language} locale dialog")
     assert_showing(field, f"live-switched {target_language} language control")
+    close_locale(target_language, proc)
     print(
-        f"PASS: live keyboard language selection to {target_language} updated the native WebKit accessibility tree"
+        f"PASS: live keyboard language selection to {target_language} updated the dialog and header accessible names"
     )
     return target_language
 
@@ -419,7 +467,7 @@ def log_selected_settings(language):
     values = {}
     for field in ("date", "number", "zone"):
         control = combo(language, field)
-        values[field] = selected_option(control)
+        values[field] = selector_value(language, field, control)
     print(
         "NATIVE PROFILE: "
         f"date format={values['date']}; number format={values['number']}; "
@@ -493,7 +541,9 @@ def main():
     open_locale("en", first)
     log_selected_settings("en")
     choose_language("en", "ko", first, window)
+    open_locale("ko", first)
     choose_language("ko", "en", first, window)
+    open_locale("en", first)
     choose_language("en", "ko", first, window)
     close_app(first, window)
 
@@ -510,13 +560,18 @@ def main():
     keyboard_select(window, scale, "End")
     language_control = combo("en", "language")
     assert_showing(language_control, "display-language control at 200% app scale")
-    assert_showing(locale_button("en"), "locale settings button at 200% app scale")
     scale = combo("en", "scale")
-    selected_scale = selected_option(scale)
-    if "200" not in selected_scale and "value 5" not in selected_scale:
+    selected_scale = selector_value("en", "scale", scale)
+    if selected_scale != "200%":
         raise AssertionError(f"App scale selector did not report 200% after keyboard selection: {selected_scale}")
-    print(f"NATIVE PROFILE: app scale={selected_scale} (200% requested)")
+    print(f"NATIVE PROFILE: app scale={selected_scale}")
+    close_locale("en", third)
+    log_window_geometry(window)
+    assert_showing(locale_button("en", third), "locale settings button at 200% app scale")
+    open_locale("en", third)
+    assert_showing(combo("en", "language", third), "display-language control at 200% app scale")
     print("PASS: language/settings controls remain showing at 1024x700 and appScale=200")
+    close_locale("en", third)
     close_app(third, window)
 
     fourth = launch("restart-en-200", "ko")
@@ -525,9 +580,12 @@ def main():
     language_control = combo("en", "language")
     assert_showing(language_control, "display-language control after appScale=200 relaunch")
     scale = combo("en", "scale")
-    selected_scale = selected_option(scale)
-    if "200" not in selected_scale and "value 5" not in selected_scale:
+    selected_scale = selector_value("en", "scale", scale)
+    if selected_scale != "200%":
         raise AssertionError(f"App scale did not persist as 200% across relaunch: {selected_scale}")
+    close_locale("en", fourth)
+    assert_showing(locale_button("en", fourth), "locale settings button after appScale=200 relaunch")
+    log_window_geometry(window)
     print("PASS: English locale and the 200% profile persisted across relaunch")
     close_app(fourth, window)
 
