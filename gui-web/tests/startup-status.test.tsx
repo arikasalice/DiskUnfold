@@ -20,7 +20,11 @@ import type {
   StartupStatus,
 } from "../src/ipc";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+  document.documentElement.lang = "en";
+});
 
 function report(access: string, analysisAllowed: boolean): StartupStatus {
   return {
@@ -47,6 +51,26 @@ test("selects Korean only when a preferred locale is Korean", () => {
   expect(startupLanguageFrom([])).toBe("en");
 });
 
+test("sets the document language for the selected Korean startup copy", async () => {
+  vi.stubGlobal("navigator", {
+    languages: ["ko-KR"],
+    language: "ko-KR",
+  });
+  const transport = vi.fn<
+    NonNullable<Parameters<typeof createAnalysisClient>[0]>
+  >(async (_, { envelope }) => ({
+    ...envelope,
+    body: report("unknown", true),
+  }));
+
+  render(<StartupStatusScreen client={createAnalysisClient(transport)} />);
+
+  expect(document.documentElement.lang).toBe("ko");
+  expect(
+    await screen.findByRole("heading", { name: "시작 상태" }),
+  ).toBeTruthy();
+});
+
 test("keeps blocked analysis separate from an unknown access observation", async () => {
   const transport = vi.fn<
     NonNullable<Parameters<typeof createAnalysisClient>[0]>
@@ -66,6 +90,103 @@ test("keeps blocked analysis separate from an unknown access observation", async
   ).toBeTruthy();
   expect(screen.getAllByText("Unknown").length).toBeGreaterThan(0);
   expect(screen.queryByText(/Full Disk Access is denied/)).toBeNull();
+});
+
+test("offers a retry after the initial startup status read fails", async () => {
+  let attempts = 0;
+  const transport = vi.fn<
+    NonNullable<Parameters<typeof createAnalysisClient>[0]>
+  >(async (_, { envelope }) => {
+    if (envelope.name !== "app.startup_status") {
+      throw new Error(`Unexpected command: ${envelope.name}`);
+    }
+    attempts += 1;
+    if (attempts === 1) throw new Error("Status read failed");
+    return { ...envelope, body: report("unknown", true) };
+  });
+
+  render(<StartupStatusScreen client={createAnalysisClient(transport)} />);
+
+  expect(
+    await screen.findByText("Startup status could not be read. Try again."),
+  ).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+  expect(
+    await screen.findByRole("heading", { name: "Startup status" }),
+  ).toBeTruthy();
+  expect(attempts).toBe(2);
+});
+
+test("uses the refreshed startup status when permission changes after IF-20", async () => {
+  let status = report("unknown", true);
+  const transport = vi.fn<
+    NonNullable<Parameters<typeof createAnalysisClient>[0]>
+  >(async (_, { envelope }) => {
+    if (envelope.name === "app.startup_status") {
+      return { ...envelope, body: status };
+    }
+    if (envelope.name === "app.startup_access") {
+      // Model the OS permission changing again between the IF-20 reply and IF-05.
+      status = report("denied", false);
+      const response: StartupAccessResponse = {
+        access: "confirmed",
+        analysisAllowed: true,
+        settingsOpened: false,
+      };
+      return { ...envelope, body: response };
+    }
+    throw new Error(`Unexpected command: ${envelope.name}`);
+  });
+
+  render(<StartupStatusScreen client={createAnalysisClient(transport)} />);
+  await screen.findByRole("heading", { name: "Startup status" });
+  fireEvent.click(
+    screen.getByRole("button", { name: "Check permission again" }),
+  );
+
+  await waitFor(() => {
+    expect(screen.getByText("Denied")).toBeTruthy();
+    expect(screen.getByText("Blocked by startup checks")).toBeTruthy();
+    expect(screen.getByText(/Full Disk Access is denied/)).toBeTruthy();
+  });
+});
+
+test("keeps IF-20 settings feedback when the follow-up status read fails", async () => {
+  let statusReads = 0;
+  const transport = vi.fn<
+    NonNullable<Parameters<typeof createAnalysisClient>[0]>
+  >(async (_, { envelope }) => {
+    if (envelope.name === "app.startup_status") {
+      statusReads += 1;
+      if (statusReads > 1) throw new Error("Status read failed");
+      return { ...envelope, body: report("unknown", true) };
+    }
+    if (envelope.name === "app.startup_access") {
+      const response: StartupAccessResponse = {
+        access: "unknown",
+        analysisAllowed: true,
+        settingsOpened: true,
+      };
+      return { ...envelope, body: response };
+    }
+    throw new Error(`Unexpected command: ${envelope.name}`);
+  });
+
+  render(<StartupStatusScreen client={createAnalysisClient(transport)} />);
+  await screen.findByRole("heading", { name: "Startup status" });
+  fireEvent.click(
+    screen.getByRole("button", { name: "Open Privacy & Security Settings" }),
+  );
+
+  expect(
+    await screen.findByText(
+      /System Settings reported that its privacy page opened/i,
+    ),
+  ).toBeTruthy();
+  expect(
+    screen.getByText("The permission status could not be updated. Try again."),
+  ).toBeTruthy();
+  expect(screen.getByText("Unknown")).toBeTruthy();
 });
 
 test("shows F15 status and permission actions without invoking analysis", async () => {

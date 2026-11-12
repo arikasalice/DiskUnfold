@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useState,
+} from "react";
 import {
   Action,
   Heading,
@@ -204,6 +210,15 @@ export function StartupStatusScreen({ client }: { client: AnalysisClient }) {
   const [pending, setPending] = useState<StartupAccessAction>();
   const [feedback, setFeedback] = useState<string>();
 
+  useLayoutEffect(() => {
+    const root = document.documentElement;
+    const previousLanguage = root.lang;
+    root.lang = language;
+    return () => {
+      root.lang = previousLanguage;
+    };
+  }, [language]);
+
   const loadStatus = useCallback(async () => {
     setLoading(true);
     setLoadFailed(false);
@@ -227,19 +242,16 @@ export function StartupStatusScreen({ client }: { client: AnalysisClient }) {
       setFeedback(undefined);
       try {
         const response = await client.call("app.startup_access", { action });
-        const refreshed = await client.call("app.startup_status", {});
-        setStatus({
-          ...refreshed,
-          access: response.access,
-          analysisAllowed: response.analysisAllowed,
-        });
-        setFeedback(
-          action === "recheck"
-            ? copy.rechecked
-            : response.settingsOpened
+        if (action === "open_privacy_settings") {
+          setFeedback(
+            response.settingsOpened
               ? copy.settingsOpened
               : copy.settingsNotConfirmed,
-        );
+          );
+        }
+        const refreshed = await client.call("app.startup_status", {});
+        setStatus(refreshed);
+        if (action === "recheck") setFeedback(copy.rechecked);
       } catch {
         setActionFailed(true);
       } finally {
