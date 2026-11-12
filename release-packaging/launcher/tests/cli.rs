@@ -1,6 +1,7 @@
+#[cfg(windows)]
+use std::io::Read;
 use std::{
-    fs,
-    io::{self, Read},
+    fs, io,
     path::PathBuf,
     process::Command,
     sync::atomic::{AtomicU64, Ordering},
@@ -50,6 +51,7 @@ fn launcher_with_temp_data() -> io::Result<(Command, TempDataDir)> {
     Ok((command, data_dir))
 }
 
+#[cfg(any(windows, target_os = "linux"))]
 fn is_localized_settings_unavailable_line(line: &str) -> bool {
     matches!(
         line,
@@ -58,6 +60,7 @@ fn is_localized_settings_unavailable_line(line: &str) -> bool {
     )
 }
 
+#[cfg(any(windows, target_os = "linux"))]
 fn has_any_settings_unavailable_warning(stderr: &str) -> bool {
     stderr.lines().any(|line| {
         is_localized_settings_unavailable_line(line)
@@ -66,6 +69,7 @@ fn has_any_settings_unavailable_warning(stderr: &str) -> bool {
     })
 }
 
+#[cfg(any(windows, target_os = "linux"))]
 fn assert_localized_settings_unavailable_warning_once(stderr: &str) {
     assert!(
         !stderr
@@ -200,7 +204,7 @@ fn launcher_applies_the_language_option_on_either_side_of_help() -> io::Result<(
     Ok(())
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 #[test]
 fn help_and_version_skip_a_corrupt_settings_database() -> io::Result<()> {
     for (arguments, expected) in [
@@ -278,7 +282,7 @@ fn help_and_version_skip_a_corrupt_settings_database() -> io::Result<()> {
     Ok(())
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 #[test]
 fn denied_commands_and_validation_failures_skip_corrupt_settings_database() -> io::Result<()> {
     use std::process::Stdio;
