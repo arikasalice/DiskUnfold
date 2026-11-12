@@ -57,6 +57,34 @@ migrated: boolean,
  * Whether the startup outcome disallows normal settings writes.
  */
 writeLocked: boolean, };
+export type SettingsApplyTiming = "immediate" | "next_query" | "next_job" | "next_start" | "owner_review";
+export type SettingsChangeSource = "screen" | "import" | "reset" | "owner" | "mcp";
+export type SettingsChangedKey = {
+/**
+ * Registered settings key.
+ */
+key: string,
+/**
+ * Application timing assigned by the owner.
+ */
+applyTiming: SettingsApplyTiming, };
+export type SettingsChangedBody = {
+/**
+ * Previous settings revision as a canonical unsigned decimal string.
+ */
+previousSettingsRevision: string,
+/**
+ * Committed settings revision as a canonical unsigned decimal string.
+ */
+settingsRevision: string,
+/**
+ * The distinct changed keys and their application timing.
+ */
+changes: Array<SettingsChangedKey>,
+/**
+ * Source of this commit.
+ */
+source: SettingsChangeSource, };
 export type LocaleProfileRevision = string;
 export type LocaleLanguageSource = "stored" | "os" | "baseline";
 export type LocaleDateFormat = "lang_default" | "iso8601";
@@ -168,6 +196,136 @@ changedFields: Array<LocaleChangedField>,
  * New selected registered language identifier.
  */
 displayLanguage: string, };
+export type MessageParameterKind = "count" | "size" | "timestamp" | "number" | "path" | "name" | "message_key";
+export type MessageTemplate = { "kind": "text",
+/**
+ * Named parameters and their types.
+ */
+parameters: { [key in string]: MessageParameterKind },
+/**
+ * Template text using the registered template syntax.
+ */
+template: string, } | { "kind": "plural",
+/**
+ * Named parameters and their types.
+ */
+parameters: { [key in string]: MessageParameterKind },
+/**
+ * Parameter whose value selects a variant.
+ */
+parameter: string,
+/**
+ * Plural category to template text.
+ */
+variants: { [key in string]: string }, };
+export type LocaleDatePattern = "lang_default" | "iso8601";
+export type LocaleFormatTable = {
+/**
+ * Decimal separator symbol.
+ */
+decimalSeparator: string,
+/**
+ * Digit grouping separator symbol.
+ */
+groupingSeparator: string,
+/**
+ * Positive number of digits in each grouping segment.
+ */
+groupingSize: number,
+/**
+ * Date patterns by published format identifier.
+ */
+datePatterns: { [key in LocaleDatePattern]?: string },
+/**
+ * Symbols indexed by the published F03 unit identifiers.
+ */
+unitSymbols: { [key in string]: string }, };
+export type ReasonMessageMeta = {
+/**
+ * Message key describing the cause.
+ */
+causeKey: string,
+/**
+ * Message key describing the follow-up action.
+ */
+actionKey: string,
+/**
+ * Whether the represented operation cannot be reversed.
+ */
+irreversible: boolean,
+/**
+ * Evidence certainty associated with the reason.
+ */
+certainty: ReasonCertainty,
+/**
+ * User-visible lifecycle state associated with the reason.
+ */
+status: ReasonStatus, };
+export type ReasonCertainty = "confirmed" | "uncertain" | "unknown" | "not_applicable";
+export type ReasonStatus = "normal" | "in_progress" | "complete" | "empty" | "permission_denied" | "disconnected" | "incomplete" | "confirmation" | "cancelled" | "failed";
+export type LocaleBundleBody = {
+/**
+ * Message templates keyed by stable message identifier.
+ */
+messages: { [key in string]: MessageTemplate },
+/**
+ * Locale-specific formatting rules.
+ */
+formatTable: LocaleFormatTable,
+/**
+ * Registered plural rule identifier.
+ */
+pluralRule: string,
+/**
+ * Language used after this bundle when a message is missing.
+ */
+fallbackLanguage?: string,
+/**
+ * Owner-defined, language-neutral reason metadata.
+ */
+reasonMessages: { [key in string]: ReasonMessageMeta },
+/**
+ * Lowercase BLAKE3 digest of the exact metadata source bytes.
+ */
+metadataRevision: string, };
+export type LocaleBundleRequest = {
+/**
+ * Registered language identifier requested by the caller.
+ */
+language: string,
+/**
+ * The opaque revision for the same-language bundle already held by the caller.
+ */
+knownBundleRevision?: string, };
+export type LocaleBundleResponse = {
+/**
+ * Current opaque revision for the requested language.
+ */
+bundleRevision: string,
+/**
+ * Present unless the request already held this exact revision.
+ */
+bundle?: LocaleBundleBody, };
+export type LocaleMissingMarker = "fallback" | "key";
+export type LocaleMissingEntry = {
+/**
+ * Stable message key that was missing.
+ */
+key: string,
+/**
+ * Fallback used or key displayed.
+ */
+marker: LocaleMissingMarker, };
+export type LocaleReportMissingRequest = {
+/**
+ * Registered language identifier in which the message was missing.
+ */
+language: string,
+/**
+ * Keys and missing markers reported in this batch.
+ */
+entries: Array<LocaleMissingEntry>, };
+export type LocaleReportMissingResponse = Record<string, never>;
 export type HistoryEndState = "done" | "partial" | "failed" | "cancelled" | "interrupted";
 export type HistoryRelation = "retry" | "restore" | "move_undo" | "effect_check";
 export type HistoryListFilter = { finishedFromMs: number | null, finishedBeforeMs: number | null, kinds: Array<string>, states: Array<HistoryEndState>, relations: Array<HistoryRelation>, };
