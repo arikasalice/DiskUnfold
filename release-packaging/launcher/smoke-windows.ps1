@@ -935,9 +935,15 @@ function Test-KoreanIme($field, $directory) {
       $toggled = $true
       Enter-KoreanImeText $field $prefix
     }
-    $null = Wait-UI 'committed Korean IME composition' {
-      $value = $field.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern).Current.Value
-      $value -eq $expected
+    $imeState = [pscustomobject]@{ LastValue = $null }
+    try {
+      $null = Wait-UI 'committed Korean IME composition' {
+        $imeState.LastValue = $field.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern).Current.Value
+        $imeState.LastValue -eq $expected
+      }
+    } catch {
+      $focusedName = try { $ae::FocusedElement.Current.Name } catch { '<unavailable>' }
+      throw "Korean IME did not commit the expected path '$expected'; last UIA value '$($imeState.LastValue)', focused element '$focusedName'. $($_.Exception.Message)"
     }
     if (Find-UI '스캔 진행 상황' $null) { throw 'IME confirmation started a scan' }
     'F13 native Korean IME: Enter committed the composed path without starting a scan'
@@ -976,14 +982,14 @@ try {
     $process.Refresh()
     if ($process.MainWindowHandle -ne 0) { $ae::FromHandle($process.MainWindowHandle) }
   }
-  if ($VerifyLocaleSwitch -or $VerifyKoreanIme) {
-    $startupLanguage = Wait-UI 'initial locale' {
-      if (Find-UI '언어 및 표시' $button) { 'ko' }
-      elseif (Find-UI 'Language and display' $button) { 'en' }
-    }
-    if ($startupLanguage -eq 'ko') {
-      Select-SmokeLanguage '언어 및 표시' '표시 언어' 'English' 'Display language' 'Close'
-    }
+  # The smoke assertions use English UIA names. Normalize a Korean startup
+  # profile for every run, including runs that do not exercise locale switching.
+  $startupLanguage = Wait-UI 'initial locale' {
+    if (Find-UI '언어 및 표시' $button) { 'ko' }
+    elseif (Find-UI 'Language and display' $button) { 'en' }
+  }
+  if ($startupLanguage -eq 'ko') {
+    Select-SmokeLanguage '언어 및 표시' '표시 언어' 'English' 'Display language' 'Close'
   }
   $null = Wait-UI 'path field' { Find-UI 'Windows folder path' $edit }
   $null = Wait-Enabled 'Start scan' $false
