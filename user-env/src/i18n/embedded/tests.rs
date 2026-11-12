@@ -1,7 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::*;
-use crate::i18n::declared::DECLARED_PARAMETERS;
 use crate::i18n::parameter_mismatches;
 use du_core_contracts::settings::SETTINGS_SCHEMA_VERSION;
 use serde_json::{Value, json};
@@ -62,24 +61,8 @@ fn register_with_overrides<'a>(
 fn built_in_resources_register_with_exact_declared_keys_and_parameters()
 -> Result<(), RegistrationError> {
     let registry = register(&[])?;
-    let declared: BTreeSet<_> = DECLARED_KEYS.iter().copied().collect();
-    assert_eq!(declared.len(), DECLARED_KEYS.len());
-    let declarations: BTreeMap<_, _> = DECLARED_KEYS
-        .iter()
-        .map(|key| {
-            let parameters = DECLARED_PARAMETERS
-                .iter()
-                .find_map(|(message_key, params)| (message_key == key).then_some(*params))
-                .unwrap_or_default();
-            (
-                (*key).to_owned(),
-                parameters
-                    .iter()
-                    .map(|(name, kind)| (name.to_string(), kind.to_string()))
-                    .collect(),
-            )
-        })
-        .collect();
+    let declarations = crate::i18n::declared::declarations()?;
+    let declared: BTreeSet<_> = declarations.keys().map(String::as_str).collect();
     for language in ["en", "ko"] {
         let bundle = registry.bundle(language).ok_or(RegistrationError)?;
         let keys: BTreeSet<_> = bundle
@@ -90,7 +73,7 @@ fn built_in_resources_register_with_exact_declared_keys_and_parameters()
         assert_eq!(keys, declared);
         assert_eq!(keys.len(), bundle.messages.len());
     }
-    assert!(parameter_mismatches(&registry, &declarations).is_empty());
+    assert!(parameter_mismatches(&registry, declarations).is_empty());
     assert!(registry.integrity_warnings().is_empty());
     let english = registry.bundle("en").ok_or(RegistrationError)?;
     let korean = registry.bundle("ko").ok_or(RegistrationError)?;
@@ -255,7 +238,7 @@ fn built_in_digests_detect_tampering_before_parsing() -> Result<(), Registration
     assert_eq!(ko.bytes, include_bytes!("../../../i18n/ko.json"));
     assert_eq!(en.expected_hash, *blake3::hash(en.bytes).as_bytes());
     assert_eq!(ko.expected_hash, *blake3::hash(ko.bytes).as_bytes());
-    let declarations: Vec<_> = DECLARED_KEYS.iter().map(|key| (*key).to_owned()).collect();
+    let declarations = declared_keys()?;
     let damaged_ko = BundleResource {
         bytes: b"tampered",
         ..ko

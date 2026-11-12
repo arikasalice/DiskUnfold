@@ -366,6 +366,7 @@ ui.settings.individual_settings
 ui.settings.issues_reported
 ui.settings.item_restored
 ui.settings.loading_restoration
+ui.settings.loading_restoration_progress
 ui.settings.migration
 ui.settings.migration_applied
 ui.settings.migration_not_applied

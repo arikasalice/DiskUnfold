@@ -82,7 +82,11 @@ fn registers_and_checks_parameters() -> Result<(), RegistrationError> {
 fn embedded_cli_settings_unavailable_message_is_registered_in_both_languages()
 -> Result<(), RegistrationError> {
     let registry = super::embedded::register(&[])?;
-    assert!(super::embedded::DECLARED_KEYS.contains(&"cli.settings.unavailable"));
+    assert!(
+        super::embedded::declared_keys()?
+            .iter()
+            .any(|key| key == "cli.settings.unavailable")
+    );
 
     for (language, expected) in [
         (

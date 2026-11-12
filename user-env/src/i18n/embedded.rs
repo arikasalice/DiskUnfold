@@ -17,7 +17,10 @@ use super::{
 };
 use du_core_contracts::locale_bundle::LocaleFormatTable;
 
-pub use super::declared::DECLARED_KEYS;
+/// Declared keys required by the embedded baseline language.
+pub fn declared_keys() -> Result<Vec<String>, RegistrationError> {
+    Ok(super::declared::declarations()?.keys().cloned().collect())
+}
 
 /// Resource rows and bytes come from one build-generated, immutable archive.
 pub fn resources() -> Result<Vec<BundleResource<'static>>, RegistrationError> {
@@ -293,10 +296,7 @@ fn register_resources_with_metadata(
     metadata_bytes: &[u8],
     expected_metadata_hash: [u8; 32],
 ) -> Result<Registry, RegistrationError> {
-    let declared = DECLARED_KEYS
-        .iter()
-        .map(|key| (*key).to_owned())
-        .collect::<Vec<_>>();
+    let declared = declared_keys()?;
     let registry = Registry::register_with_reason_metadata(
         resources,
         &declared,

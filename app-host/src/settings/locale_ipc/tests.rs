@@ -123,6 +123,29 @@ fn next_event(events: &DesktopEvents) -> Result<EventEnvelope, Box<dyn std::erro
     Ok(serde_json::from_str(&wire)?)
 }
 
+fn assert_committed_locale_notifications(
+    events: &DesktopEvents,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let settings = next_event(events)?;
+    assert_eq!(settings.topic, "settings.changed");
+    assert_eq!(settings.seq, 1);
+    assert_eq!(
+        settings.body,
+        json!({
+            "previousSettingsRevision":"0", "settingsRevision":"1",
+            "changes":[{"key":"locale.display_language", "applyTiming":"immediate"}],
+            "source":"screen"
+        })
+    );
+    let event = next_event(events)?;
+    assert_eq!(event.topic, "locale.changed");
+    assert_eq!(event.seq, 2);
+    assert_eq!(event.body["profileRevision"], "1");
+    assert_eq!(event.body["changedFields"], json!(["display_language"]));
+    assert_eq!(event.body["displayLanguage"], "en");
+    Ok(())
+}
+
 #[test]
 fn profile_get_uses_os_source_and_explicit_same_language_persists_source_once()
 -> Result<(), Box<dyn std::error::Error>> {
@@ -150,23 +173,7 @@ fn profile_get_uses_os_source_and_explicit_same_language_persists_source_once()
     assert_eq!(explicit.body["languageSource"], "stored");
     assert_eq!(explicit.body["profileRevision"], "1");
 
-    let settings = next_event(&events)?;
-    assert_eq!(settings.topic, "settings.changed");
-    assert_eq!(settings.seq, 1);
-    assert_eq!(
-        settings.body,
-        json!({
-            "previousSettingsRevision":"0", "settingsRevision":"1",
-            "changes":[{"key":"locale.display_language", "applyTiming":"immediate"}],
-            "source":"screen"
-        })
-    );
-    let event = next_event(&events)?;
-    assert_eq!(event.topic, "locale.changed");
-    assert_eq!(event.seq, 2);
-    assert_eq!(event.body["profileRevision"], "1");
-    assert_eq!(event.body["changedFields"], json!(["display_language"]));
-    assert_eq!(event.body["displayLanguage"], "en");
+    assert_committed_locale_notifications(&events)?;
 
     let repeated = call(
         &engine,

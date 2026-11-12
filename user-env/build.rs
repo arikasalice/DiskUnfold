@@ -1,6 +1,4 @@
 use std::{env, error::Error, fs, path::PathBuf};
-#[path = "build/locale_manifest.rs"]
-mod locale_manifest;
 
 fn append(output: &mut Vec<u8>, bytes: &[u8]) -> Result<(), Box<dyn Error>> {
     let length = u32::try_from(bytes.len())?;
@@ -47,6 +45,5 @@ fn main() -> Result<(), Box<dyn Error>> {
     let out = PathBuf::from(env::var_os("OUT_DIR").ok_or("missing OUT_DIR")?);
     fs::write(out.join("bundles.bin"), output)?;
     fs::write(out.join("reason-metadata.bin"), embedded_metadata)?;
-    locale_manifest::generate(&out)?;
     Ok(())
 }

@@ -202,12 +202,17 @@ function Find-LogicalSize($expected) {
     return $details
   }
 }
+function Find-ResultVersionLabel($label, $prefix = 'Result version: ') {
+  $summary = Find-UI ($prefix + $label) $textType
+  if ($summary) { return $summary }
+  Find-UI $label $textType
+}
 # Wait for the expected total, selecting a newer result if the interim one stays pinned.
 function Wait-FinalLogicalSize($expected, $versionLabel = 'Final') {
   $selection = @{ LastSwitch = [DateTime]::MinValue }
   Wait-UI "final logical size $expected" {
     if (-not (Find-UI 'Scan finished' $textType)) { return }
-    if (Find-UI $versionLabel $textType) {
+    if (Find-ResultVersionLabel $versionLabel) {
       $value = Find-LogicalSize $expected
       if ($value) { return $value }
     }
@@ -899,6 +904,10 @@ function Select-SmokeLanguage($settingsName, $fieldName, $languageName, $nextFie
   $field = Wait-UI $fieldName { Find-UI $fieldName ([Windows.Automation.ControlType]::ComboBox) }
   $field.SetFocus()
   Expand-UI $field
+  $expandPattern = $null
+  if ($field.TryGetCurrentPattern([Windows.Automation.ExpandCollapsePattern]::Pattern, [ref]$expandPattern)) {
+    $null = Wait-UI "expanded $fieldName" { $expandPattern.Current.ExpandCollapseState -eq [Windows.Automation.ExpandCollapseState]::Expanded }
+  }
   if ($languageName -eq 'English') { Send-SmokeKey 0x24 } else { Send-SmokeKey 0x23 }
   Send-SmokeKey 0x0D
   $null = Wait-UI $nextFieldName { Find-UI $nextFieldName ([Windows.Automation.ControlType]::ComboBox) }
@@ -1040,7 +1049,7 @@ try {
   'F01 changing a reviewed path: new review required'
   Invoke-UI (Wait-Enabled 'Start scan' $true)
   $null = Wait-UI 'Scan finished' { Find-UI 'Scan finished' $textType }
-  $null = Wait-UI 'Result version: Final' { Find-UI 'Final' $textType }
+  $null = Wait-UI 'Result version: Final' { Find-ResultVersionLabel 'Final' }
   $null = Wait-UI 'allocated size as the default result metric' {
     Find-UI 'Allocated size' ([Windows.Automation.ControlType]::Group)
   }
@@ -1051,7 +1060,7 @@ try {
   if ($VerifyLocaleSwitch) {
     Select-SmokeLanguage 'Language and display' 'Display language' '한국어' '표시 언어' '닫기'
     $null = Wait-UI 'localized pinned result' {
-      if (Find-UI '디스크 공간 분석 결과' $null) { Find-UI '최종' $textType }
+      if (Find-UI '디스크 공간 분석 결과' $null) { Find-ResultVersionLabel '최종' '결과 판: ' }
     }
     Select-SmokeLanguage '언어 및 표시' '표시 언어' 'English' 'Display language' 'Close'
     $null = Wait-FinalLogicalSize '18 bytes'
@@ -1067,7 +1076,7 @@ try {
   Invoke-UI (Wait-VisibleAction 'Cancel selection')
   $null = Wait-UI 'discarded scope and retained final total' {
     $field = Find-UI 'Windows folder path' $edit
-    if ($field -and (Find-UI 'Final' $textType) -and
+    if ($field -and (Find-ResultVersionLabel 'Final') -and
         $field.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern).Current.Value -eq '') {
       Find-LogicalSize '18 bytes'
     }

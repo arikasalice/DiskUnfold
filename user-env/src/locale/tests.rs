@@ -303,10 +303,7 @@ fn embedded_korean_integrity_failure_preserves_the_configured_language() -> Resu
         .find(|resource| resource.language == "ko")
         .ok_or("missing Korean resource")?;
     korean.expected_hash[0] ^= 1;
-    let declared = embedded::DECLARED_KEYS
-        .iter()
-        .map(|key| (*key).to_owned())
-        .collect::<Vec<_>>();
+    let declared = embedded::declared_keys().map_err(|e| format!("{e:?}"))?;
     let bundles = i18n::Registry::register(&resources, &declared, &[], embedded::parse_bundle)
         .map_err(|e| format!("{e:?}"))?;
     let configured = bundles.configured_languages().collect::<Vec<_>>();

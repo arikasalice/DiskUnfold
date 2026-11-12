@@ -273,8 +273,8 @@ export function SettingsRestoration({
               </Text>
               <Progress
                 label={text(
-                  "ui.settings.loading_restoration",
-                  "Loading restoration status…",
+                  "ui.settings.loading_restoration_progress",
+                  "Loading restoration status",
                 )}
               />
             </div>

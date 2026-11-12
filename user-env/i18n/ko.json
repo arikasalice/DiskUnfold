@@ -383,6 +383,7 @@
     ["ui.settings.issues_reported","문제 보고됨",[]],
     ["ui.settings.item_restored","복원됨",[]],
     ["ui.settings.loading_restoration","복원 상태를 불러오는 중…",[]],
+    ["ui.settings.loading_restoration_progress","복원 상태를 불러오는 중",[]],
     ["ui.settings.migration","마이그레이션",[]],
     ["ui.settings.migration_applied","적용됨",[]],
     ["ui.settings.migration_not_applied","적용되지 않음",[]],

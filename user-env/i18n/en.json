@@ -383,6 +383,7 @@
     ["ui.settings.issues_reported","Issues reported",[]],
     ["ui.settings.item_restored","Restored",[]],
     ["ui.settings.loading_restoration","Loading restoration status…",[]],
+    ["ui.settings.loading_restoration_progress","Loading restoration status",[]],
     ["ui.settings.migration","Migration",[]],
     ["ui.settings.migration_applied","Applied",[]],
     ["ui.settings.migration_not_applied","Not applied",[]],

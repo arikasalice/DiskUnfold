@@ -272,10 +272,7 @@ mod tests {
                 resource.expected_hash = [0; 32];
             }
         }
-        let declared = i18n::embedded::DECLARED_KEYS
-            .iter()
-            .map(|key| (*key).to_owned())
-            .collect::<Vec<_>>();
+        let declared = i18n::embedded::declared_keys().map_err(|e| format!("{e:?}"))?;
         let bundles =
             i18n::Registry::register(&resources, &declared, &[], i18n::embedded::parse_bundle)
                 .map_err(|e| format!("{e:?}"))?;
