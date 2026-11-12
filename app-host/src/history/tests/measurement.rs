@@ -74,14 +74,31 @@ fn verify_pinned_logical_total(
 #[test]
 #[ignore = "opt-in 100,000-file native Windows measurement"]
 fn native_scan_100k() -> Result<(), Box<dyn std::error::Error>> {
-    const DIRECTORIES: usize = 100;
-    const FILES_PER_DIRECTORY: usize = 1_000;
+    run_native_scan_measurement(100, 1_000, "100,000-file")
+}
+
+/// Measures two million-file scans through desktop IPC on a local NTFS volume.
+/// Fixture creation warms uncontrolled OS caches; process-lifetime peak working
+/// set is not scan-job memory and notification dequeue time is not GUI P95.
+/// Run with `cargo test --locked -p du-app-host --features gui --lib
+/// history::tests::measurement::native_scan_1m -- --ignored --nocapture`.
+#[test]
+#[ignore = "opt-in 1,000,000-file native Windows measurement"]
+fn native_scan_1m() -> Result<(), Box<dyn std::error::Error>> {
+    run_native_scan_measurement(1_000, 1_000, "1,000,000-file")
+}
+
+fn run_native_scan_measurement(
+    directories: usize,
+    files_per_directory: usize,
+    label: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     let profile = tempfile::tempdir()?;
-    for directory in 0..DIRECTORIES {
+    for directory in 0..directories {
         let path = fixture.path().join(format!("dir-{directory:03}"));
         fs::create_dir(&path)?;
-        for file in 0..FILES_PER_DIRECTORY {
+        for file in 0..files_per_directory {
             fs::write(path.join(format!("entry-{file:04}.bin")), [1])?;
         }
     }
@@ -113,9 +130,11 @@ fn native_scan_100k() -> Result<(), Box<dyn std::error::Error>> {
         .collect();
     let draft = json!({"includes":[{"encoding":"windows_utf16le", "raw":PathBytes::from_bytes(&raw), "display":fixture.path(), "lossy":false}], "exclusions":[], "boundary":"current_volume", "includedMounts":[], "source":"gui"});
     eprintln!(
-        "F02_MEASURE fixture_files={} directories={} bytes_per_file=1 cache=uncontrolled_after_fixture_creation workers=default pid={} pre_scan_process_lifetime_peak_working_set_bytes={:?}",
-        DIRECTORIES * FILES_PER_DIRECTORY,
-        DIRECTORIES,
+        "F02_MEASURE case={label} fixture_files={} directories={} input_bytes={} bytes_per_file=1 filesystem={} cache=uncontrolled_after_fixture_creation workers=default pid={} pre_scan_process_lifetime_peak_working_set_bytes={:?}",
+        directories * files_per_directory,
+        directories,
+        directories * files_per_directory,
+        std::env::consts::OS,
         std::process::id(),
         process_peak_working_set()
     );
@@ -212,7 +231,7 @@ fn native_scan_100k() -> Result<(), Box<dyn std::error::Error>> {
         if body["state"] != "done" {
             return Err("scan did not finish successfully".into());
         }
-        if body["completed"].as_u64() != Some((DIRECTORIES * (FILES_PER_DIRECTORY + 1)) as u64)
+        if body["completed"].as_u64() != Some((directories * (files_per_directory + 1)) as u64)
             || ["failed", "skipped", "unprocessed"]
                 .iter()
                 .any(|key| body[*key].as_u64() != Some(0))
@@ -228,7 +247,7 @@ fn native_scan_100k() -> Result<(), Box<dyn std::error::Error>> {
         assert_ne!(partial_version, version);
         eprintln!("F02_MEASURE run={run} first_pinned_partial_read_ms={partial_ms}");
         assert_ne!(previous_version.as_ref(), Some(&version));
-        let expected_bytes = (DIRECTORIES * FILES_PER_DIRECTORY) as u64 + u64::from(run - 1);
+        let expected_bytes = (directories * files_per_directory) as u64 + u64::from(run - 1);
         let query_start = Instant::now();
         verify_pinned_logical_total(&engine, &version, run, expected_bytes)?;
         eprintln!(
