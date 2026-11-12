@@ -34,9 +34,14 @@ fn launcher_prints_help_and_version_to_stdout() -> io::Result<()> {
 fn help_and_version_return_exit_five_when_stdout_is_closed() -> io::Result<()> {
     use std::process::Stdio;
 
-    for flag in ["--help", "--version"] {
+    for (language, flag) in [
+        ("en", "--help"),
+        ("en", "--version"),
+        ("ko", "--help"),
+        ("ko", "--version"),
+    ] {
         let mut child = Command::new(env!("CARGO_BIN_EXE_diskunfold"))
-            .args(["--lang", "en", flag])
+            .args(["--lang", language, flag])
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -64,15 +69,17 @@ fn help_and_version_return_exit_five_when_stdout_is_closed() -> io::Result<()> {
 fn closed_stderr_does_not_replace_output_interrupted_exit() -> io::Result<()> {
     use std::process::Stdio;
 
-    let mut child = Command::new(env!("CARGO_BIN_EXE_diskunfold"))
-        .args(["--lang", "en", "--help"])
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
-    drop(child.stdout.take());
-    drop(child.stderr.take());
-    assert_eq!(child.wait()?.code(), Some(5));
+    for language in ["en", "ko"] {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_diskunfold"))
+            .args(["--lang", language, "--help"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?;
+        drop(child.stdout.take());
+        drop(child.stderr.take());
+        assert_eq!(child.wait()?.code(), Some(5), "{language}");
+    }
     Ok(())
 }
 

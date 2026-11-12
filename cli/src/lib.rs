@@ -116,6 +116,9 @@ fn run_with_io<W: Write, E: Write>(
             return ExitCode::from(2);
         }
     };
+    if output.is_err() {
+        write_output_interrupted_diagnostic(stderr, message("cli.output.interrupted"));
+    }
     output_exit_code(output)
 }
 
@@ -131,6 +134,13 @@ fn output_exit_code(write_result: io::Result<()>) -> ExitCode {
 /// Writes a diagnostic line without panicking when stderr has been closed.
 fn write_stderr_line(stderr: &mut impl Write, message: &str) {
     let _ = writeln!(stderr, "{message}");
+}
+
+/// Writes the registered text diagnostic once when its locale message exists.
+fn write_output_interrupted_diagnostic(stderr: &mut impl Write, localized_message: Option<&str>) {
+    if let Some(message) = localized_message {
+        write_stderr_line(stderr, message);
+    }
 }
 
 #[cfg(test)]
@@ -210,5 +220,37 @@ mod tests {
         assert_eq!(exit, ExitCode::from(5));
         assert_eq!(stdout.bytes, b"Dis");
         assert!(stderr.bytes.is_empty());
+    }
+
+    #[test]
+    fn localized_output_interruption_diagnostic_is_one_line() {
+        for (message, expected) in [
+            (
+                "Output was interrupted.",
+                b"Output was interrupted.\n".as_slice(),
+            ),
+            ("출력이 중단됐습니다.", "출력이 중단됐습니다.\n".as_bytes()),
+        ] {
+            let mut stderr = Vec::new();
+            write_output_interrupted_diagnostic(&mut stderr, Some(message));
+            assert_eq!(stderr, expected);
+        }
+    }
+
+    #[test]
+    fn closed_stderr_does_not_panic_while_writing_diagnostic() {
+        let mut stderr = FailingWriter {
+            bytes: Vec::new(),
+            fail_after: 0,
+        };
+        write_output_interrupted_diagnostic(&mut stderr, Some("Output was interrupted."));
+        assert!(stderr.bytes.is_empty());
+    }
+
+    #[test]
+    fn missing_output_interruption_translation_writes_no_placeholder() {
+        let mut stderr = Vec::new();
+        write_output_interrupted_diagnostic(&mut stderr, None);
+        assert!(stderr.is_empty());
     }
 }
