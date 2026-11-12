@@ -11,7 +11,6 @@ pub(in crate::webview::windows) use pool::WorkerPool;
 pub(in crate::webview::windows) use requests::RequestQueue;
 
 use super::super::contract::{DispatchLane, EventPostFailure, Events};
-use super::reply::Reply;
 use std::{cell::Cell, io, rc::Rc};
 use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2;
 use windows::{
@@ -59,9 +58,7 @@ impl Bridge {
         if !self.ready.get() || !self.owner.is_active() {
             return;
         }
-        let active = deliver_reply_batch(&self.owner, self.owner.take_replies(), |wire| {
-            post(&self.view, wire)
-        });
+        let active = deliver_reply_batch(&self.owner, |wire| post(&self.view, wire));
         if !active {
             return;
         }
@@ -82,10 +79,12 @@ impl Drop for Bridge {
 
 fn deliver_reply_batch<E>(
     owner: &ControllerOwner,
-    replies: Vec<Reply>,
     mut post: impl FnMut(&str) -> Result<(), E>,
 ) -> bool {
-    for reply in replies {
+    for _ in 0..QUEUE_LIMIT {
+        let Some(reply) = owner.take_reply() else {
+            break;
+        };
         if !owner.is_active() {
             drop(reply);
             continue;

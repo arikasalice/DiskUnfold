@@ -240,7 +240,8 @@ fn observer_is_prepared_on_worker_and_notified_only_after_native_post()
     assert_eq!(response, "receipt:scan.start");
     let reply = recv(&owner, Duration::from_secs(5))?;
     assert!(notifications.try_recv().is_err());
-    assert!(deliver_reply_batch(&owner, vec![reply], |wire| {
+    owner.queue_test_reply(reply);
+    assert!(deliver_reply_batch(&owner, |wire| {
         assert_eq!(wire, "22\nreceipt:scan.start");
         Ok::<(), io::Error>(())
     }));
@@ -265,7 +266,8 @@ fn response_without_delivery_observer_still_reaches_native_post()
     );
     let reply = recv(&owner, Duration::from_secs(5))?;
     let mut posted = false;
-    assert!(deliver_reply_batch(&owner, vec![reply], |wire| {
+    owner.queue_test_reply(reply);
+    assert!(deliver_reply_batch(&owner, |wire| {
         assert_eq!(wire, "21\nscan.receipt");
         posted = true;
         Ok::<(), io::Error>(())
@@ -430,10 +432,12 @@ fn reentrant_owner_replacement_marks_posted_batch_as_not_posted_once()
             let _ = outcomes.send((id, outcome));
         }) as ResponseDeliveryCallback
     };
-    let replies = vec![
-        Reply::ipc("same".into(), "first", Some(callback("first"))),
-        Reply::ipc("same".into(), "second", Some(callback("second"))),
-    ];
+    owner.queue_test_reply(Reply::ipc("same".into(), "first", Some(callback("first"))));
+    owner.queue_test_reply(Reply::ipc(
+        "same".into(),
+        "second",
+        Some(callback("second")),
+    ));
     let event_reads = Arc::new(AtomicUsize::new(0));
     let event_source_reads = Arc::clone(&event_reads);
     let events = Events::new(
@@ -445,7 +449,7 @@ fn reentrant_owner_replacement_marks_posted_batch_as_not_posted_once()
     );
     let mut replacement = None;
     let mut posts = Vec::new();
-    let active = deliver_reply_batch(&owner, replies, |wire| {
+    let active = deliver_reply_batch(&owner, |wire| {
         posts.push(wire.to_owned());
         replacement = Some(pool.controller_owner()?);
         Ok::<(), io::Error>(())
@@ -458,8 +462,10 @@ fn reentrant_owner_replacement_marks_posted_batch_as_not_posted_once()
         io::Error,
     >(())));
     assert_eq!(event_reads.load(Ordering::SeqCst), 0);
+    let mut notifications = observed.try_iter().collect::<Vec<_>>();
+    notifications.sort_by_key(|(id, _)| *id);
     assert_eq!(
-        observed.try_iter().collect::<Vec<_>>(),
+        notifications,
         [
             ("first", ResponseDelivery::NotPosted),
             ("second", ResponseDelivery::NotPosted),
@@ -471,3 +477,4 @@ fn reentrant_owner_replacement_marks_posted_batch_as_not_posted_once()
 
 mod lanes;
 mod post_failure;
+mod reply_flush;

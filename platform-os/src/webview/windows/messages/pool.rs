@@ -220,30 +220,6 @@ impl Shared {
         }
     }
 
-    fn take_replies(&self, generation: u64) -> Vec<Reply> {
-        let Ok(mut queues) = self.lock() else {
-            return Vec::new();
-        };
-        if queues.shutdown || queues.active_generation != Some(generation) {
-            return Vec::new();
-        }
-        let pending = std::mem::take(&mut queues.replies);
-        let mut current = Vec::with_capacity(pending.len());
-        let mut stale = VecDeque::new();
-        for scoped in pending {
-            if scoped.generation == generation {
-                current.push(scoped.reply);
-            } else {
-                stale.push_back(scoped);
-            }
-        }
-        self.changed.notify_all();
-        drop(queues);
-        drop(stale);
-        current
-    }
-
-    #[cfg(test)]
     fn take_reply(&self, generation: u64) -> Option<Reply> {
         let mut queues = self.lock().ok()?;
         if queues.shutdown || queues.active_generation != Some(generation) {
@@ -447,13 +423,13 @@ impl ControllerOwner {
         super::RequestQueue::new(Arc::clone(&self.shared), self.generation, route)
     }
 
-    pub(super) fn take_replies(&self) -> Vec<Reply> {
-        self.shared.take_replies(self.generation)
+    pub(super) fn take_reply(&self) -> Option<Reply> {
+        self.shared.take_reply(self.generation)
     }
 
     #[cfg(test)]
-    pub(super) fn take_reply(&self) -> Option<Reply> {
-        self.shared.take_reply(self.generation)
+    pub(super) fn queue_test_reply(&self, reply: Reply) {
+        self.shared.publish_reply(self.generation, reply);
     }
 
     #[cfg(test)]
