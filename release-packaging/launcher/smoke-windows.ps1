@@ -15,6 +15,7 @@ param(
   [switch]$VerifyJunctionBoundary,
   [switch]$VerifyReplacedScopeRoot,
   [switch]$VerifySettingsRestoration,
+  [switch]$VerifyLocaleSwitch,
   [switch]$VerifyOperationHistory,
   [switch]$VerifyInspectionPathDisclosure,
   [switch]$VerifyInspectionKeyboard,
@@ -102,7 +103,7 @@ if ($VerifyCancellation -or $VerifySuspension) {
 }
 $profile = Join-Path $root 'profile'
 New-Item -ItemType Directory -Path $profile | Out-Null
-$process = Start-Process -FilePath $exe -PassThru -Environment @{ LOCALAPPDATA = $profile } -RedirectStandardError (Join-Path $root 'stderr.txt') -RedirectStandardOutput (Join-Path $root 'stdout.txt')
+$process = Start-Process -FilePath $exe -PassThru -Environment @{ LOCALAPPDATA = $profile; DISKUNFOLD_DATA_DIR = (Join-Path $profile 'DiskUnfold') } -RedirectStandardError (Join-Path $root 'stderr.txt') -RedirectStandardOutput (Join-Path $root 'stdout.txt')
 $scopeTree = [Windows.Automation.TreeScope]::Descendants
 $ae = [Windows.Automation.AutomationElement]
 $edit = [Windows.Automation.ControlType]::Edit
@@ -892,11 +893,50 @@ function Test-OperationHistory {
   $null = Wait-FinalLogicalSize '18 bytes'
   'F21 native history: opened a committed scan and returned to the same pinned 18-byte result'
 }
+function Select-SmokeLanguage($settingsName, $fieldName, $languageName, $nextFieldName, $closeName) {
+  Invoke-UI (Wait-VisibleAction $settingsName)
+  $field = Wait-UI $fieldName { Find-UI $fieldName ([Windows.Automation.ControlType]::ComboBox) }
+  Expand-UI $field
+  $choice = Wait-UI $languageName { Find-UI $languageName ([Windows.Automation.ControlType]::ListItem) }
+  $selection = $null
+  if (-not $choice.TryGetCurrentPattern([Windows.Automation.SelectionItemPattern]::Pattern, [ref]$selection)) {
+    throw "Language '$languageName' does not expose SelectionItemPattern"
+  }
+  $selection.Select()
+  $null = Wait-UI $nextFieldName { Find-UI $nextFieldName ([Windows.Automation.ControlType]::ComboBox) }
+  Invoke-UI (Wait-VisibleAction $closeName)
+}
+function Test-LocaleSwitch {
+  $field = Wait-UI 'localized path field' {
+    $inputField = Find-UI 'Windows folder path' $edit
+    if (-not $inputField) { $inputField = Find-UI 'Windows 폴더 경로' $edit }
+    $inputField
+  }
+  $value = $field.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern)
+  $draftPath = Join-Path $root 'locale-scope'
+  New-Item -ItemType Directory -Path $draftPath | Out-Null
+  $value.SetValue($draftPath)
+  if ($field.Current.Name -eq 'Windows folder path') {
+    Select-SmokeLanguage 'Language and display' 'Display language' '한국어' '표시 언어' '닫기'
+  } else {
+    Select-SmokeLanguage '언어 및 표시' '표시 언어' 'English' 'Display language' 'Close'
+    Select-SmokeLanguage 'Language and display' 'Display language' '한국어' '표시 언어' '닫기'
+  }
+  $localized = Wait-UI 'Korean path field' { Find-UI 'Windows 폴더 경로' $edit }
+  if ($localized.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern).Current.Value -ne $draftPath) {
+    throw 'Locale switch discarded the current scope draft'
+  }
+  Select-SmokeLanguage '언어 및 표시' '표시 언어' 'English' 'Display language' 'Close'
+  $english = Wait-UI 'English path field' { Find-UI 'Windows folder path' $edit }
+  $english.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern).SetValue('')
+  'F13 native locale: switched between Korean and English without discarding the scope draft'
+}
 try {
   $window = Wait-UI 'main window' {
     $process.Refresh()
     if ($process.MainWindowHandle -ne 0) { $ae::FromHandle($process.MainWindowHandle) }
   }
+  if ($VerifyLocaleSwitch) { Test-LocaleSwitch }
   $null = Wait-UI 'path field' { Find-UI 'Windows folder path' $edit }
   $null = Wait-Enabled 'Start scan' $false
   if ($VerifyInitialDrive) { Test-InitialDrive }
@@ -969,6 +1009,15 @@ try {
     Find-LogicalSize '18 bytes'
   }
   'F02/F03 native scan: Scan finished, Result version: Final, 18 bytes'
+  if ($VerifyLocaleSwitch) {
+    Select-SmokeLanguage 'Language and display' 'Display language' '한국어' '표시 언어' '닫기'
+    $null = Wait-UI 'localized pinned result' {
+      if (Find-UI '디스크 공간 분석 결과' $null) { Find-LogicalSize '18 bytes' }
+    }
+    Select-SmokeLanguage '언어 및 표시' '표시 언어' 'English' 'Display language' 'Close'
+    $null = Wait-FinalLogicalSize '18 bytes'
+    'F13 native locale: switched presentation on the same pinned result'
+  }
   if ($VerifyRecentScope) { Test-RecentScopeReopen }
   if ($VerifyOperationHistory) { Test-OperationHistory }
   $null = Wait-VisibleAction 'Analyze again'

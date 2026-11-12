@@ -17,7 +17,7 @@ import type {
   HistoryItemsResponse,
 } from "../../ipc";
 import { useHistoryItems } from "../../state/history-items";
-import { displayTime, missingLabel } from "./history-labels";
+import { missingLabel, useHistoryTime } from "./history-labels";
 type Filter = HistoryItemOutcome | "all";
 const filters: { value: Filter; label: string }[] = [
   { value: "all", label: "All outcomes" },
@@ -213,6 +213,7 @@ function RecordedItemDetails({
   onClose: () => void;
 }) {
   const displaced = result.displaced;
+  const displayTime = useHistoryTime();
   const title = displaced ? "Displaced item details" : "Recorded item details";
   const region = useRef<HTMLDivElement>(null);
   useEffect(() => {

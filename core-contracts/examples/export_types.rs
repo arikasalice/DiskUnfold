@@ -9,6 +9,7 @@ use du_core_contracts::result_events::{
     PublishedCompleteness, ResultVersionChange, ResultVersionChanged,
 };
 use du_core_contracts::scan_failures::*;
+use du_core_contracts::settings_events::*;
 use du_core_contracts::settings_ipc::*;
 use du_core_contracts::size_units::{
     DISPLAY_DECIMAL_PLACES, IEC_UNITS, SI_UNITS, UNIT_TABLE_REVISION,
@@ -60,6 +61,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         SettingsRestoreSource::decl(&config),
         SettingsRestoreItem::decl(&config),
         SettingsRestoreStatus::decl(&config),
+        SettingsApplyTiming::decl(&config),
+        SettingsChangeSource::decl(&config),
+        SettingsChangedKey::decl(&config),
+        SettingsChangedBody::decl(&config),
         LocaleProfileRevision::decl(&config),
         LocaleLanguageSource::decl(&config),
         LocaleDateFormat::decl(&config),

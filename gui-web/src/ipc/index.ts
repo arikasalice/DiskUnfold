@@ -27,6 +27,13 @@ import type {
   HistoryListRequest,
   HistoryListResponse,
   Id,
+  LocaleGetProfileRequest,
+  LocaleBundleRequest,
+  LocaleBundleResponse,
+  LocaleProfile,
+  LocaleProfileSetRequest,
+  LocaleReportMissingRequest,
+  LocaleReportMissingResponse,
   OsPath,
   QueryPageRequest,
   QueryRegionOpenRequest,
@@ -112,6 +119,12 @@ export type {
   HistoryRelation,
   Id,
   JobState,
+  LocaleAppScale,
+  LocaleBundleBody,
+  LocaleChangedBody,
+  LocaleMissingEntry,
+  LocaleProfile,
+  LocaleProfileChanges,
   OsPath,
   RecentScopeList,
   RecentScopeListRow,
@@ -183,6 +196,13 @@ type Commands = {
   "history.get": [HistoryDetailRequest, HistoryDetail];
   "history.items": [HistoryItemsRequest, HistoryItemsResponse];
   "settings.restore_status": [SettingsRestoreRequest, SettingsRestoreStatus];
+  "i18n.get_profile": [LocaleGetProfileRequest, LocaleProfile];
+  "i18n.get_bundle": [LocaleBundleRequest, LocaleBundleResponse];
+  "i18n.report_missing": [
+    LocaleReportMissingRequest,
+    LocaleReportMissingResponse,
+  ];
+  "i18n.set_profile": [LocaleProfileSetRequest, LocaleProfile];
   "space.display_preferences": [DisplayPreferencesRequest, DisplayPreferences];
   "space.total": [SpaceTotalRequest, SpaceTotal];
   "space.detail": [SpaceDetailRequest, SpaceDetail];

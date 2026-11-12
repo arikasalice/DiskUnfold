@@ -1,0 +1,20 @@
+.du-locale-fields {
+  display: grid;
+  gap: 12px;
+}
+
+:root {
+  zoom: var(--du-app-scale, 1);
+}
+
+:root[data-du-motion="reduce"] {
+  --du-state-duration: 0ms;
+}
+
+:root[data-du-motion="reduce"] *,
+:root[data-du-motion="reduce"] *::before,
+:root[data-du-motion="reduce"] *::after {
+  animation-duration: 0ms !important;
+  transition-duration: 0ms !important;
+  scroll-behavior: auto !important;
+}

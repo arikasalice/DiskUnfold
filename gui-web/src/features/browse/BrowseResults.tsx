@@ -18,6 +18,7 @@ import type { BrowsePages } from "../../state/browse-pages";
 import { browseDisplayName, rowKey } from "./browse-display";
 import { formatByteUnit } from "../../i18n/bytes";
 import type { SizeDisplay } from "../../i18n/bytes";
+import { useTimestampText } from "../../i18n/regional-format";
 import { SIZE_UNIT_RULES } from "../../ipc";
 import { useBrowsePaging } from "./use-browse-paging";
 import { useBrowseCopy } from "./use-browse-copy";
@@ -45,6 +46,7 @@ function size(
     SIZE_UNIT_RULES.decimalPlaces,
     display.unit,
     lowerBound,
+    display.regional,
   );
   return `${lowerBound ? "At least " : ""}${readable}`;
 }
@@ -92,6 +94,7 @@ export function BrowseResults({
   copyPath: ((item: ItemRef) => Promise<BrowseCopyPathOutcome>) | undefined;
   reopen: () => void;
 }) {
+  const timestamp = useTimestampText();
   const scrollRoot = useRef<HTMLDivElement>(null);
   const copy = useBrowseCopy(
     copyPath,
@@ -264,7 +267,11 @@ export function BrowseResults({
           <Text>{size(row.allocatedSize, display)}</Text>,
           <Text>
             {row.modifiedAt.state === "present"
-              ? row.modifiedAt.value
+              ? timestamp(Date.parse(row.modifiedAt.value), () =>
+                  row.modifiedAt.state === "present"
+                    ? row.modifiedAt.value
+                    : "",
+                )
               : row.modifiedAt.state === "absent"
                 ? "Not recorded"
                 : "Unavailable"}

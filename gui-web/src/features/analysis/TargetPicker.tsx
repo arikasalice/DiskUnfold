@@ -16,6 +16,7 @@ import { windowsPath } from "../../ipc";
 import type { OsPath } from "../../ipc";
 import type { useTargets } from "../../state/analysis-targets";
 import { describeTargetCapacity } from "./target-capacity";
+import { useLocaleText } from "../../i18n/presentation";
 
 /** Presents discovered drives and the direct path entry defined for scope review. */
 export function TargetPicker({
@@ -49,6 +50,7 @@ export function TargetPicker({
   onPathCompositionChange: (composing: boolean) => void;
   primaryPathRef?: RefObject<HTMLInputElement | null>;
 }) {
+  const text = useLocaleText();
   const fields = useRef(new Map<number, HTMLInputElement>());
   const focusIndex = useRef<number>(undefined);
 
@@ -75,7 +77,7 @@ export function TargetPicker({
         if (primaryPathRef) primaryPathRef.current = input;
       }}
       autoFocus={isInitial}
-      label="Windows folder path"
+      label={text("ui.analysis.folder_path", "Windows folder path")}
       description={pathDescription}
       placeholder={"C:\\Folder"}
       isDisabled={disabled}
@@ -98,7 +100,7 @@ export function TargetPicker({
     <section
       key="path"
       className="du-path-editor"
-      aria-label="Folder paths"
+      aria-label={text("ui.analysis.folder_paths", "Folder paths")}
       aria-describedby={reviewDescriptionId}
     >
       <div className="du-primary-path">
@@ -110,22 +112,32 @@ export function TargetPicker({
           pathField
         )}
         <Action isDisabled={disabled} onPress={addPath}>
-          Add path
+          {text("ui.analysis.add_path", "Add path")}
         </Action>
       </div>
       {dropError && <Notice tone="error">{dropError}</Notice>}
       {selected.length > 1 && (
-        <section className="du-scope-paths" aria-label="Additional paths">
+        <section
+          className="du-scope-paths"
+          aria-label={text("ui.analysis.additional_paths", "Additional paths")}
+        >
           <Action isDisabled={disabled} onPress={() => remove(0)}>
-            Remove primary path
+            {text("ui.analysis.remove_primary", "Remove primary path")}
           </Action>
           {selected.slice(1).map((path, index) => (
             <div className="du-scope-path" key={index}>
               <PathField
                 ref={(input) => registerField(index + 1, input)}
                 autoFocus
-                label={`Additional folder path ${index + 2}`}
-                description="Enter a local folder or drive path."
+                label={text(
+                  "ui.analysis.additional_path",
+                  "Additional folder path {number}",
+                  { number: BigInt(index + 2) },
+                )}
+                description={text(
+                  "ui.analysis.path_hint",
+                  "Enter a local folder or drive path.",
+                )}
                 placeholder={"D:\\Folder"}
                 isDisabled={disabled}
                 onCompositionChange={onPathCompositionChange}
@@ -135,7 +147,9 @@ export function TargetPicker({
                 }
               />
               <Action isDisabled={disabled} onPress={() => remove(index + 1)}>
-                {`Remove path ${index + 2}`}
+                {text("ui.analysis.remove_path", "Remove path {number}", {
+                  number: BigInt(index + 2),
+                })}
               </Action>
             </div>
           ))}
@@ -164,6 +178,7 @@ function DrivePicker({
   disabled: boolean;
   choose: (path: OsPath | undefined) => void;
 }) {
+  const text = useLocaleText();
   const {
     targets: entries = [],
     probeJobRef,
@@ -180,9 +195,12 @@ function DrivePicker({
   const [showDriveDetails, setShowDriveDetails] = useState(false);
   const driveGroupId = useId();
   return (
-    <section className="du-drive-picker" aria-label="Available drives">
+    <section
+      className="du-drive-picker"
+      aria-label={text("ui.analysis.available_drives", "Available drives")}
+    >
       <div className="du-target-picker__header">
-        <Heading level={3}>Drives</Heading>
+        <Heading level={3}>{text("ui.analysis.drives", "Drives")}</Heading>
         <div className="du-drive-picker__actions">
           {isInitial && entries.length > 0 && (
             <Action
@@ -191,13 +209,15 @@ function DrivePicker({
               aria-controls={driveGroupId}
               onPress={() => setShowDriveDetails(!showDriveDetails)}
             >
-              {showDriveDetails ? "Hide drive details" : "Drive details"}
+              {showDriveDetails
+                ? text("ui.analysis.hide_drive_details", "Hide drive details")
+                : text("ui.analysis.drive_details", "Drive details")}
             </Action>
           )}
           <Action
             variant="quiet"
             icon="refresh"
-            aria-label="Refresh targets"
+            aria-label={text("ui.analysis.refresh_targets", "Refresh targets")}
             isDisabled={disabled}
             isPending={targets.loading}
             onPress={() => void targets.refresh(true)}
@@ -207,9 +227,11 @@ function DrivePicker({
       {targets.loading && (
         <div className="du-target-picker__loading">
           <LiveStatus>
-            <Text>Finding drives…</Text>
+            <Text>{text("ui.analysis.finding_drives", "Finding drives…")}</Text>
           </LiveStatus>
-          <Progress label="Loading targets" />
+          <Progress
+            label={text("ui.analysis.loading_targets", "Loading targets")}
+          />
         </div>
       )}
       {notice && (

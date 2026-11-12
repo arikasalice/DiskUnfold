@@ -19,7 +19,7 @@ import type {
 } from "../../ipc";
 import { useHistory } from "../../state/history";
 import {
-  displayTime,
+  useHistoryTime,
   kindLabel,
   missingLabel,
   stateLabel,
@@ -213,6 +213,7 @@ function HistoryPages({
     client,
     filter,
   );
+  const displayTime = useHistoryTime();
   const table = useRef<HTMLDivElement>(null);
   const pagingFocused = useRef(false);
   const hasMore = Boolean(page?.nextCursor);
@@ -265,7 +266,7 @@ function HistoryPages({
             density="compact"
             totalRows={hasMore ? -1 : shown}
             rows={page.rows}
-            renderCells={(row) => rowCells(row, onOpen)}
+            renderCells={(row) => rowCells(row, onOpen, displayTime)}
           />
         </div>
       )}
@@ -295,6 +296,7 @@ function HistoryPages({
 function rowCells(
   row: HistoryListRow,
   onOpen: (jobRef: string, target: HTMLElement) => void,
+  displayTime: ReturnType<typeof useHistoryTime>,
 ) {
   const { summary, jobRef } = row;
   const name = kindLabel(summary?.kindId);

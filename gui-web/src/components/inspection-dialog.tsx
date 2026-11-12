@@ -8,10 +8,12 @@ export function InspectionDialog({
   title,
   onClose,
   children,
+  closeLabel = "Close details",
 }: {
   title: string;
   onClose: () => void;
   children: ReactNode;
+  closeLabel?: string;
 }) {
   return (
     <ModalOverlay
@@ -28,7 +30,7 @@ export function InspectionDialog({
               {title}
             </Heading>
             <Action variant="quiet" autoFocus onPress={onClose}>
-              Close details
+              {closeLabel}
             </Action>
           </header>
           <section className="du-inspection-dialog__body" aria-label="Details">

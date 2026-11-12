@@ -1,6 +1,8 @@
 import type { SizeValue, SpaceTotal } from "../../ipc";
 import { SIZE_UNIT_RULES } from "../../ipc";
 import { formatByteUnit } from "../../i18n/bytes";
+import { displayInteger } from "../../i18n/regional-format";
+import type { RegionalFormat } from "../../i18n/regional-format";
 
 import type { SizeDisplay } from "../../i18n/bytes";
 export type { SizeDisplay } from "../../i18n/bytes";
@@ -77,14 +79,17 @@ export function displayMeasurement(
 }
 
 /** Formats exact wire bytes without converting them to a floating-point number. */
-export function formatBytes(bytes: string): string {
-  return `${BigInt(bytes).toLocaleString()} bytes`;
+export function formatBytes(bytes: string, regional?: RegionalFormat): string {
+  return `${displayInteger(BigInt(bytes), regional)} bytes`;
 }
 
 /** Retains the lower-bound qualifier when showing original bytes. */
-export function displayRawSize(size: SizeValue): string | undefined {
+export function displayRawSize(
+  size: SizeValue,
+  regional?: RegionalFormat,
+): string | undefined {
   if (size.state === "unknown") return undefined;
-  const rawBytes = formatBytes(size.bytes);
+  const rawBytes = formatBytes(size.bytes, regional);
   return size.state === "lower_bound" ? `At least ${rawBytes}` : rawBytes;
 }
 
@@ -100,6 +105,7 @@ export function formatSizeBytes(
     SIZE_UNIT_RULES.decimalPlaces,
     display.unit,
     lowerBound,
+    display.regional,
   );
 }
 
@@ -117,7 +123,7 @@ export function displaySize(
 /** Returns a separate raw count only when it adds information. */
 export function displaySizeParts(size: SizeValue, display: SizeDisplay) {
   const formatted = displaySize(size, display);
-  const raw = displayRawSize(size);
+  const raw = displayRawSize(size, display.regional);
   return { formatted, raw: raw === formatted ? undefined : raw };
 }
 

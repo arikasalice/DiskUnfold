@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ReactNode, Ref } from "react";
+import { displayInteger, useRegionalFormat } from "../../i18n/regional-format";
 import {
   Action,
   DetailDisclosure,
@@ -39,6 +40,7 @@ const resultVersionLabels = {
 } satisfies Record<SpaceTotal["completeness"], string>;
 
 function Coverage({ total }: { total: SpaceTotal }) {
+  const regional = useRegionalFormat();
   const counters = [
     { label: "Missing items", count: total.missingItems },
     { label: "Inaccessible ranges", count: total.inaccessibleRanges },
@@ -49,7 +51,10 @@ function Coverage({ total }: { total: SpaceTotal }) {
       label="Coverage limits"
       rows={counters.map(({ label, count }) => ({
         label,
-        value: count === null ? "Not recorded" : BigInt(count).toLocaleString(),
+        value:
+          count === null
+            ? "Not recorded"
+            : displayInteger(BigInt(count), regional),
       }))}
     />
   );
@@ -350,7 +355,9 @@ function PinnedResult({
     ((resultVersion: string, basis: SizeBasisFilter) => void) | undefined;
 }) {
   const [basisChoice, setBasis] = useState<SizeBasisFilter>();
-  const display = displayChoice ?? preferences.display;
+  const regional = useRegionalFormat();
+  const choice = displayChoice ?? preferences.display;
+  const display = regional ? { ...choice, regional } : choice;
   const basis = basisChoice ?? preferences.basis;
   useEffect(() => {
     onSizeBasisChange?.(total.resultVersion, basis);

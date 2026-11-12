@@ -1,4 +1,6 @@
 import type { SizeDisplay } from "../i18n/bytes";
+import { useLocaleText } from "../i18n/presentation";
+import { useRegionalFormat } from "../i18n/regional-format";
 import type { SizeBasisFilter } from "../features/analysis/space-format";
 import diskUnfoldIcon from "./assets/diskunfold-icon.svg";
 import "./browse-visualization.css";
@@ -21,6 +23,8 @@ import type {
 } from "../features/browse/BrowsePanel";
 import { HistoryPanel } from "../features/history/HistoryPanel";
 import { SettingsRestoration } from "../features/settings/SettingsRestoration";
+import { LocaleSettings } from "../features/settings/LocaleSettings";
+import type { LocaleSettingsProps } from "../features/settings/LocaleSettings";
 import { createAnalysisClient, hasWindowsAnalysisBridge } from "../ipc";
 import type { AnalysisClient } from "../ipc";
 import { createBrowsePort } from "./browse-port";
@@ -37,12 +41,22 @@ const desktop = createAnalysisClient();
 export function App({
   analysis,
   visualizationProvider,
+  locale,
 }: {
   analysis?: AnalysisClient;
   visualizationProvider?: BrowseVisualizationProvider;
+  locale?: LocaleSettingsProps;
 } = {}) {
   const client = analysis ?? (hasWindowsAnalysisBridge() ? desktop : undefined);
-  const preferences = useDisplayPreferences(client);
+  const savedPreferences = useDisplayPreferences(client);
+  const regional = useRegionalFormat();
+  const text = useLocaleText();
+  const preferences = regional
+    ? {
+        ...savedPreferences,
+        display: { ...savedPreferences.display, regional },
+      }
+    : savedPreferences;
   const [connectionChecks, setConnectionChecks] = useState(0);
   const [history, setHistory] = useState(false);
   const [browseSelection, setBrowseSelection] = useState<{
@@ -91,7 +105,10 @@ export function App({
     }
   }, [visualizationOpen]);
   const analysisOpen = client && !history && browseVersion === undefined;
-  const browseDisplay = effectiveDisplay(browseChoice, preferences.display);
+  const chosenDisplay = effectiveDisplay(browseChoice, preferences.display);
+  const browseDisplay = regional
+    ? { ...chosenDisplay, regional }
+    : chosenDisplay;
   const onSizeBasisChange = useCallback(
     (version: string, basis: SizeBasisFilter) =>
       setBasisSelection({ version, basis }),
@@ -110,6 +127,7 @@ export function App({
           <Heading level={1}>DiskUnfold</Heading>
         </div>
         <div className="du-app-header__actions">
+          {locale && <LocaleSettings {...locale} />}
           <BrowseReturn
             visible={Boolean(browseVersion) && !visualizationOpen}
             autoFocus={!restoreVisualizationFocus.current}
@@ -144,11 +162,14 @@ export function App({
               ref={opener}
               onPress={() => setHistory(true)}
             >
-              Operation history
+              {text("ui.app.history", "Operation history")}
             </Action>
           )}
         </div>
       </header>
+      {locale?.errorKey === "ui.locale.failed" && (
+        <LiveStatus>{locale.text(locale.errorKey)}</LiveStatus>
+      )}
       {!client && (
         <div className="du-analysis-slot">
           <Heading level={2}>Desktop connection unavailable</Heading>
@@ -233,10 +254,11 @@ function BrowseReturn({
   autoFocus?: boolean;
   onPress: () => void;
 }) {
+  const text = useLocaleText();
   if (!visible) return null;
   return (
     <Action variant="quiet" icon="back" autoFocus={autoFocus} onPress={onPress}>
-      Back to analysis
+      {text("ui.app.back_to_analysis", "Back to analysis")}
     </Action>
   );
 }

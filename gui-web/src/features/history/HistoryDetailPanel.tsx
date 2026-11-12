@@ -11,7 +11,7 @@ import {
 import type { AnalysisClient, HistoryDetail } from "../../ipc";
 import { useHistoryDetail } from "../../state/history-detail";
 import {
-  displayTime,
+  useHistoryTime,
   kindLabel,
   missingLabel,
   relationLabel,
@@ -79,6 +79,7 @@ export function HistoryDetailPanel({
 }
 
 function OperationSummary({ detail }: { detail: HistoryDetail }) {
+  const displayTime = useHistoryTime();
   const { summary } = detail;
   return (
     <section className="du-history-summary" aria-label="Operation summary">
@@ -124,6 +125,7 @@ function RelatedRecords({
   onNavigate: (jobRef: string) => void;
 }) {
   const { summary, followUps } = detail;
+  const displayTime = useHistoryTime();
   const predecessor = summary?.predecessorJobRef;
   const relation = summary?.relation;
   return (

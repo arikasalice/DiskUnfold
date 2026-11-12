@@ -9,6 +9,7 @@ import {
 import { flushSync } from "react-dom";
 import type { Ref } from "react";
 import { Action, Heading, Text } from "../../components";
+import { useLocaleText } from "../../i18n/presentation";
 import { AnalysisError } from "../../ipc";
 import type {
   AnalysisClient,
@@ -185,6 +186,7 @@ export function AnalysisPanel({
   browseTrigger?: Ref<HTMLButtonElement>;
 }) {
   const targets = useTargets(client);
+  const text = useLocaleText();
   const reviewProblemId = useId();
   const editorId = useId();
   const scanStatusFocus = useRef<HTMLDivElement>(null);
@@ -236,8 +238,8 @@ export function AnalysisPanel({
     dropMessage?.tone === "info"
       ? dropMessage.text
       : dropEnabled
-        ? "Drop a folder here or enter its path."
-        : "Review this path before scanning.";
+        ? text("ui.analysis.drop_hint", "Drop a folder here or enter its path.")
+        : text("ui.analysis.review_hint", "Review this path before scanning.");
 
   useLayoutEffect(() => {
     if (focusEditor.current && editorOpen) {
@@ -570,7 +572,10 @@ export function AnalysisPanel({
         <section
           ref={editorBody}
           className="du-target-editor__body"
-          aria-label="Target selection and scope review"
+          aria-label={text(
+            "ui.analysis.target_scope_review",
+            "Target selection and scope review",
+          )}
           tabIndex={0}
         >
           {client.recentScopesEnabled && (
@@ -668,7 +673,7 @@ export function AnalysisPanel({
           <section
             id={editorId}
             className="du-target-editor"
-            aria-label="Target and scope"
+            aria-label={text("ui.analysis.target_scope", "Target and scope")}
           >
             {resultActive && (
               <header className="du-target-editor__header">
@@ -751,14 +756,15 @@ function AnalysisHeader({
   opener: Ref<HTMLButtonElement>;
   onOpen: () => void;
 }) {
+  const text = useLocaleText();
   return (
     <header className="du-analysis__header">
       <Heading level={2} id="analysis-heading">
         {hasTotal
-          ? "Disk space results"
+          ? text("ui.analysis.results", "Disk space results")
           : resultActive
-            ? "Scan a drive or folder"
-            : "Choose what to analyze"}
+            ? text("ui.analysis.scan_target", "Scan a drive or folder")
+            : text("ui.analysis.choose_target", "Choose what to analyze")}
       </Heading>
       {hasReceipt && !running && (
         <Action
@@ -768,13 +774,15 @@ function AnalysisHeader({
           {...(editorOpen ? { "aria-controls": editorId } : {})}
           onPress={onOpen}
         >
-          Analyze again
+          {text("ui.analysis.again", "Analyze again")}
         </Action>
       )}
       {!resultActive && (
         <Text kind="muted">
-          Enter a folder path or choose a drive, then review the scope before
-          scanning.
+          {text(
+            "ui.analysis.choose_hint",
+            "Enter a folder path or choose a drive, then review the scope before scanning.",
+          )}
         </Text>
       )}
     </header>

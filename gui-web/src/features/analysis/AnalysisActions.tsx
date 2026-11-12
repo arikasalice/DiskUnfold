@@ -10,6 +10,7 @@ import {
 } from "../../components";
 import type { JobState, ScopeDraft, ScopeReview } from "../../ipc";
 import type { ScanControl } from "../../state/analysis-scan";
+import { useLocaleText } from "../../i18n/presentation";
 
 export function scopeNoticeText(key: string): string {
   switch (key) {
@@ -208,7 +209,7 @@ export function ScopeActions({
   running,
   reviewEnabled,
   startEnabled,
-  startLabel = "Start scan",
+  startLabel,
   onReview,
   onStart,
   onCancel,
@@ -226,6 +227,7 @@ export function ScopeActions({
   onStart: () => void;
   onCancel: () => void;
 }) {
+  const text = useLocaleText();
   const {
     starting,
     reviewDisabled,
@@ -244,13 +246,21 @@ export function ScopeActions({
   return (
     <footer className="du-target-editor__footer">
       <LiveStatus>
-        {checkingDrop && <Text>Checking dropped folder…</Text>}
+        {checkingDrop && (
+          <Text>
+            {text("ui.analysis.checking_drop", "Checking dropped folder…")}
+          </Text>
+        )}
       </LiveStatus>
-      {reviewing && <Progress label="Reviewing scope" />}
-      {starting && <Progress label="Starting scan" />}
+      {reviewing && (
+        <Progress label={text("ui.analysis.reviewing", "Reviewing scope")} />
+      )}
+      {starting && (
+        <Progress label={text("ui.analysis.starting", "Starting scan")} />
+      )}
       <div className="du-target-editor__actions">
         <Action isDisabled={working || running} onPress={onCancel}>
-          Cancel selection
+          {text("ui.analysis.cancel_selection", "Cancel selection")}
         </Action>
         <Action
           ref={reviewButton}
@@ -260,7 +270,9 @@ export function ScopeActions({
           isPending={reviewPending}
           onPress={onReview}
         >
-          {reviewing ? "Reviewing scope…" : "Review scope"}
+          {reviewing
+            ? text("ui.analysis.reviewing_pending", "Reviewing scope…")
+            : text("ui.analysis.review", "Review scope")}
         </Action>
         <Action
           icon="scan"
@@ -269,7 +281,9 @@ export function ScopeActions({
           isPending={startPending}
           onPress={onStart}
         >
-          {starting ? "Starting scan…" : startLabel}
+          {starting
+            ? text("ui.analysis.starting_pending", "Starting scan…")
+            : (startLabel ?? text("ui.analysis.start", "Start scan"))}
         </Action>
       </div>
     </footer>
@@ -325,6 +339,7 @@ export function ResultActions({
   onControl: (command: ScanControl) => void;
   statusFocus: RefObject<HTMLDivElement | null>;
 }) {
+  const text = useLocaleText();
   const browse = version && onBrowse && (
     <Action
       ref={trigger ?? null}
@@ -332,7 +347,7 @@ export function ResultActions({
       variant="primary"
       onPress={() => onBrowse(version)}
     >
-      Browse folders
+      {text("ui.analysis.browse", "Browse folders")}
     </Action>
   );
   const command = !running
@@ -358,7 +373,9 @@ export function ResultActions({
           isPending={!command || cancelling || pending === command}
           onPress={() => onControl(shownCommand)}
         >
-          {shownCommand === "pause" ? "Pause scan" : "Resume scan"}
+          {shownCommand === "pause"
+            ? text("ui.analysis.pause", "Pause scan")
+            : text("ui.analysis.resume", "Resume scan")}
         </Action>
       )}
       {showCancel && (
@@ -367,7 +384,7 @@ export function ResultActions({
           isPending={!running || cancelling}
           onPress={() => onControl("cancel")}
         >
-          Cancel scan
+          {text("ui.analysis.cancel_scan", "Cancel scan")}
         </Action>
       )}
     </div>

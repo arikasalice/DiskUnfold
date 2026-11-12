@@ -1,4 +1,5 @@
 import type { HistoryEndState, HistoryRelation } from "../../ipc";
+import { useTimestampText } from "../../i18n/regional-format";
 
 const states: Record<HistoryEndState, string> = {
   done: "Completed",
@@ -62,13 +63,16 @@ const finishedTime = new Intl.DateTimeFormat(undefined, {
   timeStyle: "short",
 });
 
-export function displayTime(
-  value: number | null | undefined,
-  unavailable = "Time unavailable",
-) {
-  if (value == null) return unavailable;
-  const date = new Date(value);
-  return Number.isFinite(date.getTime())
-    ? finishedTime.format(date)
-    : unavailable;
+export function useHistoryTime() {
+  const timestamp = useTimestampText();
+  return (
+    value: number | null | undefined,
+    unavailable = "Time unavailable",
+  ) => {
+    if (value == null) return unavailable;
+    const date = new Date(value);
+    return Number.isFinite(date.getTime())
+      ? timestamp(value, () => finishedTime.format(date))
+      : unavailable;
+  };
 }

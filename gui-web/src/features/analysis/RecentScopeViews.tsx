@@ -1,5 +1,6 @@
 import { useId, useLayoutEffect, useRef } from "react";
 import type { RefObject } from "react";
+import { useTimestampText } from "../../i18n/regional-format";
 import {
   Action,
   Heading,
@@ -143,6 +144,7 @@ function RecentScopeRows({
   rowButtons: { current: Map<string, HTMLButtonElement> };
   onOpen: (row: RecentScopeListRow) => void;
 }) {
+  const timestamp = useTimestampText();
   return (
     <div className="du-recent-scopes__rows" role="list">
       {rows.map((row, index) => (
@@ -150,7 +152,10 @@ function RecentScopeRows({
           <div className="du-recent-scopes__summary">
             <Text>{`Range ${index + 1}`}</Text>
             <Text kind="muted">
-              {formatDate(row.lastUsedAt)} · {row.includeCount}{" "}
+              {timestamp(Date.parse(row.lastUsedAt), () =>
+                formatDate(row.lastUsedAt),
+              )}{" "}
+              · {row.includeCount}{" "}
               {row.includeCount === 1 ? "location" : "locations"}
             </Text>
           </div>
