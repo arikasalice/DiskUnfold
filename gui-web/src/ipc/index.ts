@@ -221,10 +221,13 @@ export type FolderDrop = { seq: number } & (
   | { reason: "invalid_target" | "unsupported" }
 );
 
+/** Carries a command failure while preserving retryability when the host knows it. */
 export class AnalysisError extends Error {
   constructor(
     readonly code: string,
     readonly reasonKey: string,
+    /** Retryability from the native error envelope, when available. */
+    readonly retryable?: boolean,
   ) {
     super(reasonKey);
   }
@@ -283,7 +286,11 @@ export function createAnalysisClient(
       };
       const result = await transport("du_call", { envelope });
       if (result.error)
-        throw new AnalysisError(result.error.code, result.error.reasonKey);
+        throw new AnalysisError(
+          result.error.code,
+          result.error.reasonKey,
+          result.error.retryable,
+        );
       if (
         requestedRevision !== undefined &&
         (typeof result.body !== "object" ||

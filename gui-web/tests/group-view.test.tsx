@@ -10,7 +10,12 @@ import { afterEach, expect, test, vi } from "vitest";
 import { fixtureText, modelFixture } from "../preview/model-fixture";
 import { GroupController } from "../src/features/visualization/group-controller";
 import { GroupView } from "../src/features/visualization/GroupView";
-import type { VizGroupRows } from "../src/ipc";
+import { createVisualizationPort } from "../src/features/visualization/visualization-port";
+import {
+  createAnalysisClient,
+  type ResultEnvelope,
+  type VizGroupRows,
+} from "../src/ipc";
 
 afterEach(cleanup);
 test("opens the selected group and uses an announcement when no origin was verified", async () => {
@@ -72,6 +77,108 @@ test("opens the selected group and uses an announcement when no origin was verif
     screen.queryByRole("button", { name: "Back to visualization" }),
   ).toBeNull();
 });
+
+test.each([
+  ["INTERNAL", "support.internal_error", false, false],
+  ["BUSY", "db.busy", true, true],
+  ["NOT_FOUND", "ref.unavailable", false, false],
+  ["STALE_VERSION", "analysis.stale_version", false, false],
+] as const)(
+  "%s retryability flows from the typed IPC envelope to the group UI",
+  async (code, reasonKey, retryable, showsRetry) => {
+    const frame = modelFixture().frame;
+    const shape = frame.model.shapes[0]!;
+    shape.itemRef = null;
+    shape.groupRef = "group-a";
+    const selection = {
+      kind: "group" as const,
+      groupRef: "group-a",
+      modelRef: frame.model.modelRef,
+      resultRevision: frame.resultRevision,
+    };
+    let calls = 0;
+    const client = createAnalysisClient(
+      async (_command, { envelope }): Promise<ResultEnvelope> => {
+        calls += 1;
+        if (calls === 1) {
+          const row = modelFixture().page.response.rows[0]!;
+          return {
+            name: envelope.name,
+            contractVersion: 1,
+            correlationId: envelope.correlationId,
+            body: {
+              rows: [row],
+              totalCount: 2,
+              groupTotal: shape.size,
+              sizeRange: { kind: "known", min: shape.size, max: shape.size },
+              resultRevision: frame.resultRevision,
+              observedAt: frame.observedAt,
+              completeness: frame.completeness,
+            } satisfies VizGroupRows,
+          };
+        }
+        const error = {
+          code,
+          reasonKey,
+          messageKey: reasonKey,
+          correlationId: envelope.correlationId,
+          retryable,
+        } satisfies NonNullable<ResultEnvelope["error"]>;
+        return {
+          name: envelope.name,
+          contractVersion: 1,
+          correlationId: envelope.correlationId,
+          body: null,
+          error,
+        };
+      },
+    );
+    const port = createVisualizationPort(client, () => false);
+    const controller = new GroupController({
+      rows: (request) => port.groupRows(request),
+    });
+    await controller.open(
+      {
+        modelRef: frame.model.modelRef,
+        resultRevision: frame.resultRevision,
+        observedAt: frame.observedAt,
+        completeness: frame.completeness,
+      },
+      { groupRef: "group-a", shape },
+      1,
+    );
+    render(
+      <GroupView
+        controller={controller}
+        frame={frame}
+        selection={selection}
+        text={fixtureText}
+      />,
+    );
+    expect(
+      screen.getByRole("table", { name: "Group members" }).textContent,
+    ).toContain(rowName());
+
+    fireEvent.click(screen.getByRole("button", { name: "Next range" }));
+    await screen.findByRole("alert");
+
+    if (showsRetry) {
+      expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
+      expect(
+        screen.getByRole("table", { name: "Group members" }).textContent,
+      ).toContain(rowName());
+    } else {
+      expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+      expect(screen.queryByRole("table", { name: "Group members" })).toBeNull();
+    }
+    expect(controller.getSnapshot().canRetry).toBe(showsRetry);
+    expect(calls).toBe(2);
+  },
+);
+
+function rowName() {
+  return modelFixture().page.response.rows[0]!.displayName;
+}
 
 test("a stale frame never returns focus to its old group origin", async () => {
   const frame = modelFixture().frame;

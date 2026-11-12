@@ -1,6 +1,7 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { GroupController } from "../src/features/visualization/group-controller";
 import type { GroupFrame } from "../src/features/visualization/group-controller";
+import { AnalysisError } from "../src/ipc";
 import type { VizGroupRows, VizGroupRowsRequest } from "../src/ipc";
 
 const frame: GroupFrame = {
@@ -90,6 +91,24 @@ test("validates evidence and page bounds, and retains last confirmed page on ret
   expect(controller.getSnapshot()).toMatchObject({
     status: "ready",
     rangeLabel: "3–3 / 5",
+  });
+});
+
+test("legacy AnalysisError construction keeps the retryable fallback", async () => {
+  const controller = new GroupController({
+    rows: vi
+      .fn()
+      .mockRejectedValue(
+        new AnalysisError("INTERNAL", "support.internal_error"),
+      ),
+  });
+
+  expect(await controller.open(frame, selection)).toBe(false);
+  expect(controller.getSnapshot()).toMatchObject({
+    status: "error",
+    failure: "page",
+    canRetry: true,
+    retryStart: 0,
   });
 });
 

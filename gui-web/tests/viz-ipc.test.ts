@@ -68,7 +68,7 @@ test("concurrent delayed rows responses keep each request's result binding", asy
   await expect(first).rejects.toThrow("mismatched result revision");
 });
 
-test("viz.rows preserves server errors as AnalysisError without retry", async () => {
+test("viz.rows preserves server errors and retryability in AnalysisError", async () => {
   let calls = 0;
   const client = createAnalysisClient(async (_, { envelope }) => {
     calls += 1;
@@ -84,9 +84,19 @@ test("viz.rows preserves server errors as AnalysisError without retry", async ()
     };
   });
   await expect(client.call("viz.rows", request)).rejects.toMatchObject(
-    new AnalysisError("STALE_VERSION", "result.requery_required"),
+    new AnalysisError("STALE_VERSION", "result.requery_required", false),
   );
   expect(calls).toBe(1);
+});
+
+test("transport failures and legacy AnalysisError calls keep unknown retryability", async () => {
+  const transportFailure = new Error("bridge unavailable");
+  const client = createAnalysisClient(() => Promise.reject(transportFailure));
+
+  await expect(client.call("viz.rows", request)).rejects.toBe(transportFailure);
+  expect(
+    new AnalysisError("INTERNAL", "support.internal_error").retryable,
+  ).toBeUndefined();
 });
 
 test("viz.locate sends the model and item reference and returns the typed location", async () => {
