@@ -1,37 +1,37 @@
-{
-  "locale.unsupported": {
+[
+  ["locale.unsupported", {
     "causeKey": "reason.locale.unsupported.cause",
     "actionKey": "reason.locale.unsupported.action",
     "irreversible": false,
     "certainty": "confirmed",
     "status": "failed"
-  },
-  "locale.format_unknown": {
+  }],
+  ["locale.format_unknown", {
     "causeKey": "reason.locale.format_unknown.cause",
     "actionKey": "reason.locale.format_unknown.action",
     "irreversible": false,
     "certainty": "confirmed",
     "status": "failed"
-  },
-  "locale.profile_modified": {
+  }],
+  ["locale.profile_modified", {
     "causeKey": "reason.locale.profile_modified.cause",
     "actionKey": "reason.locale.profile_modified.action",
     "irreversible": false,
     "certainty": "confirmed",
     "status": "failed"
-  },
-  "locale.bundle_unavailable": {
+  }],
+  ["locale.bundle_unavailable", {
     "causeKey": "reason.locale.bundle_unavailable.cause",
     "actionKey": "reason.locale.bundle_unavailable.action",
     "irreversible": false,
     "certainty": "confirmed",
     "status": "failed"
-  },
-  "i18n.bundle_integrity_failed": {
+  }],
+  ["i18n.bundle_integrity_failed", {
     "causeKey": "i18n.bundle_integrity_failed",
     "actionKey": "reason.i18n.bundle_integrity_failed.action",
     "irreversible": false,
     "certainty": "confirmed",
     "status": "failed"
-  }
-}
+  }]
+]

@@ -75,7 +75,7 @@ impl Registry {
         metadata_keys: &[String],
         parse: impl Fn(&[u8]) -> Result<Bundle, RegistrationError>,
     ) -> Result<Self, RegistrationError> {
-        let metadata_bytes = b"{}";
+        let metadata_bytes = b"[]";
         Self::register_internal(
             resources,
             declared_keys,

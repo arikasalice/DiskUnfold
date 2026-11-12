@@ -1,6 +1,7 @@
 use super::*;
 use du_core_contracts::locale_bundle::{
     LocaleMissingEntry, LocaleMissingMarker, LocaleReportMissingRequest,
+    LocaleReportMissingResponse,
 };
 
 fn parse(bytes: &[u8]) -> Result<Bundle, RegistrationError> {

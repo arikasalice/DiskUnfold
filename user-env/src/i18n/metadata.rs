@@ -1,48 +1,24 @@
 //! Parsing and validation of the exact embedded reason metadata table.
 
-use std::{collections::BTreeMap, fmt};
+use std::collections::BTreeMap;
 
 use du_core_contracts::locale_bundle::ReasonMessageMeta;
-use serde::de::{MapAccess, Visitor};
 
 use super::{Bundle, RegistrationError, UNKNOWN_REASON_MESSAGE_KEY, bundle_body::find_message};
 
 pub(super) fn parse_reason_messages(
     bytes: &[u8],
 ) -> Result<BTreeMap<String, ReasonMessageMeta>, RegistrationError> {
-    struct UniqueReasonMessages(BTreeMap<String, ReasonMessageMeta>);
-
-    impl<'de> serde::Deserialize<'de> for UniqueReasonMessages {
-        fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-            struct UniqueMapVisitor;
-
-            impl<'de> Visitor<'de> for UniqueMapVisitor {
-                type Value = UniqueReasonMessages;
-
-                fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-                    formatter.write_str("an object with unique reason keys")
-                }
-
-                fn visit_map<M: MapAccess<'de>>(self, mut map: M) -> Result<Self::Value, M::Error> {
-                    let mut entries = BTreeMap::new();
-                    while let Some((key, value)) = map.next_entry::<String, ReasonMessageMeta>()? {
-                        if key.trim().is_empty() || entries.insert(key, value).is_some() {
-                            return Err(serde::de::Error::custom(
-                                "reason keys must be nonempty and unique",
-                            ));
-                        }
-                    }
-                    Ok(UniqueReasonMessages(entries))
-                }
-            }
-
-            deserializer.deserialize_map(UniqueMapVisitor)
+    // Rows preserve duplicates for validation before building the wire map.
+    let rows: Vec<(String, ReasonMessageMeta)> =
+        serde_json::from_slice(bytes).map_err(|_| RegistrationError)?;
+    let mut entries = BTreeMap::new();
+    for (key, value) in rows {
+        if key.trim().is_empty() || entries.insert(key, value).is_some() {
+            return Err(RegistrationError);
         }
     }
-
-    serde_json::from_slice::<UniqueReasonMessages>(bytes)
-        .map(|parsed| parsed.0)
-        .map_err(|_| RegistrationError)
+    Ok(entries)
 }
 
 pub(super) fn validate_reason_messages(
