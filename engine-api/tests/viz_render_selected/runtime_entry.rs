@@ -54,7 +54,7 @@ impl Random for Entropy {
 struct Producer {
     block: Mutex<Option<(mpsc::Sender<()>, mpsc::Receiver<()>)>>,
     unit_iec: AtomicBool,
-    required_data_opt_in: AtomicBool,
+    required_data_mode: AtomicU8,
 }
 impl EvidenceProducer for Producer {
     fn required_data_facts(
@@ -63,7 +63,8 @@ impl EvidenceProducer for Producer {
         request: &VizRenderRequest,
     ) -> Result<Option<du_engine_api::required_data::FactValues>, EngineError> {
         use du_engine_api::required_data::Evidence;
-        if !self.required_data_opt_in.load(Ordering::Relaxed) {
+        let mode = self.required_data_mode.load(Ordering::Relaxed);
+        if mode == 0 {
             return Ok(None);
         }
         let parent = request.aggregate_scope_ref.item_no;
@@ -76,7 +77,9 @@ impl EvidenceProducer for Producer {
         let folder = !children.is_empty();
         let sizes = !children.is_empty() && children.iter().all(|item| item.size.is_some());
         Ok(Some(du_engine_api::required_data::FactValues {
-            folder_hierarchy: if folder {
+            folder_hierarchy: if mode == 3 {
+                Evidence::Unknown
+            } else if folder {
                 Evidence::Known(())
             } else {
                 Evidence::Absent

@@ -15,7 +15,17 @@ use du_core_contracts::{
 pub(super) fn run(work: &compute::Compute, cancelled: &mut dyn FnMut() -> bool) -> JobOutcome {
     let mut frozen = None;
     match prepare(work, cancelled, &mut frozen) {
-        Ok((candidate, model, progress)) => {
+        Ok((mut candidate, model, progress)) => {
+            let required_data_unavailable = matches!(
+                work.admitted
+                    .required_data
+                    .as_ref()
+                    .map(|value| value.evaluation),
+                Some(crate::required_data::Evaluation::Unavailable(_))
+            );
+            if required_data_unavailable {
+                candidate.force_no_attribution();
+            }
             let deferred = match work.session.defer_histogram(candidate, cancelled) {
                 Ok(value) => value,
                 Err(_) => {
@@ -25,7 +35,11 @@ pub(super) fn run(work: &compute::Compute, cancelled: &mut dyn FnMut() -> bool) 
             match (work.candidate.lock(), work.work.computed.lock()) {
                 (Ok(mut slot), Ok(mut computed)) => {
                     *slot = Some(Candidate::Histogram(deferred));
-                    computed.wire_model = model.map(Arc::new);
+                    computed.wire_model = if required_data_unavailable {
+                        None
+                    } else {
+                        model.map(Arc::new)
+                    };
                     computed.histogram_revision =
                         Some(work.admitted.source.result_version().clone());
                     let mut outcome = compute::outcome(true, None);

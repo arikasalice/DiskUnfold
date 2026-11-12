@@ -133,6 +133,16 @@ impl JobBody for Compute {
                         );
                     }
                 }
+                let required_data_unavailable = matches!(
+                    self.admitted
+                        .required_data
+                        .as_ref()
+                        .map(|value| value.evaluation),
+                    Some(crate::required_data::Evaluation::Unavailable(_))
+                );
+                if required_data_unavailable {
+                    prepared.force_table_fallback();
+                }
                 prepared.bind_condition(self.admitted.key.clone());
                 let reserved = self.session.reserve_prepared(prepared);
                 let model = match reserved

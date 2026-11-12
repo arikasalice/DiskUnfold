@@ -237,7 +237,7 @@ struct Admitted {
     ranked_other: Option<crate::viz_pages::ranked_group::OtherPresentation>,
     required_data: Option<RequiredDataAdmission>,
 }
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize)]
 struct RequiredDataAdmission {
     formats: Vec<String>,
     evaluation: crate::required_data::Evaluation,

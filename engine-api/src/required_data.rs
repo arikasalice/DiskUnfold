@@ -105,7 +105,7 @@ pub struct Attribution {
 }
 
 /// Stable reasons from the published F06 unavailable response contract.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub(super) enum Reason {
     /// Required baseline or comparison result is absent.
     NoBaseline,
@@ -133,7 +133,7 @@ impl Reason {
 }
 
 /// Result of evaluating one format against one pinned source.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub(super) enum Evaluation {
     /// The pinned evidence satisfies every table row for this format.
     Available,

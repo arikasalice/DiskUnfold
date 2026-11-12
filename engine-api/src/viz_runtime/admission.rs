@@ -70,7 +70,7 @@ impl Runtime {
         } else {
             None
         };
-        let mut key = fingerprint(&request, &facts, max_shapes)?;
+        let mut key = fingerprint(&request, &facts, max_shapes, required_data.as_ref())?;
         let ranked_other = bind_ranked_other(
             &*self.assembly.producer,
             &source,
@@ -327,13 +327,20 @@ fn fingerprint(
     request: &VizRenderRequest,
     facts: &SourceFacts,
     max_shapes: usize,
+    required_data: Option<&RequiredDataAdmission>,
 ) -> Result<String, EngineError> {
     let mut value = serde_json::to_value(request).map_err(|_| internal())?;
     let normalized = value.as_object_mut().ok_or_else(internal)?;
     normalized.remove("viewChannel");
     normalized.remove("requestSeq");
-    let bytes = serde_json::to_vec(&(value, &facts.tables, &facts.staleness, max_shapes))
-        .map_err(|_| internal())?;
+    let bytes = serde_json::to_vec(&(
+        value,
+        &facts.tables,
+        &facts.staleness,
+        max_shapes,
+        required_data,
+    ))
+    .map_err(|_| internal())?;
     Ok(blake3::hash(&bytes).to_hex().to_string())
 }
 

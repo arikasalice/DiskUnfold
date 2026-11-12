@@ -71,6 +71,37 @@ fn prepare(
         });
         evidence.insert(item.item_no, facts);
     }
+    if matches!(
+        admitted
+            .required_data
+            .as_ref()
+            .map(|value| value.evaluation),
+        Some(crate::required_data::Evaluation::Unavailable(_))
+    ) {
+        let candidate = work
+            .session
+            .prepare_ranked(
+                &admitted.source,
+                render::RankedInput {
+                    parent: &request.aggregate_scope_ref,
+                    basis: &request.size_basis,
+                    fingerprint: admitted.key.clone(),
+                    layout: None,
+                    evidence: presentations,
+                },
+                cancelled,
+            )
+            .map_err(|_| internal())?;
+        return Ok((
+            Candidate::Projection(
+                work.session
+                    .defer_reserved(work.session.reserve_prepared(candidate)),
+            ),
+            None,
+            evidence.len() as u64,
+            None,
+        ));
+    }
     let result = work.session.compute_pinned_ranked_bar(
         source,
         ChildrenRequest {
