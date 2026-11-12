@@ -165,18 +165,59 @@ pub(crate) fn verify_registered(
 ) -> Result<(), MigrationError> {
     validate_definitions(definitions)?;
     let tx = connection.transaction()?;
+    verify_registered_snapshot(&tx, definitions, require_current, None, false)?;
+    tx.commit()?;
+    Ok(())
+}
+
+/// Verifies an unchanged database revision in one read-only transaction.
+///
+/// Unlike opening a registered database for normal use, a managed no-op may
+/// accept the recognized legacy baseline. This method opens the connection
+/// read-only; the caller must hold the database instance lock while checking
+/// the revision.
+pub(crate) fn verify_noop(
+    path: &Path,
+    definitions: &Definitions<'_>,
+    expected_revision: u32,
+) -> Result<(), MigrationError> {
+    validate_definitions(definitions)?;
+    applied_count(definitions, expected_revision)?;
+    let mut connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    let tx = connection.transaction()?;
+    verify_registered_snapshot(&tx, definitions, false, Some(expected_revision), true)?;
+    tx.commit()?;
+    Ok(())
+}
+
+fn verify_registered_snapshot(
+    tx: &Transaction<'_>,
+    definitions: &Definitions<'_>,
+    require_current: bool,
+    expected_revision: Option<u32>,
+    allow_baseline: bool,
+) -> Result<(), MigrationError> {
     let id: u32 = tx.pragma_query_value(None, "application_id", |row| row.get(0))?;
     if id != APPLICATION_ID {
         return Err(MigrationError::ForeignDatabase);
     }
     let version: u32 = tx.pragma_query_value(None, "user_version", |row| row.get(0))?;
-    let count = applied_count(definitions, version)?;
-    if count == 0 || (require_current && count != definitions.steps.len()) {
+    if expected_revision.is_some_and(|expected| version != expected) {
         return Err(MigrationError::VersionMismatch);
     }
-    check_history(&tx, definitions, count)?;
-    quick_check(&tx)?;
-    tx.commit()?;
+    let count = applied_count(definitions, version)?;
+    if count == 0 {
+        if !allow_baseline {
+            return Err(MigrationError::VersionMismatch);
+        }
+        check_legacy_baseline(tx)?;
+    } else {
+        if require_current && count != definitions.steps.len() {
+            return Err(MigrationError::VersionMismatch);
+        }
+        check_history(tx, definitions, count)?;
+    }
+    quick_check(tx)?;
     Ok(())
 }
 

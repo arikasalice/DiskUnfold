@@ -2,12 +2,10 @@
 
 use std::path::Path;
 
-use rusqlite::{Connection, OpenFlags};
-
 use super::{
     Definitions, MigrationError, RetentionDiagnostic, apply_managed_step, retention_or_unavailable,
 };
-use crate::migration::{applied_count, validate_definitions};
+use crate::migration;
 
 /// Outcome of a complete managed migration run and its terminal backup scan.
 ///
@@ -88,17 +86,7 @@ pub(super) fn apply_managed_run_with(
         .iter()
         .any(|definition| definition.number > starting_revision);
     if !has_steps {
-        failure = validate_definitions(definitions)
-            .and_then(|()| applied_count(definitions, starting_revision).map(|_| ()))
-            .and_then(|()| {
-                let current = current_revision(path)?;
-                if current == starting_revision {
-                    Ok(())
-                } else {
-                    Err(MigrationError::VersionMismatch)
-                }
-            })
-            .err();
+        failure = migration::verify_noop(path, definitions, starting_revision).err();
     }
     for definition in expected_steps {
         if failure.is_some() {
@@ -132,9 +120,4 @@ pub(super) fn apply_managed_run_with(
             retention,
         }),
     }
-}
-
-fn current_revision(path: &Path) -> Result<u32, MigrationError> {
-    let db = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
-    Ok(db.pragma_query_value(None, "user_version", |row| row.get(0))?)
 }
