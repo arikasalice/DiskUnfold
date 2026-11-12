@@ -14,6 +14,7 @@ pub mod linux_ui_language;
 pub mod macos_instance_lock;
 #[cfg(target_os = "linux")]
 pub mod scan_observation;
+pub mod startup;
 pub mod volume;
 #[cfg(feature = "webview")]
 pub mod webview;
