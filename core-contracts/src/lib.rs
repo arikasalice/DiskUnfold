@@ -17,6 +17,7 @@ pub mod ruleset;
 pub mod scan_failures;
 pub mod scan_observation;
 pub mod settings;
+pub mod settings_events;
 pub mod settings_ipc;
 pub mod share;
 pub mod size_units;
