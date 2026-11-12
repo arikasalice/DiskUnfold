@@ -50,6 +50,13 @@ fn launcher_with_temp_data() -> io::Result<(Command, TempDataDir)> {
     Ok((command, data_dir))
 }
 
+#[cfg(windows)]
+fn closed_pipe_stdio() -> io::Result<std::process::Stdio> {
+    let (reader, writer) = io::pipe()?;
+    drop(reader);
+    Ok(std::process::Stdio::from(writer))
+}
+
 #[test]
 fn launcher_prints_help_and_version_to_stdout() -> io::Result<()> {
     for (args, expected) in [
@@ -87,13 +94,13 @@ fn help_and_version_return_exit_five_when_stdout_is_closed() -> io::Result<()> {
         ("ko", "--version", "출력이 중단됐습니다.\n"),
     ] {
         let (mut command, _data_dir) = launcher_with_temp_data()?;
+        let closed_stdout = closed_pipe_stdio()?;
         let mut child = command
             .args(["--lang", language, flag])
             .stdin(Stdio::null())
-            .stdout(Stdio::piped())
+            .stdout(closed_stdout)
             .stderr(Stdio::piped())
             .spawn()?;
-        drop(child.stdout.take());
         let mut stderr = Vec::new();
         child
             .stderr
@@ -119,14 +126,14 @@ fn closed_stderr_does_not_replace_output_interrupted_exit() -> io::Result<()> {
 
     for language in ["en", "ko"] {
         let (mut command, _data_dir) = launcher_with_temp_data()?;
+        let closed_stdout = closed_pipe_stdio()?;
+        let closed_stderr = closed_pipe_stdio()?;
         let mut child = command
             .args(["--lang", language, "--help"])
             .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
+            .stdout(closed_stdout)
+            .stderr(closed_stderr)
             .spawn()?;
-        drop(child.stdout.take());
-        drop(child.stderr.take());
         assert_eq!(child.wait()?.code(), Some(5), "{language}");
     }
     Ok(())
