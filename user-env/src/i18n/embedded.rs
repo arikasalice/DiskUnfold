@@ -26,8 +26,6 @@ pub const DECLARED_KEYS: &[&str] = &[
     "settings.display.size_unit_system.description",
     "settings.display.size_unit.name",
     "settings.display.size_unit.description",
-    "settings.display.treemap.min_area_px2.name",
-    "settings.display.treemap.min_area_px2.description",
     "settings.space.default_basis.name",
     "settings.space.default_basis.description",
     "settings.space.shared_table_max_entries.name",

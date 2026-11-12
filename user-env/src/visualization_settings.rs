@@ -24,7 +24,10 @@ pub struct VisualizationSettings {
     pub warning_key: Option<&'static str>,
 }
 
-/// Registers the published F06 settings whose editable bounds are specified.
+/// Returns the published F06 descriptor for explicit registry composition.
+///
+/// It is deliberately excluded from [`crate::settings::builtin_descriptors`] until the
+/// application composes both the settings catalog and the visualization consumer.
 pub fn descriptors() -> Vec<Descriptor> {
     vec![Descriptor {
         presentation: du_core_contracts::settings::SettingPresentation::for_setting(
@@ -133,6 +136,9 @@ mod tests {
         assert!(!accepts(&descriptor.kind, &json!(3)));
         assert!(!accepts(&descriptor.kind, &json!(257)));
         assert!(Registry::new([descriptor]).is_ok());
+        let builtin = crate::settings::builtin_descriptors(&["en", "ko"])
+            .map_err(|error| format!("{error:?}"))?;
+        assert!(!builtin.iter().any(|item| item.key == TREEMAP_MIN_AREA_PX2));
         Ok(())
     }
 

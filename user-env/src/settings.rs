@@ -20,7 +20,6 @@ pub fn builtin_descriptors(
         .into_iter()
         .chain(crate::scope::descriptors())
         .chain(crate::space::descriptors())
-        .chain(crate::visualization_settings::descriptors())
         .collect())
 }
 
@@ -198,7 +197,7 @@ impl<S: SettingsStore> SettingsService<S> {
         display_units(&self.registry, &self.snapshot, None)
     }
 
-    /// Returns the validated F06 minimum drawing area from this immutable snapshot.
+    /// Returns the F06 minimum drawing area when its descriptor was explicitly registered.
     pub fn visualization_settings(&self) -> crate::visualization_settings::VisualizationSettings {
         let mut settings = crate::visualization_settings::project(&self.snapshot);
         if let Some(reason) = self.restore_status.failure_reason {

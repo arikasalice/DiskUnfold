@@ -14,8 +14,6 @@
     ["settings.display.size_unit_system.description", "SI 또는 IEC 단위를 선택합니다.", []],
     ["settings.display.size_unit.name", "크기 단위", []],
     ["settings.display.size_unit.description", "자동 또는 고정 크기 단위를 선택합니다.", []],
-    ["settings.display.treemap.min_area_px2.name", "트리맵 최소 표시 면적", []],
-    ["settings.display.treemap.min_area_px2.description", "트리맵 도형의 최소 면적입니다. 다음 조회부터 적용됩니다.", []],
     ["settings.space.default_basis.name", "기본 크기 기준", []],
     ["settings.space.default_basis.description", "기본 크기 기준을 선택합니다.", []],
     ["settings.space.shared_table_max_entries.name", "공유 식별 표 상한", []],
