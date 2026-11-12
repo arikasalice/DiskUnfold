@@ -1,7 +1,7 @@
 //! Ordered app-host shutdown orchestration.
 //!
-//! This module is intentionally not registered by `lib.rs` or `lifecycle.rs`.
-//! The owner of those files must connect the coordinator to the actual window,
+//! `lib.rs` registers this module for tests only until lifecycle integration is
+//! added. The lifecycle owner must connect the coordinator to the actual window,
 //! gateway transport, engine and final database owner.
 
 use std::{
@@ -195,6 +195,15 @@ impl<P: ShutdownPorts> ShutdownCoordinator<P> {
 
     pub(crate) fn remaining_tasks(&self) -> usize {
         self.active_jobs.len()
+    }
+
+    /// Returns the per-job cancellation results retained from engine preparation.
+    ///
+    /// The caller must surface failed outcomes with their `job_ref` and must not
+    /// infer that a failed cancellation means the job is terminal. Active work is
+    /// tracked separately until its terminal event or an authoritative resync.
+    pub(crate) fn preparation(&self) -> Option<&ShutdownPreparation> {
+        self.preparation.as_ref()
     }
 
     pub(crate) fn is_closed(&self) -> bool {

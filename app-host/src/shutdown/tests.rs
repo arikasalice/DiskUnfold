@@ -9,6 +9,7 @@ struct FakePorts {
     barrier_statuses: VecDeque<HistoryCommitStatus>,
     history_failures: Option<usize>,
     watch_stop: Option<du_engine_api::shutdown::WatchStopResult>,
+    preparation: Option<ShutdownPreparation>,
     calls: Vec<&'static str>,
     events: Vec<LifecycleEvent>,
     fail_database_once: bool,
@@ -35,6 +36,9 @@ impl ShutdownPorts for FakePorts {
 
     fn prepare_engine_shutdown(&mut self) -> Result<ShutdownPreparation, String> {
         self.calls.push("prepare");
+        if let Some(preparation) = self.preparation.take() {
+            return Ok(preparation);
+        }
         Ok(ShutdownPreparation {
             watch_stop: self
                 .watch_stop
@@ -94,6 +98,36 @@ impl ShutdownPorts for FakePorts {
     fn publish_lifecycle(&mut self, event: LifecycleEvent) {
         self.events.push(event);
     }
+}
+
+#[test]
+fn cancellation_failure_keeps_the_job_reference_and_active_owner_visible()
+-> Result<(), Box<dyn std::error::Error>> {
+    let job = id(5)?;
+    let preparation = ShutdownPreparation {
+        watch_stop: du_engine_api::shutdown::WatchStopResult::NotInstalled,
+        cancellations: vec![du_engine_api::shutdown::ShutdownJobCancellation {
+            job_ref: job.clone(),
+            outcome: Err(du_engine_api::shutdown::RuntimeError::DeliveryBusy),
+        }],
+    };
+    let ports = FakePorts {
+        gateway_reports: VecDeque::from([closed_gateway(false)]),
+        active: HashSet::from([job.clone()]),
+        preparation: Some(preparation.clone()),
+        ..FakePorts::default()
+    };
+    let mut coordinator = ShutdownCoordinator::new(ports);
+
+    coordinator.request_waiting_quit(true)?;
+    coordinator.advance(1)?;
+    coordinator.advance(2)?;
+
+    assert_eq!(coordinator.preparation(), Some(&preparation));
+    assert_eq!(coordinator.remaining_tasks(), 1);
+    coordinator.job_finished(&job, 3)?;
+    assert_eq!(coordinator.remaining_tasks(), 0);
+    Ok(())
 }
 
 #[test]
@@ -218,47 +252,7 @@ fn normal_shutdown_closes_gateway_then_drains_history_then_drops_owners()
     assert!(coordinator.ports.secrets_cleared);
 
     let ports = coordinator.into_ports();
-    let access_index = ports
-        .calls
-        .iter()
-        .position(|call| *call == "gateway")
-        .ok_or("gateway missing")?;
-    let prepare_index = ports
-        .calls
-        .iter()
-        .position(|call| *call == "prepare")
-        .ok_or("prepare missing")?;
-    let history_index = ports
-        .calls
-        .iter()
-        .position(|call| *call == "history_barrier")
-        .ok_or("barrier missing")?;
-    let worker_index = ports
-        .calls
-        .iter()
-        .position(|call| *call == "workers")
-        .ok_or("workers missing")?;
-    let release_index = ports
-        .calls
-        .iter()
-        .position(|call| *call == "release_engine")
-        .ok_or("engine release missing")?;
-    let database_index = ports
-        .calls
-        .iter()
-        .position(|call| *call == "database")
-        .ok_or("database close missing")?;
-    let secret_index = ports
-        .calls
-        .iter()
-        .position(|call| *call == "zeroize")
-        .ok_or("zeroize missing")?;
-    assert!(access_index < prepare_index);
-    assert!(prepare_index < history_index);
-    assert!(history_index < worker_index);
-    assert!(worker_index < release_index);
-    assert!(release_index < database_index);
-    assert!(database_index < secret_index);
+    assert_shutdown_call_order(&ports.calls)?;
     assert_eq!(
         ports
             .events
@@ -279,6 +273,40 @@ fn normal_shutdown_closes_gateway_then_drains_history_then_drops_owners()
             .all(|events| events[0].sequence < events[1].sequence)
     );
     assert_eq!(ports.events[2].remaining_tasks, 0);
+    Ok(())
+}
+
+fn assert_shutdown_call_order(calls: &[&'static str]) -> Result<(), &'static str> {
+    let positions = [
+        "gateway",
+        "prepare",
+        "history_barrier",
+        "workers",
+        "release_engine",
+        "database",
+        "zeroize",
+    ]
+    .map(|expected| {
+        calls
+            .iter()
+            .position(|call| *call == expected)
+            .ok_or(expected)
+    });
+    let [
+        gateway,
+        prepare,
+        history,
+        workers,
+        engine,
+        database,
+        secrets,
+    ] = positions;
+    let ordered = [
+        gateway?, prepare?, history?, workers?, engine?, database?, secrets?,
+    ];
+    if ordered.windows(2).any(|pair| pair[0] >= pair[1]) {
+        return Err("shutdown calls are out of order");
+    }
     Ok(())
 }
 

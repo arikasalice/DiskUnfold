@@ -45,6 +45,7 @@ pub(super) struct SharedDatabase(Arc<Database>);
 
 /// Failure to take the shared writer lock or finish its WAL checkpoint.
 #[derive(Debug)]
+#[allow(dead_code)] // Used by the lifecycle adapter after shutdown wiring.
 pub(super) enum SharedDatabaseCheckpointError {
     /// The shared connection mutex was poisoned.
     ConnectionPoisoned,
@@ -93,8 +94,8 @@ pub(super) enum SharedDatabaseCloseError {
     DatabaseClose {
         /// The handle that was returned by SQLite on close failure.
         database: SharedDatabase,
-        /// SQLite's close error.
-        error: rusqlite::Error,
+        /// The concrete close error, retained without depending on SQLite here.
+        error: Box<dyn std::error::Error + Send + Sync>,
     },
 }
 
@@ -147,7 +148,7 @@ impl std::error::Error for SharedDatabaseCloseError {
         match self {
             Self::StillReferenced { .. } | Self::ConnectionPoisoned(_) => None,
             Self::Checkpoint { error, .. } => Some(error),
-            Self::DatabaseClose { error, .. } => Some(error),
+            Self::DatabaseClose { error, .. } => Some(error.as_ref()),
         }
     }
 }
@@ -195,6 +196,7 @@ impl SharedDatabase {
     /// The caller must close write admission before invoking this method. It
     /// does not close the connection or prove that the last shared owner has
     /// dropped; every reader and writer must be retired separately.
+    #[allow(dead_code)] // Used by the lifecycle adapter after shutdown wiring.
     pub(super) fn checkpoint_wal(&self) -> Result<WalCheckpoint, SharedDatabaseCheckpointError> {
         let mut connection = self
             .0
@@ -211,6 +213,7 @@ impl SharedDatabase {
     /// On any refusal, the returned error retains the still-open database handle.
     /// Successful return means the WAL checkpoint completed, the SQLite
     /// connection was dropped, and its database/instance guard was released.
+    #[allow(dead_code)] // Used by the lifecycle adapter after shutdown wiring.
     pub(super) fn close(self) -> Result<WalCheckpoint, SharedDatabaseCloseError> {
         let database = match Arc::try_unwrap(self.0) {
             Ok(database) => database,
@@ -248,14 +251,18 @@ impl SharedDatabase {
                 });
             }
         };
-        if let Err(AppDbCloseError { database, error }) = connection.close() {
+        if let Err(error) = connection.close() {
+            let AppDbCloseError {
+                database: open_database,
+                error,
+            } = *error;
             let database = Database {
-                connection: Mutex::new(database),
+                connection: Mutex::new(open_database),
                 _guard,
             };
             return Err(SharedDatabaseCloseError::DatabaseClose {
                 database: SharedDatabase(Arc::new(database)),
-                error,
+                error: Box::new(error),
             });
         }
         drop(_guard);

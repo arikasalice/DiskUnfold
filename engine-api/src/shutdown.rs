@@ -10,7 +10,8 @@ use std::{
 };
 
 use du_core_contracts::Id;
-use du_job_runtime::{CancelResult, RuntimeError, ShutdownStatus, ShutdownTicket};
+pub use du_job_runtime::{CancelResult, RuntimeError};
+use du_job_runtime::{ShutdownStatus, ShutdownTicket};
 
 /// Status of the F24 delivery barrier that follows terminal job completion.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

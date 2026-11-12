@@ -19,7 +19,7 @@ fn shutdown_barrier_fails_if_required_history_did_not_commit()
             fallback,
         }),
         Arc::new(Clock),
-        history,
+        history.clone(),
         Arc::new(Events::default()),
     )?;
     runtime.register(descriptor())?;
@@ -46,6 +46,7 @@ fn shutdown_barrier_fails_if_required_history_did_not_commit()
     assert_eq!(ticket.history_failures(), Some(1));
     assert_eq!(ticket.poll(), ShutdownStatus::Failed);
     assert_eq!(ticket.history_failures(), Some(1));
+    assert_eq!(history.calls.load(Ordering::SeqCst), 1);
     let terminal = runtime
         .snapshot(&id)?
         .terminal

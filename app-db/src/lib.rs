@@ -320,13 +320,13 @@ impl AppDb {
     }
 
     /// Closes this database connection, returning the still-open handle on failure.
-    pub fn close(self) -> Result<(), AppDbCloseError> {
+    pub fn close(self) -> Result<(), Box<AppDbCloseError>> {
         match self.connection.close() {
             Ok(()) => Ok(()),
-            Err((connection, error)) => Err(AppDbCloseError {
+            Err((connection, error)) => Err(Box::new(AppDbCloseError {
                 database: Self { connection },
                 error,
-            }),
+            })),
         }
     }
 }
