@@ -139,6 +139,55 @@ fn rejects_in_pipeline_order_and_hides_unavailable_use_cases() -> Result<(), Str
 }
 
 #[test]
+fn validates_object_request_bodies_for_gui_without_changing_cli_or_mcp() -> Result<(), String> {
+    static FILTER_CALLS: AtomicUsize = AtomicUsize::new(0);
+    let mut builder = EngineBuilder::default();
+    builder.register(Query::<false>);
+    builder.with_outbound_filter(Redact(&FILTER_CALLS));
+    let engine = builder.build().map_err(|e| format!("{e:?}"))?;
+
+    let gui_object = call(
+        &engine,
+        "test.query",
+        Channel::Gui,
+        ENVELOPE_VERSION,
+        json!({"in_scope": true}),
+    )?;
+    assert_eq!(gui_object.error, None);
+    assert_eq!(gui_object.body, json!({"count": 3, "path": "local"}));
+
+    let gui_array = call(
+        &engine,
+        "test.query",
+        Channel::Gui,
+        ENVELOPE_VERSION,
+        json!([true]),
+    )?;
+    assert_eq!(
+        gui_array
+            .error
+            .ok_or("expected an invalid GUI body")?
+            .reason_key,
+        "command.body_invalid"
+    );
+    assert!(gui_array.body.is_null());
+
+    for channel in [Channel::Cli, Channel::Mcp] {
+        let response = call(
+            &engine,
+            "test.query",
+            channel,
+            ENVELOPE_VERSION,
+            json!([true]),
+        )?;
+        assert_eq!(response.error, None);
+        assert_eq!(response.body, json!({"count": 3}));
+    }
+    assert_eq!(FILTER_CALLS.load(Ordering::Relaxed), 2);
+    Ok(())
+}
+
+#[test]
 fn cli_and_mcp_fail_closed_without_filter_and_filter_after_execution() -> Result<(), String> {
     static CALLS: AtomicUsize = AtomicUsize::new(0);
     let mut unfiltered = EngineBuilder::default();

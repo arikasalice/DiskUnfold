@@ -99,11 +99,16 @@ pub(crate) fn dispatch(engine: &Engine, message: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use du_core_contracts::analysis_ipc::AnalysisJobRequest;
     use du_engine_api::{
         api::{EngineBuilder, UseCase},
         error::EngineError,
     };
     use serde_json::json;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
 
     #[cfg(windows)]
     #[test]
@@ -262,56 +267,83 @@ mod tests {
         Ok(())
     }
 
-    #[derive(Deserialize)]
-    #[serde(deny_unknown_fields)]
-    struct TestRequest {
-        count: u32,
-    }
-
-    struct TestUseCase;
+    struct TestUseCase(Arc<AtomicUsize>);
 
     impl UseCase for TestUseCase {
         const NAME: &'static str = "job.status";
         const CHANNELS: &'static [Channel] = &[Channel::Gui];
-        type Request = TestRequest;
-        type Response = u32;
+        type Request = AnalysisJobRequest;
+        type Response = String;
 
-        fn check_scope(&self, _: &TestRequest, _: &CallerCtx) -> Result<(), EngineError> {
+        fn check_scope(&self, _: &AnalysisJobRequest, _: &CallerCtx) -> Result<(), EngineError> {
             Ok(())
         }
 
-        fn execute(&self, request: TestRequest, _: &CallerCtx) -> Result<u32, EngineError> {
-            Ok(request.count)
+        fn execute(
+            &self,
+            request: AnalysisJobRequest,
+            _: &CallerCtx,
+        ) -> Result<String, EngineError> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok(request.job_ref.as_str().to_owned())
         }
     }
 
     #[test]
     fn routes_job_get_to_engine_status_and_preserves_the_ipc_name()
     -> Result<(), Box<dyn std::error::Error>> {
+        let dispatches = Arc::new(AtomicUsize::new(0));
         let mut builder = EngineBuilder::default();
-        builder.register(TestUseCase);
+        builder.register(TestUseCase(dispatches.clone()));
         let engine = builder.build()?;
         let id = "0195f856-ab83-7a59-9343-10d29775c9a9";
         let request = json!({"command": "du_call", "args": {"envelope": {
-            "name": "job.get", "contractVersion": 1, "correlationId": id, "body": {"count": 3},
+            "name": "job.get", "contractVersion": 1, "correlationId": id, "body": {"jobRef": id},
         }}});
         let reply: Value = serde_json::from_str(
             &dispatch(&engine, &request.to_string()).ok_or("missing response")?,
         )?;
-        assert_eq!(reply["body"], 3);
+        assert_eq!(reply["body"], id);
         assert_eq!(reply["name"], "job.get");
         assert_eq!(reply["correlationId"], id);
         assert!(reply.get("error").is_none());
+        assert_eq!(dispatches.load(Ordering::SeqCst), 1);
 
-        let malformed = json!({"command":"du_call", "args":{"envelope":{
-            "name":"job.get", "contractVersion":1, "correlationId":id, "body":{"count":"invalid"},
-        }}});
-        let reply: Value = serde_json::from_str(
-            &dispatch(&engine, &malformed.to_string()).ok_or("missing malformed-body response")?,
-        )?;
-        assert_eq!(reply["name"], "job.get");
-        assert_eq!(reply["correlationId"], id);
-        assert_eq!(reply["error"]["reasonKey"], "command.body_invalid");
+        for body in [
+            json!([id]),
+            Value::Null,
+            json!(id),
+            json!(7),
+            json!({"jobRef": "invalid"}),
+        ] {
+            let malformed = json!({"command":"du_call", "args":{"envelope":{
+                "name":"job.get", "contractVersion":1, "correlationId":id, "body":body,
+            }}});
+            let reply: Value = serde_json::from_str(
+                &dispatch(&engine, &malformed.to_string())
+                    .ok_or("missing malformed-body response")?,
+            )?;
+            assert_eq!(reply["name"], "job.get");
+            assert_eq!(reply["correlationId"], id);
+            assert_eq!(reply["error"]["reasonKey"], "command.body_invalid");
+            assert_eq!(dispatches.load(Ordering::SeqCst), 1);
+        }
+
+        for (command, version, expected) in [
+            ("other", 1, "command.channel_denied"),
+            ("du_call", 2, "command.envelope_invalid"),
+        ] {
+            let request = json!({"command":command, "args":{"envelope":{
+                "name":"job.get", "contractVersion":version, "correlationId":id, "body":[id],
+            }}});
+            let reply: Value = serde_json::from_str(
+                &dispatch(&engine, &request.to_string()).ok_or("missing precedence response")?,
+            )?;
+            assert_eq!(reply["name"], "job.get");
+            assert_eq!(reply["correlationId"], id);
+            assert_eq!(reply["error"]["reasonKey"], expected);
+            assert_eq!(dispatches.load(Ordering::SeqCst), 1);
+        }
         Ok(())
     }
 }
