@@ -82,7 +82,7 @@ test.each([
   ["INTERNAL", "support.internal_error", false, false],
   ["BUSY", "db.busy", true, true],
   ["NOT_FOUND", "ref.unavailable", false, false],
-  ["STALE_VERSION", "analysis.stale_version", false, false],
+  ["STALE_VERSION", "result.version_stale", false, false],
 ] as const)(
   "%s retryability flows from the typed IPC envelope to the group UI",
   async (code, reasonKey, retryable, showsRetry) => {
