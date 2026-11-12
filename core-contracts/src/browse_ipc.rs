@@ -3,6 +3,7 @@ use crate::{
     Id, ItemRef, SizeValue, Timestamp,
     result::{ResultCompleteness, ResultItemKind},
 };
+use serde::Deserialize;
 
 /// Copies paths observed in one pinned result revision.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -10,6 +11,7 @@ use crate::{
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct BrowseCopyPathRequest {
     pub result_version: Id,
+    #[serde(deserialize_with = "deserialize_browse_request_item_refs")]
     pub items: Vec<ItemRef>,
 }
 
@@ -46,7 +48,31 @@ pub enum BrowseCopyPathRefusal {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct BrowseDetailRequest {
     pub result_version: Id,
+    #[serde(deserialize_with = "deserialize_browse_request_item_ref")]
     pub item: ItemRef,
+}
+
+/// Uses the existing request-only ItemRef validator without tightening the shared value type.
+fn deserialize_browse_request_item_ref<'de, D>(deserializer: D) -> Result<ItemRef, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    crate::analysis_ipc::deserialize_f03_request_item_ref(deserializer)
+}
+
+#[derive(Deserialize)]
+#[serde(transparent)]
+struct BrowseRequestItemRef(
+    #[serde(deserialize_with = "deserialize_browse_request_item_ref")] ItemRef,
+);
+
+/// Applies request-only ItemRef validation to each member of the copy-path array.
+fn deserialize_browse_request_item_refs<'de, D>(deserializer: D) -> Result<Vec<ItemRef>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Vec::<BrowseRequestItemRef>::deserialize(deserializer)
+        .map(|items| items.into_iter().map(|item| item.0).collect())
 }
 
 /// Distinguishes an absent value from a value the source could not establish.

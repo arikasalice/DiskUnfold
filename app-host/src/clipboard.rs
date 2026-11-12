@@ -175,3 +175,6 @@ mod tests {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod request_tests;

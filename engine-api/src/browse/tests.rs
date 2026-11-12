@@ -31,14 +31,30 @@ fn call_detail(
     item_version: &Id,
     item_no: u32,
 ) -> Result<du_core_contracts::ResultEnvelope, String> {
+    call_detail_body(
+        engine,
+        json!({
+            "resultVersion": version,
+            "item": {"resultVersion": item_version, "itemNo": item_no}
+        }),
+    )
+}
+
+fn call_detail_body(
+    engine: &crate::api::Engine,
+    body: Value,
+) -> Result<du_core_contracts::ResultEnvelope, String> {
     let correlation_id = id(9)?;
     let caller = CallerCtx::new(Channel::Gui, correlation_id.clone(), None);
-    Ok(engine.call(CallEnvelope {
-        name: "browse.detail".into(),
-        contract_version: ENVELOPE_VERSION,
-        correlation_id,
-        body: json!({"resultVersion": version, "item": {"resultVersion": item_version, "itemNo": item_no}}),
-    }, &caller))
+    Ok(engine.call(
+        CallEnvelope {
+            name: "browse.detail".into(),
+            contract_version: ENVELOPE_VERSION,
+            correlation_id,
+            body,
+        },
+        &caller,
+    ))
 }
 
 #[test]
@@ -155,6 +171,61 @@ fn detail_uses_each_pinned_root_encoding_and_preserves_field_states() -> Result<
             .reason_key,
         "result.requery_required"
     );
+    Ok(())
+}
+
+#[test]
+fn registered_detail_rejects_invalid_item_objects_and_keeps_response_extensions_open()
+-> Result<(), String> {
+    let sink = IngestSink::default();
+    let version = id(2)?;
+    let mut build = sink
+        .open_forest(id(1)?, vec![root(PathEncoding::Unix, b"/fixture")])
+        .map_err(|e| format!("{e:?}"))?;
+    build
+        .add_directory_at(0, vec![])
+        .map_err(|e| format!("{e:?}"))?;
+    let pinned = build
+        .seal(version.clone(), ResultCompleteness::Complete)
+        .map_err(|e| format!("{e:?}"))?;
+    let mut builder = EngineBuilder::default();
+    register(&mut builder, sink);
+    let engine = builder.build().map_err(|e| e.to_string())?;
+
+    let valid = json!({
+        "resultVersion": version,
+        "item": {"resultVersion": version, "itemNo": 0}
+    });
+    let accepted = call_detail_body(&engine, valid.clone())?;
+    assert!(accepted.error.is_none());
+    assert_eq!(accepted.body["item"]["itemNo"], 0);
+
+    let mut extended_response = accepted.body;
+    extended_response["futureDetailField"] = json!(true);
+    extended_response["item"]["futureItemField"] = json!("ignored");
+    let decoded: du_core_contracts::browse_ipc::BrowseDetail =
+        serde_json::from_value(extended_response).map_err(|e| e.to_string())?;
+    assert_eq!(decoded.item.result_version, version);
+    assert_eq!(decoded.item.item_no, 0);
+
+    let invalid_bodies = [
+        json!({
+            "resultVersion": version,
+            "item": {"resultVersion": version, "itemNo": 0, "futureItemField": true}
+        }),
+        json!({"resultVersion": version, "item": [version, 0]}),
+    ];
+    for body in invalid_bodies {
+        let rejected = call_detail_body(&engine, body)?;
+        assert_eq!(
+            rejected
+                .error
+                .ok_or("missing invalid-body error")?
+                .reason_key,
+            "command.body_invalid"
+        );
+    }
+    assert_eq!(pinned.items().len(), 1);
     Ok(())
 }
 
