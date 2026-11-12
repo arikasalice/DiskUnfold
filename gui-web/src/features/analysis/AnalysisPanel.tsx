@@ -242,7 +242,8 @@ export function AnalysisPanel({
   const [receipt, setReceipt] = useState<ScanStart | null>(null);
   const [checkingDrop, setCheckingDrop] = useState(false);
   const [dropMessage, setDropMessage] = useState<{
-    text: string;
+    key: string;
+    fallback: string;
     tone: "info" | "error";
   }>();
   const request = useRef(0);
@@ -257,7 +258,7 @@ export function AnalysisPanel({
   const dropEnabled = client.subscribeFolderDrop !== undefined;
   const pathDescription =
     dropMessage?.tone === "info"
-      ? dropMessage.text
+      ? text(dropMessage.key, dropMessage.fallback)
       : dropEnabled
         ? text("ui.analysis.drop_hint", "Drop a folder here or enter its path.")
         : text("ui.analysis.review_hint", "Review this path before scanning.");
@@ -395,29 +396,25 @@ export function AnalysisPanel({
           setReviewedScope(undefined);
           choose(drop.path);
           setDropMessage({
-            text: text(
-              "ui.analysis.folder_selected_review",
-              "Folder selected. Review scope.",
-            ),
+            key: "ui.analysis.folder_selected_review",
+            fallback: "Folder selected. Review scope.",
             tone: "info",
           });
         } else {
           setDropMessage({
-            text:
+            key:
               drop.reason === "invalid_target"
-                ? text(
-                    "ui.analysis.drop_invalid_folder",
-                    "Drop one accessible local folder. No path was changed.",
-                  )
-                : text(
-                    "ui.analysis.drop_unavailable_path",
-                    "Folder drop is unavailable. Enter its path instead. No path was changed.",
-                  ),
+                ? "ui.analysis.drop_invalid_folder"
+                : "ui.analysis.drop_unavailable_path",
+            fallback:
+              drop.reason === "invalid_target"
+                ? "Drop one accessible local folder. No path was changed."
+                : "Folder drop is unavailable. Enter its path instead. No path was changed.",
             tone: "error",
           });
         }
       }),
-    [client, choose, text],
+    [client, choose],
   );
 
   async function reviewScope(automatic = false) {
@@ -646,7 +643,9 @@ export function AnalysisPanel({
               removePath={removePath}
               dropEnabled={dropEnabled}
               dropError={
-                dropMessage?.tone === "error" ? dropMessage.text : undefined
+                dropMessage?.tone === "error"
+                  ? text(dropMessage.key, dropMessage.fallback)
+                  : undefined
               }
               pathDescription={pathDescription}
               reviewDescriptionId={hasProblem ? reviewProblemId : undefined}

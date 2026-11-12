@@ -17,6 +17,7 @@ import {
 import type { SizeDisplay } from "./space-format";
 
 type LocaleText = ReturnType<typeof useLocaleText>;
+type Message = readonly [key: string, fallback: string];
 
 function spaceReason(key: string, text: LocaleText): string | undefined {
   switch (key) {
@@ -291,7 +292,7 @@ export function ItemSpaceDetails({
   const text = useLocaleText();
   const timestamp = useTimestampText();
   const [detail, setDetail] = useState<SpaceDetail>();
-  const [problem, setProblem] = useState<string>();
+  const [problem, setProblem] = useState<Message>();
   const { resultVersion, itemNo } = item;
 
   useEffect(() => {
@@ -307,12 +308,10 @@ export function ItemSpaceDetails({
           response.item.resultVersion !== resultVersion ||
           response.item.itemNo !== itemNo
         ) {
-          setProblem(
-            text(
-              "ui.analysis.space_details_mismatch",
-              "The space details do not match this item.",
-            ),
-          );
+          setProblem([
+            "ui.analysis.space_details_mismatch",
+            "The space details do not match this item.",
+          ]);
           return;
         }
         setDetail(response);
@@ -321,22 +320,22 @@ export function ItemSpaceDetails({
         if (!active) return;
         setProblem(
           failure instanceof AnalysisError && failure.code === "STALE_VERSION"
-            ? text(
+            ? [
                 "ui.analysis.space_open_latest",
                 "Open the latest result to see its space details.",
-              )
-            : text(
+              ]
+            : [
                 "ui.analysis.space_details_unavailable",
                 "Space details are unavailable.",
-              ),
+              ],
         );
       });
     return () => {
       active = false;
     };
-  }, [client, resultVersion, itemNo, text]);
+  }, [client, resultVersion, itemNo]);
 
-  if (problem) return <Notice tone="error">{problem}</Notice>;
+  if (problem) return <Notice tone="error">{text(...problem)}</Notice>;
   if (!detail)
     return (
       <Progress

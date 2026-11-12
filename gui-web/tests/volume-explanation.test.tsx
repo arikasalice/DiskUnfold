@@ -6,11 +6,56 @@ import {
   within,
 } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
+import { LocaleTextContext } from "../src/i18n/presentation";
+import type { LocaleText } from "../src/i18n/presentation";
 import { VolumeExplanation } from "../src/features/analysis/VolumeExplanation";
 import { AnalysisError, createAnalysisClient, windowsPath } from "../src/ipc";
 import type { CallEnvelope, VolumeGapResponse } from "../src/ipc";
 
 afterEach(cleanup);
+
+const englishText: LocaleText = (_key, fallback) => fallback;
+const localizedText: LocaleText = (key, fallback) =>
+  key === "ui.analysis.volume_stale_result"
+    ? "Abre el resultado más reciente para explicar el uso del volumen."
+    : fallback;
+
+test("volume problems use the active locale after the request finishes", async () => {
+  const transport = vi.fn(async () => {
+    throw new AnalysisError("STALE_VERSION", "result.requery_required");
+  });
+  const client = createAnalysisClient(transport);
+  const props = {
+    client,
+    resultVersion: "selected-version",
+    roots: [windowsPath("C:\\fixture")],
+    display: { system: "iec", unit: "auto" } as const,
+  };
+  const view = render(
+    <LocaleTextContext.Provider value={englishText}>
+      <VolumeExplanation {...props} />
+    </LocaleTextContext.Provider>,
+  );
+
+  fireEvent.click(screen.getByRole("button", { name: "Explain volume usage" }));
+  expect(
+    await screen.findByText(
+      "This result is no longer current. Open the latest result to explain its volume usage.",
+    ),
+  ).toBeTruthy();
+
+  view.rerender(
+    <LocaleTextContext.Provider value={localizedText}>
+      <VolumeExplanation {...props} />
+    </LocaleTextContext.Provider>,
+  );
+  expect(
+    screen.getByText(
+      "Abre el resultado más reciente para explicar el uso del volumen.",
+    ),
+  ).toBeTruthy();
+  expect(transport).toHaveBeenCalledTimes(1);
+});
 
 test.each([
   ["STALE_VERSION", "result.requery_required", /open the latest result/i],

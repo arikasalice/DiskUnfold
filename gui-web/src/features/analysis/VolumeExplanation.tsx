@@ -161,34 +161,31 @@ function observationRows(
 }
 
 /** Maps pinned volume lookup failures to their published recovery guidance. */
-function lookupProblem(
-  failure: unknown,
-  text: ReturnType<typeof useLocaleText>,
-): string {
+function lookupProblem(failure: unknown): Message {
   if (failure instanceof AnalysisError) {
     switch (failure.code) {
       case "STALE_VERSION":
-        return text(
+        return [
           "ui.analysis.volume_stale_result",
           "This result is no longer current. Open the latest result to explain its volume usage.",
-        );
+        ];
       case "NOT_FOUND":
-        return text(
+        return [
           "ui.analysis.volume_scan_unavailable",
           "This scan result is no longer available. Run the analysis again to explain its volume usage.",
-        );
+        ];
       case "INVALID_ARGUMENT":
         if (failure.reasonKey === "space.target_out_of_scope")
-          return text(
+          return [
             "ui.analysis.volume_target_outside_scan",
             "The selected target is outside this scan. Choose a folder or volume included in the scan.",
-          );
+          ];
     }
   }
-  return text(
+  return [
     "ui.analysis.volume_unavailable",
     "The volume explanation is unavailable.",
-  );
+  ];
 }
 
 /** Reads start/end volume observations and difference factors from this result. */
@@ -207,7 +204,7 @@ export function VolumeExplanation({
   const [root, setRoot] = useState("0");
   const [pending, setPending] = useState(false);
   const [report, setReport] = useState<VolumeGapResponse>();
-  const [problem, setProblem] = useState<string>();
+  const [problem, setProblem] = useState<Message>();
   const [wholeVolume, setWholeVolume] = useState(false);
   const sequence = useRef(0);
 
@@ -228,18 +225,16 @@ export function VolumeExplanation({
         response.resultVersion !== resultVersion ||
         response.requestSeq !== requestSeq
       ) {
-        setProblem(
-          text(
-            "ui.analysis.volume_response_mismatch",
-            "The response does not match this scan result.",
-          ),
-        );
+        setProblem([
+          "ui.analysis.volume_response_mismatch",
+          "The response does not match this scan result.",
+        ]);
         return;
       }
       setReport(response);
     } catch (failure) {
       if (sequence.current !== requestSeq) return;
-      setProblem(lookupProblem(failure, text));
+      setProblem(lookupProblem(failure));
     } finally {
       if (sequence.current === requestSeq) setPending(false);
     }
@@ -293,7 +288,7 @@ export function VolumeExplanation({
           )}
         />
       )}
-      {problem && <Notice tone="error">{problem}</Notice>}
+      {problem && <Notice tone="error">{text(...problem)}</Notice>}
       {report && (
         <>
           <Readout

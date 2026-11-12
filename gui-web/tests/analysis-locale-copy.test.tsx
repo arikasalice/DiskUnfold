@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import {
   act,
   cleanup,
@@ -14,7 +14,7 @@ import { CopyPath } from "../src/features/analysis/CopyPath";
 import { ItemSpaceDetails } from "../src/features/analysis/ItemSpaceDetails";
 import { formatDate } from "../src/features/analysis/RecentScopeDisplay";
 import { RecentScopePicker } from "../src/features/analysis/RecentScopePicker";
-import { createAnalysisClient } from "../src/ipc";
+import { AnalysisError, createAnalysisClient } from "../src/ipc";
 import type {
   CallEnvelope,
   ItemRef,
@@ -203,4 +203,37 @@ test("item space details localize labels and keep capability codes intact", asyn
   expect(screen.getByText("1 KiB · 1.024 bytes · 측정됨")).toBeTruthy();
   expect(screen.getByText("sparse_files · supported")).toBeTruthy();
   expect(screen.getByText("2026.11.10 00:00:00Z")).toBeTruthy();
+});
+
+test("item space problems use the active locale without reloading details", async () => {
+  const item: ItemRef = { resultVersion: "result-a", itemNo: 1 };
+  const transport = vi.fn(async () => {
+    throw new AnalysisError("STALE_VERSION", "result.requery_required");
+  });
+  const client = createAnalysisClient(transport);
+  const details = (
+    <ItemSpaceDetails
+      client={client}
+      item={item}
+      display={{ system: "iec", unit: "auto", regional }}
+    />
+  );
+  const view = render(localeTree(details, englishText));
+
+  expect(
+    await screen.findByText("Open the latest result to see its space details."),
+  ).toBeTruthy();
+  view.rerender(
+    localeTree(details, (key, fallback) =>
+      key === "ui.analysis.space_open_latest"
+        ? "Abre el resultado más reciente para ver sus detalles de espacio."
+        : fallback,
+    ),
+  );
+  expect(
+    screen.getByText(
+      "Abre el resultado más reciente para ver sus detalles de espacio.",
+    ),
+  ).toBeTruthy();
+  expect(transport).toHaveBeenCalledTimes(1);
 });

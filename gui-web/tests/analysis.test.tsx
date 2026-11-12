@@ -16,6 +16,8 @@ import type {
 } from "../src/app/browse-visualization";
 import { createChartRenderers } from "../src/components";
 import { AnalysisError, createAnalysisClient, windowsPath } from "../src/ipc";
+import { LocaleTextContext } from "../src/i18n/presentation";
+import type { LocaleText } from "../src/i18n/presentation";
 import { fixtureText, modelFixture } from "../preview/model-fixture";
 import type { VisualizationViewRequest } from "../src/features/visualization/VisualizationSession";
 import type {
@@ -3624,12 +3626,31 @@ test("F01: an invalid drop gives guidance without replacing the chosen folder", 
   const { client } = fixture();
   const nativeDrop = createAnalysisClient().subscribeFolderDrop;
   if (!nativeDrop) throw new Error("Expected native drop subscription");
-  render(<App analysis={{ ...client, subscribeFolderDrop: nativeDrop }} />);
+  const englishText: LocaleText = (_key, fallback) => fallback;
+  const localizedText: LocaleText = (key, fallback) => {
+    if (key === "ui.analysis.drop_invalid_folder")
+      return "Suelta una carpeta local accesible. No se cambió ninguna ruta.";
+    if (key === "ui.analysis.folder_selected_review")
+      return "Carpeta seleccionada. Revisa el alcance.";
+    return fallback;
+  };
+  const app = (text: LocaleText) => (
+    <LocaleTextContext.Provider value={text}>
+      <App analysis={{ ...client, subscribeFolderDrop: nativeDrop }} />
+    </LocaleTextContext.Provider>
+  );
+  const view = render(app(englishText));
   fireEvent.click(await screen.findByRole("radio", { name: path.display }));
   folderDrop({ seq: 1, pending: true });
   folderDrop({ seq: 1, reason: "invalid_target" });
   expect(
     screen.getByText("Drop one accessible local folder. No path was changed."),
+  ).toBeDefined();
+  view.rerender(app(localizedText));
+  expect(
+    screen.getByText(
+      "Suelta una carpeta local accesible. No se cambió ninguna ruta.",
+    ),
   ).toBeDefined();
   expect(
     (
@@ -3638,6 +3659,12 @@ test("F01: an invalid drop gives guidance without replacing the chosen folder", 
       }) as HTMLInputElement
     ).value,
   ).toBe(path.display);
+
+  folderDrop({ seq: 2, pending: true });
+  folderDrop({ seq: 2, path: "D:\\selected" });
+  expect(
+    screen.getByText("Carpeta seleccionada. Revisa el alcance."),
+  ).toBeDefined();
 });
 
 test.each([
