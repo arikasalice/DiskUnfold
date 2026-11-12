@@ -68,6 +68,7 @@ fn verify_pinned_logical_total(
 }
 
 /// Creates temporary one-byte files and queries each final result via desktop IPC.
+/// The 100,000-file and one-million-file cases each perform two scans.
 /// Run with `cargo test --locked -p du-app-host --features gui --lib
 /// history::tests::measurement::native_scan_100k -- --ignored --nocapture`.
 /// Fixture creation warms an uncontrolled OS cache; no performance target is asserted.
@@ -77,7 +78,7 @@ fn native_scan_100k() -> Result<(), Box<dyn std::error::Error>> {
     run_native_scan_measurement(100, 1_000, "100,000-file")
 }
 
-/// Measures two million-file scans through desktop IPC on a local NTFS volume.
+/// Measures two one-million-file scans through desktop IPC on a local volume.
 /// Fixture creation warms uncontrolled OS caches; process-lifetime peak working
 /// set is not scan-job memory and notification dequeue time is not GUI P95.
 /// Run with `cargo test --locked -p du-app-host --features gui --lib
@@ -130,7 +131,7 @@ fn run_native_scan_measurement(
         .collect();
     let draft = json!({"includes":[{"encoding":"windows_utf16le", "raw":PathBytes::from_bytes(&raw), "display":fixture.path(), "lossy":false}], "exclusions":[], "boundary":"current_volume", "includedMounts":[], "source":"gui"});
     eprintln!(
-        "F02_MEASURE case={label} fixture_files={} directories={} input_bytes={} bytes_per_file=1 filesystem={} cache=uncontrolled_after_fixture_creation workers=default pid={} pre_scan_process_lifetime_peak_working_set_bytes={:?}",
+        "F02_MEASURE case={label} fixture_files={} directories={} input_bytes={} bytes_per_file=1 os={} cache=uncontrolled_after_fixture_creation workers=default pid={} pre_scan_process_lifetime_peak_working_set_bytes={:?}",
         directories * files_per_directory,
         directories,
         directories * files_per_directory,
@@ -257,5 +258,11 @@ fn run_native_scan_measurement(
         );
         previous_version = Some(version);
     }
+    drop(engine);
+    drop(events);
+    drop(database);
+    fixture.close()?;
+    profile.close()?;
+    eprintln!("F02_MEASURE cleanup=fixture_and_profile_closed");
     Ok(())
 }
