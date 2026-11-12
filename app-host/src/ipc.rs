@@ -68,7 +68,7 @@ pub(crate) fn gui_command_name(message: &str) -> Option<std::borrow::Cow<'_, str
 
 pub(crate) fn dispatch(engine: &Engine, message: &str) -> Option<String> {
     let request: Request = serde_json::from_str(message).ok()?;
-    let address: Address = serde_json::from_value(request.args.envelope.clone()).ok()?;
+    let address = Address::deserialize(&request.args.envelope).ok()?;
     let reason = if request.command != "du_call" {
         "command.channel_denied"
     } else {
@@ -195,6 +195,73 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn address_projection_preserves_envelope_validation_precedence()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let engine = EngineBuilder::default().build()?;
+        let id = "0195f856-ab83-7a59-9343-10d29775c9a9";
+        for (request, expected) in [
+            (
+                json!({"command":"other", "args":{"envelope":{"name":"x", "correlationId":id}}}),
+                "command.channel_denied",
+            ),
+            (
+                json!({"command":"du_call", "args":{"envelope":{"name":"x", "correlationId":id}}}),
+                "command.envelope_invalid",
+            ),
+            (
+                json!({"command":"other", "args":{"envelope":["x", id]}}),
+                "command.channel_denied",
+            ),
+            (
+                json!({"command":"du_call", "args":{"envelope":["x", id]}}),
+                "command.envelope_invalid",
+            ),
+        ] {
+            let reply: Value = serde_json::from_str(
+                &dispatch(&engine, &request.to_string()).ok_or("missing response")?,
+            )?;
+            assert_eq!(reply["name"], "x");
+            assert_eq!(reply["correlationId"], id);
+            assert_eq!(reply["error"]["reasonKey"], expected);
+        }
+
+        for envelope in [
+            json!({"correlationId":id}),
+            json!({"name":"x"}),
+            json!({"name":1, "correlationId":id}),
+            json!({"name":"x", "correlationId":"not-an-id"}),
+        ] {
+            let request = json!({"command":"other", "args":{"envelope":envelope}});
+            assert!(dispatch(&engine, &request.to_string()).is_none());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn address_deserialization_ignores_envelope_extensions()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let engine = EngineBuilder::default().build()?;
+        let envelope = json!({
+            "name":"job.get",
+            "contractVersion":1,
+            "correlationId":"0195f856-ab83-7a59-9343-10d29775c9a9",
+            "body":{},
+            "future":{"large":[1,2,3]},
+        });
+        let request = json!({"command":"du_call", "args":{"envelope":envelope}});
+        let reply: Value = serde_json::from_str(
+            &dispatch(&engine, &request.to_string()).ok_or("missing response")?,
+        )?;
+        assert_eq!(reply["name"], "job.get");
+        assert_eq!(
+            reply["correlationId"],
+            "0195f856-ab83-7a59-9343-10d29775c9a9"
+        );
+        assert_eq!(reply["error"]["reasonKey"], "command.not_provided");
+        Ok(())
+    }
+
     #[derive(Deserialize)]
     #[serde(deny_unknown_fields)]
     struct TestRequest {
@@ -235,6 +302,16 @@ mod tests {
         assert_eq!(reply["name"], "job.get");
         assert_eq!(reply["correlationId"], id);
         assert!(reply.get("error").is_none());
+
+        let malformed = json!({"command":"du_call", "args":{"envelope":{
+            "name":"job.get", "contractVersion":1, "correlationId":id, "body":{"count":"invalid"},
+        }}});
+        let reply: Value = serde_json::from_str(
+            &dispatch(&engine, &malformed.to_string()).ok_or("missing malformed-body response")?,
+        )?;
+        assert_eq!(reply["name"], "job.get");
+        assert_eq!(reply["correlationId"], id);
+        assert_eq!(reply["error"]["reasonKey"], "command.body_invalid");
         Ok(())
     }
 }
