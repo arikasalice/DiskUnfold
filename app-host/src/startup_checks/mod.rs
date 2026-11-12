@@ -1,5 +1,5 @@
 //! F15 startup-check table validation and evidence aggregation.
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, MutexGuard, RwLock};
 
 use du_core_contracts::startup::{
     FullDiskAccessStatus, PrivacySettingsOpenOutcome, StartupCapabilitiesPort, WebViewAvailability,
@@ -20,6 +20,7 @@ use du_engine_api::{
 /// observations remain permissive; only a confirmed denial blocks analysis entry.
 pub(super) struct StartupAccessSession {
     capabilities: Arc<dyn StartupCapabilitiesPort>,
+    admission: Mutex<()>,
     access: RwLock<StartupAccessState>,
 }
 
@@ -29,7 +30,19 @@ impl StartupAccessSession {
         let access = access_state(capabilities.full_disk_access_status());
         Self {
             capabilities,
+            admission: Mutex::new(()),
             access: RwLock::new(access),
+        }
+    }
+
+    /// Serializes IF-20 session updates with synchronous analysis admission.
+    ///
+    /// This is an app-host ordering guarantee. The operating system can still
+    /// change permissions outside this process after an observation is sampled.
+    pub(super) fn lock_analysis_admission(&self) -> MutexGuard<'_, ()> {
+        match self.admission.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
         }
     }
 
@@ -40,7 +53,7 @@ impl StartupAccessSession {
             .map_or(StartupAccessState::Unknown, |access| *access)
     }
 
-    fn refresh(&self) -> StartupAccessState {
+    pub(super) fn refresh(&self) -> StartupAccessState {
         let current = access_state(self.capabilities.full_disk_access_status());
         match self.access.write() {
             Ok(mut access) => *access = current,
@@ -407,6 +420,7 @@ impl UseCase for StartupAccessQuery {
         request: Self::Request,
         _: &CallerCtx,
     ) -> Result<Self::Response, EngineError> {
+        let _admission = self.access.lock_analysis_admission();
         let (access, settings_opened) = match request.action {
             StartupAccessAction::OpenPrivacySettings => self.access.open_privacy_settings(),
             StartupAccessAction::Recheck => (self.access.refresh(), false),

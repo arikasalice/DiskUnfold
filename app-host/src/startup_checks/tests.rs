@@ -87,7 +87,8 @@ fn opening_an_existing_database_does_not_prove_data_directory_writability() {
 }
 
 #[test]
-fn webview_unknown_is_advisory_and_known_unavailable_uses_the_pre_window_dialog() {
+fn webview_unknown_is_advisory_and_known_unavailable_uses_the_pre_window_dialog()
+-> Result<(), Box<dyn std::error::Error>> {
     let unknown = FakeStartupCapabilities::new(
         FullDiskAccessStatus::Unknown,
         WebViewAvailability::Unknown,
@@ -105,12 +106,15 @@ fn webview_unknown_is_advisory_and_known_unavailable_uses_the_pre_window_dialog(
         PrivacySettingsOpenOutcome::Unsupported,
         StartupDialogOutcome::Acknowledged,
     );
-    let error = webview_observation(&unavailable).expect_err("known missing webview blocks");
+    let error = webview_observation(&unavailable)
+        .err()
+        .ok_or("known missing webview blocks")?;
     assert_eq!(
         report_pre_window_error(&unavailable, error).to_string(),
         "startup.webview_missing"
     );
     assert_eq!(unavailable.startup_dialog_requests(), 1);
+    Ok(())
 }
 
 #[test]
@@ -217,7 +221,7 @@ fn gui_startup_queries_return_observations_without_claiming_os_success()
     ));
     let access = Arc::new(StartupAccessSession::new(capabilities.clone()));
     let mut builder = EngineBuilder::default();
-    register(&mut builder, report.clone(), access);
+    register(&mut builder, report.clone(), access.clone());
     let engine = builder.build()?;
     let correlation_id = Id::parse("0195f856-ab83-7a59-9343-10d29775c9a9")?;
 
@@ -248,5 +252,26 @@ fn gui_startup_queries_return_observations_without_claiming_os_success()
     // The OS accepted a launch request; IF-20's boolean remains unconfirmed.
     assert_eq!(response.body["settingsOpened"], false);
     assert_eq!(capabilities.privacy_settings_requests(), 1);
+
+    {
+        let mut current = access
+            .access
+            .write()
+            .map_err(|_| "startup access lock poisoned")?;
+        *current = StartupAccessState::Denied;
+    }
+    let updated = engine.call(
+        CallEnvelope {
+            name: "app.startup_status".into(),
+            contract_version: 1,
+            correlation_id: correlation_id.clone(),
+            body: serde_json::json!({}),
+        },
+        &CallerCtx::new(Channel::Gui, correlation_id, None),
+    );
+    assert!(updated.error.is_none());
+    assert_eq!(updated.body["access"], "denied");
+    assert_eq!(updated.body["analysisAllowed"], false);
+    assert_eq!(updated.body["checks"][6]["result"], "blocked");
     Ok(())
 }
