@@ -29,6 +29,16 @@ pub(super) struct OpenedDatabase {
     pub(super) first_run: bool,
 }
 
+/// Adds the HLD caller-facing startup reason key to a data-directory failure.
+pub(super) fn data_folder_error(error: Option<io::Error>) -> io::Error {
+    // Select the HLD 116 caller-facing key here; it conflicts with DLD 70's
+    // startup.data_folder_unavailable key and no internal DLD key is produced.
+    match error {
+        Some(error) => io::Error::other(format!("startup.data_dir_unwritable: {error}")),
+        None => io::Error::other("startup.data_dir_unwritable"),
+    }
+}
+
 /// Creates or migrates the database in the application's Windows data directory.
 #[cfg(all(windows, test))]
 pub(super) fn open(data_dir: &Path) -> Result<SharedDatabase, io::Error> {
@@ -38,8 +48,8 @@ pub(super) fn open(data_dir: &Path) -> Result<SharedDatabase, io::Error> {
 /// Opens the Windows startup database and retains the creator's publication outcome.
 #[cfg(windows)]
 pub(super) fn open_with_status(data_dir: &Path) -> Result<OpenedDatabase, io::Error> {
-    let data_dir = std::path::absolute(data_dir)?;
-    create_data_directory(&data_dir)?;
+    let data_dir = std::path::absolute(data_dir).map_err(|error| data_folder_error(Some(error)))?;
+    create_data_directory(&data_dir).map_err(|error| data_folder_error(Some(error)))?;
     let instance = WindowsInstanceLock::acquire(&data_dir).map_err(lock_error)?;
     let path = data_dir.join(DATABASE_FILE);
     let (database, file, first_run) =
@@ -68,8 +78,8 @@ pub(super) fn open(data_dir: &Path) -> Result<SharedDatabase, io::Error> {
 /// Opens the Linux startup database and retains the creator's publication outcome.
 #[cfg(target_os = "linux")]
 pub(super) fn open_with_status(data_dir: &Path) -> Result<OpenedDatabase, io::Error> {
-    let data_dir = std::path::absolute(data_dir)?;
-    create_data_directory(&data_dir)?;
+    let data_dir = std::path::absolute(data_dir).map_err(|error| data_folder_error(Some(error)))?;
+    create_data_directory(&data_dir).map_err(|error| data_folder_error(Some(error)))?;
     let instance = LinuxInstanceLock::acquire(&data_dir).map_err(linux_lock_error)?;
     let path = data_dir.join(DATABASE_FILE);
     let (database, file, first_run) =
@@ -230,6 +240,9 @@ fn linux_lock_error(error: LinuxInstanceLockError) -> io::Error {
 }
 
 fn open_error(error: OpenError) -> io::Error {
+    if error.is_corrupt_database() {
+        return io::Error::other(format!("db.corrupt: {error:?}"));
+    }
     match error {
         OpenError::UnsupportedSchema(_) => io::Error::other("db.schema_mismatch"),
         OpenError::HistorySchema(error) => migration_error(*error),
@@ -244,7 +257,7 @@ fn migration_error(error: MigrationError) -> io::Error {
         }
         MigrationError::Tampered => "db.migration_tampered",
         MigrationError::Backup(_) => "db.backup_failed",
-        _ => "db.open_failed",
+        _ => "startup.migration_failed",
     };
     io::Error::other(format!("{key}: {error:?}"))
 }

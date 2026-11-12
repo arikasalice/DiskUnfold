@@ -72,9 +72,8 @@ fn run_app(
     let (locale, settings, history, history_reader, recovery, first_run) = {
         let bundles = crate::locale::register()?;
         let configured = bundles.configured_languages().collect::<Vec<_>>();
-        let data_dir = du_platform_os::application_data::directory().ok_or_else(|| {
-            std::io::Error::other("db.open_failed: no Windows application data directory")
-        })?;
+        let data_dir = du_platform_os::application_data::directory()
+            .ok_or_else(|| crate::startup_database::data_folder_error(None))?;
         let opened = crate::startup_database::open_with_status(&data_dir)?;
         let first_run = opened.first_run;
         startup_observed.push(crate::startup_checks::data_format_and_open_observation(
@@ -98,9 +97,8 @@ fn run_app(
     let (locale, settings, first_run) = {
         let bundles = crate::locale::register()?;
         let configured = bundles.configured_languages().collect::<Vec<_>>();
-        let data_dir = du_platform_os::application_data::directory().ok_or_else(|| {
-            std::io::Error::other("db.open_failed: no Linux application data directory")
-        })?;
+        let data_dir = du_platform_os::application_data::directory()
+            .ok_or_else(|| crate::startup_database::data_folder_error(None))?;
         let opened = crate::startup_database::open_with_status(&data_dir)?;
         let first_run = opened.first_run;
         startup_observed.push(crate::startup_checks::data_format_and_open_observation(

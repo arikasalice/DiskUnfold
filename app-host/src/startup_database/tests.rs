@@ -92,6 +92,38 @@ fn fresh_start_publishes_current_schema_without_creating_a_backup() -> TestResul
 }
 
 #[test]
+fn data_directory_creation_failure_uses_startup_reason_and_preserves_the_obstacle() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let obstacle = dir.path().join("data-file");
+    fs::write(&obstacle, b"preserve")?;
+
+    let error = open(&obstacle)
+        .err()
+        .ok_or("data directory path that is a file was accepted")?;
+
+    assert!(error.to_string().contains("startup.data_dir_unwritable"));
+    assert_eq!(fs::read(&obstacle)?, b"preserve");
+    Ok(())
+}
+
+#[test]
+fn missing_data_directory_reason_is_stable() {
+    assert_eq!(
+        data_folder_error(None).to_string(),
+        "startup.data_dir_unwritable"
+    );
+}
+
+#[test]
+fn unclassified_migration_failures_use_the_startup_migration_reason() {
+    assert!(
+        migration_error(MigrationError::Integrity)
+            .to_string()
+            .contains("startup.migration_failed")
+    );
+}
+
+#[test]
 fn latest_schema_reopen_skips_managed_migration_and_keeps_backups_absent() -> TestResult {
     let dir = tempfile::tempdir()?;
     let opened = open_with_status(dir.path())?;
@@ -153,7 +185,7 @@ fn newer_and_malformed_databases_keep_startup_errors_and_files_unchanged() -> Te
     let malformed_error = open(malformed.path())
         .err()
         .ok_or("malformed database file was accepted")?;
-    assert!(malformed_error.to_string().contains("db.open_failed"));
+    assert!(malformed_error.to_string().contains("db.corrupt"));
     assert_eq!(fs::read(&malformed_path)?, malformed_before);
     assert!(!malformed.path().join("db-backups").exists());
     Ok(())

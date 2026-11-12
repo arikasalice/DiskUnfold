@@ -42,6 +42,35 @@ pub enum OpenError {
     CreatedButOpenFailed(Box<OpenError>),
 }
 
+impl OpenError {
+    /// Returns whether SQLite identified the file as corrupt or not a database.
+    ///
+    /// This classification lets startup adapters distinguish damaged database bytes from
+    /// unrelated failures such as a missing or unwritable data directory.
+    pub fn is_corrupt_database(&self) -> bool {
+        match self {
+            Self::Sqlite(error) => sqlite_reports_corruption(error),
+            Self::HistorySchema(error) => matches!(
+                error.as_ref(),
+                migration::MigrationError::Sqlite(error) if sqlite_reports_corruption(error)
+            ),
+            Self::CreatedButOpenFailed(error) => error.is_corrupt_database(),
+            _ => false,
+        }
+    }
+}
+
+fn sqlite_reports_corruption(error: &rusqlite::Error) -> bool {
+    matches!(
+        error,
+        rusqlite::Error::SqliteFailure(error, _)
+            if matches!(
+                error.code,
+                rusqlite::ErrorCode::DatabaseCorrupt | rusqlite::ErrorCode::NotADatabase
+            )
+    )
+}
+
 impl From<rusqlite::Error> for OpenError {
     fn from(error: rusqlite::Error) -> Self {
         Self::Sqlite(error)

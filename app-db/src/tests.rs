@@ -5,6 +5,21 @@ use du_core_contracts::settings::{
 };
 use serde_json::json;
 
+#[test]
+fn open_error_classifies_sqlite_corruption_without_classifying_io_or_foreign_database_errors() {
+    let sqlite_error = |code| rusqlite::Error::SqliteFailure(rusqlite::ffi::Error::new(code), None);
+
+    assert!(OpenError::Sqlite(sqlite_error(rusqlite::ffi::SQLITE_CORRUPT)).is_corrupt_database());
+    assert!(OpenError::Sqlite(sqlite_error(rusqlite::ffi::SQLITE_NOTADB)).is_corrupt_database());
+    assert!(!OpenError::Sqlite(sqlite_error(rusqlite::ffi::SQLITE_IOERR)).is_corrupt_database());
+    assert!(!OpenError::ForeignDatabase.is_corrupt_database());
+
+    let nested = OpenError::CreatedButOpenFailed(Box::new(OpenError::HistorySchema(Box::new(
+        migration::MigrationError::Sqlite(sqlite_error(rusqlite::ffi::SQLITE_CORRUPT)),
+    ))));
+    assert!(nested.is_corrupt_database());
+}
+
 fn context() -> SettingsCommit {
     SettingsCommit {
         source: SettingsSource::Screen,
