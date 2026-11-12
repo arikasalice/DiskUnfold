@@ -11,7 +11,7 @@ use std::{
     thread::{self, Thread},
 };
 
-use du_app_db::recent_scope::{RecentError, RecentWrite};
+use du_app_db::recent_scope::{RecentError, RecentWrite, RecentWriteError};
 use du_core_contracts::{
     CallEnvelope, ENVELOPE_VERSION, Id, ResultEnvelope, analysis_ipc::ScanStart, ports::Random,
 };
@@ -30,51 +30,45 @@ type RecentScopeEncoder = dyn Fn(&RecentScopeAdmission, &AtomicBool) -> Result<E
     + Send
     + Sync;
 
-/// A value-free warning about one accepted scan's recent-scope storage attempt.
-///
-/// The observer has no trusted window-generation input. Consumers must not expose
-/// this callback as a GUI event until they can bind it to the owning window session.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// A value-free warning about an accepted scan's recent-scope storage attempt.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RecentScopeWriteWarning {
-    InvalidEvidence { job_ref: Id, correlation_id: Id },
-    Busy { job_ref: Id, correlation_id: Id },
-    DiskFull { job_ref: Id, correlation_id: Id },
-    StorageUnavailable { job_ref: Id, correlation_id: Id },
+    InvalidEvidence,
+    Busy,
+    DiskFull,
+    StorageUnavailable,
 }
 
-impl RecentScopeWriteWarning {
-    /// Returns the safe, value-free reason key for a future GUI relay.
-    pub fn reason_key(&self) -> &'static str {
-        match self {
-            Self::InvalidEvidence { .. } | Self::StorageUnavailable { .. } => {
-                "scope.recent_store_failed"
-            }
-            Self::Busy { .. } => "db.busy",
-            Self::DiskFull { .. } => "db.disk_full",
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct RecentScopeWriteAttempt {
+    pub(crate) warning: RecentScopeWriteWarning,
+    pub(crate) job_ref: Id,
+    pub(crate) correlation_id: Id,
+}
+
+impl RecentScopeWriteAttempt {
+    #[cfg(test)]
+    pub(crate) fn reason_key(&self) -> &'static str {
+        match self.warning {
+            RecentScopeWriteWarning::InvalidEvidence
+            | RecentScopeWriteWarning::StorageUnavailable => "scope.recent_store_failed",
+            RecentScopeWriteWarning::Busy => "db.busy",
+            RecentScopeWriteWarning::DiskFull => "db.disk_full",
         }
     }
 
-    /// Returns the accepted scan job associated with this storage attempt.
-    pub fn job_ref(&self) -> &Id {
-        match self {
-            Self::InvalidEvidence { job_ref, .. }
-            | Self::Busy { job_ref, .. }
-            | Self::DiskFull { job_ref, .. }
-            | Self::StorageUnavailable { job_ref, .. } => job_ref,
-        }
-    }
-
-    /// Returns the correlation ID from the actual GUI request envelope.
-    pub fn correlation_id(&self) -> &Id {
-        match self {
-            Self::InvalidEvidence { correlation_id, .. }
-            | Self::Busy { correlation_id, .. }
-            | Self::DiskFull { correlation_id, .. }
-            | Self::StorageUnavailable { correlation_id, .. } => correlation_id,
-        }
+    fn into_public_warning(self) -> RecentScopeWriteWarning {
+        let Self {
+            warning,
+            job_ref,
+            correlation_id,
+        } = self;
+        drop((job_ref, correlation_id));
+        warning
     }
 }
 
+#[derive(Debug)]
 struct AttemptContext {
     job_ref: Id,
     correlation_id: Id,
@@ -96,12 +90,15 @@ impl RecentScopeWorker {
         cap: NonZeroUsize,
         warning: impl Fn(RecentScopeWriteWarning) + Send + 'static,
     ) -> io::Result<Self> {
+        let public_warning = move |attempt: RecentScopeWriteAttempt| {
+            warning(attempt.into_public_warning());
+        };
         Self::start_inner(
             admissions,
             database,
             cap,
             Arc::new(RecentScopeBody::encode_admission),
-            warning,
+            public_warning,
             || {},
         )
     }
@@ -115,7 +112,7 @@ impl RecentScopeWorker {
         + Send
         + Sync
         + 'static,
-        warning: impl Fn(RecentScopeWriteWarning) + Send + 'static,
+        warning: impl Fn(RecentScopeWriteAttempt) + Send + 'static,
         completed: impl Fn() + Send + 'static,
     ) -> io::Result<Self> {
         Self::start_inner(
@@ -133,13 +130,16 @@ impl RecentScopeWorker {
         database: SharedDatabase,
         cap: NonZeroUsize,
         encoder: Arc<RecentScopeEncoder>,
-        warning: impl Fn(RecentScopeWriteWarning) + Send + 'static,
+        warning: impl Fn(RecentScopeWriteAttempt) + Send + 'static,
         completed: impl Fn() + Send + 'static,
     ) -> io::Result<Self> {
         let delivery = admissions.delivery();
-        // One context belongs to a queued admission or the single candidate
-        // currently being consumed; an unbounded handoff avoids rejecting a
-        // successfully posted reply when the worker is briefly behind.
+        // Each context follows one successful one-shot delivery claim. Claims
+        // address queued admissions that already hold queue slots, and a slot
+        // remains held until its candidate is dropped. Since the worker removes
+        // the matching context before processing that candidate, the channel and
+        // map are bounded by the admissions queue's live-slot capacity (32 in
+        // lifecycle composition), despite this non-blocking channel being unbounded.
         let (attempt_context_sender, attempt_context_receiver) = channel();
         let stopped = Arc::new(AtomicBool::new(false));
         let stop = stopped.clone();
@@ -157,12 +157,13 @@ impl RecentScopeWorker {
                                 &mut attempt_contexts,
                             );
                             let job_ref = candidate.receipt().job_ref.clone();
-                            if let Some(correlation_id) = attempt_contexts.remove(&job_ref)
+                            if let Some(context) = attempt_contexts.remove(&job_ref)
+                                && context.job_ref == job_ref
                                 && let Err(failure) =
                                     persist(&database, cap, &candidate, &stop, &*encoder)
                                 && !stop.load(Ordering::Acquire)
                             {
-                                warning(failure.with_context(job_ref, correlation_id));
+                                warning(failure.with_context(context));
                             }
                             completed();
                         }
@@ -280,9 +281,13 @@ fn persist(
         include_count: encoded.include_count,
         now_ms,
     };
-    database
-        .put_recent_scope(cap, &item, stopped)
-        .map_err(PersistFailure::from_recent_error)
+    match database.put_recent_scope(cap, &item, stopped) {
+        Ok(()) => Ok(()),
+        Err(RecentWriteError::BeginBusy) => {
+            resolve_preparation_failure(database, cap, stopped, PersistFailure::Busy)
+        }
+        Err(RecentWriteError::Other(error)) => Err(PersistFailure::from_recent_error(error)),
+    }
 }
 
 fn resolve_preparation_failure(
@@ -319,24 +324,17 @@ impl PersistFailure {
         }
     }
 
-    fn with_context(self, job_ref: Id, correlation_id: Id) -> RecentScopeWriteWarning {
-        match self {
-            Self::InvalidEvidence => RecentScopeWriteWarning::InvalidEvidence {
-                job_ref,
-                correlation_id,
-            },
-            Self::Busy => RecentScopeWriteWarning::Busy {
-                job_ref,
-                correlation_id,
-            },
-            Self::DiskFull => RecentScopeWriteWarning::DiskFull {
-                job_ref,
-                correlation_id,
-            },
-            Self::StorageUnavailable => RecentScopeWriteWarning::StorageUnavailable {
-                job_ref,
-                correlation_id,
-            },
+    fn with_context(self, context: AttemptContext) -> RecentScopeWriteAttempt {
+        let warning = match self {
+            Self::InvalidEvidence => RecentScopeWriteWarning::InvalidEvidence,
+            Self::Busy => RecentScopeWriteWarning::Busy,
+            Self::DiskFull => RecentScopeWriteWarning::DiskFull,
+            Self::StorageUnavailable => RecentScopeWriteWarning::StorageUnavailable,
+        };
+        RecentScopeWriteAttempt {
+            warning,
+            job_ref: context.job_ref,
+            correlation_id: context.correlation_id,
         }
     }
 }
@@ -352,9 +350,17 @@ fn recent_id(now_ms: i64) -> Result<[u8; 16], PersistFailure> {
     Ok(bytes)
 }
 
-fn collect_attempt_contexts(receiver: &Receiver<AttemptContext>, pending: &mut HashMap<Id, Id>) {
+fn collect_attempt_contexts(
+    receiver: &Receiver<AttemptContext>,
+    pending: &mut HashMap<Id, AttemptContext>,
+) {
     while let Ok(context) = receiver.try_recv() {
-        pending.insert(context.job_ref, context.correlation_id);
+        let job_ref = context.job_ref.clone();
+        let previous = pending.insert(job_ref, context);
+        debug_assert!(
+            previous.is_none(),
+            "one posted admission context per jobRef"
+        );
     }
 }
 

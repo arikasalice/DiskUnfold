@@ -1,7 +1,5 @@
 use super::*;
-use du_core_contracts::settings::{
-    SettingsChanges, SettingsCommit, SettingsSource, SettingsStore, SettingsStoreError,
-};
+use du_core_contracts::settings::{SettingsChanges, SettingsCommit, SettingsSource, SettingsStore};
 use serde_json::json;
 use std::time::Duration;
 
@@ -41,7 +39,7 @@ fn resolve_gate_reads_off_without_writing_a_recent_row() -> TestResult {
 }
 
 #[test]
-fn resolve_gate_serializes_the_setting_read_with_setting_commits() -> TestResult {
+fn resolve_gate_uses_snapshot_without_blocking_settings_commit() -> TestResult {
     let dir = tempfile::tempdir()?;
     let path = dir.path().join("app.db");
     let mut db = AppDb::create_gui_with_history(&path).map_err(|error| format!("{error:?}"))?;
@@ -58,16 +56,17 @@ fn resolve_gate_serializes_the_setting_read_with_setting_commits() -> TestResult
     let enabled = store
         .resolve_with_setting(REMEMBER_RECENT, |value| {
             assert_eq!(value, None);
-            assert_eq!(
-                settings.commit(0, &off, context),
-                Err(SettingsStoreError::Busy)
-            );
+            assert_eq!(settings.commit(0, &off, context), Ok(1));
             value.unwrap_or(true)
         })
         .map_err(|error| format!("{error:?}"))?;
 
     assert!(enabled);
-    assert_eq!(settings.commit(0, &off, context), Ok(1));
+    assert!(
+        !store
+            .resolve_with_setting(REMEMBER_RECENT, |value| value.unwrap_or(true))
+            .map_err(|error| format!("{error:?}"))?
+    );
     Ok(())
 }
 
@@ -119,6 +118,11 @@ fn checked_write_propagates_other_sql_read_failures_without_inserting() -> TestR
         .map_err(|error| format!("{error:?}"))?;
 
     assert_eq!(
+        store
+            .put_with_setting_checked_staged(&item, REMEMBER_RECENT, |value| value.unwrap_or(true)),
+        Err(RecentWriteError::Other(RecentError::Storage))
+    );
+    assert_eq!(
         store.put_with_setting_checked(&item, REMEMBER_RECENT, |value| value.unwrap_or(true)),
         Err(RecentError::Storage)
     );
@@ -151,11 +155,17 @@ fn checked_write_recovers_from_a_known_missing_settings_table() -> TestResult {
 }
 
 #[test]
-fn resolve_gate_returns_busy_when_another_writer_holds_the_database() -> TestResult {
+fn resolve_gate_reads_committed_off_while_another_writer_holds_the_database() -> TestResult {
     let dir = tempfile::tempdir()?;
     let path = dir.path().join("app.db");
     let mut db = AppDb::create_gui_with_history(&path).map_err(|error| format!("{error:?}"))?;
     db.connection.busy_timeout(Duration::ZERO)?;
+    db.connection.execute(
+        "INSERT INTO user_env_setting
+            (setting_key, value_json, modified_source, created_at_ms, updated_at_ms, row_version)
+         VALUES (?1, 'false', 'owner', 1, 1, 1)",
+        [REMEMBER_RECENT],
+    )?;
     let lock = AppDb::open_gui_with_history(&path).map_err(|error| format!("{error:?}"))?;
     lock.connection.execute_batch("BEGIN IMMEDIATE")?;
 
@@ -163,8 +173,39 @@ fn resolve_gate_returns_busy_when_another_writer_holds_the_database() -> TestRes
         .map_err(|error| format!("{error:?}"))?;
     assert_eq!(
         store.resolve_with_setting(REMEMBER_RECENT, |value| value.unwrap_or(true)),
+        Ok(false)
+    );
+    lock.connection.execute_batch("ROLLBACK")?;
+    Ok(())
+}
+
+#[test]
+fn checked_write_reports_busy_before_the_setting_read() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("app.db");
+    let mut db = AppDb::create_gui_with_history(&path).map_err(|error| format!("{error:?}"))?;
+    db.connection.busy_timeout(Duration::ZERO)?;
+    let lock = AppDb::open_gui_with_history(&path).map_err(|error| format!("{error:?}"))?;
+    lock.connection.execute_batch("BEGIN IMMEDIATE")?;
+    let item = write(1, 1, 10);
+
+    let mut store = RecentScopeStore::new(&mut db, NonZeroUsize::new(2).ok_or("zero")?, &valid)
+        .map_err(|error| format!("{error:?}"))?;
+    assert_eq!(
+        store
+            .put_with_setting_checked_staged(&item, REMEMBER_RECENT, |value| value.unwrap_or(true)),
+        Err(RecentWriteError::BeginBusy)
+    );
+    assert_eq!(
+        store.put_with_setting_checked(&item, REMEMBER_RECENT, |value| value.unwrap_or(true)),
         Err(RecentError::Busy)
     );
     lock.connection.execute_batch("ROLLBACK")?;
+    assert!(
+        store
+            .list()
+            .map_err(|error| format!("{error:?}"))?
+            .is_empty()
+    );
     Ok(())
 }

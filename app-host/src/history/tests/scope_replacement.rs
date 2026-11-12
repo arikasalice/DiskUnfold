@@ -212,9 +212,10 @@ fn lossy_display_preserves_native_scope_identity() -> Result<(), Box<dyn std::er
     let (request, response, failed_write) = scan_response(&engine, &draft, &review)?;
     observer(&request, &response).ok_or("missing failed-write callback")?(ResponseDelivery::Posted);
     let warning = warnings.recv_timeout(Duration::from_secs(5))?;
-    assert_eq!(warning.job_ref(), &failed_write.job_ref);
-    assert_eq!(warning.correlation_id(), &Id::from_v7_bytes([42; 16]));
-    assert_eq!(warning.reason_key(), "scope.recent_store_failed");
+    assert_eq!(
+        warning,
+        crate::recent_scope_worker::RecentScopeWriteWarning::StorageUnavailable
+    );
     let warning_text = format!("{warning:?}");
     assert!(!warning_text.contains(target.to_string_lossy().as_ref()));
     assert!(!warning_text.contains(&review.review_fingerprint));

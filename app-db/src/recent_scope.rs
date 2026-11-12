@@ -26,6 +26,26 @@ pub enum RecentError {
     Storage,
 }
 
+/// Distinguishes failure to acquire the final write transaction from errors
+/// after its setting read has started.
+#[derive(Debug, PartialEq, Eq)]
+pub enum RecentWriteError {
+    /// SQLite was busy before the checked setting read began.
+    BeginBusy,
+    /// A validation, setting read, write, or commit failed after begin.
+    Other(RecentError),
+}
+
+impl RecentWriteError {
+    /// Maps the staged result back to the legacy storage error classification.
+    fn into_recent_error(self) -> RecentError {
+        match self {
+            Self::BeginBusy => RecentError::Busy,
+            Self::Other(error) => error,
+        }
+    }
+}
+
 /// The summary fields returned by the recent-scope list.
 #[derive(Debug, PartialEq, Eq)]
 pub struct RecentSummary {
@@ -113,16 +133,28 @@ impl<'a> RecentScopeStore<'a> {
         key: &str,
         allowed: impl FnOnce(Option<bool>) -> bool,
     ) -> Result<bool, RecentError> {
-        self.put_if(item, |tx, cap| {
+        self.put_with_setting_checked_staged(item, key, allowed)
+            .map_err(RecentWriteError::into_recent_error)
+    }
+
+    /// Like [`Self::put_with_setting_checked`], preserving the transaction stage
+    /// when the immediate transaction cannot be acquired.
+    pub fn put_with_setting_checked_staged(
+        &mut self,
+        item: &RecentWrite<'_>,
+        key: &str,
+        allowed: impl FnOnce(Option<bool>) -> bool,
+    ) -> Result<bool, RecentWriteError> {
+        self.put_if_checked(item, |tx, cap| {
             Ok(allowed(read_setting_bool_checked(tx, key)?).then_some(cap))
         })
     }
 
-    /// Resolves a setting in its own immediate transaction without writing a row.
+    /// Resolves a setting in its own deferred read transaction without writing a row.
     ///
     /// Use this before expensive, read-only preparation that may fail before a
     /// `RecentWrite` can be built. A later write must still use
-    /// `put_with_setting_checked`, which rechecks the value atomically with
+    /// `put_with_setting_checked_staged`, which rechecks the value atomically with
     /// insertion and eviction. The resolver must not perform I/O or access this
     /// database.
     pub fn resolve_with_setting<T>(
@@ -133,7 +165,7 @@ impl<'a> RecentScopeStore<'a> {
         let tx = self
             .db
             .connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .transaction_with_behavior(TransactionBehavior::Deferred)
             .map_err(map)?;
         let value = read_setting_bool_checked(&tx, key)?;
         let resolved = resolve(value);
@@ -200,15 +232,24 @@ impl<'a> RecentScopeStore<'a> {
         item: &RecentWrite<'_>,
         allowed: impl FnOnce(&Transaction<'_>, i64) -> Result<Option<i64>, RecentError>,
     ) -> Result<bool, RecentError> {
+        self.put_if_checked(item, allowed)
+            .map_err(RecentWriteError::into_recent_error)
+    }
+
+    fn put_if_checked(
+        &mut self,
+        item: &RecentWrite<'_>,
+        allowed: impl FnOnce(&Transaction<'_>, i64) -> Result<Option<i64>, RecentError>,
+    ) -> Result<bool, RecentWriteError> {
         if !valid_id(&item.id) || item.include_count == 0 || !(self.validate_body)(item.body) {
-            return Err(RecentError::Invalid);
+            return Err(RecentWriteError::Other(RecentError::Invalid));
         }
         let tx = self
             .db
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(map)?;
-        let Some(cap) = allowed(&tx, self.cap)? else {
+            .map_err(map_begin)?;
+        let Some(cap) = allowed(&tx, self.cap).map_err(RecentWriteError::Other)? else {
             return Ok(false);
         };
         tx.execute(
@@ -229,9 +270,12 @@ impl<'a> RecentScopeStore<'a> {
                 item.now_ms
             ],
         )
-        .map_err(map)?;
-        tx.execute("DELETE FROM user_env_recent_scope WHERE recent_scope_id IN (SELECT recent_scope_id FROM user_env_recent_scope ORDER BY last_used_at_ms DESC,recent_scope_id ASC LIMIT -1 OFFSET ?1)", [cap]).map_err(map)?;
-        tx.commit().map_err(map)?;
+        .map_err(map)
+        .map_err(RecentWriteError::Other)?;
+        tx.execute("DELETE FROM user_env_recent_scope WHERE recent_scope_id IN (SELECT recent_scope_id FROM user_env_recent_scope ORDER BY last_used_at_ms DESC,recent_scope_id ASC LIMIT -1 OFFSET ?1)", [cap])
+            .map_err(map)
+            .map_err(RecentWriteError::Other)?;
+        tx.commit().map_err(map).map_err(RecentWriteError::Other)?;
         Ok(true)
     }
 
@@ -415,6 +459,12 @@ impl RawSummary {
 fn valid_id(id: &[u8; 16]) -> bool {
     let id = uuid::Uuid::from_bytes(*id);
     id.get_version_num() == 7 && id.get_variant() == uuid::Variant::RFC4122
+}
+fn map_begin(error: rusqlite::Error) -> RecentWriteError {
+    match map(error) {
+        RecentError::Busy => RecentWriteError::BeginBusy,
+        other => RecentWriteError::Other(other),
+    }
 }
 fn map(error: rusqlite::Error) -> RecentError {
     match error.sqlite_error_code() {

@@ -8,7 +8,8 @@ use std::{
 };
 
 #[test]
-fn disabled_storage_and_missing_source_are_silent() -> Result<(), Box<dyn std::error::Error>> {
+fn disabled_storage_with_writer_and_missing_source_are_silent()
+-> Result<(), Box<dyn std::error::Error>> {
     use du_platform_os::webview::ResponseDelivery;
 
     let fixture = tempfile::tempdir()?;
@@ -28,6 +29,7 @@ fn disabled_storage_and_missing_source_are_silent() -> Result<(), Box<dyn std::e
         Arc::new(du_core_contracts::settings::SharedTableLimit::default),
         NonZeroUsize::new(2).ok_or("zero pending capacity")?,
     )?;
+    let events = services.events;
     let admissions = services
         .recent_scope_admissions
         .ok_or("missing recent-scope consumer")?;
@@ -63,7 +65,8 @@ fn disabled_storage_and_missing_source_are_silent() -> Result<(), Box<dyn std::e
         )?
         .body,
     )?;
-    let (request, response, _) = scan_response(&engine, &draft, &review)?;
+    let (request, response, scan) = scan_response(&engine, &draft, &review)?;
+    terminal_batch(&events, &scan.job_ref)?;
 
     let sql = Connection::open(
         profile
@@ -76,6 +79,7 @@ fn disabled_storage_and_missing_source_are_silent() -> Result<(), Box<dyn std::e
          VALUES ('scope.remember_recent', 'false', 'owner', 1, 1, 1)",
         [],
     )?;
+    sql.execute_batch("BEGIN IMMEDIATE")?;
     observer(&request, &response).ok_or("missing disabled-save delivery callback")?(
         ResponseDelivery::Posted,
     );
@@ -89,6 +93,7 @@ fn disabled_storage_and_missing_source_are_silent() -> Result<(), Box<dyn std::e
     })?;
     assert_eq!(rows, 0);
     assert_eq!(encode_calls.load(Ordering::Relaxed), 0);
+    sql.execute_batch("ROLLBACK")?;
 
     sql.execute(
         "UPDATE user_env_setting SET value_json='true' WHERE setting_key='scope.remember_recent'",
@@ -273,8 +278,8 @@ fn encode_failure_resolves_remember_setting_after_observation()
     );
     completed.recv_timeout(Duration::from_secs(5))?;
     let warning = warnings.recv_timeout(Duration::from_secs(5))?;
-    assert_eq!(warning.job_ref(), &second_scan.job_ref);
-    assert_eq!(warning.correlation_id(), &Id::from_v7_bytes([42; 16]));
+    assert_eq!(warning.job_ref, second_scan.job_ref);
+    assert_eq!(warning.correlation_id, Id::from_v7_bytes([42; 16]));
     assert_eq!(warning.reason_key(), "scope.recent_store_failed");
     assert_eq!(
         sql.query_row("SELECT count(*) FROM user_env_recent_scope", [], |row| row

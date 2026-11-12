@@ -96,7 +96,12 @@ fn handoff_at_pending_admission_limit_keeps_out_of_order_contexts_matched() {
     assert_eq!(pending.len(), usize::from(PENDING_ADMISSIONS));
 
     for (job_ref, correlation_id) in expected {
-        assert_eq!(pending.remove(&job_ref), Some(correlation_id));
+        let context = pending.remove(&job_ref);
+        assert!(context.is_some(), "context for each claimed ticket");
+        if let Some(context) = context {
+            assert_eq!(context.job_ref, job_ref);
+            assert_eq!(context.correlation_id, correlation_id);
+        }
     }
     assert!(pending.is_empty());
 }
@@ -121,14 +126,32 @@ fn database_gate_failures_use_published_reason_keys() {
     let job_ref = Id::from_v7_bytes([2; 16]);
     let correlation_id = Id::from_v7_bytes([3; 16]);
 
-    let busy = PersistFailure::from_recent_error(RecentError::Busy)
-        .with_context(job_ref.clone(), correlation_id.clone());
-    let full = PersistFailure::from_recent_error(RecentError::DiskFull)
-        .with_context(job_ref.clone(), correlation_id.clone());
-    let other = PersistFailure::from_recent_error(RecentError::Storage)
-        .with_context(job_ref.clone(), correlation_id);
+    let context = || AttemptContext {
+        job_ref: job_ref.clone(),
+        correlation_id: correlation_id.clone(),
+    };
+    let busy = PersistFailure::from_recent_error(RecentError::Busy).with_context(context());
+    let full = PersistFailure::from_recent_error(RecentError::DiskFull).with_context(context());
+    let other = PersistFailure::from_recent_error(RecentError::Storage).with_context(context());
 
     assert_eq!(busy.reason_key(), "db.busy");
     assert_eq!(full.reason_key(), "db.disk_full");
     assert_eq!(other.reason_key(), "scope.recent_store_failed");
+    assert_eq!(busy.warning, RecentScopeWriteWarning::Busy);
+    assert_eq!(busy.job_ref, job_ref);
+    assert_eq!(busy.correlation_id, correlation_id);
+}
+
+#[test]
+fn public_warning_api_keeps_copyable_unit_variants() {
+    fn accepts_warning_sink(_: impl Fn(RecentScopeWriteWarning)) {}
+    fn assert_copy<T: Copy>() {}
+
+    assert_copy::<RecentScopeWriteWarning>();
+    let warning = RecentScopeWriteWarning::Busy;
+    let copied = warning;
+    assert_eq!(warning, copied);
+    accepts_warning_sink(|value| {
+        let _copy = value;
+    });
 }

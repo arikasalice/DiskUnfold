@@ -13,8 +13,8 @@ use std::{
 use du_app_db::{
     AppDb,
     recent_scope::{
-        RecentError, RecentItem, RecentScopeStore, RecentSummary, RecentWrite, list_recent_scopes,
-        read_recent_scope,
+        RecentError, RecentItem, RecentScopeStore, RecentSummary, RecentWrite, RecentWriteError,
+        list_recent_scopes, read_recent_scope,
     },
 };
 use du_core_contracts::{
@@ -85,24 +85,31 @@ impl SharedDatabase {
         cap: NonZeroUsize,
         item: &RecentWrite<'_>,
         stopped: &AtomicBool,
-    ) -> Result<(), RecentError> {
-        let mut connection = self.0.connection.lock().map_err(|_| RecentError::Storage)?;
+    ) -> Result<(), RecentWriteError> {
+        let mut connection = self
+            .0
+            .connection
+            .lock()
+            .map_err(|_| RecentWriteError::Other(RecentError::Storage))?;
         let exact_body = |body: &str| body == item.body;
-        RecentScopeStore::new(&mut connection, cap, &exact_body)?.put_with_setting_checked(
-            item,
-            du_user_env::scope::REMEMBER_RECENT,
-            |remember| {
-                !stopped.load(Ordering::Acquire)
-                    && du_user_env::scope::remember_recent_value(remember)
-            },
-        )?;
+        RecentScopeStore::new(&mut connection, cap, &exact_body)
+            .map_err(RecentWriteError::Other)?
+            .put_with_setting_checked_staged(
+                item,
+                du_user_env::scope::REMEMBER_RECENT,
+                |remember| {
+                    !stopped.load(Ordering::Acquire)
+                        && du_user_env::scope::remember_recent_value(remember)
+                },
+            )?;
         Ok(())
     }
 
     /// Resolves whether one recent-scope attempt is currently enabled.
     ///
-    /// This short `BEGIN IMMEDIATE` check runs before native observation and
-    /// encoding. The final write still rechecks the setting in its own atomic
+    /// This deferred read snapshot runs before native observation and encoding,
+    /// so an independent writer does not turn a committed off value into a busy
+    /// warning. The final write still rechecks the setting in its immediate
     /// transaction with insertion and eviction.
     pub(super) fn resolve_recent_scope_remember(
         &self,
