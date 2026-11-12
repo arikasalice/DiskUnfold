@@ -282,5 +282,30 @@ fn verify_async_browse(
     let error = rejected.error.ok_or("different version was accepted")?;
     assert_eq!(error.code, ErrorCode::StaleVersion);
     assert_eq!(error.reason_key, "result.requery_required");
+
+    // A late cancellation through the desktop IPC surface must leave a
+    // published Browse result readable and keep job.get aligned with the
+    // job.finished event.
+    let cancelled = ipc(
+        engine,
+        "query.cancel",
+        json!({"regionRef":region_ref,"target":{"kind":"job","jobRef":job_ref}}),
+    )?;
+    assert!(cancelled.error.is_none(), "{:?}", cancelled.error);
+    assert_eq!(cancelled.body["outcome"], "already_terminal");
+    let status = ipc(engine, "job.get", json!({"jobRef":job_ref}))?;
+    assert!(status.error.is_none(), "{:?}", status.error);
+    let status: AnalysisJobStatus = serde_json::from_value(status.body)?;
+    assert_eq!(status.state, JobState::Done);
+    assert_eq!(status.query_ref.as_ref(), Some(&query_ref));
+    assert_eq!(finished.body["state"], "done");
+    assert_eq!(finished.body["queryRef"], query_ref.as_str());
+    let surviving_page = ipc(
+        engine,
+        "query.page",
+        json!({"queryRef":query_ref,"resultVersion":version,"start":0,"count":1}),
+    )?;
+    assert!(surviving_page.error.is_none(), "{:?}", surviving_page.error);
+    assert_eq!(surviving_page.body["queryRef"], query_ref.as_str());
     Ok(())
 }
