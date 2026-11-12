@@ -233,5 +233,4 @@ fn migration_error(error: MigrationError) -> io::Error {
 mod tests;
 
 #[cfg(all(test, target_os = "linux"))]
-#[path = "startup_database/linux_tests.rs"]
-mod tests;
+mod linux_tests;
