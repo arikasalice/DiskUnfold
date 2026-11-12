@@ -7,6 +7,7 @@ pub mod change_notify;
 mod envelopes;
 pub mod history_ipc;
 pub mod job;
+pub mod locale_ipc;
 pub mod ports;
 pub mod query_page_ipc;
 pub mod query_region_ipc;
