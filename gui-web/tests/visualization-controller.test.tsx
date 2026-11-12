@@ -1270,6 +1270,8 @@ test.each(["en", "ko"] as const)(
       message: (key: Parameters<typeof fixtureText.message>[0]) =>
         visualizationMessage(language, key),
     };
+    const distributionName =
+      language === "ko" ? "공간 분포" : "Space distribution";
     render(<ControlledVisualization controller={controller} text={text} />);
     await act(async () => controller.render(request(1)));
     await act(async () =>
@@ -1281,7 +1283,7 @@ test.each(["en", "ko"] as const)(
       }),
     );
     const button = within(
-      screen.getByRole("group", { name: "Space distribution" }),
+      screen.getByRole("group", { name: distributionName }),
     ).getAllByRole("button")[0]!;
     act(() => {
       button.focus();
@@ -1367,6 +1369,8 @@ test.each(["en", "ko"] as const)(
       message: (key: Parameters<typeof fixtureText.message>[0]) =>
         visualizationMessage(language, key),
     };
+    const distributionName =
+      language === "ko" ? "공간 분포" : "Space distribution";
     render(
       <>
         <ControlledVisualization controller={controller} text={text} />
@@ -1375,7 +1379,7 @@ test.each(["en", "ko"] as const)(
     );
     await act(async () => controller.render(request(1)));
     const old = within(
-      screen.getByRole("group", { name: "Space distribution" }),
+      screen.getByRole("group", { name: distributionName }),
     ).getAllByRole("button")[0]!;
     act(() => {
       old.focus();
@@ -1393,7 +1397,7 @@ test.each(["en", "ko"] as const)(
     ).toBeTruthy();
     act(() => fireEvent.click(action));
     const target = within(
-      screen.getByRole("group", { name: "Space distribution" }),
+      screen.getByRole("group", { name: distributionName }),
     ).getAllByRole("button")[0]!;
     expect(document.activeElement).toBe(target);
     expect(controller.getSnapshot().previousSelection).not.toBeNull();

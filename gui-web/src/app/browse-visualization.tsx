@@ -161,7 +161,10 @@ export function BrowseVisualizationActions({
       {visible && available && (
         <div hidden={open}>
           <Action variant="quiet" icon="layers" ref={trigger} onPress={onOpen}>
-            {text("ui.visualization.show_space_distribution", "Show space distribution")}
+            {text(
+              "ui.visualization.show_space_distribution",
+              "Show space distribution",
+            )}
           </Action>
         </div>
       )}
@@ -253,11 +256,22 @@ export function BrowseVisualizationView({
   if (!client || !assembly || !selection)
     return (
       <div className="du-visualization-shell">
-        <Text>{text("ui.visualization.unavailable_for_folder", "Space distribution is unavailable for this folder.")}</Text>
+        <Text>
+          {text(
+            "ui.visualization.unavailable_for_folder",
+            "Space distribution is unavailable for this folder.",
+          )}
+        </Text>
       </div>
     );
   return (
-    <section className="du-visualization-shell" aria-label={text("ui.visualization.space_distribution", "Space distribution")}>
+    <section
+      className="du-visualization-shell"
+      aria-label={text(
+        "ui.visualization.space_distribution",
+        "Space distribution",
+      )}
+    >
       <div ref={viewportElement} className="du-visualization-viewport">
         {viewport ? (
           <VisualizationSession
@@ -274,7 +288,9 @@ export function BrowseVisualizationView({
               : {})}
           />
         ) : (
-          <Progress label={text("ui.visualization.loading", "Loading visualization")} />
+          <Progress
+            label={text("ui.visualization.loading", "Loading visualization")}
+          />
         )}
       </div>
     </section>

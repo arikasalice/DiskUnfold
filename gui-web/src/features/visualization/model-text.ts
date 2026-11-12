@@ -33,9 +33,7 @@ function formatTemplate(
   template: string,
   values?: Readonly<Record<string, string | bigint>>,
 ): string {
-  return interpolate(template, (name) =>
-    String(values?.[name] ?? `{${name}}`),
-  );
+  return interpolate(template, (name) => String(values?.[name] ?? `{${name}}`));
 }
 
 /** Raw byte evidence remains readable even when the main value uses rounded units. */

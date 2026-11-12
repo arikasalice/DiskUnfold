@@ -95,7 +95,10 @@ export function GroupMembersPresenter({
       />
       <GroupRows rows={rows} text={text} />
 
-      <nav className="du-review-actions" aria-label={text.message("memberRanges")}>
+      <nav
+        className="du-review-actions"
+        aria-label={text.message("memberRanges")}
+      >
         <Action isDisabled={loading || !hasPrevious} onPress={onPrevious}>
           {text.message("previousRange")}
         </Action>

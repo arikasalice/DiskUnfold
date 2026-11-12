@@ -100,11 +100,7 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
     </>
   );
   if (!adapted.validTargets)
-    return (
-      <Notice tone="error">
-        {text.message("invalidReferences")}
-      </Notice>
-    );
+    return <Notice tone="error">{text.message("invalidReferences")}</Notice>;
   return (
     <section
       ref={(element) => {
@@ -139,9 +135,7 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
         <Text>{text.observedAt(frame.observedAt)}</Text>
       </div>
       {frame.model.shapes.length === 0 && (
-        <Notice>
-          {text.message("noDrawableItems")}
-        </Notice>
+        <Notice>{text.message("noDrawableItems")}</Notice>
       )}
       <ChartRenderer
         modelRef={frame.model.modelRef}
@@ -313,12 +307,15 @@ export function ModelRows({
                               row.groupRef,
                               row.size,
                               trigger,
-                              row.displayName.trim() || text.message("otherItems"),
+                              row.displayName.trim() ||
+                                text.message("otherItems"),
                               returnTargetRef?.current ?? rowsRegion.current,
                             );
                         }}
                         aria-label={vizMessage(text, "viewMembersOf", {
-                          name: row.displayName.trim() || text.message("otherItems"),
+                          name:
+                            row.displayName.trim() ||
+                            text.message("otherItems"),
                         })}
                       >
                         {text.message("viewMembers")}
@@ -384,8 +381,14 @@ function ModelEvidence({
       <Readout
         label={text.message("representation")}
         rows={[
-          { label: text.message("format"), value: text.key(model.representation.format) },
-          { label: text.message("measure"), value: text.key(model.representation.measure) },
+          {
+            label: text.message("format"),
+            value: text.key(model.representation.format),
+          },
+          {
+            label: text.message("measure"),
+            value: text.key(model.representation.measure),
+          },
           {
             label: text.message("sizeBasis"),
             value: text.key(model.representation.sizeBasis),

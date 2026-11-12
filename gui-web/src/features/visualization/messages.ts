@@ -64,12 +64,15 @@ export const visualizationMessages = {
     updateFailed: "Visualization could not be updated.",
     openFailed: "Visualization could not be opened.",
     rowsNotRetrieved: "Rows have not been retrieved for this graph.",
-    invalidReferences: "The graph contains inconsistent item references. Reload this result.",
+    invalidReferences:
+      "The graph contains inconsistent item references. Reload this result.",
     storageVisualization: "Storage visualization",
-    noDrawableItems: "No drawable items in this result. Review its totals and unavailable values below.",
+    noDrawableItems:
+      "No drawable items in this result. Review its totals and unavailable values below.",
     spaceDistribution: "Space distribution",
     selected: "selected",
-    graphFallback: "This graph cannot be drawn. The rows below belong to the same result.",
+    graphFallback:
+      "This graph cannot be drawn. The rows below belong to the same result.",
     graphRowsUnavailable: "Rows from this result are unavailable.",
     rowsFromGraph: "Rows from this graph",
     noRowsInPage: "No rows in this page",
@@ -116,10 +119,14 @@ export const visualizationMessages = {
     groupName: "Name",
     groupSize: "Size",
     viewGroupMembers: "View group members",
-    groupTargetUnavailable: "The original group target is no longer available. Return to the visualization.",
-    groupResultStale: "This result is no longer available. Return to the visualization to refresh it.",
-    groupMissing: "This group is no longer available. Return to the visualization.",
-    groupResponseMismatch: "The group response did not match this visualization.",
+    groupTargetUnavailable:
+      "The original group target is no longer available. Return to the visualization.",
+    groupResultStale:
+      "This result is no longer available. Return to the visualization to refresh it.",
+    groupMissing:
+      "This group is no longer available. Return to the visualization.",
+    groupResponseMismatch:
+      "The group response did not match this visualization.",
     measuredEvidence: "Measured",
     reportedEvidence: "Reported by the file system",
     estimatedEvidence: "Estimated",
@@ -192,9 +199,11 @@ export const visualizationMessages = {
     updateFailed: "시각화를 갱신하지 못했습니다.",
     openFailed: "시각화를 열지 못했습니다.",
     rowsNotRetrieved: "이 그래프의 행을 아직 불러오지 않았습니다.",
-    invalidReferences: "그래프의 항목 참조가 일치하지 않습니다. 이 결과를 다시 불러오세요.",
+    invalidReferences:
+      "그래프의 항목 참조가 일치하지 않습니다. 이 결과를 다시 불러오세요.",
     storageVisualization: "저장 공간 시각화",
-    noDrawableItems: "이 결과에는 그릴 항목이 없습니다. 아래에서 합계와 사용할 수 없는 값을 확인하세요.",
+    noDrawableItems:
+      "이 결과에는 그릴 항목이 없습니다. 아래에서 합계와 사용할 수 없는 값을 확인하세요.",
     spaceDistribution: "공간 분포",
     selected: "선택됨",
     graphFallback: "그래프를 그릴 수 없습니다. 아래 행은 같은 결과에 속합니다.",
@@ -244,8 +253,10 @@ export const visualizationMessages = {
     groupName: "이름",
     groupSize: "크기",
     viewGroupMembers: "그룹 구성원 보기",
-    groupTargetUnavailable: "원래 그룹 대상을 더 이상 사용할 수 없습니다. 시각화로 돌아가세요.",
-    groupResultStale: "이 결과를 더 이상 사용할 수 없습니다. 새로 고치려면 시각화로 돌아가세요.",
+    groupTargetUnavailable:
+      "원래 그룹 대상을 더 이상 사용할 수 없습니다. 시각화로 돌아가세요.",
+    groupResultStale:
+      "이 결과를 더 이상 사용할 수 없습니다. 새로 고치려면 시각화로 돌아가세요.",
     groupMissing: "이 그룹을 더 이상 사용할 수 없습니다. 시각화로 돌아가세요.",
     groupResponseMismatch: "그룹 응답이 이 시각화와 일치하지 않습니다.",
     measuredEvidence: "측정됨",

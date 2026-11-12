@@ -105,7 +105,7 @@ function feedbackMessage(feedback: CopyFeedback, text: LocaleText) {
       });
     case "copied":
       return feedback.count === 1
-        ? text("ui.browse.copied_one_path_for", "Copied one path for {name}.", {
+        ? text("ui.browse.copied_one_path_for", "Copied 1 path for {name}.", {
             name: feedback.name,
           })
         : text(
@@ -118,25 +118,25 @@ function feedbackMessage(feedback: CopyFeedback, text: LocaleText) {
         case "path.unrepresentable":
           return text(
             "ui.browse.path_unrepresentable_for",
-            "Could not copy the path for {name}: the path cannot be represented.",
+            "{name}: The path cannot be represented.",
             { name: feedback.name },
           );
         case "path.multiline":
           return text(
             "ui.browse.path_multiline_for",
-            "Could not copy the path for {name}: multiline paths cannot be copied.",
+            "{name}: A multiline path cannot be copied.",
             { name: feedback.name },
           );
         case "clipboard.unsupported":
           return text(
             "ui.browse.clipboard_unsupported_for",
-            "Could not copy the path for {name}: clipboard support is unavailable.",
+            "{name}: The clipboard is not supported.",
             { name: feedback.name },
           );
         case "clipboard.failed":
           return text(
             "ui.browse.clipboard_failed_for",
-            "Could not copy the path for {name}: clipboard copy failed.",
+            "{name}: Could not copy to the clipboard.",
             { name: feedback.name },
           );
         default:

@@ -53,7 +53,11 @@ export function VisualizationSession({
     () => ({
       ...text,
       message: (key, values) =>
-        localeText(`ui.visualization.${key}`, visualizationMessages.en[key], values),
+        localeText(
+          `ui.visualization.${key}`,
+          visualizationMessages.en[key],
+          values,
+        ),
     }),
     [localeText, text],
   );

@@ -285,11 +285,16 @@ export function BrowsePanel({
           {text("ui.browse.folders_and_files", "Folders and files")}
         </Heading>
         {busy && (
-          <Progress label={text("ui.browse.opening_folder", "Opening folder")} />
+          <Progress
+            label={text("ui.browse.opening_folder", "Opening folder")}
+          />
         )}
         {message === "error" && (
           <Notice tone="error">
-            {text("ui.browse.open_folder_failed", "Could not open this folder.")}{" "}
+            {text(
+              "ui.browse.open_folder_failed",
+              "Could not open this folder.",
+            )}{" "}
             <Action
               isPending={busy}
               onPress={() =>
@@ -327,8 +332,10 @@ export function BrowsePanel({
                 <Breadcrumbs
                   label={text("ui.browse.folder_path", "Folder path")}
                   entries={readOnlyBreadcrumbs(
-                    folderPath(view.opened, hasVirtualRoot, (item) =>
-                      navigate(item, page.resultVersion),
+                    folderPath(
+                      view.opened,
+                      hasVirtualRoot,
+                      (item) => navigate(item, page.resultVersion),
                       text,
                     ),
                     previousResult,
@@ -342,7 +349,10 @@ export function BrowsePanel({
             />
             {page.completeness !== "complete" && (
               <Notice>
-                {text("ui.browse.results_incomplete", "Results are incomplete.")}
+                {text(
+                  "ui.browse.results_incomplete",
+                  "Results are incomplete.",
+                )}
               </Notice>
             )}
           </div>
@@ -394,7 +404,8 @@ function ObservationSummary({
       <Text kind="muted">
         {opened.origin} ·{" "}
         {page.observedAt?.slice(0, 10) ??
-          text("ui.browse.unavailable", "Unavailable")} ·{" "}
+          text("ui.browse.unavailable", "Unavailable")}{" "}
+        ·{" "}
         {page.total.state === "lower_bound"
           ? `${text("ui.browse.at_least", "At least")} `
           : ""}
@@ -422,13 +433,11 @@ function ObservationSummary({
             )}
             rows={[
               {
-                label: text("ui.browse.location_hierarchy", "Location hierarchy"),
-                value: folderPath(
-                  opened,
-                  hasVirtualRoot,
-                  () => undefined,
-                  text,
-                )
+                label: text(
+                  "ui.browse.location_hierarchy",
+                  "Location hierarchy",
+                ),
+                value: folderPath(opened, hasVirtualRoot, () => undefined, text)
                   .map((entry) => entry.label)
                   .join(" / "),
                 wideValue: true,
