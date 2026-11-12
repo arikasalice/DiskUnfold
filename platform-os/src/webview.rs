@@ -13,9 +13,16 @@ mod windows;
 pub use contract::{Asset, WebApp};
 #[cfg(target_os = "windows")]
 pub use contract::{
-    DispatchLane, EventCallbacks, EventPostFailure, Events, ResponseDelivery,
-    ResponseDeliveryCallback, ResponseDeliveryObserver,
+    DispatchLane, ResponseDelivery, ResponseDeliveryCallback, ResponseDeliveryObserver,
 };
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+pub use contract::{EventCallbacks, EventPostFailure, Events};
+
+/// Runs the Linux webview and delivers events to its trusted top-level page.
+#[cfg(target_os = "linux")]
+pub fn run_with_events(app: WebApp, events: Events) -> Result<(), Box<dyn std::error::Error>> {
+    linux::run(app, Some(events))
+}
 
 /// Runs the Windows webview and delivers events to its trusted top-level page.
 #[cfg(target_os = "windows")]
@@ -25,7 +32,7 @@ pub fn run_with_events(app: WebApp, events: Events) -> Result<(), Box<dyn std::e
 
 pub fn run(app: WebApp) -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(target_os = "linux")]
-    return linux::run(app);
+    return linux::run(app, None);
     #[cfg(target_os = "macos")]
     return macos::run(app);
     #[cfg(target_os = "windows")]

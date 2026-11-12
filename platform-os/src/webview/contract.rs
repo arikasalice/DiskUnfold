@@ -17,7 +17,7 @@ pub struct Asset {
 pub type Dispatch = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
 
 /// Non-blocking source of serialized application event envelopes.
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 #[derive(Clone)]
 pub struct Events {
     next: Arc<dyn Fn() -> Option<String> + Send + Sync>,
@@ -25,7 +25,7 @@ pub struct Events {
 }
 
 /// Callbacks for delivery loss and top-level document lifecycle changes.
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 #[derive(Clone)]
 pub struct EventCallbacks {
     post_failed: Arc<dyn Fn(EventPostFailure) + Send + Sync>,
@@ -35,7 +35,7 @@ pub struct EventCallbacks {
 }
 
 /// Describes one failed native post and the later events discarded from its batch.
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 #[derive(Debug, PartialEq, Eq)]
 pub struct EventPostFailure {
     /// Serialized envelope rejected by the native WebView post call.
@@ -44,7 +44,7 @@ pub struct EventPostFailure {
     pub discarded: Vec<String>,
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 impl Events {
     /// Creates the application event source with native delivery callbacks.
     pub fn new(
@@ -78,7 +78,7 @@ impl Events {
     }
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 impl EventCallbacks {
     /// Creates failure reporting and document lifecycle callbacks.
     pub fn new(
