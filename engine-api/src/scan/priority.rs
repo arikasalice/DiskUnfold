@@ -100,9 +100,13 @@ impl UseCase for PrioritizeScan {
         let Some(control) = active.control.as_ref() else {
             return Ok(already_terminal());
         };
-        let outcome = with_current_partial(&self.store, &version, || {
-            control.prioritize(root_index, &components)
-        })?;
+        // Lock order: admitted -> result store -> control attachment -> scheduler queue.
+        // The runtime state probe above released its table lock before this guard. Publication
+        // takes event-order -> result store; no publication or worker path takes Queue -> result store.
+        let outcome = self
+            .store
+            .with_current(&version, || control.prioritize(root_index, components))
+            .map_err(map_pin_error)?;
         match outcome {
             Ok(du_scan_engine::scan::ScanPriorityOutcome::Accepted { .. }) => {
                 Ok(ScanPriorityResponse {
@@ -156,17 +160,6 @@ fn is_live_scan_partial(version: &ResultVersion) -> bool {
     version.completeness() == ResultCompleteness::Partial
 }
 
-fn with_current_partial<T>(
-    store: &IngestSink,
-    pinned: &ResultVersion,
-    apply: impl FnOnce() -> T,
-) -> Result<T, EngineError> {
-    store
-        .pin_current(pinned.version_id())
-        .map_err(map_pin_error)?;
-    Ok(apply())
-}
-
 #[cfg(test)]
 mod admission_tests {
     use super::*;
@@ -213,45 +206,6 @@ mod admission_tests {
         assert!(is_live_scan_partial(&partial));
         // A terminal result can be current before JobRuntime records its terminal state.
         assert!(!is_live_scan_partial(&complete));
-        Ok(())
-    }
-
-    #[test]
-    fn a_superseding_partial_prevents_the_scheduler_mutation() -> Result<(), String> {
-        let store = IngestSink::default();
-        let lineage = store
-            .bind_current_analysis("priority-revalidation-scope", id(1))
-            .map_err(|error| format!("bind lineage: {error:?}"))?;
-        let root = ResultScopeRoot {
-            path: ResultNativePath {
-                encoding: PathEncoding::WindowsUtf16le,
-                raw: PathBytes::from_bytes(&[b'C', 0]),
-            },
-            volume_id: vec![1],
-            file_id: vec![2],
-        };
-        let mut build = store
-            .open_forest_in_lineage(id(2), vec![root], lineage)
-            .map_err(|error| format!("open scan result: {error:?}"))?;
-        build
-            .add_directory_at(0, Vec::new())
-            .map_err(|error| format!("add root directory: {error:?}"))?;
-        build
-            .publish_partial(id(3))
-            .map_err(|error| format!("publish initial partial: {error:?}"))?;
-        let pinned = store
-            .pin_current(&id(3))
-            .map_err(|error| format!("pin initial partial: {error:?}"))?;
-        build
-            .publish_partial(id(4))
-            .map_err(|error| format!("publish replacement partial: {error:?}"))?;
-
-        let mut mutated = false;
-        let error = with_current_partial(&store, &pinned, || mutated = true)
-            .err()
-            .ok_or("superseded partial reached the scheduler mutation")?;
-        assert_eq!(error, EngineError::reason("result.version_stale"));
-        assert!(!mutated);
         Ok(())
     }
 }

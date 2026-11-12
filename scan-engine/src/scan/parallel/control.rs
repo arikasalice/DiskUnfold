@@ -79,7 +79,7 @@ impl ScanControlSession {
     fn prioritize(
         &self,
         root_index: u32,
-        path: &[Vec<u8>],
+        path: Vec<Vec<u8>>,
     ) -> Result<ScanPriorityOutcome, ScanControlError> {
         if root_index as usize >= self.root_count || path.iter().any(Vec::is_empty) {
             return Err(ScanControlError::OutOfScope);
@@ -102,10 +102,7 @@ impl ScanControlSession {
             .and_then(Weak::upgrade)
             .ok_or(ScanControlError::NotActive)?;
         let mut queue = queue.lock().map_err(|_| ScanControlError::Unavailable)?;
-        let decision = queue.prioritize(queue::PriorityRegion {
-            root_index,
-            path: path.to_vec(),
-        });
+        let decision = queue.prioritize(queue::PriorityRegion { root_index, path });
         wake.notify_all();
         Ok(match decision {
             queue::PriorityDecision::Accepted { remaining } => ScanPriorityOutcome::Accepted {
@@ -126,7 +123,8 @@ impl ScanControlSession {
 ///
 /// It never retains the job or scheduler after terminal completion. Callers
 /// must resolve the target from the job's current, pinned result and pass only
-/// its admitted root index and raw relative components.
+/// its admitted root index and raw relative components. It consumes those
+/// components so admission does not copy path evidence under the result lock.
 #[derive(Clone)]
 pub struct ScanControlHandle {
     session: Weak<ScanControlSession>,
@@ -139,7 +137,8 @@ impl ScanControlHandle {
     /// roots, enumerate a path itself, or interrupt an OS call already in
     /// progress. A successful count includes active and queued directory work
     /// currently known below the target. The caller must validate the result
-    /// version, scope version and folder kind before calling this method.
+    /// version, scope version and folder kind before calling this method. The
+    /// raw relative components are consumed by the call.
     ///
     /// # Errors
     /// Returns [`ScanControlError::NotActive`] before the job body attaches,
@@ -150,7 +149,7 @@ impl ScanControlHandle {
     pub fn prioritize(
         &self,
         root_index: u32,
-        path: &[Vec<u8>],
+        path: Vec<Vec<u8>>,
     ) -> Result<ScanPriorityOutcome, ScanControlError> {
         let session = self
             .session

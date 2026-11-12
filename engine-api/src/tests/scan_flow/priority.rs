@@ -161,6 +161,12 @@ fn assert_priority_replacement_and_completion(
         first.body["appliedPriorityArea"]["itemNo"],
         run.area_a.item_no
     );
+    let current = run
+        .harness
+        .versions
+        .pin_current(&run.area_a.result_version)
+        .map_err(|error| format!("pin accepted priority result: {error:?}"))?;
+    assert_eq!(current.version_id(), &run.area_a.result_version);
 
     let replacement = prioritize(run, &run.area_b, &run.started.job_ref, Channel::Gui)?;
     assert!(replacement.error.is_none());
@@ -219,12 +225,13 @@ fn assert_priority_replacement_and_completion(
 
 fn assert_terminal_priority(run: &PriorityRun) -> Result<(), Box<dyn std::error::Error>> {
     let delivery = scan_delivery(&run.harness.terminal)?;
-    check_terminal_scan(
+    let final_version = check_terminal_scan(
         &run.harness.engine,
         *delivery.summary,
         delivery.history_recorded,
         &run.started.job_ref,
     )?;
+    assert_ne!(final_version, run.area_a.result_version);
     let terminal = prioritize(run, &run.area_b, &run.started.job_ref, Channel::Gui)?;
     assert!(terminal.error.is_none());
     assert_eq!(terminal.body["controlResult"], "already_terminal");
