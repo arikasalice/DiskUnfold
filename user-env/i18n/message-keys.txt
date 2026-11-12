@@ -703,6 +703,7 @@ ui.analysis.close_target_editor
 ui.analysis.scan_and_results
 ui.analysis.drives_unsupported
 ui.analysis.drives_slow
+ui.analysis.drives_unavailable
 ui.analysis.choose_target_label
 ui.analysis.target_internal
 ui.analysis.target_external

@@ -8,6 +8,7 @@ import {
   Text,
 } from "../../components";
 import { useLocaleText } from "../../i18n/presentation";
+import { useTimestampText } from "../../i18n/regional-format";
 import type { AnalysisClient, ScanFailureKind } from "../../ipc";
 import { useScanFailures } from "../../state/scan-failures";
 
@@ -134,6 +135,7 @@ function IssuePages({
   kind,
 }: IssueSource & { kind: ScanFailureKind | undefined }) {
   const text = useLocaleText();
+  const timestamp = useTimestampText();
   const { page, pending, error, readMore } = useScanFailures(
     client,
     resultVersion,
@@ -205,7 +207,14 @@ function IssuePages({
                     text,
                   )}
                 </Text>
-                {row.observedAt && <Text kind="muted">{row.observedAt}</Text>}
+                {row.observedAt && (
+                  <Text kind="muted">
+                    {timestamp(
+                      Date.parse(row.observedAt),
+                      () => row.observedAt ?? "",
+                    )}
+                  </Text>
+                )}
               </>
             ),
           }))}

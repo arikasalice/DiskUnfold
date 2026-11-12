@@ -15,6 +15,7 @@ import {
 import { windowsPath } from "../../ipc";
 import type { OsPath } from "../../ipc";
 import type { useTargets } from "../../state/analysis-targets";
+import { useRegionalFormat } from "../../i18n/regional-format";
 import { describeTargetCapacity } from "./target-capacity";
 import { useLocaleText } from "../../i18n/presentation";
 
@@ -165,6 +166,31 @@ export function TargetPicker({
   );
 }
 
+function targetListingNotice(
+  error: string | null | undefined,
+  text: ReturnType<typeof useLocaleText>,
+) {
+  if (error === "os.unsupported")
+    return text(
+      "ui.analysis.drives_unsupported",
+      "Automatic drive listing is unavailable. You can still enter a folder path.",
+    );
+  if (error === "os.call_slow")
+    return text(
+      "ui.analysis.drives_slow",
+      "Drive listing is taking longer than expected. Refresh later or enter a folder path.",
+    );
+  if (
+    typeof error === "string" &&
+    /^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+$/.test(error)
+  )
+    return text(
+      "ui.analysis.drives_unavailable",
+      "Drive listing is unavailable. You can still enter a folder path.",
+    );
+  return error ?? undefined;
+}
+
 function DrivePicker({
   isInitial,
   targets,
@@ -179,6 +205,7 @@ function DrivePicker({
   choose: (path: OsPath | undefined) => void;
 }) {
   const text = useLocaleText();
+  const regional = useRegionalFormat();
   const {
     targets: entries = [],
     probeJobRef,
@@ -186,18 +213,7 @@ function DrivePicker({
   } = targets.list ?? {};
   const error = targets.error ?? unavailableReason;
   const checkingCapacity = Boolean(probeJobRef) && !targets.finished;
-  const notice =
-    error === "os.unsupported"
-      ? text(
-          "ui.analysis.drives_unsupported",
-          "Automatic drive listing is unavailable. You can still enter a folder path.",
-        )
-      : error === "os.call_slow"
-        ? text(
-            "ui.analysis.drives_slow",
-            "Drive listing is taking longer than expected. Refresh later or enter a folder path.",
-          )
-        : error;
+  const notice = targetListingNotice(error, text);
   const [showDriveDetails, setShowDriveDetails] = useState(false);
   const driveGroupId = useId();
   return (
@@ -274,6 +290,7 @@ function DrivePicker({
                 probe,
                 checkingCapacity,
                 text,
+                regional,
               );
               const kind = target.kind
                 ? ({
@@ -347,7 +364,9 @@ function DrivePicker({
                 aria-controls={driveGroupId}
                 onPress={() => setShowDriveDetails(!showDriveDetails)}
               >
-                {showDriveDetails ? "Hide drive details" : "Drive details"}
+                {showDriveDetails
+                  ? text("ui.analysis.hide_drive_details", "Hide drive details")
+                  : text("ui.analysis.drive_details", "Drive details")}
               </Action>
             </div>
           )}

@@ -1,4 +1,5 @@
 import { formatByteUnit } from "../../i18n/bytes";
+import type { RegionalFormat } from "../../i18n/regional-format";
 import { interpolate } from "../../i18n/presentation";
 import type { LocaleText } from "../../i18n/presentation";
 import { SIZE_UNIT_RULES } from "../../ipc";
@@ -49,10 +50,14 @@ const capacityReasons = new Map<string, CapacityMessage>([
   ],
 ]);
 
-function capacityValue(bytes: string | null, text: LocaleText): string {
+function capacityValue(
+  bytes: string | null,
+  text: LocaleText,
+  regional?: RegionalFormat,
+): string {
   return bytes === null
     ? text("ui.analysis.capacity_could_not_verify", "Could not verify")
-    : formatBytes(bytes);
+    : formatBytes(bytes, regional, text);
 }
 
 function capacityReason(
@@ -68,13 +73,14 @@ function capacityReason(
       );
 }
 
-function summaryValue(bytes: string): string {
+function summaryValue(bytes: string, regional?: RegionalFormat): string {
   return formatByteUnit(
     BigInt(bytes),
     SIZE_UNIT_RULES.iec,
     SIZE_UNIT_RULES.decimalPlaces,
     "auto",
     false,
+    regional,
   );
 }
 
@@ -95,6 +101,7 @@ export function describeTargetCapacity(
   observation: TargetProbeEvent | undefined,
   checking: boolean,
   text: LocaleText = fallbackText,
+  regional?: RegionalFormat,
 ): {
   summary: string;
   evidence: string;
@@ -120,20 +127,20 @@ export function describeTargetCapacity(
                 "Available unverified",
               )
             : text("ui.analysis.capacity_available", "Available {value}", {
-                value: summaryValue(available),
+                value: summaryValue(available, regional),
               }),
           total === null
             ? text("ui.analysis.capacity_total_unverified", "Total unverified")
             : text("ui.analysis.capacity_total", "Total {value}", {
-                value: summaryValue(total),
+                value: summaryValue(total, regional),
               }),
         ].join(" · ");
   const parts = [
     text("ui.analysis.capacity_total_detail", "Total: {value}", {
-      value: capacityValue(total, text),
+      value: capacityValue(total, text, regional),
     }),
     text("ui.analysis.capacity_available_detail", "Available: {value}", {
-      value: capacityValue(available, text),
+      value: capacityValue(available, text, regional),
     }),
   ];
   if (!observation)

@@ -720,6 +720,7 @@
     ["ui.analysis.scan_and_results","Scan and results",[]],
     ["ui.analysis.drives_unsupported","Automatic drive listing is unavailable. You can still enter a folder path.",[]],
     ["ui.analysis.drives_slow","Drive listing is taking longer than expected. Refresh later or enter a folder path.",[]],
+    ["ui.analysis.drives_unavailable","Drive listing is unavailable. You can still enter a folder path.",[]],
     ["ui.analysis.choose_target_label","Choose a target",[]],
     ["ui.analysis.target_internal","internal",[]],
     ["ui.analysis.target_external","external",[]],

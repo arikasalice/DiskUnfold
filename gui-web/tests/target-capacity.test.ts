@@ -35,3 +35,36 @@ test.each([
     expect(capacity.evidence).toContain("Checked: " + observedAt);
   },
 );
+
+test("uses the selected regional format for capacity values", () => {
+  const regional = {
+    decimalSeparator: ",",
+    groupingSeparator: ".",
+    groupingSize: 3,
+    datePattern: "yyyy.MM.dd HH:mm:ss",
+    dateFormat: "iso8601",
+    groupNumbers: true,
+    timeZonePolicy: "utc",
+    localTimeZoneStatus: "identified",
+  } as const;
+  const capacity = describeTargetCapacity(
+    {
+      sequence: 1,
+      target: windowsPath("C:\\"),
+      access: "accessible",
+      reasonKey: null,
+      totalBytes: "1234567890",
+      availableBytes: "1024",
+      capacityReason: null,
+      aggregationUncertain: false,
+      observedAt: "2026-11-11T00:00:00Z",
+    },
+    false,
+    undefined,
+    regional,
+  );
+
+  expect(capacity.summary).toContain("Available 1 KiB");
+  expect(capacity.summary).toContain("Total 1,1 GiB");
+  expect(capacity.evidence).toContain("Total: 1.234.567.890 bytes");
+});
