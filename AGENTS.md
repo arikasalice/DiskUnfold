@@ -21,6 +21,14 @@ DiskUnfold is an offline desktop application for understanding disk use and revi
 - The integration lead relays cross-team findings, resolves dependencies, assigns owners for shared contracts and reviews team submissions before merging. Escalate unresolved or conflicting reviews and changes that affect another team's work to that lead. Report the commit, design IDs, test evidence, unverified scope and any decision needed.
 - The design lead checks rendered changes against the approved design and returns visual or interaction findings to the implementation owner through the integration lead.
 
+## Database and protocol coordination
+
+- The database and protocol team audits existing contracts and maintains shared design rules. Its project chat uses `gpt-6.1-sol` with `medium` reasoning. Use `gpt-6-luna` with `xhigh` for that team's subagents.
+- Consult the team when a design changes a shared storage or protocol contract. Bring the user outcome, published AIDA item and revision, owning modules and consumers, compatibility needs, failure cases, and proposed acceptance checks. Share decisions and unresolved dependencies with the integration lead.
+- For storage changes, identify the data owner, schema and migration path, transaction boundary, and behavior after interruption or concurrent access. Preserve existing data and exercise migration and recovery using representative older state.
+- For protocol changes, reuse the shared contract and its generated bindings. Identify the transport and authority boundary, affected consumers, wire compatibility, and the applicable ordering, cancellation, retry, and resynchronization behavior. Exercise the change through the affected entry points.
+- The feature owner implements the agreed contract and reviews the normal, boundary, and failure evidence. The integration lead coordinates cross-team sequencing and assigns ownership of changes to shared contracts.
+
 ## Paths and ownership
 
 | Path | Responsibility |
