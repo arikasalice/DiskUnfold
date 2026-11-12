@@ -5,17 +5,21 @@ use du_user_env::{
     locale::{self, Decision, DecisionError, Inputs, OsLanguage},
 };
 
-/// Selects the process language and reports an unavailable settings snapshot.
-pub(super) fn select(
-    registry: &i18n::Registry,
-    argument: Option<&str>,
-) -> Result<(Decision, bool), DecisionError> {
-    select_with(registry, argument, stored_language, preferred_ui_languages)
-}
-
+#[cfg(test)]
 fn select_with(
     registry: &i18n::Registry,
     argument: Option<&str>,
+    read_stored: impl FnOnce() -> Result<Option<String>, ()>,
+    read_os: impl FnOnce() -> Option<Vec<String>>,
+) -> Result<(Decision, bool), DecisionError> {
+    select_with_policy(registry, argument, false, read_stored, read_os)
+}
+
+/// Selects a CLI language, optionally bypassing the stored settings port.
+pub(super) fn select_with_policy(
+    registry: &i18n::Registry,
+    argument: Option<&str>,
+    skip_stored_settings: bool,
     read_stored: impl FnOnce() -> Result<Option<String>, ()>,
     read_os: impl FnOnce() -> Option<Vec<String>>,
 ) -> Result<(Decision, bool), DecisionError> {
@@ -27,7 +31,11 @@ fn select_with(
     let (stored, tags) = if argument.is_some() {
         (Ok(None), None)
     } else {
-        let stored = read_stored();
+        let stored = if skip_stored_settings {
+            Ok(None)
+        } else {
+            read_stored()
+        };
         let usable = stored
             .as_ref()
             .ok()
@@ -56,7 +64,7 @@ fn select_with(
 }
 
 #[cfg(windows)]
-fn stored_language() -> Result<Option<String>, ()> {
+pub(super) fn stored_language() -> Result<Option<String>, ()> {
     use du_app_db::AppDb;
     use du_core_contracts::settings::SettingsStore;
     use du_platform_os::{
@@ -93,17 +101,17 @@ fn language_from_snapshot(
 }
 
 #[cfg(not(windows))]
-fn stored_language() -> Result<Option<String>, ()> {
+pub(super) fn stored_language() -> Result<Option<String>, ()> {
     Ok(None)
 }
 
 #[cfg(windows)]
-fn preferred_ui_languages() -> Option<Vec<String>> {
+pub(super) fn preferred_ui_languages() -> Option<Vec<String>> {
     du_platform_os::windows_ui_language::preferred_ui_languages().ok()
 }
 
 #[cfg(not(windows))]
-fn preferred_ui_languages() -> Option<Vec<String>> {
+pub(super) fn preferred_ui_languages() -> Option<Vec<String>> {
     None
 }
 
@@ -138,6 +146,115 @@ mod tests {
         assert_eq!(os_calls, 0);
         assert_eq!(decision.language, "en");
         assert_eq!(decision.source, locale::Source::Stored);
+        assert!(!unavailable);
+        Ok(())
+    }
+
+    #[test]
+    fn skipped_settings_uses_os_language_without_reading_stored_port()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let registry = i18n::embedded::register(&[]).map_err(|e| format!("{e:?}"))?;
+        let mut stored_calls = 0;
+        let (decision, unavailable) = select_with_policy(
+            &registry,
+            None,
+            true,
+            || {
+                stored_calls += 1;
+                Err(())
+            },
+            || Some(vec!["ko-KR".into()]),
+        )
+        .map_err(|e| format!("{e:?}"))?;
+        assert_eq!(stored_calls, 0);
+        assert_eq!(decision.language, "ko");
+        assert_eq!(decision.source, locale::Source::Os);
+        assert!(!unavailable);
+        Ok(())
+    }
+
+    #[test]
+    fn skipped_settings_uses_english_os_language() -> Result<(), Box<dyn std::error::Error>> {
+        let registry = i18n::embedded::register(&[]).map_err(|e| format!("{e:?}"))?;
+        let mut stored_calls = 0;
+        let (decision, unavailable) = select_with_policy(
+            &registry,
+            None,
+            true,
+            || {
+                stored_calls += 1;
+                Err(())
+            },
+            || Some(vec!["en-US".into()]),
+        )
+        .map_err(|e| format!("{e:?}"))?;
+        assert_eq!(stored_calls, 0);
+        assert_eq!(decision.language, "en");
+        assert_eq!(decision.source, locale::Source::Os);
+        assert!(!unavailable);
+        Ok(())
+    }
+
+    #[test]
+    fn skipped_settings_falls_back_when_os_language_is_unregistered()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let registry = i18n::embedded::register(&[]).map_err(|e| format!("{e:?}"))?;
+        let mut stored_calls = 0;
+        let (decision, unavailable) = select_with_policy(
+            &registry,
+            None,
+            true,
+            || {
+                stored_calls += 1;
+                Err(())
+            },
+            || Some(vec!["fr-FR".into()]),
+        )
+        .map_err(|e| format!("{e:?}"))?;
+        assert_eq!(stored_calls, 0);
+        assert_eq!(decision.language, "en");
+        assert_eq!(decision.source, locale::Source::Baseline);
+        assert!(!unavailable);
+        Ok(())
+    }
+
+    #[test]
+    fn skipped_settings_falls_back_to_english_without_os_language()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let registry = i18n::embedded::register(&[]).map_err(|e| format!("{e:?}"))?;
+        let (decision, unavailable) =
+            select_with_policy(&registry, None, true, || Err(()), || None)
+                .map_err(|e| format!("{e:?}"))?;
+        assert_eq!(decision.language, "en");
+        assert_eq!(decision.source, locale::Source::Baseline);
+        assert!(!unavailable);
+        Ok(())
+    }
+
+    #[test]
+    fn explicit_language_skips_both_settings_and_os_lookups()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let registry = i18n::embedded::register(&[]).map_err(|e| format!("{e:?}"))?;
+        let mut stored_calls = 0;
+        let mut os_calls = 0;
+        let (decision, unavailable) = select_with_policy(
+            &registry,
+            Some("en"),
+            true,
+            || {
+                stored_calls += 1;
+                Err(())
+            },
+            || {
+                os_calls += 1;
+                Some(vec!["ko-KR".into()])
+            },
+        )
+        .map_err(|e| format!("{e:?}"))?;
+        assert_eq!(stored_calls, 0);
+        assert_eq!(os_calls, 0);
+        assert_eq!(decision.language, "en");
+        assert_eq!(decision.source, locale::Source::Argument);
         assert!(!unavailable);
         Ok(())
     }
@@ -187,6 +304,45 @@ mod tests {
         assert_eq!(os_calls, 0);
         assert_eq!(decision.language, "en");
         assert_eq!(decision.source, locale::Source::Baseline);
+        assert_eq!(
+            registry.integrity_warnings(),
+            ["i18n.bundle_integrity_failed"]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn skipped_settings_keeps_korean_integrity_warning_and_english_fallback()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut resources = i18n::embedded::resources().map_err(|e| format!("{e:?}"))?;
+        for resource in &mut resources {
+            if resource.language == "ko" {
+                resource.expected_hash = [0; 32];
+            }
+        }
+        let registry = i18n::Registry::register(&resources, &[], &[], i18n::embedded::parse_bundle)
+            .map_err(|e| format!("{e:?}"))?;
+        let mut stored_calls = 0;
+        let mut os_calls = 0;
+        let (decision, unavailable) = select_with_policy(
+            &registry,
+            None,
+            true,
+            || {
+                stored_calls += 1;
+                Err(())
+            },
+            || {
+                os_calls += 1;
+                Some(vec!["ko-KR".into()])
+            },
+        )
+        .map_err(|e| format!("{e:?}"))?;
+        assert_eq!(stored_calls, 0);
+        assert_eq!(os_calls, 0);
+        assert_eq!(decision.language, "en");
+        assert_eq!(decision.source, locale::Source::Baseline);
+        assert!(!unavailable);
         assert_eq!(
             registry.integrity_warnings(),
             ["i18n.bundle_integrity_failed"]

@@ -51,3 +51,85 @@ fn launcher_applies_the_language_option_on_either_side_of_help() -> io::Result<(
     assert!(String::from_utf8_lossy(&output.stderr).contains("locale.unsupported"));
     Ok(())
 }
+
+#[cfg(windows)]
+#[test]
+fn help_and_version_skip_a_corrupt_settings_database() -> io::Result<()> {
+    use std::{
+        fs,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(io::Error::other)?
+        .as_nanos();
+    let data_dir = std::env::temp_dir().join(format!(
+        "diskunfold-cli-help-{}-{nonce}",
+        std::process::id()
+    ));
+    fs::create_dir_all(&data_dir)?;
+    fs::write(data_dir.join("diskunfold.db"), [0, 1, 2, 3, 4, 5, 6, 7])?;
+
+    for (arguments, expected) in [
+        (vec!["--lang", "en", "--help"], "Usage: diskunfold"),
+        (vec!["--lang", "ko", "--version"], "DiskUnfold "),
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_diskunfold"))
+            .args(arguments)
+            .env("DISKUNFOLD_DATA_DIR", &data_dir)
+            .output()?;
+        assert!(output.status.success());
+        assert!(String::from_utf8_lossy(&output.stdout).contains(expected));
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(!stderr.contains("settings_unavailable"), "{stderr}");
+    }
+
+    for (argument, expected) in [
+        ("--help", ["Usage: diskunfold", "사용법:"]),
+        ("--version", ["DiskUnfold ", "DiskUnfold "]),
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_diskunfold"))
+            .arg(argument)
+            .env("DISKUNFOLD_DATA_DIR", &data_dir)
+            .output()?;
+        assert!(output.status.success());
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            expected.iter().any(|text| stdout.contains(text)),
+            "{stdout}"
+        );
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(!stderr.contains("settings_unavailable"), "{stderr}");
+    }
+
+    let output = Command::new(env!("CARGO_BIN_EXE_diskunfold"))
+        .arg("--help")
+        .arg("unexpected")
+        .env("DISKUNFOLD_DATA_DIR", &data_dir)
+        .output()?;
+    assert_eq!(output.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("settings_unavailable"));
+
+    let output = Command::new(env!("CARGO_BIN_EXE_diskunfold"))
+        .args(["--lang", "fr", "--help"])
+        .env("DISKUNFOLD_DATA_DIR", &data_dir)
+        .output()?;
+    assert_eq!(output.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("locale.unsupported"));
+    assert!(!stderr.contains("settings_unavailable"));
+
+    let output = Command::new(env!("CARGO_BIN_EXE_diskunfold"))
+        .arg("scan")
+        .arg(&data_dir)
+        .env("DISKUNFOLD_DATA_DIR", &data_dir)
+        .output()?;
+    assert_eq!(output.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("settings_unavailable"));
+    assert!(stderr.contains("unsupported arguments") || stderr.contains("지원하지 않는 인자"));
+
+    fs::remove_dir_all(data_dir)?;
+    Ok(())
+}
