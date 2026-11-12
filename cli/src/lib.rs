@@ -1,6 +1,10 @@
 //! Parse CLI arguments and present engine results.
 
-use std::{ffi::OsString, process::ExitCode};
+use std::{
+    ffi::OsString,
+    io::{self, Write},
+    process::ExitCode,
+};
 
 use du_user_env::{i18n::embedded, locale::DecisionError};
 
@@ -23,11 +27,32 @@ fn run_with(
     read_stored: impl FnOnce() -> Result<Option<String>, ()>,
     read_os: impl FnOnce() -> Option<Vec<String>>,
 ) -> ExitCode {
+    let stdout = io::stdout();
+    let stderr = io::stderr();
+    run_with_io(
+        arguments,
+        read_stored,
+        read_os,
+        &mut stdout.lock(),
+        &mut stderr.lock(),
+    )
+}
+
+/// Runs a parsed CLI request against explicit streams for error handling tests.
+fn run_with_io<W: Write, E: Write>(
+    arguments: impl Iterator<Item = OsString>,
+    read_stored: impl FnOnce() -> Result<Option<String>, ()>,
+    read_os: impl FnOnce() -> Option<Vec<String>>,
+    stdout: &mut W,
+    stderr: &mut E,
+) -> ExitCode {
     let Some(args) = args::parse(arguments) else {
-        return unsupported_language();
+        write_stderr_line(stderr, "DiskUnfold: locale.unsupported");
+        return ExitCode::from(2);
     };
     let Ok(registry) = embedded::register(&[]) else {
-        return registration_failed();
+        write_stderr_line(stderr, "DiskUnfold: locale.registration_failed");
+        return ExitCode::FAILURE;
     };
     let skip_stored_settings =
         matches!(&args.command, args::Command::Help | args::Command::Version);
@@ -39,11 +64,18 @@ fn run_with(
         read_os,
     ) {
         Ok(selection) => selection,
-        Err(DecisionError::UnsupportedLanguage) => return unsupported_language(),
-        Err(DecisionError::RegistrationFailed) => return registration_failed(),
+        Err(DecisionError::UnsupportedLanguage) => {
+            write_stderr_line(stderr, "DiskUnfold: locale.unsupported");
+            return ExitCode::from(2);
+        }
+        Err(DecisionError::RegistrationFailed) => {
+            write_stderr_line(stderr, "DiskUnfold: locale.registration_failed");
+            return ExitCode::FAILURE;
+        }
     };
     let Some(bundle) = registry.bundle(&selection.language) else {
-        return registration_failed();
+        write_stderr_line(stderr, "DiskUnfold: locale.registration_failed");
+        return ExitCode::FAILURE;
     };
     let message = |key| {
         bundle
@@ -52,52 +84,79 @@ fn run_with(
             .find_map(|(candidate, message)| (candidate == key).then_some(message.text.as_str()))
     };
     let Some(product_name) = message("ui.product.name") else {
-        return registration_failed();
+        write_stderr_line(stderr, "DiskUnfold: locale.registration_failed");
+        return ExitCode::FAILURE;
     };
     if settings_unavailable || selection.stored_unavailable {
-        eprintln!("settings_unavailable");
+        write_stderr_line(stderr, "settings_unavailable");
     }
     for warning in registry.integrity_warnings() {
-        eprintln!(
+        let warning = format!(
             "{warning}: {}",
             message(warning.as_str()).unwrap_or(warning)
         );
+        write_stderr_line(stderr, &warning);
     }
-    match args.command {
+    let output = match args.command {
         args::Command::Help => {
             let Some(usage) = message("cli.help.usage") else {
-                return registration_failed();
+                write_stderr_line(stderr, "DiskUnfold: locale.registration_failed");
+                return ExitCode::FAILURE;
             };
-            println!("{product_name}\n\n{usage}");
+            write!(stdout, "{product_name}\n\n{usage}\n")
         }
-        args::Command::Version => {
-            println!("{product_name} {}", env!("CARGO_PKG_VERSION"));
-        }
+        args::Command::Version => writeln!(stdout, "{product_name} {}", env!("CARGO_PKG_VERSION")),
         // Scan admission is parsed, but execution awaits the engine and policy composition.
         args::Command::Scan(_) | args::Command::Unsupported => {
             let Some(unsupported) = message("cli.help.unsupported") else {
-                return registration_failed();
+                write_stderr_line(stderr, "DiskUnfold: locale.registration_failed");
+                return ExitCode::FAILURE;
             };
-            eprintln!("{unsupported}");
+            write_stderr_line(stderr, unsupported);
             return ExitCode::from(2);
         }
+    };
+    output_exit_code(output)
+}
+
+/// Maps a completed or interrupted stdout write to its process exit code.
+fn output_exit_code(write_result: io::Result<()>) -> ExitCode {
+    if write_result.is_ok() {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(5)
     }
-    ExitCode::SUCCESS
 }
 
-fn unsupported_language() -> ExitCode {
-    eprintln!("DiskUnfold: locale.unsupported");
-    ExitCode::from(2)
-}
-
-fn registration_failed() -> ExitCode {
-    eprintln!("DiskUnfold: locale.registration_failed");
-    ExitCode::FAILURE
+/// Writes a diagnostic line without panicking when stderr has been closed.
+fn write_stderr_line(stderr: &mut impl Write, message: &str) {
+    let _ = writeln!(stderr, "{message}");
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct FailingWriter {
+        bytes: Vec<u8>,
+        fail_after: usize,
+    }
+
+    impl Write for FailingWriter {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            let remaining = self.fail_after.saturating_sub(self.bytes.len());
+            if remaining == 0 {
+                return Err(io::Error::new(io::ErrorKind::BrokenPipe, "closed"));
+            }
+            let written = remaining.min(bytes.len());
+            self.bytes.extend_from_slice(&bytes[..written]);
+            Ok(written)
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
 
     #[test]
     fn help_and_version_do_not_read_stored_settings() {
@@ -129,5 +188,27 @@ mod tests {
         );
         assert_eq!(exit, ExitCode::from(2));
         assert_eq!(stored_reads, 1);
+    }
+
+    #[test]
+    fn stdout_failure_returns_output_interrupted_without_appending() {
+        let mut stdout = FailingWriter {
+            bytes: Vec::new(),
+            fail_after: 3,
+        };
+        let mut stderr = FailingWriter {
+            bytes: Vec::new(),
+            fail_after: 0,
+        };
+        let exit = run_with_io(
+            ["--help"].into_iter().map(OsString::from),
+            || Err(()),
+            || None,
+            &mut stdout,
+            &mut stderr,
+        );
+        assert_eq!(exit, ExitCode::from(5));
+        assert_eq!(stdout.bytes, b"Dis");
+        assert!(stderr.bytes.is_empty());
     }
 }

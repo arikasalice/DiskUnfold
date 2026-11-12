@@ -1,21 +1,78 @@
-use std::{io, process::Command};
+use std::{
+    io::{self, Read},
+    process::Command,
+};
 
 #[test]
 fn launcher_prints_help_and_version_to_stdout() -> io::Result<()> {
-    for (flag, expected) in [
-        ("--help", "Usage: diskunfold"),
+    for (args, expected) in [
         (
-            "--version",
-            concat!("DiskUnfold ", env!("CARGO_PKG_VERSION")),
+            ["--lang", "en", "--help"],
+            "DiskUnfold\n\nUsage: diskunfold [--lang LANGUAGE] [--help | --version]\n",
+        ),
+        (
+            ["--lang", "ko", "--help"],
+            "DiskUnfold\n\n사용법: diskunfold [--lang 언어] [--help | --version]\n",
+        ),
+        (
+            ["--lang", "en", "--version"],
+            concat!("DiskUnfold ", env!("CARGO_PKG_VERSION"), "\n"),
         ),
     ] {
         let output = Command::new(env!("CARGO_BIN_EXE_diskunfold"))
-            .args(["--lang", "en", flag])
+            .args(args)
             .output()?;
         assert!(output.status.success());
-        assert!(String::from_utf8_lossy(&output.stdout).contains(expected));
+        assert_eq!(String::from_utf8_lossy(&output.stdout), expected);
         assert!(output.stderr.is_empty());
     }
+    Ok(())
+}
+
+#[cfg(windows)]
+#[test]
+fn help_and_version_return_exit_five_when_stdout_is_closed() -> io::Result<()> {
+    use std::process::Stdio;
+
+    for flag in ["--help", "--version"] {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_diskunfold"))
+            .args(["--lang", "en", flag])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?;
+        drop(child.stdout.take());
+        let mut stderr = Vec::new();
+        child
+            .stderr
+            .take()
+            .ok_or_else(|| io::Error::other("stderr pipe missing"))?
+            .read_to_end(&mut stderr)?;
+        let status = child.wait()?;
+        assert_eq!(status.code(), Some(5), "{flag}");
+        assert!(
+            !String::from_utf8_lossy(&stderr).contains("panicked"),
+            "{flag}: {}",
+            String::from_utf8_lossy(&stderr)
+        );
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+#[test]
+fn closed_stderr_does_not_replace_output_interrupted_exit() -> io::Result<()> {
+    use std::process::Stdio;
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_diskunfold"))
+        .args(["--lang", "en", "--help"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    drop(child.stdout.take());
+    drop(child.stderr.take());
+    assert_eq!(child.wait()?.code(), Some(5));
     Ok(())
 }
 
