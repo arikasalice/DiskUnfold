@@ -2,11 +2,10 @@ use super::*;
 use serde_json::{Value, json};
 
 #[test]
-fn profile_revision_requires_canonical_u64_decimal_string() {
+fn profile_revision_requires_canonical_u64_decimal_string() -> Result<(), Box<dyn std::error::Error>>
+{
     assert_eq!(
-        serde_json::from_value::<LocaleProfileRevision>(json!("18446744073709551615"))
-            .unwrap()
-            .as_u64(),
+        serde_json::from_value::<LocaleProfileRevision>(json!("18446744073709551615"))?.as_u64(),
         u64::MAX
     );
     for value in [
@@ -20,6 +19,7 @@ fn profile_revision_requires_canonical_u64_decimal_string() {
     ] {
         assert!(serde_json::from_value::<LocaleProfileRevision>(value).is_err());
     }
+    Ok(())
 }
 
 #[test]
@@ -31,12 +31,12 @@ fn get_profile_request_is_an_empty_object() {
 }
 
 #[test]
-fn set_profile_changes_allow_omission_but_reject_empty_null_and_unknown_fields() {
+fn set_profile_changes_allow_omission_but_reject_empty_null_and_unknown_fields()
+-> Result<(), Box<dyn std::error::Error>> {
     let request: LocaleProfileSetRequest = serde_json::from_value(json!({
         "expectedProfileRevision": "0",
         "changes": {"dateFormat": "iso8601"}
-    }))
-    .unwrap();
+    }))?;
     assert_eq!(request.changes.date_format.as_deref(), Some("iso8601"));
 
     for value in [
@@ -66,68 +66,65 @@ fn set_profile_changes_allow_omission_but_reject_empty_null_and_unknown_fields()
     let raw_value: LocaleProfileSetRequest = serde_json::from_value(json!({
         "expectedProfileRevision": "0",
         "changes": {"dateFormat": "unsupported"}
-    }))
-    .unwrap();
+    }))?;
     assert_eq!(
         raw_value.changes.date_format.as_deref(),
         Some("unsupported")
     );
+    Ok(())
 }
 
 #[test]
-fn app_scale_accepts_only_published_percentages() {
+fn app_scale_accepts_only_published_percentages() -> Result<(), Box<dyn std::error::Error>> {
     for percent in LocaleAppScale::ALLOWED_PERCENTAGES {
         assert_eq!(
-            serde_json::from_value::<LocaleAppScale>(json!(percent))
-                .unwrap()
-                .percent(),
+            serde_json::from_value::<LocaleAppScale>(json!(percent))?.percent(),
             percent
         );
     }
     assert_eq!(
-        serde_json::to_value(LocaleAppScale::new(100).unwrap()).unwrap(),
+        serde_json::to_value(LocaleAppScale::new(100).ok_or("100 is a published app scale")?)?,
         json!(100)
     );
     for percent in [0, 99, 101, 120, 250] {
         assert!(serde_json::from_value::<LocaleAppScale>(json!(percent)).is_err());
     }
+    Ok(())
 }
 
 #[test]
-fn locale_enums_use_the_published_snake_case_spellings() {
+fn locale_enums_use_the_published_snake_case_spellings() -> Result<(), Box<dyn std::error::Error>> {
+    assert_eq!(serde_json::to_value(LocaleLanguageSource::Os)?, json!("os"));
     assert_eq!(
-        serde_json::to_value(LocaleLanguageSource::Os).unwrap(),
-        json!("os")
-    );
-    assert_eq!(
-        serde_json::to_value(LocaleDateFormat::LangDefault).unwrap(),
+        serde_json::to_value(LocaleDateFormat::LangDefault)?,
         json!("lang_default")
     );
     assert_eq!(
-        serde_json::to_value(LocaleNumberFormat::NoGrouping).unwrap(),
+        serde_json::to_value(LocaleNumberFormat::NoGrouping)?,
         json!("no_grouping")
     );
     assert_eq!(
-        serde_json::to_value(LocalTimeZoneStatus::OffsetOnly).unwrap(),
+        serde_json::to_value(LocalTimeZoneStatus::OffsetOnly)?,
         json!("offset_only")
     );
     assert_eq!(
-        serde_json::to_value(LocaleMotion::FollowOs).unwrap(),
+        serde_json::to_value(LocaleMotion::FollowOs)?,
         json!("follow_os")
     );
+    Ok(())
 }
 
 #[test]
-fn locale_changed_fields_must_be_unique_and_in_declared_order() {
+fn locale_changed_fields_must_be_unique_and_in_declared_order()
+-> Result<(), Box<dyn std::error::Error>> {
     let event: LocaleChangedBody = serde_json::from_value(json!({
         "profileRevision": "18446744073709551615",
         "changedFields": ["display_language", "app_scale"],
         "displayLanguage": "ko",
         "future": true
-    }))
-    .unwrap();
+    }))?;
     assert_eq!(
-        serde_json::to_value(event).unwrap(),
+        serde_json::to_value(event)?,
         json!({
             "profileRevision": "18446744073709551615",
             "changedFields": ["display_language", "app_scale"],
@@ -142,4 +139,5 @@ fn locale_changed_fields_must_be_unique_and_in_declared_order() {
     ] {
         assert!(serde_json::from_value::<LocaleChangedBody>(value).is_err());
     }
+    Ok(())
 }
