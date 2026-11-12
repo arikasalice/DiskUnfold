@@ -10,11 +10,13 @@ usage() {
     cat <<'USAGE'
 Usage:
   package-linux.sh --binary PATH --version X.Y.Z --cpu x64|arm64 \
-    --maintainer "Name <email>" --notices PATH --output-dir NEW_DIR
+    --maintainer "Name <email>" --notices PATH --debian-copyright PATH \
+    --output-dir NEW_DIR
 
 Creates one Debian package and one tar.gz for the native Ubuntu runner. The
 output directory must not exist. The tar.gz contains exactly the executable,
-LICENSE, and the explicitly supplied THIRD-PARTY-NOTICES.txt. SHA256SUMS and
+LICENSE, and the explicitly supplied THIRD-PARTY-NOTICES.txt. The .deb also
+requires an explicit Debian copyright file. SHA256SUMS and
 EXECUTABLE-SHA256.json describe the generated files.
 
 This script does not build the executable, certify notice completeness, sign,
@@ -27,10 +29,11 @@ version=''
 cpu=''
 maintainer=''
 notices=''
+debian_copyright=''
 output_dir=''
 while (($#)); do
     case "$1" in
-        --binary|--version|--cpu|--maintainer|--notices|--output-dir)
+        --binary|--version|--cpu|--maintainer|--notices|--debian-copyright|--output-dir)
             (($# >= 2)) || fail "missing value for $1"
             case "$1" in
                 --binary) binary=$2 ;;
@@ -38,6 +41,7 @@ while (($#)); do
                 --cpu) cpu=$2 ;;
                 --maintainer) maintainer=$2 ;;
                 --notices) notices=$2 ;;
+                --debian-copyright) debian_copyright=$2 ;;
                 --output-dir) output_dir=$2 ;;
             esac
             shift 2
@@ -52,9 +56,9 @@ while (($#)); do
     esac
 done
 
-[[ -n "$binary" && -n "$version" && -n "$cpu" && -n "$maintainer" && -n "$notices" && -n "$output_dir" ]] || {
+[[ -n "$binary" && -n "$version" && -n "$cpu" && -n "$maintainer" && -n "$notices" && -n "$debian_copyright" && -n "$output_dir" ]] || {
     usage >&2
-    fail 'all six options are required'
+    fail 'all seven options are required'
 }
 [[ "$version" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]] || fail 'version must be numeric, such as 0.1.0'
 [[ "$maintainer" != *$'\n'* && "$maintainer" != *$'\r'* ]] || fail 'maintainer must fit on one control-file line'
@@ -77,11 +81,14 @@ esac
 
 [[ "$binary" == /* ]] || binary="$PWD/$binary"
 [[ "$notices" == /* ]] || notices="$PWD/$notices"
+[[ "$debian_copyright" == /* ]] || debian_copyright="$PWD/$debian_copyright"
 [[ "$output_dir" == /* ]] || output_dir="$PWD/$output_dir"
 [[ -f "$binary" && ! -L "$binary" && -x "$binary" ]] || \
     fail 'binary must be an executable regular file, not a symbolic link'
 [[ -f "$notices" && ! -L "$notices" && -s "$notices" ]] || \
     fail 'notices must be a nonempty regular file, not a symbolic link'
+[[ -f "$debian_copyright" && ! -L "$debian_copyright" && -s "$debian_copyright" ]] || \
+    fail 'Debian copyright input must be a nonempty regular file, not a symbolic link'
 
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 repo_root=$(cd "$script_dir/../.." && pwd -P)
@@ -101,9 +108,16 @@ esac
 [[ "$(dpkg --print-architecture)" == "$deb_arch" ]] || \
     fail "requested CPU $cpu does not match dpkg architecture $(dpkg --print-architecture)"
 
-for tool in dpkg dpkg-deb dpkg-shlibdeps readelf sha256sum tar gzip install stat mktemp mv rm du find cmp; do
+for tool in dpkg dpkg-deb dpkg-shlibdeps readelf sha256sum tar gzip install stat mktemp mv rm du find cmp grep; do
     command -v "$tool" >/dev/null 2>&1 || fail "required tool is unavailable: $tool"
 done
+
+grep -Eq '^Format: https://www\.debian\.org/doc/packaging-manuals/copyright-format/1\.0/?$' "$debian_copyright" || \
+    fail 'Debian copyright input must use the Debian machine-readable copyright format'
+grep -Eq '^Source: [^[:space:]].*$' "$debian_copyright" || \
+    fail 'Debian copyright input must identify the upstream source location'
+grep -Eq '^Upstream-Contact: [^[:space:]].*$' "$debian_copyright" || \
+    fail 'Debian copyright input must identify an upstream contact'
 
 machine=$(LC_ALL=C readelf -h "$binary" 2>/dev/null | awk -F: '$1 ~ /Machine/ { sub(/^[[:space:]]+/, "", $2); print $2 }')
 [[ "$machine" == "$expected_machine" ]] || \
@@ -174,7 +188,7 @@ install -d -m 0755 "$deb_root/DEBIAN" "$deb_root/usr/bin" \
     "$deb_root/usr/share/doc/diskunfold" "$tar_root_path"
 install -m 0755 "$binary" "$deb_root/usr/bin/diskunfold"
 install -m 0644 "$license_path" "$deb_root/usr/share/doc/diskunfold/LICENSE"
-install -m 0644 "$license_path" "$deb_root/usr/share/doc/diskunfold/copyright"
+install -m 0644 "$debian_copyright" "$deb_root/usr/share/doc/diskunfold/copyright"
 install -m 0644 "$notices" "$deb_root/usr/share/doc/diskunfold/THIRD-PARTY-NOTICES.txt"
 install -m 0755 "$binary" "$tar_root_path/diskunfold"
 install -m 0644 "$license_path" "$tar_root_path/LICENSE"
@@ -236,7 +250,7 @@ compare_deb_file() {
 
 compare_deb_file ./usr/bin/diskunfold "$binary"
 compare_deb_file ./usr/share/doc/diskunfold/LICENSE "$license_path"
-compare_deb_file ./usr/share/doc/diskunfold/copyright "$license_path"
+compare_deb_file ./usr/share/doc/diskunfold/copyright "$debian_copyright"
 compare_deb_file ./usr/share/doc/diskunfold/THIRD-PARTY-NOTICES.txt "$notices"
 
 deb_members=$(dpkg-deb --fsys-tarfile "$stage/$deb_name" | tar -tf - | awk '!/\/$/' | LC_ALL=C sort)

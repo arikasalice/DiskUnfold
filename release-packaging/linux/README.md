@@ -28,6 +28,13 @@ notices artifact. The packager copies the given bytes and checks them in both
 package formats; it cannot determine whether the notices are complete or
 legally sufficient. Do not use the test fixture as a release input.
 
+Also pass a reviewed Debian machine-readable copyright file with the upstream
+source location, upstream contact, copyright statements, and complete license
+entries for the executable and its bundled components. The packager requires
+the format, source, and contact fields and copies the supplied bytes to
+`/usr/share/doc/diskunfold/copyright`; it does not infer or validate the complete
+copyright inventory. The test fixture is incomplete and must never be published.
+
 Pass a project-selected Debian maintainer value. For example, the syntax is
 Name <email>; the packager does not invent project contact information.
 
@@ -37,6 +44,7 @@ Name <email>; the packager does not invent project contact information.
       --cpu x64 \
       --maintainer "Project Maintainer <maintainer@example.org>" \
       --notices /path/to/verified/THIRD-PARTY-NOTICES.txt \
+      --debian-copyright /path/to/verified/debian-copyright.txt \
       --output-dir /path/to/new/linux-release
 
 Use arm64 and target/aarch64-unknown-linux-gnu/release/diskunfold on the native

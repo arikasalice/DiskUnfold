@@ -11,8 +11,8 @@ usage() {
 Usage: test-package-linux.sh --binary PATH
 
 Runs a packaging integration check with the supplied native GUI-enabled launcher.
-It uses a clearly labelled, incomplete THIRD-PARTY-NOTICES test fixture that is
-not suitable for a release. The test checks both package formats, checksums,
+It uses clearly labelled, incomplete notice and Debian copyright fixtures that
+are not suitable for a release. The test checks both package formats, checksums,
 collisions, symlink rejection, CPU matching, and output preservation.
 USAGE
 }
@@ -71,6 +71,16 @@ cat > "$test_root/THIRD-PARTY-NOTICES.fixture.txt" <<'NOTICE'
 TEST FIXTURE ONLY. This notice text is incomplete and must never be published.
 NOTICE
 notices="$test_root/THIRD-PARTY-NOTICES.fixture.txt"
+cat > "$test_root/copyright.fixture.txt" <<'COPYRIGHT'
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: DiskUnfold
+Upstream-Contact: DiskUnfold packaging test <test@example.invalid>
+Source: https://example.invalid/DiskUnfold
+Files: *
+Copyright: TEST FIXTURE ONLY
+License: MIT
+COPYRIGHT
+debian_copyright="$test_root/copyright.fixture.txt"
 output="$test_root/package"
 cpu=$(uname -m)
 case "$cpu" in
@@ -86,7 +96,8 @@ fi
 maintainer='DiskUnfold packaging test <test@example.invalid>'
 
 "$package_script" --binary "$binary" --version 0.1.0 --cpu "$cpu" \
-    --maintainer "$maintainer" --notices "$notices" --output-dir "$output"
+    --maintainer "$maintainer" --notices "$notices" \
+    --debian-copyright "$debian_copyright" --output-dir "$output"
 
 deb_name="DiskUnfold_0.1.0_${cpu}.deb"
 tar_name="DiskUnfold-0.1.0-linux-${cpu}.tar.gz"
@@ -117,10 +128,14 @@ tar -xOzf "$output/$tar_name" "DiskUnfold-0.1.0-linux-${cpu}/THIRD-PARTY-NOTICES
 dpkg-deb --fsys-tarfile "$output/$deb_name" | \
     tar -xO -f - ./usr/share/doc/diskunfold/THIRD-PARTY-NOTICES.txt | \
     cmp - "$notices" || fail 'deb notices differ from the explicit input'
+dpkg-deb --fsys-tarfile "$output/$deb_name" | \
+    tar -xO -f - ./usr/share/doc/diskunfold/copyright | \
+    cmp - "$debian_copyright" || fail 'Debian copyright differs from the explicit input'
 
 package_digest_before=$(sha256sum "$output/$deb_name" | awk '{ print $1 }')
 if "$package_script" --binary "$binary" --version 0.1.0 --cpu "$cpu" \
-    --maintainer "$maintainer" --notices "$notices" --output-dir "$output" >/dev/null 2>&1; then
+    --maintainer "$maintainer" --notices "$notices" \
+    --debian-copyright "$debian_copyright" --output-dir "$output" >/dev/null 2>&1; then
     fail 'existing output directory was accepted'
 fi
 package_digest_after=$(sha256sum "$output/$deb_name" | awk '{ print $1 }')
@@ -130,14 +145,36 @@ package_digest_after=$(sha256sum "$output/$deb_name" | awk '{ print $1 }')
 ln -s "$notices" "$test_root/notices-link"
 if "$package_script" --binary "$binary" --version 0.1.0 --cpu "$cpu" \
     --maintainer "$maintainer" --notices "$test_root/notices-link" \
+    --debian-copyright "$debian_copyright" \
     --output-dir "$test_root/symlink-output" >/dev/null 2>&1; then
     fail 'symbolic-link notices input was accepted'
 fi
 [[ ! -e "$test_root/symlink-output" && ! -L "$test_root/symlink-output" ]] || \
     fail 'invalid notices input created a package output directory'
 
+ln -s "$debian_copyright" "$test_root/copyright-link"
+if "$package_script" --binary "$binary" --version 0.1.0 --cpu "$cpu" \
+    --maintainer "$maintainer" --notices "$notices" \
+    --debian-copyright "$test_root/copyright-link" \
+    --output-dir "$test_root/symlink-copyright-output" >/dev/null 2>&1; then
+    fail 'symbolic-link Debian copyright input was accepted'
+fi
+[[ ! -e "$test_root/symlink-copyright-output" && ! -L "$test_root/symlink-copyright-output" ]] || \
+    fail 'invalid Debian copyright input created a package output directory'
+
+printf 'Format: invalid\n' > "$test_root/invalid-copyright.fixture.txt"
+if "$package_script" --binary "$binary" --version 0.1.0 --cpu "$cpu" \
+    --maintainer "$maintainer" --notices "$notices" \
+    --debian-copyright "$test_root/invalid-copyright.fixture.txt" \
+    --output-dir "$test_root/invalid-copyright-output" >/dev/null 2>&1; then
+    fail 'Debian copyright input without required metadata was accepted'
+fi
+[[ ! -e "$test_root/invalid-copyright-output" && ! -L "$test_root/invalid-copyright-output" ]] || \
+    fail 'invalid Debian copyright input created a package output directory'
+
 if "$package_script" --binary "$binary" --version 0.1.0 --cpu "$other_cpu" \
     --maintainer "$maintainer" --notices "$notices" \
+    --debian-copyright "$debian_copyright" \
     --output-dir "$test_root/wrong-cpu-output" >/dev/null 2>&1; then
     fail 'CPU mismatch was accepted'
 fi
@@ -148,6 +185,7 @@ mkdir "$test_root/pre-existing-output"
 printf 'keep\n' > "$test_root/pre-existing-output/sentinel"
 if "$package_script" --binary "$binary" --version 0.1.0 --cpu "$cpu" \
     --maintainer "$maintainer" --notices "$notices" \
+    --debian-copyright "$debian_copyright" \
     --output-dir "$test_root/pre-existing-output" >/dev/null 2>&1; then
     fail 'pre-existing output directory was accepted'
 fi
@@ -177,6 +215,7 @@ chmod 0755 "$mv_wrapper_dir/mv"
 if PATH="$mv_wrapper_dir:$PATH" DISKUNFOLD_RACE_OUTPUT="$race_output" \
     "$package_script" --binary "$binary" --version 0.1.0 --cpu "$cpu" \
     --maintainer "$maintainer" --notices "$notices" \
+    --debian-copyright "$debian_copyright" \
     --output-dir "$race_output" >/dev/null 2>&1; then
     fail 'output created after preflight was replaced or accepted'
 fi
