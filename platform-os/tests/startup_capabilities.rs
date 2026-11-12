@@ -1,7 +1,28 @@
-use du_platform_os::startup::{
+use du_core_contracts::startup::{
     FullDiskAccessStatus, PrivacySettingsOpenOutcome, StartupCapabilitiesPort,
-    StartupDialogOutcome, SystemStartupCapabilities, WebViewAvailability,
+    StartupDialogOutcome, WebViewAvailability,
 };
+use du_platform_os::startup::{
+    FullDiskAccessStatus as PlatformFullDiskAccessStatus,
+    PrivacySettingsOpenOutcome as PlatformPrivacySettingsOpenOutcome,
+    StartupCapabilitiesPort as PlatformStartupCapabilitiesPort,
+    StartupDialogOutcome as PlatformStartupDialogOutcome, SystemStartupCapabilities,
+    WebViewAvailability as PlatformWebViewAvailability,
+};
+
+#[test]
+fn platform_os_keeps_the_shared_startup_contract_paths() {
+    fn assert_core_contract<T: StartupCapabilitiesPort>() {}
+    fn assert_platform_path<T: PlatformStartupCapabilitiesPort>() {}
+
+    assert_core_contract::<SystemStartupCapabilities>();
+    assert_platform_path::<SystemStartupCapabilities>();
+
+    let _: PlatformFullDiskAccessStatus = FullDiskAccessStatus::Unknown;
+    let _: PlatformWebViewAvailability = WebViewAvailability::Unknown;
+    let _: PlatformPrivacySettingsOpenOutcome = PrivacySettingsOpenOutcome::Unsupported;
+    let _: PlatformStartupDialogOutcome = StartupDialogOutcome::Unsupported;
+}
 
 #[test]
 fn startup_full_disk_access_observation_is_conservative() {
@@ -68,7 +89,7 @@ fn privacy_settings_action_is_not_applicable_off_macos() {
     let system = SystemStartupCapabilities;
     assert_eq!(
         system.open_privacy_settings(),
-        PrivacySettingsOpenOutcome::NotApplicable
+        du_core_contracts::startup::PrivacySettingsOpenOutcome::NotApplicable
     );
 }
 
@@ -78,6 +99,6 @@ fn privacy_settings_action_is_unsupported_without_macos_adapter() {
     let system = SystemStartupCapabilities;
     assert_eq!(
         system.open_privacy_settings(),
-        PrivacySettingsOpenOutcome::Unsupported
+        du_core_contracts::startup::PrivacySettingsOpenOutcome::Unsupported
     );
 }
