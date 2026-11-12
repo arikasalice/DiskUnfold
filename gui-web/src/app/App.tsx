@@ -13,10 +13,18 @@ import {
   useRef,
   useState,
 } from "react";
-import { Action, BrandMark, Heading, LiveStatus, Text } from "../components";
+import {
+  Action,
+  BrandMark,
+  Heading,
+  LiveStatus,
+  Notice,
+  Text,
+} from "../components";
 import { AnalysisPanel } from "../features/analysis/AnalysisPanel";
 import { FileInspection } from "../features/analysis/FileInspection";
 import { useDisplayPreferences } from "../features/analysis/use-display-preferences";
+import type { LocaleText } from "../i18n/presentation";
 import { BrowsePanel } from "../features/browse/BrowsePanel";
 import type {
   BrowseOpenLocation,
@@ -167,6 +175,7 @@ export function App({
         </div>
       </header>
       <LocaleLoadNotice locale={locale} />
+      {analysisUnavailableNotice(nativeLocaleHost, text)}
       {shouldShowConnectionUnavailable(client, nativeLocaleHost) && (
         <div className="du-analysis-slot">
           <Heading level={2}>Desktop connection unavailable</Heading>
@@ -247,6 +256,23 @@ function shouldShowConnectionUnavailable(
   nativeLocaleHost: boolean,
 ) {
   return client === undefined && !nativeLocaleHost;
+}
+
+function analysisUnavailableNotice(
+  nativeLocaleHost: boolean,
+  text: LocaleText,
+) {
+  if (!nativeLocaleHost) return null;
+  return (
+    <div className="du-analysis-slot">
+      <Notice tone="info">
+        {text(
+          "ui.analysis.platform_unavailable",
+          "Disk analysis is not enabled in this Linux build.",
+        )}
+      </Notice>
+    </div>
+  );
 }
 
 function withRegionalFormat(

@@ -83,6 +83,7 @@ ui.analysis.review_hint
 ui.analysis.target_scope_review
 ui.analysis.target_scope
 ui.analysis.results
+ui.analysis.platform_unavailable
 ui.analysis.scan_target
 ui.analysis.choose_target
 ui.analysis.again

@@ -100,6 +100,7 @@
     ["ui.analysis.target_scope_review", "Target selection and scope review", []],
     ["ui.analysis.target_scope", "Target and scope", []],
     ["ui.analysis.results", "Disk space results", []],
+    ["ui.analysis.platform_unavailable", "Disk analysis is not enabled in this Linux build.", []],
     ["ui.analysis.scan_target", "Scan a drive or folder", []],
     ["ui.analysis.choose_target", "Choose what to analyze", []],
     ["ui.analysis.again", "Analyze again", []],

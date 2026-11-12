@@ -100,6 +100,7 @@
     ["ui.analysis.target_scope_review", "대상 선택 및 범위 검토", []],
     ["ui.analysis.target_scope", "분석 대상과 범위", []],
     ["ui.analysis.results", "디스크 공간 분석 결과", []],
+    ["ui.analysis.platform_unavailable", "현재 Linux 빌드에서는 디스크 분석이 지원되지 않습니다.", []],
     ["ui.analysis.scan_target", "드라이브 또는 폴더 스캔", []],
     ["ui.analysis.choose_target", "분석할 위치 선택", []],
     ["ui.analysis.again", "다시 분석", []],
