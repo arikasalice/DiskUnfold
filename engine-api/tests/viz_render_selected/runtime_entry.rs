@@ -55,6 +55,9 @@ struct Producer {
     block: Mutex<Option<(mpsc::Sender<()>, mpsc::Receiver<()>)>>,
     unit_iec: AtomicBool,
     required_data_mode: AtomicU8,
+    histogram_bins_absent: AtomicBool,
+    hierarchy_unknown: AtomicBool,
+    child_fails: AtomicBool,
 }
 impl EvidenceProducer for Producer {
     fn required_data_facts(
@@ -77,7 +80,7 @@ impl EvidenceProducer for Producer {
         let folder = !children.is_empty();
         let sizes = !children.is_empty() && children.iter().all(|item| item.size.is_some());
         Ok(Some(du_engine_api::required_data::FactValues {
-            folder_hierarchy: if mode == 3 {
+            folder_hierarchy: if self.hierarchy_unknown.load(Ordering::Relaxed) {
                 Evidence::Unknown
             } else if folder {
                 Evidence::Known(())
@@ -96,7 +99,9 @@ impl EvidenceProducer for Producer {
             },
             trend_observations: Evidence::Unknown,
             comparison: Evidence::Unknown,
-            histogram_bins: if self.histogram_facts(source, request)?.is_some() {
+            histogram_bins: if self.histogram_bins_absent.load(Ordering::Relaxed) {
+                Evidence::Absent
+            } else if self.histogram_facts(source, request)?.is_some() {
                 Evidence::Known(())
             } else {
                 Evidence::Unknown
@@ -131,6 +136,9 @@ impl EvidenceProducer for Producer {
         _: &current_analysis::CurrentAnalysis,
         _: &VizRenderRequest,
     ) -> Result<Option<du_engine_api::viz_runtime::HistogramFacts>, EngineError> {
+        if self.histogram_bins_absent.load(Ordering::Relaxed) {
+            return Ok(None);
+        }
         Ok(Some(histogram_runtime::facts(self)))
     }
     fn source_facts(
@@ -179,6 +187,9 @@ impl EvidenceProducer for Producer {
         _: &ResultItem,
         _: &VizRenderRequest,
     ) -> Result<ItemEvidence, EngineError> {
+        if self.child_fails.load(Ordering::Relaxed) {
+            return Err(EngineError::new("fixture.evidence_unavailable", vec![]));
+        }
         let blocking = self
             .block
             .lock()
@@ -366,29 +377,6 @@ fn registered_render_shares_work_replaces_sequence_and_reads_committed_model() -
     Ok(())
 }
 #[test]
-fn source_replacement_beats_commit_for_the_original_admitted_revision() -> Result<(), String> {
-    let fixture = Fixture::new([25, 75])?;
-    let a = fixture.open()?;
-    let first = job(&fixture.render(&a, 1)?)?;
-    fixture
-        .entered
-        .recv_timeout(Duration::from_secs(3))
-        .map_err(|e| e.to_string())?;
-    publish(&fixture.sink, id(2), id(4))?;
-    fixture.release.send(()).map_err(|e| e.to_string())?;
-    fixture.finished(&first, JobState::Failed)?;
-    assert_eq!(
-        fixture
-            .call("viz.render", render_body(&a, 2))
-            .error
-            .ok_or("stale version accepted")?
-            .reason_key,
-        "result.version_stale"
-    );
-    Ok(())
-}
-
-#[test]
 fn direct_cancel_stops_all_members_and_cancelling_work_rejects_new_members() -> Result<(), String> {
     let fixture = Fixture::new([25, 75])?;
     let a = fixture.open()?;
@@ -489,3 +477,5 @@ mod required_data_runtime;
 mod retirement_runtime;
 
 mod fast_completion_runtime;
+
+mod source_replacement_runtime;

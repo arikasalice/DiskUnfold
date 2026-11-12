@@ -1,14 +1,6 @@
 //! Deferred ownership for F24 model publication.
 use super::*;
 
-impl PreparedRender {
-    /// Drops geometry while preserving rows from the same pinned source.
-    pub(crate) fn force_table_fallback(&mut self) {
-        self.layout = None;
-        self.fallback_reason = Some(projection::Error::UnavailableAttribution);
-    }
-}
-
 pub(super) enum PrepareMode {
     Cached,
     Prepared,

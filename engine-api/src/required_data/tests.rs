@@ -61,10 +61,10 @@ fn every_published_format_is_available_when_its_pinned_facts_are_present() {
             Ok(Evaluation::Available)
         );
     }
-    assert_eq!(
-        available_formats(&registry_formats(), &source, &pinned),
-        Ok(FORMATS.to_vec())
-    );
+    let formats = registry_formats();
+    let availability = format_availability(&formats, &source, &pinned).unwrap();
+    assert_eq!(availability.available, FORMATS.to_vec());
+    assert!(availability.unresolved.is_empty());
 }
 
 #[test]
@@ -162,10 +162,9 @@ fn unknown_evidence_is_not_reported_as_an_unavailable_reason() {
         evaluate("treemap", &source, &pinned),
         Err(Error::EvidenceUnknown)
     );
-    assert_eq!(
-        available_formats(&registry_formats(), &source, &pinned),
-        Err(Error::EvidenceUnknown)
-    );
+    let formats = registry_formats();
+    let availability = format_availability(&formats, &source, &pinned).unwrap();
+    assert!(availability.unresolved.contains(&"treemap"));
 }
 
 #[test]
@@ -212,10 +211,13 @@ fn unavailable_format_list_is_recomputed_from_the_same_pinned_facts() {
     };
     let (source, pinned) = pinned(facts);
 
+    let formats = registry_formats();
+    let availability = format_availability(&formats, &source, &pinned).unwrap();
     assert_eq!(
-        available_formats(&registry_formats(), &source, &pinned),
-        Ok(vec!["treemap", "bar", "trend", "waterfall", "histogram"])
+        availability.available,
+        vec!["treemap", "bar", "trend", "waterfall", "histogram"]
     );
+    assert!(availability.unresolved.is_empty());
 }
 
 fn expected_reason_key(reason: Reason) -> &'static str {

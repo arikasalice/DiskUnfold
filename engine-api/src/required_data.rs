@@ -221,19 +221,31 @@ pub(super) fn evaluate(
 ///
 /// An unresolved decision prevents returning a partial list, which could imply that
 /// a format is unavailable when its owner has not reported its evidence.
-pub(super) fn available_formats<'a>(
+/// Positively available and unresolved registered formats, evaluated on one pinned source.
+pub(super) struct FormatAvailability<'a> {
+    pub available: Vec<&'a str>,
+    pub unresolved: Vec<&'a str>,
+}
+
+/// Omits unresolved formats from the public positive list while retaining them internally.
+pub(super) fn format_availability<'a>(
     formats: &'a [String],
     source: &SourceKey,
     pinned: &PinnedFacts,
-) -> Result<Vec<&'a str>, Error> {
-    let mut available = Vec::with_capacity(formats.len());
+) -> Result<FormatAvailability<'a>, Error> {
+    let mut availability = FormatAvailability {
+        available: Vec::with_capacity(formats.len()),
+        unresolved: Vec::new(),
+    };
     for format in formats {
-        match evaluate(format, source, pinned)? {
-            Evaluation::Available => available.push(format.as_str()),
-            Evaluation::Unavailable(_) => {}
+        match evaluate(format, source, pinned) {
+            Ok(Evaluation::Available) => availability.available.push(format),
+            Ok(Evaluation::Unavailable(_)) => {}
+            Err(Error::EvidenceUnknown) => availability.unresolved.push(format),
+            Err(error) => return Err(error),
         }
     }
-    Ok(available)
+    Ok(availability)
 }
 
 fn check(requirement: Requirement, facts: &FactValues) -> Result<Evaluation, Error> {

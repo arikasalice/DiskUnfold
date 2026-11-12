@@ -184,6 +184,9 @@ fn fixture_inner(
         block: Mutex::new(Some((entered_sender, release_receiver))),
         unit_iec: AtomicBool::new(false),
         required_data_mode: AtomicU8::new(0),
+        histogram_bins_absent: AtomicBool::new(false),
+        hierarchy_unknown: AtomicBool::new(false),
+        child_fails: AtomicBool::new(false),
     });
     let mut builder = EngineBuilder::default();
     let assembly = Assembly {

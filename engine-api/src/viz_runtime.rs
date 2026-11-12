@@ -240,6 +240,7 @@ struct Admitted {
 #[derive(Clone, serde::Serialize)]
 struct RequiredDataAdmission {
     formats: Vec<String>,
+    unresolved_formats: Vec<String>,
     evaluation: crate::required_data::Evaluation,
 }
 /// Owns admission, shared subscriptions and the physical F24 publication boundary.

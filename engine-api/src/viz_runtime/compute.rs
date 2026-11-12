@@ -29,6 +29,15 @@ impl JobBody for Compute {
     }
     fn run(&self, context: Arc<dyn JobContext>) -> JobOutcome {
         let mut cancelled = || context.checkpoint() != Checkpoint::Continue;
+        if matches!(
+            self.admitted
+                .required_data
+                .as_ref()
+                .map(|value| value.evaluation),
+            Some(crate::required_data::Evaluation::Unavailable(_))
+        ) {
+            return missing_data_fallback(self, &mut cancelled);
+        }
         if self.admitted.histogram.is_some() {
             return super::histogram::run(self, &mut cancelled);
         }
@@ -133,16 +142,6 @@ impl JobBody for Compute {
                         );
                     }
                 }
-                let required_data_unavailable = matches!(
-                    self.admitted
-                        .required_data
-                        .as_ref()
-                        .map(|value| value.evaluation),
-                    Some(crate::required_data::Evaluation::Unavailable(_))
-                );
-                if required_data_unavailable {
-                    prepared.force_table_fallback();
-                }
                 prepared.bind_condition(self.admitted.key.clone());
                 let reserved = self.session.reserve_prepared(prepared);
                 let model = match reserved
@@ -172,6 +171,72 @@ impl JobBody for Compute {
         }
     }
 }
+
+fn missing_data_fallback(work: &Compute, cancelled: &mut dyn FnMut() -> bool) -> JobOutcome {
+    let admitted = &work.admitted;
+    let request = &admitted.request;
+    let folder = match du_analysis_index::browse::open(
+        admitted.source.version(),
+        Some(&request.aggregate_scope_ref),
+    ) {
+        Ok(folder) => folder,
+        Err(_) => return outcome(false, Some("support.internal_error")),
+    };
+    let mut evidence = Vec::with_capacity(folder.children.len());
+    for item in folder.children {
+        if cancelled() {
+            return outcome(false, None);
+        }
+        let facts = match work.producer.child(&admitted.source, item, request) {
+            Ok(facts)
+                if admitted
+                    .facts
+                    .classes
+                    .contains_key(&facts.presentation.legend_class_key) =>
+            {
+                facts
+            }
+            _ => return outcome(false, Some("support.internal_error")),
+        };
+        evidence.push(render::ChildEvidence {
+            item: du_core_contracts::ItemRef {
+                result_version: admitted.source.result_version().clone(),
+                item_no: item.item_no,
+            },
+            path_compare_key: facts.presentation.path_compare_key,
+            legend_class_key: facts.presentation.legend_class_key,
+            display_flags: facts.presentation.display_flags,
+        });
+    }
+    let count = evidence.len() as u64;
+    let prepared = match work.session.prepare_ranked(
+        &admitted.source,
+        render::RankedInput {
+            parent: &request.aggregate_scope_ref,
+            basis: &request.size_basis,
+            fingerprint: admitted.key.clone(),
+            layout: None,
+            evidence,
+        },
+        cancelled,
+    ) {
+        Ok(candidate) => candidate,
+        Err(_) => return outcome(false, Some("support.internal_error")),
+    };
+    let reserved = work.session.reserve_prepared(prepared);
+    let deferred = work.session.defer_reserved(reserved);
+    match (work.candidate.lock(), work.work.computed.lock()) {
+        (Ok(mut candidate), Ok(mut computed)) => {
+            *candidate = Some(Candidate::Projection(deferred));
+            computed.wire_model = None;
+            let mut completed = outcome(true, None);
+            completed.counts.completed = count;
+            completed
+        }
+        _ => outcome(false, Some("support.internal_error")),
+    }
+}
+
 pub(super) fn outcome(completed_scope: bool, reason: Option<&str>) -> JobOutcome {
     JobOutcome {
         counts: JobCounts::default(),

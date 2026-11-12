@@ -13,10 +13,6 @@ use std::sync::Arc;
 pub struct SelectedCandidate(pub(super) Candidate);
 
 impl SelectedCandidate {
-    /// Retains source rows but prevents an inapplicable geometry model from publication.
-    pub(crate) fn force_no_attribution(&mut self) {
-        self.0.no_attribution = true;
-    }
     /// Whether geometry is unavailable while the fixed source rows remain usable.
     pub fn no_attribution(&self) -> bool {
         self.0.no_attribution

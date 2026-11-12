@@ -41,32 +41,14 @@ impl Runtime {
         validate_facts(&facts, &source, self.assembly.policy.revision)?;
         let required_data = required_data_admission(&self.assembly, &source, &request)?;
         let histogram = if request.format == "histogram" {
-            let mut supplied = self
-                .assembly
-                .producer
-                .histogram_facts(&source, &request)?
-                .ok_or_else(unavailable)?;
-            let mut group_refs = HashSet::new();
-            if supplied.unit_table_revision == 0
-                || supplied.unknown_reason.trim().is_empty()
-                || supplied.bins.len() != supplied.unit_table.symbols().len()
-                || supplied.bins.len() > max_shapes
-                || supplied.bins.iter().any(|bin| {
-                    bin.group_ref.is_empty()
-                        || !group_refs.insert(&bin.group_ref)
-                        || bin.display_name.is_empty()
-                        || bin.legend_class_key.is_empty()
-                        || bin.display_flags.iter().any(String::is_empty)
-                        || !facts.classes.contains_key(&bin.legend_class_key)
-                })
-            {
-                return Err(invalid());
-            }
-            for bin in &mut supplied.bins {
-                bin.display_flags.sort_unstable();
-                bin.display_flags.dedup();
-            }
-            Some(supplied)
+            histogram_policy(
+                &self.assembly,
+                &source,
+                &request,
+                required_data.as_ref(),
+                max_shapes,
+                &facts.classes,
+            )?
         } else {
             None
         };
@@ -150,6 +132,47 @@ impl Runtime {
     }
 }
 
+fn histogram_policy(
+    assembly: &Assembly,
+    source: &CurrentAnalysis,
+    request: &VizRenderRequest,
+    required_data: Option<&RequiredDataAdmission>,
+    max_shapes: usize,
+    classes: &HashMap<String, LegendClass>,
+) -> Result<Option<HistogramFacts>, EngineError> {
+    let Some(mut supplied) = assembly.producer.histogram_facts(source, request)? else {
+        return if matches!(
+            required_data.map(|value| value.evaluation),
+            Some(crate::required_data::Evaluation::Unavailable(_))
+        ) {
+            Ok(None)
+        } else {
+            Err(unavailable())
+        };
+    };
+    let mut group_refs = HashSet::new();
+    if supplied.unit_table_revision == 0
+        || supplied.unknown_reason.trim().is_empty()
+        || supplied.bins.len() != supplied.unit_table.symbols().len()
+        || supplied.bins.len() > max_shapes
+        || supplied.bins.iter().any(|bin| {
+            bin.group_ref.is_empty()
+                || !group_refs.insert(&bin.group_ref)
+                || bin.display_name.is_empty()
+                || bin.legend_class_key.is_empty()
+                || bin.display_flags.iter().any(String::is_empty)
+                || !classes.contains_key(&bin.legend_class_key)
+        })
+    {
+        return Err(invalid());
+    }
+    for bin in &mut supplied.bins {
+        bin.display_flags.sort_unstable();
+        bin.display_flags.dedup();
+    }
+    Ok(Some(supplied))
+}
+
 fn required_data_admission(
     assembly: &Assembly,
     source: &CurrentAnalysis,
@@ -164,13 +187,21 @@ fn required_data_admission(
     let evaluation = crate::required_data::evaluate(&request.format, &source_key, &pinned)
         .map_err(|_| internal())?;
     let formats = assembly.session.required_data_formats();
-    let available = crate::required_data::available_formats(&formats, &source_key, &pinned)
-        .map_err(|_| internal())?
+    let availability = crate::required_data::format_availability(&formats, &source_key, &pinned)
+        .map_err(|_| internal())?;
+    let available = availability
+        .available
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+    let unresolved_formats = availability
+        .unresolved
         .into_iter()
         .map(str::to_owned)
         .collect();
     Ok(Some(RequiredDataAdmission {
         formats: available,
+        unresolved_formats,
         evaluation,
     }))
 }
