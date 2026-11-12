@@ -1,6 +1,8 @@
 import { useId, useLayoutEffect, useRef } from "react";
 import type { RefObject } from "react";
 import { useTimestampText } from "../../i18n/regional-format";
+import { useRegionalFormat } from "../../i18n/regional-format";
+import { useLocaleText } from "../../i18n/presentation";
 import {
   Action,
   Heading,
@@ -97,31 +99,47 @@ export function RecentScopeListView({
   onRetry: () => void;
   onOpen: (row: RecentScopeListRow) => void;
 }) {
+  const text = useLocaleText();
   return (
     <div className="du-recent-scopes__body">
       {list.kind === "idle" && (
         <Action isPending onPress={onRetry}>
-          Loading recent ranges…
+          {text("ui.analysis.loading_recent_ranges", "Loading recent ranges…")}
         </Action>
       )}
       {list.kind === "loading" && (
         <LoadingMessage
-          message="Loading recent analysis ranges…"
-          label="Loading recent analysis ranges"
+          message={text(
+            "ui.analysis.loading_recent_ranges_full",
+            "Loading recent analysis ranges…",
+          )}
+          label={text(
+            "ui.analysis.loading_recent_ranges_label",
+            "Loading recent analysis ranges",
+          )}
         />
       )}
       {list.kind === "error" && (
         <Notice tone="error">
           <div className="du-recent-scopes__error">
-            <Text>Recent analysis ranges could not be loaded.</Text>
-            <Action onPress={onRetry}>Try again</Action>
+            <Text>
+              {text(
+                "ui.analysis.recent_ranges_load_failed",
+                "Recent analysis ranges could not be loaded.",
+              )}
+            </Text>
+            <Action onPress={onRetry}>
+              {text("ui.analysis.try_again", "Try again")}
+            </Action>
           </div>
         </Notice>
       )}
       {list.kind === "ready" && list.value.rows.length === 0 && (
         <Notice tone="info">
-          There are no recent analysis ranges. Return to folder selection to
-          choose a path.
+          {text(
+            "ui.analysis.no_recent_ranges",
+            "There are no recent analysis ranges. Return to folder selection to choose a path.",
+          )}
         </Notice>
       )}
       {list.kind === "ready" && list.value.rows.length > 0 && (
@@ -145,18 +163,26 @@ function RecentScopeRows({
   onOpen: (row: RecentScopeListRow) => void;
 }) {
   const timestamp = useTimestampText();
+  const text = useLocaleText();
+  const regional = useRegionalFormat();
   return (
     <div className="du-recent-scopes__rows" role="list">
       {rows.map((row, index) => (
         <div key={row.recentScopeRef} role="listitem">
           <div className="du-recent-scopes__summary">
-            <Text>{`Range ${index + 1}`}</Text>
+            <Text>
+              {text("ui.analysis.recent_range_number", "Range {number}", {
+                number: BigInt(index + 1),
+              })}
+            </Text>
             <Text kind="muted">
               {timestamp(Date.parse(row.lastUsedAt), () =>
-                formatDate(row.lastUsedAt),
+                formatDate(row.lastUsedAt, regional),
               )}{" "}
-              · {row.includeCount}{" "}
-              {row.includeCount === 1 ? "location" : "locations"}
+              ·{" "}
+              {text("ui.analysis.recent_location_count", "{count} locations", {
+                count: BigInt(row.includeCount),
+              })}
             </Text>
           </div>
           <Action
@@ -166,7 +192,9 @@ function RecentScopeRows({
             }}
             onPress={() => onOpen(row)}
           >
-            Review range {index + 1}
+            {text("ui.analysis.review_range_number", "Review range {number}", {
+              number: BigInt(index + 1),
+            })}
           </Action>
         </div>
       ))}
@@ -266,37 +294,85 @@ function DetailFeedback({
   onRefresh: () => void;
   onBack: (row?: RecentScopeListRow) => void;
 }) {
+  const text = useLocaleText();
   if (detail.kind === "loading")
     return (
       <LoadingMessage
-        message="Checking saved paths and access…"
-        label="Checking saved paths and access"
+        message={text(
+          "ui.analysis.checking_saved_paths",
+          "Checking saved paths and access…",
+        )}
+        label={text(
+          "ui.analysis.checking_saved_paths_label",
+          "Checking saved paths and access",
+        )}
       />
     );
   if (detail.kind !== "error") return null;
   return (
     <Notice tone="error">
       <div className="du-recent-scopes__error">
-        <Text>{detail.message}</Text>
+        <Text>{detailMessage(detail.message, text)}</Text>
         {detail.missing ? (
-          <Action onPress={onRefresh}>Refresh list</Action>
+          <Action onPress={onRefresh}>
+            {text("ui.analysis.refresh_recent_ranges", "Refresh list")}
+          </Action>
         ) : (
-          <Action onPress={() => onRetry(detail.row)}>Try again</Action>
+          <Action onPress={() => onRetry(detail.row)}>
+            {text("ui.analysis.try_again", "Try again")}
+          </Action>
         )}
         <Action variant="quiet" onPress={() => onBack(detail.row)}>
-          Back to recent ranges
+          {text("ui.analysis.back_to_recent_ranges", "Back to recent ranges")}
         </Action>
       </div>
     </Notice>
   );
 }
 
+function detailMessage(
+  message: string,
+  text: ReturnType<typeof useLocaleText>,
+) {
+  switch (message) {
+    case "The scope changed. Check the saved range again.":
+      return text(
+        "ui.analysis.recent_scope_changed",
+        "The scope changed. Check the saved range again.",
+      );
+    case "The scope review changed. Open the saved range again.":
+      return text(
+        "ui.analysis.recent_scope_review_changed",
+        "The scope review changed. Open the saved range again.",
+      );
+    case "This saved range is no longer available. Refresh the list and choose another range.":
+      return text(
+        "ui.analysis.recent_range_missing",
+        "This saved range is no longer available. Refresh the list and choose another range.",
+      );
+    case "This saved range could not be opened. It may be damaged or from an unsupported version.":
+      return text(
+        "ui.analysis.recent_range_open_failed",
+        "This saved range could not be opened. It may be damaged or from an unsupported version.",
+      );
+    default:
+      return message;
+  }
+}
+
 function SavedConditions({ draft }: { draft: ScopeDraft }) {
+  const text = useLocaleText();
   return (
-    <section aria-label="Saved conditions">
-      <Heading level={3}>Saved conditions</Heading>
+    <section
+      aria-label={text("ui.analysis.saved_conditions", "Saved conditions")}
+    >
+      <Heading level={3}>
+        {text("ui.analysis.saved_conditions", "Saved conditions")}
+      </Heading>
       <div className="du-recent-scopes__conditions">
-        <Text kind="muted">Included locations</Text>
+        <Text kind="muted">
+          {text("ui.analysis.included_locations", "Included locations")}
+        </Text>
         <div>
           {draft.includes.map((path, index) => (
             <PathValue
@@ -306,10 +382,10 @@ function SavedConditions({ draft }: { draft: ScopeDraft }) {
             />
           ))}
         </div>
-        <Text kind="muted">Exclusions</Text>
+        <Text kind="muted">{text("ui.analysis.exclusions", "Exclusions")}</Text>
         <div>
           {draft.exclusions.length === 0
-            ? "None"
+            ? text("ui.analysis.none", "None")
             : draft.exclusions.map((item, index) => (
                 <PathValue
                   key={index}
@@ -320,18 +396,28 @@ function SavedConditions({ draft }: { draft: ScopeDraft }) {
                 />
               ))}
         </div>
-        <Text kind="muted">Volume boundary</Text>
+        <Text kind="muted">
+          {text("ui.analysis.volume_boundary", "Volume boundary")}
+        </Text>
         <div>
           <Text>
             {draft.boundary === "current_volume"
-              ? "Stay within each current volume"
-              : "Include selected mounted volumes"}
+              ? text(
+                  "ui.analysis.stay_within_current_volume",
+                  "Stay within each current volume",
+                )
+              : text(
+                  "ui.analysis.include_mounted_volumes",
+                  "Include selected mounted volumes",
+                )}
           </Text>
         </div>
-        <Text kind="muted">Selected mounts</Text>
+        <Text kind="muted">
+          {text("ui.analysis.selected_mounts", "Selected mounts")}
+        </Text>
         <div>
           {draft.includedMounts.length === 0
-            ? "None"
+            ? text("ui.analysis.none", "None")
             : draft.includedMounts.map((path, index) => (
                 <PathValue
                   key={`${path.raw}-${index}`}
@@ -354,12 +440,20 @@ function CurrentPathStatus({
   reviewCurrent: boolean;
   onCheckAgain: () => void;
 }) {
+  const text = useLocaleText();
   const unresolvedCount = value.targets.filter(
     (target) => target.state !== "matched",
   ).length;
   return (
-    <section aria-label="Current path status">
-      <Heading level={3}>Current path status</Heading>
+    <section
+      aria-label={text(
+        "ui.analysis.current_path_status",
+        "Current path status",
+      )}
+    >
+      <Heading level={3}>
+        {text("ui.analysis.current_path_status", "Current path status")}
+      </Heading>
       <div className="du-recent-scopes__targets" role="list">
         {value.targets.map((target, index) => (
           <CurrentPathRow key={`${target.path.raw}-${index}`} target={target} />
@@ -369,25 +463,39 @@ function CurrentPathStatus({
         value.targets.every((t) => t.state === "matched") && (
           <>
             <Notice tone="info">
-              Current paths and access could not be reviewed. Check the saved
-              range again or choose the paths and review them before using this
-              range.
+              {text(
+                "ui.analysis.recent_paths_access_unreviewed",
+                "Current paths and access could not be reviewed. Check the saved range again or choose the paths and review them before using this range.",
+              )}
             </Notice>
-            <Action onPress={onCheckAgain}>Check paths again</Action>
+            <Action onPress={onCheckAgain}>
+              {text("ui.analysis.check_paths_again", "Check paths again")}
+            </Action>
           </>
         )}
       {!reviewCurrent && value.review !== null && (
         <>
           <Notice tone="info">
-            The editor scope changed. Check this saved range again before using
-            it.
+            {text(
+              "ui.analysis.recent_editor_scope_changed",
+              "The editor scope changed. Check this saved range again before using it.",
+            )}
           </Notice>
-          <Action onPress={onCheckAgain}>Check paths again</Action>
+          <Action onPress={onCheckAgain}>
+            {text("ui.analysis.check_paths_again", "Check paths again")}
+          </Action>
         </>
       )}
       {unresolvedCount > 0 && (
         <Notice tone="info">
-          {`${unresolvedCount} of ${value.targets.length} locations need attention. Choose a path again for unresolved locations. Saved paths are not applied automatically.`}
+          {text(
+            "ui.analysis.recent_unresolved_paths",
+            "{count} of {total} locations need attention. Choose a path again for unresolved locations. Saved paths are not applied automatically.",
+            {
+              count: BigInt(unresolvedCount),
+              total: BigInt(value.targets.length),
+            },
+          )}
         </Notice>
       )}
     </section>
@@ -395,13 +503,16 @@ function CurrentPathStatus({
 }
 
 function CurrentPathRow({ target }: { target: RecentScopeOpenTarget }) {
+  const text = useLocaleText();
   return (
     <div role="listitem">
       <PathValue value={target.path.display} lossy={target.path.lossy} />
-      <Text>{targetStatus(target)}</Text>
+      <Text>{targetStatus(target, text)}</Text>
       {target.state === "moved" && target.proposedEntry && (
         <div className="du-recent-scopes__proposed">
-          <Text kind="muted">Current volume entry:</Text>
+          <Text kind="muted">
+            {text("ui.analysis.current_volume_entry", "Current volume entry:")}
+          </Text>
           <PathValue
             value={target.proposedEntry.display}
             lossy={target.proposedEntry.lossy}
@@ -433,6 +544,7 @@ function RecentScopeApplyActions({
   onChoosePath: () => void;
   onApply: (draft: ScopeDraft, review: ScopeReview) => void;
 }) {
+  const text = useLocaleText();
   const confirmButton = useRef<HTMLButtonElement>(null);
   const confirmGroup = useRef<HTMLDivElement>(null);
   const confirmDescription = useRef<HTMLDivElement>(null);
@@ -466,7 +578,10 @@ function RecentScopeApplyActions({
         ref={confirmGroup}
         className="du-recent-scopes__confirm"
         role="group"
-        aria-label="Replace current scope"
+        aria-label={text(
+          "ui.analysis.replace_current_scope",
+          "Replace current scope",
+        )}
       >
         <div
           ref={confirmDescription}
@@ -475,8 +590,10 @@ function RecentScopeApplyActions({
           className="du-recent-scopes__confirm-description"
         >
           <Text>
-            Replace the current folder paths, exclusions, boundary, and selected
-            mounts with these saved conditions?
+            {text(
+              "ui.analysis.replace_scope_confirmation",
+              "Replace the current folder paths, exclusions, boundary, and selected mounts with these saved conditions?",
+            )}
           </Text>
         </div>
         <Action
@@ -485,14 +602,14 @@ function RecentScopeApplyActions({
           variant="primary"
           onPress={() => onApply(value.draft, review)}
         >
-          Replace current scope
+          {text("ui.analysis.replace_current_scope", "Replace current scope")}
         </Action>
         <Action
           aria-describedby={descriptionId}
           variant="quiet"
           onPress={() => toggleConfirm(false)}
         >
-          Keep editing
+          {text("ui.analysis.keep_editing", "Keep editing")}
         </Action>
       </div>
     );
@@ -506,10 +623,14 @@ function RecentScopeApplyActions({
             hasDraftEdits ? toggleConfirm(true) : onApply(value.draft, review)
           }
         >
-          Use this range
+          {text("ui.analysis.use_recent_range", "Use this range")}
         </Action>
       )}
-      {!canApply && <Action onPress={onChoosePath}>Choose a path again</Action>}
+      {!canApply && (
+        <Action onPress={onChoosePath}>
+          {text("ui.analysis.choose_path_again", "Choose a path again")}
+        </Action>
+      )}
     </div>
   );
 }

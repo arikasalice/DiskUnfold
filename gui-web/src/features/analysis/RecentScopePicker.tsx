@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
 import { Action, Heading } from "../../components";
+import { useLocaleText } from "../../i18n/presentation";
 import type {
   AnalysisClient,
   RecentScopeListRow,
@@ -50,6 +51,7 @@ export function RecentScopePicker({
   /** Host's existing editor scroll region; no nested scroll area is created. */
   scrollContainerRef?: RefObject<HTMLElement | null>;
 }) {
+  const text = useLocaleText();
   const [view, setView] = useState<View>("closed");
   const [confirmReplace, setConfirmReplace] = useState(false);
   const pickerOpener = useRef<HTMLButtonElement>(null);
@@ -127,7 +129,10 @@ export function RecentScopePicker({
   }
 
   return (
-    <section className="du-recent-scopes" aria-label="Recent analysis ranges">
+    <section
+      className="du-recent-scopes"
+      aria-label={text("ui.analysis.recent_ranges", "Recent analysis ranges")}
+    >
       <Action
         ref={pickerOpener}
         variant="quiet"
@@ -135,12 +140,15 @@ export function RecentScopePicker({
         aria-expanded={view !== "closed"}
         onPress={openList}
       >
-        Recent analysis ranges
+        {text("ui.analysis.recent_ranges", "Recent analysis ranges")}
       </Action>
       {view !== "closed" && (
         <section
           className="du-recent-scopes__panel"
-          aria-label="Recent analysis ranges"
+          aria-label={text(
+            "ui.analysis.recent_ranges",
+            "Recent analysis ranges",
+          )}
         >
           <header className="du-recent-scopes__header">
             {view === "list" ? (
@@ -149,7 +157,9 @@ export function RecentScopePicker({
                 tabIndex={-1}
                 className="du-recent-scopes__focus-heading"
               >
-                <Heading level={3}>Recent analysis ranges</Heading>
+                <Heading level={3}>
+                  {text("ui.analysis.recent_ranges", "Recent analysis ranges")}
+                </Heading>
               </div>
             ) : (
               <div
@@ -157,7 +167,9 @@ export function RecentScopePicker({
                 tabIndex={-1}
                 className="du-recent-scopes__focus-heading"
               >
-                <Heading level={3}>Review saved range</Heading>
+                <Heading level={3}>
+                  {text("ui.analysis.review_saved_range", "Review saved range")}
+                </Heading>
               </div>
             )}
             {view === "detail" && (
@@ -165,11 +177,14 @@ export function RecentScopePicker({
                 variant="quiet"
                 onPress={() => backToList(detailRow(detail))}
               >
-                Back to recent ranges
+                {text(
+                  "ui.analysis.back_to_recent_ranges",
+                  "Back to recent ranges",
+                )}
               </Action>
             )}
             <Action variant="quiet" onPress={close}>
-              Close recent ranges
+              {text("ui.analysis.close_recent_ranges", "Close recent ranges")}
             </Action>
           </header>
 
