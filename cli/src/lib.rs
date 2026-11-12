@@ -11,6 +11,9 @@ use du_user_env::{i18n::embedded, locale::DecisionError};
 mod args;
 mod startup_locale;
 
+const SETTINGS_UNAVAILABLE_REASON_KEY: &str = "settings_unavailable";
+const SETTINGS_UNAVAILABLE_MESSAGE_KEY: &str = "cli.settings.unavailable";
+
 pub fn run(arguments: impl Iterator<Item = OsString>) -> ExitCode {
     #[cfg(all(windows, feature = "windows-console"))]
     du_platform_os::windows_console::attach_parent();
@@ -88,7 +91,7 @@ fn run_with_io<W: Write, E: Write>(
         return ExitCode::FAILURE;
     };
     if settings_unavailable || selection.stored_unavailable {
-        write_stderr_line(stderr, "settings_unavailable");
+        write_settings_unavailable_warning(stderr, message(SETTINGS_UNAVAILABLE_MESSAGE_KEY));
     }
     for warning in registry.integrity_warnings() {
         let warning = format!(
@@ -136,6 +139,17 @@ fn write_stderr_line(stderr: &mut impl Write, message: &str) {
     let _ = writeln!(stderr, "{message}");
 }
 
+/// Writes the localized text message, preserving the stable reason key if the
+/// corresponding locale resource is missing. Machine-readable stderr records
+/// are not emitted by this text-only path; when implemented, they must retain
+/// the published stable reason key.
+fn write_settings_unavailable_warning(stderr: &mut impl Write, localized_message: Option<&str>) {
+    write_stderr_line(
+        stderr,
+        localized_message.unwrap_or(SETTINGS_UNAVAILABLE_REASON_KEY),
+    );
+}
+
 /// Writes the registered text diagnostic once when its locale message exists.
 fn write_output_interrupted_diagnostic(stderr: &mut impl Write, localized_message: Option<&str>) {
     if let Some(message) = localized_message {
@@ -146,6 +160,13 @@ fn write_output_interrupted_diagnostic(stderr: &mut impl Write, localized_messag
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[derive(Clone, Copy, Debug)]
+    enum StoredRead {
+        Failed,
+        Missing,
+        UnsupportedLanguage,
+    }
 
     struct FailingWriter {
         bytes: Vec<u8>,
@@ -198,6 +219,80 @@ mod tests {
         );
         assert_eq!(exit, ExitCode::from(2));
         assert_eq!(stored_reads, 1);
+    }
+
+    #[test]
+    fn settings_warning_is_localized_for_invalid_saved_locale_or_read_failure() -> Result<(), String>
+    {
+        let registry = embedded::register(&[]).map_err(|_| "embedded bundles register")?;
+
+        for (language, expected_warning, unsupported) in [
+            (
+                "en",
+                "Saved settings are unavailable. Using a fallback language.",
+                "DiskUnfold: unsupported arguments. See --help.",
+            ),
+            (
+                "ko",
+                "저장된 설정을 사용할 수 없어 대체 언어를 사용합니다.",
+                "DiskUnfold: 지원하지 않는 인자입니다. --help를 확인하세요.",
+            ),
+        ] {
+            let bundle = registry
+                .bundle(language)
+                .ok_or("test language is not registered")?;
+            let registered_warning = bundle
+                .messages
+                .iter()
+                .find_map(|(key, value)| {
+                    (key == SETTINGS_UNAVAILABLE_MESSAGE_KEY).then_some(value.text.as_str())
+                })
+                .ok_or("settings warning text is not registered")?;
+            assert_eq!(registered_warning, expected_warning, "{language}");
+
+            for stored_read in [
+                StoredRead::Failed,
+                StoredRead::UnsupportedLanguage,
+                StoredRead::Missing,
+            ] {
+                let os_language = format!("{language}-US");
+                let mut stdout = Vec::new();
+                let mut stderr = Vec::new();
+                let exit = run_with_io(
+                    ["scan", "root"].into_iter().map(OsString::from),
+                    || match stored_read {
+                        StoredRead::Failed => Err(()),
+                        StoredRead::Missing => Ok(None),
+                        StoredRead::UnsupportedLanguage => Ok(Some("fr".to_owned())),
+                    },
+                    || Some(vec![os_language]),
+                    &mut stdout,
+                    &mut stderr,
+                );
+
+                assert_eq!(exit, ExitCode::from(2), "{language} {stored_read:?}");
+                assert!(stdout.is_empty(), "{language} {stored_read:?}");
+                let expected_stderr = match stored_read {
+                    StoredRead::Missing => format!("{unsupported}\n"),
+                    StoredRead::Failed | StoredRead::UnsupportedLanguage => {
+                        format!("{expected_warning}\n{unsupported}\n")
+                    }
+                };
+                assert_eq!(
+                    stderr,
+                    expected_stderr.as_bytes(),
+                    "{language} {stored_read:?}"
+                );
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn missing_settings_warning_translation_falls_back_to_stable_reason_key() {
+        let mut stderr = Vec::new();
+        write_settings_unavailable_warning(&mut stderr, None);
+        assert_eq!(stderr, b"settings_unavailable\n");
     }
 
     #[test]

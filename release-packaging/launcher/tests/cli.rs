@@ -50,6 +50,38 @@ fn launcher_with_temp_data() -> io::Result<(Command, TempDataDir)> {
     Ok((command, data_dir))
 }
 
+fn is_localized_settings_unavailable_line(line: &str) -> bool {
+    matches!(
+        line,
+        "Saved settings are unavailable. Using a fallback language."
+            | "저장된 설정을 사용할 수 없어 대체 언어를 사용합니다."
+    )
+}
+
+fn has_any_settings_unavailable_warning(stderr: &str) -> bool {
+    stderr.lines().any(|line| {
+        is_localized_settings_unavailable_line(line)
+            || line == "settings_unavailable"
+            || line == "cli.settings.unavailable"
+    })
+}
+
+fn assert_localized_settings_unavailable_warning_once(stderr: &str) {
+    assert!(
+        !stderr
+            .lines()
+            .any(|line| { line == "settings_unavailable" || line == "cli.settings.unavailable" })
+    );
+    assert_eq!(
+        stderr
+            .lines()
+            .filter(|line| is_localized_settings_unavailable_line(line))
+            .count(),
+        1,
+        "{stderr}"
+    );
+}
+
 #[cfg(windows)]
 fn closed_pipe_stdio() -> io::Result<std::process::Stdio> {
     let (reader, writer) = io::pipe()?;
@@ -184,7 +216,7 @@ fn help_and_version_skip_a_corrupt_settings_database() -> io::Result<()> {
         assert!(output.status.success());
         assert!(String::from_utf8_lossy(&output.stdout).contains(expected));
         let stderr = String::from_utf8_lossy(&output.stderr);
-        assert!(!stderr.contains("settings_unavailable"), "{stderr}");
+        assert!(!has_any_settings_unavailable_warning(&stderr), "{stderr}");
     }
 
     for (argument, expected) in [
@@ -204,7 +236,7 @@ fn help_and_version_skip_a_corrupt_settings_database() -> io::Result<()> {
             "{stdout}"
         );
         let stderr = String::from_utf8_lossy(&output.stderr);
-        assert!(!stderr.contains("settings_unavailable"), "{stderr}");
+        assert!(!has_any_settings_unavailable_warning(&stderr), "{stderr}");
     }
 
     let (mut command, data_dir) = launcher_with_temp_data()?;
@@ -214,7 +246,7 @@ fn help_and_version_skip_a_corrupt_settings_database() -> io::Result<()> {
     )?;
     let output = command.arg("--help").arg("unexpected").output()?;
     assert_eq!(output.status.code(), Some(2));
-    assert!(String::from_utf8_lossy(&output.stderr).contains("settings_unavailable"));
+    assert_localized_settings_unavailable_warning_once(&String::from_utf8_lossy(&output.stderr));
 
     let (mut command, data_dir) = launcher_with_temp_data()?;
     fs::write(
@@ -225,7 +257,7 @@ fn help_and_version_skip_a_corrupt_settings_database() -> io::Result<()> {
     assert_eq!(output.status.code(), Some(2));
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("locale.unsupported"));
-    assert!(!stderr.contains("settings_unavailable"));
+    assert!(!has_any_settings_unavailable_warning(&stderr));
 
     let (mut command, data_dir) = launcher_with_temp_data()?;
     fs::write(
@@ -235,7 +267,7 @@ fn help_and_version_skip_a_corrupt_settings_database() -> io::Result<()> {
     let output = command.arg("scan").arg(data_dir.path()).output()?;
     assert_eq!(output.status.code(), Some(2));
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("settings_unavailable"));
+    assert_localized_settings_unavailable_warning_once(&stderr);
     assert!(stderr.contains("unsupported arguments") || stderr.contains("지원하지 않는 인자"));
     Ok(())
 }
