@@ -33,6 +33,24 @@ impl Pending {
         self.push_with_loss_order(event, now, observed_at, || Some(0));
     }
 
+    /// Retains only the newest queued locale profile notification before sharing
+    /// the normal bounded desktop event stream.
+    pub(super) fn push_latest_locale_changed(
+        &mut self,
+        event: EventEnvelope,
+        now: Instant,
+        observed_at: Timestamp,
+        next_loss_order: impl FnMut() -> Option<u64>,
+    ) {
+        if self.discarded_events.is_none() {
+            let previous_len = self.queue.len();
+            self.queue.retain(|queued| queued.topic != "locale.changed");
+            let removed = previous_len.saturating_sub(self.queue.len());
+            self.ready_count = self.ready_count.saturating_sub(removed);
+        }
+        self.push_with_loss_order(event, now, observed_at, next_loss_order);
+    }
+
     pub(super) fn push_with_loss_order(
         &mut self,
         mut event: EventEnvelope,

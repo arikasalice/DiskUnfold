@@ -33,6 +33,7 @@ pub use visualization::{VisualizationPreview, VisualizationServices};
 // Provisional until the target probe deadline is measured across supported devices.
 const TARGET_PROBE_DEADLINE: Duration = Duration::from_secs(2);
 const TARGET_ENUMERATION_DEADLINE: Duration = Duration::from_secs(2);
+mod locale_events;
 mod pending;
 #[cfg(test)]
 use du_core_contracts::analysis_ipc::{JobResyncReason, JobResyncRequired};

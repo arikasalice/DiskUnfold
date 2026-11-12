@@ -2,12 +2,35 @@
 
 use std::io;
 
+use du_core_contracts::locale_ipc::LocaleLanguageSource;
 use du_user_env::{i18n, locale};
 
 /// Keeps the registered resources and selected language for the desktop lifetime.
 pub(super) struct StartupLocale {
     _registry: i18n::Registry,
     _decision: locale::Decision,
+}
+
+impl StartupLocale {
+    /// Returns the immutable registry retained for the desktop lifetime.
+    pub(super) fn registry(&self) -> &i18n::Registry {
+        &self._registry
+    }
+
+    /// Returns the display language selected before the first window was created.
+    pub(super) fn language(&self) -> &str {
+        &self._decision.language
+    }
+
+    /// Returns the source selected by the startup language table.
+    pub(super) fn source(&self) -> Option<LocaleLanguageSource> {
+        Some(match self._decision.source {
+            locale::Source::Stored => LocaleLanguageSource::Stored,
+            locale::Source::Os => LocaleLanguageSource::Os,
+            locale::Source::Baseline => LocaleLanguageSource::Baseline,
+            locale::Source::Argument => return None,
+        })
+    }
 }
 
 pub(super) fn register() -> Result<i18n::Registry, io::Error> {
@@ -52,7 +75,7 @@ fn initialize_with_language_provider(
 }
 
 /// Applies the startup table to one observation without writing settings.
-fn initialize_with_os(
+pub(super) fn initialize_with_os(
     registry: i18n::Registry,
     stored: Option<&str>,
     os: locale::OsLanguage<'_>,

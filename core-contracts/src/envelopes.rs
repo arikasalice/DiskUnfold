@@ -61,6 +61,9 @@ impl ErrorEnvelope {
             | "command.envelope_invalid"
             | "command.body_invalid"
             | "command.channel_denied"
+            | "locale.unsupported"
+            | "locale.format_unknown"
+            | "settings.value_invalid"
             | "cursor.invalid"
             | "cursor.limit_exceeded"
             | "cursor.mismatch"
@@ -88,19 +91,23 @@ impl ErrorEnvelope {
             | "scope.changed"
             | "result.requery_required"
             | "history.version_changed" => ErrorCode::StaleVersion,
+            "locale.profile_modified" => ErrorCode::StaleVersion,
             "ref.unavailable"
             | "result.version_not_found"
             | "browse.location_missing"
             | "job.not_found"
             | "history.removed"
-            | "viz.model_expired" => ErrorCode::NotFound,
+            | "viz.model_expired"
+            | "locale.bundle_unavailable" => ErrorCode::NotFound,
+            "command.window_denied" => ErrorCode::OriginDenied,
             "path.outside_scope" | "path.link_escape" => ErrorCode::ScopeDenied,
             "db.busy" | "job.queue_full" | "job.shutting_down" | "query.busy" | "viz.busy" => {
                 ErrorCode::Busy
             }
-            "db.schema_mismatch" | "support.internal_error" | "history.storage_unavailable" => {
-                ErrorCode::Internal
-            }
+            "db.schema_mismatch"
+            | "support.internal_error"
+            | "history.storage_unavailable"
+            | "locale.registration_failed" => ErrorCode::Internal,
             _ => return None,
         })
     }
@@ -115,6 +122,34 @@ impl ErrorEnvelope {
             item_refs,
             retryable,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ErrorCode, ErrorEnvelope};
+    use crate::Id;
+
+    #[test]
+    fn locale_profile_reasons_keep_the_published_error_codes()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let correlation = Id::parse("0195f856-ab83-7a59-9343-10d29775c9a9")?;
+        for (reason, expected) in [
+            ("locale.unsupported", ErrorCode::InvalidArgument),
+            ("locale.format_unknown", ErrorCode::InvalidArgument),
+            ("settings.value_invalid", ErrorCode::InvalidArgument),
+            ("locale.profile_modified", ErrorCode::StaleVersion),
+            ("locale.bundle_unavailable", ErrorCode::NotFound),
+            ("command.window_denied", ErrorCode::OriginDenied),
+            ("locale.registration_failed", ErrorCode::Internal),
+            ("db.busy", ErrorCode::Busy),
+        ] {
+            let envelope = ErrorEnvelope::from_reason(reason, correlation.clone(), Vec::new())
+                .ok_or("locale reason was not registered")?;
+            assert_eq!(envelope.reason_key, reason);
+            assert_eq!(envelope.code, expected);
+        }
+        Ok(())
     }
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
