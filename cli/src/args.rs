@@ -1,11 +1,25 @@
 use std::ffi::{OsStr, OsString};
 
+const FORBIDDEN_NAMES: &[&str] = &[
+    "approve", "execute", "trash", "delete", "move", "restore", "undo", "protect", "mcp", "key",
+];
+
 pub(crate) enum Command {
     Help,
     Version,
     /// A syntactically admitted scan; execution awaits engine and policy composition.
     Scan(Scan),
+    NotProvided,
     Unsupported,
+}
+
+impl Command {
+    pub(crate) const fn reason_key(&self) -> Option<&'static str> {
+        match self {
+            Self::NotProvided => Some("command.not_provided"),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -27,39 +41,73 @@ pub(crate) struct Arguments {
     pub(crate) language: Option<String>,
 }
 
+#[derive(Default)]
+struct ParseState {
+    language: Option<String>,
+    command: Option<Command>,
+    options_ended: bool,
+    invalid: bool,
+}
+
 pub(crate) fn parse(mut arguments: impl Iterator<Item = OsString>) -> Option<Arguments> {
-    let mut language = None;
-    let mut command = None;
-    let mut options_ended = false;
-    let mut invalid = false;
+    let mut state = ParseState::default();
     while let Some(argument) = arguments.next() {
-        if !options_ended && argument == "--lang" {
-            if language.is_some() {
-                return None;
-            }
-            language = Some(arguments.next()?.into_string().ok()?);
-        } else if !options_ended && argument == "--" {
-            options_ended = true;
-        } else if command.is_none() {
-            command = Some(match argument.to_str() {
-                Some("--help" | "-h") if !options_ended => Command::Help,
-                Some("--version" | "-V") if !options_ended => Command::Version,
-                Some("scan") if !options_ended => Command::Scan(Scan::default()),
-                _ => Command::Unsupported,
-            });
-        } else if let Some(Command::Scan(scan)) = &mut command {
-            invalid |= !scan_argument(scan, argument, options_ended, &mut arguments);
-        } else {
-            invalid = true;
-        }
+        consume_argument(&mut state, argument, &mut arguments)?;
     }
-    let command = match command {
-        Some(Command::Scan(scan)) if !invalid && !scan.roots.is_empty() => Command::Scan(scan),
-        Some(Command::Help) if !invalid && !options_ended => Command::Help,
-        Some(Command::Version) if !invalid && !options_ended => Command::Version,
+    let command = match state.command {
+        Some(Command::NotProvided) => Command::NotProvided,
+        Some(Command::Scan(scan)) if !state.invalid && !scan.roots.is_empty() => {
+            Command::Scan(scan)
+        }
+        Some(Command::Help) if !state.invalid && !state.options_ended => Command::Help,
+        Some(Command::Version) if !state.invalid && !state.options_ended => Command::Version,
         _ => Command::Unsupported,
     };
-    Some(Arguments { command, language })
+    Some(Arguments {
+        command,
+        language: state.language,
+    })
+}
+
+fn consume_argument(
+    state: &mut ParseState,
+    argument: OsString,
+    arguments: &mut impl Iterator<Item = OsString>,
+) -> Option<()> {
+    if !state.options_ended && argument == "--lang" {
+        if state.language.is_some() {
+            return None;
+        }
+        state.language = Some(arguments.next()?.into_string().ok()?);
+    } else if !state.options_ended && argument == "--" {
+        state.options_ended = true;
+    } else if state.command.is_none() {
+        if state.options_ended {
+            // Do not reinterpret values after a leading marker as commands.
+            state.invalid = true;
+        } else {
+            state.command = Some(parse_command(argument));
+        }
+    } else if let Some(Command::Scan(scan)) = &mut state.command {
+        if !scan_argument(scan, argument, state.options_ended, arguments) {
+            state.invalid = true;
+        }
+    } else {
+        state.invalid = true;
+    }
+    Some(())
+}
+
+fn parse_command(argument: OsString) -> Command {
+    match argument.to_str() {
+        Some("--help" | "-h") => Command::Help,
+        Some("--version" | "-V") => Command::Version,
+        Some("scan") => Command::Scan(Scan::default()),
+        Some(name) if is_forbidden_name(name) => Command::NotProvided,
+        Some("--format" | "-q") => Command::Unsupported,
+        _ if is_option(&argument) => Command::Unsupported,
+        _ => Command::NotProvided,
+    }
 }
 
 fn scan_argument(
@@ -95,6 +143,10 @@ fn scan_argument(
     }
     scan.roots.push(argument);
     true
+}
+
+fn is_forbidden_name(value: &str) -> bool {
+    FORBIDDEN_NAMES.contains(&value)
 }
 
 fn is_option(value: &OsStr) -> bool {
@@ -146,9 +198,6 @@ mod tests {
             vec!["scan", "root", "--device", "--lang", "en"],
             vec!["scan"],
             vec!["scan", "root", "--device", "ssd", "--device", "hdd"],
-            vec!["scan", "root", "--execute"],
-            vec!["delete", "root"],
-            vec!["query", "--source", "ref"],
             vec!["--", "scan"],
         ] {
             assert!(matches!(
@@ -159,6 +208,111 @@ mod tests {
                 })
             ));
         }
+        assert!(matches!(
+            parsed(&["--lang", "--execute"]),
+            Some(Arguments {
+                command: Command::Unsupported,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn fr6_unregistered_and_forbidden_command_names_are_not_provided() -> Result<(), String> {
+        let Some(Arguments { command, .. }) = parsed(&["unknown-command"]) else {
+            return Err("unknown command did not parse".into());
+        };
+        assert!(matches!(&command, Command::NotProvided));
+        assert_eq!(command.reason_key(), Some("command.not_provided"));
+
+        for name in FORBIDDEN_NAMES {
+            let Some(Arguments { command, .. }) = parse([OsString::from(*name)].into_iter()) else {
+                return Err(format!("forbidden command {name} did not parse"));
+            };
+            assert!(matches!(&command, Command::NotProvided), "{name}");
+            assert_eq!(command.reason_key(), Some("command.not_provided"), "{name}");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn fr6_unregistered_commands_are_not_provided() {
+        for input in [
+            vec!["duplicates"],
+            vec!["status"],
+            vec!["query"],
+            vec!["compare"],
+            vec!["report"],
+            vec!["export"],
+            vec!["plan"],
+            vec!["cancel"],
+            vec!["session"],
+        ] {
+            assert!(
+                matches!(
+                    parsed(&input),
+                    Some(Arguments {
+                        command: Command::NotProvided,
+                        ..
+                    })
+                ),
+                "{input:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn fr6_malformed_registered_commands_and_unknown_options_keep_usage_classification() {
+        for input in [
+            vec!["--help", "unexpected"],
+            vec!["--help", "--execute"],
+            vec!["scan"],
+            vec!["scan", "root", "--unknown"],
+            vec!["scan", "root", "--execute"],
+            vec!["--bogus"],
+            vec!["-x"],
+            vec!["scan", "--exclude", "--execute", "root"],
+            vec!["scan", "--device", "--delete", "root"],
+        ] {
+            assert!(
+                matches!(
+                    parsed(&input),
+                    Some(Arguments {
+                        command: Command::Unsupported,
+                        ..
+                    })
+                ),
+                "{input:?}"
+            );
+        }
+        assert!(matches!(
+            parsed(&["scan", "root", "--", "--execute"]),
+            Some(Arguments {
+                command: Command::Scan(_),
+                ..
+            })
+        ));
+        assert!(matches!(
+            parsed(&["--", "--execute"]),
+            Some(Arguments {
+                command: Command::Unsupported,
+                ..
+            })
+        ));
+        assert!(matches!(
+            parsed(&["scan", "delete"]),
+            Some(Arguments {
+                command: Command::Scan(_),
+                ..
+            })
+        ));
+        assert!(matches!(
+            parsed(&["scan", "--exclude", "delete", "root"]),
+            Some(Arguments {
+                command: Command::Scan(_),
+                ..
+            })
+        ));
     }
 
     #[test]

@@ -271,3 +271,41 @@ fn help_and_version_skip_a_corrupt_settings_database() -> io::Result<()> {
     assert!(stderr.contains("unsupported arguments") || stderr.contains("지원하지 않는 인자"));
     Ok(())
 }
+
+#[cfg(windows)]
+#[test]
+fn unregistered_launcher_commands_skip_corrupt_settings_database() -> io::Result<()> {
+    use std::process::Stdio;
+
+    let corrupt_bytes = b"intentionally corrupt settings database";
+    for (arguments, expected_diagnostic) in [
+        (vec!["status"], None),
+        (vec!["query"], None),
+        (vec!["unregistered-command"], None),
+        (
+            vec!["--lang", "en", "delete"],
+            Some("unsupported arguments"),
+        ),
+    ] {
+        let (mut command, data_dir) = launcher_with_temp_data()?;
+        let database_path = data_dir.path().join("diskunfold.db");
+        fs::write(&database_path, corrupt_bytes)?;
+
+        let output = command.args(&arguments).stdin(Stdio::null()).output()?;
+        assert_eq!(output.status.code(), Some(2), "{arguments:?}");
+        assert!(output.stdout.is_empty(), "{arguments:?}");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(!has_any_settings_unavailable_warning(&stderr), "{stderr}");
+        if let Some(expected) = expected_diagnostic {
+            assert!(stderr.contains(expected), "{arguments:?}: {stderr}");
+            assert_eq!(stderr, "DiskUnfold: unsupported arguments. See --help.\n");
+        } else {
+            assert!(
+                stderr.contains("unsupported arguments") || stderr.contains("지원하지 않는 인자"),
+                "{arguments:?}: {stderr}"
+            );
+        }
+        assert_eq!(fs::read(database_path)?, corrupt_bytes, "{arguments:?}");
+    }
+    Ok(())
+}
