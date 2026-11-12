@@ -172,7 +172,11 @@ fn run_app(
         (locale, settings, first_run)
     };
     #[cfg(target_os = "macos")]
-    let (database, first_run) = {
+    let (database, settings, locale, first_run) = {
+        let bundles = crate::locale::register().map_err(|error| {
+            crate::startup_checks::report_pre_window_error(capabilities.as_ref(), error)
+        })?;
+        let configured = bundles.configured_languages().collect::<Vec<_>>();
         let data_dir = du_platform_os::application_data::directory()
             .ok_or_else(|| crate::startup_database::data_folder_error(None))
             .map_err(|error| {
@@ -185,7 +189,20 @@ fn run_app(
         startup_observed.push(crate::startup_checks::data_format_and_open_observation(
             first_run,
         ));
-        (opened.database, first_run)
+        let database = opened.database;
+        let settings =
+            crate::settings::StartupSettings::load(&database, &configured).map_err(|error| {
+                crate::startup_checks::report_pre_window_error(capabilities.as_ref(), error)
+            })?;
+        let stored = settings.stored_language().map_err(|error| {
+            crate::startup_checks::report_pre_window_error(capabilities.as_ref(), error)
+        })?;
+        let locale = Arc::new(
+            crate::locale::initialize(bundles, stored.as_deref()).map_err(|error| {
+                crate::startup_checks::report_pre_window_error(capabilities.as_ref(), error)
+            })?,
+        );
+        (database, settings, locale, first_run)
     };
     #[allow(unused_mut)]
     let mut builder = EngineBuilder::default();
@@ -287,6 +304,19 @@ fn run_app(
         settings.register_locale_profile(&mut builder, runtime, true);
         crate::locale_delivery::register(&mut builder, locale);
     }
+    #[cfg(target_os = "macos")]
+    {
+        let inventory = locale.clone();
+        let runtime = crate::settings::LocaleRuntime::read_only(
+            locale.clone(),
+            Arc::new(move || Ok(inventory.registry().supported_languages())),
+            Arc::new(du_platform_os::macos_time_zone::MacOsTimeZone),
+        );
+        settings
+            .clone()
+            .register_locale_profile_read_only(&mut builder, runtime);
+        crate::locale_delivery::register(&mut builder, locale.clone());
+    }
     #[cfg(windows)]
     events
         .recover_history(&recovery, crate::settings::current_time_ms())
@@ -335,6 +365,8 @@ fn run_app(
         response_delivery: recent_worker.as_ref().map(RecentScopeWorker::observer),
         #[cfg(windows)]
         initialization_script: recent_worker.as_ref().map(|_| RECENT_SCOPE_BOOTSTRAP),
+        #[cfg(target_os = "macos")]
+        locale_enabled: true,
         icon: include_bytes!("../icons/icon.png"),
     };
     #[cfg(any(windows, target_os = "linux"))]

@@ -8,9 +8,15 @@ mod history;
 mod ipc;
 #[cfg(feature = "gui")]
 mod lifecycle;
-#[cfg(all(feature = "gui", any(windows, target_os = "linux")))]
+#[cfg(all(
+    feature = "gui",
+    any(windows, target_os = "linux", target_os = "macos")
+))]
 mod locale;
-#[cfg(all(feature = "gui", any(windows, target_os = "linux")))]
+#[cfg(all(
+    feature = "gui",
+    any(windows, target_os = "linux", target_os = "macos")
+))]
 mod locale_delivery;
 #[cfg(feature = "gui")]
 pub mod recent_scope_body;
@@ -20,7 +26,10 @@ mod recent_scope_list;
 mod recent_scope_open;
 #[cfg(all(feature = "gui", windows))]
 mod recent_scope_worker;
-#[cfg(all(feature = "gui", any(windows, target_os = "linux")))]
+#[cfg(all(
+    feature = "gui",
+    any(windows, target_os = "linux", target_os = "macos")
+))]
 mod settings;
 #[cfg(all(
     feature = "gui",

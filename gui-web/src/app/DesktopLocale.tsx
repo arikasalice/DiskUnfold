@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo } from "react";
+import type { ReactNode } from "react";
 import { Action, Notice, Progress } from "../components";
-import { LocaleTextContext } from "../i18n/presentation";
+import { LocaleTextContext, useLocaleText } from "../i18n/presentation";
 import { RegionalFormatContext } from "../i18n/regional-format";
 import type { RegionalFormat } from "../i18n/regional-format";
 import type { AnalysisClient } from "../ipc";
@@ -62,10 +63,13 @@ function useLocalePresentation(view: LocaleView | undefined) {
 export function DesktopLocale({
   client,
   analysisEnabled = true,
+  children,
 }: {
   client: AnalysisClient;
   analysisEnabled?: boolean;
+  children?: ReactNode;
 }) {
+  const fallbackText = useLocaleText();
   const { view, save, retry, errorKey, commandError } = useLocale(client);
   const reporter = useMemo(() => makeLocaleReporter(client), [client]);
   useEffect(() => () => reporter.cancel(), [reporter]);
@@ -81,13 +85,22 @@ export function DesktopLocale({
         {errorKey ? (
           <>
             <Notice tone="error">
-              Could not load language settings. / 언어 설정을 불러오지
-              못했습니다.
+              {fallbackText(
+                "ui.locale.failed",
+                "Could not load language settings.",
+              )}
             </Notice>
-            <Action onPress={retry}>Retry / 다시 시도</Action>
+            <Action onPress={retry}>
+              {fallbackText("ui.common.retry", "Retry")}
+            </Action>
           </>
         ) : (
-          <Progress label="Loading language settings… / 언어 설정을 불러오는 중…" />
+          <Progress
+            label={fallbackText(
+              "ui.locale.loading",
+              "Loading language settings…",
+            )}
+          />
         )}
       </main>
     );
@@ -105,17 +118,19 @@ export function DesktopLocale({
   return (
     <LocaleTextContext.Provider value={text}>
       <RegionalFormatContext.Provider value={format}>
-        <App
-          {...(analysisEnabled ? { analysis: client } : {})}
-          nativeLocaleHost={!analysisEnabled}
-          locale={{
-            profile: view.profile,
-            text: (key) => text(key, ""),
-            save,
-            ...(errorKey && { errorKey }),
-            ...(issue && { issue }),
-          }}
-        />
+        {children ?? (
+          <App
+            {...(analysisEnabled ? { analysis: client } : {})}
+            nativeLocaleHost={!analysisEnabled}
+            locale={{
+              profile: view.profile,
+              text: (key) => text(key, ""),
+              save,
+              ...(errorKey && { errorKey }),
+              ...(issue && { issue }),
+            }}
+          />
+        )}
       </RegionalFormatContext.Provider>
     </LocaleTextContext.Provider>
   );

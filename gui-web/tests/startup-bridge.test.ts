@@ -29,6 +29,16 @@ test("detects the trusted Mac startup bridge without claiming locale support", (
   expect(hasDesktopLocaleBridge()).toBe(false);
 });
 
+test("accepts the Mac locale bridge only when the host injects its capability marker", () => {
+  stubNativeWindow("diskunfold://app/index.html");
+  const host = window as unknown as { __diskunfoldLocale?: boolean };
+
+  host.__diskunfoldLocale = true;
+  expect(hasDesktopLocaleBridge()).toBe(true);
+  host.__diskunfoldLocale = false;
+  expect(hasDesktopLocaleBridge()).toBe(false);
+});
+
 test.each([
   ["an external document", "https://example.invalid/index.html", true, true],
   ["a nested frame", "diskunfold://app/index.html", true, false],

@@ -59,6 +59,12 @@ pub(super) fn initialize(
             du_platform_os::linux_ui_language::preferred_ui_languages()
         })
     }
+    #[cfg(target_os = "macos")]
+    {
+        initialize_with_language_provider(registry, stored, || {
+            du_platform_os::macos_ui_language::preferred_ui_languages()
+        })
+    }
 }
 
 fn initialize_with_language_provider(

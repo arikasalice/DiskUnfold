@@ -1,10 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Action,
   Heading,
@@ -22,127 +16,109 @@ import type {
   StartupGrade,
   StartupStatus,
 } from "../../ipc";
+import { useLocaleText } from "../../i18n/presentation";
+import type { LocaleText } from "../../i18n/presentation";
 import "./startup-status.css";
 
-type StartupLanguage = "en" | "ko";
-
-const messages = {
-  en: {
-    title: "Startup and privacy",
-    introduction:
+function startupCopy(text: LocaleText) {
+  return {
+    title: text("ui.startup.title", "Startup and privacy"),
+    introduction: text(
+      "ui.startup.introduction",
       "Review startup checks and Full Disk Access for this Mac. Disk analysis is not enabled in this build.",
-    loading: "Loading startup checks",
-    loadFailed: "Startup status could not be read. Try again.",
-    actionFailed: "The permission status could not be updated. Try again.",
-    retry: "Try again",
-    statusHeading: "Startup status",
-    checksHeading: "Checks",
-    grade: "Overall status",
-    access: "Full Disk Access",
-    analysis: "Analysis entry",
-    allowed: "Allowed by startup checks",
-    blocked: "Blocked by startup checks",
-    deniedNotice:
+    ),
+    loading: text("ui.startup.loading", "Loading startup checks"),
+    loadFailed: text(
+      "ui.startup.load_failed",
+      "Startup status could not be read. Try again.",
+    ),
+    actionFailed: text(
+      "ui.startup.action_failed",
+      "The permission status could not be updated. Try again.",
+    ),
+    retry: text("ui.startup.retry", "Try again"),
+    statusHeading: text("ui.startup.status_heading", "Startup status"),
+    checksHeading: text("ui.startup.checks_heading", "Checks"),
+    grade: text("ui.startup.grade", "Overall status"),
+    access: text("ui.startup.access", "Full Disk Access"),
+    analysis: text("ui.startup.analysis", "Analysis entry"),
+    allowed: text("ui.startup.allowed", "Allowed by startup checks"),
+    blocked: text("ui.startup.blocked", "Blocked by startup checks"),
+    deniedNotice: text(
+      "ui.startup.denied_notice",
       "Full Disk Access is denied. Open Privacy & Security Settings, add DiskUnfold under Full Disk Access, then check the permission again.",
-    analysisBlockedNotice:
+    ),
+    analysisBlockedNotice: text(
+      "ui.startup.analysis_blocked_notice",
       "Startup checks do not allow analysis. Review the listed results for details.",
-    unknownNotice:
+    ),
+    unknownNotice: text(
+      "ui.startup.unknown_notice",
       "macOS could not confirm Full Disk Access. Unknown access is not treated as a denial. You can open Privacy & Security Settings and check again.",
-    confirmedNotice:
+    ),
+    confirmedNotice: text(
+      "ui.startup.confirmed_notice",
       "Full Disk Access is confirmed. This build provides startup checks and permission controls only; disk analysis is not enabled.",
-    notApplicableNotice:
+    ),
+    notApplicableNotice: text(
+      "ui.startup.not_applicable_notice",
       "Full Disk Access does not apply to this operation. This build provides startup checks and permission controls only; disk analysis is not enabled.",
-    openSettings: "Open Privacy & Security Settings",
-    recheck: "Check permission again",
-    settingsOpened:
+    ),
+    openSettings: text(
+      "ui.startup.open_settings",
+      "Open Privacy & Security Settings",
+    ),
+    recheck: text("ui.startup.recheck", "Check permission again"),
+    settingsOpened: text(
+      "ui.startup.settings_opened",
       "System Settings reported that its privacy page opened. Grant Full Disk Access to DiskUnfold, then check the permission again.",
-    settingsNotConfirmed:
+    ),
+    settingsNotConfirmed: text(
+      "ui.startup.settings_not_confirmed",
       "macOS did not confirm that Settings opened. If needed, open System Settings › Privacy & Security › Full Disk Access, add DiskUnfold, then check again.",
-    rechecked: "Permission status refreshed.",
-    unknown: "Unknown",
-    pass: "Passed",
-    limited: "Limited",
-    outsideVerified: "Outside verified combinations",
-    unverifiable: "Could not verify",
-    notApplicable: "Not applicable",
-    denied: "Denied",
-    confirmed: "Confirmed",
+    ),
+    rechecked: text("ui.startup.rechecked", "Permission status refreshed."),
+    unknown: text("ui.startup.unknown", "Unknown"),
+    pass: text("ui.startup.pass", "Passed"),
+    limited: text("ui.startup.limited", "Limited"),
+    outsideVerified: text(
+      "ui.startup.outside_verified",
+      "Outside verified combinations",
+    ),
+    unverifiable: text("ui.startup.unverifiable", "Could not verify"),
+    notApplicable: text("ui.startup.not_applicable", "Not applicable"),
+    denied: text("ui.startup.denied", "Denied"),
+    confirmed: text("ui.startup.confirmed", "Confirmed"),
     checkNames: {
-      resource_integrity: "Built-in resources",
-      webview: "WebView availability",
-      data_format_and_open: "Local data and format",
-      temporary_files: "Temporary files",
-      support_matrix: "Verified environment",
-      capability: "Platform capabilities",
-      full_disk_access: "Full Disk Access",
+      resource_integrity: text(
+        "ui.startup.check.resource_integrity",
+        "Built-in resources",
+      ),
+      webview: text("ui.startup.check.webview", "WebView availability"),
+      data_format_and_open: text(
+        "ui.startup.check.data_format_and_open",
+        "Local data and format",
+      ),
+      temporary_files: text(
+        "ui.startup.check.temporary_files",
+        "Temporary files",
+      ),
+      support_matrix: text(
+        "ui.startup.check.support_matrix",
+        "Verified environment",
+      ),
+      capability: text("ui.startup.check.capability", "Platform capabilities"),
+      full_disk_access: text(
+        "ui.startup.check.full_disk_access",
+        "Full Disk Access",
+      ),
     } as Record<string, string>,
-  },
-  ko: {
-    title: "시작 상태와 개인정보 보호",
-    introduction:
-      "이 Mac의 시작 점검과 전체 디스크 접근 권한을 확인합니다. 이 빌드에서는 디스크 분석을 사용할 수 없습니다.",
-    loading: "시작 점검을 불러오는 중",
-    loadFailed: "시작 상태를 읽지 못했습니다. 다시 시도하세요.",
-    actionFailed: "권한 상태를 갱신하지 못했습니다. 다시 시도하세요.",
-    retry: "다시 시도",
-    statusHeading: "시작 상태",
-    checksHeading: "점검 항목",
-    grade: "전체 상태",
-    access: "전체 디스크 접근 권한",
-    analysis: "분석 진입",
-    allowed: "시작 점검에서 허용됨",
-    blocked: "시작 점검에서 차단됨",
-    deniedNotice:
-      "전체 디스크 접근 권한이 거부되었습니다. 개인정보 보호 및 보안 설정에서 DiskUnfold에 전체 디스크 접근 권한을 부여한 뒤 다시 확인하세요.",
-    analysisBlockedNotice:
-      "시작 점검 결과 분석을 허용하지 않습니다. 자세한 내용은 점검 결과를 확인하세요.",
-    unknownNotice:
-      "macOS에서 전체 디스크 접근 권한을 확인하지 못했습니다. 확인 불가는 거부로 처리하지 않습니다. 설정을 열어 직접 확인할 수 있습니다.",
-    confirmedNotice:
-      "전체 디스크 접근 권한을 확인했습니다. 이 빌드는 시작 점검과 권한 제어만 제공하며 디스크 분석은 사용할 수 없습니다.",
-    notApplicableNotice:
-      "이 작업에는 전체 디스크 접근 권한이 적용되지 않습니다. 이 빌드는 시작 점검과 권한 제어만 제공하며 디스크 분석은 사용할 수 없습니다.",
-    openSettings: "개인정보 보호 및 보안 설정 열기",
-    recheck: "권한 다시 확인",
-    settingsOpened:
-      "시스템 설정에서 개인정보 보호 화면을 열었다고 알렸습니다. DiskUnfold에 권한을 부여한 뒤 다시 확인하세요.",
-    settingsNotConfirmed:
-      "macOS에서 설정 화면 열림을 확인하지 못했습니다. 필요하면 시스템 설정 › 개인정보 보호 및 보안 › 전체 디스크 접근 권한에서 DiskUnfold를 추가한 뒤 다시 확인하세요.",
-    rechecked: "권한 상태를 다시 확인했습니다.",
-    unknown: "알 수 없음",
-    pass: "통과",
-    limited: "제한됨",
-    outsideVerified: "검증 범위 밖",
-    unverifiable: "확인 불가",
-    notApplicable: "해당 없음",
-    denied: "거부됨",
-    confirmed: "확인됨",
-    checkNames: {
-      resource_integrity: "내장 자원",
-      webview: "웹뷰 사용 가능 여부",
-      data_format_and_open: "로컬 데이터 및 형식",
-      temporary_files: "임시 파일",
-      support_matrix: "검증 환경",
-      capability: "플랫폼 능력",
-      full_disk_access: "전체 디스크 접근 권한",
-    } as Record<string, string>,
-  },
-} satisfies Record<StartupLanguage, Record<string, unknown>>;
-
-/** Selects the startup screen language from the WebView's current locale tags. */
-export function startupLanguageFrom(tags: readonly string[]): StartupLanguage {
-  return tags[0]?.toLowerCase().split(/[-_]/, 1)[0] === "ko" ? "ko" : "en";
+  };
 }
 
-function startupLanguage(): StartupLanguage {
-  if (typeof navigator === "undefined") return "en";
-  return startupLanguageFrom([...navigator.languages, navigator.language]);
-}
+type StartupCopy = ReturnType<typeof startupCopy>;
 
-function gradeLabel(
-  grade: StartupGrade,
-  copy: (typeof messages)[StartupLanguage],
-) {
+function gradeLabel(grade: StartupGrade, copy: StartupCopy) {
   switch (grade) {
     case "pass":
       return copy.pass;
@@ -157,10 +133,7 @@ function gradeLabel(
   }
 }
 
-function accessLabel(
-  access: StartupAccessState,
-  copy: (typeof messages)[StartupLanguage],
-) {
+function accessLabel(access: StartupAccessState, copy: StartupCopy) {
   switch (access) {
     case "confirmed":
       return copy.confirmed;
@@ -173,10 +146,7 @@ function accessLabel(
   }
 }
 
-function outcomeLabel(
-  result: StartupCheckResult,
-  copy: (typeof messages)[StartupLanguage],
-) {
+function outcomeLabel(result: StartupCheckResult, copy: StartupCopy) {
   switch (result.result) {
     case "pass":
       return copy.pass;
@@ -193,31 +163,19 @@ function outcomeLabel(
   }
 }
 
-function checkLabel(
-  check: StartupCheckResult,
-  copy: (typeof messages)[StartupLanguage],
-) {
+function checkLabel(check: StartupCheckResult, copy: StartupCopy) {
   return copy.checkNames[check.check] ?? copy.unknown;
 }
 
 export function StartupStatusScreen({ client }: { client: AnalysisClient }) {
-  const language = useMemo(startupLanguage, []);
-  const copy = messages[language];
+  const text = useLocaleText();
+  const copy = useMemo(() => startupCopy(text), [text]);
   const [status, setStatus] = useState<StartupStatus>();
   const [loading, setLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
   const [actionFailed, setActionFailed] = useState(false);
   const [pending, setPending] = useState<StartupAccessAction>();
   const [feedback, setFeedback] = useState<string>();
-
-  useLayoutEffect(() => {
-    const root = document.documentElement;
-    const previousLanguage = root.lang;
-    root.lang = language;
-    return () => {
-      root.lang = previousLanguage;
-    };
-  }, [language]);
 
   const loadStatus = useCallback(async () => {
     setLoading(true);

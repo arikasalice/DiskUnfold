@@ -9,10 +9,8 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
-import {
-  StartupStatusScreen,
-  startupLanguageFrom,
-} from "../src/features/startup/StartupStatusScreen";
+import { StartupStatusScreen } from "../src/features/startup/StartupStatusScreen";
+import { LocaleTextContext } from "../src/i18n/presentation";
 import { createAnalysisClient } from "../src/ipc";
 import type {
   StartupAccessAction,
@@ -44,14 +42,8 @@ function report(access: string, analysisAllowed: boolean): StartupStatus {
   };
 }
 
-test("selects Korean only when a preferred locale is Korean", () => {
-  expect(startupLanguageFrom(["ko-KR", "en-US"])).toBe("ko");
-  expect(startupLanguageFrom(["en-US", "ko-KR"])).toBe("en");
-  expect(startupLanguageFrom(["fr-FR", "en-US"])).toBe("en");
-  expect(startupLanguageFrom([])).toBe("en");
-});
-
-test("sets the document language for the selected Korean startup copy", async () => {
+test("uses shared locale text instead of navigator language preferences", async () => {
+  document.documentElement.lang = "en";
   vi.stubGlobal("navigator", {
     languages: ["ko-KR"],
     language: "ko-KR",
@@ -63,11 +55,19 @@ test("sets the document language for the selected Korean startup copy", async ()
     body: report("unknown", true),
   }));
 
-  render(<StartupStatusScreen client={createAnalysisClient(transport)} />);
+  render(
+    <LocaleTextContext.Provider
+      value={(key, fallback) =>
+        key === "ui.startup.status_heading" ? "공통 시작 상태" : fallback
+      }
+    >
+      <StartupStatusScreen client={createAnalysisClient(transport)} />
+    </LocaleTextContext.Provider>,
+  );
 
-  expect(document.documentElement.lang).toBe("ko");
+  expect(document.documentElement.lang).toBe("en");
   expect(
-    await screen.findByRole("heading", { name: "시작 상태" }),
+    await screen.findByRole("heading", { name: "공통 시작 상태" }),
   ).toBeTruthy();
 });
 

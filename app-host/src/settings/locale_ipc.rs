@@ -5,34 +5,38 @@ use std::sync::Arc;
 use du_core_contracts::{
     Timestamp,
     locale_ipc::{
-        LocalTimeZoneStatus, LocaleAppScale, LocaleChangedBody, LocaleChangedField,
-        LocaleDateFormat, LocaleLanguageSource, LocaleMotion, LocaleNumberFormat, LocaleProfile,
-        LocaleProfileRevision, LocaleProfileSetRequest, LocaleSupportedLanguage,
+        LocalTimeZoneStatus, LocaleAppScale, LocaleDateFormat, LocaleLanguageSource, LocaleMotion,
+        LocaleNumberFormat, LocaleProfile, LocaleProfileRevision, LocaleSupportedLanguage,
         LocaleTimeZonePolicy,
     },
+    time_zone::{TimeZonePort, TimeZoneUnavailable},
+};
+#[cfg(any(windows, target_os = "linux"))]
+use du_core_contracts::{
+    locale_ipc::{LocaleChangedBody, LocaleChangedField, LocaleProfileSetRequest},
     settings::{SettingsChanges, SettingsCommit, SettingsSource, SettingsStoreError},
     settings_events::{
         SettingsApplyTiming, SettingsChangeSource, SettingsChangedBody, SettingsChangedKey,
     },
-    time_zone::{TimeZonePort, TimeZoneUnavailable},
 };
+#[cfg(any(windows, target_os = "linux"))]
+use du_engine_api::desktop::DesktopEvents;
 use du_engine_api::{
     api::{CallerCtx, Channel, EngineBuilder, UseCase},
-    desktop::DesktopEvents,
     error::EngineError,
 };
-use du_user_env::{
-    CatalogEntry,
-    locale::DISPLAY_LANGUAGE_KEY,
-    settings::{SettingsError, SettingsService},
-};
+#[cfg(any(windows, target_os = "linux"))]
+use du_user_env::settings::SettingsError;
+use du_user_env::{CatalogEntry, locale::DISPLAY_LANGUAGE_KEY, settings::SettingsService};
 use serde_json::Value;
 
 use crate::{locale::StartupLocale, shared_database::SharedSettings};
 
 use super::{StartupSettings, current_time_ms};
 
+#[cfg(any(windows, target_os = "linux"))]
 mod changes;
+#[cfg(any(windows, target_os = "linux"))]
 use changes::settings_changes;
 
 const DATE_FORMAT_KEY: &str = "locale.date_format";
@@ -51,6 +55,7 @@ pub(crate) type SupportedLanguageInventory =
 /// Dependencies needed to serve the desktop locale profile and its events.
 pub(crate) struct LocaleRuntime {
     startup_locale: Arc<StartupLocale>,
+    #[cfg(any(windows, target_os = "linux"))]
     events: Arc<DesktopEvents>,
     supported_languages: SupportedLanguageInventory,
     time_zone: Arc<dyn TimeZonePort>,
@@ -58,6 +63,7 @@ pub(crate) struct LocaleRuntime {
 
 impl LocaleRuntime {
     /// Binds startup language, verified bundle inventory, event delivery, and OS time-zone evidence.
+    #[cfg(any(windows, target_os = "linux"))]
     pub(crate) fn new(
         startup_locale: Arc<StartupLocale>,
         events: Arc<DesktopEvents>,
@@ -71,6 +77,20 @@ impl LocaleRuntime {
             time_zone,
         }
     }
+
+    /// Binds the services needed for a profile-only host without event delivery.
+    #[cfg(target_os = "macos")]
+    pub(crate) fn read_only(
+        startup_locale: Arc<StartupLocale>,
+        supported_languages: SupportedLanguageInventory,
+        time_zone: Arc<dyn TimeZonePort>,
+    ) -> Self {
+        Self {
+            startup_locale,
+            supported_languages,
+            time_zone,
+        }
+    }
 }
 
 struct LocaleProfileContext {
@@ -80,6 +100,7 @@ struct LocaleProfileContext {
 
 impl StartupSettings {
     /// Registers locale profile reads and writes for one GUI window context.
+    #[cfg(any(windows, target_os = "linux"))]
     pub(crate) fn register_locale_profile(
         self: Arc<Self>,
         builder: &mut EngineBuilder,
@@ -95,6 +116,20 @@ impl StartupSettings {
             context,
             primary_window,
         });
+    }
+
+    /// Registers only the locale profile query when the host cannot deliver events.
+    #[cfg(target_os = "macos")]
+    pub(crate) fn register_locale_profile_read_only(
+        self: Arc<Self>,
+        builder: &mut EngineBuilder,
+        runtime: LocaleRuntime,
+    ) {
+        let context = Arc::new(LocaleProfileContext {
+            settings: self,
+            runtime,
+        });
+        builder.register(GetLocaleProfile(context));
     }
 }
 
@@ -126,11 +161,13 @@ impl UseCase for GetLocaleProfile {
     }
 }
 
+#[cfg(any(windows, target_os = "linux"))]
 struct SetLocaleProfile {
     context: Arc<LocaleProfileContext>,
     primary_window: bool,
 }
 
+#[cfg(any(windows, target_os = "linux"))]
 impl UseCase for SetLocaleProfile {
     const NAME: &'static str = "i18n.set_profile";
     const CHANNELS: &'static [Channel] = &[Channel::Gui];
@@ -150,6 +187,7 @@ impl UseCase for SetLocaleProfile {
         request: Self::Request,
         caller: &CallerCtx,
     ) -> Result<Self::Response, EngineError> {
+        let events = &self.context.runtime.events;
         let mut service = self
             .context
             .settings
@@ -186,7 +224,7 @@ impl UseCase for SetLocaleProfile {
             )
             .map_err(settings_error)?;
 
-        self.context.runtime.events.publish_settings_changed(
+        events.publish_settings_changed(
             SettingsChangedBody {
                 previous_settings_revision: revision.to_string(),
                 settings_revision: committed.revision.to_string(),
@@ -209,7 +247,7 @@ impl UseCase for SetLocaleProfile {
             &supported,
             self.context.runtime.time_zone.as_ref(),
         )?;
-        self.context.runtime.events.publish_locale_changed(
+        events.publish_locale_changed(
             LocaleChangedBody {
                 profile_revision: updated.profile_revision.clone(),
                 changed_fields,
@@ -373,6 +411,7 @@ fn local_time_zone_status(time_zone: &dyn TimeZonePort) -> LocalTimeZoneStatus {
     }
 }
 
+#[cfg(any(windows, target_os = "linux"))]
 fn settings_error(error: SettingsError) -> EngineError {
     match error {
         SettingsError::StaleVersion => EngineError::new("locale.profile_modified", vec![]),
@@ -393,5 +432,8 @@ fn settings_error(error: SettingsError) -> EngineError {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(windows, target_os = "linux")))]
 mod tests;
+
+#[cfg(all(test, target_os = "macos"))]
+mod macos_tests;

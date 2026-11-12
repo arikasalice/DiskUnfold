@@ -76,12 +76,16 @@ function isErrorEnvelope(
 /** Detects a trusted native locale bridge for the embedded desktop webview. */
 export function hasDesktopLocaleBridge(): boolean {
   const host = window as NativeWindow;
+  const trustedDocument =
+    host.location.origin === "https://diskunfold.invalid" ||
+    (host.location.href === "diskunfold://app/index.html" &&
+      host.__diskunfoldLocale === true);
   return (
     host.top === host &&
-    (host.location.origin === "https://diskunfold.invalid" ||
-      (host.location.href === "diskunfold://app/index.html" &&
-        host.__diskunfoldLocale === true)) &&
-    typeof host.__diskunfoldRequest === "function"
+    trustedDocument &&
+    (typeof host.__diskunfoldRequest === "function" ||
+      typeof host.webkit?.messageHandlers?.diskunfold?.postMessage ===
+        "function")
   );
 }
 

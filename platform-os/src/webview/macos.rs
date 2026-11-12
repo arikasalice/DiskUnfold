@@ -16,8 +16,8 @@ use objc2_foundation::{
 use objc2_web_kit::{
     WKContentWorld, WKNavigation, WKNavigationAction, WKNavigationActionPolicy,
     WKNavigationDelegate, WKScriptMessage, WKScriptMessageHandlerWithReply, WKURLSchemeHandler,
-    WKURLSchemeTask, WKUserContentController, WKWebView, WKWebViewConfiguration,
-    WKWebsiteDataStore,
+    WKURLSchemeTask, WKUserContentController, WKUserScript, WKUserScriptInjectionTime, WKWebView,
+    WKWebViewConfiguration, WKWebsiteDataStore,
 };
 use std::{cell::RefCell, error::Error, ptr};
 
@@ -196,6 +196,7 @@ pub(super) fn run(app: WebApp) -> Result<(), Box<dyn Error>> {
         // SAFETY: AppKit and WebKit are initialized and operated exclusively on the main thread.
         unsafe {
             let application = NSApplication::sharedApplication(mtm);
+            let locale_enabled = app.locale_enabled;
             application.setActivationPolicy(NSApplicationActivationPolicy::Regular);
             if let Some(icon) =
                 NSImage::initWithData(NSImage::alloc(), &NSData::with_bytes(app.icon))
@@ -224,6 +225,18 @@ pub(super) fn run(app: WebApp) -> Result<(), Box<dyn Error>> {
                 &world,
                 &channel,
             );
+            if locale_enabled {
+                let source = NSString::from_str(
+                    "if (window === window.top && location.href === 'diskunfold://app/index.html') { Object.defineProperty(window, '__diskunfoldLocale', { value: true }); }",
+                );
+                let script = WKUserScript::initWithSource_injectionTime_forMainFrameOnly(
+                    WKUserScript::alloc(mtm),
+                    &source,
+                    WKUserScriptInjectionTime::AtDocumentStart,
+                    true,
+                );
+                manager.addUserScript(&script);
+            }
             let bounds = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(900.0, 600.0));
             let view =
                 WKWebView::initWithFrame_configuration(WKWebView::alloc(mtm), bounds, &config);

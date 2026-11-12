@@ -1,6 +1,6 @@
 //! Own one shared settings and history writer for a desktop GUI.
 
-#[cfg(any(windows, target_os = "linux"))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 use std::collections::BTreeMap;
 use std::{
     fs::File,
@@ -24,7 +24,7 @@ use du_core_contracts::job::{
     HistoryAppend, HistoryAppendOutcome, HistoryInterruptionReceipt, HistoryRecovery, JobHistory,
     JobSummary,
 };
-#[cfg(any(windows, target_os = "linux"))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 use du_core_contracts::settings::{
     SettingsChanges, SettingsCommit, SettingsSnapshot, SettingsStore, SettingsStoreError,
 };
@@ -284,7 +284,7 @@ impl SharedDatabase {
     }
 
     /// A settings port backed by the same connection as the history port.
-    #[cfg(any(windows, target_os = "linux"))]
+    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
     pub(super) fn settings(&self) -> SharedSettings {
         SharedSettings(self.clone())
     }
@@ -387,10 +387,10 @@ impl HistoryRecovery for SharedDatabase {
 }
 
 /// Settings service adapter. Every operation acquires the shared connection.
-#[cfg(any(windows, target_os = "linux"))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 pub(super) struct SharedSettings(SharedDatabase);
 
-#[cfg(any(windows, target_os = "linux"))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 impl SharedSettings {
     /// Applies the registered additive-only transition under the GUI startup lock.
     pub(super) fn advance_schema(&mut self) -> Result<Option<u32>, SettingsStoreError> {
@@ -442,7 +442,7 @@ impl SharedSettings {
     }
 }
 
-#[cfg(any(windows, target_os = "linux"))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 impl SettingsStore for SharedSettings {
     fn load(&mut self) -> Result<SettingsSnapshot, SettingsStoreError> {
         self.0

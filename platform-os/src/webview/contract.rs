@@ -131,6 +131,9 @@ pub enum DispatchLane {
 pub struct WebApp {
     pub asset: fn(&str) -> Option<Asset>,
     pub dispatch: Dispatch,
+    /// Exposes the Mac locale bridge marker only after locale queries are registered.
+    #[cfg(target_os = "macos")]
+    pub locale_enabled: bool,
     /// Selects a bounded Windows queue; the dispatch callback still validates every request.
     #[cfg(target_os = "windows")]
     pub route: fn(&str) -> DispatchLane,

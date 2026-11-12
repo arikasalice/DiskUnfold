@@ -1,13 +1,11 @@
 import { createRoot } from "react-dom/client";
-import { App } from "./app/App";
-import { DesktopLocale } from "./app/DesktopLocale";
+import { ApplicationEntry } from "./app/ApplicationEntry";
 import {
   createAnalysisClient,
   hasDesktopLocaleBridge,
   hasStartupStatusBridge,
   hasWindowsAnalysisBridge,
 } from "./ipc";
-import { StartupStatusScreen } from "./features/startup/StartupStatusScreen";
 import "./theme/tokens.css";
 import "./theme/workspace.css";
 import "./theme/analysis-workspace.css";
@@ -17,15 +15,13 @@ const root = document.getElementById("root");
 if (root === null) {
   throw new Error("Missing app root");
 }
+const client = createAnalysisClient();
+const startupBridge = hasStartupStatusBridge();
 createRoot(root).render(
-  hasDesktopLocaleBridge() ? (
-    <DesktopLocale
-      client={createAnalysisClient()}
-      analysisEnabled={hasWindowsAnalysisBridge()}
-    />
-  ) : hasStartupStatusBridge() ? (
-    <StartupStatusScreen client={createAnalysisClient()} />
-  ) : (
-    <App />
-  ),
+  <ApplicationEntry
+    client={client}
+    localeEnabled={hasDesktopLocaleBridge()}
+    startupStatusEnabled={startupBridge}
+    analysisEnabled={hasWindowsAnalysisBridge()}
+  />,
 );
