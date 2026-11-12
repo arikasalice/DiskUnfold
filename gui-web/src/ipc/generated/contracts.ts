@@ -281,7 +281,7 @@ supportedControls: Array<JobControl>, sequence: number,
  * Present only after the terminal record's history outcome is confirmed.
  */
 terminal?: AnalysisJobTerminal, };
-export type JobResyncReason = "subscriber_queue_limit";
+export type JobResyncReason = "subscriber_queue_limit" | "subscriber_delivery_failed";
 export type JobResyncRequired = { reason: JobResyncReason, discardedEvents: number, observedAt: Timestamp, };
 export type ScanResult = { lineageId: Id, sequence: number, resultVersion?: Id, };
 export type AnalysisJobTerminal = { state: JobState,

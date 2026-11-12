@@ -1,6 +1,7 @@
 //! Deliver WebView2 messages on the STA while application handlers use bounded lanes.
 use super::super::contract::{
-    Dispatch, DispatchLane, Events, ResponseDeliveryObserver, WebApp, message, trusted_message,
+    Dispatch, DispatchLane, EventPostFailure, Events, ResponseDeliveryObserver, WebApp, message,
+    trusted_message,
 };
 use super::{
     folder_drop::{self, Reason},
@@ -194,7 +195,19 @@ impl Bridge {
             let _ = reply.deliver_with(|wire| post(&self.view, wire));
         }
         if let Some(events) = &self.events {
-            flush_event_batch(events.as_ref(), |wire| post(&self.view, wire), |_| {});
+            flush_event_batch(
+                || events.next(),
+                |wire| post(&self.view, wire),
+                |failure| events.report_post_failure(failure),
+            );
+        }
+    }
+}
+
+impl Drop for Bridge {
+    fn drop(&mut self) {
+        if let Some(events) = &self.events {
+            events.document_closed();
         }
     }
 }
@@ -202,11 +215,16 @@ impl Bridge {
 fn flush_event_batch<E>(
     mut next: impl FnMut() -> Option<String>,
     mut post: impl FnMut(&str) -> Result<(), E>,
-    mut on_post_failure: impl FnMut(usize),
+    mut on_post_failure: impl FnMut(EventPostFailure),
 ) {
-    for (index, payload) in std::iter::from_fn(&mut next).take(QUEUE_LIMIT).enumerate() {
+    let batch: Vec<_> = std::iter::from_fn(&mut next).take(QUEUE_LIMIT).collect();
+    for (index, payload) in batch.iter().enumerate() {
         if post(&format!("event\n{payload}")).is_err() {
-            on_post_failure(index);
+            on_post_failure(EventPostFailure {
+                failed: payload.clone(),
+                discarded: batch[index + 1..].to_vec(),
+            });
+            break;
         }
     }
 }

@@ -2,10 +2,14 @@ mod folder_drop;
 mod folder_validation;
 mod icon;
 mod messages;
+mod navigation;
 mod reply;
+mod script;
 
 use super::contract::{Asset, CSP, Events, WebApp, entry, resource};
 use messages::{Bridge, RequestQueue, WindowTimer};
+use navigation::{NavigationCompletion, NavigationIdFence};
+use script::install_script;
 use std::{
     cell::{Cell, RefCell},
     error::Error,
@@ -13,12 +17,12 @@ use std::{
     rc::Rc,
 };
 use webview2_com::{
-    AddScriptToExecuteOnDocumentCreatedCompletedHandler, CoreWebView2EnvironmentOptions,
-    CreateCoreWebView2ControllerCompletedHandler, CreateCoreWebView2EnvironmentCompletedHandler,
-    DownloadStartingEventHandler, Microsoft::Web::WebView2::Win32::*,
-    NavigationCompletedEventHandler, NavigationStartingEventHandler,
-    NewWindowRequestedEventHandler, PermissionRequestedEventHandler,
-    WebMessageReceivedEventHandler, WebResourceRequestedEventHandler, take_pwstr,
+    CoreWebView2EnvironmentOptions, CreateCoreWebView2ControllerCompletedHandler,
+    CreateCoreWebView2EnvironmentCompletedHandler, DownloadStartingEventHandler,
+    Microsoft::Web::WebView2::Win32::*, NavigationCompletedEventHandler,
+    NavigationStartingEventHandler, NewWindowRequestedEventHandler,
+    PermissionRequestedEventHandler, WebMessageReceivedEventHandler,
+    WebResourceRequestedEventHandler, take_pwstr,
 };
 use windows::{
     Win32::{
@@ -252,7 +256,7 @@ pub(super) fn run(app: WebApp, events: Option<Events>) -> Result<(), Box<dyn Err
     };
     let failed = Rc::new(Cell::new(false));
     let ready = Rc::new(Cell::new(false));
-    let requests = Bridge::start(view.clone(), &app, events, ready.clone())?;
+    let requests = Bridge::start(view.clone(), &app, events.clone(), ready.clone())?;
     subscribe(
         &view,
         environment,
@@ -260,6 +264,7 @@ pub(super) fn run(app: WebApp, events: Option<Events>) -> Result<(), Box<dyn Err
         &requests,
         ready,
         failed.clone(),
+        events,
     )?;
     install_script(&view, BRIDGE)?;
     if let Some(script) = app.initialization_script {
@@ -290,19 +295,6 @@ pub(super) fn run(app: WebApp, events: Option<Events>) -> Result<(), Box<dyn Err
     Ok(())
 }
 
-fn install_script(view: &ICoreWebView2, source: &'static str) -> Result<(), webview2_com::Error> {
-    let view = view.clone();
-    AddScriptToExecuteOnDocumentCreatedCompletedHandler::wait_for_async_operation(
-        Box::new(move |handler| {
-            let script = HSTRING::from(source);
-            // SAFETY: The script and handler are valid for this STA call.
-            unsafe { view.AddScriptToExecuteOnDocumentCreated(PCWSTR(script.as_ptr()), &handler) }?;
-            Ok(())
-        }),
-        Box::new(|status, _| status),
-    )
-}
-
 fn subscribe(
     view: &ICoreWebView2,
     environment: ICoreWebView2Environment,
@@ -310,8 +302,15 @@ fn subscribe(
     requests: &Bridge,
     ready: Rc<Cell<bool>>,
     failed: Rc<Cell<bool>>,
+    events: Option<Events>,
 ) -> windows::core::Result<()> {
     let requests = requests.requests();
+    let started_events = events.clone();
+    let started_ready = ready.clone();
+    let navigation_ids = Rc::new(NavigationIdFence::default());
+    let started_navigation_ids = navigation_ids.clone();
+    let completed_navigation_ids = navigation_ids;
+    let ready_events = events;
     // SAFETY: All callbacks run on the view's STA. Closing its controller releases the registrations.
     unsafe {
         let mut token = 0;
@@ -331,11 +330,24 @@ fn subscribe(
             &mut token,
         )?;
         view.add_NavigationStarting(
-            &NavigationStartingEventHandler::create(Box::new(|_, args| {
+            &NavigationStartingEventHandler::create(Box::new(move |_, args| {
                 if let Some(args) = args {
                     let mut url = PWSTR::null();
                     args.Uri(&mut url)?;
-                    args.SetCancel(take_pwstr(url) != entry())?;
+                    let allowed = take_pwstr(url) == entry();
+                    if allowed {
+                        args.SetCancel(true)?;
+                        let mut navigation_id = 0;
+                        args.NavigationId(&mut navigation_id)?;
+                        started_navigation_ids.set_current(navigation_id);
+                        args.SetCancel(false)?;
+                        started_ready.set(false);
+                        if let Some(events) = &started_events {
+                            events.document_started();
+                        }
+                    } else {
+                        args.SetCancel(true)?;
+                    }
                 }
                 Ok(())
             })),
@@ -346,11 +358,23 @@ fn subscribe(
                 if let Some(args) = args {
                     let mut success = BOOL::default();
                     args.IsSuccess(&mut success)?;
-                    if success.as_bool() {
-                        ready.set(true);
-                    } else if !ready.get() {
-                        failed.set(true);
-                        windows_window::quit();
+                    let mut navigation_id = 0;
+                    args.NavigationId(&mut navigation_id)?;
+                    match completed_navigation_ids
+                        .classify_completion(navigation_id, success.as_bool())
+                    {
+                        NavigationCompletion::Stale => return Ok(()),
+                        NavigationCompletion::Succeeded => {
+                            ready.set(true);
+                            if let Some(events) = &ready_events {
+                                events.document_ready();
+                            }
+                        }
+                        NavigationCompletion::Failed if !ready.get() => {
+                            failed.set(true);
+                            windows_window::quit();
+                        }
+                        NavigationCompletion::Failed => {}
                     }
                 }
                 Ok(())

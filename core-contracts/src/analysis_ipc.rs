@@ -279,6 +279,7 @@ pub struct AnalysisJobListRow {
 #[serde(rename_all = "snake_case")]
 pub enum JobResyncReason {
     SubscriberQueueLimit,
+    SubscriberDeliveryFailed,
 }
 
 /// Describes the dropped events up to the delivery of the resync notice.

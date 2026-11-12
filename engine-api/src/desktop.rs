@@ -1,9 +1,8 @@
 //! Compose the desktop analysis use cases with injected OS and storage ports.
 use std::{
-    collections::VecDeque,
     num::NonZeroUsize,
-    sync::{Arc, Mutex},
-    time::{Duration, Instant, UNIX_EPOCH},
+    sync::{Arc, Mutex, atomic::AtomicU64},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 pub(crate) use crate::recent_scope::recent_scope_admissions;
@@ -12,7 +11,7 @@ pub use crate::recent_scope::{
 };
 use du_core_contracts::{
     ENVELOPE_VERSION, EventEnvelope, Id, Timestamp,
-    analysis_ipc::{JobResyncReason, JobResyncRequired, TargetProbeEvent, TargetStatusChanged},
+    analysis_ipc::{TargetProbeEvent, TargetStatusChanged},
     history_ipc::{HISTORY_CHANGED, HistoryChangedBody},
     job::{HistoryChangeReason, HistoryChanged, HistoryRecovery, JobHistory},
     ports::Random,
@@ -31,11 +30,15 @@ pub use du_scan_engine::scan_job::ScanDiagnostics;
 pub use scan_completion::CompletedScanSource;
 pub use visualization::{VisualizationPreview, VisualizationServices};
 
-const EVENT_LIMIT: usize = 1_024;
-const EVENT_INTERVAL: Duration = Duration::from_millis(100);
 // Provisional until the target probe deadline is measured across supported devices.
 const TARGET_PROBE_DEADLINE: Duration = Duration::from_secs(2);
 const TARGET_ENUMERATION_DEADLINE: Duration = Duration::from_secs(2);
+mod pending;
+#[cfg(test)]
+use du_core_contracts::analysis_ipc::{JobResyncReason, JobResyncRequired};
+#[cfg(test)]
+use pending::{EVENT_INTERVAL, EVENT_LIMIT};
+use pending::{Pending, next_loss_order};
 
 /// Registers the Windows desktop analysis flow and returns its event source.
 pub fn register(
@@ -275,71 +278,65 @@ fn utc_now_ms() -> i64 {
         .unwrap_or(0)
 }
 
-#[derive(Default)]
-struct Pending {
-    queue: VecDeque<EventEnvelope>,
-    sequence: u64,
-    discarded_events: Option<u64>,
-    release_at: Option<Instant>,
-    ready_count: usize,
+fn utc_now_timestamp() -> Option<Timestamp> {
+    let now = SystemTime::now();
+    let millis = match now.duration_since(UNIX_EPOCH) {
+        Ok(duration) => i64::try_from(duration.as_millis()).ok()?,
+        Err(error) => i64::try_from(error.duration().as_millis())
+            .ok()?
+            .checked_neg()?,
+    };
+    Timestamp::from_unix_millis(millis)
 }
 
-impl Pending {
-    /// Queue an event or replace the batch with a resync notice at the capacity boundary.
-    fn push(&mut self, mut event: EventEnvelope, now: Instant, observed_at: Timestamp) {
-        if let Some(discarded) = &mut self.discarded_events {
-            *discarded = discarded.saturating_add(1);
-            return;
-        }
-        self.sequence += 1;
-        event.seq = self.sequence;
-        if self.queue.len() + 1 >= EVENT_LIMIT {
-            self.discarded_events = Some(self.queue.len() as u64 + 1);
-            self.queue.clear();
-            self.ready_count = 0;
-            event.topic = "job.resync_required".into();
-            event.job_ref = None;
-            event.correlation_id = None;
-            event.result_version = None;
-            event.occurred_at = observed_at;
-            event.body = serde_json::Value::Null;
-        }
-        self.release_at.get_or_insert(now + EVENT_INTERVAL);
-        self.queue.push_back(event);
-    }
-
-    fn take(&mut self, now: Instant) -> Option<EventEnvelope> {
-        if self.ready_count == 0 {
-            self.release_at.filter(|deadline| now >= *deadline)?;
-            self.ready_count = self.queue.len();
-            self.release_at = None;
-        }
-        let mut event = self.queue.pop_front()?;
-        self.ready_count -= 1;
-        if let Some(discarded_events) = self.discarded_events.take() {
-            event.body = serde_json::to_value(JobResyncRequired {
-                reason: JobResyncReason::SubscriberQueueLimit,
-                discarded_events,
-                observed_at: event.occurred_at.clone(),
-            })
-            .ok()?;
-        }
-        Some(event)
-    }
-}
-
+#[cfg(test)]
+mod delivery_failure_tests;
 #[cfg(test)]
 mod tests;
 
 /// A bounded, nonblocking event source for the desktop window.
 #[derive(Default)]
-pub struct DesktopEvents(Mutex<Pending>);
+pub struct DesktopEvents(Mutex<Pending>, AtomicU64);
 
 impl DesktopEvents {
     /// Returns the next serialized envelope without waiting for any job.
     pub fn next_json(&self) -> Option<String> {
         let event = self.0.try_lock().ok()?.take(Instant::now())?;
         serde_json::to_string(&event).ok()
+    }
+
+    /// Records native event post loss and queues one resynchronization notice.
+    pub fn report_post_failure(&self, failed: String, discarded: Vec<String>) {
+        let failure_order = next_loss_order(&self.1);
+        let observed_at = utc_now_timestamp();
+        let mut pending = self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        pending.record_delivery_failure(&failed, &discarded, observed_at, failure_order);
+    }
+
+    /// Starts a new top-level document generation and discards prior notifications.
+    pub fn begin_document_generation(&self) {
+        self.with_pending(Pending::begin_document_generation);
+    }
+
+    /// Enables notifications after the current top-level document is ready.
+    pub fn mark_document_ready(&self) {
+        self.with_pending(Pending::mark_document_ready);
+    }
+
+    /// Ends the current document generation and discards its pending notifications.
+    pub fn close_document_generation(&self) {
+        self.with_pending(Pending::close_document_generation);
+    }
+
+    fn with_pending(&self, update: impl FnOnce(&mut Pending)) {
+        let mut pending = self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        update(&mut pending);
     }
 
     /// Runs startup recovery and queues its committed notice before the UI is ready.
@@ -355,7 +352,9 @@ impl DesktopEvents {
         let observed_at =
             Timestamp::from_unix_millis(utc_now_ms()).unwrap_or_else(|| event.occurred_at.clone());
         if let Ok(mut pending) = self.0.lock() {
-            pending.push(event, Instant::now(), observed_at);
+            pending.push_with_loss_order(event, Instant::now(), observed_at, || {
+                next_loss_order(&self.1)
+            });
         }
     }
 }

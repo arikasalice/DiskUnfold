@@ -18,7 +18,83 @@ pub type Dispatch = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
 
 /// Non-blocking source of serialized application event envelopes.
 #[cfg(target_os = "windows")]
-pub type Events = Arc<dyn Fn() -> Option<String> + Send + Sync>;
+#[derive(Clone)]
+pub struct Events {
+    next: Arc<dyn Fn() -> Option<String> + Send + Sync>,
+    callbacks: EventCallbacks,
+}
+
+/// Callbacks for delivery loss and top-level document lifecycle changes.
+#[cfg(target_os = "windows")]
+#[derive(Clone)]
+pub struct EventCallbacks {
+    post_failed: Arc<dyn Fn(EventPostFailure) + Send + Sync>,
+    document_started: Arc<dyn Fn() + Send + Sync>,
+    document_ready: Arc<dyn Fn() + Send + Sync>,
+    document_closed: Arc<dyn Fn() + Send + Sync>,
+}
+
+/// Describes one failed native post and the later events discarded from its batch.
+#[cfg(target_os = "windows")]
+#[derive(Debug, PartialEq, Eq)]
+pub struct EventPostFailure {
+    /// Serialized envelope rejected by the native WebView post call.
+    pub failed: String,
+    /// Later envelopes in the same bounded batch that were discarded.
+    pub discarded: Vec<String>,
+}
+
+#[cfg(target_os = "windows")]
+impl Events {
+    /// Creates the application event source with native delivery callbacks.
+    pub fn new(
+        next: impl Fn() -> Option<String> + Send + Sync + 'static,
+        callbacks: EventCallbacks,
+    ) -> Self {
+        Self {
+            next: Arc::new(next),
+            callbacks,
+        }
+    }
+
+    pub(super) fn next(&self) -> Option<String> {
+        (self.next)()
+    }
+
+    pub(super) fn report_post_failure(&self, failure: EventPostFailure) {
+        (self.callbacks.post_failed)(failure);
+    }
+
+    pub(super) fn document_started(&self) {
+        (self.callbacks.document_started)();
+    }
+
+    pub(super) fn document_ready(&self) {
+        (self.callbacks.document_ready)();
+    }
+
+    pub(super) fn document_closed(&self) {
+        (self.callbacks.document_closed)();
+    }
+}
+
+#[cfg(target_os = "windows")]
+impl EventCallbacks {
+    /// Creates failure reporting and document lifecycle callbacks.
+    pub fn new(
+        post_failed: impl Fn(EventPostFailure) + Send + Sync + 'static,
+        document_started: impl Fn() + Send + Sync + 'static,
+        document_ready: impl Fn() + Send + Sync + 'static,
+        document_closed: impl Fn() + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            post_failed: Arc::new(post_failed),
+            document_started: Arc::new(document_started),
+            document_ready: Arc::new(document_ready),
+            document_closed: Arc::new(document_closed),
+        }
+    }
+}
 
 /// Outcome of attempting to post one IPC response to the WebView.
 #[cfg(target_os = "windows")]

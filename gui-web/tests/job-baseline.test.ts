@@ -56,12 +56,14 @@ function fixture() {
       };
     },
     call: (name: string) => {
-      if (name === "job.get")
+      if (name === "job.get") {
+        actions.push("get");
         return Promise.resolve({
           jobRef: "job",
           sequence: 6,
           terminal: row(6, true).terminal,
         });
+      }
       actions.push("list");
       return new Promise<AnalysisJobListRow[]>((resolve, reject) =>
         requests.push({ resolve, reject }),
@@ -118,6 +120,42 @@ test("a second resync invalidates older responses and retains the confirmed base
   f.requests[3]?.resolve([row(5)]);
   await vi.waitFor(() => expect(f.gate.ready()).toBe(true));
   expect(f.gate.sequence()).toBe(5);
+  f.gate.dispose();
+});
+
+test("new and unknown resync reasons both recover through job.list and job.get", async () => {
+  const f = fixture();
+  f.requests[0]?.resolve([row(2)]);
+  await vi.waitFor(() => expect(f.gate.ready()).toBe(true));
+
+  for (const reason of ["subscriber_delivery_failed", "future_reason"]) {
+    f.send({
+      ...event("job.resync_required"),
+      body: {
+        reason,
+        discardedEvents: 3,
+        observedAt: "2026-11-12T00:00:00.000Z",
+      },
+    });
+    const listRequest = f.requests.length - 1;
+    await vi.waitFor(() => expect(f.actions.at(-1)).toBe("list"));
+    f.requests[listRequest]?.resolve([{ ...row(5), state: "done" }]);
+    await vi.waitFor(() =>
+      expect(f.actions.filter((item) => item === "get")).toHaveLength(
+        reason === "subscriber_delivery_failed" ? 1 : 2,
+      ),
+    );
+    await vi.waitFor(() => expect(f.gate.ready()).toBe(true));
+  }
+
+  expect(f.actions).toEqual([
+    "subscribe",
+    "list",
+    "list",
+    "get",
+    "list",
+    "get",
+  ]);
   f.gate.dispose();
 });
 

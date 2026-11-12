@@ -2,6 +2,8 @@ use std::sync::Arc;
 
 use du_engine_api::api::EngineBuilder;
 use du_platform_os::webview::{Asset, WebApp};
+#[cfg(windows)]
+use du_platform_os::webview::{EventCallbacks, Events};
 
 #[cfg(windows)]
 use crate::recent_scope_worker::{RecentScopeWorker, RecentScopeWriteWarning};
@@ -177,8 +179,8 @@ fn run_app(
     };
     #[cfg(windows)]
     {
-        let result =
-            du_platform_os::webview::run_with_events(app, Arc::new(move || events.next_json()));
+        let event_source = desktop_event_source(events.clone());
+        let result = du_platform_os::webview::run_with_events(app, event_source);
         drop(recent_worker);
         engine.retire_window_session();
         result
@@ -186,3 +188,52 @@ fn run_app(
     #[cfg(not(windows))]
     du_platform_os::webview::run(app)
 }
+
+#[cfg(windows)]
+struct DesktopEventCallbacks {
+    next: Box<dyn Fn() -> Option<String> + Send + Sync>,
+    post_failed: Box<dyn Fn(du_platform_os::webview::EventPostFailure) + Send + Sync>,
+    document_started: Box<dyn Fn() + Send + Sync>,
+    document_ready: Box<dyn Fn() + Send + Sync>,
+    document_closed: Box<dyn Fn() + Send + Sync>,
+}
+
+#[cfg(windows)]
+impl DesktopEventCallbacks {
+    fn new(events: Arc<du_engine_api::desktop::DesktopEvents>) -> Self {
+        let next_events = events.clone();
+        let failed_events = events.clone();
+        let started_events = events.clone();
+        let ready_events = events.clone();
+        let closed_events = events;
+        Self {
+            next: Box::new(move || next_events.next_json()),
+            post_failed: Box::new(move |failure| {
+                failed_events.report_post_failure(failure.failed, failure.discarded);
+            }),
+            document_started: Box::new(move || started_events.begin_document_generation()),
+            document_ready: Box::new(move || ready_events.mark_document_ready()),
+            document_closed: Box::new(move || closed_events.close_document_generation()),
+        }
+    }
+
+    fn into_event_source(self) -> Events {
+        Events::new(
+            self.next,
+            EventCallbacks::new(
+                self.post_failed,
+                self.document_started,
+                self.document_ready,
+                self.document_closed,
+            ),
+        )
+    }
+}
+
+#[cfg(windows)]
+fn desktop_event_source(events: Arc<du_engine_api::desktop::DesktopEvents>) -> Events {
+    DesktopEventCallbacks::new(events).into_event_source()
+}
+
+#[cfg(all(test, windows))]
+mod delivery_event_tests;
