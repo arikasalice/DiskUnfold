@@ -218,10 +218,9 @@ pub(super) fn evaluate(
 }
 
 /// Re-evaluates registered formats in registry order against the same pinned facts.
-///
-/// An unresolved decision prevents returning a partial list, which could imply that
-/// a format is unavailable when its owner has not reported its evidence.
+/// Unknown formats are retained as unresolved and omitted from the positive list.
 /// Positively available and unresolved registered formats, evaluated on one pinned source.
+#[derive(Debug, PartialEq, Eq)]
 pub(super) struct FormatAvailability<'a> {
     pub available: Vec<&'a str>,
     pub unresolved: Vec<&'a str>,
