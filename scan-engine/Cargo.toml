@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+blake3.workspace = true
 du-core-contracts = { version = "0.1.0", path = "../core-contracts" }
 du-analysis-index = { version = "0.1.0", path = "../analysis-index" }
 

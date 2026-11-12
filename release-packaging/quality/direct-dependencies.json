@@ -463,6 +463,17 @@
   },
   {
     "ecosystem": "cargo",
+    "owner": "du-scan-engine",
+    "name": "blake3",
+    "version": "1.8.3",
+    "source": "registry+https://github.com/rust-lang/crates.io-index",
+    "license": "CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Verify the integrity digest of the built-in sample bundle"
+  },
+  {
+    "ecosystem": "cargo",
     "owner": "du-share-policy",
     "name": "serde_json",
     "version": "1.0.154",
