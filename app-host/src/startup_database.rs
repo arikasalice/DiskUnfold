@@ -23,50 +23,70 @@ use du_platform_os::{
 
 use crate::shared_database::{DatabaseGuard, SharedDatabase};
 
+/// Database startup result plus whether this run created the database file.
+pub(super) struct OpenedDatabase {
+    pub(super) database: SharedDatabase,
+    pub(super) first_run: bool,
+}
+
 /// Creates or migrates the database in the application's Windows data directory.
-#[cfg(windows)]
+#[cfg(all(windows, test))]
 pub(super) fn open(data_dir: &Path) -> Result<SharedDatabase, io::Error> {
+    open_with_status(data_dir).map(|opened| opened.database)
+}
+
+/// Opens the Windows startup database and retains the creator's publication outcome.
+#[cfg(windows)]
+pub(super) fn open_with_status(data_dir: &Path) -> Result<OpenedDatabase, io::Error> {
     let data_dir = std::path::absolute(data_dir)?;
     create_data_directory(&data_dir)?;
     let instance = WindowsInstanceLock::acquire(&data_dir).map_err(lock_error)?;
     let path = data_dir.join(DATABASE_FILE);
-    let (database, file) = if let Some(file) = instance.pin_database().map_err(lock_error)? {
-        (open_existing(&path, &data_dir)?, file)
-    } else {
-        let database = AppDb::create_gui_with_history(&path).map_err(open_error)?;
-        let file = instance
-            .pin_database()
-            .map_err(lock_error)?
-            .ok_or_else(|| io::Error::other("db.open_failed: published database is missing"))?;
-        (database, file)
-    };
-    Ok(SharedDatabase::new(
-        database,
-        Some(DatabaseGuard::new(file, instance)),
-    ))
+    let (database, file, first_run) =
+        if let Some(file) = instance.pin_database().map_err(lock_error)? {
+            (open_existing(&path, &data_dir)?, file, false)
+        } else {
+            let database = AppDb::create_gui_with_history(&path).map_err(open_error)?;
+            let file = instance
+                .pin_database()
+                .map_err(lock_error)?
+                .ok_or_else(|| io::Error::other("db.open_failed: published database is missing"))?;
+            (database, file, true)
+        };
+    Ok(OpenedDatabase {
+        database: SharedDatabase::new(database, Some(DatabaseGuard::new(file, instance))),
+        first_run,
+    })
 }
 
 /// Creates or migrates the database in the application's Linux data directory.
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", test))]
 pub(super) fn open(data_dir: &Path) -> Result<SharedDatabase, io::Error> {
+    open_with_status(data_dir).map(|opened| opened.database)
+}
+
+/// Opens the Linux startup database and retains the creator's publication outcome.
+#[cfg(target_os = "linux")]
+pub(super) fn open_with_status(data_dir: &Path) -> Result<OpenedDatabase, io::Error> {
     let data_dir = std::path::absolute(data_dir)?;
     create_data_directory(&data_dir)?;
     let instance = LinuxInstanceLock::acquire(&data_dir).map_err(linux_lock_error)?;
     let path = data_dir.join(DATABASE_FILE);
-    let (database, file) = if let Some(file) = instance.pin_database().map_err(linux_lock_error)? {
-        (open_existing(&path, &data_dir, &instance)?, file)
-    } else {
-        let database = AppDb::create_gui_with_history(&path).map_err(open_error)?;
-        let file = instance
-            .pin_database()
-            .map_err(linux_lock_error)?
-            .ok_or_else(|| io::Error::other("db.open_failed: published database is missing"))?;
-        (database, file)
-    };
-    Ok(SharedDatabase::new(
-        database,
-        Some(DatabaseGuard::new(file, instance)),
-    ))
+    let (database, file, first_run) =
+        if let Some(file) = instance.pin_database().map_err(linux_lock_error)? {
+            (open_existing(&path, &data_dir, &instance)?, file, false)
+        } else {
+            let database = AppDb::create_gui_with_history(&path).map_err(open_error)?;
+            let file = instance
+                .pin_database()
+                .map_err(linux_lock_error)?
+                .ok_or_else(|| io::Error::other("db.open_failed: published database is missing"))?;
+            (database, file, true)
+        };
+    Ok(OpenedDatabase {
+        database: SharedDatabase::new(database, Some(DatabaseGuard::new(file, instance))),
+        first_run,
+    })
 }
 
 fn open_existing(

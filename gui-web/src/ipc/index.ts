@@ -54,6 +54,10 @@ import type {
   ScanStartRequest,
   SettingsRestoreRequest,
   SettingsRestoreStatus,
+  StartupAccessRequest,
+  StartupAccessResponse,
+  StartupStatus,
+  StartupStatusRequest,
   ScopeReview,
   ScopeReviewRequest,
   SpaceDetail,
@@ -143,6 +147,16 @@ export type {
   SpaceTotalSize,
   SpaceDetail,
   SpaceDetailSize,
+  StartupAccessAction,
+  StartupAccessState,
+  StartupCheck,
+  StartupCheckOutcome,
+  StartupCheckResult,
+  StartupGrade,
+  StartupStatusRequest,
+  StartupStatus,
+  StartupAccessRequest,
+  StartupAccessResponse,
   SizeValue,
   TargetList,
   TargetProbeEvent,
@@ -196,6 +210,8 @@ type Commands = {
   "history.get": [HistoryDetailRequest, HistoryDetail];
   "history.items": [HistoryItemsRequest, HistoryItemsResponse];
   "settings.restore_status": [SettingsRestoreRequest, SettingsRestoreStatus];
+  "app.startup_status": [StartupStatusRequest, StartupStatus];
+  "app.startup_access": [StartupAccessRequest, StartupAccessResponse];
   "i18n.get_profile": [LocaleGetProfileRequest, LocaleProfile];
   "i18n.get_bundle": [LocaleBundleRequest, LocaleBundleResponse];
   "i18n.report_missing": [

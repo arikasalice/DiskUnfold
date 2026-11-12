@@ -22,14 +22,17 @@ fn new_linux_data_directories_are_private_and_existing_modes_are_preserved() -> 
 #[test]
 fn fresh_linux_start_publishes_current_schema_and_holds_the_writer_lock() -> TestResult {
     let dir = tempfile::tempdir()?;
-    let database = open(dir.path())?;
+    let opened = open_with_status(dir.path())?;
+    assert!(opened.first_run);
     let reader = AppDb::open_read_only(&dir.path().join(DATABASE_FILE)).map_err(open_error)?;
     assert_eq!(reader.schema_version()?, HISTORY_SCHEMA_VERSION);
     assert!(!dir.path().join("db-backups").exists());
     assert!(matches!(open(dir.path()), Err(error) if error.kind() == io::ErrorKind::AlreadyExists));
     drop(reader);
-    drop(database);
-    assert!(open(dir.path()).is_ok());
+    drop(opened.database);
+    let reopened = open_with_status(dir.path())?;
+    assert!(!reopened.first_run);
+    drop(reopened.database);
     Ok(())
 }
 

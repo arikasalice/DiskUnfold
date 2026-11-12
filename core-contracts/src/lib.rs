@@ -24,6 +24,7 @@ pub mod share;
 pub mod size_units;
 pub mod snapshot_spool;
 pub mod space_detail_ipc;
+pub mod startup_ipc;
 pub mod time_zone;
 mod values;
 pub mod visualization;

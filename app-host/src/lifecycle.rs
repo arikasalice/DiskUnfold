@@ -63,14 +63,24 @@ struct RecentScopeOptions {
 fn run_app(
     #[cfg(windows)] recent: Option<RecentScopeOptions>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    crate::startup_checks::validate(&crate::startup_checks::REGISTRATIONS).map_err(|error| {
+        std::io::Error::other(format!("startup.check_table_invalid: {error:?}"))
+    })?;
+    #[cfg(any(windows, target_os = "linux"))]
+    let mut startup_observed = Vec::new();
     #[cfg(windows)]
-    let (locale, settings, history, history_reader, recovery) = {
+    let (locale, settings, history, history_reader, recovery, first_run) = {
         let bundles = crate::locale::register()?;
         let configured = bundles.configured_languages().collect::<Vec<_>>();
         let data_dir = du_platform_os::application_data::directory().ok_or_else(|| {
             std::io::Error::other("db.open_failed: no Windows application data directory")
         })?;
-        let database = crate::startup_database::open(&data_dir)?;
+        let opened = crate::startup_database::open_with_status(&data_dir)?;
+        let first_run = opened.first_run;
+        startup_observed.push(crate::startup_checks::data_format_and_open_observation(
+            first_run,
+        ));
+        let database = opened.database;
         let settings = crate::settings::StartupSettings::load(&database, &configured)?;
         let stored = settings.stored_language()?;
         let locale = Arc::new(crate::locale::initialize(bundles, stored.as_deref())?);
@@ -81,23 +91,47 @@ fn run_app(
             database.history(crate::settings::current_time_ms),
             reader,
             database,
+            first_run,
         )
     };
     #[cfg(target_os = "linux")]
-    let (locale, settings) = {
+    let (locale, settings, first_run) = {
         let bundles = crate::locale::register()?;
         let configured = bundles.configured_languages().collect::<Vec<_>>();
         let data_dir = du_platform_os::application_data::directory().ok_or_else(|| {
             std::io::Error::other("db.open_failed: no Linux application data directory")
         })?;
-        let database = crate::startup_database::open(&data_dir)?;
+        let opened = crate::startup_database::open_with_status(&data_dir)?;
+        let first_run = opened.first_run;
+        startup_observed.push(crate::startup_checks::data_format_and_open_observation(
+            first_run,
+        ));
+        let database = opened.database;
         let settings = crate::settings::StartupSettings::load(&database, &configured)?;
         let stored = settings.stored_language()?;
         let locale = Arc::new(crate::locale::initialize(bundles, stored.as_deref())?);
-        (locale, settings)
+        (locale, settings, first_run)
     };
+    #[cfg(any(windows, target_os = "linux"))]
+    startup_observed.push(du_core_contracts::startup_ipc::StartupCheckResult {
+        check: du_core_contracts::startup_ipc::StartupCheck::FullDiskAccess,
+        result: du_core_contracts::startup_ipc::StartupCheckOutcome::NotApplicable,
+        reason_key: None,
+    });
     #[allow(unused_mut)]
     let mut builder = EngineBuilder::default();
+    #[cfg(any(windows, target_os = "linux"))]
+    {
+        let startup_status = crate::startup_checks::status(
+            first_run,
+            du_core_contracts::startup_ipc::StartupAccessState::NotApplicable,
+            &startup_observed,
+        )
+        .map_err(|error| std::io::Error::other(format!("startup.check_blocked: {error:?}")))?;
+        crate::startup_checks::register(&mut builder, startup_status);
+    }
+    #[cfg(target_os = "macos")]
+    crate::startup_checks::register_access(&mut builder);
     #[cfg(windows)]
     settings.register_restore_status(&mut builder);
     #[cfg(windows)]

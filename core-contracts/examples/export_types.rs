@@ -15,6 +15,7 @@ use du_core_contracts::size_units::{
     DISPLAY_DECIMAL_PLACES, IEC_UNITS, SI_UNITS, UNIT_TABLE_REVISION,
 };
 use du_core_contracts::space_detail_ipc::*;
+use du_core_contracts::startup_ipc::*;
 use du_core_contracts::visualization::availability::{
     VizAvailabilityRequest, VizAvailabilityResponse, VizFormatAvailability,
 };
@@ -61,6 +62,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         SettingsRestoreSource::decl(&config),
         SettingsRestoreItem::decl(&config),
         SettingsRestoreStatus::decl(&config),
+        StartupStatusRequest::decl(&config),
+        StartupCheck::decl(&config),
+        StartupCheckOutcome::decl(&config),
+        StartupGrade::decl(&config),
+        StartupCheckResult::decl(&config),
+        StartupAccessState::decl(&config),
+        StartupStatus::decl(&config),
+        StartupAccessAction::decl(&config),
+        StartupAccessRequest::decl(&config),
+        StartupAccessResponse::decl(&config),
         SettingsApplyTiming::decl(&config),
         SettingsChangeSource::decl(&config),
         SettingsChangedKey::decl(&config),

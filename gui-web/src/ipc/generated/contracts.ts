@@ -57,6 +57,64 @@ migrated: boolean,
  * Whether the startup outcome disallows normal settings writes.
  */
 writeLocked: boolean, };
+export type StartupStatusRequest = Record<symbol, never>;
+export type StartupCheck = string;
+export type StartupCheckOutcome = string;
+export type StartupGrade = string;
+export type StartupCheckResult = {
+/**
+ * The check represented by this row.
+ */
+check: StartupCheck,
+/**
+ * The observed outcome. Unknown values remain safe to display generically.
+ */
+result: StartupCheckOutcome,
+/**
+ * An open reason key when the check needs to explain its outcome.
+ */
+reasonKey: string | null, };
+export type StartupAccessState = string;
+export type StartupStatus = {
+/**
+ * The most severe applicable advisory result.
+ */
+grade: StartupGrade,
+/**
+ * Results in the published startup check order.
+ */
+checks: Array<StartupCheckResult>,
+/**
+ * Whether the application created the user's startup database.
+ */
+firstRun: boolean,
+/**
+ * Full-disk-access state observed for the current startup.
+ */
+access: StartupAccessState,
+/**
+ * Whether analysis entry is allowed in the current session.
+ */
+analysisAllowed: boolean, };
+export type StartupAccessAction = "open_privacy_settings" | "recheck";
+export type StartupAccessRequest = {
+/**
+ * Action to perform.
+ */
+action: StartupAccessAction, };
+export type StartupAccessResponse = {
+/**
+ * Observed full-disk-access state; unknown is never treated as denied.
+ */
+access: StartupAccessState,
+/**
+ * Whether analysis entry is allowed under the observed access state.
+ */
+analysisAllowed: boolean,
+/**
+ * Whether the operating system privacy settings screen was opened.
+ */
+settingsOpened: boolean, };
 export type SettingsApplyTiming = "immediate" | "next_query" | "next_job" | "next_start" | "owner_review";
 export type SettingsChangeSource = "screen" | "import" | "reset" | "owner" | "mcp";
 export type SettingsChangedKey = {

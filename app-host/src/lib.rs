@@ -24,6 +24,8 @@ mod recent_scope_worker;
 mod settings;
 #[cfg(all(feature = "gui", any(windows, target_os = "linux")))]
 mod shared_database;
+#[cfg(feature = "gui")]
+mod startup_checks;
 #[cfg(all(feature = "gui", any(windows, target_os = "linux")))]
 mod startup_database;
 

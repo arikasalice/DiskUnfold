@@ -82,18 +82,21 @@ fn startup_migrates_preserves_settings_and_keeps_lock_until_last_writer() -> Tes
 #[test]
 fn fresh_start_publishes_current_schema_without_creating_a_backup() -> TestResult {
     let dir = tempfile::tempdir()?;
-    let database = open(dir.path())?;
+    let opened = open_with_status(dir.path())?;
+    assert!(opened.first_run);
     let reader = AppDb::open_read_only(&dir.path().join("diskunfold.db")).map_err(open_error)?;
     assert_eq!(reader.schema_version()?, HISTORY_SCHEMA_VERSION);
     assert!(!dir.path().join("db-backups").exists());
-    drop(database);
+    drop(opened.database);
     Ok(())
 }
 
 #[test]
 fn latest_schema_reopen_skips_managed_migration_and_keeps_backups_absent() -> TestResult {
     let dir = tempfile::tempdir()?;
-    drop(open(dir.path())?);
+    let opened = open_with_status(dir.path())?;
+    assert!(opened.first_run);
+    drop(opened.database);
     let path = dir.path().join("diskunfold.db");
     let before = AppDb::open_read_only(&path).map_err(open_error)?;
     assert_eq!(before.schema_version()?, HISTORY_SCHEMA_VERSION);
@@ -101,7 +104,9 @@ fn latest_schema_reopen_skips_managed_migration_and_keeps_backups_absent() -> Te
     let backups = dir.path().join("db-backups");
     assert!(!backups.exists());
 
-    drop(open(dir.path())?);
+    let reopened = open_with_status(dir.path())?;
+    assert!(!reopened.first_run);
+    drop(reopened.database);
     let after = AppDb::open_read_only(&path).map_err(open_error)?;
     assert_eq!(after.schema_version()?, HISTORY_SCHEMA_VERSION);
     assert!(!backups.exists());
