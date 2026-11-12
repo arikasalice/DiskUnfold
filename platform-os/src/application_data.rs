@@ -58,7 +58,7 @@ fn linux_directory(xdg_data_home: Option<PathBuf>, home: Option<PathBuf>) -> Opt
     Some(base.join("DiskUnfold"))
 }
 
-#[cfg(any(target_os = "macos", test))]
+#[cfg(target_os = "macos")]
 fn macos_directory(home: Option<PathBuf>) -> Option<PathBuf> {
     let home = home.filter(|path| path.is_absolute())?;
     Some(home.join("Library/Application Support/DiskUnfold"))
