@@ -221,6 +221,130 @@ fn ending_releases_state_and_a_new_lifetime_gets_a_new_id() {
 }
 
 #[test]
+fn stale_handle_cannot_read_write_or_end_a_re_registered_lifetime() {
+    use std::cell::Cell;
+
+    let registry = SourceRegistry::default();
+    let source_id = id(16);
+    let unrelated = registry
+        .register(id(17), SourceKind::Direct)
+        .expect("register unrelated source");
+    let old = registry
+        .register(source_id.clone(), SourceKind::Direct)
+        .expect("register first lifetime");
+    registry
+        .apply_next(&source_id, &old, 1, |_| Ok::<_, ()>(()))
+        .expect("advance first lifetime");
+    registry.end(&source_id, &old).expect("end first lifetime");
+
+    let current = registry
+        .register(source_id.clone(), SourceKind::Snapshot)
+        .expect("register replacement lifetime");
+    let stale_writer_calls = Cell::new(0);
+    assert_eq!(
+        registry.next_sequence(&source_id, &old),
+        Err(RegistryError::Expired)
+    );
+    assert_eq!(
+        registry.apply_next(&source_id, &old, 2, |_| {
+            stale_writer_calls.set(stale_writer_calls.get() + 1);
+            Ok::<_, ()>(())
+        }),
+        Err(SequenceApplyError::Registry(RegistryError::Expired))
+    );
+    assert_eq!(stale_writer_calls.get(), 0);
+    assert_eq!(registry.end(&source_id, &old), Err(RegistryError::Expired));
+
+    assert_eq!(registry.next_sequence(&source_id, &current), Ok(1));
+    assert_eq!(
+        registry.next_sequence(unrelated.source_id(), &unrelated),
+        Ok(1)
+    );
+    registry
+        .apply_next(&source_id, &current, 1, |_| Ok::<_, ()>(()))
+        .expect("replacement sequence remains writable");
+    assert_eq!(registry.next_sequence(&source_id, &current), Ok(2));
+    assert_eq!(
+        registry.next_sequence(unrelated.source_id(), &unrelated),
+        Ok(1)
+    );
+}
+
+#[test]
+fn stale_handles_remain_expired_across_repeated_source_reuse() {
+    let registry = SourceRegistry::default();
+    let source_id = id(18);
+    let mut stale_handles = Vec::new();
+    for _ in 0..128 {
+        let handle = registry
+            .register(source_id.clone(), SourceKind::Direct)
+            .expect("register lifetime");
+        registry.end(&source_id, &handle).expect("end lifetime");
+        stale_handles.push(handle);
+    }
+    let current = registry
+        .register(source_id.clone(), SourceKind::Direct)
+        .expect("register current lifetime");
+    for stale in &stale_handles {
+        assert_eq!(
+            registry.next_sequence(&source_id, stale),
+            Err(RegistryError::Expired)
+        );
+        assert_eq!(
+            registry.apply_next(&source_id, stale, 1, |_| Ok::<_, ()>(())),
+            Err(SequenceApplyError::Registry(RegistryError::Expired))
+        );
+        assert_eq!(registry.end(&source_id, stale), Err(RegistryError::Expired));
+    }
+    assert_eq!(registry.next_sequence(&source_id, &current), Ok(1));
+}
+
+#[test]
+fn concurrent_stale_writes_cannot_advance_or_end_replacement_lifetime() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let registry = Arc::new(SourceRegistry::default());
+    let source_id = id(19);
+    let old = Arc::new(
+        registry
+            .register(source_id.clone(), SourceKind::Direct)
+            .expect("register first lifetime"),
+    );
+    registry.end(&source_id, &old).expect("end first lifetime");
+    let current = registry
+        .register(source_id.clone(), SourceKind::Direct)
+        .expect("register replacement lifetime");
+    let writer_calls = Arc::new(AtomicUsize::new(0));
+
+    std::thread::scope(|scope| {
+        let mut tasks = Vec::new();
+        for _ in 0..8 {
+            let registry = Arc::clone(&registry);
+            let old = Arc::clone(&old);
+            let source_id = source_id.clone();
+            let writer_calls = Arc::clone(&writer_calls);
+            tasks.push(scope.spawn(move || {
+                registry.apply_next(&source_id, &old, 1, |_| {
+                    writer_calls.fetch_add(1, Ordering::SeqCst);
+                    Ok::<_, ()>(())
+                })
+            }));
+        }
+        for task in tasks {
+            assert_eq!(
+                task.join().expect("stale writer thread"),
+                Err(SequenceApplyError::Registry(RegistryError::Expired))
+            );
+        }
+    });
+
+    assert_eq!(writer_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(registry.next_sequence(&source_id, &current), Ok(1));
+    assert_eq!(registry.end(&source_id, &old), Err(RegistryError::Expired));
+    assert_eq!(registry.next_sequence(&source_id, &current), Ok(1));
+}
+
+#[test]
 fn registry_memory_tracks_active_lifetimes_not_ended_ids() {
     let registry = SourceRegistry::default();
     for n in 0..4096 {
