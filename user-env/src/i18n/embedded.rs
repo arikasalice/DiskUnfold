@@ -18,6 +18,7 @@ pub const DECLARED_KEYS: &[&str] = &[
     "locale.language.ko",
     "cli.help.usage",
     "cli.help.unsupported",
+    "cli.settings.unavailable",
     "cli.output.interrupted",
     "locale.registration_failed",
     "i18n.bundle_integrity_failed",

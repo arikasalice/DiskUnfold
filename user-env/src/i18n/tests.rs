@@ -74,6 +74,32 @@ fn registers_and_checks_parameters() -> Result<(), RegistrationError> {
 }
 
 #[test]
+fn embedded_cli_settings_unavailable_message_is_registered_in_both_languages()
+-> Result<(), RegistrationError> {
+    let registry = super::embedded::register(&[])?;
+    assert!(super::embedded::DECLARED_KEYS.contains(&"cli.settings.unavailable"));
+
+    for (language, expected) in [
+        (
+            "en",
+            "Saved settings are unavailable. Using a fallback language.",
+        ),
+        ("ko", "저장된 설정을 사용할 수 없어 대체 언어를 사용합니다."),
+    ] {
+        let text = registry
+            .bundle(language)
+            .and_then(|bundle| {
+                bundle.messages.iter().find_map(|(key, message)| {
+                    (key == "cli.settings.unavailable").then_some(message.text.as_str())
+                })
+            })
+            .ok_or(RegistrationError)?;
+        assert_eq!(text, expected);
+    }
+    Ok(())
+}
+
+#[test]
 fn rejects_missing_duplicate_and_mismatched_registration() {
     assert!(register(&[resource("en", EN)], &["hello", "missing"], &[]).is_err());
     assert!(register(&[resource("en", EN), resource("en", EN)], &[], &[]).is_err());
