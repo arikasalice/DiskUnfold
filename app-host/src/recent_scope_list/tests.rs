@@ -14,6 +14,14 @@ fn identifier(n: u8) -> [u8; 16] {
     bytes
 }
 
+fn bounded_identifier(index: usize) -> [u8; 16] {
+    let mut bytes = [0; 16];
+    bytes[6] = 0x70;
+    bytes[8] = 0x80;
+    bytes[14..].copy_from_slice(&(index as u16).to_be_bytes());
+    bytes
+}
+
 fn create_database(path: &std::path::Path) -> Result<AppDb, Box<dyn std::error::Error>> {
     AppDb::create_gui_with_history(path).map_err(|error| format!("{error:?}").into())
 }
@@ -137,4 +145,36 @@ fn corrupt_summary_or_read_failure_is_an_internal_error_with_no_rows() -> TestRe
     verify_error()?;
     sql.execute("DROP TABLE user_env_recent_scope", [])?;
     verify_error()
+}
+
+#[test]
+fn list_uses_the_500_row_physical_bound_independent_of_the_write_setting() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let seed = |name: &str, count: usize| -> Result<AppDb, Box<dyn std::error::Error>> {
+        let path = dir.path().join(name);
+        let db = create_database(&path)?;
+        let sql = Connection::open(&path)?;
+        for index in 1..=count {
+            let id = bounded_identifier(index);
+            let mut fingerprint = [0; 32];
+            fingerprint[..8].copy_from_slice(&(index as u64).to_be_bytes());
+            sql.execute(
+                "INSERT INTO user_env_recent_scope VALUES(?1,?2,1,'{}',1,?3,?3,?3,1)",
+                params![id, fingerprint, index as i64],
+            )?;
+        }
+        Ok(db)
+    };
+
+    let at_limit = ipc(&engine(seed("at-limit.db", 500)?)?, json!({}))?;
+    assert!(at_limit.error.is_none());
+    assert_eq!(at_limit.body["rows"].as_array().map(Vec::len), Some(500));
+
+    let over_limit = ipc(&engine(seed("over-limit.db", 501)?)?, json!({}))?;
+    assert_eq!(
+        over_limit.error.ok_or("missing overflow error")?.reason_key,
+        "support.internal_error"
+    );
+    assert!(over_limit.body.is_null());
+    Ok(())
 }

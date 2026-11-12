@@ -76,25 +76,38 @@ impl SharedDatabase {
     }
 
     /// Commits an owner-validated body on the shared Windows GUI connection.
+    ///
+    /// FR8.HD1.app-host.DD2 and FR14.HD1.app-host.DD1: the persisted remember
+    /// and retention settings are read in the write transaction. The legacy
+    /// cap argument remains for the worker call shape; it does not override the
+    /// current persisted retention setting.
     pub(super) fn put_recent_scope(
         &self,
-        cap: NonZeroUsize,
+        _cap: NonZeroUsize,
         item: &RecentWrite<'_>,
         stopped: &AtomicBool,
     ) -> Result<(), RecentError> {
         let mut connection = self.0.connection.lock().map_err(|_| RecentError::Storage)?;
         let exact_body = |body: &str| body == item.body;
-        RecentScopeStore::new(&mut connection, cap, &exact_body)?.put_with_setting(
+        let cap =
+            NonZeroUsize::new(du_user_env::scope::RECENT_LIMIT_MAX).ok_or(RecentError::Invalid)?;
+        RecentScopeStore::new(&mut connection, cap, &exact_body)?.put_with_settings(
             item,
             du_user_env::scope::REMEMBER_RECENT,
-            |value| {
-                !stopped.load(Ordering::Acquire) && du_user_env::scope::remember_recent_value(value)
+            du_user_env::scope::RECENT_LIMIT,
+            |remember, limit| {
+                (!stopped.load(Ordering::Acquire))
+                    .then(|| du_user_env::scope::recent_write_limit(remember, limit))
+                    .flatten()
             },
         )?;
         Ok(())
     }
 
     /// Reads recent-scope summaries on the shared Windows GUI connection.
+    ///
+    /// FR8.HD1.app-host.DD2: the caller supplies the physical 500-row read cap,
+    /// independent of the cap selected for future writes.
     pub(super) fn recent_scope_summaries(
         &self,
         cap: NonZeroUsize,

@@ -113,3 +113,89 @@ fn recent_scope_setting_defaults_on_when_restoration_fails()
     assert!(scope::remember_recent(service.snapshot()));
     Ok(())
 }
+
+#[test]
+fn shared_database_reads_limit_per_write_and_list_keeps_old_rows_until_then()
+-> Result<(), Box<dyn std::error::Error>> {
+    use du_app_db::recent_scope::RecentWrite;
+    use std::{num::NonZeroUsize, sync::atomic::AtomicBool};
+
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("recent-limit.db");
+    let mut db = AppDb::create_gui_with_history(&path).map_err(|e| format!("{e:?}"))?;
+    db.commit(
+        0,
+        &SettingsChanges::from([
+            (scope::REMEMBER_RECENT.into(), Some(json!(true))),
+            (scope::RECENT_LIMIT.into(), Some(json!(500))),
+        ]),
+        context(),
+    )
+    .map_err(|e| format!("{e:?}"))?;
+    let database = SharedDatabase::new(db, None);
+    let cap = NonZeroUsize::new(2).ok_or("zero compatibility cap")?;
+    let physical_limit = NonZeroUsize::new(scope::RECENT_LIMIT_MAX).ok_or("zero list limit")?;
+    let stopped = AtomicBool::new(false);
+    let make_write = |index: usize, time: i64| {
+        let mut id = [0; 16];
+        id[6] = 0x70;
+        id[8] = 0x80;
+        id[14..].copy_from_slice(&(index as u16).to_be_bytes());
+        let mut fingerprint = [0; 32];
+        fingerprint[..8].copy_from_slice(&(index as u64).to_be_bytes());
+        RecentWrite {
+            id,
+            fingerprint,
+            body: r#"{"fixture":true}"#,
+            include_count: 1,
+            now_ms: time,
+        }
+    };
+    for index in 1..=60 {
+        database
+            .put_recent_scope(cap, &make_write(index, index as i64), &stopped)
+            .map_err(|e| format!("{e:?}"))?;
+    }
+    let mut settings = database.settings();
+    settings
+        .commit(
+            1,
+            &SettingsChanges::from([(scope::RECENT_LIMIT.into(), Some(json!(50)))]),
+            context(),
+        )
+        .map_err(|e| format!("{e:?}"))?;
+    let existing = database
+        .recent_scope_summaries(physical_limit)
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(existing.len(), 60);
+    assert_eq!(existing.first().map(|row| row.last_used_at_ms), Some(60));
+
+    database
+        .put_recent_scope(cap, &make_write(61, 61), &stopped)
+        .map_err(|e| format!("{e:?}"))?;
+    let retained = database
+        .recent_scope_summaries(physical_limit)
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(retained.len(), 50);
+    assert_eq!(retained.first().map(|row| row.last_used_at_ms), Some(61));
+    assert_eq!(retained.last().map(|row| row.last_used_at_ms), Some(12));
+
+    settings
+        .commit(
+            2,
+            &SettingsChanges::from([(scope::REMEMBER_RECENT.into(), Some(json!(false)))]),
+            context(),
+        )
+        .map_err(|e| format!("{e:?}"))?;
+    database
+        .put_recent_scope(cap, &make_write(62, 62), &stopped)
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(
+        database
+            .recent_scope_summaries(physical_limit)
+            .map_err(|e| format!("{e:?}"))?
+            .len(),
+        50
+    );
+    Ok(())
+}

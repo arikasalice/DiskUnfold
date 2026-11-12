@@ -87,7 +87,7 @@ impl<'a> RecentScopeStore<'a> {
     /// Atomically inserts or refreshes one fingerprint and evicts oldest rows.
     /// A delayed write with an older use time cannot replace a newer use.
     pub fn put(&mut self, item: &RecentWrite<'_>) -> Result<(), RecentError> {
-        self.put_if(item, |_| Ok(true)).map(|_| ())
+        self.put_if(item, |_, cap| Ok(Some(cap))).map(|_| ())
     }
 
     /// Evaluates a caller-owned setting policy in the same transaction as the write.
@@ -100,7 +100,7 @@ impl<'a> RecentScopeStore<'a> {
         key: &str,
         allowed: impl FnOnce(Option<bool>) -> bool,
     ) -> Result<bool, RecentError> {
-        self.put_if(item, |tx| {
+        self.put_if(item, |tx, cap| {
             let stored: Option<(i64, Option<String>)> = tx
                 .query_row(
                     "SELECT v.schema_version, s.value_json
@@ -119,14 +119,55 @@ impl<'a> RecentScopeStore<'a> {
                 }
                 serde_json::from_str::<bool>(value.as_deref()?).ok()
             });
-            Ok(allowed(value))
+            Ok(allowed(value).then_some(cap))
+        })
+    }
+
+    /// Reads the remember and retention settings together before a product write.
+    ///
+    /// FR8.HD1.app-host.DD2 and FR14.HD1.app-host.DD1: settings are read under
+    /// the same immediate transaction as insertion, refresh, and eviction.
+    /// Missing rows and incompatible setting schemas reach `resolve` as `None`;
+    /// SQL failures abort the transaction. `None` from `resolve` skips the write.
+    pub fn put_with_settings(
+        &mut self,
+        item: &RecentWrite<'_>,
+        remember_key: &str,
+        limit_key: &str,
+        resolve: impl FnOnce(Option<&str>, Option<&str>) -> Option<NonZeroUsize>,
+    ) -> Result<bool, RecentError> {
+        self.put_if(item, |tx, _static_cap| {
+            let stored: Option<(
+                i64,
+                Option<rusqlite::types::Value>,
+                Option<rusqlite::types::Value>,
+            )> = tx
+                .query_row(
+                    "SELECT v.schema_version, remember.value_json, retention.value_json
+                 FROM user_env_setting_version v
+                 LEFT JOIN user_env_setting remember ON remember.setting_key = ?1
+                 LEFT JOIN user_env_setting retention ON retention.setting_key = ?2
+                 WHERE v.version_key = 'settings'",
+                    [remember_key, limit_key],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .optional()
+                .map_err(map)?;
+            let (remember, limit) = stored
+                .filter(|(schema, _, _)| *schema == i64::from(SETTINGS_SCHEMA_VERSION))
+                .map_or((None, None), |(_, remember, limit)| {
+                    (setting_text(remember), setting_text(limit))
+                });
+            resolve(remember.as_deref(), limit.as_deref())
+                .map(sql_cap)
+                .transpose()
         })
     }
 
     fn put_if(
         &mut self,
         item: &RecentWrite<'_>,
-        allowed: impl FnOnce(&Transaction<'_>) -> Result<bool, RecentError>,
+        allowed: impl FnOnce(&Transaction<'_>, i64) -> Result<Option<i64>, RecentError>,
     ) -> Result<bool, RecentError> {
         if !valid_id(&item.id) || item.include_count == 0 || !(self.validate_body)(item.body) {
             return Err(RecentError::Invalid);
@@ -136,9 +177,9 @@ impl<'a> RecentScopeStore<'a> {
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(map)?;
-        if !allowed(&tx)? {
+        let Some(cap) = allowed(&tx, self.cap)? else {
             return Ok(false);
-        }
+        };
         tx.execute(
             "INSERT INTO user_env_recent_scope(
                  recent_scope_id,scope_fingerprint,fingerprint_format,scope_body,include_count,
@@ -158,7 +199,7 @@ impl<'a> RecentScopeStore<'a> {
             ],
         )
         .map_err(map)?;
-        tx.execute("DELETE FROM user_env_recent_scope WHERE recent_scope_id IN (SELECT recent_scope_id FROM user_env_recent_scope ORDER BY last_used_at_ms DESC,recent_scope_id ASC LIMIT -1 OFFSET ?1)", [self.cap]).map_err(map)?;
+        tx.execute("DELETE FROM user_env_recent_scope WHERE recent_scope_id IN (SELECT recent_scope_id FROM user_env_recent_scope ORDER BY last_used_at_ms DESC,recent_scope_id ASC LIMIT -1 OFFSET ?1)", [cap]).map_err(map)?;
         tx.commit().map_err(map)?;
         Ok(true)
     }
@@ -214,6 +255,13 @@ fn sql_cap(cap: NonZeroUsize) -> Result<i64, RecentError> {
         return Err(RecentError::Invalid);
     }
     Ok(cap)
+}
+
+fn setting_text(value: Option<rusqlite::types::Value>) -> Option<String> {
+    match value {
+        Some(rusqlite::types::Value::Text(value)) => Some(value),
+        Some(_) | None => None,
+    }
 }
 
 fn read_summaries(db: &AppDb, cap: i64) -> Result<Vec<RecentSummary>, RecentError> {
