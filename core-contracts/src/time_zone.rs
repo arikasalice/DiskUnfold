@@ -7,6 +7,8 @@ use crate::Timestamp;
 pub enum TimeZoneId {
     /// A Windows time-zone registry key, not an IANA name.
     Windows(String),
+    /// The zone identifier returned by the Linux system time library.
+    Linux(String),
 }
 
 /// A successful local offset observation, optionally with an OS identifier.
