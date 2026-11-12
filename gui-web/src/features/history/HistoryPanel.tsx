@@ -17,6 +17,7 @@ import type {
   HistoryListFilter,
   HistoryListRow,
 } from "../../ipc";
+import { useLocaleText } from "../../i18n/presentation";
 import { useHistory } from "../../state/history";
 import {
   useHistoryTime,
@@ -28,20 +29,9 @@ import {
 import { HistoryDetailPanel } from "./HistoryDetailPanel";
 import "../../theme/history.css";
 
-const states = [
-  { value: "all", label: "All states" },
-  { value: "done", label: "Completed" },
-  { value: "partial", label: "Partially completed" },
-  { value: "failed", label: "Failed" },
-  { value: "cancelled", label: "Cancelled" },
-  { value: "interrupted", label: "Interrupted" },
-] as const;
-const kinds = [
-  { value: "all", label: "All types" },
-  { value: "scan.metadata", label: "Disk analysis" },
-] as const;
-type StateFilter = (typeof states)[number]["value"];
-type KindFilter = (typeof kinds)[number]["value"];
+type StateFilter =
+  "all" | "done" | "partial" | "failed" | "cancelled" | "interrupted";
+type KindFilter = "all" | "scan.metadata";
 
 function day(value: string, next: boolean): number | null {
   if (!value) return null;
@@ -58,6 +48,31 @@ export function HistoryPanel({
   client: AnalysisClient;
   onClose: () => void;
 }) {
+  const text = useLocaleText();
+  const states = [
+    { value: "all", label: text("ui.history.filter_all_states", "All states") },
+    { value: "done", label: text("ui.history.state_completed", "Completed") },
+    {
+      value: "partial",
+      label: text("ui.history.state_partial", "Partially completed"),
+    },
+    { value: "failed", label: text("ui.history.state_failed", "Failed") },
+    {
+      value: "cancelled",
+      label: text("ui.history.state_cancelled", "Cancelled"),
+    },
+    {
+      value: "interrupted",
+      label: text("ui.history.state_interrupted_filter", "Interrupted"),
+    },
+  ] as const;
+  const kinds = [
+    { value: "all", label: text("ui.history.filter_all_types", "All types") },
+    {
+      value: "scan.metadata",
+      label: text("ui.history.kind_disk_analysis", "Disk analysis"),
+    },
+  ] as const;
   const [from, setFrom] = useState("");
   const [through, setThrough] = useState("");
   const [kind, setKind] = useState<KindFilter>("all");
@@ -103,10 +118,15 @@ export function HistoryPanel({
   const hasFilters = extraFilters || state !== "all";
 
   return (
-    <section className="du-history-shell" aria-label="Operation history">
+    <section
+      className="du-history-shell"
+      aria-label={text("ui.history.operation_history", "Operation history")}
+    >
       <div ref={list} className="du-history-screen" hidden={Boolean(selected)}>
         <header className="du-history-header">
-          <Heading level={2}>Operation history</Heading>
+          <Heading level={2}>
+            {text("ui.history.operation_history", "Operation history")}
+          </Heading>
           <Action
             variant="quiet"
             icon="back"
@@ -114,13 +134,13 @@ export function HistoryPanel({
             autoFocus
             onPress={onClose}
           >
-            Back to analysis
+            {text("ui.history.back_to_analysis", "Back to analysis")}
           </Action>
         </header>
         <div className="du-history-controls">
           <div className="du-history-filter-row">
             <SelectField
-              label="End state"
+              label={text("ui.history.end_state", "End state")}
               value={state}
               options={states}
               onChange={setState}
@@ -140,26 +160,33 @@ export function HistoryPanel({
                     ?.focus();
                 }}
               >
-                Clear filters
+                {text("ui.history.clear_filters", "Clear filters")}
               </Action>
             )}
           </div>
           <DetailDisclosure
             title={
               extraFilters
-                ? "Date and type filters (active)"
-                : "Date and type filters"
+                ? text(
+                    "ui.history.date_type_filters_active",
+                    "Date and type filters (active)",
+                  )
+                : text("ui.history.date_type_filters", "Date and type filters")
             }
           >
             <div className="du-history-extra-filters">
-              <DateField label="From date" value={from} onChange={setFrom} />
               <DateField
-                label="Through date"
+                label={text("ui.history.from_date", "From date")}
+                value={from}
+                onChange={setFrom}
+              />
+              <DateField
+                label={text("ui.history.through_date", "Through date")}
                 value={through}
                 onChange={setThrough}
               />
               <SelectField
-                label="Job type"
+                label={text("ui.history.job_type", "Job type")}
                 value={kind}
                 options={kinds}
                 onChange={setKind}
@@ -168,7 +195,12 @@ export function HistoryPanel({
           </DetailDisclosure>
         </div>
         {invalid ? (
-          <Notice tone="error">Choose a valid date range.</Notice>
+          <Notice tone="error">
+            {text(
+              "ui.history.invalid_date_range",
+              "Choose a valid date range.",
+            )}
+          </Notice>
         ) : (
           <HistoryPages
             client={client}
@@ -209,6 +241,7 @@ function HistoryPages({
   hasFilters: boolean;
   onOpen: (jobRef: string, target: HTMLElement) => void;
 }) {
+  const text = useLocaleText();
   const { page, pending, error, refreshed, retry, more } = useHistory(
     client,
     filter,
@@ -232,20 +265,31 @@ function HistoryPages({
   return (
     <div className="du-history-pages">
       {refreshed && (
-        <Notice>History changed. Showing the first page again.</Notice>
+        <Notice>
+          {text(
+            "ui.history.changed_restart_page",
+            "History changed. Showing the first page again.",
+          )}
+        </Notice>
       )}
-      {pending && <Progress label="Loading history" />}
+      {pending && (
+        <Progress label={text("ui.history.loading", "Loading history")} />
+      )}
       {error && (
         <Notice tone="error">
-          History could not be loaded. <Action onPress={retry}>Retry</Action>
+          {text("ui.history.load_failed", "History could not be loaded.")}{" "}
+          <Action onPress={retry}>{text("ui.history.retry", "Retry")}</Action>
         </Notice>
       )}
       {!pending && !error && page?.rows.length === 0 && (
         <div className="du-history-empty">
           <Text>
             {hasFilters
-              ? "No history matches these filters."
-              : "No operations recorded yet."}
+              ? text(
+                  "ui.history.no_matches",
+                  "No history matches these filters.",
+                )
+              : text("ui.history.empty", "No operations recorded yet.")}
           </Text>
         </div>
       )}
@@ -255,25 +299,32 @@ function HistoryPages({
             key={
               page.revision.deleteGeneration + ":" + page.revision.maxRecordSeq
             }
-            label="Operation history"
+            label={text("ui.history.operation_history", "Operation history")}
             columns={[
-              "Operation / recorded target",
-              "Status",
-              "Finished",
-              "Details",
+              text(
+                "ui.history.operation_recorded_target",
+                "Operation / recorded target",
+              ),
+              text("ui.history.status", "Status"),
+              text("ui.history.finished", "Finished"),
+              text("ui.history.details", "Details"),
             ]}
             columnWidths={[212, 106, 116, 72]}
             density="compact"
             totalRows={hasMore ? -1 : shown}
             rows={page.rows}
-            renderCells={(row) => rowCells(row, onOpen, displayTime)}
+            renderCells={(row) => rowCells(row, onOpen, displayTime, text)}
           />
         </div>
       )}
       {(shown > 0 || hasMore) && (
         <footer className="du-history-footer">
           <LiveStatus>
-            {shown.toLocaleString()} {shown === 1 ? "record" : "records"} shown
+            {shown === 1
+              ? text("ui.history.one_record_shown", "1 record shown")
+              : text("ui.history.records_shown", "{count} records shown", {
+                  count: BigInt(shown),
+                })}
           </LiveStatus>
           {hasMore && (
             <Action
@@ -284,7 +335,7 @@ function HistoryPages({
               }}
               isPending={pending}
             >
-              Load more history
+              {text("ui.history.load_more", "Load more history")}
             </Action>
           )}
         </footer>
@@ -297,13 +348,17 @@ function rowCells(
   row: HistoryListRow,
   onOpen: (jobRef: string, target: HTMLElement) => void,
   displayTime: ReturnType<typeof useHistoryTime>,
+  text: ReturnType<typeof useLocaleText>,
 ) {
   const { summary, jobRef } = row;
-  const name = kindLabel(summary?.kindId);
-  const target = summary?.scopeSummary ?? "Unavailable";
+  const name = kindLabel(summary?.kindId, text);
+  const target =
+    summary?.scopeSummary ?? text("ui.history.unavailable", "Unavailable");
   const time = displayTime(summary?.finishedAtMs);
   const state = summary?.state;
-  const unavailable = row.missingReasons.map(missingLabel).join(" ");
+  const unavailable = row.missingReasons
+    .map((reason) => missingLabel(reason, text))
+    .join(" ");
   return [
     <div className="du-history-operation" key="operation">
       <div title={name}>
@@ -313,26 +368,37 @@ function rowCells(
         <Text kind="muted">{target}</Text>
       </div>
     </div>,
-    <div key="status" title={unavailable || (state && stateLabel(state))}>
+    <div
+      key="status"
+      title={unavailable || (state && stateLabel(state, false, text))}
+    >
       <StatusBadge tone={stateTone(state)}>
-        {state ? stateLabel(state, true) : "Unavailable"}
+        {state
+          ? stateLabel(state, true, text)
+          : text("ui.history.unavailable", "Unavailable")}
       </StatusBadge>
-      {unavailable && <Text kind="muted">Incomplete</Text>}
+      {unavailable && (
+        <Text kind="muted">{text("ui.history.incomplete", "Incomplete")}</Text>
+      )}
     </div>,
     time,
     jobRef ? (
       <Action
         key="open"
         variant="quiet"
-        aria-label={"View details: " + name + ", " + time + ", " + target}
+        aria-label={text(
+          "ui.history.view_details_aria",
+          "View details: {name}, {time}, {target}",
+          { name, time, target },
+        )}
         onPress={(event) => {
           if (event.target instanceof HTMLElement) onOpen(jobRef, event.target);
         }}
       >
-        View
+        {text("ui.history.view", "View")}
       </Action>
     ) : (
-      <Text kind="muted">Unavailable</Text>
+      <Text kind="muted">{text("ui.history.unavailable", "Unavailable")}</Text>
     ),
   ];
 }
