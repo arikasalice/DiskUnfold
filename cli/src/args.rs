@@ -24,6 +24,19 @@ enum Device {
     Hdd,
 }
 
+const DENIED_OPTION_NAMES: &[&str] = &[
+    "--approve",
+    "--execute",
+    "--trash",
+    "--delete",
+    "--move",
+    "--restore",
+    "--undo",
+    "--protect",
+    "--mcp",
+    "--key",
+];
+
 pub(crate) struct Arguments {
     pub(crate) command: Command,
     pub(crate) language: Option<String>,
@@ -62,7 +75,9 @@ fn consume_argument(
     argument: OsString,
     arguments: &mut impl Iterator<Item = OsString>,
 ) -> Option<()> {
-    if !state.options_ended && argument == "--lang" {
+    if !state.options_ended && is_denied_option(&argument) {
+        state.command = Some(Command::NotProvided);
+    } else if !state.options_ended && argument == "--lang" {
         if state.language.is_some() {
             return None;
         }
@@ -133,6 +148,12 @@ fn scan_argument(
 
 fn is_option(value: &OsStr) -> bool {
     value.as_encoded_bytes().starts_with(b"-")
+}
+
+fn is_denied_option(value: &OsStr) -> bool {
+    value
+        .to_str()
+        .is_some_and(|value| DENIED_OPTION_NAMES.contains(&value))
 }
 
 #[cfg(test)]
@@ -219,6 +240,78 @@ mod tests {
     }
 
     #[test]
+    fn fr6_exact_denied_options_are_not_provided_only_in_active_positions() -> Result<(), String> {
+        for name in [
+            "approve", "execute", "trash", "delete", "move", "restore", "undo", "protect", "mcp",
+            "key",
+        ] {
+            for input in [
+                vec![format!("--{name}")],
+                vec!["scan".to_owned(), format!("--{name}")],
+                vec![format!("--{name}"), "scan".to_owned()],
+                vec!["--help".to_owned(), format!("--{name}")],
+            ] {
+                let Some(Arguments { command, .. }) = parse(input.into_iter().map(OsString::from))
+                else {
+                    return Err(format!("{name} did not parse"));
+                };
+                if !matches!(command, Command::NotProvided) {
+                    return Err(format!("{name} was not classified as not-provided"));
+                }
+            }
+        }
+
+        for input in [
+            vec!["scan", "root", "--exclude", "--delete"],
+            vec!["scan", "root", "--device", "--execute"],
+        ] {
+            if !matches!(
+                parsed(&input),
+                Some(Arguments {
+                    command: Command::Unsupported,
+                    ..
+                })
+            ) {
+                return Err(format!(
+                    "consumed option value was reinterpreted: {input:?}"
+                ));
+            }
+        }
+
+        let Some(Arguments {
+            command: Command::Scan(scan),
+            language,
+        }) = parsed(&["--lang", "--execute", "scan", "root"])
+        else {
+            return Err("the --lang value must be consumed before command parsing".into());
+        };
+        assert_eq!(language.as_deref(), Some("--execute"));
+        assert_eq!(scan.roots, [OsString::from("root")]);
+
+        let Some(Arguments {
+            command: Command::Scan(scan),
+            ..
+        }) = parsed(&["scan", "--", "--delete"])
+        else {
+            return Err("a path after -- must not be reinterpreted as an option".into());
+        };
+        assert_eq!(scan.roots, [OsString::from("--delete")]);
+
+        for input in [vec!["--del"], vec!["--delete=value"], vec!["--execute-now"]] {
+            if !matches!(
+                parsed(&input),
+                Some(Arguments {
+                    command: Command::Unsupported,
+                    ..
+                })
+            ) {
+                return Err(format!("non-exact option was treated as denied: {input:?}"));
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
     fn fr6_unregistered_commands_are_not_provided() {
         for input in [
             vec!["duplicates"],
@@ -248,10 +341,8 @@ mod tests {
     fn fr6_malformed_registered_commands_and_unknown_options_keep_usage_classification() {
         for input in [
             vec!["--help", "unexpected"],
-            vec!["--help", "--execute"],
             vec!["scan"],
             vec!["scan", "root", "--unknown"],
-            vec!["scan", "root", "--execute"],
             vec!["--bogus"],
             vec!["-x"],
             vec!["scan", "--exclude", "--execute", "root"],

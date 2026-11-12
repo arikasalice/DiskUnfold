@@ -59,7 +59,10 @@ fn run_with_io<W: Write, E: Write>(
     };
     let skip_stored_settings = matches!(
         &args.command,
-        args::Command::Help | args::Command::Version | args::Command::NotProvided
+        args::Command::Help
+            | args::Command::Version
+            | args::Command::NotProvided
+            | args::Command::Unsupported
     );
     let (selection, settings_unavailable) = match startup_locale::select_with_policy(
         &registry,
@@ -161,3 +164,6 @@ fn write_output_interrupted_diagnostic(stderr: &mut impl Write, localized_messag
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod validation_tests;

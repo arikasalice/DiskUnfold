@@ -46,7 +46,7 @@ fn help_and_version_do_not_read_stored_settings() {
 }
 
 #[test]
-fn invalid_help_arguments_keep_the_normal_settings_path() {
+fn invalid_help_arguments_skip_stored_settings() {
     let mut stored_reads = 0;
     let exit = run_with(
         ["--help", "unexpected"].into_iter().map(OsString::from),
@@ -57,7 +57,7 @@ fn invalid_help_arguments_keep_the_normal_settings_path() {
         || None,
     );
     assert_eq!(exit, ExitCode::from(2));
-    assert_eq!(stored_reads, 1);
+    assert_eq!(stored_reads, 0);
 }
 
 #[test]
@@ -67,6 +67,8 @@ fn not_provided_commands_skip_settings_and_keep_localized_diagnostic() {
         vec!["delete"],
         vec!["status"],
         vec!["query"],
+        vec!["--execute"],
+        vec!["scan", "root", "--delete"],
     ] {
         let mut stored_reads = 0;
         let mut os_reads = 0;
@@ -99,12 +101,15 @@ fn not_provided_commands_skip_settings_and_keep_localized_diagnostic() {
 }
 
 #[test]
-fn malformed_options_keep_the_normal_settings_path() {
+fn registered_command_validation_failures_skip_stored_settings() {
     for input in [
         vec!["--bogus"],
         vec!["-x"],
-        vec!["scan", "root", "--execute"],
-        vec!["--help", "--execute"],
+        vec!["scan"],
+        vec!["scan", "root", "--unknown"],
+        vec!["scan", "root", "--exclude", "--delete"],
+        vec!["scan", "root", "--device", "--execute"],
+        vec!["--help", "unexpected"],
     ] {
         let mut stored_reads = 0;
         let mut os_reads = 0;
@@ -125,16 +130,12 @@ fn malformed_options_keep_the_normal_settings_path() {
         );
 
         assert_eq!(exit, ExitCode::from(2), "{input:?}");
-        assert_eq!(stored_reads, 1, "{input:?}");
+        assert_eq!(stored_reads, 0, "{input:?}");
         assert_eq!(os_reads, 1, "{input:?}");
         assert!(stdout.is_empty(), "{input:?}");
         assert_eq!(
             stderr,
-            concat!(
-                "저장된 설정을 사용할 수 없어 대체 언어를 사용합니다.\n",
-                "DiskUnfold: 지원하지 않는 인자입니다. --help를 확인하세요.\n"
-            )
-            .as_bytes(),
+            "DiskUnfold: 지원하지 않는 인자입니다. --help를 확인하세요.\n".as_bytes(),
             "{input:?}"
         );
     }

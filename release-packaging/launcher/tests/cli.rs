@@ -246,7 +246,9 @@ fn help_and_version_skip_a_corrupt_settings_database() -> io::Result<()> {
     )?;
     let output = command.arg("--help").arg("unexpected").output()?;
     assert_eq!(output.status.code(), Some(2));
-    assert_localized_settings_unavailable_warning_once(&String::from_utf8_lossy(&output.stderr));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!has_any_settings_unavailable_warning(&stderr));
+    assert!(stderr.contains("unsupported arguments") || stderr.contains("지원하지 않는 인자"));
 
     let (mut command, data_dir) = launcher_with_temp_data()?;
     fs::write(
@@ -264,7 +266,11 @@ fn help_and_version_skip_a_corrupt_settings_database() -> io::Result<()> {
         data_dir.path().join("diskunfold.db"),
         [0, 1, 2, 3, 4, 5, 6, 7],
     )?;
-    let output = command.arg("scan").arg(data_dir.path()).output()?;
+    let output = command
+        .args(["scan"])
+        .arg(data_dir.path())
+        .args(["--", "--delete"])
+        .output()?;
     assert_eq!(output.status.code(), Some(2));
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert_localized_settings_unavailable_warning_once(&stderr);
@@ -274,7 +280,7 @@ fn help_and_version_skip_a_corrupt_settings_database() -> io::Result<()> {
 
 #[cfg(windows)]
 #[test]
-fn unregistered_launcher_commands_skip_corrupt_settings_database() -> io::Result<()> {
+fn denied_commands_and_validation_failures_skip_corrupt_settings_database() -> io::Result<()> {
     use std::process::Stdio;
 
     let corrupt_bytes = b"intentionally corrupt settings database";
@@ -282,9 +288,25 @@ fn unregistered_launcher_commands_skip_corrupt_settings_database() -> io::Result
         (vec!["status"], None),
         (vec!["query"], None),
         (vec!["unregistered-command"], None),
+        (vec!["delete"], None),
+        (vec!["--execute"], None),
+        (vec!["scan", "root", "--delete"], None),
+        (vec!["scan"], None),
+        (vec!["scan", "root", "--unknown"], None),
+        (vec!["scan", "root", "--exclude", "--delete"], None),
+        (vec!["scan", "root", "--device", "--execute"], None),
         (
-            vec!["--lang", "en", "delete"],
+            vec!["--lang", "en", "scan", "root", "--execute"],
             Some("unsupported arguments"),
+        ),
+        (vec!["--lang", "fr", "--delete"], Some("locale.unsupported")),
+        (
+            vec!["--lang", "en", "--lang", "ko", "--delete"],
+            Some("locale.unsupported"),
+        ),
+        (
+            vec!["--lang", "--execute", "scan", "root"],
+            Some("locale.unsupported"),
         ),
     ] {
         let (mut command, data_dir) = launcher_with_temp_data()?;
@@ -298,7 +320,9 @@ fn unregistered_launcher_commands_skip_corrupt_settings_database() -> io::Result
         assert!(!has_any_settings_unavailable_warning(&stderr), "{stderr}");
         if let Some(expected) = expected_diagnostic {
             assert!(stderr.contains(expected), "{arguments:?}: {stderr}");
-            assert_eq!(stderr, "DiskUnfold: unsupported arguments. See --help.\n");
+            if expected == "unsupported arguments" {
+                assert_eq!(stderr, "DiskUnfold: unsupported arguments. See --help.\n");
+            }
         } else {
             assert!(
                 stderr.contains("unsupported arguments") || stderr.contains("지원하지 않는 인자"),
