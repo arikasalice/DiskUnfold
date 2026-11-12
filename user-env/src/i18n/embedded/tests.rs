@@ -48,6 +48,25 @@ fn built_in_resources_register_with_exact_declared_keys_and_parameters()
 }
 
 #[test]
+fn output_interrupted_message_registers_in_both_built_in_languages() -> Result<(), RegistrationError>
+{
+    let registry = register(&[])?;
+    for (language, expected_text) in [
+        ("en", "Output was interrupted."),
+        ("ko", "출력이 중단됐습니다."),
+    ] {
+        let bundle = registry.bundle(language).ok_or(RegistrationError)?;
+        let message = bundle
+            .messages
+            .iter()
+            .find(|(key, _)| key == "cli.output.interrupted")
+            .ok_or(RegistrationError)?;
+        assert_eq!(message.1.text, expected_text);
+    }
+    Ok(())
+}
+
+#[test]
 fn built_in_digests_detect_tampering_before_parsing() -> Result<(), RegistrationError> {
     let [en, ko] = built_in_pair()?;
     assert_eq!(en.bytes, include_bytes!("../../../i18n/en.json"));

@@ -6,6 +6,7 @@
     ["ui.product.name", "DiskUnfold", []],
     ["cli.help.usage", "Usage: diskunfold [--lang LANGUAGE] [--help | --version]", []],
     ["cli.help.unsupported", "DiskUnfold: unsupported arguments. See --help.", []],
+    ["cli.output.interrupted", "Output was interrupted.", []],
     ["locale.registration_failed", "Language bundle registration failed.", []],
     ["i18n.bundle_integrity_failed", "A language bundle failed its integrity check.", []],
     ["settings.scope.remember_recent.name", "Remember recent scopes", []],
