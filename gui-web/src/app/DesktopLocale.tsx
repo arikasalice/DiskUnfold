@@ -59,7 +59,13 @@ function useLocalePresentation(view: LocaleView | undefined) {
   }, [language, motion, scale]);
 }
 
-export function DesktopLocale({ client }: { client: AnalysisClient }) {
+export function DesktopLocale({
+  client,
+  analysisEnabled = true,
+}: {
+  client: AnalysisClient;
+  analysisEnabled?: boolean;
+}) {
   const { view, save, retry, errorKey, commandError } = useLocale(client);
   const reporter = useMemo(() => makeLocaleReporter(client), [client]);
   useEffect(() => () => reporter.cancel(), [reporter]);
@@ -100,7 +106,8 @@ export function DesktopLocale({ client }: { client: AnalysisClient }) {
     <LocaleTextContext.Provider value={text}>
       <RegionalFormatContext.Provider value={format}>
         <App
-          analysis={client}
+          analysis={analysisEnabled ? client : undefined}
+          nativeLocaleHost={!analysisEnabled}
           locale={{
             profile: view.profile,
             text: (key) => text(key, ""),

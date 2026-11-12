@@ -1,33 +1,42 @@
-//! Own one shared settings and history writer for the Windows GUI.
+//! Own one shared settings and history writer for a desktop GUI.
 
 use std::{
     collections::BTreeMap,
     fs::File,
+    sync::{Arc, Mutex},
+};
+#[cfg(windows)]
+use std::{
     num::NonZeroUsize,
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::atomic::{AtomicBool, Ordering},
 };
 
-use du_app_db::{
-    AppDb,
-    recent_scope::{
-        RecentError, RecentItem, RecentScopeStore, RecentSummary, RecentWrite, RecentWriteError,
-        list_recent_scopes, read_recent_scope,
-    },
+use du_app_db::AppDb;
+#[cfg(windows)]
+use du_app_db::recent_scope::{
+    RecentError, RecentItem, RecentScopeStore, RecentSummary, RecentWrite, RecentWriteError,
+    list_recent_scopes, read_recent_scope,
 };
-use du_core_contracts::{
-    job::{
-        HistoryAppend, HistoryAppendOutcome, HistoryInterruptionReceipt, HistoryRecovery,
-        JobHistory, JobSummary,
-    },
-    settings::{
-        SettingsChanges, SettingsCommit, SettingsSnapshot, SettingsStore, SettingsStoreError,
-    },
+#[cfg(windows)]
+use du_core_contracts::job::{
+    HistoryAppend, HistoryAppendOutcome, HistoryInterruptionReceipt, HistoryRecovery, JobHistory,
+    JobSummary,
 };
-
+use du_core_contracts::settings::{
+    SettingsChanges, SettingsCommit, SettingsSnapshot, SettingsStore, SettingsStoreError,
+};
+#[cfg(target_os = "linux")]
+use du_platform_os::linux_instance_lock::LinuxInstanceLock;
+#[cfg(windows)]
 use du_platform_os::windows_instance_lock::WindowsInstanceLock;
+
+#[allow(dead_code)]
+enum InstanceGuard {
+    #[cfg(windows)]
+    Windows(WindowsInstanceLock),
+    #[cfg(target_os = "linux")]
+    Linux(LinuxInstanceLock),
+}
 
 /// One application-owned database connection for settings and history writes.
 #[derive(Clone)]
@@ -41,14 +50,23 @@ struct Database {
 /// Retains the database path and GUI instance lock until the last writer drops.
 pub(super) struct DatabaseGuard {
     _file: File,
-    _instance: WindowsInstanceLock,
+    _instance: InstanceGuard,
 }
 
 impl DatabaseGuard {
+    #[cfg(windows)]
     pub(super) fn new(file: File, instance: WindowsInstanceLock) -> Self {
         Self {
             _file: file,
-            _instance: instance,
+            _instance: InstanceGuard::Windows(instance),
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    pub(super) fn new(file: File, instance: LinuxInstanceLock) -> Self {
+        Self {
+            _file: file,
+            _instance: InstanceGuard::Linux(instance),
         }
     }
 }
@@ -67,6 +85,7 @@ impl SharedDatabase {
         SharedSettings(self.clone())
     }
 
+    #[cfg(windows)]
     /// An F24 history port using the same connection and an injected UTC clock.
     pub(super) fn history(&self, now_ms: fn() -> i64) -> SharedHistory {
         SharedHistory {
@@ -75,6 +94,7 @@ impl SharedDatabase {
         }
     }
 
+    #[cfg(windows)]
     /// Commits an owner-validated body on the shared Windows GUI connection.
     ///
     /// Preserves the explicitly supplied retention limit used by the opt-in
@@ -111,6 +131,7 @@ impl SharedDatabase {
     /// so an independent writer does not turn a committed off value into a busy
     /// warning. The final write still rechecks the setting in its immediate
     /// transaction with insertion and eviction.
+    #[cfg(windows)]
     pub(super) fn resolve_recent_scope_remember(
         &self,
         cap: NonZeroUsize,
@@ -133,6 +154,7 @@ impl SharedDatabase {
     ///
     /// FR8.HD1.app-host.DD2: the caller supplies the physical 500-row read cap,
     /// independent of the cap selected for future writes.
+    #[cfg(windows)]
     pub(super) fn recent_scope_summaries(
         &self,
         cap: NonZeroUsize,
@@ -141,6 +163,7 @@ impl SharedDatabase {
         list_recent_scopes(&connection, cap)
     }
 
+    #[cfg(windows)]
     /// Reads a stored row before the application validates its body and rechecks the scope.
     pub(super) fn recent_scope(&self, id: &[u8; 16]) -> Result<Option<RecentItem>, RecentError> {
         let connection = self.0.connection.lock().map_err(|_| RecentError::Storage)?;
@@ -148,6 +171,7 @@ impl SharedDatabase {
     }
 }
 
+#[cfg(windows)]
 impl HistoryRecovery for SharedDatabase {
     fn mark_interrupted(&self, now_ms: i64) -> Result<Option<HistoryInterruptionReceipt>, String> {
         self.0
@@ -237,11 +261,13 @@ impl SettingsStore for SharedSettings {
 }
 
 /// F24 history adapter; F21 linkage is written by `AppDb` in one transaction.
+#[cfg(windows)]
 pub(super) struct SharedHistory {
     database: SharedDatabase,
     now_ms: fn() -> i64,
 }
 
+#[cfg(windows)]
 impl JobHistory for SharedHistory {
     fn append(&self, summary: &JobSummary) -> Result<HistoryAppend, String> {
         self.append_with_receipt(summary)

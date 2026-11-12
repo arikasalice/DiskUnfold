@@ -15,11 +15,11 @@ du-platform-os = { version = "0.1.0", path = "../platform-os", optional = true }
 serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 
-[target.'cfg(windows)'.dependencies]
+[target.'cfg(any(windows, target_os = "linux"))'.dependencies]
 du-app-db = { version = "0.1.0", path = "../app-db", optional = true }
 du-user-env = { version = "0.1.0", path = "../user-env", optional = true }
 
-[target.'cfg(windows)'.dev-dependencies]
+[target.'cfg(any(windows, target_os = "linux"))'.dev-dependencies]
 rusqlite.workspace = true
 tempfile.workspace = true
 

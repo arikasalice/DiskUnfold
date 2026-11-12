@@ -72,13 +72,22 @@ function isErrorEnvelope(
   );
 }
 
-/** Detects the embedded desktop bridge before presenting native analysis controls. */
-export function hasWindowsAnalysisBridge(): boolean {
+/** Detects a trusted native locale bridge for the embedded desktop webview. */
+export function hasDesktopLocaleBridge(): boolean {
   const host = window as NativeWindow;
   return (
     host.top === host &&
-    host.location.origin === "https://diskunfold.invalid" &&
+    (host.location.origin === "https://diskunfold.invalid" ||
+      host.location.href === "diskunfold://app/index.html") &&
     typeof host.__diskunfoldRequest === "function"
+  );
+}
+
+/** Detects Windows analysis support before presenting analysis controls. */
+export function hasWindowsAnalysisBridge(): boolean {
+  return (
+    hasDesktopLocaleBridge() &&
+    window.location.origin === "https://diskunfold.invalid"
   );
 }
 

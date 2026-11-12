@@ -43,10 +43,12 @@ export function App({
   analysis,
   visualizationProvider,
   locale,
+  nativeLocaleHost = false,
 }: {
   analysis?: AnalysisClient;
   visualizationProvider?: BrowseVisualizationProvider;
   locale?: LocaleSettingsProps;
+  nativeLocaleHost?: boolean;
 } = {}) {
   const client = analysis ?? (hasWindowsAnalysisBridge() ? desktop : undefined);
   const savedPreferences = useDisplayPreferences(client);
@@ -165,7 +167,7 @@ export function App({
         </div>
       </header>
       <LocaleLoadNotice locale={locale} />
-      {!client && (
+      {!client && !nativeLocaleHost && (
         <div className="du-analysis-slot">
           <Heading level={2}>Desktop connection unavailable</Heading>
           <Text>

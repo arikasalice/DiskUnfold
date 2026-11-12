@@ -47,9 +47,18 @@ pub(super) fn initialize(
     registry: i18n::Registry,
     stored: Option<&str>,
 ) -> Result<StartupLocale, io::Error> {
-    initialize_with_language_provider(registry, stored, || {
-        du_platform_os::windows_ui_language::preferred_ui_languages().ok()
-    })
+    #[cfg(windows)]
+    {
+        initialize_with_language_provider(registry, stored, || {
+            du_platform_os::windows_ui_language::preferred_ui_languages().ok()
+        })
+    }
+    #[cfg(target_os = "linux")]
+    {
+        initialize_with_language_provider(registry, stored, || {
+            du_platform_os::linux_ui_language::preferred_ui_languages()
+        })
+    }
 }
 
 fn initialize_with_language_provider(

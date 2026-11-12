@@ -1,4 +1,4 @@
-//! Compose stored Windows settings into the desktop scan registration.
+//! Compose stored desktop settings and locale profile commands.
 
 use std::{
     io,
@@ -6,17 +6,21 @@ use std::{
     time::UNIX_EPOCH,
 };
 
+#[cfg(windows)]
 use du_engine_api::desktop::SharedTableLimitSource;
+#[cfg(windows)]
+use du_user_env::space::restore_shared_table_limit;
 use du_user_env::{
     Registry, locale,
     settings::{RestoreStatus, SettingsService, builtin_descriptors},
-    space::restore_shared_table_limit,
 };
 
 use crate::shared_database::{SharedDatabase, SharedSettings};
 
+#[cfg(windows)]
 mod display_ipc;
 mod locale_ipc;
+#[cfg(windows)]
 mod restore_ipc;
 pub(super) use locale_ipc::LocaleRuntime;
 
@@ -69,6 +73,7 @@ impl StartupSettings {
     }
 
     /// Supplies the validated setting when a scan is admitted.
+    #[cfg(windows)]
     pub(super) fn scan_limit_source(self: Arc<Self>) -> SharedTableLimitSource {
         Arc::new(move || {
             self.service
@@ -123,5 +128,5 @@ pub(super) fn current_time_ms() -> i64 {
         .unwrap_or(0)
 }
 
-#[cfg(test)]
+#[cfg(all(test, windows))]
 mod tests;

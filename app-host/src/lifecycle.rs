@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use du_engine_api::api::EngineBuilder;
 use du_platform_os::webview::{Asset, WebApp};
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 use du_platform_os::webview::{EventCallbacks, Events};
 
 #[cfg(windows)]
@@ -83,6 +83,19 @@ fn run_app(
             database,
         )
     };
+    #[cfg(target_os = "linux")]
+    let (locale, settings) = {
+        let bundles = crate::locale::register()?;
+        let configured = bundles.configured_languages().collect::<Vec<_>>();
+        let data_dir = du_platform_os::application_data::directory().ok_or_else(|| {
+            std::io::Error::other("db.open_failed: no Linux application data directory")
+        })?;
+        let database = crate::startup_database::open(&data_dir)?;
+        let settings = crate::settings::StartupSettings::load(&database, &configured)?;
+        let stored = settings.stored_language()?;
+        let locale = Arc::new(crate::locale::initialize(bundles, stored.as_deref())?);
+        (locale, settings)
+    };
     #[allow(unused_mut)]
     let mut builder = EngineBuilder::default();
     #[cfg(windows)]
@@ -140,14 +153,24 @@ fn run_app(
         ));
         desktop.events
     };
-    #[cfg(windows)]
+    #[cfg(target_os = "linux")]
+    let events = Arc::new(du_engine_api::desktop::DesktopEvents::default());
+    #[cfg(any(windows, target_os = "linux"))]
     {
         let inventory = locale.clone();
+        #[cfg(windows)]
         let runtime = crate::settings::LocaleRuntime::new(
             locale.clone(),
             events.clone(),
             Arc::new(move || Ok(inventory.registry().supported_languages())),
             Arc::new(du_platform_os::windows_time_zone::WindowsTimeZone),
+        );
+        #[cfg(target_os = "linux")]
+        let runtime = crate::settings::LocaleRuntime::new(
+            locale.clone(),
+            events.clone(),
+            Arc::new(move || Ok(inventory.registry().supported_languages())),
+            Arc::new(du_platform_os::linux_time_zone::LinuxTimeZone),
         );
         settings.register_locale_profile(&mut builder, runtime, true);
         crate::locale_delivery::register(&mut builder, locale);
@@ -185,19 +208,23 @@ fn run_app(
         initialization_script: recent_worker.as_ref().map(|_| RECENT_SCOPE_BOOTSTRAP),
         icon: include_bytes!("../icons/icon.png"),
     };
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     {
         let event_source = desktop_event_source(events.clone());
+        #[cfg(windows)]
         let result = du_platform_os::webview::run_with_events(app, event_source);
+        #[cfg(target_os = "linux")]
+        let result = du_platform_os::webview::run_with_events(app, event_source);
+        #[cfg(windows)]
         drop(recent_worker);
         engine.retire_window_session();
         result
     }
-    #[cfg(not(windows))]
+    #[cfg(not(any(windows, target_os = "linux")))]
     du_platform_os::webview::run(app)
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 struct DesktopEventCallbacks {
     next: Box<dyn Fn() -> Option<String> + Send + Sync>,
     post_failed: Box<dyn Fn(du_platform_os::webview::EventPostFailure) + Send + Sync>,
@@ -206,7 +233,7 @@ struct DesktopEventCallbacks {
     document_closed: Box<dyn Fn() + Send + Sync>,
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 impl DesktopEventCallbacks {
     fn new(events: Arc<du_engine_api::desktop::DesktopEvents>) -> Self {
         let next_events = events.clone();
@@ -238,7 +265,7 @@ impl DesktopEventCallbacks {
     }
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 fn desktop_event_source(events: Arc<du_engine_api::desktop::DesktopEvents>) -> Events {
     DesktopEventCallbacks::new(events).into_event_source()
 }

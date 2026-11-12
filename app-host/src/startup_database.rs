@@ -1,4 +1,4 @@
-//! Open the Windows GUI database under an instance lock before restoring settings.
+//! Open the GUI database under a platform instance lock before restoring settings.
 
 use std::{fs, io, path::Path};
 
@@ -9,6 +9,12 @@ use du_app_db::{
         managed::{RetentionDiagnostic, apply_managed_run},
     },
 };
+#[cfg(target_os = "linux")]
+use du_platform_os::{
+    application_data::DATABASE_FILE,
+    linux_instance_lock::{LinuxInstanceLock, LinuxInstanceLockError},
+};
+#[cfg(windows)]
 use du_platform_os::{
     application_data::DATABASE_FILE,
     windows_instance_lock::{InstanceLockError, WindowsInstanceLock},
@@ -18,9 +24,10 @@ use du_platform_os::{
 use crate::shared_database::{DatabaseGuard, SharedDatabase};
 
 /// Creates or migrates the database in the application's Windows data directory.
+#[cfg(windows)]
 pub(super) fn open(data_dir: &Path) -> Result<SharedDatabase, io::Error> {
     let data_dir = std::path::absolute(data_dir)?;
-    fs::create_dir_all(&data_dir)?;
+    create_data_directory(&data_dir)?;
     let instance = WindowsInstanceLock::acquire(&data_dir).map_err(lock_error)?;
     let path = data_dir.join(DATABASE_FILE);
     let (database, file) = if let Some(file) = instance.pin_database().map_err(lock_error)? {
@@ -39,7 +46,34 @@ pub(super) fn open(data_dir: &Path) -> Result<SharedDatabase, io::Error> {
     ))
 }
 
-fn open_existing(path: &Path, data_dir: &Path) -> Result<AppDb, io::Error> {
+/// Creates or migrates the database in the application's Linux data directory.
+#[cfg(target_os = "linux")]
+pub(super) fn open(data_dir: &Path) -> Result<SharedDatabase, io::Error> {
+    let data_dir = std::path::absolute(data_dir)?;
+    create_data_directory(&data_dir)?;
+    let instance = LinuxInstanceLock::acquire(&data_dir).map_err(linux_lock_error)?;
+    let path = data_dir.join(DATABASE_FILE);
+    let (database, file) = if let Some(file) = instance.pin_database().map_err(linux_lock_error)? {
+        (open_existing(&path, &data_dir, &instance)?, file)
+    } else {
+        let database = AppDb::create_gui_with_history(&path).map_err(open_error)?;
+        let file = instance
+            .pin_database()
+            .map_err(linux_lock_error)?
+            .ok_or_else(|| io::Error::other("db.open_failed: published database is missing"))?;
+        (database, file)
+    };
+    Ok(SharedDatabase::new(
+        database,
+        Some(DatabaseGuard::new(file, instance)),
+    ))
+}
+
+fn open_existing(
+    path: &Path,
+    data_dir: &Path,
+    #[cfg(target_os = "linux")] instance: &LinuxInstanceLock,
+) -> Result<AppDb, io::Error> {
     let version = AppDb::probe_schema_version_read_only(path).map_err(open_error)?;
     if version == HISTORY_SCHEMA_VERSION {
         return AppDb::open_gui_with_history_after_version_probe(path).map_err(open_error);
@@ -51,16 +85,30 @@ fn open_existing(path: &Path, data_dir: &Path) -> Result<AppDb, io::Error> {
         .map_err(|error| open_error(OpenError::Sqlite(error)))?;
     drop(reader);
     if version < HISTORY_SCHEMA_VERSION {
-        migrate(path, &data_dir.join("db-backups"), version)?;
+        migrate(
+            path,
+            &data_dir.join("db-backups"),
+            version,
+            #[cfg(target_os = "linux")]
+            instance,
+        )?;
     }
     AppDb::open_gui_with_history(path).map_err(open_error)
 }
 
-fn migrate(path: &Path, backups: &Path, version: u32) -> Result<(), io::Error> {
-    fs::create_dir_all(backups)
+fn migrate(
+    path: &Path,
+    backups: &Path,
+    version: u32,
+    #[cfg(target_os = "linux")] instance: &LinuxInstanceLock,
+) -> Result<(), io::Error> {
+    create_backup_directory(backups)
         .map_err(|error| io::Error::other(format!("db.backup_failed: {error}")))?;
-    let _directory = open_verified_stable(backups)
-        .map_err(|error| io::Error::other(format!("db.backup_failed: {error:?}")))?;
+    let _directory = prepare_backup_directory(
+        backups,
+        #[cfg(target_os = "linux")]
+        instance,
+    )?;
     let outcome = match apply_managed_run(path, backups, &HISTORY_DEFINITIONS, version) {
         Ok(outcome) => outcome,
         Err(failure) => {
@@ -75,6 +123,63 @@ fn migrate(path: &Path, backups: &Path, version: u32) -> Result<(), io::Error> {
     Ok(())
 }
 
+#[cfg(windows)]
+fn prepare_backup_directory(
+    backups: &Path,
+) -> Result<du_platform_os::windows_observation::WindowsDirectory, io::Error> {
+    open_verified_stable(backups)
+        .map_err(|error| io::Error::other(format!("db.backup_failed: {error:?}")))
+}
+
+#[cfg(target_os = "linux")]
+fn prepare_backup_directory(
+    _backups: &Path,
+    instance: &LinuxInstanceLock,
+) -> Result<fs::File, io::Error> {
+    // Pins the no-follow directory object through publication. The cooperative
+    // advisory lock does not exclude unrelated same-user filesystem mutation.
+    instance
+        .open_child_directory("db-backups")
+        .map_err(|error| io::Error::other(format!("db.backup_failed: {error:?}")))
+}
+
+#[cfg(windows)]
+fn create_data_directory(path: &Path) -> io::Result<()> {
+    fs::create_dir_all(path)
+}
+
+#[cfg(target_os = "linux")]
+fn create_data_directory(path: &Path) -> io::Result<()> {
+    use std::os::unix::fs::DirBuilderExt;
+    let mut builder = fs::DirBuilder::new();
+    builder.recursive(true).mode(0o700).create(path)
+}
+
+#[cfg(windows)]
+fn create_backup_directory(path: &Path) -> io::Result<()> {
+    fs::create_dir_all(path)
+}
+
+#[cfg(target_os = "linux")]
+fn create_backup_directory(path: &Path) -> io::Result<()> {
+    use std::os::unix::fs::DirBuilderExt;
+    let mut builder = fs::DirBuilder::new();
+    builder
+        .recursive(false)
+        .mode(0o700)
+        .create(path)
+        .or_else(|error| {
+            if error.kind() == io::ErrorKind::AlreadyExists
+                && fs::symlink_metadata(path)
+                    .is_ok_and(|metadata| metadata.is_dir() && !metadata.file_type().is_symlink())
+            {
+                Ok(())
+            } else {
+                Err(error)
+            }
+        })
+}
+
 fn report_retention(retention: &RetentionDiagnostic) {
     if retention.inspection_failed || (retention.cleanup_unavailable && retention.content_valid > 3)
     {
@@ -82,9 +187,21 @@ fn report_retention(retention: &RetentionDiagnostic) {
     }
 }
 
+#[cfg(windows)]
 fn lock_error(error: InstanceLockError) -> io::Error {
     match error {
         InstanceLockError::Busy => io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            "DiskUnfold is already running for this data directory",
+        ),
+        error => io::Error::other(format!("db.open_failed: {error:?}")),
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn linux_lock_error(error: LinuxInstanceLockError) -> io::Error {
+    match error {
+        LinuxInstanceLockError::Busy => io::Error::new(
             io::ErrorKind::AlreadyExists,
             "DiskUnfold is already running for this data directory",
         ),
@@ -112,5 +229,9 @@ fn migration_error(error: MigrationError) -> io::Error {
     io::Error::other(format!("{key}: {error:?}"))
 }
 
-#[cfg(test)]
+#[cfg(all(test, windows))]
+mod tests;
+
+#[cfg(all(test, target_os = "linux"))]
+#[path = "startup_database/linux_tests.rs"]
 mod tests;
