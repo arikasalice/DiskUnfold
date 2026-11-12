@@ -1,6 +1,7 @@
 import type { SizeDisplay } from "../i18n/bytes";
 import { useLocaleText } from "../i18n/presentation";
 import { useRegionalFormat } from "../i18n/regional-format";
+import type { RegionalFormat } from "../i18n/regional-format";
 import type { SizeBasisFilter } from "../features/analysis/space-format";
 import diskUnfoldIcon from "./assets/diskunfold-icon.svg";
 import "./browse-visualization.css";
@@ -51,12 +52,10 @@ export function App({
   const savedPreferences = useDisplayPreferences(client);
   const regional = useRegionalFormat();
   const text = useLocaleText();
-  const preferences = regional
-    ? {
-        ...savedPreferences,
-        display: { ...savedPreferences.display, regional },
-      }
-    : savedPreferences;
+  const preferences = {
+    ...savedPreferences,
+    display: withRegionalFormat(savedPreferences.display, regional),
+  };
   const [connectionChecks, setConnectionChecks] = useState(0);
   const [history, setHistory] = useState(false);
   const [browseSelection, setBrowseSelection] = useState<{
@@ -106,9 +105,7 @@ export function App({
   }, [visualizationOpen]);
   const analysisOpen = client && !history && browseVersion === undefined;
   const chosenDisplay = effectiveDisplay(browseChoice, preferences.display);
-  const browseDisplay = regional
-    ? { ...chosenDisplay, regional }
-    : chosenDisplay;
+  const browseDisplay = withRegionalFormat(chosenDisplay, regional);
   const onSizeBasisChange = useCallback(
     (version: string, basis: SizeBasisFilter) =>
       setBasisSelection({ version, basis }),
@@ -127,7 +124,7 @@ export function App({
           <Heading level={1}>DiskUnfold</Heading>
         </div>
         <div className="du-app-header__actions">
-          {locale && <LocaleSettings {...locale} />}
+          <LocaleControls locale={locale} />
           <BrowseReturn
             visible={Boolean(browseVersion) && !visualizationOpen}
             autoFocus={!restoreVisualizationFocus.current}
@@ -167,9 +164,7 @@ export function App({
           )}
         </div>
       </header>
-      {locale?.errorKey === "ui.locale.failed" && (
-        <LiveStatus>{locale.text(locale.errorKey)}</LiveStatus>
-      )}
+      <LocaleLoadNotice locale={locale} />
       {!client && (
         <div className="du-analysis-slot">
           <Heading level={2}>Desktop connection unavailable</Heading>
@@ -243,6 +238,31 @@ export function App({
       )}
     </main>
   );
+}
+
+function withRegionalFormat(
+  display: SizeDisplay,
+  regional: RegionalFormat | undefined,
+): SizeDisplay {
+  return regional ? { ...display, regional } : display;
+}
+
+function LocaleControls({
+  locale,
+}: {
+  locale: LocaleSettingsProps | undefined;
+}) {
+  return locale ? <LocaleSettings {...locale} /> : null;
+}
+
+function LocaleLoadNotice({
+  locale,
+}: {
+  locale: LocaleSettingsProps | undefined;
+}) {
+  return locale?.errorKey === "ui.locale.failed" ? (
+    <LiveStatus>{locale.text(locale.errorKey)}</LiveStatus>
+  ) : null;
 }
 
 function BrowseReturn({
