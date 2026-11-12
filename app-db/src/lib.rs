@@ -71,6 +71,95 @@ fn sqlite_reports_corruption(error: &rusqlite::Error) -> bool {
     )
 }
 
+/// Result of an explicit WAL truncate checkpoint.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WalCheckpoint {
+    /// WAL frames observed by SQLite, or `None` when no WAL file existed.
+    pub log_frames: Option<i64>,
+    /// Frames copied into the database file, or `None` when no WAL file existed.
+    pub checkpointed_frames: Option<i64>,
+}
+
+/// Failure to close an app database while preserving its open connection.
+pub struct AppDbCloseError {
+    /// The connection that remains open and can be retried after releasing statements.
+    pub database: AppDb,
+    /// SQLite's close error.
+    pub error: rusqlite::Error,
+}
+
+impl std::fmt::Debug for AppDbCloseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AppDbCloseError")
+            .field("error", &self.error)
+            .finish_non_exhaustive()
+    }
+}
+
+impl std::fmt::Display for AppDbCloseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "database connection close failed: {}", self.error)
+    }
+}
+
+impl std::error::Error for AppDbCloseError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.error)
+    }
+}
+
+/// Failure to complete an explicit WAL checkpoint.
+#[derive(Debug)]
+pub enum WalCheckpointError {
+    /// SQLite could not read or checkpoint the WAL.
+    Sqlite(rusqlite::Error),
+    /// Another connection prevented SQLite from completing the truncate checkpoint.
+    Busy {
+        /// WAL frames observed when SQLite reported contention.
+        log_frames: i64,
+        /// WAL frames copied before SQLite reported contention.
+        checkpointed_frames: i64,
+    },
+    /// SQLite returned an invalid negative checkpoint count.
+    InvalidCounts {
+        /// WAL frames observed by SQLite.
+        log_frames: i64,
+        /// Frames copied into the database file.
+        checkpointed_frames: i64,
+    },
+}
+
+impl std::fmt::Display for WalCheckpointError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Sqlite(error) => write!(f, "WAL checkpoint failed: {error}"),
+            Self::Busy {
+                log_frames,
+                checkpointed_frames,
+            } => write!(
+                f,
+                "WAL checkpoint was busy after copying {checkpointed_frames} of {log_frames} frames"
+            ),
+            Self::InvalidCounts {
+                log_frames,
+                checkpointed_frames,
+            } => write!(
+                f,
+                "WAL checkpoint returned invalid frame counts ({log_frames}, {checkpointed_frames})"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for WalCheckpointError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Sqlite(error) => Some(error),
+            Self::Busy { .. } | Self::InvalidCounts { .. } => None,
+        }
+    }
+}
+
 impl From<rusqlite::Error> for OpenError {
     fn from(error: rusqlite::Error) -> Self {
         Self::Sqlite(error)
@@ -196,6 +285,50 @@ impl AppDb {
         self.connection
             .pragma_query_value(None, "user_version", |row| row.get(0))
     }
+
+    /// Completes a SQLite `TRUNCATE` WAL checkpoint on this connection.
+    ///
+    /// Call only after application writers have stopped. SQLite's configured
+    /// busy timeout bounds lock waiting; contention is returned as `Busy` and
+    /// must not be reported as a completed checkpoint. This method does not
+    /// consume or close the database connection.
+    pub fn checkpoint_wal(&mut self) -> Result<WalCheckpoint, WalCheckpointError> {
+        let (busy, log_frames, checkpointed_frames): (i64, i64, i64) = self
+            .connection
+            .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            })
+            .map_err(WalCheckpointError::Sqlite)?;
+
+        if busy != 0 {
+            return Err(WalCheckpointError::Busy {
+                log_frames,
+                checkpointed_frames,
+            });
+        }
+        if log_frames < -1 || checkpointed_frames < -1 {
+            return Err(WalCheckpointError::InvalidCounts {
+                log_frames,
+                checkpointed_frames,
+            });
+        }
+
+        Ok(WalCheckpoint {
+            log_frames: (log_frames >= 0).then_some(log_frames),
+            checkpointed_frames: (checkpointed_frames >= 0).then_some(checkpointed_frames),
+        })
+    }
+
+    /// Closes this database connection, returning the still-open handle on failure.
+    pub fn close(self) -> Result<(), AppDbCloseError> {
+        match self.connection.close() {
+            Ok(()) => Ok(()),
+            Err((connection, error)) => Err(AppDbCloseError {
+                database: Self { connection },
+                error,
+            }),
+        }
+    }
 }
 
 static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
@@ -290,5 +423,7 @@ fn check_existing(connection: &Connection, read_only: bool) -> Result<(), OpenEr
 
 #[cfg(test)]
 mod recovery_tests;
+#[cfg(test)]
+mod shutdown_tests;
 #[cfg(test)]
 mod tests;

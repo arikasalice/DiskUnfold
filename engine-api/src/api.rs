@@ -1,6 +1,7 @@
 use du_core_contracts::{CallEnvelope, ResultEnvelope};
+use std::time::Duration;
 
-use crate::{pipeline, registry::Registry};
+use crate::{pipeline, registry::Registry, shutdown::ShutdownHooks};
 
 pub use crate::contracts::{CallerCtx, Channel, OutboundFilter, UseCase};
 
@@ -23,6 +24,7 @@ pub struct EngineBuilder {
     duplicate_name: Option<&'static str>,
     outbound_filter: Option<Box<dyn OutboundFilter>>,
     session_retire: Option<Box<dyn Fn() + Send + Sync>>,
+    shutdown_hooks: Option<ShutdownHooks>,
 }
 
 impl EngineBuilder {
@@ -46,6 +48,17 @@ impl EngineBuilder {
         }));
     }
 
+    /// Installs the desktop job-runtime shutdown hooks at composition time.
+    pub(crate) fn on_shutdown_hooks(&mut self, hooks: ShutdownHooks) {
+        if self.shutdown_hooks.is_some() {
+            if self.duplicate_name.is_none() {
+                self.duplicate_name = Some("engine.shutdown");
+            }
+        } else {
+            self.shutdown_hooks = Some(hooks);
+        }
+    }
+
     pub fn build(self) -> Result<Engine, BuildError> {
         if let Some(duplicate_name) = self.duplicate_name {
             return Err(BuildError { duplicate_name });
@@ -54,6 +67,7 @@ impl EngineBuilder {
             registry: self.registry,
             outbound_filter: self.outbound_filter,
             session_retire: self.session_retire,
+            shutdown_hooks: self.shutdown_hooks,
         })
     }
 }
@@ -62,6 +76,7 @@ pub struct Engine {
     registry: Registry,
     outbound_filter: Option<Box<dyn OutboundFilter>>,
     session_retire: Option<Box<dyn Fn() + Send + Sync>>,
+    shutdown_hooks: Option<ShutdownHooks>,
 }
 
 impl Engine {
@@ -70,6 +85,58 @@ impl Engine {
         if let Some(retire) = &self.session_retire {
             retire();
         }
+    }
+
+    /// Atomically confirms the active `change.*` job count and closes job admission if allowed.
+    ///
+    /// Call this before MCP access closure. `ConfirmRequired` leaves the engine
+    /// open; `Accepted` prevents new jobs while the caller closes gateway access.
+    pub fn close_job_admission(
+        &self,
+        confirmed: bool,
+    ) -> Result<crate::shutdown::ShutdownAdmission, crate::shutdown::ShutdownError> {
+        self.shutdown_hooks.as_ref().map_or(
+            Ok(crate::shutdown::ShutdownAdmission::Accepted {
+                active_change_jobs: 0,
+            }),
+            |hooks| hooks.close_admission(confirmed),
+        )
+    }
+
+    /// Closes job admission and requests cancellation through F24 for all active jobs.
+    ///
+    /// This call does not wait for job bodies or their history writes to finish.
+    /// The caller must observe their terminal events and wait for the history
+    /// delivery barrier before closing the database.
+    pub fn prepare_shutdown(
+        &self,
+    ) -> Result<crate::shutdown::ShutdownPreparation, crate::shutdown::ShutdownError> {
+        self.shutdown_hooks.as_ref().map_or_else(
+            || Ok(crate::shutdown::ShutdownPreparation::no_runtime()),
+            ShutdownHooks::prepare,
+        )
+    }
+
+    /// Starts the F24 delivery barrier after all job bodies have become terminal.
+    ///
+    /// Poll the returned ticket until `Complete` before stopping workers or
+    /// releasing the engine's history owner. A failed or timed-out barrier does
+    /// not authorize database closure.
+    pub fn begin_history_commit_barrier(
+        &self,
+        timeout: Duration,
+    ) -> Result<crate::shutdown::HistoryCommitBarrier, crate::shutdown::ShutdownError> {
+        self.shutdown_hooks.as_ref().map_or_else(
+            || Ok(crate::shutdown::HistoryCommitBarrier::no_runtime()),
+            |hooks| hooks.begin_history_barrier(timeout),
+        )
+    }
+
+    /// Stops and joins the desktop job-worker threads after all work has drained.
+    pub fn close_job_workers(&self) -> Result<(), crate::shutdown::ShutdownError> {
+        self.shutdown_hooks
+            .as_ref()
+            .map_or(Ok(()), ShutdownHooks::close_workers)
     }
 
     pub fn call(&self, envelope: CallEnvelope, caller: &CallerCtx) -> ResultEnvelope {

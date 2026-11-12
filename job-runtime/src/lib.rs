@@ -22,7 +22,7 @@ use du_core_contracts::{
     },
 };
 pub use history_recovery::recover_history;
-pub use listing::{JobListEntry, JobWaitReason};
+pub use listing::{AdmissionClose, JobListEntry, JobWaitReason};
 pub use model::FlowLimits;
 use model::*;
 pub use model::{

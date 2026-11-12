@@ -211,6 +211,7 @@ pub(crate) struct Table {
     pub(crate) kinds: HashMap<String, JobDescriptor>,
     pub(crate) jobs: HashMap<Id, Entry>,
     pub(crate) shutting_down: bool,
+    pub(crate) shutdown_delivery_started: bool,
     pub(crate) next_order: u64,
     pub(crate) sender: Option<mpsc::Sender<Delivery>>,
 }
@@ -236,7 +237,7 @@ pub(crate) enum Delivery {
     Retired(Id),
     #[cfg(test)]
     Fence(mpsc::Sender<()>),
-    Stop(mpsc::Sender<()>),
+    Stop(mpsc::Sender<usize>),
 }
 
 pub(crate) fn expire(table: &mut Table, now: i64) {

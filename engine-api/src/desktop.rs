@@ -23,6 +23,7 @@ use du_job_runtime::{FlowLimits, JobClock, JobEvent, JobEvents, JobIdentity, Job
 use serde_json::json;
 
 pub(crate) mod scan_completion;
+mod shutdown;
 mod visualization;
 pub use crate::scan::{ScanDiagnosticsFactory, SharedTableLimit, SharedTableLimitSource};
 use crate::{api::EngineBuilder, jobs, scan, scope, targets, workers::Workers};
@@ -197,6 +198,7 @@ fn register_services_inner(
         },
     )?);
     let workers = Arc::new(Workers::start(runtime.clone())?);
+    builder.on_shutdown_hooks(shutdown::hooks(runtime.clone(), workers.clone()));
     scope::register_review(builder, roots.clone(), clock.clone());
     targets::register_with_probe(
         builder,

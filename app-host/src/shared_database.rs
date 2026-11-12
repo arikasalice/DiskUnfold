@@ -11,12 +11,13 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
-use du_app_db::AppDb;
 #[cfg(windows)]
 use du_app_db::recent_scope::{
     RecentError, RecentItem, RecentScopeStore, RecentSummary, RecentWrite, RecentWriteError,
     list_recent_scopes, read_recent_scope,
 };
+use du_app_db::{AppDb, AppDbCloseError};
+use du_app_db::{WalCheckpoint, WalCheckpointError};
 #[cfg(windows)]
 use du_core_contracts::job::{
     HistoryAppend, HistoryAppendOutcome, HistoryInterruptionReceipt, HistoryRecovery, JobHistory,
@@ -41,6 +42,115 @@ enum InstanceGuard {
 /// One application-owned database connection for settings and history writes.
 #[derive(Clone)]
 pub(super) struct SharedDatabase(Arc<Database>);
+
+/// Failure to take the shared writer lock or finish its WAL checkpoint.
+#[derive(Debug)]
+pub(super) enum SharedDatabaseCheckpointError {
+    /// The shared connection mutex was poisoned.
+    ConnectionPoisoned,
+    /// SQLite did not complete the truncate checkpoint.
+    Wal(WalCheckpointError),
+}
+
+impl std::fmt::Display for SharedDatabaseCheckpointError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ConnectionPoisoned => f.write_str("shared database connection is poisoned"),
+            Self::Wal(error) => write!(f, "{error}"),
+        }
+    }
+}
+
+impl std::error::Error for SharedDatabaseCheckpointError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::ConnectionPoisoned => None,
+            Self::Wal(error) => Some(error),
+        }
+    }
+}
+
+/// A close refusal keeps the database handle available for release or retry.
+#[allow(dead_code)] // Used when the lifecycle assembly connects the final owner port.
+pub(super) enum SharedDatabaseCloseError {
+    /// Another subsystem still owns this database and must be retired first.
+    StillReferenced {
+        /// The handle whose ownership was not consumed.
+        database: SharedDatabase,
+        /// Number of owners observed by the failed unique-owner check.
+        owners: usize,
+    },
+    /// The connection mutex was poisoned; the connection remains open.
+    ConnectionPoisoned(SharedDatabase),
+    /// The connection remains open because its WAL checkpoint did not finish.
+    Checkpoint {
+        /// The handle whose checkpoint must be retried or diagnosed.
+        database: SharedDatabase,
+        /// SQLite's checkpoint failure.
+        error: WalCheckpointError,
+    },
+    /// SQLite refused to close the last connection; the handle remains available.
+    DatabaseClose {
+        /// The handle that was returned by SQLite on close failure.
+        database: SharedDatabase,
+        /// SQLite's close error.
+        error: rusqlite::Error,
+    },
+}
+
+impl SharedDatabaseCloseError {
+    /// Recovers the still-open handle from a refused close.
+    #[allow(dead_code)] // The shutdown coordinator is intentionally not registered here.
+    pub(super) fn into_database(self) -> SharedDatabase {
+        match self {
+            Self::StillReferenced { database, .. }
+            | Self::ConnectionPoisoned(database)
+            | Self::Checkpoint { database, .. }
+            | Self::DatabaseClose { database, .. } => database,
+        }
+    }
+}
+
+impl std::fmt::Debug for SharedDatabaseCloseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::StillReferenced { owners, .. } => f
+                .debug_struct("StillReferenced")
+                .field("owners", owners)
+                .finish(),
+            Self::ConnectionPoisoned(_) => f.write_str("ConnectionPoisoned"),
+            Self::Checkpoint { error, .. } => f.debug_tuple("Checkpoint").field(error).finish(),
+            Self::DatabaseClose { error, .. } => {
+                f.debug_tuple("DatabaseClose").field(error).finish()
+            }
+        }
+    }
+}
+
+impl std::fmt::Display for SharedDatabaseCloseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::StillReferenced { owners, .. } => {
+                write!(f, "database still has {owners} owners")
+            }
+            Self::ConnectionPoisoned(_) => f.write_str("shared database connection is poisoned"),
+            Self::Checkpoint { error, .. } => write!(f, "{error}"),
+            Self::DatabaseClose { error, .. } => {
+                write!(f, "database connection close failed: {error}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for SharedDatabaseCloseError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::StillReferenced { .. } | Self::ConnectionPoisoned(_) => None,
+            Self::Checkpoint { error, .. } => Some(error),
+            Self::DatabaseClose { error, .. } => Some(error),
+        }
+    }
+}
 
 struct Database {
     connection: Mutex<AppDb>,
@@ -78,6 +188,78 @@ impl SharedDatabase {
             connection: Mutex::new(connection),
             _guard: guard,
         }))
+    }
+
+    /// Serializes a WAL checkpoint with callers using this shared connection.
+    ///
+    /// The caller must close write admission before invoking this method. It
+    /// does not close the connection or prove that the last shared owner has
+    /// dropped; every reader and writer must be retired separately.
+    pub(super) fn checkpoint_wal(&self) -> Result<WalCheckpoint, SharedDatabaseCheckpointError> {
+        let mut connection = self
+            .0
+            .connection
+            .lock()
+            .map_err(|_| SharedDatabaseCheckpointError::ConnectionPoisoned)?;
+        connection
+            .checkpoint_wal()
+            .map_err(SharedDatabaseCheckpointError::Wal)
+    }
+
+    /// Checkpoints WAL and closes the application database only for its last owner.
+    ///
+    /// On any refusal, the returned error retains the still-open database handle.
+    /// Successful return means the WAL checkpoint completed, the SQLite
+    /// connection was dropped, and its database/instance guard was released.
+    pub(super) fn close(self) -> Result<WalCheckpoint, SharedDatabaseCloseError> {
+        let database = match Arc::try_unwrap(self.0) {
+            Ok(database) => database,
+            Err(shared) => {
+                let owners = Arc::strong_count(&shared);
+                return Err(SharedDatabaseCloseError::StillReferenced {
+                    database: SharedDatabase(shared),
+                    owners,
+                });
+            }
+        };
+        let Database { connection, _guard } = database;
+        let mut connection = match connection.into_inner() {
+            Ok(connection) => connection,
+            Err(poisoned) => {
+                let database = Database {
+                    connection: Mutex::new(poisoned.into_inner()),
+                    _guard,
+                };
+                return Err(SharedDatabaseCloseError::ConnectionPoisoned(
+                    SharedDatabase(Arc::new(database)),
+                ));
+            }
+        };
+        let checkpoint = match connection.checkpoint_wal() {
+            Ok(checkpoint) => checkpoint,
+            Err(error) => {
+                let database = Database {
+                    connection: Mutex::new(connection),
+                    _guard,
+                };
+                return Err(SharedDatabaseCloseError::Checkpoint {
+                    database: SharedDatabase(Arc::new(database)),
+                    error,
+                });
+            }
+        };
+        if let Err(AppDbCloseError { database, error }) = connection.close() {
+            let database = Database {
+                connection: Mutex::new(database),
+                _guard,
+            };
+            return Err(SharedDatabaseCloseError::DatabaseClose {
+                database: SharedDatabase(Arc::new(database)),
+                error,
+            });
+        }
+        drop(_guard);
+        Ok(checkpoint)
     }
 
     /// A settings port backed by the same connection as the history port.

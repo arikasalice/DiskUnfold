@@ -230,6 +230,7 @@ fn shutdown_ticket_times_out_without_blocking_and_later_completes()
     loop {
         if ticket.poll() == ShutdownStatus::Complete {
             assert_eq!(ticket.poll(), ShutdownStatus::Complete);
+            assert_eq!(ticket.history_failures(), Some(0));
             break;
         }
         if std::time::Instant::now() >= deadline {
@@ -243,3 +244,5 @@ fn shutdown_ticket_times_out_without_blocking_and_later_completes()
     ));
     Ok(())
 }
+
+mod shutdown;

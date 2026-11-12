@@ -110,3 +110,97 @@ fn failed_history_transaction_preserves_settings_and_allows_later_writes() -> Te
     assert_eq!(commit(&mut settings, 1, 300_000)?, 2);
     Ok(())
 }
+
+#[test]
+fn checkpoint_waits_for_external_reader_and_reports_busy_before_retry() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("checkpoint.db");
+    let db = database(&path)?;
+    let mut settings = db.settings();
+    commit(&mut settings, 0, 200_000)?;
+
+    let mut reader =
+        Connection::open_with_flags(&path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    reader.busy_timeout(std::time::Duration::ZERO)?;
+    let snapshot = reader.transaction()?;
+    let _: i64 = snapshot.query_row("SELECT count(*) FROM user_env_setting", [], |row| {
+        row.get(0)
+    })?;
+    commit(&mut settings, 1, 300_000)?;
+
+    assert!(matches!(
+        db.checkpoint_wal(),
+        Err(SharedDatabaseCheckpointError::Wal(
+            WalCheckpointError::Busy { .. }
+        ))
+    ));
+    drop(snapshot);
+    db.checkpoint_wal()?;
+    assert_eq!(commit(&mut settings, 2, 400_000)?, 3);
+    Ok(())
+}
+
+#[test]
+fn close_refuses_another_shared_owner_and_succeeds_after_last_owner_is_released() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("close-owner.db");
+    let database = database(&path)?;
+    let mut settings = database.settings();
+    commit(&mut settings, 0, 200_000)?;
+    drop(settings);
+    let other_owner = database.clone();
+
+    let database = match database.close() {
+        Err(SharedDatabaseCloseError::StillReferenced { database, owners }) => {
+            assert_eq!(owners, 2);
+            database
+        }
+        Err(error) => return Err(format!("unexpected close error: {error:?}").into()),
+        Ok(_) => return Err("close succeeded while another shared owner remained".into()),
+    };
+    let mut settings = other_owner.settings();
+    assert_eq!(commit(&mut settings, 1, 300_000)?, 2);
+    drop(settings);
+    drop(other_owner);
+
+    database.close()?;
+    let reopened = Connection::open(&path)?;
+    let value: String = reopened.query_row(
+        "SELECT value_json FROM user_env_setting WHERE setting_key = ?1",
+        [du_user_env::space::SHARED_TABLE_MAX_ENTRIES],
+        |row| row.get(0),
+    )?;
+    assert_eq!(serde_json::from_str::<i64>(&value)?, 300_000);
+    Ok(())
+}
+
+#[test]
+fn close_checkpoint_failure_retains_the_last_handle_for_a_safe_retry() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("close-checkpoint.db");
+    let database = database(&path)?;
+    let mut settings = database.settings();
+    commit(&mut settings, 0, 200_000)?;
+
+    let mut reader =
+        Connection::open_with_flags(&path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    reader.busy_timeout(std::time::Duration::ZERO)?;
+    let snapshot = reader.transaction()?;
+    let _: i64 = snapshot.query_row("SELECT count(*) FROM user_env_setting", [], |row| {
+        row.get(0)
+    })?;
+    commit(&mut settings, 1, 300_000)?;
+    drop(settings);
+
+    let database = match database.close() {
+        Err(SharedDatabaseCloseError::Checkpoint {
+            database,
+            error: WalCheckpointError::Busy { .. },
+        }) => database,
+        Err(error) => return Err(format!("unexpected close error: {error:?}").into()),
+        Ok(_) => return Err("close succeeded while a reader pinned the WAL".into()),
+    };
+    drop(snapshot);
+    database.close()?;
+    Ok(())
+}
