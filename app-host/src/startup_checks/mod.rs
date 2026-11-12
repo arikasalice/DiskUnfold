@@ -1,12 +1,107 @@
 //! F15 startup-check table validation and evidence aggregation.
+use std::sync::{Arc, RwLock};
+
+use du_core_contracts::startup::{
+    FullDiskAccessStatus, PrivacySettingsOpenOutcome, StartupCapabilitiesPort, WebViewAvailability,
+};
 use du_core_contracts::startup_ipc::{
-    StartupAccessRequest, StartupAccessResponse, StartupAccessState, StartupCheck,
-    StartupCheckOutcome, StartupCheckResult, StartupGrade, StartupStatus, StartupStatusRequest,
+    StartupAccessAction, StartupAccessRequest, StartupAccessResponse, StartupAccessState,
+    StartupCheck, StartupCheckOutcome, StartupCheckResult, StartupGrade, StartupStatus,
+    StartupStatusRequest,
 };
 use du_engine_api::{
     api::{CallerCtx, Channel, EngineBuilder, UseCase},
     error::EngineError,
 };
+
+/// Holds the current startup permission observation and its explicit OS actions.
+///
+/// The status is refreshed only by the startup check or an IF-20 request. Unknown
+/// observations remain permissive; only a confirmed denial blocks analysis entry.
+pub(super) struct StartupAccessSession {
+    capabilities: Arc<dyn StartupCapabilitiesPort>,
+    access: RwLock<StartupAccessState>,
+}
+
+impl StartupAccessSession {
+    /// Samples the current permission state without prompting or opening settings.
+    pub(super) fn new(capabilities: Arc<dyn StartupCapabilitiesPort>) -> Self {
+        let access = access_state(capabilities.full_disk_access_status());
+        Self {
+            capabilities,
+            access: RwLock::new(access),
+        }
+    }
+
+    /// Returns the current session observation, treating a poisoned lock as unknown.
+    pub(super) fn current(&self) -> StartupAccessState {
+        self.access
+            .read()
+            .map_or(StartupAccessState::Unknown, |access| *access)
+    }
+
+    fn refresh(&self) -> StartupAccessState {
+        let current = access_state(self.capabilities.full_disk_access_status());
+        match self.access.write() {
+            Ok(mut access) => *access = current,
+            Err(error) => *error.into_inner() = current,
+        }
+        current
+    }
+
+    fn open_privacy_settings(&self) -> (StartupAccessState, bool) {
+        let outcome = self.capabilities.open_privacy_settings();
+        let access = self.refresh();
+        // IF-20's current boolean represents a confirmed screen opening. An OS
+        // accepting the URL launch request does not establish that fact.
+        (
+            access,
+            outcome == PrivacySettingsOpenOutcome::ConfirmedOpened,
+        )
+    }
+}
+
+fn access_state(status: FullDiskAccessStatus) -> StartupAccessState {
+    match status {
+        FullDiskAccessStatus::Granted => StartupAccessState::Confirmed,
+        FullDiskAccessStatus::Denied => StartupAccessState::Denied,
+        FullDiskAccessStatus::Unknown => StartupAccessState::Unknown,
+        FullDiskAccessStatus::NotApplicable => StartupAccessState::NotApplicable,
+    }
+}
+
+/// Checks whether the compiled webview runtime is known to be unavailable before startup.
+///
+/// Unknown is not failure evidence: startup proceeds and the status row remains unverifiable.
+pub(super) fn webview_observation(
+    capabilities: &dyn StartupCapabilitiesPort,
+) -> Result<StartupCheckResult, std::io::Error> {
+    let (result, reason_key) = match capabilities.webview_availability() {
+        WebViewAvailability::Available => (StartupCheckOutcome::Pass, None),
+        WebViewAvailability::Unknown => (StartupCheckOutcome::Unverifiable, None),
+        WebViewAvailability::Unavailable => {
+            return Err(std::io::Error::other("startup.webview_missing"));
+        }
+    };
+    Ok(StartupCheckResult {
+        check: StartupCheck::Webview,
+        result,
+        reason_key,
+    })
+}
+
+/// Shows a technical startup failure using the native pre-window dialog when available.
+///
+/// Lifecycle calls this on the launcher thread before constructing the webview. The original
+/// error is retained so the launcher can still report it if a desktop dialog is unavailable.
+pub(super) fn report_pre_window_error<E>(capabilities: &dyn StartupCapabilitiesPort, error: E) -> E
+where
+    E: std::fmt::Display,
+{
+    let _ =
+        capabilities.show_pre_window_error_dialog("DiskUnfold could not start", &error.to_string());
+    error
+}
 
 /// The fixed startup check registration row.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -244,22 +339,28 @@ pub fn grade(checks: &[StartupCheckResult]) -> Option<StartupGrade> {
 }
 
 /// Registers the app-host startup queries with the composed GUI engine.
-pub(super) fn register(builder: &mut EngineBuilder, report: StartupStatus) {
-    builder.register(StartupStatusQuery(report.clone()));
-    builder.register(StartupAccessQuery {
-        access: report.access,
+pub(super) fn register(
+    builder: &mut EngineBuilder,
+    report: StartupStatus,
+    access: Arc<StartupAccessSession>,
+) {
+    builder.register(StartupStatusQuery {
+        report,
+        access: access.clone(),
     });
+    builder.register(StartupAccessQuery { access });
 }
 
-/// Registers IF-20 independently when the platform startup database path is absent.
+/// Registers IF-20 when the platform startup database path is absent.
 #[cfg(target_os = "macos")]
-pub(super) fn register_access(builder: &mut EngineBuilder) {
-    builder.register(StartupAccessQuery {
-        access: StartupAccessState::Unknown,
-    });
+pub(super) fn register_access(builder: &mut EngineBuilder, access: Arc<StartupAccessSession>) {
+    builder.register(StartupAccessQuery { access });
 }
 
-struct StartupStatusQuery(StartupStatus);
+struct StartupStatusQuery {
+    report: StartupStatus,
+    access: Arc<StartupAccessSession>,
+}
 
 impl UseCase for StartupStatusQuery {
     const NAME: &'static str = "app.startup_status";
@@ -272,12 +373,23 @@ impl UseCase for StartupStatusQuery {
     }
 
     fn execute(&self, _: Self::Request, _: &CallerCtx) -> Result<Self::Response, EngineError> {
-        Ok(self.0.clone())
+        let mut report = self.report.clone();
+        let access = self.access.current();
+        report.access = access;
+        report.analysis_allowed = access != StartupAccessState::Denied;
+        if let Some(row) = report
+            .checks
+            .iter_mut()
+            .find(|row| row.check == StartupCheck::FullDiskAccess)
+        {
+            *row = access_result(access);
+        }
+        Ok(report)
     }
 }
 
 struct StartupAccessQuery {
-    access: StartupAccessState,
+    access: Arc<StartupAccessSession>,
 }
 
 impl UseCase for StartupAccessQuery {
@@ -295,13 +407,14 @@ impl UseCase for StartupAccessQuery {
         request: Self::Request,
         _: &CallerCtx,
     ) -> Result<Self::Response, EngineError> {
-        // The platform-os startup observation port is not present in this base.
-        // Unknown access does not deny analysis and settings are never reported as opened.
-        let _requested_action = request.action;
+        let (access, settings_opened) = match request.action {
+            StartupAccessAction::OpenPrivacySettings => self.access.open_privacy_settings(),
+            StartupAccessAction::Recheck => (self.access.refresh(), false),
+        };
         Ok(StartupAccessResponse {
-            access: self.access,
-            analysis_allowed: self.access != StartupAccessState::Denied,
-            settings_opened: false,
+            access,
+            analysis_allowed: access != StartupAccessState::Denied,
+            settings_opened,
         })
     }
 }

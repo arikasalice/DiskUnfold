@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
+use du_core_contracts::startup::StartupCapabilitiesPort;
 use du_engine_api::api::EngineBuilder;
+use du_platform_os::startup::SystemStartupCapabilities;
 use du_platform_os::webview::{Asset, WebApp};
 #[cfg(any(windows, target_os = "linux"))]
 use du_platform_os::webview::{EventCallbacks, Events};
@@ -38,6 +40,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     run_app(
         #[cfg(windows)]
         None,
+        Arc::new(SystemStartupCapabilities),
     )
 }
 
@@ -48,10 +51,13 @@ pub fn run_with_recent_scope(
     cap: NonZeroUsize,
     warning: impl Fn(RecentScopeWriteWarning) + Send + 'static,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    run_app(Some(RecentScopeOptions {
-        cap,
-        warning: Box::new(warning),
-    }))
+    run_app(
+        Some(RecentScopeOptions {
+            cap,
+            warning: Box::new(warning),
+        }),
+        Arc::new(SystemStartupCapabilities),
+    )
 }
 
 #[cfg(windows)]
@@ -62,28 +68,69 @@ struct RecentScopeOptions {
 
 fn run_app(
     #[cfg(windows)] recent: Option<RecentScopeOptions>,
+    capabilities: Arc<dyn StartupCapabilitiesPort>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    crate::startup_checks::validate(&crate::startup_checks::REGISTRATIONS).map_err(|error| {
-        std::io::Error::other(format!("startup.check_table_invalid: {error:?}"))
-    })?;
+    // The launcher invokes this function on its UI thread; pre-window native dialogs
+    // use that same thread before any platform webview is constructed.
+    if let Err(error) = crate::startup_checks::validate(&crate::startup_checks::REGISTRATIONS) {
+        let error = std::io::Error::other(format!("startup.check_table_invalid: {error:?}"));
+        return Err(Box::new(crate::startup_checks::report_pre_window_error(
+            capabilities.as_ref(),
+            error,
+        )));
+    }
+    let webview_observation =
+        match crate::startup_checks::webview_observation(capabilities.as_ref()) {
+            Ok(observation) => observation,
+            Err(error) => {
+                return Err(Box::new(crate::startup_checks::report_pre_window_error(
+                    capabilities.as_ref(),
+                    error,
+                )));
+            }
+        };
+    let startup_access = Arc::new(crate::startup_checks::StartupAccessSession::new(
+        capabilities.clone(),
+    ));
     #[cfg(any(windows, target_os = "linux"))]
-    let mut startup_observed = Vec::new();
+    let mut startup_observed = vec![webview_observation];
+    #[cfg(target_os = "macos")]
+    let _webview_observation = webview_observation;
     #[cfg(windows)]
     let (locale, settings, history, history_reader, recovery, first_run) = {
-        let bundles = crate::locale::register()?;
+        let bundles = crate::locale::register().map_err(|error| {
+            crate::startup_checks::report_pre_window_error(capabilities.as_ref(), error)
+        })?;
         let configured = bundles.configured_languages().collect::<Vec<_>>();
         let data_dir = du_platform_os::application_data::directory()
-            .ok_or_else(|| crate::startup_database::data_folder_error(None))?;
-        let opened = crate::startup_database::open_with_status(&data_dir)?;
+            .ok_or_else(|| crate::startup_database::data_folder_error(None))
+            .map_err(|error| {
+                crate::startup_checks::report_pre_window_error(capabilities.as_ref(), error)
+            })?;
+        let opened = crate::startup_database::open_with_status(&data_dir).map_err(|error| {
+            crate::startup_checks::report_pre_window_error(capabilities.as_ref(), error)
+        })?;
         let first_run = opened.first_run;
         startup_observed.push(crate::startup_checks::data_format_and_open_observation(
             first_run,
         ));
         let database = opened.database;
-        let settings = crate::settings::StartupSettings::load(&database, &configured)?;
-        let stored = settings.stored_language()?;
-        let locale = Arc::new(crate::locale::initialize(bundles, stored.as_deref())?);
-        let reader = crate::history::HistoryReader::open(&data_dir, database.clone())?;
+        let settings =
+            crate::settings::StartupSettings::load(&database, &configured).map_err(|error| {
+                crate::startup_checks::report_pre_window_error(capabilities.as_ref(), error)
+            })?;
+        let stored = settings.stored_language().map_err(|error| {
+            crate::startup_checks::report_pre_window_error(capabilities.as_ref(), error)
+        })?;
+        let locale = Arc::new(
+            crate::locale::initialize(bundles, stored.as_deref()).map_err(|error| {
+                crate::startup_checks::report_pre_window_error(capabilities.as_ref(), error)
+            })?,
+        );
+        let reader =
+            crate::history::HistoryReader::open(&data_dir, database.clone()).map_err(|error| {
+                crate::startup_checks::report_pre_window_error(capabilities.as_ref(), error)
+            })?;
         (
             locale,
             settings,
@@ -95,41 +142,53 @@ fn run_app(
     };
     #[cfg(target_os = "linux")]
     let (locale, settings, first_run) = {
-        let bundles = crate::locale::register()?;
+        let bundles = crate::locale::register().map_err(|error| {
+            crate::startup_checks::report_pre_window_error(capabilities.as_ref(), error)
+        })?;
         let configured = bundles.configured_languages().collect::<Vec<_>>();
         let data_dir = du_platform_os::application_data::directory()
-            .ok_or_else(|| crate::startup_database::data_folder_error(None))?;
-        let opened = crate::startup_database::open_with_status(&data_dir)?;
+            .ok_or_else(|| crate::startup_database::data_folder_error(None))
+            .map_err(|error| {
+                crate::startup_checks::report_pre_window_error(capabilities.as_ref(), error)
+            })?;
+        let opened = crate::startup_database::open_with_status(&data_dir).map_err(|error| {
+            crate::startup_checks::report_pre_window_error(capabilities.as_ref(), error)
+        })?;
         let first_run = opened.first_run;
         startup_observed.push(crate::startup_checks::data_format_and_open_observation(
             first_run,
         ));
         let database = opened.database;
-        let settings = crate::settings::StartupSettings::load(&database, &configured)?;
-        let stored = settings.stored_language()?;
-        let locale = Arc::new(crate::locale::initialize(bundles, stored.as_deref())?);
+        let settings =
+            crate::settings::StartupSettings::load(&database, &configured).map_err(|error| {
+                crate::startup_checks::report_pre_window_error(capabilities.as_ref(), error)
+            })?;
+        let stored = settings.stored_language().map_err(|error| {
+            crate::startup_checks::report_pre_window_error(capabilities.as_ref(), error)
+        })?;
+        let locale = Arc::new(
+            crate::locale::initialize(bundles, stored.as_deref()).map_err(|error| {
+                crate::startup_checks::report_pre_window_error(capabilities.as_ref(), error)
+            })?,
+        );
         (locale, settings, first_run)
     };
-    #[cfg(any(windows, target_os = "linux"))]
-    startup_observed.push(du_core_contracts::startup_ipc::StartupCheckResult {
-        check: du_core_contracts::startup_ipc::StartupCheck::FullDiskAccess,
-        result: du_core_contracts::startup_ipc::StartupCheckOutcome::NotApplicable,
-        reason_key: None,
-    });
     #[allow(unused_mut)]
     let mut builder = EngineBuilder::default();
     #[cfg(any(windows, target_os = "linux"))]
     {
-        let startup_status = crate::startup_checks::status(
-            first_run,
-            du_core_contracts::startup_ipc::StartupAccessState::NotApplicable,
-            &startup_observed,
-        )
-        .map_err(|error| std::io::Error::other(format!("startup.check_blocked: {error:?}")))?;
-        crate::startup_checks::register(&mut builder, startup_status);
+        let startup_status =
+            crate::startup_checks::status(first_run, startup_access.current(), &startup_observed)
+                .map_err(|error| {
+                crate::startup_checks::report_pre_window_error(
+                    capabilities.as_ref(),
+                    std::io::Error::other(format!("startup.check_blocked: {error:?}")),
+                )
+            })?;
+        crate::startup_checks::register(&mut builder, startup_status, startup_access.clone());
     }
     #[cfg(target_os = "macos")]
-    crate::startup_checks::register_access(&mut builder);
+    crate::startup_checks::register_access(&mut builder, startup_access.clone());
     #[cfg(windows)]
     settings.register_restore_status(&mut builder);
     #[cfg(windows)]
@@ -159,9 +218,15 @@ fn run_app(
                 random,
                 scan_limit,
                 PENDING_ADMISSIONS,
-            )?
+            )
+            .map_err(|error| {
+                crate::startup_checks::report_pre_window_error(capabilities.as_ref(), error)
+            })?
         } else {
-            desktop::register_services(&mut builder, roots, volumes, history, random, scan_limit)?
+            desktop::register_services(&mut builder, roots, volumes, history, random, scan_limit)
+                .map_err(|error| {
+                    crate::startup_checks::report_pre_window_error(capabilities.as_ref(), error)
+                })?
         }
     };
     #[cfg(windows)]
@@ -173,7 +238,10 @@ fn run_app(
             crate::recent_scope_list::register(&mut builder, recovery.clone(), options.cap);
             RecentScopeWorker::start(admissions, recovery.clone(), options.cap, options.warning)
         })
-        .transpose()?;
+        .transpose()
+        .map_err(|error| {
+            crate::startup_checks::report_pre_window_error(capabilities.as_ref(), error)
+        })?;
     #[cfg(windows)]
     let events = {
         use du_platform_os::windows_clipboard::WindowsClipboard;
@@ -210,7 +278,10 @@ fn run_app(
     #[cfg(windows)]
     events
         .recover_history(&recovery, crate::settings::current_time_ms())
-        .map_err(std::io::Error::other)?;
+        .map_err(std::io::Error::other)
+        .map_err(|error| {
+            crate::startup_checks::report_pre_window_error(capabilities.as_ref(), error)
+        })?;
     #[cfg(windows)]
     du_engine_api::history::detail::register(&mut builder, history_reader.clone());
     #[cfg(windows)]
@@ -219,19 +290,33 @@ fn run_app(
         history_reader.clone(),
         &du_platform_os::entropy::OsRandom,
     )
-    .map_err(|error| std::io::Error::other(format!("history.storage_unavailable: {error:?}")))?;
+    .map_err(|error| std::io::Error::other(format!("history.storage_unavailable: {error:?}")))
+    .map_err(|error| {
+        crate::startup_checks::report_pre_window_error(capabilities.as_ref(), error)
+    })?;
     #[cfg(windows)]
     du_engine_api::history::register(
         &mut builder,
         history_reader,
         &du_platform_os::entropy::OsRandom,
     )
-    .map_err(|error| std::io::Error::other(format!("history.storage_unavailable: {error:?}")))?;
-    let engine = Arc::new(builder.build()?);
+    .map_err(|error| std::io::Error::other(format!("history.storage_unavailable: {error:?}")))
+    .map_err(|error| {
+        crate::startup_checks::report_pre_window_error(capabilities.as_ref(), error)
+    })?;
+    let engine = Arc::new(builder.build().map_err(|error| {
+        crate::startup_checks::report_pre_window_error(
+            capabilities.as_ref(),
+            std::io::Error::other(format!("startup.registration_failed: {error}")),
+        )
+    })?);
     let dispatch_engine = engine.clone();
+    let dispatch_access = startup_access.clone();
     let app = WebApp {
         asset,
-        dispatch: Arc::new(move |message| crate::ipc::dispatch(&dispatch_engine, message)),
+        dispatch: Arc::new(move |message| {
+            crate::ipc::dispatch_with_startup_access(&dispatch_engine, message, &dispatch_access)
+        }),
         #[cfg(windows)]
         route: crate::ipc::dispatch_lane,
         #[cfg(windows)]
@@ -250,7 +335,10 @@ fn run_app(
         result
     }
     #[cfg(not(any(windows, target_os = "linux")))]
-    du_platform_os::webview::run(app)
+    {
+        let _ = startup_access;
+        du_platform_os::webview::run(app)
+    }
 }
 
 #[cfg(any(windows, target_os = "linux"))]

@@ -1,4 +1,8 @@
-use du_core_contracts::{CallEnvelope, ENVELOPE_VERSION, ErrorEnvelope, Id, ResultEnvelope};
+use du_core_contracts::{
+    CallEnvelope, ENVELOPE_VERSION, ErrorCode, ErrorEnvelope, Id, ResultEnvelope,
+    analysis_ipc::{AnalysisJobRequest, ScanStartRequest},
+    startup_ipc::StartupAccessState,
+};
 use du_engine_api::api::{CallerCtx, Channel, Engine};
 use serde::Deserialize;
 use serde_json::Value;
@@ -67,6 +71,23 @@ pub(crate) fn gui_command_name(message: &str) -> Option<std::borrow::Cow<'_, str
 }
 
 pub(crate) fn dispatch(engine: &Engine, message: &str) -> Option<String> {
+    dispatch_with_access_state(engine, message, StartupAccessState::NotApplicable)
+}
+
+/// Dispatches a GUI request using the current startup access observation.
+pub(crate) fn dispatch_with_startup_access(
+    engine: &Engine,
+    message: &str,
+    access: &crate::startup_checks::StartupAccessSession,
+) -> Option<String> {
+    dispatch_with_access_state(engine, message, access.current())
+}
+
+fn dispatch_with_access_state(
+    engine: &Engine,
+    message: &str,
+    access: StartupAccessState,
+) -> Option<String> {
     let request: Request = serde_json::from_str(message).ok()?;
     let address = Address::deserialize(&request.args.envelope).ok()?;
     let reason = if request.command != "du_call" {
@@ -78,6 +99,35 @@ pub(crate) fn dispatch(engine: &Engine, message: &str) -> Option<String> {
                     envelope.name = "job.status".into();
                 }
                 let caller = CallerCtx::new(Channel::Gui, address.correlation_id, None);
+                if access == StartupAccessState::Denied {
+                    if envelope.name == "scan.start"
+                        && serde_json::from_value::<ScanStartRequest>(envelope.body.clone()).is_ok()
+                    {
+                        return serialize_analysis_denial(envelope);
+                    }
+                    if envelope.name == "job.resume"
+                        && serde_json::from_value::<AnalysisJobRequest>(envelope.body.clone())
+                            .is_ok()
+                    {
+                        let status_envelope = CallEnvelope {
+                            name: "job.status".into(),
+                            contract_version: envelope.contract_version,
+                            correlation_id: envelope.correlation_id.clone(),
+                            body: envelope.body.clone(),
+                        };
+                        let mut status = engine.call(status_envelope, &caller);
+                        if status.error.is_some() {
+                            status.name = address.name;
+                            return serde_json::to_string(&status).ok();
+                        }
+                        let Some(kind) = status.body.get("kind").and_then(Value::as_str) else {
+                            return serialize_analysis_denial(envelope);
+                        };
+                        if !resume_allowed_without_full_disk_access(kind) {
+                            return serialize_analysis_denial(envelope);
+                        }
+                    }
+                }
                 let mut response = engine.call(envelope, &caller);
                 response.name = address.name;
                 return serde_json::to_string(&response).ok();
@@ -96,13 +146,44 @@ pub(crate) fn dispatch(engine: &Engine, message: &str) -> Option<String> {
     .ok()
 }
 
+// These explicit lists keep the common job.resume command scoped to known runtime kinds.
+// Any new kind is denied until the composition owner classifies it for this gate.
+const ANALYSIS_JOB_KINDS: &[&str] = &["scan.metadata", "duplicate.check"];
+const NON_ANALYSIS_RESUMABLE_JOB_KINDS: &[&str] = &["target.probe", "query.evaluate"];
+
+fn resume_allowed_without_full_disk_access(kind: &str) -> bool {
+    NON_ANALYSIS_RESUMABLE_JOB_KINDS.contains(&kind) && !ANALYSIS_JOB_KINDS.contains(&kind)
+}
+
+fn serialize_analysis_denial(envelope: CallEnvelope) -> Option<String> {
+    serde_json::to_string(&ResultEnvelope {
+        name: envelope.name,
+        contract_version: ENVELOPE_VERSION,
+        correlation_id: envelope.correlation_id.clone(),
+        body: Value::Null,
+        error: Some(ErrorEnvelope {
+            code: ErrorCode::InvalidArgument,
+            reason_key: "startup.full_disk_access_required".into(),
+            message_key: "startup.full_disk_access_required".into(),
+            correlation_id: envelope.correlation_id,
+            item_refs: Vec::new(),
+            retryable: false,
+        }),
+    })
+    .ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use du_core_contracts::analysis_ipc::AnalysisJobRequest;
+    use du_core_contracts::{analysis_ipc::AnalysisJobRequest, startup::FullDiskAccessStatus};
     use du_engine_api::{
         api::{EngineBuilder, UseCase},
         error::EngineError,
+    };
+    use du_platform_os::startup::{
+        FakeStartupCapabilities, PrivacySettingsOpenOutcome, StartupDialogOutcome,
+        WebViewAvailability,
     };
     use serde_json::json;
     use std::sync::{
@@ -287,6 +368,191 @@ mod tests {
             self.0.fetch_add(1, Ordering::SeqCst);
             Ok(request.job_ref.as_str().to_owned())
         }
+    }
+
+    struct ScanStartCounter(Arc<AtomicUsize>);
+
+    impl UseCase for ScanStartCounter {
+        const NAME: &'static str = "scan.start";
+        const CHANNELS: &'static [Channel] = &[Channel::Gui];
+        type Request = ScanStartRequest;
+        type Response = Value;
+
+        fn check_scope(&self, _: &ScanStartRequest, _: &CallerCtx) -> Result<(), EngineError> {
+            Ok(())
+        }
+
+        fn execute(&self, _: ScanStartRequest, _: &CallerCtx) -> Result<Value, EngineError> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok(json!({"admitted": true}))
+        }
+    }
+
+    struct ResumeCounter(Arc<AtomicUsize>);
+
+    impl UseCase for ResumeCounter {
+        const NAME: &'static str = "job.resume";
+        const CHANNELS: &'static [Channel] = &[Channel::Gui];
+        type Request = AnalysisJobRequest;
+        type Response = Value;
+
+        fn check_scope(&self, _: &AnalysisJobRequest, _: &CallerCtx) -> Result<(), EngineError> {
+            Ok(())
+        }
+
+        fn execute(&self, _: AnalysisJobRequest, _: &CallerCtx) -> Result<Value, EngineError> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok(json!({"resumed": true}))
+        }
+    }
+
+    struct StatusKind {
+        kind: Option<&'static str>,
+        fail: bool,
+    }
+
+    impl UseCase for StatusKind {
+        const NAME: &'static str = "job.status";
+        const CHANNELS: &'static [Channel] = &[Channel::Gui];
+        type Request = AnalysisJobRequest;
+        type Response = Value;
+
+        fn check_scope(&self, _: &AnalysisJobRequest, _: &CallerCtx) -> Result<(), EngineError> {
+            Ok(())
+        }
+
+        fn execute(&self, _: AnalysisJobRequest, _: &CallerCtx) -> Result<Value, EngineError> {
+            if self.fail {
+                return Err(EngineError::new("job.not_found", Vec::new()));
+            }
+            Ok(json!({"kind": self.kind}))
+        }
+    }
+
+    fn denied_access() -> crate::startup_checks::StartupAccessSession {
+        let capabilities = Arc::new(FakeStartupCapabilities::new(
+            FullDiskAccessStatus::Denied,
+            WebViewAvailability::Unknown,
+            PrivacySettingsOpenOutcome::RequestAccepted,
+            StartupDialogOutcome::Acknowledged,
+        ));
+        crate::startup_checks::StartupAccessSession::new(capabilities)
+    }
+
+    fn call_message(name: &str, body: Value) -> Value {
+        json!({"command":"du_call", "args":{"envelope":{
+            "name":name,
+            "contractVersion":1,
+            "correlationId":"0195f856-ab83-7a59-9343-10d29775c9a9",
+            "body":body,
+        }}})
+    }
+
+    #[test]
+    fn denied_full_disk_access_blocks_valid_scan_start_before_engine_admission()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let mut builder = EngineBuilder::default();
+        builder.register(ScanStartCounter(calls.clone()));
+        let engine = builder.build()?;
+        let access = denied_access();
+        let body = json!({
+            "draft": {
+                "includes": [], "exclusions": [], "boundary": "include_selected",
+                "includedMounts": [], "source": "gui"
+            },
+            "reviewFingerprint": "reviewed"
+        });
+        let reply: Value = serde_json::from_str(
+            &dispatch_with_startup_access(
+                &engine,
+                &call_message("scan.start", body).to_string(),
+                &access,
+            )
+            .ok_or("missing denied scan response")?,
+        )?;
+
+        assert_eq!(
+            reply["error"]["reasonKey"],
+            "startup.full_disk_access_required"
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        Ok(())
+    }
+
+    #[test]
+    fn denied_access_allows_only_confirmed_non_analysis_resume_kinds()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let id = "0195f856-ab83-7a59-9343-10d29775c9a9";
+        for (kind, expected_reason, expected_resumes) in [
+            (
+                Some("scan.metadata"),
+                "startup.full_disk_access_required",
+                0,
+            ),
+            (Some("target.probe"), "", 1),
+            (Some("query.evaluate"), "", 1),
+            (
+                Some("duplicate.check"),
+                "startup.full_disk_access_required",
+                0,
+            ),
+            (
+                Some("future.analysis"),
+                "startup.full_disk_access_required",
+                0,
+            ),
+            (None, "startup.full_disk_access_required", 0),
+        ] {
+            let resumes = Arc::new(AtomicUsize::new(0));
+            let mut builder = EngineBuilder::default();
+            builder.register(StatusKind { kind, fail: false });
+            builder.register(ResumeCounter(resumes.clone()));
+            let engine = builder.build()?;
+            let reply: Value = serde_json::from_str(
+                &dispatch_with_startup_access(
+                    &engine,
+                    &call_message("job.resume", json!({"jobRef":id})).to_string(),
+                    &denied_access(),
+                )
+                .ok_or("missing resume response")?,
+            )?;
+
+            if expected_reason.is_empty() {
+                assert!(reply.get("error").is_none());
+            } else {
+                assert_eq!(reply["error"]["reasonKey"], expected_reason);
+            }
+            assert_eq!(resumes.load(Ordering::SeqCst), expected_resumes);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn denied_access_fails_closed_when_resume_kind_cannot_be_read()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let id = "0195f856-ab83-7a59-9343-10d29775c9a9";
+        let resumes = Arc::new(AtomicUsize::new(0));
+        let mut builder = EngineBuilder::default();
+        builder.register(StatusKind {
+            kind: None,
+            fail: true,
+        });
+        builder.register(ResumeCounter(resumes.clone()));
+        let engine = builder.build()?;
+        let reply: Value = serde_json::from_str(
+            &dispatch_with_startup_access(
+                &engine,
+                &call_message("job.resume", json!({"jobRef":id})).to_string(),
+                &denied_access(),
+            )
+            .ok_or("missing status failure response")?,
+        )?;
+
+        assert_eq!(reply["error"]["reasonKey"], "job.not_found");
+        assert_eq!(reply["name"], "job.resume");
+        assert_eq!(resumes.load(Ordering::SeqCst), 0);
+        Ok(())
     }
 
     #[test]

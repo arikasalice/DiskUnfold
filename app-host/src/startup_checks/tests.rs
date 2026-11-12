@@ -1,6 +1,11 @@
 use super::*;
 use du_core_contracts::{CallEnvelope, Id};
 use du_engine_api::api::EngineBuilder;
+use du_platform_os::startup::{
+    FakeStartupCapabilities, FullDiskAccessStatus, PrivacySettingsOpenOutcome,
+    StartupDialogOutcome, WebViewAvailability,
+};
+use std::sync::Arc;
 
 #[test]
 fn registration_table_has_the_fixed_order_and_only_permitted_blocking_rows() {
@@ -79,6 +84,33 @@ fn opening_an_existing_database_does_not_prove_data_directory_writability() {
         data_format_and_open_observation(false).result,
         StartupCheckOutcome::Unverifiable
     );
+}
+
+#[test]
+fn webview_unknown_is_advisory_and_known_unavailable_uses_the_pre_window_dialog() {
+    let unknown = FakeStartupCapabilities::new(
+        FullDiskAccessStatus::Unknown,
+        WebViewAvailability::Unknown,
+        PrivacySettingsOpenOutcome::Unsupported,
+        StartupDialogOutcome::Acknowledged,
+    );
+    assert!(
+        webview_observation(&unknown)
+            .is_ok_and(|row| row.result == StartupCheckOutcome::Unverifiable)
+    );
+
+    let unavailable = FakeStartupCapabilities::new(
+        FullDiskAccessStatus::Unknown,
+        WebViewAvailability::Unavailable,
+        PrivacySettingsOpenOutcome::Unsupported,
+        StartupDialogOutcome::Acknowledged,
+    );
+    let error = webview_observation(&unavailable).expect_err("known missing webview blocks");
+    assert_eq!(
+        report_pre_window_error(&unavailable, error).to_string(),
+        "startup.webview_missing"
+    );
+    assert_eq!(unavailable.startup_dialog_requests(), 1);
 }
 
 #[test]
@@ -177,8 +209,15 @@ fn gui_startup_queries_return_observations_without_claiming_os_success()
 -> Result<(), Box<dyn std::error::Error>> {
     let report =
         status(false, StartupAccessState::Unknown, &[]).map_err(|error| format!("{error:?}"))?;
+    let capabilities = Arc::new(FakeStartupCapabilities::new(
+        FullDiskAccessStatus::Unknown,
+        WebViewAvailability::Unknown,
+        PrivacySettingsOpenOutcome::RequestAccepted,
+        StartupDialogOutcome::Acknowledged,
+    ));
+    let access = Arc::new(StartupAccessSession::new(capabilities.clone()));
     let mut builder = EngineBuilder::default();
-    register(&mut builder, report.clone());
+    register(&mut builder, report.clone(), access);
     let engine = builder.build()?;
     let correlation_id = Id::parse("0195f856-ab83-7a59-9343-10d29775c9a9")?;
 
@@ -206,6 +245,8 @@ fn gui_startup_queries_return_observations_without_claiming_os_success()
     assert!(response.error.is_none());
     assert_eq!(response.body["access"], "unknown");
     assert_eq!(response.body["analysisAllowed"], true);
+    // The OS accepted a launch request; IF-20's boolean remains unconfirmed.
     assert_eq!(response.body["settingsOpened"], false);
+    assert_eq!(capabilities.privacy_settings_requests(), 1);
     Ok(())
 }
