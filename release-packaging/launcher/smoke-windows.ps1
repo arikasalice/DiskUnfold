@@ -1078,7 +1078,8 @@ function Remove-SmokeFixture {
       }
       if (-not $sharingException) { throw }
       $windowsError = [int]($sharingException.HResult -band 0xffff)
-      if ($windowsError -notin @(32, 33)) { throw }
+      # 145 is ERROR_DIR_NOT_EMPTY and can occur while WebView2 finishes profile cleanup.
+      if ($windowsError -notin @(32, 33, 145)) { throw }
     }
     if (Test-Path -LiteralPath $verifiedProfile) {
       if ([DateTime]::UtcNow -ge $cleanupDeadline) {
