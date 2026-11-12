@@ -142,9 +142,9 @@ fn call(
     engine: &du_engine_api::api::Engine,
     channel: Channel,
     body: Value,
-) -> du_core_contracts::ResultEnvelope {
-    let correlation_id = id(99).expect("fixed test identifier is valid");
-    engine.call(
+) -> Result<du_core_contracts::ResultEnvelope, String> {
+    let correlation_id = id(99)?;
+    Ok(engine.call(
         CallEnvelope {
             name: "viz.availability".into(),
             contract_version: ENVELOPE_VERSION,
@@ -152,7 +152,7 @@ fn call(
             body,
         },
         &CallerCtx::new(channel, correlation_id, None),
-    )
+    ))
 }
 
 fn request(lineage: &Id, revision: &Id, scope_revision: &Id) -> Value {
@@ -194,7 +194,7 @@ fn engine_entry_preserves_frozen_registry_order_and_known_absence_reasons() -> R
         &engine,
         Channel::Gui,
         request(&lineage, &revision, &revision),
-    );
+    )?;
     assert!(reply.error.is_none());
     let actual = reply.body["formats"]
         .as_array()
@@ -251,7 +251,7 @@ fn engine_entry_rejects_a_stale_revision_from_the_same_lineage() -> Result<(), S
     let provider = Arc::new(Provider::new(known_facts()));
     let (engine, _) = engine(&store, provider.clone())?;
 
-    let reply = call(&engine, Channel::Gui, request(&lineage, &first, &first));
+    let reply = call(&engine, Channel::Gui, request(&lineage, &first, &first))?;
     let error = reply.error.ok_or("stale revision was accepted")?;
     assert_eq!(error.code, ErrorCode::StaleVersion);
     assert_eq!(error.reason_key, "result.version_stale");
@@ -272,7 +272,7 @@ fn engine_entry_rejects_a_scope_from_another_revision_as_invalid_argument() -> R
         &engine,
         Channel::Gui,
         request(&lineage, &revision, &other_revision),
-    );
+    )?;
     let error = reply.error.ok_or("mismatched folder scope was accepted")?;
     assert_eq!(error.code, ErrorCode::InvalidArgument);
     assert_eq!(error.reason_key, "command.body_invalid");
@@ -292,7 +292,7 @@ fn engine_entry_rejects_a_file_as_the_aggregate_folder_scope() -> Result<(), Str
         &engine,
         Channel::Gui,
         request_scope(&lineage, &revision, &revision, 1),
-    );
+    )?;
     let error = reply
         .error
         .ok_or("file item was accepted as a folder scope")?;
@@ -318,7 +318,7 @@ fn unknown_evidence_is_internal_and_never_reported_as_absence() -> Result<(), St
         &engine,
         Channel::Gui,
         request(&lineage, &revision, &revision),
-    );
+    )?;
     let error = reply
         .error
         .ok_or("unknown evidence produced a public status")?;
@@ -338,7 +338,7 @@ fn engine_entry_is_gui_only_and_missing_source_is_not_found() -> Result<(), Stri
     let body = request(&lineage, &revision, &revision);
 
     for channel in [Channel::Cli, Channel::Mcp] {
-        let reply = call(&engine, channel, body.clone());
+        let reply = call(&engine, channel, body.clone())?;
         let error = reply.error.ok_or("non-GUI call was accepted")?;
         assert_eq!(error.reason_key, "command.not_provided");
     }
@@ -347,7 +347,7 @@ fn engine_entry_is_gui_only_and_missing_source_is_not_found() -> Result<(), Stri
         &engine,
         Channel::Gui,
         request(&missing, &revision, &revision),
-    );
+    )?;
     let error = reply.error.ok_or("missing source lineage was accepted")?;
     assert_eq!(error.code, ErrorCode::NotFound);
     assert_eq!(error.reason_key, "ref.unavailable");
@@ -404,7 +404,7 @@ fn request_source_kind_is_not_inferred_from_revision_only() -> Result<(), String
     let mut body = request(&lineage, &revision, &revision);
     body["sourceRef"]["kind"] = json!("snapshot");
 
-    let reply = call(&engine, Channel::Gui, body);
+    let reply = call(&engine, Channel::Gui, body)?;
     let error = reply.error.ok_or("unsupported source kind was accepted")?;
     assert_eq!(error.code, ErrorCode::NotFound);
     assert_eq!(error.reason_key, "ref.unavailable");
