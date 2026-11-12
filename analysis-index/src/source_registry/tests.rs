@@ -1,13 +1,18 @@
 use super::*;
+use std::num::NonZeroUsize;
 
 fn id(value: u64) -> Id {
     Id::parse(&format!("018f0000-0000-7000-8000-{value:012x}")).expect("valid test ID")
 }
 
+fn registry(source_limit: usize) -> SourceRegistry {
+    SourceRegistry::new(NonZeroUsize::new(source_limit).expect("nonzero test budget"))
+}
+
 #[test]
 fn direct_and_snapshot_sources_start_at_zero_and_advance_after_atomic_writer_success() {
     for kind in [SourceKind::Direct, SourceKind::Snapshot] {
-        let registry = SourceRegistry::default();
+        let registry = registry(2);
         let handle = registry.register(id(1), kind).expect("register");
         let source_id = handle.source_id().clone();
         assert_eq!(registry.next_sequence(&source_id, &handle), Ok(1));
@@ -21,7 +26,7 @@ fn direct_and_snapshot_sources_start_at_zero_and_advance_after_atomic_writer_suc
 
 #[test]
 fn watch_source_starts_after_accepted_snapshot_cutoff() {
-    let registry = SourceRegistry::default();
+    let registry = registry(2);
     let handle = registry
         .register_watch(id(2), || Ok::<_, ()>(41))
         .expect("register");
@@ -29,8 +34,52 @@ fn watch_source_starts_after_accepted_snapshot_cutoff() {
 }
 
 #[test]
+fn full_source_budget_rejects_before_snapshot_writer_and_end_releases_slot() {
+    use std::cell::Cell;
+
+    let registry = registry(1);
+    let direct = registry
+        .register(id(20), SourceKind::Direct)
+        .expect("first source uses the owner budget");
+    let snapshot_calls = Cell::new(0);
+    assert!(matches!(
+        registry.register_watch(id(21), || {
+            snapshot_calls.set(snapshot_calls.get() + 1);
+            Ok::<u64, ()>(4)
+        }),
+        Err(WatchRegistrationError::Registry(
+            RegistryError::CapacityExceeded
+        ))
+    ));
+    assert_eq!(snapshot_calls.get(), 0);
+
+    let writes = Cell::new(0);
+    registry
+        .apply_next(direct.source_id(), &direct, 1, |_| {
+            writes.set(writes.get() + 1);
+            Ok::<_, ()>(())
+        })
+        .expect("existing source remains usable at capacity");
+    assert_eq!(writes.get(), 1);
+
+    let direct_id = direct.source_id().clone();
+    registry
+        .end(&direct_id, &direct)
+        .expect("end frees capacity");
+    let watch = registry
+        .register_watch(direct_id.clone(), || Ok::<_, ()>(9))
+        .expect("same source reference can start a new lifetime");
+    assert_ne!(direct.generation, watch.generation);
+    assert_eq!(registry.next_sequence(&direct_id, &watch), Ok(10));
+    assert_eq!(
+        registry.register(id(22), SourceKind::Snapshot).err(),
+        Some(RegistryError::CapacityExceeded)
+    );
+}
+
+#[test]
 fn failed_watch_snapshot_does_not_register_a_source() {
-    let registry = SourceRegistry::default();
+    let registry = registry(2);
     assert!(matches!(
         registry.register_watch(id(3), || Err::<u64, _>("snapshot failed")),
         Err(WatchRegistrationError::Snapshot("snapshot failed"))
@@ -43,7 +92,7 @@ fn failed_watch_snapshot_does_not_register_a_source() {
 
 #[test]
 fn rejects_missing_or_unexpected_cutoffs_and_issues_distinct_ids() {
-    let registry = SourceRegistry::default();
+    let registry = registry(2);
     assert_eq!(
         registry.register(id(4), SourceKind::Watch).err(),
         Some(RegistryError::WatchRequiresSnapshot)
@@ -63,7 +112,7 @@ fn rejects_missing_or_unexpected_cutoffs_and_issues_distinct_ids() {
 
 #[test]
 fn rejects_cross_source_sequences_and_non_next_candidates_without_mutation() {
-    let registry = SourceRegistry::default();
+    let registry = registry(2);
     let first = registry
         .register(id(7), SourceKind::Direct)
         .expect("register");
@@ -88,8 +137,8 @@ fn rejects_cross_source_sequences_and_non_next_candidates_without_mutation() {
 
 #[test]
 fn rejects_a_handle_from_another_registry() {
-    let first_registry = SourceRegistry::default();
-    let second_registry = SourceRegistry::default();
+    let first_registry = registry(2);
+    let second_registry = registry(2);
     let first = first_registry
         .register(id(9), SourceKind::Direct)
         .expect("register");
@@ -104,7 +153,7 @@ fn concurrent_reuse_of_a_candidate_invokes_only_one_writer() {
     use std::sync::Barrier;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    let registry = Arc::new(SourceRegistry::default());
+    let registry = Arc::new(registry(2));
     let handle = Arc::new(
         registry
             .register(id(10), SourceKind::Direct)
@@ -152,34 +201,29 @@ fn concurrent_reuse_of_a_candidate_invokes_only_one_writer() {
 }
 
 #[test]
-fn failed_atomic_writer_leaves_external_and_registry_state_unchanged() {
+fn failed_writer_leaves_accepted_sequence_unchanged() {
     use std::cell::Cell;
 
-    let registry = SourceRegistry::default();
+    let registry = registry(2);
     let handle = registry
         .register(id(11), SourceKind::Direct)
         .expect("register");
     let source_id = handle.source_id().clone();
-    let committed = Cell::new(0);
+    let writer_called = Cell::new(false);
     assert_eq!(
         registry.apply_next(&source_id, &handle, 1, |_| {
-            let staged = 1;
-            if staged == 0 {
-                committed.set(staged);
-                Ok(())
-            } else {
-                Err(staged)
-            }
+            writer_called.set(true);
+            Err::<(), _>(1)
         }),
         Err(SequenceApplyError::Writer(1))
     );
-    assert_eq!(committed.get(), 0);
+    assert!(writer_called.get());
     assert_eq!(registry.next_sequence(&source_id, &handle), Ok(1));
 }
 
 #[test]
 fn rejects_writer_reentrancy_without_deadlocking() {
-    let registry = SourceRegistry::default();
+    let registry = registry(2);
     let handle = registry
         .register(id(12), SourceKind::Direct)
         .expect("register");
@@ -200,7 +244,7 @@ fn rejects_writer_reentrancy_without_deadlocking() {
 
 #[test]
 fn ending_releases_state_and_a_new_lifetime_gets_a_new_id() {
-    let registry = SourceRegistry::default();
+    let registry = registry(2);
     let first = registry
         .register(id(14), SourceKind::Direct)
         .expect("register");
@@ -224,7 +268,7 @@ fn ending_releases_state_and_a_new_lifetime_gets_a_new_id() {
 fn stale_handle_cannot_read_write_or_end_a_re_registered_lifetime() {
     use std::cell::Cell;
 
-    let registry = SourceRegistry::default();
+    let registry = registry(2);
     let source_id = id(16);
     let unrelated = registry
         .register(id(17), SourceKind::Direct)
@@ -272,7 +316,7 @@ fn stale_handle_cannot_read_write_or_end_a_re_registered_lifetime() {
 
 #[test]
 fn stale_handles_remain_expired_across_repeated_source_reuse() {
-    let registry = SourceRegistry::default();
+    let registry = registry(2);
     let source_id = id(18);
     let mut stale_handles = Vec::new();
     for _ in 0..128 {
@@ -303,7 +347,7 @@ fn stale_handles_remain_expired_across_repeated_source_reuse() {
 fn concurrent_stale_writes_cannot_advance_or_end_replacement_lifetime() {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    let registry = Arc::new(SourceRegistry::default());
+    let registry = Arc::new(registry(2));
     let source_id = id(19);
     let old = Arc::new(
         registry
@@ -346,7 +390,7 @@ fn concurrent_stale_writes_cannot_advance_or_end_replacement_lifetime() {
 
 #[test]
 fn registry_memory_tracks_active_lifetimes_not_ended_ids() {
-    let registry = SourceRegistry::default();
+    let registry = registry(2);
     for n in 0..4096 {
         let handle = registry
             .register(id(100 + n), SourceKind::Direct)
@@ -359,7 +403,7 @@ fn registry_memory_tracks_active_lifetimes_not_ended_ids() {
 
 #[test]
 fn sequence_overflow_ends_cleanly() {
-    let registry = SourceRegistry::default();
+    let registry = registry(2);
     let handle = registry
         .register_watch(id(15), || Ok::<_, ()>(u64::MAX))
         .expect("register");

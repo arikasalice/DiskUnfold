@@ -1,13 +1,15 @@
 //! Session-local identities and accepted sequence watermarks for freshness writers.
 //!
 //! Sequence inspection is read-only. Writer closures run while source admission is
-//! serialized. They must commit atomically (no partial effects on error) and must
-//! not call back into this registry; reentrant calls are rejected before locking.
+//! serialized. Callers must provide an atomic writer; this type cannot roll back
+//! external effects if a closure partially writes before returning an error. Writer
+//! closures must not call back into this registry; reentrant calls are rejected
+//! before locking.
 
 use du_core_contracts::Id;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::num::NonZeroU64;
+use std::num::{NonZeroU64, NonZeroUsize};
 use std::sync::{Arc, Mutex};
 
 thread_local! {
@@ -84,6 +86,8 @@ struct SourceState {
 pub enum RegistryError {
     /// The producer reference already has an active lifetime.
     DuplicateSource,
+    /// The owning scope's configured source-lifetime budget is full.
+    CapacityExceeded,
     /// The supplied identifier and lifetime handle do not identify the same source.
     CrossSource,
     /// The source lifetime has ended or its handle is stale.
@@ -105,9 +109,10 @@ pub enum RegistryError {
 /// Failure to accept the IF-11 snapshot used to establish a watch source cutoff.
 #[derive(Debug, PartialEq, Eq)]
 pub enum WatchRegistrationError<E> {
-    /// The registry could not admit the source.
+    /// The registry could not admit the source; the snapshot writer was not called.
     Registry(RegistryError),
-    /// The IF-11 snapshot writer failed; no source lifetime was registered.
+    /// The IF-11 snapshot writer failed; no registry lifetime was created.
+    /// Any partial external effects are the caller's responsibility to prevent.
     Snapshot(E),
 }
 
@@ -124,6 +129,7 @@ pub enum SequenceApplyError<E> {
 pub struct SourceRegistry {
     state: Mutex<RegistryState>,
     identity: Arc<()>,
+    source_limit: NonZeroUsize,
 }
 
 #[derive(Default)]
@@ -133,8 +139,12 @@ struct RegistryState {
     identity: Arc<()>,
 }
 
-impl Default for SourceRegistry {
-    fn default() -> Self {
+impl SourceRegistry {
+    /// Creates a registry with the validated source-lifetime budget of its owner.
+    ///
+    /// The owner supplies this bound explicitly; this type does not choose a
+    /// default or infer capacity from another subsystem's unrelated budget.
+    pub fn new(source_limit: NonZeroUsize) -> Self {
         let identity = Arc::new(());
         Self {
             state: Mutex::new(RegistryState {
@@ -142,11 +152,9 @@ impl Default for SourceRegistry {
                 ..RegistryState::default()
             }),
             identity,
+            source_limit,
         }
     }
-}
-
-impl SourceRegistry {
     /// Registers a producer reference with a new registry-issued lifetime at sequence zero.
     /// Re-registering an ended producer creates a distinct lifetime capability.
     pub fn register(&self, source_id: Id, kind: SourceKind) -> Result<SourceHandle, RegistryError> {
@@ -162,8 +170,9 @@ impl SourceRegistry {
     /// Accepts an IF-11 snapshot and registers its watch source at the snapshot cutoff.
     ///
     /// The snapshot writer runs while source admission is serialized. It must be
-    /// atomic on error (no partial effects) and must not call this registry. If it
-    /// fails, the source remains unregistered.
+    /// atomic on error and must not call this registry. This type only guarantees
+    /// that no source lifetime is created when the writer returns an error; it
+    /// cannot roll back partial effects in the writer's external store.
     pub fn register_watch<E>(
         &self,
         source_id: Id,
@@ -181,6 +190,11 @@ impl SourceRegistry {
         if state.sources.contains_key(&source_id) {
             return Err(WatchRegistrationError::Registry(
                 RegistryError::DuplicateSource,
+            ));
+        }
+        if state.sources.len() >= self.source_limit.get() {
+            return Err(WatchRegistrationError::Registry(
+                RegistryError::CapacityExceeded,
             ));
         }
         let generation = state
@@ -213,6 +227,9 @@ impl SourceRegistry {
         let mut state = self.state.lock().map_err(|_| RegistryError::Unavailable)?;
         if state.sources.contains_key(&source_id) {
             return Err(RegistryError::DuplicateSource);
+        }
+        if state.sources.len() >= self.source_limit.get() {
+            return Err(RegistryError::CapacityExceeded);
         }
         let generation = state
             .next_generation
@@ -270,11 +287,12 @@ impl SourceRegistry {
             .ok_or(RegistryError::SequenceOverflow)
     }
 
-    /// Runs the atomic writer for the exact next sequence and records it on success.
+    /// Runs the caller-provided writer for the exact next sequence and records it on success.
     ///
-    /// Candidate validation, the supplied atomic writer, and watermark advancement
-    /// run under one source-registry lock. A rejected candidate never invokes the
-    /// writer. A failed writer leaves the accepted sequence unchanged.
+    /// Candidate validation, the supplied writer, and watermark advancement run
+    /// under one source-registry lock. A rejected candidate never invokes the
+    /// writer. A failed writer leaves the accepted sequence unchanged, but this
+    /// type cannot roll back external effects; the writer must provide atomicity.
     pub fn apply_next<T, E>(
         &self,
         source_id: &Id,
