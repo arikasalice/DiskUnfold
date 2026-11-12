@@ -264,3 +264,62 @@ fn renders_table_without_local_staging_paths() -> Result<(), Box<dyn Error>> {
     assert!(!markdown.contains(staging.path().to_string_lossy().as_ref()));
     Ok(())
 }
+
+#[test]
+fn renders_each_artifact_signature_scope_and_escapes_table_delimiters() -> Result<(), Box<dyn Error>>
+{
+    let staging = TempDir::new()?;
+    let mut manifest = sample_manifest(staging.path())?;
+    let package = b"macOS package fixture";
+    let executable = b"macOS executable fixture";
+    let package_name = "DiskUnfold-0.1.0-universal.dmg";
+    let executable_name = "DiskUnfold.app";
+    let executable_path = "unpacked/macos/DiskUnfold.app";
+    let signature_scope = "The app bundle is ad-hoc signed; the DMG is unsigned | not notarized";
+    fs::create_dir_all(staging.path().join("unpacked/macos"))?;
+    fs::write(staging.path().join(package_name), package)?;
+    fs::write(staging.path().join(executable_path), executable)?;
+
+    let mut macos = manifest.rows[0].clone();
+    macos.file_name = package_name.into();
+    macos.os = OsRange {
+        family: OsFamily::Macos,
+        minimum: OsVersion::parse("15")?,
+        maximum: None,
+    };
+    macos.cpu = Cpu::Universal;
+    macos.format = PackageFormat::Dmg;
+    macos.signature = SignatureMethod::HardenedRuntimeAdHoc;
+    macos.signature_scope = signature_scope.into();
+    macos.sha256 = Sha256Digest::parse(&sha256(package))?;
+    macos.executable_file_name = executable_name.into();
+    macos.executable_sha256 = Sha256Digest::parse(&sha256(executable))?;
+    macos.run_instructions = "Open the disk image, then launch DiskUnfold.".into();
+    manifest.rows.push(macos);
+    manifest.staged_files.extend([
+        StagedFile {
+            artifact_file_name: package_name.into(),
+            kind: StagedFileKind::Package,
+            relative_path: package_name.into(),
+        },
+        StagedFile {
+            artifact_file_name: package_name.into(),
+            kind: StagedFileKind::Executable,
+            relative_path: executable_path.into(),
+        },
+    ]);
+
+    let (inventory, _) = prepare_inventory(manifest, staging.path())?;
+    let markdown = render_markdown(&inventory);
+
+    assert!(markdown.contains(
+        "| File | Version | OS range | CPU | Format | Channel | Signature | Signature scope | SHA-256 | Run instructions |"
+    ));
+    assert!(markdown.contains("| SignPath | Authenticode identity and signed package integrity |"));
+    let expected_macos_row = format!(
+        "| {package_name} | 0.1.0 | macos 15–open | universal | dmg | direct | Hardened Runtime ad-hoc | The app bundle is ad-hoc signed; the DMG is unsigned \\| not notarized | {} | Open the disk image, then launch DiskUnfold. |",
+        sha256(package),
+    );
+    assert!(markdown.contains(&expected_macos_row));
+    Ok(())
+}
