@@ -91,6 +91,24 @@ fn fresh_start_publishes_current_schema_without_creating_a_backup() -> TestResul
 }
 
 #[test]
+fn latest_schema_reopen_skips_managed_migration_and_keeps_backups_absent() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    drop(open(dir.path())?);
+    let path = dir.path().join("diskunfold.db");
+    let before = AppDb::open_read_only(&path).map_err(open_error)?;
+    assert_eq!(before.schema_version()?, HISTORY_SCHEMA_VERSION);
+    drop(before);
+    let backups = dir.path().join("db-backups");
+    assert!(!backups.exists());
+
+    drop(open(dir.path())?);
+    let after = AppDb::open_read_only(&path).map_err(open_error)?;
+    assert_eq!(after.schema_version()?, HISTORY_SCHEMA_VERSION);
+    assert!(!backups.exists());
+    Ok(())
+}
+
+#[test]
 fn backup_directory_failure_leaves_legacy_schema_and_existing_file_intact() -> TestResult {
     let dir = tempfile::tempdir()?;
     let path = dir.path().join("diskunfold.db");

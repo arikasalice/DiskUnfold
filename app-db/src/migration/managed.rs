@@ -11,6 +11,9 @@ use serde_json::{Value, json};
 use super::{Definitions, MigrationError, apply_next_with_backup, backup_snapshot, quick_check};
 use crate::APPLICATION_ID;
 
+mod run;
+pub use run::{ManagedRunFailure, ManagedRunOutcome, apply_managed_run};
+
 const FORMAT: &str = "diskunfold-backup-v1";
 const COPY: &str = "database.sqlite";
 const MARKER: &str = "complete.json";
@@ -54,30 +57,57 @@ fn apply_next_managed_with(
     definitions: &Definitions<'_>,
     inspect: impl FnOnce(&Path) -> Result<RetentionDiagnostic, MigrationError>,
 ) -> Result<ManagedOutcome, MigrationError> {
+    let step = apply_managed_step(path, root, definitions, None)?;
+    let retention = retention_or_unavailable(inspect(root));
+    Ok(ManagedOutcome {
+        revision: step.revision,
+        backup_sequence: step.backup_sequence,
+        retention,
+    })
+}
+
+struct ManagedStep {
+    revision: u32,
+    backup_sequence: u64,
+}
+
+fn apply_managed_step(
+    path: &Path,
+    root: &Path,
+    definitions: &Definitions<'_>,
+    expected_predecessor: Option<u32>,
+) -> Result<ManagedStep, MigrationError> {
     check_root(root).map_err(backup_error)?;
     let mut sequence = None;
     let revision = apply_next_with_backup(
         path,
         definitions,
         |source, version| {
+            if expected_predecessor.is_some_and(|expected| version != expected) {
+                return Err(MigrationError::VersionMismatch);
+            }
             sequence = Some(publish(source, version, root).map_err(backup_error)?);
             Ok(())
         },
         || Ok(()),
     )?;
     let backup_sequence = sequence.ok_or(MigrationError::Integrity)?;
-    let retention = inspect(root).unwrap_or(RetentionDiagnostic {
+    Ok(ManagedStep {
+        revision,
+        backup_sequence,
+    })
+}
+
+fn retention_or_unavailable(
+    result: Result<RetentionDiagnostic, MigrationError>,
+) -> RetentionDiagnostic {
+    result.unwrap_or(RetentionDiagnostic {
         recognized: 0,
         content_valid: 0,
         ignored: 0,
         older_than_three: 0,
         cleanup_unavailable: true,
         inspection_failed: true,
-    });
-    Ok(ManagedOutcome {
-        revision,
-        backup_sequence,
-        retention,
     })
 }
 
@@ -349,6 +379,8 @@ fn sync_dir(path: &Path) -> Result<(), MigrationError> {
 
 #[cfg(test)]
 mod retention_tests;
+#[cfg(test)]
+mod run_tests;
 #[cfg(test)]
 mod startup_tests;
 #[cfg(test)]

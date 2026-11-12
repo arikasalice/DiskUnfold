@@ -4,7 +4,10 @@ use std::{fs, io, path::Path};
 
 use du_app_db::{
     AppDb, HISTORY_DEFINITIONS, HISTORY_SCHEMA_VERSION, OpenError,
-    migration::{MigrationError, managed::apply_next_managed},
+    migration::{
+        MigrationError,
+        managed::{RetentionDiagnostic, apply_managed_run},
+    },
 };
 use du_platform_os::{
     application_data::DATABASE_FILE,
@@ -53,23 +56,25 @@ fn migrate(path: &Path, backups: &Path, version: u32) -> Result<(), io::Error> {
         .map_err(|error| io::Error::other(format!("db.backup_failed: {error}")))?;
     let _directory = open_verified_stable(backups)
         .map_err(|error| io::Error::other(format!("db.backup_failed: {error:?}")))?;
-    for definition in HISTORY_DEFINITIONS
-        .steps
-        .iter()
-        .filter(|definition| definition.number > version)
-    {
-        let outcome =
-            apply_next_managed(path, backups, &HISTORY_DEFINITIONS).map_err(migration_error)?;
-        if outcome.revision != definition.number {
-            return Err(io::Error::other("db.schema_mismatch"));
+    let outcome = match apply_managed_run(path, backups, &HISTORY_DEFINITIONS, version) {
+        Ok(outcome) => outcome,
+        Err(failure) => {
+            report_retention(&failure.retention);
+            return Err(migration_error(failure.migration));
         }
-        if outcome.retention.inspection_failed
-            || (outcome.retention.cleanup_unavailable && outcome.retention.content_valid > 3)
-        {
-            eprintln!("db.backup_retention_unavailable");
-        }
+    };
+    report_retention(&outcome.retention);
+    if outcome.revision != HISTORY_SCHEMA_VERSION {
+        return Err(io::Error::other("db.schema_mismatch"));
     }
     Ok(())
+}
+
+fn report_retention(retention: &RetentionDiagnostic) {
+    if retention.inspection_failed || (retention.cleanup_unavailable && retention.content_valid > 3)
+    {
+        eprintln!("db.backup_retention_unavailable");
+    }
 }
 
 fn lock_error(error: InstanceLockError) -> io::Error {
