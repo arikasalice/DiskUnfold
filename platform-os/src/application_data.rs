@@ -37,7 +37,12 @@ fn platform_directory() -> Option<PathBuf> {
     )
 }
 
-#[cfg(not(any(windows, target_os = "linux")))]
+#[cfg(target_os = "macos")]
+fn platform_directory() -> Option<PathBuf> {
+    macos_directory(std::env::var_os("HOME").map(PathBuf::from))
+}
+
+#[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
 fn platform_directory() -> Option<PathBuf> {
     None
 }
@@ -53,11 +58,23 @@ fn linux_directory(xdg_data_home: Option<PathBuf>, home: Option<PathBuf>) -> Opt
     Some(base.join("DiskUnfold"))
 }
 
-#[cfg(all(test, target_os = "linux"))]
+#[cfg(any(target_os = "macos", test))]
+fn macos_directory(home: Option<PathBuf>) -> Option<PathBuf> {
+    let home = home.filter(|path| path.is_absolute())?;
+    Some(home.join("Library/Application Support/DiskUnfold"))
+}
+
+#[cfg(test)]
 mod tests {
-    use super::{explicit_or_platform_directory, linux_directory};
+    use super::explicit_or_platform_directory;
     use std::path::PathBuf;
 
+    #[cfg(target_os = "linux")]
+    use super::linux_directory;
+    #[cfg(target_os = "macos")]
+    use super::macos_directory;
+
+    #[cfg(target_os = "linux")]
     #[test]
     fn absolute_xdg_data_home_selects_the_application_subdirectory() {
         assert_eq!(
@@ -69,6 +86,7 @@ mod tests {
         );
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn invalid_xdg_data_home_falls_back_to_absolute_home() {
         assert_eq!(
@@ -80,6 +98,7 @@ mod tests {
         );
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn missing_or_relative_home_fails_closed() {
         assert_eq!(linux_directory(None, None), None);
@@ -102,5 +121,23 @@ mod tests {
             explicit_or_platform_directory(Some(PathBuf::new()), || Some(fallback)),
             None
         );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_uses_the_user_application_support_directory() {
+        assert_eq!(
+            macos_directory(Some(PathBuf::from("/Users/example"))),
+            Some(PathBuf::from(
+                "/Users/example/Library/Application Support/DiskUnfold"
+            ))
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_requires_an_absolute_home_directory() {
+        assert_eq!(macos_directory(None), None);
+        assert_eq!(macos_directory(Some(PathBuf::from("relative/home"))), None);
     }
 }

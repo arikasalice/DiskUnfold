@@ -261,7 +261,7 @@
     "license": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
     "role": "runtime",
     "distributed": true,
-    "reason": "Check Linux directory access without following symbolic links"
+    "reason": "Pin Linux and macOS startup operations without following symbolic links"
   },
   "cargo:du-platform-os:webkit6@0.6.1": {
     "license": "MIT",
