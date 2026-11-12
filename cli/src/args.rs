@@ -1,25 +1,13 @@
 use std::ffi::{OsStr, OsString};
 
-const FORBIDDEN_NAMES: &[&str] = &[
-    "approve", "execute", "trash", "delete", "move", "restore", "undo", "protect", "mcp", "key",
-];
-
 pub(crate) enum Command {
     Help,
     Version,
     /// A syntactically admitted scan; execution awaits engine and policy composition.
     Scan(Scan),
+    /// Maps to F39 FR6's `command.not_provided` state; no machine output is wired yet.
     NotProvided,
     Unsupported,
-}
-
-impl Command {
-    pub(crate) const fn reason_key(&self) -> Option<&'static str> {
-        match self {
-            Self::NotProvided => Some("command.not_provided"),
-            _ => None,
-        }
-    }
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -103,8 +91,6 @@ fn parse_command(argument: OsString) -> Command {
         Some("--help" | "-h") => Command::Help,
         Some("--version" | "-V") => Command::Version,
         Some("scan") => Command::Scan(Scan::default()),
-        Some(name) if is_forbidden_name(name) => Command::NotProvided,
-        Some("--format" | "-q") => Command::Unsupported,
         _ if is_option(&argument) => Command::Unsupported,
         _ => Command::NotProvided,
     }
@@ -143,10 +129,6 @@ fn scan_argument(
     }
     scan.roots.push(argument);
     true
-}
-
-fn is_forbidden_name(value: &str) -> bool {
-    FORBIDDEN_NAMES.contains(&value)
 }
 
 fn is_option(value: &OsStr) -> bool {
@@ -223,14 +205,15 @@ mod tests {
             return Err("unknown command did not parse".into());
         };
         assert!(matches!(&command, Command::NotProvided));
-        assert_eq!(command.reason_key(), Some("command.not_provided"));
 
-        for name in FORBIDDEN_NAMES {
-            let Some(Arguments { command, .. }) = parse([OsString::from(*name)].into_iter()) else {
+        for name in [
+            "approve", "execute", "trash", "delete", "move", "restore", "undo", "protect", "mcp",
+            "key",
+        ] {
+            let Some(Arguments { command, .. }) = parse([OsString::from(name)].into_iter()) else {
                 return Err(format!("forbidden command {name} did not parse"));
             };
             assert!(matches!(&command, Command::NotProvided), "{name}");
-            assert_eq!(command.reason_key(), Some("command.not_provided"), "{name}");
         }
         Ok(())
     }

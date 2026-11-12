@@ -57,9 +57,10 @@ fn run_with_io<W: Write, E: Write>(
         write_stderr_line(stderr, "DiskUnfold: locale.registration_failed");
         return ExitCode::FAILURE;
     };
-    let skip_stored_settings =
-        matches!(&args.command, args::Command::Help | args::Command::Version)
-            || args.command.reason_key().is_some();
+    let skip_stored_settings = matches!(
+        &args.command,
+        args::Command::Help | args::Command::Version | args::Command::NotProvided
+    );
     let (selection, settings_unavailable) = match startup_locale::select_with_policy(
         &registry,
         args.language.as_deref(),
