@@ -1,11 +1,9 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use du_core_contracts::startup::StartupCapabilitiesPort;
 use du_engine_api::api::EngineBuilder;
 use du_platform_os::startup::SystemStartupCapabilities;
 use du_platform_os::webview::{Asset, WebApp};
-#[cfg(any(windows, target_os = "linux"))]
-use du_platform_os::webview::{EventCallbacks, Events};
 
 #[cfg(windows)]
 use crate::recent_scope_worker::{RecentScopeWorker, RecentScopeWriteWarning};
@@ -139,7 +137,7 @@ fn run_app(
         )
     };
     #[cfg(target_os = "linux")]
-    let (locale, settings, first_run) = {
+    let (locale, settings, database, first_run) = {
         let bundles = crate::locale::register().map_err(|error| {
             crate::startup_checks::report_pre_window_error(capabilities.as_ref(), error)
         })?;
@@ -169,7 +167,7 @@ fn run_app(
                 crate::startup_checks::report_pre_window_error(capabilities.as_ref(), error)
             })?,
         );
-        (locale, settings, first_run)
+        (locale, settings, database, first_run)
     };
     #[cfg(target_os = "macos")]
     let (database, settings, locale, first_run) = {
@@ -284,6 +282,8 @@ fn run_app(
     };
     #[cfg(target_os = "linux")]
     let events = Arc::new(du_engine_api::desktop::DesktopEvents::default());
+    #[cfg(target_os = "macos")]
+    let events = Arc::new(du_engine_api::desktop::DesktopEvents::default());
     #[cfg(any(windows, target_os = "linux"))]
     {
         let inventory = locale.clone();
@@ -301,7 +301,9 @@ fn run_app(
             Arc::new(move || Ok(inventory.registry().supported_languages())),
             Arc::new(du_platform_os::linux_time_zone::LinuxTimeZone),
         );
-        settings.register_locale_profile(&mut builder, runtime, true);
+        settings
+            .clone()
+            .register_locale_profile(&mut builder, runtime, true);
         crate::locale_delivery::register(&mut builder, locale);
     }
     #[cfg(target_os = "macos")]
@@ -352,37 +354,99 @@ fn run_app(
             std::io::Error::other(format!("startup.registration_failed: {error}")),
         )
     })?);
-    let dispatch_engine = engine.clone();
+    #[cfg(windows)]
+    let database_owner = recovery;
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    let database_owner = database;
+    let engine_owner = Arc::new(Mutex::new(Some(engine)));
+    let database_owner = Arc::new(Mutex::new(Some(database_owner)));
+    #[cfg(windows)]
+    let recent_worker_owner = Arc::new(Mutex::new(recent_worker));
+    #[cfg(windows)]
+    let release_extra_owners = {
+        let owner = recent_worker_owner.clone();
+        move || {
+            if let Ok(mut worker) = owner.lock() {
+                worker.take();
+            }
+        }
+    };
+    #[cfg(not(windows))]
+    let release_extra_owners = || {};
+    // Settings keeps a database reference during startup and service registration.
+    // The shutdown database owner must be the final app-host reference.
+    drop(settings);
+    let shutdown = Arc::new(crate::shutdown::host::ShutdownController::new(
+        crate::shutdown::host::HostShutdownPorts::new(
+            crate::shutdown::host::HostShutdownResources {
+                engine: engine_owner.clone(),
+                gate: du_mcp_gateway::access::AccessGate::default(),
+                listener: Arc::new(crate::shutdown::host::NoListenerCloser),
+                events: events.clone(),
+                database: database_owner,
+                release_extra_owners: Box::new(release_extra_owners),
+            },
+        ),
+    ));
+    let dispatch_engine = engine_owner.clone();
     let dispatch_access = startup_access.clone();
+    let dispatch_shutdown = shutdown.clone();
     let app = WebApp {
         asset,
         dispatch: Arc::new(move |message| {
-            crate::ipc::dispatch_with_startup_access(&dispatch_engine, message, &dispatch_access)
+            let engine = dispatch_engine.lock().ok()?.as_ref()?.clone();
+            crate::ipc::dispatch_with_shutdown(
+                &engine,
+                message,
+                &dispatch_access,
+                dispatch_shutdown.as_ref(),
+            )
         }),
         #[cfg(windows)]
         route: crate::ipc::dispatch_lane,
         #[cfg(windows)]
-        response_delivery: recent_worker.as_ref().map(RecentScopeWorker::observer),
+        response_delivery: recent_worker_owner
+            .lock()
+            .ok()
+            .and_then(|worker| worker.as_ref().map(RecentScopeWorker::observer)),
         #[cfg(windows)]
-        initialization_script: recent_worker.as_ref().map(|_| RECENT_SCOPE_BOOTSTRAP),
+        initialization_script: recent_worker_owner
+            .lock()
+            .ok()
+            .and_then(|worker| worker.as_ref().map(|_| RECENT_SCOPE_BOOTSTRAP)),
         #[cfg(target_os = "macos")]
         locale_enabled: true,
         icon: include_bytes!("../icons/icon.png"),
     };
     #[cfg(any(windows, target_os = "linux"))]
     {
-        let event_source = desktop_event_source(events.clone());
+        let event_source = crate::shutdown::webview::event_source(events.clone(), shutdown.clone());
         let result = du_platform_os::webview::run_with_events(app, event_source);
+        if let Ok(mut engine) = engine_owner.lock()
+            && let Some(engine) = engine.take()
+        {
+            engine.retire_window_session();
+        }
         #[cfg(windows)]
-        drop(recent_worker);
-        engine.retire_window_session();
+        if let Ok(mut worker) = recent_worker_owner.lock() {
+            worker.take();
+        }
         result
     }
     #[cfg(target_os = "macos")]
     {
         let result = du_platform_os::webview::run(app);
-        engine.retire_window_session();
-        drop(database);
+        // AppKit currently has no shutdown callback/timer in its webview adapter.
+        // Retire the session after the native loop exits; app.quit cannot yet
+        // advance its coordinator on this platform.
+        if let Ok(mut engine) = engine_owner.lock() {
+            if let Some(engine) = engine.take() {
+                engine.retire_window_session();
+            }
+        }
+        if let Ok(mut database) = database_owner.lock() {
+            database.take();
+        }
         result
     }
     #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
@@ -391,52 +455,3 @@ fn run_app(
         du_platform_os::webview::run(app)
     }
 }
-
-#[cfg(any(windows, target_os = "linux"))]
-struct DesktopEventCallbacks {
-    next: Box<dyn Fn() -> Option<String> + Send + Sync>,
-    post_failed: Box<dyn Fn(du_platform_os::webview::EventPostFailure) + Send + Sync>,
-    document_started: Box<dyn Fn() + Send + Sync>,
-    document_ready: Box<dyn Fn() + Send + Sync>,
-    document_closed: Box<dyn Fn() + Send + Sync>,
-}
-
-#[cfg(any(windows, target_os = "linux"))]
-impl DesktopEventCallbacks {
-    fn new(events: Arc<du_engine_api::desktop::DesktopEvents>) -> Self {
-        let next_events = events.clone();
-        let failed_events = events.clone();
-        let started_events = events.clone();
-        let ready_events = events.clone();
-        let closed_events = events;
-        Self {
-            next: Box::new(move || next_events.next_json()),
-            post_failed: Box::new(move |failure| {
-                failed_events.report_post_failure(failure.failed, failure.discarded);
-            }),
-            document_started: Box::new(move || started_events.begin_document_generation()),
-            document_ready: Box::new(move || ready_events.mark_document_ready()),
-            document_closed: Box::new(move || closed_events.close_document_generation()),
-        }
-    }
-
-    fn into_event_source(self) -> Events {
-        Events::new(
-            self.next,
-            EventCallbacks::new(
-                self.post_failed,
-                self.document_started,
-                self.document_ready,
-                self.document_closed,
-            ),
-        )
-    }
-}
-
-#[cfg(any(windows, target_os = "linux"))]
-fn desktop_event_source(events: Arc<du_engine_api::desktop::DesktopEvents>) -> Events {
-    DesktopEventCallbacks::new(events).into_event_source()
-}
-
-#[cfg(all(test, windows))]
-mod delivery_event_tests;

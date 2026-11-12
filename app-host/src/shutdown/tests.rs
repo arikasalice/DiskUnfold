@@ -156,7 +156,8 @@ fn unconfirmed_watcher_stop_blocks_job_drain_and_storage_close()
 
 fn closed_gateway(timed_out: bool) -> GatewayCloseReport {
     GatewayCloseReport {
-        socket_closed: true,
+        access_closed: true,
+        listener: ListenerClose::Closed,
         timed_out,
         detail: timed_out.then(|| "graceful close deadline elapsed".into()),
     }
@@ -316,7 +317,8 @@ fn an_unconfirmed_gateway_close_never_starts_bulk_cancellation()
     let ports = FakePorts {
         gateway_reports: VecDeque::from([
             GatewayCloseReport {
-                socket_closed: false,
+                access_closed: false,
+                listener: ListenerClose::NotInstalled,
                 timed_out: true,
                 detail: Some("force close failed".into()),
             },
@@ -333,7 +335,7 @@ fn an_unconfirmed_gateway_close_never_starts_bulk_cancellation()
     );
     assert!(matches!(
         coordinator.advance(1),
-        Err(ShutdownError::GatewayStillOpen(_))
+        Err(ShutdownError::GatewayAccessOpen(_))
     ));
     assert_eq!(coordinator.phase, Phase::ClosingAccess);
     assert!(!coordinator.ports.calls.contains(&"prepare"));

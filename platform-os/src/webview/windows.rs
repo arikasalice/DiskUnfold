@@ -6,6 +6,7 @@ mod navigation;
 mod reply;
 mod script;
 mod window_layout;
+mod window_lifecycle;
 
 use super::contract::{Asset, CSP, Events, WebApp, entry, resource};
 use messages::{Bridge, RequestQueue, WindowTimer, WorkerPool};
@@ -112,13 +113,6 @@ impl Drop for Controller {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum WindowPhase {
-    Starting,
-    CloseRequested,
-    Running,
-}
-
 fn environment() -> Result<ICoreWebView2Environment, Box<dyn Error>> {
     let base =
         crate::application_data::directory().ok_or("No Windows application data directory")?;
@@ -189,7 +183,8 @@ pub(super) fn run(app: WebApp, events: Option<Events>) -> Result<(), Box<dyn Err
     let resize = current.clone();
     let bridge = Rc::new(RefCell::new(None::<Bridge>));
     let window_bridge = bridge.clone();
-    let phase = Rc::new(Cell::new(WindowPhase::Starting));
+    let window_events = events.clone();
+    let phase = Rc::new(Cell::new(window_lifecycle::WindowPhase::Starting));
     let window_phase = phase.clone();
     let icons = icon::WindowIcons::load()?;
     let window = windows_window::Window::new("DiskUnfold")
@@ -204,13 +199,18 @@ pub(super) fn run(app: WebApp, events: Option<Events>) -> Result<(), Box<dyn Err
             if kind == WM_CLOSE {
                 // WebView2 pumps messages during startup. A quit message would drop
                 // its completion receiver while the callback can still run.
-                if window_phase.get() == WindowPhase::Running {
-                    windows_window::quit();
+                if window_phase.get() == window_lifecycle::WindowPhase::Running {
+                    if window_lifecycle::request_close(window_events.as_ref()) {
+                        windows_window::quit();
+                    }
                 } else {
-                    window_phase.set(WindowPhase::CloseRequested);
+                    window_phase.set(window_lifecycle::WindowPhase::CloseRequested);
                 }
                 Some(0)
             } else if messages::is_tick(kind, wparam) {
+                if window_lifecycle::pump_shutdown(window_events.as_ref()) {
+                    windows_window::quit();
+                }
                 if let Some(bridge) = window_bridge.borrow().as_ref() {
                     bridge.flush();
                 }
@@ -223,12 +223,12 @@ pub(super) fn run(app: WebApp, events: Option<Events>) -> Result<(), Box<dyn Err
         .map_err(|error| std::io::Error::other(error.to_string()))?;
     icons.install(&window);
     let environment = environment()?;
-    if phase.get() == WindowPhase::CloseRequested {
+    if phase.get() == window_lifecycle::WindowPhase::CloseRequested {
         return Ok(());
     }
     let worker_pool = WorkerPool::start(&app)?;
     let native = create_controller(&window, &environment)?;
-    if phase.get() == WindowPhase::CloseRequested {
+    if phase.get() == window_lifecycle::WindowPhase::CloseRequested {
         return Ok(());
     }
     let (w, h) = window.client_size();
@@ -270,7 +270,7 @@ pub(super) fn run(app: WebApp, events: Option<Events>) -> Result<(), Box<dyn Err
     if let Some(script) = app.initialization_script {
         install_script(&view, script)?;
     }
-    if phase.get() == WindowPhase::CloseRequested {
+    if phase.get() == window_lifecycle::WindowPhase::CloseRequested {
         return Ok(());
     }
     // SAFETY: The live view and controller stay on their owning STA.
@@ -279,13 +279,13 @@ pub(super) fn run(app: WebApp, events: Option<Events>) -> Result<(), Box<dyn Err
         view.Navigate(PCWSTR(url.as_ptr()))?;
         native.0.SetIsVisible(true)?;
     }
-    if phase.get() == WindowPhase::CloseRequested {
+    if phase.get() == window_lifecycle::WindowPhase::CloseRequested {
         return Ok(());
     }
     bridge.replace(Some(requests));
     let _timer = WindowTimer::start(HWND(window.hwnd()))?;
     current.replace(Some(native.0.clone()));
-    phase.set(WindowPhase::Running);
+    phase.set(window_lifecycle::WindowPhase::Running);
     windows_window::run();
     bridge.take();
     current.take();

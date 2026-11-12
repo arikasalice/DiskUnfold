@@ -190,6 +190,7 @@ impl UseCase for TestUseCase {
     }
 }
 
+mod shutdown;
 mod startup_access;
 
 #[test]

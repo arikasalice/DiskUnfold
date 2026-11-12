@@ -36,7 +36,7 @@ mod settings;
     any(windows, target_os = "linux", target_os = "macos")
 ))]
 mod shared_database;
-#[cfg(all(test, feature = "gui"))]
+#[cfg(feature = "gui")]
 mod shutdown;
 #[cfg(feature = "gui")]
 mod startup_checks;

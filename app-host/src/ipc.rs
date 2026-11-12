@@ -1,6 +1,7 @@
 use du_core_contracts::{
     CallEnvelope, ENVELOPE_VERSION, ErrorCode, ErrorEnvelope, Id, ResultEnvelope,
     analysis_ipc::{AnalysisJobRequest, ScanStartRequest},
+    shutdown_ipc::{AppQuitRequest, AppQuitResponse},
     startup_ipc::StartupAccessState,
 };
 use du_engine_api::api::{CallerCtx, Channel, Engine};
@@ -72,22 +73,34 @@ pub(crate) fn gui_command_name(message: &str) -> Option<std::borrow::Cow<'_, str
 
 #[cfg(test)]
 pub(crate) fn dispatch(engine: &Engine, message: &str) -> Option<String> {
-    dispatch_inner(engine, message, None)
+    dispatch_inner(engine, message, None, None)
 }
 
 /// Dispatches a GUI request using the current startup access observation.
+#[cfg(test)]
 pub(crate) fn dispatch_with_startup_access(
     engine: &Engine,
     message: &str,
     access: &crate::startup_checks::StartupAccessSession,
 ) -> Option<String> {
-    dispatch_inner(engine, message, Some(access))
+    dispatch_inner(engine, message, Some(access), None)
+}
+
+/// Dispatches a GUI request with startup access checks and the host shutdown controller.
+pub(crate) fn dispatch_with_shutdown(
+    engine: &Engine,
+    message: &str,
+    access: &crate::startup_checks::StartupAccessSession,
+    shutdown: &dyn crate::shutdown::host::QuitHandler,
+) -> Option<String> {
+    dispatch_inner(engine, message, Some(access), Some(shutdown))
 }
 
 fn dispatch_inner(
     engine: &Engine,
     message: &str,
     access: Option<&crate::startup_checks::StartupAccessSession>,
+    shutdown: Option<&dyn crate::shutdown::host::QuitHandler>,
 ) -> Option<String> {
     let request: Request = serde_json::from_str(message).ok()?;
     let address = Address::deserialize(&request.args.envelope).ok()?;
@@ -98,6 +111,12 @@ fn dispatch_inner(
             Ok(mut envelope) => {
                 if envelope.name == "job.get" {
                     envelope.name = "job.status".into();
+                }
+                if envelope.name == "app.quit" {
+                    return dispatch_quit(envelope, shutdown);
+                }
+                if shutdown.is_some_and(crate::shutdown::host::QuitHandler::is_closing) {
+                    return serialize_command_error(envelope, "job.shutting_down");
                 }
                 let caller = CallerCtx::new(Channel::Gui, address.correlation_id, None);
                 if let Some(access) = access {
@@ -166,6 +185,46 @@ fn dispatch_inner(
         correlation_id: address.correlation_id,
         body: Value::Null,
         error: Some(error),
+    })
+    .ok()
+}
+
+fn dispatch_quit(
+    envelope: CallEnvelope,
+    shutdown: Option<&dyn crate::shutdown::host::QuitHandler>,
+) -> Option<String> {
+    let request = match serde_json::from_value::<AppQuitRequest>(envelope.body.clone()) {
+        Ok(request) => request,
+        Err(_) => return serialize_command_error(envelope, "command.body_invalid"),
+    };
+    let Some(shutdown) = shutdown else {
+        return serialize_command_error(envelope, "support.internal_error");
+    };
+    let response: AppQuitResponse = match shutdown.request_quit(&request) {
+        Ok(response) => response,
+        Err(_) => return serialize_command_error(envelope, "support.internal_error"),
+    };
+    serde_json::to_string(&ResultEnvelope {
+        name: envelope.name,
+        contract_version: ENVELOPE_VERSION,
+        correlation_id: envelope.correlation_id,
+        body: serde_json::to_value(response).ok()?,
+        error: None,
+    })
+    .ok()
+}
+
+fn serialize_command_error(envelope: CallEnvelope, reason: &str) -> Option<String> {
+    serde_json::to_string(&ResultEnvelope {
+        name: envelope.name,
+        contract_version: ENVELOPE_VERSION,
+        correlation_id: envelope.correlation_id.clone(),
+        body: Value::Null,
+        error: Some(ErrorEnvelope::from_reason_or_internal(
+            reason,
+            envelope.correlation_id,
+            Vec::new(),
+        )),
     })
     .ok()
 }

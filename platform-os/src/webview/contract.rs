@@ -22,6 +22,15 @@ pub type Dispatch = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
 pub struct Events {
     next: Arc<dyn Fn() -> Option<String> + Send + Sync>,
     callbacks: EventCallbacks,
+    shutdown: Option<ShutdownCallbacks>,
+}
+
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+#[derive(Clone)]
+struct ShutdownCallbacks {
+    request_close: Arc<dyn Fn() + Send + Sync>,
+    pump: Arc<dyn Fn() + Send + Sync>,
+    should_exit: Arc<dyn Fn() -> bool + Send + Sync>,
 }
 
 /// Callbacks for delivery loss and top-level document lifecycle changes.
@@ -54,7 +63,23 @@ impl Events {
         Self {
             next: Arc::new(next),
             callbacks,
+            shutdown: None,
         }
+    }
+
+    /// Adds app-host shutdown callbacks for native close requests and event-loop polling.
+    pub fn with_shutdown_callbacks(
+        mut self,
+        request_close: impl Fn() + Send + Sync + 'static,
+        pump: impl Fn() + Send + Sync + 'static,
+        should_exit: impl Fn() -> bool + Send + Sync + 'static,
+    ) -> Self {
+        self.shutdown = Some(ShutdownCallbacks {
+            request_close: Arc::new(request_close),
+            pump: Arc::new(pump),
+            should_exit: Arc::new(should_exit),
+        });
+        self
     }
 
     pub(super) fn next(&self) -> Option<String> {
@@ -75,6 +100,28 @@ impl Events {
 
     pub(super) fn document_closed(&self) {
         (self.callbacks.document_closed)();
+    }
+
+    pub(super) fn request_window_close(&self) {
+        if let Some(shutdown) = &self.shutdown {
+            (shutdown.request_close)();
+        }
+    }
+
+    pub(super) fn pump_shutdown(&self) {
+        if let Some(shutdown) = &self.shutdown {
+            (shutdown.pump)();
+        }
+    }
+
+    pub(super) fn shutdown_is_complete(&self) -> bool {
+        self.shutdown
+            .as_ref()
+            .is_some_and(|shutdown| (shutdown.should_exit)())
+    }
+
+    pub(super) fn has_shutdown_callbacks(&self) -> bool {
+        self.shutdown.is_some()
     }
 }
 

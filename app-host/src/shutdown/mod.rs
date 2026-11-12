@@ -1,8 +1,7 @@
 //! Ordered app-host shutdown orchestration.
 //!
-//! `lib.rs` registers this module for tests only until lifecycle integration is
-//! added. The lifecycle owner must connect the coordinator to the actual window,
-//! gateway transport, engine and final database owner.
+//! The lifecycle owner connects this coordinator to the window, gateway access
+//! gate, engine, and final database owner.
 
 use std::{
     collections::HashSet,
@@ -11,6 +10,10 @@ use std::{
 
 use du_core_contracts::Id;
 use du_engine_api::shutdown::{HistoryCommitStatus, ShutdownAdmission, ShutdownPreparation};
+
+pub(crate) mod host;
+#[cfg(any(windows, target_os = "linux"))]
+pub(crate) mod webview;
 
 /// The only result returned by the atomic app.quit admission cut.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -34,11 +37,23 @@ impl From<ShutdownAdmission> for QuitAdmission {
     }
 }
 
-/// A gateway outcome that always states whether the listener and sockets are closed.
+/// Listener closure states distinguish an absent transport from a closed one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ListenerClose {
+    /// No listener has been installed in this composition.
+    NotInstalled,
+    /// The listener and every accepted socket have been closed.
+    #[allow(dead_code)] // Reserved for the F12 concrete listener adapter.
+    Closed,
+}
+
+/// A gateway outcome that reports gate and listener state separately.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct GatewayCloseReport {
-    /// True only after the acceptor and all accepted sockets are closed.
-    pub socket_closed: bool,
+    /// True only after new gateway sessions and requests are rejected.
+    pub access_closed: bool,
+    /// Listener state; `NotInstalled` does not claim a socket was closed.
+    pub listener: ListenerClose,
     /// True when the graceful close deadline elapsed and force-close was used.
     pub timed_out: bool,
     /// Optional diagnostic that does not prevent shutdown after force-close.
@@ -66,13 +81,13 @@ pub(crate) struct LifecycleEvent {
 
 /// Narrow app-host ports used by the shutdown state machine.
 ///
-/// `close_mcp_access` must honor its deadline and force-close the acceptor and
-/// every socket before returning a report with `socket_closed = true`. It must
-/// not report a graceful timeout as closure while any socket remains open.
+/// `close_mcp_access` closes request admission and asks the transport adapter
+/// to close its listener. `NotInstalled` is distinct from a confirmed socket
+/// close; a timeout is acceptable only after the adapter confirms closure.
 /// `release_engine` drops the app-host engine owner after the history barrier
 /// and worker join; the database port may close only after all other owners
 /// have also dropped.
-pub(crate) trait ShutdownPorts {
+pub(crate) trait ShutdownPorts: Send {
     fn close_job_admission(&mut self, confirmed: bool) -> Result<QuitAdmission, String>;
     fn close_mcp_access(&mut self, deadline: Instant) -> Result<GatewayCloseReport, String>;
     fn prepare_engine_shutdown(&mut self) -> Result<ShutdownPreparation, String>;
@@ -143,8 +158,10 @@ impl<P: ShutdownPorts> ShutdownCoordinator<P> {
             .close_job_admission(confirmed)
             .map_err(ShutdownError::Admission)?;
         match admission {
-            QuitAdmission::Accepted { .. } => self.phase = Phase::ClosingAccess,
-            QuitAdmission::ConfirmRequired { .. } | QuitAdmission::AlreadyClosing => {}
+            QuitAdmission::Accepted { .. } | QuitAdmission::AlreadyClosing => {
+                self.phase = Phase::ClosingAccess;
+            }
+            QuitAdmission::ConfirmRequired { .. } => {}
         }
         Ok(admission)
     }
@@ -164,6 +181,7 @@ impl<P: ShutdownPorts> ShutdownCoordinator<P> {
     }
 
     /// Applies one F24 terminal event. Duplicate or unknown references do not decrement twice.
+    #[cfg(test)]
     pub(crate) fn job_finished(
         &mut self,
         job_ref: &Id,
@@ -193,6 +211,7 @@ impl<P: ShutdownPorts> ShutdownCoordinator<P> {
         self.emit(LifecycleStatus::Draining, observed_at_ms)
     }
 
+    #[cfg(test)]
     pub(crate) fn remaining_tasks(&self) -> usize {
         self.active_jobs.len()
     }
@@ -202,6 +221,7 @@ impl<P: ShutdownPorts> ShutdownCoordinator<P> {
     /// The caller must surface failed outcomes with their `job_ref` and must not
     /// infer that a failed cancellation means the job is terminal. Active work is
     /// tracked separately until its terminal event or an authoritative resync.
+    #[cfg(test)]
     pub(crate) fn preparation(&self) -> Option<&ShutdownPreparation> {
         self.preparation.as_ref()
     }
@@ -210,6 +230,11 @@ impl<P: ShutdownPorts> ShutdownCoordinator<P> {
         self.phase == Phase::Closed
     }
 
+    pub(crate) fn is_closing(&self) -> bool {
+        self.phase != Phase::Running
+    }
+
+    #[cfg(test)]
     pub(crate) fn into_ports(self) -> P {
         self.ports
     }
@@ -219,8 +244,8 @@ impl<P: ShutdownPorts> ShutdownCoordinator<P> {
             .ports
             .close_mcp_access(Instant::now() + Duration::from_secs(2))
             .map_err(ShutdownError::Gateway)?;
-        if !report.socket_closed {
-            return Err(ShutdownError::GatewayStillOpen(report.detail));
+        if !report.access_closed {
+            return Err(ShutdownError::GatewayAccessOpen(report.detail));
         }
         self.phase = Phase::AccessClosed;
         self.emit(LifecycleStatus::AccessClosed, observed_at_ms)
@@ -324,14 +349,19 @@ impl<P: ShutdownPorts> ShutdownCoordinator<P> {
 pub(crate) enum ShutdownError {
     Admission(String),
     Gateway(String),
-    GatewayStillOpen(Option<String>),
+    GatewayAccessOpen(Option<String>),
+    NonWaitingNotSupported,
+    #[allow(dead_code)] // Mac AppKit has no coordinator pump in the current adapter.
+    NativeLifecycleUnavailable,
     Engine(String),
     WatcherStopUnconfirmed,
     JobList(String),
     HistoryBarrier(String),
     HistoryBarrierMissing,
     HistoryCommitTimedOut,
-    HistoryCommitFailed { failed_appends: Option<usize> },
+    HistoryCommitFailed {
+        failed_appends: Option<usize>,
+    },
     WorkerStop(String),
     DatabaseClose(String),
     SecretClear(String),

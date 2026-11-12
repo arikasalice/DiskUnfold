@@ -119,6 +119,18 @@ impl Engine {
         )
     }
 
+    /// Returns the authoritative nonterminal job references after shutdown admission closed.
+    ///
+    /// Compositions without a job runtime return an empty list. This is the
+    /// shutdown resynchronization baseline used after job event delivery gaps.
+    pub fn list_active_jobs_for_shutdown(
+        &self,
+    ) -> Result<Vec<du_core_contracts::Id>, crate::shutdown::ShutdownError> {
+        self.shutdown_hooks
+            .as_ref()
+            .map_or(Ok(Vec::new()), |hooks| hooks.list_active_jobs())
+    }
+
     /// Starts the F24 delivery barrier after all job bodies have become terminal.
     ///
     /// Poll the returned ticket until `Complete` before stopping workers or

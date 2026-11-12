@@ -154,10 +154,28 @@ impl std::fmt::Display for ShutdownError {
 
 impl std::error::Error for ShutdownError {}
 
+/// Job operations grouped to keep shutdown hook construction small.
+pub(crate) struct ShutdownJobHooks {
+    prepare: Box<dyn Fn() -> Result<ShutdownPreparation, RuntimeError> + Send + Sync>,
+    list_active_jobs: Box<dyn Fn() -> Result<Vec<Id>, RuntimeError> + Send + Sync>,
+}
+
+impl ShutdownJobHooks {
+    pub(crate) fn new(
+        prepare: impl Fn() -> Result<ShutdownPreparation, RuntimeError> + Send + Sync + 'static,
+        list_active_jobs: impl Fn() -> Result<Vec<Id>, RuntimeError> + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            prepare: Box::new(prepare),
+            list_active_jobs: Box::new(list_active_jobs),
+        }
+    }
+}
+
 /// Composition-time hooks installed by the desktop service registration.
 pub(crate) struct ShutdownHooks {
     close_admission: Box<dyn Fn(bool) -> Result<ShutdownAdmission, RuntimeError> + Send + Sync>,
-    prepare: Box<dyn Fn() -> Result<ShutdownPreparation, RuntimeError> + Send + Sync>,
+    operations: ShutdownJobHooks,
     begin_history_barrier:
         Box<dyn Fn(Duration) -> Result<ShutdownTicket, RuntimeError> + Send + Sync>,
     close_workers: Box<dyn Fn() -> io::Result<()> + Send + Sync>,
@@ -173,7 +191,7 @@ impl ShutdownHooks {
         + Send
         + Sync
         + 'static,
-        prepare: impl Fn() -> Result<ShutdownPreparation, RuntimeError> + Send + Sync + 'static,
+        operations: ShutdownJobHooks,
         begin_history_barrier: impl Fn(Duration) -> Result<ShutdownTicket, RuntimeError>
         + Send
         + Sync
@@ -182,7 +200,7 @@ impl ShutdownHooks {
     ) -> Self {
         Self {
             close_admission: Box::new(close_admission),
-            prepare: Box::new(prepare),
+            operations,
             begin_history_barrier: Box::new(begin_history_barrier),
             close_workers: Box::new(close_workers),
             admission_closed: AtomicBool::new(false),
@@ -214,9 +232,16 @@ impl ShutdownHooks {
         if let Some(report) = prepared.as_ref() {
             return Ok(report.clone());
         }
-        let report = (self.prepare)().map_err(ShutdownError::Runtime)?;
+        let report = (self.operations.prepare)().map_err(ShutdownError::Runtime)?;
         *prepared = Some(report.clone());
         Ok(report)
+    }
+
+    pub(crate) fn list_active_jobs(&self) -> Result<Vec<Id>, ShutdownError> {
+        if !self.admission_closed.load(Ordering::Acquire) {
+            return Err(ShutdownError::AdmissionOpen);
+        }
+        (self.operations.list_active_jobs)().map_err(ShutdownError::Runtime)
     }
 
     pub(crate) fn begin_history_barrier(
@@ -296,17 +321,26 @@ mod tests {
         let close_calls = Arc::new(AtomicUsize::new(0));
         let prepare_count = prepare_calls.clone();
         let close_count = close_calls.clone();
+        let list_runtime = runtime.clone();
         let barrier_runtime = runtime.clone();
+        let job_hooks = ShutdownJobHooks::new(
+            move || {
+                prepare_count.fetch_add(1, Ordering::AcqRel);
+                Ok(ShutdownPreparation::no_runtime())
+            },
+            move || {
+                list_runtime
+                    .list(None)
+                    .map(|rows| rows.into_iter().map(|row| row.job_id).collect())
+            },
+        );
         let hooks = ShutdownHooks::new(
             |_| {
                 Ok(ShutdownAdmission::Accepted {
                     active_change_jobs: 0,
                 })
             },
-            move || {
-                prepare_count.fetch_add(1, Ordering::AcqRel);
-                Ok(ShutdownPreparation::no_runtime())
-            },
+            job_hooks,
             move |timeout| barrier_runtime.begin_shutdown(timeout),
             move || {
                 close_count.fetch_add(1, Ordering::AcqRel);
@@ -348,16 +382,20 @@ mod tests {
     -> Result<(), Box<dyn std::error::Error>> {
         let prepare_calls = Arc::new(AtomicUsize::new(0));
         let prepare_count = prepare_calls.clone();
+        let job_hooks = ShutdownJobHooks::new(
+            move || {
+                prepare_count.fetch_add(1, Ordering::AcqRel);
+                Ok(ShutdownPreparation::no_runtime())
+            },
+            || Ok(Vec::new()),
+        );
         let hooks = ShutdownHooks::new(
             |_| {
                 Ok(ShutdownAdmission::Accepted {
                     active_change_jobs: 0,
                 })
             },
-            move || {
-                prepare_count.fetch_add(1, Ordering::AcqRel);
-                Ok(ShutdownPreparation::no_runtime())
-            },
+            job_hooks,
             |_| Err(RuntimeError::InvalidState),
             || Ok(()),
         );

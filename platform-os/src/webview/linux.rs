@@ -147,10 +147,19 @@ pub(super) fn run(app: WebApp, events: Option<Events>) -> Result<(), Box<dyn Err
         .build();
     let event_loop = glib::MainLoop::new(None, false);
     let close = event_loop.clone();
+    let close_events = events.clone();
     let close_lifecycle = lifecycle
         .as_ref()
         .map(|lifecycle| Rc::clone(&lifecycle.state));
     window.connect_close_request(move |_| {
+        if let Some(events) = &close_events {
+            if events.has_shutdown_callbacks() {
+                events.request_window_close();
+                if !events.shutdown_is_complete() {
+                    return glib::Propagation::Stop;
+                }
+            }
+        }
         if let Some(state) = &close_lifecycle {
             retire_session(state, false);
         }
@@ -177,12 +186,31 @@ pub(super) fn run(app: WebApp, events: Option<Events>) -> Result<(), Box<dyn Err
         .as_ref()
         .zip(events.as_ref())
         .map(|(lifecycle, events)| lifecycle.start_polling(&view, events.clone()));
+    let shutdown_timer = events
+        .as_ref()
+        .filter(|events| events.has_shutdown_callbacks())
+        .map(|events| {
+            let events = events.clone();
+            let shutdown_loop = event_loop.clone();
+            glib::timeout_add_local(std::time::Duration::from_millis(16), move || {
+                events.pump_shutdown();
+                if events.shutdown_is_complete() {
+                    shutdown_loop.quit();
+                    glib::ControlFlow::Break
+                } else {
+                    glib::ControlFlow::Continue
+                }
+            })
+        });
     view.load_uri(&entry());
     window.present();
     if failure.borrow().is_none() {
         event_loop.run();
     }
     if let Some(timer) = event_timer {
+        timer.remove();
+    }
+    if let Some(timer) = shutdown_timer {
         timer.remove();
     }
     drop(lifecycle);

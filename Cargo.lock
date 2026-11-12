@@ -212,6 +212,7 @@ dependencies = [
  "du-app-db",
  "du-core-contracts",
  "du-engine-api",
+ "du-mcp-gateway",
  "du-platform-os",
  "du-user-env",
  "rusqlite",

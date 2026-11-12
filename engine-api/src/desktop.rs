@@ -308,6 +308,17 @@ impl DesktopEvents {
         serde_json::to_string(&event).ok()
     }
 
+    /// Queues a host-owned application event through the desktop delivery stream.
+    ///
+    /// The host owns the event's topic and body. This queue assigns the shared
+    /// envelope sequence and applies the same bounded delivery and resync policy
+    /// used for engine events. Events with another contract version are ignored.
+    pub fn publish_host_event(&self, event: EventEnvelope) {
+        if event.contract_version == ENVELOPE_VERSION {
+            self.enqueue(event);
+        }
+    }
+
     /// Records native event post loss and queues one resynchronization notice.
     pub fn report_post_failure(&self, failed: String, discarded: Vec<String>) {
         let failure_order = next_loss_order(&self.1);

@@ -6,8 +6,8 @@ use du_job_runtime::JobRuntime;
 
 use crate::{
     shutdown::{
-        ShutdownAdmission, ShutdownHooks, ShutdownJobCancellation, ShutdownPreparation,
-        WatchStopResult,
+        ShutdownAdmission, ShutdownHooks, ShutdownJobCancellation, ShutdownJobHooks,
+        ShutdownPreparation, WatchStopResult,
     },
     workers::Workers,
 };
@@ -15,7 +15,30 @@ use crate::{
 pub(super) fn hooks(runtime: Arc<JobRuntime>, workers: Arc<Workers>) -> ShutdownHooks {
     let admission_runtime = runtime.clone();
     let prepare_runtime = runtime.clone();
+    let list_runtime = runtime.clone();
     let history_runtime = runtime;
+    let job_hooks = ShutdownJobHooks::new(
+        move || {
+            let cancellations = prepare_runtime
+                .cancel_all_for_shutdown()?
+                .into_iter()
+                .map(|(job_ref, outcome)| ShutdownJobCancellation { job_ref, outcome })
+                .collect();
+            Ok(ShutdownPreparation {
+                // No OS watcher is installed by the current desktop composition.
+                watch_stop: WatchStopResult::NotInstalled,
+                cancellations,
+            })
+        },
+        move || {
+            list_runtime.list(None).map(|rows| {
+                rows.into_iter()
+                    .filter(|row| !row.snapshot.state.is_terminal())
+                    .map(|row| row.job_id)
+                    .collect()
+            })
+        },
+    );
     ShutdownHooks::new(
         move |confirmed| {
             let admission = admission_runtime.close_admission_for_shutdown(confirmed)?;
@@ -29,18 +52,7 @@ pub(super) fn hooks(runtime: Arc<JobRuntime>, workers: Arc<Workers>) -> Shutdown
                 du_job_runtime::AdmissionClose::AlreadyClosed => ShutdownAdmission::AlreadyClosing,
             })
         },
-        move || {
-            let cancellations = prepare_runtime
-                .cancel_all_for_shutdown()?
-                .into_iter()
-                .map(|(job_ref, outcome)| ShutdownJobCancellation { job_ref, outcome })
-                .collect();
-            Ok(ShutdownPreparation {
-                // No OS watcher is installed by the current desktop composition.
-                watch_stop: WatchStopResult::NotInstalled,
-                cancellations,
-            })
-        },
+        job_hooks,
         move |timeout| history_runtime.begin_shutdown(timeout),
         move || workers.close_and_join(),
     )
