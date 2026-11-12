@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use super::*;
 use crate::i18n::parameter_mismatches;
 use du_core_contracts::settings::SETTINGS_SCHEMA_VERSION;
+use serde_json::{Value, json};
 
 fn built_in_pair() -> Result<[BundleResource<'static>; 2], RegistrationError> {
     let mut rows: BTreeMap<_, _> = resources()?
@@ -13,6 +14,47 @@ fn built_in_pair() -> Result<[BundleResource<'static>; 2], RegistrationError> {
         rows.remove("en").ok_or(RegistrationError)?,
         rows.remove("ko").ok_or(RegistrationError)?,
     ])
+}
+
+fn altered_bundle(
+    language: &str,
+    alter: impl FnOnce(&mut Value),
+) -> Result<Vec<u8>, RegistrationError> {
+    let resource = resources()?
+        .into_iter()
+        .find(|resource| resource.language == language)
+        .ok_or(RegistrationError)?;
+    let mut bundle: Value =
+        serde_json::from_slice(resource.bytes).map_err(|_| RegistrationError)?;
+    alter(&mut bundle);
+    serde_json::to_vec(&bundle).map_err(|_| RegistrationError)
+}
+
+fn register_with_overrides<'a>(
+    overrides: &[(&str, &'a [u8])],
+    additional: Option<BundleResource<'a>>,
+) -> Result<Registry, RegistrationError> {
+    let mut resources = resources()?
+        .into_iter()
+        .map(|resource| {
+            if let Some((_, bytes)) = overrides
+                .iter()
+                .find(|(language, _)| *language == resource.language)
+            {
+                BundleResource {
+                    bytes,
+                    expected_hash: *blake3::hash(bytes).as_bytes(),
+                    ..resource
+                }
+            } else {
+                resource
+            }
+        })
+        .collect::<Vec<_>>();
+    if let Some(additional) = additional {
+        resources.push(additional);
+    }
+    register_resources(&resources, &[])
 }
 
 #[test]
@@ -38,6 +80,26 @@ fn built_in_resources_register_with_exact_declared_keys_and_parameters()
     assert!(parameter_mismatches(&registry, &declarations).is_empty());
     assert!(registry.integrity_warnings().is_empty());
     let english = registry.bundle("en").ok_or(RegistrationError)?;
+    let korean = registry.bundle("ko").ok_or(RegistrationError)?;
+    assert_eq!(english.fallback_language, "");
+    assert_eq!(korean.fallback_language, "en");
+    for bundle in [english, korean] {
+        assert_eq!(bundle.format_table["decimalSeparator"].as_str(), Some("."));
+        assert_eq!(bundle.format_table["groupingSeparator"].as_str(), Some(","));
+        assert_eq!(bundle.format_table["groupingSize"].as_u64(), Some(3));
+        assert_eq!(
+            bundle.format_table["datePatterns"]
+                .as_object()
+                .map(|values| values.len()),
+            Some(2)
+        );
+        assert_eq!(
+            bundle.format_table["unitSymbols"]
+                .as_object()
+                .map(|values| values.len()),
+            Some(11)
+        );
+    }
     assert!(
         english
             .messages
@@ -45,6 +107,81 @@ fn built_in_resources_register_with_exact_declared_keys_and_parameters()
             .any(|(key, message)| key == "cli.help.usage"
                 && message.text == "Usage: diskunfold [--lang LANGUAGE] [--help | --version]")
     );
+    Ok(())
+}
+
+#[test]
+fn startup_rejects_malformed_format_tables() -> Result<(), RegistrationError> {
+    for alter in [
+        (|bundle: &mut Value| bundle[2]["groupingSize"] = json!(0)) as fn(&mut Value),
+        |bundle: &mut Value| {
+            if let Some(format_table) = bundle[2].as_object_mut() {
+                format_table.remove("groupingSeparator");
+            }
+        },
+        |bundle: &mut Value| {
+            bundle[2]["datePatterns"]["iso8601"] = json!("yyyy-MM-dd'T'HH:qq:ss");
+        },
+        |bundle: &mut Value| {
+            bundle[2]["unitSymbols"]["kB"] = json!("KB");
+        },
+    ] {
+        let english = altered_bundle("en", alter)?;
+        let result = register_with_overrides(&[("en", &english)], None);
+        assert_eq!(
+            result.err().map(|error| error.reason_key()),
+            Some("locale.registration_failed")
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn startup_requires_english_omission_and_registered_fallbacks() -> Result<(), RegistrationError> {
+    let english = altered_bundle("en", |bundle| bundle[4] = json!("en"))?;
+    assert!(register_with_overrides(&[("en", &english)], None).is_err());
+
+    for fallback in ["ko", "fr", ""] {
+        let korean = altered_bundle("ko", |bundle| bundle[4] = json!(fallback))?;
+        assert!(register_with_overrides(&[("ko", &korean)], None).is_err());
+    }
+    Ok(())
+}
+
+#[test]
+fn startup_rejects_cyclic_fallbacks_and_accepts_one_added_language() -> Result<(), RegistrationError>
+{
+    let korean = altered_bundle("ko", |bundle| bundle[4] = json!("fr"))?;
+    let additional_language = altered_bundle("en", |bundle| {
+        bundle[0] = json!("fr");
+        bundle[4] = json!("ko");
+        if let Some(messages) = bundle[5].as_array_mut() {
+            messages.push(json!(["locale.language.fr", "Test language", []]));
+        }
+    })?;
+    let additional = BundleResource {
+        language: "fr",
+        version: "1",
+        bytes: &additional_language,
+        expected_hash: *blake3::hash(&additional_language).as_bytes(),
+    };
+    assert!(register_with_overrides(&[("ko", &korean)], Some(additional)).is_err());
+
+    let additional_language = altered_bundle("en", |bundle| {
+        bundle[0] = json!("fr");
+        bundle[4] = json!("en");
+        if let Some(messages) = bundle[5].as_array_mut() {
+            messages.push(json!(["locale.language.fr", "Test language", []]));
+        }
+    })?;
+    let additional = BundleResource {
+        language: "fr",
+        version: "1",
+        bytes: &additional_language,
+        expected_hash: *blake3::hash(&additional_language).as_bytes(),
+    };
+    let registry = register_with_overrides(&[], Some(additional))?;
+    assert_eq!(registry.self_name_key("fr"), Some("locale.language.fr"));
     Ok(())
 }
 
@@ -96,24 +233,28 @@ fn built_in_digests_detect_tampering_before_parsing() -> Result<(), Registration
 }
 
 #[test]
-fn parser_rejects_malformed_rows_and_duplicate_parameter_names() {
-    for bytes in [
-        &b"not json"[..],
-        &br#"["en","1",{},"en","en",[["key","text",[["n","count"],["n","size"]]]]]"#[..],
-        &br#"["en","1",{},"en","en",[["key","text"]]]"#[..],
-    ] {
+fn parser_rejects_malformed_rows_and_duplicate_parameter_names() -> Result<(), RegistrationError> {
+    for bytes in [&b"not json"[..], &b"[]"[..]] {
         assert!(parse_bundle(bytes).is_err());
     }
+    let duplicate_parameters = altered_bundle("en", |bundle| {
+        bundle[5][0][2] = json!([["n", "count"], ["n", "size"]]);
+    })?;
+    assert!(parse_bundle(&duplicate_parameters).is_err());
+    Ok(())
 }
 
 #[test]
 fn registration_rejects_duplicate_keys_and_wrong_metadata() -> Result<(), RegistrationError> {
-    let bytes = br#"["en","1",{},"en","en",[["key","a",[]],["key","b",[]]]]"#;
+    let bytes = altered_bundle("en", |bundle| {
+        let key = bundle[5][0][0].clone();
+        bundle[5][1][0] = key;
+    })?;
     let resource = BundleResource {
         language: "en",
         version: "1",
-        bytes,
-        expected_hash: *blake3::hash(bytes).as_bytes(),
+        bytes: &bytes,
+        expected_hash: *blake3::hash(&bytes).as_bytes(),
     };
     assert!(Registry::register(&[resource], &[], &[], parse_bundle).is_err());
     let [en, _] = built_in_pair()?;

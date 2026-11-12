@@ -1,5 +1,19 @@
 [
-  "ko", "1", {}, "ko", "en",
+  "ko", "1",
+  {
+    "decimalSeparator": ".",
+    "groupingSeparator": ",",
+    "groupingSize": 3,
+    "datePatterns": {
+      "lang_default": "yyyy.MM.dd HH:mm:ss",
+      "iso8601": "yyyy-MM-dd'T'HH:mm:ss"
+    },
+    "unitSymbols": {
+      "B": "B", "kB": "kB", "MB": "MB", "GB": "GB", "TB": "TB", "PB": "PB",
+      "KiB": "KiB", "MiB": "MiB", "GiB": "GiB", "TiB": "TiB", "PiB": "PiB"
+    }
+  },
+  "ko", "en",
   [
     ["locale.language.en", "English", []],
     ["locale.language.ko", "한국어", []],

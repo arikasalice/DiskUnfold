@@ -101,19 +101,13 @@ impl Registry {
         self.resource_digests.get(language).copied()
     }
 
-    /// Self-name key only for an integrity-verified, registered bundle containing it.
-    pub fn self_name_key(&self, language: &str) -> Option<&'static str> {
-        let key = match language {
-            "en" => "locale.language.en",
-            "ko" => "locale.language.ko",
-            _ => return None,
-        };
+    /// Returns an integrity-verified bundle's own language-name key when present.
+    pub fn self_name_key(&self, language: &str) -> Option<&str> {
+        let key = format!("locale.language.{language}");
         let bundle = self.bundle(language)?;
-        bundle
-            .messages
-            .iter()
-            .any(|(candidate, message)| candidate == key && message.parameters.is_empty())
-            .then_some(key)
+        bundle.messages.iter().find_map(|(candidate, message)| {
+            (candidate == &key && message.parameters.is_empty()).then_some(candidate.as_str())
+        })
     }
 
     /// Calculate revisions from registered source bytes and exact metadata bytes.
