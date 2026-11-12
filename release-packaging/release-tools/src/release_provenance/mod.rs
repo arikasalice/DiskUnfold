@@ -1,4 +1,6 @@
 //! Verification of SLSA v1 provenance using GitHub CLI as the cryptographic verifier.
+mod github_cli;
+mod staged_file;
 mod validation;
 
 pub use validation::{

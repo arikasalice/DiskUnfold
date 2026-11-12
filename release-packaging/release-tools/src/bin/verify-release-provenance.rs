@@ -21,7 +21,13 @@ fn run() -> Result<(), Box<dyn Error>> {
         let value = value.to_str().ok_or_else(usage)?;
         policy.push(value.to_owned());
     }
-    if policy.len() != 8 {
+    let deny_self_hosted_runners = policy
+        .last()
+        .is_some_and(|value| value == "--deny-self-hosted-runners");
+    if deny_self_hosted_runners {
+        policy.pop();
+    }
+    if policy.len() != 10 {
         return Err(usage().into());
     }
     let expected = ReleaseProvenanceExpectation {
@@ -33,9 +39,12 @@ fn run() -> Result<(), Box<dyn Error>> {
         workflow_path: policy[5].clone(),
         event_name: policy[6].clone(),
         builder_id: policy[7].clone(),
+        gh_executable: PathBuf::from(&policy[8]),
+        gh_sha256: policy[9].clone(),
+        deny_self_hosted_runners,
     };
     let verified = verify_release_provenance(&artifact, &expected)?;
-    println!("Cryptographically verified SLSA v1 provenance");
+    println!("GitHub CLI accepted SLSA v1 provenance under the supplied policy");
     println!("artifact_sha256={}", verified.artifact_sha256);
     println!("repository={}", verified.repository);
     println!("source_ref={}", verified.source_ref);
@@ -49,6 +58,6 @@ fn run() -> Result<(), Box<dyn Error>> {
 fn usage() -> io::Error {
     io::Error::new(
         io::ErrorKind::InvalidInput,
-        "usage: verify-release-provenance <artifact> <owner/repo> <tag> <commit-sha> <run-id> <run-attempt> <.github/workflows/file.yml> <event-name> <builder-id-uri>",
+        "usage: verify-release-provenance <artifact> <owner/repo> <tag> <commit-sha> <run-id> <run-attempt> <.github/workflows/file.yml> <event-name> <builder-id-uri> <absolute-gh-path> <gh-sha256> [--deny-self-hosted-runners]",
     )
 }

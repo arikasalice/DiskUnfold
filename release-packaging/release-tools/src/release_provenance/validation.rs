@@ -1,6 +1,17 @@
+use super::{
+    github_cli::{prepare_gh, verify_artifact},
+    staged_file::StagedFile,
+};
 use serde_json::Value;
+#[cfg(test)]
 use sha2::{Digest, Sha256};
-use std::{error::Error, fmt, fs::File, io::Read, path::Path, process::Command};
+use std::{
+    error::Error,
+    fmt,
+    path::{Path, PathBuf},
+};
+#[cfg(test)]
+use std::{fs::File, io::Read};
 
 /// SLSA provenance predicate accepted by this verifier.
 pub const SLSA_PROVENANCE_V1: &str = "https://slsa.dev/provenance/v1";
@@ -32,12 +43,18 @@ pub struct ReleaseProvenanceExpectation {
     pub event_name: String,
     /// Policy-selected SLSA builder identity. It is never learned from the attestation.
     pub builder_id: String,
+    /// Absolute path to the GitHub CLI executable selected by trusted caller policy.
+    pub gh_executable: PathBuf,
+    /// Lower-case SHA-256 of the expected GitHub CLI executable from independent policy.
+    pub gh_sha256: String,
+    /// When true, ask GitHub CLI to reject provenance made on self-hosted runners.
+    pub deny_self_hosted_runners: bool,
 }
 
 /// Release identity values extracted only after successful GitHub CLI verification.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct VerifiedReleaseProvenance {
-    /// SHA-256 of the artifact as read before and after verification.
+    /// SHA-256 of the private artifact snapshot passed to GitHub CLI.
     pub artifact_sha256: String,
     /// Repository whose tag and workflow are recorded in provenance.
     pub repository: String,
@@ -60,7 +77,7 @@ pub struct ReleaseProvenanceError {
 }
 
 impl ReleaseProvenanceError {
-    fn new(message: impl Into<String>) -> Self {
+    pub(super) fn new(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
         }
@@ -75,7 +92,7 @@ impl fmt::Display for ReleaseProvenanceError {
 
 impl Error for ReleaseProvenanceError {}
 
-/// Runs `gh attestation verify` and then checks the verified SLSA statement against explicit policy.
+/// Runs a caller-pinned GitHub CLI and checks its verified SLSA statement against explicit policy.
 ///
 /// GitHub CLI performs signature, attestation, repository, source ref, source commit, and signer
 /// workflow verification. This function additionally binds the artifact bytes, run invocation,
@@ -83,58 +100,24 @@ impl Error for ReleaseProvenanceError {}
 /// documents that predicate fields can be workflow-controlled; this verifier does not prove that
 /// the selected workflow is protected from a compromised caller. Trust in that workflow must come
 /// from independent policy and workflow review. It does not create attestations or publish
-/// artifacts. A successful result relies on the installed `gh` executable and GitHub's
+/// artifacts. A successful result relies on the caller-pinned GitHub CLI executable and GitHub's
 /// verification roots; callers must not substitute JSON fixtures for the command's successful
-/// output.
+/// output. The caller must source the executable path and its pinned hash from trusted policy.
+/// The verifier snapshots artifact bytes before invoking GitHub CLI; a later publisher must use
+/// those same bytes or revalidate the source artifact at its publication boundary.
 pub fn verify_release_provenance(
     artifact: &Path,
     expected: &ReleaseProvenanceExpectation,
 ) -> Result<VerifiedReleaseProvenance, ReleaseProvenanceError> {
     let checked = CheckedExpectation::new(expected)?;
-    let before_digest = sha256_file(artifact)?;
-    let signer_workflow = format!(
-        "{}/{}@{}",
-        expected.repository, expected.workflow_path, checked.source_ref
-    );
-    let output = Command::new("gh")
-        .arg("attestation")
-        .arg("verify")
-        .arg(artifact)
-        .arg("--repo")
-        .arg(&expected.repository)
-        .arg("--predicate-type")
-        .arg(SLSA_PROVENANCE_V1)
-        .arg("--source-ref")
-        .arg(&checked.source_ref)
-        .arg("--source-digest")
-        .arg(&expected.commit)
-        .arg("--signer-workflow")
-        .arg(signer_workflow)
-        .arg("--cert-oidc-issuer")
-        .arg("https://token.actions.githubusercontent.com")
-        .arg("--format=json")
-        .output()
-        .map_err(|error| {
-            ReleaseProvenanceError::new(format!("failed to run `gh attestation verify`: {error}"))
-        })?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let detail = stderr.trim();
-        return Err(ReleaseProvenanceError::new(if detail.is_empty() {
-            "`gh attestation verify` rejected the artifact or its signer".to_owned()
-        } else {
-            format!("`gh attestation verify` rejected the artifact: {detail}")
-        }));
-    }
-
-    let verified = validate_gh_verified_output(&output.stdout, &before_digest, expected)?;
-    let after_digest = sha256_file(artifact)?;
-    if after_digest != before_digest {
-        return Err(ReleaseProvenanceError::new(
-            "artifact changed while provenance was being verified",
-        ));
-    }
-    Ok(verified)
+    let gh = prepare_gh(&expected.gh_executable, &expected.gh_sha256)?;
+    let artifact = StagedFile::from_path(artifact, "artifact", false).map_err(|error| {
+        ReleaseProvenanceError::new(format!(
+            "failed to stage artifact for verification: {error}"
+        ))
+    })?;
+    let output = verify_artifact(&gh, &artifact, expected, &checked.source_ref)?;
+    validate_gh_verified_output(output.as_slice(), artifact.sha256(), expected)
 }
 
 /// Applies release policy to JSON returned by a successful `gh attestation verify --format=json`.
@@ -463,6 +446,7 @@ fn is_hex_digest(value: &str, length: usize) -> bool {
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
+#[cfg(test)]
 fn sha256_file(path: &Path) -> Result<String, ReleaseProvenanceError> {
     let mut file = File::open(path).map_err(|error| {
         ReleaseProvenanceError::new(format!("failed to open artifact: {error}"))
@@ -481,6 +465,7 @@ fn sha256_file(path: &Path) -> Result<String, ReleaseProvenanceError> {
     Ok(encode_hex(&hasher.finalize()))
 }
 
+#[cfg(test)]
 fn encode_hex(bytes: &[u8]) -> String {
     const HEX: &[u8; 16] = b"0123456789abcdef";
     let mut output = String::with_capacity(bytes.len() * 2);
@@ -492,5 +477,4 @@ fn encode_hex(bytes: &[u8]) -> String {
 }
 
 #[cfg(test)]
-#[path = "tests.rs"]
 mod tests;

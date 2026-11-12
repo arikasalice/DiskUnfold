@@ -1,6 +1,6 @@
 use super::*;
 use serde_json::{Value, json};
-use std::{error::Error, io::Write};
+use std::{error::Error, io::Write, path::PathBuf};
 use tempfile::NamedTempFile;
 
 fn expectation() -> ReleaseProvenanceExpectation {
@@ -13,6 +13,13 @@ fn expectation() -> ReleaseProvenanceExpectation {
         workflow_path: ".github/workflows/release.yml".to_owned(),
         event_name: "push".to_owned(),
         builder_id: "https://github.com/actions/runner/github-hosted".to_owned(),
+        gh_executable: PathBuf::from(if cfg!(windows) {
+            "C:\\Program Files\\GitHub CLI\\gh.exe"
+        } else {
+            "/usr/bin/gh"
+        }),
+        gh_sha256: "c".repeat(64),
+        deny_self_hosted_runners: false,
     }
 }
 
@@ -243,6 +250,32 @@ fn rejects_ambiguous_or_unverified_looking_cli_output() -> Result<(), Box<dyn Er
         .remove("certificate");
     let missing_certificate_output = serde_json::to_vec(&missing_certificate)?;
     assert!(validate_gh_verified_output(&missing_certificate_output, &digest, &expected).is_err());
+    Ok(())
+}
+
+#[test]
+fn rejects_duplicate_subjects_unconfigured_parameters_and_malformed_json()
+-> Result<(), Box<dyn Error>> {
+    let expected = expectation();
+    let digest = "b".repeat(64);
+
+    let mut duplicate_subject = fixture(&digest, &expected);
+    let subjects = duplicate_subject[0]["verificationResult"]["statement"]["subject"]
+        .as_array_mut()
+        .ok_or("fixture subject is not an array")?;
+    subjects.push(subjects[0].clone());
+    let duplicate_output = serde_json::to_vec(&duplicate_subject)?;
+    assert!(validate_gh_verified_output(&duplicate_output, &digest, &expected).is_err());
+
+    let mut extra_parameter = fixture(&digest, &expected);
+    extra_parameter[0]["verificationResult"]["statement"]["predicate"]["buildDefinition"]["externalParameters"]
+        .as_object_mut()
+        .ok_or("fixture external parameters are not an object")?
+        .insert("unreviewed".to_owned(), json!({"value": true}));
+    let extra_parameter_output = serde_json::to_vec(&extra_parameter)?;
+    assert!(validate_gh_verified_output(&extra_parameter_output, &digest, &expected).is_err());
+
+    assert!(validate_gh_verified_output(b"{not-json", &digest, &expected).is_err());
     Ok(())
 }
 
