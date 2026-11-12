@@ -115,6 +115,55 @@ analysisAllowed: boolean,
  * Whether the operating system privacy settings screen was opened.
  */
 settingsOpened: boolean, };
+export type AppQuitMode = "normal" | "without_waiting";
+export type AppQuitRequest = {
+/**
+ * Shutdown mode selected by the GUI; its two wire tokens are inferred.
+ */
+mode: AppQuitMode,
+/**
+ * Whether the user confirmed not waiting; omission means false and the
+ * wire property spelling is inferred.
+ */
+confirmUnfinishedChanges?: boolean, };
+export type AppQuitOutcome = string;
+export type AppQuitResponse = {
+/**
+ * Accepted, already-closing, or confirmation-required outcome; the
+ * property spelling is inferred.
+ */
+outcome: AppQuitOutcome,
+/**
+ * In-progress change-work count for confirmation; the property spelling
+ * is inferred.
+ */
+inProgressChangeCount?: number, };
+export type AppLifecycleState = string;
+export type AppLifecycleChanged = {
+/**
+ * Current application lifecycle state; the property spelling is inferred.
+ */
+state: AppLifecycleState,
+/**
+ * State immediately before the transition; the property spelling is
+ * inferred.
+ */
+previousState: AppLifecycleState,
+/**
+ * Number of jobs still unfinished during shutdown; the property spelling
+ * is inferred.
+ */
+remainingJobCount: number,
+/**
+ * Monotonically increasing state sequence for this app session; the
+ * property spelling is inferred.
+ */
+stateSequence: number,
+/**
+ * UTC observation time in the shared timestamp format; the property
+ * spelling is inferred.
+ */
+observedAt: Timestamp, };
 export type SettingsApplyTiming = "immediate" | "next_query" | "next_job" | "next_start" | "owner_review";
 export type SettingsChangeSource = "screen" | "import" | "reset" | "owner" | "mcp";
 export type SettingsChangedKey = {

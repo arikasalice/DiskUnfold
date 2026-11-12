@@ -11,6 +11,7 @@ use du_core_contracts::result_events::{
 use du_core_contracts::scan_failures::*;
 use du_core_contracts::settings_events::*;
 use du_core_contracts::settings_ipc::*;
+use du_core_contracts::shutdown_ipc::*;
 use du_core_contracts::size_units::{
     DISPLAY_DECIMAL_PLACES, IEC_UNITS, SI_UNITS, UNIT_TABLE_REVISION,
 };
@@ -72,6 +73,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         StartupAccessAction::decl(&config),
         StartupAccessRequest::decl(&config),
         StartupAccessResponse::decl(&config),
+        AppQuitMode::decl(&config),
+        AppQuitRequest::decl(&config),
+        AppQuitOutcome::decl(&config),
+        AppQuitResponse::decl(&config),
+        AppLifecycleState::decl(&config),
+        AppLifecycleChanged::decl(&config),
         SettingsApplyTiming::decl(&config),
         SettingsChangeSource::decl(&config),
         SettingsChangedKey::decl(&config),
