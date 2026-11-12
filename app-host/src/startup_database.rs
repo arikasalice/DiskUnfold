@@ -40,6 +40,11 @@ pub(super) fn open(data_dir: &Path) -> Result<SharedDatabase, io::Error> {
 }
 
 fn open_existing(path: &Path, data_dir: &Path) -> Result<AppDb, io::Error> {
+    let version = AppDb::probe_schema_version_read_only(path).map_err(open_error)?;
+    if version == HISTORY_SCHEMA_VERSION {
+        return AppDb::open_gui_with_history_after_version_probe(path).map_err(open_error);
+    }
+
     let reader = AppDb::open_read_only(path).map_err(open_error)?;
     let version = reader
         .schema_version()

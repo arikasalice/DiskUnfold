@@ -109,6 +109,52 @@ fn latest_schema_reopen_skips_managed_migration_and_keeps_backups_absent() -> Te
 }
 
 #[test]
+fn newer_and_malformed_databases_keep_startup_errors_and_files_unchanged() -> TestResult {
+    let newer = tempfile::tempdir()?;
+    drop(open(newer.path())?);
+    let newer_path = newer.path().join("diskunfold.db");
+    let changed = Connection::open(&newer_path)?;
+    changed.pragma_update(None, "user_version", HISTORY_SCHEMA_VERSION + 1)?;
+    drop(changed);
+    let newer_before = fs::read(&newer_path)?;
+    let newer_error = open(newer.path())
+        .err()
+        .ok_or("newer database was accepted")?;
+    assert!(newer_error.to_string().contains("db.schema_mismatch"));
+    assert_eq!(fs::read(&newer_path)?, newer_before);
+    assert!(!newer.path().join("db-backups").exists());
+
+    let tampered = tempfile::tempdir()?;
+    drop(open(tampered.path())?);
+    let tampered_path = tampered.path().join("diskunfold.db");
+    let connection = Connection::open(&tampered_path)?;
+    connection.execute_batch(
+        "DROP TRIGGER app_db_schema_meta_no_update;
+         UPDATE app_db_schema_meta SET definition_hash=zeroblob(32) WHERE migration_no=2;",
+    )?;
+    drop(connection);
+    let tampered_before = fs::read(&tampered_path)?;
+    let tampered_error = open(tampered.path())
+        .err()
+        .ok_or("tampered current database was accepted")?;
+    assert!(tampered_error.to_string().contains("db.migration_tampered"));
+    assert_eq!(fs::read(&tampered_path)?, tampered_before);
+    assert!(!tampered.path().join("db-backups").exists());
+
+    let malformed = tempfile::tempdir()?;
+    let malformed_path = malformed.path().join("diskunfold.db");
+    fs::write(&malformed_path, b"not a SQLite database")?;
+    let malformed_before = fs::read(&malformed_path)?;
+    let malformed_error = open(malformed.path())
+        .err()
+        .ok_or("malformed database file was accepted")?;
+    assert!(malformed_error.to_string().contains("db.open_failed"));
+    assert_eq!(fs::read(&malformed_path)?, malformed_before);
+    assert!(!malformed.path().join("db-backups").exists());
+    Ok(())
+}
+
+#[test]
 fn backup_directory_failure_leaves_legacy_schema_and_existing_file_intact() -> TestResult {
     let dir = tempfile::tempdir()?;
     let path = dir.path().join("diskunfold.db");

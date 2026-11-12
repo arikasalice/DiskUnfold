@@ -105,6 +105,17 @@ impl AppDb {
         Ok(Self { connection })
     }
 
+    /// Reads only `user_version` from a read-only connection with the normal
+    /// five-second busy timeout. This selects an open path; callers must still
+    /// validate the database through the connection they will use.
+    pub fn probe_schema_version_read_only(path: &Path) -> Result<u32, OpenError> {
+        let connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        connection.busy_timeout(BUSY_TIMEOUT)?;
+        connection
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .map_err(OpenError::Sqlite)
+    }
+
     /// Open an already-current database for GUI writes. Older databases require
     /// a future backup-and-migration runner and are never modified here.
     pub fn open_gui(path: &Path) -> Result<Self, OpenError> {

@@ -241,8 +241,13 @@ fn history_database_with_modified_definition_digest_is_rejected_on_open() -> Tes
          UPDATE app_db_schema_meta SET definition_hash=zeroblob(32) WHERE migration_no=2;",
     )?;
     drop(db);
+    assert_eq!(
+        AppDb::probe_schema_version_read_only(&path).map_err(|error| format!("{error:?}"))?,
+        HISTORY_SCHEMA_VERSION
+    );
     for result in [
         AppDb::open_gui_with_history(&path),
+        AppDb::open_gui_with_history_after_version_probe(&path),
         AppDb::open_read_only(&path),
     ] {
         assert!(matches!(
@@ -250,5 +255,57 @@ fn history_database_with_modified_definition_digest_is_rejected_on_open() -> Tes
             Err(OpenError::HistorySchema(error)) if matches!(*error, MigrationError::Tampered)
         ));
     }
+    Ok(())
+}
+
+#[test]
+fn current_version_probe_does_not_migrate_a_database_changed_before_writer_open() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("changed-probe.db");
+    drop(AppDb::create_gui_with_history(&path).map_err(|error| format!("{error:?}"))?);
+    let predecessor = HISTORY_DEFINITIONS
+        .steps
+        .iter()
+        .rev()
+        .nth(1)
+        .map(|definition| definition.number)
+        .ok_or("missing predecessor schema definition")?;
+
+    assert_eq!(
+        AppDb::probe_schema_version_read_only(&path).map_err(|error| format!("{error:?}"))?,
+        HISTORY_SCHEMA_VERSION
+    );
+    let changed = Connection::open(&path)?;
+    changed.execute_batch("DROP TRIGGER app_db_schema_meta_no_delete;")?;
+    changed.execute(
+        "DELETE FROM app_db_schema_meta WHERE migration_no=?1",
+        [HISTORY_SCHEMA_VERSION],
+    )?;
+    changed.pragma_update(None, "user_version", predecessor)?;
+    drop(changed);
+
+    let error = AppDb::open_gui_with_history_after_version_probe(&path)
+        .err()
+        .ok_or("writer accepted the changed database version")?;
+    assert!(matches!(
+        error,
+        OpenError::HistorySchema(error) if matches!(*error, MigrationError::VersionMismatch)
+    ));
+    assert!(!dir.path().join("db-backups").exists());
+    let reader = AppDb::open_read_only(&path).map_err(|error| format!("{error:?}"))?;
+    assert_eq!(reader.schema_version()?, predecessor);
+    Ok(())
+}
+
+#[test]
+fn writer_open_error_is_preserved_when_read_only_fallback_passes() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("writer-open-failure.db");
+    drop(AppDb::create_gui_with_history(&path).map_err(|error| format!("{error:?}"))?);
+
+    let error = super::open_after_version_probe(&path, |_, _| Err(OpenError::WalUnavailable))
+        .err()
+        .ok_or("writer error was not returned")?;
+    assert!(matches!(error, OpenError::WalUnavailable));
     Ok(())
 }
