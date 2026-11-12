@@ -14,8 +14,10 @@ The deployment unit is one executable per platform. The launcher selects GUI or 
 | --- | --- |
 | What behavior does the feature require? | Find its feature number in AIDA DiskUnfold 0.1. Read the published SRS for requirements, HLD for user flows and service contracts, and DLD for implementation and verification. |
 | Which service owns the contract? | Use the published AIDA architecture HLD/DLD, the ownership table below and the feature's design item IDs. Architecture DLD §§3.2 and 3.4 distinguish the foundation from scheduled feature work. |
-| Where does a request enter the application? | Start at [the launcher](release-packaging/launcher/), [the GUI IPC boundary](app-host/src/ipc.rs), [the CLI](cli/), or [the MCP gateway](mcp-gateway/). Follow registration into [engine-api](engine-api/src/api.rs) and the owning component. |
+| Where does a request enter the application? | Start at [the launcher](release-packaging/launcher/src/main.rs), [the GUI IPC boundary](app-host/src/ipc.rs), [the CLI](cli/src/lib.rs), or [the MCP gateway](mcp-gateway/src/lib.rs). Follow registered engine commands through [the engine registry](engine-api/src/registry.rs) and [the engine API](engine-api/src/api.rs) to the owning component. |
 | Where are shared types and their GUI bindings? | [core-contracts](core-contracts/) owns shared Rust types and ports. [The GUI IPC entry](gui-web/src/ipc/index.ts) exposes the generated types and typed client. |
+| Where do I change a screen or a shared control? | Start at [the React shell](gui-web/src/app/App.tsx), then locate the owning [feature](gui-web/src/features/). Use the [shared component entry point](gui-web/src/components/index.ts), [theme tokens](gui-web/src/theme/) and [GUI lint rules](gui-web/eslint.config.mjs). |
+| Where do I trace a stored record or a schema upgrade? | Start at [the SQLite adapter](app-db/src/lib.rs) and [migration API](app-db/src/migration.rs). Follow production upgrades through [GUI database startup](app-host/src/startup_database.rs). Find the record's meaning and lifecycle in the owning feature's published design. |
 | Which dependencies and checks are enforced? | [The dependency allowlist](release-packaging/allowed-deps.toml), [architecture checker](release-packaging/arch-check/), [quality workflow](.github/workflows/quality.yml) and [quality guide](release-packaging/quality/README.md). |
 | How do I run and verify on a platform? | See the [README](README.md) for prerequisites and the [launcher directory](release-packaging/launcher/) for smoke scripts. Verify support with results from the applicable platform. |
 
@@ -80,12 +82,15 @@ The Rust package name is `du-<directory>`. The shipped binary is `diskunfold` fr
 
 ## Architecture and allowed directions
 
+Arrows represent allowed call or dependency directions. A response returns through its caller's boundary. An event follows its published delivery contract.
+
 ```text
 launcher -> app-host | cli
 gui-web -> app-host -> engine-api -> business components
 app-host -> mcp-gateway -> engine-api
 cli -> engine-api
 app-host -> change-executor (approved changes)
+app-host | cli -> user-env (settings and preferences)
 app-host | cli -> platform-os | app-db | snapshot-files (adapter composition)
 business components and adapters -> core-contracts (shared types and ports)
 ```
