@@ -192,7 +192,6 @@ export async function invokeNative(
   }
   if (
     parsedResult.contractVersion !== 1 ||
-    parsedResult.contractVersion !== args.envelope.contractVersion ||
     parsedResult.correlationId !== args.envelope.correlationId ||
     parsedResult.name !== args.envelope.name
   ) {

@@ -99,6 +99,36 @@ test("accepts native errors with omitted optional item references", async () => 
   await expect(createIpcClient().call(request)).resolves.toEqual(response);
 });
 
+test("preserves the canonical v1 error for a v2 request and rejects v2 replies", async () => {
+  const futureRequest: CallEnvelope = { ...request, contractVersion: 2 };
+  const canonicalError: ResultEnvelope = {
+    name: futureRequest.name,
+    contractVersion: 1,
+    correlationId: futureRequest.correlationId,
+    body: null,
+    error: {
+      code: "INVALID_ARGUMENT",
+      reasonKey: "command.envelope_invalid",
+      messageKey: "command.envelope_invalid",
+      correlationId: futureRequest.correlationId,
+      retryable: false,
+    },
+  };
+  const post = vi
+    .fn()
+    .mockResolvedValueOnce(JSON.stringify(canonicalError))
+    .mockResolvedValueOnce(
+      JSON.stringify({ ...canonicalError, contractVersion: 2 }),
+    );
+  vi.stubGlobal("__diskunfoldRequest", post);
+
+  const client = createIpcClient();
+  await expect(client.call(futureRequest)).resolves.toEqual(canonicalError);
+  await expect(client.call(futureRequest)).rejects.toThrow(
+    "mismatched response",
+  );
+});
+
 const invalidNativeReplies: Array<[string, unknown, RegExp]> = [
   ["null", null, /invalid response envelope/],
   ["a number primitive", 1, /invalid response envelope/],
