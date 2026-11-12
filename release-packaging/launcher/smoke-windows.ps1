@@ -912,6 +912,7 @@ function Select-SmokeLanguage($settingsName, $fieldName, $languageName, $nextFie
 function Enter-KoreanImeText($field, $prefix) {
   $field.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern).SetValue($prefix)
   $field.SetFocus()
+  $null = Wait-UI 'focused Korean path input' { $field.Current.HasKeyboardFocus }
   Send-SmokeKey 0x23
   Send-SmokeKey 0x52
   Send-SmokeKey 0x4B
@@ -924,8 +925,12 @@ function Test-KoreanIme($field, $directory) {
   $toggled = $false
   try {
     Enter-KoreanImeText $field $prefix
-    Start-Sleep -Milliseconds 150
-    if ($field.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern).Current.Value -eq ($prefix + 'rk')) {
+    $inputMode = Wait-UI 'Korean composition or Latin input' {
+      $value = $field.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern).Current.Value
+      if ($value -eq $expected) { 'korean' }
+      elseif ($value -eq ($prefix + 'rk')) { 'latin' }
+    }
+    if ($inputMode -eq 'latin') {
       Send-SmokeKey 0x15
       $toggled = $true
       Enter-KoreanImeText $field $prefix
