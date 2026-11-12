@@ -903,13 +903,9 @@ function Select-SmokeLanguage($settingsName, $fieldName, $languageName, $nextFie
   Invoke-UI (Wait-VisibleAction $settingsName)
   $field = Wait-UI $fieldName { Find-UI $fieldName ([Windows.Automation.ControlType]::ComboBox) }
   $field.SetFocus()
-  Expand-UI $field
-  $expandPattern = $null
-  if ($field.TryGetCurrentPattern([Windows.Automation.ExpandCollapsePattern]::Pattern, [ref]$expandPattern)) {
-    $null = Wait-UI "expanded $fieldName" { $expandPattern.Current.ExpandCollapseState -eq [Windows.Automation.ExpandCollapseState]::Expanded }
-  }
+  $null = Wait-UI "focused $fieldName" { $field.Current.HasKeyboardFocus }
+  # Home and End change the focused native select without relying on its popup UIA state.
   if ($languageName -eq 'English') { Send-SmokeKey 0x24 } else { Send-SmokeKey 0x23 }
-  Send-SmokeKey 0x0D
   $null = Wait-UI $nextFieldName { Find-UI $nextFieldName ([Windows.Automation.ControlType]::ComboBox) }
   Invoke-UI (Wait-VisibleAction $closeName)
 }
