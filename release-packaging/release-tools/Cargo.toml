@@ -9,6 +9,10 @@ license.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 spdx = "=0.13.6"
+sha2.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
 
 [lints]
 workspace = true

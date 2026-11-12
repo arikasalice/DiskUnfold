@@ -311,6 +311,18 @@
     "distributed": false,
     "reason": "Validate SPDX expressions and evaluate the license allowlists"
   },
+  "cargo:du-release-tools:sha2@0.10.9": {
+    "license": "MIT OR Apache-2.0",
+    "role": "build",
+    "distributed": false,
+    "reason": "Recompute package and executable SHA-256 values in release staging"
+  },
+  "cargo:du-release-tools:tempfile@3.27.0": {
+    "license": "MIT OR Apache-2.0",
+    "role": "test",
+    "distributed": false,
+    "reason": "Create isolated staged-file fixtures for release inventory tests"
+  },
   "npm:diskunfold-gui:react-aria-components@1.22.1": {
     "license": "Apache-2.0",
     "role": "runtime",

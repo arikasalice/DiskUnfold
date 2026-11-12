@@ -453,6 +453,17 @@
   {
     "ecosystem": "cargo",
     "owner": "du-release-tools",
+    "name": "sha2",
+    "version": "0.10.9",
+    "source": "registry+https://github.com/rust-lang/crates.io-index",
+    "license": "MIT OR Apache-2.0",
+    "role": "build",
+    "distributed": false,
+    "reason": "Recompute package and executable SHA-256 values in release staging"
+  },
+  {
+    "ecosystem": "cargo",
+    "owner": "du-release-tools",
     "name": "spdx",
     "version": "0.13.6",
     "source": "registry+https://github.com/rust-lang/crates.io-index",
@@ -460,6 +471,17 @@
     "role": "build",
     "distributed": false,
     "reason": "Validate SPDX expressions and evaluate the license allowlists"
+  },
+  {
+    "ecosystem": "cargo",
+    "owner": "du-release-tools",
+    "name": "tempfile",
+    "version": "3.27.0",
+    "source": "registry+https://github.com/rust-lang/crates.io-index",
+    "license": "MIT OR Apache-2.0",
+    "role": "test",
+    "distributed": false,
+    "reason": "Create isolated staged-file fixtures for release inventory tests"
   },
   {
     "ecosystem": "cargo",
