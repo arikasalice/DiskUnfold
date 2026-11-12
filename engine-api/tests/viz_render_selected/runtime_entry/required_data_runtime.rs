@@ -18,7 +18,7 @@ fn size_less_fixture(wait: Duration) -> Result<Fixture, String> {
         .map_err(|error| format!("{error:?}"))?;
     scan.add_directory(vec![])
         .map_err(|error| format!("{error:?}"))?;
-    for name in [b'a', b'b'] {
+    for name in b"ab".iter().copied() {
         scan.add_file(Observation {
             path: vec![vec![name]],
             size: None,
