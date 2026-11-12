@@ -3,6 +3,7 @@ use du_core_contracts::settings::{
     SETTINGS_SCHEMA_VERSION, SettingsChanges, SettingsCommit, SettingsSnapshot, SettingsStore,
     SettingsStoreError,
 };
+use std::collections::BTreeSet;
 
 use crate::{CatalogEntry, Registry};
 mod restore_status;
@@ -49,6 +50,7 @@ pub struct SettingsService<S> {
     store: S,
     snapshot: SettingsSnapshot,
     restore_status: RestoreStatus,
+    recovered_keys: BTreeSet<String>,
 }
 
 impl<S: SettingsStore> SettingsService<S> {
@@ -81,6 +83,7 @@ impl<S: SettingsStore> SettingsService<S> {
             store,
             snapshot,
             restore_status: status,
+            recovered_keys: BTreeSet::new(),
         })
     }
 
@@ -172,6 +175,7 @@ impl<S: SettingsStore> SettingsService<S> {
             store,
             snapshot,
             restore_status: status,
+            recovered_keys: BTreeSet::new(),
         }
     }
 
@@ -198,7 +202,26 @@ impl<S: SettingsStore> SettingsService<S> {
     }
 
     /// Returns the F06 minimum drawing area when its descriptor was explicitly registered.
-    pub fn visualization_settings(&self) -> crate::visualization_settings::VisualizationSettings {
+    /// Returns `None` if the F06 descriptor is absent or conflicts with its published contract.
+    pub fn visualization_settings(
+        &self,
+    ) -> Option<crate::visualization_settings::VisualizationSettings> {
+        let descriptor = self
+            .registry
+            .descriptors
+            .get(crate::visualization_settings::TREEMAP_MIN_AREA_PX2)?;
+        if descriptor.owner != "F06"
+            || descriptor.default
+                != serde_json::json!(crate::visualization_settings::TREEMAP_MIN_AREA_PX2_DEFAULT)
+            || descriptor.kind
+                != (crate::ValueKind::Integer {
+                    min: i64::from(crate::visualization_settings::TREEMAP_MIN_AREA_PX2_MIN),
+                    max: i64::from(crate::visualization_settings::TREEMAP_MIN_AREA_PX2_MAX),
+                })
+            || !descriptor.editable
+        {
+            return None;
+        }
         let mut settings = crate::visualization_settings::project(&self.snapshot);
         if let Some(reason) = self.restore_status.failure_reason {
             settings.warning_key = Some(reason);
@@ -207,10 +230,13 @@ impl<S: SettingsStore> SettingsService<S> {
             .invalid_keys
             .iter()
             .any(|key| key == crate::visualization_settings::TREEMAP_MIN_AREA_PX2)
+            && !self
+                .recovered_keys
+                .contains(crate::visualization_settings::TREEMAP_MIN_AREA_PX2)
         {
             settings.warning_key = Some("settings.value_reset");
         }
-        settings
+        Some(settings)
     }
 
     /// Returns the catalog and its revision from the same immutable settings snapshot.
@@ -265,6 +291,9 @@ impl<S: SettingsStore> SettingsService<S> {
                 other => SettingsError::Store(other),
             })?;
         for (key, value) in &changes {
+            if key == crate::visualization_settings::TREEMAP_MIN_AREA_PX2 {
+                self.recovered_keys.insert(key.clone());
+            }
             match value {
                 Some(value) => {
                     self.snapshot.values.insert(key.clone(), value.clone());
