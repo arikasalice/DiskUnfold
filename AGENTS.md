@@ -1,15 +1,25 @@
 # DiskUnfold engineering instructions
 
-This is the shared repository guide for coding agents and contributors. Update this file when a repository-wide rule changes. Tool-specific entry files point here.
+This is the shared repository guide for contributors and coding agents. Update it when a repository-wide rule changes. Tool-specific entry files point here.
 
-## Product and design baseline
+## Product purpose
 
-DiskUnfold is an offline desktop application for understanding disk use and reviewing user-controlled cleanup. The 0.1 design covers Windows, macOS and Linux. The current foundation has a runnable GUI shell and CLI help/version, shared contracts, isolated tests and build checks. The analysis, cleanup and MCP use cases require their own implementation work.
+DiskUnfold helps people discover what takes up disk space, investigate folders and files, compare observations, and review cleanup before authorizing file changes. The 0.1 design covers Windows, macOS and Linux. Disk analysis and cleanup run locally. The product design gives the GUI ownership of file-change approval.
 
-- Use the published AIDA DiskUnfold 0.1 architecture HLD and DLD as design sources. Feature integration starts from BL-HLD-1.17 (revision 220) and BL-DLD-1.6 (revision 1335). DLD sections 3.2 and 3.4 distinguish the verified foundation from work scheduled for feature and release development. Check the relevant published revision before changing a contract.
-- Before starting a feature, check its published HLD/DLD and required foundation gates. Map its design item IDs to the owning modules and tests. Keep draft design text in AIDA. If a required contract is missing or conflicts with the implementation, surface the gap before choosing new public behavior.
-- The repository is a Cargo workspace with a separately locked npm UI. The deployment unit is one executable per platform. GUI and CLI are execution modes of that executable. The eventual MCP gateway runs inside the GUI process.
-- Begin with `git status --short --branch`. Preserve existing work and isolate implementation changes from `main`. Keep commits focused and include the relevant AIDA item IDs when available.
+The deployment unit is one executable per platform. The launcher selects GUI or CLI mode. The GUI runs an embedded React frontend in the system webview. The design places the local MCP gateway inside the GUI process. Check the branch and its test evidence for implementation and platform support.
+
+## Find the source of truth
+
+| Question | Starting point |
+| --- | --- |
+| What behavior does the feature require? | Find its feature number in AIDA DiskUnfold 0.1. Read the published SRS for requirements, HLD for user flows and service contracts, and DLD for implementation and verification. |
+| Which service owns the contract? | Use the published AIDA architecture HLD/DLD, the ownership table below and the feature's design item IDs. Architecture DLD §§3.2 and 3.4 distinguish the foundation from scheduled feature work. |
+| Where does a request enter the application? | Start at [the launcher](release-packaging/launcher/), [the GUI IPC boundary](app-host/src/ipc.rs), [the CLI](cli/), or [the MCP gateway](mcp-gateway/). Follow registration into [engine-api](engine-api/src/api.rs) and the owning component. |
+| Where are shared types and their GUI bindings? | [core-contracts](core-contracts/) owns shared Rust types and ports. [The GUI IPC entry](gui-web/src/ipc/index.ts) exposes the generated types and typed client. |
+| Which dependencies and checks are enforced? | [The dependency allowlist](release-packaging/allowed-deps.toml), [architecture checker](release-packaging/arch-check/), [quality workflow](.github/workflows/quality.yml) and [quality guide](release-packaging/quality/README.md). |
+| How do I run and verify on a platform? | See the [README](README.md) for prerequisites and the [launcher directory](release-packaging/launcher/) for smoke scripts. Verify support with results from the applicable platform. |
+
+Begin with `git status --short --branch`. Preserve existing work, isolate implementation from `main`, and record the starting commit. The original integration baselines were BL-HLD-1.17 (revision 220) and BL-DLD-1.6 (revision 1335). For each change, check the applicable published revision and map the feature's design item IDs to code and tests. Keep draft design text in AIDA and surface missing or conflicting contracts before adding public behavior. Keep commits focused and include the relevant design IDs when available.
 
 ## Agent delegation
 
@@ -57,22 +67,30 @@ DiskUnfold is an offline desktop application for understanding disk use and revi
 
 The Rust package name is `du-<directory>`. The shipped binary is `diskunfold` from `release-packaging/launcher/`. The `release-packaging/arch-check/` crate and `.github/workflows/quality.yml` enforce repository rules.
 
-## Dependency and responsibility rules
+## Architecture and allowed directions
 
 ```text
-launcher -> app-host / cli
-gui-web -> app-host (IPC)
-app-host / cli / mcp-gateway -> engine-api -> business components -> core-contracts
-app-host / cli -> adapter composition -> ports defined by core-contracts
-app-host -> change-executor
+launcher -> app-host | cli
+gui-web -> app-host -> engine-api -> business components
+app-host -> mcp-gateway -> engine-api
+cli -> engine-api
+app-host -> change-executor (approved changes)
+app-host | cli -> platform-os | app-db | snapshot-files (adapter composition)
+business components and adapters -> core-contracts (shared types and ports)
 ```
 
-- Use `release-packaging/allowed-deps.toml` for the exact allowed crate edges, including optional, build and development dependencies. Keep the graph acyclic. Only `app-host` may directly depend on `change-executor`.
-- Keep one reason to change per module. Split transport, orchestration, business policy and I/O. Define narrow ports at the contract boundary and inject OS or storage implementations at composition points. Keep business policy and I/O out of `core-contracts`.
-- Inside Rust crates, keep `api` depending inward on `domain`, and `domain` depending on `ports` where needed. Keep domain code independent of registry, strategy implementations and adapters. Place reusable behavior with its actual owner. The architecture checker rejects `common`, `util`, `helpers` and `misc` module names.
-- Keep feature screens under `gui-web/src/features/<area>/` as they are introduced. Keep UI primitives in `components/`, view state in `state/`, and direct native messaging in `ipc/bridge.ts`. Features stay independent of other feature areas. Access generated contracts through the IPC entry point.
+- The diagram summarizes entry points and composition. The [dependency allowlist](release-packaging/allowed-deps.toml) governs exact direct Rust crate edges, including optional, build and development dependencies. Keep the graph acyclic. Only `app-host` may directly depend on `change-executor`.
+- The GUI sends typed IPC through the trusted webview document. `app-host` enforces the caller boundary and dispatches registered use cases. `engine-api` orchestrates business components through their published interfaces. Each event keeps its published producer and delivery path, and `app-host` relays GUI events through IPC.
+- Define shared ports and values in `core-contracts`. Business components own decisions. The composition root injects native, database and file-storage adapters. Keep business policy and I/O out of `core-contracts`, and keep network and filesystem access in the designated adapters.
+- Keep CLI and MCP on their published analysis and planning entry points. Route file-change approval and execution through the GUI boundary.
+
+## Service internals
+
+- Use the crate root as its public entry and expose the smallest API its callers need. Keep request admission and orchestration at that boundary. Put business rules and state transitions in their owning modules, and keep adapter I/O and transport mapping at their own boundaries.
+- Where a Rust service uses `api`, `domain` and `ports` modules, the allowed direction is `api -> domain -> ports`. Domain logic stays independent of transport, composition, registries and concrete adapters. Resolve strategies from the owner's registry at assembly or admission and keep their published identity with the result where required.
+- Give each module one reason to change. Place reusable behavior with its owner and inject external dependencies through narrow ports. The architecture checker rejects `common`, `util`, `helpers` and `misc` module names.
+- Keep feature screens in `gui-web/src/features/<area>/`, reusable controls in `components/`, view state in `state/`, and direct native messaging in `ipc/bridge.ts`. Features stay independent of other feature areas. Access generated contracts through the IPC entry point.
 - Register all non-layout UI elements in `gui-web/src/components/index.ts` and use that common component entry point in app and feature views. Wrap interactive controls with React Aria inside the component layer. Keep theme tokens in `gui-web/src/theme/`. The GUI lint gate rejects raw non-layout JSX and direct UI library imports outside the component layer.
-- Treat the GUI as the approval boundary for file changes. CLI and MCP can use published analysis and planning contracts when implemented. Keep network and filesystem access in the designated adapters.
 
 ## Toolchains and build order
 
@@ -98,6 +116,8 @@ For a CLI-only development build, use `cargo run --locked -p du-launcher --no-de
 
 **Rust.** Use edition 2024 and workspace versions and lints. Use `rustfmt`, Clippy and typed `Result` errors. Preserve error context and convert errors at the transport boundary. Library code avoids `unwrap`, `expect` and panics. Unsafe code is confined to `platform-os` and requires a reason and safety invariant. Keep files within 500 lines and constructors within four dependencies. The structure checker enforces a maximum of nine direct internal dependencies excluding `core-contracts` and a function complexity limit of 20.
 
+**Documentation comments.** Write English Rustdoc or TSDoc for new or changed public interfaces. Describe caller obligations, invariants, and meaningful error or concurrency behavior when applicable. Use brief inline comments for decisions the code cannot express on its own.
+
 **TypeScript and React.** Use strict TypeScript and the configured ESLint, Prettier and dependency-cruiser rules. Keep view components focused, preserve keyboard and screen-reader access, and keep domain decisions in Rust. Use typed IPC from the client and avoid manual copies of Rust types. TypeScript 7 checks the application. The TypeScript 6 dependency supports tools that still require its compiler API.
 
 **Tooling.** Use the pinned Node runtime and cross-platform filesystem and process APIs for quality scripts. Run Cargo with `--locked` and npm with `ci --ignore-scripts`. Review changes to lockfiles, record new direct dependencies in the quality register, and keep CI actions pinned to commit hashes. Licensing and advisory policy changes require the project’s applicable approval and traceability.
@@ -115,5 +135,6 @@ npm --prefix gui-web run test
 
 - Test domain decisions through ports with deterministic fake input. Use `platform-os` with the `fake` feature in tests, temporary SQLite databases for storage tests and injected IPC transports for web tests. Use isolated fixtures for any operation that could change files.
 - Cover normal, boundary and failure behavior when changing contracts or policies. Add a violating fixture when adding a rule that blocks merges. Review delegated changes and verify their actual results.
+- Exercise the normal entry point affected by the change. On Windows, use [the native smoke script](release-packaging/launcher/smoke-windows.ps1) with an exact build and isolated test data. Coordinate ownership of the GUI session so only one DiskUnfold test instance runs at a time.
 - See the [quality guide](release-packaging/quality/README.md) for license checks, coverage reports and the native target matrix. Use measured data for SAM/TEM reporting and distinguish missing data from a zero value or a pass.
 - Report the exact checks and platforms used, failures and checks that could not run. A build or smoke test on one platform is evidence for that platform.
