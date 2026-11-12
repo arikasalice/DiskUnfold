@@ -73,7 +73,7 @@ fn run_app(
         let database = crate::startup_database::open(&data_dir)?;
         let settings = crate::settings::StartupSettings::load(&database, &configured)?;
         let stored = settings.stored_language()?;
-        let locale = crate::locale::initialize(bundles, stored.as_deref())?;
+        let locale = Arc::new(crate::locale::initialize(bundles, stored.as_deref())?);
         let reader = crate::history::HistoryReader::open(&data_dir, database.clone())?;
         (
             locale,
@@ -96,7 +96,7 @@ fn run_app(
         let volumes = Arc::new(du_platform_os::volume::WindowsVolumes);
         let history = Arc::new(history);
         let random = &du_platform_os::entropy::OsRandom;
-        let scan_limit = settings.scan_limit_source();
+        let scan_limit = settings.clone().scan_limit_source();
         if recent.is_some() {
             crate::recent_scope_open::register(
                 &mut builder,
@@ -141,6 +141,18 @@ fn run_app(
         desktop.events
     };
     #[cfg(windows)]
+    {
+        let inventory = locale.clone();
+        let runtime = crate::settings::LocaleRuntime::new(
+            locale.clone(),
+            events.clone(),
+            Arc::new(move || Ok(inventory.registry().supported_languages())),
+            Arc::new(du_platform_os::windows_time_zone::WindowsTimeZone),
+        );
+        settings.register_locale_profile(&mut builder, runtime, true);
+        crate::locale_delivery::register(&mut builder, locale);
+    }
+    #[cfg(windows)]
     events
         .recover_history(&recovery, crate::settings::current_time_ms())
         .map_err(std::io::Error::other)?;
@@ -164,11 +176,7 @@ fn run_app(
     let dispatch_engine = engine.clone();
     let app = WebApp {
         asset,
-        dispatch: Arc::new(move |message| {
-            #[cfg(windows)]
-            let _ = &locale;
-            crate::ipc::dispatch(&dispatch_engine, message)
-        }),
+        dispatch: Arc::new(move |message| crate::ipc::dispatch(&dispatch_engine, message)),
         #[cfg(windows)]
         route: crate::ipc::dispatch_lane,
         #[cfg(windows)]

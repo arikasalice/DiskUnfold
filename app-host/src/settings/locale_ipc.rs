@@ -11,6 +11,9 @@ use du_core_contracts::{
         LocaleTimeZonePolicy,
     },
     settings::{SettingsChanges, SettingsCommit, SettingsSource, SettingsStoreError},
+    settings_events::{
+        SettingsApplyTiming, SettingsChangeSource, SettingsChangedBody, SettingsChangedKey,
+    },
     time_zone::{TimeZonePort, TimeZoneUnavailable},
 };
 use du_engine_api::{
@@ -171,7 +174,7 @@ impl UseCase for SetLocaleProfile {
         }
 
         let reviewed = service.review(revision, &changes).map_err(settings_error)?;
-        service
+        let committed = service
             .apply(
                 revision,
                 &changes,
@@ -182,6 +185,23 @@ impl UseCase for SetLocaleProfile {
                 },
             )
             .map_err(settings_error)?;
+
+        self.context.runtime.events.publish_settings_changed(
+            SettingsChangedBody {
+                previous_settings_revision: revision.to_string(),
+                settings_revision: committed.revision.to_string(),
+                changes: committed
+                    .keys
+                    .into_iter()
+                    .map(|key| SettingsChangedKey {
+                        key,
+                        apply_timing: SettingsApplyTiming::Immediate,
+                    })
+                    .collect(),
+                source: SettingsChangeSource::Screen,
+            },
+            Some(caller.correlation_id.clone()),
+        );
 
         let updated = current_profile_from_inventory(
             &service,

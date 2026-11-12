@@ -2,11 +2,32 @@
 
 use std::time::Instant;
 
+use du_core_contracts::settings_events::SettingsChangedBody;
 use du_core_contracts::{ENVELOPE_VERSION, EventEnvelope, Id, locale_ipc::LocaleChangedBody};
 
 use super::DesktopEvents;
 
 impl DesktopEvents {
+    /// Queues the common notification for one durable settings commit.
+    pub fn publish_settings_changed(&self, body: SettingsChangedBody, correlation_id: Option<Id>) {
+        let Ok(body) = serde_json::to_value(body) else {
+            return;
+        };
+        let Some(occurred_at) = super::utc_now_timestamp() else {
+            return;
+        };
+        self.enqueue(EventEnvelope {
+            topic: "settings.changed".into(),
+            contract_version: ENVELOPE_VERSION,
+            seq: 0,
+            correlation_id,
+            job_ref: None,
+            result_version: None,
+            occurred_at,
+            body,
+        });
+    }
+
     /// Queues a committed locale profile change through the shared desktop event path.
     ///
     /// The pending stream assigns the public sequence when it delivers the event. If
