@@ -12,6 +12,7 @@ du-core-contracts = { version = "0.1.0", path = "../core-contracts" }
 du-duplicate-engine = { version = "0.1.0", path = "../duplicate-engine" }
 du-job-runtime = { version = "0.1.0", path = "../job-runtime" }
 du-scan-engine = { version = "0.1.0", path = "../scan-engine" }
+du-snapshot-store = { version = "0.1.0", path = "../snapshot-store" }
 serde.workspace = true
 serde_json.workspace = true
 uuid = { workspace = true, features = ["v7"] }

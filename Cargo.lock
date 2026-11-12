@@ -251,6 +251,7 @@ dependencies = [
  "du-duplicate-engine",
  "du-job-runtime",
  "du-scan-engine",
+ "du-snapshot-store",
  "serde",
  "serde_json",
  "uuid",

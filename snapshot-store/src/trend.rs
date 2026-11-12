@@ -1,6 +1,8 @@
 //! F27 single-observation and adjacent-snapshot trend segments.
 
 use crate::comparison::Gap;
+mod history;
+pub use history::{History, HistoryError, Observation, ObservationSource};
 
 /// Rule identifier for the published F27 trend segment.
 pub const TREND_SEGMENT_RULE_ID: &str = "trend.segment";
@@ -135,11 +137,15 @@ pub enum Trend {
 /// resolved by the F08 caller, including its documented reason precedence.
 #[must_use]
 pub fn segment(points: &[Point], evaluation_time_millis: i64) -> Option<Trend> {
-    let mut results = points
+    let results = points
         .iter()
         .enumerate()
         .map(|(slot_index, point)| classify(slot_index, point, evaluation_time_millis))
-        .collect::<Vec<_>>();
+        .collect();
+    segments_from_points(results)
+}
+
+fn segments_from_points(mut results: Vec<PointResult>) -> Option<Trend> {
     match results.len() {
         0 => None,
         1 => results.pop().map(Trend::SingleObservation),
