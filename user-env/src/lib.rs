@@ -14,6 +14,7 @@ pub mod scope;
 pub mod settings;
 pub mod space;
 pub mod space_format;
+pub mod visualization_settings;
 
 fn accepts(kind: &ValueKind, value: &Value) -> bool {
     match kind {

@@ -108,7 +108,7 @@ fn setting_presentations_cover_descriptors_in_both_bundles()
     let registry = register(&[]).map_err(|e| format!("{e:?}"))?;
     let descriptors =
         crate::settings::builtin_descriptors(&["en", "ko"]).map_err(|e| format!("{e:?}"))?;
-    assert_eq!(descriptors.len(), 11);
+    assert_eq!(descriptors.len(), 12);
     validate_setting_presentation(&registry, descriptors.clone()).map_err(|e| format!("{e:?}"))?;
     for language in ["en", "ko"] {
         let bundle = registry.bundle(language).ok_or("missing bundle")?;

@@ -20,6 +20,7 @@ pub fn builtin_descriptors(
         .into_iter()
         .chain(crate::scope::descriptors())
         .chain(crate::space::descriptors())
+        .chain(crate::visualization_settings::descriptors())
         .collect())
 }
 
@@ -195,6 +196,22 @@ impl<S: SettingsStore> SettingsService<S> {
     /// Returns `None` if the descriptors or individually valid values are unavailable.
     pub fn display_units(&self) -> Option<crate::space::DisplayUnits<'_>> {
         display_units(&self.registry, &self.snapshot, None)
+    }
+
+    /// Returns the validated F06 minimum drawing area from this immutable snapshot.
+    pub fn visualization_settings(&self) -> crate::visualization_settings::VisualizationSettings {
+        let mut settings = crate::visualization_settings::project(&self.snapshot);
+        if let Some(reason) = self.restore_status.failure_reason {
+            settings.warning_key = Some(reason);
+        } else if self
+            .restore_status
+            .invalid_keys
+            .iter()
+            .any(|key| key == crate::visualization_settings::TREEMAP_MIN_AREA_PX2)
+        {
+            settings.warning_key = Some("settings.value_reset");
+        }
+        settings
     }
 
     /// Returns the catalog and its revision from the same immutable settings snapshot.

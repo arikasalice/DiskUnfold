@@ -14,6 +14,8 @@
     ["settings.display.size_unit_system.description", "Choose SI or IEC units.", []],
     ["settings.display.size_unit.name", "Size unit", []],
     ["settings.display.size_unit.description", "Choose automatic or a fixed size unit.", []],
+    ["settings.display.treemap.min_area_px2.name", "Minimum treemap display area", []],
+    ["settings.display.treemap.min_area_px2.description", "Minimum area for a treemap shape. Applies to the next query.", []],
     ["settings.space.default_basis.name", "Default size basis", []],
     ["settings.space.default_basis.description", "Choose the default size basis.", []],
     ["settings.space.shared_table_max_entries.name", "Shared identity table limit", []],
