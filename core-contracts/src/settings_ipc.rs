@@ -2,16 +2,17 @@
 use serde::{Deserialize, Serialize};
 
 /// Read-only request for the effective F03 display preferences.
+/// The request body is an empty object.
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 pub struct DisplayPreferencesRequest {}
 
 impl<'de> Deserialize<'de> for DisplayPreferencesRequest {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let value = serde_json::Value::deserialize(deserializer)?;
-        if value.is_object() {
+        if value.as_object().is_some_and(serde_json::Map::is_empty) {
             Ok(Self {})
         } else {
-            Err(serde::de::Error::custom("expected an object"))
+            Err(serde::de::Error::custom("expected an empty object"))
         }
     }
 }
@@ -97,10 +98,11 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn display_preferences_request_accepts_only_objects_and_ignores_extensions() {
-        for value in [json!({}), json!({"future": [1]})] {
-            assert!(serde_json::from_value::<DisplayPreferencesRequest>(value).is_ok());
-        }
+    fn display_preferences_request_accepts_only_an_empty_object() {
+        assert!(serde_json::from_value::<DisplayPreferencesRequest>(json!({})).is_ok());
+        assert!(
+            serde_json::from_value::<DisplayPreferencesRequest>(json!({"future": [1]})).is_err()
+        );
         for value in [json!([]), json!(null), json!(0), json!("object")] {
             assert!(serde_json::from_value::<DisplayPreferencesRequest>(value).is_err());
         }

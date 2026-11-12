@@ -5,27 +5,68 @@ use serde::{Deserialize, Serialize};
 
 /// Selects one observed volume or one actual result root.
 /// The use case validates that exactly one of these selectors is present.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct VolumeGapSelection {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "typescript", ts(optional = nullable))]
     pub volume_id: Option<PathBytes>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "typescript", ts(optional = nullable))]
     pub root: Option<ItemRef>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct VolumeGapSelectionFields {
+    volume_id: Option<PathBytes>,
+    #[serde(
+        default,
+        deserialize_with = "crate::analysis_ipc::deserialize_optional_f03_request_item_ref"
+    )]
+    root: Option<ItemRef>,
+}
+
+impl<'de> Deserialize<'de> for VolumeGapSelection {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let fields: VolumeGapSelectionFields =
+            crate::analysis_ipc::deserialize_f03_request_object(deserializer)?;
+        Ok(Self {
+            volume_id: fields.volume_id,
+            root: fields.root,
+        })
+    }
+}
+
 /// Requests a volume explanation for one pinned scan result.
-/// Unknown fields in the request and its target are ignored for IPC compatibility.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct VolumeGapRequest {
     pub result_version: Id,
     pub request_seq: u32,
     pub target: VolumeGapSelection,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct VolumeGapRequestFields {
+    result_version: Id,
+    request_seq: u32,
+    target: VolumeGapSelection,
+}
+
+impl<'de> Deserialize<'de> for VolumeGapRequest {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let fields: VolumeGapRequestFields =
+            crate::analysis_ipc::deserialize_f03_request_object(deserializer)?;
+        Ok(Self {
+            result_version: fields.result_version,
+            request_seq: fields.request_seq,
+            target: fields.target,
+        })
+    }
 }
 
 /// One scan-phase volume observation, including explicit failures.

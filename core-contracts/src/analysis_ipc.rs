@@ -2,8 +2,14 @@
 use crate::{ByteSize, Id, ItemRef, OsPath, SizeValue, Timestamp};
 use serde::{Deserialize, Serialize};
 
+mod f03_request;
 mod recent_scope;
+use f03_request::F03RequestItemRef;
 
+pub(crate) use f03_request::{
+    deserialize_f03_request_item_ref, deserialize_f03_request_object,
+    deserialize_optional_f03_request_item_ref,
+};
 pub use recent_scope::{
     RecentScopeList, RecentScopeListRequest, RecentScopeListRow, RecentScopeOpen,
     RecentScopeOpenRequest, RecentScopeOpenTarget, RecentScopeTargetState,
@@ -403,11 +409,11 @@ impl<'de> Deserialize<'de> for SpaceTarget {
         }
 
         #[derive(Deserialize)]
-        #[serde(rename_all = "camelCase")]
+        #[serde(rename_all = "camelCase", deny_unknown_fields)]
         struct Selector {
             kind: Kind,
             #[serde(default, deserialize_with = "present")]
-            item: Option<ItemRef>,
+            item: Option<F03RequestItemRef>,
             #[serde(default, deserialize_with = "present")]
             query_ref: Option<Id>,
         }
@@ -428,28 +434,39 @@ impl<'de> Deserialize<'de> for SpaceTarget {
             }
         }
 
-        // Ignore additive IPC fields while still rejecting a known selector
-        // that contradicts the requested kind, including an explicit null.
+        // Keep the existing selector conflict and explicit-null checks after rejecting extensions.
         let selector = deserializer.deserialize_map(SelectorObject)?;
         match (selector.kind, selector.item, selector.query_ref) {
             (Kind::ScopeRoot, None, None) => Ok(Self::ScopeRoot {}),
-            (Kind::Folder, Some(item), None) => Ok(Self::Folder { item }),
+            (Kind::Folder, Some(item), None) => Ok(Self::Folder { item: item.into() }),
             (Kind::QueryResult, None, Some(query_ref)) => Ok(Self::QueryResult { query_ref }),
             _ => Err(serde::de::Error::custom("invalid space target selectors")),
         }
     }
 }
 
-/// Requests a total from one pinned result, tolerating additive IPC fields.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+/// Requests a total from one pinned result with the F03 GUI request fields only.
+#[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct SpaceTotalRequest {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "typescript", ts(optional))]
     pub result_version: Option<Id>,
     pub target: SpaceTarget,
     pub request_seq: u32,
+}
+
+impl<'de> Deserialize<'de> for SpaceTotalRequest {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let (result_version, target, request_seq) =
+            f03_request::deserialize_space_total_request(deserializer)?;
+        Ok(Self {
+            result_version,
+            target,
+            request_seq,
+        })
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

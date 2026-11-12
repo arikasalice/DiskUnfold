@@ -139,28 +139,45 @@ fn assert_space_detail_extensions(
     expected: &Value,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let read = |command, body| call(engine, command, Channel::Gui, ENVELOPE_VERSION, body);
-    let extended = json!({
-        "resultVersion":version, "futureRequestField":true,
-        "item":{"resultVersion":version,"itemNo":1,"futureItemField":"ignored"}
-    });
-    let compatible = read("space.detail", extended.clone())?;
+    let valid = json!({"resultVersion":version,"item":{"resultVersion":version,"itemNo":1}});
+    let compatible = read("space.detail", valid.clone())?;
     assert!(compatible.error.is_none(), "{:?}", compatible.error);
     assert_eq!(&compatible.body, expected);
-    for (command, malformed) in [
-        ("browse.detail", extended),
-        (
-            "space.detail",
-            json!({"resultVersion":version,"item":{"resultVersion":version,"futureItemField":1}}),
-        ),
+
+    let mut extended_response = expected.clone();
+    extended_response["futureResponseField"] = json!(true);
+    extended_response["item"]["futureItemField"] = json!("ignored");
+    let decoded: du_core_contracts::space_detail_ipc::SpaceDetail =
+        serde_json::from_value(extended_response)?;
+    assert_eq!(serde_json::to_value(decoded)?, *expected);
+
+    for malformed in [
+        json!({"resultVersion":version,"item":{"resultVersion":version,"itemNo":1},"futureRequestField":true}),
+        json!({"resultVersion":version,"item":{"resultVersion":version,"itemNo":1,"futureItemField":true}}),
+        json!([]),
+        json!(null),
+        json!("body"),
+        json!(1),
     ] {
         assert_eq!(
-            read(command, malformed)?
+            read("space.detail", malformed)?
                 .error
-                .ok_or("malformed detail request accepted")?
+                .ok_or("malformed space detail request accepted")?
                 .reason_key,
             "command.body_invalid"
         );
     }
+    let browse_extension = json!({
+        "resultVersion":version, "futureRequestField":true,
+        "item":{"resultVersion":version,"itemNo":1,"futureItemField":"ignored"}
+    });
+    assert_eq!(
+        read("browse.detail", browse_extension)?
+            .error
+            .ok_or("malformed browse detail request accepted")?
+            .reason_key,
+        "command.body_invalid"
+    );
     Ok(())
 }
 
@@ -213,12 +230,23 @@ fn space_total_honors_admission_version_and_preserves_unknown_basis()
     assert_eq!(response.body["sizes"][0]["size"]["bytes"], "47");
     assert_eq!(response.body["sizes"][1]["size"]["state"], "unknown");
     assert_eq!(response.body["sizes"][2]["size"]["state"], "unknown");
-    let extended = read_request(json!({
-        "resultVersion":version, "requestSeq":9, "futureRequestField":true,
-        "target":{"kind":"scope_root","futureTargetField":"ignored"}
-    }))?;
-    assert!(extended.error.is_none(), "{:?}", extended.error);
-    assert_eq!(extended.body, response.body);
+    for malformed in [
+        json!({"resultVersion":version,"requestSeq":9,"target":{"kind":"scope_root"},"futureRequestField":true}),
+        json!({"resultVersion":version,"requestSeq":9,"target":{"kind":"scope_root","futureTargetField":true}}),
+        json!({"resultVersion":version,"requestSeq":9,"target":{"kind":"folder","item":{"resultVersion":version,"itemNo":0,"futureItemField":true}}}),
+        json!([]),
+        json!(null),
+        json!("body"),
+        json!(1),
+    ] {
+        assert_eq!(
+            read_request(malformed)?
+                .error
+                .ok_or("malformed space total request accepted")?
+                .reason_key,
+            "command.body_invalid"
+        );
+    }
     let conflicting = read_request(json!({
         "resultVersion":version, "requestSeq":9,
         "target":{"kind":"scope_root","item":{"resultVersion":version,"itemNo":0}}

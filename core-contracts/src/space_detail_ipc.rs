@@ -3,13 +3,31 @@ use crate::{Id, ItemRef, SizeValue, Timestamp, browse_ipc::BrowseValue};
 use serde::{Deserialize, Serialize};
 
 /// Requests space evidence for an item in one pinned result version.
-/// Additional GUI IPC fields do not affect the item or version being read.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct SpaceDetailRequest {
     pub result_version: Id,
     pub item: ItemRef,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SpaceDetailRequestFields {
+    result_version: Id,
+    #[serde(deserialize_with = "crate::analysis_ipc::deserialize_f03_request_item_ref")]
+    item: ItemRef,
+}
+
+impl<'de> Deserialize<'de> for SpaceDetailRequest {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let fields: SpaceDetailRequestFields =
+            crate::analysis_ipc::deserialize_f03_request_object(deserializer)?;
+        Ok(Self {
+            result_version: fields.result_version,
+            item: fields.item,
+        })
+    }
 }
 
 /// Preserves the original size and the limits on its measurement.

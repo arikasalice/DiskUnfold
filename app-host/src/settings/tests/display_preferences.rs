@@ -56,7 +56,21 @@ fn gui_dispatch_reads_one_snapshot_and_rejects_wrong_channels_and_bodies()
     let engine = build_engine(settings.clone())?;
     let expected = json!({"settingsRevision":"1", "unitSystem":"si", "unit":"MB", "defaultBasis":"logical", "warningKey":null});
     assert_eq!(call(&engine, json!({}))?.body, expected);
-    assert_eq!(call(&engine, json!({"future":true}))?.body, expected);
+    for body in [
+        json!({"future":true}),
+        json!([]),
+        json!(null),
+        json!("bad"),
+        json!(1),
+    ] {
+        assert_eq!(
+            call(&engine, body)?
+                .error
+                .ok_or("invalid display preference request accepted")?
+                .reason_key,
+            "command.body_invalid"
+        );
+    }
     {
         let mut service = settings.service.lock().map_err(|_| "poisoned")?;
         let changes = SettingsChanges::from([
@@ -72,9 +86,6 @@ fn gui_dispatch_reads_one_snapshot_and_rejects_wrong_channels_and_bodies()
         call(&engine, json!({}))?.body,
         json!({"settingsRevision":"2", "unitSystem":"si", "unit":"GB", "defaultBasis":"unique_physical", "warningKey":null})
     );
-    for body in [json!([]), json!(null), json!("bad"), json!(1)] {
-        assert!(call(&engine, body)?.error.is_some());
-    }
     let envelope: CallEnvelope = serde_json::from_value(
         json!({"name":"space.display_preferences", "contractVersion":1, "correlationId":"0195f856-ab83-7a59-9343-10d29775c9a9", "body":{}}),
     )?;

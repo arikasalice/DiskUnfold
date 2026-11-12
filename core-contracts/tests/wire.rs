@@ -124,9 +124,9 @@ fn scope_review_rejects_unknown_fields_and_keeps_native_paths() {
 }
 
 #[test]
-fn space_total_accepts_extensions_without_accepting_conflicting_selectors()
+fn space_total_request_rejects_extensions_conflicts_and_arrays()
 -> Result<(), Box<dyn std::error::Error>> {
-    use du_core_contracts::analysis_ipc::SpaceTotalRequest;
+    use du_core_contracts::analysis_ipc::{SpaceTarget, SpaceTotalRequest};
     let version = "018f0000-0000-7000-8000-000000000002";
     let item = json!({"resultVersion":version,"itemNo":7});
     for target in [
@@ -135,26 +135,171 @@ fn space_total_accepts_extensions_without_accepting_conflicting_selectors()
         json!({"kind":"query_result","queryRef":version}),
     ] {
         let expected = json!({"target":target,"requestSeq":1});
-        let mut extended = expected.clone();
-        extended["futureRequestField"] = json!(true);
-        extended["target"]["futureTargetField"] = json!({"data":3});
         assert_eq!(
-            to_value(from_value::<SpaceTotalRequest>(extended)?)?,
+            to_value(from_value::<SpaceTotalRequest>(expected.clone())?)?,
             expected
         );
     }
+
+    for extended in [
+        json!({"target":{"kind":"scope_root"},"requestSeq":1,"futureRequestField":true}),
+        json!({"target":{"kind":"scope_root","futureSelectorField":true},"requestSeq":1}),
+        json!({"target":{"kind":"folder","item":{"resultVersion":version,"itemNo":7,"futureItemField":true}},"requestSeq":1}),
+    ] {
+        assert!(from_value::<SpaceTotalRequest>(extended).is_err());
+    }
+    assert!(from_value::<SpaceTotalRequest>(json!([null,{"kind":"scope_root"},1])).is_err());
+    assert!(
+        from_value::<SpaceTotalRequest>(json!({
+            "target":{"kind":"folder","item":[version,7]},"requestSeq":1
+        }))
+        .is_err()
+    );
     for target in [
         json!({"kind":"scope_root","item":item}),
         json!({"kind":"scope_root","queryRef":null}),
         json!({"kind":"folder","item":null}),
         json!({"kind":"folder","item":item,"queryRef":version}),
         json!({"kind":"query_result","queryRef":version,"item":item}),
-        json!({"kind":"query_result","futureTargetField":version}),
         json!({"kind":"future_kind"}),
         json!(["scope_root"]),
     ] {
+        assert!(from_value::<SpaceTarget>(target.clone()).is_err());
         assert!(from_value::<SpaceTotalRequest>(json!({"target":target,"requestSeq":1})).is_err());
     }
+    Ok(())
+}
+
+#[test]
+fn space_detail_request_rejects_extensions_and_arrays() -> Result<(), Box<dyn std::error::Error>> {
+    use du_core_contracts::space_detail_ipc::SpaceDetailRequest;
+    let version = "018f0000-0000-7000-8000-000000000002";
+    let item = json!({"resultVersion":version,"itemNo":7});
+    let detail = json!({"resultVersion":version,"item":item});
+    assert_eq!(
+        to_value(from_value::<SpaceDetailRequest>(detail.clone())?)?,
+        detail
+    );
+    for extended in [
+        json!({"resultVersion":version,"item":{"resultVersion":version,"itemNo":7},"futureRequestField":true}),
+        json!({"resultVersion":version,"item":{"resultVersion":version,"itemNo":7,"futureItemField":true}}),
+    ] {
+        assert!(from_value::<SpaceDetailRequest>(extended).is_err());
+    }
+    assert!(
+        from_value::<SpaceDetailRequest>(json!([version,{"resultVersion":version,"itemNo":7}]))
+            .is_err()
+    );
+    assert!(
+        from_value::<SpaceDetailRequest>(json!({
+            "resultVersion":version,"item":[version,7]
+        }))
+        .is_err()
+    );
+    Ok(())
+}
+
+#[test]
+fn volume_gap_request_rejects_extensions_and_arrays() -> Result<(), Box<dyn std::error::Error>> {
+    use du_core_contracts::volume_gap_ipc::VolumeGapRequest;
+    let version = "018f0000-0000-7000-8000-000000000002";
+    let volume = PathBytes::from_bytes(&[1]);
+    let volume_value = to_value(volume)?;
+    let volume_gap = json!({
+        "resultVersion":version,"requestSeq":1,"target":{"volumeId":volume_value.clone()}
+    });
+    assert_eq!(
+        to_value(from_value::<VolumeGapRequest>(volume_gap.clone())?)?,
+        volume_gap
+    );
+    for extended in [
+        json!({"resultVersion":version,"requestSeq":1,"target":{"volumeId":volume_value.clone()},"futureRequestField":true}),
+        json!({"resultVersion":version,"requestSeq":1,"target":{"volumeId":volume_value.clone(),"futureSelectorField":true}}),
+        json!({"resultVersion":version,"requestSeq":1,"target":{"root":{"resultVersion":version,"itemNo":7,"futureItemField":true}}}),
+    ] {
+        assert!(from_value::<VolumeGapRequest>(extended).is_err());
+    }
+    assert!(
+        from_value::<VolumeGapRequest>(json!([version,1,{"volumeId":volume_value.clone()}]))
+            .is_err()
+    );
+    assert!(
+        from_value::<VolumeGapRequest>(json!({
+            "resultVersion":version,"requestSeq":1,"target":[volume_value.clone(),null]
+        }))
+        .is_err()
+    );
+    assert!(
+        from_value::<VolumeGapRequest>(json!({
+            "resultVersion":version,"requestSeq":1,"target":{"root":[version,7]}
+        }))
+        .is_err()
+    );
+    Ok(())
+}
+
+#[test]
+fn f03_request_bodies_reject_non_objects() -> Result<(), Box<dyn std::error::Error>> {
+    use du_core_contracts::{
+        analysis_ipc::SpaceTotalRequest, space_detail_ipc::SpaceDetailRequest,
+        volume_gap_ipc::VolumeGapRequest,
+    };
+    for non_object in [json!([]), json!(null), json!(0), json!("body")] {
+        assert!(from_value::<SpaceTotalRequest>(non_object.clone()).is_err());
+        assert!(from_value::<SpaceDetailRequest>(non_object.clone()).is_err());
+        assert!(from_value::<VolumeGapRequest>(non_object).is_err());
+    }
+    Ok(())
+}
+
+#[test]
+fn common_envelopes_and_f03_responses_keep_additive_tolerance()
+-> Result<(), Box<dyn std::error::Error>> {
+    use du_core_contracts::{
+        CallEnvelope, EventEnvelope, ItemRef, ResultEnvelope, volume_gap_ipc::VolumeGapResponse,
+    };
+    let id = "018f0000-0000-7000-8000-000000000002";
+    let call = from_value::<CallEnvelope>(json!({
+        "name":"space.total", "contractVersion":1, "correlationId":id,
+        "body":{"target":{"kind":"scope_root"},"requestSeq":1}, "futureEnvelopeField":true,
+    }))?;
+    assert_eq!(call.name, "space.total");
+
+    let result = from_value::<ResultEnvelope>(json!({
+        "name":"space.total", "contractVersion":1, "correlationId":id,
+        "body":{"resultVersion":id,"requestSeq":1}, "futureEnvelopeField":true,
+    }))?;
+    assert_eq!(result.body["requestSeq"], 1);
+
+    let event = from_value::<EventEnvelope>(json!({
+        "topic":"results.version_changed", "contractVersion":1, "seq":1,
+        "occurredAt":"2026-11-09T12:34:56.123Z", "body":{"resultVersion":id},
+        "futureEnvelopeField":true,
+    }))?;
+    assert!(event.validate());
+
+    let item = from_value::<ItemRef>(json!({
+        "resultVersion":id, "itemNo":7, "futureItemField":true,
+    }))?;
+    assert_eq!(to_value(item)?, json!({"resultVersion":id,"itemNo":7}));
+
+    let path = PathBytes::from_bytes(&[1]);
+    let response = from_value::<VolumeGapResponse>(json!({
+        "resultVersion":id, "requestSeq":1, "volumeId":path.as_str(),
+        "start":{"state":"not_attempted"}, "end":{"state":"not_attempted"},
+        "allocated":{"size":{"basis":"allocated","evidence":"unknown","state":"unknown"},"completeness":"complete"},
+        "uniquePhysical":{"size":{"basis":"unique_physical","evidence":"unknown","state":"unknown"},"completeness":"complete"},
+        "factors":[], "remainder":{"state":"unknown","reasonKey":"space.data_insufficient"},
+        "osCategories":{"state":"unavailable","reasonKey":"space.volume_report_unavailable"},
+        "futureResponseField":true,
+    }))?;
+    assert_eq!(
+        response
+            .volume_id
+            .as_ref()
+            .and_then(|value| value.bytes().ok()),
+        Some(vec![1])
+    );
     Ok(())
 }
 

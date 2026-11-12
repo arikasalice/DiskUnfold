@@ -91,7 +91,12 @@ fn verify_volume_gap_queries(
     let gui = |name, body| call(engine, name, Channel::Gui, ENVELOPE_VERSION, body);
     let volume_id = PathBytes::from_bytes(&[1]);
     let root = json!({"resultVersion":version,"itemNo":1});
-    for target in [json!({"root":root}), json!({"volumeId":volume_id})] {
+    for target in [
+        json!({"root":root.clone()}),
+        json!({"volumeId":volume_id.clone()}),
+        json!({"root":null,"volumeId":volume_id.clone()}),
+        json!({"root":root.clone(),"volumeId":null}),
+    ] {
         let request = json!({"resultVersion":version,"target":target,"requestSeq":13});
         let report = gui("space.volume_gap", request.clone())?;
         assert!(report.error.is_none(), "{:?}", report.error);
@@ -105,27 +110,19 @@ fn verify_volume_gap_queries(
             "space.volume_report_unavailable"
         );
         assert_eq!(report.body["osCategories"]["state"], "unavailable");
-
-        let mut extended = request;
-        extended["futureRequestField"] = json!({"enabled": true});
-        extended["target"]["futureSelectorField"] = json!("unused");
-        let compatible = gui("space.volume_gap", extended)?;
-        assert!(compatible.error.is_none(), "{:?}", compatible.error);
-        assert_eq!(compatible.body, report.body);
     }
     for (target, reason) in [
         (
-            json!({"root":root,"volumeId":volume_id}),
+            json!({"root":root.clone(),"volumeId":volume_id.clone()}),
             "space.target_out_of_scope",
         ),
-        (
-            json!({"futureSelectorField": true}),
-            "space.target_out_of_scope",
-        ),
+        (json!({}), "space.target_out_of_scope"),
         (
             json!({"root":{"resultVersion":version,"itemNo":u32::MAX}}),
             "space.target_out_of_scope",
         ),
+        (json!({"root":null}), "space.target_out_of_scope"),
+        (json!({"volumeId":null}), "space.target_out_of_scope"),
         (
             json!({"root":{"resultVersion":scope_version,"itemNo":0}}),
             "result.requery_required",
@@ -144,6 +141,23 @@ fn verify_volume_gap_queries(
             .ok_or("invalid volume request was accepted")?
             .reason_key,
             reason
+        );
+    }
+    for malformed in [
+        json!({"resultVersion":version,"target":{"root":root.clone()},"requestSeq":15,"futureRequestField":true}),
+        json!({"resultVersion":version,"target":{"root":root.clone(),"futureSelectorField":true},"requestSeq":15}),
+        json!({"resultVersion":version,"target":{"root":{"resultVersion":version,"itemNo":1,"futureItemField":true}},"requestSeq":15}),
+        json!([]),
+        json!(null),
+        json!("body"),
+        json!(1),
+    ] {
+        assert_eq!(
+            gui("space.volume_gap", malformed)?
+                .error
+                .ok_or("malformed volume gap request accepted")?
+                .reason_key,
+            "command.body_invalid"
         );
     }
     assert_eq!(
