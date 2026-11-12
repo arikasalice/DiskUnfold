@@ -1,0 +1,189 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+fail() {
+    printf 'test-package-linux: %s\n' "$*" >&2
+    exit 1
+}
+
+usage() {
+    cat <<'USAGE'
+Usage: test-package-linux.sh --binary PATH
+
+Runs a packaging integration check with the supplied native GUI-enabled launcher.
+It uses a clearly labelled, incomplete THIRD-PARTY-NOTICES test fixture that is
+not suitable for a release. The test checks both package formats, checksums,
+collisions, symlink rejection, CPU matching, and output preservation.
+USAGE
+}
+
+binary=''
+while (($#)); do
+    case "$1" in
+        --binary)
+            (($# >= 2)) || fail 'missing value for --binary'
+            binary=$2
+            shift 2
+            ;;
+        --help|-h)
+            usage
+            exit 0
+            ;;
+        *)
+            fail "unknown argument: $1"
+            ;;
+    esac
+done
+[[ -n "$binary" ]] || {
+    usage >&2
+    fail '--binary is required'
+}
+[[ "$binary" == /* ]] || binary="$PWD/$binary"
+[[ -f "$binary" && ! -L "$binary" && -x "$binary" ]] || \
+    fail 'binary must be an executable regular file, not a symbolic link'
+
+script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
+package_script="$script_dir/package-linux.sh"
+test_root=$(mktemp -d "${TMPDIR:-/tmp}/diskunfold-linux-package-test.XXXXXXXX")
+test_identity=$(stat -c '%d:%i' -- "$test_root")
+
+cleanup() {
+    local status=$?
+    trap - EXIT
+    local current_identity=''
+    if [[ -d "$test_root" && ! -L "$test_root" ]]; then
+        current_identity=$(stat -c '%d:%i' -- "$test_root") || current_identity=''
+        if [[ "$current_identity" == "$test_identity" ]]; then
+            rm -rf -- "$test_root"
+        else
+            printf 'test-package-linux: preserving test directory whose identity changed: %s\n' "$test_root" >&2
+            ((status != 0)) || status=1
+        fi
+    fi
+    exit "$status"
+}
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+cat > "$test_root/THIRD-PARTY-NOTICES.fixture.txt" <<'NOTICE'
+TEST FIXTURE ONLY. This notice text is incomplete and must never be published.
+NOTICE
+notices="$test_root/THIRD-PARTY-NOTICES.fixture.txt"
+output="$test_root/package"
+cpu=$(uname -m)
+case "$cpu" in
+    x86_64) cpu=x64 ;;
+    aarch64) cpu=arm64 ;;
+    *) fail "unsupported test runner CPU: $cpu" ;;
+esac
+if [[ "$cpu" == x64 ]]; then
+    other_cpu=arm64
+else
+    other_cpu=x64
+fi
+maintainer='DiskUnfold packaging test <test@example.invalid>'
+
+"$package_script" --binary "$binary" --version 0.1.0 --cpu "$cpu" \
+    --maintainer "$maintainer" --notices "$notices" --output-dir "$output"
+
+deb_name="DiskUnfold_0.1.0_${cpu}.deb"
+tar_name="DiskUnfold-0.1.0-linux-${cpu}.tar.gz"
+[[ -f "$output/$deb_name" && -f "$output/$tar_name" ]]
+[[ -f "$output/SHA256SUMS" && -f "$output/EXECUTABLE-SHA256.json" ]]
+(
+    cd "$output"
+    sha256sum -c SHA256SUMS
+)
+
+dpkg_arch=$(dpkg --print-architecture)
+[[ "$(dpkg-deb -f "$output/$deb_name" Package)" == diskunfold ]]
+[[ "$(dpkg-deb -f "$output/$deb_name" Version)" == 0.1.0 ]]
+[[ "$(dpkg-deb -f "$output/$deb_name" Architecture)" == "$dpkg_arch" ]]
+[[ "$(dpkg-deb -f "$output/$deb_name" Maintainer)" == "$maintainer" ]]
+[[ "$(dpkg-deb -f "$output/$deb_name" Depends)" == *libwebkitgtk-6.0-4* ]]
+
+tar --list --file "$output/$tar_name" --gzip | LC_ALL=C sort > "$test_root/tar-members"
+printf '%s\n' \
+    "DiskUnfold-0.1.0-linux-${cpu}/" \
+    "DiskUnfold-0.1.0-linux-${cpu}/LICENSE" \
+    "DiskUnfold-0.1.0-linux-${cpu}/THIRD-PARTY-NOTICES.txt" \
+    "DiskUnfold-0.1.0-linux-${cpu}/diskunfold" | LC_ALL=C sort > "$test_root/tar-members.expected"
+cmp -s "$test_root/tar-members.expected" "$test_root/tar-members" || \
+    fail 'tar.gz contains unexpected entries'
+tar -xOzf "$output/$tar_name" "DiskUnfold-0.1.0-linux-${cpu}/THIRD-PARTY-NOTICES.txt" | \
+    cmp - "$notices" || fail 'tar.gz notices differ from the explicit input'
+dpkg-deb --fsys-tarfile "$output/$deb_name" | \
+    tar -xO -f - ./usr/share/doc/diskunfold/THIRD-PARTY-NOTICES.txt | \
+    cmp - "$notices" || fail 'deb notices differ from the explicit input'
+
+package_digest_before=$(sha256sum "$output/$deb_name" | awk '{ print $1 }')
+if "$package_script" --binary "$binary" --version 0.1.0 --cpu "$cpu" \
+    --maintainer "$maintainer" --notices "$notices" --output-dir "$output" >/dev/null 2>&1; then
+    fail 'existing output directory was accepted'
+fi
+package_digest_after=$(sha256sum "$output/$deb_name" | awk '{ print $1 }')
+[[ "$package_digest_before" == "$package_digest_after" ]] || \
+    fail 'collision attempt changed the existing package'
+
+ln -s "$notices" "$test_root/notices-link"
+if "$package_script" --binary "$binary" --version 0.1.0 --cpu "$cpu" \
+    --maintainer "$maintainer" --notices "$test_root/notices-link" \
+    --output-dir "$test_root/symlink-output" >/dev/null 2>&1; then
+    fail 'symbolic-link notices input was accepted'
+fi
+[[ ! -e "$test_root/symlink-output" && ! -L "$test_root/symlink-output" ]] || \
+    fail 'invalid notices input created a package output directory'
+
+if "$package_script" --binary "$binary" --version 0.1.0 --cpu "$other_cpu" \
+    --maintainer "$maintainer" --notices "$notices" \
+    --output-dir "$test_root/wrong-cpu-output" >/dev/null 2>&1; then
+    fail 'CPU mismatch was accepted'
+fi
+[[ ! -e "$test_root/wrong-cpu-output" && ! -L "$test_root/wrong-cpu-output" ]] || \
+    fail 'CPU mismatch created a package output directory'
+
+mkdir "$test_root/pre-existing-output"
+printf 'keep\n' > "$test_root/pre-existing-output/sentinel"
+if "$package_script" --binary "$binary" --version 0.1.0 --cpu "$cpu" \
+    --maintainer "$maintainer" --notices "$notices" \
+    --output-dir "$test_root/pre-existing-output" >/dev/null 2>&1; then
+    fail 'pre-existing output directory was accepted'
+fi
+[[ "$(cat "$test_root/pre-existing-output/sentinel")" == keep ]] || \
+    fail 'pre-existing output contents were changed'
+
+race_output="$test_root/race-output"
+mv_wrapper_dir="$test_root/mv-wrapper"
+mkdir "$mv_wrapper_dir"
+cat > "$mv_wrapper_dir/mv" <<'MOVE_WRAPPER'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == -nT ]]; then
+    shift
+    [[ "${1:-}" == -- ]] && shift
+    stage=$1
+    output=$2
+    if [[ "$output" == "${DISKUNFOLD_RACE_OUTPUT:?}" ]]; then
+        mkdir "$output"
+        printf 'competitor-kept\n' > "$output/sentinel"
+    fi
+    exec /usr/bin/mv -nT -- "$stage" "$output"
+fi
+exec /usr/bin/mv "$@"
+MOVE_WRAPPER
+chmod 0755 "$mv_wrapper_dir/mv"
+if PATH="$mv_wrapper_dir:$PATH" DISKUNFOLD_RACE_OUTPUT="$race_output" \
+    "$package_script" --binary "$binary" --version 0.1.0 --cpu "$cpu" \
+    --maintainer "$maintainer" --notices "$notices" \
+    --output-dir "$race_output" >/dev/null 2>&1; then
+    fail 'output created after preflight was replaced or accepted'
+fi
+[[ "$(cat "$race_output/sentinel")" == competitor-kept ]] || \
+    fail 'output created after preflight was changed'
+if find "$test_root" -maxdepth 1 \( -name '.race-output.staging.*' -o -name '.race-output.work.*' \) -print -quit | grep -q .; then
+    fail 'private staging directories were left after output collision'
+fi
+
+printf 'Linux deb/tar.gz package integration checks passed (test notices only).\n'

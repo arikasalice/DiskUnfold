@@ -1,0 +1,313 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+fail() {
+    printf 'package-linux: %s\n' "$*" >&2
+    exit 1
+}
+
+usage() {
+    cat <<'USAGE'
+Usage:
+  package-linux.sh --binary PATH --version X.Y.Z --cpu x64|arm64 \
+    --maintainer "Name <email>" --notices PATH --output-dir NEW_DIR
+
+Creates one Debian package and one tar.gz for the native Ubuntu runner. The
+output directory must not exist. The tar.gz contains exactly the executable,
+LICENSE, and the explicitly supplied THIRD-PARTY-NOTICES.txt. SHA256SUMS and
+EXECUTABLE-SHA256.json describe the generated files.
+
+This script does not build the executable, certify notice completeness, sign,
+create provenance, generate the release inventory, publish, or install.
+USAGE
+}
+
+binary=''
+version=''
+cpu=''
+maintainer=''
+notices=''
+output_dir=''
+while (($#)); do
+    case "$1" in
+        --binary|--version|--cpu|--maintainer|--notices|--output-dir)
+            (($# >= 2)) || fail "missing value for $1"
+            case "$1" in
+                --binary) binary=$2 ;;
+                --version) version=$2 ;;
+                --cpu) cpu=$2 ;;
+                --maintainer) maintainer=$2 ;;
+                --notices) notices=$2 ;;
+                --output-dir) output_dir=$2 ;;
+            esac
+            shift 2
+            ;;
+        --help|-h)
+            usage
+            exit 0
+            ;;
+        *)
+            fail "unknown argument: $1"
+            ;;
+    esac
+done
+
+[[ -n "$binary" && -n "$version" && -n "$cpu" && -n "$maintainer" && -n "$notices" && -n "$output_dir" ]] || {
+    usage >&2
+    fail 'all six options are required'
+}
+[[ "$version" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]] || fail 'version must be numeric, such as 0.1.0'
+[[ "$maintainer" != *$'\n'* && "$maintainer" != *$'\r'* ]] || fail 'maintainer must fit on one control-file line'
+[[ "$maintainer" == *"<"*"@"*">" ]] || fail 'maintainer must use the form Name <email>'
+case "$cpu" in
+    x64)
+        deb_arch=amd64
+        expected_machine='Advanced Micro Devices X86-64'
+        expected_uname=x86_64
+        ;;
+    arm64)
+        deb_arch=arm64
+        expected_machine=AArch64
+        expected_uname=aarch64
+        ;;
+    *)
+        fail 'CPU must be x64 or arm64'
+        ;;
+esac
+
+[[ "$binary" == /* ]] || binary="$PWD/$binary"
+[[ "$notices" == /* ]] || notices="$PWD/$notices"
+[[ "$output_dir" == /* ]] || output_dir="$PWD/$output_dir"
+[[ -f "$binary" && ! -L "$binary" && -x "$binary" ]] || \
+    fail 'binary must be an executable regular file, not a symbolic link'
+[[ -f "$notices" && ! -L "$notices" && -s "$notices" ]] || \
+    fail 'notices must be a nonempty regular file, not a symbolic link'
+
+script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
+repo_root=$(cd "$script_dir/../.." && pwd -P)
+license_path="$repo_root/LICENSE"
+[[ -f "$license_path" && ! -L "$license_path" && -s "$license_path" ]] || \
+    fail "repository LICENSE is missing or invalid: $license_path"
+
+[[ -r /etc/os-release ]] || fail '/etc/os-release is unavailable'
+. /etc/os-release
+[[ "${ID:-}" == ubuntu ]] || fail 'Debian package generation must run on Ubuntu'
+case "${VERSION_ID:-}" in
+    24.04|26.04) ;;
+    *) fail "package generation requires Ubuntu 24.04 or 26.04; found ${VERSION_ID:-unknown}" ;;
+esac
+[[ "$(uname -m)" == "$expected_uname" ]] || \
+    fail "requested CPU $cpu does not match native runner CPU $(uname -m)"
+[[ "$(dpkg --print-architecture)" == "$deb_arch" ]] || \
+    fail "requested CPU $cpu does not match dpkg architecture $(dpkg --print-architecture)"
+
+for tool in dpkg dpkg-deb dpkg-shlibdeps readelf sha256sum tar gzip install stat mktemp mv rm du find cmp; do
+    command -v "$tool" >/dev/null 2>&1 || fail "required tool is unavailable: $tool"
+done
+
+machine=$(LC_ALL=C readelf -h "$binary" 2>/dev/null | awk -F: '$1 ~ /Machine/ { sub(/^[[:space:]]+/, "", $2); print $2 }')
+[[ "$machine" == "$expected_machine" ]] || \
+    fail "binary ELF machine must be $expected_machine; found ${machine:-unknown}"
+needed=$(LC_ALL=C readelf -d "$binary" 2>/dev/null) || fail 'binary is not a readable ELF executable'
+[[ "$needed" == *libwebkitgtk-6.0.so* ]] || \
+    fail 'binary does not dynamically link the system WebKitGTK 6.0 runtime'
+[[ "$needed" != *libdbus-1.so* ]] || \
+    fail 'binary links libdbus; the Linux package must not include or depend on libdbus'
+
+output_parent_input=$(dirname "$output_dir")
+output_name=$(basename "$output_dir")
+[[ "$output_name" != '.' && "$output_name" != '/' && -n "$output_name" ]] || \
+    fail 'output directory must have a final path component'
+[[ -d "$output_parent_input" ]] || fail 'parent of output directory must already exist'
+output_parent=$(cd "$output_parent_input" && pwd -P)
+output_root="$output_parent/$output_name"
+[[ ! -e "$output_root" && ! -L "$output_root" ]] || \
+    fail 'output directory already exists; choose a unique new path'
+
+source_date_epoch=${SOURCE_DATE_EPOCH:-0}
+[[ "$source_date_epoch" =~ ^[0-9]+$ ]] || fail 'SOURCE_DATE_EPOCH must be a nonnegative integer'
+
+stage=$(mktemp -d "$output_parent/.${output_name}.staging.XXXXXXXX")
+stage_identity=$(stat -c '%d:%i' -- "$stage")
+work=''
+work_identity=''
+
+remove_owned_dir() {
+    local path=$1
+    local expected_identity=$2
+    local current_identity=''
+    [[ -n "$path" && -n "$expected_identity" && -d "$path" && ! -L "$path" ]] || return 0
+    current_identity=$(stat -c '%d:%i' -- "$path") || return 1
+    if [[ "$current_identity" != "$expected_identity" ]]; then
+        printf 'package-linux: preserving staging path whose identity changed: %s\n' "$path" >&2
+        return 1
+    fi
+    rm -rf -- "$path"
+}
+
+cleanup() {
+    local status=$?
+    trap - EXIT
+    if ! remove_owned_dir "$work" "$work_identity"; then
+        ((status != 0)) || status=1
+    fi
+    if ! remove_owned_dir "$stage" "$stage_identity"; then
+        ((status != 0)) || status=1
+    fi
+    exit "$status"
+}
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+work=$(mktemp -d "$output_parent/.${output_name}.work.XXXXXXXX")
+work_identity=$(stat -c '%d:%i' -- "$work")
+
+deb_name="DiskUnfold_${version}_${cpu}.deb"
+tar_name="DiskUnfold-${version}-linux-${cpu}.tar.gz"
+tar_root="DiskUnfold-${version}-linux-${cpu}"
+deb_root="$work/deb-root"
+tar_root_path="$work/tar-root/$tar_root"
+
+install -d -m 0755 "$deb_root/DEBIAN" "$deb_root/usr/bin" \
+    "$deb_root/usr/share/doc/diskunfold" "$tar_root_path"
+install -m 0755 "$binary" "$deb_root/usr/bin/diskunfold"
+install -m 0644 "$license_path" "$deb_root/usr/share/doc/diskunfold/LICENSE"
+install -m 0644 "$license_path" "$deb_root/usr/share/doc/diskunfold/copyright"
+install -m 0644 "$notices" "$deb_root/usr/share/doc/diskunfold/THIRD-PARTY-NOTICES.txt"
+install -m 0755 "$binary" "$tar_root_path/diskunfold"
+install -m 0644 "$license_path" "$tar_root_path/LICENSE"
+install -m 0644 "$notices" "$tar_root_path/THIRD-PARTY-NOTICES.txt"
+
+mkdir -p "$work/debian"
+cat > "$work/debian/control" <<CONTROL
+Source: diskunfold
+Section: utils
+Priority: optional
+Maintainer: $maintainer
+Standards-Version: 4.6.2
+
+Package: diskunfold
+Architecture: any
+Depends: \${shlibs:Depends}
+Description: Local disk usage analysis for desktop users
+CONTROL
+shlibs_output=$(cd "$work" && LC_ALL=C dpkg-shlibdeps -O -e "$deb_root/usr/bin/diskunfold" 2>"$work/dpkg-shlibdeps.log") || {
+    cat "$work/dpkg-shlibdeps.log" >&2
+    fail 'could not resolve the executable dynamic-library dependencies'
+}
+[[ "$shlibs_output" == shlibs:Depends=* ]] || fail 'dpkg-shlibdeps returned no Depends field'
+depends=${shlibs_output#shlibs:Depends=}
+[[ -n "$depends" ]] || fail 'the Debian package requires at least one runtime dependency'
+[[ "$depends" == *libwebkitgtk-6.0-4* ]] || \
+    fail 'the computed Debian dependencies omit the system WebKitGTK 6.0 package'
+[[ "$depends" != *libdbus* ]] || \
+    fail 'the computed Debian dependencies include libdbus, which is not allowed'
+
+installed_size=$(du -sk -- "$deb_root/usr" | awk '{ print $1 }')
+cat > "$deb_root/DEBIAN/control" <<CONTROL
+Package: diskunfold
+Version: $version
+Section: utils
+Priority: optional
+Architecture: $deb_arch
+Maintainer: $maintainer
+Installed-Size: $installed_size
+Depends: $depends
+Description: Local disk usage analysis for desktop users
+CONTROL
+
+find "$deb_root" -exec touch -h -d "@$source_date_epoch" -- {} +
+export SOURCE_DATE_EPOCH="$source_date_epoch"
+dpkg-deb --build --root-owner-group "$deb_root" "$stage/$deb_name" >/dev/null
+
+tar --sort=name --mtime="@$source_date_epoch" --owner=0 --group=0 --numeric-owner \
+    -C "$work/tar-root" -cf - "$tar_root" | gzip -n -9 > "$stage/$tar_name"
+
+binary_sha256=$(sha256sum -- "$binary" | awk '{ print $1 }')
+[[ "$binary_sha256" =~ ^[0-9a-f]{64}$ ]] || fail 'could not compute the executable SHA-256'
+
+compare_deb_file() {
+    local member=$1
+    local expected_file=$2
+    dpkg-deb --fsys-tarfile "$stage/$deb_name" | tar -xO -f - "$member" | cmp - "$expected_file"
+}
+
+compare_deb_file ./usr/bin/diskunfold "$binary"
+compare_deb_file ./usr/share/doc/diskunfold/LICENSE "$license_path"
+compare_deb_file ./usr/share/doc/diskunfold/copyright "$license_path"
+compare_deb_file ./usr/share/doc/diskunfold/THIRD-PARTY-NOTICES.txt "$notices"
+
+deb_members=$(dpkg-deb --fsys-tarfile "$stage/$deb_name" | tar -tf - | awk '!/\/$/' | LC_ALL=C sort)
+expected_deb_members=$(printf '%s\n' \
+    ./usr/bin/diskunfold \
+    ./usr/share/doc/diskunfold/LICENSE \
+    ./usr/share/doc/diskunfold/THIRD-PARTY-NOTICES.txt \
+    ./usr/share/doc/diskunfold/copyright | LC_ALL=C sort)
+[[ "$deb_members" == "$expected_deb_members" ]] || \
+    fail 'Debian payload contains unexpected files or is missing a required file'
+
+tar -tzf "$stage/$tar_name" | LC_ALL=C sort > "$work/tar-members"
+printf '%s\n' \
+    "$tar_root/" \
+    "$tar_root/LICENSE" \
+    "$tar_root/THIRD-PARTY-NOTICES.txt" \
+    "$tar_root/diskunfold" | LC_ALL=C sort > "$work/tar-members.expected"
+cmp -s "$work/tar-members.expected" "$work/tar-members" || \
+    fail 'tar.gz must contain only one root folder, the executable, LICENSE, and THIRD-PARTY-NOTICES.txt'
+tar -xOzf "$stage/$tar_name" "$tar_root/diskunfold" | cmp - "$binary"
+tar -xOzf "$stage/$tar_name" "$tar_root/LICENSE" | cmp - "$license_path"
+tar -xOzf "$stage/$tar_name" "$tar_root/THIRD-PARTY-NOTICES.txt" | cmp - "$notices"
+
+deb_executable_sha256=$(dpkg-deb --fsys-tarfile "$stage/$deb_name" | \
+    tar -xO -f - ./usr/bin/diskunfold | sha256sum | awk '{ print $1 }')
+tar_executable_sha256=$(tar -xOzf "$stage/$tar_name" "$tar_root/diskunfold" | \
+    sha256sum | awk '{ print $1 }')
+[[ "$deb_executable_sha256" == "$binary_sha256" && "$tar_executable_sha256" == "$binary_sha256" ]] || \
+    fail 'packaged executable SHA-256 does not match the built executable'
+
+(
+    cd "$stage"
+    sha256sum -- "$deb_name" "$tar_name" > SHA256SUMS
+)
+cat > "$stage/EXECUTABLE-SHA256.json" <<JSON
+{
+  "schema_version": 1,
+  "product_name": "DiskUnfold",
+  "version": "$version",
+  "executables": [
+    {
+      "artifact_file_name": "$deb_name",
+      "executable_file_name": "diskunfold",
+      "sha256": "$deb_executable_sha256"
+    },
+    {
+      "artifact_file_name": "$tar_name",
+      "executable_file_name": "diskunfold",
+      "sha256": "$tar_executable_sha256"
+    }
+  ]
+}
+JSON
+chmod 0644 "$stage/SHA256SUMS" "$stage/EXECUTABLE-SHA256.json"
+(
+    cd "$stage"
+    sha256sum -c SHA256SUMS >/dev/null
+)
+
+remove_owned_dir "$work" "$work_identity" || fail 'could not safely remove private work staging'
+work=''
+work_identity=''
+mv -nT -- "$stage" "$output_root" || fail 'could not publish the new output directory without replacing an existing path'
+[[ ! -e "$stage" && ! -L "$stage" ]] || \
+    fail 'output path appeared during packaging; preserved it and discarded this package attempt'
+stage=''
+stage_identity=''
+
+printf 'Linux packages created and inspected.\n'
+printf 'deb=%s/%s\n' "$output_root" "$deb_name"
+printf 'tar_gz=%s/%s\n' "$output_root" "$tar_name"
+printf 'sha256sums=%s/SHA256SUMS\n' "$output_root"
+printf 'executable_sha256=%s/EXECUTABLE-SHA256.json\n' "$output_root"
+printf 'signature=unsigned; provenance=not-created; publication=not-performed\n'
