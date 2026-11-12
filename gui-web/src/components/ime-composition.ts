@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import type { CompositionEvent, KeyboardEvent } from "react";
+import type { KeyboardEvent } from "react";
 
 type CompositionState = "idle" | "composing" | "just-ended";
 
@@ -25,19 +25,19 @@ export function useImeComposition(
     [],
   );
 
-  function onCompositionStart(_event: CompositionEvent<HTMLInputElement>) {
+  function onCompositionStart() {
     clearResetTimer();
     state.current = "composing";
     onCompositionChange?.(true);
   }
 
-  function onCompositionUpdate(_event: CompositionEvent<HTMLInputElement>) {
+  function onCompositionUpdate() {
     clearResetTimer();
     state.current = "composing";
     onCompositionChange?.(true);
   }
 
-  function onCompositionEnd(_event: CompositionEvent<HTMLInputElement>) {
+  function onCompositionEnd() {
     clearResetTimer();
     state.current = "just-ended";
     onCompositionChange?.(false);
