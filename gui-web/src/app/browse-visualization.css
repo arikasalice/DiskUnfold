@@ -1,0 +1,4 @@
+/* The app grid rule otherwise overrides the browser's hidden attribute rule. */
+.du-app > .du-browse-shell[hidden] {
+  display: none;
+}

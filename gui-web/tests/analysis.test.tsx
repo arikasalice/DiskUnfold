@@ -10,7 +10,14 @@ import {
 import axe from "axe-core";
 import { afterEach, expect, test, vi } from "vitest";
 import { App } from "../src/app/App";
+import type {
+  BrowseVisualizationProvider,
+  BrowseVisualizationSelection,
+} from "../src/app/browse-visualization";
+import { createChartRenderers } from "../src/components";
 import { AnalysisError, createAnalysisClient, windowsPath } from "../src/ipc";
+import { fixtureText, modelFixture } from "../preview/model-fixture";
+import type { VisualizationViewRequest } from "../src/features/visualization/VisualizationSession";
 import type {
   AnalysisClient,
   AnalysisJobControl,
@@ -19,6 +26,7 @@ import type {
   BrowseDetail,
   BrowseOpenRequest,
   BrowseOpenResponse,
+  CallEnvelope,
   DisplayPreferences,
   EventEnvelope,
   HistoryListResponse,
@@ -31,6 +39,7 @@ import type {
   TargetProbeEvent,
   VolumeGapRequest,
   VolumeGapResponse,
+  VizCatalog,
 } from "../src/ipc";
 
 afterEach(cleanup);
@@ -72,6 +81,7 @@ function fixture({
   lineageId,
   listJobs,
   readHistory,
+  readBrowse,
 }: {
   stale?: boolean;
   earlyProbe?: EventEnvelope;
@@ -101,6 +111,7 @@ function fixture({
   lineageId?: string;
   listJobs?: () => Promise<AnalysisJobListRow[]>;
   readHistory?: () => HistoryListResponse | Promise<HistoryListResponse>;
+  readBrowse?: (request: BrowseOpenRequest) => BrowseOpenResponse;
 } = {}) {
   const listeners = new Set<(event: EventEnvelope) => void>();
   const calls: { name: string; body: unknown }[] = [];
@@ -220,6 +231,7 @@ function fixture({
           return { outcome: "no_effect" };
         case "browse.open": {
           const request = body as BrowseOpenRequest;
+          if (readBrowse) return readBrowse(request);
           const version = request.resultVersion ?? "result";
           return {
             kind: "opened",
@@ -336,6 +348,20 @@ function fixture({
     },
   };
   return { client, calls, listeners };
+}
+
+function transportClient(
+  base: AnalysisClient,
+  handle: (envelope: CallEnvelope) => Promise<unknown> | unknown,
+): AnalysisClient {
+  const client = createAnalysisClient(async (_command, { envelope }) => ({
+    name: envelope.name,
+    contractVersion: envelope.contractVersion,
+    correlationId: envelope.correlationId,
+    body: await handle(envelope),
+  }));
+  client.subscribe = base.subscribe;
+  return client;
 }
 
 function probe(
@@ -1216,8 +1242,16 @@ test("F24: an expired job releases the scan controls without inventing a result"
   expect(calls.some((call) => call.name === "space.total")).toBe(false);
 });
 
-async function startFixtureScan(client: AnalysisClient) {
-  render(<App analysis={client} />);
+async function startFixtureScan(
+  client: AnalysisClient,
+  visualizationProvider?: BrowseVisualizationProvider,
+) {
+  render(
+    <App
+      analysis={client}
+      {...(visualizationProvider ? { visualizationProvider } : {})}
+    />,
+  );
   fireEvent.click(await screen.findByRole("radio", { name: path.display }));
   fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
   const start = screen.getByRole<HTMLButtonElement>("button", {
@@ -1653,6 +1687,16 @@ test("F03: browse precedes result evidence and returning restores focus", async 
   const { client, calls } = fixture();
   await startFixtureScan(client);
   const evidence = await screen.findByText("At least 42 bytes");
+  expect(
+    screen.queryByRole("button", {
+      name: /space distribution|visualization|graph/i,
+    }),
+  ).toBeNull();
+  expect(
+    screen.queryByRole("region", {
+      name: /space distribution|visualization/i,
+    }),
+  ).toBeNull();
   const browse = screen.getByRole("button", { name: "Browse folders" });
   expect(browse.compareDocumentPosition(evidence)).toBe(
     Node.DOCUMENT_POSITION_FOLLOWING,
@@ -1670,6 +1714,375 @@ test("F03: browse precedes result evidence and returning restores focus", async 
   fireEvent.click(back);
   expect(document.activeElement).toBe(browse);
   expect(screen.getByText("At least 42 bytes")).toBe(evidence);
+  expect(calls.filter(({ name }) => name.startsWith("viz."))).toHaveLength(0);
+});
+
+test("F06: explicit catalog-backed assembly opens from the pinned Browse location and returns focus", async () => {
+  const location = { resultVersion: "result", itemNo: 9 };
+  const base = fixture({
+    readBrowse: (request) => ({
+      kind: "opened",
+      requestSeq: request.requestSeq,
+      origin: "scan",
+      location,
+      breadcrumbs: [
+        { item: location, displayName: { state: "present", value: "Root" } },
+      ],
+      rootKind: "scope_root",
+      currentCorrespondence: false,
+      page: {
+        rowKind: "folder",
+        queryRef: "folder-query",
+        resultVersion: request.resultVersion ?? "result",
+        rows: [],
+        total: { state: "exact", count: 0 },
+        unknownCount: 0,
+        observedAt: timestamp,
+        completeness: "complete",
+        nextCursor: null,
+      },
+      sortStrategies: [],
+      predicateStrategies: [],
+    }),
+  });
+  const catalog: VizCatalog = {
+    formats: ["treemap"],
+    strategies: [{ id: "size-v1", revision: 1 }],
+    measures: ["size"],
+    colorCriteria: ["type"],
+    denominatorCriteria: ["scope"],
+    interpretationTableRevision: 2,
+    requiredDataTableRevision: 3,
+    legendRuleRevision: 4,
+  };
+  const calls: { name: string; body: unknown }[] = [];
+  let mismatchedAggregate = false;
+  const client = transportClient(base.client, async (envelope) => {
+    const { name, body } = envelope;
+    calls.push({ name, body });
+    if (name === "viz.catalog") return catalog;
+    if (name === "viz.view.open") return { viewChannel: "view" };
+    if (name === "viz.render") {
+      const request = body as VisualizationViewRequest & {
+        requestSeq: number;
+        resultRevision: string;
+      };
+      const frame = structuredClone(modelFixture().frame);
+      frame.requestSeq = request.requestSeq;
+      frame.resultRevision = request.resultRevision;
+      frame.model.aggregateScopeRef = mismatchedAggregate
+        ? { ...location, itemNo: 99 }
+        : location;
+      frame.model.navigationScopeRef = location;
+      for (const shape of frame.model.shapes) {
+        if (shape.itemRef) shape.itemRef.resultVersion = request.resultRevision;
+        if (shape.rootBranchRef)
+          shape.rootBranchRef.resultVersion = request.resultRevision;
+      }
+      return frame;
+    }
+    if (name === "viz.view.close") return {};
+    if (name === "viz.cancel") return { controlResult: "no_effect" };
+    return base.client.call(name as never, body as never);
+  });
+  const provider = vi.fn((selection, receivedCatalog) => {
+    expect(selection).toEqual({
+      resultVersion: "result",
+      location,
+      display: { system: "iec", unit: "auto" },
+    });
+    expect(receivedCatalog).toEqual(catalog);
+    const request: VisualizationViewRequest = {
+      resultRevision: selection.resultVersion,
+      format: "treemap",
+      aggregateScopeRef: selection.location,
+      navigationScopeRef: selection.location,
+      strategy: { id: "size-v1", revision: 1 },
+      measure: "size",
+      sizeBasis: "logical",
+      classificationCriterion: "type",
+      colorCriterion: "type",
+      denominatorBasis: "scope",
+      viewport: { width: 700, height: 500, scale: 1 },
+      visibleWindow: { left: 0, top: 0, right: 700, bottom: 500 },
+      minAreaPx2: 1,
+      depthLimit: 1,
+    };
+    return {
+      request,
+      canDisplay: () => true,
+      text: fixtureText,
+      autoLoadRows: false,
+      resolveRenderer: createChartRenderers([]),
+    };
+  });
+
+  await startFixtureScan(client, provider);
+  await screen.findByText("At least 42 bytes");
+  fireEvent.click(screen.getByRole("button", { name: "Browse folders" }));
+  await screen.findByRole("region", { name: "Folder navigation" });
+  const entry = await screen.findByRole("button", {
+    name: "Show space distribution",
+  });
+  const browseShell = document.querySelector<HTMLElement>(".du-browse-shell");
+  expect(browseShell).not.toBeNull();
+  expect(provider).toHaveBeenCalledTimes(1);
+  fireEvent.click(entry);
+  await screen.findByRole("group", { name: "Space distribution" });
+  expect(browseShell?.hidden).toBe(true);
+  expect(browseShell && getComputedStyle(browseShell).display).toBe("none");
+  await screen.findByRole("button", { name: "Back to folders" });
+  await waitFor(() =>
+    expect(calls.some(({ name }) => name === "viz.render")).toBe(true),
+  );
+  expect(calls.find(({ name }) => name === "viz.render")?.body).toMatchObject({
+    resultRevision: "result",
+    navigationScopeRef: location,
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Back to folders" }));
+  await waitFor(() =>
+    expect(
+      calls.some(
+        ({ name, body }) =>
+          name === "viz.view.close" &&
+          JSON.stringify(body) === JSON.stringify({ viewChannel: "view" }),
+      ),
+    ).toBe(true),
+  );
+  expect(document.activeElement).toBe(entry);
+  expect(browseShell?.hidden).toBe(false);
+  expect(browseShell && getComputedStyle(browseShell).display).not.toBe("none");
+  expect(
+    screen.getByRole("region", { name: "Folder navigation" }),
+  ).toBeTruthy();
+
+  mismatchedAggregate = true;
+  fireEvent.click(entry);
+  await screen.findByText("Visualization could not be updated.");
+  expect(
+    screen.queryByRole("group", { name: "Space distribution" }),
+  ).toBeNull();
+  expect(
+    document
+      .querySelector<HTMLElement>(".du-visualization-shell")
+      ?.querySelector("svg.du-geometry"),
+  ).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Back to folders" }));
+  await waitFor(() =>
+    expect(calls.filter(({ name }) => name === "viz.view.close").length).toBe(
+      2,
+    ),
+  );
+  expect(document.activeElement).toBe(entry);
+});
+
+test("F06: missing Browse location and unsupported catalog request keep visualization unavailable", async () => {
+  const base = fixture({
+    readBrowse: (request) => ({
+      kind: "opened",
+      requestSeq: request.requestSeq,
+      origin: "scan",
+      location: null,
+      breadcrumbs: [],
+      rootKind: "scope_root",
+      currentCorrespondence: false,
+      page: {
+        rowKind: "folder",
+        queryRef: "folder-query",
+        resultVersion: request.resultVersion ?? "result",
+        rows: [],
+        total: { state: "exact", count: 0 },
+        unknownCount: 0,
+        observedAt: timestamp,
+        completeness: "complete",
+        nextCursor: null,
+      },
+      sortStrategies: [],
+      predicateStrategies: [],
+    }),
+  });
+  const catalog: VizCatalog = {
+    formats: [],
+    strategies: [],
+    measures: [],
+    colorCriteria: [],
+    denominatorCriteria: [],
+    interpretationTableRevision: 0,
+    requiredDataTableRevision: 0,
+    legendRuleRevision: 0,
+  };
+  const calls: string[] = [];
+  const client = transportClient(base.client, async (envelope) => {
+    calls.push(envelope.name);
+    if (envelope.name === "viz.catalog") return catalog;
+    return base.client.call(envelope.name as never, envelope.body as never);
+  });
+  const provider = vi.fn(() => null);
+  await startFixtureScan(client, provider);
+  await screen.findByText("At least 42 bytes");
+  fireEvent.click(screen.getByRole("button", { name: "Browse folders" }));
+  await screen.findByRole("region", { name: "Folder navigation" });
+  expect(provider).not.toHaveBeenCalled();
+  expect(calls).not.toContain("viz.catalog");
+  expect(
+    screen.queryByRole("button", { name: "Show space distribution" }),
+  ).toBeNull();
+  expect(calls).not.toContain("viz.view.open");
+});
+
+test.each(["format", "revision", "aggregate"] as const)(
+  "F06: rejects a provider request with unsupported %s evidence",
+  async (invalidField) => {
+    const location = { resultVersion: "result", itemNo: 12 };
+    const base = fixture({
+      readBrowse: (request) => ({
+        kind: "opened",
+        requestSeq: request.requestSeq,
+        origin: "scan",
+        location,
+        breadcrumbs: [
+          { item: location, displayName: { state: "present", value: "Root" } },
+        ],
+        rootKind: "scope_root",
+        currentCorrespondence: false,
+        page: {
+          rowKind: "folder",
+          queryRef: "folder-query",
+          resultVersion: request.resultVersion ?? "result",
+          rows: [],
+          total: { state: "exact", count: 0 },
+          unknownCount: 0,
+          observedAt: timestamp,
+          completeness: "complete",
+          nextCursor: null,
+        },
+        sortStrategies: [],
+        predicateStrategies: [],
+      }),
+    });
+    const catalog: VizCatalog = {
+      formats: ["treemap"],
+      strategies: [{ id: "size-v1", revision: 1 }],
+      measures: ["size"],
+      colorCriteria: ["type"],
+      denominatorCriteria: ["scope"],
+      interpretationTableRevision: 2,
+      requiredDataTableRevision: 3,
+      legendRuleRevision: 4,
+    };
+    const calls: string[] = [];
+    const client = transportClient(base.client, async (envelope) => {
+      calls.push(envelope.name);
+      if (envelope.name === "viz.catalog") return catalog;
+      return base.client.call(envelope.name as never, envelope.body as never);
+    });
+    const provider = vi.fn<BrowseVisualizationProvider>(
+      (selection: BrowseVisualizationSelection) => {
+        const request: VisualizationViewRequest = {
+          resultRevision:
+            invalidField === "revision"
+              ? "older-result"
+              : selection.resultVersion,
+          format: invalidField === "format" ? "unsupported" : "treemap",
+          aggregateScopeRef:
+            invalidField === "aggregate"
+              ? { ...selection.location, itemNo: 99 }
+              : selection.location,
+          navigationScopeRef: selection.location,
+          strategy: { id: "size-v1", revision: 1 },
+          measure: "size",
+          sizeBasis: "logical",
+          classificationCriterion: "type",
+          colorCriterion: "type",
+          denominatorBasis: "scope",
+          viewport: { width: 700, height: 500, scale: 1 },
+          visibleWindow: { left: 0, top: 0, right: 700, bottom: 500 },
+          minAreaPx2: 1,
+          depthLimit: 1,
+        };
+        return {
+          request,
+          canDisplay: () => true,
+          text: fixtureText,
+          autoLoadRows: false,
+          resolveRenderer: createChartRenderers([]),
+        };
+      },
+    );
+    await startFixtureScan(client, provider);
+    await screen.findByText("At least 42 bytes");
+    fireEvent.click(screen.getByRole("button", { name: "Browse folders" }));
+    await screen.findByRole("region", { name: "Folder navigation" });
+    await waitFor(() => expect(provider).toHaveBeenCalledTimes(1));
+    expect(calls).toContain("viz.catalog");
+    expect(
+      screen.queryByRole("button", { name: "Show space distribution" }),
+    ).toBeNull();
+    expect(calls).not.toContain("viz.view.open");
+  },
+);
+
+test("F06: a delayed catalog result cannot reopen visualization after Browse closes", async () => {
+  const location = { resultVersion: "result", itemNo: 15 };
+  const base = fixture({
+    readBrowse: (request) => ({
+      kind: "opened",
+      requestSeq: request.requestSeq,
+      origin: "scan",
+      location,
+      breadcrumbs: [
+        { item: location, displayName: { state: "present", value: "Root" } },
+      ],
+      rootKind: "scope_root",
+      currentCorrespondence: false,
+      page: {
+        rowKind: "folder",
+        queryRef: "folder-query",
+        resultVersion: request.resultVersion ?? "result",
+        rows: [],
+        total: { state: "exact", count: 0 },
+        unknownCount: 0,
+        observedAt: timestamp,
+        completeness: "complete",
+        nextCursor: null,
+      },
+      sortStrategies: [],
+      predicateStrategies: [],
+    }),
+  });
+  const catalog: VizCatalog = {
+    formats: ["treemap"],
+    strategies: [{ id: "size-v1", revision: 1 }],
+    measures: ["size"],
+    colorCriteria: ["type"],
+    denominatorCriteria: ["scope"],
+    interpretationTableRevision: 2,
+    requiredDataTableRevision: 3,
+    legendRuleRevision: 4,
+  };
+  let resolveCatalog!: (value: VizCatalog) => void;
+  const pendingCatalog = new Promise<VizCatalog>((resolve) => {
+    resolveCatalog = resolve;
+  });
+  const calls: string[] = [];
+  const client = transportClient(base.client, async (envelope) => {
+    calls.push(envelope.name);
+    if (envelope.name === "viz.catalog") return pendingCatalog;
+    return base.client.call(envelope.name as never, envelope.body as never);
+  });
+  const provider = vi.fn<BrowseVisualizationProvider>(() => null);
+  await startFixtureScan(client, provider);
+  await screen.findByText("At least 42 bytes");
+  fireEvent.click(screen.getByRole("button", { name: "Browse folders" }));
+  await screen.findByRole("region", { name: "Folder navigation" });
+  await waitFor(() => expect(calls).toContain("viz.catalog"));
+  fireEvent.click(screen.getByRole("button", { name: "Back to analysis" }));
+  await act(async () => resolveCatalog(catalog));
+  expect(provider).not.toHaveBeenCalled();
+  expect(
+    screen.queryByRole("button", { name: "Show space distribution" }),
+  ).toBeNull();
+  expect(calls).not.toContain("viz.view.open");
 });
 
 function notifyResult(

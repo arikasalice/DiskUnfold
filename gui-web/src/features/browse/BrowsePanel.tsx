@@ -38,6 +38,11 @@ export interface BrowsePort {
   copyPath?(item: ItemRef): Promise<BrowseCopyPathOutcome>;
 }
 
+export type BrowseOpenLocation = Extract<
+  BrowseOpenResponse,
+  { kind: "opened" }
+>;
+
 type Opened = Extract<BrowseOpenResponse, { kind: "opened" }>;
 type View = { opened: Opened; pages: BrowsePages };
 type ParentLocation = { item?: ItemRef };
@@ -111,11 +116,15 @@ export function BrowsePanel({
   port,
   resultVersion,
   inspectItem,
+  onOpening,
+  onOpened,
   display = { system: "iec", unit: "auto" },
 }: {
   port: BrowsePort;
   resultVersion?: string;
   inspectItem?: InspectItem;
+  onOpening?: () => void;
+  onOpened?: (opened: BrowseOpenLocation) => void;
   display?: SizeDisplay;
 }) {
   const [view, setView] = useState<View>();
@@ -148,6 +157,7 @@ export function BrowsePanel({
       active !== panel.current && panel.current?.contains(active);
 
     opening.current?.abort();
+    onOpening?.();
     const controller = new AbortController();
     opening.current = controller;
     setBusy(true);
@@ -182,6 +192,7 @@ export function BrowsePanel({
           return;
         }
         const pages = new BrowsePages(response.page);
+        onOpened?.(response);
         if (response.rootKind === "virtual_root") {
           virtualRootVersion.current = response.page.resultVersion;
         }
