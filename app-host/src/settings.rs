@@ -89,7 +89,7 @@ fn restore_settings(
         .map_err(|error| io::Error::other(format!("settings.registration_failed: {error:?}")))?;
     let mut store = database.settings();
     let transition = store.advance_schema();
-    let migrated = transition == Ok(true);
+    let migrated_from = transition.as_ref().ok().copied().flatten();
     let mut service = SettingsService::restore(
         registry,
         store,
@@ -99,8 +99,8 @@ fn restore_settings(
         },
         |database, revision, invalid| database.quarantine(revision, invalid, timestamp_ms),
     );
-    if migrated {
-        service.record_migration(du_user_env::settings::EMPTY_SCHEMA_TRANSITION.0);
+    if let Some(from) = migrated_from {
+        service.record_migration(from);
     }
     Ok(service)
 }

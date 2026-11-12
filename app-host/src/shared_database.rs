@@ -134,14 +134,13 @@ pub(super) struct SharedSettings(SharedDatabase);
 
 impl SharedSettings {
     /// Applies the registered additive-only transition under the GUI startup lock.
-    pub(super) fn advance_schema(&mut self) -> Result<bool, SettingsStoreError> {
-        let (from, to) = du_user_env::settings::EMPTY_SCHEMA_TRANSITION;
+    pub(super) fn advance_schema(&mut self) -> Result<Option<u32>, SettingsStoreError> {
         self.0
             .0
             .connection
             .lock()
             .map_err(|_| SettingsStoreError::Storage)?
-            .advance_empty_settings_schema(from, to)
+            .advance_empty_settings_schema(du_user_env::settings::EMPTY_SCHEMA_TRANSITIONS)
     }
     /// Loads raw rows for startup restoration without opening another connection.
     pub(super) fn load_for_restore(

@@ -47,7 +47,7 @@ fn setup() -> Result<SettingsService<Fake>, String> {
     };
     let registry = Registry::new([descriptor]).map_err(|e| format!("{e:?}"))?;
     let snapshot = SettingsSnapshot {
-        schema_version: 2,
+        schema_version: SETTINGS_SCHEMA_VERSION,
         ..SettingsSnapshot::default()
     };
     SettingsService::open(
@@ -185,7 +185,7 @@ fn unvalidated_stored_values_and_schema_mismatches_are_not_exposed() -> Result<(
         kind: ValueKind::Boolean,
         editable: true,
     };
-    for version in [0, 3] {
+    for version in [0, SETTINGS_SCHEMA_VERSION + 1] {
         let registry = Registry::new([descriptor.clone()]).map_err(|e| format!("{e:?}"))?;
         let snapshot = SettingsSnapshot {
             schema_version: version,
@@ -211,7 +211,7 @@ fn unvalidated_stored_values_and_schema_mismatches_are_not_exposed() -> Result<(
         let registry = Registry::new([descriptor.clone()]).map_err(|e| format!("{e:?}"))?;
         let snapshot = SettingsSnapshot {
             revision: 3,
-            schema_version: 2,
+            schema_version: SETTINGS_SCHEMA_VERSION,
             values: [(key.into(), value)].into(),
         };
         let result = SettingsService::open(

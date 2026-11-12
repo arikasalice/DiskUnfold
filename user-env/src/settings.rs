@@ -10,8 +10,12 @@ mod restore_status;
 pub mod search;
 pub use restore_status::{RestoreItem, RestoreSource, RestoreStatus};
 
-/// Registered additive-only transition for the F03 display descriptors.
-pub const EMPTY_SCHEMA_TRANSITION: (u32, u32) = (1, SETTINGS_SCHEMA_VERSION);
+/// Registered additive-only logical settings schema transitions.
+///
+/// Both stages add selection descriptors without changing stored values.
+/// Every stage must be registered, including an empty stage, before startup
+/// can move a database to the current schema.
+pub const EMPTY_SCHEMA_TRANSITIONS: &[(u32, u32)] = &[(1, 2), (2, SETTINGS_SCHEMA_VERSION)];
 
 /// Builds the shared startup catalog from each feature's registered descriptors.
 pub fn builtin_descriptors(
@@ -396,6 +400,23 @@ mod restore_tests;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod schema_transitions_tests {
+    use super::*;
+
+    #[test]
+    fn all_empty_descriptor_stages_are_registered_in_order() {
+        assert_eq!(
+            EMPTY_SCHEMA_TRANSITIONS,
+            &[(1, 2), (2, SETTINGS_SCHEMA_VERSION)]
+        );
+        assert_eq!(
+            EMPTY_SCHEMA_TRANSITIONS.last().map(|(_, to)| *to),
+            Some(SETTINGS_SCHEMA_VERSION)
+        );
+    }
+}
 
 #[cfg(test)]
 mod display_units_tests;

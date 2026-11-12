@@ -120,6 +120,7 @@ mod tests {
     use super::*;
     use crate::settings::{SettingsError, SettingsService};
     use crate::{Registry, accepts};
+    use du_core_contracts::settings::SETTINGS_SCHEMA_VERSION;
     use du_core_contracts::settings::{
         SettingsChanges, SettingsCommit, SettingsSnapshot, SettingsStore, SettingsStoreError,
     };
@@ -128,7 +129,7 @@ mod tests {
     impl SettingsStore for Store {
         fn load(&mut self) -> Result<SettingsSnapshot, SettingsStoreError> {
             Ok(SettingsSnapshot {
-                schema_version: 2,
+                schema_version: SETTINGS_SCHEMA_VERSION,
                 ..SettingsSnapshot::default()
             })
         }
@@ -196,7 +197,7 @@ mod tests {
             |_| {
                 Ok((
                     3,
-                    2,
+                    SETTINGS_SCHEMA_VERSION,
                     [
                         ("display.size_unit".into(), "\"bogus\"".into()),
                         ("display.size_unit_system".into(), "\"si\"".into()),
@@ -267,7 +268,7 @@ mod tests {
     #[test]
     fn restores_valid_overrides_without_consulting_unrelated_keys() {
         let mut snapshot = SettingsSnapshot {
-            schema_version: 2,
+            schema_version: SETTINGS_SCHEMA_VERSION,
             ..SettingsSnapshot::default()
         };
         snapshot
@@ -291,7 +292,7 @@ mod tests {
             .insert(SHARED_TABLE_MAX_ENTRIES.into(), json!(99_999));
         assert_eq!(restore_shared_table_limit(&snapshot), None);
         snapshot.values.clear();
-        snapshot.schema_version = 3;
+        snapshot.schema_version = SETTINGS_SCHEMA_VERSION + 1;
         assert_eq!(restore_shared_table_limit(&snapshot), None);
     }
 }

@@ -60,46 +60,25 @@ fn store_error(error: Error) -> SettingsStoreError {
 }
 
 impl AppDb {
-    /// Advances an additive-only logical schema while preserving all setting rows.
-    /// The caller must hold the GUI startup lock and supply a registered transition.
+    /// Applies all registered additive-only transitions to the current schema.
+    ///
+    /// Every transition is validated before one final version update. Empty
+    /// descriptor stages still require a registration in the ordered list.
+    /// Returns the actual starting schema when a migration commits. The caller
+    /// must hold the GUI startup lock and supply the complete ordered registry.
     pub fn advance_empty_settings_schema(
         &mut self,
-        from: u32,
-        to: u32,
-    ) -> Result<bool, SettingsStoreError> {
-        if (from, to) != (1, SETTINGS_SCHEMA_VERSION) {
-            return Err(SettingsStoreError::Conflict);
-        }
+        transitions: &[(u32, u32)],
+    ) -> Result<Option<u32>, SettingsStoreError> {
+        validate_empty_transitions(transitions)?;
+        let target = SETTINGS_SCHEMA_VERSION;
         let observed: u32 = self.connection.query_row("SELECT schema_version FROM user_env_setting_version WHERE version_key = 'settings'", [], |row| row.get(0)).map_err(store_error)?;
-        if observed != from {
-            return if observed >= to {
-                Ok(false)
-            } else {
-                Err(SettingsStoreError::Conflict)
-            };
+        if observed >= target {
+            return Ok(None);
         }
-        let tx = self
-            .connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(store_error)?;
-        let schema: u32 = tx.query_row("SELECT schema_version FROM user_env_setting_version WHERE version_key = 'settings'", [], |row| row.get(0)).map_err(store_error)?;
-        if schema != from {
-            return if schema >= to {
-                Ok(false)
-            } else {
-                Err(SettingsStoreError::Conflict)
-            };
-        }
-        if to != from.checked_add(1).ok_or(SettingsStoreError::Storage)? {
-            return Err(SettingsStoreError::Conflict);
-        }
-        let changed = tx.execute("UPDATE user_env_setting_version SET schema_version = ?1 WHERE version_key = 'settings' AND schema_version = ?2", params![to, from]).map_err(store_error)?;
-        let actual: u32 = tx.query_row("SELECT schema_version FROM user_env_setting_version WHERE version_key = 'settings'", [], |row| row.get(0)).map_err(store_error)?;
-        if changed != 1 || actual != to {
-            return Err(SettingsStoreError::Conflict);
-        }
-        tx.commit().map_err(store_error)?;
-        Ok(true)
+        let path = transitions_from(transitions, observed)?;
+        apply_empty_settings_schema_transitions(&mut self.connection, observed, &path)?;
+        Ok(Some(observed))
     }
     /// Reads the category revision, schema and raw rows from one database snapshot.
     /// Raw values allow the policy layer to isolate a malformed registered row.
@@ -189,6 +168,85 @@ impl AppDb {
     }
 }
 
+fn apply_empty_settings_schema_transitions(
+    connection: &mut rusqlite::Connection,
+    observed: u32,
+    path: &[(u32, u32)],
+) -> Result<(), SettingsStoreError> {
+    let target = path
+        .last()
+        .map(|(_, to)| *to)
+        .filter(|target| *target == SETTINGS_SCHEMA_VERSION)
+        .ok_or(SettingsStoreError::Conflict)?;
+    if path.first().map(|(from, _)| *from) != Some(observed) {
+        return Err(SettingsStoreError::Conflict);
+    }
+    let tx = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(store_error)?;
+    let schema: u32 = tx
+        .query_row(
+            "SELECT schema_version FROM user_env_setting_version WHERE version_key = 'settings'",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(store_error)?;
+    if schema != observed {
+        return Err(SettingsStoreError::Conflict);
+    }
+    let changed = tx.execute(
+        "UPDATE user_env_setting_version SET schema_version = ?1 WHERE version_key = 'settings' AND schema_version = ?2",
+        params![target, observed],
+    ).map_err(store_error)?;
+    let actual: u32 = tx
+        .query_row(
+            "SELECT schema_version FROM user_env_setting_version WHERE version_key = 'settings'",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(store_error)?;
+    if changed != 1 || actual != target {
+        return Err(SettingsStoreError::Conflict);
+    }
+    tx.commit().map_err(store_error)
+}
+
+fn validate_empty_transitions(transitions: &[(u32, u32)]) -> Result<(), SettingsStoreError> {
+    let mut expected = 1;
+    for &(from, to) in transitions {
+        if from != expected || to != from.checked_add(1).ok_or(SettingsStoreError::Conflict)? {
+            return Err(SettingsStoreError::Conflict);
+        }
+        expected = to;
+    }
+    if transitions.is_empty() || expected != SETTINGS_SCHEMA_VERSION {
+        return Err(SettingsStoreError::Conflict);
+    }
+    Ok(())
+}
+
+fn transitions_from(
+    transitions: &[(u32, u32)],
+    schema: u32,
+) -> Result<Vec<(u32, u32)>, SettingsStoreError> {
+    let mut current = schema;
+    let mut path = Vec::new();
+    for &(from, to) in transitions {
+        if to <= current {
+            continue;
+        }
+        if from != current {
+            return Err(SettingsStoreError::Conflict);
+        }
+        path.push((from, to));
+        current = to;
+    }
+    if current != SETTINGS_SCHEMA_VERSION {
+        return Err(SettingsStoreError::Conflict);
+    }
+    Ok(path)
+}
+
 impl SettingsStore for AppDb {
     fn load(&mut self) -> Result<SettingsSnapshot, SettingsStoreError> {
         let tx = self.connection.transaction().map_err(store_error)?;
@@ -264,5 +322,45 @@ impl SettingsStore for AppDb {
         }
         tx.commit().map_err(store_error)?;
         u64::try_from(next).map_err(|_| SettingsStoreError::Storage)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn schema_mismatch_at_transaction_start_preserves_newer_state()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let mut db = AppDb::create_gui(&dir.path().join("schema-race.db"))
+            .map_err(|error| format!("{error:?}"))?;
+        db.connection.execute(
+            "UPDATE user_env_setting_version SET schema_version=?1,settings_version=9,updated_at_ms=11",
+            [SETTINGS_SCHEMA_VERSION],
+        )?;
+        db.connection.execute_batch(
+            "INSERT INTO user_env_setting VALUES ('scope.remember_recent','false','screen',3,7,4);",
+        )?;
+        let before: (u32, i64, i64, String, String, i64, i64, i64) = db.connection.query_row(
+            "SELECT v.schema_version, v.settings_version, v.updated_at_ms, s.setting_key, s.value_json, s.created_at_ms, s.updated_at_ms, s.row_version FROM user_env_setting_version v CROSS JOIN user_env_setting s",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?, row.get(7)?)),
+        )?;
+        assert_eq!(
+            apply_empty_settings_schema_transitions(
+                &mut db.connection,
+                1,
+                &[(1, 2), (2, SETTINGS_SCHEMA_VERSION)],
+            ),
+            Err(SettingsStoreError::Conflict)
+        );
+        let after: (u32, i64, i64, String, String, i64, i64, i64) = db.connection.query_row(
+            "SELECT v.schema_version, v.settings_version, v.updated_at_ms, s.setting_key, s.value_json, s.created_at_ms, s.updated_at_ms, s.row_version FROM user_env_setting_version v CROSS JOIN user_env_setting s",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?, row.get(7)?)),
+        )?;
+        assert_eq!(after, before);
+        Ok(())
     }
 }

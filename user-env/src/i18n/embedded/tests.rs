@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::*;
 use crate::i18n::parameter_mismatches;
+use du_core_contracts::settings::SETTINGS_SCHEMA_VERSION;
 
 fn built_in_pair() -> Result<[BundleResource<'static>; 2], RegistrationError> {
     let mut rows: BTreeMap<_, _> = resources()?
@@ -201,7 +202,7 @@ fn registered_catalog_carries_only_published_group_and_level_pairs()
     let registry = crate::Registry::new(descriptors).map_err(|e| format!("{e:?}"))?;
     let snapshot = SettingsSnapshot {
         revision: 17,
-        schema_version: 2,
+        schema_version: SETTINGS_SCHEMA_VERSION,
         values: BTreeMap::from([("scope.remember_recent".into(), serde_json::json!(false))]),
     };
     let before = snapshot.clone();

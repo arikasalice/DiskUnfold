@@ -104,11 +104,12 @@ pub fn recent_write_limit(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use du_core_contracts::settings::SETTINGS_SCHEMA_VERSION;
 
     #[test]
     fn default_disabled_and_unreadable_values_follow_the_published_policy() {
         let mut snapshot = SettingsSnapshot {
-            schema_version: 2,
+            schema_version: SETTINGS_SCHEMA_VERSION,
             ..SettingsSnapshot::default()
         };
         assert!(remember_recent(&snapshot));
@@ -119,7 +120,7 @@ mod tests {
             .insert(REMEMBER_RECENT.into(), json!("invalid"));
         assert!(remember_recent(&snapshot));
         snapshot.values.insert(REMEMBER_RECENT.into(), json!(false));
-        snapshot.schema_version = 3;
+        snapshot.schema_version = SETTINGS_SCHEMA_VERSION + 1;
         assert!(remember_recent(&snapshot));
     }
 

@@ -76,6 +76,7 @@ impl Registry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use du_core_contracts::settings::SETTINGS_SCHEMA_VERSION;
     use serde_json::json;
 
     #[test]
@@ -99,7 +100,7 @@ mod tests {
         assert_eq!(catalog[0].value, &json!("auto"));
         let custom = SettingsSnapshot {
             revision: 1,
-            schema_version: 2,
+            schema_version: SETTINGS_SCHEMA_VERSION,
             values: BTreeMap::from([("locale.language".into(), json!("ko"))]),
         };
         let catalog = registry.catalog(&custom);

@@ -106,7 +106,10 @@ fn recent_scope_setting_defaults_on_when_restoration_fails()
     let path = dir.path().join("settings.db");
     seed(&path, 200_000)?;
     let db = Connection::open(&path)?;
-    db.execute_batch("UPDATE user_env_setting_version SET schema_version = 3;")?;
+    db.execute(
+        "UPDATE user_env_setting_version SET schema_version=?1",
+        [SETTINGS_SCHEMA_VERSION + 1],
+    )?;
     drop(db);
     let service = open_settings(&path, 100)?;
     assert!(service.restore_status().write_locked);

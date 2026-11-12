@@ -1,6 +1,8 @@
 use super::*;
 use du_app_db::AppDb;
-use du_core_contracts::settings::{SettingsChanges, SettingsCommit, SettingsSource, SettingsStore};
+use du_core_contracts::settings::{
+    SETTINGS_SCHEMA_VERSION, SettingsChanges, SettingsCommit, SettingsSource, SettingsStore,
+};
 use du_core_contracts::{CallEnvelope, ResultEnvelope};
 use du_engine_api::{
     api::{CallerCtx, Channel, EngineBuilder, OutboundFilter},
@@ -72,7 +74,7 @@ fn source_keeps_startup_service_and_report_alive() -> Result<(), Box<dyn std::er
     let source = settings.clone().scan_limit_source();
     drop(settings);
     let retained = weak.upgrade().ok_or("settings dropped")?;
-    assert_eq!(retained.status.stored_schema, Some(2));
+    assert_eq!(retained.status.stored_schema, Some(SETTINGS_SCHEMA_VERSION));
     assert_eq!(
         retained.status.items[space::SHARED_TABLE_MAX_ENTRIES].reason,
         Some("settings.value_invalid")
@@ -181,12 +183,13 @@ fn restore_status_is_immutable_value_free_and_only_available_to_the_gui()
                 {"key": "locale.display_language", "source": "restored", "reasonKey": null},
                 {"key": "locale.number_format", "source": "default", "reasonKey": null},
                 {"key": "locale.time_zone_policy", "source": "default", "reasonKey": null},
+                {"key": "scope.recent_limit", "source": "default", "reasonKey": null},
                 {"key": "scope.remember_recent", "source": "default", "reasonKey": null},
                 {"key": "space.default_basis", "source": "default", "reasonKey": null},
                 {"key": "space.shared_table_max_entries", "source": "default", "reasonKey": "settings.value_invalid"}
             ],
-            "storedSchema": 2,
-            "appSchema": 2,
+            "storedSchema": SETTINGS_SCHEMA_VERSION,
+            "appSchema": SETTINGS_SCHEMA_VERSION,
             "migrated": false,
             "writeLocked": false
         })
@@ -272,7 +275,10 @@ fn startup_locks_newer_schema_and_category_failures_but_not_database_open_failur
     let path = dir.path().join("newer.db");
     seed(&path, 200_000)?;
     let db = Connection::open(&path)?;
-    db.execute_batch("UPDATE user_env_setting_version SET schema_version = 3;")?;
+    db.execute(
+        "UPDATE user_env_setting_version SET schema_version = ?1",
+        [SETTINGS_SCHEMA_VERSION + 1],
+    )?;
     drop(db);
     let mut service = open_settings(&path, 100)?;
     assert_eq!(
@@ -295,7 +301,7 @@ fn startup_locks_newer_schema_and_category_failures_but_not_database_open_failur
     drop(service);
     let db = Connection::open(&path)?;
     let (schema, count): (i64, i64) = db.query_row("SELECT schema_version, (SELECT count(*) FROM user_env_setting) FROM user_env_setting_version", [], |r| Ok((r.get(0)?,r.get(1)?)))?;
-    assert_eq!((schema, count), (3, 2));
+    assert_eq!((schema, count), (i64::from(SETTINGS_SCHEMA_VERSION + 1), 2));
     db.execute_batch(
         "UPDATE user_env_setting_version SET schema_version = 1; DROP TABLE user_env_setting;",
     )?;

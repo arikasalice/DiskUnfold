@@ -1,10 +1,12 @@
 use super::*;
 use du_core_contracts::settings::{
-    SettingsChanges, SettingsCommit, SettingsSource, SettingsStore, SettingsStoreError,
+    SETTINGS_SCHEMA_VERSION, SettingsChanges, SettingsCommit, SettingsSource, SettingsStore,
+    SettingsStoreError,
 };
 use serde_json::json;
 use std::collections::BTreeMap;
 type StoredSettingRow = (String, String, String, i64, i64, i64);
+const EMPTY_TRANSITIONS: &[(u32, u32)] = &[(1, 2), (2, 3)];
 
 #[test]
 fn read_only_legacy_settings_load_does_not_advance_schema() -> Result<(), Box<dyn std::error::Error>>
@@ -42,17 +44,29 @@ fn concurrent_empty_transitions_apply_once() -> Result<(), Box<dyn std::error::E
             std::thread::spawn(move || {
                 let mut db = AppDb::open_gui(&path).map_err(|e| format!("{e:?}"))?;
                 barrier.wait();
-                db.advance_empty_settings_schema(1, 2)
+                db.advance_empty_settings_schema(EMPTY_TRANSITIONS)
                     .map_err(|e| format!("{e:?}"))
             })
         })
         .collect();
     let mut results = Vec::new();
     for worker in workers {
-        results.push(worker.join().map_err(|_| "thread failed")??);
+        results.push(worker.join().map_err(|_| "thread failed")?);
     }
     results.sort();
-    assert_eq!(results, [false, true]);
+    assert_eq!(
+        results
+            .iter()
+            .filter(|result| **result == Ok(Some(1)))
+            .count(),
+        1
+    );
+    assert_eq!(results.len(), 2);
+    assert!(results.iter().any(|result| match result {
+        Ok(None) => true,
+        Err(error) => error == "Conflict",
+        _ => false,
+    }));
     Ok(())
 }
 
@@ -66,11 +80,11 @@ fn ignored_or_rewritten_schema_update_is_rolled_back() -> Result<(), Box<dyn std
     )?;
     for trigger in [
         "CREATE TRIGGER prevent BEFORE UPDATE OF schema_version ON user_env_setting_version BEGIN SELECT RAISE(IGNORE); END;",
-        "CREATE TRIGGER prevent AFTER UPDATE OF schema_version ON user_env_setting_version WHEN NEW.schema_version=2 BEGIN UPDATE user_env_setting_version SET schema_version=1 WHERE version_key='settings'; END;",
+        "CREATE TRIGGER prevent AFTER UPDATE OF schema_version ON user_env_setting_version WHEN NEW.schema_version=3 BEGIN UPDATE user_env_setting_version SET schema_version=1 WHERE version_key='settings'; END;",
     ] {
         db.connection.execute_batch(trigger)?;
         assert_eq!(
-            db.advance_empty_settings_schema(1, 2),
+            db.advance_empty_settings_schema(EMPTY_TRANSITIONS),
             Err(SettingsStoreError::Conflict)
         );
         let state: (i64, i64, i64) = db.connection.query_row("SELECT schema_version,settings_version,(SELECT count(*) FROM user_env_setting) FROM user_env_setting_version", [], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?)))?;
@@ -106,9 +120,19 @@ fn empty_schema_transition_preserves_rows_revision_and_rolls_back_on_failure()
         .collect()
     };
     let before = rows()?;
+    assert_eq!(
+        db.advance_empty_settings_schema(&[(1, 2)]),
+        Err(SettingsStoreError::Conflict),
+        "an absent later stage is not an empty registered stage"
+    );
+    assert_eq!(
+        db.advance_empty_settings_schema(&[(2, 3), (1, 2)]),
+        Err(SettingsStoreError::Conflict),
+        "the complete transition registry must be ordered and contiguous"
+    );
     db.connection.execute_batch("CREATE TRIGGER reject_schema BEFORE UPDATE OF schema_version ON user_env_setting_version BEGIN SELECT RAISE(ABORT, 'injected'); END;")?;
     assert_eq!(
-        db.advance_empty_settings_schema(1, 2),
+        db.advance_empty_settings_schema(EMPTY_TRANSITIONS),
         Err(SettingsStoreError::Storage)
     );
     assert_eq!(rows()?, before);
@@ -118,20 +142,68 @@ fn empty_schema_transition_preserves_rows_revision_and_rolls_back_on_failure()
         |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
     )?;
     assert_eq!(version, (7, 1, 9));
-    db.connection.execute_batch("DROP TRIGGER reject_schema")?;
-    assert_eq!(db.advance_empty_settings_schema(1, 2), Ok(true));
-    assert_eq!(stale.advance_empty_settings_schema(1, 2), Ok(false));
+    db.connection.execute_batch(
+        "DROP TRIGGER reject_schema;
+        CREATE TABLE schema_update_audit(schema_version INTEGER NOT NULL);
+        CREATE TRIGGER record_schema_update AFTER UPDATE OF schema_version ON user_env_setting_version
+        BEGIN INSERT INTO schema_update_audit VALUES (NEW.schema_version); END;",
+    )?;
+    assert_eq!(
+        db.advance_empty_settings_schema(EMPTY_TRANSITIONS),
+        Ok(Some(1))
+    );
+    let updates: Vec<u32> = db
+        .connection
+        .prepare("SELECT schema_version FROM schema_update_audit ORDER BY rowid")?
+        .query_map([], |row| row.get(0))?
+        .collect::<Result<_, _>>()?;
+    assert_eq!(updates, [SETTINGS_SCHEMA_VERSION]);
+    assert_eq!(
+        stale.advance_empty_settings_schema(EMPTY_TRANSITIONS),
+        Ok(None)
+    );
     assert_eq!(rows()?, before);
     let version: (i64, i64, i64) = db.connection.query_row(
         "SELECT settings_version,schema_version,updated_at_ms FROM user_env_setting_version",
         [],
         |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
     )?;
-    assert_eq!(version, (7, 2, 9));
+    assert_eq!(version, (7, 3, 9));
     assert_eq!(
-        db.advance_empty_settings_schema(2, 3),
+        db.advance_empty_settings_schema(&[(2, 3)]),
         Err(SettingsStoreError::Conflict)
     );
+    Ok(())
+}
+
+#[test]
+fn final_schema_update_failure_rolls_back_all_registered_empty_transitions()
+-> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("final-transition-failure.db");
+    let mut db = AppDb::create_gui(&path).map_err(|e| format!("{e:?}"))?;
+    db.connection.execute_batch(
+        "UPDATE user_env_setting_version SET schema_version=1,settings_version=8,updated_at_ms=9;
+        INSERT INTO user_env_setting VALUES ('scope.remember_recent','false','screen',3,7,4);
+        CREATE TRIGGER reject_final_update BEFORE UPDATE OF schema_version ON user_env_setting_version
+        WHEN NEW.schema_version=3 BEGIN SELECT RAISE(ABORT, 'injected final update failure'); END;",
+    )?;
+    let before: (i64, i64, i64, String, String, i64, i64, i64) = db.connection.query_row(
+        "SELECT v.settings_version, v.schema_version, v.updated_at_ms, s.setting_key, s.value_json, s.created_at_ms, s.updated_at_ms, s.row_version FROM user_env_setting_version v CROSS JOIN user_env_setting s",
+        [],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?)),
+    )?;
+    assert_eq!(
+        db.advance_empty_settings_schema(EMPTY_TRANSITIONS),
+        Err(SettingsStoreError::Storage)
+    );
+    let after: (i64, i64, i64, String, String, i64, i64, i64) = db.connection.query_row(
+        "SELECT v.settings_version, v.schema_version, v.updated_at_ms, s.setting_key, s.value_json, s.created_at_ms, s.updated_at_ms, s.row_version FROM user_env_setting_version v CROSS JOIN user_env_setting s",
+        [],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?)),
+    )?;
+    assert_eq!(after, before);
+    assert_eq!(after.1, 1);
     Ok(())
 }
 
@@ -156,7 +228,7 @@ fn commit_rejects_schema_or_revision_changes_without_touching_rows()
     );
     other
         .connection
-        .execute_batch("UPDATE user_env_setting_version SET schema_version = 3;")?;
+        .execute_batch("UPDATE user_env_setting_version SET schema_version = 4;")?;
     assert_eq!(
         first.commit(1, &changes, ctx),
         Err(SettingsStoreError::Conflict)
@@ -166,7 +238,7 @@ fn commit_rejects_schema_or_revision_changes_without_touching_rows()
         [],
         |r| Ok((r.get(0)?, r.get(1)?)),
     )?;
-    assert_eq!(version, (1, 3));
+    assert_eq!(version, (1, 4));
     let raw: String = first.connection.query_row(
         "SELECT value_json FROM user_env_setting WHERE setting_key = 'key'",
         [],
@@ -189,11 +261,11 @@ fn database_open_and_settings_category_failures_are_separate()
         Err(SettingsStoreError::Storage)
     );
     db.connection
-        .execute_batch("UPDATE user_env_setting_version SET schema_version = 3;")?;
+        .execute_batch("UPDATE user_env_setting_version SET schema_version = 4;")?;
     let (revision, schema, rows) = db
         .load_settings_for_restore()
         .map_err(|e| format!("{e:?}"))?;
-    assert_eq!((revision, schema, rows.len()), (0, 3, 0));
+    assert_eq!((revision, schema, rows.len()), (0, 4, 0));
     Ok(())
 }
 
@@ -269,7 +341,7 @@ fn raw_restore_retains_malformed_rows_and_can_quarantine_them()
     let (revision, schema, rows) = db
         .load_settings_for_restore()
         .map_err(|e| format!("{e:?}"))?;
-    assert_eq!((revision, schema), (0, 2));
+    assert_eq!((revision, schema), (0, SETTINGS_SCHEMA_VERSION));
     assert_eq!(rows.get("bad").map(String::as_str), Some("{bad"));
     assert_eq!(db.quarantine_settings(0, &rows, 5), Ok(1));
     let raw: String = db.connection.query_row(
@@ -311,7 +383,7 @@ fn quarantine_mid_batch_delete_failure_rolls_back_and_can_retry_after_reopen()
     let (revision, schema, rows) = reopened
         .load_settings_for_restore()
         .map_err(|e| format!("{e:?}"))?;
-    assert_eq!((revision, schema), (1, 2));
+    assert_eq!((revision, schema), (1, SETTINGS_SCHEMA_VERSION));
     assert_eq!(
         rows,
         BTreeMap::from([
@@ -339,7 +411,7 @@ fn quarantine_mid_batch_delete_failure_rolls_back_and_can_retry_after_reopen()
     let (revision, schema, rows) = final_reader
         .load_settings_for_restore()
         .map_err(|e| format!("{e:?}"))?;
-    assert_eq!((revision, schema), (2, 2));
+    assert_eq!((revision, schema), (2, SETTINGS_SCHEMA_VERSION));
     assert_eq!(rows, BTreeMap::from([("z.valid".into(), "3".into())]));
     let mut stmt = final_reader.connection.prepare("SELECT setting_key, raw_value_json, quarantined_at_ms FROM user_env_setting_quarantine ORDER BY setting_key")?;
     let quarantined = stmt

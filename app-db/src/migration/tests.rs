@@ -1,5 +1,6 @@
 use super::*;
 use crate::AppDb;
+use du_core_contracts::settings::SETTINGS_SCHEMA_VERSION;
 
 const STEP2: &str =
     "CREATE TABLE demo_value (value INTEGER NOT NULL) STRICT; INSERT INTO demo_value VALUES(42);";
@@ -373,8 +374,9 @@ fn physical_baseline_does_not_treat_newer_logical_schema_as_table_change()
     let dir = tempfile::tempdir()?;
     let path = dir.path().join("app.db");
     let db = AppDb::create_gui(&path).map_err(|e| format!("{e:?}"))?;
-    db.connection.execute_batch(
-        "UPDATE user_env_setting_version SET schema_version=3, settings_version=4;",
+    db.connection.execute(
+        "UPDATE user_env_setting_version SET schema_version=?1, settings_version=4;",
+        [SETTINGS_SCHEMA_VERSION + 1],
     )?;
     drop(db);
     let steps = definitions();
@@ -393,7 +395,7 @@ fn physical_baseline_does_not_treat_newer_logical_schema_as_table_change()
         [],
         |r| Ok((r.get(0)?, r.get(1)?)),
     )?;
-    assert_eq!(row, (3, 4));
+    assert_eq!(row, (SETTINGS_SCHEMA_VERSION + 1, 4));
     Ok(())
 }
 

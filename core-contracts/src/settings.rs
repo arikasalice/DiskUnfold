@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use serde_json::Value;
 
 /// Current registered logical settings descriptor schema.
-pub const SETTINGS_SCHEMA_VERSION: u32 = 2;
+pub const SETTINGS_SCHEMA_VERSION: u32 = 3;
 
 /// Validated F03 capacity, frozen when a scan is admitted.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

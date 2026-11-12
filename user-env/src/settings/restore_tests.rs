@@ -59,7 +59,7 @@ fn load(
 fn invalid_known_value_only_is_quarantined_and_unknown_retained() -> Result<(), String> {
     let service = SettingsService::restore(
         registry()?,
-        Store(Ok(snapshot(2))),
+        Store(Ok(snapshot(SETTINGS_SCHEMA_VERSION))),
         load,
         |_, revision, invalid| {
             assert_eq!(revision, 1);
@@ -84,7 +84,12 @@ fn invalid_known_value_only_is_quarantined_and_unknown_retained() -> Result<(), 
             status.app_schema,
             status.migrated
         ),
-        (Some(1), Some(2), 2, false)
+        (
+            Some(1),
+            Some(SETTINGS_SCHEMA_VERSION),
+            SETTINGS_SCHEMA_VERSION,
+            false
+        )
     );
     assert_eq!(
         status.items.get("good"),
@@ -120,7 +125,10 @@ fn invalid_known_value_only_is_quarantined_and_unknown_retained() -> Result<(), 
 }
 #[test]
 fn failures_and_newer_schema_default_and_lock_without_quarantine() -> Result<(), String> {
-    for input in [Ok(snapshot(3)), Err(SettingsStoreError::Storage)] {
+    for input in [
+        Ok(snapshot(SETTINGS_SCHEMA_VERSION + 1)),
+        Err(SettingsStoreError::Storage),
+    ] {
         let called = std::cell::Cell::new(false);
         let service = SettingsService::restore(registry()?, Store(input), load, |_, _, _| {
             called.set(true);
@@ -142,10 +150,12 @@ fn failures_and_newer_schema_default_and_lock_without_quarantine() -> Result<(),
             Err(SettingsError::RestoreLocked)
         );
     }
-    let mut service =
-        SettingsService::restore(registry()?, Store(Ok(snapshot(2))), load, |_, _, _| {
-            Err(SettingsStoreError::Conflict)
-        });
+    let mut service = SettingsService::restore(
+        registry()?,
+        Store(Ok(snapshot(SETTINGS_SCHEMA_VERSION))),
+        load,
+        |_, _, _| Err(SettingsStoreError::Conflict),
+    );
     assert_eq!(
         service.restore_status().failure_reason,
         Some("settings.restore_failed")
@@ -168,7 +178,7 @@ fn failures_and_newer_schema_default_and_lock_without_quarantine() -> Result<(),
 #[test]
 fn absent_value_is_a_default_without_failure_reason() -> Result<(), String> {
     let empty = SettingsSnapshot {
-        schema_version: 2,
+        schema_version: SETTINGS_SCHEMA_VERSION,
         ..SettingsSnapshot::default()
     };
     let service = SettingsService::restore(registry()?, Store(Ok(empty)), load, |_, _, _| {
@@ -188,11 +198,11 @@ fn absent_value_is_a_default_without_failure_reason() -> Result<(), String> {
 fn malformed_known_raw_value_is_isolated_but_unknown_raw_value_is_not() -> Result<(), String> {
     let service = SettingsService::restore(
         registry()?,
-        Store(Ok(snapshot(2))),
+        Store(Ok(snapshot(SETTINGS_SCHEMA_VERSION))),
         |_| {
             Ok((
                 1,
-                2,
+                SETTINGS_SCHEMA_VERSION,
                 [
                     (SHARED_TABLE_MAX_ENTRIES.into(), "{broken".into()),
                     ("future.key".into(), "{unknown".into()),

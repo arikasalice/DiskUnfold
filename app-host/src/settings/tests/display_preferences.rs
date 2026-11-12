@@ -176,7 +176,10 @@ fn gui_dispatch_projects_legacy_mismatch_and_restore_failure_without_writes()
         json!({"settingsRevision":"2", "unitSystem":"si", "unit":"MB", "defaultBasis":"allocated", "warningKey":null})
     );
     let db = Connection::open(&path)?;
-    db.execute_batch("UPDATE user_env_setting_version SET schema_version=3;")?;
+    db.execute(
+        "UPDATE user_env_setting_version SET schema_version=?1",
+        [SETTINGS_SCHEMA_VERSION + 1],
+    )?;
     drop(db);
     let settings = Arc::new(StartupSettings::open(
         &test_database(&path)?,
