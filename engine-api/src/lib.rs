@@ -25,6 +25,7 @@ pub mod space;
 mod target_enumeration;
 mod target_probe;
 mod targets;
+pub mod trend_decimation;
 pub mod viz_catalog;
 pub mod viz_pages;
 pub mod watch_gap;
