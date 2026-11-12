@@ -167,7 +167,7 @@ export function App({
         </div>
       </header>
       <LocaleLoadNotice locale={locale} />
-      {!client && !nativeLocaleHost && (
+      {shouldShowConnectionUnavailable(client, nativeLocaleHost) && (
         <div className="du-analysis-slot">
           <Heading level={2}>Desktop connection unavailable</Heading>
           <Text>
@@ -240,6 +240,13 @@ export function App({
       )}
     </main>
   );
+}
+
+function shouldShowConnectionUnavailable(
+  client: AnalysisClient | undefined,
+  nativeLocaleHost: boolean,
+) {
+  return client === undefined && !nativeLocaleHost;
 }
 
 function withRegionalFormat(

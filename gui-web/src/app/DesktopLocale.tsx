@@ -106,7 +106,7 @@ export function DesktopLocale({
     <LocaleTextContext.Provider value={text}>
       <RegionalFormatContext.Provider value={format}>
         <App
-          analysis={analysisEnabled ? client : undefined}
+          {...(analysisEnabled ? { analysis: client } : {})}
           nativeLocaleHost={!analysisEnabled}
           locale={{
             profile: view.profile,
