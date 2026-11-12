@@ -2,10 +2,14 @@
 
 use std::process::ExitCode;
 
+const PRODUCT_INFO_JSON: &str = include_str!(env!("DU_PRODUCT_INFO_PATH"));
+
 fn main() -> ExitCode {
     let mut args = std::env::args_os().skip(1);
     match args.next() {
-        Some(arg) => du_cli::run(std::iter::once(arg).chain(args)),
+        Some(arg) => {
+            du_cli::run_with_product_info_json(std::iter::once(arg).chain(args), PRODUCT_INFO_JSON)
+        }
         None => launch_gui(),
     }
 }

@@ -71,6 +71,12 @@
     "distributed": true,
     "reason": "Decode the local IPC request envelope"
   },
+  "cargo:du-cli:serde_json@1.0.154": {
+    "license": "MIT OR Apache-2.0",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Encode the version-independent support report for CLI JSON output"
+  },
   "cargo:du-arch-check:proc-macro2@1.0.107": {
     "license": "MIT OR Apache-2.0",
     "role": "build",
@@ -280,6 +286,12 @@
     "role": "build",
     "distributed": false,
     "reason": "Locate the Windows SDK resource compiler for the executable icon"
+  },
+  "cargo:du-launcher:serde_json@1.0.154": {
+    "license": "MIT OR Apache-2.0",
+    "role": "build",
+    "distributed": false,
+    "reason": "Embed and validate the executable product metadata resource"
   },
   "cargo:du-platform-os:windows@0.62.2": {
     "license": "MIT OR Apache-2.0",

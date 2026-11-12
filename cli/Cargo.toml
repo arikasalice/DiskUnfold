@@ -9,12 +9,14 @@ license.workspace = true
 windows-console = ["du-platform-os/windows-console"]
 
 [dependencies]
+du-core-contracts = { version = "0.1.0", path = "../core-contracts" }
+du-engine-api = { version = "0.1.0", path = "../engine-api" }
 du-user-env = { version = "0.1.0", path = "../user-env" }
 du-platform-os = { version = "0.1.0", path = "../platform-os" }
+serde_json.workspace = true
 
 [target.'cfg(any(windows, target_os = "linux"))'.dependencies]
 du-app-db = { version = "0.1.0", path = "../app-db" }
-du-core-contracts = { version = "0.1.0", path = "../core-contracts" }
 
 [lints]
 workspace = true

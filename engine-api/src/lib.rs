@@ -25,6 +25,7 @@ pub mod search;
 pub mod search_page;
 pub mod shutdown;
 pub mod space;
+pub mod support;
 mod target_enumeration;
 mod target_probe;
 mod targets;

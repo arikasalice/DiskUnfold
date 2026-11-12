@@ -245,8 +245,10 @@ version = "0.1.0"
 dependencies = [
  "du-app-db",
  "du-core-contracts",
+ "du-engine-api",
  "du-platform-os",
  "du-user-env",
+ "serde_json",
 ]
 
 [[package]]
@@ -311,6 +313,7 @@ dependencies = [
  "du-app-host",
  "du-cli",
  "find-msvc-tools",
+ "serde_json",
 ]
 
 [[package]]

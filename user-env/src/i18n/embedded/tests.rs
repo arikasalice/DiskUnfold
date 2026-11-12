@@ -101,7 +101,7 @@ fn built_in_resources_register_with_exact_declared_keys_and_parameters()
             .messages
             .iter()
             .any(|(key, message)| key == "cli.help.usage"
-                && message.text == "Usage: diskunfold [--lang LANGUAGE] [--help | --version]")
+                && message.text == "Usage: diskunfold [--lang LANGUAGE] [--help | --version | version | notices <LICENSE|THIRD-PARTY-NOTICES> | support [--format <text|json>]]")
     );
     Ok(())
 }

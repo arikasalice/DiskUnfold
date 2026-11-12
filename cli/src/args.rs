@@ -3,9 +3,33 @@ use std::ffi::{OsStr, OsString};
 pub(crate) enum Command {
     Help,
     Version,
+    Notices(NoticeDocument),
+    Support(OutputFormat),
     /// A syntactically admitted scan; execution awaits engine and policy composition.
     Scan(Scan),
     /// Maps to F39 FR6's `command.not_provided` state; no machine output is wired yet.
+    NotProvided,
+    Unsupported,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum OutputFormat {
+    Text,
+    Json,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum NoticeDocument {
+    License,
+    ThirdParty,
+}
+
+enum CommandBuilder {
+    Help,
+    Version,
+    Notices(Option<NoticeDocument>),
+    Support,
+    Scan(Scan),
     NotProvided,
     Unsupported,
 }
@@ -45,7 +69,8 @@ pub(crate) struct Arguments {
 #[derive(Default)]
 struct ParseState {
     language: Option<String>,
-    command: Option<Command>,
+    format: Option<OutputFormat>,
+    command: Option<CommandBuilder>,
     options_ended: bool,
     invalid: bool,
 }
@@ -56,12 +81,30 @@ pub(crate) fn parse(mut arguments: impl Iterator<Item = OsString>) -> Option<Arg
         consume_argument(&mut state, argument, &mut arguments)?;
     }
     let command = match state.command {
-        Some(Command::NotProvided) => Command::NotProvided,
-        Some(Command::Scan(scan)) if !state.invalid && !scan.roots.is_empty() => {
+        Some(CommandBuilder::NotProvided) => Command::NotProvided,
+        Some(CommandBuilder::Scan(scan))
+            if !state.invalid && state.format.is_none() && !scan.roots.is_empty() =>
+        {
             Command::Scan(scan)
         }
-        Some(Command::Help) if !state.invalid && !state.options_ended => Command::Help,
-        Some(Command::Version) if !state.invalid && !state.options_ended => Command::Version,
+        Some(CommandBuilder::Help)
+            if !state.invalid && !state.options_ended && state.format.is_none() =>
+        {
+            Command::Help
+        }
+        Some(CommandBuilder::Version)
+            if !state.invalid && !state.options_ended && state.format.is_none() =>
+        {
+            Command::Version
+        }
+        Some(CommandBuilder::Notices(Some(document)))
+            if !state.invalid && !state.options_ended && state.format.is_none() =>
+        {
+            Command::Notices(document)
+        }
+        Some(CommandBuilder::Support) if !state.invalid && !state.options_ended => {
+            Command::Support(state.format.unwrap_or(OutputFormat::Text))
+        }
         _ => Command::Unsupported,
     };
     Some(Arguments {
@@ -75,39 +118,100 @@ fn consume_argument(
     argument: OsString,
     arguments: &mut impl Iterator<Item = OsString>,
 ) -> Option<()> {
-    if !state.options_ended && is_denied_option(&argument) {
-        state.command = Some(Command::NotProvided);
-    } else if !state.options_ended && argument == "--lang" {
-        if state.language.is_some() {
-            return None;
-        }
-        state.language = Some(arguments.next()?.into_string().ok()?);
-    } else if !state.options_ended && argument == "--" {
-        state.options_ended = true;
-    } else if state.command.is_none() {
-        if state.options_ended {
-            // Do not reinterpret values after a leading marker as commands.
+    if consume_global_argument(state, &argument, arguments)? {
+        return Some(());
+    }
+    if state.command.is_none() {
+        state.command = Some(if state.options_ended {
             state.invalid = true;
+            CommandBuilder::Unsupported
         } else {
-            state.command = Some(parse_command(argument));
-        }
-    } else if let Some(Command::Scan(scan)) = &mut state.command {
-        if !scan_argument(scan, argument, state.options_ended, arguments) {
-            state.invalid = true;
-        }
+            parse_command(argument)
+        });
     } else {
-        state.invalid = true;
+        consume_command_argument(state, argument, arguments);
     }
     Some(())
 }
 
-fn parse_command(argument: OsString) -> Command {
+fn consume_global_argument(
+    state: &mut ParseState,
+    argument: &OsStr,
+    arguments: &mut impl Iterator<Item = OsString>,
+) -> Option<bool> {
+    if state.options_ended {
+        return Some(false);
+    }
+    if is_denied_option(argument) {
+        state.command = Some(CommandBuilder::NotProvided);
+        return Some(true);
+    }
+    if argument == "--lang" {
+        if state.language.is_some() {
+            return None;
+        }
+        state.language = Some(arguments.next()?.into_string().ok()?);
+        return Some(true);
+    }
+    if argument == "--format" {
+        let parsed = match arguments.next()?.to_str()? {
+            "text" => Some(OutputFormat::Text),
+            "json" => Some(OutputFormat::Json),
+            _ => None,
+        };
+        if state.format.is_some() {
+            state.invalid = true;
+        } else {
+            state.format = parsed;
+            state.invalid |= state.format.is_none();
+        }
+        return Some(true);
+    }
+    if argument == "--" {
+        state.options_ended = true;
+        return Some(true);
+    }
+    Some(false)
+}
+
+fn consume_command_argument(
+    state: &mut ParseState,
+    argument: OsString,
+    arguments: &mut impl Iterator<Item = OsString>,
+) {
+    if let Some(command) = &mut state.command {
+        match command {
+            CommandBuilder::Scan(scan) => {
+                if !scan_argument(scan, argument, state.options_ended, arguments) {
+                    state.invalid = true;
+                }
+            }
+            CommandBuilder::Notices(document @ None) => {
+                *document = parse_notice_document(&argument);
+                state.invalid |= document.is_none();
+            }
+            _ => state.invalid = true,
+        }
+    }
+}
+
+fn parse_command(argument: OsString) -> CommandBuilder {
     match argument.to_str() {
-        Some("--help" | "-h") => Command::Help,
-        Some("--version" | "-V") => Command::Version,
-        Some("scan") => Command::Scan(Scan::default()),
-        _ if is_option(&argument) => Command::Unsupported,
-        _ => Command::NotProvided,
+        Some("--help" | "-h") => CommandBuilder::Help,
+        Some("--version" | "-V" | "version") => CommandBuilder::Version,
+        Some("notices") => CommandBuilder::Notices(None),
+        Some("support") => CommandBuilder::Support,
+        Some("scan") => CommandBuilder::Scan(Scan::default()),
+        _ if is_option(&argument) => CommandBuilder::Unsupported,
+        _ => CommandBuilder::NotProvided,
+    }
+}
+
+fn parse_notice_document(value: &OsStr) -> Option<NoticeDocument> {
+    match value.to_str()? {
+        "LICENSE" => Some(NoticeDocument::License),
+        "THIRD-PARTY-NOTICES" => Some(NoticeDocument::ThirdParty),
+        _ => None,
     }
 }
 
@@ -157,322 +261,4 @@ fn is_denied_option(value: &OsStr) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn parsed(input: &[&str]) -> Option<Arguments> {
-        parse(input.iter().map(OsString::from))
-    }
-
-    #[test]
-    fn fr1_scan_paths_and_end_marker() -> Result<(), String> {
-        let Some(Arguments {
-            command: Command::Scan(scan),
-            language,
-        }) = parsed(&[
-            "scan",
-            "--exclude",
-            "ignored",
-            "--lang",
-            "en",
-            "--device",
-            "ssd",
-            "--",
-            "-root",
-            "--lang",
-        ])
-        else {
-            return Err("expected scan".into());
-        };
-        assert_eq!(language.as_deref(), Some("en"));
-        assert_eq!(
-            scan.roots,
-            [OsString::from("-root"), OsString::from("--lang")]
-        );
-        assert_eq!(scan.excludes, [OsString::from("ignored")]);
-        assert_eq!(scan.device, Some(Device::Ssd));
-        Ok(())
-    }
-
-    #[test]
-    fn fr6_fr7_option_values_are_not_global_options() {
-        for input in [
-            vec!["scan", "root", "--exclude", "--lang", "en"],
-            vec!["scan", "root", "--device", "--lang", "en"],
-            vec!["scan"],
-            vec!["scan", "root", "--device", "ssd", "--device", "hdd"],
-            vec!["--", "scan"],
-        ] {
-            assert!(matches!(
-                parsed(&input),
-                Some(Arguments {
-                    command: Command::Unsupported,
-                    ..
-                })
-            ));
-        }
-        assert!(matches!(
-            parsed(&["--lang", "--execute"]),
-            Some(Arguments {
-                command: Command::Unsupported,
-                ..
-            })
-        ));
-    }
-
-    #[test]
-    fn fr6_unregistered_and_forbidden_command_names_are_not_provided() -> Result<(), String> {
-        let Some(Arguments { command, .. }) = parsed(&["unknown-command"]) else {
-            return Err("unknown command did not parse".into());
-        };
-        assert!(matches!(&command, Command::NotProvided));
-
-        for name in [
-            "approve", "execute", "trash", "delete", "move", "restore", "undo", "protect", "mcp",
-            "key",
-        ] {
-            let Some(Arguments { command, .. }) = parse([OsString::from(name)].into_iter()) else {
-                return Err(format!("forbidden command {name} did not parse"));
-            };
-            assert!(matches!(&command, Command::NotProvided), "{name}");
-        }
-        Ok(())
-    }
-
-    #[test]
-    fn fr6_exact_denied_options_are_not_provided_only_in_active_positions() -> Result<(), String> {
-        for name in [
-            "approve", "execute", "trash", "delete", "move", "restore", "undo", "protect", "mcp",
-            "key",
-        ] {
-            for input in [
-                vec![format!("--{name}")],
-                vec!["scan".to_owned(), format!("--{name}")],
-                vec![format!("--{name}"), "scan".to_owned()],
-                vec!["--help".to_owned(), format!("--{name}")],
-            ] {
-                let Some(Arguments { command, .. }) = parse(input.into_iter().map(OsString::from))
-                else {
-                    return Err(format!("{name} did not parse"));
-                };
-                if !matches!(command, Command::NotProvided) {
-                    return Err(format!("{name} was not classified as not-provided"));
-                }
-            }
-        }
-
-        for input in [
-            vec!["scan", "root", "--exclude", "--delete"],
-            vec!["scan", "root", "--device", "--execute"],
-        ] {
-            if !matches!(
-                parsed(&input),
-                Some(Arguments {
-                    command: Command::Unsupported,
-                    ..
-                })
-            ) {
-                return Err(format!(
-                    "consumed option value was reinterpreted: {input:?}"
-                ));
-            }
-        }
-
-        let Some(Arguments {
-            command: Command::Scan(scan),
-            language,
-        }) = parsed(&["--lang", "--execute", "scan", "root"])
-        else {
-            return Err("the --lang value must be consumed before command parsing".into());
-        };
-        assert_eq!(language.as_deref(), Some("--execute"));
-        assert_eq!(scan.roots, [OsString::from("root")]);
-
-        let Some(Arguments {
-            command: Command::Scan(scan),
-            ..
-        }) = parsed(&["scan", "--", "--delete"])
-        else {
-            return Err("a path after -- must not be reinterpreted as an option".into());
-        };
-        assert_eq!(scan.roots, [OsString::from("--delete")]);
-
-        for input in [vec!["--del"], vec!["--delete=value"], vec!["--execute-now"]] {
-            if !matches!(
-                parsed(&input),
-                Some(Arguments {
-                    command: Command::Unsupported,
-                    ..
-                })
-            ) {
-                return Err(format!("non-exact option was treated as denied: {input:?}"));
-            }
-        }
-        Ok(())
-    }
-
-    #[test]
-    fn fr6_unregistered_commands_are_not_provided() {
-        for input in [
-            vec!["duplicates"],
-            vec!["status"],
-            vec!["query"],
-            vec!["compare"],
-            vec!["report"],
-            vec!["export"],
-            vec!["plan"],
-            vec!["cancel"],
-            vec!["session"],
-        ] {
-            assert!(
-                matches!(
-                    parsed(&input),
-                    Some(Arguments {
-                        command: Command::NotProvided,
-                        ..
-                    })
-                ),
-                "{input:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn fr6_malformed_registered_commands_and_unknown_options_keep_usage_classification() {
-        for input in [
-            vec!["--help", "unexpected"],
-            vec!["scan"],
-            vec!["scan", "root", "--unknown"],
-            vec!["--bogus"],
-            vec!["-x"],
-            vec!["scan", "--exclude", "--execute", "root"],
-            vec!["scan", "--device", "--delete", "root"],
-        ] {
-            assert!(
-                matches!(
-                    parsed(&input),
-                    Some(Arguments {
-                        command: Command::Unsupported,
-                        ..
-                    })
-                ),
-                "{input:?}"
-            );
-        }
-        assert!(matches!(
-            parsed(&["scan", "root", "--", "--execute"]),
-            Some(Arguments {
-                command: Command::Scan(_),
-                ..
-            })
-        ));
-        assert!(matches!(
-            parsed(&["--", "--execute"]),
-            Some(Arguments {
-                command: Command::Unsupported,
-                ..
-            })
-        ));
-        assert!(matches!(
-            parsed(&["scan", "delete"]),
-            Some(Arguments {
-                command: Command::Scan(_),
-                ..
-            })
-        ));
-        assert!(matches!(
-            parsed(&["scan", "--exclude", "delete", "root"]),
-            Some(Arguments {
-                command: Command::Scan(_),
-                ..
-            })
-        ));
-    }
-
-    #[test]
-    fn locale_and_help_version_remain_available() {
-        assert!(matches!(
-            parsed(&["--lang", "en", "--help"]),
-            Some(Arguments {
-                command: Command::Help,
-                ..
-            })
-        ));
-        assert!(matches!(
-            parsed(&["-V", "--lang", "en"]),
-            Some(Arguments {
-                command: Command::Version,
-                ..
-            })
-        ));
-        assert!(parsed(&["--lang", "en", "--lang", "ko"]).is_none());
-    }
-
-    #[test]
-    fn scan_options_and_roots_preserve_order() -> Result<(), String> {
-        let Some(Arguments {
-            command: Command::Scan(scan),
-            ..
-        }) = parsed(&[
-            "scan",
-            "first",
-            "--exclude",
-            "one",
-            "second",
-            "--exclude",
-            "two",
-            "--device",
-            "auto",
-        ])
-        else {
-            return Err("expected scan".into());
-        };
-        assert_eq!(
-            scan.roots,
-            [OsString::from("first"), OsString::from("second")]
-        );
-        assert_eq!(
-            scan.excludes,
-            [OsString::from("one"), OsString::from("two")]
-        );
-        assert_eq!(scan.device, Some(Device::Auto));
-        Ok(())
-    }
-
-    #[test]
-    fn scan_rejects_missing_and_invalid_values() {
-        for input in [
-            vec!["scan", "root", "--exclude"],
-            vec!["scan", "root", "--exclude", ""],
-            vec!["scan", "root", "--device"],
-            vec!["scan", "root", "--device", "unknown"],
-            vec!["scan", "-root"],
-            vec!["scan", "--"],
-            vec!["scan", ""],
-        ] {
-            assert!(matches!(
-                parsed(&input),
-                Some(Arguments {
-                    command: Command::Unsupported,
-                    ..
-                })
-            ));
-        }
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn fr1_preserves_non_unicode_windows_paths() -> Result<(), String> {
-        use std::os::windows::ffi::OsStringExt;
-        let root = OsString::from_wide(&[0xd800, 0x61]);
-        let Some(Arguments {
-            command: Command::Scan(scan),
-            ..
-        }) = parse([OsString::from("scan"), root.clone()].into_iter())
-        else {
-            return Err("expected scan".into());
-        };
-        assert_eq!(scan.roots, [root]);
-        Ok(())
-    }
-}
+mod tests;

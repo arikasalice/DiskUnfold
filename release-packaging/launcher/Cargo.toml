@@ -17,6 +17,9 @@ gui = ["dep:du-app-host", "du-app-host/gui", "du-cli/windows-console"]
 du-cli = { version = "0.1.0", path = "../../cli" }
 du-app-host = { version = "0.1.0", path = "../../app-host", optional = true }
 
+[build-dependencies]
+serde_json.workspace = true
+
 [target.'cfg(windows)'.build-dependencies]
 find-msvc-tools = "=0.1.15"
 

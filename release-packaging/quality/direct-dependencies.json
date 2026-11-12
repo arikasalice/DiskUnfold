@@ -155,6 +155,17 @@
   },
   {
     "ecosystem": "cargo",
+    "owner": "du-cli",
+    "name": "serde_json",
+    "version": "1.0.154",
+    "source": "registry+https://github.com/rust-lang/crates.io-index",
+    "license": "MIT OR Apache-2.0",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Encode the version-independent support report for CLI JSON output"
+  },
+  {
+    "ecosystem": "cargo",
     "owner": "du-core-contracts",
     "name": "base64",
     "version": "0.23.1",
@@ -284,6 +295,17 @@
     "role": "build",
     "distributed": false,
     "reason": "Locate the Windows SDK resource compiler for the executable icon"
+  },
+  {
+    "ecosystem": "cargo",
+    "owner": "du-launcher",
+    "name": "serde_json",
+    "version": "1.0.154",
+    "source": "registry+https://github.com/rust-lang/crates.io-index",
+    "license": "MIT OR Apache-2.0",
+    "role": "build",
+    "distributed": false,
+    "reason": "Embed and validate the executable product metadata resource"
   },
   {
     "ecosystem": "cargo",
