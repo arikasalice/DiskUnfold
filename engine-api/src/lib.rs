@@ -28,6 +28,7 @@ mod target_enumeration;
 mod target_probe;
 mod targets;
 pub mod trend_decimation;
+pub mod trend_evidence;
 pub mod trend_series;
 pub mod viz_availability;
 pub mod viz_catalog;
