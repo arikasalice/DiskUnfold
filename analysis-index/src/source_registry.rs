@@ -1,12 +1,45 @@
 //! Session-local identities and accepted sequence watermarks for freshness writers.
 //!
 //! Sequence inspection is read-only. Writer closures run while source admission is
-//! serialized, and failed writes leave the accepted sequence unchanged.
+//! serialized. They must commit atomically (no partial effects on error) and must
+//! not call back into this registry; reentrant calls are rejected before locking.
 
 use du_core_contracts::Id;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::num::NonZeroU64;
 use std::sync::{Arc, Mutex};
+
+thread_local! {
+    static ACTIVE_WRITERS: RefCell<Vec<usize>> = const { RefCell::new(Vec::new()) };
+}
+
+struct WriterGuard(usize);
+
+impl WriterGuard {
+    fn enter(registry: &SourceRegistry) -> Result<Self, RegistryError> {
+        let identity = Arc::as_ptr(&registry.identity) as usize;
+        ACTIVE_WRITERS.with(|active| {
+            let mut active = active.borrow_mut();
+            if active.contains(&identity) {
+                return Err(RegistryError::ReentrantOperation);
+            }
+            active.push(identity);
+            Ok(Self(identity))
+        })
+    }
+}
+
+impl Drop for WriterGuard {
+    fn drop(&mut self) {
+        ACTIVE_WRITERS.with(|active| {
+            let mut active = active.borrow_mut();
+            if let Some(index) = active.iter().rposition(|identity| *identity == self.0) {
+                active.remove(index);
+            }
+        });
+    }
+}
 
 /// The kind of IF-17 producer represented by a registered source lifetime.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -44,13 +77,12 @@ impl SourceHandle {
 struct SourceState {
     generation: NonZeroU64,
     accepted_sequence: u64,
-    ended: bool,
 }
 
-/// A source identity was reused or an operation did not match its live lifetime.
+/// A source reference is already active or an operation did not match its lifetime.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RegistryError {
-    /// The source identifier has already been registered, including ended sources.
+    /// The producer reference already has an active lifetime.
     DuplicateSource,
     /// The supplied identifier and lifetime handle do not identify the same source.
     CrossSource,
@@ -66,12 +98,14 @@ pub enum RegistryError {
     GenerationOverflow,
     /// The registry mutex was poisoned.
     Unavailable,
+    /// A writer attempted to reenter its registry while the transaction lock was held.
+    ReentrantOperation,
 }
 
 /// Failure to accept the IF-11 snapshot used to establish a watch source cutoff.
 #[derive(Debug, PartialEq, Eq)]
 pub enum WatchRegistrationError<E> {
-    /// The source ID or registry could not be admitted.
+    /// The registry could not admit the source.
     Registry(RegistryError),
     /// The IF-11 snapshot writer failed; no source lifetime was registered.
     Snapshot(E),
@@ -87,9 +121,9 @@ pub enum SequenceApplyError<E> {
 }
 
 /// Owns source lifetimes and the last sequence committed by the freshness writer.
-#[derive(Default)]
 pub struct SourceRegistry {
     state: Mutex<RegistryState>,
+    identity: Arc<()>,
 }
 
 #[derive(Default)]
@@ -99,9 +133,26 @@ struct RegistryState {
     identity: Arc<()>,
 }
 
+impl Default for SourceRegistry {
+    fn default() -> Self {
+        let identity = Arc::new(());
+        Self {
+            state: Mutex::new(RegistryState {
+                identity: Arc::clone(&identity),
+                ..RegistryState::default()
+            }),
+            identity,
+        }
+    }
+}
+
 impl SourceRegistry {
-    /// Registers a direct or snapshot source exactly once with accepted sequence zero.
+    /// Registers a producer reference with a new registry-issued lifetime at sequence zero.
+    /// Re-registering an ended producer creates a distinct lifetime capability.
     pub fn register(&self, source_id: Id, kind: SourceKind) -> Result<SourceHandle, RegistryError> {
+        if Self::is_reentrant(self) {
+            return Err(RegistryError::ReentrantOperation);
+        }
         if kind == SourceKind::Watch {
             return Err(RegistryError::WatchRequiresSnapshot);
         }
@@ -110,13 +161,19 @@ impl SourceRegistry {
 
     /// Accepts an IF-11 snapshot and registers its watch source at the snapshot cutoff.
     ///
-    /// The snapshot writer runs before registration is committed and while source
-    /// admission is serialized. If it fails, the source remains unregistered.
+    /// The snapshot writer runs while source admission is serialized. It must be
+    /// atomic on error (no partial effects) and must not call this registry. If it
+    /// fails, the source remains unregistered.
     pub fn register_watch<E>(
         &self,
         source_id: Id,
         apply_snapshot: impl FnOnce() -> Result<u64, E>,
     ) -> Result<SourceHandle, WatchRegistrationError<E>> {
+        if Self::is_reentrant(self) {
+            return Err(WatchRegistrationError::Registry(
+                RegistryError::ReentrantOperation,
+            ));
+        }
         let mut state = self
             .state
             .lock()
@@ -133,9 +190,13 @@ impl SourceRegistry {
             .ok_or(WatchRegistrationError::Registry(
                 RegistryError::GenerationOverflow,
             ))?;
-        let accepted_sequence = apply_snapshot().map_err(WatchRegistrationError::Snapshot)?;
+        let accepted_sequence = {
+            let _writer = WriterGuard::enter(self).map_err(WatchRegistrationError::Registry)?;
+            apply_snapshot().map_err(WatchRegistrationError::Snapshot)?
+        };
         Ok(Self::insert_source(
             &mut state,
+            &self.identity,
             source_id,
             generation,
             SourceKind::Watch,
@@ -160,6 +221,7 @@ impl SourceRegistry {
             .ok_or(RegistryError::GenerationOverflow)?;
         Ok(Self::insert_source(
             &mut state,
+            &self.identity,
             source_id,
             generation,
             kind,
@@ -169,6 +231,7 @@ impl SourceRegistry {
 
     fn insert_source(
         state: &mut RegistryState,
+        registry_identity: &Arc<()>,
         source_id: Id,
         generation: NonZeroU64,
         kind: SourceKind,
@@ -180,13 +243,12 @@ impl SourceRegistry {
             SourceState {
                 generation,
                 accepted_sequence,
-                ended: false,
             },
         );
         SourceHandle {
             source_id,
             generation,
-            registry_identity: Arc::clone(&state.identity),
+            registry_identity: Arc::clone(registry_identity),
             kind,
         }
     }
@@ -197,6 +259,9 @@ impl SourceRegistry {
         source_id: &Id,
         handle: &SourceHandle,
     ) -> Result<u64, RegistryError> {
+        if Self::is_reentrant(self) {
+            return Err(RegistryError::ReentrantOperation);
+        }
         let state = self.state.lock().map_err(|_| RegistryError::Unavailable)?;
         let source = Self::live_source(&state, source_id, handle)?;
         source
@@ -217,6 +282,7 @@ impl SourceRegistry {
         sequence: u64,
         writer: impl FnOnce(u64) -> Result<T, E>,
     ) -> Result<T, SequenceApplyError<E>> {
+        let _writer = WriterGuard::enter(self).map_err(SequenceApplyError::Registry)?;
         let mut state = self
             .state
             .lock()
@@ -240,12 +306,21 @@ impl SourceRegistry {
         Ok(result)
     }
 
-    /// Ends a lifetime permanently; the source identifier cannot be registered again.
+    /// Ends a lifetime and releases its registry-owned state. Re-registering the
+    /// same producer reference creates a new private lifetime generation.
     pub fn end(&self, source_id: &Id, handle: &SourceHandle) -> Result<(), RegistryError> {
+        if Self::is_reentrant(self) {
+            return Err(RegistryError::ReentrantOperation);
+        }
         let mut state = self.state.lock().map_err(|_| RegistryError::Unavailable)?;
-        let source = Self::live_source_mut(&mut state, source_id, handle)?;
-        source.ended = true;
+        Self::live_source(&state, source_id, handle)?;
+        state.sources.remove(source_id);
         Ok(())
+    }
+
+    fn is_reentrant(&self) -> bool {
+        let identity = Arc::as_ptr(&self.identity) as usize;
+        ACTIVE_WRITERS.with(|active| active.borrow().contains(&identity))
     }
 
     fn live_source<'a>(
@@ -253,11 +328,7 @@ impl SourceRegistry {
         source_id: &Id,
         handle: &SourceHandle,
     ) -> Result<&'a SourceState, RegistryError> {
-        let source = Self::matching_source(state, source_id, handle)?;
-        if source.ended {
-            return Err(RegistryError::Expired);
-        }
-        Ok(source)
+        Self::matching_source(state, source_id, handle)
     }
 
     fn live_source_mut<'a>(
@@ -265,11 +336,7 @@ impl SourceRegistry {
         source_id: &Id,
         handle: &SourceHandle,
     ) -> Result<&'a mut SourceState, RegistryError> {
-        let source = Self::matching_source_mut(state, source_id, handle)?;
-        if source.ended {
-            return Err(RegistryError::Expired);
-        }
-        Ok(source)
+        Self::matching_source_mut(state, source_id, handle)
     }
 
     fn matching_source<'a>(
