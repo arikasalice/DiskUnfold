@@ -10,9 +10,16 @@ async function readBundle(language) {
     await readFile(new URL(`${language}.json`, resources), "utf8"),
   );
   const templates = new Map();
-  for (const [key, , parameters] of data[5]) {
+  const expectedPluralForms = language === "en" ? "one,other" : "other";
+  for (const [key, message, parameters] of data[5]) {
     if (templates.has(key))
       throw new Error(`${language} has a duplicate message key: ${key}`);
+    if (
+      message?.kind === "plural" &&
+      Object.keys(message.variants ?? {}).sort().join(",") !== expectedPluralForms
+    ) {
+      throw new Error(`${language} has invalid plural forms for ${key}`);
+    }
     templates.set(
       key,
       JSON.stringify(
