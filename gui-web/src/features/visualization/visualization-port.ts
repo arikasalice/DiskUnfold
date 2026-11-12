@@ -1,5 +1,6 @@
 import type {
   AnalysisClient,
+  VizCatalog,
   VizGroupRows,
   VizGroupRowsRequest,
   VizViewChannel,
@@ -11,11 +12,13 @@ export function createVisualizationPort(
   client: AnalysisClient,
   canDisplay: VisualizationPort["canDisplay"],
 ): VisualizationPort & {
+  catalog(): Promise<VizCatalog>;
   open(): Promise<VizViewChannel>;
   close(viewChannel: string): Promise<void>;
   groupRows(request: VizGroupRowsRequest): Promise<VizGroupRows>;
 } {
   return {
+    catalog: () => client.call("viz.catalog", {}),
     open: () => client.call("viz.view.open", {}),
     async close(viewChannel) {
       await client.call("viz.view.close", { viewChannel });

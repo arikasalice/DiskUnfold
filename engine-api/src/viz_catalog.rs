@@ -1,10 +1,20 @@
-//! Internal view of the registered F06 layout strategies.
+//! Catalog of the registered F06 layout strategies and their policy tables.
 //!
-//! This is not the complete `viz.catalog` response: measures, color and
-//! denominator criteria, table revisions and policy must come from their owning
-//! registries before the public use case can be assembled.
+//! Composition supplies the measures, criteria and revisions from their owners.
+//! Catalog assembly never executes a layout or probes a result source.
+use crate::{
+    api::{CallerCtx, Channel, EngineBuilder, UseCase},
+    error::EngineError,
+};
 use du_analysis_index::visualization::{registry::SelectionError, typed_layout::Dispatcher};
-use du_core_contracts::visualization::{LayoutDescriptor, LayoutStrategyKey};
+use du_core_contracts::{
+    browse_page_ipc::QueryStrategy,
+    visualization::{
+        LayoutDescriptor, LayoutStrategyKey,
+        catalog::{VizCatalog, VizCatalogRequest},
+    },
+};
+use std::collections::HashSet;
 
 /// Registry data available without inventing support for unregistered formats.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -21,6 +31,85 @@ pub enum Error {
     EmptyRegistry,
     UnknownFormat,
     UnknownStrategy,
+    InvalidPolicy,
+}
+
+/// Available criteria and immutable revisions from the owning policy tables.
+pub struct Policy {
+    pub measures: Vec<String>,
+    pub color_criteria: Vec<String>,
+    pub denominator_criteria: Vec<String>,
+    pub interpretation_table_revision: u32,
+    pub required_data_table_revision: u32,
+    pub legend_rule_revision: u32,
+}
+
+/// Registers the GUI-only catalog from one validated registry and policy snapshot.
+pub fn register(
+    builder: &mut EngineBuilder,
+    dispatcher: &Dispatcher,
+    policy: Policy,
+) -> Result<(), Error> {
+    let catalog = snapshot(dispatcher)?;
+    if ![
+        &policy.measures,
+        &policy.color_criteria,
+        &policy.denominator_criteria,
+    ]
+    .into_iter()
+    .all(|values| valid_keys(values))
+        || [
+            policy.interpretation_table_revision,
+            policy.required_data_table_revision,
+            policy.legend_rule_revision,
+        ]
+        .contains(&0)
+    {
+        return Err(Error::InvalidPolicy);
+    }
+    builder.register(ReadCatalog(VizCatalog {
+        formats: catalog.formats,
+        strategies: catalog
+            .strategies
+            .into_iter()
+            .map(|entry| QueryStrategy {
+                id: entry.strategy.id,
+                revision: entry.strategy.revision,
+            })
+            .collect(),
+        measures: policy.measures,
+        color_criteria: policy.color_criteria,
+        denominator_criteria: policy.denominator_criteria,
+        interpretation_table_revision: policy.interpretation_table_revision,
+        required_data_table_revision: policy.required_data_table_revision,
+        legend_rule_revision: policy.legend_rule_revision,
+    }));
+    Ok(())
+}
+
+fn valid_keys(values: &[String]) -> bool {
+    let mut seen = HashSet::new();
+    !values.is_empty()
+        && values
+            .iter()
+            .all(|key| !key.trim().is_empty() && seen.insert(key))
+}
+
+struct ReadCatalog(VizCatalog);
+
+impl UseCase for ReadCatalog {
+    const NAME: &'static str = "viz.catalog";
+    const CHANNELS: &'static [Channel] = &[Channel::Gui];
+    type Request = VizCatalogRequest;
+    type Response = VizCatalog;
+
+    fn check_scope(&self, _: &Self::Request, _: &CallerCtx) -> Result<(), EngineError> {
+        Ok(())
+    }
+
+    fn execute(&self, _: Self::Request, _: &CallerCtx) -> Result<Self::Response, EngineError> {
+        Ok(self.0.clone())
+    }
 }
 
 /// Takes one immutable snapshot of the actual layout registry.

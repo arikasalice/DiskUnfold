@@ -59,6 +59,8 @@ import type {
   VolumeGapResponse,
   VizCancelRequest,
   VizCancelResponse,
+  VizCatalog,
+  VizCatalogRequest,
   VizGroupRowsRequest,
   VizGroupRows,
   VizLocate,
@@ -136,6 +138,8 @@ export type {
   VolumeGapResponse,
   VizCancelRequest,
   VizCancelResponse,
+  VizCatalog,
+  VizCatalogRequest,
   VizGroupRowsRequest,
   VizGroupRows,
   VizCancelTarget,
@@ -188,6 +192,7 @@ type Commands = {
   "viz.view.open": [VizViewOpenRequest, VizViewChannel];
   "viz.view.close": [VizViewChannel, VizViewOpenRequest];
   "viz.render": [VizRenderRequest, VizRenderResponse];
+  "viz.catalog": [VizCatalogRequest, VizCatalog];
   "viz.cancel": [VizCancelRequest, VizCancelResponse];
   "viz.group_rows": [VizGroupRowsRequest, VizGroupRows];
   "viz.rows": [VizRowsRequest, VizRows];

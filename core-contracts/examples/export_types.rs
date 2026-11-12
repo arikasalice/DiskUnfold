@@ -15,6 +15,7 @@ use du_core_contracts::space_detail_ipc::*;
 use du_core_contracts::visualization::cancel::{
     VizCancelRequest, VizCancelResponse, VizCancelTarget, VizControlResult,
 };
+use du_core_contracts::visualization::catalog::{VizCatalog, VizCatalogRequest};
 use du_core_contracts::visualization::geometry::{Geometry, Point};
 use du_core_contracts::visualization::locate::{VizLocate, VizLocateRequest};
 use du_core_contracts::visualization::model::{
@@ -96,6 +97,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         VizCancelTarget::decl(&config),
         VizControlResult::decl(&config),
         VizCancelResponse::decl(&config),
+        VizCatalogRequest::decl(&config),
+        VizCatalog::decl(&config),
         VizViewOpenRequest::decl(&config),
         VizViewChannel::decl(&config),
         VizSourceRef::decl(&config),

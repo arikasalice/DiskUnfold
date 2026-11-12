@@ -56,21 +56,33 @@ test("visualization port forwards published commands through the real typed clie
     groupTotal: fixture.page.response.rows[0]!.size,
     sizeRange: { kind: "unknown" as const },
   };
+  const catalog = {
+    formats: ["treemap"],
+    strategies: [{ id: "viz.treemap", revision: 1 }],
+    measures: ["size"],
+    colorCriteria: ["type"],
+    denominatorCriteria: ["scope"],
+    interpretationTableRevision: 1,
+    requiredDataTableRevision: 1,
+    legendRuleRevision: 1,
+  };
   const request = fixtureRequest(revision);
   const client = createAnalysisClient(async (_, { envelope }) => {
     calls.push(envelope);
     const body =
-      envelope.name === "viz.view.open"
-        ? { viewChannel: "view" }
-        : envelope.name === "viz.render"
-          ? fixture.frame
-          : envelope.name === "viz.rows"
-            ? fixture.page.response
-            : envelope.name === "viz.group_rows"
-              ? groupResponse
-              : envelope.name === "viz.cancel"
-                ? { controlResult: "accepted" }
-                : {};
+      envelope.name === "viz.catalog"
+        ? catalog
+        : envelope.name === "viz.view.open"
+          ? { viewChannel: "view" }
+          : envelope.name === "viz.render"
+            ? fixture.frame
+            : envelope.name === "viz.rows"
+              ? fixture.page.response
+              : envelope.name === "viz.group_rows"
+                ? groupResponse
+                : envelope.name === "viz.cancel"
+                  ? { controlResult: "accepted" }
+                  : {};
     return {
       name: envelope.name,
       correlationId: envelope.correlationId,
@@ -79,6 +91,7 @@ test("visualization port forwards published commands through the real typed clie
     };
   });
   const port = createVisualizationPort(client, () => true);
+  expect(await port.catalog()).toEqual(catalog);
   expect(await port.open()).toEqual({ viewChannel: "view" });
   expect(await port.render(request)).toEqual(fixture.frame);
   const rows = {
@@ -96,6 +109,7 @@ test("visualization port forwards published commands through the real typed clie
   });
   await port.close("view");
   expect(calls.map(({ name, body }) => ({ name, body }))).toEqual([
+    { name: "viz.catalog", body: {} },
     { name: "viz.view.open", body: {} },
     { name: "viz.render", body: request },
     { name: "viz.rows", body: rows },
