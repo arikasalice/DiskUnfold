@@ -30,3 +30,15 @@ fn launch_gui() -> ExitCode {
     eprintln!("DiskUnfold: this development build has no GUI");
     ExitCode::from(2)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::PRODUCT_INFO_JSON;
+
+    #[test]
+    fn developer_product_metadata_does_not_claim_a_source_commit() {
+        assert!(PRODUCT_INFO_JSON.contains("\"buildKind\": \"developer\""));
+        assert!(PRODUCT_INFO_JSON.contains("\"commit\": null"));
+        assert!(PRODUCT_INFO_JSON.contains("\"sourceCommit\": null"));
+    }
+}

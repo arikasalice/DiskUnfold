@@ -98,21 +98,43 @@ fn launcher_prints_help_and_version_to_stdout() -> io::Result<()> {
     for (args, expected) in [
         (
             ["--lang", "en", "--help"],
-            "DiskUnfold\n\nUsage: diskunfold [--lang LANGUAGE] [--help | --version]\n",
+            "DiskUnfold\n\nUsage: diskunfold [--lang LANGUAGE] [--help | --version | version | notices <LICENSE|THIRD-PARTY-NOTICES> | support [--format <text|json>]]\n",
         ),
         (
             ["--lang", "ko", "--help"],
-            "DiskUnfold\n\n사용법: diskunfold [--lang 언어] [--help | --version]\n",
-        ),
-        (
-            ["--lang", "en", "--version"],
-            concat!("DiskUnfold ", env!("CARGO_PKG_VERSION"), "\n"),
+            "DiskUnfold\n\n사용법: diskunfold [--lang 언어] [--help | --version | version | notices <LICENSE|THIRD-PARTY-NOTICES> | support [--format <text|json>]]\n",
         ),
     ] {
         let (mut command, _data_dir) = launcher_with_temp_data()?;
         let output = command.args(args).output()?;
         assert!(output.status.success());
-        assert_eq!(output.stdout.as_slice(), expected.as_bytes());
+        assert!(
+            String::from_utf8_lossy(&output.stdout).contains(expected),
+            "{}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+        assert!(output.stderr.is_empty());
+    }
+
+    for (args, expected_build, expected_commit) in [
+        (
+            ["--lang", "en", "--version"],
+            "Build type: Developer build",
+            "Source commit: Unknown",
+        ),
+        (
+            ["--lang", "ko", "--version"],
+            "빌드 종류: 개발자 빌드",
+            "소스 커밋: 확인 불가",
+        ),
+    ] {
+        let (mut command, _data_dir) = launcher_with_temp_data()?;
+        let output = command.args(args).output()?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(output.status.success());
+        assert!(stdout.contains(env!("CARGO_PKG_VERSION")), "{stdout}");
+        assert!(stdout.contains(expected_build), "{stdout}");
+        assert!(stdout.contains(expected_commit), "{stdout}");
         assert!(output.stderr.is_empty());
     }
     Ok(())
@@ -177,7 +199,13 @@ fn closed_stderr_does_not_replace_output_interrupted_exit() -> io::Result<()> {
 
 #[test]
 fn launcher_rejects_unsupported_commands_and_trailing_arguments() -> io::Result<()> {
-    for args in [&["scan"][..], &["--version", "extra"][..]] {
+    for args in [
+        &["scan"][..],
+        &["--version", "extra"][..],
+        &["support", "--format", "yaml"][..],
+        &["support", "unexpected"][..],
+        &["notices", "LICENSE", "extra"][..],
+    ] {
         let (mut command, _data_dir) = launcher_with_temp_data()?;
         let output = command.args(["--lang", "en"]).args(args).output()?;
         assert_eq!(output.status.code(), Some(2));
@@ -209,7 +237,9 @@ fn launcher_applies_the_language_option_on_either_side_of_help() -> io::Result<(
 fn help_and_version_skip_a_corrupt_settings_database() -> io::Result<()> {
     for (arguments, expected) in [
         (vec!["--lang", "en", "--help"], "Usage: diskunfold"),
-        (vec!["--lang", "ko", "--version"], "DiskUnfold "),
+        (vec!["--lang", "ko", "--version"], "빌드 종류:"),
+        (vec!["notices", "LICENSE"], "MIT License"),
+        (vec!["support", "--format", "json"], "diskunfold.cli"),
     ] {
         let (mut command, data_dir) = launcher_with_temp_data()?;
         fs::write(
@@ -225,7 +255,7 @@ fn help_and_version_skip_a_corrupt_settings_database() -> io::Result<()> {
 
     for (argument, expected) in [
         ("--help", ["Usage: diskunfold", "사용법:"]),
-        ("--version", ["DiskUnfold ", "DiskUnfold "]),
+        ("--version", ["Build type:", "빌드 종류:"]),
     ] {
         let (mut command, data_dir) = launcher_with_temp_data()?;
         fs::write(

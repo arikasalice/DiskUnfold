@@ -115,7 +115,7 @@ fn feature_assessments(
             let feature = matched_rows.get(area).copied();
             let capability = observed.get(area).copied();
             let duplicate = duplicate_areas.contains(area);
-            let current_capability = if duplicate || invalid_reason.is_some() {
+            let current_capability = if duplicate {
                 SupportCapabilityState::Unknown
             } else {
                 capability.map_or(SupportCapabilityState::Unknown, |value| value.state)
@@ -129,8 +129,8 @@ fn feature_assessments(
             } else {
                 SupportStatus::Unknown
             };
-            let reason_key = if duplicate || invalid_reason.is_some() {
-                invalid_reason.or(Some(MATRIX_INVALID))
+            let reason_key = if duplicate {
+                Some(CAPABILITY_UNKNOWN)
             } else if capability.is_none() || current_capability == SupportCapabilityState::Unknown
             {
                 capability
@@ -486,3 +486,6 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod edge_tests;

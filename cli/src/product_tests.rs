@@ -159,7 +159,10 @@ fn absent_third_party_notices_are_reported_as_unavailable() {
 
 #[test]
 fn version_prints_build_provenance_without_opening_settings() {
-    for (language, expected) in [("en", "Developer build"), ("ko", "개발자 빌드")] {
+    for (language, expected, expected_commit) in [
+        ("en", "Developer build", "Source commit: Unknown"),
+        ("ko", "개발자 빌드", "소스 커밋: 확인 불가"),
+    ] {
         let (exit, stdout, stderr, stored_reads) =
             execute(&["--lang", language, "--version"], info());
         let output = String::from_utf8_lossy(&stdout);
@@ -167,6 +170,7 @@ fn version_prints_build_provenance_without_opening_settings() {
         assert!(stderr.is_empty());
         assert_eq!(stored_reads, 0);
         assert!(output.contains(expected), "{output}");
+        assert!(output.contains(expected_commit), "{output}");
         assert!(output.contains("0.1.0-test"), "{output}");
     }
 }
