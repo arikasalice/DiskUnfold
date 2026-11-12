@@ -1,7 +1,10 @@
 //! Source evidence only: these checks do not authorize a share or define a scope contract.
-use du_analysis_index::{IngestSink, QueryError};
+use du_analysis_index::{
+    FileIdentity, IngestSink, Observation, QueryError, SharingEvidence, SpaceObservation,
+};
+use du_core_contracts::result::ResultVersionRead;
 use du_core_contracts::{
-    Id, ItemRef, PathBytes, PathEncoding,
+    ByteSize, Id, ItemRef, PathBytes, PathEncoding, SizeAmount, SizeBasis, SizeEvidence, SizeValue,
     result::{ResultCompleteness, ResultNativePath, ResultScopeRoot},
 };
 use du_engine_api::current_analysis::{Error, admit_selected};
@@ -39,6 +42,75 @@ fn publish(
         .seal(version, ResultCompleteness::Complete)
         .map_err(|e| format!("{e:?}"))?;
     Ok(())
+}
+
+fn size_value(basis: SizeBasis, evidence: SizeEvidence, amount: SizeAmount) -> SizeValue {
+    SizeValue {
+        basis,
+        evidence,
+        amount,
+    }
+}
+
+fn publish_size_evidence(store: &IngestSink) -> Result<Id, String> {
+    let lineage = store
+        .bind_current_analysis("basis-evidence", id(10)?)
+        .map_err(|error| format!("bind lineage: {error:?}"))?;
+    let root = ResultScopeRoot {
+        path: ResultNativePath {
+            encoding: PathEncoding::Unix,
+            raw: PathBytes::from_bytes(b"/basis"),
+        },
+        volume_id: vec![1],
+        file_id: vec![1],
+    };
+    let mut build = store
+        .open_forest_in_lineage(id(11)?, vec![root], lineage.clone())
+        .map_err(|error| format!("open result: {error:?}"))?;
+    build
+        .add_directory_at(0, vec![])
+        .map_err(|error| format!("add root: {error:?}"))?;
+    build
+        .add_with_space_at(
+            0,
+            Observation {
+                path: vec![b"unknown-logical".to_vec()],
+                size: Some(size_value(
+                    SizeBasis::Logical,
+                    SizeEvidence::Unknown,
+                    SizeAmount::Unknown,
+                )),
+            },
+            SpaceObservation {
+                allocated: Some(size_value(
+                    SizeBasis::Allocated,
+                    SizeEvidence::OsReported,
+                    SizeAmount::LowerBound {
+                        bytes: ByteSize::from(12_u64),
+                    },
+                )),
+                identity: Some(FileIdentity {
+                    volume: vec![1],
+                    file: vec![2],
+                }),
+                link_count: Some(1),
+                sharing: SharingEvidence::None,
+            },
+        )
+        .map_err(|error| format!("add basis-specific file: {error:?}"))?;
+    build
+        .add_file_at(
+            0,
+            Observation {
+                path: vec![b"missing-size".to_vec()],
+                size: None,
+            },
+        )
+        .map_err(|error| format!("add missing-size file: {error:?}"))?;
+    build
+        .seal(id(12)?, ResultCompleteness::Complete)
+        .map_err(|error| format!("seal result: {error:?}"))?;
+    id(12)
 }
 
 #[test]
@@ -109,5 +181,59 @@ fn pinned_source_retains_its_own_item_path_and_volume_after_replacement() -> Res
             .map_err(|e| e.to_string())?,
         b"/second/child"
     );
+    Ok(())
+}
+
+#[test]
+fn pinned_item_sizes_keep_basis_specific_unknown_lower_bound_and_none() -> Result<(), String> {
+    let store = IngestSink::default();
+    let revision = publish_size_evidence(&store)?;
+    let source = admit_selected(&store, &revision, Some(&revision))
+        .map_err(|error| format!("pin basis evidence: {error:?}"))?;
+    let find_file = |name: &[u8]| {
+        source
+            .version()
+            .items()
+            .iter()
+            .find(|item| item.name == name)
+            .map(|item| item.item_no)
+            .ok_or_else(|| format!("missing file item {name:?}"))
+    };
+
+    let unknown_item = find_file(b"unknown-logical")?;
+    let logical = source
+        .version()
+        .item_size(unknown_item, SizeBasis::Logical)
+        .ok_or("logical unknown evidence was dropped")?;
+    assert_eq!(logical.basis, SizeBasis::Logical);
+    assert_eq!(logical.evidence, SizeEvidence::Unknown);
+    assert_eq!(logical.amount, SizeAmount::Unknown);
+    let allocated = source
+        .version()
+        .item_size(unknown_item, SizeBasis::Allocated)
+        .ok_or("allocated lower-bound evidence was dropped")?;
+    assert_eq!(allocated.basis, SizeBasis::Allocated);
+    assert_eq!(allocated.evidence, SizeEvidence::OsReported);
+    assert_eq!(
+        allocated.amount,
+        SizeAmount::LowerBound {
+            bytes: ByteSize::from(12_u64)
+        }
+    );
+    assert!(
+        source
+            .version()
+            .item_size(unknown_item, SizeBasis::UniquePhysical)
+            .is_none()
+    );
+
+    let missing_item = find_file(b"missing-size")?;
+    for basis in [
+        SizeBasis::Logical,
+        SizeBasis::Allocated,
+        SizeBasis::UniquePhysical,
+    ] {
+        assert!(source.version().item_size(missing_item, basis).is_none());
+    }
     Ok(())
 }
