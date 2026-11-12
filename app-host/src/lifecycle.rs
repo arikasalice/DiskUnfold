@@ -211,9 +211,6 @@ fn run_app(
     #[cfg(any(windows, target_os = "linux"))]
     {
         let event_source = desktop_event_source(events.clone());
-        #[cfg(windows)]
-        let result = du_platform_os::webview::run_with_events(app, event_source);
-        #[cfg(target_os = "linux")]
         let result = du_platform_os::webview::run_with_events(app, event_source);
         #[cfg(windows)]
         drop(recent_worker);

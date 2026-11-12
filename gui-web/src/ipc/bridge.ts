@@ -10,6 +10,7 @@ type NativeRequest = (payload: string) => Promise<string>;
 
 interface NativeWindow extends Window {
   __diskunfoldRequest?: NativeRequest;
+  __diskunfoldLocale?: boolean;
   __diskunfoldRecentScopes?: unknown;
   webkit?: {
     messageHandlers?: { diskunfold?: { postMessage: NativeRequest } };
@@ -78,7 +79,8 @@ export function hasDesktopLocaleBridge(): boolean {
   return (
     host.top === host &&
     (host.location.origin === "https://diskunfold.invalid" ||
-      host.location.href === "diskunfold://app/index.html") &&
+      (host.location.href === "diskunfold://app/index.html" &&
+        host.__diskunfoldLocale === true)) &&
     typeof host.__diskunfoldRequest === "function"
   );
 }
