@@ -1,8 +1,12 @@
 import { interpolate } from "../i18n/presentation";
 import type { LocaleText, TextValues } from "../i18n/presentation";
-import { displayInteger, displayTimestamp } from "../i18n/regional-format";
+import {
+  displayDecimal,
+  displayInteger,
+  displayTimestamp,
+} from "../i18n/regional-format";
 import type { RegionalFormat } from "../i18n/regional-format";
-import { formatByteUnit } from "../i18n/bytes";
+import { formatRegionalCapacity } from "../i18n/bytes";
 import { SIZE_UNIT_RULES } from "../ipc";
 import type { LocaleBundleBody } from "../ipc";
 import type { LocaleView } from "./use-locale";
@@ -25,6 +29,14 @@ function integer(value: string | bigint | undefined) {
     : undefined;
 }
 
+function decimal(value: string | bigint | undefined, format: RegionalFormat) {
+  if (typeof value === "bigint") return displayInteger(value, format);
+  const parts = value?.match(/^(-?(?:0|[1-9][0-9]*))(?:\.([0-9]{1,38}))?$/);
+  if (!parts?.[1]) return undefined;
+  const fraction = parts[2] ?? "";
+  return displayDecimal(BigInt(parts[1] + fraction), fraction.length, format);
+}
+
 function renderParameter(
   bundle: LocaleBundleBody,
   kind: string | undefined,
@@ -39,19 +51,19 @@ function renderParameter(
     return typeof value === "string"
       ? displayTimestamp(Date.parse(value), format)?.text
       : undefined;
+  if (kind === "number") return decimal(value, format);
   const numeric = integer(value);
   if (numeric === undefined) return undefined;
-  if (kind === "count" || kind === "number")
-    return displayInteger(numeric, format);
+  if (kind === "count") return displayInteger(numeric, format);
   if (kind === "size" && numeric >= 0n)
-    return formatByteUnit(
+    return formatRegionalCapacity(
       numeric,
       SIZE_UNIT_RULES.iec,
       SIZE_UNIT_RULES.decimalPlaces,
       "auto",
       false,
       format,
-    );
+    ).visual;
   return undefined;
 }
 

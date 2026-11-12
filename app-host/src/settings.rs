@@ -18,7 +18,7 @@ use crate::shared_database::{SharedDatabase, SharedSettings};
 mod display_ipc;
 mod locale_ipc;
 mod restore_ipc;
-pub(super) use locale_ipc::{LocaleRuntime, SupportedLanguageInventory};
+pub(super) use locale_ipc::LocaleRuntime;
 
 /// Owns the restored service and immutable startup report for the desktop lifetime.
 pub(super) struct StartupSettings {

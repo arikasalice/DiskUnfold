@@ -49,7 +49,7 @@ pub(crate) type SupportedLanguageInventory =
     Arc<dyn Fn() -> Result<Vec<LocaleSupportedLanguage>, &'static str> + Send + Sync>;
 
 /// Dependencies needed to serve the desktop locale profile and its events.
-pub(super) struct LocaleRuntime {
+pub(crate) struct LocaleRuntime {
     startup_locale: Arc<StartupLocale>,
     events: Arc<DesktopEvents>,
     supported_languages: SupportedLanguageInventory,

@@ -33,22 +33,42 @@ export function displayInteger(value: bigint, format?: RegionalFormat): string {
   return `${negative ? "-" : ""}${chunks.reverse().join(format.groupingSeparator)}`;
 }
 
+export function displayDecimal(
+  coefficient: bigint,
+  scale: number,
+  format: RegionalFormat,
+): string {
+  const negative = coefficient < 0n;
+  const magnitude = negative ? -coefficient : coefficient;
+  const divisor = 10n ** BigInt(Math.max(0, scale - 1));
+  const tenths =
+    scale === 0 ? magnitude * 10n : (magnitude + divisor / 2n) / divisor;
+  const sign = negative && tenths !== 0n ? "-" : "";
+  const fraction = tenths % 10n;
+  return `${sign}${displayInteger(tenths / 10n, format)}${fraction === 0n ? "" : `${format.decimalSeparator}${fraction}`}`;
+}
+
 function pad(value: number, length = 2): string {
   return String(value).padStart(length, "0");
 }
 
 /** Formats the same timestamp without replacing the value used for sorting. */
-export function displayTimestamp(value: number, format: RegionalFormat) {
+export function displayTimestamp(
+  value: number,
+  format: RegionalFormat,
+  observedOffsetSeconds?: number | null,
+) {
   const source = new Date(value);
   if (!Number.isFinite(source.getTime())) return undefined;
   const timezoneUnavailable =
     format.timeZonePolicy === "local" &&
-    format.localTimeZoneStatus === "unavailable";
+    (observedOffsetSeconds === null ||
+      format.localTimeZoneStatus === "unavailable");
   const offset =
     format.timeZonePolicy === "local" && !timezoneUnavailable
-      ? -source.getTimezoneOffset()
+      ? (observedOffsetSeconds ?? -source.getTimezoneOffset() * 60)
       : 0;
-  const date = new Date(value + offset * 60_000);
+  const date = new Date(value + offset * 1000);
   if (!Number.isFinite(date.getTime())) return undefined;
   const fields: Record<string, string> = {
     yyyy: pad(date.getUTCFullYear(), 4),
@@ -63,7 +83,8 @@ export function displayTimestamp(value: number, format: RegionalFormat) {
     /yyyy|MM|dd|HH|mm|ss|'T'/g,
     (field) => fields[field] ?? field,
   );
-  const zone = `${offset < 0 ? "-" : "+"}${pad(Math.floor(Math.abs(offset) / 60))}:${pad(Math.abs(offset) % 60)}`;
+  const minutes = Math.floor(Math.abs(offset) / 60);
+  const zone = `${offset < 0 ? "-" : "+"}${pad(Math.floor(minutes / 60))}:${pad(minutes % 60)}`;
   const suffix =
     format.dateFormat === "iso8601"
       ? offset === 0
@@ -72,7 +93,12 @@ export function displayTimestamp(value: number, format: RegionalFormat) {
       : offset === 0
         ? " UTC"
         : ` UTC${zone}`;
-  return { text: time + suffix, timezoneUnavailable };
+  return {
+    text: time + suffix,
+    date: time,
+    offsetSeconds: offset,
+    timezoneUnavailable,
+  };
 }
 
 export function useTimestampText() {
