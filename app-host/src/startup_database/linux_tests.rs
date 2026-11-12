@@ -1,7 +1,23 @@
 use super::*;
 use rusqlite::Connection;
+use std::os::unix::fs::PermissionsExt;
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
+
+#[test]
+fn new_linux_data_directories_are_private_and_existing_modes_are_preserved() -> TestResult {
+    let root = tempfile::tempdir()?;
+    let created = root.path().join("DiskUnfold");
+    drop(open(&created)?);
+    assert_eq!(fs::metadata(&created)?.permissions().mode() & 0o777, 0o700);
+
+    let existing = root.path().join("Existing");
+    fs::create_dir(&existing)?;
+    fs::set_permissions(&existing, fs::Permissions::from_mode(0o750))?;
+    drop(open(&existing)?);
+    assert_eq!(fs::metadata(&existing)?.permissions().mode() & 0o777, 0o750);
+    Ok(())
+}
 
 #[test]
 fn fresh_linux_start_publishes_current_schema_and_holds_the_writer_lock() -> TestResult {
