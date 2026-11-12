@@ -13,6 +13,7 @@ pub mod query;
 mod replacement;
 mod result_path;
 mod result_read;
+pub mod source_registry;
 mod space;
 pub mod space_detail;
 mod space_limit;
