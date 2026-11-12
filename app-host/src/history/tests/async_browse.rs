@@ -283,6 +283,26 @@ fn verify_async_browse(
     assert_eq!(error.code, ErrorCode::StaleVersion);
     assert_eq!(error.reason_key, "result.requery_required");
 
+    verify_late_cancellation(
+        engine,
+        &region_ref,
+        &job_ref,
+        &query_ref,
+        &version,
+        finished,
+    )?;
+    Ok(())
+}
+
+/// Confirms late cancellation preserves the published Browse result and terminal job evidence.
+fn verify_late_cancellation(
+    engine: &Engine,
+    region_ref: &Id,
+    job_ref: &Id,
+    query_ref: &Id,
+    version: &Id,
+    finished: &du_core_contracts::EventEnvelope,
+) -> Result<(), Box<dyn std::error::Error>> {
     // A late cancellation through the desktop IPC surface must leave a
     // published Browse result readable and keep job.get aligned with the
     // job.finished event.
@@ -297,7 +317,7 @@ fn verify_async_browse(
     assert!(status.error.is_none(), "{:?}", status.error);
     let status: AnalysisJobStatus = serde_json::from_value(status.body)?;
     assert_eq!(status.state, JobState::Done);
-    assert_eq!(status.query_ref.as_ref(), Some(&query_ref));
+    assert_eq!(status.query_ref.as_ref(), Some(query_ref));
     assert_eq!(finished.body["state"], "done");
     assert_eq!(finished.body["queryRef"], query_ref.as_str());
     let surviving_page = ipc(
