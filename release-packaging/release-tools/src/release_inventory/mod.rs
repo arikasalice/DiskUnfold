@@ -1,11 +1,13 @@
 //! Validated, deterministic release distribution inventory generation.
 mod model;
+mod os_range;
 mod render;
 #[cfg(test)]
 mod tests;
 mod validation;
 
 pub use model::*;
+pub use os_range::{OsFamily, OsRange, OsVersion, OsVersionParseError, OsVersionScope};
 pub use render::{render_checksums, render_executable_checksums, render_json, render_markdown};
 pub use validation::{prepare_inventory, validate_and_sort};
 
@@ -20,7 +22,7 @@ impl ReleaseInventory {
         &self.version
     }
 
-    /// Returns distribution rows in format, OS range, and CPU order.
+    /// Returns distribution rows in format, OS family/version scope, and CPU order.
     pub fn rows(&self) -> &[DistributionRow] {
         &self.rows
     }

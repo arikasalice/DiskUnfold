@@ -11,8 +11,10 @@ fn sample_manifest(root: &Path) -> Result<ReleaseManifest, Box<dyn Error>> {
         version: "0.1.0".into(),
         os: OsRange {
             family: OsFamily::Windows,
-            minimum: OsVersion::parse("11 25H2")?,
-            maximum: None,
+            versions: OsVersionScope::Range {
+                minimum: OsVersion::parse("11 25H2")?,
+                maximum: None,
+            },
         },
         cpu: Cpu::X64,
         format: PackageFormat::Msi,
@@ -94,8 +96,10 @@ fn sorts_rows_by_format_then_os_then_cpu_deterministically() -> Result<(), Box<d
     mac.file_name = "DiskUnfold-0.1.0-universal.dmg".into();
     mac.os = OsRange {
         family: OsFamily::Macos,
-        minimum: OsVersion::parse("15")?,
-        maximum: Some(OsVersion::parse("27")?),
+        versions: OsVersionScope::Range {
+            minimum: OsVersion::parse("15")?,
+            maximum: Some(OsVersion::parse("27")?),
+        },
     };
     mac.cpu = Cpu::Universal;
     mac.format = PackageFormat::Dmg;
@@ -104,8 +108,9 @@ fn sorts_rows_by_format_then_os_then_cpu_deterministically() -> Result<(), Box<d
     deb.file_name = "DiskUnfold-0.1.0-arm64.deb".into();
     deb.os = OsRange {
         family: OsFamily::Ubuntu,
-        minimum: OsVersion::parse("24.04")?,
-        maximum: Some(OsVersion::parse("26.04")?),
+        versions: OsVersionScope::Exact {
+            supported_versions: vec![OsVersion::parse("24.04")?, OsVersion::parse("26.04")?],
+        },
     };
     deb.cpu = Cpu::Arm64;
     deb.format = PackageFormat::Deb;
@@ -115,8 +120,9 @@ fn sorts_rows_by_format_then_os_then_cpu_deterministically() -> Result<(), Box<d
     ubuntu_x64.file_name = "DiskUnfold-0.1.0-x86_64.tar.gz".into();
     ubuntu_x64.os = OsRange {
         family: OsFamily::Ubuntu,
-        minimum: OsVersion::parse("24.04")?,
-        maximum: Some(OsVersion::parse("26.04")?),
+        versions: OsVersionScope::Exact {
+            supported_versions: vec![OsVersion::parse("24.04")?, OsVersion::parse("26.04")?],
+        },
     };
     ubuntu_x64.cpu = Cpu::X64;
     ubuntu_x64.format = PackageFormat::TarGz;
@@ -131,8 +137,10 @@ fn sorts_rows_by_format_then_os_then_cpu_deterministically() -> Result<(), Box<d
     windows_arm64.file_name = "DiskUnfold-0.1.0-arm64.tar.gz".into();
     windows_arm64.os = OsRange {
         family: OsFamily::Windows,
-        minimum: OsVersion::parse("11 25H2")?,
-        maximum: Some(OsVersion::parse("11 26H2")?),
+        versions: OsVersionScope::Range {
+            minimum: OsVersion::parse("11 25H2")?,
+            maximum: Some(OsVersion::parse("11 26H2")?),
+        },
     };
     manifest.rows.push(windows_arm64);
     manifest.staged_files.clear();
@@ -174,6 +182,115 @@ fn sorts_rows_by_format_then_os_then_cpu_deterministically() -> Result<(), Box<d
     };
     let json = render_json(&output)?;
     assert_eq!(json, render_json(&output)?);
+    Ok(())
+}
+
+#[test]
+fn preserves_legacy_os_range_manifest_shape() -> Result<(), Box<dyn Error>> {
+    let legacy = serde_json::json!({
+        "family": "windows",
+        "minimum": "11 25H2",
+        "maximum": null
+    });
+    let parsed: OsRange = serde_json::from_value(legacy.clone())?;
+    assert_eq!(serde_json::to_value(parsed)?, legacy);
+    Ok(())
+}
+
+#[test]
+fn renders_exact_os_versions_without_implying_intermediate_support() -> Result<(), Box<dyn Error>> {
+    let staging = TempDir::new()?;
+    let mut manifest = sample_manifest(staging.path())?;
+    manifest.channel_references.clear();
+    manifest.rows[0].file_name = "DiskUnfold-0.1.0-x64.tar.gz".into();
+    manifest.rows[0].os = OsRange {
+        family: OsFamily::Ubuntu,
+        versions: OsVersionScope::Exact {
+            supported_versions: vec![OsVersion::parse("26.04")?, OsVersion::parse("24.04")?],
+        },
+    };
+    manifest.rows[0].format = PackageFormat::TarGz;
+    manifest.rows[0].signature = SignatureMethod::Unsigned;
+    for staged in &mut manifest.staged_files {
+        staged.artifact_file_name = manifest.rows[0].file_name.clone();
+        if staged.kind == StagedFileKind::Package {
+            staged.relative_path = manifest.rows[0].file_name.clone().into();
+        }
+    }
+
+    validate_and_sort(&mut manifest)?;
+    let inventory = ReleaseInventory {
+        product_name: manifest.product_name,
+        version: manifest.version,
+        rows: manifest.rows,
+        channel_references: manifest.channel_references,
+    };
+    let json = render_json(&inventory)?;
+    let output: serde_json::Value = serde_json::from_str(&json)?;
+    let rows = output["rows"]
+        .as_array()
+        .ok_or("inventory rows are missing")?;
+    assert_eq!(
+        rows.len(),
+        1,
+        "one Linux package covers both exact versions"
+    );
+    assert_eq!(rows[0]["os"]["family"], "ubuntu");
+    assert_eq!(
+        rows[0]["os"]["supported_versions"],
+        serde_json::json!(["24.04", "26.04"])
+    );
+    assert!(rows[0]["os"].get("minimum").is_none());
+    assert!(rows[0]["os"].get("maximum").is_none());
+    assert_eq!(json, render_json(&inventory)?);
+
+    let markdown = render_markdown(&inventory);
+    assert!(markdown.contains("| File | Version | OS support |"));
+    assert!(markdown.contains("| DiskUnfold-0.1.0-x64.tar.gz | 0.1.0 | ubuntu 24.04, 26.04 |"));
+    assert!(!markdown.contains("24.04–26.04"));
+    Ok(())
+}
+
+#[test]
+fn rejects_ambiguous_empty_and_duplicate_os_version_scopes() -> Result<(), Box<dyn Error>> {
+    let ambiguous = serde_json::json!({
+        "family": "ubuntu",
+        "minimum": "24.04",
+        "maximum": "26.04",
+        "supported_versions": ["24.04", "26.04"]
+    });
+    assert!(serde_json::from_value::<OsRange>(ambiguous).is_err());
+    let null_bound_conflict = serde_json::json!({
+        "family": "ubuntu",
+        "maximum": null,
+        "supported_versions": ["24.04"]
+    });
+    assert!(serde_json::from_value::<OsRange>(null_bound_conflict).is_err());
+
+    let staging = TempDir::new()?;
+    let mut manifest = sample_manifest(staging.path())?;
+    manifest.rows[0].os = OsRange {
+        family: OsFamily::Ubuntu,
+        versions: OsVersionScope::Exact {
+            supported_versions: Vec::new(),
+        },
+    };
+    assert!(matches!(
+        validate_and_sort(&mut manifest),
+        Err(InventoryError::InvalidField { field: "os", .. })
+    ));
+
+    let mut manifest = sample_manifest(staging.path())?;
+    manifest.rows[0].os = OsRange {
+        family: OsFamily::Ubuntu,
+        versions: OsVersionScope::Exact {
+            supported_versions: vec![OsVersion::parse("24.04")?, OsVersion::parse("24.04")?],
+        },
+    };
+    assert!(matches!(
+        validate_and_sort(&mut manifest),
+        Err(InventoryError::InvalidField { field: "os", .. })
+    ));
     Ok(())
 }
 
@@ -244,7 +361,9 @@ fn reports_staged_digest_mismatch_and_rejects_parent_traversal() -> Result<(), B
     ));
 
     let mut manifest = sample_manifest(staging.path())?;
-    manifest.rows[0].os.maximum = Some(OsVersion::parse("11 24H2")?);
+    if let OsVersionScope::Range { maximum, .. } = &mut manifest.rows[0].os.versions {
+        *maximum = Some(OsVersion::parse("11 24H2")?);
+    }
     assert!(matches!(
         validate_and_sort(&mut manifest),
         Err(InventoryError::InvalidField { field: "os", .. })
@@ -284,8 +403,10 @@ fn renders_each_artifact_signature_scope_and_escapes_table_delimiters() -> Resul
     macos.file_name = package_name.into();
     macos.os = OsRange {
         family: OsFamily::Macos,
-        minimum: OsVersion::parse("15")?,
-        maximum: None,
+        versions: OsVersionScope::Range {
+            minimum: OsVersion::parse("15")?,
+            maximum: None,
+        },
     };
     macos.cpu = Cpu::Universal;
     macos.format = PackageFormat::Dmg;
@@ -313,7 +434,7 @@ fn renders_each_artifact_signature_scope_and_escapes_table_delimiters() -> Resul
     let markdown = render_markdown(&inventory);
 
     assert!(markdown.contains(
-        "| File | Version | OS range | CPU | Format | Channel | Signature | Signature scope | SHA-256 | Run instructions |"
+        "| File | Version | OS support | CPU | Format | Channel | Signature | Signature scope | SHA-256 | Run instructions |"
     ));
     assert!(markdown.contains("| SignPath | Authenticode identity and signed package integrity |"));
     let expected_macos_row = format!(

@@ -9,22 +9,34 @@ pub fn render_markdown(inventory: &ReleaseInventory) -> String {
     output.push_str(
         "> Internal inventory output. Staged paths are rehashed, but package contents, executable membership, signatures, and build provenance are not verified or created by this tool. This output is not a release gate.\n\n",
     );
-    output.push_str("| File | Version | OS range | CPU | Format | Channel | Signature | Signature scope | SHA-256 | Run instructions |\n");
+    output.push_str("| File | Version | OS support | CPU | Format | Channel | Signature | Signature scope | SHA-256 | Run instructions |\n");
     output.push_str("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n");
     for row in &inventory.rows {
-        let max = row
-            .os
-            .maximum
-            .as_ref()
-            .map(ToString::to_string)
-            .unwrap_or_else(|| "open".to_owned());
+        let os_support = match &row.os.versions {
+            OsVersionScope::Range { minimum, maximum } => format!(
+                "{} {}–{}",
+                row.os.family.sort_key(),
+                minimum,
+                maximum
+                    .as_ref()
+                    .map(ToString::to_string)
+                    .unwrap_or_else(|| "open".to_owned())
+            ),
+            OsVersionScope::Exact { supported_versions } => format!(
+                "{} {}",
+                row.os.family.sort_key(),
+                supported_versions
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        };
         output.push_str(&format!(
-            "| {} | {} | {} {}–{} | {} | {} | {} | {} | {} | {} | {} |\n",
+            "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |\n",
             markdown_cell(&row.file_name),
             markdown_cell(&row.version),
-            row.os.family.sort_key(),
-            row.os.minimum,
-            max,
+            markdown_cell(&os_support),
             row.cpu.sort_key(),
             row.format.sort_key(),
             row.channel.as_str(),

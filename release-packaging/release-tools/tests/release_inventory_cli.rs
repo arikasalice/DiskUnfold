@@ -293,3 +293,75 @@ fn cli_emits_verifiable_package_sums_and_package_scoped_executable_hashes()
 
     Ok(())
 }
+
+#[test]
+fn cli_keeps_nonconsecutive_ubuntu_versions_on_one_asset_row() -> Result<(), Box<dyn Error>> {
+    let temporary = TempDir::new()?;
+    let staging = temporary.path().join("staging");
+    let output = temporary.path().join("output");
+    fs::create_dir(&staging)?;
+    let package_name = "DiskUnfold-0.1.0-x64.tar.gz";
+    let executable_name = "diskunfold";
+    let package = b"Ubuntu tarball fixture";
+    let executable = b"Ubuntu executable fixture";
+    fs::write(staging.join(package_name), package)?;
+    fs::write(staging.join(executable_name), executable)?;
+    let manifest = json!({
+        "product_name": "DiskUnfold",
+        "version": "0.1.0",
+        "rows": [{
+            "file_name": package_name,
+            "version": "0.1.0",
+            "os": {
+                "family": "ubuntu",
+                "supported_versions": ["26.04", "24.04"]
+            },
+            "cpu": "x64",
+            "format": "tar-gz",
+            "channel": "direct",
+            "signature": "unsigned",
+            "signature_scope": "No package signature; compare the published digest and provenance.",
+            "sha256": sha256(package),
+            "executable_file_name": executable_name,
+            "executable_sha256": sha256(executable),
+            "run_instructions": "Extract the archive and run diskunfold."
+        }],
+        "channel_references": [],
+        "staged_files": [
+            {"artifact_file_name": package_name, "kind": "package", "relative_path": package_name},
+            {"artifact_file_name": package_name, "kind": "executable", "relative_path": executable_name}
+        ]
+    });
+    let manifest_path = staging.join("manifest.json");
+    fs::write(&manifest_path, serde_json::to_vec_pretty(&manifest)?)?;
+
+    let generated = run_tool(&manifest_path, &staging, &output)?;
+    assert!(
+        generated.status.success(),
+        "{}",
+        String::from_utf8_lossy(&generated.stderr)
+    );
+
+    let inventory: Value =
+        serde_json::from_slice(&fs::read(output.join("release-inventory.json"))?)?;
+    let rows = inventory["rows"]
+        .as_array()
+        .ok_or("inventory rows are missing")?;
+    assert_eq!(rows.len(), 1, "the package filename is unique for this CPU");
+    assert_eq!(
+        rows[0]["os"]["supported_versions"],
+        json!(["24.04", "26.04"])
+    );
+    assert!(rows[0]["os"].get("minimum").is_none());
+    assert!(rows[0]["os"].get("maximum").is_none());
+    let distribution = fs::read_to_string(output.join("DISTRIBUTION.md"))?;
+    assert!(distribution.contains("| ubuntu 24.04, 26.04 |"));
+    assert!(!distribution.contains("24.04–26.04"));
+    assert_eq!(
+        fs::read_to_string(output.join("SHA256SUMS"))?
+            .lines()
+            .count(),
+        1
+    );
+    Ok(())
+}

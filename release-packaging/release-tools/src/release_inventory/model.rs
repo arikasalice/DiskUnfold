@@ -1,3 +1,4 @@
+use super::os_range::OsRange;
 use serde::{Deserialize, Serialize, de};
 use std::{error::Error, fmt, io, path::PathBuf};
 
@@ -9,7 +10,7 @@ pub struct DistributionRow {
     pub file_name: String,
     /// Product version represented by this artifact.
     pub version: String,
-    /// Supported OS family and inclusive version range for this artifact.
+    /// Supported OS family and range or exact supported versions for this artifact.
     pub os: OsRange,
     /// CPU architecture of the artifact.
     pub cpu: Cpu,
@@ -79,122 +80,6 @@ pub struct ChannelReference {
     pub artifact_file_name: String,
     /// How users receive updates through this channel.
     pub update_method: UpdateMethod,
-}
-
-/// The operating-system family supported by a distribution row.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum OsFamily {
-    /// Microsoft Windows.
-    Windows,
-    /// Apple macOS.
-    Macos,
-    /// Ubuntu Linux.
-    Ubuntu,
-}
-
-impl OsFamily {
-    pub(super) fn sort_key(self) -> &'static str {
-        match self {
-            Self::Macos => "macos",
-            Self::Ubuntu => "ubuntu",
-            Self::Windows => "windows",
-        }
-    }
-}
-
-/// An OS release label ordered by its numeric components.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-#[serde(transparent)]
-pub struct OsVersion(String);
-
-impl OsVersion {
-    /// Parses an OS release label such as `11 25H2`, `15`, or `24.04`.
-    pub fn parse(value: &str) -> Result<Self, InventoryError> {
-        if value.trim().is_empty() || value.chars().any(char::is_control) {
-            return Err(InventoryError::InvalidField {
-                field: "os_version",
-                detail: "must be nonempty and contain no control characters".to_owned(),
-            });
-        }
-        let numeric_groups = numeric_groups(value)?;
-        if numeric_groups.is_empty() {
-            return Err(InventoryError::InvalidField {
-                field: "os_version",
-                detail: "must contain at least one numeric release component".to_owned(),
-            });
-        }
-        Ok(Self(value.trim().to_owned()))
-    }
-}
-
-impl fmt::Display for OsVersion {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-
-impl Ord for OsVersion {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        numeric_groups(&self.0)
-            .unwrap_or_default()
-            .cmp(&numeric_groups(&other.0).unwrap_or_default())
-            .then_with(|| self.0.cmp(&other.0))
-    }
-}
-
-impl PartialOrd for OsVersion {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl<'de> Deserialize<'de> for OsVersion {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let value = String::deserialize(deserializer)?;
-        Self::parse(&value).map_err(de::Error::custom)
-    }
-}
-
-fn numeric_groups(value: &str) -> Result<Vec<u32>, InventoryError> {
-    let mut groups = Vec::new();
-    let mut number = 0_u32;
-    let mut in_number = false;
-    for character in value.chars() {
-        if let Some(digit) = character.to_digit(10).filter(|_| character.is_ascii()) {
-            number = number
-                .checked_mul(10)
-                .and_then(|current| current.checked_add(digit))
-                .ok_or_else(|| InventoryError::InvalidField {
-                    field: "os_version",
-                    detail: "numeric release component is too large".to_owned(),
-                })?;
-            in_number = true;
-        } else if in_number {
-            groups.push(number);
-            number = 0;
-            in_number = false;
-        }
-    }
-    if in_number {
-        groups.push(number);
-    }
-    Ok(groups)
-}
-
-/// An inclusive supported OS version range. `maximum: None` means no declared upper bound.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct OsRange {
-    /// OS family for this range.
-    pub family: OsFamily,
-    /// Lowest supported version, inclusive.
-    pub minimum: OsVersion,
-    /// Highest supported version, inclusive, when bounded.
-    pub maximum: Option<OsVersion>,
 }
 
 /// A CPU target recorded in the release list.

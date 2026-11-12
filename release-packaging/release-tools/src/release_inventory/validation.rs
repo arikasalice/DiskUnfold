@@ -32,7 +32,7 @@ pub fn prepare_inventory(
     Ok((inventory, verified))
 }
 
-/// Validates release metadata and sorts rows by format, OS family/range, and CPU.
+/// Validates release metadata and sorts rows by format, OS family/version scope, and CPU.
 ///
 /// Filename checks accept `x64`/`x86_64`/`amd64` and `arm64`/`aarch64` aliases used by the
 /// published architecture and F15 requirements rather than imposing one platform's spelling.
@@ -46,8 +46,11 @@ pub fn validate_and_sort(manifest: &mut ReleaseManifest) -> Result<(), Inventory
         });
     }
 
-    for row in &manifest.rows {
+    for row in &mut manifest.rows {
         validate_row(&manifest.product_name, &manifest.version, row)?;
+        if let OsVersionScope::Exact { supported_versions } = &mut row.os.versions {
+            supported_versions.sort();
+        }
     }
     manifest.rows.sort_by(compare_rows);
 
@@ -121,16 +124,31 @@ fn validate_row(
             ),
         });
     }
-    if row
-        .os
-        .maximum
-        .as_ref()
-        .is_some_and(|maximum| maximum < &row.os.minimum)
-    {
-        return Err(InventoryError::InvalidField {
-            field: "os",
-            detail: "maximum version must be greater than or equal to minimum".to_owned(),
-        });
+    match &row.os.versions {
+        OsVersionScope::Range { minimum, maximum } => {
+            if maximum.as_ref().is_some_and(|maximum| maximum < minimum) {
+                return Err(InventoryError::InvalidField {
+                    field: "os",
+                    detail: "maximum version must be greater than or equal to minimum".to_owned(),
+                });
+            }
+        }
+        OsVersionScope::Exact { supported_versions } => {
+            if supported_versions.is_empty() {
+                return Err(InventoryError::InvalidField {
+                    field: "os",
+                    detail: "exact supported versions must not be empty".to_owned(),
+                });
+            }
+            let mut sorted_versions = supported_versions.clone();
+            sorted_versions.sort();
+            if sorted_versions.windows(2).any(|pair| pair[0] == pair[1]) {
+                return Err(InventoryError::InvalidField {
+                    field: "os",
+                    detail: "exact supported versions must not contain duplicates".to_owned(),
+                });
+            }
+        }
     }
     require_nonempty("signature_scope", &row.signature_scope)?;
     validate_artifact_name(&row.executable_file_name)?;
@@ -373,8 +391,7 @@ fn compare_rows(left: &DistributionRow, right: &DistributionRow) -> Ordering {
         .sort_key()
         .cmp(right.format.sort_key())
         .then_with(|| left.os.family.sort_key().cmp(right.os.family.sort_key()))
-        .then_with(|| left.os.minimum.cmp(&right.os.minimum))
-        .then_with(|| left.os.maximum.cmp(&right.os.maximum))
+        .then_with(|| left.os.versions.cmp(&right.os.versions))
         .then_with(|| left.cpu.sort_key().cmp(right.cpu.sort_key()))
         .then_with(|| left.file_name.cmp(&right.file_name))
 }
