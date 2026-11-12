@@ -4,10 +4,10 @@ pub mod application_data;
 pub mod entropy;
 #[cfg(feature = "fake")]
 pub mod fake;
-#[cfg(all(target_os = "linux", feature = "webview"))]
-pub mod linux_time_zone;
 #[cfg(target_os = "linux")]
 pub mod linux_instance_lock;
+#[cfg(all(target_os = "linux", feature = "webview"))]
+pub mod linux_time_zone;
 #[cfg(target_os = "linux")]
 pub mod linux_ui_language;
 #[cfg(target_os = "linux")]
