@@ -1,7 +1,14 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import type { Ref } from "react";
-import { Action, Text } from "../components";
+import { Action, Progress, Text } from "../components";
 import type { SizeDisplay } from "../i18n/bytes";
+import type { SizeBasisFilter } from "../features/analysis/space-format";
 import type { AnalysisClient, ItemRef, VizCatalog } from "../ipc";
 import type { BrowseOpenLocation } from "../features/browse/BrowsePanel";
 import { VisualizationSession } from "../features/visualization/VisualizationSession";
@@ -13,6 +20,7 @@ export type BrowseVisualizationSelection = {
   resultVersion: string;
   location: ItemRef;
   display: SizeDisplay;
+  sizeBasis: SizeBasisFilter;
 };
 
 /** App-only assembly supplied by the product owner after catalog inspection. */
@@ -108,6 +116,7 @@ export function browseSelectionFromOpen(
   expectedVersion: string,
   opened: BrowseOpenLocation,
   display: SizeDisplay,
+  sizeBasis: SizeBasisFilter,
 ): BrowseVisualizationSelection | undefined {
   const { page } = opened;
   if (
@@ -121,6 +130,7 @@ export function browseSelectionFromOpen(
     resultVersion: page.resultVersion,
     location: opened.location,
     display,
+    sizeBasis,
   };
 }
 
@@ -168,6 +178,74 @@ export function BrowseVisualizationView({
   selection: BrowseVisualizationSelection | undefined;
   assembly: BrowseVisualizationAssembly | undefined;
 }) {
+  const viewportElement = useRef<HTMLDivElement>(null);
+  const [viewport, setViewport] = useState<
+    VisualizationViewRequest["viewport"] | undefined
+  >();
+
+  useLayoutEffect(() => {
+    if (!open || !client || !assembly || !selection) {
+      setViewport(undefined);
+      return;
+    }
+    const element = viewportElement.current;
+    if (!element || typeof ResizeObserver === "undefined") {
+      setViewport(undefined);
+      return;
+    }
+    let active = true;
+    const update = (width: number, height: number) => {
+      if (!active) return;
+      const scale = window.devicePixelRatio;
+      const logicalWidth = Math.round(width);
+      const logicalHeight = Math.round(height);
+      if (
+        !Number.isFinite(logicalWidth) ||
+        !Number.isFinite(logicalHeight) ||
+        logicalWidth <= 0 ||
+        logicalHeight <= 0 ||
+        logicalWidth > 0xffff_ffff ||
+        logicalHeight > 0xffff_ffff ||
+        !Number.isFinite(scale) ||
+        scale <= 0
+      ) {
+        setViewport(undefined);
+        return;
+      }
+      setViewport((current) =>
+        current?.width === logicalWidth &&
+        current.height === logicalHeight &&
+        current.scale === scale
+          ? current
+          : { width: logicalWidth, height: logicalHeight, scale },
+      );
+    };
+    const measure = () => {
+      const rect = element.getBoundingClientRect();
+      update(rect.width, rect.height);
+    };
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries.find(({ target }) => target === element);
+      if (entry) update(entry.contentRect.width, entry.contentRect.height);
+    });
+    observer.observe(element);
+    measure();
+    window.addEventListener("resize", measure);
+    window.visualViewport?.addEventListener("resize", measure);
+    return () => {
+      active = false;
+      observer.disconnect();
+      window.removeEventListener("resize", measure);
+      window.visualViewport?.removeEventListener("resize", measure);
+    };
+  }, [
+    assembly,
+    client,
+    open,
+    selection?.location.itemNo,
+    selection?.resultVersion,
+  ]);
+
   if (!open) return null;
   if (!client || !assembly || !selection)
     return (
@@ -177,19 +255,25 @@ export function BrowseVisualizationView({
     );
   return (
     <section className="du-visualization-shell" aria-label="Space distribution">
-      <VisualizationSession
-        client={client}
-        request={assembly.request}
-        canDisplay={(frame) =>
-          frameMatchesBrowseSelection(frame, selection) &&
-          assembly.canDisplay(frame)
-        }
-        text={assembly.text}
-        autoLoadRows={assembly.autoLoadRows}
-        {...(assembly.resolveRenderer
-          ? { resolveRenderer: assembly.resolveRenderer }
-          : {})}
-      />
+      <div ref={viewportElement} className="du-visualization-viewport">
+        {viewport ? (
+          <VisualizationSession
+            client={client}
+            request={{ ...assembly.request, viewport }}
+            canDisplay={(frame) =>
+              frameMatchesBrowseSelection(frame, selection) &&
+              assembly.canDisplay(frame)
+            }
+            text={assembly.text}
+            autoLoadRows={assembly.autoLoadRows}
+            {...(assembly.resolveRenderer
+              ? { resolveRenderer: assembly.resolveRenderer }
+              : {})}
+          />
+        ) : (
+          <Progress label={assembly.text.message("loading")} />
+        )}
+      </div>
     </section>
   );
 }
@@ -203,6 +287,7 @@ function supportsBrowseVisualization(
   const { strategy } = request;
   return (
     request.resultRevision === selection.resultVersion &&
+    request.sizeBasis === selection.sizeBasis &&
     sameItemRef(request.aggregateScopeRef, selection.location) &&
     sameItemRef(request.navigationScopeRef, selection.location) &&
     (!request.focusItemRef ||
@@ -230,6 +315,7 @@ function frameMatchesBrowseSelection(
   const { model } = frame;
   return (
     frame.resultRevision === selection.resultVersion &&
+    model.representation.sizeBasis === selection.sizeBasis &&
     sameItemRef(model.aggregateScopeRef, selection.location) &&
     sameItemRef(model.navigationScopeRef, selection.location) &&
     frameItemRefs(frame).every(

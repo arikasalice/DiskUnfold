@@ -1,7 +1,15 @@
 import type { SizeDisplay } from "../i18n/bytes";
+import type { SizeBasisFilter } from "../features/analysis/space-format";
 import diskUnfoldIcon from "./assets/diskunfold-icon.svg";
 import "./browse-visualization.css";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Action, BrandMark, Heading, LiveStatus, Text } from "../components";
 import { AnalysisPanel } from "../features/analysis/AnalysisPanel";
 import { FileInspection } from "../features/analysis/FileInspection";
@@ -40,6 +48,10 @@ export function App({
   const [browseSelection, setBrowseSelection] = useState<{
     version: string;
     choice: SizeDisplay | undefined;
+  }>();
+  const [basisSelection, setBasisSelection] = useState<{
+    version: string;
+    basis: SizeBasisFilter;
   }>();
   const [visualizationOpen, setVisualizationOpen] = useState(false);
   const { version: browseVersion, choice: browseChoice } =
@@ -80,6 +92,11 @@ export function App({
   }, [visualizationOpen]);
   const analysisOpen = client && !history && browseVersion === undefined;
   const browseDisplay = effectiveDisplay(browseChoice, preferences.display);
+  const onSizeBasisChange = useCallback(
+    (version: string, basis: SizeBasisFilter) =>
+      setBasisSelection({ version, basis }),
+    [],
+  );
   return (
     <main
       className="du-app"
@@ -159,6 +176,7 @@ export function App({
           <AnalysisPanel
             client={client}
             preferences={preferences}
+            onSizeBasisChange={onSizeBasisChange}
             onBrowse={(version, choice) => {
               visualization.invalidate();
               setBrowseSelection({ version, choice });
@@ -176,7 +194,14 @@ export function App({
         onOpening={visualization.invalidate}
         onOpened={(version, opened) =>
           visualization.opened(
-            browseSelectionFromOpen(version, opened, browseDisplay),
+            basisSelection?.version === version
+              ? browseSelectionFromOpen(
+                  version,
+                  opened,
+                  browseDisplay,
+                  basisSelection.basis,
+                )
+              : undefined,
           )
         }
       />

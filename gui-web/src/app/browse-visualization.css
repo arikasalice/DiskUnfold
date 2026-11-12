@@ -2,3 +2,30 @@
 .du-app > .du-browse-shell[hidden] {
   display: none;
 }
+
+.du-app[data-visualization-open] {
+  block-size: 100dvh;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  padding-block-end: 8px;
+}
+
+.du-visualization-shell {
+  min-block-size: 0;
+  min-inline-size: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.du-visualization-viewport {
+  min-block-size: 0;
+  min-inline-size: 0;
+  overflow: auto;
+}
+
+@media (max-height: 350px) {
+  .du-app[data-browse-open][data-visualization-open] {
+    block-size: 100dvh;
+    min-block-size: 0;
+  }
+}

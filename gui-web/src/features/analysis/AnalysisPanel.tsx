@@ -28,6 +28,7 @@ import { ScanOutput } from "./AnalysisViews";
 import { RecentScopePicker } from "./RecentScopePicker";
 import { TargetPicker } from "./TargetPicker";
 import type { SizeDisplay } from "../../i18n/bytes";
+import type { SizeBasisFilter } from "./space-format";
 import type { AnalysisDisplayPreferences } from "./use-display-preferences";
 
 function errorText(error: unknown): string {
@@ -172,11 +173,14 @@ export function AnalysisPanel({
   client,
   preferences,
   onBrowse,
+  onSizeBasisChange,
   browseTrigger,
 }: {
   client: AnalysisClient;
   preferences: AnalysisDisplayPreferences;
   onBrowse?: (version: string, choice: SizeDisplay | undefined) => void;
+  onSizeBasisChange?:
+    ((version: string, basis: SizeBasisFilter) => void) | undefined;
   browseTrigger?: Ref<HTMLButtonElement>;
 }) {
   const targets = useTargets(client);
@@ -695,6 +699,7 @@ export function AnalysisPanel({
               preferences={preferences}
               displayChoice={displayChoice}
               onDisplayChoice={setDisplayChoice}
+              onSizeBasisChange={onSizeBasisChange}
               scan={scan}
               started={receipt !== null}
               running={running}

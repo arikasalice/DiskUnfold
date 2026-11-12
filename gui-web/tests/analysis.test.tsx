@@ -43,6 +43,50 @@ import type {
 } from "../src/ipc";
 
 afterEach(cleanup);
+afterEach(() => {
+  resizeObservers.length = 0;
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
+
+const resizeObservers: {
+  callback: ResizeObserverCallback;
+  target?: Element;
+  disconnected: boolean;
+}[] = [];
+
+class ResizeObserverFixture {
+  private readonly record: (typeof resizeObservers)[number];
+
+  constructor(callback: ResizeObserverCallback) {
+    this.record = { callback, disconnected: false };
+    resizeObservers.push(this.record);
+  }
+
+  observe(target: Element) {
+    this.record.target = target;
+  }
+
+  unobserve() {}
+
+  disconnect() {
+    this.record.disconnected = true;
+  }
+
+  emit(width: number, height: number) {
+    const target = this.record.target;
+    if (!target) return;
+    this.record.callback(
+      [
+        {
+          target,
+          contentRect: { width, height },
+        } as ResizeObserverEntry,
+      ],
+      this as unknown as ResizeObserver,
+    );
+  }
+}
 
 const path = windowsPath("C:\\fixture");
 const timestamp = "2026-11-10T00:00:00.000Z";
@@ -1757,6 +1801,7 @@ test("F06: explicit catalog-backed assembly opens from the pinned Browse locatio
   };
   const calls: { name: string; body: unknown }[] = [];
   let mismatchedAggregate = false;
+  let mismatchedModelBasis = false;
   const client = transportClient(base.client, async (envelope) => {
     const { name, body } = envelope;
     calls.push({ name, body });
@@ -1774,6 +1819,9 @@ test("F06: explicit catalog-backed assembly opens from the pinned Browse locatio
         ? { ...location, itemNo: 99 }
         : location;
       frame.model.navigationScopeRef = location;
+      if (mismatchedModelBasis)
+        frame.model.representation.sizeBasis = "logical";
+      else frame.model.representation.sizeBasis = request.sizeBasis;
       for (const shape of frame.model.shapes) {
         if (shape.itemRef) shape.itemRef.resultVersion = request.resultRevision;
         if (shape.rootBranchRef)
@@ -1790,6 +1838,7 @@ test("F06: explicit catalog-backed assembly opens from the pinned Browse locatio
       resultVersion: "result",
       location,
       display: { system: "iec", unit: "auto" },
+      sizeBasis: "allocated",
     });
     expect(receivedCatalog).toEqual(catalog);
     const request: VisualizationViewRequest = {
@@ -1799,7 +1848,7 @@ test("F06: explicit catalog-backed assembly opens from the pinned Browse locatio
       navigationScopeRef: selection.location,
       strategy: { id: "size-v1", revision: 1 },
       measure: "size",
-      sizeBasis: "logical",
+      sizeBasis: selection.sizeBasis,
       classificationCriterion: "type",
       colorCriterion: "type",
       denominatorBasis: "scope",
@@ -1817,8 +1866,24 @@ test("F06: explicit catalog-backed assembly opens from the pinned Browse locatio
     };
   });
 
+  vi.stubGlobal("ResizeObserver", ResizeObserverFixture);
+  vi.stubGlobal("devicePixelRatio", 1.25);
+  let viewportRect = { width: 0, height: 0 };
+  const originalRect = HTMLElement.prototype.getBoundingClientRect;
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+    function (this: HTMLElement) {
+      if (this.matches(".du-visualization-viewport"))
+        return new DOMRect(0, 0, viewportRect.width, viewportRect.height);
+      return originalRect.call(this);
+    },
+  );
+
   await startFixtureScan(client, provider);
   await screen.findByText("At least 42 bytes");
+  fireEvent.click(screen.getByRole("button", { name: "Display options" }));
+  fireEvent.change(screen.getByLabelText("Size basis"), {
+    target: { value: "allocated" },
+  });
   fireEvent.click(screen.getByRole("button", { name: "Browse folders" }));
   await screen.findByRole("region", { name: "Folder navigation" });
   const entry = await screen.findByRole("button", {
@@ -1828,6 +1893,22 @@ test("F06: explicit catalog-backed assembly opens from the pinned Browse locatio
   expect(browseShell).not.toBeNull();
   expect(provider).toHaveBeenCalledTimes(1);
   fireEvent.click(entry);
+  const activeObserver = resizeObservers.at(-1);
+  expect(activeObserver?.target).toBeTruthy();
+  expect(calls.some(({ name }) => name === "viz.view.open")).toBe(false);
+  expect(calls.some(({ name }) => name === "viz.render")).toBe(false);
+  viewportRect = { width: 640, height: 400 };
+  act(() => {
+    activeObserver?.callback(
+      [
+        {
+          target: activeObserver.target!,
+          contentRect: { width: 640, height: 400 },
+        } as ResizeObserverEntry,
+      ],
+      {} as ResizeObserver,
+    );
+  });
   await screen.findByRole("group", { name: "Space distribution" });
   expect(browseShell?.hidden).toBe(true);
   expect(browseShell && getComputedStyle(browseShell).display).toBe("none");
@@ -1835,9 +1916,82 @@ test("F06: explicit catalog-backed assembly opens from the pinned Browse locatio
   await waitFor(() =>
     expect(calls.some(({ name }) => name === "viz.render")).toBe(true),
   );
-  expect(calls.find(({ name }) => name === "viz.render")?.body).toMatchObject({
+  const initialRender = calls.find(({ name }) => name === "viz.render");
+  expect(initialRender?.body).toMatchObject({
     resultRevision: "result",
     navigationScopeRef: location,
+    aggregateScopeRef: location,
+    sizeBasis: "allocated",
+    viewport: { width: 640, height: 400, scale: 1.25 },
+    visibleWindow: { left: 0, top: 0, right: 700, bottom: 500 },
+  });
+  expect(activeObserver?.disconnected).toBe(false);
+  vi.stubGlobal("devicePixelRatio", 2);
+  viewportRect = { width: 321.4, height: 211.2 };
+  act(() => {
+    activeObserver?.callback(
+      [
+        {
+          target: activeObserver.target!,
+          contentRect: { width: 321.4, height: 211.2 },
+        } as ResizeObserverEntry,
+      ],
+      {} as ResizeObserver,
+    );
+  });
+  await waitFor(() =>
+    expect(
+      calls
+        .filter(({ name }) => name === "viz.render")
+        .some(({ body }) =>
+          JSON.stringify(body).includes('"width":321,"height":211,"scale":2'),
+        ),
+    ).toBe(true),
+  );
+  const resizedRender = calls
+    .filter(({ name }) => name === "viz.render")
+    .find(({ body }) => JSON.stringify(body).includes('"width":321'));
+  expect(resizedRender?.body).toMatchObject({
+    requestSeq: expect.any(Number),
+    resultRevision: "result",
+    sizeBasis: "allocated",
+    viewport: { width: 321, height: 211, scale: 2 },
+    visibleWindow: { left: 0, top: 0, right: 700, bottom: 500 },
+  });
+  expect(
+    (resizedRender?.body as { requestSeq: number }).requestSeq,
+  ).toBeGreaterThan((initialRender?.body as { requestSeq: number }).requestSeq);
+  vi.stubGlobal("devicePixelRatio", 1.75);
+  act(() => window.dispatchEvent(new Event("resize")));
+  await waitFor(() =>
+    expect(
+      calls
+        .filter(({ name }) => name === "viz.render")
+        .some(({ body }) =>
+          JSON.stringify(body).includes(
+            '"width":321,"height":211,"scale":1.75',
+          ),
+        ),
+    ).toBe(true),
+  );
+  viewportRect = { width: 20, height: 12 };
+  vi.stubGlobal("devicePixelRatio", 1.75);
+  act(() => window.dispatchEvent(new Event("resize")));
+  await waitFor(() =>
+    expect(
+      calls
+        .filter(({ name }) => name === "viz.render")
+        .some(({ body }) =>
+          JSON.stringify(body).includes('"width":20,"height":12,"scale":1.75'),
+        ),
+    ).toBe(true),
+  );
+  const smallRender = calls
+    .filter(({ name }) => name === "viz.render")
+    .find(({ body }) => JSON.stringify(body).includes('"width":20'));
+  expect(smallRender?.body).toMatchObject({
+    sizeBasis: "allocated",
+    viewport: { width: 20, height: 12, scale: 1.75 },
   });
   fireEvent.click(screen.getByRole("button", { name: "Back to folders" }));
   await waitFor(() =>
@@ -1848,6 +2002,24 @@ test("F06: explicit catalog-backed assembly opens from the pinned Browse locatio
           JSON.stringify(body) === JSON.stringify({ viewChannel: "view" }),
       ),
     ).toBe(true),
+  );
+  expect(activeObserver?.disconnected).toBe(true);
+  const rendersBeforeLateResize = calls.filter(
+    ({ name }) => name === "viz.render",
+  ).length;
+  act(() => {
+    activeObserver?.callback(
+      [
+        {
+          target: activeObserver.target!,
+          contentRect: { width: 200, height: 100 },
+        } as ResizeObserverEntry,
+      ],
+      {} as ResizeObserver,
+    );
+  });
+  expect(calls.filter(({ name }) => name === "viz.render")).toHaveLength(
+    rendersBeforeLateResize,
   );
   expect(document.activeElement).toBe(entry);
   expect(browseShell?.hidden).toBe(false);
@@ -1871,6 +2043,22 @@ test("F06: explicit catalog-backed assembly opens from the pinned Browse locatio
   await waitFor(() =>
     expect(calls.filter(({ name }) => name === "viz.view.close").length).toBe(
       2,
+    ),
+  );
+  expect(document.activeElement).toBe(entry);
+
+  mismatchedModelBasis = true;
+  fireEvent.click(entry);
+  await screen.findByText("Visualization could not be updated.");
+  expect(
+    document
+      .querySelector<HTMLElement>(".du-visualization-viewport")
+      ?.querySelector("svg.du-geometry"),
+  ).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Back to folders" }));
+  await waitFor(() =>
+    expect(calls.filter(({ name }) => name === "viz.view.close").length).toBe(
+      3,
     ),
   );
   expect(document.activeElement).toBe(entry);
@@ -1930,7 +2118,7 @@ test("F06: missing Browse location and unsupported catalog request keep visualiz
   expect(calls).not.toContain("viz.view.open");
 });
 
-test.each(["format", "revision", "aggregate"] as const)(
+test.each(["format", "revision", "aggregate", "basis"] as const)(
   "F06: rejects a provider request with unsupported %s evidence",
   async (invalidField) => {
     const location = { resultVersion: "result", itemNo: 12 };
@@ -1991,7 +2179,7 @@ test.each(["format", "revision", "aggregate"] as const)(
           navigationScopeRef: selection.location,
           strategy: { id: "size-v1", revision: 1 },
           measure: "size",
-          sizeBasis: "logical",
+          sizeBasis: invalidField === "basis" ? "allocated" : "logical",
           classificationCriterion: "type",
           colorCriterion: "type",
           denominatorBasis: "scope",

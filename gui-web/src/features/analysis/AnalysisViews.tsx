@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ReactNode, Ref } from "react";
 import {
   Action,
@@ -61,6 +61,7 @@ export function ScanOutput({
   preferences,
   displayChoice,
   onDisplayChoice,
+  onSizeBasisChange,
   scan,
   started,
   running,
@@ -73,6 +74,8 @@ export function ScanOutput({
   preferences: AnalysisDisplayPreferences;
   displayChoice: SizeDisplay | undefined;
   onDisplayChoice: (choice: SizeDisplay) => void;
+  onSizeBasisChange?:
+    ((resultVersion: string, basis: SizeBasisFilter) => void) | undefined;
   scan: ReturnType<typeof useScanResult>;
   started: boolean;
   running: boolean;
@@ -124,6 +127,7 @@ export function ScanOutput({
             preferences={preferences}
             displayChoice={displayChoice}
             onDisplayChoice={onDisplayChoice}
+            onSizeBasisChange={onSizeBasisChange}
           />
         ) : running ? (
           <Text kind="muted">
@@ -334,6 +338,7 @@ function PinnedResult({
   preferences,
   displayChoice,
   onDisplayChoice,
+  onSizeBasisChange,
 }: {
   client: AnalysisClient;
   total: SpaceTotal;
@@ -341,10 +346,15 @@ function PinnedResult({
   preferences: AnalysisDisplayPreferences;
   displayChoice: SizeDisplay | undefined;
   onDisplayChoice: (choice: SizeDisplay) => void;
+  onSizeBasisChange?:
+    ((resultVersion: string, basis: SizeBasisFilter) => void) | undefined;
 }) {
   const [basisChoice, setBasis] = useState<SizeBasisFilter>();
   const display = displayChoice ?? preferences.display;
   const basis = basisChoice ?? preferences.basis;
+  useEffect(() => {
+    onSizeBasisChange?.(total.resultVersion, basis);
+  }, [basis, onSizeBasisChange, total.resultVersion]);
   const lead = total.sizes.find(({ size }) => size.basis === basis);
   const unit =
     display.unit === "auto"
