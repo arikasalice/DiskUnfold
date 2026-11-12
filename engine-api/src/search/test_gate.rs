@@ -10,11 +10,13 @@ pub(super) enum Stage {
     Worker,
     Candidate,
     Publish,
+    CancelPreflight,
+    RequestCancel,
 }
 pub(super) fn pause_admission(version: &Id) -> Result<(), &'static str> {
     pause(version, Stage::Admission)
 }
-pub(super) struct Gate {
+pub(crate) struct Gate {
     entered_tx: mpsc::Sender<()>,
     entered_rx: Mutex<mpsc::Receiver<()>>,
     release_tx: mpsc::Sender<()>,
@@ -54,6 +56,7 @@ impl Gate {
 }
 type GateState = Mutex<Option<(Id, Arc<Gate>)>>;
 static GATE: OnceLock<GateState> = OnceLock::new();
+static CANCEL_GATE: OnceLock<GateState> = OnceLock::new();
 static TEST_LOCK: Mutex<()> = Mutex::new(());
 pub(super) fn serial() -> Result<std::sync::MutexGuard<'static, ()>, &'static str> {
     TEST_LOCK.lock().map_err(|_| "test lock poisoned")
@@ -63,6 +66,13 @@ pub(super) fn set(gate: Option<(Id, Arc<Gate>)>) -> Result<(), &'static str> {
         .get_or_init(|| Mutex::new(None))
         .lock()
         .map_err(|_| "gate lock")? = gate;
+    Ok(())
+}
+pub(crate) fn set_cancel_gate(gate: Option<(Id, Arc<Gate>)>) -> Result<(), &'static str> {
+    *CANCEL_GATE
+        .get_or_init(|| Mutex::new(None))
+        .lock()
+        .map_err(|_| "cancel gate lock")? = gate;
     Ok(())
 }
 pub(super) fn pause_worker(version: &Id) -> Result<(), &'static str> {
@@ -87,4 +97,24 @@ fn pause(version: &Id, stage: Stage) -> Result<(), &'static str> {
         gate.pause()?;
     }
     Ok(())
+}
+fn pause_cancel(version: &Id, stage: Stage) -> Result<(), &'static str> {
+    let gate = CANCEL_GATE.get().and_then(|gate| {
+        gate.lock().ok().and_then(|value| {
+            value
+                .as_ref()
+                .filter(|(expected, gate)| expected == version && gate.stage == stage)
+                .map(|(_, gate)| gate.clone())
+        })
+    });
+    if let Some(gate) = gate {
+        gate.pause()?;
+    }
+    Ok(())
+}
+pub(crate) fn pause_cancel_preflight(job: &Id) -> Result<(), &'static str> {
+    pause_cancel(job, Stage::CancelPreflight)
+}
+pub(crate) fn pause_request_cancel(region: &Id) -> Result<(), &'static str> {
+    pause_cancel(region, Stage::RequestCancel)
 }

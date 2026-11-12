@@ -1,5 +1,6 @@
 use super::test_helpers::{finished_event, job_status, wait_terminal};
 mod busy_repro;
+mod late_cancel;
 
 #[test]
 fn delivery_backlog_is_search_busy() {

@@ -287,12 +287,12 @@ impl SearchEntry {
                             )| permit.clone(),
                         )
                         .ok_or_else(|| "support.internal_error".to_owned())?;
+                    #[cfg(test)]
+                    if test_gate::pause_publish(&publish_version).is_err() {
+                        return Err("support.internal_error".to_owned());
+                    }
                     permit
                         .publish(false, || {
-                            #[cfg(test)]
-                            if test_gate::pause_publish(&publish_version).is_err() {
-                                return Err("support.internal_error".to_owned());
-                            }
                             sets.register_current_admitted_search(output.clone(), candidate)
                                 .map(|_| output)
                                 .map_err(|error| {
@@ -430,7 +430,7 @@ fn prepared_error(error: PreparedSearchError) -> SearchError {
 }
 
 #[cfg(test)]
-mod test_gate;
+pub(crate) mod test_gate;
 #[cfg(test)]
 mod test_helpers;
 #[cfg(test)]

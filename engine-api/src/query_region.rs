@@ -1,4 +1,5 @@
 //! Per-window query regions. The registry does not invoke the job runtime.
+mod cancellation;
 use du_core_contracts::{Id, ports::Random};
 use du_job_runtime::JobIdentity;
 use std::{
@@ -334,47 +335,6 @@ impl<K: Copy + Eq> RegionRegistry<K> {
             Err(RegionError::Unavailable)
         } else {
             Ok(())
-        }
-    }
-    /// Cancels the current matching sequence, without pre-cancelling future requests.
-    pub fn cancel_request(
-        &self,
-        owner: &Owner,
-        id: &Id,
-        sequence: u32,
-    ) -> Result<CancelAction, RegionError> {
-        self.cancel_matching(owner, id, |current| current.sequence == sequence)
-    }
-    /// Cancels only the currently bound exact job.
-    pub fn cancel_job(
-        &self,
-        owner: &Owner,
-        id: &Id,
-        job: &Id,
-    ) -> Result<CancelAction, RegionError> {
-        self.cancel_matching(owner, id, |current| current.job.as_ref() == Some(job))
-    }
-    fn cancel_matching(
-        &self,
-        owner: &Owner,
-        id: &Id,
-        matches: impl FnOnce(&Current) -> bool,
-    ) -> Result<CancelAction, RegionError> {
-        let entry = self.lookup(owner, id)?;
-        let mut region = entry.lock().map_err(|_| RegionError::Poisoned)?;
-        self.check(&region)?;
-        let current = region.current.as_mut().ok_or(RegionError::Unavailable)?;
-        if !matches(current) {
-            return Err(RegionError::Unavailable);
-        }
-        if let Some(job) = &current.job {
-            current.stopped.store(true, Ordering::Release);
-            return Ok(CancelAction::Job(job.clone()));
-        }
-        if current.finished || current.stopped.swap(true, Ordering::AcqRel) {
-            Ok(CancelAction::NoEffect)
-        } else {
-            Ok(CancelAction::Accepted)
         }
     }
     /// Retires one reference and returns its exact job without waiting for it.

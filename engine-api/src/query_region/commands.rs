@@ -63,6 +63,48 @@ impl Regions {
             Err(_) => Err(EngineError::reason("support.internal_error")),
         }
     }
+    fn cancel_bound_job(
+        &self,
+        region_ref: &Id,
+        request_seq: u32,
+        job_ref: &Id,
+    ) -> Result<QueryCancelOutcome, EngineError> {
+        if self
+            .registry
+            .current_job_for_request(&self.owner, region_ref, request_seq)
+            .map_err(region_error)?
+            .as_ref()
+            != Some(job_ref)
+        {
+            return Err(EngineError::reason("ref.unavailable"));
+        }
+        #[cfg(test)]
+        crate::search::test_gate::pause_cancel_preflight(job_ref)
+            .map_err(|_| EngineError::reason("support.internal_error"))?;
+        let cancelled = self
+            .runtime
+            .cancel_query_if(job_ref, |state| {
+                self.registry
+                    .detach_job_if_current(
+                        &self.owner,
+                        region_ref,
+                        request_seq,
+                        job_ref,
+                        !state.is_terminal(),
+                    )
+                    .map_err(region_runtime_error)
+            })
+            .map_err(runtime_error)?;
+        let Some((result, _)) = cancelled else {
+            return Err(EngineError::reason("ref.unavailable"));
+        };
+        match result {
+            CancelResult::Accepted(_) => Ok(QueryCancelOutcome::Accepted),
+            CancelResult::NoEffect(_) => Ok(QueryCancelOutcome::NoEffect),
+            CancelResult::AlreadyTerminal(_) => Ok(QueryCancelOutcome::AlreadyTerminal),
+            CancelResult::Unsupported(_) => Err(EngineError::reason("support.internal_error")),
+        }
+    }
 }
 impl Drop for Regions {
     fn drop(&mut self) {
@@ -139,24 +181,49 @@ impl UseCase for Cancel {
         request: Self::Request,
         _: &CallerCtx,
     ) -> Result<Self::Response, EngineError> {
-        let action = match request.target {
+        let outcome = match request.target {
             QueryCancelTarget::Request { request_seq } => {
-                self.0
+                #[cfg(test)]
+                crate::search::test_gate::pause_request_cancel(&request.region_ref)
+                    .map_err(|_| EngineError::reason("support.internal_error"))?;
+                match self
+                    .0
                     .registry
-                    .cancel_request(&self.0.owner, &request.region_ref, request_seq)
+                    .cancel_unbound_request(&self.0.owner, &request.region_ref, request_seq)
+                    .map_err(region_error)?
+                {
+                    CancelAction::Accepted => QueryCancelOutcome::Accepted,
+                    CancelAction::NoEffect => QueryCancelOutcome::NoEffect,
+                    CancelAction::Job(job_ref) => {
+                        self.0
+                            .cancel_bound_job(&request.region_ref, request_seq, &job_ref)?
+                    }
+                }
             }
             QueryCancelTarget::Job { job_ref } => {
-                self.0
+                let request_seq = self
+                    .0
                     .registry
-                    .cancel_job(&self.0.owner, &request.region_ref, &job_ref)
+                    .current_sequence_for_job(&self.0.owner, &request.region_ref, &job_ref)
+                    .map_err(region_error)?;
+                self.0
+                    .cancel_bound_job(&request.region_ref, request_seq, &job_ref)?
             }
-        }
-        .map_err(region_error)?;
-        let outcome = match action {
-            CancelAction::Accepted => QueryCancelOutcome::Accepted,
-            CancelAction::NoEffect => QueryCancelOutcome::NoEffect,
-            CancelAction::Job(id) => self.0.cancel_job(&id)?,
         };
         Ok(QueryCancelled { outcome })
     }
+}
+
+fn region_runtime_error(error: RegionError) -> RuntimeError {
+    match error {
+        RegionError::Poisoned => RuntimeError::Poisoned,
+        _ => RuntimeError::InvalidState,
+    }
+}
+
+fn runtime_error(error: RuntimeError) -> EngineError {
+    EngineError::reason(match error {
+        RuntimeError::NotFound => "ref.unavailable",
+        _ => "support.internal_error",
+    })
 }

@@ -207,6 +207,51 @@ fn ownership_kind_sequence_and_exact_targets_are_isolated() -> Result<(), String
 }
 
 #[test]
+fn gate_callback_binding_mismatch_never_stops_a_region_permit() -> Result<(), String> {
+    let owner = owner();
+    let registry = make_registry(owner.clone(), 2)?;
+    let region = ok(registry.open(&owner, Kind::Search))?;
+    let permit = promote(&registry, &owner, &region, Kind::Search, 1)?.permit;
+    let job = id(31);
+    permit
+        .bind_job(&job)
+        .map_err(|error| format!("{error:?}"))?;
+
+    assert!(!ok(
+        registry.detach_job_if_current(&owner, &region, 2, &job, true,)
+    )?);
+    assert!(!ok(registry.detach_job_if_current(
+        &owner,
+        &region,
+        1,
+        &id(32),
+        true,
+    ))?);
+    assert!(!ok(registry.detach_job_if_current(
+        &Owner {
+            session: id(40),
+            window: owner.window.clone(),
+        },
+        &region,
+        1,
+        &job,
+        true,
+    ))?);
+    assert!(!permit.is_stopped());
+
+    // A terminal exact match is verified without detaching the published region.
+    assert!(ok(
+        registry.detach_job_if_current(&owner, &region, 1, &job, false,)
+    )?);
+    assert!(!permit.is_stopped());
+    assert!(ok(
+        registry.detach_job_if_current(&owner, &region, 1, &job, true,)
+    )?);
+    assert!(permit.is_stopped());
+    Ok(())
+}
+
+#[test]
 fn invalid_preparation_does_not_advance_or_cancel() -> Result<(), String> {
     let owner = owner();
     let registry = make_registry(owner.clone(), 1)?;
