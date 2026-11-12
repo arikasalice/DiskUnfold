@@ -127,8 +127,20 @@ fn setting_presentations_cover_descriptors_in_both_bundles()
     let registry = register(&[]).map_err(|e| format!("{e:?}"))?;
     let descriptors =
         crate::settings::builtin_descriptors(&["en", "ko"]).map_err(|e| format!("{e:?}"))?;
-    assert_eq!(descriptors.len(), 11);
+    assert_eq!(descriptors.len(), 12);
     validate_setting_presentation(&registry, descriptors.clone()).map_err(|e| format!("{e:?}"))?;
+    let recent_limit = descriptors
+        .iter()
+        .find(|descriptor| descriptor.key == "scope.recent_limit")
+        .ok_or("missing recent-scope limit")?;
+    assert_eq!(
+        recent_limit.presentation.name_key,
+        "settings.scope.recent_limit.name"
+    );
+    assert_eq!(
+        recent_limit.presentation.description_key,
+        "settings.scope.recent_limit.description"
+    );
     for language in ["en", "ko"] {
         let bundle = registry.bundle(language).ok_or("missing bundle")?;
         for descriptor in &descriptors {
@@ -204,7 +216,7 @@ fn registered_catalog_carries_only_published_group_and_level_pairs()
         })
         .collect();
     let pair = |group, level| Some(SettingPlacement { group, level });
-    assert_eq!(placements.len(), 11);
+    assert_eq!(placements.len(), 12);
     for key in [
         "display.size_unit_system",
         "display.size_unit",
@@ -228,6 +240,10 @@ fn registered_catalog_carries_only_published_group_and_level_pairs()
     }
     assert_eq!(
         placements["scope.remember_recent"],
+        pair(G::HistoryPrivacy, L::Basic)
+    );
+    assert_eq!(
+        placements["scope.recent_limit"],
         pair(G::HistoryPrivacy, L::Basic)
     );
     assert_eq!(placements["space.shared_table_max_entries"], None);
