@@ -194,9 +194,19 @@ impl Bridge {
             let _ = reply.deliver_with(|wire| post(&self.view, wire));
         }
         if let Some(events) = &self.events {
-            for payload in std::iter::from_fn(events.as_ref()).take(QUEUE_LIMIT) {
-                let _ = post(&self.view, &format!("event\n{payload}"));
-            }
+            flush_event_batch(events.as_ref(), |wire| post(&self.view, wire), |_| {});
+        }
+    }
+}
+
+fn flush_event_batch<E>(
+    mut next: impl FnMut() -> Option<String>,
+    mut post: impl FnMut(&str) -> Result<(), E>,
+    mut on_post_failure: impl FnMut(usize),
+) {
+    for (index, payload) in std::iter::from_fn(&mut next).take(QUEUE_LIMIT).enumerate() {
+        if post(&format!("event\n{payload}")).is_err() {
+            on_post_failure(index);
         }
     }
 }
