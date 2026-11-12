@@ -10,7 +10,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::Value;
 
-use super::{Bundle, BundleResource, Message, RegistrationError, Registry};
+use super::{Bundle, BundleResource, Message, ReasonMetadataResource, RegistrationError, Registry};
+use du_core_contracts::locale_bundle::LocaleFormatTable;
 
 pub const DECLARED_KEYS: &[&str] = &[
     "ui.product.name",
@@ -46,6 +47,36 @@ pub const DECLARED_KEYS: &[&str] = &[
     "settings.a11y.motion.description",
     "settings.a11y.app_scale.name",
     "settings.a11y.app_scale.description",
+    "ui.locale.title",
+    "ui.locale.date_format",
+    "ui.locale.number_format",
+    "ui.locale.time_zone",
+    "ui.locale.motion",
+    "ui.locale.scale",
+    "ui.locale.language",
+    "ui.locale.default",
+    "ui.locale.no_grouping",
+    "ui.locale.local",
+    "ui.locale.follow_os",
+    "ui.locale.reduce",
+    "ui.locale.loading",
+    "ui.locale.failed",
+    "ui.locale.save_failed",
+    "ui.locale.modified",
+    "ui.common.retry",
+    "ui.common.close",
+    "ui.common.translation_unverified",
+    "ui.common.error_generic",
+    "value.unknown",
+    "reason.locale.unsupported.cause",
+    "reason.locale.unsupported.action",
+    "reason.locale.format_unknown.cause",
+    "reason.locale.format_unknown.action",
+    "reason.locale.profile_modified.cause",
+    "reason.locale.profile_modified.action",
+    "reason.locale.bundle_unavailable.cause",
+    "reason.locale.bundle_unavailable.action",
+    "reason.i18n.bundle_integrity_failed.action",
 ];
 
 /// Resource rows and bytes come from one build-generated, immutable archive.
@@ -67,6 +98,16 @@ pub fn resources() -> Result<Vec<BundleResource<'static>>, RegistrationError> {
         });
     }
     Ok(resources)
+}
+
+/// Returns the exact reason metadata bytes and build-time digest.
+pub fn reason_metadata_resource() -> Result<ReasonMetadataResource<'static>, RegistrationError> {
+    let input: &'static [u8] = include_bytes!(concat!(env!("OUT_DIR"), "/reason-metadata.bin"));
+    let (hash, bytes) = input.split_at_checked(32).ok_or(RegistrationError)?;
+    Ok(ReasonMetadataResource {
+        bytes,
+        expected_hash: hash.try_into().map_err(|_| RegistrationError)?,
+    })
 }
 
 fn field<'a>(input: &mut &'a [u8]) -> Result<&'a [u8], RegistrationError> {
@@ -102,7 +143,7 @@ pub fn parse_bundle(bytes: &[u8]) -> Result<Bundle, RegistrationError> {
         for entry in entries {
             let pair = row(entry, 2)?;
             if parameters
-                .insert(string(&pair[0])?, string(&pair[1])?)
+                .insert(string(&pair[0])?, parameter_kind(&pair[1])?)
                 .is_some()
             {
                 return Err(RegistrationError);
@@ -138,6 +179,17 @@ fn string(value: &Value) -> Result<String, RegistrationError> {
 
 fn optional_string(value: &Value) -> Result<String, RegistrationError> {
     value.as_str().map(str::to_owned).ok_or(RegistrationError)
+}
+
+fn parameter_kind(value: &Value) -> Result<String, RegistrationError> {
+    let kind = string(value)?;
+    if !matches!(
+        kind.as_str(),
+        "count" | "size" | "timestamp" | "number" | "path" | "name" | "message_key"
+    ) {
+        return Err(RegistrationError);
+    }
+    Ok(kind)
 }
 
 fn validate_format_table(value: &Value) -> Result<(), RegistrationError> {
@@ -187,6 +239,7 @@ fn validate_format_table(value: &Value) -> Result<(), RegistrationError> {
     {
         return Err(RegistrationError);
     }
+    serde_json::from_value::<LocaleFormatTable>(value.clone()).map_err(|_| RegistrationError)?;
     Ok(())
 }
 
@@ -233,16 +286,38 @@ fn register_resources(
     resources: &[BundleResource<'_>],
     metadata_keys: &[String],
 ) -> Result<Registry, RegistrationError> {
+    let metadata = reason_metadata_resource()?;
+    register_resources_with_metadata(
+        resources,
+        metadata_keys,
+        metadata.bytes,
+        metadata.expected_hash,
+    )
+}
+
+fn register_resources_with_metadata(
+    resources: &[BundleResource<'_>],
+    metadata_keys: &[String],
+    metadata_bytes: &[u8],
+    expected_metadata_hash: [u8; 32],
+) -> Result<Registry, RegistrationError> {
     let declared = DECLARED_KEYS
         .iter()
         .map(|key| (*key).to_owned())
         .collect::<Vec<_>>();
-    let registry = Registry::register(resources, &declared, metadata_keys, parse_bundle)?;
+    let registry = Registry::register_with_reason_metadata(
+        resources,
+        &declared,
+        metadata_keys,
+        metadata_bytes,
+        expected_metadata_hash,
+        parse_bundle,
+    )?;
     validate_fallbacks(&registry)?;
     for language in registry.languages() {
         registry.self_name_key(language).ok_or(RegistrationError)?;
     }
-    let languages: Vec<_> = registry.configured_languages().collect();
+    let languages: Vec<_> = registry.languages().collect();
     let descriptors =
         crate::settings::builtin_descriptors(&languages).map_err(|_| RegistrationError)?;
     validate_setting_presentation(&registry, descriptors)?;

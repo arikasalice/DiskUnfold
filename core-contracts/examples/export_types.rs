@@ -1,6 +1,7 @@
 use du_core_contracts::browse_open_ipc::*;
 use du_core_contracts::browse_page_ipc::*;
 use du_core_contracts::history_ipc::*;
+use du_core_contracts::locale_bundle::*;
 use du_core_contracts::locale_ipc::*;
 use du_core_contracts::query_page_ipc::*;
 use du_core_contracts::query_region_ipc::*;
@@ -74,6 +75,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         LocaleProfileSetRequest::decl(&config),
         LocaleChangedField::decl(&config),
         LocaleChangedBody::decl(&config),
+        MessageParameterKind::decl(&config),
+        MessageTemplate::decl(&config),
+        LocaleDatePattern::decl(&config),
+        LocaleFormatTable::decl(&config),
+        ReasonMessageMeta::decl(&config),
+        ReasonCertainty::decl(&config),
+        ReasonStatus::decl(&config),
+        LocaleBundleBody::decl(&config),
+        LocaleBundleRequest::decl(&config),
+        LocaleBundleResponse::decl(&config),
+        LocaleMissingMarker::decl(&config),
+        LocaleMissingEntry::decl(&config),
+        LocaleReportMissingRequest::decl(&config),
+        LocaleReportMissingResponse::decl(&config),
         HistoryEndState::decl(&config),
         HistoryRelation::decl(&config),
         HistoryListFilter::decl(&config),

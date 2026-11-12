@@ -1,4 +1,7 @@
 use super::*;
+use du_core_contracts::locale_bundle::{
+    LocaleMissingEntry, LocaleMissingMarker, LocaleReportMissingRequest,
+};
 
 fn parse(bytes: &[u8]) -> Result<Bundle, RegistrationError> {
     let value: serde_json::Value = serde_json::from_slice(bytes).map_err(|_| RegistrationError)?;
@@ -210,5 +213,65 @@ fn korean_integrity_failure_excludes_evidence_and_revisions() -> Result<(), supe
     assert!(registry.resource_digest("ko").is_none());
     assert!(registry.revisions("ko", b"meta").is_none());
     assert!(registry.self_name_key("en").is_some());
+    Ok(())
+}
+
+#[test]
+fn missing_report_filters_keys_deduplicates_and_keeps_only_the_newest_thousand()
+-> Result<(), RegistrationError> {
+    let registry = register(&[resource("en", EN), resource("ko", KO)], &[], &[])?;
+    let fallback = LocaleReportMissingRequest {
+        language: "ko".into(),
+        entries: vec![
+            LocaleMissingEntry {
+                key: "ui.fixture.missing".into(),
+                marker: LocaleMissingMarker::Fallback,
+            },
+            LocaleMissingEntry {
+                key: "ui.fixture.missing".into(),
+                marker: LocaleMissingMarker::Key,
+            },
+            LocaleMissingEntry {
+                key: "../private/path".into(),
+                marker: LocaleMissingMarker::Key,
+            },
+            LocaleMissingEntry {
+                key: "x".repeat(257),
+                marker: LocaleMissingMarker::Key,
+            },
+        ],
+    };
+    assert_eq!(
+        registry.report_missing(&fallback),
+        LocaleReportMissingResponse {}
+    );
+    let retained = registry.missing_messages();
+    assert_eq!(retained.len(), 1);
+    assert_eq!(retained[0].key, "ui.fixture.missing");
+    assert_eq!(retained[0].marker, LocaleMissingMarker::Key);
+
+    registry.report_missing(&LocaleReportMissingRequest {
+        language: "fr".into(),
+        entries: vec![LocaleMissingEntry {
+            key: "ui.fixture.unknown_language".into(),
+            marker: LocaleMissingMarker::Fallback,
+        }],
+    });
+    assert_eq!(registry.missing_messages().len(), 1);
+
+    let entries = (1..=1_001)
+        .map(|index| LocaleMissingEntry {
+            key: format!("ui.fixture.item_{index:04}"),
+            marker: LocaleMissingMarker::Fallback,
+        })
+        .collect();
+    registry.report_missing(&LocaleReportMissingRequest {
+        language: "en".into(),
+        entries,
+    });
+    let retained = registry.missing_messages();
+    assert_eq!(retained.len(), MISSING_MESSAGE_CAPACITY);
+    assert_eq!(retained[0].key, "ui.fixture.item_0002");
+    assert_eq!(retained[999].key, "ui.fixture.item_1001");
     Ok(())
 }

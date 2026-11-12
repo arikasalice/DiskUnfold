@@ -2,7 +2,18 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use du_core_contracts::locale_bundle::{
+    LocaleBundleBody, LocaleBundleRequest, LocaleBundleResponse, ReasonMessageMeta,
+};
+
+mod bundle_body;
 pub mod embedded;
+mod metadata;
+mod missing;
+mod resolver;
+
+pub use missing::{MISSING_MESSAGE_CAPACITY, MissingMessageRecord};
+pub use resolver::{ResolvedMessage, ResolvedReason, UNKNOWN_REASON_MESSAGE_KEY};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Message {
@@ -28,6 +39,12 @@ pub struct BundleResource<'a> {
     pub expected_hash: [u8; 32],
 }
 
+/// The exact embedded bytes and build-time digest for the language-neutral reason table.
+pub struct ReasonMetadataResource<'a> {
+    pub bytes: &'a [u8],
+    pub expected_hash: [u8; 32],
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub struct RegistrationError;
 
@@ -41,8 +58,13 @@ impl RegistrationError {
 pub struct Registry {
     bundles: BTreeMap<String, Bundle>,
     resource_digests: BTreeMap<String, [u8; 32]>,
+    reason_messages: BTreeMap<String, ReasonMessageMeta>,
+    metadata_revision: String,
+    bundle_revisions: BTreeMap<String, String>,
+    bundle_bodies: BTreeMap<String, LocaleBundleBody>,
     configured_languages: Vec<String>,
     integrity_warnings: Vec<String>,
+    missing_messages: missing::MissingMessageQueue,
 }
 
 impl Registry {
@@ -51,6 +73,47 @@ impl Registry {
         resources: &[BundleResource<'_>],
         declared_keys: &[String],
         metadata_keys: &[String],
+        parse: impl Fn(&[u8]) -> Result<Bundle, RegistrationError>,
+    ) -> Result<Self, RegistrationError> {
+        let metadata_bytes = b"{}";
+        Self::register_internal(
+            resources,
+            declared_keys,
+            metadata_keys,
+            metadata_bytes,
+            *blake3::hash(metadata_bytes).as_bytes(),
+            false,
+            parse,
+        )
+    }
+
+    /// Registers resources against the exact embedded reason metadata bytes.
+    pub fn register_with_reason_metadata(
+        resources: &[BundleResource<'_>],
+        declared_keys: &[String],
+        metadata_keys: &[String],
+        metadata_bytes: &[u8],
+        expected_metadata_hash: [u8; 32],
+        parse: impl Fn(&[u8]) -> Result<Bundle, RegistrationError>,
+    ) -> Result<Self, RegistrationError> {
+        Self::register_internal(
+            resources,
+            declared_keys,
+            metadata_keys,
+            metadata_bytes,
+            expected_metadata_hash,
+            true,
+            parse,
+        )
+    }
+
+    fn register_internal(
+        resources: &[BundleResource<'_>],
+        declared_keys: &[String],
+        metadata_keys: &[String],
+        metadata_bytes: &[u8],
+        expected_metadata_hash: [u8; 32],
+        wire_contract: bool,
         parse: impl Fn(&[u8]) -> Result<Bundle, RegistrationError>,
     ) -> Result<Self, RegistrationError> {
         let mut checked = Vec::new();
@@ -67,14 +130,34 @@ impl Registry {
         }
         // Count registration rows, including rejected Korean resources.
         unique(resources.iter().map(|resource| resource.language))?;
+        if blake3::hash(metadata_bytes).as_bytes() != &expected_metadata_hash {
+            return Err(RegistrationError);
+        }
+        unique(metadata_keys.iter().map(String::as_str))?;
+        let reason_messages = metadata::parse_reason_messages(metadata_bytes)?;
+        let metadata_hash = blake3::hash(metadata_bytes);
         let mut bundles = BTreeMap::new();
         let mut resource_digests = BTreeMap::new();
+        let mut bundle_revisions = BTreeMap::new();
+        let mut bundle_bodies = BTreeMap::new();
         for resource in checked {
             let bundle = parse(resource.bytes)?;
             if bundle.language != resource.language || bundle.version != resource.version {
                 return Err(RegistrationError);
             }
             unique(bundle.messages.iter().map(|(key, _)| key.as_str()))?;
+            if wire_contract {
+                let revision = bundle_revision(
+                    resource.language,
+                    &resource.expected_hash,
+                    metadata_hash.as_bytes(),
+                )
+                .ok_or(RegistrationError)?;
+                let body =
+                    bundle_body::from_verified_bundle(&bundle, &reason_messages, &metadata_hash)?;
+                bundle_revisions.insert(bundle.language.clone(), revision);
+                bundle_bodies.insert(bundle.language.clone(), body);
+            }
             resource_digests.insert(bundle.language.clone(), resource.expected_hash);
             bundles.insert(bundle.language.clone(), bundle);
         }
@@ -84,15 +167,26 @@ impl Registry {
         if declared_keys.iter().any(|key| !english_keys.contains(key)) {
             return Err(RegistrationError);
         }
-        unique(metadata_keys.iter().map(String::as_str))?;
+        let declared: BTreeSet<_> = declared_keys.iter().map(String::as_str).collect();
+        if wire_contract {
+            if !declared.contains(UNKNOWN_REASON_MESSAGE_KEY) {
+                return Err(RegistrationError);
+            }
+            metadata::validate_reason_messages(&reason_messages, &bundles, &declared)?;
+        }
         Ok(Self {
             bundles,
             resource_digests,
+            reason_messages,
+            metadata_revision: metadata_hash.to_hex().to_string(),
+            bundle_revisions,
+            bundle_bodies,
             configured_languages: resources
                 .iter()
                 .map(|row| row.language.to_owned())
                 .collect(),
             integrity_warnings: warnings,
+            missing_messages: missing::MissingMessageQueue::default(),
         })
     }
 
@@ -107,6 +201,43 @@ impl Registry {
         let bundle = self.bundle(language)?;
         bundle.messages.iter().find_map(|(candidate, message)| {
             (candidate == &key && message.parameters.is_empty()).then_some(candidate.as_str())
+        })
+    }
+
+    /// Returns only integrity-verified languages with stable startup revisions.
+    pub fn supported_languages(
+        &self,
+    ) -> Vec<du_core_contracts::locale_ipc::LocaleSupportedLanguage> {
+        self.languages()
+            .filter_map(|language| {
+                Some(du_core_contracts::locale_ipc::LocaleSupportedLanguage {
+                    language: language.to_owned(),
+                    self_name_key: self.self_name_key(language)?.to_owned(),
+                    bundle_revision: self.bundle_revision(language)?.to_owned(),
+                })
+            })
+            .collect()
+    }
+
+    /// Returns the current verified bundle revision for a registered language.
+    pub fn bundle_revision(&self, language: &str) -> Option<&str> {
+        self.bundle_revisions.get(language).map(String::as_str)
+    }
+
+    /// Returns the digest of the exact embedded reason metadata bytes.
+    pub fn metadata_revision(&self) -> &str {
+        &self.metadata_revision
+    }
+
+    /// Builds the IF-02 response from verified startup data.
+    pub fn bundle_response(&self, request: &LocaleBundleRequest) -> Option<LocaleBundleResponse> {
+        let bundle_revision = self.bundle_revision(&request.language)?;
+        let bundle = (request.known_bundle_revision.as_deref() != Some(bundle_revision))
+            .then(|| self.bundle_bodies.get(&request.language).cloned())
+            .flatten();
+        Some(LocaleBundleResponse {
+            bundle_revision: bundle_revision.to_owned(),
+            bundle,
         })
     }
 

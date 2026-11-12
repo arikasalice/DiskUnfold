@@ -36,7 +36,14 @@ fn main() -> Result<(), Box<dyn Error>> {
         append(&mut output, blake3::hash(&bytes).as_bytes())?;
         append(&mut output, &bytes)?;
     }
+    let metadata_path = "i18n/reason-messages.json";
+    println!("cargo:rerun-if-changed={metadata_path}");
+    let metadata = fs::read(metadata_path)?;
+    let mut embedded_metadata = Vec::with_capacity(32 + metadata.len());
+    embedded_metadata.extend_from_slice(blake3::hash(&metadata).as_bytes());
+    embedded_metadata.extend_from_slice(&metadata);
     let out = PathBuf::from(env::var_os("OUT_DIR").ok_or("missing OUT_DIR")?);
     fs::write(out.join("bundles.bin"), output)?;
+    fs::write(out.join("reason-metadata.bin"), embedded_metadata)?;
     Ok(())
 }
