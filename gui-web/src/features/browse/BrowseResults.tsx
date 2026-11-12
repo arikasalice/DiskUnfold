@@ -19,26 +19,20 @@ import { browseDisplayName, rowKey } from "./browse-display";
 import { formatByteUnit } from "../../i18n/bytes";
 import type { SizeDisplay } from "../../i18n/bytes";
 import { useTimestampText } from "../../i18n/regional-format";
+import { useLocaleText } from "../../i18n/presentation";
 import { SIZE_UNIT_RULES } from "../../ipc";
 import { useBrowsePaging } from "./use-browse-paging";
 import { useBrowseCopy } from "./use-browse-copy";
 
-const columns = [
-  "Name",
-  "Type",
-  "Logical size",
-  "Allocated size",
-  "Modified",
-  "Availability",
-];
-
 function size(
   value: FolderQueryRow["logicalSize"],
   display: SizeDisplay,
+  text: ReturnType<typeof useLocaleText>,
 ): string {
-  if (value.state === "absent") return "Not recorded";
+  if (value.state === "absent")
+    return text("ui.browse.not_recorded", "Not recorded");
   if (value.state !== "present" || value.value.state === "unknown")
-    return "Unavailable";
+    return text("ui.browse.unavailable", "Unavailable");
   const lowerBound = value.value.state === "lower_bound";
   const readable = formatByteUnit(
     BigInt(value.value.bytes),
@@ -48,18 +42,24 @@ function size(
     lowerBound,
     display.regional,
   );
-  return `${lowerBound ? "At least " : ""}${readable}`;
+  return `${lowerBound ? `${text("ui.browse.at_least", "At least")} ` : ""}${readable}`;
 }
 
-function availability(row: FolderQueryRow): string {
+function availability(
+  row: FolderQueryRow,
+  text: ReturnType<typeof useLocaleText>,
+): string {
   const flags = [row.flags.unenumerated, row.flags.excluded];
   const found: string[] = [];
   if (flags[0]?.state === "present" && flags[0].value)
-    found.push("Not enumerated");
-  if (flags[1]?.state === "present" && flags[1].value) found.push("Excluded");
+    found.push(text("ui.browse.not_enumerated", "Not enumerated"));
+  if (flags[1]?.state === "present" && flags[1].value)
+    found.push(text("ui.browse.excluded", "Excluded"));
   if (flags.some((flag) => flag.state === "unknown"))
-    found.push("Availability unknown");
-  return found.join(" · ") || "Not reported";
+    found.push(
+      text("ui.browse.availability_unknown", "Availability unknown"),
+    );
+  return found.join(" · ") || text("ui.browse.not_reported", "Not reported");
 }
 
 export function BrowseResults({
@@ -94,7 +94,16 @@ export function BrowseResults({
   copyPath: ((item: ItemRef) => Promise<BrowseCopyPathOutcome>) | undefined;
   reopen: () => void;
 }) {
+  const text = useLocaleText();
   const timestamp = useTimestampText();
+  const columns = [
+    text("ui.browse.column_name", "Name"),
+    text("ui.browse.column_type", "Type"),
+    text("ui.browse.column_logical_size", "Logical size"),
+    text("ui.browse.column_allocated_size", "Allocated size"),
+    text("ui.browse.column_modified", "Modified"),
+    text("ui.browse.column_availability", "Availability"),
+  ];
   const scrollRoot = useRef<HTMLDivElement>(null);
   const copy = useBrowseCopy(
     copyPath,
@@ -142,12 +151,25 @@ export function BrowseResults({
   return (
     <div className="du-browse-results">
       <div className="du-browse-controls">
-        {pages.count === 0 && <Text>No observed items in this folder.</Text>}
+        {pages.count === 0 && (
+          <Text>
+            {text(
+              "ui.browse.no_items",
+              "No observed items in this folder.",
+            )}
+          </Text>
+        )}
         {paging.failure && (
           <Notice tone="error">
             {paging.failure.stale
-              ? "This result can no longer be read. Reopen this folder to continue."
-              : "Could not load the requested page."}{" "}
+              ? text(
+                  "ui.browse.stale_page",
+                  "This result can no longer be read. Reopen this folder to continue.",
+                )
+              : text(
+                  "ui.browse.page_failed",
+                  "Could not load the requested page.",
+                )}{" "}
             <Action
               ref={paging.retryButton}
               isDisabled={busy && !paging.failure.stale}
@@ -163,11 +185,11 @@ export function BrowseResults({
             >
               {paging.failure.stale
                 ? busy
-                  ? "Reopening folder…"
-                  : "Reopen folder"
+                  ? text("ui.browse.reopening_folder", "Reopening folder…")
+                  : text("ui.browse.reopen_folder", "Reopen folder")
                 : paging.retrying
-                  ? "Retrying page…"
-                  : "Retry page"}
+                  ? text("ui.browse.retrying_page", "Retrying page…")
+                  : text("ui.browse.retry_page", "Retry page")}
             </Action>
           </Notice>
         )}
@@ -184,7 +206,9 @@ export function BrowseResults({
                 }
                 isDisabled={busy}
               >
-                {paging.loadingMore ? "Loading…" : "Load more"}
+                {paging.loadingMore
+                  ? text("ui.browse.loading", "Loading…")
+                  : text("ui.browse.load_more", "Load more")}
               </Action>
             )}
           </div>
@@ -192,7 +216,7 @@ export function BrowseResults({
       </div>
       <BrowseGrid<FolderQueryRow>
         scrollRoot={scrollRoot}
-        label="Folder items"
+        label={text("ui.browse.folder_items", "Folder items")}
         columns={columns}
         count={pages.count}
         rowCount={pages.rowCount}
@@ -212,28 +236,40 @@ export function BrowseResults({
         renderCells={(row) => [
           <ItemActions
             rowScope
-            label={`Actions for ${browseDisplayName(row.displayName)}`}
+            label={text("ui.browse.item_actions", "Actions for {name}", {
+              name: browseDisplayName(row.displayName, text),
+            })}
             actions={[
               ...((row.kind === "file" || row.kind === "directory") && openItem
                 ? [
                     {
                       id: "inspect",
-                      label: "Inspect",
+                      label: text("ui.browse.inspect", "Inspect"),
                       onAction: (trigger: HTMLElement | null) =>
                         openItem(row, trigger),
                       ...(busy
-                        ? { disabledReason: "Unavailable while opening" }
+                        ? {
+                            disabledReason: text(
+                              "ui.browse.unavailable_while_opening",
+                              "Unavailable while opening",
+                            ),
+                          }
                         : {}),
                     },
                   ]
                 : []),
               {
                 id: "copy",
-                label: "Copy path",
+                label: text("ui.browse.copy_path", "Copy path"),
                 onAction: (trigger: HTMLElement | null) =>
                   copy.copy(row, trigger),
                 ...(!copyPath || busy || copy.busy
-                  ? { disabledReason: "Unavailable now" }
+                  ? {
+                      disabledReason: text(
+                        "ui.browse.unavailable_now",
+                        "Unavailable now",
+                      ),
+                    }
                   : {}),
               },
             ]}
@@ -244,7 +280,7 @@ export function BrowseResults({
                 isDisabled={readOnly}
                 onPress={() => openFolder(row.item)}
               >
-                {browseDisplayName(row.displayName)}
+                {browseDisplayName(row.displayName, text)}
               </Action>
             ) : row.kind === "file" && openItem ? (
               <Action
@@ -252,19 +288,28 @@ export function BrowseResults({
                 isDisabled={busy}
                 onPress={(event) => openItem(row, event.target)}
               >
-                {browseDisplayName(row.displayName)}
+                {browseDisplayName(row.displayName, text)}
               </Action>
             ) : (
-              <Text>{browseDisplayName(row.displayName)}</Text>
+              <Text>{browseDisplayName(row.displayName, text)}</Text>
             )}
           </ItemActions>,
           <Text>
             {row.kind === "unknown" || row.kind === "unknown_structure"
-              ? "Unavailable"
-              : row.kind}
+              ? text("ui.browse.type_unavailable", "Unavailable")
+              : row.kind === "directory"
+                ? text("ui.browse.type_directory", "Folder")
+                : row.kind === "file"
+                  ? text("ui.browse.type_file", "File")
+                  : row.kind === "untraversed_link"
+                    ? text(
+                        "ui.browse.type_untraversed_link",
+                        "Untraversed link",
+                      )
+                    : text("ui.browse.type_unavailable", "Unavailable")}
           </Text>,
-          <Text>{size(row.logicalSize, display)}</Text>,
-          <Text>{size(row.allocatedSize, display)}</Text>,
+          <Text>{size(row.logicalSize, display, text)}</Text>,
+          <Text>{size(row.allocatedSize, display, text)}</Text>,
           <Text>
             {row.modifiedAt.state === "present"
               ? timestamp(Date.parse(row.modifiedAt.value), () =>
@@ -273,16 +318,18 @@ export function BrowseResults({
                     : "",
                 )
               : row.modifiedAt.state === "absent"
-                ? "Not recorded"
-                : "Unavailable"}
+                ? text("ui.browse.not_recorded", "Not recorded")
+                : text("ui.browse.unavailable", "Unavailable")}
           </Text>,
-          <Text>{availability(row)}</Text>,
+          <Text>{availability(row, text)}</Text>,
         ]}
       />
       <ActionFeedback
         status={
           copy.status ||
-          (paging.moving ? "Loading folder items…" : paging.status) ||
+          (paging.moving
+            ? text("ui.browse.loading_folder_items", "Loading folder items…")
+            : paging.status) ||
           ""
         }
         parts={copy.feedback}

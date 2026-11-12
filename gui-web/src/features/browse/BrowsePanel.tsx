@@ -1,4 +1,5 @@
 import type { SizeDisplay } from "../../i18n/bytes";
+import { useLocaleText } from "../../i18n/presentation";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { KeyboardEvent, ReactNode } from "react";
 import {
@@ -57,9 +58,12 @@ function BrowseItemDialog({
   inspectItem: InspectItem | undefined;
   close: () => void;
 }) {
+  const text = useLocaleText();
   if (!inspection || !inspectItem) return null;
   const title =
-    inspection.kind === "folder" ? "Folder details" : "File details";
+    inspection.kind === "folder"
+      ? text("ui.browse.folder_details", "Folder details")
+      : text("ui.browse.file_details", "File details");
   return (
     <InspectionDialog title={title} onClose={close}>
       {inspectItem(inspection.item, inspection.kind)}
@@ -103,10 +107,14 @@ function readOnlyBreadcrumbs(
 }
 
 function PreviousResultNotice({ previous }: { previous: boolean }) {
+  const text = useLocaleText();
   if (!previous) return null;
   return (
     <Notice>
-      Showing the previous result. Open the selected result to navigate.
+      {text(
+        "ui.browse.previous_result",
+        "Showing the previous result. Open the selected result to navigate.",
+      )}
     </Notice>
   );
 }
@@ -127,6 +135,7 @@ export function BrowsePanel({
   onOpened?: (opened: BrowseOpenLocation) => void;
   display?: SizeDisplay;
 }) {
+  const text = useLocaleText();
   const [view, setView] = useState<View>();
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<"error" | "job">();
@@ -268,15 +277,19 @@ export function BrowsePanel({
       ref={panel}
       tabIndex={-1}
       className="du-results du-browse-panel"
-      aria-label="Folder navigation"
+      aria-label={text("ui.browse.folder_navigation", "Folder navigation")}
       onKeyDownCapture={handleBrowseKey}
     >
       <div className="du-browse-header">
-        <Heading level={2}>Folders and files</Heading>
-        {busy && <Progress label="Opening folder" />}
+        <Heading level={2}>
+          {text("ui.browse.folders_and_files", "Folders and files")}
+        </Heading>
+        {busy && (
+          <Progress label={text("ui.browse.opening_folder", "Opening folder")} />
+        )}
         {message === "error" && (
           <Notice tone="error">
-            Could not open this folder.{" "}
+            {text("ui.browse.open_folder_failed", "Could not open this folder.")}{" "}
             <Action
               isPending={busy}
               onPress={() =>
@@ -287,12 +300,19 @@ export function BrowsePanel({
                 )
               }
             >
-              {busy ? "Retrying…" : "Retry"}
+              {busy
+                ? text("ui.browse.retrying", "Retrying…")
+                : text("ui.browse.retry", "Retry")}
             </Action>
           </Notice>
         )}
         {message === "job" && (
-          <Notice>Folder results are being prepared.</Notice>
+          <Notice>
+            {text(
+              "ui.browse.preparing_results",
+              "Folder results are being prepared.",
+            )}
+          </Notice>
         )}
       </div>
       {view && page && (
@@ -302,13 +322,14 @@ export function BrowsePanel({
             <div className="du-browse-context">
               <div className="du-card__actions">
                 <Action onPress={goUp} isDisabled={!parent || previousResult}>
-                  Up
+                  {text("ui.browse.up", "Up")}
                 </Action>
                 <Breadcrumbs
-                  label="Folder path"
+                  label={text("ui.browse.folder_path", "Folder path")}
                   entries={readOnlyBreadcrumbs(
                     folderPath(view.opened, hasVirtualRoot, (item) =>
                       navigate(item, page.resultVersion),
+                      text,
                     ),
                     previousResult,
                   )}
@@ -320,7 +341,9 @@ export function BrowsePanel({
               hasVirtualRoot={hasVirtualRoot}
             />
             {page.completeness !== "complete" && (
-              <Notice>Results are incomplete.</Notice>
+              <Notice>
+                {text("ui.browse.results_incomplete", "Results are incomplete.")}
+              </Notice>
             )}
           </div>
           <BrowseResults
@@ -364,48 +387,92 @@ function ObservationSummary({
   opened: Opened;
   hasVirtualRoot: boolean;
 }) {
+  const text = useLocaleText();
   const page = opened.page;
   return (
     <div className="du-browse-observation">
       <Text kind="muted">
-        {opened.origin} · {page.observedAt?.slice(0, 10) ?? "Unavailable"} ·{" "}
-        {page.total.state === "lower_bound" ? "At least " : ""}
-        {page.total.count} items
-        {page.completeness === "complete" ? " · Complete" : ""}
+        {opened.origin} ·{" "}
+        {page.observedAt?.slice(0, 10) ??
+          text("ui.browse.unavailable", "Unavailable")} ·{" "}
+        {page.total.state === "lower_bound"
+          ? `${text("ui.browse.at_least", "At least")} `
+          : ""}
+        {text("ui.browse.item_count", "{count} items", {
+          count: String(page.total.count),
+        })}
+        {page.completeness === "complete"
+          ? ` · ${text("ui.browse.complete", "Complete")}`
+          : ""}
       </Text>
-      <DetailDisclosure title="Observation details">
-        <section tabIndex={0} aria-label="Full folder location and observation">
+      <DetailDisclosure
+        title={text("ui.browse.observation_details", "Observation details")}
+      >
+        <section
+          tabIndex={0}
+          aria-label={text(
+            "ui.browse.full_location_observation",
+            "Full folder location and observation",
+          )}
+        >
           <Readout
-            label="Folder location and observation"
+            label={text(
+              "ui.browse.folder_location_observation",
+              "Folder location and observation",
+            )}
             rows={[
               {
-                label: "Location hierarchy",
-                value: folderPath(opened, hasVirtualRoot, () => undefined)
+                label: text("ui.browse.location_hierarchy", "Location hierarchy"),
+                value: folderPath(
+                  opened,
+                  hasVirtualRoot,
+                  () => undefined,
+                  text,
+                )
                   .map((entry) => entry.label)
                   .join(" / "),
                 wideValue: true,
               },
-              { label: "Source", value: opened.origin },
               {
-                label: "Observed",
-                value: page.observedAt ?? "Unavailable",
+                label: text("ui.browse.source", "Source"),
+                value: opened.origin,
+              },
+              {
+                label: text("ui.browse.observed", "Observed"),
+                value:
+                  page.observedAt ??
+                  text("ui.browse.unavailable", "Unavailable"),
                 wideValue: true,
               },
-              { label: "Result", value: "Pinned result" },
               {
-                label: "Completeness",
+                label: text("ui.browse.result", "Result"),
+                value: text("ui.browse.pinned_result", "Pinned result"),
+              },
+              {
+                label: text("ui.browse.completeness", "Completeness"),
                 value:
-                  page.completeness === "complete" ? "Complete" : "Incomplete",
+                  page.completeness === "complete"
+                    ? text("ui.browse.complete", "Complete")
+                    : text("ui.browse.incomplete", "Incomplete"),
               },
             ]}
           />
           {page.unknownCount > 0 && (
             <Text kind="muted">
-              {page.unknownCount} items could not be evaluated.
+              {text(
+                "ui.browse.unknown_items",
+                "{count} items could not be evaluated.",
+                { count: String(page.unknownCount) },
+              )}
             </Text>
           )}
           {page.completeness !== "complete" && (
-            <Text>Some items may be unavailable.</Text>
+            <Text>
+              {text(
+                "ui.browse.some_items_unavailable",
+                "Some items may be unavailable.",
+              )}
+            </Text>
           )}
         </section>
       </DetailDisclosure>

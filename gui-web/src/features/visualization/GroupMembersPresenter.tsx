@@ -33,7 +33,7 @@ export type GroupMembersPresenterProps = {
   canRetry: boolean;
   hasPrevious: boolean;
   hasNext: boolean;
-  text: Pick<VizText, "quantity" | "size">;
+  text: VizText;
   onClose: () => void;
   onPrevious: () => void;
   onNext: () => void;
@@ -42,7 +42,7 @@ export type GroupMembersPresenterProps = {
 
 /** Displays an already supplied group page; it owns no IPC or page state. */
 export function GroupMembersPresenter({
-  title = "Other members",
+  title,
   returnLabel,
   rows,
   rangeLabel,
@@ -61,6 +61,7 @@ export function GroupMembersPresenter({
   onNext,
   onRetry,
 }: GroupMembersPresenterProps) {
+  const resolvedTitle = title ?? text.message("otherMembers");
   const headingId = useId();
   const loading = status === "loading";
 
@@ -71,12 +72,13 @@ export function GroupMembersPresenter({
     >
       <header className="du-review-actions">
         <Heading level={2} id={headingId}>
-          {title}
+          {resolvedTitle}
         </Heading>
         <Action onPress={onClose}>{returnLabel}</Action>
       </header>
 
       <GroupMeasurementContext
+        text={text}
         rangeLabel={rangeLabel}
         groupTotalLabel={groupTotalLabel}
         sizeBasisLabel={sizeBasisLabel}
@@ -84,6 +86,7 @@ export function GroupMembersPresenter({
         observedAtLabel={observedAtLabel}
       />
       <GroupPageFeedback
+        text={text}
         status={status}
         canRetry={canRetry}
         errorMessage={errorMessage}
@@ -92,12 +95,12 @@ export function GroupMembersPresenter({
       />
       <GroupRows rows={rows} text={text} />
 
-      <nav className="du-review-actions" aria-label="Group member ranges">
+      <nav className="du-review-actions" aria-label={text.message("memberRanges")}>
         <Action isDisabled={loading || !hasPrevious} onPress={onPrevious}>
-          Previous range
+          {text.message("previousRange")}
         </Action>
         <Action isDisabled={loading || !hasNext} onPress={onNext}>
-          Next range
+          {text.message("nextRange")}
         </Action>
       </nav>
     </section>
@@ -112,12 +115,14 @@ function isConfirmedEmptyPage(
 }
 
 function GroupMeasurementContext({
+  text,
   rangeLabel,
   groupTotalLabel,
   sizeBasisLabel,
   sizeRangeLabel,
   observedAtLabel,
 }: {
+  text: Pick<VizText, "message">;
   rangeLabel?: string | undefined;
   groupTotalLabel?: string | undefined;
   sizeBasisLabel?: string | undefined;
@@ -133,7 +138,10 @@ function GroupMeasurementContext({
   )
     return null;
   return (
-    <div className="du-review-context" aria-label="Group measurement context">
+    <div
+      className="du-review-context"
+      aria-label={text.message("groupMeasurementContext")}
+    >
       {rangeLabel && <Text>{rangeLabel}</Text>}
       {groupTotalLabel && <Text>{groupTotalLabel}</Text>}
       {sizeBasisLabel && <Text>{sizeBasisLabel}</Text>}
@@ -144,29 +152,33 @@ function GroupMeasurementContext({
 }
 
 function GroupPageFeedback({
+  text,
   status,
   canRetry,
   errorMessage,
   hasEmptyPage,
   onRetry,
 }: Pick<GroupMembersPresenterProps, "status" | "canRetry" | "onRetry"> & {
+  text: Pick<VizText, "message">;
   errorMessage?: string | undefined;
   hasEmptyPage: boolean;
 }) {
   return (
     <>
-      {status === "loading" && <Progress label="Loading members" />}
+      {status === "loading" && (
+        <Progress label={text.message("loadingMembers")} />
+      )}
       {status === "error" && (
         <Notice tone="error">
-          {errorMessage ?? "Could not load this range."}
+          {errorMessage ?? text.message("loadRangeFailed")}
         </Notice>
       )}
       {status === "error" && canRetry && (
         <div className="du-review-actions">
-          <Action onPress={onRetry}>Retry</Action>
+          <Action onPress={onRetry}>{text.message("retry")}</Action>
         </div>
       )}
-      {hasEmptyPage && <Notice>No members in this range.</Notice>}
+      {hasEmptyPage && <Notice>{text.message("noMembers")}</Notice>}
     </>
   );
 }
@@ -181,9 +193,9 @@ function GroupRows({
   if (!rows || rows.length === 0) return null;
   return (
     <DataTable
-      label="Group members"
+      label={text.message("groupMembers")}
       density="compact"
-      columns={["Name", "Size"]}
+      columns={[text.message("groupName"), text.message("groupSize")]}
       rows={rows}
       getRowKey={rowKey}
       renderCells={(row) => [

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
 import type { FolderQueryRow, ItemRef } from "../../ipc";
+import { useLocaleText } from "../../i18n/presentation";
 import { browseDisplayName, rowKey } from "./browse-display";
 
 export type InspectedItem = {
@@ -15,6 +16,7 @@ export function useItemInspection(
   version: string | undefined,
   panel: RefObject<HTMLElement | null>,
 ) {
+  const text = useLocaleText();
   const [item, setItem] = useState<InspectedItem>();
   const pending = useRef<InspectedItem>(undefined);
   const selected = item?.item.resultVersion === version ? item : undefined;
@@ -56,7 +58,7 @@ export function useItemInspection(
       setItem({
         item: row.item,
         kind: row.kind === "directory" ? "folder" : "file",
-        name: browseDisplayName(row.displayName),
+        name: browseDisplayName(row.displayName, text),
         opener,
       });
     },

@@ -15,6 +15,7 @@ import { VisualizationSession } from "../features/visualization/VisualizationSes
 import type { VisualizationViewRequest } from "../features/visualization/VisualizationSession";
 import type { ModelResponse } from "../features/visualization/model-adapter";
 import type { VizText } from "../features/visualization/model-text";
+import { useLocaleText } from "../i18n/presentation";
 
 export type BrowseVisualizationSelection = {
   resultVersion: string;
@@ -149,17 +150,18 @@ export function BrowseVisualizationActions({
   onOpen: () => void;
   onClose: () => void;
 }) {
+  const text = useLocaleText();
   return (
     <>
       {visible && open && (
         <Action variant="quiet" icon="back" autoFocus onPress={onClose}>
-          Back to folders
+          {text("ui.visualization.back_to_folders", "Back to folders")}
         </Action>
       )}
       {visible && available && (
         <div hidden={open}>
           <Action variant="quiet" icon="layers" ref={trigger} onPress={onOpen}>
-            Show space distribution
+            {text("ui.visualization.show_space_distribution", "Show space distribution")}
           </Action>
         </div>
       )}
@@ -178,6 +180,7 @@ export function BrowseVisualizationView({
   selection: BrowseVisualizationSelection | undefined;
   assembly: BrowseVisualizationAssembly | undefined;
 }) {
+  const text = useLocaleText();
   const viewportElement = useRef<HTMLDivElement>(null);
   const [viewport, setViewport] = useState<
     VisualizationViewRequest["viewport"] | undefined
@@ -250,11 +253,11 @@ export function BrowseVisualizationView({
   if (!client || !assembly || !selection)
     return (
       <div className="du-visualization-shell">
-        <Text>Space distribution is unavailable for this folder.</Text>
+        <Text>{text("ui.visualization.unavailable_for_folder", "Space distribution is unavailable for this folder.")}</Text>
       </div>
     );
   return (
-    <section className="du-visualization-shell" aria-label="Space distribution">
+    <section className="du-visualization-shell" aria-label={text("ui.visualization.space_distribution", "Space distribution")}>
       <div ref={viewportElement} className="du-visualization-viewport">
         {viewport ? (
           <VisualizationSession
@@ -271,7 +274,7 @@ export function BrowseVisualizationView({
               : {})}
           />
         ) : (
-          <Progress label={assembly.text.message("loading")} />
+          <Progress label={text("ui.visualization.loading", "Loading visualization")} />
         )}
       </div>
     </section>

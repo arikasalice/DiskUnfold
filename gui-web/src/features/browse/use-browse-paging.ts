@@ -9,6 +9,7 @@ import {
   visibleBrowsePages,
 } from "../../state/browse-pages";
 import type { BrowsePages } from "../../state/browse-pages";
+import { useLocaleText } from "../../i18n/presentation";
 
 const abandoned = Symbol("abandoned query page");
 const scrollKeys = new Set([
@@ -31,6 +32,17 @@ type Task = {
 type Intent = { origin: Element; scrollY: number };
 type Failure = { task: Task; stale: boolean };
 type FocusRequest = BrowseGridFocus & { keepLoadButton: boolean };
+type BrowseStatusKey =
+  | "additional_items_ready"
+  | "no_confirmed_items_end_unknown"
+  | "list_end_unknown";
+
+const statusFallback: Record<BrowseStatusKey, string> = {
+  additional_items_ready: "Additional items are ready.",
+  no_confirmed_items_end_unknown:
+    "No confirmed items. The end of the list is unknown.",
+  list_end_unknown: "The end of the list is unknown.",
+};
 
 type Options = {
   scrollRoot: RefObject<HTMLDivElement | null>;
@@ -55,6 +67,7 @@ export function useBrowsePaging({
   canRead,
   focusPanel,
 }: Options) {
+  const text = useLocaleText();
   const [continuation, setContinuation] = useState<Continuation | null>(() =>
     initialCursor
       ? {
@@ -67,7 +80,7 @@ export function useBrowsePaging({
   const [explicit, setExplicit] = useState<Task>();
   const [failure, setFailure] = useState<Failure>();
   const [retrying, setRetrying] = useState(false);
-  const [status, setStatus] = useState<string>();
+  const [statusKey, setStatusKey] = useState<BrowseStatusKey>();
   const [background, setBackground] = useState(false);
   const [, refresh] = useState(0);
   const loadButton = useRef<HTMLButtonElement>(null);
@@ -310,7 +323,7 @@ export function useBrowsePaging({
         }
         if (task.continuation) {
           if (page.length > 0 && !keyboard)
-            setStatus("Additional items are ready.");
+            setStatusKey("additional_items_ready");
           setContinuation(
             page.nextCursor
               ? { start: task.start + page.length, cursor: page.nextCursor }
@@ -356,11 +369,11 @@ export function useBrowsePaging({
 
   function move(index: number, end: boolean) {
     if (end)
-      setStatus(
+      setStatusKey(
         pages.rowCount === -1
           ? pages.count === 0
-            ? "No confirmed items. The end of the list is unknown."
-            : "The end of the list is unknown."
+            ? "no_confirmed_items_end_unknown"
+            : "list_end_unknown"
           : undefined,
       );
     if (index >= 0 && index < pages.count)
@@ -389,7 +402,9 @@ export function useBrowsePaging({
   return {
     focusRequest,
     failure,
-    status,
+    status: statusKey
+      ? text(`ui.browse.${statusKey}`, statusFallback[statusKey])
+      : undefined,
     loadButton,
     retryButton,
     retrying,

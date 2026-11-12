@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Notice, Progress } from "../../components";
 import type { AnalysisClient, VizRenderRequest } from "../../ipc";
 import { ControlledVisualization } from "./ControlledVisualization";
@@ -6,6 +6,8 @@ import { VisualizationController } from "./controller";
 import { GroupController } from "./group-controller";
 import type { ModelResponse } from "./model-adapter";
 import type { VizText } from "./model-text";
+import { useLocaleText } from "../../i18n/presentation";
+import { visualizationMessages } from "./messages";
 import {
   createVisualizationPort,
   observeVisualizationJob,
@@ -46,6 +48,15 @@ export function VisualizationSession({
   >[0]["resolveRenderer"];
   onApplyRevision?: (revision: string) => void;
 }) {
+  const localeText = useLocaleText();
+  const localizedText = useMemo<VizText>(
+    () => ({
+      ...text,
+      message: (key, values) =>
+        localeText(`ui.visualization.${key}`, visualizationMessages.en[key], values),
+    }),
+    [localeText, text],
+  );
   const [session, setSession] = useState<Session | null>(null);
   const [openError, setOpenError] = useState(false);
   const [renderError, setRenderError] = useState(false);
@@ -161,12 +172,12 @@ export function VisualizationSession({
     return (
       <>
         {renderError && (
-          <Notice tone="error">Visualization could not be updated.</Notice>
+          <Notice tone="error">{localizedText.message("updateFailed")}</Notice>
         )}
         <ControlledVisualization
           controller={session.controller}
           groupController={session.groups}
-          text={text}
+          text={localizedText}
           autoLoadRows={autoLoadRows}
           {...(resolveRenderer ? { resolveRenderer } : {})}
           {...(onApplyRevision ? { onApplyRevision } : {})}
@@ -175,8 +186,8 @@ export function VisualizationSession({
     );
   }
   return openError ? (
-    <Notice tone="error">Visualization could not be opened.</Notice>
+    <Notice tone="error">{localizedText.message("openFailed")}</Notice>
   ) : (
-    <Progress label={text.message("loading")} />
+    <Progress label={localizedText.message("loading")} />
   );
 }

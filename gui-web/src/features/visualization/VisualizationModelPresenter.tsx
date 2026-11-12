@@ -24,7 +24,7 @@ import type {
   ModelRowsPage,
   VizSelection,
 } from "./model-adapter";
-import { rawSourceSize, shapeLabels } from "./model-text";
+import { rawSourceSize, shapeLabels, vizMessage } from "./model-text";
 import type { VizText } from "./model-text";
 
 const defaultChartRenderer = createChartRenderers([]);
@@ -91,18 +91,18 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
         {...(props.onPage ? { onPage: props.onPage } : {})}
       />
     ) : rowsPending ? null : (
-      <Notice>Rows have not been retrieved for this graph.</Notice>
+      <Notice>{text.message("rowsNotRetrieved")}</Notice>
     );
   const rows = (
     <>
-      {rowsPending && <Progress label="Loading rows from this graph" />}
+      {rowsPending && <Progress label={text.message("loadingGraphRows")} />}
       {rowsContent}
     </>
   );
   if (!adapted.validTargets)
     return (
       <Notice tone="error">
-        The graph contains inconsistent item references. Reload this result.
+        {text.message("invalidReferences")}
       </Notice>
     );
   return (
@@ -120,7 +120,7 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
       aria-labelledby={headingId}
     >
       <Heading level={2} id={headingId}>
-        Storage visualization
+        {text.message("storageVisualization")}
       </Heading>
       <div className="du-review-context">
         <StatusBadge
@@ -140,17 +140,16 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
       </div>
       {frame.model.shapes.length === 0 && (
         <Notice>
-          No drawable items in this result. Review its totals and unavailable
-          values below.
+          {text.message("noDrawableItems")}
         </Notice>
       )}
       <ChartRenderer
         modelRef={frame.model.modelRef}
         resultRevision={frame.resultRevision}
-        label="Space distribution"
-        selectedText="selected"
-        fallbackNotice="This graph cannot be drawn. The rows below belong to the same result."
-        missingFallbackNotice="Rows from this result are unavailable."
+        label={text.message("spaceDistribution")}
+        selectedText={text.message("selected")}
+        fallbackNotice={text.message("graphFallback")}
+        missingFallbackNotice={text.message("graphRowsUnavailable")}
         width={view.viewport.width}
         height={view.viewport.height}
         viewport={view.visibleWindow}
@@ -226,7 +225,7 @@ export function ModelRows({
   onPage,
   onOpenGroup,
   returnTargetRef,
-  title = "Rows from this graph",
+  title,
 }: {
   page: ModelRowsPage;
   model: VizModel;
@@ -242,6 +241,7 @@ export function ModelRows({
   returnTargetRef?: { current: HTMLElement | null } | undefined;
   title?: string;
 }) {
+  const rowTitle = title ?? text.message("rowsFromGraph");
   const rowsRegion = useRef<HTMLElement>(null);
   const { request, response } = page;
   const next = request.start + response.rows.length;
@@ -264,29 +264,33 @@ export function ModelRows({
         if (returnTargetRef) returnTargetRef.current = element;
       }}
       {...(returnTargetRef
-        ? { role: "group", tabIndex: -1, "aria-label": title }
+        ? { role: "group", tabIndex: -1, "aria-label": rowTitle }
         : {})}
     >
       <DetailDisclosure
-        title={title}
+        title={rowTitle}
         key={`${request.modelRef}:${request.resultRevision}`}
       >
         <Text>
           {response.rows.length === 0
-            ? "No rows in this page"
-            : `Rows ${request.start + 1}–${next} of ${response.totalCount}`}
+            ? text.message("noRowsInPage")
+            : vizMessage(text, "rowRange", {
+                start: String(request.start + 1),
+                end: String(next),
+                total: String(response.totalCount),
+              })}
         </Text>
         <DataTable
-          label="Loaded graph rows"
+          label={text.message("loadedGraphRows")}
           density="compact"
           columns={[
-            "Name",
-            ...(hasOpenableGroups ? ["Actions"] : []),
-            "Value",
-            "Ratio",
-            "Denominator",
-            "Classification",
-            "Flags",
+            text.message("name"),
+            ...(hasOpenableGroups ? [text.message("actions")] : []),
+            text.message("value"),
+            text.message("ratio"),
+            text.message("denominator"),
+            text.message("classification"),
+            text.message("flags"),
           ]}
           rows={response.rows}
           getRowKey={(row) => JSON.stringify([row.itemRef, row.groupRef])}
@@ -309,19 +313,21 @@ export function ModelRows({
                               row.groupRef,
                               row.size,
                               trigger,
-                              row.displayName.trim() || "Other items",
+                              row.displayName.trim() || text.message("otherItems"),
                               returnTargetRef?.current ?? rowsRegion.current,
                             );
                         }}
-                        aria-label={`View members of ${row.displayName.trim() || "Other items"}`}
+                        aria-label={vizMessage(text, "viewMembersOf", {
+                          name: row.displayName.trim() || text.message("otherItems"),
+                        })}
                       >
-                        View group members
+                        {text.message("viewMembers")}
                       </Action>
                     ) : null,
                   ]
                 : []),
               row.quantity ? text.quantity(row.quantity) : text.size(row.size),
-              row.ratio ?? "Unavailable",
+              row.ratio ?? text.message("unavailableValue"),
               `${text.quantity(row.denominator.value)} · ${text.key(row.denominator.basis)}`,
               text.key(
                 model.legend.find((entry) => entry.key === row.legendClassKey)
@@ -342,7 +348,7 @@ export function ModelRows({
                 })
               }
             >
-              Previous rows
+              {text.message("previousRows")}
             </Action>
             <Action
               isDisabled={
@@ -350,7 +356,7 @@ export function ModelRows({
               }
               onPress={() => onPage({ ...request, start: next })}
             >
-              Next rows
+              {text.message("nextRows")}
             </Action>
           </div>
         )}
@@ -368,58 +374,58 @@ function ModelEvidence({
 }) {
   const { model } = frame;
   const totals = [
-    ["Scope total", model.totals.scope],
-    ["Drawn total", model.totals.drawn],
-    ["Grouped total", model.totals.grouped],
-    ["Filtered out total", model.totals.filteredOut],
+    [text.message("scopeTotal"), model.totals.scope],
+    [text.message("drawnTotal"), model.totals.drawn],
+    [text.message("groupedTotal"), model.totals.grouped],
+    [text.message("filteredOutTotal"), model.totals.filteredOut],
   ] as const;
   return (
-    <DetailDisclosure title="Measurement basis and totals">
+    <DetailDisclosure title={text.message("measurementBasisTotals")}>
       <Readout
-        label="Representation"
+        label={text.message("representation")}
         rows={[
-          { label: "Format", value: text.key(model.representation.format) },
-          { label: "Measure", value: text.key(model.representation.measure) },
+          { label: text.message("format"), value: text.key(model.representation.format) },
+          { label: text.message("measure"), value: text.key(model.representation.measure) },
           {
-            label: "Size basis",
+            label: text.message("sizeBasis"),
             value: text.key(model.representation.sizeBasis),
           },
           {
-            label: "Denominator",
+            label: text.message("denominator"),
             value: `${text.quantity(model.denominator.value)} · ${text.key(model.denominator.basis)}`,
           },
         ]}
       />
       <Readout
-        label="Independent totals"
+        label={text.message("independentTotals")}
         rows={totals.map(([label, total]) => ({
           label,
           value: text.quantity(total.quantity),
         }))}
       />
       <Readout
-        label="Source sizes"
+        label={text.message("sourceSizes")}
         rows={totals.map(([label, total]) => ({
           label,
           value:
             total.sourceSize === null
-              ? "No source size supplied"
-              : rawSourceSize(total.sourceSize),
+              ? text.message("noSourceSize")
+              : rawSourceSize(total.sourceSize, text.message),
         }))}
       />
       <Readout
-        label="Coverage"
+        label={text.message("coverage")}
         rows={[
           {
-            label: "Grouped items",
+            label: text.message("groupedItems"),
             value: text.quantity(model.summary.groupedItems),
           },
           {
-            label: "Omitted items",
+            label: text.message("omittedItems"),
             value: text.quantity(model.summary.omittedItems),
           },
           {
-            label: "Unknown items",
+            label: text.message("unknownItems"),
             value: text.quantity(model.summary.unknownItems),
           },
         ]}

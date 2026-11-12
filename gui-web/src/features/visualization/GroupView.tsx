@@ -81,7 +81,7 @@ export function GroupView({
   const returnTitle = getReturnTitle(
     originMatches ? (origin?.returnTarget ?? null) : null,
     returnTargetRef?.current ?? null,
-    groupTitle(origin),
+    groupTitle(origin, text),
   );
   const groupHadFocusBeforeCommit = Boolean(
     panel.current?.contains(document.activeElement) ||
@@ -121,19 +121,19 @@ export function GroupView({
             void openSelectedGroup(controller, current, selected);
           }}
         >
-          View group members
+          {text.message("viewGroupMembers")}
         </Action>
       )}
       {visible && (
         <>
           <LiveStatus ref={status} focusTarget>
-            Group members
+            {text.message("groupMembers")}
           </LiveStatus>
           <GroupContents
             state={state}
             controller={controller}
             text={text}
-            title={groupTitle(origin)}
+            title={groupTitle(origin, text)}
             onClose={() => {
               closingByUser.current = true;
               closeGroupView(
@@ -155,10 +155,7 @@ export function GroupView({
           tabIndex={-1}
           aria-label={returnTitle}
         >
-          <Notice>
-            The original group target is no longer available. Return to the
-            visualization.
-          </Notice>
+          <Notice>{text.message("groupTargetUnavailable")}</Notice>
         </div>
       )}
     </>
@@ -173,8 +170,8 @@ function synchronizeFrame(
   else controller.replaceFrame(frame);
 }
 
-function groupTitle(origin: GroupOrigin | null) {
-  return origin?.groupLabel?.trim() || "Other members";
+function groupTitle(origin: GroupOrigin | null, text: VizText) {
+  return origin?.groupLabel?.trim() || text.message("otherMembers");
 }
 
 function getReturnTitle(
@@ -366,7 +363,7 @@ function GroupContents({
     <div ref={panelRef}>
       <GroupMembersPresenter
         title={title}
-        returnLabel="Back to visualization"
+        returnLabel={text.message("backToVisualization")}
         rows={state.page?.response.rows}
         {...(state.rangeLabel ? { rangeLabel: state.rangeLabel } : {})}
         {...(state.groupTotal
@@ -388,12 +385,12 @@ function GroupContents({
           ? {
               errorMessage:
                 state.failure === "stale"
-                  ? "This result is no longer available. Return to the visualization to refresh it."
+                  ? text.message("groupResultStale")
                   : state.failure === "missing"
-                    ? "This group is no longer available. Return to the visualization."
+                    ? text.message("groupMissing")
                     : state.failure === "invalid"
-                      ? "The group response did not match this visualization."
-                      : "Could not load this range.",
+                      ? text.message("groupResponseMismatch")
+                      : text.message("loadRangeFailed"),
             }
           : {})}
         canRetry={state.canRetry}
