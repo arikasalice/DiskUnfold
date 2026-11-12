@@ -28,10 +28,11 @@ fn platform_os_keeps_the_shared_startup_contract_paths() {
 fn startup_full_disk_access_observation_is_conservative() {
     let system = SystemStartupCapabilities;
 
+    // The real answer depends on the host's grant; it is never NotApplicable.
     #[cfg(target_os = "macos")]
-    assert_eq!(
+    assert_ne!(
         system.full_disk_access_status(),
-        FullDiskAccessStatus::Unknown
+        FullDiskAccessStatus::NotApplicable
     );
 
     #[cfg(not(target_os = "macos"))]

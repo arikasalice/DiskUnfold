@@ -7,6 +7,8 @@ pub use du_core_contracts::startup::{
 
 #[cfg(feature = "fake")]
 mod fake;
+#[cfg(any(target_os = "macos", test))]
+mod fda;
 #[cfg(all(target_os = "linux", feature = "webview"))]
 mod linux;
 #[cfg(all(target_os = "macos", feature = "webview"))]
@@ -26,9 +28,9 @@ impl StartupCapabilitiesPort for SystemStartupCapabilities {
     fn full_disk_access_status(&self) -> FullDiskAccessStatus {
         #[cfg(target_os = "macos")]
         {
-            // macOS has no supported direct grant-query API. Do not infer a
-            // user-wide grant from access to an arbitrary protected file.
-            FullDiskAccessStatus::Unknown
+            // Read-only open attempts on FDA-protected paths; unknown
+            // evidence never reports Granted.
+            fda::full_disk_access_status()
         }
         #[cfg(not(target_os = "macos"))]
         {
