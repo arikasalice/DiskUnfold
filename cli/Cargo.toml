@@ -12,7 +12,7 @@ windows-console = ["du-platform-os/windows-console"]
 du-user-env = { version = "0.1.0", path = "../user-env" }
 du-platform-os = { version = "0.1.0", path = "../platform-os" }
 
-[target.'cfg(windows)'.dependencies]
+[target.'cfg(any(windows, target_os = "linux"))'.dependencies]
 du-app-db = { version = "0.1.0", path = "../app-db" }
 du-core-contracts = { version = "0.1.0", path = "../core-contracts" }
 

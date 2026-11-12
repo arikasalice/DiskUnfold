@@ -86,7 +86,28 @@ pub(super) fn stored_language() -> Result<Option<String>, ()> {
     language_from_snapshot(&snapshot)
 }
 
-#[cfg(windows)]
+#[cfg(target_os = "linux")]
+pub(super) fn stored_language() -> Result<Option<String>, ()> {
+    let directory = du_platform_os::application_data::directory().ok_or(())?;
+    stored_language_in_directory(&directory)
+}
+
+#[cfg(target_os = "linux")]
+fn stored_language_in_directory(directory: &std::path::Path) -> Result<Option<String>, ()> {
+    use du_app_db::AppDb;
+    use du_core_contracts::settings::SettingsStore;
+    use du_platform_os::application_data::DATABASE_FILE;
+
+    let database_path = directory.join(DATABASE_FILE);
+    if !database_path.try_exists().map_err(|_| ())? {
+        return Ok(None);
+    }
+    let mut database = AppDb::open_read_only(&database_path).map_err(|_| ())?;
+    let snapshot = database.load().map_err(|_| ())?;
+    language_from_snapshot(&snapshot)
+}
+
+#[cfg(any(windows, target_os = "linux"))]
 fn language_from_snapshot(
     snapshot: &du_core_contracts::settings::SettingsSnapshot,
 ) -> Result<Option<String>, ()> {
@@ -100,7 +121,7 @@ fn language_from_snapshot(
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "linux")))]
 pub(super) fn stored_language() -> Result<Option<String>, ()> {
     Ok(None)
 }
@@ -124,7 +145,7 @@ pub(super) fn preferred_ui_languages() -> Option<Vec<String>> {
 mod tests {
     use super::*;
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     #[test]
     fn old_schema_uses_unavailable_settings_without_migration() {
         let snapshot = du_core_contracts::settings::SettingsSnapshot {
@@ -132,6 +153,125 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(language_from_snapshot(&snapshot), Err(()));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn stored_language_reads_linux_settings_read_only_and_warns_for_unregistered_values()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use std::{
+            fs,
+            path::PathBuf,
+            sync::atomic::{AtomicU64, Ordering},
+        };
+
+        use du_core_contracts::settings::{
+            SettingsChanges, SettingsCommit, SettingsSource, SettingsStore,
+        };
+
+        static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(1);
+
+        struct TempDirectory(PathBuf);
+
+        impl Drop for TempDirectory {
+            fn drop(&mut self) {
+                let _ = fs::remove_dir_all(&self.0);
+            }
+        }
+
+        let directory = std::env::temp_dir().join(format!(
+            "diskunfold-cli-f13-linux-{}-{}",
+            std::process::id(),
+            NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir(&directory)?;
+        let _fixture = TempDirectory(directory.clone());
+        let database_path = directory.join(du_platform_os::application_data::DATABASE_FILE);
+        assert_eq!(stored_language_in_directory(&directory), Ok(None));
+        assert!(!database_path.exists());
+        let mut database =
+            du_app_db::AppDb::create_gui(&database_path).map_err(|error| format!("{error:?}"))?;
+        let language = du_user_env::locale::descriptors(&["en", "ko"])
+            .map_err(|error| format!("{error:?}"))?
+            .into_iter()
+            .find(|descriptor| descriptor.key == locale::DISPLAY_LANGUAGE_KEY)
+            .and_then(|descriptor| match descriptor.kind {
+                du_user_env::ValueKind::Choice(values) => values
+                    .into_iter()
+                    .find(|value| value.as_str() == Some("ko")),
+                _ => None,
+            })
+            .ok_or("Korean display language is not registered")?;
+        let changes =
+            SettingsChanges::from([(locale::DISPLAY_LANGUAGE_KEY.into(), Some(language))]);
+        database
+            .commit(
+                0,
+                &changes,
+                SettingsCommit {
+                    source: SettingsSource::Screen,
+                    timestamp_ms: 1,
+                },
+            )
+            .map_err(|error| format!("{error:?}"))?;
+        drop(database);
+
+        let before = fs::read(&database_path)?;
+        let mut os_reads = 0;
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+        let exit = crate::run_with_io(
+            ["scan", "root"].into_iter().map(std::ffi::OsString::from),
+            || stored_language_in_directory(&directory),
+            || {
+                os_reads += 1;
+                Some(vec!["en-US".into()])
+            },
+            &mut stdout,
+            &mut stderr,
+        );
+        assert_eq!(exit, std::process::ExitCode::from(2));
+        assert_eq!(os_reads, 0);
+        assert!(!String::from_utf8_lossy(&stderr).contains("Saved settings are unavailable"));
+        assert_eq!(fs::read(&database_path)?, before);
+
+        let mut database =
+            du_app_db::AppDb::open_gui(&database_path).map_err(|error| format!("{error:?}"))?;
+        let changes =
+            SettingsChanges::from([(locale::DISPLAY_LANGUAGE_KEY.into(), Some("fr".into()))]);
+        database
+            .commit(
+                1,
+                &changes,
+                SettingsCommit {
+                    source: SettingsSource::Screen,
+                    timestamp_ms: 2,
+                },
+            )
+            .map_err(|error| format!("{error:?}"))?;
+        drop(database);
+        let before = fs::read(&database_path)?;
+        let mut os_reads = 0;
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+        let exit = crate::run_with_io(
+            ["scan", "root"].into_iter().map(std::ffi::OsString::from),
+            || stored_language_in_directory(&directory),
+            || {
+                os_reads += 1;
+                Some(vec!["en-US".into()])
+            },
+            &mut stdout,
+            &mut stderr,
+        );
+        assert_eq!(exit, std::process::ExitCode::from(2));
+        assert_eq!(os_reads, 1);
+        assert!(
+            String::from_utf8_lossy(&stderr)
+                .starts_with("Saved settings are unavailable. Using a fallback language.\n")
+        );
+        assert_eq!(fs::read(&database_path)?, before);
+        Ok(())
     }
 
     #[test]
