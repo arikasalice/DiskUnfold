@@ -5,9 +5,10 @@ mod messages;
 mod navigation;
 mod reply;
 mod script;
+mod window_layout;
 
 use super::contract::{Asset, CSP, Events, WebApp, entry, resource};
-use messages::{Bridge, RequestQueue, WindowTimer};
+use messages::{Bridge, RequestQueue, WindowTimer, WorkerPool};
 use navigation::{NavigationCompletion, NavigationIdFence};
 use script::install_script;
 use std::{
@@ -24,9 +25,10 @@ use webview2_com::{
     PermissionRequestedEventHandler, WebMessageReceivedEventHandler,
     WebResourceRequestedEventHandler, take_pwstr,
 };
+use window_layout::bounds;
 use windows::{
     Win32::{
-        Foundation::{E_POINTER, HWND, RECT},
+        Foundation::{E_POINTER, HWND},
         System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx, CoUninitialize},
         UI::Shell::SHCreateMemStream,
     },
@@ -179,15 +181,6 @@ fn create_controller(
         .ok_or_else(|| "WebView2 returned no controller".into())
 }
 
-fn bounds(width: i32, height: i32) -> RECT {
-    RECT {
-        left: 0,
-        top: 0,
-        right: width,
-        bottom: height,
-    }
-}
-
 pub(super) fn run(app: WebApp, events: Option<Events>) -> Result<(), Box<dyn Error>> {
     // SAFETY: The launcher calls the GUI on its main thread.
     unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED).ok()? };
@@ -233,6 +226,7 @@ pub(super) fn run(app: WebApp, events: Option<Events>) -> Result<(), Box<dyn Err
     if phase.get() == WindowPhase::CloseRequested {
         return Ok(());
     }
+    let worker_pool = WorkerPool::start(&app)?;
     let native = create_controller(&window, &environment)?;
     if phase.get() == WindowPhase::CloseRequested {
         return Ok(());
@@ -256,7 +250,13 @@ pub(super) fn run(app: WebApp, events: Option<Events>) -> Result<(), Box<dyn Err
     };
     let failed = Rc::new(Cell::new(false));
     let ready = Rc::new(Cell::new(false));
-    let requests = Bridge::start(view.clone(), &app, events.clone(), ready.clone())?;
+    let requests = Bridge::start(
+        view.clone(),
+        app.route,
+        worker_pool.controller_owner()?,
+        events.clone(),
+        ready.clone(),
+    );
     subscribe(
         &view,
         environment,
@@ -461,6 +461,9 @@ unsafe fn receive(
 ) -> windows::core::Result<()> {
     // SAFETY: This is the top-level WebView2 event. Frame events are not registered.
     unsafe {
+        if !requests.is_active() {
+            return Ok(());
+        }
         let mut text = PWSTR::null();
         if args.TryGetWebMessageAsString(&mut text).is_err() {
             return Ok(());
