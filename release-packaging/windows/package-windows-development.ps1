@@ -36,6 +36,25 @@ function Get-RegularFile {
     return $resolved
 }
 
+function Assert-NoReparsePointInPath {
+    param([Parameter(Mandatory = $true)][string] $Path, [Parameter(Mandatory = $true)][string] $Description)
+
+    $current = [System.IO.Path]::GetFullPath($Path)
+    while (-not [string]::IsNullOrWhiteSpace($current)) {
+        if (Test-Path -LiteralPath $current) {
+            $item = Get-Item -LiteralPath $current -ErrorAction Stop
+            if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+                throw "$Description contains a reparse point: $current"
+            }
+        }
+        $parent = [System.IO.Directory]::GetParent($current)
+        if (-not $parent) {
+            break
+        }
+        $current = $parent.FullName
+    }
+}
+
 function Get-PeArchitecture {
     param([Parameter(Mandatory = $true)][string] $Path)
 
@@ -150,6 +169,7 @@ function Remove-GeneratedDirectory {
     if ([System.IO.Directory]::GetParent($resolved).FullName.TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar) -ne $parent) {
         throw "Refusing to remove a generated directory outside its expected parent: $resolved"
     }
+    Assert-NoReparsePointInPath -Path $ExpectedParent -Description 'Generated directory parent'
     if (Test-Path -LiteralPath $resolved -PathType Container) {
         $item = Get-Item -LiteralPath $resolved -ErrorAction Stop
         if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
@@ -178,6 +198,7 @@ function New-MsixManifest {
         [Parameter(Mandatory = $true)][string] $PackageArchitecture
     )
 
+    # 25H2 (build 26200) is the highest platform exercised by the local native CLI check.
     return @"
 <?xml version="1.0" encoding="utf-8"?>
 <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10" xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10" xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities" xmlns:uap5="http://schemas.microsoft.com/appx/manifest/uap/windows10/5" IgnorableNamespaces="uap rescap uap5">
@@ -189,7 +210,7 @@ function New-MsixManifest {
     <Logo>Assets\StoreLogo.png</Logo>
   </Properties>
   <Dependencies>
-    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.22000.0" MaxVersionTested="10.0.26100.0" />
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.22000.0" MaxVersionTested="10.0.26200.0" />
   </Dependencies>
   <Resources>
     <Resource Language="en-US" />
@@ -262,6 +283,7 @@ $parentItem = Get-Item -LiteralPath $outputParent.FullName -ErrorAction Stop
 if (($parentItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
     throw 'The output parent directory cannot be a reparse point.'
 }
+Assert-NoReparsePointInPath -Path $outputParent.FullName -Description 'Output parent'
 if (Test-Path -LiteralPath $outputFullPath) {
     throw "Output directory already exists; it will not be replaced: $outputFullPath"
 }
@@ -365,10 +387,7 @@ The F15 official release pipeline, publisher identities, signing approvals, gene
     if (Test-Path -LiteralPath $outputFullPath) {
         throw "Output directory appeared during packaging; preserving it: $outputFullPath"
     }
-    $currentParent = Get-Item -LiteralPath $outputParent.FullName -ErrorAction Stop
-    if (($currentParent.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
-        throw 'Output parent changed to a reparse point during packaging.'
-    }
+    Assert-NoReparsePointInPath -Path $outputParent.FullName -Description 'Output parent changed during packaging'
     [System.IO.Directory]::Move($stageFullPath, $outputFullPath)
     $published = $true
     Write-Output "Development package: $outputFullPath"

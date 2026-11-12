@@ -25,6 +25,25 @@ function Assert-True {
     }
 }
 
+function Assert-TestPathHasNoReparsePoint {
+    param([Parameter(Mandatory = $true)][string] $Path, [Parameter(Mandatory = $true)][string] $Description)
+
+    $current = [System.IO.Path]::GetFullPath($Path)
+    while (-not [string]::IsNullOrWhiteSpace($current)) {
+        if (Test-Path -LiteralPath $current) {
+            $item = Get-Item -LiteralPath $current -ErrorAction Stop
+            if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+                throw "$Description contains a reparse point: $current"
+            }
+        }
+        $parent = [System.IO.Directory]::GetParent($current)
+        if (-not $parent) {
+            break
+        }
+        $current = $parent.FullName
+    }
+}
+
 function Invoke-Packager {
     param([string] $Format, [string] $OutputDirectory, [string] $RequestedArchitecture = $Architecture)
 
@@ -39,13 +58,16 @@ function Invoke-Packager {
 }
 
 function Assert-ExpectedFailure {
-    param([scriptblock] $Action, [string] $Message)
+    param([scriptblock] $Action, [string] $Message, [string] $ExpectedMessagePattern)
 
     $failed = $false
     try {
         & $Action
     }
     catch {
+        if ($ExpectedMessagePattern -and $_.Exception.Message -notmatch $ExpectedMessagePattern) {
+            throw "$Message Expected error matching '$ExpectedMessagePattern', got '$($_.Exception.Message)'."
+        }
         $failed = $true
     }
     if (-not $failed) {
@@ -57,6 +79,7 @@ $tempParent = [System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath())
 if ([System.IO.Path]::GetPathRoot($tempParent) -ne 'C:\') {
     throw "The test requires a C: temporary directory; got $tempParent"
 }
+Assert-TestPathHasNoReparsePoint -Path $tempParent -Description 'Temporary test parent'
 $packageScript = Join-Path $PSScriptRoot 'package-windows-development.ps1'
 $resolvedBinary = [System.IO.Path]::GetFullPath($BinaryPath)
 if (-not (Test-Path -LiteralPath $resolvedBinary -PathType Leaf)) {
@@ -103,11 +126,32 @@ try {
     [System.IO.Directory]::CreateDirectory($collisionOutput) | Out-Null
     $sentinelPath = Join-Path $collisionOutput 'keep.txt'
     [System.IO.File]::WriteAllText($sentinelPath, 'preserve')
-    Assert-ExpectedFailure { Invoke-Packager -Format 'portable-exe' -OutputDirectory $collisionOutput } 'Packager replaced an existing output directory.'
+    Assert-ExpectedFailure { Invoke-Packager -Format 'portable-exe' -OutputDirectory $collisionOutput } 'Packager replaced an existing output directory.' 'Output directory already exists'
     Assert-Equal 'preserve' (Get-Content -LiteralPath $sentinelPath -Raw) 'Output collision changed existing data.'
 
     $wrongArchitecture = if ($Architecture -eq 'x64') { 'arm64' } else { 'x64' }
-    Assert-ExpectedFailure { Invoke-Packager -Format 'portable-exe' -OutputDirectory (Join-Path $testRootFull 'wrong-architecture') -RequestedArchitecture $wrongArchitecture } 'Packager accepted an executable for the wrong architecture.'
+    Assert-ExpectedFailure { Invoke-Packager -Format 'portable-exe' -OutputDirectory (Join-Path $testRootFull 'wrong-architecture') -RequestedArchitecture $wrongArchitecture } 'Packager accepted an executable for the wrong architecture.' 'Executable architecture is'
+
+    $junctionTarget = Join-Path $testRootFull 'junction-target'
+    $junctionTargetParent = Join-Path $junctionTarget 'nested-parent'
+    [System.IO.Directory]::CreateDirectory($junctionTargetParent) | Out-Null
+    $junctionPath = Join-Path $testRootFull 'junction-parent'
+    $junctionCreated = $false
+    try {
+        New-Item -ItemType Junction -Path $junctionPath -Target $junctionTarget | Out-Null
+        $junctionCreated = $true
+        $junctionOutput = Join-Path (Join-Path $junctionPath 'nested-parent') 'junction-output'
+        $junctionSentinel = Join-Path $junctionTargetParent 'keep.txt'
+        [System.IO.File]::WriteAllText($junctionSentinel, 'preserve')
+        Assert-ExpectedFailure { Invoke-Packager -Format 'portable-exe' -OutputDirectory $junctionOutput } 'Packager accepted an output path below an ancestor junction.' 'reparse point'
+        Assert-Equal 'preserve' (Get-Content -LiteralPath $junctionSentinel -Raw) 'Junction output check changed the target sentinel.'
+        Assert-True (-not (Test-Path -LiteralPath $junctionOutput)) 'Junction output check created files through the junction.'
+    }
+    finally {
+        if ($junctionCreated -and (Test-Path -LiteralPath $junctionPath -PathType Container)) {
+            Remove-Item -LiteralPath $junctionPath -Force
+        }
+    }
 
     $msixOutput = Join-Path $testRootFull 'msix'
     Invoke-Packager -Format 'msix' -OutputDirectory $msixOutput
@@ -144,6 +188,15 @@ try {
         throw ("Could not unpack test MSIX: {0}" -f ($unpackOutput -join [Environment]::NewLine))
     }
     $appxManifest = Get-Content -LiteralPath (Join-Path $unpacked 'AppxManifest.xml') -Raw
+    $parsedAppxManifest = [xml]$appxManifest
+    $namespaceManager = [System.Xml.XmlNamespaceManager]::new($parsedAppxManifest.NameTable)
+    $namespaceManager.AddNamespace('appx', 'http://schemas.microsoft.com/appx/manifest/foundation/windows10')
+    $deviceFamily = $parsedAppxManifest.SelectSingleNode('/appx:Package/appx:Dependencies/appx:TargetDeviceFamily', $namespaceManager)
+    if (-not $deviceFamily) {
+        throw 'MSIX target device family declaration is missing.'
+    }
+    Assert-Equal '10.0.22000.0' $deviceFamily.GetAttribute('MinVersion') 'MSIX minimum applicability version changed.'
+    Assert-Equal '10.0.26200.0' $deviceFamily.GetAttribute('MaxVersionTested') 'MSIX tested version does not match the highest exercised platform.'
     Assert-True ($appxManifest -match 'Name="DiskUnfold\.Development"') 'MSIX does not use the development-only identity.'
     Assert-True ($appxManifest -match 'Publisher="CN=DiskUnfold Development"') 'MSIX does not use the declared development publisher.'
     Assert-True ($appxManifest -match 'Alias="diskunfold\.exe"') 'MSIX CLI execution alias is missing.'
@@ -155,9 +208,20 @@ try {
 }
 finally {
     if ($created -and (Test-Path -LiteralPath $testRootFull -PathType Container)) {
-        $actualTestRoot = [System.IO.Path]::GetFullPath((Get-Item -LiteralPath $testRootFull -ErrorAction Stop).FullName)
+        $cleanupItem = Get-Item -LiteralPath $testRootFull -ErrorAction Stop
+        $actualTestRoot = [System.IO.Path]::GetFullPath($cleanupItem.FullName)
         $actualParent = [System.IO.Directory]::GetParent($actualTestRoot).FullName.TrimEnd([System.IO.Path]::DirectorySeparatorChar)
-        if ($actualTestRoot -eq $testRootFull -and $actualParent -eq $testParentFull -and
+        $cleanupPathIsRegular = (($cleanupItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -eq 0)
+        $cleanupParentIsRegular = $false
+        try {
+            Assert-TestPathHasNoReparsePoint -Path $tempParent -Description 'Temporary test parent'
+            $cleanupParentIsRegular = $true
+        }
+        catch {
+            Write-Warning "Preserving test directory because its parent changed: $($_.Exception.Message)"
+        }
+        if ($cleanupItem.PSIsContainer -and $cleanupPathIsRegular -and $cleanupParentIsRegular -and
+            $actualTestRoot -eq $testRootFull -and $actualParent -eq $testParentFull -and
             (Split-Path -Leaf $actualTestRoot) -eq $testName) {
             Remove-Item -LiteralPath $actualTestRoot -Recurse -Force
         }
