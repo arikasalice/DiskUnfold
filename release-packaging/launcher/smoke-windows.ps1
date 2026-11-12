@@ -1039,19 +1039,60 @@ try {
 }
 if ($process.ExitCode -ne 0 -or (Get-Item (Join-Path $root 'stderr.txt')).Length -ne 0) { throw "Abnormal exit, log at $root" }
 'Native app exited cleanly.'
-$temp = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd([IO.Path]::DirectorySeparatorChar)
-$verifiedRoot = (Resolve-Path -LiteralPath $root).Path
-if ([IO.Path]::GetDirectoryName($verifiedRoot) -ne $temp -or
-    [IO.Path]::GetFileName($verifiedRoot) -notmatch '^diskunfold-smoke-[0-9a-f-]{36}$') {
-  throw "Unexpected fixture directory: $verifiedRoot"
-}
-# WebView2 subprocesses can retain profile files briefly after the launcher exits.
-$cleanupDeadline = [DateTime]::UtcNow.AddSeconds(8)
-while (Test-Path -LiteralPath $verifiedRoot) {
-  try {
-    Remove-Item -LiteralPath $verifiedRoot -Recurse -Force
-  } catch [IO.IOException] {
-    if ([DateTime]::UtcNow -ge $cleanupDeadline) { throw }
-    Start-Sleep -Milliseconds 200
+function Remove-SmokeFixture {
+  [CmdletBinding()]
+  param([Parameter(Mandatory)][string]$FixtureRoot)
+
+  $temp = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd([IO.Path]::DirectorySeparatorChar)
+  $verifiedRoot = (Resolve-Path -LiteralPath $FixtureRoot).Path
+  if ([IO.Path]::GetDirectoryName($verifiedRoot) -ne $temp -or
+      [IO.Path]::GetFileName($verifiedRoot) -notmatch '^diskunfold-smoke-[0-9a-f-]{36}$') {
+    throw "Unexpected fixture directory: $verifiedRoot"
   }
+  # WebView2 subprocesses can retain profile files briefly after the launcher exits.
+  # Remove the owned profile first so a lingering lock cannot partially consume the
+  # fixture and its logs while the recursive cleanup retries.
+  $verifiedProfile = (Resolve-Path -LiteralPath (Join-Path $verifiedRoot 'profile')).Path
+  $profileParent = [IO.Path]::GetDirectoryName($verifiedProfile).TrimEnd([IO.Path]::DirectorySeparatorChar)
+  if (-not [string]::Equals($profileParent, $verifiedRoot.TrimEnd([IO.Path]::DirectorySeparatorChar), [StringComparison]::OrdinalIgnoreCase) -or
+      [IO.Path]::GetFileName($verifiedProfile) -cne 'profile') {
+    throw "Unexpected smoke profile directory: $verifiedProfile"
+  }
+  $cleanupTimeoutSeconds = 30
+  $cleanupDeadline = [DateTime]::UtcNow.AddSeconds($cleanupTimeoutSeconds)
+  while (Test-Path -LiteralPath $verifiedProfile) {
+    $cleanupFailure = $null
+    $windowsError = $null
+    try {
+      Remove-Item -LiteralPath $verifiedProfile -Recurse -Force -ErrorAction Stop
+    } catch {
+      $cleanupFailure = $_
+      $sharingException = $null
+      $exception = $cleanupFailure.Exception
+      while ($exception) {
+        if ($exception -is [IO.IOException]) {
+          $sharingException = $exception
+          break
+        }
+        $exception = $exception.InnerException
+      }
+      if (-not $sharingException) { throw }
+      $windowsError = [int]($sharingException.HResult -band 0xffff)
+      if ($windowsError -notin @(32, 33)) { throw }
+    }
+    if (Test-Path -LiteralPath $verifiedProfile) {
+      if ([DateTime]::UtcNow -ge $cleanupDeadline) {
+        $failureDetails = 'The last removal attempt returned without deleting the profile.'
+        if ($cleanupFailure) {
+          $errorId = $cleanupFailure.FullyQualifiedErrorId
+          $errorType = $cleanupFailure.Exception.GetType().FullName
+          $failureDetails = "Last error id '$errorId', type '$errorType', Windows error ${windowsError}:`n$($cleanupFailure.Exception.ToString())"
+        }
+        throw "Timed out waiting for WebView2 to release the smoke profile after $cleanupTimeoutSeconds seconds. The isolated fixture and logs are retained at '$verifiedRoot'. $failureDetails"
+      }
+      Start-Sleep -Milliseconds 200
+    }
+  }
+  Remove-Item -LiteralPath $verifiedRoot -Recurse -Force -ErrorAction Stop
 }
+Remove-SmokeFixture -FixtureRoot $root
