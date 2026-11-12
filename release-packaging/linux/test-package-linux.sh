@@ -10,10 +10,11 @@ usage() {
     cat <<'USAGE'
 Usage: test-package-linux.sh --binary PATH
 
-Runs a packaging integration check with the supplied native GUI-enabled launcher.
-It uses clearly labelled, incomplete notice and Debian copyright fixtures that
-are not suitable for a release. The test checks both package formats, checksums,
-collisions, symlink rejection, CPU matching, and output preservation.
+Runs a packaging and release-inventory integration check with the supplied
+native GUI-enabled launcher. It uses clearly labelled, incomplete notice and
+Debian copyright fixtures that are not suitable for a release. The test checks
+both package formats, the real du-release-tools CLI output, checksums, collisions,
+symlink rejection, CPU matching, and output preservation.
 USAGE
 }
 
@@ -44,6 +45,8 @@ done
 
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 package_script="$script_dir/package-linux.sh"
+repo_root=$(cd "$script_dir/../.." && pwd -P)
+command -v cargo >/dev/null 2>&1 || fail 'cargo is required to verify the staging manifest with du-release-tools'
 test_root=$(mktemp -d "${TMPDIR:-/tmp}/diskunfold-linux-package-test.XXXXXXXX")
 test_identity=$(stat -c '%d:%i' -- "$test_root")
 
@@ -102,11 +105,36 @@ maintainer='DiskUnfold packaging test <test@example.invalid>'
 deb_name="DiskUnfold_0.1.0_${cpu}.deb"
 tar_name="DiskUnfold-0.1.0-linux-${cpu}.tar.gz"
 [[ -f "$output/$deb_name" && -f "$output/$tar_name" ]]
-[[ -f "$output/SHA256SUMS" && -f "$output/EXECUTABLE-SHA256.json" ]]
+[[ -f "$output/SHA256SUMS" && -f "$output/EXECUTABLE-SHA256.json" && -f "$output/manifest.json" ]]
+[[ -f "$output/unpacked/linux-$cpu/diskunfold" && ! -L "$output/unpacked/linux-$cpu/diskunfold" ]]
+cmp -s "$output/unpacked/linux-$cpu/diskunfold" "$binary" || \
+    fail 'staged executable differs from the supplied launcher'
 (
     cd "$output"
     sha256sum -c SHA256SUMS
 )
+
+release_tools_output="$test_root/release-tools"
+(
+    cd "$repo_root"
+    cargo run --locked -p du-release-tools --bin build-release-inventory -- \
+        "$output/manifest.json" "$output" "$release_tools_output"
+)
+cmp -s "$output/SHA256SUMS" "$release_tools_output/SHA256SUMS" || \
+    fail 'package checksums differ from du-release-tools output'
+cmp -s "$output/EXECUTABLE-SHA256.json" "$release_tools_output/EXECUTABLE-SHA256.json" || \
+    fail 'executable checksums differ from du-release-tools output'
+format_order=$(awk -F'"' '/"format":/ { print $4 }' "$release_tools_output/release-inventory.json" | paste -sd ' ' -)
+[[ "$format_order" == 'deb tar-gz' ]] || fail 'release inventory formats are not in canonical order'
+supported_versions=$(awk '
+    /"supported_versions": \[/ { in_versions = 1; next }
+    in_versions && /\]/ { in_versions = 0; next }
+    in_versions { gsub(/[",[:space:]]/, ""); print }
+' "$release_tools_output/release-inventory.json")
+[[ "$supported_versions" == $'24.04\n26.04\n24.04\n26.04' ]] || \
+    fail 'release inventory rows do not each list exactly Ubuntu 24.04 and 26.04'
+cpu_rows=$(grep -c "\"cpu\": \"$cpu\"" "$release_tools_output/release-inventory.json")
+[[ "$cpu_rows" -eq 2 ]] || fail 'release inventory does not preserve the native package CPU'
 
 dpkg_arch=$(dpkg --print-architecture)
 [[ "$(dpkg-deb -f "$output/$deb_name" Package)" == diskunfold ]]

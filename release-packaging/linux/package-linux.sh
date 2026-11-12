@@ -16,11 +16,12 @@ Usage:
 Creates one Debian package and one tar.gz for the native Ubuntu runner. The
 output directory must not exist. The tar.gz contains exactly the executable,
 LICENSE, and the explicitly supplied THIRD-PARTY-NOTICES.txt. The .deb also
-requires an explicit Debian copyright file. SHA256SUMS and
-EXECUTABLE-SHA256.json describe the generated files.
+requires an explicit Debian copyright file. The staging directory includes a
+du-release-tools manifest and executable copy, plus package and executable
+checksums.
 
 This script does not build the executable, certify notice completeness, sign,
-create provenance, generate the release inventory, publish, or install.
+create provenance, generate the public release inventory, publish, or install.
 USAGE
 }
 
@@ -280,12 +281,23 @@ tar_executable_sha256=$(tar -xOzf "$stage/$tar_name" "$tar_root/diskunfold" | \
     sha256sum | awk '{ print $1 }')
 [[ "$deb_executable_sha256" == "$binary_sha256" && "$tar_executable_sha256" == "$binary_sha256" ]] || \
     fail 'packaged executable SHA-256 does not match the built executable'
+deb_sha256=$(sha256sum -- "$stage/$deb_name" | awk '{ print $1 }')
+tar_sha256=$(sha256sum -- "$stage/$tar_name" | awk '{ print $1 }')
+[[ "$deb_sha256" =~ ^[0-9a-f]{64}$ && "$tar_sha256" =~ ^[0-9a-f]{64}$ ]] || \
+    fail 'could not compute package SHA-256 values'
+
+unpacked_executable="unpacked/linux-$cpu/diskunfold"
+install -d -m 0755 "$stage/unpacked/linux-$cpu"
+install -m 0755 "$binary" "$stage/$unpacked_executable"
+cmp -s "$stage/$unpacked_executable" "$binary" || \
+    fail 'staged executable does not match the built executable'
 
 (
     cd "$stage"
-    sha256sum -- "$deb_name" "$tar_name" > SHA256SUMS
+    printf '%s\n' "$deb_name" "$tar_name" | LC_ALL=C sort | \
+        while IFS= read -r artifact; do sha256sum -- "$artifact"; done > SHA256SUMS
 )
-cat > "$stage/EXECUTABLE-SHA256.json" <<JSON
+executable_checksum_json=$(cat <<JSON
 {
   "schema_version": 1,
   "product_name": "DiskUnfold",
@@ -304,7 +316,55 @@ cat > "$stage/EXECUTABLE-SHA256.json" <<JSON
   ]
 }
 JSON
-chmod 0644 "$stage/SHA256SUMS" "$stage/EXECUTABLE-SHA256.json"
+)
+printf '%s' "$executable_checksum_json" > "$stage/EXECUTABLE-SHA256.json"
+
+# This local staging manifest uses the exact du-release-tools input contract.
+# Its exact OS set is release policy metadata; it is not a test attestation.
+cat > "$stage/manifest.json" <<JSON
+{
+  "product_name": "DiskUnfold",
+  "version": "$version",
+  "rows": [
+    {
+      "file_name": "$deb_name",
+      "version": "$version",
+      "os": {"family": "ubuntu", "supported_versions": ["24.04", "26.04"]},
+      "cpu": "$cpu",
+      "format": "deb",
+      "channel": "direct",
+      "signature": "unsigned",
+      "signature_scope": "The Debian package is unsigned; its checksum does not authenticate the publisher.",
+      "sha256": "$deb_sha256",
+      "executable_file_name": "diskunfold",
+      "executable_sha256": "$deb_executable_sha256",
+      "run_instructions": "Install on Ubuntu with sudo apt install ./$deb_name, then launch diskunfold."
+    },
+    {
+      "file_name": "$tar_name",
+      "version": "$version",
+      "os": {"family": "ubuntu", "supported_versions": ["24.04", "26.04"]},
+      "cpu": "$cpu",
+      "format": "tar-gz",
+      "channel": "direct",
+      "signature": "unsigned",
+      "signature_scope": "The tar.gz archive is unsigned; its checksum does not authenticate the publisher.",
+      "sha256": "$tar_sha256",
+      "executable_file_name": "diskunfold",
+      "executable_sha256": "$tar_executable_sha256",
+      "run_instructions": "Extract the archive, then launch ./$tar_root/diskunfold."
+    }
+  ],
+  "channel_references": [],
+  "staged_files": [
+    {"artifact_file_name": "$deb_name", "kind": "package", "relative_path": "$deb_name"},
+    {"artifact_file_name": "$deb_name", "kind": "executable", "relative_path": "$unpacked_executable"},
+    {"artifact_file_name": "$tar_name", "kind": "package", "relative_path": "$tar_name"},
+    {"artifact_file_name": "$tar_name", "kind": "executable", "relative_path": "$unpacked_executable"}
+  ]
+}
+JSON
+chmod 0644 "$stage/SHA256SUMS" "$stage/EXECUTABLE-SHA256.json" "$stage/manifest.json"
 (
     cd "$stage"
     sha256sum -c SHA256SUMS >/dev/null
@@ -324,4 +384,5 @@ printf 'deb=%s/%s\n' "$output_root" "$deb_name"
 printf 'tar_gz=%s/%s\n' "$output_root" "$tar_name"
 printf 'sha256sums=%s/SHA256SUMS\n' "$output_root"
 printf 'executable_sha256=%s/EXECUTABLE-SHA256.json\n' "$output_root"
+printf 'manifest=%s/manifest.json\n' "$output_root"
 printf 'signature=unsigned; provenance=not-created; publication=not-performed\n'

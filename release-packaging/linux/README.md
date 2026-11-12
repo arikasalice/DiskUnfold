@@ -61,32 +61,35 @@ The .deb registers /usr/bin/diskunfold and derives Depends from the executable's
 dynamic library links. WebKitGTK remains a system package dependency. The tar.gz
 contains one top-level folder with exactly diskunfold, LICENSE, and
 THIRD-PARTY-NOTICES.txt. It includes no WebKitGTK, GTK, GLib, or other system
-libraries. Both formats are unsigned by this script. SHA256SUMS and
-EXECUTABLE-SHA256.json contain digests of the packages and packaged executables;
-they do not authenticate a publisher or establish build provenance.
+libraries. Both formats are unsigned by this script. `SHA256SUMS` covers the
+package files and `EXECUTABLE-SHA256.json` covers the package executables; these
+digests do not authenticate a publisher or establish build provenance.
 
-## Release inventory limitation
+## Release inventory staging
 
-This script does not emit manifest.json or a full distribution table. The
-current du-release-tools input models OS support as one inclusive minimum and
-maximum range. It cannot represent the exact supported Ubuntu set
-{24.04, 26.04} without implying support for intermediate Ubuntu releases.
-A release-tools change should add an `exact_versions` list to the OS descriptor
-and make `minimum` and `maximum` optional while preserving their current meaning
-for existing manifests. The discrete form should look like
-`{"family":"ubuntu","exact_versions":["24.04","26.04"]}`. Validation
-should accept exactly one of these forms:
-(1) `minimum` with an optional `maximum` and no `exact_versions`, or (2) a
-nonempty, duplicate-free `exact_versions` list with neither range bound.
-Canonical output should sort exact versions by the existing numeric OS version
-comparator and render each listed release explicitly; it must not expand an
-exact list into a range. Tests should prove that `{24.04, 26.04}` does not
-claim 25.04 and should reject empty, duplicate, or mixed forms. This requires a
-coordinated `release-tools` schema, validation, renderer, and CLI test change;
-this Linux packaging change does not alter that shared contract.
-Until that contract exists, the release workflow must use the official support
-table for exact verification states and must not infer those states from these
-package artifacts.
+The output directory contains `manifest.json`, the local input to
+`du-release-tools`, and `unpacked/linux-<cpu>/diskunfold`, the executable staged
+for digest verification. The manifest has one row for each package format and
+declares Ubuntu's exact supported set as
+`{"family":"ubuntu","supported_versions":["24.04","26.04"]}`. The
+manifest records declared support policy; it is not evidence that both OS
+versions or either CPU was tested. The package builder separately inspects both
+package payloads and checks that their executable bytes match the built binary.
+
+Generate the canonical distribution table and checksum files from the staging
+manifest with the actual release-tools CLI:
+
+    cargo run --locked -p du-release-tools --bin build-release-inventory -- \
+      /path/to/linux-release/manifest.json \
+      /path/to/linux-release \
+      /path/to/new-release-inventory
+
+The CLI rehashes each staged package and executable, then writes
+`release-inventory.json`, `DISTRIBUTION.md`, `SHA256SUMS`, and
+`EXECUTABLE-SHA256.json`. Package membership, notice completeness, Debian
+copyright completeness, signatures, provenance, and publication remain separate
+release checks. Do not use the explicitly labelled test notice or copyright
+fixtures for a release.
 
 This packaging step does not create signatures, SLSA provenance, SBOMs, a
 release-wide inventory, or a publication. The F15 release workflow still owns
@@ -101,18 +104,22 @@ After building the native launcher, run:
 
 The test uses an explicitly labelled, incomplete notice fixture and is never
 suitable for publication. It validates the deb and tar.gz contents, metadata,
-checksums, collision behavior (including a path created immediately before the
-final rename), symlink rejection, CPU matching, and preservation of existing
-output data. The GUI launch smoke check remains
+checksums, runs the actual `du-release-tools` CLI against the generated staging
+manifest, and checks exact Ubuntu version and format ordering. It also checks
+collision behavior (including a path created immediately before the final
+rename), symlink rejection, CPU matching, and preservation of existing output
+data. The GUI launch smoke check remains
 release-packaging/launcher/smoke-linux.sh; run it on the native Ubuntu runner
 with its Xvfb, Openbox, xdotool, and D-Bus prerequisites.
 
 ## Validation performed for this change
 
-The native x64 GUI launcher built on Ubuntu 24.04 amd64 in a disposable Linux
-container. The package integration checks and a `.deb` install/CLI/uninstall
-cycle passed there. The existing Xvfb GUI smoke check passed with the WebKit
-sandbox disabled only for that container run because its namespace restriction
-prevented `bwrap` from starting; this does not verify a real desktop session.
-Ubuntu 26.04, ARM64, a real desktop session, production notice completeness,
-and official support-table verification remain unverified.
+The native x64 GUI launcher and package integration passed in a disposable
+Ubuntu 24.04 amd64 container, including manifest generation and validation by
+the `du-release-tools` CLI. The package test uses incomplete notice and Debian
+copyright fixtures, so production completeness remains unverified. Earlier
+container verification also passed a `.deb` install/CLI/uninstall cycle and the
+Xvfb GUI smoke check with WebKit sandboxing disabled because the container's
+namespace restriction prevented `bwrap` from starting; this does not verify a
+real desktop session. Ubuntu 26.04, ARM64, a real desktop session, and official
+support-table verification remain unverified.
