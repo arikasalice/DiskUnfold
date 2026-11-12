@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { flushSync } from "react-dom";
 import type { Ref } from "react";
 import { Action, Heading, Text } from "../../components";
 import { AnalysisError } from "../../ipc";
@@ -512,8 +513,11 @@ export function AnalysisPanel({
       return;
     const { input, review } = reviewedScope;
     scanBlocksDrop.current = true;
-    setWorking(true);
-    setError(undefined);
+    // Commit pending DOM feedback before crossing the IPC boundary.
+    flushSync(() => {
+      setWorking(true);
+      setError(undefined);
+    });
     try {
       const result = await client.call("scan.start", {
         draft: input,

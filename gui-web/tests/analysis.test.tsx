@@ -1727,6 +1727,103 @@ test("F02: starting progress hands off to the scan receipt and its cancel action
   ).toBeNull();
 });
 
+test("F02 NFR4.HD1.gui-web.DD1: commits pending feedback before scan.start and retains the pinned result", async () => {
+  let starts = 0;
+  let releaseSecondStart = () => {};
+  let atTransportBoundary:
+    | {
+        startingFeedback: boolean;
+        pinnedTotal: boolean;
+        pinnedVersion: boolean;
+        totalReads: number;
+      }
+    | undefined;
+  const delayedSecondStart = new Promise<void>((resolve) => {
+    releaseSecondStart = resolve;
+  });
+  const { client, calls } = fixture({
+    beforeStart: async () => {
+      starts += 1;
+      if (starts !== 2) return;
+      atTransportBoundary = {
+        startingFeedback:
+          screen.queryByRole("progressbar", { name: "Starting scan" }) !== null,
+        pinnedTotal: screen.queryByText("At least 42 bytes") !== null,
+        pinnedVersion:
+          screen.queryByText("Result version: Final with scan gaps") !== null,
+        totalReads: calls.filter(({ name }) => name === "space.total").length,
+      };
+      await delayedSecondStart;
+    },
+  });
+
+  await startFixtureScan(client);
+  await screen.findByText("Result version: Final with scan gaps");
+  const pinnedTotal = screen.getByText("At least 42 bytes");
+  const totalReadsBeforeReanalysis = calls.filter(
+    ({ name }) => name === "space.total",
+  ).length;
+  fireEvent.click(screen.getByRole("button", { name: "Analyze again" }));
+  const start = screen.getByRole<HTMLButtonElement>("button", {
+    name: "Start scan",
+  });
+  await waitFor(() => expect(start.disabled).toBe(false));
+
+  fireEvent.click(start);
+  const observedBoundary = atTransportBoundary;
+  fireEvent.click(start);
+  const pendingFeedback = screen.queryByRole("progressbar", {
+    name: "Starting scan",
+  });
+  const pinnedTotalWhileWaiting = screen.queryByText("At least 42 bytes");
+  const pinnedVersionWhileWaiting = screen.queryByText(
+    "Result version: Final with scan gaps",
+  );
+  const totalReadsWhileWaiting = calls.filter(
+    ({ name }) => name === "space.total",
+  ).length;
+  releaseSecondStart();
+  await waitFor(() =>
+    expect(
+      screen.queryByRole("progressbar", { name: "Starting scan" }),
+    ).toBeNull(),
+  );
+
+  expect(observedBoundary).toMatchObject({
+    startingFeedback: true,
+    pinnedTotal: true,
+    pinnedVersion: true,
+    totalReads: totalReadsBeforeReanalysis,
+  });
+  expect(pendingFeedback).not.toBeNull();
+  expect(pinnedTotalWhileWaiting).toBe(pinnedTotal);
+  expect(pinnedVersionWhileWaiting).not.toBeNull();
+  expect(totalReadsWhileWaiting).toBe(totalReadsBeforeReanalysis);
+  expect(
+    screen.getByText("Result version: Final with scan gaps"),
+  ).toBeDefined();
+  const startsAtTransport = calls.filter(({ name }) => name === "scan.start");
+  expect(startsAtTransport).toHaveLength(2);
+  expect(startsAtTransport[1]?.body).toEqual(startsAtTransport[0]?.body);
+});
+
+test("F02 NFR4.HD1.gui-web.DD1: repeated immediate activation starts one scan", async () => {
+  const { client, calls } = fixture();
+  render(<App analysis={client} />);
+  fireEvent.click(await screen.findByRole("radio", { name: path.display }));
+  fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
+  const start = screen.getByRole<HTMLButtonElement>("button", {
+    name: "Start scan",
+  });
+  await waitFor(() => expect(start.disabled).toBe(false));
+
+  fireEvent.click(start);
+  fireEvent.click(start);
+
+  expect(calls.filter(({ name }) => name === "scan.start")).toHaveLength(1);
+  expect(await screen.findByText("At least 42 bytes")).toBeDefined();
+});
+
 test("F03: browse precedes result evidence and returning restores focus", async () => {
   const { client, calls } = fixture();
   await startFixtureScan(client);
