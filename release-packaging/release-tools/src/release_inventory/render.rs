@@ -91,7 +91,10 @@ pub fn render_checksums(verified: &[VerifiedFile]) -> String {
     output
 }
 
-/// Renders executable digests keyed by the package that contains each executable.
+/// Renders executable digests keyed by the package associated with each staged executable.
+///
+/// The package association comes from the manifest; this renderer does not verify package
+/// membership.
 pub fn render_executable_checksums(
     inventory: &ReleaseInventory,
 ) -> Result<String, serde_json::Error> {
