@@ -20,7 +20,7 @@ fn parse(source: &str) -> Result<Declarations, RegistrationError> {
         let Some(key) = tokens.next() else { continue };
         if !key
             .bytes()
-            .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || matches!(ch, b'_' | b'.'))
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, b'_' | b'.'))
             || output
                 .insert(key.to_owned(), parameter_row(tokens)?)
                 .is_some()
@@ -29,6 +29,19 @@ fn parse(source: &str) -> Result<Declarations, RegistrationError> {
         }
     }
     Ok(output)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn accepts_case_sensitive_message_keys() -> Result<(), RegistrationError> {
+        let manifest = parse("ui.visualization.viewMembersOf name:name")?;
+        assert!(manifest.contains_key("ui.visualization.viewMembersOf"));
+        assert!(!manifest.contains_key("ui.visualization.viewmembersof"));
+        Ok(())
+    }
 }
 
 fn parameter_row<'a>(
