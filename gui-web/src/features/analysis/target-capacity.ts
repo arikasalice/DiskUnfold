@@ -1,21 +1,71 @@
 import { formatByteUnit } from "../../i18n/bytes";
+import { interpolate } from "../../i18n/presentation";
+import type { LocaleText } from "../../i18n/presentation";
 import { SIZE_UNIT_RULES } from "../../ipc";
 import type { TargetProbeEvent } from "../../ipc";
 import { formatBytes } from "./space-format";
 
-const capacityReasons = new Map([
-  ["os.unsupported", "Capacity reporting is unavailable for this target."],
-  ["os.query_failed", "The capacity check failed."],
-  ["os.call_slow", "The capacity check did not finish in time."],
-  ["scan.path_denied", "Access to this target was denied."],
-  ["scan.path_vanished", "The path was no longer available."],
-  ["scan.disconnected", "The target was disconnected."],
-  ["path.unresolvable", "The path could not be resolved."],
-  ["job.cancelled", "The capacity check was cancelled."],
+type CapacityMessage = readonly [key: string, fallback: string];
+const fallbackText: LocaleText = (key, fallback, values) =>
+  interpolate(fallback || key, (name) => String(values?.[name] ?? "Unknown"));
+const capacityReasons = new Map<string, CapacityMessage>([
+  [
+    "os.unsupported",
+    [
+      "ui.analysis.capacity_unsupported",
+      "Capacity reporting is unavailable for this target.",
+    ],
+  ],
+  [
+    "os.query_failed",
+    ["ui.analysis.capacity_failed", "The capacity check failed."],
+  ],
+  [
+    "os.call_slow",
+    [
+      "ui.analysis.capacity_timed_out",
+      "The capacity check did not finish in time.",
+    ],
+  ],
+  [
+    "scan.path_denied",
+    ["ui.analysis.capacity_access_denied", "Access to this target was denied."],
+  ],
+  [
+    "scan.path_vanished",
+    ["ui.analysis.capacity_path_missing", "The path was no longer available."],
+  ],
+  [
+    "scan.disconnected",
+    ["ui.analysis.capacity_disconnected", "The target was disconnected."],
+  ],
+  [
+    "path.unresolvable",
+    ["ui.analysis.capacity_unresolvable", "The path could not be resolved."],
+  ],
+  [
+    "job.cancelled",
+    ["ui.analysis.capacity_cancelled", "The capacity check was cancelled."],
+  ],
 ]);
 
-function capacityValue(bytes: string | null): string {
-  return bytes === null ? "Could not verify" : formatBytes(bytes);
+function capacityValue(bytes: string | null, text: LocaleText): string {
+  return bytes === null
+    ? text("ui.analysis.capacity_could_not_verify", "Could not verify")
+    : formatBytes(bytes);
+}
+
+function capacityReason(
+  reasonKey: string | null | undefined,
+  text: LocaleText,
+) {
+  const message = capacityReasons.get(reasonKey ?? "");
+  return message
+    ? text(message[0], message[1])
+    : text(
+        "ui.analysis.capacity_no_explanation",
+        "No explanation is available for the unverified capacity.",
+      );
 }
 
 function summaryValue(bytes: string): string {
@@ -44,6 +94,7 @@ function availablePercent(
 export function describeTargetCapacity(
   observation: TargetProbeEvent | undefined,
   checking: boolean,
+  text: LocaleText = fallbackText,
 ): {
   summary: string;
   evidence: string;
@@ -51,38 +102,66 @@ export function describeTargetCapacity(
 } {
   if (!observation && checking)
     return {
-      summary: "Checking drive capacity…",
-      evidence: "Checking capacity…",
+      summary: text(
+        "ui.analysis.capacity_checking_drive",
+        "Checking drive capacity…",
+      ),
+      evidence: text("ui.analysis.capacity_checking", "Checking capacity…"),
     };
   const total = observation?.totalBytes ?? null;
   const available = observation?.availableBytes ?? null;
   const summary =
     total === null && available === null
-      ? "Capacity unavailable"
+      ? text("ui.analysis.capacity_unavailable", "Capacity unavailable")
       : [
           available === null
-            ? "Available unverified"
-            : "Available " + summaryValue(available),
-          total === null ? "Total unverified" : "Total " + summaryValue(total),
+            ? text(
+                "ui.analysis.capacity_available_unverified",
+                "Available unverified",
+              )
+            : text("ui.analysis.capacity_available", "Available {value}", {
+                value: summaryValue(available),
+              }),
+          total === null
+            ? text("ui.analysis.capacity_total_unverified", "Total unverified")
+            : text("ui.analysis.capacity_total", "Total {value}", {
+                value: summaryValue(total),
+              }),
         ].join(" · ");
   const parts = [
-    `Total: ${capacityValue(total)}`,
-    `Available: ${capacityValue(available)}`,
+    text("ui.analysis.capacity_total_detail", "Total: {value}", {
+      value: capacityValue(total, text),
+    }),
+    text("ui.analysis.capacity_available_detail", "Available: {value}", {
+      value: capacityValue(available, text),
+    }),
   ];
   if (!observation)
     return {
       summary,
-      evidence: [...parts, "No capacity check was reported."].join(" · "),
+      evidence: [
+        ...parts,
+        text(
+          "ui.analysis.capacity_not_reported",
+          "No capacity check was reported.",
+        ),
+      ].join(" · "),
     };
 
   if (total === null || available === null)
-    parts.push(
-      capacityReasons.get(observation.capacityReason ?? "") ??
-        "No explanation is available for the unverified capacity.",
-    );
+    parts.push(capacityReason(observation.capacityReason, text));
   if (observation.aggregationUncertain)
-    parts.push("Combined capacity unverified. Paths may share a volume.");
-  parts.push(`Checked: ${observation.observedAt}`);
+    parts.push(
+      text(
+        "ui.analysis.capacity_combined_unverified",
+        "Combined capacity unverified. Paths may share a volume.",
+      ),
+    );
+  parts.push(
+    text("ui.analysis.capacity_checked", "Checked: {time}", {
+      time: observation.observedAt,
+    }),
+  );
   return {
     summary,
     evidence: parts.join(" · "),

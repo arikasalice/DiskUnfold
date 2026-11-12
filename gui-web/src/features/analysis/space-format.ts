@@ -73,15 +73,48 @@ export function displayMeasurementLimit(key: string): string {
 export function displayMeasurement(
   value: SizeValue,
   completeness: SpaceTotal["completeness"],
+  text?: LocaleText,
 ): string {
-  return [measurementLabels[completeness], evidenceLabels[value.evidence]]
+  return [
+    text?.(
+      `ui.analysis.measurement_${completeness}`,
+      measurementLabels[completeness],
+    ) ?? measurementLabels[completeness],
+    displayEvidence(value.evidence, text),
+  ]
     .filter(Boolean)
     .join(" · ");
 }
 
+/** Localizes a measurement source while retaining undefined for unknown evidence. */
+export function displayEvidence(
+  evidence: SizeValue["evidence"],
+  text?: LocaleText,
+): string | undefined {
+  if (evidence === "unknown") return undefined;
+  const key =
+    evidence === "measured"
+      ? "ui.analysis.evidence_measured"
+      : evidence === "os_reported"
+        ? "ui.analysis.evidence_reported"
+        : "ui.analysis.evidence_estimated";
+  return (
+    text?.(key, evidenceLabels[evidence] ?? "Unavailable") ??
+    evidenceLabels[evidence]
+  );
+}
+
 /** Formats exact wire bytes without converting them to a floating-point number. */
-export function formatBytes(bytes: string, regional?: RegionalFormat): string {
-  return `${displayInteger(BigInt(bytes), regional)} ${regional?.byteUnitText ?? "bytes"}`;
+export function formatBytes(
+  bytes: string,
+  regional?: RegionalFormat,
+  text?: LocaleText,
+): string {
+  const byteUnit =
+    regional?.byteUnitText ??
+    text?.("ui.analysis.bytes_unit", "bytes") ??
+    "bytes";
+  return `${displayInteger(BigInt(bytes), regional)} ${byteUnit}`;
 }
 
 /** Retains the lower-bound qualifier when showing original bytes. */
@@ -91,7 +124,7 @@ export function displayRawSize(
   text?: LocaleText,
 ): string | undefined {
   if (size.state === "unknown") return undefined;
-  const rawBytes = formatBytes(size.bytes, regional);
+  const rawBytes = formatBytes(size.bytes, regional, text);
   return size.state === "lower_bound"
     ? lowerBoundLabel(rawBytes, text)
     : rawBytes;
@@ -148,7 +181,8 @@ export function displaySizeParts(
 export function displaySizeWithBytes(
   size: SizeValue,
   display: SizeDisplay,
+  text?: LocaleText,
 ): string {
-  const { formatted, raw } = displaySizeParts(size, display);
+  const { formatted, raw } = displaySizeParts(size, display, text);
   return raw ? `${formatted} · ${raw}` : formatted;
 }

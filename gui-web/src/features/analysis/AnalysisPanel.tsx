@@ -10,6 +10,7 @@ import { flushSync } from "react-dom";
 import type { Ref } from "react";
 import { Action, Heading, Text } from "../../components";
 import { useLocaleText } from "../../i18n/presentation";
+import type { LocaleText } from "../../i18n/presentation";
 import { AnalysisError } from "../../ipc";
 import type {
   AnalysisClient,
@@ -33,37 +34,57 @@ import type { SizeDisplay } from "../../i18n/bytes";
 import type { SizeBasisFilter } from "./space-format";
 import type { AnalysisDisplayPreferences } from "./use-display-preferences";
 
-function errorText(error: unknown): string {
+function errorText(error: unknown, text: LocaleText): string {
   if (error instanceof AnalysisError && error.code === "STALE_VERSION") {
-    return "The target or result changed. Review the scope again.";
+    return text(
+      "ui.analysis.target_or_result_changed",
+      "The target or result changed. Review the scope again.",
+    );
   }
-  return error instanceof Error ? error.message : "The operation failed";
+  return error instanceof Error
+    ? error.message
+    : text("ui.analysis.operation_failed", "The operation failed");
 }
 
-function reviewErrorText(error: unknown): string {
+function reviewErrorText(error: unknown, text: LocaleText): string {
   if (error instanceof AnalysisError) {
     switch (error.reasonKey) {
       case "scope.target_unavailable":
-        return "Check that every selected path is an accessible local folder, then review the scope again.";
+        return text(
+          "ui.analysis.review_accessible_paths",
+          "Check that every selected path is an accessible local folder, then review the scope again.",
+        );
       case "path.unresolvable":
-        return "Enter a valid local folder path, then review the scope again.";
+        return text(
+          "ui.analysis.review_valid_path",
+          "Enter a valid local folder path, then review the scope again.",
+        );
     }
   }
-  return errorText(error);
+  return errorText(error, text);
 }
 
-function rejectedReviewText(review: ScopeReview): string {
+function rejectedReviewText(review: ScopeReview, text: LocaleText): string {
   const reason = review.targets.find(
     (target) => target.access !== "accessible" && target.reasonKey,
   )?.reasonKey;
   if (reason === "path.unresolvable")
-    return "Enter a valid local folder path, then review the scope again.";
+    return text(
+      "ui.analysis.review_valid_path",
+      "Enter a valid local folder path, then review the scope again.",
+    );
   if (reason === "scope.target_unavailable")
-    return "Check that every selected path is an accessible local folder, then review the scope again.";
-  if (reason) return scopeNoticeText(reason);
+    return text(
+      "ui.analysis.review_accessible_paths",
+      "Check that every selected path is an accessible local folder, then review the scope again.",
+    );
+  if (reason) return scopeNoticeText(reason, text);
   if (review.targets.some((target) => target.access === "denied"))
-    return scopeNoticeText("scan.path_denied");
-  return "One or more selected paths could not be verified. Review all paths before starting.";
+    return scopeNoticeText("scan.path_denied", text);
+  return text(
+    "ui.analysis.review_unverified_paths",
+    "One or more selected paths could not be verified. Review all paths before starting.",
+  );
 }
 
 function draft(paths: OsPath[], saved?: ScopeDraft): ScopeDraft {
@@ -343,7 +364,10 @@ export function AnalysisPanel({
     if (!restoredIsCurrent) return;
     setReviewedScope(undefined);
     setReviewProblem(
-      "Choose a path or reopen the saved range before scanning.",
+      text(
+        "ui.analysis.choose_path_or_reopen",
+        "Choose a path or reopen the saved range before scanning.",
+      ),
     );
   }
 
@@ -371,20 +395,29 @@ export function AnalysisPanel({
           setReviewedScope(undefined);
           choose(drop.path);
           setDropMessage({
-            text: "Folder selected. Review scope.",
+            text: text(
+              "ui.analysis.folder_selected_review",
+              "Folder selected. Review scope.",
+            ),
             tone: "info",
           });
         } else {
           setDropMessage({
             text:
               drop.reason === "invalid_target"
-                ? "Drop one accessible local folder. No path was changed."
-                : "Folder drop is unavailable. Enter its path instead. No path was changed.",
+                ? text(
+                    "ui.analysis.drop_invalid_folder",
+                    "Drop one accessible local folder. No path was changed.",
+                  )
+                : text(
+                    "ui.analysis.drop_unavailable_path",
+                    "Folder drop is unavailable. Enter its path instead. No path was changed.",
+                  ),
             tone: "error",
           });
         }
       }),
-    [client, choose],
+    [client, choose, text],
   );
 
   async function reviewScope(automatic = false) {
@@ -432,21 +465,27 @@ export function AnalysisPanel({
           setReviewProblem(undefined);
         } else {
           setRejectedRevision(submittedRevision);
-          setReviewProblem(rejectedReviewText(response));
+          setReviewProblem(rejectedReviewText(response, text));
           suppressAutomaticRetry(automatic, failedAutoDraft, submittedDraft);
         }
       } else if (request.current === requestSeq) {
         setRejectedRevision(submittedRevision);
         setReviewProblem(
-          "The scope review response did not match this request. Review again.",
+          text(
+            "ui.analysis.review_response_mismatch",
+            "The scope review response did not match this request. Review again.",
+          ),
         );
         suppressAutomaticRetry(automatic, failedAutoDraft, submittedDraft);
       }
     } catch (failure) {
       if (request.current === requestSeq) {
         const message = reviewedScope
-          ? "Review failed. The last successful review remains available; the current paths were not accepted."
-          : reviewErrorText(failure);
+          ? text(
+              "ui.analysis.review_failed_keep_last",
+              "Review failed. The last successful review remains available; the current paths were not accepted.",
+            )
+          : reviewErrorText(failure, text);
         setReviewProblem(message);
         if (failure instanceof AnalysisError)
           setRejectedRevision(submittedRevision);
@@ -541,11 +580,14 @@ export function AnalysisPanel({
         setReviewedScope(undefined);
         if (restoredIsCurrent) {
           setReviewProblem(
-            "Reopen the saved range or select its paths again before scanning.",
+            text(
+              "ui.analysis.reopen_saved_or_select",
+              "Reopen the saved range or select its paths again before scanning.",
+            ),
           );
         }
       }
-      setError(errorText(failure));
+      setError(errorText(failure, text));
     } finally {
       setWorking(false);
     }
@@ -677,7 +719,9 @@ export function AnalysisPanel({
           >
             {resultActive && (
               <header className="du-target-editor__header">
-                <Heading level={3}>Scan targets</Heading>
+                <Heading level={3}>
+                  {text("ui.analysis.scan_targets", "Scan targets")}
+                </Heading>
                 {receipt !== null && (
                   <Action
                     variant="quiet"
@@ -690,7 +734,10 @@ export function AnalysisPanel({
                       setEditorOpen(false);
                     }}
                   >
-                    Close target editor
+                    {text(
+                      "ui.analysis.close_target_editor",
+                      "Close target editor",
+                    )}
                   </Action>
                 )}
               </header>
@@ -701,7 +748,10 @@ export function AnalysisPanel({
         {resultActive && (
           <section
             className="du-analysis__result"
-            aria-label="Scan and results"
+            aria-label={text(
+              "ui.analysis.scan_and_results",
+              "Scan and results",
+            )}
           >
             <ScanOutput
               client={client}

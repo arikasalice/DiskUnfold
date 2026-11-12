@@ -7,51 +7,113 @@ import {
   SelectField,
   Text,
 } from "../../components";
+import { useLocaleText } from "../../i18n/presentation";
 import type { AnalysisClient, ScanFailureKind } from "../../ipc";
 import { useScanFailures } from "../../state/scan-failures";
 
 const filters = [
-  { value: "all", label: "All issues" },
-  { value: "collection_failed", label: "Collection failures" },
-  { value: "unread_range", label: "Unread ranges" },
-  { value: "uncertain", label: "Uncertain entries" },
-  { value: "untraversed_link", label: "Untraversed links" },
+  { value: "all", key: "ui.analysis.issues_all", fallback: "All issues" },
+  {
+    value: "collection_failed",
+    key: "ui.analysis.issues_collection_failures",
+    fallback: "Collection failures",
+  },
+  {
+    value: "unread_range",
+    key: "ui.analysis.issues_unread_ranges",
+    fallback: "Unread ranges",
+  },
+  {
+    value: "uncertain",
+    key: "ui.analysis.issues_uncertain_entries",
+    fallback: "Uncertain entries",
+  },
+  {
+    value: "untraversed_link",
+    key: "ui.analysis.issues_untraversed_links",
+    fallback: "Untraversed links",
+  },
 ] as const;
-const stages = new Map([
-  ["metadata", "Metadata"],
-  ["open_directory", "Opening a folder"],
-  ["enumerate", "Listing a folder"],
-  ["traverse", "Link traversal"],
+const kinds = new Map<string, readonly [key: string, fallback: string]>(
+  filters.map(({ value, key, fallback }) => [value, [key, fallback]]),
+);
+const stages = new Map<string, readonly [key: string, fallback: string]>([
+  ["metadata", ["ui.analysis.issue_stage_metadata", "Metadata"]],
+  [
+    "open_directory",
+    ["ui.analysis.issue_stage_open_directory", "Opening a folder"],
+  ],
+  ["enumerate", ["ui.analysis.issue_stage_enumerate", "Listing a folder"]],
+  ["traverse", ["ui.analysis.issue_stage_traverse", "Link traversal"]],
 ]);
-const reasons = new Map([
-  ["scan.path_denied", "Access denied"],
-  ["scan.path_vanished", "The item was no longer available"],
-  ["scan.unclassified", "The item could not be verified"],
-  ["scan.link_untraversed", "The link target was skipped"],
+const reasons = new Map<string, readonly [key: string, fallback: string]>([
+  [
+    "scan.path_denied",
+    ["ui.analysis.issue_reason_access_denied", "Access denied"],
+  ],
+  [
+    "scan.path_vanished",
+    [
+      "ui.analysis.issue_reason_path_missing",
+      "The item was no longer available",
+    ],
+  ],
+  [
+    "scan.unclassified",
+    ["ui.analysis.issue_reason_unverified", "The item could not be verified"],
+  ],
+  [
+    "scan.link_untraversed",
+    ["ui.analysis.issue_reason_link_skipped", "The link target was skipped"],
+  ],
 ]);
 
 type IssueFilter = (typeof filters)[number]["value"];
 type IssueSource = { client: AnalysisClient; resultVersion: string };
 
+function mappedLabel(
+  entries: ReadonlyMap<string, readonly [key: string, fallback: string]>,
+  code: string,
+  unknownKey: string,
+  unknownFallback: string,
+  text: ReturnType<typeof useLocaleText>,
+) {
+  const message = entries.get(code);
+  return message
+    ? text(message[0], message[1])
+    : text(unknownKey, unknownFallback);
+}
+
 /** Exposes issues for the displayed result without changing the analysis scope. */
 export function ScanIssues({ client, resultVersion }: IssueSource) {
+  const text = useLocaleText();
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState<IssueFilter>("all");
   return (
-    <section className="du-results" aria-label="Scan issues">
+    <section
+      className="du-results"
+      aria-label={text("ui.analysis.issues_region", "Scan issues")}
+    >
       <Action onPress={() => setOpen((value) => !value)}>
-        {open ? "Hide scan issues" : "View scan issues"}
+        {open
+          ? text("ui.analysis.issues_hide", "Hide scan issues")
+          : text("ui.analysis.issues_view", "View scan issues")}
       </Action>
       {open && (
         <>
           <Text kind="muted">
-            These entries explain where the scan could not collect or verify
-            information.
+            {text(
+              "ui.analysis.issues_explanation",
+              "These entries explain where the scan could not collect or verify information.",
+            )}
           </Text>
           <SelectField
-            label="Issue type"
+            label={text("ui.analysis.issue_type", "Issue type")}
             value={filter}
-            options={filters}
+            options={filters.map(({ value, key, fallback }) => ({
+              value,
+              label: text(key, fallback),
+            }))}
             onChange={setFilter}
           />
           <IssuePages
@@ -71,6 +133,7 @@ function IssuePages({
   resultVersion,
   kind,
 }: IssueSource & { kind: ScanFailureKind | undefined }) {
+  const text = useLocaleText();
   const { page, pending, error, readMore } = useScanFailures(
     client,
     resultVersion,
@@ -78,31 +141,69 @@ function IssuePages({
   );
   return (
     <>
-      {pending && <Progress label="Reading scan issues" />}
+      {pending && (
+        <Progress
+          label={text("ui.analysis.issues_reading", "Reading scan issues")}
+        />
+      )}
       {error && <Notice tone="error">{error}</Notice>}
       {page && (
         <Text kind="muted">
-          Showing {page.rows.length} of {page.totalCount} issues
+          {text(
+            "ui.analysis.issues_count",
+            "Showing {shown} of {total} issues",
+            { shown: BigInt(page.rows.length), total: BigInt(page.totalCount) },
+          )}
         </Text>
       )}
       {page?.totalCount === 0 && (
-        <Text>No scan issues were recorded for this filter.</Text>
+        <Text>
+          {text(
+            "ui.analysis.issues_none",
+            "No scan issues were recorded for this filter.",
+          )}
+        </Text>
       )}
       {page && (
         <Readout
-          label="Scan issue entries"
+          label={text("ui.analysis.issue_entries", "Scan issue entries")}
           rows={page.rows.map((row, index) => ({
-            label: `Issue ${index + 1}`,
+            label: text("ui.analysis.issue_number", "Issue {number}", {
+              number: BigInt(index + 1),
+            }),
             value: (
               <>
-                <Text kind="path">{row.displayPath ?? "Path unavailable"}</Text>
+                <Text kind="path">
+                  {row.displayPath ??
+                    text(
+                      "ui.analysis.issue_path_unavailable",
+                      "Path unavailable",
+                    )}
+                </Text>
                 <Text>
-                  {filters.find(({ value }) => value === row.kind)?.label ??
-                    "Unknown issue"}
+                  {mappedLabel(
+                    kinds,
+                    row.kind,
+                    "ui.analysis.issue_unknown_kind",
+                    "Unknown issue",
+                    text,
+                  )}
                   {" · "}
-                  {stages.get(row.stage) ?? "Unknown stage"}
+                  {mappedLabel(
+                    stages,
+                    row.stage,
+                    "ui.analysis.issue_unknown_stage",
+                    "Unknown stage",
+                    text,
+                  )}
                   {" · "}
-                  {reasons.get(row.reasonKey) ?? "Unknown reason"}
+                  {mappedLabel(
+                    reasons,
+                    row.reasonKey,
+                    "ui.analysis.issue_unknown_reason",
+                    "Unknown reason",
+                    text,
+                  )}
                 </Text>
                 {row.observedAt && <Text kind="muted">{row.observedAt}</Text>}
               </>
@@ -112,7 +213,9 @@ function IssuePages({
       )}
       {(page?.nextCursor || error) && (
         <Action isDisabled={pending} onPress={readMore}>
-          {error ? "Retry scan issues" : "Load more issues"}
+          {error
+            ? text("ui.analysis.issues_retry", "Retry scan issues")
+            : text("ui.analysis.issues_load_more", "Load more issues")}
         </Action>
       )}
     </>

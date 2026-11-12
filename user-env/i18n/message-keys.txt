@@ -592,3 +592,139 @@ ui.visualization.viewMembers
 ui.visualization.viewMembersOf name:name
 ui.visualization.waterfall
 ui.visualization.working
+ui.analysis.target_or_result_changed
+ui.analysis.operation_failed
+ui.analysis.review_accessible_paths
+ui.analysis.review_valid_path
+ui.analysis.review_unverified_paths
+ui.analysis.choose_path_or_reopen
+ui.analysis.folder_selected_review
+ui.analysis.drop_invalid_folder
+ui.analysis.drop_unavailable_path
+ui.analysis.review_response_mismatch
+ui.analysis.review_failed_keep_last
+ui.analysis.reopen_saved_or_select
+ui.analysis.scan_targets
+ui.analysis.close_target_editor
+ui.analysis.scan_and_results
+ui.analysis.drives_unsupported
+ui.analysis.drives_slow
+ui.analysis.choose_target_label
+ui.analysis.target_internal
+ui.analysis.target_external
+ui.analysis.target_network_mount
+ui.analysis.target_folder_mount
+ui.analysis.target_type_unavailable
+ui.analysis.target_access_checking
+ui.analysis.target_access_accessible
+ui.analysis.target_access_denied
+ui.analysis.target_access_disconnected
+ui.analysis.target_access_missing
+ui.analysis.target_access_unresponsive
+ui.analysis.target_access_unknown
+ui.analysis.drives_empty
+ui.analysis.capacity_unsupported
+ui.analysis.capacity_failed
+ui.analysis.capacity_timed_out
+ui.analysis.capacity_access_denied
+ui.analysis.capacity_path_missing
+ui.analysis.capacity_disconnected
+ui.analysis.capacity_unresolvable
+ui.analysis.capacity_cancelled
+ui.analysis.capacity_could_not_verify
+ui.analysis.capacity_no_explanation
+ui.analysis.capacity_checking_drive
+ui.analysis.capacity_checking
+ui.analysis.capacity_unavailable
+ui.analysis.capacity_available_unverified
+ui.analysis.capacity_available value:name
+ui.analysis.capacity_total_unverified
+ui.analysis.capacity_total value:name
+ui.analysis.capacity_total_detail value:name
+ui.analysis.capacity_available_detail value:name
+ui.analysis.capacity_not_reported
+ui.analysis.capacity_combined_unverified
+ui.analysis.capacity_checked time:timestamp
+ui.analysis.issues_all
+ui.analysis.issues_collection_failures
+ui.analysis.issues_unread_ranges
+ui.analysis.issues_uncertain_entries
+ui.analysis.issues_untraversed_links
+ui.analysis.issue_stage_metadata
+ui.analysis.issue_stage_open_directory
+ui.analysis.issue_stage_enumerate
+ui.analysis.issue_stage_traverse
+ui.analysis.issue_reason_access_denied
+ui.analysis.issue_reason_path_missing
+ui.analysis.issue_reason_unverified
+ui.analysis.issue_reason_link_skipped
+ui.analysis.issues_region
+ui.analysis.issues_hide
+ui.analysis.issues_view
+ui.analysis.issues_explanation
+ui.analysis.issue_type
+ui.analysis.issues_reading
+ui.analysis.issues_count shown:count total:count
+ui.analysis.issues_none
+ui.analysis.issue_entries
+ui.analysis.issue_number number:count
+ui.analysis.issue_path_unavailable
+ui.analysis.issue_unknown_kind
+ui.analysis.issue_unknown_stage
+ui.analysis.issue_unknown_reason
+ui.analysis.issues_retry
+ui.analysis.issues_load_more
+ui.analysis.volume_factor_out_of_scope
+ui.analysis.volume_factor_excluded
+ui.analysis.volume_factor_inaccessible
+ui.analysis.volume_factor_dedup
+ui.analysis.volume_factor_auxiliary
+ui.analysis.volume_factor_fs_metadata
+ui.analysis.volume_factor_os_category
+ui.analysis.volume_factor_time_skew
+ui.analysis.volume_start
+ui.analysis.volume_end
+ui.analysis.volume_observation point:name
+ui.analysis.volume_not_attempted
+ui.analysis.volume_time_unavailable
+ui.analysis.volume_time time:timestamp
+ui.analysis.volume_unavailable_at time:name
+ui.analysis.volume_capacity_label point:name
+ui.analysis.volume_used_label point:name
+ui.analysis.volume_free_label point:name
+ui.analysis.volume_evidence_label point:name
+ui.analysis.volume_stale_result
+ui.analysis.volume_scan_unavailable
+ui.analysis.volume_target_outside_scan
+ui.analysis.volume_unavailable
+ui.analysis.volume_response_mismatch
+ui.analysis.volume_section
+ui.analysis.volume_scanned_folder
+ui.analysis.volume_hide
+ui.analysis.volume_explain
+ui.analysis.volume_reading
+ui.analysis.volume_summary
+ui.analysis.volume_compared_scope
+ui.analysis.volume_all_scanned_folders
+ui.analysis.volume_selected_folder
+ui.analysis.volume_used_end
+ui.analysis.volume_end_value used:name evidence:name time:name
+ui.analysis.volume_evidence_unavailable
+ui.analysis.volume_scanned_allocation
+ui.analysis.volume_unexplained_difference
+ui.analysis.volume_details_title
+ui.analysis.volume_observations
+ui.analysis.volume_difference
+ui.analysis.volume_scoped_allocation
+ui.analysis.volume_scoped_unique_physical
+ui.analysis.volume_os_system_categories
+ui.analysis.volume_none_reported
+ui.analysis.volume_compare_all
+ui.analysis.measurement_complete
+ui.analysis.measurement_partial
+ui.analysis.measurement_missing
+ui.analysis.measurement_cancelled
+ui.analysis.evidence_measured
+ui.analysis.evidence_reported
+ui.analysis.evidence_estimated
+ui.analysis.bytes_unit

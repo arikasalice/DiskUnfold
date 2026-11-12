@@ -188,9 +188,15 @@ function DrivePicker({
   const checkingCapacity = Boolean(probeJobRef) && !targets.finished;
   const notice =
     error === "os.unsupported"
-      ? "Automatic drive listing is unavailable. You can still enter a folder path."
+      ? text(
+          "ui.analysis.drives_unsupported",
+          "Automatic drive listing is unavailable. You can still enter a folder path.",
+        )
       : error === "os.call_slow"
-        ? "Drive listing is taking longer than expected. Refresh later or enter a folder path."
+        ? text(
+            "ui.analysis.drives_slow",
+            "Drive listing is taking longer than expected. Refresh later or enter a folder path.",
+          )
         : error;
   const [showDriveDetails, setShowDriveDetails] = useState(false);
   const driveGroupId = useId();
@@ -250,7 +256,7 @@ function DrivePicker({
         <>
           <ChoiceGroup
             id={driveGroupId}
-            label="Choose a target"
+            label={text("ui.analysis.choose_target_label", "Choose a target")}
             value={selected?.raw ?? null}
             isDisabled={disabled}
             onChange={(raw) =>
@@ -264,9 +270,28 @@ function DrivePicker({
                 (targets.finished && target.access === "checking"
                   ? "unknown"
                   : target.access);
-              const capacity = describeTargetCapacity(probe, checkingCapacity);
-              const kind =
-                target.kind?.replaceAll("_", " ") ?? "Type unavailable";
+              const capacity = describeTargetCapacity(
+                probe,
+                checkingCapacity,
+                text,
+              );
+              const kind = target.kind
+                ? ({
+                    internal: text("ui.analysis.target_internal", "Internal"),
+                    external: text("ui.analysis.target_external", "External"),
+                    network_mount: text(
+                      "ui.analysis.target_network_mount",
+                      "Network mount",
+                    ),
+                    folder_mount: text(
+                      "ui.analysis.target_folder_mount",
+                      "Folder mount",
+                    ),
+                  }[target.kind] ?? target.kind.replaceAll("_", " "))
+                : text(
+                    "ui.analysis.target_type_unavailable",
+                    "Type unavailable",
+                  );
               return (
                 <Choice
                   key={target.path.raw}
@@ -277,7 +302,37 @@ function DrivePicker({
                   summary={showDriveDetails ? undefined : capacity.summary}
                   availablePercent={capacity.availablePercent}
                   status={{
-                    text: access,
+                    text:
+                      {
+                        checking: text(
+                          "ui.analysis.target_access_checking",
+                          "Checking",
+                        ),
+                        accessible: text(
+                          "ui.analysis.target_access_accessible",
+                          "Accessible",
+                        ),
+                        denied: text(
+                          "ui.analysis.target_access_denied",
+                          "Access denied",
+                        ),
+                        disconnected: text(
+                          "ui.analysis.target_access_disconnected",
+                          "Disconnected",
+                        ),
+                        missing: text(
+                          "ui.analysis.target_access_missing",
+                          "Missing",
+                        ),
+                        unresponsive: text(
+                          "ui.analysis.target_access_unresponsive",
+                          "Unresponsive",
+                        ),
+                        unknown: text(
+                          "ui.analysis.target_access_unknown",
+                          "Unknown",
+                        ),
+                      }[access] ?? access,
                     tone: access === "accessible" ? "good" : "neutral",
                   }}
                 />
@@ -307,6 +362,7 @@ function EmptyDriveNotice({
 }: {
   targets: ReturnType<typeof useTargets>;
 }) {
+  const text = useLocaleText();
   if (
     targets.loading ||
     !targets.list ||
@@ -317,7 +373,10 @@ function EmptyDriveNotice({
     return null;
   return (
     <Notice tone="info">
-      No drives were found. You can still enter a folder path.
+      {text(
+        "ui.analysis.drives_empty",
+        "No drives were found. You can still enter a folder path.",
+      )}
     </Notice>
   );
 }
