@@ -57,6 +57,117 @@ migrated: boolean,
  * Whether the startup outcome disallows normal settings writes.
  */
 writeLocked: boolean, };
+export type LocaleProfileRevision = string;
+export type LocaleLanguageSource = "stored" | "os" | "baseline";
+export type LocaleDateFormat = "lang_default" | "iso8601";
+export type LocaleNumberFormat = "lang_default" | "no_grouping";
+export type LocaleTimeZonePolicy = "local" | "utc";
+export type LocalTimeZoneStatus = "identified" | "offset_only" | "unavailable";
+export type LocaleMotion = "follow_os" | "reduce";
+export type LocaleAppScale = 100 | 110 | 125 | 150 | 175 | 200;
+export type LocaleSupportedLanguage = {
+/**
+ * Registered language identifier.
+ */
+language: string,
+/**
+ * Message key for the language's self-name.
+ */
+selfNameKey: string,
+/**
+ * Opaque revision of this language's bundle.
+ */
+bundleRevision: string, };
+export type LocaleProfile = {
+/**
+ * Selected registered language identifier.
+ */
+displayLanguage: string,
+/**
+ * Source that selected the startup display language.
+ */
+languageSource: LocaleLanguageSource,
+/**
+ * Selected date format.
+ */
+dateFormat: LocaleDateFormat,
+/**
+ * Selected number format.
+ */
+numberFormat: LocaleNumberFormat,
+/**
+ * Selected timestamp time zone policy.
+ */
+timeZonePolicy: LocaleTimeZonePolicy,
+/**
+ * Observed status of the local time zone.
+ */
+localTimeZoneStatus: LocalTimeZoneStatus,
+/**
+ * Selected application motion preference.
+ */
+motion: LocaleMotion,
+/**
+ * Selected application display scale in percent.
+ */
+appScale: LocaleAppScale,
+/**
+ * Canonical decimal profile snapshot revision.
+ */
+profileRevision: LocaleProfileRevision,
+/**
+ * Supported languages ordered by language identifier.
+ */
+supportedLanguages: Array<LocaleSupportedLanguage>, };
+export type LocaleProfileChanges = {
+/**
+ * New registered language identifier, when supplied.
+ */
+displayLanguage?: string,
+/**
+ * New date format, when supplied.
+ */
+dateFormat?: LocaleDateFormat,
+/**
+ * New number format, when supplied.
+ */
+numberFormat?: LocaleNumberFormat,
+/**
+ * New time zone policy, when supplied.
+ */
+timeZonePolicy?: LocaleTimeZonePolicy,
+/**
+ * New application motion preference, when supplied.
+ */
+motion?: LocaleMotion,
+/**
+ * New application display scale in percent, when supplied.
+ */
+appScale?: LocaleAppScale, };
+export type LocaleGetProfileRequest = Record<string, never>;
+export type LocaleProfileSetRequest = {
+/**
+ * Current profile revision required for this conditional update.
+ */
+expectedProfileRevision: LocaleProfileRevision,
+/**
+ * Nonempty fields to update. Omitted fields are retained.
+ */
+changes: LocaleProfileChanges, };
+export type LocaleChangedField = "display_language" | "date_format" | "number_format" | "time_zone_policy" | "motion" | "app_scale";
+export type LocaleChangedBody = {
+/**
+ * New canonical decimal profile snapshot revision.
+ */
+profileRevision: LocaleProfileRevision,
+/**
+ * Changed fields in declaration order, without duplicates.
+ */
+changedFields: Array<LocaleChangedField>,
+/**
+ * New selected registered language identifier.
+ */
+displayLanguage: string, };
 export type HistoryEndState = "done" | "partial" | "failed" | "cancelled" | "interrupted";
 export type HistoryRelation = "retry" | "restore" | "move_undo" | "effect_check";
 export type HistoryListFilter = { finishedFromMs: number | null, finishedBeforeMs: number | null, kinds: Array<string>, states: Array<HistoryEndState>, relations: Array<HistoryRelation>, };
