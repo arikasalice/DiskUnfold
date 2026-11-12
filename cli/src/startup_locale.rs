@@ -110,7 +110,12 @@ pub(super) fn preferred_ui_languages() -> Option<Vec<String>> {
     du_platform_os::windows_ui_language::preferred_ui_languages().ok()
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
+pub(super) fn preferred_ui_languages() -> Option<Vec<String>> {
+    du_platform_os::linux_ui_language::preferred_ui_languages()
+}
+
+#[cfg(not(any(windows, target_os = "linux")))]
 pub(super) fn preferred_ui_languages() -> Option<Vec<String>> {
     None
 }

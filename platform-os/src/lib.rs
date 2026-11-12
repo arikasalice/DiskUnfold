@@ -5,6 +5,8 @@ pub mod entropy;
 #[cfg(feature = "fake")]
 pub mod fake;
 #[cfg(target_os = "linux")]
+pub mod linux_ui_language;
+#[cfg(target_os = "linux")]
 pub mod scan_observation;
 pub mod volume;
 #[cfg(feature = "webview")]

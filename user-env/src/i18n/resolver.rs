@@ -43,6 +43,33 @@ pub struct ResolvedReason {
 }
 
 impl Registry {
+    /// Resolves a static human-readable message and annotates any fallback.
+    pub fn resolve_plain_text(&self, language: &str, key: &str) -> Option<String> {
+        let resolved = self.resolve_message(language, key);
+        let MessageTemplate::Text {
+            parameters,
+            template,
+        } = resolved.template
+        else {
+            return None;
+        };
+        if !parameters.is_empty() {
+            return None;
+        }
+        if resolved.marker.is_none() {
+            return Some(template);
+        }
+        let marker = self.resolve_message(language, "ui.common.translation_unverified");
+        if let MessageTemplate::Text {
+            template: marker, ..
+        } = marker.template
+        {
+            Some(format!("{template} ({marker})"))
+        } else {
+            Some(template)
+        }
+    }
+
     /// Resolves a message using the selected language, English, then the key itself.
     pub fn resolve_message(&self, language: &str, key: &str) -> ResolvedMessage {
         if let Some(bundle) = self.bundle(language)

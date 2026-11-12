@@ -81,27 +81,21 @@ fn run_with_io<W: Write, E: Write>(
             return ExitCode::FAILURE;
         }
     };
-    let Some(bundle) = registry.bundle(&selection.language) else {
-        write_stderr_line(stderr, "DiskUnfold: locale.registration_failed");
-        return ExitCode::FAILURE;
-    };
-    let message = |key| {
-        bundle
-            .messages
-            .iter()
-            .find_map(|(candidate, message)| (candidate == key).then_some(message.text.as_str()))
-    };
+    let message = |key| registry.resolve_plain_text(&selection.language, key);
     let Some(product_name) = message("ui.product.name") else {
         write_stderr_line(stderr, "DiskUnfold: locale.registration_failed");
         return ExitCode::FAILURE;
     };
     if settings_unavailable || selection.stored_unavailable {
-        write_settings_unavailable_warning(stderr, message(SETTINGS_UNAVAILABLE_MESSAGE_KEY));
+        write_settings_unavailable_warning(
+            stderr,
+            message(SETTINGS_UNAVAILABLE_MESSAGE_KEY).as_deref(),
+        );
     }
     for warning in registry.integrity_warnings() {
         let warning = format!(
             "{warning}: {}",
-            message(warning.as_str()).unwrap_or(warning)
+            message(warning.as_str()).unwrap_or_else(|| warning.clone())
         );
         write_stderr_line(stderr, &warning);
     }
@@ -120,12 +114,12 @@ fn run_with_io<W: Write, E: Write>(
                 write_stderr_line(stderr, "DiskUnfold: locale.registration_failed");
                 return ExitCode::FAILURE;
             };
-            write_stderr_line(stderr, unsupported);
+            write_stderr_line(stderr, &unsupported);
             return ExitCode::from(2);
         }
     };
     if output.is_err() {
-        write_output_interrupted_diagnostic(stderr, message("cli.output.interrupted"));
+        write_output_interrupted_diagnostic(stderr, message("cli.output.interrupted").as_deref());
     }
     output_exit_code(output)
 }
