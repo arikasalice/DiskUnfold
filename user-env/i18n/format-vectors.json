@@ -1,0 +1,262 @@
+{
+  "schemaVersion": 1,
+  "tables": {
+    "en": {
+      "decimalSeparator": ".",
+      "groupingSeparator": ",",
+      "groupingSize": 3,
+      "datePatterns": {
+        "lang_default": "MM/dd/yyyy HH:mm:ss",
+        "iso8601": "yyyy-MM-dd'T'HH:mm:ss"
+      },
+      "unitSymbols": {
+        "B": "B",
+        "kB": "kB",
+        "MB": "MB",
+        "GB": "GB",
+        "TB": "TB",
+        "PB": "PB",
+        "KiB": "KiB",
+        "MiB": "MiB",
+        "GiB": "GiB",
+        "TiB": "TiB",
+        "PiB": "PiB"
+      }
+    },
+    "ko": {
+      "decimalSeparator": ".",
+      "groupingSeparator": ",",
+      "groupingSize": 3,
+      "datePatterns": {
+        "lang_default": "yyyy.MM.dd HH:mm:ss",
+        "iso8601": "yyyy-MM-dd'T'HH:mm:ss"
+      },
+      "unitSymbols": {
+        "B": "B",
+        "kB": "kB",
+        "MB": "MB",
+        "GB": "GB",
+        "TB": "TB",
+        "PB": "PB",
+        "KiB": "KiB",
+        "MiB": "MiB",
+        "GiB": "GiB",
+        "TiB": "TiB",
+        "PiB": "PiB"
+      }
+    }
+  },
+  "cases": [
+    {
+      "id": "capacity_iec_boundary",
+      "table": "en",
+      "formatId": "capacity",
+      "raw": { "kind": "capacity", "state": "exact", "value": "1024" },
+      "profile": { "numberFormatId": "lang_default", "dateFormatId": "lang_default", "timeZonePolicy": "utc", "sizeUnitSystem": "iec", "sizeUnit": "auto" },
+      "localOffsetSeconds": null,
+      "expected": {
+        "visual": { "kind": "literal", "text": "1 KiB" },
+        "screenReader": { "kind": "quantity", "number": "1", "unitId": "KiB" },
+        "markers": [], "unknownReason": null, "warnings": []
+      }
+    },
+    {
+      "id": "capacity_si_boundary",
+      "table": "en",
+      "formatId": "capacity",
+      "raw": { "kind": "capacity", "state": "exact", "value": "1000" },
+      "profile": { "numberFormatId": "lang_default", "dateFormatId": "lang_default", "timeZonePolicy": "utc", "sizeUnitSystem": "si", "sizeUnit": "auto" },
+      "localOffsetSeconds": null,
+      "expected": {
+        "visual": { "kind": "literal", "text": "1 kB" },
+        "screenReader": { "kind": "quantity", "number": "1", "unitId": "kB" },
+        "markers": [], "unknownReason": null, "warnings": []
+      }
+    },
+    {
+      "id": "capacity_si_below_boundary",
+      "table": "en",
+      "formatId": "capacity",
+      "raw": { "kind": "capacity", "state": "exact", "value": "999" },
+      "profile": { "numberFormatId": "lang_default", "dateFormatId": "lang_default", "timeZonePolicy": "utc", "sizeUnitSystem": "si", "sizeUnit": "auto" },
+      "localOffsetSeconds": null,
+      "expected": {
+        "visual": { "kind": "literal", "text": "999 B" },
+        "screenReader": { "kind": "quantity", "number": "999", "unitId": "B" },
+        "markers": [], "unknownReason": null, "warnings": []
+      }
+    },
+    {
+      "id": "capacity_iec_below_boundary",
+      "table": "en",
+      "formatId": "capacity",
+      "raw": { "kind": "capacity", "state": "exact", "value": "1023" },
+      "profile": { "numberFormatId": "lang_default", "dateFormatId": "lang_default", "timeZonePolicy": "utc", "sizeUnitSystem": "iec", "sizeUnit": "auto" },
+      "localOffsetSeconds": null,
+      "expected": {
+        "visual": { "kind": "literal", "text": "1023 B" },
+        "screenReader": { "kind": "quantity", "number": "1023", "unitId": "B" },
+        "markers": [], "unknownReason": null, "warnings": []
+      }
+    },
+    {
+      "id": "capacity_zero",
+      "table": "en",
+      "formatId": "capacity",
+      "raw": { "kind": "capacity", "state": "exact", "value": "0" },
+      "profile": { "numberFormatId": "lang_default", "dateFormatId": "lang_default", "timeZonePolicy": "utc", "sizeUnitSystem": "iec", "sizeUnit": "auto" },
+      "localOffsetSeconds": null,
+      "expected": {
+        "visual": { "kind": "literal", "text": "0 B" },
+        "screenReader": { "kind": "quantity", "number": "0", "unitId": "B" },
+        "markers": [], "unknownReason": null, "warnings": []
+      }
+    },
+    {
+      "id": "capacity_u64_max",
+      "table": "en",
+      "formatId": "capacity",
+      "raw": { "kind": "capacity", "state": "exact", "value": "18446744073709551615" },
+      "profile": { "numberFormatId": "lang_default", "dateFormatId": "lang_default", "timeZonePolicy": "utc", "sizeUnitSystem": "iec", "sizeUnit": "auto" },
+      "localOffsetSeconds": null,
+      "expected": {
+        "visual": { "kind": "literal", "text": "16,384 PiB" },
+        "screenReader": { "kind": "quantity", "number": "16384", "unitId": "PiB" },
+        "markers": [], "unknownReason": null, "warnings": []
+      }
+    },
+    {
+      "id": "capacity_lower_bound_rounds_down",
+      "table": "en",
+      "formatId": "capacity",
+      "raw": { "kind": "capacity", "state": "lower_bound", "value": "1100" },
+      "profile": { "numberFormatId": "lang_default", "dateFormatId": "lang_default", "timeZonePolicy": "utc", "sizeUnitSystem": "iec", "sizeUnit": "auto" },
+      "localOffsetSeconds": null,
+      "expected": {
+        "visual": { "kind": "literal", "text": "1 KiB" },
+        "screenReader": { "kind": "quantity", "number": "1", "unitId": "KiB" },
+        "markers": [{ "key": "value.lower_bound", "parameters": { "value": "1 KiB" } }],
+        "unknownReason": null, "warnings": []
+      }
+    },
+    {
+      "id": "capacity_unknown_reason",
+      "table": "en",
+      "formatId": "capacity",
+      "raw": { "kind": "capacity", "state": "unknown", "reasonKey": "scan.partial" },
+      "profile": { "numberFormatId": "lang_default", "dateFormatId": "lang_default", "timeZonePolicy": "utc", "sizeUnitSystem": "iec", "sizeUnit": "auto" },
+      "localOffsetSeconds": null,
+      "expected": {
+        "visual": { "kind": "message", "key": "value.unknown", "parameters": { "reasonKey": "scan.partial" } },
+        "screenReader": { "kind": "message", "key": "value.unknown", "parameters": { "reasonKey": "scan.partial" } },
+        "markers": [{ "key": "value.unknown", "parameters": { "reasonKey": "scan.partial" } }],
+        "unknownReason": "scan.partial", "warnings": []
+      }
+    },
+    {
+      "id": "count_grouped",
+      "table": "en",
+      "formatId": "count",
+      "raw": { "kind": "count", "state": "exact", "value": "1234567" },
+      "profile": { "numberFormatId": "lang_default", "dateFormatId": "lang_default", "timeZonePolicy": "utc", "sizeUnitSystem": "si", "sizeUnit": "auto" },
+      "localOffsetSeconds": null,
+      "expected": {
+        "visual": { "kind": "literal", "text": "1,234,567" },
+        "screenReader": { "kind": "plain", "text": "1234567" },
+        "markers": [], "unknownReason": null, "warnings": []
+      }
+    },
+    {
+      "id": "count_no_grouping",
+      "table": "en",
+      "formatId": "count",
+      "raw": { "kind": "count", "state": "exact", "value": "1234567" },
+      "profile": { "numberFormatId": "no_grouping", "dateFormatId": "lang_default", "timeZonePolicy": "utc", "sizeUnitSystem": "si", "sizeUnit": "auto" },
+      "localOffsetSeconds": null,
+      "expected": {
+        "visual": { "kind": "literal", "text": "1234567" },
+        "screenReader": { "kind": "plain", "text": "1234567" },
+        "markers": [], "unknownReason": null, "warnings": []
+      }
+    },
+    {
+      "id": "number_grouped_half_up",
+      "table": "en",
+      "formatId": "number",
+      "raw": { "kind": "number", "state": "exact", "value": { "coefficient": "123456715", "scale": 2 } },
+      "profile": { "numberFormatId": "lang_default", "dateFormatId": "lang_default", "timeZonePolicy": "utc", "sizeUnitSystem": "si", "sizeUnit": "auto" },
+      "localOffsetSeconds": null,
+      "expected": {
+        "visual": { "kind": "literal", "text": "1,234,567.2" },
+        "screenReader": { "kind": "plain", "text": "1234567.2" },
+        "markers": [], "unknownReason": null, "warnings": []
+      }
+    },
+    {
+      "id": "time_local_year_crossing",
+      "table": "en",
+      "formatId": "time",
+      "raw": { "kind": "time", "state": "exact", "value": "2026-12-31T23:59:00.000Z" },
+      "profile": { "numberFormatId": "lang_default", "dateFormatId": "lang_default", "timeZonePolicy": "local", "sizeUnitSystem": "si", "sizeUnit": "auto" },
+      "localOffsetSeconds": 32400,
+      "expected": {
+        "visual": { "kind": "literal", "text": "01/01/2027 08:59:00 UTC+09:00" },
+        "screenReader": { "kind": "time", "date": "01/01/2027 08:59:00", "offsetSeconds": 32400 },
+        "markers": [], "unknownReason": null, "warnings": []
+      }
+    },
+    {
+      "id": "time_utc_iso8601",
+      "table": "en",
+      "formatId": "time",
+      "raw": { "kind": "time", "state": "exact", "value": "2026-12-31T23:59:00.000Z" },
+      "profile": { "numberFormatId": "lang_default", "dateFormatId": "iso8601", "timeZonePolicy": "utc", "sizeUnitSystem": "si", "sizeUnit": "auto" },
+      "localOffsetSeconds": null,
+      "expected": {
+        "visual": { "kind": "literal", "text": "2026-12-31T23:59:00Z" },
+        "screenReader": { "kind": "time", "date": "2026-12-31T23:59:00", "offsetSeconds": 0 },
+        "markers": [], "unknownReason": null, "warnings": []
+      }
+    },
+    {
+      "id": "time_local_unavailable_falls_back_to_utc",
+      "table": "en",
+      "formatId": "time",
+      "raw": { "kind": "time", "state": "exact", "value": "2026-01-01T00:00:00.000Z" },
+      "profile": { "numberFormatId": "lang_default", "dateFormatId": "lang_default", "timeZonePolicy": "local", "sizeUnitSystem": "si", "sizeUnit": "auto" },
+      "localOffsetSeconds": null,
+      "expected": {
+        "visual": { "kind": "literal", "text": "01/01/2026 00:00:00 UTC" },
+        "screenReader": { "kind": "time", "date": "01/01/2026 00:00:00", "offsetSeconds": 0 },
+        "markers": [{ "key": "locale.timezone_unavailable", "parameters": {} }],
+        "unknownReason": null, "warnings": []
+      }
+    },
+    {
+      "id": "time_korean_default_pattern",
+      "table": "ko",
+      "formatId": "time",
+      "raw": { "kind": "time", "state": "exact", "value": "2026-01-01T00:00:00.000Z" },
+      "profile": { "numberFormatId": "lang_default", "dateFormatId": "lang_default", "timeZonePolicy": "local", "sizeUnitSystem": "si", "sizeUnit": "auto" },
+      "localOffsetSeconds": 32400,
+      "expected": {
+        "visual": { "kind": "literal", "text": "2026.01.01 09:00:00 UTC+09:00" },
+        "screenReader": { "kind": "time", "date": "2026.01.01 09:00:00", "offsetSeconds": 32400 },
+        "markers": [], "unknownReason": null, "warnings": []
+      }
+    },
+    {
+      "id": "unknown_number_format_defaults_and_warns",
+      "table": "en",
+      "formatId": "count",
+      "raw": { "kind": "count", "state": "exact", "value": "1234567" },
+      "profile": { "numberFormatId": "future_format", "dateFormatId": "lang_default", "timeZonePolicy": "utc", "sizeUnitSystem": "si", "sizeUnit": "auto" },
+      "localOffsetSeconds": null,
+      "expected": {
+        "visual": { "kind": "literal", "text": "1,234,567" },
+        "screenReader": { "kind": "plain", "text": "1234567" },
+        "markers": [], "unknownReason": null, "warnings": ["locale.format_unknown"]
+      }
+    }
+  ]
+}
