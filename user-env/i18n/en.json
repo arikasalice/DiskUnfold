@@ -12,6 +12,8 @@
     ["i18n.bundle_integrity_failed", "A language bundle failed its integrity check.", []],
     ["settings.scope.remember_recent.name", "Remember recent scopes", []],
     ["settings.scope.remember_recent.description", "Keep recently used analysis scopes for later selection.", []],
+    ["settings.scope.recent_limit.name", "Recent scope limit", []],
+    ["settings.scope.recent_limit.description", "The changed limit applies after the next successful save of eligible recent scopes.", []],
     ["settings.display.size_unit_system.name", "Size unit system", []],
     ["settings.display.size_unit_system.description", "Choose SI or IEC units.", []],
     ["settings.display.size_unit.name", "Size unit", []],

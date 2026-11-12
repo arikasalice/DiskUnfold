@@ -24,6 +24,8 @@ pub const DECLARED_KEYS: &[&str] = &[
     "i18n.bundle_integrity_failed",
     "settings.scope.remember_recent.name",
     "settings.scope.remember_recent.description",
+    "settings.scope.recent_limit.name",
+    "settings.scope.recent_limit.description",
     "settings.display.size_unit_system.name",
     "settings.display.size_unit_system.description",
     "settings.display.size_unit.name",

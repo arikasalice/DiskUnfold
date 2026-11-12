@@ -12,6 +12,8 @@
     ["i18n.bundle_integrity_failed", "언어 묶음 무결성 검사에 실패했습니다.", []],
     ["settings.scope.remember_recent.name", "최근 분석 범위 기억", []],
     ["settings.scope.remember_recent.description", "나중에 다시 선택할 수 있도록 최근 분석 범위를 보관합니다.", []],
+    ["settings.scope.recent_limit.name", "최근 범위 보관 한도", []],
+    ["settings.scope.recent_limit.description", "변경한 한도는 보관 대상인 최근 범위를 다음에 성공적으로 저장할 때 적용됩니다.", []],
     ["settings.display.size_unit_system.name", "크기 단위 체계", []],
     ["settings.display.size_unit_system.description", "SI 또는 IEC 단위를 선택합니다.", []],
     ["settings.display.size_unit.name", "크기 단위", []],
