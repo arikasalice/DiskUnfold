@@ -450,3 +450,45 @@ fn restore_status_distinguishes_quarantined_value_from_quarantine_failure() -> R
     assert!(service.restore_status().write_locked);
     Ok(())
 }
+
+#[test]
+fn valid_nondefault_override_clears_quarantine_warning_and_keeps_startup_diagnostic()
+-> Result<(), String> {
+    let mut service = restored_with(
+        Registry::new(descriptors()).map_err(|error| format!("{error:?}"))?,
+        BTreeMap::from([(TREEMAP_MIN_AREA_PX2.into(), json!(3))]),
+    );
+    assert_eq!(
+        effective(&service)?.warning_key,
+        Some("settings.value_reset")
+    );
+
+    let change = SettingsChanges::from([(TREEMAP_MIN_AREA_PX2.into(), Some(json!(64)))]);
+    let reviewed = service
+        .review(1, &change)
+        .map_err(|error| format!("{error:?}"))?;
+    service
+        .apply(
+            1,
+            &change,
+            reviewed,
+            SettingsCommit {
+                source: SettingsSource::Screen,
+                timestamp_ms: 5,
+            },
+        )
+        .map_err(|error| format!("{error:?}"))?;
+
+    let effective = effective(&service)?;
+    assert_eq!(effective.min_area_px2, 64);
+    assert!(!effective.used_default);
+    assert_eq!(effective.warning_key, None);
+    assert!(
+        service
+            .restore_status()
+            .invalid_keys
+            .iter()
+            .any(|key| key == TREEMAP_MIN_AREA_PX2)
+    );
+    Ok(())
+}
