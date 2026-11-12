@@ -189,6 +189,16 @@ impl<S: SettingsStore> SettingsService<S> {
         self.restore_status.stored_schema = Some(from);
     }
 
+    /// Records a header that was successfully observed after migration failed.
+    ///
+    /// This preserves the locked/default restore outcome while ensuring the
+    /// report reflects the current readable header rather than a stale
+    /// pre-migration value.
+    pub fn record_failed_migration_observation(&mut self, revision: u64, schema: u32) {
+        self.restore_status.stored_revision = Some(revision);
+        self.restore_status.stored_schema = Some(schema);
+    }
+
     /// Returns the immutable startup restoration outcome.
     pub fn restore_status(&self) -> &RestoreStatus {
         &self.restore_status

@@ -174,17 +174,128 @@ fn failed_logical_transition_starts_locked_on_defaults_without_touching_rows()
     db.execute_batch("UPDATE user_env_setting_version SET schema_version=1;
         CREATE TRIGGER reject_transition BEFORE UPDATE OF schema_version ON user_env_setting_version WHEN NEW.schema_version=3 BEGIN SELECT RAISE(ABORT, 'test'); END;")?;
     drop(db);
-    let service = open_settings(&path, 100)?;
-    assert!(service.restore_status().write_locked);
+    let rows_before = raw_setting_rows(&path)?;
+    let db = Connection::open(&path)?;
+    let header_before: (i64, i64, i64) = db.query_row(
+        "SELECT settings_version,schema_version,updated_at_ms FROM user_env_setting_version WHERE version_key='settings'",
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    )?;
+    let physical_schema_before: i64 =
+        db.pragma_query_value(None, "user_version", |row| row.get(0))?;
+    drop(db);
+
+    let database = test_database(&path)?;
+    let settings = StartupSettings::open(&database, 100, &["en", "ko"])?;
+    assert!(settings.status.write_locked);
+    assert_eq!(settings.status.stored_schema, Some(1));
+    assert_eq!(settings.status.stored_revision, Some(1));
+    assert!(!settings.status.migrated);
     assert_eq!(
-        service.restore_status().failure_reason,
+        settings.status.failure_reason,
         Some("settings.restore_failed")
     );
-    assert!(!service.restore_status().migrated);
-    assert!(service.snapshot().values.is_empty());
-    drop(service);
+    assert!(
+        settings
+            .service
+            .lock()
+            .map_err(|_| "settings poisoned")?
+            .snapshot()
+            .values
+            .is_empty()
+    );
+
+    // Exercise the registered GUI use case through the same IPC dispatcher as
+    // the WebView bridge, including the actual serialized restoration report.
+    let mut builder = EngineBuilder::default();
+    settings.register_restore_status(&mut builder);
+    let engine = builder.build()?;
+    let request = json!({
+        "command": "du_call",
+        "args": {
+            "envelope": {
+                "name": "settings.restore_status",
+                "contractVersion": 1,
+                "correlationId": "0195f856-ab83-7a59-9343-10d29775c9a9",
+                "body": {}
+            }
+        }
+    });
+    let response = crate::ipc::dispatch(&engine, &request.to_string()).ok_or("missing reply")?;
+    let response: ResultEnvelope = serde_json::from_str(&response)?;
+    assert!(response.error.is_none());
+    assert_eq!(response.body["storedSchema"], json!(1));
+    assert_eq!(response.body["appSchema"], json!(SETTINGS_SCHEMA_VERSION));
+    assert_eq!(response.body["migrated"], json!(false));
+    assert_eq!(response.body["writeLocked"], json!(true));
+    let items = response.body["items"]
+        .as_array()
+        .ok_or("missing restore items")?;
+    assert!(!items.is_empty());
+    assert!(items.iter().all(|item| {
+        item["source"] == json!("default") && item["reasonKey"] == json!("settings.restore_failed")
+    }));
+    drop(settings);
+    drop(database);
+
+    assert_eq!(raw_setting_rows(&path)?, rows_before);
     let db = Connection::open(&path)?;
-    let state: (i64, i64, i64) = db.query_row("SELECT schema_version,settings_version,(SELECT count(*) FROM user_env_setting) FROM user_env_setting_version", [], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?)))?;
-    assert_eq!(state, (1, 1, 2));
+    let header_after: (i64, i64, i64) = db.query_row(
+        "SELECT settings_version,schema_version,updated_at_ms FROM user_env_setting_version WHERE version_key='settings'",
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    )?;
+    assert_eq!(header_after, header_before);
+    let physical_schema_after: i64 =
+        db.pragma_query_value(None, "user_version", |row| row.get(0))?;
+    assert_eq!(physical_schema_after, physical_schema_before);
+    Ok(())
+}
+
+#[test]
+fn failed_schema_header_observation_keeps_locked_defaults_and_wire_null()
+-> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("missing-schema-header.db");
+    seed(&path, 200_000)?;
+    let database = test_database(&path)?;
+    let other = Connection::open(&path)?;
+    other.execute_batch("DROP TABLE user_env_setting_version;")?;
+    drop(other);
+
+    let settings = StartupSettings::open(&database, 100, &["en", "ko"])?;
+    assert!(settings.status.write_locked);
+    assert_eq!(settings.status.stored_schema, None);
+    assert!(!settings.status.migrated);
+    assert!(
+        settings
+            .service
+            .lock()
+            .map_err(|_| "settings poisoned")?
+            .snapshot()
+            .values
+            .is_empty()
+    );
+
+    let mut builder = EngineBuilder::default();
+    settings.register_restore_status(&mut builder);
+    let engine = builder.build()?;
+    let request = json!({
+        "command": "du_call",
+        "args": {
+            "envelope": {
+                "name": "settings.restore_status",
+                "contractVersion": 1,
+                "correlationId": "0195f856-ab83-7a59-9343-10d29775c9a9",
+                "body": {}
+            }
+        }
+    });
+    let response = crate::ipc::dispatch(&engine, &request.to_string()).ok_or("missing reply")?;
+    let response: ResultEnvelope = serde_json::from_str(&response)?;
+    assert!(response.error.is_none());
+    assert_eq!(response.body["storedSchema"], serde_json::Value::Null);
+    assert_eq!(response.body["migrated"], json!(false));
+    assert_eq!(response.body["writeLocked"], json!(true));
     Ok(())
 }

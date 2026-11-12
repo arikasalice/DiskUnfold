@@ -80,6 +80,28 @@ impl AppDb {
         apply_empty_settings_schema_transitions(&mut self.connection, observed, &path)?;
         Ok(Some(observed))
     }
+
+    /// Reads only the settings header in one snapshot after a failed migration.
+    ///
+    /// The caller uses this observation for a locked restore report. It must
+    /// not reuse a schema value read before migration because another writer
+    /// may have changed the header before the failed transition was reported.
+    pub fn load_settings_schema_header_for_restore(
+        &mut self,
+    ) -> Result<(u64, u32), SettingsStoreError> {
+        let tx = self.connection.transaction().map_err(store_error)?;
+        let (revision, schema): (i64, u32) = tx
+            .query_row(
+                "SELECT settings_version, schema_version FROM user_env_setting_version WHERE version_key = 'settings'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .map_err(store_error)?;
+        let revision = u64::try_from(revision).map_err(|_| SettingsStoreError::Storage)?;
+        tx.commit().map_err(store_error)?;
+        Ok((revision, schema))
+    }
+
     /// Reads the category revision, schema and raw rows from one database snapshot.
     /// Raw values allow the policy layer to isolate a malformed registered row.
     pub fn load_settings_for_restore(

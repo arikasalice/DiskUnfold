@@ -89,6 +89,11 @@ fn restore_settings(
         .map_err(|error| io::Error::other(format!("settings.registration_failed: {error:?}")))?;
     let mut store = database.settings();
     let transition = store.advance_schema();
+    let failed_migration_observation = if transition.is_err() {
+        store.load_schema_header_for_restore().ok()
+    } else {
+        None
+    };
     let migrated_from = transition.as_ref().ok().copied().flatten();
     let mut service = SettingsService::restore(
         registry,
@@ -101,6 +106,9 @@ fn restore_settings(
     );
     if let Some(from) = migrated_from {
         service.record_migration(from);
+    }
+    if let Some((revision, schema)) = failed_migration_observation {
+        service.record_failed_migration_observation(revision, schema);
     }
     Ok(service)
 }

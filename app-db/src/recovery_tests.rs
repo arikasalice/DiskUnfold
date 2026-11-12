@@ -208,6 +208,47 @@ fn final_schema_update_failure_rolls_back_all_registered_empty_transitions()
 }
 
 #[test]
+fn failed_transition_header_observation_reads_the_current_schema_after_a_race()
+-> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("failed-transition-race.db");
+    let mut db = AppDb::create_gui(&path).map_err(|e| format!("{e:?}"))?;
+    db.connection.execute_batch(
+        "UPDATE user_env_setting_version SET schema_version=1,settings_version=7;
+        CREATE TRIGGER reject_schema BEFORE UPDATE OF schema_version ON user_env_setting_version
+        WHEN NEW.schema_version=3 BEGIN SELECT RAISE(ABORT, 'injected'); END;",
+    )?;
+    assert_eq!(
+        db.advance_empty_settings_schema(EMPTY_TRANSITIONS),
+        Err(SettingsStoreError::Storage)
+    );
+
+    // A concurrent writer may change the header after rollback but before the
+    // restore report observes it. The report must not claim the stale schema 1.
+    let external = rusqlite::Connection::open(&path)?;
+    external.execute(
+        "UPDATE user_env_setting_version SET schema_version=2,settings_version=8 WHERE version_key='settings'",
+        [],
+    )?;
+    assert_eq!(db.load_settings_schema_header_for_restore(), Ok((8, 2)));
+    Ok(())
+}
+
+#[test]
+fn failed_schema_header_read_returns_no_observation() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempfile::tempdir()?;
+    let mut db =
+        AppDb::create_gui(&dir.path().join("missing-header.db")).map_err(|e| format!("{e:?}"))?;
+    db.connection
+        .execute_batch("DROP TABLE user_env_setting_version;")?;
+    assert_eq!(
+        db.load_settings_schema_header_for_restore(),
+        Err(SettingsStoreError::Storage)
+    );
+    Ok(())
+}
+
+#[test]
 fn commit_rejects_schema_or_revision_changes_without_touching_rows()
 -> Result<(), Box<dyn std::error::Error>> {
     let dir = tempfile::tempdir()?;

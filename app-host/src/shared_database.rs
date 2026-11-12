@@ -142,6 +142,19 @@ impl SharedSettings {
             .map_err(|_| SettingsStoreError::Storage)?
             .advance_empty_settings_schema(du_user_env::settings::EMPTY_SCHEMA_TRANSITIONS)
     }
+
+    /// Reads the current settings header without loading or changing setting rows.
+    pub(super) fn load_schema_header_for_restore(
+        &mut self,
+    ) -> Result<(u64, u32), SettingsStoreError> {
+        self.0
+            .0
+            .connection
+            .lock()
+            .map_err(|_| SettingsStoreError::Storage)?
+            .load_settings_schema_header_for_restore()
+    }
+
     /// Loads raw rows for startup restoration without opening another connection.
     pub(super) fn load_for_restore(
         &mut self,
