@@ -16,7 +16,9 @@ async function readBundle(language) {
       throw new Error(`${language} has a duplicate message key: ${key}`);
     if (
       message?.kind === "plural" &&
-      Object.keys(message.variants ?? {}).sort().join(",") !== expectedPluralForms
+      Object.keys(message.variants ?? {})
+        .sort()
+        .join(",") !== expectedPluralForms
     ) {
       throw new Error(`${language} has invalid plural forms for ${key}`);
     }
