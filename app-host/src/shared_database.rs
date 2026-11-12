@@ -79,8 +79,7 @@ impl SharedDatabase {
     ///
     /// Preserves the explicitly supplied retention limit used by the opt-in
     /// worker. The remember setting is read in the same write transaction;
-    /// the legacy setting adapter defaults to remembering when its value cannot
-    /// be read.
+    /// actual SQL read failures are propagated to the worker for classification.
     pub(super) fn put_recent_scope(
         &self,
         cap: NonZeroUsize,
@@ -89,7 +88,7 @@ impl SharedDatabase {
     ) -> Result<(), RecentError> {
         let mut connection = self.0.connection.lock().map_err(|_| RecentError::Storage)?;
         let exact_body = |body: &str| body == item.body;
-        RecentScopeStore::new(&mut connection, cap, &exact_body)?.put_with_setting(
+        RecentScopeStore::new(&mut connection, cap, &exact_body)?.put_with_setting_checked(
             item,
             du_user_env::scope::REMEMBER_RECENT,
             |remember| {
@@ -98,6 +97,29 @@ impl SharedDatabase {
             },
         )?;
         Ok(())
+    }
+
+    /// Resolves whether one recent-scope attempt is currently enabled.
+    ///
+    /// This short `BEGIN IMMEDIATE` check runs before native observation and
+    /// encoding. The final write still rechecks the setting in its own atomic
+    /// transaction with insertion and eviction.
+    pub(super) fn resolve_recent_scope_remember(
+        &self,
+        cap: NonZeroUsize,
+        stopped: &AtomicBool,
+    ) -> Result<bool, RecentError> {
+        if stopped.load(Ordering::Acquire) {
+            return Ok(false);
+        }
+        let mut connection = self.0.connection.lock().map_err(|_| RecentError::Storage)?;
+        let accept_body = |_body: &str| true;
+        RecentScopeStore::new(&mut connection, cap, &accept_body)?.resolve_with_setting(
+            du_user_env::scope::REMEMBER_RECENT,
+            |value| {
+                !stopped.load(Ordering::Acquire) && du_user_env::scope::remember_recent_value(value)
+            },
+        )
     }
 
     /// Reads recent-scope summaries on the shared Windows GUI connection.

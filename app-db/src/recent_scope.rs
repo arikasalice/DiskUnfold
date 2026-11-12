@@ -101,26 +101,44 @@ impl<'a> RecentScopeStore<'a> {
         allowed: impl FnOnce(Option<bool>) -> bool,
     ) -> Result<bool, RecentError> {
         self.put_if(item, |tx, cap| {
-            let stored: Option<(i64, Option<String>)> = tx
-                .query_row(
-                    "SELECT v.schema_version, s.value_json
-                 FROM user_env_setting_version v
-                 LEFT JOIN user_env_setting s ON s.setting_key = ?1
-                 WHERE v.version_key = 'settings'",
-                    [key],
-                    |row| Ok((row.get(0)?, row.get(1)?)),
-                )
-                .optional()
-                .ok()
-                .flatten();
-            let value = stored.and_then(|(schema, value)| {
-                if schema != i64::from(SETTINGS_SCHEMA_VERSION) {
-                    return None;
-                }
-                serde_json::from_str::<bool>(value.as_deref()?).ok()
-            });
-            Ok(allowed(value).then_some(cap))
+            Ok(allowed(read_setting_bool(tx, key)).then_some(cap))
         })
+    }
+
+    /// Evaluates a setting in the same transaction as the write, propagating
+    /// database read failures while retaining safe missing-table recovery.
+    pub fn put_with_setting_checked(
+        &mut self,
+        item: &RecentWrite<'_>,
+        key: &str,
+        allowed: impl FnOnce(Option<bool>) -> bool,
+    ) -> Result<bool, RecentError> {
+        self.put_if(item, |tx, cap| {
+            Ok(allowed(read_setting_bool_checked(tx, key)?).then_some(cap))
+        })
+    }
+
+    /// Resolves a setting in its own immediate transaction without writing a row.
+    ///
+    /// Use this before expensive, read-only preparation that may fail before a
+    /// `RecentWrite` can be built. A later write must still use
+    /// `put_with_setting_checked`, which rechecks the value atomically with
+    /// insertion and eviction. The resolver must not perform I/O or access this
+    /// database.
+    pub fn resolve_with_setting<T>(
+        &mut self,
+        key: &str,
+        resolve: impl FnOnce(Option<bool>) -> T,
+    ) -> Result<T, RecentError> {
+        let tx = self
+            .db
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(map)?;
+        let value = read_setting_bool_checked(&tx, key)?;
+        let resolved = resolve(value);
+        tx.commit().map_err(map)?;
+        Ok(resolved)
     }
 
     /// Reads the remember and retention settings together before a settings-driven write.
@@ -233,6 +251,57 @@ impl<'a> RecentScopeStore<'a> {
         }
         Ok(row)
     }
+}
+
+fn read_setting_bool(tx: &Transaction<'_>, key: &str) -> Option<bool> {
+    let stored: Option<(i64, Option<String>)> = tx
+        .query_row(
+            "SELECT v.schema_version, s.value_json
+             FROM user_env_setting_version v
+             LEFT JOIN user_env_setting s ON s.setting_key = ?1
+             WHERE v.version_key = 'settings'",
+            [key],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+        .ok()
+        .flatten();
+    stored.and_then(|(schema, value)| {
+        if schema != i64::from(SETTINGS_SCHEMA_VERSION) {
+            return None;
+        }
+        serde_json::from_str::<bool>(value.as_deref()?).ok()
+    })
+}
+
+fn read_setting_bool_checked(tx: &Transaction<'_>, key: &str) -> Result<Option<bool>, RecentError> {
+    let stored: Option<(rusqlite::types::Value, Option<rusqlite::types::Value>)> = match tx
+        .query_row(
+            "SELECT v.schema_version, s.value_json
+                 FROM user_env_setting_version v
+                 LEFT JOIN user_env_setting s ON s.setting_key = ?1
+                 WHERE v.version_key = 'settings'",
+            [key],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+    {
+        Ok(stored) => stored,
+        Err(error) if settings_table_unavailable(tx, &error)? => None,
+        Err(error) => return Err(map(error)),
+    };
+    let Some((schema, value)) = stored else {
+        return Ok(None);
+    };
+    if !matches!(schema, rusqlite::types::Value::Integer(version) if version == i64::from(SETTINGS_SCHEMA_VERSION))
+    {
+        return Ok(None);
+    }
+    let value = match value {
+        Some(rusqlite::types::Value::Text(value)) => value,
+        Some(_) | None => return Ok(None),
+    };
+    Ok(serde_json::from_str::<bool>(&value).ok())
 }
 
 /// Reads one row's metadata and serialized body for owner validation.

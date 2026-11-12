@@ -1,6 +1,7 @@
 use super::*;
 
 mod retention_cap;
+mod setting_gate;
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 

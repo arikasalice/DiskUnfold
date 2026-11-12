@@ -1,5 +1,6 @@
 //! Exercises scope revalidation through desktop IPC and the native Windows adapter.
 mod recent;
+mod recent_store_warning;
 
 use super::*;
 use du_core_contracts::{
@@ -199,6 +200,10 @@ fn lossy_display_preserves_native_scope_identity() -> Result<(), Box<dyn std::er
         row.get(0)
     })?;
     assert_eq!(rows, 0);
+    assert!(matches!(
+        warnings.try_recv(),
+        Err(mpsc::TryRecvError::Empty)
+    ));
 
     sql.execute_batch(
         "CREATE TRIGGER test_recent_fail BEFORE INSERT ON user_env_recent_scope
@@ -206,10 +211,13 @@ fn lossy_display_preserves_native_scope_identity() -> Result<(), Box<dyn std::er
     )?;
     let (request, response, failed_write) = scan_response(&engine, &draft, &review)?;
     observer(&request, &response).ok_or("missing failed-write callback")?(ResponseDelivery::Posted);
-    assert_eq!(
-        warnings.recv_timeout(Duration::from_secs(5))?,
-        crate::RecentScopeWriteWarning::StorageUnavailable
-    );
+    let warning = warnings.recv_timeout(Duration::from_secs(5))?;
+    assert_eq!(warning.job_ref(), &failed_write.job_ref);
+    assert_eq!(warning.correlation_id(), &Id::from_v7_bytes([42; 16]));
+    assert_eq!(warning.reason_key(), "scope.recent_store_failed");
+    let warning_text = format!("{warning:?}");
+    assert!(!warning_text.contains(target.to_string_lossy().as_ref()));
+    assert!(!warning_text.contains(&review.review_fingerprint));
     let finished = terminal_batch(&events, &failed_write.job_ref)?;
     assert!(
         finished
