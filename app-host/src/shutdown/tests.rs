@@ -321,15 +321,17 @@ fn an_unconfirmed_gateway_close_never_starts_bulk_cancellation()
 }
 
 #[test]
-fn failed_history_and_database_close_do_not_claim_completion()
+fn failed_history_barrier_stays_failed_and_keeps_storage_open()
 -> Result<(), Box<dyn std::error::Error>> {
-    let mut ports = FakePorts {
+    let ports = FakePorts {
         gateway_reports: VecDeque::from([closed_gateway(false)]),
-        barrier_statuses: VecDeque::from([HistoryCommitStatus::Failed]),
+        barrier_statuses: VecDeque::from([
+            HistoryCommitStatus::Failed,
+            HistoryCommitStatus::Failed,
+        ]),
         history_failures: Some(1),
         ..FakePorts::default()
     };
-    ports.fail_database_once = true;
     let mut coordinator = ShutdownCoordinator::new(ports);
     coordinator.request_waiting_quit(true)?;
     coordinator.advance(1)?;
@@ -344,22 +346,42 @@ fn failed_history_and_database_close_do_not_claim_completion()
     assert!(!coordinator.ports.workers_closed);
     assert!(!coordinator.ports.db_closed);
     assert!(!coordinator.is_closed());
+    assert!(matches!(
+        coordinator.advance(5),
+        Err(ShutdownError::HistoryCommitFailed {
+            failed_appends: Some(1)
+        })
+    ));
+    assert!(!coordinator.ports.workers_closed);
+    assert!(!coordinator.ports.db_closed);
+    assert!(!coordinator.is_closed());
+    Ok(())
+}
 
-    coordinator.ports.barrier_statuses.clear();
-    coordinator
-        .ports
-        .barrier_statuses
-        .push_back(HistoryCommitStatus::Complete);
-    coordinator.advance(5)?;
+#[test]
+fn database_close_failure_keeps_handle_available_for_retry()
+-> Result<(), Box<dyn std::error::Error>> {
+    let ports = FakePorts {
+        gateway_reports: VecDeque::from([closed_gateway(false)]),
+        barrier_statuses: VecDeque::from([HistoryCommitStatus::Complete]),
+        fail_database_once: true,
+        ..FakePorts::default()
+    };
+    let mut coordinator = ShutdownCoordinator::new(ports);
+    coordinator.request_waiting_quit(true)?;
+    coordinator.advance(1)?;
+    coordinator.advance(2)?;
+    coordinator.advance(3)?;
+    coordinator.advance(4)?;
     assert_eq!(coordinator.phase, Phase::ClosingStorage);
     assert!(matches!(
-        coordinator.advance(6),
+        coordinator.advance(5),
         Err(ShutdownError::DatabaseClose(_))
     ));
     assert!(!coordinator.is_closed());
     assert!(!coordinator.ports.secrets_cleared);
+    coordinator.advance(6)?;
     coordinator.advance(7)?;
-    coordinator.advance(8)?;
     assert!(coordinator.is_closed());
     Ok(())
 }

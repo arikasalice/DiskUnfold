@@ -44,6 +44,8 @@ fn shutdown_barrier_fails_if_required_history_did_not_commit()
         }
     }
     assert_eq!(ticket.history_failures(), Some(1));
+    assert_eq!(ticket.poll(), ShutdownStatus::Failed);
+    assert_eq!(ticket.history_failures(), Some(1));
     let terminal = runtime
         .snapshot(&id)?
         .terminal
@@ -66,6 +68,12 @@ fn shutdown_cancels_queued_work_and_closes_admission_before_terminal_history()
     kind.resource_classes = vec![ResourceClass::FileChange];
     runtime.register(kind)?;
     let id = created(runtime.submit(sample_submission(Arc::new(InstantBody))?)?)?;
+    assert_eq!(
+        runtime.close_admission_for_shutdown(false)?,
+        AdmissionClose::Accepted {
+            active_change_jobs: 0
+        }
+    );
 
     let cancelled = runtime.cancel_all_for_shutdown()?;
 
@@ -116,6 +124,12 @@ fn shutdown_cancellation_waits_for_running_body_then_preserves_cancelled_history
         entered: entered.clone(),
         leave: release.clone(),
     }))?)?)?;
+    assert_eq!(
+        runtime.close_admission_for_shutdown(false)?,
+        AdmissionClose::Accepted {
+            active_change_jobs: 0
+        }
+    );
     let worker_runtime = runtime.clone();
     let worker = std::thread::spawn(move || worker_runtime.run_next());
     entered.wait();
@@ -150,6 +164,55 @@ fn shutdown_cancellation_waits_for_running_body_then_preserves_cancelled_history
         .ok_or("missing terminal result")?;
     assert_eq!(terminal.summary.state, JobState::Cancelled);
     assert!(terminal.history_recorded);
+    Ok(())
+}
+
+#[test]
+fn shutdown_cancellation_requires_an_admission_cut_and_change_confirmation()
+-> Result<(), Box<dyn std::error::Error>> {
+    let runtime = JobRuntime::new(
+        Arc::new(Identity(Id::parse("00000000-0000-7000-8000-000000000001")?)),
+        Arc::new(Clock),
+        Arc::new(History::default()),
+        Arc::new(Events::default()),
+    )?;
+    let mut kind = descriptor();
+    kind.kind_id = "change.apply".into();
+    kind.resource_classes = vec![ResourceClass::FileChange];
+    runtime.register(kind)?;
+    let id = created(runtime.submit(named_submission("change.apply")?)?)?;
+
+    assert_eq!(
+        runtime.cancel_all_for_shutdown(),
+        Err(RuntimeError::InvalidState)
+    );
+    assert_eq!(runtime.state(&id)?, JobState::Queued);
+    assert_eq!(
+        runtime.close_admission_for_shutdown(false)?,
+        AdmissionClose::ConfirmRequired {
+            active_change_jobs: 1
+        }
+    );
+    assert_eq!(
+        runtime.cancel_all_for_shutdown(),
+        Err(RuntimeError::InvalidState)
+    );
+    assert_eq!(runtime.state(&id)?, JobState::Queued);
+    assert_eq!(
+        runtime.close_admission_for_shutdown(true)?,
+        AdmissionClose::Accepted {
+            active_change_jobs: 1
+        }
+    );
+    assert_eq!(
+        runtime.cancel_all_for_shutdown()?[0].1,
+        Ok((
+            CancelResult::Accepted(JobState::Cancelled),
+            runtime.snapshot(&id)?.sequence,
+        ))
+    );
+    runtime.flush()?;
+    assert_eq!(runtime.state(&id)?, JobState::Cancelled);
     Ok(())
 }
 

@@ -103,9 +103,11 @@ impl Engine {
         )
     }
 
-    /// Closes job admission and requests cancellation through F24 for all active jobs.
+    /// Requests F24 cancellation for all active jobs after accepted shutdown admission.
     ///
-    /// This call does not wait for job bodies or their history writes to finish.
+    /// Call [`Engine::close_job_admission`] first and proceed only after it returns
+    /// `Accepted` or `AlreadyClosing`. This call does not wait for job bodies or
+    /// their history writes to finish.
     /// The caller must observe their terminal events and wait for the history
     /// delivery barrier before closing the database.
     pub fn prepare_shutdown(

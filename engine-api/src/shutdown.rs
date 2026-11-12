@@ -206,6 +206,9 @@ impl ShutdownHooks {
     }
 
     pub(crate) fn prepare(&self) -> Result<ShutdownPreparation, ShutdownError> {
+        if !self.admission_closed.load(Ordering::Acquire) {
+            return Err(ShutdownError::AdmissionOpen);
+        }
         let mut prepared = self.prepared.lock().map_err(|_| ShutdownError::Poisoned)?;
         if let Some(report) = prepared.as_ref() {
             return Ok(report.clone());
@@ -310,14 +313,15 @@ mod tests {
             },
         );
 
-        let first = hooks.prepare()?;
-        assert_eq!(hooks.prepare()?, first);
+        assert!(matches!(hooks.prepare(), Err(ShutdownError::AdmissionOpen)));
         assert!(matches!(
             hooks.close_admission(true)?,
             ShutdownAdmission::Accepted {
                 active_change_jobs: 0
             }
         ));
+        let first = hooks.prepare()?;
+        assert_eq!(hooks.prepare()?, first);
         assert!(matches!(
             hooks.close_workers(),
             Err(ShutdownError::HistoryBarrierPending)
@@ -335,6 +339,47 @@ mod tests {
         hooks.close_workers()?;
         assert_eq!(prepare_calls.load(Ordering::Acquire), 1);
         assert_eq!(close_calls.load(Ordering::Acquire), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn public_engine_cannot_prepare_shutdown_before_admission_closes()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let prepare_calls = Arc::new(AtomicUsize::new(0));
+        let prepare_count = prepare_calls.clone();
+        let hooks = ShutdownHooks::new(
+            |_| {
+                Ok(ShutdownAdmission::Accepted {
+                    active_change_jobs: 0,
+                })
+            },
+            move || {
+                prepare_count.fetch_add(1, Ordering::AcqRel);
+                Ok(ShutdownPreparation::no_runtime())
+            },
+            |_| Err(RuntimeError::InvalidState),
+            || Ok(()),
+        );
+        let mut builder = crate::api::EngineBuilder::default();
+        builder.on_shutdown_hooks(hooks);
+        let engine = builder.build()?;
+
+        assert!(matches!(
+            engine.prepare_shutdown(),
+            Err(ShutdownError::AdmissionOpen)
+        ));
+        assert_eq!(prepare_calls.load(Ordering::Acquire), 0);
+        assert_eq!(
+            engine.close_job_admission(false)?,
+            ShutdownAdmission::Accepted {
+                active_change_jobs: 0
+            }
+        );
+        assert_eq!(
+            engine.prepare_shutdown()?,
+            ShutdownPreparation::no_runtime()
+        );
+        assert_eq!(prepare_calls.load(Ordering::Acquire), 1);
         Ok(())
     }
 }

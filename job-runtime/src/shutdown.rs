@@ -24,6 +24,10 @@ pub enum ShutdownStatus {
     TimedOut,
     Failed,
 }
+
+/// One job's shutdown cancellation result, paired with its F24 job reference.
+pub type ShutdownCancellation = (Id, Result<(CancelResult, u64), RuntimeError>);
+
 impl ShutdownTicket {
     pub fn poll(&self) -> ShutdownStatus {
         if let Some(status) = self.status.get() {
@@ -97,20 +101,21 @@ impl JobRuntime {
         })
     }
 
-    /// Closes job admission and requests F24 cancellation for every nonterminal
-    /// job in submission order. The runtime stays alive so active bodies can
-    /// reach their safe points and commit their terminal history normally.
+    /// Requests F24 cancellation for every nonterminal job in submission order
+    /// after [`JobRuntime::close_admission_for_shutdown`] has accepted shutdown.
+    /// The runtime stays alive so active bodies can reach their safe points and
+    /// commit their terminal history normally.
     ///
     /// Per-job control errors are returned with their job reference so one failed
     /// cancellation delivery does not skip the remaining jobs. New submissions
     /// and worker starts are rejected before the first cancellation is sent.
-    pub fn cancel_all_for_shutdown(
-        &self,
-    ) -> Result<Vec<(Id, Result<(CancelResult, u64), RuntimeError>)>, RuntimeError> {
+    pub fn cancel_all_for_shutdown(&self) -> Result<Vec<ShutdownCancellation>, RuntimeError> {
         let job_refs = {
             let now = self.clock.now_ms();
             let mut table = self.table.lock().map_err(|_| RuntimeError::Poisoned)?;
-            table.shutting_down = true;
+            if !table.shutting_down {
+                return Err(RuntimeError::InvalidState);
+            }
             expire(&mut table, now);
             let mut jobs: Vec<_> = table
                 .jobs

@@ -31,7 +31,7 @@ pub use model::{
     TerminalSnapshot,
 };
 pub use publication::DuplicateTerminal;
-pub use shutdown::{ShutdownStatus, ShutdownTicket};
+pub use shutdown::{ShutdownCancellation, ShutdownStatus, ShutdownTicket};
 use std::sync::{
     Arc, Condvar, Mutex,
     atomic::{AtomicBool, AtomicUsize, Ordering},
