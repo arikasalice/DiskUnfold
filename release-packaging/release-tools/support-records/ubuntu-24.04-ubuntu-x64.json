@@ -1,0 +1,22 @@
+{
+  "id": "ubuntu-24.04-ubuntu-x64-container-2026-11-13",
+  "os": "linux",
+  "release": "24.04",
+  "edition": "ubuntu",
+  "cpu": "x64",
+  "observedOn": "2026-11-13",
+  "osDetail": "Ubuntu 24.04 x64 container",
+  "device": "container",
+  "executionForm": "deb install and uninstall, Xvfb smoke",
+  "checks": {
+    "native_build": "passed",
+    "native_tests": "passed",
+    "installed_start": "limited"
+  },
+  "limits": [
+    "container, not a real desktop",
+    "WebKit sandbox disabled for the smoke run",
+    "no 26.04 or ARM64 run"
+  ],
+  "evidence": "F15 requirement matrix 2026-11-13: Ubuntu 24.04 x64 container package build, deb install and Xvfb smoke"
+}
