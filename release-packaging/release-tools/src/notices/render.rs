@@ -32,7 +32,16 @@ fn render_webview2_section(out: &mut String) {
     let _ = writeln!(out, "\n{}\nWebView2 Runtime (Windows)\n", "=".repeat(72));
     out.push_str(&normalize(WEBVIEW2_NOTICE));
     out.push('\n');
-    out.push_str(&normalize(WEBVIEW2_LICENSE));
+    out.push_str(&normalize(&without_header(WEBVIEW2_LICENSE)));
+}
+
+/// Drops the leading `#` comment lines (source URL and retrieval date) of the license data file.
+fn without_header(text: &str) -> String {
+    let body: Vec<&str> = text
+        .lines()
+        .skip_while(|line| line.starts_with('#'))
+        .collect();
+    body.join("\n")
 }
 
 /// Renders the package list followed by each distinct license text once.

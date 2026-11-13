@@ -50,8 +50,13 @@ fn notices_end_with_the_webview2_section() {
         .split_once("WebView2 Runtime (Windows)")
         .map(|(_, rest)| rest)
         .unwrap_or_default();
-    assert!(section.contains("governed by the\nMicrosoft Software License Terms"));
-    assert!(section.contains("not made, endorsed or supported by\nMicrosoft"));
+    assert!(section.contains(
+        "licensed to you\nby Microsoft Corporation under the Microsoft Software License Terms"
+    ));
+    assert!(section.contains("not made, endorsed or supported by Microsoft"));
+    assert!(section.contains("you will defend and hold Microsoft harmless"));
+    assert!(section.contains("will not use Microsoft's trademarks"));
+    assert!(!section.contains("Retrieved 2026"));
     assert!(section.contains("Microsoft Defender SmartScreen"));
     assert!(
         section.contains("MICROSOFT SOFTWARE LICENSE TERMS\n\nMICROSOFT EDGE WEBVIEW2 RUNTIME")

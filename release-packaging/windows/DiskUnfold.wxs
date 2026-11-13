@@ -12,8 +12,14 @@
   the Binary table. A deferred custom action runs it with /silent /install, and only when neither
   per-machine nor per-user registry key (Microsoft's documented check) names a WebView2 Runtime
   version. Variables, all passed by package-windows-msi.ps1: Version, ExePath, LicensePath,
-  NoticesPath, WebView2NoticePath, InstallFormPath, IconPath, WebView2Path. WebView2ClientKey is
-  only overridden by the installer test, which points the probe at a key that does not exist.
+  NoticesPath, WebView2NoticePath, LicenseRtfPath, InstallFormPath, IconPath, WebView2Path.
+  WebView2ClientKey is only overridden by the installer test, which points the probe at a key
+  that does not exist.
+
+  Section 2(b) of Microsoft's WebView2 terms makes DiskUnfold require its end users to agree to terms
+  that protect Microsoft. An interactive install therefore shows LicenseDlg (DiskUnfold's end-user
+  notice followed by Microsoft's terms) and cannot continue until the box is checked. Quiet installs
+  (/qn, /qb) skip dialogs and still install the same text as WEBVIEW2-NOTICE.txt.
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <?ifndef WebView2ClientKey?>
@@ -73,5 +79,29 @@
       <Custom Action="InstallWebView2" Before="InstallFinalize"
               Condition="NOT (REMOVE~=&quot;ALL&quot;) AND (WEBVIEW2_PV_MACHINE=&quot;&quot; OR WEBVIEW2_PV_MACHINE=&quot;0.0.0.0&quot;) AND (WEBVIEW2_PV_USER=&quot;&quot; OR WEBVIEW2_PV_USER=&quot;0.0.0.0&quot;)" />
     </InstallExecuteSequence>
+
+    <!-- A single dialog written in core WiX, so the build needs no UI extension. -->
+    <UI>
+      <TextStyle Id="DuDefaultFont" FaceName="Segoe UI" Size="9" />
+      <Property Id="DefaultUIFont" Value="DuDefaultFont" />
+      <Dialog Id="LicenseDlg" Width="370" Height="270" Title="DiskUnfold Setup" NoMinimize="yes">
+        <Control Id="Heading" Type="Text" X="20" Y="12" Width="330" Height="30" Transparent="yes" NoPrefix="yes"
+                 Text="DiskUnfold uses the Microsoft Edge WebView2 Runtime. Read the notice and Microsoft's license terms below." />
+        <Control Id="Terms" Type="ScrollableText" X="20" Y="46" Width="330" Height="154" Sunken="yes" TabSkip="no">
+          <Text SourceFile="$(LicenseRtfPath)" />
+        </Control>
+        <Control Id="Accept" Type="CheckBox" X="20" Y="206" Width="330" Height="18" CheckBoxValue="1"
+                 Property="WEBVIEW2_TERMS_ACCEPTED" Text="I have read and agree to these terms for the WebView2 Runtime" />
+        <Control Id="Install" Type="PushButton" X="204" Y="240" Width="70" Height="20" Default="yes" Text="Install">
+          <Publish Event="EndDialog" Value="Return" Condition="WEBVIEW2_TERMS_ACCEPTED = 1" />
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="280" Y="240" Width="70" Height="20" Cancel="yes" Text="Cancel">
+          <Publish Event="EndDialog" Value="Exit" />
+        </Control>
+      </Dialog>
+      <InstallUISequence>
+        <Show Dialog="LicenseDlg" Before="ExecuteAction" Condition="NOT Installed AND NOT REMOVE" />
+      </InstallUISequence>
+    </UI>
   </Package>
 </Wix>

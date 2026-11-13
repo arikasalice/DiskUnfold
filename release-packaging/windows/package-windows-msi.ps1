@@ -189,8 +189,15 @@ try {
     $markerPath = Join-Path $inputs 'install-form'
     Write-Utf8NoBom -Path $markerPath -Contents 'msi'
     $noticePath = Join-Path $inputs 'WEBVIEW2-NOTICE.txt'
-    $webView2Text = ([System.IO.File]::ReadAllText($webView2NoticeFile).TrimEnd() + "`n`n" + [System.IO.File]::ReadAllText($webView2LicenseFile).TrimEnd() + "`n").Replace("`r`n", "`n")
+    # The license data file starts with "#" lines that record its source; they are not part of the terms.
+    $licenseBody = (([System.IO.File]::ReadAllText($webView2LicenseFile).Replace("`r`n", "`n") -split "`n"))
+    $firstTerm = 0
+    while ($firstTerm -lt $licenseBody.Count -and $licenseBody[$firstTerm].StartsWith('#')) { $firstTerm++ }
+    $licenseText = (($licenseBody[$firstTerm..($licenseBody.Count - 1)]) -join "`n").Trim()
+    $webView2Text = ([System.IO.File]::ReadAllText($webView2NoticeFile).Replace("`r`n", "`n").TrimEnd() + "`n`n" + $licenseText + "`n")
     Write-Utf8NoBom -Path $noticePath -Contents $webView2Text
+    $rtfPath = Join-Path $inputs 'license.rtf'
+    [System.IO.File]::WriteAllText($rtfPath, (ConvertTo-Rtf -Text $webView2Text), [System.Text.Encoding]::ASCII)
 
     $artifactPath = Join-Path $stageFullPath $artifactFileName
     $wixArguments = @(
@@ -201,6 +208,7 @@ try {
         '-d', "LicensePath=$licensePath",
         '-d', "NoticesPath=$noticesFile",
         '-d', "WebView2NoticePath=$noticePath",
+        '-d', "LicenseRtfPath=$rtfPath",
         '-d', "InstallFormPath=$markerPath",
         '-d', "IconPath=$iconFile",
         '-d', "WebView2Path=$webView2File"
