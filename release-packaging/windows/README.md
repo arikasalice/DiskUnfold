@@ -28,6 +28,8 @@ test-package-windows-development.ps1 uses the supplied native executable under a
 
 ## Official package gaps
 
+Pass -NoticesPath with the THIRD-PARTY-NOTICES file written by build-product-resources to ship it as THIRD-PARTY-NOTICES.txt next to LICENSE (inside the package for MSIX). Add -Release to make the packager stop when -NoticesPath is missing, unreadable or empty. The Linux and macOS packagers already require --notices.
+
 F15 HLD 116 and DLD 70 specify the MSI, portable EXE and Store MSIX formats. The architecture HLD 229 selects user-scoped MSI installation with an offline WebView2 runtime, SignPath Authenticode signing for EXE and MSI, and Store signing for MSIX. It also requires the Store publisher identity, Windows MFT helper, notices, SBOM, support table, release provenance and per-architecture native validation.
 
 The current environment has Windows SDK 10.0.26100 MakeAppx.exe and SignTool.exe, MSVC Build Tools, Cargo and .NET. It has no WiX authoring tools (wix, candle, light) and this branch has no approved SignPath credentials or Store publisher identity. SignTool.exe being installed does not establish a valid product identity or approval. msiexec.exe can install MSI files; it does not author one.
