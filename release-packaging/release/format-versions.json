@@ -1,4 +1,4 @@
 {
-  "appDbFormat": null,
-  "snapshotFormat": null
+  "appDbFormat": 5,
+  "snapshotFormat": 1
 }

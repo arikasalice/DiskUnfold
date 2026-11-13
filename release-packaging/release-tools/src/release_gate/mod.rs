@@ -21,6 +21,8 @@ pub const TAG_VERSION_MISMATCH: &str = "release.tag_version_mismatch";
 pub const TAG_COMMIT_MISMATCH: &str = "release.tag_commit_mismatch";
 /// Reason key: a data format version for the build is unset or invalid.
 pub const FORMAT_VERSION_MISSING: &str = "release.format_version_missing";
+/// Reason key: the recorded format versions differ from the versions defined in code.
+pub const FORMAT_VERSION_MISMATCH: &str = "release.format_version_mismatch";
 /// Reason key: platform manifests disagree or cannot be merged.
 pub const MANIFEST_INCONSISTENT: &str = "release.manifest_inconsistent";
 /// Reason key: a required package is absent from the merged release list.
@@ -179,6 +181,35 @@ pub fn parse_format_versions(text: &str) -> Result<FormatVersions, GateFailure> 
     })
 }
 
+impl FormatVersions {
+    /// Returns the format versions the code in this workspace defines: the latest app database
+    /// migration number and the DUSNAP envelope version. They come from their owning crates, so
+    /// the gate cannot record a number the product does not implement.
+    pub const fn from_code() -> Self {
+        Self {
+            app_db: du_app_db::HISTORY_SCHEMA_VERSION,
+            snapshot: du_snapshot_store::envelope::DUSNAP_FORMAT_VERSION as u32,
+        }
+    }
+}
+
+/// Parses the recorded versions and requires them to equal [`FormatVersions::from_code`], so the
+/// recorded file cannot drift from the product.
+pub fn check_format_versions(text: &str) -> Result<FormatVersions, GateFailure> {
+    let recorded = parse_format_versions(text)?;
+    let defined = FormatVersions::from_code();
+    if recorded == defined {
+        Ok(defined)
+    } else {
+        Err(GateFailure::new(
+            FORMAT_VERSION_MISMATCH,
+            format!(
+                "recorded {recorded:?} but the code defines {defined:?}; update format-versions.json in the release change"
+            ),
+        ))
+    }
+}
+
 fn safe_part_name(name: &str) -> bool {
     !name.is_empty()
         && name != "."
@@ -295,8 +326,8 @@ pub fn check_required_artifacts_scoped(
     })
 }
 
-/// When no signing step ran, a row may claim only `unsigned` or the macOS ad-hoc signature that
-/// the packager applies itself.
+/// When no signing step ran, a row may claim only `unsigned` or, on a macOS row, the ad-hoc
+/// signature that the macOS packager applies itself.
 pub fn check_signature_claims(
     manifest: &ReleaseManifest,
     signing_applied: bool,
@@ -307,11 +338,10 @@ pub fn check_signature_claims(
     let claimed: Vec<&str> = manifest
         .rows
         .iter()
-        .filter(|row| {
-            !matches!(
-                row.signature,
-                SignatureMethod::Unsigned | SignatureMethod::HardenedRuntimeAdHoc
-            )
+        .filter(|row| match row.signature {
+            SignatureMethod::Unsigned => false,
+            SignatureMethod::HardenedRuntimeAdHoc => row.os.family != OsFamily::Macos,
+            SignatureMethod::SignPath | SignatureMethod::Store => true,
         })
         .map(|row| row.file_name.as_str())
         .collect();

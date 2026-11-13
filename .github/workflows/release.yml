@@ -68,6 +68,7 @@ jobs:
             echo "built_at_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           } >> "$GITHUB_OUTPUT"
           if [[ "$EVENT_NAME" == push && "$REF_TYPE" == tag ]]; then
+            [[ "$REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "release.tag_format_invalid: $REF_NAME" >&2; exit 1; }
             git fetch --force origin "refs/tags/$REF_NAME:refs/tags/$REF_NAME"
             tag_commit="$(git rev-parse "refs/tags/$REF_NAME^{commit}")"
             target/debug/release-gate check-tag --tag "$REF_NAME" --workspace-version "$workspace_version" \
@@ -140,7 +141,6 @@ jobs:
       DU_APP_DB_FORMAT: ${{ needs.gate.outputs.app_db_format }}
       DU_SNAPSHOT_FORMAT: ${{ needs.gate.outputs.snapshot_format }}
       DU_RELEASE_RESOURCES: release-resources/product-resources.json
-      SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
     defaults:
       run:
         shell: bash
@@ -191,6 +191,8 @@ jobs:
         if: matrix.os == 'windows' && needs.gate.outputs.official == 'true'
         env:
           SIGNPATH_ORGANIZATION_ID: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          # Secrets are never job-level env: build scripts and dry runs must not see them.
+          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
         run: |
           if [[ -n "$SIGNPATH_API_TOKEN" && -n "$SIGNPATH_ORGANIZATION_ID" ]]; then
             echo "enabled=true" >> "$GITHUB_OUTPUT"
@@ -313,8 +315,6 @@ jobs:
   package-dmg:
     needs: [gate, build]
     runs-on: macos-15
-    env:
-      APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -345,10 +345,13 @@ jobs:
           bash release-packaging/macos/package-dmg.sh --binary diskunfold-universal --version "$PACKAGE_VERSION" \
             --notices release-resources/THIRD-PARTY-NOTICES --output-dir stage/macos-universal
       - name: Stop when Apple notarization is configured
-        if: env.APPLE_NOTARY_KEY_ID != ''
+        env:
+          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
         run: |
-          echo "release.notarization_unsupported: the DMG packager applies an ad-hoc signature; Developer ID signing and notarization are not integrated, so the DMG stays labelled ad-hoc signed." >&2
-          exit 1
+          if [[ -n "$APPLE_NOTARY_KEY_ID" ]]; then
+            echo "release.notarization_unsupported: the DMG packager applies an ad-hoc signature; Developer ID signing and notarization are not integrated, so the DMG stays labelled ad-hoc signed." >&2
+            exit 1
+          fi
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: staging-macos-universal
@@ -458,6 +461,8 @@ jobs:
         with:
           name: release-assets
           path: release-assets
+      - name: Rehash the assets before attesting
+        run: cd release-assets && sha256sum --check --strict SHA256SUMS
       - name: Attest the packages (SLSA build provenance)
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
@@ -523,6 +528,8 @@ jobs:
         with:
           name: release-assets
           path: release-assets
+      - name: Rehash the assets that will be published
+        run: cd release-assets && sha256sum --check --strict SHA256SUMS
       - name: Create the draft release
         env:
           REPOSITORY: ${{ github.repository }}

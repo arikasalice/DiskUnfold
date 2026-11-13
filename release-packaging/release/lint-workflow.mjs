@@ -2,7 +2,10 @@
 // It does not replace actionlint; it enforces repository rules that actionlint cannot know:
 // every action is pinned to a commit SHA with a version comment, no unconfirmed SHA marker
 // remains, the triggers are the release tag push and manual dry runs only, official builds
-// cannot be hard-coded, and a release can only be created as a draft.
+// cannot be hard-coded, a release can only be created as a draft, write permissions and the
+// OIDC token stay in the one job that needs them, jobs after the gate run only for official
+// builds, secrets never reach job-level env, and run scripts take no workflow expressions
+// other than matrix values.
 // Usage: node lint-workflow.mjs [workflow-file] [--verify-remote]
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -11,6 +14,107 @@ import { fileURLToPath } from "node:url";
 
 const USES = /^\s*(?:-\s+)?uses:\s*(\S+)\s*(?:#\s*(\S+))?\s*$/;
 const PINNED = /^([\w.-]+\/[\w.-]+(?:\/[\w./-]+)?)@([0-9a-f]{40})$/;
+
+/** Splits the jobs: section into { name, lines } blocks by two-space indented keys. */
+export function jobBlocks(text) {
+  const lines = text.split(/\r?\n/);
+  const start = lines.findIndex((line) => /^jobs:\s*$/.test(line));
+  if (start < 0) return [];
+  const blocks = [];
+  for (const line of lines.slice(start + 1)) {
+    if (/^\S/.test(line)) break;
+    const header = /^  ([\w-]+):\s*$/.exec(line);
+    if (header) blocks.push({ name: header[1], lines: [] });
+    else if (blocks.length) blocks.at(-1).lines.push(line);
+  }
+  return blocks;
+}
+
+function jobPermissions(block) {
+  const found = new Map();
+  const index = block.lines.findIndex((line) => /^    permissions:\s*$/.test(line));
+  if (index < 0) return found;
+  for (const line of block.lines.slice(index + 1)) {
+    const entry = /^      ([\w-]+):\s*(\w+)\s*$/.exec(line);
+    if (!entry) break;
+    found.set(entry[1], entry[2]);
+  }
+  return found;
+}
+
+/** Policy problems in permissions, job conditions, secrets and run scripts. */
+export function lintJobs(text) {
+  const problems = [];
+  const blocks = jobBlocks(text);
+  for (const block of blocks) {
+    for (const [scope, level] of jobPermissions(block)) {
+      if (scope === "id-token" && level !== "none" && block.name !== "attest") {
+        problems.push(`permissions: job ${block.name} must not request id-token (only attest may)`);
+      }
+      if (scope === "attestations" && level === "write" && block.name !== "attest") {
+        problems.push(`permissions: job ${block.name} must not write attestations (only attest may)`);
+      }
+      if (scope === "contents" && level === "write" && block.name !== "publish-draft") {
+        problems.push(`permissions: job ${block.name} must not write contents (only publish-draft may)`);
+      }
+      if (!["contents", "id-token", "attestations"].includes(scope) && level === "write") {
+        problems.push(`permissions: job ${block.name} requests unexpected write access to ${scope}`);
+      }
+    }
+    const jobEnv = block.lines.findIndex((line) => /^    env:\s*$/.test(line));
+    if (jobEnv >= 0) {
+      for (const line of block.lines.slice(jobEnv + 1)) {
+        if (!/^      \S/.test(line)) break;
+        if (/\$\{\{\s*secrets\./.test(line)) problems.push(`secrets: job ${block.name} puts a secret in job-level env; scope it to the one step`);
+      }
+    }
+  }
+  for (const name of ["attest", "verify-provenance", "publish-draft"]) {
+    const block = blocks.find((candidate) => candidate.name === name);
+    if (!block) {
+      problems.push(`jobs: ${name} is missing`);
+    } else if (!block.lines.some((line) => /^    if:\s*needs\.gate\.outputs\.official == 'true'\s*$/.test(line))) {
+      problems.push(`jobs: ${name} must run only when the gate output official is 'true'`);
+    }
+  }
+  if (!blocks.find((block) => block.name === "attest") || !jobPermissions(blocks.find((block) => block.name === "attest")).get("id-token")) {
+    problems.push("permissions: attest must hold id-token: write");
+  }
+  const lines = text.split(/\r?\n/);
+  lines.forEach((line, index) => {
+    const run = /^(\s*)(?:-\s+)?run:\s*(.*)$/.exec(line);
+    if (!run) return;
+    const body = [run[2]];
+    if (/^[|>][+-]?$/.test(run[2])) {
+      body.length = 0;
+      const baseIndent = run[1].length + (line.trimStart().startsWith("-") ? 2 : 0);
+      for (const next of lines.slice(index + 1)) {
+        if (next.trim() !== "" && next.search(/\S/) <= baseIndent) break;
+        body.push(next);
+      }
+    }
+    for (const expression of body.join("\n").matchAll(/\$\{\{\s*([^}]*?)\s*\}\}/g)) {
+      if (!/^matrix\.[\w-]+$/.test(expression[1])) {
+        problems.push(`line ${index + 1}: run script embeds ${expression[0]}; pass it through env instead`);
+      }
+    }
+  });
+  return problems;
+}
+
+/** The single place that may set official=true is the tag push branch of the gate. */
+export function lintGateMode(text) {
+  const problems = [];
+  const lines = text.split(/\r?\n/);
+  const official = lines.flatMap((line, index) => (/echo "official=true"/.test(line) ? [index] : []));
+  const branch = lines.findIndex((line) => /if \[\[ "\$EVENT_NAME" == push && "\$REF_TYPE" == tag \]\]; then/.test(line));
+  const other = lines.findIndex((line, index) => index > branch && /^\s*else\s*$/.test(line));
+  const check = lines.findIndex((line) => /release-gate check-tag/.test(line));
+  if (branch < 0 || other < 0 || official.length !== 1 || !(branch < check && check < official[0] && official[0] < other)) {
+    problems.push("gate: official=true must be written once, in the push tag branch and after release-gate check-tag");
+  }
+  return problems;
+}
 
 /** Returns the list of policy problems found in the workflow text. */
 export function lintWorkflow(text) {
@@ -57,7 +161,7 @@ export function lintWorkflow(text) {
     problems.push("publish: the workflow must never publish a release");
   }
   if (!/attest-build-provenance@/.test(text)) problems.push("provenance: attest-build-provenance step is missing");
-  return problems;
+  return [...problems, ...lintJobs(text), ...lintGateMode(text)];
 }
 
 /** Lists the distinct pinned actions as { repository, sha, version }. */

@@ -37,6 +37,15 @@ export function classifyAttestation(status, stderr) {
   return "mismatch";
 }
 
+/** The release workflow identity a download must come from; builder id is the signer workflow ref. */
+export function expectedPolicy(repo, tag) {
+  return {
+    workflowPath: ".github/workflows/release.yml",
+    eventName: "push",
+    builderId: `https://github.com/${repo}/.github/workflows/release.yml@refs/tags/${tag}`,
+  };
+}
+
 function argument(args, name) {
   const index = args.indexOf(name);
   return index >= 0 ? args[index + 1] : undefined;
@@ -94,8 +103,14 @@ export function main(args) {
     if (provenance.official !== true || provenance.repository !== repo || provenance.tag !== tag) {
       finish("mismatch", [...notes, `release-provenance.json does not describe an official ${repo} ${tag} release.`]);
     }
+    // The file comes from the same release page as the package, so it is not a trust root: the
+    // workflow identity is fixed here and the file may only repeat it.
+    const policy = expectedPolicy(repo, tag);
+    if (provenance.workflowPath !== policy.workflowPath || provenance.eventName !== policy.eventName || provenance.builderId !== policy.builderId) {
+      finish("mismatch", [...notes, "release-provenance.json names a workflow, event or builder other than this repository's release workflow at the tag."]);
+    }
     run = spawnSync(path.resolve(verifier), [path.resolve(file), repo, tag, provenance.commit, provenance.runId, provenance.runAttempt,
-      provenance.workflowPath, provenance.eventName, provenance.builderId, gh, ghDigest, "--deny-self-hosted-runners"], { encoding: "utf8" });
+      policy.workflowPath, policy.eventName, policy.builderId, gh, ghDigest, "--deny-self-hosted-runners"], { encoding: "utf8" });
   } else {
     run = spawnSync(gh, ["attestation", "verify", path.resolve(file), "--hostname", "github.com", "--repo", repo,
       "--signer-workflow", `${repo}/.github/workflows/release.yml`, "--source-ref", `refs/tags/${tag}`, "--deny-self-hosted-runners"], { encoding: "utf8" });

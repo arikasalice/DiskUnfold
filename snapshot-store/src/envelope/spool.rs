@@ -149,7 +149,7 @@ fn verify<S: SealedSpool>(
         return Err(Error::Format(FormatError::Magic));
     }
     let version = read_u16(&header, 8).map_err(Error::Format)?;
-    if version != 1 {
+    if version != super::DUSNAP_FORMAT_VERSION {
         return Err(Error::Format(FormatError::UnsupportedVersion));
     }
     if read_u16(&header, 10).map_err(Error::Format)? != 0 {

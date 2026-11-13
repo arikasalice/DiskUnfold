@@ -347,6 +347,8 @@ dependencies = [
 name = "du-release-tools"
 version = "0.1.0"
 dependencies = [
+ "du-app-db",
+ "du-snapshot-store",
  "serde",
  "serde_json",
  "sha2",

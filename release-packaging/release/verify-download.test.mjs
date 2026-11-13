@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { classifyAttestation, expectedDigest, sha256File } from "./verify-download.mjs";
+import { classifyAttestation, expectedDigest, expectedPolicy, sha256File } from "./verify-download.mjs";
 
 const DIGEST = "a".repeat(64);
 
@@ -28,4 +28,14 @@ test("sha256File hashes bytes", () => {
   const file = path.join(dir, "f");
   writeFileSync(file, "abc");
   assert.equal(sha256File(file), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+});
+
+test("the expected builder id is the signer workflow ref the release workflow verifies", () => {
+  const policy = expectedPolicy("owner/repo", "v1.2.3");
+  assert.equal(policy.builderId, "https://github.com/owner/repo/.github/workflows/release.yml@refs/tags/v1.2.3");
+  assert.equal(policy.workflowPath, ".github/workflows/release.yml");
+  assert.equal(policy.eventName, "push");
+  const workflow = readFileSync(new URL("../../.github/workflows/release.yml", import.meta.url), "utf8");
+  assert.ok(workflow.includes('"https://github.com/$REPOSITORY/.github/workflows/release.yml@refs/tags/$TAG"'));
+  assert.ok(workflow.includes(".github/workflows/release.yml push"));
 });

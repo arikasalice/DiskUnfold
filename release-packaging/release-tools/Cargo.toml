@@ -6,6 +6,8 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+du-app-db = { version = "0.1.0", path = "../../app-db" }
+du-snapshot-store = { version = "0.1.0", path = "../../snapshot-store" }
 serde.workspace = true
 serde_json.workspace = true
 spdx = "=0.13.6"

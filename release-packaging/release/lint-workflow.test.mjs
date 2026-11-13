@@ -56,3 +56,41 @@ test("remote verification accepts a matching tag and rejects a moved one", () =>
   assert.equal(verifyRemote([action], () => "ffffffffffffffffffffffffffffffffffffffff\trefs/tags/v1.0.0\n").length, 1);
   assert.equal(verifyRemote([action], () => "").length, 1);
 });
+
+test("the id-token, attestation and content-write permissions stay in their one job", () => {
+  const widen = (job, extra) => workflow.replace(new RegExp(`(\\n  ${job}:\\n(?:.*\\n)*?    runs-on: [^\\n]*\\n)`), `$1    permissions:\n${extra}\n`);
+  assert.ok(lintWorkflow(widen("inventory", "      id-token: write")).some((p) => p.includes("id-token")));
+  assert.ok(lintWorkflow(widen("verify-provenance", "      contents: write")).some((p) => p.includes("must not write contents")));
+  assert.ok(lintWorkflow(widen("gate", "      attestations: write")).some((p) => p.includes("attestations")));
+  assert.ok(lintWorkflow(widen("build", "      packages: write")).some((p) => p.includes("unexpected write")));
+  assert.ok(lintWorkflow(workflow.replace("      id-token: write\n", "")).some((p) => p.includes("attest must hold id-token")));
+});
+
+test("a secret in job-level env is rejected", () => {
+  const leaked = workflow.replace("    env:\n      DU_BUILD_KIND:", "    env:\n      SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}\n      DU_BUILD_KIND:");
+  assert.notEqual(leaked, workflow);
+  assert.ok(lintWorkflow(leaked).some((p) => p.includes("job-level env")));
+});
+
+test("attest, verify-provenance and publish-draft must stay official-only", () => {
+  for (const job of ["attest", "verify-provenance", "publish-draft"]) {
+    const removed = workflow.replace(new RegExp(`(\\n  ${job}:\\n)    if: needs.gate.outputs.official == 'true'\\n`), "$1");
+    assert.notEqual(removed, workflow, job);
+    assert.ok(lintWorkflow(removed).some((p) => p.includes(job) && p.includes("official")), job);
+  }
+});
+
+test("a manual run cannot be turned into an official build", () => {
+  const dispatchOfficial = workflow.replace('echo "official=false" >> "$GITHUB_OUTPUT"', 'echo "official=true" >> "$GITHUB_OUTPUT"');
+  assert.ok(lintWorkflow(dispatchOfficial).some((p) => p.includes("official=true")));
+  const noTagCheck = workflow.replace(/\n\s*target\/debug\/release-gate check-tag[^\n]*\n[^\n]*\n/, "\n");
+  assert.notEqual(noTagCheck, workflow);
+  assert.ok(lintWorkflow(noTagCheck).some((p) => p.includes("official=true")));
+});
+
+test("a run script may embed only matrix values", () => {
+  const injected = workflow.replace('echo "::notice::Dry run', 'echo "${{ github.ref_name }} ::notice::Dry run');
+  assert.notEqual(injected, workflow);
+  assert.ok(lintWorkflow(injected).some((p) => p.includes("run script embeds")));
+  assert.deepEqual(lintWorkflow(workflow).filter((p) => p.includes("matrix")), []);
+});

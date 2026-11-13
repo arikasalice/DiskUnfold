@@ -4,7 +4,7 @@
 
 | File | Purpose |
 | --- | --- |
-| `format-versions.json` | The app database and snapshot format versions embedded into an official build. Both are `null` until the owner sets them; the gate then fails with `release.format_version_missing`. |
+| `format-versions.json` | The app database format (`du_app_db::HISTORY_SCHEMA_VERSION`) and DUSNAP envelope version (`du_snapshot_store::envelope::DUSNAP_FORMAT_VERSION`) embedded into an official build. The gate fails with `release.format_version_mismatch` when the file differs from the code, so a schema change must update this file in the same change. |
 | `check-build-kind.mjs` | Reads the build info embedded in the newest launcher build and checks its kind and commit. |
 | `dry-run.mjs` | Local simulation of the gate and the packaging on the current OS. Never official. |
 | `lint-workflow.mjs` | Policy lint for the workflow: SHA pins with version comments, no TODO markers, tag-only triggers, draft-only release creation. `--verify-remote` resolves every pinned tag with `git ls-remote`. |

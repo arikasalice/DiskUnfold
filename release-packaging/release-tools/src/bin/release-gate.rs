@@ -4,8 +4,9 @@
 //! prints `reason_key: detail` on stderr and exits with 1; a usage error exits with 2.
 use du_release_tools::{
     release_gate::{
-        GateFailure, check_commits, check_required_artifacts_scoped, check_signature_claims,
-        check_tag_version, merge_manifests, parse_format_versions, parse_release_tag,
+        FormatVersions, GateFailure, check_commits, check_format_versions,
+        check_required_artifacts_scoped, check_signature_claims, check_tag_version,
+        merge_manifests, parse_release_tag,
     },
     release_inventory::{Cpu, OsFamily, ReleaseManifest},
 };
@@ -13,7 +14,7 @@ use std::{collections::BTreeMap, env, error::Error, fs, path::PathBuf, process};
 
 const USAGE: &str = "usage:
   release-gate check-tag --tag T --workspace-version V --tag-commit C --checkout-commit C --event-commit C
-  release-gate read-formats --file FILE
+  release-gate read-formats [--file FILE]
   release-gate merge-manifests --out FILE NAME=DIRECTORY...
   release-gate check-release-set --manifest FILE --signing-applied true|false [--scope FAMILY:CPU,...]
   (scope entries: windows|ubuntu|macos : x64|arm64|universal; default is the full release set)";
@@ -132,8 +133,11 @@ fn run() -> Result<(), Failure> {
             println!("version={}", tag.version());
         }
         "read-formats" => {
-            let text = fs::read_to_string(require(&named, "file")?)?;
-            let formats = parse_format_versions(&text)?;
+            // With --file the recorded versions must equal the versions defined in code.
+            let formats = match named.get("file") {
+                Some(file) => check_format_versions(&fs::read_to_string(file)?)?,
+                None => FormatVersions::from_code(),
+            };
             println!("DU_APP_DB_FORMAT={}", formats.app_db);
             println!("DU_SNAPSHOT_FORMAT={}", formats.snapshot);
         }

@@ -283,7 +283,57 @@ fn unsigned_run_rejects_signature_claims() -> TestResult {
         check_signature_claims(&set, true)?;
     }
     check_signature_claims(&full_set(SignatureMethod::Unsigned)?, false)?;
-    check_signature_claims(&full_set(SignatureMethod::HardenedRuntimeAdHoc)?, false)?;
+    Ok(())
+}
+
+#[test]
+fn ad_hoc_signature_is_accepted_only_on_macos_rows() -> TestResult {
+    let mut set = full_set(SignatureMethod::Unsigned)?;
+    for row in &mut set.rows {
+        if row.os.family == OsFamily::Macos {
+            row.signature = SignatureMethod::HardenedRuntimeAdHoc;
+        }
+    }
+    check_signature_claims(&set, false)?;
+    for row in &mut set.rows {
+        if row.os.family == OsFamily::Windows {
+            row.signature = SignatureMethod::HardenedRuntimeAdHoc;
+        }
+    }
+    let failure = check_signature_claims(&set, false)
+        .err()
+        .ok_or("accepted")?;
+    assert_eq!(failure.reason_key, SIGNATURE_UNVERIFIED);
+    Ok(())
+}
+
+const RECORDED_FORMATS: &str = include_str!("../../../release/format-versions.json");
+
+#[test]
+fn recorded_format_versions_equal_the_versions_defined_in_code() -> TestResult {
+    let recorded = check_format_versions(RECORDED_FORMATS)?;
+    assert_eq!(recorded, FormatVersions::from_code());
+    assert_eq!(recorded.app_db, du_app_db::HISTORY_SCHEMA_VERSION);
+    assert_eq!(
+        recorded.snapshot,
+        u32::from(du_snapshot_store::envelope::DUSNAP_FORMAT_VERSION)
+    );
+    Ok(())
+}
+
+#[test]
+fn a_recorded_version_that_differs_from_code_is_rejected() -> TestResult {
+    let defined = FormatVersions::from_code();
+    let stale = format!(
+        r#"{{"appDbFormat": {}, "snapshotFormat": {}}}"#,
+        defined.app_db + 1,
+        defined.snapshot
+    );
+    let failure = check_format_versions(&stale).err().ok_or("accepted")?;
+    assert_eq!(failure.reason_key, FORMAT_VERSION_MISMATCH);
+    let unset = r#"{"appDbFormat": null, "snapshotFormat": null}"#;
+    let failure = check_format_versions(unset).err().ok_or("accepted")?;
+    assert_eq!(failure.reason_key, FORMAT_VERSION_MISSING);
     Ok(())
 }
 
