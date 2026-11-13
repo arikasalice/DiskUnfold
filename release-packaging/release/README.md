@@ -16,7 +16,7 @@ Gate commands live in `release-packaging/release-tools` (`release-gate`, `build-
 
 | Job | Requirement | What it does |
 | --- | --- | --- |
-| `gate` | FR5.HD1, NFR2.HD1 | Tag format, tag version equals workspace version, tag commit equals checkout and event commit, data format versions, reviewed Debian copyright, `build-product-resources --release` (notices, support table, every security basis confirmed). Only a passing tag push yields `official=true`. |
+| `gate` | FR5.HD1, NFR2.HD1 | Tag format, tag version equals workspace version, tag commit equals checkout and event commit, data format versions, reviewed Debian copyright (non-empty, no fixture wording, and a `debian-copyright.reviewed` record with the file's sha256 and a reviewer), `build-product-resources --release` (notices, support table, every security basis confirmed). Only a passing tag push yields `official=true`. |
 | `build` | NFR1.HD1, FR9.HD1 | Native build per runner: Windows x64 and arm64, Ubuntu 24.04 x64 and arm64, macOS arm64 and x86_64. Checks the Rust host against the cell, checks the embedded build kind, packages Windows (portable EXE, MSIX) and Linux (deb, tar.gz), records the combination. |
 | `package-dmg` | FR9.HD1 | Joins the macOS slices with `lipo` and builds the DMG. |
 | `inventory` | FR1.HD1, FR2.HD1 | Merges manifests, checks the release set and signature claims, builds `SHA256SUMS`, `EXECUTABLE-SHA256.json`, `DISTRIBUTION.md`, rehashes the assets. |

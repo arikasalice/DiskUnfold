@@ -116,9 +116,13 @@ gateCheck("build-product-resources --release (notices, support table, every secu
 
 const debianCopyright = path.join(root, "release-packaging", "linux", "debian-copyright");
 const copyrightPresent = existsSync(debianCopyright) && statSync(debianCopyright).size > 0;
+const copyrightReview = `${debianCopyright}.reviewed`;
+const reviewRecord = existsSync(copyrightReview) ? readFileSync(copyrightReview, "utf8").split("\n") : [];
+const copyrightDigest = copyrightPresent ? createHash("sha256").update(readFileSync(debianCopyright)).digest("hex") : "";
+const copyrightReviewed = copyrightPresent && reviewRecord.includes(`sha256: ${copyrightDigest}`) && reviewRecord.some((line) => /^reviewer: \S/.test(line));
 if (process.platform === "linux") {
-  gatePassed &&= copyrightPresent;
-  gateCheck("reviewed Debian copyright file present", copyrightPresent, copyrightPresent ? "" : "release-packaging/linux/debian-copyright is missing");
+  gatePassed &&= copyrightReviewed;
+  gateCheck("reviewed Debian copyright file present", copyrightReviewed, copyrightReviewed ? "" : copyrightPresent ? "release-packaging/linux/debian-copyright.reviewed does not record the current sha256 and a reviewer" : "release-packaging/linux/debian-copyright is missing");
 }
 console.log(`\nThe real gate would ${gatePassed ? "PASS" : "FAIL"} on this tree. This dry run builds developer builds either way.\n`);
 

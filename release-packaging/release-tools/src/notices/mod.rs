@@ -62,6 +62,8 @@ pub struct NoticePackage {
     pub license: Option<String>,
     /// License texts found in the package.
     pub texts: Vec<LicenseText>,
+    /// Authors recorded in the package manifest, when present.
+    pub authors: Vec<String>,
 }
 
 /// Generated notices and the policy findings for them.
@@ -104,15 +106,15 @@ pub(crate) fn read_license_files(dir: &Path, extra: Option<&str>) -> Vec<License
     texts
 }
 
-/// Generates notices for the launcher from a repository checkout.
+/// Collects the third-party packages that ship in the launcher and its embedded
+/// web assets, sorted by ecosystem, name and version.
 ///
-/// Runs cargo metadata with the locked lockfile, reads gui-web/package-lock.json
-/// and the license policy in deny.toml. npm license texts come from an installed
-/// gui-web/node_modules tree when present; otherwise the SPDX expression stands in.
+/// Runs cargo metadata with the locked lockfile and reads gui-web/package-lock.json.
+/// npm license texts come from an installed gui-web/node_modules tree when present.
 ///
 /// # Errors
-/// Returns a message when cargo metadata, the lockfile or the policy cannot be read.
-pub fn generate(repo: &Path) -> Result<NoticeReport, String> {
+/// Returns a message when cargo metadata or the lockfile cannot be read.
+pub fn shipped_packages(repo: &Path) -> Result<Vec<NoticePackage>, String> {
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
     let output = Command::new(cargo)
         .current_dir(repo)
@@ -130,15 +132,27 @@ pub fn generate(repo: &Path) -> Result<NoticeReport, String> {
     let lock_text = fs::read_to_string(repo.join("gui-web/package-lock.json"))
         .map_err(|e| format!("read gui-web/package-lock.json: {e}"))?;
     let lock = serde_json::from_str(&lock_text).map_err(|e| format!("package-lock.json: {e}"))?;
-    let deny =
-        fs::read_to_string(repo.join("deny.toml")).map_err(|e| format!("read deny.toml: {e}"))?;
-    let policy = DenyPolicy::parse(&deny)?;
-
     let mut packages = cargo_packages(&metadata, "du-launcher")?;
     packages.extend(npm_packages(&lock, &repo.join("gui-web"))?);
     packages.sort_by(|a, b| {
         (a.ecosystem, &a.name, &a.version).cmp(&(b.ecosystem, &b.name, &b.version))
     });
+    Ok(packages)
+}
+
+/// Generates notices for the launcher from a repository checkout.
+///
+/// Reads the packages from [`shipped_packages`] and the license policy in
+/// deny.toml. The SPDX expression stands in for a license text that a package
+/// does not bundle.
+///
+/// # Errors
+/// Returns a message when cargo metadata, the lockfile or the policy cannot be read.
+pub fn generate(repo: &Path) -> Result<NoticeReport, String> {
+    let deny =
+        fs::read_to_string(repo.join("deny.toml")).map_err(|e| format!("read deny.toml: {e}"))?;
+    let policy = DenyPolicy::parse(&deny)?;
+    let packages = shipped_packages(repo)?;
     let violations = check_policy(&packages, &policy);
     Ok(NoticeReport {
         text: render_notices(&packages),

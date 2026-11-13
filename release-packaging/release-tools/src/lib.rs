@@ -6,6 +6,7 @@ pub mod release_gate;
 
 pub mod release_provenance;
 
+pub mod debian_copyright;
 pub mod license_policy;
 pub mod notices;
 pub mod product_resources;

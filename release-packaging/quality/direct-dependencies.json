@@ -514,7 +514,7 @@
     "license": "Apache-2.0",
     "role": "build",
     "distributed": false,
-    "reason": "Validate SPDX expressions and evaluate the license allowlists"
+    "reason": "Validate SPDX expressions, evaluate the license allowlists and supply canonical license texts for the generated Debian copyright file (text feature)"
   },
   {
     "ecosystem": "cargo",

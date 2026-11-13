@@ -68,6 +68,12 @@ pub fn cargo_packages(metadata: &Value, root_name: &str) -> Result<Vec<NoticePac
             version: package["version"].as_str().unwrap_or_default().to_owned(),
             license: package["license"].as_str().map(str::to_owned),
             texts: read_license_files(dir, package["license_file"].as_str()),
+            authors: package["authors"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|a| a.as_str().map(str::to_owned))
+                .collect(),
         });
     }
     Ok(result)

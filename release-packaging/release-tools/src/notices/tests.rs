@@ -17,6 +17,7 @@ fn package(name: &str, license: Option<&str>, text: Option<&str>) -> NoticePacka
             })
             .into_iter()
             .collect(),
+        authors: Vec::new(),
     }
 }
 
