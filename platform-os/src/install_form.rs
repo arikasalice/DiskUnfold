@@ -1,9 +1,10 @@
 //! Install-form detection from evidence the operating system keeps.
 //!
 //! Only forms that leave positive evidence are reported. Debian and MSIX leave
-//! OS records. The tar.gz and portable packages ship a one-line `install-form`
+//! OS records. The tar.gz, portable and MSI packages ship a one-line `install-form`
 //! marker next to the executable; it is read without following symbolic links,
-//! capped at [`MARKER_LIMIT`] bytes, and any problem yields `Unknown`.
+//! capped at [`MARKER_LIMIT`] bytes, and any problem yields `Unknown`. The MSI
+//! installs the marker with the executable, so uninstalling removes both.
 use du_core_contracts::{product_ipc::InstallForm, product_ports::InstallFormPort};
 #[cfg(any(target_os = "linux", target_os = "macos", windows, test))]
 use std::path::Path;
@@ -18,8 +19,8 @@ impl InstallFormPort for SystemInstallForm {
     }
 }
 
-/// A packaged process is an MSIX install; an unpackaged one is portable only
-/// when the marker beside the executable says so.
+/// A packaged process is an MSIX install; an unpackaged one is portable or an
+/// MSI install only when the marker beside the executable says so.
 #[cfg(windows)]
 fn detect() -> InstallForm {
     let identity = crate::windows_package_identity::has_package_identity();
@@ -88,7 +89,8 @@ pub(crate) fn read_marker(directory: &Path) -> Option<String> {
     Some(String::from_utf8(bytes).ok()?.trim().to_owned())
 }
 
-/// A packaged process is MSIX; otherwise the marker `portable` selects the portable form.
+/// A packaged process is MSIX; otherwise the marker `portable` selects the portable
+/// form and the marker `msi` the Windows Installer form.
 #[cfg(any(windows, test))]
 pub(crate) fn classify_windows(
     package_identity: Option<bool>,
@@ -97,6 +99,7 @@ pub(crate) fn classify_windows(
     match (package_identity, marker) {
         (Some(true), _) => InstallForm::Msix,
         (Some(false), Some("portable")) => InstallForm::Portable,
+        (Some(false), Some("msi")) => InstallForm::Msi,
         _ => InstallForm::Unknown,
     }
 }
@@ -180,6 +183,9 @@ mod tests {
             classify_windows(Some(false), Some("portable")),
             InstallForm::Portable
         );
+        assert_eq!(classify_windows(Some(false), Some("msi")), InstallForm::Msi);
+        assert_eq!(classify_windows(Some(true), Some("msi")), InstallForm::Msix);
+        assert_eq!(classify_windows(None, Some("msi")), InstallForm::Unknown);
         assert_eq!(
             classify_windows(Some(true), Some("portable")),
             InstallForm::Msix

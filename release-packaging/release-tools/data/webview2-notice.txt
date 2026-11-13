@@ -1,0 +1,27 @@
+Microsoft Edge WebView2 Runtime (Windows)
+
+DiskUnfold on Windows shows its window with the Microsoft Edge WebView2
+Runtime. The WebView2 Runtime is not part of DiskUnfold and is governed by the
+Microsoft Software License Terms for the Microsoft Edge WebView2 Runtime, which
+are reproduced below. DiskUnfold is not made, endorsed or supported by
+Microsoft.
+
+The DiskUnfold MSI for Windows contains the unmodified Evergreen Standalone
+Installer for the WebView2 Runtime, as obtained from Microsoft. The MSI runs it
+silently during installation only when no WebView2 Runtime is found, and the
+installer is never offered on its own. The other DiskUnfold packages do not
+contain the installer. Use of the WebView2 Runtime is subject to the license
+terms below.
+
+Notice about Microsoft Defender SmartScreen: the WebView2 Runtime includes
+Microsoft Defender SmartScreen, which is enabled by default. SmartScreen
+collects and sends the user's information to Microsoft as disclosed in
+Microsoft's Privacy Statement at https://aka.ms/privacy and in the Microsoft
+Edge Privacy Whitepaper at
+https://learn.microsoft.com/en-us/microsoft-edge/privacy-whitepaper#smartscreen.
+The WebView2 Runtime may also check for updates, and download and install
+them, as described in the license terms below.
+
+The license terms below are reproduced from the text published for the
+Microsoft Edge WebView2 Runtime. The terms shown on Microsoft's download page
+(https://developer.microsoft.com/microsoft-edge/webview2) are authoritative.

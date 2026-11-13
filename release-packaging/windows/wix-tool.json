@@ -1,0 +1,8 @@
+{
+  "tool": "wix",
+  "version": "6.0.2",
+  "nupkg_url": "https://api.nuget.org/v3-flatcontainer/wix/6.0.2/wix.6.0.2.nupkg",
+  "nupkg_sha256": "13caed0aa86898c9952eb8ba82c6ac6b43d1575bb731ac848e5edf5490a10428",
+  "license": "MS-RL",
+  "note": "WiX Toolset 6.0.2, the last 6.x release; WiX 7 is under the OSMF EULA. WiX is an authoring tool and nothing from it ships inside the MSI."
+}

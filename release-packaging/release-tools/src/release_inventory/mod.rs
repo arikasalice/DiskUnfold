@@ -9,7 +9,7 @@ mod validation;
 pub use model::*;
 pub use os_range::{OsFamily, OsRange, OsVersion, OsVersionParseError, OsVersionScope};
 pub use render::{render_checksums, render_executable_checksums, render_json, render_markdown};
-pub use validation::{prepare_inventory, validate_and_sort};
+pub use validation::{WEBVIEW2_COMPONENT, prepare_inventory, validate_and_sort};
 
 impl ReleaseInventory {
     /// Attaches the fuzz gate record that the JSON and Markdown outputs publish.

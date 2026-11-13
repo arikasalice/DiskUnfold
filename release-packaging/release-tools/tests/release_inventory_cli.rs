@@ -20,6 +20,16 @@ fn sha256(bytes: &[u8]) -> String {
     output
 }
 
+fn webview2_component() -> Value {
+    json!({
+        "name": "Microsoft Edge WebView2 Runtime Evergreen Standalone Installer",
+        "version": "1.3.315.17",
+        "sha256": sha256(b"webview2 fixture"),
+        "signer": "CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US",
+        "source": "https://go.microsoft.com/fwlink/?linkid=2124701"
+    })
+}
+
 fn write_manifest(root: &Path, bad_package_digest: bool) -> Result<(), Box<dyn Error>> {
     let package = b"synthetic package fixture";
     let executable = b"synthetic executable fixture";
@@ -45,7 +55,8 @@ fn write_manifest(root: &Path, bad_package_digest: bool) -> Result<(), Box<dyn E
             "sha256": package_digest,
             "executable_file_name": "DiskUnfold.exe",
             "executable_sha256": sha256(executable),
-            "run_instructions": "Install the package, then launch DiskUnfold."
+            "run_instructions": "Install the package, then launch DiskUnfold.",
+            "bundled_components": [webview2_component()]
         }],
         "channel_references": [{
             "channel": "winget",
@@ -99,7 +110,8 @@ fn write_multi_distribution_manifest(root: &Path) -> Result<(), Box<dyn Error>> 
                 "sha256": sha256(b"windows package fixture"),
                 "executable_file_name": "DiskUnfold.exe",
                 "executable_sha256": sha256(windows_executable),
-                "run_instructions": "Install the MSI, then launch DiskUnfold."
+                "run_instructions": "Install the MSI, then launch DiskUnfold.",
+                "bundled_components": [webview2_component()]
             },
             {
                 "file_name": macos_package,

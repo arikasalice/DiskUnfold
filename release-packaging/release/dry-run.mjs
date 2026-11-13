@@ -227,6 +227,19 @@ if (process.platform === "win32") {
     record(`package ${format}`, result.status === 0, result.status === 0 ? "" : (result.stderr || result.stdout).trim().split("\n").slice(-3).join(" | "));
     if (result.status === 0) parts.push(name);
   }
+  // The MSI needs the pinned WiX (install-wix.ps1; DU_WIX_PATH) and Microsoft's WebView2 standalone
+  // installer (fetch-webview2.ps1; DU_WEBVIEW2_INSTALLER). Without them the step fails and says why.
+  const installer = process.env.DU_WEBVIEW2_INSTALLER;
+  if (!installer || !process.env.DU_WIX_PATH) {
+    record("package msi", false, "set DU_WIX_PATH (install-wix.ps1) and DU_WEBVIEW2_INSTALLER (fetch-webview2.ps1)");
+  } else {
+    const name = `windows-${architecture}-msi`;
+    const result = run(powerShell(), ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path.join(root, "release-packaging", "windows", "package-windows-msi.ps1"),
+      "-BinaryPath", binary, "-Version", version, "-Architecture", architecture, "-NoticesPath", notices, "-WebView2InstallerPath", installer,
+      "-IconPath", path.join(root, "app-host", "icons", "icon.ico"), "-OutputDirectory", path.join(stage, name)]);
+    record("package msi", result.status === 0, result.status === 0 ? "" : (result.stderr || result.stdout).trim().split("\n").slice(-3).join(" | "));
+    if (result.status === 0) parts.push(name);
+  }
 } else if (process.platform === "linux") {
   const cpu = process.arch === "arm64" ? "arm64" : "x64";
   const fixture = path.join(outDir, "debian-copyright.dry-run");

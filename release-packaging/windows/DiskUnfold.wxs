@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  DiskUnfold Windows Installer package (F15 FR9.HD1, install form msi).
+
+  Per-user install under %LOCALAPPDATA%\Programs\DiskUnfold. No elevation, no UI extension and no
+  WiX extension, so building it needs only wix.exe. The package installs diskunfold.exe, LICENSE,
+  THIRD-PARTY-NOTICES.txt, WEBVIEW2-NOTICE.txt and the one-line install-form marker, and adds the
+  install folder to the user PATH (the msi CLI entry path, FR9.HD1). Uninstall removes those and
+  leaves the user's data folder alone.
+
+  The package carries the Microsoft Edge WebView2 Evergreen Standalone Installer unmodified, in
+  the Binary table. A deferred custom action runs it with /silent /install, and only when neither
+  per-machine nor per-user registry key (Microsoft's documented check) names a WebView2 Runtime
+  version. Variables, all passed by package-windows-msi.ps1: Version, ExePath, LicensePath,
+  NoticesPath, WebView2NoticePath, InstallFormPath, IconPath, WebView2Path. WebView2ClientKey is
+  only overridden by the installer test, which points the probe at a key that does not exist.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <?ifndef WebView2ClientKey?>
+  <?define WebView2ClientKey="{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"?>
+  <?endif?>
+
+  <Package Name="DiskUnfold" Manufacturer="DiskUnfold" Version="$(Version)"
+           UpgradeCode="6f3a7b1e-2c1d-4a8e-9b53-5d0c8e41f7a2" Scope="perUser"
+           Language="1033" InstallerVersion="500" Compressed="yes">
+    <SummaryInformation Description="DiskUnfold installer" Manufacturer="DiskUnfold" />
+    <MajorUpgrade DowngradeErrorMessage="A newer version of DiskUnfold is already installed." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <Icon Id="DiskUnfoldIcon" SourceFile="$(IconPath)" />
+    <Property Id="ARPPRODUCTICON" Value="DiskUnfoldIcon" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/arikasalice/DiskUnfold" />
+
+    <!-- WebView2 Runtime detection: the pv value of the per-machine key (64-bit Windows keeps it
+         under WOW6432Node) and of the per-user key. Absent, empty and 0.0.0.0 mean not installed. -->
+    <Property Id="WEBVIEW2_PV_MACHINE">
+      <RegistrySearch Id="WebView2Machine" Root="HKLM" Bitness="always64" Type="raw" Name="pv"
+                      Key="SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\$(WebView2ClientKey)" />
+    </Property>
+    <Property Id="WEBVIEW2_PV_USER">
+      <RegistrySearch Id="WebView2User" Root="HKCU" Bitness="always64" Type="raw" Name="pv"
+                      Key="Software\Microsoft\EdgeUpdate\Clients\$(WebView2ClientKey)" />
+    </Property>
+
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="ProgramsFolder" Name="Programs">
+        <Directory Id="INSTALLFOLDER" Name="DiskUnfold" />
+      </Directory>
+    </StandardDirectory>
+
+    <!-- A per-user component needs an HKCU key path (ICE38), so the files hang off this value. -->
+    <Component Id="ProductComponent" Directory="INSTALLFOLDER" Guid="3d1f0c52-8a47-4b6e-a0c9-7e2b9d64c815">
+      <RegistryValue Root="HKCU" Key="Software\DiskUnfold\Installer" Name="InstallFolder"
+                     Type="string" Value="[INSTALLFOLDER]" KeyPath="yes" />
+      <File Id="DiskUnfoldExe" Name="diskunfold.exe" Source="$(ExePath)" />
+      <File Id="LicenseFile" Name="LICENSE" Source="$(LicensePath)" />
+      <File Id="NoticesFile" Name="THIRD-PARTY-NOTICES.txt" Source="$(NoticesPath)" />
+      <File Id="WebView2NoticeFile" Name="WEBVIEW2-NOTICE.txt" Source="$(WebView2NoticePath)" />
+      <File Id="InstallFormFile" Name="install-form" Source="$(InstallFormPath)" />
+      <Environment Id="UserPath" Name="PATH" Value="[INSTALLFOLDER]" Part="last" Action="set" System="no" />
+      <RemoveFolder Id="RemoveInstallFolder" Directory="INSTALLFOLDER" On="uninstall" />
+    </Component>
+
+    <Feature Id="Main" Title="DiskUnfold" Level="1">
+      <ComponentRef Id="ProductComponent" />
+    </Feature>
+
+    <Binary Id="WebView2Installer" SourceFile="$(WebView2Path)" />
+    <CustomAction Id="InstallWebView2" BinaryRef="WebView2Installer" ExeCommand="/silent /install"
+                  Execute="deferred" Impersonate="yes" Return="check" />
+
+    <InstallExecuteSequence>
+      <Custom Action="InstallWebView2" Before="InstallFinalize"
+              Condition="NOT (REMOVE~=&quot;ALL&quot;) AND (WEBVIEW2_PV_MACHINE=&quot;&quot; OR WEBVIEW2_PV_MACHINE=&quot;0.0.0.0&quot;) AND (WEBVIEW2_PV_USER=&quot;&quot; OR WEBVIEW2_PV_USER=&quot;0.0.0.0&quot;)" />
+    </InstallExecuteSequence>
+  </Package>
+</Wix>

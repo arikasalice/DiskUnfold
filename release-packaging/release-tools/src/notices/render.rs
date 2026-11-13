@@ -6,6 +6,10 @@ use sha2::{Digest, Sha256};
 
 use super::NoticePackage;
 
+/// The WebView2 section: DiskUnfold's own notice, then Microsoft's license terms.
+const WEBVIEW2_NOTICE: &str = include_str!("../../data/webview2-notice.txt");
+const WEBVIEW2_LICENSE: &str = include_str!("../../data/webview2-license.txt");
+
 fn normalize(text: &str) -> String {
     let lines: Vec<&str> = text.lines().map(str::trim_end).collect();
     let mut joined = lines.join("\n");
@@ -19,6 +23,16 @@ fn digest(text: &str) -> String {
         .iter()
         .map(|b| format!("{b:02x}"))
         .collect()
+}
+
+/// Renders the Windows WebView2 section that closes THIRD-PARTY-NOTICES: the Microsoft Edge
+/// WebView2 Runtime is governed by Microsoft's license, and the SmartScreen notice that the
+/// license requires. The text is the same for every package so the file stays byte-identical.
+fn render_webview2_section(out: &mut String) {
+    let _ = writeln!(out, "\n{}\nWebView2 Runtime (Windows)\n", "=".repeat(72));
+    out.push_str(&normalize(WEBVIEW2_NOTICE));
+    out.push('\n');
+    out.push_str(&normalize(WEBVIEW2_LICENSE));
 }
 
 /// Renders the package list followed by each distinct license text once.
@@ -89,5 +103,6 @@ pub fn render_notices(packages: &[NoticePackage]) -> String {
         out.push('\n');
         out.push_str(text);
     }
+    render_webview2_section(&mut out);
     out
 }
