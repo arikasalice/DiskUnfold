@@ -43,11 +43,12 @@ fn startup_full_disk_access_observation_is_conservative() {
 }
 
 #[test]
-fn startup_webview_preflight_does_not_infer_runtime_usability() {
+fn startup_webview_preflight_reports_only_observed_runtime_evidence() {
     let system = SystemStartupCapabilities;
 
-    // Windows reads the registered WebView2 runtime; every other platform
-    // keeps the compiled adapter from implying a usable session.
+    // Windows reads the registered WebView2 runtime. Linux and macOS read the
+    // version their linked WebKit reports, which a running test binary proves is
+    // loaded. Any other platform keeps a compiled adapter from implying a session.
     #[cfg(all(feature = "webview", windows))]
     assert_ne!(
         system.webview_availability(),
@@ -55,7 +56,17 @@ fn startup_webview_preflight_does_not_infer_runtime_usability() {
         "a host that can run this test either registers or lacks the runtime"
     );
 
-    #[cfg(all(feature = "webview", not(windows)))]
+    #[cfg(all(feature = "webview", any(target_os = "linux", target_os = "macos")))]
+    assert_eq!(
+        system.webview_availability(),
+        WebViewAvailability::Available,
+        "the linked WebKit reports its own version"
+    );
+
+    #[cfg(all(
+        feature = "webview",
+        not(any(windows, target_os = "linux", target_os = "macos"))
+    ))]
     assert_eq!(system.webview_availability(), WebViewAvailability::Unknown);
 
     #[cfg(not(feature = "webview"))]

@@ -14,6 +14,7 @@ mod linux;
 #[cfg(all(target_os = "macos", feature = "webview"))]
 mod macos;
 #[cfg(all(target_os = "macos", feature = "webview"))]
+#[allow(unsafe_code)]
 mod webkit_framework;
 #[cfg(all(target_os = "linux", feature = "webview"))]
 #[allow(unsafe_code)]

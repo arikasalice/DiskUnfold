@@ -8,7 +8,9 @@ use objc2_web_kit::WKWebView;
 /// The bundle is the one that defines `WKWebView`, so the value describes the
 /// framework this process uses and not a path guessed from the OS layout.
 pub(super) fn framework_version() -> Option<String> {
-    let bundle = NSBundle::bundleForClass(WKWebView::class());
+    // SAFETY: `WKWebView::class()` is a live class object, so `bundleForClass:`
+    // returns the bundle that defines it; the call reads no caller memory.
+    let bundle = unsafe { NSBundle::bundleForClass(WKWebView::class()) };
     ["CFBundleVersion", "CFBundleShortVersionString"]
         .into_iter()
         .find_map(|key| {
