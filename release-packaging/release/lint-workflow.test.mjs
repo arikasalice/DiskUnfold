@@ -26,7 +26,7 @@ test("a short or uppercase SHA is rejected", () => {
 });
 
 test("a pinned action without a version comment is rejected", () => {
-  const problems = lintWorkflow(workflow.replace(/(actions\/checkout@[0-9a-f]{40}) # v4.2.2/, "$1"));
+  const problems = lintWorkflow(workflow.replace(/(actions\/checkout@[0-9a-f]{40}) # v7.0.1/, "$1"));
   assert.ok(problems.some((p) => p.includes("version comment")));
 });
 
