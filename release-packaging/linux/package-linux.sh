@@ -10,8 +10,11 @@ usage() {
     cat <<'USAGE'
 Usage:
   package-linux.sh --binary PATH --version X.Y.Z --cpu x64|arm64 \
-    --maintainer "Name <email>" --notices PATH --debian-copyright PATH \
+    [--maintainer "Name <email>"] --notices PATH --debian-copyright PATH \
     --output-dir NEW_DIR
+
+--maintainer defaults to the project value DiskUnfold Maintainers
+<arikasalice@gmail.com>.
 
 Creates one Debian package and one tar.gz for the native Ubuntu runner. The
 output directory must not exist. The tar.gz contains exactly the executable,
@@ -28,7 +31,7 @@ USAGE
 binary=''
 version=''
 cpu=''
-maintainer=''
+maintainer='DiskUnfold Maintainers <arikasalice@gmail.com>'
 notices=''
 debian_copyright=''
 output_dir=''
@@ -59,7 +62,7 @@ done
 
 [[ -n "$binary" && -n "$version" && -n "$cpu" && -n "$maintainer" && -n "$notices" && -n "$debian_copyright" && -n "$output_dir" ]] || {
     usage >&2
-    fail 'all seven options are required'
+    fail 'all options except --maintainer are required'
 }
 [[ "$version" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]] || fail 'version must be numeric, such as 0.1.0'
 [[ "$maintainer" != *$'\n'* && "$maintainer" != *$'\r'* ]] || fail 'maintainer must fit on one control-file line'

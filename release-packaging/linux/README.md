@@ -35,14 +35,15 @@ the format, source, and contact fields and copies the supplied bytes to
 `/usr/share/doc/diskunfold/copyright`; it does not infer or validate the complete
 copyright inventory. The test fixture is incomplete and must never be published.
 
-Pass a project-selected Debian maintainer value. For example, the syntax is
-Name <email>; the packager does not invent project contact information.
+The Debian maintainer defaults to the project value
+DiskUnfold Maintainers <arikasalice@gmail.com>. Pass --maintainer with the form
+Name <email> only to override it. Use the same contact in the Debian copyright
+file's Upstream-Contact field.
 
     bash release-packaging/linux/package-linux.sh \
       --binary target/x86_64-unknown-linux-gnu/release/diskunfold \
       --version 0.1.0 \
       --cpu x64 \
-      --maintainer "Project Maintainer <maintainer@example.org>" \
       --notices /path/to/verified/THIRD-PARTY-NOTICES.txt \
       --debian-copyright /path/to/verified/debian-copyright.txt \
       --output-dir /path/to/new/linux-release

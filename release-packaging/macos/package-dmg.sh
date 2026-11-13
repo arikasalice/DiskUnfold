@@ -4,8 +4,9 @@ set -euo pipefail
 
 usage() {
     cat <<'USAGE'
-Usage: package-dmg.sh --binary PATH --version X.Y.Z --bundle-id REVERSE_DNS --notices PATH --output-dir NEW_DIR
+Usage: package-dmg.sh --binary PATH --version X.Y.Z [--bundle-id REVERSE_DNS] --notices PATH --output-dir NEW_DIR
 
+--bundle-id defaults to the project identifier com.diskunfold.app.
 The output directory must not exist. The DMG contains the app, repository
 LICENSE, and the explicitly supplied THIRD-PARTY-NOTICES file. The output also
 contains a one-row release-tools manifest.json and the signed executable staged
@@ -22,7 +23,7 @@ fail() {
 
 binary=''
 version=''
-bundle_id=''
+bundle_id='com.diskunfold.app'
 notices=''
 output_dir=''
 while (($#)); do
@@ -50,11 +51,11 @@ done
 
 [[ -n "$binary" && -n "$version" && -n "$bundle_id" && -n "$notices" && -n "$output_dir" ]] || {
     usage >&2
-    fail 'all five options are required'
+    fail '--binary, --version, --notices and --output-dir are required'
 }
 [[ "$version" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]] || fail 'version must be numeric, such as 0.1.0'
 [[ "$bundle_id" =~ ^[A-Za-z][A-Za-z0-9-]*(\.[A-Za-z][A-Za-z0-9-]*)+$ ]] || \
-    fail 'bundle identifier must be reverse-DNS text; use the project-confirmed identifier'
+    fail 'bundle identifier must be reverse-DNS text; the project identifier is com.diskunfold.app'
 [[ "$binary" == /* ]] || binary="$PWD/$binary"
 [[ "$notices" == /* ]] || notices="$PWD/$notices"
 [[ "$output_dir" == /* ]] || output_dir="$PWD/$output_dir"

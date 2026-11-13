@@ -77,7 +77,7 @@ notices="$test_root/THIRD-PARTY-NOTICES.fixture.txt"
 cat > "$test_root/copyright.fixture.txt" <<'COPYRIGHT'
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: DiskUnfold
-Upstream-Contact: DiskUnfold packaging test <test@example.invalid>
+Upstream-Contact: DiskUnfold Maintainers <arikasalice@gmail.com>
 Source: https://example.invalid/DiskUnfold
 Files: *
 Copyright: TEST FIXTURE ONLY
@@ -96,10 +96,10 @@ if [[ "$cpu" == x64 ]]; then
 else
     other_cpu=x64
 fi
-maintainer='DiskUnfold packaging test <test@example.invalid>'
+maintainer='DiskUnfold Maintainers <arikasalice@gmail.com>'
 
 "$package_script" --binary "$binary" --version 0.1.0 --cpu "$cpu" \
-    --maintainer "$maintainer" --notices "$notices" \
+    --notices "$notices" \
     --debian-copyright "$debian_copyright" --output-dir "$output"
 
 deb_name="DiskUnfold_0.1.0_${cpu}.deb"

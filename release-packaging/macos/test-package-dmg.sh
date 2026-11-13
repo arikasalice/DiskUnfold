@@ -201,7 +201,7 @@ notices_path="$test_root/THIRD-PARTY-NOTICES.fixture.txt"
 
 package_dir="$test_root/package"
 "$package_script" --binary "$test_root/diskunfold-universal" --version 0.1.0 \
-    --bundle-id org.example.diskunfold.packagingtest --notices "$notices_path" --output-dir "$package_dir"
+    --notices "$notices_path" --output-dir "$package_dir"
 dmg="$package_dir/DiskUnfold-0.1.0-universal.dmg"
 manifest="$package_dir/manifest.json"
 [[ -f "$dmg" && -f "$manifest" && -x "$package_dir/unpacked/macos-universal/diskunfold" ]]
@@ -252,7 +252,7 @@ app="$mount_path/DiskUnfold.app"
 cmp -s "$license_path" "$mount_path/LICENSE"
 cmp -s "$notices_path" "$mount_path/THIRD-PARTY-NOTICES.txt"
 plutil -lint "$app/Contents/Info.plist" >/dev/null
-[[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")" == org.example.diskunfold.packagingtest ]]
+[[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")" == com.diskunfold.app ]]
 [[ "$(lipo -archs "$app/Contents/MacOS/diskunfold" | tr ' ' '\n' | LC_ALL=C sort | paste -sd ' ' -)" == 'arm64 x86_64' ]]
 codesign --verify --all-architectures --deep --strict "$app"
 signature=$(codesign --display --verbose=4 "$app" 2>&1)
@@ -266,7 +266,7 @@ mount_image=''
 
 before=$(shasum -a 256 "$dmg" | awk '{print $1}')
 if "$package_script" --binary "$test_root/diskunfold-universal" --version 0.1.0 \
-    --bundle-id org.example.diskunfold.packagingtest --notices "$notices_path" --output-dir "$package_dir" >/dev/null 2>&1; then
+    --bundle-id com.diskunfold.app --notices "$notices_path" --output-dir "$package_dir" >/dev/null 2>&1; then
     printf 'test-package-dmg: existing output directory was accepted\n' >&2
     exit 1
 fi
@@ -275,7 +275,7 @@ after=$(shasum -a 256 "$dmg" | awk '{print $1}')
 
 thin_dir="$test_root/thin-package"
 if "$package_script" --binary "$test_root/diskunfold-arm64" --version 0.1.0 \
-    --bundle-id org.example.diskunfold.packagingtest --notices "$notices_path" --output-dir "$thin_dir" >/dev/null 2>&1; then
+    --bundle-id com.diskunfold.app --notices "$notices_path" --output-dir "$thin_dir" >/dev/null 2>&1; then
     printf 'test-package-dmg: thin binary was accepted\n' >&2
     exit 1
 fi
@@ -283,7 +283,7 @@ fi
 
 ln -s "$test_root/diskunfold-universal" "$test_root/binary-link"
 if "$package_script" --binary "$test_root/binary-link" --version 0.1.0 \
-    --bundle-id org.example.diskunfold.packagingtest --notices "$notices_path" --output-dir "$test_root/binary-link-package" >/dev/null 2>&1; then
+    --bundle-id com.diskunfold.app --notices "$notices_path" --output-dir "$test_root/binary-link-package" >/dev/null 2>&1; then
     printf 'test-package-dmg: binary symlink was accepted\n' >&2
     exit 1
 fi
@@ -291,7 +291,7 @@ fi
 
 ln -s "$notices_path" "$test_root/notices-link"
 if "$package_script" --binary "$test_root/diskunfold-universal" --version 0.1.0 \
-    --bundle-id org.example.diskunfold.packagingtest --notices "$test_root/notices-link" \
+    --bundle-id com.diskunfold.app --notices "$test_root/notices-link" \
     --output-dir "$test_root/notices-link-package" >/dev/null 2>&1; then
     printf 'test-package-dmg: notices symlink was accepted\n' >&2
     exit 1
@@ -300,7 +300,7 @@ fi
 
 : > "$test_root/empty-notices.txt"
 if "$package_script" --binary "$test_root/diskunfold-universal" --version 0.1.0 \
-    --bundle-id org.example.diskunfold.packagingtest --notices "$test_root/empty-notices.txt" \
+    --bundle-id com.diskunfold.app --notices "$test_root/empty-notices.txt" \
     --output-dir "$test_root/empty-notices-package" >/dev/null 2>&1; then
     printf 'test-package-dmg: empty notices input was accepted\n' >&2
     exit 1
@@ -311,7 +311,7 @@ mkdir "$test_root/output-link-target"
 printf 'preserve this file\n' > "$test_root/output-link-target/sentinel.txt"
 ln -s "$test_root/output-link-target" "$test_root/output-link"
 if "$package_script" --binary "$test_root/diskunfold-universal" --version 0.1.0 \
-    --bundle-id org.example.diskunfold.packagingtest --notices "$notices_path" \
+    --bundle-id com.diskunfold.app --notices "$notices_path" \
     --output-dir "$test_root/output-link" >/dev/null 2>&1; then
     printf 'test-package-dmg: output symlink was accepted\n' >&2
     exit 1
@@ -334,7 +334,7 @@ attach_failure_dir="$test_root/attach-failure-package"
 attach_log="$test_root/attach-failure.log"
 if REAL_HDIUTIL="$real_hdiutil" PATH="$wrapper_dir:$PATH" "$package_script" \
     --binary "$test_root/diskunfold-universal" --version 0.1.0 \
-    --bundle-id org.example.diskunfold.packagingtest --notices "$notices_path" \
+    --bundle-id com.diskunfold.app --notices "$notices_path" \
     --output-dir "$attach_failure_dir" >"$attach_log" 2>&1; then
     printf 'test-package-dmg: attach failure injection unexpectedly succeeded\n' >&2
     exit 1
@@ -382,7 +382,7 @@ alternate_output="$test_root/alternate-mount-package"
 alternate_log="$test_root/alternate-mount.log"
 if ALT_MOUNT="$alternate_mount" REAL_HDIUTIL="$real_hdiutil" PATH="$alternate_wrapper_dir:$PATH" \
     "$package_script" --binary "$test_root/diskunfold-universal" --version 0.1.0 \
-    --bundle-id org.example.diskunfold.packagingtest --notices "$notices_path" \
+    --bundle-id com.diskunfold.app --notices "$notices_path" \
     --output-dir "$alternate_output" >"$alternate_log" 2>&1; then
     printf 'test-package-dmg: unexpected-mountpoint injection unexpectedly succeeded\n' >&2
     exit 1
@@ -433,7 +433,7 @@ race_log="$test_root/race-publish.log"
 if TEST_ROOT="$test_root" RACE_OUTPUT="$race_output" REAL_PYTHON3="$real_python3" \
     PATH="$race_wrapper_dir:$PATH" "$package_script" \
     --binary "$test_root/diskunfold-universal" --version 0.1.0 \
-    --bundle-id org.example.diskunfold.packagingtest --notices "$notices_path" \
+    --bundle-id com.diskunfold.app --notices "$notices_path" \
     --output-dir "$race_output" >"$race_log" 2>&1; then
     printf 'test-package-dmg: output race injection unexpectedly succeeded\n' >&2
     exit 1

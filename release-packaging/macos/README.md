@@ -10,7 +10,7 @@ All package contents are assembled under a private staging directory on the outp
 
 The manifest records the complete DMG SHA-256, packaged executable SHA-256, and signature scope. It does not create SLSA provenance, attest to a publisher identity, notarize, publish, build the executable, or install the app. No notarization is required by the 0.1 architecture design. Repeated `hdiutil` runs produced different DMG bytes in native verification, so the manifest hashes each exact image and this foundation does not claim bit-for-bit disk-image reproducibility.
 
-Pass `--bundle-id` explicitly. The published architecture HLD requires a reverse-DNS bundle identifier to be selected and kept stable, but does not specify its value. The packaging test uses `org.example.diskunfold.packagingtest` only as a test placeholder.
+The bundle identifier is `com.diskunfold.app` (project decision; the published HLD requires a stable reverse-DNS value but does not name it). `--bundle-id` is optional and only overrides it. Keep the identifier stable between releases. The app is an unsigned development build: ad-hoc signed, not notarized, no Developer ID.
 
 Run `test-package-dmg.sh` on macOS to compile thin test binaries for both architectures, assemble a universal fixture, create and verify the DMG, inspect the manifest, check the app signature and metadata, verify both license files, and exercise collision, symlink, thin-binary, attach-after-mount failure, and destination-race handling. On Apple Silicon, the x86_64 test slice is cross-compiled; this does not establish Intel-native execution. The test does not launch the GUI. A generated manifest can be checked by the real consumer with `du-release-tools build-release-inventory` against a staged package directory.
 
