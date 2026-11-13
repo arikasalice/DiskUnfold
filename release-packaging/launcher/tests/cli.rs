@@ -1,6 +1,8 @@
+#[cfg(any(windows, target_os = "linux"))]
+use std::fs;
+use std::io;
 #[cfg(windows)]
 use std::io::Read;
-use std::{fs, io};
 
 mod support;
 #[cfg(windows)]
