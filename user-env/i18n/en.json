@@ -969,6 +969,7 @@
     ["ui.closing.leaving","Quitting without waiting. Jobs that have not finished are left unfinished and are not recorded as complete.",[]],
     ["ui.closing.already_closing","DiskUnfold is already closing.",[]],
     ["ui.closing.hint","Waiting lets running jobs finish and record their results.",[]],
+    ["ui.closing.progress_bar","Closing progress",[]],
     ["ui.product.intro","These details come from the DiskUnfold program you are running. DiskUnfold reads them from itself and does not contact any server.",[]],
     ["ui.product.loading","Loading product information",[]],
     ["ui.product.load_failed","Product information could not be read.",[]],

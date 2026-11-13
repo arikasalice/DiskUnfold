@@ -969,6 +969,7 @@
     ["ui.closing.leaving","기다리지 않고 끝내는 중입니다. 끝나지 않은 작업은 완료로 기록되지 않고 미완료로 남습니다.",[]],
     ["ui.closing.already_closing","이미 종료 중입니다.",[]],
     ["ui.closing.hint","기다리면 실행 중인 작업이 끝나고 결과가 기록됩니다.",[]],
+    ["ui.closing.progress_bar","종료 진행률",[]],
     ["ui.product.intro","이 정보는 실행 중인 DiskUnfold 프로그램에서 직접 읽은 값입니다. 서버에는 연결하지 않습니다.",[]],
     ["ui.product.loading","제품 정보를 불러오는 중",[]],
     ["ui.product.load_failed","제품 정보를 읽지 못했습니다.",[]],

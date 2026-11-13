@@ -46,6 +46,8 @@ export function ClosingGuard({
   const [pending, setPending] = useState(false);
   const [notice, setNotice] = useState<ClosingNotice | null>(null);
   const lastSequence = useRef(0);
+  const closed = useRef(false);
+  const inFlight = useRef(false);
 
   useEffect(
     () =>
@@ -59,6 +61,7 @@ export function ClosingGuard({
           setDialog({ intent: "close", changeCount: signal.changeCount });
           return;
         }
+        closed.current = signal.kind === "closed";
         setDialog((current) =>
           current?.intent === "leave" && signal.kind === "closing"
             ? current
@@ -75,6 +78,8 @@ export function ClosingGuard({
 
   const quit = useCallback(
     (mode: AppQuitMode, confirmed: boolean, changeCount: number) => {
+      if (inFlight.current) return;
+      inFlight.current = true;
       setPending(true);
       setNotice(null);
       client
@@ -84,6 +89,8 @@ export function ClosingGuard({
         )
         .then((response) => {
           if (response.outcome === "confirm_required") {
+            // A reply that arrives after the host closed has nothing to confirm.
+            if (closed.current) return;
             setDialog({
               intent: mode === "without_waiting" ? "leave" : "close",
               changeCount: response.inProgressChangeCount ?? changeCount,
@@ -110,11 +117,17 @@ export function ClosingGuard({
           ) {
             setDialog(null);
             setNotice("already_closing");
+            setClosing(
+              (current) => current ?? { phase: "access_closed", remaining: 0 },
+            );
           } else {
             setNotice("failed");
           }
         })
-        .finally(() => setPending(false));
+        .finally(() => {
+          inFlight.current = false;
+          setPending(false);
+        });
     },
     [client],
   );
@@ -138,18 +151,13 @@ export function ClosingGuard({
           phase={closing.phase}
           remaining={closing.remaining}
           leaving={leaving}
-          pending={pending}
           notice={showDialog ? null : notice}
           onQuitWithoutWaiting={() => quit("without_waiting", false, 0)}
         />
       )}
-      <div
-        className="du-closing-host"
-        inert={closing !== null}
-        aria-hidden={closing !== null ? true : undefined}
-      >
-        {children}
-      </div>
+      {/* Closing is not undone. Unmounting the workspace also removes its
+          portaled dialogs and menus and their focus traps. */}
+      {closing === null && children}
       {showDialog && (
         <ConfirmDialog
           title={
@@ -175,7 +183,10 @@ export function ClosingGuard({
           }
           isPending={pending}
           onConfirm={confirm}
-          onCancel={() => setDialog(null)}
+          onCancel={() => {
+            setNotice(null);
+            setDialog(null);
+          }}
         >
           <Text>
             {text(

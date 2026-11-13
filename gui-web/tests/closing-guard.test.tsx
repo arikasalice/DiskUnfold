@@ -9,6 +9,7 @@ import {
   within,
 } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
+import { ConfirmDialog } from "../src/components";
 import { ClosingGuard } from "../src/features/shutdown/ClosingGuard";
 import { readClosingSignal } from "../src/features/shutdown/lifecycle";
 import { AnalysisError } from "../src/ipc";
@@ -107,7 +108,7 @@ test("confirming sends the confirmed normal quit and then shows inline progress"
     lifecycle(2, { state: "draining", previousState: "access_closed" }),
   );
   expect(
-    screen.getByRole("progressbar", { name: "Closing DiskUnfold" }),
+    screen.getByRole("progressbar", { name: "Closing progress" }),
   ).toBeTruthy();
   expect(screen.getByRole("status").textContent).toBe(
     "Waiting for 1 job to finish.",
@@ -226,12 +227,20 @@ test("the closing screen shows the phase and the remaining count and takes focus
     screen.getByRole("heading", { name: "Closing DiskUnfold" }),
   ).toBeTruthy();
   expect(screen.getByRole("status").textContent).toBe(
-    "Stopping new requests and asking running jobs to stop. Waiting for 3 jobs to finish.",
+    "Waiting for 3 jobs to finish.",
   );
+  expect(
+    screen.getByText("Stopping new requests and asking running jobs to stop."),
+  ).toBeTruthy();
   expect(document.activeElement).toBe(screenRegion());
   expect(quitButton()).toBeTruthy();
-  // The workspace behind the screen is inert and hidden from assistive tech.
-  expect(screen.queryByRole("button", { name: "workspace action" })).toBeNull();
+  // The workspace is not rendered at all, so nothing behind the screen can be reached.
+  expect(document.body.textContent).not.toContain("workspace action");
+  expect(document.querySelector("[inert]")).toBeNull();
+  // One name for the heading and a different one for the progress bar.
+  expect(
+    screen.getByRole("progressbar", { name: "Closing progress" }),
+  ).toBeTruthy();
   expect(screen.queryByRole("button", { name: /cancel|keep/i })).toBeNull();
 
   await emit(closingEvent(2, "draining", 1));
@@ -312,15 +321,18 @@ test("cancelling the confirmation sends nothing more and returns focus to the bu
   });
   const { emit } = renderClosing(call);
   await emit(closingEvent(1, "draining", 1));
-  quitButton().focus();
-  fireEvent.click(quitButton());
+  // A mouse press focuses the button first, as in a browser.
+  act(() => quitButton().focus());
+  press(quitButton());
   const dialog = await screen.findByRole("alertdialog");
+  expect(dialog.contains(document.activeElement)).toBe(true);
   expect(dialog.textContent).toContain("1 file change is still running");
   fireEvent.click(screen.getByRole("button", { name: "Keep waiting" }));
   await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
   expect(call).toHaveBeenCalledTimes(1);
   expect(screen.queryByText(/Quitting without waiting/)).toBeNull();
   expect((quitButton() as HTMLButtonElement).disabled).toBe(false);
+  // Nothing in the test moves focus back; the dialog restores it to the opener.
   await waitFor(() => expect(document.activeElement).toBe(quitButton()));
 });
 
@@ -373,5 +385,131 @@ test("the closed phase drops the quit button and ends the confirmation", async (
   ).toBeNull();
   expect(screen.getByRole("status").textContent).toBe(
     "DiskUnfold has finished closing.",
+  );
+});
+
+/** A pointer press the way a user makes it: focus lands on the button first. */
+function press(element: HTMLElement) {
+  fireEvent.pointerDown(element, { pointerType: "mouse", button: 0 });
+  fireEvent.mouseDown(element, { button: 0 });
+  fireEvent.pointerUp(element, { pointerType: "mouse", button: 0 });
+  fireEvent.mouseUp(element, { button: 0 });
+  fireEvent.click(element, { button: 0 });
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((done, fail) => {
+    resolve = done;
+    reject = fail;
+  });
+  return { promise, resolve, reject };
+}
+
+test("a workspace dialog open when closing starts is removed and focus moves to the closing screen", async () => {
+  const harness = fixture();
+  render(
+    <ClosingGuard client={harness.client}>
+      <ConfirmDialog
+        title="Apply the plan?"
+        confirmLabel="Apply"
+        cancelLabel="Back"
+        onConfirm={() => {}}
+        onCancel={() => {}}
+      >
+        <p>plan details</p>
+      </ConfirmDialog>
+    </ClosingGuard>,
+  );
+  expect(await screen.findByRole("alertdialog")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Apply" })).toBeTruthy();
+
+  await harness.emit(closingEvent(1, "draining", 1));
+  await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+  expect(screen.queryByRole("button", { name: "Apply" })).toBeNull();
+  expect(document.body.textContent).not.toContain("plan details");
+  await waitFor(() => expect(document.activeElement).toBe(screenRegion()));
+  expect(quitButton()).toBeTruthy();
+});
+
+test("quit without waiting sends one request even when pressed twice", async () => {
+  const reply = deferred<{ outcome: string }>();
+  const call = vi.fn().mockReturnValue(reply.promise);
+  const { emit } = renderClosing(call);
+  await emit(closingEvent(1, "draining", 1));
+  fireEvent.click(quitButton());
+  fireEvent.click(quitButton());
+  expect(call).toHaveBeenCalledTimes(1);
+  await act(async () => reply.resolve({ outcome: "accepted" }));
+  expect(await screen.findByText(/Quitting without waiting/)).toBeTruthy();
+  expect(call).toHaveBeenCalledTimes(1);
+});
+
+test("a confirm_required reply that arrives after the closed event opens no dialog", async () => {
+  const reply = deferred<{ outcome: string; inProgressChangeCount: number }>();
+  const call = vi.fn().mockReturnValue(reply.promise);
+  const { emit } = renderClosing(call);
+  await emit(closingEvent(1, "draining", 1));
+  fireEvent.click(quitButton());
+  await emit(
+    lifecycle(2, {
+      state: "closed",
+      previousState: "draining",
+      remainingJobCount: 0,
+    }),
+  );
+  await act(async () =>
+    reply.resolve({ outcome: "confirm_required", inProgressChangeCount: 1 }),
+  );
+  expect(screen.queryByRole("alertdialog")).toBeNull();
+  expect(screen.getByRole("status").textContent).toBe(
+    "DiskUnfold has finished closing.",
+  );
+});
+
+test("cancelling after a failed confirmation leaves no stale alert", async () => {
+  const call = vi
+    .fn()
+    .mockResolvedValueOnce({
+      outcome: "confirm_required",
+      inProgressChangeCount: 1,
+    })
+    .mockRejectedValueOnce(new Error("transport"));
+  const { emit } = renderClosing(call);
+  await emit(closingEvent(1, "draining", 1));
+  fireEvent.click(quitButton());
+  const dialog = await screen.findByRole("alertdialog");
+  fireEvent.click(
+    within(dialog).getByRole("button", { name: "Quit without waiting" }),
+  );
+  expect(await screen.findAllByRole("alert")).toHaveLength(1);
+  fireEvent.click(screen.getByRole("button", { name: "Keep waiting" }));
+  await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+  expect(screen.queryByRole("alert")).toBeNull();
+});
+
+test("a shutting_down refusal before any closing event still shows already closing", async () => {
+  const call = vi
+    .fn()
+    .mockRejectedValue(
+      new AnalysisError("INVALID_ARGUMENT", "startup.shutting_down", false),
+    );
+  const { emit } = renderClosing(call);
+  await emit(request(1));
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Close and stop changes" }),
+  );
+  expect(
+    await screen.findByText("DiskUnfold is already closing."),
+  ).toBeTruthy();
+  expect(screenRegion()).toBeTruthy();
+});
+
+test("the live region starts empty and is then filled", async () => {
+  const { emit } = renderClosing();
+  await emit(closingEvent(1, "draining", 2));
+  expect(screen.getByRole("status").textContent).toBe(
+    "Waiting for 2 jobs to finish.",
   );
 });
