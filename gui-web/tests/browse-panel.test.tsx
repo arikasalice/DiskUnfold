@@ -431,6 +431,8 @@ test("keyboard paging leaves focus where the user moved it before the final resp
   };
   render(<BrowsePanel port={port} resultVersion={id} />);
   const load = await screen.findByRole("button", { name: "Load more" });
+  // The grid rows can mount after the Load more control on slow runners.
+  await screen.findByText("Alpha");
   const folder = gridRow("Alpha");
   act(() => load.focus());
   fireEvent.keyDown(load, { key: "Enter", code: "Enter" });
