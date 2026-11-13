@@ -11,12 +11,12 @@ type TestResult = Result<(), Box<dyn std::error::Error>>;
 type FileTree = Vec<(PathBuf, Option<Vec<u8>>)>;
 
 fn take_failure(
-    result: Result<ManagedRunOutcome, ManagedRunFailure>,
+    result: Result<ManagedRunOutcome, Box<ManagedRunFailure>>,
     message: &'static str,
 ) -> Result<ManagedRunFailure, Box<dyn std::error::Error>> {
     match result {
         Ok(_) => Err(message.into()),
-        Err(failure) => Ok(failure),
+        Err(failure) => Ok(*failure),
     }
 }
 
@@ -194,7 +194,7 @@ fn multi_step_run_scans_the_final_backup_set_once() -> TestResult {
 }
 
 #[test]
-fn failed_step_is_diagnosed_and_restart_resumes_from_committed_revision() -> TestResult {
+fn failed_step_is_diagnosed_restored_and_restart_migrates_from_the_old_revision() -> TestResult {
     let sandbox = tempfile::tempdir()?;
     let path = sandbox.path().join("diskunfold.db");
     let root = sandbox.path().join("backups");
@@ -240,7 +240,14 @@ fn failed_step_is_diagnosed_and_restart_resumes_from_committed_revision() -> Tes
         Err(failure) => failure,
     };
     assert!(matches!(failure.migration, MigrationError::Sqlite(_)));
-    assert_eq!(state(&path)?.0, 2);
+    assert!(matches!(
+        failure.restore,
+        RestoreStatus::Restored(RestoredBackup {
+            sequence: 3,
+            version: 1
+        })
+    ));
+    assert_eq!(state(&path)?.0, 1);
     assert_eq!(failure.retention.content_valid, 4);
     assert!(!failure.retention.inspection_failed);
     assert!(failure.retention.cleanup_unavailable);
@@ -251,7 +258,7 @@ fn failed_step_is_diagnosed_and_restart_resumes_from_committed_revision() -> Tes
     let restart_validations = Cell::new(0);
     let restart_quick_checks = Cell::new(0);
     let restart_bytes = Cell::new(0);
-    let restarted = apply_managed_run_with(&path, &root, &HISTORY_DEFINITIONS, 2, |root| {
+    let restarted = apply_managed_run_with(&path, &root, &HISTORY_DEFINITIONS, 1, |root| {
         counted_retention(
             root,
             &restart_validations,
@@ -260,10 +267,10 @@ fn failed_step_is_diagnosed_and_restart_resumes_from_committed_revision() -> Tes
         )
     })
     .map_err(|failure| format!("{failure:?}"))?;
-    assert_eq!((restarted.revision, restarted.applied_steps), (5, 3));
-    assert_eq!(restarted.retention.content_valid, 7);
-    assert_eq!(restart_validations.get(), 7);
-    assert_eq!(restart_quick_checks.get(), 7);
+    assert_eq!((restarted.revision, restarted.applied_steps), (5, 4));
+    assert_eq!(restarted.retention.content_valid, 8);
+    assert_eq!(restart_validations.get(), 8);
+    assert_eq!(restart_quick_checks.get(), 8);
     assert_eq!(state(&path)?.0, 5);
     Ok(())
 }

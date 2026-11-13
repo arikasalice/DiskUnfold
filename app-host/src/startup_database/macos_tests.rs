@@ -59,61 +59,54 @@ fn existing_current_macos_database_opens_without_being_classified_as_first_run()
 }
 
 #[test]
-fn older_macos_database_is_preserved_and_startup_stops_without_migrating() -> TestResult {
+fn older_macos_database_is_backed_up_and_migrated_by_the_shared_path() -> TestResult {
     let dir = tempfile::tempdir()?;
     let path = dir.path().join(DATABASE_FILE);
     drop(AppDb::create_gui(&path).map_err(open_error)?);
-    let before = fs::read(&path)?;
 
-    let error = open(dir.path())
-        .err()
-        .ok_or("older database was accepted")?;
-    assert!(error.to_string().contains("startup.migration_failed"));
-    assert!(error.to_string().contains("is preserved"));
-    assert_eq!(fs::read(&path)?, before);
+    drop(open(dir.path())?);
     assert_eq!(
         AppDb::probe_schema_version_read_only(&path).map_err(open_error)?,
-        1
+        HISTORY_SCHEMA_VERSION
     );
-    assert!(!dir.path().join("db-backups").exists());
+    let backups = dir.path().join("db-backups");
+    assert!(backups.join("backup-00000000000000000001").is_dir());
+    assert!(!backups.join("migration-journal.json").exists());
     Ok(())
 }
 
 #[test]
-fn existing_older_database_wal_and_shm_survive_startup_refusal() -> TestResult {
+fn older_macos_database_with_wal_rows_is_migrated_and_keeps_the_rows() -> TestResult {
     let dir = tempfile::tempdir()?;
     let path = dir.path().join(DATABASE_FILE);
     drop(AppDb::create_gui(&path).map_err(open_error)?);
 
-    // Create a committed WAL frame and keep its connection open so SQLite must use the
-    // existing WAL/SHM state when startup performs its read-only schema probe.
+    // Keep the writer open with automatic checkpoints off, so the committed row lives only in
+    // the WAL. The row goes into an existing version 1 table; a foreign table would make the
+    // baseline unrecognized.
     let writer = Connection::open(&path)?;
     writer.pragma_update(None, "wal_autocheckpoint", 0)?;
     writer.execute_batch(
-        "CREATE TABLE wal_fixture (value INTEGER NOT NULL);
-         INSERT INTO wal_fixture (value) VALUES (41);",
+        "INSERT INTO user_env_setting VALUES ('locale.display_language', '\"ko\"', 'screen', 1, 2, 1);",
     )?;
     let wal = path.with_extension("db-wal");
-    let shm = path.with_extension("db-shm");
-    let db_before = fs::read(&path)?;
-    let wal_before = fs::read(&wal)?;
-    let shm_len_before = shm.metadata()?.len();
+    assert!(wal.metadata()?.len() > 32);
 
-    let error = open(dir.path())
-        .err()
-        .ok_or("older database with WAL was accepted")?;
-    assert!(error.to_string().contains("startup.migration_failed"));
-    assert!(error.to_string().contains("is preserved"));
-    assert_eq!(fs::read(&path)?, db_before);
-    assert_eq!(fs::read(&wal)?, wal_before);
-    assert!(shm.exists(), "existing SHM sidecar was removed");
-    assert_eq!(shm.metadata()?.len(), shm_len_before);
-    assert_eq!(
-        writer.query_row("SELECT value FROM wal_fixture", [], |row| row
-            .get::<_, i64>(0))?,
-        41
-    );
+    drop(open(dir.path())?);
     drop(writer);
+    let reader = Connection::open(&path)?;
+    assert_eq!(
+        reader.query_row(
+            "SELECT value_json FROM user_env_setting WHERE setting_key = 'locale.display_language'",
+            [],
+            |row| row.get::<_, String>(0)
+        )?,
+        "\"ko\""
+    );
+    assert_eq!(
+        reader.query_row("PRAGMA user_version", [], |row| row.get::<_, u32>(0))?,
+        HISTORY_SCHEMA_VERSION
+    );
     Ok(())
 }
 
