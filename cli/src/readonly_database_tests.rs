@@ -111,3 +111,35 @@ fn reading_stored_language_leaves_a_wal_database_untouched()
     let _ = std::fs::remove_dir_all(&directory);
     Ok(())
 }
+/// FR8.HD1.app-host.DD1: no CLI read touches a database of any earlier schema version (built
+/// through the real migration steps) or of a newer one.
+#[cfg(any(windows, target_os = "linux"))]
+#[test]
+fn reading_stored_language_never_migrates_any_historical_or_newer_version()
+-> Result<(), Box<dyn std::error::Error>> {
+    let ordinary = fixture_directory()?;
+    for version in 1..=du_app_db::HISTORY_SCHEMA_VERSION + 1 {
+        let directory = fixture_directory()?;
+        let path = directory.join(du_platform_os::application_data::DATABASE_FILE);
+        drop(du_app_db::AppDb::create_gui(&path).map_err(|error| format!("{error:?}"))?);
+        for step in 2..=version.min(du_app_db::HISTORY_SCHEMA_VERSION) {
+            let backup = ordinary.join(format!("{version}-{step}.sqlite"));
+            let applied =
+                du_app_db::migration::apply_next(&path, &backup, &du_app_db::HISTORY_DEFINITIONS)
+                    .map_err(|error| format!("{error:?}"))?;
+            assert_eq!(applied, step);
+        }
+        if version > du_app_db::HISTORY_SCHEMA_VERSION {
+            // SQLite keeps user_version at byte offset 60 of the header.
+            let mut bytes = std::fs::read(&path)?;
+            bytes[60..64].copy_from_slice(&version.to_be_bytes());
+            std::fs::write(&path, bytes)?;
+        }
+        let before = directory_state(&directory)?;
+        let _ = stored_language_in_directory(&directory);
+        assert_eq!(directory_state(&directory)?, before, "version {version}");
+        let _ = std::fs::remove_dir_all(&directory);
+    }
+    let _ = std::fs::remove_dir_all(&ordinary);
+    Ok(())
+}

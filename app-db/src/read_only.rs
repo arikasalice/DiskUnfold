@@ -33,6 +33,7 @@ const HEADER_LEN: usize = 100;
 
 /// Opens `path` for reading without creating or modifying any file.
 pub(crate) fn open_connection(path: &Path) -> Result<Connection, OpenError> {
+    crate::refuse_incomplete(path)?;
     if !has_wal_header(path) {
         return plain(path);
     }

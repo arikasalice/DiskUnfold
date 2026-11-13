@@ -269,6 +269,9 @@ fn finish_interrupted_migration(
     backups: &Path,
     #[cfg(unix)] instance: &Instance,
 ) -> Result<(), io::Error> {
+    // A database whose marker-route creation was killed is removed so that it is created again
+    // (FR3.HD1.app-db.DD1); the instance lock is held, so no other creator runs.
+    AppDb::recover_incomplete_creation(path).map_err(|error| reason("db.open_failed", &error))?;
     // Only a leftover journal needs recovery; an ordinary start does not touch the backups.
     if !journal_pending(fs::symlink_metadata(backups.join(JOURNAL)))? {
         return Ok(());
@@ -480,6 +483,9 @@ mod tests;
 
 #[cfg(all(test, any(windows, target_os = "linux", target_os = "macos")))]
 mod restore_tests;
+
+#[cfg(all(test, any(windows, target_os = "linux", target_os = "macos")))]
+mod upgrade_tests;
 
 #[cfg(all(test, target_os = "linux"))]
 mod linux_tests;

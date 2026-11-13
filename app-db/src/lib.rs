@@ -1,17 +1,13 @@
 //! Implement SQLite storage ports.
 
-use std::{
-    fs::{self, OpenOptions},
-    path::{Path, PathBuf},
-    sync::atomic::{AtomicU64, Ordering},
-    time::Duration,
-};
+use std::{fs, path::Path, time::Duration};
 
 use rusqlite::{Connection, OpenFlags, Transaction, TransactionBehavior};
 
 mod history_schema;
 mod job_history;
 pub mod migration;
+mod publish;
 mod read_only;
 pub mod recent_scope;
 mod recent_scope_schema;
@@ -20,6 +16,8 @@ mod settings;
 
 pub use history_schema::{HISTORY_DEFINITIONS, HISTORY_SCHEMA_VERSION};
 pub use job_history::read as history_read;
+pub use publish::{CreationRecovery, recover_incomplete_creation};
+use publish::{create_gui_with, is_incomplete, reserve_temporary};
 
 const APPLICATION_ID: u32 = 0x4455_4442;
 const SCHEMA_VERSION: u32 = 1;
@@ -46,6 +44,9 @@ pub enum OpenError {
     ReadOnlyUnavailable,
     /// The initialized database was published. Retry by opening it, not creating it.
     CreatedButOpenFailed(Box<OpenError>),
+    /// A marker-route creation was interrupted: the file must not be used until the GUI
+    /// startup path has run [`recover_incomplete_creation`] and created the database again.
+    IncompleteCreation,
 }
 
 impl OpenError {
@@ -242,6 +243,7 @@ impl AppDb {
     /// side files of a WAL database that no connection has touched yet. Read-only
     /// consumers such as the CLI must not call this.
     pub fn open_read_only_live(path: &Path) -> Result<Self, OpenError> {
+        refuse_incomplete(path)?;
         Self::validate_read_only(Connection::open_with_flags(
             path,
             OpenFlags::SQLITE_OPEN_READ_ONLY,
@@ -286,6 +288,7 @@ impl AppDb {
         path: &Path,
         check: impl FnOnce(&mut Connection) -> Result<(), OpenError>,
     ) -> Result<Self, OpenError> {
+        refuse_incomplete(path)?;
         let mut connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
         connection.busy_timeout(BUSY_TIMEOUT)?;
         check(&mut connection)?;
@@ -373,69 +376,12 @@ impl AppDb {
     }
 }
 
-static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
-
-struct PendingFile {
-    path: PathBuf,
-    cleaned: bool,
-}
-impl Drop for PendingFile {
-    fn drop(&mut self) {
-        if !self.cleaned {
-            let _ = fs::remove_file(&self.path);
-        }
+/// Refuses a database whose marker-route creation was interrupted, without modifying anything.
+pub(crate) fn refuse_incomplete(path: &Path) -> Result<(), OpenError> {
+    if is_incomplete(path)? {
+        return Err(OpenError::IncompleteCreation);
     }
-}
-
-fn reserve_temporary(path: &Path) -> Result<PendingFile, OpenError> {
-    let parent = path
-        .parent()
-        .filter(|p| !p.as_os_str().is_empty())
-        .unwrap_or(Path::new("."));
-    loop {
-        let id = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
-        let candidate = parent.join(format!(
-            ".diskunfold-create-{}-{id}.tmp",
-            std::process::id()
-        ));
-        match OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&candidate)
-        {
-            Ok(_) => {
-                return Ok(PendingFile {
-                    path: candidate,
-                    cleaned: false,
-                });
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
-            Err(error) => return Err(OpenError::Io(error)),
-        }
-    }
-}
-
-fn create_gui_with(
-    path: &Path,
-    initialize: impl FnOnce(&Transaction<'_>) -> Result<(), OpenError>,
-    before_publish: impl FnOnce() -> Result<(), OpenError>,
-    open: impl FnOnce(&Path) -> Result<AppDb, OpenError>,
-) -> Result<AppDb, OpenError> {
-    let mut pending = reserve_temporary(path)?;
-    let mut connection =
-        Connection::open_with_flags(&pending.path, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
-    connection.busy_timeout(BUSY_TIMEOUT)?;
-    let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-    tx.pragma_update(None, "application_id", APPLICATION_ID)?;
-    initialize(&tx)?;
-    tx.commit()?;
-    drop(connection);
-    before_publish()?;
-    fs::hard_link(&pending.path, path).map_err(OpenError::Io)?;
-    fs::remove_file(&pending.path)
-        .map_err(|error| OpenError::CreatedButOpenFailed(Box::new(OpenError::Io(error))))?;
-    pending.cleaned = true;
-    open(path).map_err(|error| OpenError::CreatedButOpenFailed(Box::new(error)))
+    Ok(())
 }
 
 fn initialize_settings(tx: &Transaction<'_>) -> Result<(), OpenError> {
@@ -463,6 +409,8 @@ fn check_existing(connection: &Connection, read_only: bool) -> Result<(), OpenEr
     }
 }
 
+#[cfg(test)]
+mod publish_tests;
 #[cfg(test)]
 mod read_only_tests;
 #[cfg(test)]
