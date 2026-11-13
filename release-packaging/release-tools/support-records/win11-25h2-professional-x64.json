@@ -11,10 +11,12 @@
   "checks": {
     "native_build": "passed",
     "native_tests": "passed",
-    "installed_start": "passed"
+    "installed_start": "limited"
   },
   "limits": [
-    "start grade was unverifiable: startup checks resource_integrity, webview, temporary_files, support_matrix and capability report unverifiable in this build",
+    "start grade was unverifiable, not pass: startup checks resource_integrity, webview, temporary_files, support_matrix and capability report unverifiable in this build",
+    "run used a developer build (buildKind developer), not an official release build or a released version; F15 DLD rev70 release-packaging step 3 grants officially verified only for a pass record on the latest released version",
+    "a portable exe is not an installed MSI or MSIX start",
     "MSIX not installed through the GUI",
     "no Home, ARM64 or 26H2 run"
   ],

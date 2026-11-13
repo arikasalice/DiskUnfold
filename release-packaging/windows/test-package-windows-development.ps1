@@ -168,7 +168,8 @@ try {
     }
     finally {
         if ($junctionCreated -and (Test-Path -LiteralPath $junctionPath -PathType Container)) {
-            Remove-Item -LiteralPath $junctionPath -Force
+            # Directory.Delete on a junction removes only the link, never its target.
+            [System.IO.Directory]::Delete($junctionPath, $false)
         }
     }
 
