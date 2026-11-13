@@ -1,0 +1,305 @@
+use super::*;
+use crate::viz_pages::render;
+use du_core_contracts::job::{
+    Checkpoint, HistoryMode, JobBody, JobContext, JobControl, JobCounts, JobDescriptor, JobOutcome,
+    ProgressUnit, ResourceClass,
+};
+pub(super) fn descriptor() -> JobDescriptor {
+    JobDescriptor {
+        kind_id: "viz.compute".into(),
+        version: 1,
+        display_name_key: "job.viz.compute".into(),
+        controls: vec![JobControl::Cancel],
+        safe_points: vec!["path_range_end".into()],
+        progress_unit: ProgressUnit::Items,
+        resource_classes: vec![ResourceClass::Compute],
+        history: HistoryMode::None,
+    }
+}
+pub(super) struct Compute {
+    pub session: Arc<Session>,
+    pub producer: Arc<dyn EvidenceProducer>,
+    pub admitted: Arc<Admitted>,
+    pub work: Arc<Work>,
+    pub candidate: Arc<CandidateSlot>,
+}
+impl JobBody for Compute {
+    fn kind_id(&self) -> &str {
+        "viz.compute"
+    }
+    fn run(&self, context: Arc<dyn JobContext>) -> JobOutcome {
+        let mut cancelled = || context.checkpoint() != Checkpoint::Continue;
+        if matches!(
+            self.admitted
+                .required_data
+                .as_ref()
+                .map(|value| value.evaluation),
+            Some(crate::required_data::Evaluation::Unavailable(_))
+        ) {
+            return missing_data_fallback(self, &mut cancelled);
+        }
+        if self.admitted.histogram.is_some() {
+            return super::histogram::run(self, &mut cancelled);
+        }
+        if self.admitted.request.format == "bar" {
+            return super::ranked_bar::run(self, &mut cancelled);
+        }
+        let request = &self.admitted.request;
+        let hierarchy = request.format == "treemap"
+            && (request.depth_limit > 1
+                || request
+                    .expanded_depth_by_item
+                    .as_ref()
+                    .is_some_and(|entries| entries.iter().any(|entry| entry.extra_depth > 0)));
+        let mut evidence = HashMap::new();
+        let prepared = self.session.prepare_pinned(
+            render::Request {
+                selected_revision: self.admitted.source.result_version(),
+                requested_revision: request.result_revision.as_ref(),
+                parent: &request.aggregate_scope_ref,
+                basis: request.size_basis.clone(),
+                bounds: du_analysis_index::visualization::geometry::Rect {
+                    left: request.visible_window.left,
+                    top: request.visible_window.top,
+                    right: request.visible_window.right,
+                    bottom: request.visible_window.bottom,
+                },
+                format: &request.format,
+                strategy: Some(&self.admitted.descriptor.strategy),
+                max_shapes: self.admitted.max_shapes,
+            },
+            &self.admitted.source,
+            hierarchy,
+            |source, item, _| {
+                let mut facts = self
+                    .producer
+                    .child(source, item, request)
+                    .map_err(|_| render::Error::InvalidEvidence)?;
+                if !self
+                    .admitted
+                    .facts
+                    .classes
+                    .contains_key(&facts.presentation.legend_class_key)
+                {
+                    return Err(render::Error::InvalidEvidence);
+                }
+                facts.presentation.display_flags.sort_unstable();
+                facts.presentation.display_flags.dedup();
+                let presentation = ChildPolicyEvidence {
+                    path_compare_key: facts.presentation.path_compare_key.clone(),
+                    legend_class_key: facts.presentation.legend_class_key.clone(),
+                    display_flags: facts.presentation.display_flags.clone(),
+                };
+                evidence.insert(item.item_no, facts);
+                Ok(presentation)
+            },
+            &mut cancelled,
+        );
+        match prepared {
+            Ok(mut prepared) => {
+                if hierarchy {
+                    let result = self.session.extend_pinned(
+                        &mut prepared,
+                        &self.admitted.source,
+                        crate::viz_pages::session::ExpansionPolicy {
+                            base_depth: request.depth_limit,
+                            entries: request.expanded_depth_by_item.as_deref().unwrap_or(&[]),
+                            max_shapes: self.admitted.max_shapes,
+                        },
+                        |source, item, _| {
+                            let mut facts = self
+                                .producer
+                                .child(source, item, request)
+                                .map_err(|_| render::Error::InvalidEvidence)?;
+                            if !self
+                                .admitted
+                                .facts
+                                .classes
+                                .contains_key(&facts.presentation.legend_class_key)
+                            {
+                                return Err(render::Error::InvalidEvidence);
+                            }
+                            facts.presentation.display_flags.sort_unstable();
+                            facts.presentation.display_flags.dedup();
+                            let presentation = ChildPolicyEvidence {
+                                path_compare_key: facts.presentation.path_compare_key.clone(),
+                                legend_class_key: facts.presentation.legend_class_key.clone(),
+                                display_flags: facts.presentation.display_flags.clone(),
+                            };
+                            evidence.insert(item.item_no, facts);
+                            Ok(presentation)
+                        },
+                        &mut cancelled,
+                    );
+                    if let Err(error) = result {
+                        return outcome(
+                            false,
+                            if error == render::Error::Cancelled {
+                                None
+                            } else {
+                                Some("support.internal_error")
+                            },
+                        );
+                    }
+                }
+                prepared.bind_condition(self.admitted.key.clone());
+                let reserved = self.session.reserve_prepared(prepared);
+                let model = match reserved
+                    .preview()
+                    .map(|preview| {
+                        envelope::build_model(&self.admitted, &preview, &evidence, &mut cancelled)
+                    })
+                    .transpose()
+                {
+                    Ok(model) => model.map(Arc::new),
+                    Err(_) => return outcome(false, Some("support.internal_error")),
+                };
+                let candidate = self.session.defer_reserved(reserved);
+                match (self.candidate.lock(), self.work.computed.lock()) {
+                    (Ok(mut slot), Ok(mut computed)) => {
+                        *slot = Some(Candidate::Projection(candidate));
+                        computed.wire_model = model;
+                        let mut finished = outcome(true, None);
+                        finished.counts.completed = evidence.len() as u64;
+                        finished
+                    }
+                    _ => outcome(false, Some("support.internal_error")),
+                }
+            }
+            Err(render::Error::Cancelled) => outcome(false, None),
+            Err(_) => outcome(false, Some("support.internal_error")),
+        }
+    }
+}
+
+fn missing_data_fallback(work: &Compute, cancelled: &mut dyn FnMut() -> bool) -> JobOutcome {
+    let admitted = &work.admitted;
+    let request = &admitted.request;
+    let folder = match du_analysis_index::browse::open(
+        admitted.source.version(),
+        Some(&request.aggregate_scope_ref),
+    ) {
+        Ok(folder) => folder,
+        Err(_) => return outcome(false, Some("support.internal_error")),
+    };
+    let mut evidence = Vec::with_capacity(folder.children.len());
+    for item in folder.children {
+        if cancelled() {
+            return outcome(false, None);
+        }
+        let facts = match work.producer.child(&admitted.source, item, request) {
+            Ok(facts)
+                if admitted
+                    .facts
+                    .classes
+                    .contains_key(&facts.presentation.legend_class_key) =>
+            {
+                facts
+            }
+            _ => return outcome(false, Some("support.internal_error")),
+        };
+        evidence.push(render::ChildEvidence {
+            item: du_core_contracts::ItemRef {
+                result_version: admitted.source.result_version().clone(),
+                item_no: item.item_no,
+            },
+            path_compare_key: facts.presentation.path_compare_key,
+            legend_class_key: facts.presentation.legend_class_key,
+            display_flags: facts.presentation.display_flags,
+        });
+    }
+    let count = evidence.len() as u64;
+    let prepared = match work.session.prepare_ranked(
+        &admitted.source,
+        render::RankedInput {
+            parent: &request.aggregate_scope_ref,
+            basis: &request.size_basis,
+            fingerprint: admitted.key.clone(),
+            layout: None,
+            evidence,
+        },
+        cancelled,
+    ) {
+        Ok(candidate) => candidate,
+        Err(_) => return outcome(false, Some("support.internal_error")),
+    };
+    let reserved = work.session.reserve_prepared(prepared);
+    let deferred = work.session.defer_reserved(reserved);
+    match (work.candidate.lock(), work.work.computed.lock()) {
+        (Ok(mut candidate), Ok(mut computed)) => {
+            *candidate = Some(Candidate::Projection(deferred));
+            computed.wire_model = None;
+            let mut completed = outcome(true, None);
+            completed.counts.completed = count;
+            completed
+        }
+        _ => outcome(false, Some("support.internal_error")),
+    }
+}
+
+pub(super) fn outcome(completed_scope: bool, reason: Option<&str>) -> JobOutcome {
+    JobOutcome {
+        counts: JobCounts::default(),
+        completed_scope,
+        failure_reason_key: reason.map(str::to_owned),
+        unprocessed_summary: None,
+        result_version_id: None,
+    }
+}
+pub(super) fn commit(
+    session: &Session,
+    work: &Work,
+    candidate: &CandidateSlot,
+) -> Result<(), String> {
+    let members = work.members.lock().map_err(|_| "support.internal_error")?;
+    if members.is_empty() {
+        return Err("support.internal_error".into());
+    }
+    let mut slot = candidate.lock().map_err(|_| "support.internal_error")?;
+    let mut computed = work.computed.lock().map_err(|_| "support.internal_error")?;
+    let deferred = slot.as_mut().ok_or("support.internal_error")?;
+    let committed = match deferred {
+        Candidate::Projection(candidate) => RuntimeCommitted::Projection(
+            session
+                .commit_deferred(candidate, &mut || false)
+                .map_err(|_| "support.internal_error")?,
+        ),
+        Candidate::Histogram(candidate) => {
+            let no_attribution = candidate.no_attribution();
+            let model_ref = session
+                .commit_histogram(candidate, &mut || false)
+                .map_err(|_| "support.internal_error")?;
+            let revision = computed
+                .histogram_revision
+                .clone()
+                .ok_or("support.internal_error")?;
+            RuntimeCommitted::Histogram {
+                fallback: du_core_contracts::visualization::render::VizFallback {
+                    model_ref,
+                    result_revision: revision,
+                },
+                no_attribution,
+            }
+        }
+        Candidate::RankedGroup(candidate) => {
+            // Check the response metadata before publishing the session frame.
+            let (revision, group_ref, row_index) = computed
+                .ranked_group
+                .clone()
+                .ok_or("support.internal_error")?;
+            let model_ref = session
+                .commit_ranked_group(candidate, &mut || false)
+                .map_err(|_| "support.internal_error")?;
+            RuntimeCommitted::RankedGroup {
+                fallback: du_core_contracts::visualization::render::VizFallback {
+                    model_ref,
+                    result_revision: revision,
+                },
+                group_ref,
+                row_index,
+            }
+        }
+    };
+    computed.committed = Some(committed);
+    Ok(())
+}

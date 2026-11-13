@@ -1,0 +1,12 @@
+[package]
+name = "du-guidance-rules"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+du-core-contracts = { version = "0.1.0", path = "../core-contracts" }
+
+[lints]
+workspace = true

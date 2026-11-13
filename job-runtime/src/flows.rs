@@ -1,0 +1,351 @@
+use crate::delivery::enqueue;
+use crate::model::{Cancellation, Delivery, JobClock, JobEvent, Limits, Table};
+use du_core_contracts::{
+    Id, Timestamp,
+    job::{Checkpoint, JobContext, JobCounts, JobFlow, JobFlowError, JobState, ResourceClass},
+};
+use std::sync::{
+    Arc, Condvar, Mutex,
+    atomic::{AtomicUsize, Ordering},
+};
+
+#[derive(Default)]
+struct FlowState {
+    sealed: bool,
+    active: usize,
+    abandoned: bool,
+    counts: JobCounts,
+}
+struct Shared {
+    state: Mutex<FlowState>,
+    completed: Condvar,
+}
+pub(crate) struct Context {
+    id: Id,
+    table: Arc<Mutex<Table>>,
+    cancellation: Arc<Cancellation>,
+    services: Services,
+    shared: Arc<Shared>,
+}
+
+/// Runtime services shared with a running job context.
+pub(crate) struct Services {
+    pub(crate) limits: Arc<Limits>,
+    pub(crate) clock: Arc<dyn JobClock>,
+}
+impl Context {
+    pub(crate) fn new(
+        id: Id,
+        table: Arc<Mutex<Table>>,
+        cancellation: Arc<Cancellation>,
+        services: Services,
+    ) -> Self {
+        Self {
+            id,
+            table,
+            cancellation,
+            services,
+            shared: Arc::new(Shared {
+                state: Mutex::new(FlowState::default()),
+                completed: Condvar::new(),
+            }),
+        }
+    }
+    pub(crate) fn seal_and_wait(&self, counts: &mut JobCounts) -> bool {
+        let mut state = self
+            .shared
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        state.sealed = true;
+        drop(state);
+        self.services.limits.wake_waiters();
+        let mut state = self
+            .shared
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        while state.active != 0 {
+            state = self
+                .shared
+                .completed
+                .wait(state)
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+        }
+        add_counts(counts, &state.counts);
+        !state.abandoned
+    }
+}
+impl JobContext for Context {
+    fn utc_now(&self) -> Option<Timestamp> {
+        Timestamp::from_unix_millis(self.services.clock.now_ms())
+    }
+
+    fn monotonic_now(&self) -> Option<std::time::Duration> {
+        self.services.clock.monotonic_now()
+    }
+
+    fn checkpoint(&self) -> Checkpoint {
+        if self.cancellation.0.load(Ordering::Acquire) {
+            Checkpoint::Cancel
+        } else {
+            Checkpoint::Continue
+        }
+    }
+
+    fn abort_flows(&self) {
+        let mut table = self
+            .table
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(job) = table.jobs.get_mut(&self.id) {
+            job.flows_aborted = true;
+            job.wake.notify_all();
+        }
+        drop(table);
+        self.services.limits.wake_waiters();
+    }
+
+    fn wait_start_flow(&self) -> Result<Box<dyn JobFlow>, JobFlowError> {
+        let limits = &self.services.limits;
+        let mut guard = limits
+            .wait_lock
+            .lock()
+            .map_err(|_| JobFlowError::DeliveryUnavailable)?;
+        loop {
+            match self.try_start_flow() {
+                Err(JobFlowError::Busy) => {
+                    #[cfg(test)]
+                    limits.waiters.fetch_add(1, Ordering::Release);
+                    guard = limits
+                        .wait_changed
+                        .wait(guard)
+                        .map_err(|_| JobFlowError::DeliveryUnavailable)?;
+                    #[cfg(test)]
+                    limits.waiters.fetch_sub(1, Ordering::Release);
+                }
+                result => return result,
+            }
+        }
+    }
+
+    fn try_start_flow(&self) -> Result<Box<dyn JobFlow>, JobFlowError> {
+        let mut table = self
+            .table
+            .lock()
+            .map_err(|_| JobFlowError::DeliveryUnavailable)?;
+        let job = table.jobs.get_mut(&self.id).ok_or(JobFlowError::Closed)?;
+        if self.cancellation.0.load(Ordering::Acquire) {
+            return Err(JobFlowError::Cancelled);
+        }
+        if job.flows_aborted {
+            return Err(JobFlowError::Closed);
+        }
+        let mut state = self
+            .shared
+            .state
+            .lock()
+            .map_err(|_| JobFlowError::DeliveryUnavailable)?;
+        if state.sealed {
+            return Err(JobFlowError::Closed);
+        }
+        if matches!(job.state, JobState::PauseRequested | JobState::Paused) {
+            return Err(JobFlowError::Busy);
+        }
+        if job.state != JobState::Running {
+            return Err(JobFlowError::Closed);
+        }
+        let limits = &self.services.limits;
+        let metadata = job
+            .descriptor
+            .resource_classes
+            .contains(&ResourceClass::MetadataIo);
+        let content = job
+            .descriptor
+            .resource_classes
+            .contains(&ResourceClass::ContentIo);
+        let (counter, limit) = if metadata {
+            (&limits.active, limits.config.metadata_io)
+        } else if content {
+            (&limits.content_active, limits.content_limit)
+        } else {
+            return Err(JobFlowError::UnsupportedResource);
+        };
+        if limit == 0 {
+            return Err(JobFlowError::UnsupportedResource);
+        }
+        reserve(counter, limit)?;
+        state.active += 1;
+        job.live_flows += 1;
+        Ok(Box::new(Flow {
+            id: self.id.clone(),
+            table: self.table.clone(),
+            limits: limits.clone(),
+            metadata,
+            shared: self.shared.clone(),
+            counts: None,
+        }))
+    }
+}
+struct Flow {
+    id: Id,
+    table: Arc<Mutex<Table>>,
+    limits: Arc<Limits>,
+    metadata: bool,
+    shared: Arc<Shared>,
+    counts: Option<JobCounts>,
+}
+impl JobFlow for Flow {
+    fn safe_point(&self) -> Checkpoint {
+        let mut table = self
+            .table
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let Some(job) = table.jobs.get_mut(&self.id) else {
+            return Checkpoint::Cancel;
+        };
+        if must_stop(job) {
+            return Checkpoint::Cancel;
+        }
+        if !matches!(job.state, JobState::PauseRequested | JobState::Paused) {
+            return Checkpoint::Continue;
+        }
+        job.paused_flows += 1;
+        let wake = job.wake.clone();
+        settle_pause(&mut table, &self.id);
+        loop {
+            let Some(job) = table.jobs.get(&self.id) else {
+                return Checkpoint::Cancel;
+            };
+            if must_stop(job) || job.state == JobState::Running {
+                break;
+            }
+            table = wake
+                .wait(table)
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+        }
+        let Some(job) = table.jobs.get_mut(&self.id) else {
+            return Checkpoint::Cancel;
+        };
+        job.paused_flows -= 1;
+        if must_stop(job) {
+            Checkpoint::Cancel
+        } else {
+            Checkpoint::Continue
+        }
+    }
+    fn report_item(&self, payload: &[u8]) -> Result<(), JobFlowError> {
+        if payload.len() > self.limits.config.item_bytes {
+            return Err(JobFlowError::PayloadTooLarge);
+        }
+        reserve(&self.limits.pending, self.limits.config.queued_items)?;
+        let result = self.send_item(payload);
+        if result.is_err() {
+            self.limits.pending.fetch_sub(1, Ordering::AcqRel);
+        }
+        result
+    }
+    fn finish(mut self: Box<Self>, counts: JobCounts) {
+        self.counts = Some(counts);
+    }
+}
+impl Flow {
+    fn send_item(&self, payload: &[u8]) -> Result<(), JobFlowError> {
+        let mut table = self
+            .table
+            .lock()
+            .map_err(|_| JobFlowError::DeliveryUnavailable)?;
+        let job = table.jobs.get(&self.id).ok_or(JobFlowError::Closed)?;
+        if job.state.is_terminal() {
+            return Err(JobFlowError::Closed);
+        }
+        let sequence = job.sequence + 1;
+        let event = JobEvent::ItemResult {
+            job_id: self.id.clone(),
+            kind_id: job.descriptor.kind_id.clone(),
+            sequence,
+            payload: payload.to_vec(),
+        };
+        enqueue(&table, Delivery::Item(event, self.limits.pending.clone()))
+            .map_err(|_| JobFlowError::DeliveryUnavailable)?;
+        let job = table.jobs.get_mut(&self.id).ok_or(JobFlowError::Closed)?;
+        job.sequence = sequence;
+        Ok(())
+    }
+}
+impl Drop for Flow {
+    fn drop(&mut self) {
+        let mut table = self
+            .table
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(job) = table.jobs.get_mut(&self.id) {
+            job.live_flows -= 1;
+            settle_pause(&mut table, &self.id);
+        }
+        drop(table);
+        let mut state = self
+            .shared
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(counts) = &self.counts {
+            add_counts(&mut state.counts, counts);
+        } else {
+            state.abandoned = true;
+        }
+        state.active -= 1;
+        let counter = if self.metadata {
+            &self.limits.active
+        } else {
+            &self.limits.content_active
+        };
+        counter.fetch_sub(1, Ordering::AcqRel);
+        self.shared.completed.notify_all();
+        drop(state);
+        self.limits.wake_waiters();
+    }
+}
+fn reserve(counter: &AtomicUsize, limit: usize) -> Result<(), JobFlowError> {
+    counter
+        .try_update(Ordering::AcqRel, Ordering::Acquire, |n| {
+            (n < limit).then(|| n + 1)
+        })
+        .map(|_| ())
+        .map_err(|_| JobFlowError::Busy)
+}
+fn add_counts(a: &mut JobCounts, b: &JobCounts) {
+    a.completed = a.completed.saturating_add(b.completed);
+    a.overwritten = a.overwritten.saturating_add(b.overwritten);
+    a.failed = a.failed.saturating_add(b.failed);
+    a.skipped = a.skipped.saturating_add(b.skipped);
+    a.unprocessed = a.unprocessed.saturating_add(b.unprocessed);
+}
+
+/// Publishes suspension only after every currently registered flow has stopped.
+pub(crate) fn settle_pause(table: &mut Table, id: &Id) {
+    let Some(job) = table.jobs.get_mut(id) else {
+        return;
+    };
+    if job.state != JobState::PauseRequested
+        || job.flows_aborted
+        || job.paused_flows != job.live_flows
+    {
+        return;
+    }
+    job.state = JobState::Paused;
+    job.sequence += 1;
+    let sequence = job.sequence;
+    let _ = enqueue(
+        table,
+        Delivery::Event(JobEvent::StateChanged {
+            job_id: id.clone(),
+            state: JobState::Paused,
+            sequence,
+        }),
+    );
+}
+
+fn must_stop(job: &crate::model::Entry) -> bool {
+    job.flows_aborted || job.cancel.0.load(Ordering::Acquire)
+}

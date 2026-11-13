@@ -1,0 +1,18 @@
+.du-detail-disclosure {
+  min-inline-size: 0;
+  border-block-start: 1px solid var(--du-border);
+}
+
+.du-detail-disclosure > .du-action {
+  justify-content: flex-start;
+  inline-size: 100%;
+  color: var(--du-text);
+  text-align: start;
+}
+
+.du-detail-disclosure__content {
+  display: grid;
+  gap: 12px;
+  min-inline-size: 0;
+  padding: 0 4px 12px;
+}

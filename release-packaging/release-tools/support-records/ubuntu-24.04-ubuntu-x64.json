@@ -1,0 +1,25 @@
+{
+  "id": "ubuntu-24.04-ubuntu-x64-container-2026-11-13",
+  "os": "linux",
+  "release": "24.04",
+  "edition": "ubuntu",
+  "cpu": "x64",
+  "observedOn": "2026-11-13",
+  "osDetail": "Ubuntu 24.04.5 x64 container",
+  "device": "container",
+  "executionForm": "deb installed with dpkg -i and the extracted tar.gz, each started under Xvfb with Openbox and isolated data",
+  "checks": {
+    "native_build": "passed",
+    "native_tests": "passed",
+    "installed_start": "limited"
+  },
+  "limits": [
+    "container, not a real desktop",
+    "WebKit sandbox still disabled for the run: bwrap fails with Operation not permitted without WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1",
+    "start grade was unverifiable: most startup checks report unverifiable in this developer build (buildKind developer, not an official release build)",
+    "the exit-code-0 run after the shutdown-timer fix used a debug build started directly from the build directory; the deb and tar.gz forms were not rerun after the fix (they ended with exit code 101 before it)",
+    "no scan-in-progress close run on Linux",
+    "no 26.04 or ARM64 run"
+  ],
+  "evidence": "ac22ba92 release build packaged as deb and tar.gz: smoke-linux-quit.sh with PROBE_IPC=1 answered app.startup_status and app.product_info (installForm deb, tar_gz), closed within 10 s, lock released, no -wal/-shm, integrity_check ok, exit code 101 from the double timer removal. After fix a334107c (FR6.HD1, NFR1.HD1) a debug build of that tree passed smoke-linux-quit.sh with exit code 0 and every check pass (sandbox disabled, grade unverifiable, buildKind developer)."
+}

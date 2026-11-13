@@ -1,0 +1,322 @@
+.du-app:has(> .du-history-shell) {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  block-size: 100dvh;
+}
+
+.du-history-shell {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  min-inline-size: 0;
+  min-block-size: 0;
+}
+
+.du-history-screen {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-inline-size: 0;
+  min-block-size: 0;
+}
+
+.du-history-screen[hidden] {
+  display: none;
+}
+
+.du-history-header,
+.du-history-filter-row,
+.du-history-summary-title,
+.du-history-related-row,
+.du-history-footer {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+}
+
+.du-history-header,
+.du-history-related-row,
+.du-history-footer {
+  justify-content: space-between;
+}
+
+.du-history-shell .du-history-header .du-heading--2 {
+  font-size: clamp(22px, 3.5vw, 26px);
+}
+
+.du-history-controls {
+  display: grid;
+  gap: 4px;
+}
+
+.du-history-controls:not(:has([aria-expanded="true"])) {
+  grid-template-columns: minmax(10rem, auto) minmax(0, 1fr);
+  align-items: end;
+  column-gap: 12px;
+}
+
+.du-history-controls:not(:has([aria-expanded="true"])) .du-detail-disclosure {
+  border-block-start: 0;
+}
+
+.du-history-controls .du-detail-disclosure > .du-action {
+  min-block-size: 32px;
+}
+
+.du-history-controls .du-detail-disclosure__content {
+  padding-block-end: 4px;
+}
+
+.du-history-filter-row {
+  align-items: end;
+}
+
+.du-history-extra-filters {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px 12px;
+}
+
+.du-history-shell .du-history-controls .du-field :is(input, select) {
+  min-inline-size: 0;
+  min-block-size: 36px;
+  padding-block: 6px;
+}
+
+.du-history-pages {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-block-size: 0;
+  min-inline-size: 0;
+  overflow: hidden;
+  border: 1px solid var(--du-border);
+  border-radius: var(--du-radius);
+  background: var(--du-surface);
+}
+
+.du-history-pages > :is(.du-notice, .du-progress) {
+  flex: none;
+  margin: 6px 8px;
+}
+
+.du-history-table {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-inline-size: 0;
+  min-block-size: 0;
+}
+
+.du-history-table .du-table-viewport {
+  flex: 1;
+  min-block-size: 0;
+  max-block-size: none;
+  overscroll-behavior: contain;
+  scroll-padding-block-start: 36px;
+  scrollbar-gutter: stable;
+}
+
+.du-history-shell .du-data-table th {
+  background: var(--du-subtle);
+  color: var(--du-muted);
+}
+
+.du-history-shell .du-data-table th > div {
+  display: flex;
+  align-items: center;
+  block-size: 36px;
+  padding: 4px 10px;
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.du-history-shell .du-table-cell {
+  padding: 6px 10px;
+}
+
+.du-history-table .du-table-cell {
+  display: flex;
+  align-items: center;
+}
+
+.du-history-table .du-table-cell .du-action {
+  min-block-size: 32px;
+  padding-inline: 8px;
+}
+
+.du-history-operation,
+.du-history-operation > div {
+  min-inline-size: 0;
+  max-inline-size: 100%;
+}
+
+.du-history-operation .du-text,
+.du-history-item-location .du-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.du-history-operation .du-text--body {
+  font-weight: 630;
+}
+
+.du-history-operation .du-text--muted,
+.du-history-table .du-table-cell .du-text--muted,
+.du-history-related-row .du-text--muted {
+  font-size: 12px;
+}
+
+.du-history-empty {
+  padding: 18px 12px;
+  color: var(--du-muted);
+}
+
+.du-history-footer {
+  flex: none;
+  min-block-size: 40px;
+  padding: 3px 8px 3px 12px;
+  border-block-start: 1px solid var(--du-border);
+  color: var(--du-muted);
+  font-size: 12px;
+}
+
+.du-history-footer .du-action {
+  min-block-size: 32px;
+}
+
+.du-history-detail {
+  flex: 1;
+  min-block-size: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding: 12px 14px;
+  border: 1px solid var(--du-border);
+  border-radius: var(--du-radius);
+  background: var(--du-surface);
+  overflow-wrap: anywhere;
+}
+
+.du-history-detail:focus-visible {
+  outline: 2px solid var(--du-focus);
+  outline-offset: -2px;
+}
+
+.du-history-detail > * + * {
+  margin-block-start: 14px;
+}
+
+.du-history-summary,
+.du-history-related,
+.du-history-item-results,
+.du-history-evidence-section,
+.du-history-displaced {
+  display: grid;
+  gap: 8px;
+  min-inline-size: 0;
+}
+
+.du-history-detail .du-heading--3 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.du-history-summary .du-readout {
+  padding: 10px 12px;
+  border-radius: calc(var(--du-radius) - 2px);
+  background: var(--du-subtle);
+}
+
+.du-history-detail .du-readout > div {
+  display: grid;
+  grid-template-columns: minmax(7rem, 27%) minmax(0, 1fr);
+}
+
+.du-history-detail .du-readout dd {
+  text-align: start;
+}
+
+.du-history-related-row {
+  padding-block: 3px;
+  border-block-end: 1px solid var(--du-border);
+}
+
+.du-history-item-filter {
+  max-inline-size: 13rem;
+}
+
+.du-history-item-results .du-action {
+  align-self: start;
+  justify-self: start;
+}
+
+.du-history-item-results .du-table-viewport {
+  max-block-size: min(256px, 46dvh);
+  scroll-padding-block-start: 36px;
+}
+
+.du-history-item-location .du-text {
+  font-size: 13px;
+}
+
+.du-history-item-results .du-table-cell {
+  padding: 4px 8px;
+}
+
+.du-history-item-results .du-table-cell .du-action {
+  min-block-size: 32px;
+  padding: 3px 6px;
+  line-height: 1.2;
+}
+
+.du-history-item-observation .du-text--muted {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.du-history-item-observation {
+  font-size: 12px;
+  line-height: 1.25;
+}
+
+.du-history-displaced {
+  border: 1px solid var(--du-border);
+  border-radius: var(--du-radius);
+  padding: 10px;
+}
+
+.du-history-displaced:focus {
+  outline: 2px solid var(--du-focus);
+  outline-offset: -2px;
+}
+
+@media (max-width: 450px), (max-height: 350px) {
+  .du-history-controls:not(:has([aria-expanded="true"])) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .du-app:has(> .du-history-shell) {
+    block-size: auto;
+    grid-template-rows: auto auto;
+  }
+
+  .du-history-table .du-table-viewport {
+    max-block-size: 55dvh;
+  }
+
+  .du-history-extra-filters {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 8rem), 1fr));
+  }
+}
+
+@media (max-height: 15rem) {
+  .du-history-table .du-table-viewport {
+    scroll-padding-block: 6px;
+  }
+
+  .du-history-table .du-data-table th {
+    position: static;
+  }
+}

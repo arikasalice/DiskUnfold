@@ -1,0 +1,43 @@
+[package]
+name = "du-platform-os"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[features]
+fake = []
+webview = ["dep:gtk4", "dep:webkit6", "dep:block2", "dep:objc2", "dep:objc2-app-kit", "dep:objc2-foundation", "dep:objc2-web-kit", "dep:webview2-com", "windows/Win32_System_Com", "windows/Win32_System_LibraryLoader", "windows/Win32_UI_Shell", "windows/Win32_UI_WindowsAndMessaging", "dep:windows-window"]
+windows-console = ["windows/Win32_System_Console"]
+
+[dependencies]
+du-core-contracts = { version = "0.1.0", path = "../core-contracts" }
+getrandom = "=0.4.3"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+rustix = { version = "=1.1.6", features = ["fs"] }
+gtk4 = { version = "=0.11.5", optional = true, features = ["v4_10"] }
+webkit6 = { version = "=0.6.1", optional = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+rustix = { version = "=1.1.6", features = ["fs"] }
+block2 = { version = "=0.6.2", optional = true }
+libc = "=0.2.191"
+objc2 = { version = "=0.6.5", optional = true }
+objc2-app-kit = { version = "=0.3.2", optional = true, default-features = false, features = ["std", "NSAlert", "NSApplication", "NSEvent", "NSGraphicsContext", "NSMenu", "NSMenuItem", "NSRunningApplication", "NSResponder", "NSView", "NSWindow", "NSWorkspace", "NSGraphics", "NSImage"] }
+objc2-foundation = { version = "=0.3.2", optional = true, default-features = false, features = ["std", "NSArray", "NSBundle", "NSDate", "NSDictionary", "NSError", "NSFormatter", "NSGeometry", "NSISO8601DateFormatter", "NSLocale", "NSNotification", "NSString", "NSTimeZone", "NSURL", "NSURLRequest", "NSURLResponse", "NSValue"] }
+objc2-web-kit = { version = "=0.3.2", optional = true, default-features = false, features = ["std", "block2", "objc2-app-kit", "objc2-core-foundation", "WKFrameInfo", "WKNavigation", "WKNavigationAction", "WKNavigationDelegate", "WKNavigationResponse", "WKScriptMessage", "WKScriptMessageHandlerWithReply", "WKURLSchemeHandler", "WKURLSchemeTask", "WKUserContentController", "WKUserScript", "WKContentWorld", "WKWebView", "WKWebViewConfiguration", "WKWebsiteDataStore"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+webview2-com = { version = "=0.39.1", optional = true }
+windows = { version = "=0.62.2", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_Storage_Packaging_Appx", "Win32_System_IO", "Win32_System_Registry", "Win32_System_SystemInformation", "Win32_System_Threading", "Win32_System_Time", "Win32_UI", "Win32_UI_WindowsAndMessaging", "Wdk_Foundation", "Wdk_Storage_FileSystem", "Wdk_System_SystemServices"] }
+windows-window = { version = "=0.100.0", optional = true }
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[target.'cfg(target_os = "windows")'.dev-dependencies]
+windows = { version = "=0.62.2", features = ["Win32_System_Ioctl"] }
+
+[lints]
+workspace = true

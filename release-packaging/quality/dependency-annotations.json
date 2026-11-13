@@ -1,0 +1,482 @@
+{
+  "cargo:du-user-env:icu_casemap@2.4.0": {
+    "license": "Unicode-3.0",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Apply full Unicode case folding to offline settings search text"
+  },
+  "cargo:du-user-env:icu_normalizer@2.4.0": {
+    "license": "Unicode-3.0",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Normalize offline settings search text to Unicode NFC before case folding"
+  },
+  "cargo:du-app-host:rusqlite@0.41.1": {
+    "license": "MIT",
+    "role": "test",
+    "distributed": false,
+    "reason": "Inspect isolated SQLite settings recovery fixtures"
+  },
+  "cargo:du-app-host:tempfile@3.27.0": {
+    "license": "MIT OR Apache-2.0",
+    "role": "test",
+    "distributed": false,
+    "reason": "Isolate desktop settings startup fixtures"
+  },
+  "cargo:du-app-db:rusqlite@0.41.1": {
+    "license": "MIT",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "SQLite persistence, online backup and migration statement authorization"
+  },
+  "cargo:du-app-db:blake3@1.8.3": {
+    "license": "CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Verify the exact built-in SQLite migration definitions"
+  },
+  "cargo:du-platform-os:tempfile@3.27.0": {
+    "license": "MIT OR Apache-2.0",
+    "role": "test",
+    "distributed": false,
+    "reason": "Isolate Windows scan fixtures and replacement races from user data"
+  },
+  "cargo:du-app-db:tempfile@3.27.0": {
+    "license": "MIT OR Apache-2.0",
+    "role": "test",
+    "distributed": false,
+    "reason": "isolated temporary files for tests"
+  },
+  "cargo:du-app-db:serde_json@1.0.154": {
+    "license": "MIT OR Apache-2.0",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Encode and decode SQLite setting values"
+  },
+  "cargo:du-app-db:uuid@1.29.2": {
+    "license": "Apache-2.0 OR MIT",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Allocate UUID v7 identifiers for quarantined settings"
+  },
+  "cargo:du-app-host:serde_json@1.0.154": {
+    "license": "MIT OR Apache-2.0",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Serialize typed IPC results and errors"
+  },
+  "cargo:du-app-host:sha2@0.10.9": {
+    "license": "MIT OR Apache-2.0",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Compute the on-request SHA-256 of the running executable for F15 IF-03, and (also as a build dependency) the digest of the embedded GUI assets that startup row 1 verifies for F15 FR4.HD1"
+  },
+  "cargo:du-app-host:serde@1.0.229": {
+    "license": "MIT OR Apache-2.0",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Decode the local IPC request envelope"
+  },
+  "cargo:du-cli:serde_json@1.0.154": {
+    "license": "MIT OR Apache-2.0",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Encode the version-independent support report for CLI JSON output"
+  },
+  "cargo:du-arch-check:proc-macro2@1.0.107": {
+    "license": "MIT OR Apache-2.0",
+    "role": "build",
+    "distributed": false,
+    "reason": "Rust syntax source locations"
+  },
+  "cargo:du-arch-check:serde_json@1.0.154": {
+    "license": "MIT OR Apache-2.0",
+    "role": "build",
+    "distributed": false,
+    "reason": "JSON serialization"
+  },
+  "cargo:du-arch-check:serde@1.0.229": {
+    "license": "MIT OR Apache-2.0",
+    "role": "build",
+    "distributed": false,
+    "reason": "serialization contracts"
+  },
+  "cargo:du-arch-check:syn@3.0.10": {
+    "license": "MIT OR Apache-2.0",
+    "role": "build",
+    "distributed": false,
+    "reason": "Rust syntax parsing for architecture checks"
+  },
+  "cargo:du-arch-check:toml@1.2.1+spec-1.1.0": {
+    "license": "MIT OR Apache-2.0",
+    "role": "build",
+    "distributed": false,
+    "reason": "architecture policy parsing"
+  },
+  "cargo:du-core-contracts:base64@0.23.1": {
+    "license": "MIT OR Apache-2.0",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "binary path encoding"
+  },
+  "cargo:du-core-contracts:chrono@0.4.45": {
+    "license": "MIT OR Apache-2.0",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "UTC timestamp representation"
+  },
+  "cargo:du-core-contracts:serde_json@1.0.154": {
+    "license": "MIT OR Apache-2.0",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "JSON serialization"
+  },
+  "cargo:du-core-contracts:serde@1.0.229": {
+    "license": "MIT OR Apache-2.0",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "serialization contracts"
+  },
+  "cargo:du-core-contracts:ts-rs@12.0.1": {
+    "license": "MIT",
+    "role": "build",
+    "distributed": false,
+    "reason": "generate TypeScript contracts"
+  },
+  "cargo:du-core-contracts:uuid@1.29.2": {
+    "license": "Apache-2.0 OR MIT",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "identifier representation"
+  },
+  "cargo:du-engine-api:serde_json@1.0.154": {
+    "license": "MIT OR Apache-2.0",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Convert registered use case requests and responses at the engine boundary"
+  },
+  "cargo:du-engine-api:serde@1.0.229": {
+    "license": "MIT OR Apache-2.0",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Type bounds for registered use case requests and responses"
+  },
+  "cargo:du-engine-api:uuid@1.29.2": {
+    "license": "Apache-2.0 OR MIT",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Generate UUID v7 identifiers for local analysis jobs and result versions"
+  },
+  "cargo:du-engine-api:blake3@1.8.3": {
+    "license": "CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Fingerprint a verified analysis scope for scan admission"
+  },
+  "cargo:du-scan-engine:blake3@1.8.3": {
+    "license": "CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Verify the integrity digest of the built-in sample bundle"
+  },
+  "cargo:du-duplicate-engine:blake3@1.8.3": {
+    "license": "CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Compute purpose-separated sample and full content fingerprints for duplicate verification"
+  },
+  "cargo:du-user-env:blake3@1.8.3": {
+    "license": "CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Fingerprint settings reviews and compute and verify embedded language bundle digests"
+  },
+  "cargo:du-share-policy:serde@1.0.229": {
+    "license": "MIT OR Apache-2.0",
+    "role": "runtime",
+    "distributed": false,
+    "reason": "Serialize declared candidates and inspect JSON object keys before filtering"
+  },
+  "cargo:du-share-policy:serde_json@1.0.154": {
+    "license": "MIT OR Apache-2.0",
+    "role": "runtime",
+    "distributed": false,
+    "reason": "Validate serialized fields before fixed exclusions in the internal sharing filter"
+  },
+  "cargo:du-snapshot-store:blake3@1.8.3": {
+    "license": "CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Verify the DUSNAP v1 envelope integrity digest"
+  },
+  "cargo:du-snapshot-store:zstd@0.14.3": {
+    "license": "BSD-3-Clause",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Decode bounded DUSNAP v1 snapshot frames"
+  },
+  "cargo:du-snapshot-store:serde_json@1.0.154": {
+    "license": "MIT OR Apache-2.0",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Parse sealed snapshot metadata for native scope roots"
+  },
+  "cargo:du-user-env:serde_json@1.0.154": {
+    "license": "MIT OR Apache-2.0",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Validate setting values and encode review inputs"
+  },
+  "cargo:du-platform-os:block2@0.6.2": {
+    "license": "MIT",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Represent scoped Objective-C callbacks for WKWebView"
+  },
+  "cargo:du-platform-os:getrandom@0.4.3": {
+    "license": "MIT OR Apache-2.0",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Provide OS randomness for session keys and WebKitGTK message capabilities"
+  },
+  "cargo:du-platform-os:gtk4@0.11.5": {
+    "license": "MIT",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Linux GTK4 window bindings for the system webview"
+  },
+  "cargo:du-platform-os:objc2-app-kit@0.3.2": {
+    "license": "Zlib OR Apache-2.0 OR MIT",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Create the macOS window and drive the AppKit event loop"
+  },
+  "cargo:du-platform-os:objc2-foundation@0.3.2": {
+    "license": "MIT",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Represent Foundation request, response and data objects"
+  },
+  "cargo:du-platform-os:objc2-web-kit@0.3.2": {
+    "license": "Zlib OR Apache-2.0 OR MIT",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Serve embedded assets and receive WKWebView frame messages"
+  },
+  "cargo:du-platform-os:objc2@0.6.5": {
+    "license": "MIT",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Manage Objective-C object lifetimes and main-thread callbacks"
+  },
+  "cargo:du-platform-os:libc@0.2.191": {
+    "license": "MIT OR Apache-2.0",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Resolve the real user's home directory on macOS with getpwuid_r for the Full Disk Access probe"
+  },
+  "cargo:du-platform-os:rustix@1.1.6": {
+    "license": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Pin Linux and macOS startup operations without following symbolic links"
+  },
+  "cargo:du-platform-os:webkit6@0.6.1": {
+    "license": "MIT",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Linux WebKitGTK 6.0 bindings and script message replies"
+  },
+  "cargo:du-platform-os:webview2-com@0.39.1": {
+    "license": "MIT",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Use WebView2 COM with the MSVC static loader for one executable"
+  },
+  "cargo:du-launcher:find-msvc-tools@0.1.15": {
+    "license": "MIT OR Apache-2.0",
+    "role": "build",
+    "distributed": false,
+    "reason": "Locate the Windows SDK resource compiler for the executable icon"
+  },
+  "cargo:du-launcher:serde_json@1.0.154": {
+    "license": "MIT OR Apache-2.0",
+    "role": "build",
+    "distributed": false,
+    "reason": "Embed and validate the executable product metadata resource"
+  },
+  "cargo:du-platform-os:windows@0.62.2": {
+    "license": "MIT OR Apache-2.0",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Use Win32 COM and memory streams for the WebView2 adapter"
+  },
+  "cargo:du-platform-os:windows-window@0.100.0": {
+    "license": "MIT OR Apache-2.0",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Own the Win32 window and its native message loop"
+  },
+  "cargo:du-release-tools:serde_json@1.0.154": {
+    "license": "MIT OR Apache-2.0",
+    "role": "build",
+    "distributed": false,
+    "reason": "Exchange check inputs and decisions with the npm quality script"
+  },
+  "cargo:du-release-tools:serde@1.0.229": {
+    "license": "MIT OR Apache-2.0",
+    "role": "build",
+    "distributed": false,
+    "reason": "Decode license check inputs"
+  },
+  "cargo:du-release-tools:spdx@0.13.6": {
+    "license": "Apache-2.0",
+    "role": "build",
+    "distributed": false,
+    "reason": "Validate SPDX expressions and evaluate the license allowlists"
+  },
+  "cargo:du-release-tools:sha2@0.10.9": {
+    "license": "MIT OR Apache-2.0",
+    "role": "build",
+    "distributed": false,
+    "reason": "Recompute package and executable SHA-256 values in release staging"
+  },
+  "cargo:du-release-tools:tempfile@3.27.0": {
+    "license": "MIT OR Apache-2.0",
+    "role": "test",
+    "distributed": false,
+    "reason": "Create isolated staged-file fixtures for release inventory tests"
+  },
+  "npm:diskunfold-gui:react-aria-components@1.22.1": {
+    "license": "Apache-2.0",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Supply keyboard interaction and accessible semantics in common UI components"
+  },
+  "npm:diskunfold-gui:lucide-react@1.69.0": {
+    "license": "ISC",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Supply consistent decorative icons through the common component registry"
+  },
+  "npm:diskunfold-gui:axe-core@4.14.0": {
+    "license": "MPL-2.0",
+    "role": "test",
+    "distributed": false,
+    "reason": "Check accessibility semantics in shared controls and the analysis workspace"
+  },
+  "npm:diskunfold-gui:@testing-library/dom@10.4.2": {
+    "license": "MIT",
+    "role": "build",
+    "distributed": false,
+    "reason": "DOM behavior tests"
+  },
+  "npm:diskunfold-gui:@testing-library/react@16.3.3": {
+    "license": "MIT",
+    "role": "build",
+    "distributed": false,
+    "reason": "React component tests"
+  },
+  "npm:diskunfold-gui:@types/node@26.6.6": {
+    "license": "MIT",
+    "role": "build",
+    "distributed": false,
+    "reason": "Node type declarations"
+  },
+  "npm:diskunfold-gui:@types/react-dom@19.3.0": {
+    "license": "MIT",
+    "role": "build",
+    "distributed": false,
+    "reason": "React DOM type declarations"
+  },
+  "npm:diskunfold-gui:@types/react@19.3.0": {
+    "license": "MIT",
+    "role": "build",
+    "distributed": false,
+    "reason": "React type declarations"
+  },
+  "npm:diskunfold-gui:@vitest/coverage-v8@5.1.0": {
+    "license": "MIT",
+    "role": "build",
+    "distributed": false,
+    "reason": "GUI coverage measurement"
+  },
+  "npm:diskunfold-gui:dependency-cruiser@18.7.2": {
+    "license": "MIT",
+    "role": "build",
+    "distributed": false,
+    "reason": "GUI dependency boundary checks"
+  },
+  "npm:diskunfold-gui:eslint@10.14.0": {
+    "license": "MIT",
+    "role": "build",
+    "distributed": false,
+    "reason": "GUI static lint checks"
+  },
+  "npm:diskunfold-gui:happy-dom@21.0.4": {
+    "license": "MIT",
+    "role": "build",
+    "distributed": false,
+    "reason": "DOM environment for tests"
+  },
+  "npm:diskunfold-gui:jscpd@5.4.3": {
+    "license": "MIT",
+    "role": "build",
+    "distributed": false,
+    "reason": "duplicate code reporting"
+  },
+  "npm:diskunfold-gui:prettier@3.9.10": {
+    "license": "MIT",
+    "role": "build",
+    "distributed": false,
+    "reason": "GUI format checks"
+  },
+  "npm:diskunfold-gui:react-dom@19.3.1": {
+    "license": "MIT",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "render UI in webview"
+  },
+  "npm:diskunfold-gui:react@19.3.1": {
+    "license": "MIT",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "UI component runtime"
+  },
+  "npm:diskunfold-gui:typescript-compiler@7.0.2": {
+    "license": "Apache-2.0",
+    "role": "build",
+    "distributed": false,
+    "reason": "TypeScript compiler"
+  },
+  "npm:diskunfold-gui:typescript-eslint@8.72.1": {
+    "license": "MIT",
+    "role": "build",
+    "distributed": false,
+    "reason": "TypeScript lint integration"
+  },
+  "npm:diskunfold-gui:typescript@6.0.3": {
+    "license": "Apache-2.0",
+    "role": "build",
+    "distributed": false,
+    "reason": "ESLint parser compatible TypeScript"
+  },
+  "npm:diskunfold-gui:vite@8.3.7": {
+    "license": "MIT",
+    "role": "build",
+    "distributed": false,
+    "reason": "build static GUI assets"
+  },
+  "npm:diskunfold-gui:vitest@5.1.0": {
+    "license": "MIT",
+    "role": "build",
+    "distributed": false,
+    "reason": "execute GUI tests"
+  },
+  "cargo:du-release-tools:toml@1.2.1+spec-1.1.0": {
+    "license": "MIT OR Apache-2.0",
+    "role": "build",
+    "distributed": false,
+    "reason": "Read the license allow list and banned crates from deny.toml for the notices gate"
+  }
+}

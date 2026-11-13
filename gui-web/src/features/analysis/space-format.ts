@@ -1,0 +1,188 @@
+import type { SizeValue, SpaceTotal } from "../../ipc";
+import { SIZE_UNIT_RULES } from "../../ipc";
+import { formatByteUnit } from "../../i18n/bytes";
+import { displayInteger } from "../../i18n/regional-format";
+import type { RegionalFormat } from "../../i18n/regional-format";
+import type { LocaleText } from "../../i18n/presentation";
+
+import type { SizeDisplay } from "../../i18n/bytes";
+export type { SizeDisplay } from "../../i18n/bytes";
+
+export const windowsSizeDisplay: SizeDisplay = { system: "iec", unit: "auto" };
+
+export type SizeBasisFilter = SizeValue["basis"];
+export const sizeLabels = {
+  logical: "Logical size",
+  allocated: "Allocated size",
+  unique_physical: "Unique physical size",
+} satisfies Record<SizeValue["basis"], string>;
+
+const measurementLabels = {
+  complete: "Complete measurement",
+  partial: "Partial measurement",
+  missing: "Incomplete measurement",
+  cancelled: "Measurement interrupted",
+} satisfies Record<SpaceTotal["completeness"], string>;
+
+/** Human-readable evidence labels shared by the two space views. */
+export const evidenceLabels = {
+  measured: "Measured",
+  os_reported: "Reported by the file system",
+  estimated: "Estimated",
+  unknown: undefined,
+} satisfies Record<SizeValue["evidence"], string | undefined>;
+
+const spaceReasonLabels = new Map([
+  ["space.aux_not_included", "Auxiliary data was not collected"],
+  ["space.dedup_capacity", "The file identity limit was reached"],
+  ["space.sharing_not_collected", "Sharing evidence was not collected"],
+  ["space.sharing_unknown", "Sharing could not be verified"],
+  ["space.identity_unsupported", "File identity could not be verified"],
+  ["space.out_of_range_links", "Links outside the scan were reported"],
+  ["space.shared_reported", "The file system reported shared space"],
+]);
+
+const measurementLimitLabels = new Map([
+  ["space.data_insufficient", "Some space data could not be verified"],
+  [
+    "space.aggregation_overflow",
+    "The space total exceeded the supported range",
+  ],
+  ["space.allocated_not_collected", "Allocation data was not collected"],
+  [
+    "space.observation_detail_insufficient",
+    "Some observation details are unavailable",
+  ],
+]);
+
+/** Returns the explanation for a recognized item-space reason. */
+export function displaySpaceReason(key: string): string | undefined {
+  return spaceReasonLabels.get(key);
+}
+
+/** Preserves a visible limitation even when its reason is not recognized. */
+export function displayMeasurementLimit(key: string): string {
+  return (
+    displaySpaceReason(key) ??
+    measurementLimitLabels.get(key) ??
+    "A measurement limitation was reported"
+  );
+}
+
+/** Separates measurement completeness and evidence from the result version. */
+export function displayMeasurement(
+  value: SizeValue,
+  completeness: SpaceTotal["completeness"],
+  text?: LocaleText,
+): string {
+  return [
+    text?.(
+      `ui.analysis.measurement_${completeness}`,
+      measurementLabels[completeness],
+    ) ?? measurementLabels[completeness],
+    displayEvidence(value.evidence, text),
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+/** Localizes a measurement source while retaining undefined for unknown evidence. */
+export function displayEvidence(
+  evidence: SizeValue["evidence"],
+  text?: LocaleText,
+): string | undefined {
+  if (evidence === "unknown") return undefined;
+  const key =
+    evidence === "measured"
+      ? "ui.analysis.evidence_measured"
+      : evidence === "os_reported"
+        ? "ui.analysis.evidence_reported"
+        : "ui.analysis.evidence_estimated";
+  return (
+    text?.(key, evidenceLabels[evidence] ?? "Unavailable") ??
+    evidenceLabels[evidence]
+  );
+}
+
+/** Formats exact wire bytes without converting them to a floating-point number. */
+export function formatBytes(
+  bytes: string,
+  regional?: RegionalFormat,
+  text?: LocaleText,
+): string {
+  const byteUnit =
+    regional?.byteUnitText ??
+    text?.("ui.analysis.bytes_unit", "bytes") ??
+    "bytes";
+  return `${displayInteger(BigInt(bytes), regional)} ${byteUnit}`;
+}
+
+/** Retains the lower-bound qualifier when showing original bytes. */
+export function displayRawSize(
+  size: SizeValue,
+  regional?: RegionalFormat,
+  text?: LocaleText,
+): string | undefined {
+  if (size.state === "unknown") return undefined;
+  const rawBytes = formatBytes(size.bytes, regional, text);
+  return size.state === "lower_bound"
+    ? lowerBoundLabel(rawBytes, text)
+    : rawBytes;
+}
+
+function lowerBoundLabel(value: string, text?: LocaleText) {
+  return (
+    text?.("ui.analysis.size_lower_bound", "At least {value}", { value }) ??
+    `At least ${value}`
+  );
+}
+
+/** Converts a wire byte count using exact arithmetic before display rounding. */
+export function formatSizeBytes(
+  bytes: string,
+  display: SizeDisplay,
+  lowerBound = false,
+): string {
+  return formatByteUnit(
+    BigInt(bytes),
+    SIZE_UNIT_RULES[display.system],
+    SIZE_UNIT_RULES.decimalPlaces,
+    display.unit,
+    lowerBound,
+    display.regional,
+  );
+}
+
+/** Preserves a lower bound or missing observation in the displayed size. */
+export function displaySize(
+  size: SizeValue,
+  display: SizeDisplay = windowsSizeDisplay,
+  text?: LocaleText,
+): string {
+  if (size.state === "unknown")
+    return text?.("ui.analysis.unavailable", "Unavailable") ?? "Unavailable";
+  const lowerBound = size.state === "lower_bound";
+  const formatted = formatSizeBytes(size.bytes, display, lowerBound);
+  return lowerBound ? lowerBoundLabel(formatted, text) : formatted;
+}
+
+/** Returns a separate raw count only when it adds information. */
+export function displaySizeParts(
+  size: SizeValue,
+  display: SizeDisplay,
+  text?: LocaleText,
+) {
+  const formatted = displaySize(size, display, text);
+  const raw = displayRawSize(size, display.regional, text);
+  return { formatted, raw: raw === formatted ? undefined : raw };
+}
+
+/** Shows the original byte count in details without upgrading a lower bound. */
+export function displaySizeWithBytes(
+  size: SizeValue,
+  display: SizeDisplay,
+  text?: LocaleText,
+): string {
+  const { formatted, raw } = displaySizeParts(size, display, text);
+  return raw ? `${formatted} · ${raw}` : formatted;
+}

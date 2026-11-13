@@ -1,0 +1,388 @@
+//! Exercises F02 cooperative controls through desktop IPC and real NTFS batches.
+
+use super::*;
+use du_core_contracts::{
+    SizeAmount, SizeBasis, Timestamp,
+    analysis_ipc::{AnalysisJobControl, AnalysisJobStatus, JobControlOutcome, SpaceTotal},
+    ports::{PortError, PortErrorKind},
+    result::ResultCompleteness,
+    scan_observation::{
+        AnchoredDirectory, DirectoryObservations, ObservedEntry, OpenedScopeRoot, ScopeRootPort,
+        TimedObservedEntry, VolumeSpaceReader,
+    },
+};
+use du_platform_os::windows_observation::WindowsScopeRoots;
+use std::{
+    fs,
+    sync::{
+        Mutex,
+        atomic::{AtomicUsize, Ordering},
+        mpsc,
+    },
+};
+
+struct GatedRoots {
+    waiting: mpsc::Sender<()>,
+    resume: Arc<Mutex<mpsc::Receiver<()>>>,
+    batches: Arc<AtomicUsize>,
+}
+
+impl ScopeRootPort for GatedRoots {
+    fn open_root(&self, absolute_path: &[u8]) -> Result<OpenedScopeRoot, PortError> {
+        let mut root = WindowsScopeRoots.open_root(absolute_path)?;
+        root.directory = Box::new(GatedDirectory {
+            inner: root.directory,
+            waiting: self.waiting.clone(),
+            resume: self.resume.clone(),
+            batches: self.batches.clone(),
+        });
+        Ok(root)
+    }
+}
+
+struct GatedDirectory {
+    inner: Box<dyn AnchoredDirectory>,
+    waiting: mpsc::Sender<()>,
+    resume: Arc<Mutex<mpsc::Receiver<()>>>,
+    batches: Arc<AtomicUsize>,
+}
+
+impl DirectoryObservations for GatedDirectory {
+    fn next_batch(&mut self) -> Result<Vec<ObservedEntry>, PortError> {
+        self.next_batch_timed(&|| None)
+            .map(|entries| entries.into_iter().map(|entry| entry.entry).collect())
+    }
+
+    fn next_batch_timed(
+        &mut self,
+        clock: &dyn Fn() -> Option<Timestamp>,
+    ) -> Result<Vec<TimedObservedEntry>, PortError> {
+        let batch_number = self.batches.fetch_add(1, Ordering::SeqCst) + 1;
+        let entries = self.inner.next_batch_timed(clock)?;
+        if batch_number == 2 {
+            // Hold real NTFS observations in the port until IPC acknowledges the control.
+            self.waiting.send(()).map_err(|_| gate_failed())?;
+            self.resume
+                .lock()
+                .map_err(|_| gate_failed())?
+                .recv_timeout(Duration::from_secs(10))
+                .map_err(|_| gate_failed())?;
+        }
+        Ok(entries)
+    }
+}
+
+impl AnchoredDirectory for GatedDirectory {
+    fn open_child(&self, entry: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError> {
+        self.inner.open_child(entry)
+    }
+
+    fn volume_space_reader(&self) -> Result<Box<dyn VolumeSpaceReader>, PortError> {
+        self.inner.volume_space_reader()
+    }
+
+    fn observed_modified_at_timed(
+        &self,
+        clock: &dyn Fn() -> Option<Timestamp>,
+    ) -> (Option<Timestamp>, Option<Timestamp>) {
+        self.inner.observed_modified_at_timed(clock)
+    }
+
+    fn ancestor_file_ids(&self) -> Option<&[Vec<u8>]> {
+        self.inner.ancestor_file_ids()
+    }
+}
+
+fn gate_failed() -> PortError {
+    PortError {
+        kind: PortErrorKind::Io,
+        reason_key: "scan.unclassified".into(),
+        os_code: None,
+    }
+}
+
+struct BlockedScan {
+    _fixture: tempfile::TempDir,
+    scope: std::path::PathBuf,
+    _profile: tempfile::TempDir,
+    engine: Engine,
+    events: Arc<du_engine_api::desktop::DesktopEvents>,
+    job: Id,
+    release: mpsc::Sender<()>,
+    batches: Arc<AtomicUsize>,
+}
+
+fn blocked_scan() -> Result<BlockedScan, Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    let scope = fixture.path().join("scope");
+    fs::create_dir(&scope)?;
+    for file in 0..300 {
+        fs::write(scope.join(format!("file-{file:03}")), [1_u8])?;
+    }
+    let profile = tempfile::tempdir()?;
+    let database = crate::startup_database::open(profile.path())?;
+    let (waiting, reached) = mpsc::channel();
+    let (release, resume) = mpsc::channel();
+    let batches = Arc::new(AtomicUsize::new(0));
+    let mut builder = EngineBuilder::default();
+    let random = &du_platform_os::entropy::OsRandom;
+    let events = du_engine_api::desktop::register(
+        &mut builder,
+        Arc::new(GatedRoots {
+            waiting,
+            resume: Arc::new(Mutex::new(resume)),
+            batches: batches.clone(),
+        }),
+        Arc::new(du_platform_os::volume::WindowsVolumes),
+        Arc::new(database.history(|| 400)),
+        random,
+    )?;
+    du_engine_api::history::register(
+        &mut builder,
+        HistoryReader::open(profile.path(), database)?,
+        random,
+    )
+    .map_err(|error| format!("{error:?}"))?;
+    let engine = builder.build()?;
+    let scan = start_scan(&engine, &scope)?;
+    reached.recv_timeout(Duration::from_secs(10))?;
+    Ok(BlockedScan {
+        _fixture: fixture,
+        scope,
+        _profile: profile,
+        engine,
+        events,
+        job: scan.job_ref,
+        release,
+        batches,
+    })
+}
+
+#[test]
+fn cancellation_drains_the_inflight_native_batch_without_a_new_read()
+-> Result<(), Box<dyn std::error::Error>> {
+    let test = blocked_scan()?;
+    // `blocked_scan` returns only after the scan.start app-host IPC response
+    // has been decoded and the native scanner is held in its second batch.
+    assert_eq!(status(&test)?.state, JobState::Running);
+    let accepted = control(&test, "job.cancel")?;
+    assert_eq!(accepted.outcome, JobControlOutcome::Accepted);
+    assert_eq!(accepted.state, JobState::CancelRequested);
+    let repeated = control(&test, "job.cancel")?;
+    assert_eq!(repeated.outcome, JobControlOutcome::NoEffect);
+    let requested = status(&test)?;
+    assert_eq!(requested.state, JobState::CancelRequested);
+    assert!(requested.result_version.is_none());
+    test.release.send(())?;
+
+    let events = terminal_batch(&test.events, &test.job)?;
+    let finished: Vec<_> = events
+        .iter()
+        .filter(|event| event.topic == "job.finished" && event.job_ref.as_ref() == Some(&test.job))
+        .collect();
+    assert_eq!(finished.len(), 1);
+    assert_eq!(finished[0].body["state"], "cancelled");
+    let version = finished[0]
+        .result_version
+        .as_ref()
+        .ok_or("cancelled result version missing")?;
+    verify_cancelled_result(&test.engine, &test.job, version)?;
+    assert_eq!(test.batches.load(Ordering::SeqCst), 2);
+    assert_eq!(
+        control(&test, "job.cancel")?.outcome,
+        JobControlOutcome::AlreadyTerminal,
+    );
+    Ok(())
+}
+
+#[test]
+fn completed_scan_keeps_the_same_open_ntfs_root_after_path_replacement()
+-> Result<(), Box<dyn std::error::Error>> {
+    let test = blocked_scan()?;
+    assert_eq!(status(&test)?.state, JobState::Running);
+
+    // The real NTFS root is already open and its second batch is gated. Replace
+    // the path with a different directory; traversal must finish against the
+    // original opened root, not reopen the replacement by path.
+    let moved_scope = test._fixture.path().join("moved-scope");
+    fs::rename(&test.scope, &moved_scope)?;
+    fs::create_dir(&test.scope)?;
+    fs::write(test.scope.join("replacement.bin"), vec![2_u8; 4096])?;
+    test.release.send(())?;
+
+    let events = terminal_batch(&test.events, &test.job)?;
+    let finished = events
+        .iter()
+        .find(|event| event.topic == "job.finished" && event.job_ref.as_ref() == Some(&test.job))
+        .ok_or("missing completion")?;
+    assert_eq!(finished.body["state"], "done");
+    let result = finished
+        .result_version
+        .as_ref()
+        .ok_or("missing result version")?;
+    let total: SpaceTotal = read(
+        &test.engine,
+        "space.total",
+        json!({"resultVersion": result, "requestSeq": 2, "target": {"kind": "scope_root"}}),
+    )?;
+    assert_eq!(total.completeness, ResultCompleteness::Complete);
+    let logical = total
+        .sizes
+        .iter()
+        .find(|entry| entry.size.basis == SizeBasis::Logical)
+        .ok_or("missing logical total")?;
+    assert_eq!(
+        logical.size.amount,
+        SizeAmount::Exact {
+            bytes: 300_u64.into()
+        }
+    );
+    assert_eq!(test.batches.load(Ordering::SeqCst), 3);
+    Ok(())
+}
+
+#[test]
+fn pause_acknowledges_the_request_then_resumes_the_same_native_scan()
+-> Result<(), Box<dyn std::error::Error>> {
+    let test = blocked_scan()?;
+    let request = control(&test, "job.pause")?;
+    assert_eq!(request.outcome, JobControlOutcome::Accepted);
+    assert_eq!(request.state, JobState::PauseRequested);
+    let inflight = status(&test)?;
+    assert_eq!(inflight.state, JobState::PauseRequested);
+    assert_eq!(inflight.sequence, request.sequence);
+    assert_eq!(
+        control(&test, "job.pause")?.outcome,
+        JobControlOutcome::NoEffect
+    );
+    test.release.send(())?;
+
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    let paused = loop {
+        let observed = status(&test)?;
+        if observed.state == JobState::Paused {
+            break observed;
+        }
+        if std::time::Instant::now() >= deadline || observed.state.is_terminal() {
+            return Err(format!("scan did not park: {:?}", observed.state).into());
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    };
+    assert!(paused.sequence > request.sequence);
+    assert_eq!(test.batches.load(Ordering::SeqCst), 2);
+    let resumed = control(&test, "job.resume")?;
+    assert_eq!(resumed.outcome, JobControlOutcome::Accepted);
+    assert_eq!(resumed.state, JobState::Running);
+    assert!(resumed.sequence > paused.sequence);
+    let events = terminal_batch(&test.events, &test.job)?;
+    let finished = events
+        .iter()
+        .find(|event| event.topic == "job.finished" && event.job_ref.as_ref() == Some(&test.job))
+        .ok_or("missing completion")?;
+    assert_eq!(finished.body["state"], "done");
+    let result = finished.result_version.as_ref().ok_or("missing result")?;
+    let total: SpaceTotal = read(
+        &test.engine,
+        "space.total",
+        json!({"resultVersion": result, "requestSeq": 2, "target": {"kind": "scope_root"}}),
+    )?;
+    assert_eq!(total.completeness, ResultCompleteness::Complete);
+    assert!(
+        total
+            .sizes
+            .iter()
+            .any(|entry| entry.size.basis == SizeBasis::Logical
+                && entry.size.amount
+                    == SizeAmount::Exact {
+                        bytes: 300_u64.into()
+                    })
+    );
+    assert_eq!(test.batches.load(Ordering::SeqCst), 3);
+    assert_eq!(
+        control(&test, "job.resume")?.outcome,
+        JobControlOutcome::AlreadyTerminal
+    );
+    Ok(())
+}
+
+fn start_scan(engine: &Engine, path: &Path) -> Result<ScanStart, Box<dyn std::error::Error>> {
+    let raw: Vec<_> = path
+        .as_os_str()
+        .encode_wide()
+        .flat_map(u16::to_le_bytes)
+        .collect();
+    let draft = json!({
+        "includes": [{"encoding": "windows_utf16le", "raw": PathBytes::from_bytes(&raw),
+            "display": path, "lossy": false}],
+        "exclusions": [], "boundary": "current_volume", "includedMounts": [], "source": "gui"
+    });
+    let review: ScopeReview = read(
+        engine,
+        "scope.review",
+        json!({"draft": draft, "requestSeq": 1}),
+    )?;
+    read(
+        engine,
+        "scan.start",
+        json!({"draft": draft, "reviewFingerprint": review.review_fingerprint}),
+    )
+}
+
+fn control(
+    test: &BlockedScan,
+    name: &str,
+) -> Result<AnalysisJobControl, Box<dyn std::error::Error>> {
+    read(&test.engine, name, json!({"jobRef": test.job}))
+}
+
+fn status(test: &BlockedScan) -> Result<AnalysisJobStatus, Box<dyn std::error::Error>> {
+    read(&test.engine, "job.get", json!({"jobRef": test.job}))
+}
+
+fn verify_cancelled_result(
+    engine: &Engine,
+    job: &Id,
+    version: &Id,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let status: AnalysisJobStatus = read(engine, "job.get", json!({"jobRef": job}))?;
+    assert_eq!(status.state, JobState::Cancelled);
+    assert_eq!(status.result_version.as_ref(), Some(version));
+    let totals: SpaceTotal = read(
+        engine,
+        "space.total",
+        json!({"resultVersion": version, "requestSeq": 2, "target": {"kind": "scope_root"}}),
+    )?;
+    assert_eq!(totals.completeness, ResultCompleteness::Cancelled);
+    let logical = totals
+        .sizes
+        .iter()
+        .find(|entry| entry.size.basis == SizeBasis::Logical)
+        .ok_or("missing logical total")?;
+    assert_eq!(
+        logical.size.amount,
+        SizeAmount::LowerBound {
+            bytes: 300_u64.into()
+        }
+    );
+    let history: HistoryListResponse = read(engine, "history.list", json!({}))?;
+    assert_eq!(history.rows.len(), 1);
+    assert_eq!(history.rows[0].job_ref.as_ref(), Some(job));
+    let summary = history.rows[0]
+        .summary
+        .as_ref()
+        .ok_or("missing history summary")?;
+    assert_eq!(summary.state, HistoryEndState::Cancelled);
+    Ok(())
+}
+
+fn read<T: serde::de::DeserializeOwned>(
+    engine: &Engine,
+    name: &str,
+    body: Value,
+) -> Result<T, Box<dyn std::error::Error>> {
+    let response = ipc(engine, name, body)?;
+    if let Some(error) = response.error {
+        return Err(format!("{name}: {error:?}").into());
+    }
+    Ok(serde_json::from_value(response.body)?)
+}

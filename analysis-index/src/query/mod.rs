@@ -1,0 +1,500 @@
+//! In-memory, pinned-result query primitives. Text normalization and IPC belong to callers.
+pub mod boundary;
+mod condition;
+pub mod page;
+pub(crate) mod plan;
+pub mod prepared;
+mod sorting;
+mod total;
+pub use condition::{Basis, Boundary, Condition, Kind, NameEncoding, NameTest, Predicate, Truth};
+pub use total::TotalWithObservationRange;
+/// Checks condition depth and group sizes before recursive normalization.
+pub fn validate_condition(condition: &Condition) -> Result<(), Error> {
+    plan::check_shape(condition, 0)
+}
+use crate::{QueryError, ResultVersion, browse};
+use du_core_contracts::result::{ResultItem, ResultVersionRead};
+use du_core_contracts::{ItemRef, SizeAmount, SizeValue};
+pub use sorting::{Sort, SortSpec};
+use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
+
+pub use crate::space::selection::Error as SpaceTotalError;
+/// One immutable item and its native root-relative path in a pinned result.
+pub struct Record<'a> {
+    pub item: &'a ResultItem,
+    pub path: &'a [Vec<u8>],
+    pub version: &'a ResultVersion,
+}
+
+impl<'a> Record<'a> {
+    /// Returns the native display name used by query strategies.
+    pub fn name(&self) -> &[u8] {
+        if self.item.parent.is_none()
+            && let Some(root) = self.path.first()
+        {
+            return root;
+        }
+        &self.item.name
+    }
+
+    /// Reads the item's observed size, or its subtree aggregate for a directory.
+    pub fn size(&self, basis: Basis) -> Option<&'a SizeValue> {
+        self.version.item_size(
+            self.item.item_no,
+            match basis {
+                Basis::Logical => du_core_contracts::SizeBasis::Logical,
+                Basis::Allocated => du_core_contracts::SizeBasis::Allocated,
+            },
+        )
+    }
+}
+
+/// Sortable native key, where `Missing` always sorts after known values.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum SortValue {
+    Bytes(Vec<u8>),
+    Path(Vec<Vec<u8>>),
+    Number(u64),
+    Missing,
+}
+
+/// A registered pure predicate evaluator; implementations must not mutate the result.
+pub type PredicateEvaluator = for<'a> fn(&Record<'a>, &Predicate) -> Truth;
+/// A registered pure sort-key extractor, with stable key type for a given strategy.
+pub type SortEvaluator = for<'a> fn(&Record<'a>, Basis) -> SortValue;
+
+/// Versioned in-memory registry for condition and ordering strategies.
+#[derive(Clone, Default)]
+pub struct Registry {
+    predicates: BTreeMap<(String, u32), PredicateEvaluator>,
+    sorts: BTreeMap<(String, u32), SortEvaluator>,
+    operand_validators: BTreeMap<(String, u32), plan::OperandValidator>,
+}
+
+/// Invalid registration, unknown strategy, or an interrupted evaluation.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Error {
+    DuplicateStrategy,
+    UnknownPredicate,
+    UnknownSort,
+    InvalidCondition,
+    Folder(QueryError),
+    Parent(QueryError),
+    Cancelled,
+}
+
+impl Registry {
+    /// Creates the supported baseline strategies, each fixed at revision one.
+    pub fn baseline() -> Self {
+        let mut result = Self::default();
+        result.predicates.insert(("pred.name".into(), 1), builtin);
+        result.predicates.insert(("pred.type".into(), 1), builtin);
+        result.predicates.insert(("pred.size".into(), 1), builtin);
+        result.sorts.insert(("sort.name".into(), 1), sort_name);
+        result.sorts.insert(("sort.path".into(), 1), sort_path);
+        result.sorts.insert(("sort.size".into(), 1), sort_size);
+        result
+    }
+
+    /// Registers one predicate revision; duplicate keys are rejected without replacement.
+    pub fn register_predicate(
+        &mut self,
+        id: &str,
+        revision: u32,
+        evaluator: PredicateEvaluator,
+    ) -> Result<(), Error> {
+        let key = (id.to_owned(), revision);
+        if id.is_empty() || revision == 0 || self.predicates.contains_key(&key) {
+            return Err(Error::DuplicateStrategy);
+        }
+        self.predicates.insert(key, evaluator);
+        Ok(())
+    }
+
+    /// Validates sort strategies through the same registry lookup used by evaluation.
+    pub fn validate_sorts(&self, sorts: &[Sort<'_>]) -> Result<(), Error> {
+        sorting::prepare(self, sorts).map(|_| ())
+    }
+
+    /// Registers one sort-key revision; duplicate keys are rejected without replacement.
+    pub fn register_sort(
+        &mut self,
+        id: &str,
+        revision: u32,
+        evaluator: SortEvaluator,
+    ) -> Result<(), Error> {
+        let key = (id.to_owned(), revision);
+        if id.is_empty() || revision == 0 || self.sorts.contains_key(&key) {
+            return Err(Error::DuplicateStrategy);
+        }
+        self.sorts.insert(key, evaluator);
+        Ok(())
+    }
+}
+
+fn builtin(record: &Record<'_>, predicate: &Predicate) -> Truth {
+    match predicate {
+        Predicate::Name(test, encoding) => condition::name(record.name(), test, *encoding),
+        Predicate::Kind(kind) => condition::kind(record.item.kind, *kind),
+        Predicate::Size(basis, boundary) => condition::size(record.size(*basis), *basis, *boundary),
+        Predicate::Registered { .. } => Truth::Unknown,
+    }
+}
+
+fn sort_name(record: &Record<'_>, _: Basis) -> SortValue {
+    SortValue::Bytes(record.name().to_vec())
+}
+fn sort_path(record: &Record<'_>, _: Basis) -> SortValue {
+    SortValue::Path(record.path.to_vec())
+}
+fn sort_size(record: &Record<'_>, basis: Basis) -> SortValue {
+    let Some(size) = record.size(basis) else {
+        return SortValue::Missing;
+    };
+    let expected = match basis {
+        Basis::Logical => du_core_contracts::SizeBasis::Logical,
+        Basis::Allocated => du_core_contracts::SizeBasis::Allocated,
+    };
+    if size.basis != expected || size.evidence == du_core_contracts::SizeEvidence::Unknown {
+        return SortValue::Missing;
+    }
+    let bytes = match &size.amount {
+        SizeAmount::Exact { bytes } | SizeAmount::LowerBound { bytes } => bytes,
+        SizeAmount::Unknown => return SortValue::Missing,
+    };
+    bytes
+        .as_str()
+        .parse()
+        .map_or(SortValue::Missing, SortValue::Number)
+}
+
+/// A materialized selection retaining the source snapshot for its entire lifetime.
+pub struct QueryResult {
+    pub version: Arc<ResultVersion>,
+    pub items: Vec<ItemRef>,
+    pub unknown_count: u64,
+    /// Normalized condition used by this evaluation.
+    pub condition: Condition,
+    /// Predicate IDs and revisions pinned for the evaluation.
+    pub predicate_strategies: Vec<(String, u32)>,
+    /// Sort-key ID and revision pinned for the evaluation.
+    pub sort_strategy: (String, u32),
+    /// Size basis and direction used to evaluate the selected sort strategy.
+    pub sort_basis: Basis,
+    pub sort_descending: bool,
+    /// All resolved sort keys, in evaluation priority order.
+    pub sorts: Vec<SortSpec>,
+    /// The navigation location that supplied candidates, if scoped.
+    folder: Option<FolderLocation>,
+    row_kind: page::RowKind,
+    /// Whether an earlier search excluded candidates it could not determine.
+    inherited_uncertainty: bool,
+    /// Comparison metadata not available in the current result source.
+    pub limitations: &'static [&'static str],
+}
+
+impl QueryResult {
+    /// Sums the observed file membership of this pinned query without using scope totals.
+    /// Indeterminate predicates or source coverage yield unavailable evidence.
+    pub fn space_total(
+        &self,
+        cancelled: impl FnMut() -> bool,
+    ) -> Result<du_core_contracts::result::SpaceAggregate, SpaceTotalError> {
+        self.version.selection_total(
+            &self.items,
+            self.unknown_count == 0 && !self.inherited_uncertainty,
+            cancelled,
+        )
+    }
+}
+
+struct Row {
+    item_no: u32,
+    path: Vec<Vec<u8>>,
+    keys: sorting::Keys,
+}
+
+enum Selection<'a> {
+    Version,
+    Folder(FolderLocation),
+    Parent(&'a QueryResult),
+}
+
+/// A real directory or the virtual top of a result with several observed roots.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FolderLocation {
+    Item(u32),
+    ScopeRoots,
+}
+
+impl FolderLocation {
+    fn parent_item(self) -> Option<u32> {
+        match self {
+            Self::Item(item) => Some(item),
+            Self::ScopeRoots => None,
+        }
+    }
+}
+
+/// Evaluates a condition against one pinned version. Cancellation returns no result set.
+///
+/// Name and path strategies compare native bytes literally; Unicode normalization and
+/// locale or volume collation are not supplied by the current result source. In particular,
+/// little-endian UTF-16 byte ordering is neither UTF-16 code-unit ordering nor display-name
+/// collation. The caller must select the name encoding that matches the source.
+pub fn run(
+    registry: &Registry,
+    version: Arc<ResultVersion>,
+    condition: &Condition,
+    sort: Sort<'_>,
+    cancelled: impl FnMut() -> bool,
+) -> Result<QueryResult, Error> {
+    run_with_sorts(registry, version, condition, sort, &[], cancelled)
+}
+
+/// Evaluates one version using a required first sort and ordered additional keys.
+pub fn run_with_sorts(
+    registry: &Registry,
+    version: Arc<ResultVersion>,
+    condition: &Condition,
+    first: Sort<'_>,
+    additional: &[Sort<'_>],
+    cancelled: impl FnMut() -> bool,
+) -> Result<QueryResult, Error> {
+    let sorts: Vec<_> = std::iter::once(first)
+        .chain(additional.iter().copied())
+        .collect();
+    evaluate(
+        registry,
+        version,
+        Selection::Version,
+        condition,
+        &sorts,
+        cancelled,
+    )
+}
+
+/// Evaluates only immediate children of one confirmed folder on the pinned version.
+///
+/// A missing location selects the scope root, or the virtual top of a forest. Both
+/// use the same condition and sort registries as a full search.
+pub fn run_folder(
+    registry: &Registry,
+    version: Arc<ResultVersion>,
+    location: Option<&ItemRef>,
+    condition: &Condition,
+    sort: Sort<'_>,
+    cancelled: impl FnMut() -> bool,
+) -> Result<QueryResult, Error> {
+    run_folder_with_sorts(registry, version, location, condition, sort, &[], cancelled)
+}
+
+/// Evaluates immediate children using ordered sort keys against one pinned version.
+pub fn run_folder_with_sorts(
+    registry: &Registry,
+    version: Arc<ResultVersion>,
+    location: Option<&ItemRef>,
+    condition: &Condition,
+    first: Sort<'_>,
+    additional: &[Sort<'_>],
+    cancelled: impl FnMut() -> bool,
+) -> Result<QueryResult, Error> {
+    let folder = if location.is_none() && version.scope_roots().len() > 1 {
+        FolderLocation::ScopeRoots
+    } else {
+        FolderLocation::Item(
+            browse::directory(&version, location)
+                .map_err(Error::Folder)?
+                .item_no,
+        )
+    };
+    let sorts: Vec<_> = std::iter::once(first)
+        .chain(additional.iter().copied())
+        .collect();
+    evaluate(
+        registry,
+        version,
+        Selection::Folder(folder),
+        condition,
+        &sorts,
+        cancelled,
+    )
+}
+
+/// Refines an admitted parent result without widening its row set or changing its version.
+///
+/// Only the added condition is evaluated. The parent and added condition remain separate
+/// conjuncts in the returned metadata, including for an empty parent result.
+pub fn run_in_result(
+    registry: &Registry,
+    parent: &QueryResult,
+    additional: &Condition,
+    sort: Sort<'_>,
+    cancelled: impl FnMut() -> bool,
+) -> Result<QueryResult, Error> {
+    run_in_result_with_sorts(registry, parent, additional, sort, &[], cancelled)
+}
+
+/// Refines one admitted result using ordered sort keys without widening its rows.
+pub fn run_in_result_with_sorts(
+    registry: &Registry,
+    parent: &QueryResult,
+    additional: &Condition,
+    first: Sort<'_>,
+    sorts: &[Sort<'_>],
+    cancelled: impl FnMut() -> bool,
+) -> Result<QueryResult, Error> {
+    plan::check_shape(&parent.condition, 1)?;
+    plan::check_shape(additional, 1)?;
+    let sorts: Vec<_> = std::iter::once(first)
+        .chain(sorts.iter().copied())
+        .collect();
+    evaluate(
+        registry,
+        Arc::clone(&parent.version),
+        Selection::Parent(parent),
+        additional,
+        &sorts,
+        cancelled,
+    )
+}
+
+fn evaluate(
+    registry: &Registry,
+    version: Arc<ResultVersion>,
+    selection: Selection<'_>,
+    condition: &Condition,
+    sorts: &[Sort<'_>],
+    mut cancelled: impl FnMut() -> bool,
+) -> Result<QueryResult, Error> {
+    plan::check_shape(condition, 0)?;
+    let condition = condition.clone().normalize();
+    let plan = plan::prepare(registry, &condition, 0)?;
+    let first = sorts.first().ok_or(Error::UnknownSort)?;
+    let prepared = sorting::prepare(registry, sorts)?;
+    let (first_key, other_keys) = prepared.split_first().ok_or(Error::UnknownSort)?;
+    let mut rows = Vec::new();
+    let mut unknown_count = 0;
+    let (ordinary, parent, folder, row_kind) = match selection {
+        Selection::Version => (version.items(), None, None, page::RowKind::Search),
+        Selection::Folder(location) => {
+            let rows = match location {
+                FolderLocation::Item(item) => version.children(item),
+                FolderLocation::ScopeRoots => version.scope_roots(),
+            };
+            (rows, None, Some(location), page::RowKind::Folder)
+        }
+        Selection::Parent(parent) => (&[][..], Some(parent), parent.folder, page::RowKind::Search),
+    };
+    let admitted = parent
+        .into_iter()
+        .flat_map(|result| &result.items)
+        .map(|item| {
+            version
+                .detail(item)
+                .map(|detail| detail.item)
+                .map_err(Error::Parent)
+        });
+    for item in ordinary.iter().map(Ok).chain(admitted) {
+        if cancelled() {
+            return Err(Error::Cancelled);
+        }
+        let item = item?;
+        let path = navigation_path(&version, item, folder);
+        let record = Record {
+            item,
+            path: &path,
+            version: &version,
+        };
+        match plan.evaluate(&record) {
+            Truth::Match => rows.push(Row {
+                item_no: item.item_no,
+                keys: sorting::Keys::evaluate(first_key, other_keys, &record),
+                path,
+            }),
+            Truth::Unknown => unknown_count += 1,
+            Truth::NoMatch => {}
+        }
+    }
+    sorting::sort_rows(&mut rows, &mut cancelled, |a, b| {
+        sorting::compare(a, b, &prepared)
+    })?;
+    let items = rows
+        .into_iter()
+        .map(|row| ItemRef {
+            result_version: version.version_id().clone(),
+            item_no: row.item_no,
+        })
+        .collect();
+    let mut strategies = BTreeSet::new();
+    let condition = match parent {
+        Some(parent) => Condition::All(vec![parent.condition.clone(), condition]),
+        None => condition,
+    };
+    collect_strategies(&condition, &mut strategies);
+    Ok(QueryResult {
+        version,
+        items,
+        unknown_count,
+        condition,
+        predicate_strategies: strategies.into_iter().collect(),
+        sort_strategy: (first.id.to_owned(), first.revision),
+        sort_basis: first.basis,
+        sort_descending: first.descending,
+        sorts: sorts.iter().map(SortSpec::from).collect(),
+        folder,
+        row_kind,
+        inherited_uncertainty: parent
+            .is_some_and(|parent| parent.unknown_count > 0 || parent.inherited_uncertainty),
+        limitations: &[
+            "query.volume_name_comparison_unavailable",
+            "query.raw_path_order",
+        ],
+    })
+}
+
+fn collect_strategies(condition: &Condition, result: &mut BTreeSet<(String, u32)>) {
+    match condition {
+        Condition::Predicate(predicate) => {
+            let (id, revision) = predicate.strategy();
+            result.insert((id.to_owned(), revision));
+        }
+        Condition::All(children) | Condition::Any(children) => {
+            for child in children {
+                collect_strategies(child, result);
+            }
+        }
+        Condition::Not(child) => collect_strategies(child, result),
+    }
+}
+
+pub(crate) fn navigation_path(
+    version: &ResultVersion,
+    item: &ResultItem,
+    folder: Option<FolderLocation>,
+) -> Vec<Vec<u8>> {
+    if folder == Some(FolderLocation::ScopeRoots) {
+        let reference = ItemRef {
+            result_version: version.version_id().clone(),
+            item_no: item.item_no,
+        };
+        return version
+            .native_path(&reference)
+            .ok()
+            .and_then(|path| path.raw.bytes().ok())
+            .into_iter()
+            .collect();
+    }
+    let mut path = Vec::new();
+    let mut current = item;
+    while let Some(parent) = current.parent {
+        path.push(current.name.clone());
+        let Some(next) = version.items().get(parent as usize) else {
+            break;
+        };
+        current = next;
+    }
+    path.reverse();
+    path
+}

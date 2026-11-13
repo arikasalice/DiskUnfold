@@ -1,0 +1,51 @@
+.du-inspection-name > .du-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+.du-inspection-path {
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+
+.du-inspection-path > .du-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.du-inspection-summary .du-readout {
+  gap: 12px;
+}
+
+.du-inspection-summary .du-readout > .du-readout__emphasized {
+  display: block;
+  min-inline-size: 0;
+}
+
+.du-inspection-summary .du-readout > .du-readout__emphasized dd {
+  margin-block-start: 4px;
+  text-align: start;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.du-inspection-summary .du-readout__note {
+  font-size: 12px;
+  font-weight: 400;
+}
+
+@media (min-width: 36rem) {
+  .du-inspection-summary .du-readout {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .du-inspection-summary .du-readout > div:not(.du-readout__emphasized) {
+    grid-column: 1 / -1;
+  }
+}

@@ -1,0 +1,22 @@
+.du-settings-restore,
+.du-settings-restore__summary,
+.du-settings-restore__items {
+  display: grid;
+  gap: 12px;
+  min-inline-size: 0;
+}
+
+.du-settings-restore__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.du-settings-restore > .du-action {
+  justify-self: start;
+}
+
+.du-settings-restore .du-readout > div {
+  gap: 8px;
+  overflow-wrap: anywhere;
+}

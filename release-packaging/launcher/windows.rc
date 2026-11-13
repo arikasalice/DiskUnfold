@@ -1,0 +1,2 @@
+// Group icon ID used by platform-os/src/webview/windows/icon.rs.
+1 ICON "../../app-host/icons/icon.ico"

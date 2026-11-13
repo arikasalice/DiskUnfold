@@ -1,0 +1,493 @@
+//! In-memory result publication and conservative per-subtree space aggregation.
+mod aggregation_rule;
+pub mod browse;
+mod directory_case;
+mod forest;
+pub mod freshness;
+pub mod group;
+mod issues;
+mod physical;
+pub mod publication_cadence;
+mod publication_events;
+pub mod query;
+mod replacement;
+mod result_path;
+mod result_read;
+pub mod source_registry;
+mod space;
+pub mod space_detail;
+mod space_limit;
+pub mod statistics;
+pub mod statistics_distribution;
+pub mod statistics_summary;
+mod tree;
+mod version_store;
+pub mod visualization;
+pub mod volume_gap;
+use aggregation_rule::RegisteredRule;
+pub use aggregation_rule::SizeRuleIdentity;
+use du_core_contracts::result::{
+    ResultCompleteness, ResultItem, ResultItemKind, ResultScopeGap, ResultScopeRoot, SpaceAggregate,
+};
+use du_core_contracts::result_events::{ResultVersionChange, ResultVersionPublisher};
+use du_core_contracts::{Id, Timestamp};
+pub use physical::{FileIdentity, SharingEvidence, SpaceObservation};
+use publication_events::PublicationEvents;
+use result_read::ensure_directory;
+pub use result_read::{ItemDetail, QueryError};
+use std::collections::BTreeMap;
+use std::sync::{Arc, Mutex};
+use version_store::{Entry, State};
+mod build_error;
+pub use build_error::BuildError;
+mod build_abort;
+mod completed_scan;
+pub use completed_scan::{CompletedScan, CompletedScanError, ScanCompletion};
+mod volume_reports;
+pub use volume_reports::{VolumeReport, VolumeReportPoint};
+mod observation;
+mod observation_range;
+mod origin;
+pub use observation::Observation;
+use observation::StoredObservation;
+pub use observation_range::ObservationRange;
+use origin::ResultOrigin;
+#[derive(Debug)]
+pub struct ResultVersion {
+    version_id: Id,
+    origin: ResultOrigin,
+    base_version_id: Option<Id>,
+    viz_models: Mutex<visualization::live_models::OwnedModels>,
+    scope_version_id: Id,
+    lineage_id: Option<Id>,
+    completeness: ResultCompleteness,
+    size_rule: RegisteredRule,
+    items: Vec<ResultItem>,
+    aggregates: Vec<SpaceAggregate>,
+    observation_ranges: Vec<observation_range::RangeIndices>,
+    scope_observation_range: observation_range::RangeIndices,
+    physical: Option<Vec<Option<SpaceObservation>>>,
+    identity_groups: std::sync::OnceLock<Result<space_detail::IdentityGroups, ()>>,
+    shared_table_limit: usize,
+    roots: Vec<ResultScopeRoot>,
+    root_indices: Vec<u32>,
+    gaps: Vec<ResultScopeGap>,
+    exact_gaps: BTreeMap<u32, Vec<usize>>,
+    directory_case: BTreeMap<u32, du_core_contracts::scan_observation::DirectoryCaseEvidence>,
+    scope_total: Option<SpaceAggregate>,
+    volume_reports: Vec<VolumeReport>,
+    observed_at: Option<Timestamp>,
+    modified_times: Option<Vec<Option<Timestamp>>>,
+    native_modified_times:
+        Option<Vec<Option<du_core_contracts::scan_observation::NativeModifiedTime>>>,
+    enumerated_inodes: Option<Vec<Option<std::num::NonZeroU64>>>,
+    placeholder_observations:
+        Option<Vec<Option<du_core_contracts::scan_observation::PlaceholderObservation>>>,
+    item_observed_times: Option<Vec<Option<Timestamp>>>,
+    issues: Vec<du_core_contracts::scan_failures::ScanIssue>,
+}
+/// A single publication point. Readers retain their snapshot after releasing the lock.
+#[derive(Clone, Default)]
+pub struct IngestSink {
+    state: Arc<Mutex<State>>,
+    events: Arc<PublicationEvents>,
+}
+impl IngestSink {
+    /// Creates the result store and binds it to the runtime notification channel.
+    pub fn with_version_publisher(publisher: Arc<dyn ResultVersionPublisher>) -> Self {
+        Self {
+            state: Arc::default(),
+            events: Arc::new(PublicationEvents::new(publisher)),
+        }
+    }
+    /// Pins the current version only if its identifier still matches the admitted request.
+    pub fn pin_current(&self, expected: &Id) -> Result<Arc<ResultVersion>, QueryError> {
+        let state = self.state.lock().map_err(|_| QueryError::Unavailable)?;
+        state.pin_current(expected)
+    }
+    /// Pins the most recently published current result, when present.
+    pub fn pin(&self) -> Result<Option<Arc<ResultVersion>>, BuildError> {
+        Ok(self
+            .state
+            .lock()
+            .map_err(|_| BuildError::Unavailable)?
+            .pin())
+    }
+    /// Returns the stable current-analysis lineage for a canonical scope fingerprint.
+    /// The caller supplies a unique candidate ID; an existing binding is reused.
+    pub fn bind_current_analysis(
+        &self,
+        fingerprint: &str,
+        candidate: Id,
+    ) -> Result<Id, BuildError> {
+        self.state
+            .lock()
+            .map_err(|_| BuildError::Unavailable)?
+            .bind(fingerprint, candidate)
+    }
+    pub fn open(&self, scope_version_id: Id) -> Result<BuildHandle, BuildError> {
+        self.begin(scope_version_id, Vec::new(), None)
+    }
+    /// Opens a build whose publications all retain the same verified root evidence.
+    pub fn open_observed(
+        &self,
+        scope_version_id: Id,
+        root: ResultScopeRoot,
+    ) -> Result<BuildHandle, BuildError> {
+        self.begin(scope_version_id, vec![root], None)
+    }
+    /// Opens one build for actual roots in producer order, without a synthetic item.
+    /// Root indices are zero-based positions in `roots` and stay fixed during the build.
+    pub fn open_forest(
+        &self,
+        scope_version_id: Id,
+        roots: Vec<ResultScopeRoot>,
+    ) -> Result<BuildHandle, BuildError> {
+        if roots.is_empty() || u32::try_from(roots.len()).is_err() {
+            return Err(BuildError::InvalidTree);
+        }
+        self.begin(scope_version_id, roots, None)
+    }
+    /// Opens a forest in a previously bound current-analysis lineage.
+    pub fn open_forest_in_lineage(
+        &self,
+        scope_version_id: Id,
+        roots: Vec<ResultScopeRoot>,
+        lineage: Id,
+    ) -> Result<BuildHandle, BuildError> {
+        if roots.is_empty() || u32::try_from(roots.len()).is_err() {
+            return Err(BuildError::InvalidTree);
+        }
+        self.begin(scope_version_id, roots, Some(lineage))
+    }
+    fn begin(
+        &self,
+        scope_version_id: Id,
+        roots: Vec<ResultScopeRoot>,
+        lineage: Option<Id>,
+    ) -> Result<BuildHandle, BuildError> {
+        let mut state = self.state.lock().map_err(|_| BuildError::Unavailable)?;
+        let baseline = state.begin(&lineage)?;
+        Ok(BuildHandle {
+            state: Arc::clone(&self.state),
+            events: Arc::clone(&self.events),
+            baseline,
+            lineage,
+            expected_base: None,
+            reserved: true,
+            origin: ResultOrigin::Scan,
+            published: false,
+            size_rule: RegisteredRule::default_registration(),
+            shared_table_limit: physical::IDENTITY_LIMIT,
+            scope_version_id,
+            roots,
+            gaps: Vec::new(),
+            observations: BTreeMap::new(),
+            directory_case: BTreeMap::new(),
+            issues: Vec::new(),
+            volume_reports: Vec::new(),
+            finished: false,
+        })
+    }
+}
+/// Dropping or aborting an unfinished build withdraws its partial publications.
+pub struct BuildHandle {
+    state: Arc<Mutex<State>>,
+    events: Arc<PublicationEvents>,
+    baseline: Option<Entry>,
+    lineage: Option<Id>,
+    expected_base: Option<Id>,
+    reserved: bool,
+    origin: ResultOrigin,
+    published: bool,
+    size_rule: RegisteredRule,
+    shared_table_limit: usize,
+    scope_version_id: Id,
+    roots: Vec<ResultScopeRoot>,
+    gaps: Vec<ResultScopeGap>,
+    observations: BTreeMap<(u32, Vec<Vec<u8>>), StoredObservation>,
+    directory_case:
+        BTreeMap<(u32, Vec<Vec<u8>>), du_core_contracts::scan_observation::DirectoryCaseEvidence>,
+    issues: Vec<du_core_contracts::scan_failures::ScanIssue>,
+    volume_reports: Vec<VolumeReport>,
+    finished: bool,
+}
+impl BuildHandle {
+    /// Adds a confirmed directory with no independent logical-size contribution.
+    pub fn add_directory(&mut self, path: Vec<Vec<u8>>) -> Result<(), BuildError> {
+        self.insert(
+            path,
+            StoredObservation {
+                size: None,
+                kind: ResultItemKind::Directory,
+                physical: None,
+                modified_at: None,
+                native_modified_at: None,
+                enumerated_inode: None,
+                placeholder_observation: None,
+                observed_at: None,
+            },
+        )
+    }
+    /// Adds a link whose target was not traversed; its unknown contribution propagates as missing.
+    pub fn add_untraversed_link(&mut self, path: Vec<Vec<u8>>) -> Result<(), BuildError> {
+        self.insert(
+            path,
+            StoredObservation {
+                size: None,
+                kind: ResultItemKind::UntraversedLink,
+                physical: None,
+                modified_at: None,
+                native_modified_at: None,
+                enumerated_inode: None,
+                placeholder_observation: None,
+                observed_at: None,
+            },
+        )
+    }
+    /// Adds a file and its separately observed physical-space evidence.
+    ///
+    /// Identity must be an OS-provided volume/file pair, never a path or content hash.
+    /// Missing or inconsistent evidence is retained as unknown during aggregation.
+    pub fn add_with_space(
+        &mut self,
+        observation: Observation,
+        space: SpaceObservation,
+    ) -> Result<(), BuildError> {
+        self.insert(
+            observation.path,
+            StoredObservation {
+                size: observation.size,
+                kind: ResultItemKind::File,
+                physical: Some(Box::new(space)),
+                modified_at: None,
+                native_modified_at: None,
+                enumerated_inode: None,
+                placeholder_observation: None,
+                observed_at: None,
+            },
+        )
+    }
+    /// Adds a confirmed file even if its logical size could not be read.
+    pub fn add_file(&mut self, observation: Observation) -> Result<(), BuildError> {
+        self.insert(
+            observation.path,
+            StoredObservation {
+                size: observation.size,
+                kind: ResultItemKind::File,
+                physical: None,
+                modified_at: None,
+                native_modified_at: None,
+                enumerated_inode: None,
+                placeholder_observation: None,
+                observed_at: None,
+            },
+        )
+    }
+    pub fn add(&mut self, observation: Observation) -> Result<(), BuildError> {
+        let kind = if observation.size.is_some() {
+            ResultItemKind::File
+        } else {
+            ResultItemKind::Unknown
+        };
+        self.insert(
+            observation.path,
+            StoredObservation {
+                size: observation.size,
+                kind,
+                physical: None,
+                modified_at: None,
+                native_modified_at: None,
+                enumerated_inode: None,
+                placeholder_observation: None,
+                observed_at: None,
+            },
+        )
+    }
+    fn insert(
+        &mut self,
+        path: Vec<Vec<u8>>,
+        observation: StoredObservation,
+    ) -> Result<(), BuildError> {
+        self.insert_at(0, path, observation)
+    }
+    fn valid_root(&self, root_index: u32) -> bool {
+        if self.roots.is_empty() {
+            root_index == 0
+        } else {
+            (root_index as usize) < self.roots.len()
+        }
+    }
+
+    fn insert_at(
+        &mut self,
+        root_index: u32,
+        path: Vec<Vec<u8>>,
+        observation: StoredObservation,
+    ) -> Result<(), BuildError> {
+        if self.finished {
+            return Err(BuildError::Unavailable);
+        }
+        if !self.valid_root(root_index)
+            || path.iter().any(Vec::is_empty)
+            || self.observations.contains_key(&(root_index, path.clone()))
+        {
+            self.abort();
+            return Err(BuildError::InvalidTree);
+        }
+        self.observations.insert((root_index, path), observation);
+        Ok(())
+    }
+    pub fn publish_partial(&mut self, version_id: Id) -> Result<Arc<ResultVersion>, BuildError> {
+        self.publish_partial_at(version_id, None)
+    }
+
+    /// Publishes a partial snapshot with the collector's observation time, when available.
+    pub fn publish_partial_at(
+        &mut self,
+        version_id: Id,
+        observed_at: Option<Timestamp>,
+    ) -> Result<Arc<ResultVersion>, BuildError> {
+        if self.expected_base.is_some() {
+            return Err(BuildError::Unavailable);
+        }
+        self.publish(version_id, ResultCompleteness::Partial, observed_at, false)
+    }
+    pub fn seal(
+        self,
+        version_id: Id,
+        completeness: ResultCompleteness,
+    ) -> Result<Arc<ResultVersion>, BuildError> {
+        self.seal_at(version_id, completeness, None)
+    }
+
+    /// Seals the final snapshot using the collector's observation time, when available.
+    pub fn seal_at(
+        mut self,
+        version_id: Id,
+        completeness: ResultCompleteness,
+        observed_at: Option<Timestamp>,
+    ) -> Result<Arc<ResultVersion>, BuildError> {
+        self.publish(version_id, completeness, observed_at, true)
+    }
+    fn publish(
+        &mut self,
+        version_id: Id,
+        completeness: ResultCompleteness,
+        observed_at: Option<Timestamp>,
+        finish: bool,
+    ) -> Result<Arc<ResultVersion>, BuildError> {
+        if self.finished {
+            return Err(BuildError::Unavailable);
+        }
+        let built = match tree::build_items(
+            &self.observations,
+            self.roots.len().max(1),
+            self.roots.len() > 1,
+        ) {
+            Ok(items) => items,
+            Err(error) => {
+                self.abort();
+                return Err(error);
+            }
+        };
+        let mut aggregates =
+            self.size_rule
+                .aggregate(&built, completeness, self.shared_table_limit);
+        let exact_gaps = match forest::mark_gaps(&built, &self.gaps, &mut aggregates) {
+            Ok(exact) => exact,
+            Err(error) => {
+                self.abort();
+                return Err(error);
+            }
+        };
+        let result_completeness =
+            if !self.gaps.is_empty() && completeness == ResultCompleteness::Complete {
+                ResultCompleteness::Missing
+            } else {
+                completeness
+            };
+        let scope_total = if self.roots.len() <= 1 {
+            None
+        } else {
+            let mut total =
+                self.size_rule
+                    .scope_total(&built, result_completeness, self.shared_table_limit);
+            if !self.gaps.is_empty() {
+                space::mark_inaccessible(&mut total, self.gaps.len() as u64);
+            }
+            Some(total)
+        };
+        let (observation_ranges, scope_observation_range) =
+            observation_range::build(&built, &aggregates, completeness);
+        let directory_case = directory_case::bind(&built, &self.directory_case);
+        let result = Arc::new(ResultVersion {
+            version_id,
+            origin: self.origin,
+            base_version_id: self.expected_base.clone(),
+            viz_models: Mutex::default(),
+            scope_version_id: self.scope_version_id.clone(),
+            lineage_id: self.lineage.clone(),
+            completeness: result_completeness,
+            size_rule: self.size_rule,
+            items: built.items,
+            physical: built.physical,
+            identity_groups: std::sync::OnceLock::new(),
+            shared_table_limit: self.shared_table_limit,
+            modified_times: built.modified_times,
+            native_modified_times: built.native_modified_times,
+            enumerated_inodes: built.enumerated_inodes,
+            placeholder_observations: built.placeholder_observations,
+            item_observed_times: built.item_observed_times,
+            issues: issues::ordered(&self.issues),
+            aggregates,
+            observation_ranges,
+            scope_observation_range,
+            roots: self.roots.clone(),
+            root_indices: built.keys.into_iter().map(|(root, _)| root).collect(),
+            gaps: self.gaps.clone(),
+            exact_gaps,
+            directory_case,
+            scope_total,
+            volume_reports: self.volume_reports.clone(),
+            observed_at,
+        });
+        let order = self
+            .events
+            .order
+            .lock()
+            .map_err(|_| BuildError::Unavailable)?;
+        let mut state = self.state.lock().map_err(|_| BuildError::Unavailable)?;
+        let previous = match state.publish(
+            &self.lineage,
+            Arc::clone(&result),
+            finish,
+            self.expected_base.as_ref(),
+            self.reserved,
+        ) {
+            Ok(previous) => previous,
+            Err(error) => {
+                drop(state);
+                drop(order);
+                self.abort();
+                return Err(error);
+            }
+        };
+        self.published = true;
+        if finish {
+            self.finished = true;
+        }
+        let sequence = state.next_event_sequence(self.lineage.as_ref());
+        drop(state);
+        self.events.notify(
+            self.lineage.as_ref(),
+            sequence,
+            ResultVersionChange::Published,
+            previous.as_ref().map(|entry| entry.result.as_ref()),
+            Some(&result),
+        );
+        drop(order);
+        drop(previous);
+        Ok(result)
+    }
+}

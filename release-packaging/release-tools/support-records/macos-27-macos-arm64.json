@@ -1,0 +1,21 @@
+{
+  "id": "macos-27-macos-arm64-2026-11-13",
+  "os": "macos",
+  "release": "27",
+  "edition": "macos",
+  "cpu": "arm64",
+  "observedOn": "2026-11-13",
+  "osDetail": "macOS 27.2 on Apple silicon",
+  "device": "Apple silicon Mac reached over SSH",
+  "executionForm": "isolated-data launch of the development app",
+  "checks": {
+    "installed_start": "limited"
+  },
+  "limits": [
+    "startup window observed only through an IPC diagnostic log",
+    "no screenshot or VoiceOver check",
+    "agent report from the handoff notes, not independently re-run",
+    "no Intel run; x86_64 slice only cross-compiled"
+  ],
+  "evidence": "F15 requirement matrix 2026-11-13: macOS 27.2 arm64 startup observation per the handoff note"
+}

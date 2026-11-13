@@ -1,0 +1,127 @@
+.du-choices {
+  display: grid;
+  gap: 2px;
+}
+
+.du-drive-picker__details .du-action {
+  font-size: 12px;
+}
+
+.du-choice[data-compact] .du-choice__description {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.du-choice__summary {
+  grid-area: 2 / 2 / 3 / -1;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  color: var(--du-muted);
+}
+
+/* The filled segment is available capacity. The text supplies both observations. */
+.du-choice__capacity {
+  grid-area: 3 / 2 / 4 / -1;
+  block-size: 4px;
+  margin-block: 2px;
+  border-radius: 2px;
+  background: var(--du-capacity-track);
+}
+
+.du-choice__capacity > span {
+  display: block;
+  block-size: 100%;
+  border-radius: inherit;
+  background: var(--du-capacity-fill);
+}
+
+@media (forced-colors: active) {
+  .du-choice__capacity {
+    forced-color-adjust: none;
+    border: 1px solid CanvasText;
+    background: Canvas;
+  }
+}
+
+.du-choice__status .du-badge {
+  padding: 0;
+  background: transparent;
+}
+
+.du-choice {
+  display: grid;
+  grid-template-columns: 16px 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 2px 8px;
+  padding: 7px 8px;
+  border-color: transparent;
+  border-block-end-color: var(--du-border);
+  background: var(--du-surface);
+  cursor: pointer;
+}
+
+.du-choice__label {
+  grid-area: 1 / 3;
+}
+
+.du-choice__description {
+  grid-area: 2 / 2 / 3 / -1;
+  overflow-wrap: anywhere;
+}
+
+.du-choice__status {
+  grid-area: 1 / 4;
+}
+
+.du-choice__indicator {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  border: 1px solid var(--du-control-border);
+  border-radius: 50%;
+}
+
+.du-choice[data-hovered]:not([data-disabled], [data-selected]) {
+  background: var(--du-hover-surface);
+}
+
+.du-choice[data-pressed]:not([data-disabled], [data-selected]) {
+  background: var(--du-pressed-surface);
+}
+
+.du-choice[data-selected]:not([data-disabled]) {
+  border-color: var(--du-selected-border);
+  background: var(--du-selected-surface);
+  color: var(--du-selected-text);
+}
+
+.du-choice[data-selected]:not([data-disabled])
+  :is(.du-choice__description, .du-choice__summary) {
+  color: var(--du-selected-text);
+}
+
+.du-choice[data-disabled] {
+  cursor: default;
+}
+
+.du-choice[data-selected] .du-choice__indicator {
+  border: 5px solid currentColor;
+}
+
+.du-choice[data-disabled] .du-choice__summary {
+  color: var(--du-disabled-text);
+}
+
+.du-choice[data-disabled] .du-choice__indicator {
+  border-color: var(--du-disabled-border);
+}
+
+@media (forced-colors: active) {
+  .du-choice[data-hovered]:not([data-disabled]) .du-choice__label {
+    text-decoration: underline;
+  }
+}

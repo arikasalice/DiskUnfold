@@ -1,0 +1,15 @@
+[package]
+name = "du-duplicate-engine"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+blake3 = "=1.8.3"
+du-core-contracts = { version = "0.1.0", path = "../core-contracts" }
+
+du-job-runtime = { version = "0.1.0", path = "../job-runtime" }
+
+[lints]
+workspace = true

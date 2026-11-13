@@ -1,0 +1,88 @@
+.du-startup-banner {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px clamp(12px, 3vw, 24px);
+  border-bottom: 1px solid var(--du-border);
+  background: var(--du-surface);
+  overflow-wrap: anywhere;
+}
+
+.du-startup-banner .du-startup__actions .du-action {
+  flex: 0 0 auto;
+}
+
+.du-startup-banner__details {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.du-startup-screen {
+  display: grid;
+  gap: 18px;
+  width: min(100%, 56rem);
+  margin-inline: auto;
+  padding-block: clamp(18px, 4vh, 36px);
+}
+
+.du-startup__header,
+.du-startup__panel {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.du-startup__header .du-text,
+.du-startup__panel,
+.du-startup__actions {
+  overflow-wrap: anywhere;
+}
+
+.du-startup__panels {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 19rem), 1fr));
+  gap: 12px;
+  min-width: 0;
+}
+
+.du-startup__panel {
+  align-content: start;
+  padding: clamp(14px, 2.5vw, 22px);
+  border: 1px solid var(--du-border);
+  border-radius: var(--du-radius);
+  background: var(--du-surface);
+  box-shadow: var(--du-shadow);
+}
+
+.du-startup__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.du-startup__actions .du-action {
+  flex: 1 1 13rem;
+  justify-content: flex-start;
+}
+
+.du-startup__panel .du-readout > div {
+  align-items: flex-start;
+}
+
+@media (max-width: 24rem) {
+  .du-startup__actions .du-action {
+    flex-basis: 100%;
+  }
+
+  .du-startup__panel .du-readout > div {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+
+  .du-startup__panel .du-readout dd {
+    text-align: start;
+  }
+}

@@ -1,0 +1,25 @@
+[package]
+name = "du-engine-api"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[features]
+# Exposes a real job-runtime fixture so host tests can exercise shutdown.
+shutdown-test-support = []
+
+[dependencies]
+blake3 = "=1.8.3"
+du-analysis-index = { version = "0.1.0", path = "../analysis-index" }
+du-core-contracts = { version = "0.1.0", path = "../core-contracts" }
+du-duplicate-engine = { version = "0.1.0", path = "../duplicate-engine" }
+du-job-runtime = { version = "0.1.0", path = "../job-runtime" }
+du-scan-engine = { version = "0.1.0", path = "../scan-engine" }
+du-snapshot-store = { version = "0.1.0", path = "../snapshot-store" }
+serde.workspace = true
+serde_json.workspace = true
+uuid = { workspace = true, features = ["v7"] }
+
+[lints]
+workspace = true

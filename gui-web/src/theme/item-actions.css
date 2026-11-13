@@ -1,0 +1,56 @@
+.du-item-actions {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+  min-inline-size: 0;
+  padding: 12px 0;
+  border-block-end: 1px solid var(--du-border);
+}
+.du-item-actions > :first-child {
+  min-inline-size: 0;
+  flex: 1;
+}
+.du-item-actions--row {
+  padding: 0;
+  border: 0;
+  gap: 2px;
+  align-items: center;
+}
+.du-item-actions--row > .du-action:last-child {
+  flex: none;
+  min-inline-size: 32px;
+  padding-inline: 4px;
+}
+.du-item-menu {
+  max-block-size: min(70dvh, var(--available-height, 70dvh));
+  overflow-y: auto;
+  padding: 6px;
+  inline-size: min(22rem, calc(100vw - 24px));
+  border: 1px solid var(--du-border);
+  border-radius: var(--du-radius);
+  background: var(--du-surface);
+  color: var(--du-text);
+  box-shadow: var(--du-shadow);
+  z-index: 20;
+}
+.du-item-menu [role="menuitem"] {
+  display: grid;
+  gap: 4px;
+  padding: 9px 12px;
+  border-radius: 5px;
+  outline: none;
+  cursor: pointer;
+}
+.du-item-menu [data-focused] {
+  background: var(--du-selected-surface);
+  outline: 2px solid var(--du-focus);
+  outline-offset: -2px;
+}
+.du-item-menu [data-disabled] {
+  color: var(--du-disabled-text);
+  cursor: default;
+}
+.du-item-menu__reason {
+  font-size: 12px;
+}

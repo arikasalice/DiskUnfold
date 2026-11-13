@@ -1,0 +1,19 @@
+[package]
+name = "du-user-env"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+blake3 = "=1.8.3"
+du-core-contracts = { version = "0.1.0", path = "../core-contracts" }
+icu_casemap = { version = "=2.4.0", default-features = false, features = ["compiled_data"] }
+icu_normalizer = { version = "=2.4.0", default-features = false, features = ["compiled_data"] }
+serde_json.workspace = true
+
+[build-dependencies]
+blake3 = "=1.8.3"
+
+[lints]
+workspace = true

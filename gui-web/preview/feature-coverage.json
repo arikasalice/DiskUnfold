@@ -1,0 +1,407 @@
+[
+  {
+    "feature": "F01",
+    "title": "분석 대상 선택",
+    "primarySurface": "workspace",
+    "sourceDldRevision": 97,
+    "sourceStatus": "published",
+    "delivery": "existing-partial-ui",
+    "integrationNote": "Generated types and owning controller required; gallery actions do not execute product commands."
+  },
+  {
+    "feature": "F02",
+    "title": "병렬 메타데이터 스캔",
+    "primarySurface": "workspace",
+    "sourceDldRevision": 90,
+    "sourceStatus": "published",
+    "delivery": "existing-partial-ui",
+    "integrationNote": "Generated types and owning controller required; gallery actions do not execute product commands."
+  },
+  {
+    "feature": "F03",
+    "title": "공간 사용량 집계",
+    "primarySurface": "workspace",
+    "sourceDldRevision": 111,
+    "sourceStatus": "published",
+    "delivery": "existing-partial-ui",
+    "integrationNote": "Generated types and owning controller required; gallery actions do not execute product commands."
+  },
+  {
+    "feature": "F04",
+    "title": "검색·필터·정렬",
+    "primarySurface": "workspace",
+    "sourceDldRevision": null,
+    "sourceStatus": "published-DLD-not-readable",
+    "delivery": "presentation-only",
+    "integrationNote": "Presentation review only; verify published feature contract before integration."
+  },
+  {
+    "feature": "F05",
+    "title": "폴더·파일 탐색",
+    "primarySurface": "workspace",
+    "sourceDldRevision": 72,
+    "sourceStatus": "published",
+    "delivery": "existing-partial-ui",
+    "integrationNote": "Generated types and owning controller required; gallery actions do not execute product commands."
+  },
+  {
+    "feature": "F06",
+    "title": "용량 시각화",
+    "primarySurface": "workspace",
+    "sourceDldRevision": 88,
+    "sourceStatus": "published",
+    "delivery": "presentation-only",
+    "integrationNote": "Generated types and owning controller required; gallery actions do not execute product commands."
+  },
+  {
+    "feature": "F07",
+    "title": "스냅샷 보관",
+    "primarySurface": "snapshots",
+    "sourceDldRevision": null,
+    "sourceStatus": "published-DLD-not-readable",
+    "delivery": "presentation-only",
+    "integrationNote": "Presentation review only; verify published feature contract before integration."
+  },
+  {
+    "feature": "F08",
+    "title": "두 시점 변화 비교",
+    "primarySurface": "comparison",
+    "sourceDldRevision": 91,
+    "sourceStatus": "published",
+    "delivery": "presentation-only",
+    "integrationNote": "Generated types and owning controller required; gallery actions do not execute product commands."
+  },
+  {
+    "feature": "F09",
+    "title": "파일 내용 중복 검사",
+    "primarySurface": "duplicates",
+    "sourceDldRevision": 68,
+    "sourceStatus": "published",
+    "delivery": "presentation-only",
+    "integrationNote": "Generated types and owning controller required; gallery actions do not execute product commands."
+  },
+  {
+    "feature": "F10",
+    "title": "정리 계획 구성",
+    "primarySurface": "planning",
+    "sourceDldRevision": 80,
+    "sourceStatus": "published",
+    "delivery": "presentation-only",
+    "integrationNote": "Generated types and owning controller required; gallery actions do not execute product commands."
+  },
+  {
+    "feature": "F11",
+    "title": "휴지통 이동",
+    "primarySurface": "jobs",
+    "sourceDldRevision": 58,
+    "sourceStatus": "published",
+    "delivery": "presentation-only",
+    "integrationNote": "Generated types and owning controller required; gallery actions do not execute product commands."
+  },
+  {
+    "feature": "F12",
+    "title": "MCP 분석 협업",
+    "primarySurface": "connections",
+    "sourceDldRevision": 59,
+    "sourceStatus": "published",
+    "delivery": "presentation-only",
+    "integrationNote": "Generated types and owning controller required; gallery actions do not execute product commands."
+  },
+  {
+    "feature": "F13",
+    "title": "다국어와 지역화",
+    "primarySurface": "settings",
+    "sourceDldRevision": null,
+    "sourceStatus": "published-DLD-not-readable",
+    "delivery": "presentation-only",
+    "integrationNote": "Presentation review only; verify published feature contract before integration."
+  },
+  {
+    "feature": "F14",
+    "title": "사용자 설정 관리",
+    "primarySurface": "settings",
+    "sourceDldRevision": 75,
+    "sourceStatus": "published",
+    "delivery": "existing-partial-ui",
+    "integrationNote": "Generated types and owning controller required; gallery actions do not execute product commands."
+  },
+  {
+    "feature": "F15",
+    "title": "제품 배포와 출처 확인",
+    "primarySurface": "settings",
+    "sourceDldRevision": 70,
+    "sourceStatus": "published",
+    "delivery": "presentation-only",
+    "integrationNote": "Generated types and owning controller required; gallery actions do not execute product commands."
+  },
+  {
+    "feature": "F16",
+    "title": "파일·폴더 역할 설명",
+    "primarySurface": "workspace",
+    "sourceDldRevision": 59,
+    "sourceStatus": "published",
+    "delivery": "presentation-only",
+    "integrationNote": "Generated types and owning controller required; gallery actions do not execute product commands."
+  },
+  {
+    "feature": "F17",
+    "title": "목표 용량 기반 정리 대안",
+    "primarySurface": "planning",
+    "sourceDldRevision": 33,
+    "sourceStatus": "published",
+    "delivery": "presentation-only",
+    "integrationNote": "Generated types and owning controller required; gallery actions do not execute product commands."
+  },
+  {
+    "feature": "F18",
+    "title": "파일 변경 감지",
+    "primarySurface": "watch",
+    "sourceDldRevision": 49,
+    "sourceStatus": "published",
+    "delivery": "presentation-only",
+    "integrationNote": "Generated types and owning controller required; gallery actions do not execute product commands."
+  },
+  {
+    "feature": "F19",
+    "title": "다중 저장소 오프라인 카탈로그",
+    "primarySurface": "snapshots",
+    "sourceDldRevision": null,
+    "sourceStatus": "published-DLD-not-readable",
+    "delivery": "presentation-only",
+    "integrationNote": "Presentation review only; verify published feature contract before integration."
+  },
+  {
+    "feature": "F20",
+    "title": "중복 사본 보관 제안",
+    "primarySurface": "duplicates",
+    "sourceDldRevision": 52,
+    "sourceStatus": "published",
+    "delivery": "presentation-only",
+    "integrationNote": "Generated types and owning controller required; gallery actions do not execute product commands."
+  },
+  {
+    "feature": "F21",
+    "title": "작업 이력 조회",
+    "primarySurface": "history",
+    "sourceDldRevision": 52,
+    "sourceStatus": "published",
+    "delivery": "existing-partial-ui",
+    "integrationNote": "Generated types and owning controller required; gallery actions do not execute product commands."
+  },
+  {
+    "feature": "F22",
+    "title": "탐색 작업공간 관리",
+    "primarySurface": "workspace",
+    "sourceDldRevision": 51,
+    "sourceStatus": "published",
+    "delivery": "presentation-only",
+    "integrationNote": "Generated types and owning controller required; gallery actions do not execute product commands."
+  },
+  {
+    "feature": "F23",
+    "title": "분석 결과 보고서",
+    "primarySurface": "export",
+    "sourceDldRevision": 61,
+    "sourceStatus": "published",
+    "delivery": "presentation-only",
+    "integrationNote": "Generated types and owning controller required; gallery actions do not execute product commands."
+  },
+  {
+    "feature": "F24",
+    "title": "장시간 작업 제어",
+    "primarySurface": "jobs",
+    "sourceDldRevision": 94,
+    "sourceStatus": "published",
+    "delivery": "existing-partial-ui",
+    "integrationNote": "Generated types and owning controller required; gallery actions do not execute product commands."
+  },
+  {
+    "feature": "F25",
+    "title": "읽기 전용 파일 미리보기",
+    "primarySurface": "workspace",
+    "sourceDldRevision": 48,
+    "sourceStatus": "published",
+    "delivery": "presentation-only",
+    "integrationNote": "Generated types and owning controller required; gallery actions do not execute product commands."
+  },
+  {
+    "feature": "F26",
+    "title": "용량 통계와 순위",
+    "primarySurface": "workspace",
+    "sourceDldRevision": 55,
+    "sourceStatus": "published",
+    "delivery": "presentation-only",
+    "integrationNote": "Generated types and owning controller required; gallery actions do not execute product commands."
+  },
+  {
+    "feature": "F27",
+    "title": "용량 추세와 재증가 확인",
+    "primarySurface": "comparison",
+    "sourceDldRevision": 45,
+    "sourceStatus": "published",
+    "delivery": "presentation-only",
+    "integrationNote": "Generated types and owning controller required; gallery actions do not execute product commands."
+  },
+  {
+    "feature": "F28",
+    "title": "파일 변경 요청 승인",
+    "primarySurface": "approval",
+    "sourceDldRevision": 167,
+    "sourceStatus": "published",
+    "delivery": "presentation-only",
+    "integrationNote": "Generated types and owning controller required; gallery actions do not execute product commands."
+  },
+  {
+    "feature": "F29",
+    "title": "보관·제외 보호 규칙",
+    "primarySurface": "protection",
+    "sourceDldRevision": 74,
+    "sourceStatus": "published",
+    "delivery": "presentation-only",
+    "integrationNote": "Generated types and owning controller required; gallery actions do not execute product commands."
+  },
+  {
+    "feature": "F30",
+    "title": "정리 효과 확인",
+    "primarySurface": "jobs",
+    "sourceDldRevision": 56,
+    "sourceStatus": "published",
+    "delivery": "presentation-only",
+    "integrationNote": "Generated types and owning controller required; gallery actions do not execute product commands."
+  },
+  {
+    "feature": "F31",
+    "title": "진단 정보 내보내기",
+    "primarySurface": "export",
+    "sourceDldRevision": 50,
+    "sourceStatus": "published",
+    "delivery": "presentation-only",
+    "integrationNote": "Generated types and owning controller required; gallery actions do not execute product commands."
+  },
+  {
+    "feature": "F32",
+    "title": "샘플 데이터 체험",
+    "primarySurface": "workspace",
+    "sourceDldRevision": 38,
+    "sourceStatus": "published",
+    "delivery": "presentation-only",
+    "integrationNote": "Generated types and owning controller required; gallery actions do not execute product commands."
+  },
+  {
+    "feature": "F33",
+    "title": "분석 결과 증분 갱신",
+    "primarySurface": "watch",
+    "sourceDldRevision": 80,
+    "sourceStatus": "published",
+    "delivery": "presentation-only",
+    "integrationNote": "Generated types and owning controller required; gallery actions do not execute product commands."
+  },
+  {
+    "feature": "F34",
+    "title": "휴지통 항목 복원",
+    "primarySurface": "jobs",
+    "sourceDldRevision": 48,
+    "sourceStatus": "published",
+    "delivery": "presentation-only",
+    "integrationNote": "Generated types and owning controller required; gallery actions do not execute product commands."
+  },
+  {
+    "feature": "F35",
+    "title": "태그와 검토 상태",
+    "primarySurface": "workspace",
+    "sourceDldRevision": 69,
+    "sourceStatus": "published",
+    "delivery": "presentation-only",
+    "integrationNote": "Generated types and owning controller required; gallery actions do not execute product commands."
+  },
+  {
+    "feature": "F36",
+    "title": "가상 그룹 분류",
+    "primarySurface": "workspace",
+    "sourceDldRevision": 59,
+    "sourceStatus": "published",
+    "delivery": "presentation-only",
+    "integrationNote": "Generated types and owning controller required; gallery actions do not execute product commands."
+  },
+  {
+    "feature": "F37",
+    "title": "공유 정보 범위 제어",
+    "primarySurface": "export",
+    "sourceDldRevision": 106,
+    "sourceStatus": "published",
+    "delivery": "presentation-only",
+    "integrationNote": "Generated types and owning controller required; gallery actions do not execute product commands."
+  },
+  {
+    "feature": "F38",
+    "title": "CSV·JSON 데이터 내보내기",
+    "primarySurface": "export",
+    "sourceDldRevision": 83,
+    "sourceStatus": "published",
+    "delivery": "presentation-only",
+    "integrationNote": "Generated types and owning controller required; gallery actions do not execute product commands."
+  },
+  {
+    "feature": "F39",
+    "title": "명령행 분석 인터페이스",
+    "primarySurface": "connections",
+    "sourceDldRevision": 49,
+    "sourceStatus": "published",
+    "delivery": "presentation-only",
+    "integrationNote": "CLI functionality does not need a separate GUI screen; connection/help entry only."
+  },
+  {
+    "feature": "F40",
+    "title": "같은 볼륨 내 파일 이동",
+    "primarySurface": "jobs",
+    "sourceDldRevision": 54,
+    "sourceStatus": "published",
+    "delivery": "presentation-only",
+    "integrationNote": "Generated types and owning controller required; gallery actions do not execute product commands."
+  },
+  {
+    "feature": "F41",
+    "title": "영구 삭제",
+    "primarySurface": "approval",
+    "sourceDldRevision": 56,
+    "sourceStatus": "published",
+    "delivery": "presentation-only",
+    "integrationNote": "Generated types and owning controller required; gallery actions do not execute product commands."
+  },
+  {
+    "feature": "F42",
+    "title": "같은 볼륨 이동 취소",
+    "primarySurface": "jobs",
+    "sourceDldRevision": 44,
+    "sourceStatus": "published",
+    "delivery": "presentation-only",
+    "integrationNote": "Generated types and owning controller required; gallery actions do not execute product commands."
+  },
+  {
+    "feature": "F43",
+    "title": "폴더 단위 중복 분석",
+    "primarySurface": "duplicates",
+    "sourceDldRevision": 37,
+    "sourceStatus": "published",
+    "delivery": "presentation-only",
+    "integrationNote": "Generated types and owning controller required; gallery actions do not execute product commands."
+  },
+  {
+    "feature": "F44",
+    "title": "가정 시나리오 비교",
+    "primarySurface": "scenario",
+    "sourceDldRevision": 48,
+    "sourceStatus": "published",
+    "delivery": "presentation-only",
+    "integrationNote": "Generated types and owning controller required; gallery actions do not execute product commands."
+  },
+  {
+    "feature": "F45",
+    "title": "항목별 관리 방법 안내",
+    "primarySurface": "guidance",
+    "sourceDldRevision": 62,
+    "sourceStatus": "published",
+    "delivery": "presentation-only",
+    "integrationNote": "Generated types and owning controller required; gallery actions do not execute product commands."
+  }
+]

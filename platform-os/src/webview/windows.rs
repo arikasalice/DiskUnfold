@@ -1,0 +1,498 @@
+mod folder_drop;
+mod folder_validation;
+mod icon;
+mod messages;
+mod navigation;
+mod reply;
+mod script;
+mod window_layout;
+mod window_lifecycle;
+
+use super::contract::{Asset, CSP, Events, WebApp, entry, resource};
+use messages::{Bridge, RequestQueue, WindowTimer, WorkerPool};
+use navigation::{NavigationCompletion, NavigationIdFence};
+use script::install_script;
+use std::{
+    cell::{Cell, RefCell},
+    error::Error,
+    os::windows::ffi::OsStrExt,
+    rc::Rc,
+};
+use webview2_com::{
+    CoreWebView2EnvironmentOptions, CreateCoreWebView2ControllerCompletedHandler,
+    CreateCoreWebView2EnvironmentCompletedHandler, DownloadStartingEventHandler,
+    Microsoft::Web::WebView2::Win32::*, NavigationCompletedEventHandler,
+    NavigationStartingEventHandler, NewWindowRequestedEventHandler,
+    PermissionRequestedEventHandler, WebMessageReceivedEventHandler,
+    WebResourceRequestedEventHandler, take_pwstr,
+};
+use window_layout::bounds;
+use windows::{
+    Win32::{
+        Foundation::{E_POINTER, HWND},
+        System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx, CoUninitialize},
+        UI::Shell::SHCreateMemStream,
+    },
+    core::{BOOL, HSTRING, Interface, PCWSTR, PWSTR, w},
+};
+
+const WM_CLOSE: u32 = 0x0010;
+const BRIDGE: &str = r#"(() => {
+    if (location.href !== 'https://diskunfold.invalid/index.html' || window !== window.top) return;
+    const channel = chrome.webview;
+    const pending = new Map();
+    let sequence = 0;
+    channel.addEventListener('message', ({data}) => {
+        if (typeof data !== 'string') return;
+        const split = data.indexOf('\n');
+        if (split < 0) return;
+        const id = data.slice(0, split);
+        if (id.startsWith('folder-drop:')) {
+            let detail;
+            try { detail = JSON.parse(data.slice(split + 1)); } catch { return; }
+            folderDrop({ ...detail, seq: Number(id.slice('folder-drop:'.length)) });
+            return;
+        }
+        if (id === 'event') {
+            let detail;
+            try { detail = JSON.parse(data.slice(split + 1)); } catch { return; }
+            window.dispatchEvent(new CustomEvent('du://event', { detail }));
+            return;
+        }
+        const request = pending.get(id);
+        if (!request) return;
+        pending.delete(id);
+        clearTimeout(request.timer);
+        const response = data.slice(split + 1);
+        if (response) request.resolve(response);
+        else request.reject(new Error('DiskUnfold IPC request denied'));
+    });
+    const folderDrop = (detail) => window.dispatchEvent(new CustomEvent('du://folder-drop', { detail }));
+    const inDropZone = (target) => target instanceof Element && !!target.closest('[data-diskunfold-dropzone]');
+    document.addEventListener('dragover', (event) => {
+        event.preventDefault();
+        if (event.dataTransfer) event.dataTransfer.dropEffect = event.isTrusted && inDropZone(event.target) ? 'copy' : 'none';
+    }, true);
+    document.addEventListener('drop', (event) => {
+        event.preventDefault();
+        if (!event.isTrusted || !inDropZone(event.target)) return;
+        const seq = ++sequence;
+        folderDrop({ seq, pending: true });
+        const dropReason = (reason) => folderDrop({ seq, reason });
+        const data = event.dataTransfer;
+        if (!data || data.items.length !== 1 || data.items[0].kind !== 'file' || data.files.length > 1) { dropReason('invalid_target'); return; }
+        if (data.files.length === 0) { dropReason('unsupported'); return; }
+        if (typeof channel.postMessageWithAdditionalObjects !== 'function') { dropReason('unsupported'); return; }
+        try { channel.postMessageWithAdditionalObjects('du:folder-drop:' + seq, data.files); }
+        catch { dropReason('unsupported'); }
+    }, true);
+    Object.defineProperty(window, '__diskunfoldRequest', { value: (payload) => new Promise((resolve, reject) => {
+        const id = String(++sequence);
+        const timer = setTimeout(() => {
+            pending.delete(id);
+            reject(new Error('DiskUnfold IPC request timed out'));
+        }, 10000);
+        pending.set(id, { resolve, reject, timer });
+        channel.postMessage(id + '\n' + payload);
+    }) });
+})();"#;
+
+struct Apartment;
+impl Drop for Apartment {
+    fn drop(&mut self) {
+        // SAFETY: run initialized this STA on the same thread.
+        unsafe { CoUninitialize() };
+    }
+}
+
+struct Controller(ICoreWebView2Controller);
+impl Drop for Controller {
+    fn drop(&mut self) {
+        // SAFETY: The controller is owned by the UI thread and the parent still exists.
+        let _ = unsafe { self.0.Close() };
+    }
+}
+
+fn environment() -> Result<ICoreWebView2Environment, Box<dyn Error>> {
+    let base =
+        crate::application_data::directory().ok_or("No Windows application data directory")?;
+    let path = base.join("webview");
+    std::fs::create_dir_all(&path)?;
+    let data = HSTRING::from_wide(&path.as_os_str().encode_wide().collect::<Vec<_>>());
+    let options: ICoreWebView2EnvironmentOptions = CoreWebView2EnvironmentOptions::default().into();
+    let slot = Rc::new(Cell::new(None));
+    let output = slot.clone();
+    CreateCoreWebView2EnvironmentCompletedHandler::wait_for_async_operation(
+        Box::new(move |handler| {
+            // SAFETY: The inputs remain valid for the call on the initialized STA.
+            unsafe {
+                CreateCoreWebView2EnvironmentWithOptions(
+                    PCWSTR::null(),
+                    PCWSTR(data.as_ptr()),
+                    &options,
+                    &handler,
+                )
+            }?;
+            Ok(())
+        }),
+        Box::new(move |status, environment| {
+            status?;
+            output.set(environment);
+            Ok(())
+        }),
+    )?;
+    slot.take()
+        .ok_or_else(|| "WebView2 returned no environment".into())
+}
+
+fn create_controller(
+    window: &windows_window::Window,
+    environment: &ICoreWebView2Environment,
+) -> Result<Controller, Box<dyn Error>> {
+    let environment = environment.cast::<ICoreWebView2Environment10>()?;
+    // SAFETY: The environment and its options are used on their owning STA.
+    let options = unsafe { environment.CreateCoreWebView2ControllerOptions()? };
+    unsafe { options.SetIsInPrivateModeEnabled(true)? };
+    let slot = Rc::new(Cell::new(None));
+    let output = slot.clone();
+    let handle = HWND(window.hwnd());
+    CreateCoreWebView2ControllerCompletedHandler::wait_for_async_operation(
+        Box::new(move |handler| {
+            // SAFETY: The borrowed window outlives the controller creation.
+            unsafe {
+                environment.CreateCoreWebView2ControllerWithOptions(handle, &options, &handler)
+            }?;
+            Ok(())
+        }),
+        Box::new(move |status, controller| {
+            status?;
+            output.set(controller);
+            Ok(())
+        }),
+    )?;
+    slot.take()
+        .map(Controller)
+        .ok_or_else(|| "WebView2 returned no controller".into())
+}
+
+pub(super) fn run(app: WebApp, events: Option<Events>) -> Result<(), Box<dyn Error>> {
+    // SAFETY: The launcher calls the GUI on its main thread.
+    unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED).ok()? };
+    let _apartment = Apartment;
+    let current = Rc::new(RefCell::new(None::<ICoreWebView2Controller>));
+    let resize = current.clone();
+    let bridge = Rc::new(RefCell::new(None::<Bridge>));
+    let window_bridge = bridge.clone();
+    let window_events = events.clone();
+    let phase = Rc::new(Cell::new(window_lifecycle::WindowPhase::Starting));
+    let window_phase = phase.clone();
+    let icons = icon::WindowIcons::load()?;
+    let window = windows_window::Window::new("DiskUnfold")
+        .size(900, 600)
+        .on_resize(move |w, h| {
+            if let Some(controller) = resize.borrow().as_ref() {
+                // SAFETY: The window delivers resize events on its owning STA.
+                let _ = unsafe { controller.SetBounds(bounds(w, h)) };
+            }
+        })
+        .on_message(move |_, kind, wparam, _| {
+            if kind == WM_CLOSE {
+                // WebView2 pumps messages during startup. A quit message would drop
+                // its completion receiver while the callback can still run.
+                if window_phase.get() == window_lifecycle::WindowPhase::Running {
+                    if window_lifecycle::request_close(window_events.as_ref()) {
+                        windows_window::quit();
+                    }
+                } else {
+                    window_phase.set(window_lifecycle::WindowPhase::CloseRequested);
+                }
+                Some(0)
+            } else if messages::is_tick(kind, wparam) {
+                if window_lifecycle::pump_shutdown(window_events.as_ref()) {
+                    windows_window::quit();
+                }
+                if let Some(bridge) = window_bridge.borrow().as_ref() {
+                    bridge.flush();
+                }
+                Some(0)
+            } else {
+                None
+            }
+        })
+        .create()
+        .map_err(|error| std::io::Error::other(error.to_string()))?;
+    icons.install(&window);
+    let environment = environment()?;
+    if phase.get() == window_lifecycle::WindowPhase::CloseRequested {
+        return Ok(());
+    }
+    let worker_pool = WorkerPool::start(&app)?;
+    let native = create_controller(&window, &environment)?;
+    if phase.get() == window_lifecycle::WindowPhase::CloseRequested {
+        return Ok(());
+    }
+    let (w, h) = window.client_size();
+    // SAFETY: The active controller and view are owned by this STA.
+    let view = unsafe {
+        native.0.SetBounds(bounds(w, h))?;
+        native
+            .0
+            .cast::<ICoreWebView2Controller4>()?
+            .SetAllowExternalDrop(true)?;
+        let view = native.0.CoreWebView2()?;
+        let settings = view.Settings()?;
+        settings.SetAreDevToolsEnabled(false)?;
+        settings.SetAreHostObjectsAllowed(false)?;
+        settings.SetAreDefaultContextMenusEnabled(false)?;
+        settings.SetAreDefaultScriptDialogsEnabled(false)?;
+        settings.SetIsBuiltInErrorPageEnabled(false)?;
+        view
+    };
+    let failed = Rc::new(Cell::new(false));
+    let ready = Rc::new(Cell::new(false));
+    let requests = Bridge::start(
+        view.clone(),
+        app.route,
+        worker_pool.controller_owner()?,
+        events.clone(),
+        ready.clone(),
+    );
+    subscribe(
+        &view,
+        environment,
+        app.asset,
+        &requests,
+        ready,
+        failed.clone(),
+        events,
+    )?;
+    install_script(&view, BRIDGE)?;
+    if let Some(script) = app.initialization_script {
+        install_script(&view, script)?;
+    }
+    if phase.get() == window_lifecycle::WindowPhase::CloseRequested {
+        return Ok(());
+    }
+    // SAFETY: The live view and controller stay on their owning STA.
+    unsafe {
+        let url = HSTRING::from(entry());
+        view.Navigate(PCWSTR(url.as_ptr()))?;
+        native.0.SetIsVisible(true)?;
+    }
+    if phase.get() == window_lifecycle::WindowPhase::CloseRequested {
+        return Ok(());
+    }
+    bridge.replace(Some(requests));
+    let _timer = WindowTimer::start(HWND(window.hwnd()))?;
+    current.replace(Some(native.0.clone()));
+    phase.set(window_lifecycle::WindowPhase::Running);
+    windows_window::run();
+    bridge.take();
+    current.take();
+    if failed.get() {
+        return Err("DiskUnfold webview could not load the embedded page".into());
+    }
+    Ok(())
+}
+
+fn subscribe(
+    view: &ICoreWebView2,
+    environment: ICoreWebView2Environment,
+    asset: fn(&str) -> Option<Asset>,
+    requests: &Bridge,
+    ready: Rc<Cell<bool>>,
+    failed: Rc<Cell<bool>>,
+    events: Option<Events>,
+) -> windows::core::Result<()> {
+    let requests = requests.requests();
+    let started_events = events.clone();
+    let started_ready = ready.clone();
+    let navigation_ids = Rc::new(NavigationIdFence::default());
+    let started_navigation_ids = navigation_ids.clone();
+    let completed_navigation_ids = navigation_ids;
+    let ready_events = events;
+    // SAFETY: All callbacks run on the view's STA. Closing its controller releases the registrations.
+    unsafe {
+        let mut token = 0;
+        view.cast::<ICoreWebView2_22>()?
+            .AddWebResourceRequestedFilterWithRequestSourceKinds(
+                w!("*"),
+                COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL,
+                COREWEBVIEW2_WEB_RESOURCE_REQUEST_SOURCE_KINDS_ALL,
+            )?;
+        view.add_WebResourceRequested(
+            &WebResourceRequestedEventHandler::create(Box::new(move |_, args| {
+                if let Some(args) = args {
+                    serve(&environment, asset, &args)?;
+                }
+                Ok(())
+            })),
+            &mut token,
+        )?;
+        view.add_NavigationStarting(
+            &NavigationStartingEventHandler::create(Box::new(move |_, args| {
+                if let Some(args) = args {
+                    let mut url = PWSTR::null();
+                    args.Uri(&mut url)?;
+                    let allowed = take_pwstr(url) == entry();
+                    if allowed {
+                        args.SetCancel(true)?;
+                        let mut navigation_id = 0;
+                        args.NavigationId(&mut navigation_id)?;
+                        started_navigation_ids.set_current(navigation_id);
+                        args.SetCancel(false)?;
+                        started_ready.set(false);
+                        if let Some(events) = &started_events {
+                            events.document_started();
+                        }
+                    } else {
+                        args.SetCancel(true)?;
+                    }
+                }
+                Ok(())
+            })),
+            &mut token,
+        )?;
+        view.add_NavigationCompleted(
+            &NavigationCompletedEventHandler::create(Box::new(move |_, args| {
+                if let Some(args) = args {
+                    let mut success = BOOL::default();
+                    args.IsSuccess(&mut success)?;
+                    let mut navigation_id = 0;
+                    args.NavigationId(&mut navigation_id)?;
+                    match completed_navigation_ids
+                        .classify_completion(navigation_id, success.as_bool())
+                    {
+                        NavigationCompletion::Stale => return Ok(()),
+                        NavigationCompletion::Succeeded => {
+                            ready.set(true);
+                            if let Some(events) = &ready_events {
+                                events.document_ready();
+                            }
+                        }
+                        NavigationCompletion::Failed if !ready.get() => {
+                            failed.set(true);
+                            windows_window::quit();
+                        }
+                        NavigationCompletion::Failed => {}
+                    }
+                }
+                Ok(())
+            })),
+            &mut token,
+        )?;
+        view.add_NewWindowRequested(
+            &NewWindowRequestedEventHandler::create(Box::new(|_, args| {
+                if let Some(args) = args {
+                    args.SetHandled(true)?;
+                }
+                Ok(())
+            })),
+            &mut token,
+        )?;
+        view.add_PermissionRequested(
+            &PermissionRequestedEventHandler::create(Box::new(|_, args| {
+                if let Some(args) = args {
+                    args.SetState(COREWEBVIEW2_PERMISSION_STATE_DENY)?;
+                }
+                Ok(())
+            })),
+            &mut token,
+        )?;
+        view.cast::<ICoreWebView2_4>()?.add_DownloadStarting(
+            &DownloadStartingEventHandler::create(Box::new(|_, args| {
+                if let Some(args) = args {
+                    args.SetCancel(true)?;
+                }
+                Ok(())
+            })),
+            &mut token,
+        )?;
+        view.add_WebMessageReceived(
+            &WebMessageReceivedEventHandler::create(Box::new(move |view, args| {
+                if let (Some(view), Some(args)) = (view, args) {
+                    receive(&view, &requests, &args)?;
+                }
+                Ok(())
+            })),
+            &mut token,
+        )
+    }
+}
+
+unsafe fn serve(
+    environment: &ICoreWebView2Environment,
+    asset: fn(&str) -> Option<Asset>,
+    args: &ICoreWebView2WebResourceRequestedEventArgs,
+) -> windows::core::Result<()> {
+    // SAFETY: The request arguments are valid during this synchronous STA callback.
+    unsafe {
+        let blocked =
+            environment.CreateWebResourceResponse(None, 403, w!("Forbidden"), PCWSTR::null())?;
+        args.SetResponse(&blocked)?;
+        let request = args.Request()?;
+        let mut method = PWSTR::null();
+        request.Method(&mut method)?;
+        let method = take_pwstr(method);
+        let mut uri = PWSTR::null();
+        request.Uri(&mut uri)?;
+        let Some(asset) = resource(asset, &method, &take_pwstr(uri)) else {
+            return Ok(());
+        };
+        let stream = SHCreateMemStream(Some(asset.bytes)).ok_or(E_POINTER)?;
+        let headers = HSTRING::from(format!(
+            "Content-Type: {}\r\nContent-Security-Policy: {CSP}\r\nX-Content-Type-Options: nosniff\r\n",
+            asset.mime
+        ));
+        let response = environment.CreateWebResourceResponse(
+            &stream,
+            200,
+            w!("OK"),
+            PCWSTR(headers.as_ptr()),
+        )?;
+        args.SetResponse(&response)
+    }
+}
+
+unsafe fn receive(
+    view: &ICoreWebView2,
+    requests: &RequestQueue,
+    args: &ICoreWebView2WebMessageReceivedEventArgs,
+) -> windows::core::Result<()> {
+    // SAFETY: This is the top-level WebView2 event. Frame events are not registered.
+    unsafe {
+        if !requests.is_active() {
+            return Ok(());
+        }
+        let mut text = PWSTR::null();
+        if args.TryGetWebMessageAsString(&mut text).is_err() {
+            return Ok(());
+        }
+        let text = take_pwstr(text);
+        if let Some(id) = text
+            .strip_prefix("du:folder-drop:")
+            .and_then(|id| id.parse::<u64>().ok())
+        {
+            let mut source = PWSTR::null();
+            args.Source(&mut source)?;
+            if !super::contract::trusted_message(&take_pwstr(source), "") {
+                return Ok(());
+            }
+            match folder_drop::path(args) {
+                Ok(path) => return requests.submit_folder(view, id, path),
+                Err(reason) => {
+                    return messages::post(view, &folder_drop::reason_message(id, reason));
+                }
+            }
+        }
+        let Some((id, data)) = text
+            .split_once('\n')
+            .filter(|(id, _)| id.parse::<u64>().is_ok())
+        else {
+            return Ok(());
+        };
+        let mut source = PWSTR::null();
+        args.Source(&mut source)?;
+        requests.submit(view, &take_pwstr(source), id, data)
+    }
+}

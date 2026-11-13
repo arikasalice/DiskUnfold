@@ -1,0 +1,313 @@
+/* A bounded workspace gives the item list its own scroll root. */
+.du-browse-shell {
+  padding-block-start: 10px;
+}
+
+.du-browse-shell > .du-action {
+  min-block-size: 36px;
+  margin-block-end: 8px;
+  padding-block: 5px;
+}
+
+.du-browse-grid-frame {
+  /* Makes the virtual body offsetTop relative to this exact scroll root. */
+  position: relative;
+  container-type: inline-size;
+  min-inline-size: 0;
+}
+
+.du-browse-panel {
+  min-inline-size: 0;
+  overflow-anchor: none;
+  overflow-wrap: anywhere;
+}
+
+.du-browse-panel:focus-visible {
+  outline: 2px solid var(--du-focus);
+  outline-offset: -2px;
+}
+
+.du-browse-panel .du-heading--2 {
+  font-size: 20px;
+}
+
+.du-browse-context {
+  display: grid;
+  gap: 4px;
+  min-inline-size: 0;
+  padding-block: 4px 8px;
+}
+
+.du-browse-panel .du-card__actions {
+  justify-content: flex-start;
+  gap: 8px;
+  border-block-start: 0;
+  padding-block-start: 0;
+}
+
+.du-browse-panel .du-card__actions .du-action {
+  min-block-size: 36px;
+  padding-block: 5px;
+  max-inline-size: 100%;
+  display: inline-block;
+}
+
+.du-browse-more {
+  display: grid;
+  min-block-size: max(42px, 2.625rem);
+}
+
+.du-browse-status {
+  min-block-size: 1.5em;
+}
+
+.du-browse-grid {
+  overflow-anchor: none;
+  border: 1px solid var(--du-border);
+  border-radius: var(--du-radius);
+  background: var(--du-surface);
+  box-shadow: var(--du-shadow);
+}
+
+.du-browse-grid__header {
+  border-start-start-radius: inherit;
+  border-start-end-radius: inherit;
+  background: var(--du-subtle);
+  color: var(--du-muted);
+  font-weight: 650;
+}
+
+.du-browse-grid__header [role="row"],
+.du-browse-grid__row {
+  display: grid;
+  grid-template-columns:
+    minmax(0, 32fr) minmax(0, 8fr) repeat(2, minmax(0, 15fr))
+    minmax(0, 16fr) minmax(0, 14fr);
+}
+
+.du-browse-grid__body {
+  position: relative;
+  overflow: clip;
+}
+
+.du-browse-grid__row {
+  position: absolute;
+  inset-inline: 0;
+  min-block-size: 40px;
+  border-block-end: 1px solid var(--du-border);
+  border-inline-start: 3px solid transparent;
+}
+
+.du-browse-grid__header [role="row"] {
+  padding-inline-start: 3px;
+}
+
+.du-browse-grid
+  :is([role="columnheader"], [role="rowheader"], [role="gridcell"]) {
+  min-inline-size: 0;
+  padding: 6px 8px;
+  overflow-wrap: anywhere;
+}
+
+.du-browse-grid [aria-selected="true"] {
+  background: var(--du-selected-surface);
+  color: var(--du-selected-text);
+  border-inline-start-color: var(--du-selected-border);
+}
+
+.du-browse-grid [aria-selected="true"] :is([role="rowheader"], .du-action) {
+  font-weight: 700;
+}
+
+.du-browse-grid:focus-visible,
+.du-browse-grid :focus-visible {
+  outline: 2px solid var(--du-focus);
+  outline-offset: -2px;
+}
+
+.du-browse-grid .du-action {
+  display: inline-block;
+  max-inline-size: 100%;
+  min-inline-size: 0;
+  text-align: start;
+  overflow-wrap: anywhere;
+}
+
+.du-browse-grid__label {
+  display: none;
+}
+
+@container (max-width: 640px) {
+  .du-browse-grid__header {
+    position: absolute;
+    inline-size: 1px;
+    block-size: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+
+  .du-browse-grid__row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .du-browse-grid__row
+    :is(:first-child, :last-child):is([role="rowheader"], [role="gridcell"]) {
+    grid-column: 1 / -1;
+  }
+
+  .du-browse-grid__label {
+    display: block;
+    color: var(--du-muted);
+    font-size: 0.875em;
+  }
+}
+
+@container (max-width: 300px) {
+  .du-browse-grid__row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.du-app[data-browse-open] {
+  block-size: 100dvh;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  padding-block-end: 8px;
+}
+.du-browse-shell {
+  min-block-size: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+.du-browse-panel {
+  min-block-size: 0;
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+.du-browse-header {
+  display: grid;
+  gap: 4px;
+}
+.du-browse-results {
+  min-block-size: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 4px;
+}
+.du-browse-grid-frame {
+  overflow: auto;
+  min-block-size: 0;
+  flex: 1;
+  overscroll-behavior: contain;
+}
+.du-browse-feedback {
+  flex: none;
+  display: flex;
+  align-items: start;
+  gap: 8px;
+  overflow-wrap: anywhere;
+}
+.du-browse-feedback .du-live-status {
+  flex: 1;
+}
+.du-browse-grid [role="rowheader"] .du-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.du-feedback-name {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.du-browse-controls {
+  display: grid;
+  gap: 4px;
+}
+.du-browse-grid-frame:focus-visible {
+  outline: 2px solid var(--du-focus);
+  outline-offset: -2px;
+}
+
+/* Keep navigation compact while preserving the full observation on request. */
+.du-browse-shell {
+  grid-template-rows: minmax(0, 1fr);
+  padding-block-start: 6px;
+}
+.du-browse-panel {
+  gap: 4px;
+}
+.du-browse-header:first-child > .du-heading {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.du-browse-context {
+  padding-block: 0;
+}
+.du-browse-context .du-card__actions {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  min-inline-size: 0;
+}
+.du-browse-observation {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0 8px;
+  min-inline-size: 0;
+}
+.du-browse-observation > .du-text {
+  font-size: 12px;
+}
+.du-browse-observation .du-detail-disclosure {
+  border-block-start: 0;
+}
+.du-browse-observation .du-detail-disclosure > .du-action {
+  min-block-size: 32px;
+  padding-block: 4px;
+}
+.du-browse-observation .du-detail-disclosure:has([aria-expanded="true"]) {
+  flex-basis: 100%;
+}
+.du-browse-observation [tabindex="0"]:focus-visible {
+  outline: 2px solid var(--du-focus);
+  outline-offset: -2px;
+}
+.du-browse-header > .du-notice {
+  padding: 6px 8px;
+}
+/* Expanded context and failures may grow; let the document scroll instead of
+   reducing the virtual list to an unusable sliver. */
+.du-app[data-browse-open]:has(
+    .du-browse-observation [aria-expanded="true"],
+    .du-browse-header .du-notice--error,
+    .du-browse-controls .du-notice--error
+  ) {
+  block-size: auto;
+  min-block-size: 100dvh;
+}
+.du-app[data-browse-open]:has(
+    .du-browse-observation [aria-expanded="true"],
+    .du-browse-header .du-notice--error,
+    .du-browse-controls .du-notice--error
+  )
+  .du-browse-grid-frame {
+  block-size: max(18rem, 50dvh);
+}
+@media (max-height: 350px) {
+  .du-app[data-browse-open] {
+    block-size: auto;
+    min-block-size: 100dvh;
+  }
+  .du-browse-grid-frame {
+    block-size: max(18rem, 50dvh);
+  }
+}

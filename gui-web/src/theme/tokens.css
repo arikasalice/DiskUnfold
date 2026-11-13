@@ -1,0 +1,161 @@
+:root {
+  color-scheme: light;
+  font-family: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  --du-page: #f5f5f6;
+  --du-surface: #ffffff;
+  --du-subtle: #ecedef;
+  --du-text: #242528;
+  --du-muted: #626771;
+  --du-border: #d9dce1;
+  --du-control-border: #797f89;
+  --du-accent: #2f5fc5;
+  --du-accent-text: #ffffff;
+  --du-accent-hover: #2854b2;
+  --du-accent-pressed: #234a9d;
+  --du-hover-surface: #f0f1f2;
+  --du-pressed-surface: #e5e7ea;
+  --du-selected-surface: #e4eaf5;
+  --du-selected-text: #294f99;
+  --du-selected-border: var(--du-accent);
+  --du-focus: var(--du-accent);
+  --du-capacity-track: #dfe2e7;
+  --du-capacity-fill: #2f5fc5;
+  --du-disabled-surface: #eceef0;
+  --du-disabled-text: #656b75;
+  --du-disabled-border: #bcc1c9;
+  --du-info-surface: #ecedef;
+  --du-info-text: #315aa8;
+  --du-success-surface: #e2f5ed;
+  --du-success-text: #115c46;
+  --du-warning-surface: #fff0e9;
+  --du-warning-text: #843520;
+  --du-danger-surface: #ffebeb;
+  --du-danger-text: #9c252b;
+  --du-good-surface: var(--du-success-surface);
+  --du-good-text: var(--du-success-text);
+  --du-alert-surface: var(--du-danger-surface);
+  --du-alert-text: var(--du-danger-text);
+  --du-shadow: 0 1px 2px #1b1d2208, 0 8px 24px #1b1d220a;
+  --du-radius: 10px;
+  --du-space-1: 4px;
+  --du-space-2: 8px;
+  --du-space-3: 12px;
+  --du-space-4: 16px;
+  --du-font-mono: ui-monospace, "Cascadia Mono", "Consolas", monospace;
+  --du-font-size-code: 13px;
+  --du-state-duration: 120ms;
+}
+
+:root:where([data-theme="light"]) {
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --du-shadow: 0 1px 2px #00000038, 0 8px 24px #00000045;
+    --du-page: #18191c;
+    --du-surface: #202226;
+    --du-subtle: #292c31;
+    --du-text: #f1f2f4;
+    --du-muted: #b3b6bd;
+    --du-border: #41454d;
+    --du-control-border: #828894;
+    --du-accent: #94b5ff;
+    --du-accent-text: #17233f;
+    --du-accent-hover: #a8c3ff;
+    --du-accent-pressed: #bfd2ff;
+    --du-hover-surface: #2d3036;
+    --du-pressed-surface: #363a41;
+    --du-capacity-track: #3b414c;
+    --du-capacity-fill: #94b5ff;
+    --du-selected-surface: #2c3d59;
+    --du-selected-text: #d5e1ff;
+    --du-disabled-surface: #292c31;
+    --du-disabled-text: #8f959f;
+    --du-disabled-border: #4d535e;
+    --du-info-surface: #292c31;
+    --du-info-text: #b5c9ef;
+    --du-success-surface: #173d36;
+    --du-success-text: #a4e9d3;
+    --du-warning-surface: #47361d;
+    --du-warning-text: #ffda9c;
+    --du-danger-surface: #492d31;
+    --du-danger-text: #ffc6c9;
+  }
+}
+
+:root:where([data-theme="dark"]) {
+  color-scheme: dark;
+  --du-shadow: 0 1px 2px #00000038, 0 8px 24px #00000045;
+  --du-page: #18191c;
+  --du-surface: #202226;
+  --du-subtle: #292c31;
+  --du-text: #f1f2f4;
+  --du-muted: #b3b6bd;
+  --du-border: #41454d;
+  --du-control-border: #828894;
+  --du-accent: #94b5ff;
+  --du-accent-text: #17233f;
+  --du-accent-hover: #a8c3ff;
+  --du-accent-pressed: #bfd2ff;
+  --du-hover-surface: #2d3036;
+  --du-pressed-surface: #363a41;
+  --du-capacity-track: #3b414c;
+  --du-capacity-fill: #94b5ff;
+  --du-selected-surface: #2c3d59;
+  --du-selected-text: #d5e1ff;
+  --du-disabled-surface: #292c31;
+  --du-disabled-text: #8f959f;
+  --du-disabled-border: #4d535e;
+  --du-info-surface: #292c31;
+  --du-info-text: #b5c9ef;
+  --du-success-surface: #173d36;
+  --du-success-text: #a4e9d3;
+  --du-warning-surface: #47361d;
+  --du-warning-text: #ffda9c;
+  --du-danger-surface: #492d31;
+  --du-danger-text: #ffc6c9;
+}
+
+@media (forced-colors: active) {
+  :root {
+    color-scheme: light dark;
+    --du-shadow: none;
+    --du-page: Canvas;
+    --du-surface: Canvas;
+    --du-subtle: Canvas;
+    --du-text: CanvasText;
+    --du-muted: CanvasText;
+    --du-border: ButtonText;
+    --du-control-border: ButtonText;
+    --du-accent: Highlight;
+    --du-accent-text: HighlightText;
+    --du-accent-hover: Highlight;
+    --du-accent-pressed: Highlight;
+    --du-hover-surface: ButtonFace;
+    --du-pressed-surface: ButtonFace;
+    --du-selected-surface: Highlight;
+    --du-selected-text: HighlightText;
+    --du-selected-border: Highlight;
+    --du-focus: Highlight;
+    --du-capacity-fill: Highlight;
+    --du-disabled-surface: ButtonFace;
+    --du-disabled-text: GrayText;
+    --du-disabled-border: GrayText;
+    --du-info-surface: Canvas;
+    --du-info-text: CanvasText;
+    --du-success-surface: Canvas;
+    --du-success-text: CanvasText;
+    --du-warning-surface: Canvas;
+    --du-warning-text: CanvasText;
+    --du-danger-surface: Canvas;
+    --du-danger-text: CanvasText;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --du-state-duration: 0ms;
+  }
+}

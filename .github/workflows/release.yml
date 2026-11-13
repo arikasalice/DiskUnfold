@@ -1,0 +1,550 @@
+# F15 release pipeline (FR1.HD1, FR2.HD1, FR5.HD1, FR9.HD1, NFR1.HD1, NFR2.HD1).
+#
+# A push of a stable version tag runs the gate, native builds, packaging, checksums, the release
+# inventory, SLSA build provenance and a verification pass, then creates a DRAFT GitHub release.
+# Nothing is published automatically. A manual run (workflow_dispatch) is a dry run: it builds
+# developer builds only, never attests or publishes, and its artifacts are labelled developer.
+#
+# Job names are not registered in a published architecture DLD (release-packaging section) and
+# need design registration: gate, build, package-dmg, inventory, attest, verify-provenance,
+# publish-draft.
+name: Release
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+env:
+  CARGO_TERM_COLOR: never
+jobs:
+  # Release gate: tag format, tag commit, format versions, release-mode product resources
+  # (notices, support table with every security-support basis confirmed). Only a tag push that
+  # passes every check yields official=true; every later build kind follows that output.
+  gate:
+    runs-on: ubuntu-24.04
+    outputs:
+      official: ${{ steps.mode.outputs.official }}
+      tag: ${{ steps.mode.outputs.tag }}
+      commit: ${{ steps.mode.outputs.commit }}
+      version: ${{ steps.mode.outputs.version }}
+      built_at_utc: ${{ steps.mode.outputs.built_at_utc }}
+      app_db_format: ${{ steps.formats.outputs.app_db_format }}
+      snapshot_format: ${{ steps.formats.outputs.snapshot_format }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - name: Install pinned Rust
+        run: |
+          channel="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$channel" --profile minimal --component rustfmt --component clippy --component llvm-tools-preview
+          rustup default "$channel"
+      - name: Build the gate tool
+        run: cargo build --locked -p du-release-tools --bin release-gate --bin build-product-resources
+      - name: Decide the build kind and check the tag
+        id: mode
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          EVENT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          workspace_version="$(sed -n '/^\[workspace.package\]/,/^\[/{s/^version = "\(.*\)"/\1/p}' Cargo.toml)"
+          head_commit="$(git rev-parse HEAD)"
+          {
+            echo "commit=$head_commit"
+            echo "version=$workspace_version"
+            echo "built_at_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } >> "$GITHUB_OUTPUT"
+          if [[ "$EVENT_NAME" == push && "$REF_TYPE" == tag ]]; then
+            [[ "$REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "release.tag_format_invalid: $REF_NAME" >&2; exit 1; }
+            git fetch --force origin "refs/tags/$REF_NAME:refs/tags/$REF_NAME"
+            tag_commit="$(git rev-parse "refs/tags/$REF_NAME^{commit}")"
+            target/debug/release-gate check-tag --tag "$REF_NAME" --workspace-version "$workspace_version" \
+              --tag-commit "$tag_commit" --checkout-commit "$head_commit" --event-commit "$EVENT_SHA"
+            echo "official=true" >> "$GITHUB_OUTPUT"
+            echo "tag=$REF_NAME" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::Dry run: developer builds only, nothing is attested or published."
+            echo "official=false" >> "$GITHUB_OUTPUT"
+            echo "tag=" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Read the data format versions
+        id: formats
+        if: steps.mode.outputs.official == 'true'
+        run: |
+          set -euo pipefail
+          target/debug/release-gate read-formats --file release-packaging/release/format-versions.json > formats.env
+          {
+            echo "app_db_format=$(sed -n 's/^DU_APP_DB_FORMAT=//p' formats.env)"
+            echo "snapshot_format=$(sed -n 's/^DU_SNAPSHOT_FORMAT=//p' formats.env)"
+          } >> "$GITHUB_OUTPUT"
+      - name: Require a reviewed Debian copyright file
+        if: steps.mode.outputs.official == 'true'
+        run: |
+          file=release-packaging/linux/debian-copyright
+          if [[ ! -s "$file" ]] || grep -qiE 'fixture|dry run' "$file"; then
+            echo "release.debian_copyright_missing: $file must be a reviewed Debian machine-readable copyright file" >&2
+            exit 1
+          fi
+      - run: npm ci --ignore-scripts
+        working-directory: gui-web
+      - name: Generate notices, support table and build info (release gate)
+        env:
+          OFFICIAL: ${{ steps.mode.outputs.official }}
+          SOURCE_COMMIT: ${{ steps.mode.outputs.commit }}
+        run: |
+          set -euo pipefail
+          if [[ "$OFFICIAL" == true ]]; then
+            target/debug/build-product-resources --release --source-commit "$SOURCE_COMMIT" --out release-resources
+          else
+            target/debug/build-product-resources --allow-blockers --source-commit "$SOURCE_COMMIT" --out release-resources
+          fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-resources
+          path: release-resources/
+          if-no-files-found: error
+          retention-days: 14
+
+  # Native build per support-table architecture. Each cell checks that the runner's Rust host
+  # matches the cell's target and builds on that CPU. Windows and Linux cells also package.
+  build:
+    needs: gate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { id: windows-x64, os: windows, cpu: x64, runner: windows-2022, rust_target: x86_64-pc-windows-msvc }
+          - { id: windows-arm64, os: windows, cpu: arm64, runner: windows-11-arm, rust_target: aarch64-pc-windows-msvc }
+          - { id: linux-x64, os: linux, cpu: x64, runner: ubuntu-24.04, rust_target: x86_64-unknown-linux-gnu }
+          - { id: linux-arm64, os: linux, cpu: arm64, runner: ubuntu-24.04-arm, rust_target: aarch64-unknown-linux-gnu }
+          - { id: macos-arm64, os: macos, cpu: arm64, runner: macos-15, rust_target: aarch64-apple-darwin }
+          - { id: macos-x64, os: macos, cpu: x64, runner: macos-15-intel, rust_target: x86_64-apple-darwin }
+    runs-on: ${{ matrix.runner }}
+    env:
+      DU_BUILD_KIND: ${{ needs.gate.outputs.official == 'true' && 'official' || 'developer' }}
+      DU_SOURCE_COMMIT: ${{ needs.gate.outputs.commit }}
+      DU_RELEASE_TAG: ${{ needs.gate.outputs.tag }}
+      DU_BUILT_AT_UTC: ${{ needs.gate.outputs.built_at_utc }}
+      DU_APP_DB_FORMAT: ${{ needs.gate.outputs.app_db_format }}
+      DU_SNAPSHOT_FORMAT: ${{ needs.gate.outputs.snapshot_format }}
+      DU_RELEASE_RESOURCES: release-resources/product-resources.json
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.gate.outputs.commit }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - name: Linux native prerequisites
+        if: matrix.os == 'linux'
+        run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev build-essential pkg-config
+      - name: Install pinned Rust
+        run: |
+          channel="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$channel" --profile minimal --component rustfmt --component clippy --component llvm-tools-preview
+          rustup default "$channel"
+      - name: Confirm native architecture
+        env:
+          EXPECTED_RUST_TARGET: ${{ matrix.rust_target }}
+        run: |
+          rustc -vV | grep -Fx "host: $EXPECTED_RUST_TARGET"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-resources
+          path: release-resources
+      - name: Build the launcher (Windows, macOS)
+        if: matrix.os != 'linux'
+        run: |
+          npm --prefix gui-web ci --ignore-scripts
+          npm --prefix gui-web run build
+          cargo build --locked --release -p du-launcher
+      - name: Build the launcher (Linux)
+        if: matrix.os == 'linux'
+        run: bash release-packaging/linux/build-linux.sh
+      - name: Confirm the embedded build kind and commit
+        env:
+          EXPECTED_KIND: ${{ env.DU_BUILD_KIND }}
+        run: node release-packaging/release/check-build-kind.mjs --expected "$EXPECTED_KIND" --commit "$DU_SOURCE_COMMIT"
+
+      # Signing is attempted only when SignPath secrets and variables exist. The Windows packager
+      # accepts unsigned input only, so a successful signing request stops the job instead of
+      # mixing signed and unsigned bytes or mislabelling the package (Windows packaging work).
+      - name: Detect SignPath configuration
+        id: signpath
+        if: matrix.os == 'windows' && needs.gate.outputs.official == 'true'
+        env:
+          SIGNPATH_ORGANIZATION_ID: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          # Secrets are never job-level env: build scripts and dry runs must not see them.
+          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+        run: |
+          if [[ -n "$SIGNPATH_API_TOKEN" && -n "$SIGNPATH_ORGANIZATION_ID" ]]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::SignPath is not configured; Windows packages stay unsigned and are labelled unsigned."
+          fi
+      - name: Upload the unsigned executable for SignPath
+        id: unsigned_exe
+        if: steps.signpath.outputs.enabled == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: unsigned-exe-${{ matrix.id }}
+          path: target/release/diskunfold.exe
+          if-no-files-found: error
+          retention-days: 1
+      - name: Submit the SignPath signing request
+        if: steps.signpath.outputs.enabled == 'true'
+        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3.0
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          github-artifact-id: ${{ steps.unsigned_exe.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed-exe
+      - name: Stop until the Windows packager accepts signed input
+        if: steps.signpath.outputs.enabled == 'true'
+        run: |
+          echo "release.signed_input_unsupported: package-windows-development.ps1 rejects signed input; the signed executable is in signed-exe/ but was not packaged." >&2
+          exit 1
+
+      - name: Package (Windows)
+        if: matrix.os == 'windows'
+        shell: pwsh
+        env:
+          PACKAGE_VERSION: ${{ needs.gate.outputs.version }}
+          PACKAGE_CPU: ${{ matrix.cpu }}
+          PACKAGE_ID: ${{ matrix.id }}
+        run: |
+          New-Item -ItemType Directory -Path stage | Out-Null
+          foreach ($format in 'portable-exe', 'msix') {
+            & .\release-packaging\windows\package-windows-development.ps1 `
+              -BinaryPath target\release\diskunfold.exe -Version $env:PACKAGE_VERSION `
+              -Architecture $env:PACKAGE_CPU -Format $format `
+              -OutputDirectory "stage\$env:PACKAGE_ID-$format"
+            if ($LASTEXITCODE -ne 0) { throw "packaging $format failed" }
+          }
+      - name: Package (Linux)
+        if: matrix.os == 'linux'
+        env:
+          PACKAGE_VERSION: ${{ needs.gate.outputs.version }}
+          PACKAGE_CPU: ${{ matrix.cpu }}
+          OFFICIAL: ${{ needs.gate.outputs.official }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          mkdir stage
+          copyright=release-packaging/linux/debian-copyright
+          if [[ "$OFFICIAL" != true ]]; then
+            # Dry run only: an incomplete, labelled copyright file keeps the developer package honest.
+            copyright="$RUNNER_TEMP/debian-copyright.dry-run"
+            printf '%s\n' \
+              'Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/' \
+              'Upstream-Name: DiskUnfold' \
+              'Upstream-Contact: DiskUnfold Maintainers <arikasalice@gmail.com>' \
+              "Source: https://github.com/$REPOSITORY" \
+              'Files: *' 'Copyright: DEVELOPER DRY RUN, incomplete' 'License: MIT' > "$copyright"
+          fi
+          bash release-packaging/linux/package-linux.sh \
+            --binary "target/${{ matrix.rust_target }}/release/diskunfold" \
+            --version "$PACKAGE_VERSION" --cpu "$PACKAGE_CPU" \
+            --notices release-resources/THIRD-PARTY-NOTICES \
+            --debian-copyright "$copyright" \
+            --output-dir "stage/${{ matrix.id }}"
+      - name: Record this combination
+        env:
+          MATRIX_ID: ${{ matrix.id }}
+          RUNNER_LABEL: ${{ matrix.runner }}
+          IMAGE_OS: ${{ runner.os }}
+          IMAGE_ARCH: ${{ runner.arch }}
+          IMAGE_VERSION: ${{ env.ImageVersion }}
+        run: |
+          set -euo pipefail
+          mkdir record
+          node -e '
+            const e = process.env;
+            const host = require("child_process").execSync("rustc -vV").toString().match(/^host: (.*)$/m)[1];
+            const rec = { id: e.MATRIX_ID, runnerLabel: e.RUNNER_LABEL, runnerOs: e.IMAGE_OS, runnerArch: e.IMAGE_ARCH,
+              imageVersion: e.IMAGE_VERSION || null, rustHost: host, buildKind: e.DU_BUILD_KIND,
+              commit: e.DU_SOURCE_COMMIT, result: "built" };
+            require("fs").writeFileSync("record/" + e.MATRIX_ID + ".json", JSON.stringify(rec, null, 2) + "\n");'
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: record-${{ matrix.id }}
+          path: record/
+          if-no-files-found: error
+          retention-days: 14
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: matrix.os != 'macos'
+        with:
+          name: staging-${{ matrix.id }}
+          path: stage/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Collect the macOS slice
+        if: matrix.os == 'macos'
+        run: mkdir slice && cp target/release/diskunfold "slice/diskunfold-${{ matrix.cpu }}"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: matrix.os == 'macos'
+        with:
+          name: slice-${{ matrix.id }}
+          path: slice/
+          if-no-files-found: error
+          retention-days: 14
+
+  # Combines the native arm64 and x86_64 slices into the one universal executable that the DMG
+  # packager requires.
+  package-dmg:
+    needs: [gate, build]
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.gate.outputs.commit }}
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: slice-macos-*
+          path: slices
+          merge-multiple: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-resources
+          path: release-resources
+      - name: Create the universal executable
+        run: |
+          set -euo pipefail
+          lipo -create slices/diskunfold-arm64 slices/diskunfold-x64 -output diskunfold-universal
+          chmod +x diskunfold-universal
+          archs="$(lipo -archs diskunfold-universal)"
+          [[ "$archs" == "x86_64 arm64" || "$archs" == "arm64 x86_64" ]] || { echo "unexpected slices: $archs" >&2; exit 1; }
+      - name: Package the DMG
+        env:
+          PACKAGE_VERSION: ${{ needs.gate.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir stage
+          bash release-packaging/macos/package-dmg.sh --binary diskunfold-universal --version "$PACKAGE_VERSION" \
+            --notices release-resources/THIRD-PARTY-NOTICES --output-dir stage/macos-universal
+      - name: Stop when Apple notarization is configured
+        env:
+          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+        run: |
+          if [[ -n "$APPLE_NOTARY_KEY_ID" ]]; then
+            echo "release.notarization_unsupported: the DMG packager applies an ad-hoc signature; Developer ID signing and notarization are not integrated, so the DMG stays labelled ad-hoc signed." >&2
+            exit 1
+          fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: staging-macos-universal
+          path: stage/
+          if-no-files-found: error
+          retention-days: 14
+
+  # Merges every platform manifest into one release list, rehashes every staged file, and writes
+  # the checksum lists, the distribution table and the provenance subject list.
+  inventory:
+    needs: [gate, build, package-dmg]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.gate.outputs.commit }}
+          persist-credentials: false
+      - name: Install pinned Rust
+        run: |
+          channel="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$channel" --profile minimal
+          rustup default "$channel"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: staging-*
+          path: staging
+          merge-multiple: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: record-*
+          path: records
+          merge-multiple: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-resources
+          path: release-resources
+      - name: Build the release tools
+        run: cargo build --locked -p du-release-tools --bin release-gate --bin build-release-inventory
+      - name: Merge manifests and check the release set
+        run: |
+          set -euo pipefail
+          parts=()
+          for dir in staging/*/; do
+            name="$(basename "$dir")"
+            parts+=("$name=$dir")
+          done
+          # Signing never runs without stopping the job (see the build and package-dmg jobs), so no
+          # row may claim a signature here.
+          target/debug/release-gate merge-manifests --out merged-manifest.json "${parts[@]}"
+          target/debug/release-gate check-release-set --manifest merged-manifest.json --signing-applied false
+      - name: Build the inventory and checksum lists
+        run: |
+          set -euo pipefail
+          target/debug/build-release-inventory merged-manifest.json staging inventory
+          (cd inventory && ls)
+      - name: Assemble the release assets
+        env:
+          OFFICIAL: ${{ needs.gate.outputs.official }}
+          TAG: ${{ needs.gate.outputs.tag }}
+          COMMIT: ${{ needs.gate.outputs.commit }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          mkdir release-assets
+          jq -r '.rows[].file_name' inventory/release-inventory.json | while IFS= read -r name; do
+            found="$(find staging -type f -name "$name" | head -n 2)"
+            [[ -n "$found" && "$(printf '%s\n' "$found" | wc -l)" -eq 1 ]] || { echo "package $name not found exactly once" >&2; exit 1; }
+            cp "$found" "release-assets/$name"
+          done
+          cp inventory/SHA256SUMS inventory/EXECUTABLE-SHA256.json inventory/release-inventory.json inventory/DISTRIBUTION.md release-assets/
+          cp release-resources/THIRD-PARTY-NOTICES release-resources/SUPPORT-TABLE.md release-resources/support-matrix.json release-resources/product-resources.json release-assets/
+          cp release-packaging/release/VERIFY.md release-assets/VERIFY.md
+          jq -s '.' records/*.json > release-assets/native-build-records.json
+          node -e '
+            const e = process.env;
+            const official = e.OFFICIAL === "true";
+            const doc = { official, buildKind: official ? "official" : "developer", repository: e.REPOSITORY,
+              tag: official ? e.TAG : null, commit: e.COMMIT, runId: e.RUN_ID, runAttempt: e.RUN_ATTEMPT,
+              eventName: e.EVENT_NAME, workflowPath: ".github/workflows/release.yml",
+              builderId: official ? "https://github.com/" + e.REPOSITORY + "/.github/workflows/release.yml@refs/tags/" + e.TAG : null };
+            require("fs").writeFileSync("release-assets/release-provenance.json", JSON.stringify(doc, null, 2) + "\n");'
+          if [[ "$OFFICIAL" != true ]]; then
+            echo "DEVELOPER DRY RUN. These files are not an official release and carry no provenance attestation." > release-assets/DEVELOPER-BUILD.txt
+          fi
+          # Rehash at the publication boundary: the bytes in release-assets are the bytes listed.
+          (cd release-assets && sha256sum --check --strict SHA256SUMS)
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ needs.gate.outputs.official == 'true' && 'release-assets' || 'release-assets-developer' }}
+          path: release-assets/
+          if-no-files-found: error
+          retention-days: 14
+
+  attest:
+    if: needs.gate.outputs.official == 'true'
+    needs: [gate, inventory]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-assets
+          path: release-assets
+      - name: Rehash the assets before attesting
+        run: cd release-assets && sha256sum --check --strict SHA256SUMS
+      - name: Attest the packages (SLSA build provenance)
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-checksums: release-assets/SHA256SUMS
+
+  # Verifies each package with the repository's verify-release-provenance before anything is
+  # published. The gh executable is the runner's own; its SHA-256 is taken here, which does not
+  # make a compromised runner trustworthy (see PROVENANCE.md).
+  verify-provenance:
+    if: needs.gate.outputs.official == 'true'
+    needs: [gate, attest]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      attestations: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.gate.outputs.commit }}
+          persist-credentials: false
+      - name: Install pinned Rust
+        run: |
+          channel="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$channel" --profile minimal
+          rustup default "$channel"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-assets
+          path: release-assets
+      - name: Verify every package
+        env:
+          REPOSITORY: ${{ github.repository }}
+          TAG: ${{ needs.gate.outputs.tag }}
+          COMMIT: ${{ needs.gate.outputs.commit }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          cargo build --locked -p du-release-tools --bin verify-release-provenance
+          gh_path="$(readlink -f "$(command -v gh)")"
+          gh_sha="$(sha256sum "$gh_path" | cut -d' ' -f1)"
+          while read -r digest name; do
+            echo "Verifying $name"
+            target/debug/verify-release-provenance "release-assets/$name" "$REPOSITORY" "$TAG" "$COMMIT" \
+              "$RUN_ID" "$RUN_ATTEMPT" .github/workflows/release.yml push \
+              "https://github.com/$REPOSITORY/.github/workflows/release.yml@refs/tags/$TAG" \
+              "$gh_path" "$gh_sha" --deny-self-hosted-runners
+          done < release-assets/SHA256SUMS
+
+  # Creates a draft release. A person reviews the draft and publishes it; nothing here publishes.
+  publish-draft:
+    if: needs.gate.outputs.official == 'true'
+    needs: [gate, inventory, attest, verify-provenance]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-assets
+          path: release-assets
+      - name: Rehash the assets that will be published
+        run: cd release-assets && sha256sum --check --strict SHA256SUMS
+      - name: Create the draft release
+        env:
+          REPOSITORY: ${{ github.repository }}
+          TAG: ${{ needs.gate.outputs.tag }}
+          VERSION: ${{ needs.gate.outputs.version }}
+        run: |
+          set -euo pipefail
+          {
+            echo "Draft for DiskUnfold $VERSION. Review before publishing."
+            echo
+            echo "Signing status is listed per file in DISTRIBUTION.md. Packages without a platform signature are labelled unsigned; verify them with SHA256SUMS and the build provenance described in VERIFY.md."
+            echo
+            cat release-assets/DISTRIBUTION.md
+          } > notes.md
+          gh release create "$TAG" --repo "$REPOSITORY" --draft --verify-tag \
+            --title "DiskUnfold $VERSION" --notes-file notes.md release-assets/*

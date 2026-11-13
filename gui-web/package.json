@@ -1,0 +1,51 @@
+{
+  "name": "diskunfold-gui",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": "26.13.0"
+  },
+  "scripts": {
+    "preview:ui": "vite --config preview/vite.config.ts",
+    "build:preview": "vite build --config preview/vite.config.ts",
+    "build": "vite build",
+    "check": "npm run typecheck && npm run lint && npm run format:check && npm run arch && npm run locale:check",
+    "locale:check": "node scripts/check-locale.mjs",
+    "typecheck": "node node_modules/typescript-compiler/bin/tsc --noEmit",
+    "lint": "eslint . --max-warnings 0",
+    "format:check": "prettier --check .",
+    "arch": "depcruise --config .dependency-cruiser.cjs src",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage --reporter=default --reporter=json --outputFile=../quality-output/gui-tests.json"
+  },
+  "dependencies": {
+    "lucide-react": "1.69.0",
+    "react": "19.3.1",
+    "react-aria-components": "1.22.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@testing-library/dom": "10.4.2",
+    "@testing-library/react": "16.3.3",
+    "@types/node": "^26",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@vitest/coverage-v8": "5.1.0",
+    "axe-core": "4.14.0",
+    "dependency-cruiser": "18.7.2",
+    "eslint": "10.14.0",
+    "happy-dom": "21.0.4",
+    "jscpd": "5.4.3",
+    "prettier": "3.9.10",
+    "typescript": "6.0.3",
+    "typescript-compiler": "npm:typescript@7.0.2",
+    "typescript-eslint": "8.72.1",
+    "vite": "8.3.7",
+    "vitest": "5.1.0"
+  },
+  "overrides": {
+    "minimatch": "11.0.8"
+  }
+}

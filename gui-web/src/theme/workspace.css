@@ -1,0 +1,542 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 0;
+  min-height: 100vh;
+  background: var(--du-page);
+  color: var(--du-text);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.du-app {
+  width: min(100%, 1240px);
+  min-width: 0;
+  margin-inline: auto;
+  padding: 0 clamp(14px, 3vw, 36px) 24px;
+}
+
+.du-app-header,
+.du-app-header__actions,
+.du-brand,
+.du-card__header,
+.du-card__actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.du-live-status:focus {
+  outline: 2px solid var(--du-focus);
+  outline-offset: 2px;
+}
+
+.du-live-status:empty {
+  position: absolute;
+}
+
+.du-app-header,
+.du-card__header {
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.du-app-header {
+  border-bottom: 1px solid var(--du-border);
+  min-block-size: 52px;
+  padding-block: 4px;
+}
+
+.du-app-header__actions {
+  flex-wrap: wrap;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.du-brand {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.du-brand-mark {
+  flex: none;
+  border-radius: 8px;
+}
+
+.du-card {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+  padding: clamp(16px, 2.5vw, 22px);
+  border: 1px solid var(--du-border);
+  border-radius: var(--du-radius);
+  background: var(--du-surface);
+  box-shadow: var(--du-shadow);
+}
+
+.du-card__actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  border-top: 1px solid var(--du-border);
+  padding-top: 14px;
+}
+
+.du-heading,
+.du-text {
+  margin: 0;
+}
+
+.du-heading {
+  line-height: 1.2;
+}
+
+.du-heading--1 {
+  font-size: 18px;
+  font-weight: 690;
+}
+
+.du-heading--2 {
+  font-size: clamp(26px, 4vw, 36px);
+  font-weight: 660;
+  letter-spacing: -0.025em;
+}
+
+.du-heading--3 {
+  margin-top: 4px;
+  font-size: 19px;
+  font-weight: 640;
+  letter-spacing: -0.01em;
+}
+
+.du-text--muted {
+  color: var(--du-muted);
+}
+
+.du-text--eyebrow {
+  color: var(--du-info-text);
+  font-size: 11px;
+  font-weight: 760;
+  letter-spacing: 0.075em;
+  text-transform: uppercase;
+}
+
+.du-text--path {
+  overflow-wrap: anywhere;
+  font-weight: 630;
+}
+
+.du-action,
+.du-field input,
+.du-field select,
+.du-choice {
+  border: 1px solid var(--du-control-border);
+  border-radius: var(--du-radius);
+}
+
+.du-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 8px 13px;
+  background: var(--du-surface);
+  color: var(--du-text);
+  font: inherit;
+  font-weight: 620;
+  cursor: pointer;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.du-action--quiet {
+  --du-action-interaction-border: transparent;
+  border-color: transparent;
+  background: transparent;
+  color: var(--du-info-text);
+}
+
+.du-action--icon {
+  min-width: 42px;
+  padding-inline: 8px;
+}
+
+.du-action--primary {
+  --du-action-hover: var(--du-accent-hover);
+  --du-action-pressed: var(--du-accent-pressed);
+  border-color: var(--du-accent);
+  background: var(--du-accent);
+  color: var(--du-accent-text);
+}
+
+.du-action[data-hovered]:not([data-disabled]) {
+  border-color: var(
+    --du-action-hover,
+    var(--du-action-interaction-border, var(--du-control-border))
+  );
+  background: var(--du-action-hover, var(--du-hover-surface));
+}
+
+.du-action[data-pressed]:not([data-disabled]) {
+  border-color: var(
+    --du-action-pressed,
+    var(--du-action-interaction-border, var(--du-control-border))
+  );
+  background: var(--du-action-pressed, var(--du-pressed-surface));
+}
+
+.du-app-header .du-action--quiet {
+  color: var(--du-muted);
+}
+
+@media (max-width: 18rem) {
+  .du-app-header {
+    align-items: flex-start;
+  }
+
+  .du-app-header__actions {
+    flex-basis: 100%;
+  }
+}
+
+.du-action[data-disabled] {
+  cursor: default;
+}
+
+.du-action[data-focus-visible],
+.du-action:focus-visible,
+.du-choice[data-focus-visible],
+.du-field input:focus-visible,
+.du-field select:focus-visible {
+  outline: 2px solid var(--du-focus);
+  outline-offset: 2px;
+}
+
+.du-field,
+.du-results {
+  display: grid;
+  gap: 8px;
+}
+
+.du-field label,
+label.du-field > span {
+  font-weight: 650;
+}
+
+.du-size-display {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 8rem), 1fr));
+  gap: 8px;
+}
+
+.du-field input,
+.du-field select {
+  width: 100%;
+  min-height: 44px;
+  padding: 9px 12px;
+  background: var(--du-subtle);
+  color: var(--du-text);
+  font: inherit;
+}
+
+.du-action,
+.du-field :is(input, select),
+.du-choice {
+  transition:
+    background-color var(--du-state-duration) ease,
+    border-color var(--du-state-duration) ease;
+}
+
+.du-field input::placeholder {
+  color: var(--du-muted);
+  opacity: 1;
+}
+
+.du-field :is(input, select):hover:enabled {
+  background: var(--du-hover-surface);
+}
+
+.du-field :is(input, select):active:enabled {
+  background: var(--du-pressed-surface);
+}
+
+.du-action[data-disabled],
+.du-field :is(input, select):disabled,
+.du-choice[data-disabled] {
+  border-color: var(--du-disabled-border);
+  background: var(--du-disabled-surface);
+  color: var(--du-disabled-text);
+}
+
+.du-field input:disabled::placeholder,
+.du-choice[data-disabled] .du-choice__description {
+  color: var(--du-disabled-text);
+}
+
+.du-drop-surface[data-drag-over] .du-field input {
+  border-color: var(--du-focus);
+  background: var(--du-info-surface);
+  outline: 2px solid var(--du-focus);
+  outline-offset: 2px;
+}
+
+.du-field [slot="description"],
+.du-choice__description {
+  color: var(--du-muted);
+  font-size: 12px;
+}
+
+.du-badge {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  max-width: 100%;
+  padding: 4px 9px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: var(--du-subtle);
+  color: var(--du-muted);
+  font-size: 12px;
+  font-weight: 680;
+  overflow-wrap: anywhere;
+}
+
+.du-badge--info,
+.du-notice--info {
+  background: var(--du-info-surface);
+  color: var(--du-info-text);
+}
+
+.du-badge--good {
+  background: var(--du-good-surface);
+  color: var(--du-good-text);
+}
+
+.du-badge--warning {
+  background: var(--du-warning-surface);
+  color: var(--du-warning-text);
+}
+
+.du-badge--danger {
+  background: var(--du-danger-surface);
+  color: var(--du-danger-text);
+}
+
+.du-notice--error {
+  background: var(--du-danger-surface);
+  color: var(--du-danger-text);
+}
+
+.du-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--du-radius);
+  overflow-wrap: anywhere;
+}
+
+.du-notice svg,
+.du-action svg {
+  flex: none;
+}
+
+.du-readout {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  color: var(--du-muted);
+  font-size: 12px;
+}
+
+.du-readout > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.du-readout dd {
+  margin: 0;
+  color: var(--du-text);
+  text-align: right;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+.du-readout > .du-readout__wide-value {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: baseline;
+}
+
+.du-readout__wide-value dd {
+  text-align: start;
+}
+
+.du-readout__note {
+  display: block;
+  margin-block-start: 2px;
+  color: var(--du-muted);
+}
+
+@media (max-width: 42rem) {
+  .du-readout > .du-readout__wide-value {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+}
+
+.du-progress__track {
+  overflow: hidden;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--du-info-surface);
+}
+
+.du-progress__indicator {
+  width: 30%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--du-accent);
+  animation: du-indeterminate 1.4s ease-in-out infinite;
+}
+
+@keyframes du-indeterminate {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(335%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .du-progress__indicator {
+    animation: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .du-action,
+  .du-choice,
+  .du-field :is(input, select),
+  .du-badge,
+  .du-notice,
+  .du-progress__track {
+    forced-color-adjust: none;
+  }
+
+  .du-action[data-hovered]:not([data-disabled]) {
+    text-decoration: underline;
+  }
+
+  .du-field :is(input, select):hover:enabled {
+    border-style: dashed;
+  }
+
+  .du-field :is(input, select):active:enabled {
+    border-style: solid;
+  }
+
+  .du-badge {
+    border-color: currentColor;
+  }
+
+  .du-notice,
+  .du-progress__track {
+    outline: 1px solid var(--du-control-border);
+  }
+}
+
+.du-table-viewport {
+  max-block-size: min(624px, 58vh);
+  max-inline-size: 100%;
+  overflow: auto;
+}
+
+.du-data-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+  inline-size: 100%;
+}
+
+.du-data-table th,
+.du-data-table td {
+  padding: 0;
+  text-align: start;
+  vertical-align: top;
+}
+
+.du-data-table th {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 1;
+  background: var(--du-page);
+}
+
+.du-data-table th > div {
+  block-size: 48px;
+  padding: 12px 8px;
+}
+
+.du-table-cell {
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  padding: 8px;
+  border-block-start: 1px solid var(--du-border);
+}
+
+.du-table-viewport:focus-visible {
+  outline: 2px solid var(--du-focus);
+  outline-offset: -2px;
+}
+
+.du-table-spacer td {
+  padding: 0;
+  border: 0;
+}
+
+.du-history-shell {
+  padding-block-start: 14px;
+}
+
+.du-history-shell .du-heading--2 {
+  font-size: 26px;
+}
+
+.du-history-shell .du-history-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 8rem), 1fr));
+  gap: 8px 12px;
+  align-items: end;
+  padding: 12px;
+  border: 1px solid var(--du-border);
+  border-radius: var(--du-radius);
+  background: var(--du-surface);
+}
+
+.du-history-shell .du-field :is(input, select) {
+  min-block-size: 38px;
+  padding-block: 6px;
+}
+.du-copy-path {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+.du-copy-path .du-text--path {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.du-copy-path .du-action[aria-disabled="true"] {
+  opacity: 0.65;
+  cursor: default;
+}

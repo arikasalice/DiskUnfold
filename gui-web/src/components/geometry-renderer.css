@@ -1,0 +1,25 @@
+.du-geometry-shape {
+  cursor: pointer;
+  color: var(--du-accent);
+  fill: var(--du-info-surface);
+  stroke: var(--du-accent);
+}
+
+.du-geometry-label {
+  fill: var(--du-text);
+  stroke: none;
+  font-size: 14px;
+  pointer-events: none;
+}
+
+.du-geometry-relation {
+  color: var(--du-muted);
+  fill: var(--du-border);
+  stroke: var(--du-muted);
+}
+
+.du-geometry g[data-selected="true"] > :not(text) {
+  stroke: var(--du-focus);
+  stroke-width: 3;
+  stroke-dasharray: 4 2;
+}

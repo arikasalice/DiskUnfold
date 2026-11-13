@@ -1,0 +1,401 @@
+import { useId, useLayoutEffect, useRef, useState } from "react";
+import type { ReactNode, RefObject } from "react";
+import {
+  Action,
+  Choice,
+  ChoiceGroup,
+  FolderDropSurface,
+  Heading,
+  LiveStatus,
+  Notice,
+  PathField,
+  Progress,
+  Text,
+} from "../../components";
+import { windowsPath } from "../../ipc";
+import type { OsPath } from "../../ipc";
+import type { useTargets } from "../../state/analysis-targets";
+import { useRegionalFormat } from "../../i18n/regional-format";
+import { describeTargetCapacity } from "./target-capacity";
+import { useLocaleText } from "../../i18n/presentation";
+
+/** Presents discovered drives and the direct path entry defined for scope review. */
+export function TargetPicker({
+  targets,
+  disabled,
+  selected,
+  choose,
+  addPath,
+  removePath,
+  dropEnabled,
+  dropError,
+  pathDescription,
+  reviewDescriptionId,
+  feedback,
+  isInitial,
+  onPathCompositionChange,
+  primaryPathRef,
+}: {
+  targets: ReturnType<typeof useTargets>;
+  disabled: boolean;
+  selected: (OsPath | undefined)[];
+  choose: (path: OsPath | undefined, index?: number) => void;
+  addPath: () => void;
+  removePath: (index: number) => void;
+  dropEnabled: boolean;
+  dropError: string | undefined;
+  pathDescription: string;
+  reviewDescriptionId: string | undefined;
+  feedback: ReactNode;
+  isInitial: boolean;
+  onPathCompositionChange: (composing: boolean) => void;
+  primaryPathRef?: RefObject<HTMLInputElement | null>;
+}) {
+  const text = useLocaleText();
+  const fields = useRef(new Map<number, HTMLInputElement>());
+  const focusIndex = useRef<number>(undefined);
+
+  useLayoutEffect(() => {
+    if (focusIndex.current === undefined) return;
+    fields.current.get(focusIndex.current)?.focus();
+    focusIndex.current = undefined;
+  }, [selected.length]);
+
+  function remove(index: number) {
+    focusIndex.current = Math.min(index, selected.length - 2);
+    removePath(index);
+  }
+
+  function registerField(index: number, input: HTMLInputElement | null) {
+    if (input) fields.current.set(index, input);
+    else fields.current.delete(index);
+  }
+
+  const pathField = (
+    <PathField
+      ref={(input) => {
+        registerField(0, input);
+        if (primaryPathRef) primaryPathRef.current = input;
+      }}
+      autoFocus={isInitial}
+      label={text("ui.analysis.folder_path", "Windows folder path")}
+      description={pathDescription}
+      placeholder={"C:\\Folder"}
+      isDisabled={disabled}
+      onCompositionChange={onPathCompositionChange}
+      value={selected[0]?.display ?? ""}
+      onChange={(path) => choose(path ? windowsPath(path) : undefined)}
+    />
+  );
+  const drivePicker = (
+    <DrivePicker
+      key="drives"
+      isInitial={isInitial}
+      targets={targets}
+      selected={selected[0]}
+      disabled={disabled}
+      choose={choose}
+    />
+  );
+  const pathEditor = (
+    <section
+      key="path"
+      className="du-path-editor"
+      aria-label={text("ui.analysis.folder_paths", "Folder paths")}
+      aria-describedby={reviewDescriptionId}
+    >
+      <div className="du-primary-path">
+        {dropEnabled ? (
+          <FolderDropSurface isDisabled={disabled}>
+            {pathField}
+          </FolderDropSurface>
+        ) : (
+          pathField
+        )}
+        <Action isDisabled={disabled} onPress={addPath}>
+          {text("ui.analysis.add_path", "Add path")}
+        </Action>
+      </div>
+      {dropError && <Notice tone="error">{dropError}</Notice>}
+      {selected.length > 1 && (
+        <section
+          className="du-scope-paths"
+          aria-label={text("ui.analysis.additional_paths", "Additional paths")}
+        >
+          <Action isDisabled={disabled} onPress={() => remove(0)}>
+            {text("ui.analysis.remove_primary", "Remove primary path")}
+          </Action>
+          {selected.slice(1).map((path, index) => (
+            <div className="du-scope-path" key={index}>
+              <PathField
+                ref={(input) => registerField(index + 1, input)}
+                autoFocus
+                label={text(
+                  "ui.analysis.additional_path",
+                  "Additional folder path {number}",
+                  { number: BigInt(index + 2) },
+                )}
+                description={text(
+                  "ui.analysis.path_hint",
+                  "Enter a local folder or drive path.",
+                )}
+                placeholder={"D:\\Folder"}
+                isDisabled={disabled}
+                onCompositionChange={onPathCompositionChange}
+                value={path?.display ?? ""}
+                onChange={(value) =>
+                  choose(value ? windowsPath(value) : undefined, index + 1)
+                }
+              />
+              <Action isDisabled={disabled} onPress={() => remove(index + 1)}>
+                {text("ui.analysis.remove_path", "Remove path {number}", {
+                  number: BigInt(index + 2),
+                })}
+              </Action>
+            </div>
+          ))}
+        </section>
+      )}
+      {feedback}
+    </section>
+  );
+  return (
+    <div className="du-target-picker">
+      {isInitial ? [pathEditor, drivePicker] : [drivePicker, pathEditor]}
+    </div>
+  );
+}
+
+function targetListingNotice(
+  error: string | null | undefined,
+  text: ReturnType<typeof useLocaleText>,
+) {
+  if (error === "os.unsupported")
+    return text(
+      "ui.analysis.drives_unsupported",
+      "Automatic drive listing is unavailable. You can still enter a folder path.",
+    );
+  if (error === "os.call_slow")
+    return text(
+      "ui.analysis.drives_slow",
+      "Drive listing is taking longer than expected. Refresh later or enter a folder path.",
+    );
+  if (
+    typeof error === "string" &&
+    /^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+$/.test(error)
+  )
+    return text(
+      "ui.analysis.drives_unavailable",
+      "Drive listing is unavailable. You can still enter a folder path.",
+    );
+  return error ?? undefined;
+}
+
+function DrivePicker({
+  isInitial,
+  targets,
+  selected,
+  disabled,
+  choose,
+}: {
+  isInitial: boolean;
+  targets: ReturnType<typeof useTargets>;
+  selected: OsPath | undefined;
+  disabled: boolean;
+  choose: (path: OsPath | undefined) => void;
+}) {
+  const text = useLocaleText();
+  const regional = useRegionalFormat();
+  const {
+    targets: entries = [],
+    probeJobRef,
+    unavailableReason,
+  } = targets.list ?? {};
+  const error = targets.error ?? unavailableReason;
+  const checkingCapacity = Boolean(probeJobRef) && !targets.finished;
+  const notice = targetListingNotice(error, text);
+  const [showDriveDetails, setShowDriveDetails] = useState(false);
+  const driveGroupId = useId();
+  return (
+    <section
+      className="du-drive-picker"
+      aria-label={text("ui.analysis.available_drives", "Available drives")}
+    >
+      <div className="du-target-picker__header">
+        <Heading level={3}>{text("ui.analysis.drives", "Drives")}</Heading>
+        <div className="du-drive-picker__actions">
+          {isInitial && entries.length > 0 && (
+            <Action
+              variant="quiet"
+              aria-expanded={showDriveDetails}
+              aria-controls={driveGroupId}
+              onPress={() => setShowDriveDetails(!showDriveDetails)}
+            >
+              {showDriveDetails
+                ? text("ui.analysis.hide_drive_details", "Hide drive details")
+                : text("ui.analysis.drive_details", "Drive details")}
+            </Action>
+          )}
+          <Action
+            variant="quiet"
+            icon="refresh"
+            aria-label={text("ui.analysis.refresh_targets", "Refresh targets")}
+            isDisabled={disabled}
+            isPending={targets.loading}
+            onPress={() => void targets.refresh(true)}
+          />
+        </div>
+      </div>
+      {targets.loading && (
+        <div className="du-target-picker__loading">
+          <LiveStatus>
+            <Text>{text("ui.analysis.finding_drives", "Finding drives…")}</Text>
+          </LiveStatus>
+          <Progress
+            label={text("ui.analysis.loading_targets", "Loading targets")}
+          />
+        </div>
+      )}
+      {notice && (
+        <Notice
+          tone={
+            error === "os.unsupported" || error === "os.call_slow"
+              ? "info"
+              : "error"
+          }
+        >
+          {notice}
+        </Notice>
+      )}
+      <EmptyDriveNotice targets={targets} />
+      {entries.length > 0 && (
+        <>
+          <ChoiceGroup
+            id={driveGroupId}
+            label={text("ui.analysis.choose_target_label", "Choose a target")}
+            value={selected?.raw ?? null}
+            isDisabled={disabled}
+            onChange={(raw) =>
+              choose(entries.find(({ path }) => path.raw === raw)?.path)
+            }
+          >
+            {entries.map((target) => {
+              const probe = targets.probes[target.path.raw];
+              const access =
+                probe?.access ??
+                (targets.finished && target.access === "checking"
+                  ? "unknown"
+                  : target.access);
+              const capacity = describeTargetCapacity(
+                probe,
+                checkingCapacity,
+                text,
+                regional,
+              );
+              const kind = target.kind
+                ? ({
+                    internal: text("ui.analysis.target_internal", "internal"),
+                    external: text("ui.analysis.target_external", "external"),
+                    network_mount: text(
+                      "ui.analysis.target_network_mount",
+                      "network mount",
+                    ),
+                    folder_mount: text(
+                      "ui.analysis.target_folder_mount",
+                      "folder mount",
+                    ),
+                  }[target.kind] ?? target.kind.replaceAll("_", " "))
+                : text(
+                    "ui.analysis.target_type_unavailable",
+                    "Type unavailable",
+                  );
+              return (
+                <Choice
+                  key={target.path.raw}
+                  value={target.path.raw}
+                  label={target.path.display}
+                  icon="drive"
+                  description={`${kind} · ${capacity.evidence}`}
+                  summary={showDriveDetails ? undefined : capacity.summary}
+                  availablePercent={capacity.availablePercent}
+                  status={{
+                    text:
+                      {
+                        checking: text(
+                          "ui.analysis.target_access_checking",
+                          "checking",
+                        ),
+                        accessible: text(
+                          "ui.analysis.target_access_accessible",
+                          "accessible",
+                        ),
+                        denied: text(
+                          "ui.analysis.target_access_denied",
+                          "denied",
+                        ),
+                        disconnected: text(
+                          "ui.analysis.target_access_disconnected",
+                          "disconnected",
+                        ),
+                        missing: text(
+                          "ui.analysis.target_access_missing",
+                          "missing",
+                        ),
+                        unresponsive: text(
+                          "ui.analysis.target_access_unresponsive",
+                          "unresponsive",
+                        ),
+                        unknown: text(
+                          "ui.analysis.target_access_unknown",
+                          "unknown",
+                        ),
+                      }[access] ?? access,
+                    tone: access === "accessible" ? "good" : "neutral",
+                  }}
+                />
+              );
+            })}
+          </ChoiceGroup>
+          {!isInitial && (
+            <div className="du-drive-picker__details">
+              <Action
+                variant="quiet"
+                aria-expanded={showDriveDetails}
+                aria-controls={driveGroupId}
+                onPress={() => setShowDriveDetails(!showDriveDetails)}
+              >
+                {showDriveDetails
+                  ? text("ui.analysis.hide_drive_details", "Hide drive details")
+                  : text("ui.analysis.drive_details", "Drive details")}
+              </Action>
+            </div>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+function EmptyDriveNotice({
+  targets,
+}: {
+  targets: ReturnType<typeof useTargets>;
+}) {
+  const text = useLocaleText();
+  if (
+    targets.loading ||
+    !targets.list ||
+    targets.error ||
+    targets.list.unavailableReason ||
+    targets.list.targets.length > 0
+  )
+    return null;
+  return (
+    <Notice tone="info">
+      {text(
+        "ui.analysis.drives_empty",
+        "No drives were found. You can still enter a folder path.",
+      )}
+    </Notice>
+  );
+}

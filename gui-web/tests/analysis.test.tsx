@@ -1,0 +1,4689 @@
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
+import axe from "axe-core";
+import { afterEach, expect, test, vi } from "vitest";
+import { App } from "../src/app/App";
+import type {
+  BrowseVisualizationProvider,
+  BrowseVisualizationSelection,
+} from "../src/app/browse-visualization";
+import { createChartRenderers } from "../src/components";
+import { AnalysisError, createAnalysisClient, windowsPath } from "../src/ipc";
+import { LocaleTextContext } from "../src/i18n/presentation";
+import type { LocaleText } from "../src/i18n/presentation";
+import { fixtureText, modelFixture } from "../preview/model-fixture";
+import type { VisualizationViewRequest } from "../src/features/visualization/VisualizationSession";
+import type {
+  AnalysisClient,
+  AnalysisJobControl,
+  AnalysisJobListRow,
+  AnalysisJobStatus,
+  BrowseDetail,
+  BrowseOpenRequest,
+  BrowseOpenResponse,
+  CallEnvelope,
+  DisplayPreferences,
+  EventEnvelope,
+  HistoryListResponse,
+  ScanFailures,
+  ScanFailuresRequest,
+  ScopeReview,
+  SpaceDetail,
+  SpaceTotal,
+  TargetList,
+  TargetProbeEvent,
+  VolumeGapRequest,
+  VolumeGapResponse,
+  VizCatalog,
+} from "../src/ipc";
+
+afterEach(cleanup);
+afterEach(() => {
+  resizeObservers.length = 0;
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
+
+const resizeObservers: {
+  callback: ResizeObserverCallback;
+  target?: Element;
+  disconnected: boolean;
+}[] = [];
+
+class ResizeObserverFixture {
+  private readonly record: (typeof resizeObservers)[number];
+
+  constructor(callback: ResizeObserverCallback) {
+    this.record = { callback, disconnected: false };
+    resizeObservers.push(this.record);
+  }
+
+  observe(target: Element) {
+    this.record.target = target;
+  }
+
+  unobserve() {}
+
+  disconnect() {
+    this.record.disconnected = true;
+  }
+
+  emit(width: number, height: number) {
+    const target = this.record.target;
+    if (!target) return;
+    this.record.callback(
+      [
+        {
+          target,
+          contentRect: { width, height },
+        } as ResizeObserverEntry,
+      ],
+      this as unknown as ResizeObserver,
+    );
+  }
+}
+
+const path = windowsPath("C:\\fixture");
+const timestamp = "2026-11-10T00:00:00.000Z";
+const targets: TargetList = {
+  targets: [
+    {
+      kind: "internal",
+      path,
+      connected: true,
+      volumeId: "volume",
+      identitySource: "confirmed",
+      access: "checking",
+      reasonKey: null,
+    },
+  ],
+  probeJobRef: "probe",
+  observedAt: timestamp,
+  unavailableReason: null,
+};
+
+function fixture({
+  stale = false,
+  earlyProbe,
+  missingJob = false,
+  targetList = targets,
+  readTotals = (result) => result,
+  readReview = (result) => result,
+  beforeStart,
+  startJob = () => "scan",
+  readStatus = (result) => result,
+  cancelJob,
+  suspendJob,
+  readFailures,
+  readVolume,
+  readPreferences,
+  lineageId,
+  listJobs,
+  readHistory,
+  readBrowse,
+}: {
+  stale?: boolean;
+  earlyProbe?: EventEnvelope;
+  missingJob?: boolean;
+  targetList?: TargetList | Promise<TargetList>;
+  readTotals?: (result: SpaceTotal) => SpaceTotal | Promise<SpaceTotal>;
+  readReview?: (result: ScopeReview) => ScopeReview | Promise<ScopeReview>;
+  beforeStart?: () => Promise<void>;
+  startJob?: () => string;
+  readStatus?: (
+    result: AnalysisJobStatus,
+  ) => AnalysisJobStatus | Promise<AnalysisJobStatus>;
+  cancelJob?: (
+    jobRef: string,
+  ) => AnalysisJobControl | Promise<AnalysisJobControl>;
+  suspendJob?: (
+    command: "job.pause" | "job.resume",
+    jobRef: string,
+  ) => AnalysisJobControl | Promise<AnalysisJobControl>;
+  readFailures?: (
+    request: ScanFailuresRequest,
+  ) => ScanFailures | Promise<ScanFailures>;
+  readVolume?: (
+    request: VolumeGapRequest,
+  ) => VolumeGapResponse | Promise<VolumeGapResponse>;
+  readPreferences?: () => DisplayPreferences | Promise<DisplayPreferences>;
+  lineageId?: string;
+  listJobs?: () => Promise<AnalysisJobListRow[]>;
+  readHistory?: () => HistoryListResponse | Promise<HistoryListResponse>;
+  readBrowse?: (request: BrowseOpenRequest) => BrowseOpenResponse;
+} = {}) {
+  const listeners = new Set<(event: EventEnvelope) => void>();
+  const calls: { name: string; body: unknown }[] = [];
+  const client: AnalysisClient = {
+    call: (async (name: string, body: unknown) => {
+      calls.push({ name, body });
+      switch (name) {
+        case "space.display_preferences":
+          return (
+            readPreferences?.() ?? {
+              settingsRevision: "0",
+              unitSystem: "iec",
+              unit: "auto",
+              defaultBasis: "logical",
+              warningKey: null,
+            }
+          );
+        case "target.list":
+          if (earlyProbe)
+            for (const listener of listeners) listener(earlyProbe);
+          return targetList;
+        case "scope.review": {
+          const request = body as {
+            draft: ScopeReview["scope"];
+            requestSeq: number;
+          };
+          return readReview({
+            scope: request.draft,
+            notices: [],
+            targets: request.draft.includes.map((path) => ({
+              path,
+              access: "accessible",
+              reasonKey: null,
+            })),
+            reviewFingerprint: "verified",
+            observedAt: timestamp,
+            requestSeq: request.requestSeq,
+          });
+        }
+        case "scan.start":
+          if (beforeStart) await beforeStart();
+          if (stale) throw new AnalysisError("STALE_VERSION", "scope.changed");
+          return {
+            jobRef: startJob(),
+            existing: false,
+            scopeVersion: "scope",
+            scopeFingerprint: "verified",
+            lineageId,
+          };
+        case "job.get":
+          if (missingJob) throw new AnalysisError("NOT_FOUND", "job.not_found");
+          return readStatus({
+            jobRef: (body as { jobRef: string }).jobRef,
+            kind: "scan.metadata",
+            state: "partial",
+            sequence: 3,
+            resultVersion: "result",
+            reasonKey: null,
+          });
+        case "job.list":
+          return listJobs?.() ?? [];
+        case "history.list":
+          if (readHistory) return readHistory();
+          throw new Error("History unavailable");
+        case "job.pause":
+        case "job.resume":
+          if (suspendJob)
+            return suspendJob(name, (body as { jobRef: string }).jobRef);
+          throw new Error("Scan suspension unavailable");
+        case "job.cancel":
+          if (cancelJob) return cancelJob((body as { jobRef: string }).jobRef);
+          throw new Error("Cancellation unavailable");
+        case "space.total": {
+          const request = body as { requestSeq: number; resultVersion: string };
+          const result: SpaceTotal = {
+            resultVersion: request.resultVersion,
+            requestSeq: request.requestSeq,
+            completeness: "missing",
+            sizes: [
+              {
+                size: {
+                  basis: "logical",
+                  evidence: "os_reported",
+                  state: "lower_bound",
+                  bytes: "42",
+                },
+                completeness: "missing",
+                measurementLimits: [],
+              },
+              {
+                size: {
+                  basis: "allocated",
+                  evidence: "unknown",
+                  state: "unknown",
+                },
+                completeness: "missing",
+                measurementLimits: ["space.data_insufficient"],
+              },
+            ],
+            missingItems: "1",
+            inaccessibleRanges: null,
+            untraversedLinks: "2",
+          };
+          return readTotals(result);
+        }
+        case "scan.failures":
+          if (readFailures) return readFailures(body as ScanFailuresRequest);
+          throw new Error("Scan issues unavailable");
+        case "space.volume_gap":
+          if (readVolume) return readVolume(body as VolumeGapRequest);
+          throw new Error("Volume explanation unavailable");
+        case "query.region.open":
+          return { regionRef: "browse-region" };
+        case "query.region.close":
+          return {};
+        case "query.cancel":
+          return { outcome: "no_effect" };
+        case "browse.open": {
+          const request = body as BrowseOpenRequest;
+          if (readBrowse) return readBrowse(request);
+          const version = request.resultVersion ?? "result";
+          return {
+            kind: "opened",
+            requestSeq: request.requestSeq,
+            origin: "scan",
+            location: { resultVersion: version, itemNo: 0 },
+            breadcrumbs: [],
+            rootKind: "scope_root",
+            currentCorrespondence: false,
+            page: {
+              rowKind: "folder",
+              queryRef: "folder-query",
+              resultVersion: version,
+              rows: [],
+              total: { state: "exact", count: 0 },
+              unknownCount: 0,
+              observedAt: timestamp,
+              completeness: "missing",
+              nextCursor: null,
+            },
+            sortStrategies: [],
+            predicateStrategies: [],
+          } satisfies BrowseOpenResponse;
+        }
+        case "browse.detail": {
+          const unavailable = {
+            state: "unknown",
+            reasonKey: "ref.unavailable",
+          } as const;
+          const result: BrowseDetail = {
+            item: { resultVersion: "result", itemNo: 0 },
+            displayPath: { state: "present", value: path.display },
+            displayName: { state: "present", value: "fixture" },
+            kind: { state: "present", value: "directory" },
+            logicalSize: {
+              state: "present",
+              value: {
+                basis: "logical",
+                evidence: "os_reported",
+                state: "exact",
+                bytes: "0",
+              },
+            },
+            allocatedSize: unavailable,
+            createdAt: { state: "absent" },
+            modifiedAt: unavailable,
+            observedAt: { state: "present", value: timestamp },
+            origin: "scan",
+            completeness: "missing",
+            currentCorrespondence: false,
+            observationOnly: true,
+          };
+          return result;
+        }
+        case "space.detail": {
+          const request = body as { item: SpaceDetail["item"] };
+          const unknown = {
+            state: "unknown",
+            reasonKey: "space.data_insufficient",
+          } as const;
+          return {
+            item: request.item,
+            logical: {
+              state: "present",
+              value: {
+                size: {
+                  basis: "logical",
+                  evidence: "os_reported",
+                  state: "lower_bound",
+                  bytes: "42",
+                },
+                measurementLimits: [],
+              },
+            },
+            allocated: unknown,
+            uniquePhysical: {
+              state: "present",
+              value: {
+                size: {
+                  basis: "unique_physical",
+                  evidence: "estimated",
+                  state: "lower_bound",
+                  bytes: "1100",
+                },
+                measurementLimits: [
+                  "space.dedup_capacity",
+                  "space.identity_unsupported",
+                  "space.future_limit",
+                ],
+              },
+            },
+            exclusive: unknown,
+            shared: unknown,
+            linkGroup: { state: "absent" },
+            auxiliary: {
+              state: "unknown",
+              reasonKey: "space.aux_not_included",
+            },
+            exclusiveDecision: {
+              confirmed: false,
+              reasonKey: "space.sharing_not_collected",
+            },
+            observedAt: unknown,
+            capabilities: unknown,
+          } satisfies SpaceDetail;
+        }
+        default:
+          throw new Error(`Unexpected command ${name}`);
+      }
+    }) as AnalysisClient["call"],
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  };
+  return { client, calls, listeners };
+}
+
+function transportClient(
+  base: AnalysisClient,
+  handle: (envelope: CallEnvelope) => Promise<unknown> | unknown,
+): AnalysisClient {
+  const client = createAnalysisClient(async (_command, { envelope }) => ({
+    name: envelope.name,
+    contractVersion: envelope.contractVersion,
+    correlationId: envelope.correlationId,
+    body: await handle(envelope),
+  }));
+  client.subscribe = base.subscribe;
+  return client;
+}
+
+function probe(
+  jobRef: string,
+  sequence: number,
+  access: TargetProbeEvent["access"],
+  observation: Partial<TargetProbeEvent> = {},
+): EventEnvelope {
+  const body: TargetProbeEvent = {
+    sequence,
+    access,
+    target: path,
+    reasonKey: null,
+    totalBytes: null,
+    availableBytes: null,
+    capacityReason: null,
+    aggregationUncertain: true,
+    observedAt: timestamp,
+    ...observation,
+  };
+  return {
+    topic: "target.status_changed",
+    contractVersion: 1,
+    seq: sequence,
+    jobRef,
+    occurredAt: timestamp,
+    body,
+  };
+}
+
+test("F01: an early probe is applied and older or unrelated probes are ignored", async () => {
+  const { client, listeners } = fixture({
+    earlyProbe: probe("probe", 3, "accessible"),
+  });
+  render(<App analysis={client} />);
+  await screen.findByText("accessible");
+  act(() => {
+    for (const listener of listeners) {
+      listener(probe("prior-job", 4, "missing"));
+      listener(probe("probe", 2, "denied"));
+    }
+  });
+  expect(screen.getByText("accessible")).toBeDefined();
+  expect(screen.queryByText("missing")).toBeNull();
+  expect(screen.queryByText("denied")).toBeNull();
+});
+
+test("F01 capacity: current observations preserve zero, time, and selection", async () => {
+  const checkedAt = "2026-11-10T01:02:03.000Z";
+  const { client, listeners } = fixture({
+    earlyProbe: probe("probe", 3, "accessible", {
+      totalBytes: "2048",
+      availableBytes: "0",
+      observedAt: checkedAt,
+    }),
+  });
+  render(<App analysis={client} />);
+  const choice = await screen.findByRole<HTMLInputElement>("radio", {
+    name: path.display,
+    description: /Total: 2,048 bytes · Available: 0 bytes/,
+  });
+  choice.focus();
+  fireEvent.click(choice);
+  const description = screen.getByText(
+    /Total: 2,048 bytes · Available: 0 bytes/,
+  );
+  const current = description.textContent;
+  expect(current).toContain("Combined capacity unverified");
+  expect(current).toContain("Paths may share a volume.");
+  expect(current).toContain(`Checked: ${checkedAt}`);
+  expect(current).not.toContain(timestamp);
+
+  act(() => {
+    for (const listener of listeners) {
+      listener(
+        probe("probe", 2, "accessible", {
+          totalBytes: "10",
+          availableBytes: "5",
+          aggregationUncertain: false,
+        }),
+      );
+      listener(
+        probe("prior-job", 4, "accessible", {
+          capacityReason: "os.unsupported",
+          aggregationUncertain: false,
+        }),
+      );
+    }
+  });
+  expect(description.textContent).toBe(current);
+  expect(choice.checked).toBe(true);
+  expect(document.activeElement).toBe(choice);
+  expect(screen.getByText("accessible")).toBeDefined();
+});
+
+// Individual null fields are possible on the wire even though the current
+// producer emits both values together or neither.
+test.each([
+  ["0", null, /Total: 0 bytes · Available: Could not verify/],
+  [null, "0", /Total: Could not verify · Available: 0 bytes/],
+] as const)(
+  "F01 capacity: preserves a single reported value (%s, %s)",
+  async (totalBytes, availableBytes, description) => {
+    const { client } = fixture({
+      earlyProbe: probe("probe", 1, "accessible", {
+        totalBytes,
+        availableBytes,
+        aggregationUncertain: false,
+      }),
+    });
+    render(<App analysis={client} />);
+    await screen.findByRole("radio", { name: path.display, description });
+    expect(
+      screen.getByText(
+        /No explanation is available for the unverified capacity/,
+      ),
+    ).toBeDefined();
+    expect(screen.queryByText(/Combined capacity unverified/)).toBeNull();
+  },
+);
+
+test.each([
+  ["os.unsupported", "Capacity reporting is unavailable for this target."],
+  ["os.query_failed", "The capacity check failed."],
+  ["os.call_slow", "The capacity check did not finish in time."],
+  ["scan.path_denied", "Access to this target was denied."],
+  ["scan.path_vanished", "The path was no longer available."],
+  ["scan.disconnected", "The target was disconnected."],
+  ["path.unresolvable", "The path could not be resolved."],
+  ["job.cancelled", "The capacity check was cancelled."],
+  [
+    "unknown.capacity",
+    "No explanation is available for the unverified capacity.",
+  ],
+  [null, "No explanation is available for the unverified capacity."],
+] as const)(
+  "F01 capacity: explains unavailable observations for %s",
+  async (capacityReason, explanation) => {
+    const { client } = fixture({
+      earlyProbe: probe("probe", 1, "accessible", {
+        reasonKey: "access.internal_reason",
+        capacityReason,
+        aggregationUncertain: false,
+      }),
+    });
+    render(<App analysis={client} />);
+    const description = await screen.findByText(
+      /Total: Could not verify · Available: Could not verify/,
+    );
+    expect(description.textContent).toContain(explanation);
+    if (capacityReason)
+      expect(description.textContent).not.toContain(capacityReason);
+    expect(description.textContent).not.toContain("access.internal_reason");
+    expect(screen.getByText("accessible")).toBeDefined();
+  },
+);
+
+test.each(["probe", null])(
+  "F01 capacity: distinguishes checking from no observation for job %s",
+  async (probeJobRef) => {
+    const { client, listeners } = fixture({
+      targetList: { ...targets, probeJobRef },
+    });
+    render(<App analysis={client} />);
+    await screen.findByRole("radio", { name: path.display });
+    if (probeJobRef) {
+      expect(screen.getByText(/Checking capacity…/)).toBeDefined();
+      act(() => {
+        for (const listener of listeners) {
+          listener({
+            topic: "job.finished",
+            contractVersion: 1,
+            seq: 5,
+            jobRef: probeJobRef,
+            occurredAt: timestamp,
+            body: { state: "failed", sequence: 5 },
+          });
+        }
+      });
+    }
+    const description = screen.getByText(
+      /Total: Could not verify · Available: Could not verify/,
+    );
+    expect(description.textContent).toContain(
+      "No capacity check was reported.",
+    );
+    expect(description.textContent).not.toContain("Checked:");
+    expect(screen.queryByText(/Checking capacity…/)).toBeNull();
+  },
+);
+
+test("F01: a target with an unavailable type can be selected and reviewed", async () => {
+  const { client, calls } = fixture({
+    targetList: {
+      ...targets,
+      targets: targets.targets.map((target) => ({ ...target, kind: null })),
+    },
+    earlyProbe: probe("probe", 1, "accessible"),
+  });
+  render(<App analysis={client} />);
+  const choice = await screen.findByRole("radio", { name: path.display });
+  expect(screen.getByText(/^Type unavailable/)).toBeDefined();
+  expect(screen.getByText("accessible")).toBeDefined();
+  fireEvent.click(choice);
+  fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
+  await waitFor(() =>
+    expect(
+      calls.find(({ name }) => name === "scope.review")?.body,
+    ).toMatchObject({
+      draft: { includes: [path] },
+    }),
+  );
+});
+
+test("F01: slow drive listing leaves direct folder review available", async () => {
+  const { client, calls } = fixture({
+    targetList: {
+      targets: [],
+      probeJobRef: null,
+      observedAt: timestamp,
+      unavailableReason: "os.call_slow",
+    },
+  });
+  render(<App analysis={client} />);
+  await screen.findByText(/Drive listing is taking longer/);
+  expect(screen.queryByText(/No drives were found/)).toBeNull();
+  fireEvent.change(
+    screen.getByRole("textbox", { name: "Windows folder path" }),
+    {
+      target: { value: path.display },
+    },
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
+  await waitFor(() =>
+    expect(
+      calls.find(({ name }) => name === "scope.review")?.body,
+    ).toMatchObject({
+      draft: { includes: [path] },
+    }),
+  );
+});
+
+test("F01: a probe that finishes before publishing an observation leaves the target unknown", async () => {
+  const { client, listeners } = fixture({
+    earlyProbe: {
+      topic: "job.finished",
+      contractVersion: 1,
+      seq: 5,
+      jobRef: "probe",
+      occurredAt: timestamp,
+      body: { state: "failed", sequence: 5 },
+    },
+  });
+  render(<App analysis={client} />);
+  await screen.findByText("unknown");
+  act(() => {
+    for (const listener of listeners) listener(probe("probe", 6, "accessible"));
+  });
+  expect(screen.getByText("unknown")).toBeDefined();
+  expect(screen.queryByText("accessible")).toBeNull();
+});
+
+test("F01 FR4.HD1.gui-web.DD1: a review response must match its draft sequence before scan start", async () => {
+  let reviewCount = 0;
+  const { client, calls } = fixture({
+    readReview: (review) => {
+      reviewCount += 1;
+      return reviewCount === 1
+        ? {
+            ...review,
+            requestSeq: review.requestSeq + 1,
+            reviewFingerprint: "rejected",
+          }
+        : { ...review, reviewFingerprint: "accepted" };
+    },
+  });
+  render(<App analysis={client} />);
+  fireEvent.click(await screen.findByRole("radio", { name: path.display }));
+  const reviewButton = screen.getByRole("button", { name: "Review scope" });
+  const start = screen.getByRole<HTMLButtonElement>("button", {
+    name: "Start scan",
+  });
+
+  fireEvent.click(reviewButton);
+  await waitFor(() => expect(reviewCount).toBe(1));
+  expect(start.disabled).toBe(true);
+  expect(calls.some(({ name }) => name === "scan.start")).toBe(false);
+
+  fireEvent.click(reviewButton);
+  await waitFor(() => expect(start.disabled).toBe(false));
+  const reviewRequest = calls
+    .filter(({ name }) => name === "scope.review")
+    .at(-1)?.body as { draft: unknown; requestSeq: number };
+  fireEvent.click(start);
+  await screen.findByText("At least 42 bytes");
+
+  expect(calls.find(({ name }) => name === "scan.start")?.body).toEqual({
+    draft: reviewRequest.draft,
+    reviewFingerprint: "accepted",
+  });
+  expect(reviewRequest).toMatchObject({
+    draft: { exclusions: [] },
+    requestSeq: 3,
+  });
+});
+
+test("F01 FR4.HD1.gui-web.DD1: a failed repeat review preserves the admitted draft and fingerprint", async () => {
+  let rejectReview: ((reason: Error) => void) | undefined;
+  const { client, calls } = fixture({
+    readReview: (review) =>
+      calls.filter(({ name }) => name === "scope.review").length === 1
+        ? { ...review, reviewFingerprint: "first-review" }
+        : new Promise<ScopeReview>((_, reject) => {
+            rejectReview = reject;
+          }),
+  });
+  render(<App analysis={client} />);
+  fireEvent.click(await screen.findByRole("radio", { name: path.display }));
+  const reviewButton = screen.getByRole("button", { name: "Review scope" });
+  const start = screen.getByRole<HTMLButtonElement>("button", {
+    name: "Start scan",
+  });
+  fireEvent.click(reviewButton);
+  await waitFor(() => expect(start.disabled).toBe(false));
+  fireEvent.click(reviewButton);
+  expect(start.disabled).toBe(true);
+  const fail = rejectReview;
+  if (!fail) throw new Error("Repeat review was not started");
+  await act(async () => fail(new Error("Scope review unavailable")));
+  await screen.findByText(/last successful review remains available/);
+  expect(screen.getByLabelText("Reviewed scope")).toBeDefined();
+  expect(start.disabled).toBe(false);
+  fireEvent.click(start);
+  await screen.findByText("At least 42 bytes");
+  const firstReview = calls.find(({ name }) => name === "scope.review")
+    ?.body as { draft: unknown };
+  expect(calls.find(({ name }) => name === "scan.start")?.body).toEqual({
+    draft: firstReview.draft,
+    reviewFingerprint: "first-review",
+  });
+});
+
+test("F01 FR4.HD1.gui-web.DD1: settled path edits auto-review without moving focus or scrolling", async () => {
+  const { client, calls } = fixture();
+  const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+  const scrollIntoView = vi.fn();
+  Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+    configurable: true,
+    value: scrollIntoView,
+  });
+  try {
+    render(<App analysis={client} />);
+    const input = await screen.findByRole<HTMLInputElement>("textbox", {
+      name: "Windows folder path",
+    });
+    input.focus();
+    fireEvent.compositionStart(input);
+    fireEvent.change(input, { target: { value: "C:\\漢字" } });
+    await new Promise((resolve) => window.setTimeout(resolve, 400));
+    expect(calls.filter(({ name }) => name === "scope.review")).toHaveLength(0);
+    fireEvent.compositionEnd(input);
+    await waitFor(() =>
+      expect(calls.filter(({ name }) => name === "scope.review")).toHaveLength(
+        1,
+      ),
+    );
+    expect(document.activeElement).toBe(input);
+    expect(scrollIntoView).not.toHaveBeenCalled();
+    expect(
+      calls.find(({ name }) => name === "scope.review")?.body,
+    ).toMatchObject({
+      draft: { includes: [windowsPath("C:\\漢字")] },
+    });
+    const start = screen.getByRole<HTMLButtonElement>("button", {
+      name: "Start scan",
+    });
+    await waitFor(() => expect(start.disabled).toBe(false));
+
+    fireEvent.compositionStart(input);
+    expect(start.disabled).toBe(true);
+    expect(
+      screen.getByRole<HTMLButtonElement>("button", { name: "Review scope" })
+        .disabled,
+    ).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel selection" }));
+    expect(input.value).toBe("");
+    fireEvent.change(input, { target: { value: path.display } });
+    await waitFor(() => expect(start.disabled).toBe(false));
+    expect(calls.filter(({ name }) => name === "scope.review")).toHaveLength(2);
+    expect(calls.some(({ name }) => name === "scan.start")).toBe(false);
+  } finally {
+    if (originalScrollIntoView) {
+      Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+        configurable: true,
+        value: originalScrollIntoView,
+      });
+    } else {
+      delete (HTMLElement.prototype as Partial<HTMLElement>).scrollIntoView;
+    }
+  }
+});
+
+test.each(["manual review", "path edit"])(
+  "F01 FR4.HD1.gui-web.DD1: automatic review failure waits for %s",
+  async (retry) => {
+    let reviewCount = 0;
+    const { client, calls } = fixture({
+      readReview: (review) => {
+        reviewCount += 1;
+        if (reviewCount === 1) throw new Error("Review unavailable");
+        return review;
+      },
+    });
+    render(<App analysis={client} />);
+    const input = await screen.findByRole("textbox", {
+      name: "Windows folder path",
+    });
+    fireEvent.change(input, { target: { value: path.display } });
+    await screen.findByText("Review unavailable");
+    await new Promise((resolve) => window.setTimeout(resolve, 400));
+    expect(calls.filter(({ name }) => name === "scope.review")).toHaveLength(1);
+
+    if (retry === "manual review") {
+      fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
+    } else {
+      fireEvent.change(input, { target: { value: "D:\\other" } });
+      fireEvent.change(input, { target: { value: path.display } });
+    }
+    await waitFor(() => expect(reviewCount).toBe(2));
+    await waitFor(() =>
+      expect(
+        screen.getByRole<HTMLButtonElement>("button", { name: "Start scan" })
+          .disabled,
+      ).toBe(false),
+    );
+    expect(calls.filter(({ name }) => name === "scope.review")).toHaveLength(2);
+  },
+);
+
+test("F01 FR4.HD1.gui-web.DD1: repeated review submission does not send a duplicate request", async () => {
+  let resolveReview: ((value: ScopeReview) => void) | undefined;
+  let capturedReview: ScopeReview | undefined;
+  const { client, calls } = fixture({
+    readReview: (review) =>
+      new Promise<ScopeReview>((resolve) => {
+        capturedReview = review;
+        resolveReview = (value) => resolve(value);
+      }),
+  });
+  render(<App analysis={client} />);
+  fireEvent.click(await screen.findByRole("radio", { name: path.display }));
+  const review = screen.getByRole("button", { name: "Review scope" });
+  fireEvent.click(review);
+  fireEvent.click(review);
+  expect(calls.filter(({ name }) => name === "scope.review")).toHaveLength(1);
+  if (!resolveReview) throw new Error("Review request was not started");
+  if (!capturedReview) throw new Error("Review response was not captured");
+  await act(async () => resolveReview?.(capturedReview as ScopeReview));
+  await new Promise((resolve) => window.setTimeout(resolve, 400));
+  expect(calls.filter(({ name }) => name === "scope.review")).toHaveLength(1);
+});
+
+test("F01 FR4.HD1.gui-web.DD1: denied current edits retain but cannot start a prior reviewed scope", async () => {
+  let reviewCount = 0;
+  const { client, calls } = fixture({
+    readReview: (review) => {
+      reviewCount += 1;
+      if (reviewCount === 1)
+        return { ...review, reviewFingerprint: "accepted-A" };
+      if (reviewCount === 3)
+        return { ...review, reviewFingerprint: "accepted-A-retry" };
+      if (reviewCount === 5)
+        return { ...review, reviewFingerprint: "accepted-A-restored" };
+      return {
+        ...review,
+        targets: review.targets.map((target) => ({
+          ...target,
+          access: "denied",
+          reasonKey: "scan.path_denied",
+        })),
+      };
+    },
+  });
+  render(<App analysis={client} />);
+  fireEvent.click(await screen.findByRole("radio", { name: path.display }));
+  fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
+  await waitFor(() => expect(reviewCount).toBe(1));
+  const firstReview = calls.find(({ name }) => name === "scope.review")
+    ?.body as { draft: unknown };
+  await waitFor(() =>
+    expect(
+      screen.getByRole<HTMLButtonElement>("button", { name: "Start scan" })
+        .disabled,
+    ).toBe(false),
+  );
+
+  fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
+  await waitFor(() => expect(reviewCount).toBe(2));
+  expect(
+    screen.getByRole<HTMLButtonElement>("button", { name: "Start scan" })
+      .disabled,
+  ).toBe(true);
+  expect(
+    await screen.findByText(/Access to a selected folder was denied/),
+  ).toBeDefined();
+  expect(screen.getByLabelText("Previously reviewed scope")).toBeDefined();
+  expect(
+    screen.getByText(
+      "Previously reviewed scope. Review the current paths before starting.",
+    ),
+  ).toBeDefined();
+
+  fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
+  await waitFor(() => expect(reviewCount).toBe(3));
+  await waitFor(() =>
+    expect(
+      screen.getByRole<HTMLButtonElement>("button", { name: "Start scan" })
+        .disabled,
+    ).toBe(false),
+  );
+
+  const input = screen.getByRole<HTMLInputElement>("textbox", {
+    name: "Windows folder path",
+  });
+  fireEvent.change(input, { target: { value: "D:\\Denied" } });
+  expect(
+    screen.getByRole<HTMLButtonElement>("button", { name: "Start scan" })
+      .disabled,
+  ).toBe(true);
+  await waitFor(() => expect(reviewCount).toBe(4), { timeout: 2000 });
+  expect(
+    await screen.findByText(/Access to a selected folder was denied/),
+  ).toBeDefined();
+  expect(screen.getByLabelText("Previously reviewed scope")).toBeDefined();
+  expect(
+    screen.getByText(
+      "Previously reviewed scope. Review the current paths before starting.",
+    ),
+  ).toBeDefined();
+  expect(
+    screen.getByRole<HTMLButtonElement>("button", { name: "Start scan" })
+      .disabled,
+  ).toBe(true);
+  expect(calls.some(({ name }) => name === "scan.start")).toBe(false);
+
+  fireEvent.change(input, { target: { value: path.display } });
+  expect(
+    screen.getByRole<HTMLButtonElement>("button", { name: "Start scan" })
+      .disabled,
+  ).toBe(true);
+  await waitFor(() => expect(reviewCount).toBe(5), { timeout: 2000 });
+  await waitFor(() =>
+    expect(
+      screen.getByRole<HTMLButtonElement>("button", { name: "Start scan" })
+        .disabled,
+    ).toBe(false),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Start scan" }));
+  await screen.findByText("At least 42 bytes");
+  expect(calls.find(({ name }) => name === "scan.start")?.body).toEqual({
+    draft: firstReview.draft,
+    reviewFingerprint: "accepted-A-restored",
+  });
+});
+
+test("F01–F03: reviewed scope starts a scan and reads its pinned partial result", async () => {
+  const { client, calls } = fixture();
+  render(<App analysis={client} />);
+  fireEvent.click(await screen.findByRole("radio", { name: path.display }));
+  const start = screen.getByRole("button", {
+    name: "Start scan",
+  }) as HTMLButtonElement;
+  expect(start.disabled).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
+  await waitFor(() => expect(start.disabled).toBe(false));
+  fireEvent.click(start);
+  expect(await screen.findByText("At least 42 bytes")).toBeDefined();
+  expect(
+    screen.getByText("Result version: Final with scan gaps"),
+  ).toBeDefined();
+  const logical = within(screen.getByRole("group", { name: "Logical size" }));
+  expect(
+    logical.getByText("Incomplete measurement · Reported by the file system"),
+  ).toBeDefined();
+  expect(screen.queryByRole("group", { name: "Allocated size" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Measurement details" }));
+  expect(
+    within(screen.getByLabelText("Measurement details")).getByText(
+      "Unavailable",
+    ),
+  ).toBeDefined();
+  const coverage = within(screen.getByLabelText("Coverage limits"));
+  expect(
+    coverage.getByText("Missing items").nextElementSibling?.textContent,
+  ).toBe("1");
+  expect(
+    coverage.getByText("Untraversed links").nextElementSibling?.textContent,
+  ).toBe("2");
+  expect(
+    coverage.getByText("Inaccessible ranges").nextElementSibling?.textContent,
+  ).toBe("Not recorded");
+  expect(calls.find((call) => call.name === "scan.start")?.body).toMatchObject({
+    reviewFingerprint: "verified",
+  });
+  expect(calls.find((call) => call.name === "space.total")?.body).toMatchObject(
+    { resultVersion: "result", target: { kind: "scope_root" } },
+  );
+  const folderDetails = screen.getByRole("button", {
+    name: "View folder details",
+  });
+  folderDetails.focus();
+  fireEvent.click(folderDetails);
+  const detail = within(
+    await screen.findByLabelText("Observed folder attributes"),
+  );
+  expect(detail.getAllByText("0 bytes")).toHaveLength(1);
+  expect(detail.getByText("Exact")).toBeDefined();
+  const emphasized = [
+    ...screen
+      .getByLabelText("Observed folder attributes")
+      .querySelectorAll(".du-readout__emphasized dt"),
+  ].map((element) => element.textContent);
+  expect(emphasized).toEqual(["Logical size", "Allocated size"]);
+  const labels = [
+    ...detail.getAllByText(/^(Folder name|Logical size|Allocated size|Path)$/),
+  ].map((element) => element.textContent);
+  expect(labels).toEqual([
+    "Folder name",
+    "Logical size",
+    "Allocated size",
+    "Path",
+  ]);
+  expect(detail.getByText("Unavailable in this scan")).toBeDefined();
+  fireEvent.click(
+    screen.getByRole("button", { name: "More observed attributes" }),
+  );
+  const moreAttributes = within(
+    screen.getByLabelText("More observed attributes"),
+  );
+  expect(moreAttributes.getByText("Not recorded")).toBeDefined();
+  expect(moreAttributes.getByText("Unavailable in this scan")).toBeDefined();
+  expect(calls.find((call) => call.name === "browse.detail")?.body).toEqual({
+    resultVersion: "result",
+    item: { resultVersion: "result", itemNo: 0 },
+  });
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Space measurement details" }),
+  );
+  const space = within(await screen.findByLabelText("Observed item space"));
+  expect(
+    space.getByText("At least 42 bytes · Reported by the file system"),
+  ).toBeDefined();
+  expect(
+    space.getByText("Unique physical space").nextElementSibling?.textContent,
+  ).toBe(
+    "At least 1.0 KiB · At least 1,100 bytes · Estimated · The file identity limit was reached · File identity could not be verified · A measurement limitation was reported",
+  );
+  expect(space.getByText("Sharing evidence was not collected")).toBeDefined();
+  expect(space.getByText("Auxiliary data was not collected")).toBeDefined();
+  expect(
+    space.getByText("Item observed at").nextElementSibling?.textContent,
+  ).toBe("Unavailable in this scan");
+  expect(calls.find((call) => call.name === "space.detail")?.body).toEqual(
+    calls.find((call) => call.name === "browse.detail")?.body,
+  );
+  const close = screen.getByRole("button", { name: "Close details" });
+  fireEvent.keyDown(close, { key: "Escape", code: "Escape" });
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(document.activeElement).toBe(
+    screen.getByRole("button", { name: "View folder details" }),
+  );
+});
+
+test("F03: changing size display does not request another result", async () => {
+  const { client, calls } = fixture({
+    readTotals(result) {
+      return {
+        ...result,
+        sizes: result.sizes.map((entry) => ({
+          ...entry,
+          size:
+            entry.size.state === "lower_bound"
+              ? { ...entry.size, bytes: "1023" }
+              : entry.size,
+        })),
+      };
+    },
+  });
+  render(<App analysis={client} />);
+  fireEvent.click(await screen.findByRole("radio", { name: path.display }));
+  fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
+  const start = screen.getByRole<HTMLButtonElement>("button", {
+    name: "Start scan",
+  });
+  await waitFor(() => expect(start.disabled).toBe(false));
+  fireEvent.click(start);
+  expect(await screen.findByText("At least 1,023 bytes")).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "Display options" }));
+  fireEvent.change(screen.getByRole("combobox", { name: "Unit system" }), {
+    target: { value: "si" },
+  });
+  expect(screen.getByText("At least 1.0 kB")).toBeDefined();
+  expect(
+    within(screen.getByRole("group", { name: "Logical size" })).getByText(
+      "Incomplete measurement · Reported by the file system",
+    ),
+  ).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "Measurement details" }));
+  expect(
+    within(screen.getByLabelText("Measurement details")).getByText(
+      "At least 1,023 bytes",
+    ),
+  ).toBeDefined();
+  fireEvent.change(screen.getByRole("combobox", { name: "Size unit" }), {
+    target: { value: "0" },
+  });
+  expect(
+    within(screen.getByRole("group", { name: "Logical size" })).getByText(
+      "At least 1,023 bytes",
+    ),
+  ).toBeDefined();
+  fireEvent.change(screen.getByRole("combobox", { name: "Size basis" }), {
+    target: { value: "allocated" },
+  });
+  expect(screen.queryByRole("group", { name: "Logical size" })).toBeNull();
+  expect(
+    within(screen.getByRole("group", { name: "Allocated size" })).getByText(
+      "Unavailable",
+    ),
+  ).toBeDefined();
+  expect(calls.filter(({ name }) => name === "space.total")).toHaveLength(1);
+  fireEvent.click(screen.getByRole("button", { name: "Display options" }));
+  expect(screen.getByText("Allocated size · SI · B")).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "Display options" }));
+  expect(
+    screen.getByRole<HTMLSelectElement>("combobox", { name: "Size basis" })
+      .value,
+  ).toBe("allocated");
+});
+
+test("F03 IF-18: new preferences change presentation without replacing the pinned scan", async () => {
+  let resolveOld!: (value: DisplayPreferences) => void;
+  const old = new Promise<DisplayPreferences>((resolve) => {
+    resolveOld = resolve;
+  });
+  const newer: DisplayPreferences = {
+    settingsRevision: "9007199254740993",
+    unitSystem: "si",
+    unit: "kB",
+    defaultBasis: "logical",
+    warningKey: "settings.value_reset",
+  };
+  const readPreferences = vi
+    .fn<() => Promise<DisplayPreferences>>()
+    .mockReturnValueOnce(old)
+    .mockResolvedValue(newer);
+  const { client, calls, listeners } = fixture({ readPreferences });
+  render(<App analysis={client} />);
+  fireEvent.click(await screen.findByRole("radio", { name: path.display }));
+  fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
+  const start = screen.getByRole<HTMLButtonElement>("button", {
+    name: "Start scan",
+  });
+  await waitFor(() => expect(start.disabled).toBe(false));
+  fireEvent.click(start);
+  const allocated = await screen.findByRole("group", {
+    name: "Allocated size",
+  });
+  expect(within(allocated).getByText("Unavailable")).toBeDefined();
+  expect(screen.queryByRole("group", { name: "Logical size" })).toBeNull();
+  act(() => {
+    for (const listener of listeners) {
+      listener({
+        topic: "settings.changed",
+        contractVersion: 1,
+        seq: 1,
+        occurredAt: timestamp,
+        body: {},
+      });
+    }
+  });
+  expect(await screen.findByText("Logical size · SI · kB")).toBeDefined();
+  expect(screen.getByText(/Some display preferences/)).toBeDefined();
+  await act(async () =>
+    resolveOld({
+      ...newer,
+      settingsRevision: "9007199254740992",
+      unitSystem: "iec",
+      unit: "auto",
+      defaultBasis: "allocated",
+      warningKey: null,
+    }),
+  );
+  expect(screen.getByText("Logical size · SI · kB")).toBeDefined();
+  expect(
+    screen.getByText("Result version: Final with scan gaps"),
+  ).toBeDefined();
+  expect(calls.filter(({ name }) => name === "space.total")).toHaveLength(1);
+});
+
+test("F01: stale scope disables start and requires review again", async () => {
+  const { client, calls } = fixture({ stale: true });
+  render(<App analysis={client} />);
+  fireEvent.click(await screen.findByRole("radio", { name: path.display }));
+  fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
+  const start = screen.getByRole("button", {
+    name: "Start scan",
+  }) as HTMLButtonElement;
+  await waitFor(() => expect(start.disabled).toBe(false));
+  fireEvent.click(start);
+  await screen.findByText(
+    "The target or result changed. Review the scope again.",
+  );
+  expect(start.disabled).toBe(true);
+  expect(calls.some((call) => call.name === "space.total")).toBe(false);
+});
+
+test("F03 IF-01: a pinned result shows loading before reading totals", async () => {
+  let release = () => {};
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const { client } = fixture({
+    readTotals: async (result) => {
+      await pending;
+      return result;
+    },
+  });
+  render(<App analysis={client} />);
+  fireEvent.click(await screen.findByRole("radio", { name: path.display }));
+  fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
+  const start = screen.getByRole<HTMLButtonElement>("button", {
+    name: "Start scan",
+  });
+  await waitFor(() => expect(start.disabled).toBe(false));
+  fireEvent.click(start);
+  await screen.findByRole("progressbar", { name: "Reading space totals" });
+  expect(screen.queryByText("No result to display")).toBeNull();
+  release();
+  expect(await screen.findByText("At least 42 bytes")).toBeDefined();
+  expect(
+    screen.queryByRole("progressbar", { name: "Reading space totals" }),
+  ).toBeNull();
+});
+
+test("F03 IF-01: a totals response for a different result version is rejected", async () => {
+  const { client } = fixture({
+    readTotals: (result) => ({ ...result, resultVersion: "stale" }),
+  });
+  render(<App analysis={client} />);
+  fireEvent.click(await screen.findByRole("radio", { name: path.display }));
+  fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
+  const start = screen.getByRole<HTMLButtonElement>("button", {
+    name: "Start scan",
+  });
+  await waitFor(() => expect(start.disabled).toBe(false));
+  fireEvent.click(start);
+  await screen.findByText("The space totals do not match this scan's result.");
+  expect(screen.queryByText("At least 42 bytes")).toBeNull();
+  expect(
+    screen.queryByRole("progressbar", { name: "Reading space totals" }),
+  ).toBeNull();
+});
+
+test("F24: an expired job releases the scan controls without inventing a result", async () => {
+  const { client, calls } = fixture({ missingJob: true });
+  render(<App analysis={client} />);
+  fireEvent.click(await screen.findByRole("radio", { name: path.display }));
+  fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
+  const start = screen.getByRole("button", {
+    name: "Start scan",
+  }) as HTMLButtonElement;
+  await waitFor(() => expect(start.disabled).toBe(false));
+  fireEvent.click(start);
+  await screen.findByText("Scan status unavailable");
+  expect(start.disabled).toBe(false);
+  expect(screen.queryByRole("button", { name: "Cancel scan" })).toBeNull();
+  expect(calls.some((call) => call.name === "space.total")).toBe(false);
+});
+
+async function startFixtureScan(
+  client: AnalysisClient,
+  visualizationProvider?: BrowseVisualizationProvider,
+) {
+  render(
+    <App
+      analysis={client}
+      {...(visualizationProvider ? { visualizationProvider } : {})}
+    />,
+  );
+  fireEvent.click(await screen.findByRole("radio", { name: path.display }));
+  fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
+  const start = screen.getByRole<HTMLButtonElement>("button", {
+    name: "Start scan",
+  });
+  await waitFor(() => expect(start.disabled).toBe(false));
+  fireEvent.click(start);
+}
+
+test("F24: scan waits for its job list baseline and refreshes after a newer buffered event", async () => {
+  let complete: ((rows: AnalysisJobListRow[]) => void) | undefined;
+  let sequence = 2;
+  const { client, listeners, calls } = fixture({
+    listJobs: () =>
+      new Promise((resolve) => {
+        complete = resolve;
+      }),
+    readStatus: (base) => ({
+      ...base,
+      state: sequence === 2 ? "running" : "cancelled",
+      sequence,
+      resultVersion: null,
+    }),
+  });
+  await startFixtureScan(client);
+  await waitFor(() =>
+    expect(calls.some(({ name }) => name === "job.list")).toBe(true),
+  );
+  await act(async () => {
+    sequence = 4;
+    for (const listener of listeners)
+      listener({
+        topic: "job.state_changed",
+        contractVersion: 1,
+        jobRef: "scan",
+        seq: 4,
+        occurredAt: timestamp,
+        body: { state: "cancelled", sequence: 4 },
+      });
+  });
+  expect(screen.queryByText("Scan cancelled")).toBeNull();
+  await act(async () =>
+    complete?.([
+      {
+        jobRef: "scan",
+        kind: "scan.metadata",
+        scopeSummary: "scope",
+        state: "running",
+        waitReason: "unknown",
+        priority: "normal",
+        supportedControls: ["cancel"],
+        sequence: 2,
+      },
+    ]),
+  );
+  await screen.findByText("Scan cancelled");
+});
+
+test("F24: a failed baseline retries and recovers a completed scan without polling early", async () => {
+  const terminal = {
+    state: "cancelled" as const,
+    sequence: 4,
+    completed: 0,
+    overwritten: 0,
+    failed: 0,
+    skipped: 0,
+    unprocessed: 0,
+    historyRecorded: true,
+  };
+  let attempts = 0;
+  const { client, calls } = fixture({
+    listJobs: () => {
+      attempts += 1;
+      if (attempts === 1) return Promise.reject(new Error("list unavailable"));
+      return Promise.resolve([
+        {
+          jobRef: "scan",
+          kind: "scan.metadata",
+          scopeSummary: "scope",
+          state: "cancelled",
+          waitReason: "none",
+          priority: "normal",
+          supportedControls: ["cancel"],
+          sequence: 4,
+          terminal,
+        },
+      ]);
+    },
+    readStatus: (base) => ({
+      ...base,
+      state: "cancelled",
+      sequence: 4,
+      resultVersion: null,
+      terminal,
+    }),
+  });
+  await startFixtureScan(client);
+  await screen.findByText("list unavailable");
+  expect(calls.filter(({ name }) => name === "job.get")).toHaveLength(0);
+  await screen.findByText("Scan cancelled", {}, { timeout: 4_000 });
+  expect(attempts).toBe(2);
+  expect(calls.filter(({ name }) => name === "job.get")).toHaveLength(1);
+  expect(screen.queryByText("list unavailable")).toBeNull();
+});
+
+test("F02: result changes recover while the job list is still resynchronizing", async () => {
+  let lists = 0;
+  let newest = false;
+  const { client, listeners, calls } = fixture({
+    lineageId: "lineage",
+    readTotals: (result) => ({
+      ...result,
+      completeness: result.resultVersion === "part" ? "partial" : "complete",
+    }),
+    listJobs: () => {
+      lists += 1;
+      if (lists > 1) return new Promise(() => {});
+      return Promise.resolve([
+        {
+          jobRef: "scan",
+          kind: "scan.metadata",
+          scopeSummary: "scope",
+          state: "running",
+          waitReason: "none",
+          priority: "normal",
+          supportedControls: ["cancel"],
+          sequence: 1,
+        },
+      ]);
+    },
+    readStatus: (base) => ({
+      ...base,
+      state: newest ? "done" : "running",
+      sequence: newest ? 2 : 1,
+      scanResult: {
+        lineageId: "lineage",
+        sequence: newest ? 2 : 1,
+        resultVersion: newest ? "final" : "part",
+      },
+    }),
+  });
+  await startFixtureScan(client);
+  await screen.findByText("Result version: Interim");
+  const before = calls.filter(({ name }) => name === "job.get").length;
+  newest = true;
+  notifyResult(listeners, "job.resync_required", {});
+  await waitFor(() => expect(lists).toBe(2));
+  await screen.findByRole("button", { name: "Show latest result" });
+  expect(calls.filter(({ name }) => name === "job.get").length).toBe(
+    before + 1,
+  );
+  expect(screen.getByText("Scanning")).toBeDefined();
+  expect(screen.queryByText("Scan finished")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Show latest result" }));
+  await screen.findByText("Result version: Final");
+  expect(screen.getByText("Scanning")).toBeDefined();
+});
+
+test.each(["STALE_VERSION", "NOT_FOUND"] as const)(
+  "F02: %s result read retries independently of an unresponsive job list",
+  async (code) => {
+    let lists = 0;
+    let version: "none" | "a" | "b" | "old" | "foreign" = "none";
+    const { client, calls, listeners } = fixture({
+      lineageId: "lineage",
+      listJobs: () => {
+        lists += 1;
+        if (lists > 1) return new Promise(() => {});
+        return Promise.resolve([
+          {
+            jobRef: "scan",
+            kind: "scan.metadata",
+            scopeSummary: "scope",
+            state: "running",
+            waitReason: "none",
+            priority: "normal",
+            supportedControls: ["cancel"],
+            sequence: 1,
+          },
+        ]);
+      },
+      readStatus: (base) => ({
+        ...base,
+        state: "running",
+        sequence: 1,
+        resultVersion: null,
+        ...(version === "none"
+          ? {}
+          : {
+              scanResult: {
+                lineageId: version === "foreign" ? "other" : "lineage",
+                sequence:
+                  version === "a" || version === "old"
+                    ? 1
+                    : version === "b"
+                      ? 2
+                      : 3,
+                resultVersion: version,
+              },
+            }),
+      }),
+      readTotals: (result) => {
+        if (result.resultVersion === "a") {
+          version = "b";
+          throw new AnalysisError(code, "result.requery_required");
+        }
+        return { ...result, completeness: "complete" };
+      },
+    });
+    await startFixtureScan(client);
+    await screen.findByText("Scanning");
+    const beforeRecovery = calls.filter(
+      ({ name }) => name === "job.get",
+    ).length;
+    version = "a";
+    notifyResult(listeners, "job.resync_required", {});
+    await screen.findByText("Result version: Final");
+    expect(lists).toBe(2);
+    expect(calls.filter(({ name }) => name === "job.get").length).toBe(
+      beforeRecovery + 2,
+    );
+    const totals = () =>
+      calls
+        .filter(({ name }) => name === "space.total")
+        .map(({ body }) => body);
+    expect(totals()).toMatchObject([
+      { resultVersion: "a" },
+      { resultVersion: "b" },
+    ]);
+    for (const next of ["old", "foreign"] as const) {
+      version = next;
+      const before = calls.filter(({ name }) => name === "job.get").length;
+      notifyResult(listeners, "results.version_changed", {
+        lineageId: "lineage",
+        sequence: 4,
+      });
+      await waitFor(() =>
+        expect(calls.filter(({ name }) => name === "job.get").length).toBe(
+          before + 1,
+        ),
+      );
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(totals()).toHaveLength(2);
+      expect(screen.getByText("Result version: Final")).toBeDefined();
+      expect(
+        screen.queryByRole("button", { name: "Show latest result" }),
+      ).toBeNull();
+    }
+  },
+);
+
+test("F21 F24: history and a pinned result recover separately after a shared delivery gap", async () => {
+  let lists = 0;
+  let changed = false;
+  const { client, listeners, calls } = fixture({
+    lineageId: "lineage",
+    listJobs: () => {
+      lists += 1;
+      if (lists > 1) return new Promise(() => {});
+      return Promise.resolve([
+        {
+          jobRef: "scan",
+          kind: "scan.metadata",
+          scopeSummary: "scope",
+          state: "running",
+          waitReason: "none",
+          priority: "normal",
+          supportedControls: ["cancel"],
+          sequence: 1,
+        },
+      ]);
+    },
+    readStatus: (base) => ({
+      ...base,
+      state: changed ? "done" : "running",
+      sequence: changed ? 2 : 1,
+      scanResult: {
+        lineageId: "lineage",
+        sequence: changed ? 2 : 1,
+        resultVersion: changed ? "final" : "part",
+      },
+    }),
+    readTotals: (result) => ({
+      ...result,
+      completeness: result.resultVersion === "part" ? "partial" : "complete",
+    }),
+    readHistory: () => ({
+      revision: { deleteGeneration: "0", maxRecordSeq: changed ? "2" : "1" },
+      nextCursor: null,
+      rows: [
+        {
+          jobRef: "scan",
+          missingReasons: [],
+          summary: {
+            kindId: "scan.metadata",
+            kindVersion: 1,
+            scopeSummary: changed ? "New history" : "Previous history",
+            state: "done",
+            counts: null,
+            startedAtMs: null,
+            finishedAtMs: null,
+            predecessorJobRef: null,
+            relation: null,
+            sessionRestoreAvailable: null,
+          },
+        },
+      ],
+    }),
+  });
+  await startFixtureScan(client);
+  await screen.findByText("Result version: Interim");
+  fireEvent.click(screen.getByRole("button", { name: "Operation history" }));
+  await screen.findByText("Previous history");
+  changed = true;
+  notifyResult(listeners, "job.resync_required", {});
+  await screen.findByText("New history");
+  expect(screen.queryByText("Previous history")).toBeNull();
+  expect(lists).toBe(2);
+  fireEvent.click(screen.getByRole("button", { name: "Back to analysis" }));
+  expect(await screen.findByText("Result version: Interim")).toBeDefined();
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Show latest result" }),
+  );
+  await screen.findByText("Result version: Final");
+  expect(screen.getByText("Scanning")).toBeDefined();
+  expect(calls.filter(({ name }) => name === "history.list")).toHaveLength(2);
+  expect(lists).toBe(2);
+});
+
+test("F24: a failed resync keeps the last scan until automatic recovery", async () => {
+  const terminal = {
+    state: "cancelled" as const,
+    sequence: 4,
+    completed: 0,
+    overwritten: 0,
+    failed: 0,
+    skipped: 0,
+    unprocessed: 0,
+    historyRecorded: true,
+  };
+  let attempts = 0;
+  let done = false;
+  const { client, calls, listeners } = fixture({
+    listJobs: () => {
+      attempts += 1;
+      if (attempts === 2)
+        return Promise.reject(new Error("resync unavailable"));
+      return Promise.resolve([
+        {
+          jobRef: "scan",
+          kind: "scan.metadata",
+          scopeSummary: "scope",
+          state: done ? "cancelled" : "running",
+          waitReason: done ? "none" : "unknown",
+          priority: "normal",
+          supportedControls: ["cancel"],
+          sequence: done ? 4 : 3,
+          ...(done ? { terminal } : {}),
+        },
+      ]);
+    },
+    readStatus: (base) =>
+      done
+        ? {
+            ...base,
+            state: "cancelled",
+            sequence: 4,
+            resultVersion: null,
+            terminal,
+          }
+        : { ...base, state: "running", sequence: 3, resultVersion: null },
+  });
+  await startFixtureScan(client);
+  await screen.findByText("Scanning");
+  const before = calls.filter(({ name }) => name === "job.get").length;
+  done = true;
+  notifyResult(listeners, "job.resync_required", {});
+  await screen.findByText("resync unavailable");
+  expect(screen.getByText("Scanning")).toBeDefined();
+  await new Promise((resolve) => setTimeout(resolve, 600));
+  expect(calls.filter(({ name }) => name === "job.get")).toHaveLength(
+    before + 1,
+  );
+  expect(screen.getByText("Scanning")).toBeDefined();
+  await screen.findByText("Scan cancelled", {}, { timeout: 4_000 });
+  expect(attempts).toBe(3);
+  expect(calls.filter(({ name }) => name === "job.get")).toHaveLength(
+    before + 2,
+  );
+});
+
+test("F02: starting progress hands off to the scan receipt and its cancel action", async () => {
+  let release = () => {};
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const { client } = fixture({
+    beforeStart: () => pending,
+    readStatus: (base) => ({
+      ...base,
+      state: "running",
+      resultVersion: null,
+    }),
+  });
+  await startFixtureScan(client);
+  expect(
+    screen.getByRole("progressbar", { name: "Starting scan" }),
+  ).toBeDefined();
+  expect(
+    screen
+      .getByRole("button", { name: "Starting scan…" })
+      .getAttribute("aria-disabled"),
+  ).toBe("true");
+  expect(
+    screen.queryByRole("progressbar", { name: "Scanning folder" }),
+  ).toBeNull();
+  release();
+  const progress = await screen.findByRole("progressbar", {
+    name: "Scanning folder",
+  });
+  const cancel = screen.getByRole("button", { name: "Cancel scan" });
+  expect(cancel.compareDocumentPosition(progress)).toBe(
+    Node.DOCUMENT_POSITION_FOLLOWING,
+  );
+  expect(
+    screen.queryByRole("progressbar", { name: "Starting scan" }),
+  ).toBeNull();
+});
+
+test("F02 NFR4.HD1.gui-web.DD1: commits pending feedback before scan.start and retains the pinned result", async () => {
+  let starts = 0;
+  let releaseSecondStart = () => {};
+  let atTransportBoundary:
+    | {
+        startingFeedback: boolean;
+        pinnedTotal: boolean;
+        pinnedVersion: boolean;
+        totalReads: number;
+      }
+    | undefined;
+  const delayedSecondStart = new Promise<void>((resolve) => {
+    releaseSecondStart = resolve;
+  });
+  const { client, calls } = fixture({
+    beforeStart: async () => {
+      starts += 1;
+      if (starts !== 2) return;
+      atTransportBoundary = {
+        startingFeedback:
+          screen.queryByRole("progressbar", { name: "Starting scan" }) !== null,
+        pinnedTotal: screen.queryByText("At least 42 bytes") !== null,
+        pinnedVersion:
+          screen.queryByText("Result version: Final with scan gaps") !== null,
+        totalReads: calls.filter(({ name }) => name === "space.total").length,
+      };
+      await delayedSecondStart;
+    },
+  });
+
+  await startFixtureScan(client);
+  await screen.findByText("Result version: Final with scan gaps");
+  const pinnedTotal = screen.getByText("At least 42 bytes");
+  const totalReadsBeforeReanalysis = calls.filter(
+    ({ name }) => name === "space.total",
+  ).length;
+  fireEvent.click(screen.getByRole("button", { name: "Analyze again" }));
+  const start = screen.getByRole<HTMLButtonElement>("button", {
+    name: "Start scan",
+  });
+  await waitFor(() => expect(start.disabled).toBe(false));
+
+  fireEvent.click(start);
+  const observedBoundary = atTransportBoundary;
+  fireEvent.click(start);
+  const pendingFeedback = screen.queryByRole("progressbar", {
+    name: "Starting scan",
+  });
+  const pinnedTotalWhileWaiting = screen.queryByText("At least 42 bytes");
+  const pinnedVersionWhileWaiting = screen.queryByText(
+    "Result version: Final with scan gaps",
+  );
+  const totalReadsWhileWaiting = calls.filter(
+    ({ name }) => name === "space.total",
+  ).length;
+  releaseSecondStart();
+  await waitFor(() =>
+    expect(
+      screen.queryByRole("progressbar", { name: "Starting scan" }),
+    ).toBeNull(),
+  );
+
+  expect(observedBoundary).toMatchObject({
+    startingFeedback: true,
+    pinnedTotal: true,
+    pinnedVersion: true,
+    totalReads: totalReadsBeforeReanalysis,
+  });
+  expect(pendingFeedback).not.toBeNull();
+  expect(pinnedTotalWhileWaiting).toBe(pinnedTotal);
+  expect(pinnedVersionWhileWaiting).not.toBeNull();
+  expect(totalReadsWhileWaiting).toBe(totalReadsBeforeReanalysis);
+  expect(
+    screen.getByText("Result version: Final with scan gaps"),
+  ).toBeDefined();
+  const startsAtTransport = calls.filter(({ name }) => name === "scan.start");
+  expect(startsAtTransport).toHaveLength(2);
+  expect(startsAtTransport[1]?.body).toEqual(startsAtTransport[0]?.body);
+});
+
+test("F02 NFR4.HD1.gui-web.DD1: repeated immediate activation starts one scan", async () => {
+  const { client, calls } = fixture();
+  render(<App analysis={client} />);
+  fireEvent.click(await screen.findByRole("radio", { name: path.display }));
+  fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
+  const start = screen.getByRole<HTMLButtonElement>("button", {
+    name: "Start scan",
+  });
+  await waitFor(() => expect(start.disabled).toBe(false));
+
+  fireEvent.click(start);
+  fireEvent.click(start);
+
+  expect(calls.filter(({ name }) => name === "scan.start")).toHaveLength(1);
+  expect(await screen.findByText("At least 42 bytes")).toBeDefined();
+});
+
+test("F03: browse precedes result evidence and returning restores focus", async () => {
+  const { client, calls } = fixture();
+  await startFixtureScan(client);
+  const evidence = await screen.findByText("At least 42 bytes");
+  expect(
+    screen.queryByRole("button", {
+      name: /space distribution|visualization|graph/i,
+    }),
+  ).toBeNull();
+  expect(
+    screen.queryByRole("region", {
+      name: /space distribution|visualization/i,
+    }),
+  ).toBeNull();
+  const browse = screen.getByRole("button", { name: "Browse folders" });
+  expect(browse.compareDocumentPosition(evidence)).toBe(
+    Node.DOCUMENT_POSITION_FOLLOWING,
+  );
+  fireEvent.click(browse);
+  await waitFor(() =>
+    expect(
+      calls.find(({ name }) => name === "browse.open")?.body,
+    ).toMatchObject({
+      resultVersion: "result",
+    }),
+  );
+  const back = screen.getByRole("button", { name: "Back to analysis" });
+  expect(document.activeElement).toBe(back);
+  fireEvent.click(back);
+  expect(document.activeElement).toBe(browse);
+  expect(screen.getByText("At least 42 bytes")).toBe(evidence);
+  expect(calls.filter(({ name }) => name.startsWith("viz."))).toHaveLength(0);
+});
+
+test("F06: explicit catalog-backed assembly opens from the pinned Browse location and returns focus", async () => {
+  const location = { resultVersion: "result", itemNo: 9 };
+  const base = fixture({
+    readBrowse: (request) => ({
+      kind: "opened",
+      requestSeq: request.requestSeq,
+      origin: "scan",
+      location,
+      breadcrumbs: [
+        { item: location, displayName: { state: "present", value: "Root" } },
+      ],
+      rootKind: "scope_root",
+      currentCorrespondence: false,
+      page: {
+        rowKind: "folder",
+        queryRef: "folder-query",
+        resultVersion: request.resultVersion ?? "result",
+        rows: [],
+        total: { state: "exact", count: 0 },
+        unknownCount: 0,
+        observedAt: timestamp,
+        completeness: "complete",
+        nextCursor: null,
+      },
+      sortStrategies: [],
+      predicateStrategies: [],
+    }),
+  });
+  const catalog: VizCatalog = {
+    formats: ["treemap"],
+    strategies: [{ id: "size-v1", revision: 1 }],
+    measures: ["size"],
+    colorCriteria: ["type"],
+    denominatorCriteria: ["scope"],
+    interpretationTableRevision: 2,
+    requiredDataTableRevision: 3,
+    legendRuleRevision: 4,
+  };
+  const calls: { name: string; body: unknown }[] = [];
+  let mismatchedAggregate = false;
+  let mismatchedModelBasis = false;
+  const client = transportClient(base.client, async (envelope) => {
+    const { name, body } = envelope;
+    calls.push({ name, body });
+    if (name === "viz.catalog") return catalog;
+    if (name === "viz.view.open") return { viewChannel: "view" };
+    if (name === "viz.render") {
+      const request = body as VisualizationViewRequest & {
+        requestSeq: number;
+        resultRevision: string;
+      };
+      const frame = structuredClone(modelFixture().frame);
+      frame.requestSeq = request.requestSeq;
+      frame.resultRevision = request.resultRevision;
+      frame.model.aggregateScopeRef = mismatchedAggregate
+        ? { ...location, itemNo: 99 }
+        : location;
+      frame.model.navigationScopeRef = location;
+      if (mismatchedModelBasis)
+        frame.model.representation.sizeBasis = "logical";
+      else frame.model.representation.sizeBasis = request.sizeBasis;
+      for (const shape of frame.model.shapes) {
+        if (shape.itemRef) shape.itemRef.resultVersion = request.resultRevision;
+        if (shape.rootBranchRef)
+          shape.rootBranchRef.resultVersion = request.resultRevision;
+      }
+      return frame;
+    }
+    if (name === "viz.view.close") return {};
+    if (name === "viz.cancel") return { controlResult: "no_effect" };
+    return base.client.call(name as never, body as never);
+  });
+  const provider = vi.fn((selection, receivedCatalog) => {
+    expect(selection).toEqual({
+      resultVersion: "result",
+      location,
+      display: { system: "iec", unit: "auto" },
+      sizeBasis: "allocated",
+    });
+    expect(receivedCatalog).toEqual(catalog);
+    const request: VisualizationViewRequest = {
+      resultRevision: selection.resultVersion,
+      format: "treemap",
+      aggregateScopeRef: selection.location,
+      navigationScopeRef: selection.location,
+      strategy: { id: "size-v1", revision: 1 },
+      measure: "size",
+      sizeBasis: selection.sizeBasis,
+      classificationCriterion: "type",
+      colorCriterion: "type",
+      denominatorBasis: "scope",
+      viewport: { width: 700, height: 500, scale: 1 },
+      visibleWindow: { left: 0, top: 0, right: 700, bottom: 500 },
+      minAreaPx2: 1,
+      depthLimit: 1,
+    };
+    return {
+      request,
+      canDisplay: () => true,
+      text: fixtureText,
+      autoLoadRows: false,
+      resolveRenderer: createChartRenderers([]),
+    };
+  });
+
+  vi.stubGlobal("ResizeObserver", ResizeObserverFixture);
+  vi.stubGlobal("devicePixelRatio", 1.25);
+  let viewportRect = { width: 0, height: 0 };
+  const originalRect = HTMLElement.prototype.getBoundingClientRect;
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+    function (this: HTMLElement) {
+      if (this.matches(".du-visualization-viewport"))
+        return new DOMRect(0, 0, viewportRect.width, viewportRect.height);
+      return originalRect.call(this);
+    },
+  );
+
+  await startFixtureScan(client, provider);
+  await screen.findByText("At least 42 bytes");
+  fireEvent.click(screen.getByRole("button", { name: "Display options" }));
+  fireEvent.change(screen.getByLabelText("Size basis"), {
+    target: { value: "allocated" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Browse folders" }));
+  await screen.findByRole("region", { name: "Folder navigation" });
+  const entry = await screen.findByRole("button", {
+    name: "Show space distribution",
+  });
+  const browseShell = document.querySelector<HTMLElement>(".du-browse-shell");
+  expect(browseShell).not.toBeNull();
+  expect(provider).toHaveBeenCalledTimes(1);
+  fireEvent.click(entry);
+  const activeObserver = resizeObservers.at(-1);
+  expect(activeObserver?.target).toBeTruthy();
+  expect(calls.some(({ name }) => name === "viz.view.open")).toBe(false);
+  expect(calls.some(({ name }) => name === "viz.render")).toBe(false);
+  viewportRect = { width: 640, height: 400 };
+  act(() => {
+    activeObserver?.callback(
+      [
+        {
+          target: activeObserver.target!,
+          contentRect: { width: 640, height: 400 },
+        } as ResizeObserverEntry,
+      ],
+      {} as ResizeObserver,
+    );
+  });
+  await screen.findByRole("group", { name: "Space distribution" });
+  expect(browseShell?.hidden).toBe(true);
+  expect(browseShell && getComputedStyle(browseShell).display).toBe("none");
+  await screen.findByRole("button", { name: "Back to folders" });
+  await waitFor(() =>
+    expect(calls.some(({ name }) => name === "viz.render")).toBe(true),
+  );
+  const initialRender = calls.find(({ name }) => name === "viz.render");
+  expect(initialRender?.body).toMatchObject({
+    resultRevision: "result",
+    navigationScopeRef: location,
+    aggregateScopeRef: location,
+    sizeBasis: "allocated",
+    viewport: { width: 640, height: 400, scale: 1.25 },
+    visibleWindow: { left: 0, top: 0, right: 700, bottom: 500 },
+  });
+  expect(activeObserver?.disconnected).toBe(false);
+  vi.stubGlobal("devicePixelRatio", 2);
+  viewportRect = { width: 321.4, height: 211.2 };
+  act(() => {
+    activeObserver?.callback(
+      [
+        {
+          target: activeObserver.target!,
+          contentRect: { width: 321.4, height: 211.2 },
+        } as ResizeObserverEntry,
+      ],
+      {} as ResizeObserver,
+    );
+  });
+  await waitFor(() =>
+    expect(
+      calls
+        .filter(({ name }) => name === "viz.render")
+        .some(({ body }) =>
+          JSON.stringify(body).includes('"width":321,"height":211,"scale":2'),
+        ),
+    ).toBe(true),
+  );
+  const resizedRender = calls
+    .filter(({ name }) => name === "viz.render")
+    .find(({ body }) => JSON.stringify(body).includes('"width":321'));
+  expect(resizedRender?.body).toMatchObject({
+    requestSeq: expect.any(Number),
+    resultRevision: "result",
+    sizeBasis: "allocated",
+    viewport: { width: 321, height: 211, scale: 2 },
+    visibleWindow: { left: 0, top: 0, right: 700, bottom: 500 },
+  });
+  expect(
+    (resizedRender?.body as { requestSeq: number }).requestSeq,
+  ).toBeGreaterThan((initialRender?.body as { requestSeq: number }).requestSeq);
+  vi.stubGlobal("devicePixelRatio", 1.75);
+  act(() => window.dispatchEvent(new Event("resize")));
+  await waitFor(() =>
+    expect(
+      calls
+        .filter(({ name }) => name === "viz.render")
+        .some(({ body }) =>
+          JSON.stringify(body).includes(
+            '"width":321,"height":211,"scale":1.75',
+          ),
+        ),
+    ).toBe(true),
+  );
+  viewportRect = { width: 20, height: 12 };
+  vi.stubGlobal("devicePixelRatio", 1.75);
+  act(() => window.dispatchEvent(new Event("resize")));
+  await waitFor(() =>
+    expect(
+      calls
+        .filter(({ name }) => name === "viz.render")
+        .some(({ body }) =>
+          JSON.stringify(body).includes('"width":20,"height":12,"scale":1.75'),
+        ),
+    ).toBe(true),
+  );
+  const smallRender = calls
+    .filter(({ name }) => name === "viz.render")
+    .find(({ body }) => JSON.stringify(body).includes('"width":20'));
+  expect(smallRender?.body).toMatchObject({
+    sizeBasis: "allocated",
+    viewport: { width: 20, height: 12, scale: 1.75 },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Back to folders" }));
+  await waitFor(() =>
+    expect(
+      calls.some(
+        ({ name, body }) =>
+          name === "viz.view.close" &&
+          JSON.stringify(body) === JSON.stringify({ viewChannel: "view" }),
+      ),
+    ).toBe(true),
+  );
+  expect(activeObserver?.disconnected).toBe(true);
+  const rendersBeforeLateResize = calls.filter(
+    ({ name }) => name === "viz.render",
+  ).length;
+  act(() => {
+    activeObserver?.callback(
+      [
+        {
+          target: activeObserver.target!,
+          contentRect: { width: 200, height: 100 },
+        } as ResizeObserverEntry,
+      ],
+      {} as ResizeObserver,
+    );
+  });
+  expect(calls.filter(({ name }) => name === "viz.render")).toHaveLength(
+    rendersBeforeLateResize,
+  );
+  expect(document.activeElement).toBe(entry);
+  expect(browseShell?.hidden).toBe(false);
+  expect(browseShell && getComputedStyle(browseShell).display).not.toBe("none");
+  expect(
+    screen.getByRole("region", { name: "Folder navigation" }),
+  ).toBeTruthy();
+
+  mismatchedAggregate = true;
+  fireEvent.click(entry);
+  await screen.findByText("Visualization could not be updated.");
+  expect(
+    screen.queryByRole("group", { name: "Space distribution" }),
+  ).toBeNull();
+  expect(
+    document
+      .querySelector<HTMLElement>(".du-visualization-shell")
+      ?.querySelector("svg.du-geometry"),
+  ).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Back to folders" }));
+  await waitFor(() =>
+    expect(calls.filter(({ name }) => name === "viz.view.close").length).toBe(
+      2,
+    ),
+  );
+  expect(document.activeElement).toBe(entry);
+
+  mismatchedModelBasis = true;
+  fireEvent.click(entry);
+  await screen.findByText("Visualization could not be updated.");
+  expect(
+    document
+      .querySelector<HTMLElement>(".du-visualization-viewport")
+      ?.querySelector("svg.du-geometry"),
+  ).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Back to folders" }));
+  await waitFor(() =>
+    expect(calls.filter(({ name }) => name === "viz.view.close").length).toBe(
+      3,
+    ),
+  );
+  expect(document.activeElement).toBe(entry);
+});
+
+test("F06: missing Browse location and unsupported catalog request keep visualization unavailable", async () => {
+  const base = fixture({
+    readBrowse: (request) => ({
+      kind: "opened",
+      requestSeq: request.requestSeq,
+      origin: "scan",
+      location: null,
+      breadcrumbs: [],
+      rootKind: "scope_root",
+      currentCorrespondence: false,
+      page: {
+        rowKind: "folder",
+        queryRef: "folder-query",
+        resultVersion: request.resultVersion ?? "result",
+        rows: [],
+        total: { state: "exact", count: 0 },
+        unknownCount: 0,
+        observedAt: timestamp,
+        completeness: "complete",
+        nextCursor: null,
+      },
+      sortStrategies: [],
+      predicateStrategies: [],
+    }),
+  });
+  const catalog: VizCatalog = {
+    formats: [],
+    strategies: [],
+    measures: [],
+    colorCriteria: [],
+    denominatorCriteria: [],
+    interpretationTableRevision: 0,
+    requiredDataTableRevision: 0,
+    legendRuleRevision: 0,
+  };
+  const calls: string[] = [];
+  const client = transportClient(base.client, async (envelope) => {
+    calls.push(envelope.name);
+    if (envelope.name === "viz.catalog") return catalog;
+    return base.client.call(envelope.name as never, envelope.body as never);
+  });
+  const provider = vi.fn(() => null);
+  await startFixtureScan(client, provider);
+  await screen.findByText("At least 42 bytes");
+  fireEvent.click(screen.getByRole("button", { name: "Browse folders" }));
+  await screen.findByRole("region", { name: "Folder navigation" });
+  expect(provider).not.toHaveBeenCalled();
+  expect(calls).not.toContain("viz.catalog");
+  expect(
+    screen.queryByRole("button", { name: "Show space distribution" }),
+  ).toBeNull();
+  expect(calls).not.toContain("viz.view.open");
+});
+
+test.each(["format", "revision", "aggregate", "basis"] as const)(
+  "F06: rejects a provider request with unsupported %s evidence",
+  async (invalidField) => {
+    const location = { resultVersion: "result", itemNo: 12 };
+    const base = fixture({
+      readBrowse: (request) => ({
+        kind: "opened",
+        requestSeq: request.requestSeq,
+        origin: "scan",
+        location,
+        breadcrumbs: [
+          { item: location, displayName: { state: "present", value: "Root" } },
+        ],
+        rootKind: "scope_root",
+        currentCorrespondence: false,
+        page: {
+          rowKind: "folder",
+          queryRef: "folder-query",
+          resultVersion: request.resultVersion ?? "result",
+          rows: [],
+          total: { state: "exact", count: 0 },
+          unknownCount: 0,
+          observedAt: timestamp,
+          completeness: "complete",
+          nextCursor: null,
+        },
+        sortStrategies: [],
+        predicateStrategies: [],
+      }),
+    });
+    const catalog: VizCatalog = {
+      formats: ["treemap"],
+      strategies: [{ id: "size-v1", revision: 1 }],
+      measures: ["size"],
+      colorCriteria: ["type"],
+      denominatorCriteria: ["scope"],
+      interpretationTableRevision: 2,
+      requiredDataTableRevision: 3,
+      legendRuleRevision: 4,
+    };
+    const calls: string[] = [];
+    const client = transportClient(base.client, async (envelope) => {
+      calls.push(envelope.name);
+      if (envelope.name === "viz.catalog") return catalog;
+      return base.client.call(envelope.name as never, envelope.body as never);
+    });
+    const provider = vi.fn<BrowseVisualizationProvider>(
+      (selection: BrowseVisualizationSelection) => {
+        const request: VisualizationViewRequest = {
+          resultRevision:
+            invalidField === "revision"
+              ? "older-result"
+              : selection.resultVersion,
+          format: invalidField === "format" ? "unsupported" : "treemap",
+          aggregateScopeRef:
+            invalidField === "aggregate"
+              ? { ...selection.location, itemNo: 99 }
+              : selection.location,
+          navigationScopeRef: selection.location,
+          strategy: { id: "size-v1", revision: 1 },
+          measure: "size",
+          sizeBasis: invalidField === "basis" ? "allocated" : "logical",
+          classificationCriterion: "type",
+          colorCriterion: "type",
+          denominatorBasis: "scope",
+          viewport: { width: 700, height: 500, scale: 1 },
+          visibleWindow: { left: 0, top: 0, right: 700, bottom: 500 },
+          minAreaPx2: 1,
+          depthLimit: 1,
+        };
+        return {
+          request,
+          canDisplay: () => true,
+          text: fixtureText,
+          autoLoadRows: false,
+          resolveRenderer: createChartRenderers([]),
+        };
+      },
+    );
+    await startFixtureScan(client, provider);
+    await screen.findByText("At least 42 bytes");
+    fireEvent.click(screen.getByRole("button", { name: "Browse folders" }));
+    await screen.findByRole("region", { name: "Folder navigation" });
+    await waitFor(() => expect(provider).toHaveBeenCalledTimes(1));
+    expect(calls).toContain("viz.catalog");
+    expect(
+      screen.queryByRole("button", { name: "Show space distribution" }),
+    ).toBeNull();
+    expect(calls).not.toContain("viz.view.open");
+  },
+);
+
+test("F06: a delayed catalog result cannot reopen visualization after Browse closes", async () => {
+  const location = { resultVersion: "result", itemNo: 15 };
+  const base = fixture({
+    readBrowse: (request) => ({
+      kind: "opened",
+      requestSeq: request.requestSeq,
+      origin: "scan",
+      location,
+      breadcrumbs: [
+        { item: location, displayName: { state: "present", value: "Root" } },
+      ],
+      rootKind: "scope_root",
+      currentCorrespondence: false,
+      page: {
+        rowKind: "folder",
+        queryRef: "folder-query",
+        resultVersion: request.resultVersion ?? "result",
+        rows: [],
+        total: { state: "exact", count: 0 },
+        unknownCount: 0,
+        observedAt: timestamp,
+        completeness: "complete",
+        nextCursor: null,
+      },
+      sortStrategies: [],
+      predicateStrategies: [],
+    }),
+  });
+  const catalog: VizCatalog = {
+    formats: ["treemap"],
+    strategies: [{ id: "size-v1", revision: 1 }],
+    measures: ["size"],
+    colorCriteria: ["type"],
+    denominatorCriteria: ["scope"],
+    interpretationTableRevision: 2,
+    requiredDataTableRevision: 3,
+    legendRuleRevision: 4,
+  };
+  let resolveCatalog!: (value: VizCatalog) => void;
+  const pendingCatalog = new Promise<VizCatalog>((resolve) => {
+    resolveCatalog = resolve;
+  });
+  const calls: string[] = [];
+  const client = transportClient(base.client, async (envelope) => {
+    calls.push(envelope.name);
+    if (envelope.name === "viz.catalog") return pendingCatalog;
+    return base.client.call(envelope.name as never, envelope.body as never);
+  });
+  const provider = vi.fn<BrowseVisualizationProvider>(() => null);
+  await startFixtureScan(client, provider);
+  await screen.findByText("At least 42 bytes");
+  fireEvent.click(screen.getByRole("button", { name: "Browse folders" }));
+  await screen.findByRole("region", { name: "Folder navigation" });
+  await waitFor(() => expect(calls).toContain("viz.catalog"));
+  fireEvent.click(screen.getByRole("button", { name: "Back to analysis" }));
+  await act(async () => resolveCatalog(catalog));
+  expect(provider).not.toHaveBeenCalled();
+  expect(
+    screen.queryByRole("button", { name: "Show space distribution" }),
+  ).toBeNull();
+  expect(calls).not.toContain("viz.view.open");
+});
+
+function notifyResult(
+  listeners: Set<(event: EventEnvelope) => void>,
+  topic: string,
+  body: unknown,
+) {
+  act(() => {
+    for (const listener of listeners) {
+      listener({
+        topic,
+        body,
+        seq: 1,
+        contractVersion: 1,
+        occurredAt: timestamp,
+      });
+    }
+  });
+}
+
+test("F02 NFR5: a burst of status events results in one read per frame", async () => {
+  const { client, calls, listeners } = fixture();
+  await startFixtureScan(client);
+  await screen.findByText("Scan ended with gaps");
+  const readCount = () => calls.filter(({ name }) => name === "job.get").length;
+  const before = readCount();
+  const frames: FrameRequestCallback[] = [];
+  const clock = vi
+    .spyOn(window, "requestAnimationFrame")
+    .mockImplementation((callback) => frames.push(callback));
+  try {
+    for (let sequence = 1; sequence <= 100; sequence += 1) {
+      await act(async () => {
+        for (const listener of listeners) {
+          listener({
+            topic: "job.progress",
+            contractVersion: 1,
+            jobRef: "scan",
+            seq: sequence,
+            occurredAt: timestamp,
+            body: { sequence },
+          });
+        }
+      });
+    }
+    expect(readCount()).toBe(before);
+    expect(frames).toHaveLength(1);
+    await act(async () => frames[0]?.(0));
+    expect(readCount()).toBe(before + 1);
+  } finally {
+    clock.mockRestore();
+  }
+});
+
+test("F02 FR10: cancellation is announced before acknowledgement and a rejection clears it", async () => {
+  let acknowledge: ((response: AnalysisJobControl) => void) | undefined;
+  const { client, calls } = fixture({
+    readStatus: (base) => ({
+      ...base,
+      state: "running",
+      resultVersion: null,
+    }),
+    cancelJob: () =>
+      new Promise((resolve) => {
+        acknowledge = resolve;
+      }),
+  });
+  await startFixtureScan(client);
+  await screen.findByText("Scanning");
+  const cancel = screen.getByRole<HTMLButtonElement>("button", {
+    name: "Cancel scan",
+  });
+  fireEvent.click(cancel);
+  expect(screen.getByText("Cancellation requested")).toBeDefined();
+  expect(cancel.getAttribute("aria-disabled")).toBe("true");
+  expect(calls.filter(({ name }) => name === "job.cancel")).toHaveLength(1);
+  await act(async () => {
+    acknowledge?.({
+      outcome: "unsupported",
+      state: "running",
+      reasonKey: "job.control_unsupported",
+      sequence: 3,
+    });
+  });
+  expect(
+    screen.getByText("Cancellation is unavailable for this scan."),
+  ).toBeDefined();
+  expect(screen.getByText("Scanning")).toBeDefined();
+  expect(cancel.getAttribute("aria-disabled")).toBeNull();
+});
+
+test.each(["keep focus", "move focus"] as const)(
+  "F02 F24: keyboard cancellation handles terminal focus when users %s",
+  async (intent) => {
+    let state: AnalysisJobStatus["state"] = "paused";
+    let sequence = 3;
+    const { client, calls, listeners } = fixture({
+      lineageId: "cancel-focus",
+      readStatus: (base) => ({
+        ...base,
+        state,
+        sequence,
+        resultVersion: null,
+        scanResult: {
+          lineageId: "cancel-focus",
+          sequence: 1,
+          resultVersion: "pinned",
+        },
+      }),
+      cancelJob: () => ({
+        outcome: "accepted",
+        state: "cancel_requested",
+        reasonKey: null,
+        sequence: 4,
+      }),
+    });
+    await startFixtureScan(client);
+    const browse = await screen.findByRole("button", {
+      name: "Browse folders",
+    });
+    const cancel = screen.getByRole("button", { name: "Cancel scan" });
+    cancel.focus();
+    fireEvent.keyDown(cancel, { key: "Enter", code: "Enter" });
+    fireEvent.keyUp(cancel, { key: "Enter", code: "Enter" });
+    expect(document.activeElement).toBe(cancel);
+    expect(cancel.getAttribute("aria-disabled")).toBe("true");
+    expect(
+      screen.getByRole("progressbar", { name: "Waiting for cancellation" }),
+    ).toBeDefined();
+    expect(
+      screen.queryByRole("progressbar", { name: "Scanning folder" }),
+    ).toBeNull();
+    expect(calls.filter(({ name }) => name === "job.cancel")).toHaveLength(1);
+    if (intent === "move focus") browse.focus();
+
+    state = "cancelled";
+    sequence = 5;
+    notifyResult(listeners, "job.resync_required", {});
+    const status = await screen.findByText("Scan cancelled");
+    expect(screen.queryByRole("button", { name: "Cancel scan" })).toBeNull();
+    expect(document.activeElement).toBe(
+      intent === "move focus" ? browse : status.closest('[role="status"]'),
+    );
+  },
+);
+
+test("F02 F24: pauses and resumes the same scan without replacing pinned totals", async () => {
+  let state: AnalysisJobStatus["state"] = "running";
+  let sequence = 3;
+  let acknowledge: ((response: AnalysisJobControl) => void) | undefined;
+  const { client, calls, listeners } = fixture({
+    lineageId: "pause-lineage",
+    readStatus: (base) => ({
+      ...base,
+      state,
+      sequence,
+      resultVersion: null,
+      scanResult: {
+        lineageId: "pause-lineage",
+        sequence: 1,
+        resultVersion: "pinned",
+      },
+    }),
+    suspendJob: () =>
+      new Promise((resolve) => {
+        acknowledge = resolve;
+      }),
+  });
+
+  await startFixtureScan(client);
+  const total = await screen.findByText("At least 42 bytes");
+  const pause = screen.getByRole("button", { name: "Pause scan" });
+  pause.focus();
+  fireEvent.click(pause);
+  fireEvent.click(pause);
+  expect(screen.getByText("Pause requested")).toBeDefined();
+  expect(document.activeElement).toBe(pause);
+  expect(
+    screen.getByRole<HTMLButtonElement>("button", { name: "Cancel scan" })
+      .disabled,
+  ).toBe(false);
+  expect(calls.filter(({ name }) => name === "job.pause")).toHaveLength(1);
+
+  await act(async () => {
+    acknowledge?.({
+      outcome: "accepted",
+      state: "pause_requested",
+      reasonKey: null,
+      sequence: 4,
+    });
+  });
+  expect(screen.getByText("Pause requested")).toBeDefined();
+  expect(screen.queryByText("Scan paused")).toBeNull();
+
+  state = "pause_requested";
+  sequence = 4;
+  notifyResult(listeners, "job.resync_required", {});
+  const resume = await screen.findByRole("button", { name: "Resume scan" });
+  expect(resume).toBe(pause);
+  expect(
+    screen.getByRole("progressbar", { name: "Scanning folder" }),
+  ).toBeDefined();
+
+  state = "paused";
+  sequence = 5;
+  notifyResult(listeners, "job.resync_required", {});
+  await screen.findByText("Scan paused");
+  expect(
+    screen.queryByRole("progressbar", { name: "Scanning folder" }),
+  ).toBeNull();
+  expect(screen.getByText("At least 42 bytes")).toBe(total);
+  expect(screen.getByRole("button", { name: "Browse folders" })).toBeDefined();
+  expect(document.activeElement).toBe(resume);
+
+  fireEvent.click(resume);
+  expect(screen.getByText("Resume requested")).toBeDefined();
+  await act(async () => {
+    state = "running";
+    sequence = 6;
+    acknowledge?.({ outcome: "accepted", state, reasonKey: null, sequence });
+  });
+  await screen.findByText("Scanning");
+  expect(screen.getByRole("button", { name: "Pause scan" })).toBe(resume);
+  expect(document.activeElement).toBe(resume);
+  expect(screen.getByText("At least 42 bytes")).toBe(total);
+  expect(calls.filter(({ name }) => name === "space.total")).toHaveLength(1);
+  expect(
+    calls.filter(({ name }) => name === "job.pause" || name === "job.resume"),
+  ).toEqual([
+    { name: "job.pause", body: { jobRef: "scan" } },
+    { name: "job.resume", body: { jobRef: "scan" } },
+  ]);
+});
+
+test("F02 F24: cancellation supersedes a pending pause and terminal status cannot regress", async () => {
+  let state: AnalysisJobStatus["state"] = "running";
+  let sequence = 3;
+  let settlePause: ((response: AnalysisJobControl) => void) | undefined;
+  const { client, calls, listeners } = fixture({
+    readStatus: (base) => ({ ...base, state, sequence, resultVersion: null }),
+    suspendJob: () =>
+      new Promise((resolve) => {
+        settlePause = resolve;
+      }),
+    cancelJob: () => ({
+      outcome: "accepted",
+      state: "cancel_requested",
+      reasonKey: null,
+      sequence: 4,
+    }),
+  });
+  await startFixtureScan(client);
+  fireEvent.click(await screen.findByRole("button", { name: "Pause scan" }));
+  fireEvent.click(screen.getByRole("button", { name: "Cancel scan" }));
+  await act(async () => {
+    settlePause?.({
+      outcome: "unsupported",
+      state: "running",
+      reasonKey: "job.control_unsupported",
+      sequence: 3,
+    });
+  });
+  expect(screen.getByText("Cancellation requested")).toBeDefined();
+  expect(screen.queryByRole("alert")).toBeNull();
+  state = "cancelled";
+  sequence = 5;
+  notifyResult(listeners, "job.resync_required", {});
+  await screen.findByText("Scan cancelled");
+
+  state = "running";
+  sequence = 6;
+  const reads = calls.filter(({ name }) => name === "job.get").length;
+  notifyResult(listeners, "job.resync_required", {});
+  await waitFor(() =>
+    expect(
+      calls.filter(({ name }) => name === "job.get").length,
+    ).toBeGreaterThan(reads),
+  );
+  expect(screen.getByText("Scan cancelled")).toBeDefined();
+  expect(screen.queryByRole("button", { name: "Pause scan" })).toBeNull();
+});
+
+test("F02 F24: a stale pause rejection cannot overwrite a newer status read", async () => {
+  let sequence = 3;
+  let settlePause: ((response: AnalysisJobControl) => void) | undefined;
+  const { client, calls, listeners } = fixture({
+    readStatus: (base) => ({
+      ...base,
+      state: "running",
+      sequence,
+      resultVersion: null,
+    }),
+    suspendJob: () =>
+      new Promise((resolve) => {
+        settlePause = resolve;
+      }),
+  });
+  await startFixtureScan(client);
+  const pause = await screen.findByRole("button", { name: "Pause scan" });
+  fireEvent.click(pause);
+  sequence = 4;
+  const reads = calls.filter(({ name }) => name === "job.get").length;
+  notifyResult(listeners, "job.resync_required", {});
+  await waitFor(() =>
+    expect(
+      calls.filter(({ name }) => name === "job.get").length,
+    ).toBeGreaterThan(reads),
+  );
+  await act(async () =>
+    settlePause?.({
+      outcome: "unsupported",
+      state: "running",
+      reasonKey: "job.control_unsupported",
+      sequence: 3,
+    }),
+  );
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(screen.getByText("Scanning")).toBeDefined();
+  expect(pause.getAttribute("aria-disabled")).toBeNull();
+});
+
+test("F02 F24: an old resume failure cannot affect a replacement scan", async () => {
+  let firstDone = false;
+  let starts = 0;
+  let failResume: ((failure: Error) => void) | undefined;
+  const { client, listeners } = fixture({
+    startJob: () => (++starts === 1 ? "scan" : "next-scan"),
+    readStatus: (base) => ({
+      ...base,
+      state:
+        base.jobRef === "scan" ? (firstDone ? "done" : "paused") : "running",
+      sequence: firstDone && base.jobRef === "scan" ? 4 : 3,
+      resultVersion: null,
+    }),
+    suspendJob: () =>
+      new Promise((_, reject) => {
+        failResume = reject;
+      }),
+  });
+  await startFixtureScan(client);
+  fireEvent.click(await screen.findByRole("button", { name: "Resume scan" }));
+  expect(screen.getByText("Resume requested")).toBeDefined();
+  firstDone = true;
+  notifyResult(listeners, "job.resync_required", {});
+  await screen.findByText("Scan finished");
+  fireEvent.click(screen.getByRole("button", { name: "Analyze again" }));
+  fireEvent.click(screen.getByRole("button", { name: "Start scan" }));
+  await screen.findByText("Scanning");
+  await act(async () => failResume?.(new Error("Late resume failure")));
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(screen.getByRole("button", { name: "Pause scan" })).toBeDefined();
+});
+
+test.each(["starting", "cancelling"] as const)(
+  "F02: an older cancellation cannot change a newer scan while it is %s",
+  async (phase) => {
+    let firstFinished = false;
+    let starts = 0;
+    let resolveStart = () => {};
+    const delayedStart = new Promise<void>((resolve) => {
+      resolveStart = resolve;
+    });
+    let settleFirstCancel = () => {};
+    const firstCancel = new Promise<AnalysisJobControl>((resolve, reject) => {
+      settleFirstCancel = () => {
+        if (phase === "starting") {
+          reject(new Error("Old cancellation failed."));
+        } else {
+          resolve({
+            outcome: "unsupported",
+            state: "running",
+            reasonKey: "job.control_unsupported",
+            sequence: 3,
+          });
+        }
+      };
+    });
+    const { client, calls, listeners } = fixture({
+      beforeStart: async () => {
+        starts += 1;
+        if (starts === 2 && phase === "starting") await delayedStart;
+      },
+      startJob: () => (starts === 1 ? "scan" : "next-scan"),
+      readStatus: (base) => ({
+        ...base,
+        state: base.jobRef === "scan" && firstFinished ? "done" : "running",
+        resultVersion: null,
+      }),
+      cancelJob: (jobRef) =>
+        jobRef === "scan"
+          ? firstCancel
+          : {
+              outcome: "accepted",
+              state: "cancel_requested",
+              reasonKey: null,
+              sequence: 4,
+            },
+    });
+    await startFixtureScan(client);
+    await screen.findByText("Scanning");
+    fireEvent.click(screen.getByRole("button", { name: "Cancel scan" }));
+    firstFinished = true;
+    notifyResult(listeners, "job.resync_required", {});
+    await screen.findByText("Scan finished");
+    fireEvent.click(screen.getByRole("button", { name: "Analyze again" }));
+    fireEvent.click(screen.getByRole("button", { name: "Start scan" }));
+    if (phase === "starting") {
+      expect(
+        screen.getByRole("progressbar", { name: "Starting scan" }),
+      ).toBeDefined();
+    } else {
+      await screen.findByText("Scanning");
+      fireEvent.click(screen.getByRole("button", { name: "Cancel scan" }));
+    }
+    await act(async () => settleFirstCancel());
+    expect(screen.queryByRole("alert")).toBeNull();
+    if (phase === "starting") {
+      resolveStart();
+      await screen.findByText("Scanning");
+    } else {
+      expect(screen.getByText("Cancellation requested")).toBeDefined();
+      expect(
+        screen
+          .getByRole("button", { name: "Cancel scan" })
+          .getAttribute("aria-disabled"),
+      ).toBe("true");
+      expect(
+        calls
+          .filter(({ name }) => name === "job.cancel")
+          .map(({ body }) => body),
+      ).toEqual([{ jobRef: "scan" }, { jobRef: "next-scan" }]);
+    }
+  },
+);
+
+test("F02 IF-23: opens an existing partial without an event, then keeps it until explicit refresh", async () => {
+  // The 500 ms status poll keeps running while a terminal status lacks its
+  // terminal marker, so a slow runner can land a legitimate poll between the
+  // final render and the assertion below. Only the explicit reads under test
+  // may reach the port, so the poll is not scheduled in this test.
+  const scheduleInterval = window.setInterval.bind(window);
+  vi.spyOn(window, "setInterval").mockImplementation(((
+    handler: TimerHandler,
+    timeout?: number,
+    ...args: unknown[]
+  ) =>
+    timeout === 500
+      ? 0
+      : scheduleInterval(
+          handler,
+          timeout,
+          ...args,
+        )) as typeof window.setInterval);
+  let finish = () => {};
+  let finishBackground = () => {};
+  let delayBackground = false;
+  const delayed = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  const background = new Promise<void>((resolve) => {
+    finishBackground = resolve;
+  });
+  let status: AnalysisJobStatus = {
+    jobRef: "scan",
+    kind: "scan.metadata",
+    state: "running",
+    sequence: 1,
+    resultVersion: null,
+    reasonKey: null,
+    scanResult: { lineageId: "lineage", sequence: 1, resultVersion: "part" },
+  };
+  const { client, calls, listeners } = fixture({
+    lineageId: "lineage",
+    readStatus: async () => {
+      if (!delayBackground) return status;
+      delayBackground = false;
+      await background;
+      return { ...status, jobRef: "unrelated" };
+    },
+    readTotals: async (result) => {
+      const interim = result.resultVersion === "part";
+      if (!interim) await delayed;
+      return {
+        ...result,
+        completeness: interim ? "partial" : "complete",
+        sizes: result.sizes.map((value) =>
+          value.size.state === "lower_bound"
+            ? {
+                ...value,
+                size: { ...value.size, bytes: interim ? "255" : "2207" },
+              }
+            : value,
+        ),
+      };
+    },
+  });
+  await startFixtureScan(client);
+  await screen.findByText("Result version: Interim");
+  expect(screen.getByText("Scanning")).toBeDefined();
+
+  const previousReads = calls.filter(({ name }) => name === "job.get").length;
+  notifyResult(listeners, "results.version_changed", {
+    lineageId: "other",
+    sequence: 2,
+  });
+  expect(calls.filter(({ name }) => name === "job.get").length).toBe(
+    previousReads,
+  );
+  status = {
+    ...status,
+    state: "done",
+    resultVersion: "final",
+    scanResult: { lineageId: "lineage", sequence: 2, resultVersion: "final" },
+  };
+  notifyResult(listeners, "results.version_changed", {
+    lineageId: "lineage",
+    sequence: 2,
+  });
+  const latest = await screen.findByRole("button", {
+    name: "Show latest result",
+  });
+  const interim = screen.getByText("Result version: Interim");
+  const summary = interim.closest('[role="status"]');
+  expect(screen.getByText("Scan finished")).toBeDefined();
+  expect(summary?.textContent).toContain(
+    "You’re still viewing an interim result.",
+  );
+  expect(summary?.contains(latest)).toBe(false);
+  expect(
+    latest.compareDocumentPosition(
+      screen.getByRole("button", { name: "Browse folders" }),
+    ),
+  ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  expect(screen.getByText("At least 255 bytes")).toBeDefined();
+  expect(screen.queryByText(/2,207 bytes/)).toBeNull();
+  expect(calls.filter(({ name }) => name === "space.total")).toHaveLength(1);
+  fireEvent.click(screen.getByRole("button", { name: "Browse folders" }));
+  await screen.findByRole("region", { name: "Folder navigation" });
+  expect(calls.find(({ name }) => name === "browse.open")?.body).toMatchObject({
+    resultVersion: "part",
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Back to analysis" }));
+  // Queue the user's selection behind a status read that cannot consume it.
+  delayBackground = true;
+  notifyResult(listeners, "job.resync_required", {});
+  await waitFor(() => expect(delayBackground).toBe(false));
+  latest.focus();
+  fireEvent.keyDown(latest, { key: "Enter", code: "Enter" });
+  fireEvent.keyUp(latest, { key: "Enter", code: "Enter" });
+  const reading = screen.getByRole("button", {
+    name: "Reading latest result…",
+  });
+  expect(reading).toBe(latest);
+  expect(reading.getAttribute("aria-disabled")).toBe("true");
+  expect(document.activeElement).toBe(reading);
+  expect(screen.getByText("At least 255 bytes")).toBeDefined();
+  finishBackground();
+  await waitFor(() =>
+    expect(calls.filter(({ name }) => name === "space.total")).toHaveLength(2),
+  );
+  expect(screen.getByRole("button", { name: "Reading latest result…" })).toBe(
+    reading,
+  );
+  const started = calls.length;
+  fireEvent.keyDown(reading, { key: "Enter", code: "Enter", repeat: true });
+  fireEvent.keyUp(reading, { key: "Enter", code: "Enter" });
+  fireEvent.click(reading);
+  finish();
+  await screen.findByText("Result version: Final");
+  expect(
+    calls.slice(started).filter(({ name }) => name === "job.get"),
+  ).toHaveLength(0);
+  expect(calls.filter(({ name }) => name === "space.total")).toHaveLength(2);
+  const logical = within(screen.getByRole("group", { name: "Logical size" }));
+  expect(logical.getByText("At least 2.1 KiB")).toBeDefined();
+  expect(screen.queryByText("At least 255 bytes")).toBeNull();
+  expect(document.activeElement).toBe(summary);
+  expect(summary?.textContent).toContain("Now showing the latest result.");
+  expect(
+    logical.getByText(/Incomplete measurement · Reported by the file system/),
+  ).toBeDefined();
+  expect(
+    screen.queryByRole("button", { name: "Show latest result" }),
+  ).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Browse folders" }));
+  await screen.findByRole("region", { name: "Folder navigation" });
+  expect(
+    calls.filter(({ name }) => name === "browse.open").at(-1)?.body,
+  ).toMatchObject({
+    resultVersion: "final",
+  });
+});
+
+test("F02: a failed switch retains the interim totals and can be retried after focus moves", async () => {
+  let published = false;
+  let attempts = 0;
+  let finish = () => {};
+  let fail = () => {};
+  const delayed = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  const delayedFailure = new Promise<void>((resolve) => {
+    fail = resolve;
+  });
+  const { client, listeners } = fixture({
+    lineageId: "lineage",
+    readStatus: (base) => ({
+      ...base,
+      state: published ? "done" : "running",
+      resultVersion: published ? "final" : null,
+      scanResult: {
+        lineageId: "lineage",
+        sequence: published ? 2 : 1,
+        resultVersion: published ? "final" : "part",
+      },
+    }),
+    readTotals: async (result) => {
+      if (result.resultVersion === "part")
+        return { ...result, completeness: "partial" };
+      if (++attempts === 1) {
+        await delayedFailure;
+        throw new Error("Could not read newer totals.");
+      }
+      await delayed;
+      return { ...result, completeness: "missing" };
+    },
+  });
+  await startFixtureScan(client);
+  await screen.findByText("Result version: Interim");
+  published = true;
+  notifyResult(listeners, "results.version_changed", {
+    lineageId: "lineage",
+    sequence: 2,
+  });
+  const latest = await screen.findByRole("button", {
+    name: "Show latest result",
+  });
+  latest.focus();
+  fireEvent.click(latest);
+  expect(screen.getByRole("button", { name: "Reading latest result…" })).toBe(
+    latest,
+  );
+  fail();
+  await within(await screen.findByRole("alert")).findByText(
+    "Could not read newer totals.",
+  );
+  expect(screen.getByText("Result version: Interim")).toBeDefined();
+  expect(screen.getByText("At least 42 bytes")).toBeDefined();
+  expect(
+    await screen.findByRole("button", { name: "Show latest result" }),
+  ).toBe(latest);
+  expect(document.activeElement).toBe(latest);
+  fireEvent.click(latest);
+  await waitFor(() => expect(attempts).toBe(2));
+  expect(screen.getByRole("button", { name: "Reading latest result…" })).toBe(
+    latest,
+  );
+  const browse = screen.getByRole("button", { name: "Browse folders" });
+  browse.focus();
+  finish();
+  await screen.findByText("Result version: Final with scan gaps");
+  expect(document.activeElement).toBe(browse);
+  expect(screen.queryByText("Could not read newer totals.")).toBeNull();
+});
+
+test("F02 IF-23: a contradictory result at the same lineage sequence cannot replace a publication", async () => {
+  let version = "part";
+  let publication = 1;
+  const { client, calls, listeners } = fixture({
+    lineageId: "lineage",
+    readStatus: (base) => ({
+      ...base,
+      state: "running",
+      resultVersion: null,
+      scanResult: {
+        lineageId: "lineage",
+        sequence: publication,
+        resultVersion: version,
+      },
+    }),
+    readTotals: (result) => ({ ...result, completeness: "partial" }),
+  });
+  await startFixtureScan(client);
+  await screen.findByText("Result version: Interim");
+
+  const statusReads = calls.filter(({ name }) => name === "job.get").length;
+  version = "contradictory";
+  notifyResult(listeners, "results.version_changed", {
+    lineageId: "lineage",
+    sequence: 2,
+  });
+  await waitFor(() =>
+    expect(
+      calls.filter(({ name }) => name === "job.get").length,
+    ).toBeGreaterThan(statusReads),
+  );
+  expect(
+    screen.queryByRole("button", { name: "Show latest result" }),
+  ).toBeNull();
+  expect(screen.getByText("Result version: Interim")).toBeDefined();
+
+  version = "newer";
+  publication = 2;
+  notifyResult(listeners, "results.version_changed", {
+    lineageId: "lineage",
+    sequence: 2,
+  });
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Show latest result" }),
+  );
+  await screen.findByText("Now showing the latest result.");
+  expect(
+    calls
+      .filter(({ name }) => name === "space.total")
+      .map(({ body }) => (body as { resultVersion: string }).resultVersion),
+  ).toEqual(["part", "newer"]);
+});
+
+test("F02: an expired newer result stops showing progress after resynchronizing", async () => {
+  let published = false;
+  let expired = true;
+  const { client, calls, listeners } = fixture({
+    lineageId: "lineage",
+    readStatus: (base) => ({
+      ...base,
+      state: "running",
+      resultVersion: null,
+      scanResult: {
+        lineageId: "lineage",
+        sequence: published ? 2 : 1,
+        resultVersion: published ? "newer" : "part",
+      },
+    }),
+    readTotals: (result) => {
+      if (result.resultVersion === "newer" && expired)
+        throw new AnalysisError("STALE_VERSION", "result.requery_required");
+      return { ...result, completeness: "partial" };
+    },
+  });
+  await startFixtureScan(client);
+  await screen.findByText("Result version: Interim");
+  published = true;
+  notifyResult(listeners, "results.version_changed", {
+    lineageId: "lineage",
+    sequence: 2,
+  });
+  const latest = await screen.findByRole("button", {
+    name: "Show latest result",
+  });
+  const before = calls.length;
+  fireEvent.click(latest);
+  expect(screen.getByRole("button", { name: "Reading latest result…" })).toBe(
+    latest,
+  );
+  expect(
+    await screen.findByRole("button", { name: "Show latest result" }),
+  ).toBe(latest);
+  expect(calls.slice(before, before + 3).map(({ name }) => name)).toEqual([
+    "job.get",
+    "space.total",
+    "job.get",
+  ]);
+  expect(screen.getByText("At least 42 bytes")).toBeDefined();
+  expect(screen.queryByRole("alert")).toBeNull();
+  expired = false;
+  fireEvent.click(latest);
+  await screen.findByText("Now showing the latest result.");
+});
+
+test.each(["STALE_VERSION", "NOT_FOUND", "status read failure"] as const)(
+  "F03: a publication arriving after %s still needs an explicit selection",
+  async (failure) => {
+    let version = "interim-a";
+    let sequence = 1;
+    let failStatus = false;
+    const { client, calls, listeners } = fixture({
+      lineageId: "lineage",
+      readStatus: (base) => {
+        if (failStatus) {
+          failStatus = false;
+          throw new Error("Could not read scan status.");
+        }
+        return {
+          ...base,
+          state: version === "final-c" ? "done" : "running",
+          resultVersion: version === "final-c" ? version : null,
+          scanResult: {
+            lineageId: "lineage",
+            sequence,
+            resultVersion: version,
+          },
+        };
+      },
+      readTotals: (result) => {
+        if (
+          result.resultVersion === "expired-b" &&
+          failure !== "status read failure"
+        )
+          throw new AnalysisError(failure, "result.requery_required");
+        return {
+          ...result,
+          completeness:
+            result.resultVersion === "final-c" ? "complete" : "partial",
+        };
+      },
+    });
+    const publish = (next: string) => {
+      version = next;
+      notifyResult(listeners, "results.version_changed", {
+        lineageId: "lineage",
+        sequence: ++sequence,
+      });
+    };
+    const totalsRead = () =>
+      calls
+        .filter(({ name }) => name === "space.total")
+        .map(({ body }) => (body as { resultVersion: string }).resultVersion);
+
+    await startFixtureScan(client);
+    await screen.findByText("Result version: Interim");
+    publish("expired-b");
+    const latest = await screen.findByRole("button", {
+      name: "Show latest result",
+    });
+    failStatus = failure === "status read failure";
+    fireEvent.click(latest);
+    expect(screen.getByRole("button", { name: "Reading latest result…" })).toBe(
+      latest,
+    );
+    await screen.findByRole("button", { name: "Show latest result" });
+    const expected =
+      failure === "status read failure"
+        ? ["interim-a"]
+        : ["interim-a", "expired-b"];
+    expect(totalsRead()).toEqual(expected);
+
+    publish("final-c");
+    await screen.findByText("Scan finished");
+    await act(async () => {});
+    expect(totalsRead()).toEqual(expected);
+    const interim = screen.getByText("Result version: Interim");
+    const summary = interim.closest('[role="status"]');
+    latest.focus();
+    fireEvent.keyDown(latest, { key: "Enter", code: "Enter" });
+    fireEvent.keyUp(latest, { key: "Enter", code: "Enter" });
+    await screen.findByText("Result version: Final");
+    expect(totalsRead()).toEqual([...expected, "final-c"]);
+    expect(document.activeElement).toBe(summary);
+  },
+);
+
+test("F03: an in-progress switch can read a replacement during resynchronization", async () => {
+  let version = "interim-a";
+  const { client, calls, listeners } = fixture({
+    lineageId: "lineage",
+    readStatus: (base) => ({
+      ...base,
+      state: "running",
+      resultVersion: null,
+      scanResult: {
+        lineageId: "lineage",
+        sequence: version === "interim-a" ? 1 : version === "expired-b" ? 2 : 3,
+        resultVersion: version,
+      },
+    }),
+    readTotals: (result) => {
+      if (result.resultVersion === "expired-b") {
+        version = "replacement-c";
+        throw new AnalysisError("STALE_VERSION", "result.requery_required");
+      }
+      return { ...result, completeness: "partial" };
+    },
+  });
+  await startFixtureScan(client);
+  await screen.findByText("Result version: Interim");
+  version = "expired-b";
+  notifyResult(listeners, "results.version_changed", {
+    lineageId: "lineage",
+    sequence: 2,
+  });
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Show latest result" }),
+  );
+  await screen.findByText("Now showing the latest result.");
+  expect(
+    calls.filter(({ name }) => name === "space.total").map(({ body }) => body),
+  ).toMatchObject([
+    { resultVersion: "interim-a" },
+    { resultVersion: "expired-b" },
+    { resultVersion: "replacement-c" },
+  ]);
+});
+
+test.each(["partial", "cancelled"] as const)(
+  "F02: a %s scan keeps the interim result separate from the job outcome",
+  async (outcome) => {
+    let published = false;
+    const { client, listeners } = fixture({
+      lineageId: "lineage",
+      readStatus: (base) => ({
+        ...base,
+        state: published ? outcome : "running",
+        resultVersion: published ? "final" : null,
+        scanResult: {
+          lineageId: "lineage",
+          sequence: published ? 2 : 1,
+          resultVersion: published ? "final" : "part",
+        },
+      }),
+      readTotals: (result) => ({
+        ...result,
+        completeness:
+          result.resultVersion === "part"
+            ? "partial"
+            : outcome === "cancelled"
+              ? "cancelled"
+              : "missing",
+      }),
+    });
+    await startFixtureScan(client);
+    await screen.findByText("Result version: Interim");
+    published = true;
+    notifyResult(listeners, "results.version_changed", {
+      lineageId: "lineage",
+      sequence: 2,
+    });
+    await screen.findByText(
+      outcome === "cancelled" ? "Scan cancelled" : "Scan ended with gaps",
+    );
+    expect(screen.queryByText(/^Scan finished/)).toBeNull();
+    expect(screen.getByText("Result version: Interim")).toBeDefined();
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Show latest result" }),
+    );
+    await screen.findByText(
+      outcome === "cancelled"
+        ? "Result version: Cancelled"
+        : "Result version: Final with scan gaps",
+    );
+  },
+);
+
+test("F02 IF-23: resynchronizes when the first partial version expires before its read", async () => {
+  let published = false;
+  const { client, calls } = fixture({
+    lineageId: "lineage",
+    readStatus: (base) => ({
+      ...base,
+      state: published ? "done" : "running",
+      resultVersion: published ? "final" : null,
+      scanResult: {
+        lineageId: "lineage",
+        sequence: published ? 2 : 1,
+        resultVersion: published ? "final" : "part",
+      },
+    }),
+    readTotals: (result) => {
+      if (result.resultVersion === "part") {
+        published = true;
+        throw new AnalysisError("STALE_VERSION", "result.requery_required");
+      }
+      return { ...result, completeness: "complete" };
+    },
+  });
+  await startFixtureScan(client);
+  await screen.findByText("Result version: Final");
+  expect(
+    calls.filter(({ name }) => name === "space.total").map(({ body }) => body),
+  ).toMatchObject([{ resultVersion: "part" }, { resultVersion: "final" }]);
+  expect(
+    screen.queryByRole("button", { name: "Show latest result" }),
+  ).toBeNull();
+});
+
+test("F02 IF-23: resync after withdrawal removes only this failed scan's partial totals", async () => {
+  let withdrawn = false;
+  const { client, calls, listeners } = fixture({
+    lineageId: "lineage",
+    readStatus: (base) => ({
+      ...base,
+      state: withdrawn ? "failed" : "running",
+      resultVersion: null,
+      scanResult: withdrawn
+        ? { lineageId: "lineage", sequence: 2 }
+        : { lineageId: "lineage", sequence: 1, resultVersion: "part" },
+    }),
+  });
+  await startFixtureScan(client);
+  await screen.findByText("At least 42 bytes");
+  withdrawn = true;
+  notifyResult(listeners, "job.resync_required", {});
+  await screen.findByText("Scan failed");
+  expect(screen.queryByText("At least 42 bytes")).toBeNull();
+  expect(calls.filter(({ name }) => name === "space.total")).toHaveLength(1);
+});
+
+test("F02 IF-05: pages within the displayed result and discards a late page after changing the filter", async () => {
+  let release = () => {};
+  const delayed = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const row = (
+    displayPath: string,
+    kind: "unread_range" | "untraversed_link",
+  ) => ({
+    kind,
+    displayPath,
+    stage: "enumerate" as const,
+    pathRef: { rootIndex: 0, relative: [] },
+    reasonKey: "scan.path_denied",
+  });
+  const { client, calls, listeners } = fixture({
+    readFailures: async ({ resultVersion, kind, cursor }) => {
+      if (kind === "untraversed_link") {
+        return {
+          resultVersion,
+          totalCount: 1,
+          rows: [row("C:\\junction", kind)],
+        };
+      }
+      if (cursor === "third") await delayed;
+      return {
+        resultVersion,
+        totalCount: 3,
+        rows: [row(cursor ?? "first", "unread_range")],
+        ...(cursor !== "third" && { nextCursor: cursor ? "third" : "second" }),
+      };
+    },
+  });
+  await startFixtureScan(client);
+  await screen.findByRole("button", { name: "View scan issues" });
+  const statusReads = calls.filter(({ name }) => name === "job.get").length;
+  await act(async () => {
+    for (const listener of listeners) {
+      listener({
+        topic: "job.resync_required",
+        body: {},
+        seq: 1,
+        contractVersion: 1,
+        occurredAt: timestamp,
+      });
+    }
+  });
+  expect(calls.filter(({ name }) => name === "job.get")).toHaveLength(
+    statusReads + 1,
+  );
+  expect(
+    screen.getAllByRole("button", { name: "View scan issues" }),
+  ).toHaveLength(1);
+  fireEvent.click(screen.getByRole("button", { name: "View scan issues" }));
+  await screen.findByText("first");
+  fireEvent.click(screen.getByRole("button", { name: "Load more issues" }));
+  await screen.findByText("second");
+  expect(screen.getByText("Showing 2 of 3 issues")).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "Load more issues" }));
+  fireEvent.change(screen.getByRole("combobox", { name: "Issue type" }), {
+    target: { value: "untraversed_link" },
+  });
+  await screen.findByText("C:\\junction");
+  await act(async () => release());
+  expect(screen.queryByText("third")).toBeNull();
+  expect(screen.queryByText("first")).toBeNull();
+  expect(
+    calls
+      .filter(({ name }) => name === "scan.failures")
+      .map(({ body }) => body),
+  ).toEqual([
+    { resultVersion: "result" },
+    { resultVersion: "result", cursor: "second" },
+    { resultVersion: "result", cursor: "third" },
+    { resultVersion: "result", kind: "untraversed_link" },
+  ]);
+});
+
+test("ANFR5: the analysis workspace exposes labelled controls and valid ARIA roles", async () => {
+  const { client } = fixture();
+  const { container } = render(<App analysis={client} />);
+  await screen.findByRole("radio", { name: path.display });
+  expect(
+    screen.getByRole("textbox", { name: "Windows folder path" }),
+  ).toBeDefined();
+  const result = await axe.run(container, {
+    runOnly: {
+      type: "rule",
+      values: [
+        "label",
+        "button-name",
+        "aria-valid-attr",
+        "aria-allowed-role",
+        "aria-required-attr",
+      ],
+    },
+  });
+  expect(result.violations).toEqual([]);
+});
+
+function folderDrop(
+  detail: { seq: number } & (
+    { pending: true } | { path: string } | { reason: "invalid_target" }
+  ),
+) {
+  act(() => {
+    window.dispatchEvent(new CustomEvent("du://folder-drop", { detail }));
+  });
+}
+
+test("F01: cancelling selection discards late review and drop while cancelling only its probe", async () => {
+  let resolveReview: ((value: ScopeReview) => void) | undefined;
+  const { client, calls, listeners } = fixture({
+    readReview: (value) =>
+      new Promise((resolve) => {
+        resolveReview = () => resolve(value);
+      }),
+  });
+  const nativeDrop = createAnalysisClient().subscribeFolderDrop;
+  if (!nativeDrop) throw new Error("Expected native drop subscription");
+  render(<App analysis={{ ...client, subscribeFolderDrop: nativeDrop }} />);
+  fireEvent.click(await screen.findByRole("radio", { name: path.display }));
+  fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
+  await waitFor(() => expect(resolveReview).toBeDefined());
+  folderDrop({ seq: 1, pending: true });
+  const cancel = screen.getByRole("button", { name: "Cancel selection" });
+  cancel.focus();
+  fireEvent.click(cancel);
+  expect(document.activeElement).toBe(cancel);
+  folderDrop({ seq: 1, path: "D:\\late" });
+  await act(async () => {
+    resolveReview?.({} as ScopeReview);
+  });
+  act(() => {
+    for (const listener of listeners) listener(probe("probe", 2, "accessible"));
+  });
+  expect(screen.getByRole("radio", { name: path.display })).toBeTruthy();
+  expect(
+    (
+      screen.getByRole("textbox", {
+        name: "Windows folder path",
+      }) as HTMLInputElement
+    ).value,
+  ).toBe("");
+  expect(
+    (screen.getByRole("button", { name: "Start scan" }) as HTMLButtonElement)
+      .disabled,
+  ).toBe(true);
+  expect(calls.filter(({ name }) => name === "scan.start")).toHaveLength(0);
+  expect(
+    calls.filter(({ name }) => name === "job.cancel").map(({ body }) => body),
+  ).toEqual([{ jobRef: "probe" }]);
+});
+
+test("F01: cancelling before target list returns cancels its late probe and ignores its list", async () => {
+  let resolveTargets: ((value: TargetList) => void) | undefined;
+  const pending = new Promise<TargetList>((resolve) => {
+    resolveTargets = resolve;
+  });
+  const { client, calls } = fixture({ targetList: pending });
+  render(<App analysis={client} />);
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Cancel selection" }),
+  );
+  await act(async () => {
+    resolveTargets?.(targets);
+  });
+  await waitFor(() =>
+    expect(
+      calls.filter(({ name }) => name === "job.cancel").map(({ body }) => body),
+    ).toEqual([{ jobRef: "probe" }]),
+  );
+  expect(screen.queryByRole("radio", { name: path.display })).toBeNull();
+  expect(calls.some(({ name }) => name === "scan.start")).toBe(false);
+});
+
+test("F01: cancelling a new selection preserves the prior scan and its result", async () => {
+  const { client, calls } = fixture();
+  await startFixtureScan(client);
+  const total = await screen.findByText("At least 42 bytes");
+  fireEvent.click(screen.getByRole("button", { name: "Analyze again" }));
+  fireEvent.change(
+    screen.getByRole("textbox", { name: "Windows folder path" }),
+    { target: { value: "D:\\new" } },
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Cancel selection" }));
+  expect(screen.getByText("At least 42 bytes")).toBe(total);
+  expect(calls.filter(({ name }) => name === "scan.start")).toHaveLength(1);
+  expect(
+    calls.filter(({ name }) => name === "job.cancel").map(({ body }) => body),
+  ).toEqual([{ jobRef: "probe" }]);
+});
+
+test("F01: a probe finished before its delayed list is not cancelled", async () => {
+  let resolveTargets: ((value: TargetList) => void) | undefined;
+  const { client, calls, listeners } = fixture({
+    targetList: new Promise<TargetList>((resolve) => {
+      resolveTargets = resolve;
+    }),
+  });
+  render(<App analysis={client} />);
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Cancel selection" }),
+  );
+  act(() => {
+    for (const listener of listeners)
+      listener({
+        topic: "job.finished",
+        contractVersion: 1,
+        seq: 2,
+        jobRef: "probe",
+        occurredAt: timestamp,
+        body: { sequence: 2 },
+      });
+  });
+  await act(async () => {
+    resolveTargets?.(targets);
+  });
+  expect(calls.filter(({ name }) => name === "job.cancel")).toHaveLength(0);
+  expect(calls.filter(({ name }) => name === "scan.start")).toHaveLength(0);
+});
+
+test.each([
+  { dropped: "D:\\한글 폴더 😀", display: "D:\\한글 폴더 😀", lossy: false },
+  {
+    dropped: `D:\\folder-${String.fromCharCode(0xd800)}`,
+    display: "D:\\folder-\uFFFD",
+    lossy: true,
+  },
+])(
+  "F01: a dropped folder replaces the selection and requires a fresh scope review ($display)",
+  async ({ dropped, display, lossy }) => {
+    const { client, calls } = fixture();
+    const nativeDrop = createAnalysisClient().subscribeFolderDrop;
+    if (!nativeDrop) throw new Error("Expected native drop subscription");
+    render(<App analysis={{ ...client, subscribeFolderDrop: nativeDrop }} />);
+    fireEvent.click(await screen.findByRole("radio", { name: path.display }));
+    const review = screen.getByRole("button", { name: "Review scope" });
+    const start = screen.getByRole("button", {
+      name: "Start scan",
+    }) as HTMLButtonElement;
+    fireEvent.click(review);
+    await waitFor(() => expect(start.disabled).toBe(false));
+    folderDrop({ seq: 1, pending: true });
+    folderDrop({ seq: 1, path: dropped });
+    expect(
+      (
+        screen.getByRole("textbox", {
+          name: "Windows folder path",
+        }) as HTMLInputElement
+      ).value,
+    ).toBe(display);
+    expect(start.disabled).toBe(true);
+    expect(calls.some(({ name }) => name === "scan.start")).toBe(false);
+    fireEvent.click(review);
+    await waitFor(() => expect(start.disabled).toBe(false));
+    expect(
+      calls.filter(({ name }) => name === "scope.review").at(-1)?.body,
+    ).toMatchObject({
+      draft: {
+        includes: [
+          {
+            encoding: "windows_utf16le",
+            raw: Buffer.from(dropped, "utf16le").toString("base64url"),
+            display,
+            lossy,
+          },
+        ],
+      },
+    });
+  },
+);
+
+test("F01: an invalid drop gives guidance without replacing the chosen folder", async () => {
+  const { client } = fixture();
+  const nativeDrop = createAnalysisClient().subscribeFolderDrop;
+  if (!nativeDrop) throw new Error("Expected native drop subscription");
+  const englishText: LocaleText = (_key, fallback) => fallback;
+  const localizedText: LocaleText = (key, fallback) => {
+    if (key === "ui.analysis.drop_invalid_folder")
+      return "Suelta una carpeta local accesible. No se cambió ninguna ruta.";
+    if (key === "ui.analysis.folder_selected_review")
+      return "Carpeta seleccionada. Revisa el alcance.";
+    return fallback;
+  };
+  const app = (text: LocaleText) => (
+    <LocaleTextContext.Provider value={text}>
+      <App analysis={{ ...client, subscribeFolderDrop: nativeDrop }} />
+    </LocaleTextContext.Provider>
+  );
+  const view = render(app(englishText));
+  fireEvent.click(await screen.findByRole("radio", { name: path.display }));
+  folderDrop({ seq: 1, pending: true });
+  folderDrop({ seq: 1, reason: "invalid_target" });
+  expect(
+    screen.getByText("Drop one accessible local folder. No path was changed."),
+  ).toBeDefined();
+  view.rerender(app(localizedText));
+  expect(
+    screen.getByText(
+      "Suelta una carpeta local accesible. No se cambió ninguna ruta.",
+    ),
+  ).toBeDefined();
+  expect(
+    (
+      screen.getByRole("textbox", {
+        name: "Windows folder path",
+      }) as HTMLInputElement
+    ).value,
+  ).toBe(path.display);
+
+  folderDrop({ seq: 2, pending: true });
+  folderDrop({ seq: 2, path: "D:\\selected" });
+  expect(
+    screen.getByText("Carpeta seleccionada. Revisa el alcance."),
+  ).toBeDefined();
+});
+
+test.each([
+  ["Review scope", "scope.review", 1],
+  ["Start scan", "scan.start", 0],
+] as const)(
+  "F01: a pending folder verification blocks %s without losing focus",
+  async (label, command, previousCalls) => {
+    const { client, calls } = fixture();
+    const nativeDrop = createAnalysisClient().subscribeFolderDrop;
+    if (!nativeDrop) throw new Error("Expected native drop subscription");
+    render(<App analysis={{ ...client, subscribeFolderDrop: nativeDrop }} />);
+    fireEvent.click(await screen.findByRole("radio", { name: path.display }));
+    fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
+    const start = screen.getByRole<HTMLButtonElement>("button", {
+      name: "Start scan",
+    });
+    await waitFor(() => expect(start.disabled).toBe(false));
+    const action = screen.getByRole("button", { name: label });
+    action.focus();
+    act(() => {
+      folderDrop({ seq: 1, pending: true });
+      fireEvent.click(action);
+    });
+    expect(calls.filter(({ name }) => name === command)).toHaveLength(
+      previousCalls,
+    );
+    expect(
+      screen.getByText("Checking dropped folder…").closest('[role="status"]'),
+    ).not.toBeNull();
+    expect(document.activeElement).toBe(action);
+    expect(action.getAttribute("aria-disabled")).toBe("true");
+
+    folderDrop({ seq: 1, reason: "invalid_target" });
+    expect(screen.queryByText("Checking dropped folder…")).toBeNull();
+    expect(screen.getByRole("alert").textContent).toContain(
+      "No path was changed.",
+    );
+    expect(screen.getByLabelText("Reviewed scope").textContent).toContain(
+      path.display,
+    );
+    expect(start.disabled).toBe(false);
+    expect(action.hasAttribute("aria-disabled")).toBe(false);
+    expect(document.activeElement).toBe(action);
+
+    folderDrop({ seq: 2, pending: true });
+    folderDrop({ seq: 2, path: "D:\\Retry" });
+    expect(
+      screen.getByRole<HTMLInputElement>("textbox", {
+        name: "Windows folder path",
+      }).value,
+    ).toBe("D:\\Retry");
+    expect(start.disabled).toBe(true);
+    expect(calls.some(({ name }) => name === "scan.start")).toBe(false);
+  },
+);
+
+test("F01 FR3: a delayed folder verification cannot undo a newer edit or drop", async () => {
+  const { client, calls } = fixture();
+  const nativeDrop = createAnalysisClient().subscribeFolderDrop;
+  if (!nativeDrop) throw new Error("Expected native drop subscription");
+  render(<App analysis={{ ...client, subscribeFolderDrop: nativeDrop }} />);
+  fireEvent.click(await screen.findByRole("radio", { name: path.display }));
+  const input = screen.getByRole<HTMLInputElement>("textbox", {
+    name: "Windows folder path",
+  });
+  folderDrop({ seq: 1, pending: true });
+  expect(screen.getByText("Checking dropped folder…")).toBeDefined();
+  fireEvent.change(input, { target: { value: "D:\\Manual" } });
+  folderDrop({ seq: 1, path: "D:\\Late" });
+  expect(input.value).toBe("D:\\Manual");
+  expect(screen.queryByText("Checking dropped folder…")).toBeNull();
+
+  folderDrop({ seq: 2, pending: true });
+  folderDrop({ seq: 3, pending: true });
+  folderDrop({ seq: 2, reason: "invalid_target" });
+  expect(screen.queryByText(/^Drop one accessible local folder/)).toBeNull();
+  expect(screen.getByText("Checking dropped folder…")).toBeDefined();
+  folderDrop({ seq: 3, path: "D:\\Newest" });
+  expect(input.value).toBe("D:\\Newest");
+  expect(screen.queryByText("Checking dropped folder…")).toBeNull();
+  expect(calls.some(({ name }) => name === "scan.start")).toBe(false);
+});
+
+test.each(["finished", "rejected"] as const)(
+  "F01: a drop after Start in the same render cannot block the next scope when the scan is %s",
+  async (outcome) => {
+    let scanFinished = false;
+    let settleStart = () => {};
+    const delayed = new Promise<void>((resolve, reject) => {
+      settleStart = () => {
+        if (outcome === "rejected") reject(new Error("Scan was not started."));
+        else resolve();
+      };
+    });
+    const { client, listeners } = fixture({
+      beforeStart: () => delayed,
+      readStatus: (base) => ({
+        ...base,
+        state: scanFinished ? "done" : "running",
+        resultVersion: null,
+      }),
+    });
+    const nativeDrop = createAnalysisClient().subscribeFolderDrop;
+    if (!nativeDrop) throw new Error("Expected native drop subscription");
+    render(<App analysis={{ ...client, subscribeFolderDrop: nativeDrop }} />);
+    fireEvent.click(await screen.findByRole("radio", { name: path.display }));
+    fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
+    const start = screen.getByRole<HTMLButtonElement>("button", {
+      name: "Start scan",
+    });
+    await waitFor(() => expect(start.disabled).toBe(false));
+
+    act(() => {
+      fireEvent.click(start);
+      folderDrop({ seq: 1, pending: true });
+    });
+    expect(
+      screen.getByRole("progressbar", { name: "Starting scan" }),
+    ).toBeDefined();
+    folderDrop({ seq: 1, path: "D:\\During start" });
+    settleStart();
+    if (outcome === "finished") {
+      await screen.findByText("Scanning");
+      folderDrop({ seq: 2, pending: true });
+      folderDrop({ seq: 2, path: "D:\\During scan" });
+      scanFinished = true;
+      notifyResult(listeners, "job.resync_required", {});
+      await screen.findByText("Scan finished");
+    } else {
+      await screen.findByText("Scan was not started.");
+    }
+
+    expect(screen.queryByText("Checking dropped folder…")).toBeNull();
+    if (outcome === "finished") {
+      fireEvent.click(screen.getByRole("button", { name: "Analyze again" }));
+    }
+    const nextStart = screen.getByRole<HTMLButtonElement>("button", {
+      name: "Start scan",
+    });
+    expect(nextStart.disabled).toBe(false);
+    expect(nextStart.hasAttribute("aria-disabled")).toBe(false);
+    const input = screen.getByRole<HTMLInputElement>("textbox", {
+      name: "Windows folder path",
+    });
+    expect(input.value).toBe(path.display);
+    folderDrop({ seq: 3, pending: true });
+    expect(screen.getByText("Checking dropped folder…")).toBeDefined();
+    folderDrop({ seq: 3, path: "D:\\Next scope" });
+    expect(input.value).toBe("D:\\Next scope");
+    expect(nextStart.disabled).toBe(true);
+  },
+);
+
+test("F01 FR3: multiple paths are reviewed together and the exact reviewed input starts the scan", async () => {
+  const { client, calls } = fixture({
+    readVolume: ({ resultVersion, requestSeq }) => ({
+      resultVersion,
+      requestSeq,
+      volumeId: "AQ",
+      start: {
+        state: "available",
+        observedAt: timestamp,
+        totalBytes: "10",
+        usedBytes: "10",
+        freeBytes: "0",
+        evidence: "os_reported",
+      },
+      end: { state: "not_attempted" },
+      allocated: {
+        size: {
+          basis: "allocated",
+          evidence: "os_reported",
+          state: "lower_bound",
+          bytes: "2",
+        },
+        completeness: "missing",
+      },
+      uniquePhysical: {
+        size: {
+          basis: "unique_physical",
+          evidence: "unknown",
+          state: "unknown",
+        },
+        completeness: "missing",
+      },
+      factors: [
+        {
+          key: "gap.inaccessible",
+          value: { state: "unknown", reasonKey: "space.data_insufficient" },
+        },
+      ],
+      remainder: {
+        state: "unknown",
+        reasonKey: "space.volume_report_unavailable",
+      },
+      osCategories: {
+        state: "unavailable",
+        reasonKey: "space.volume_report_unavailable",
+      },
+    }),
+  });
+  render(<App analysis={client} />);
+  fireEvent.click(await screen.findByRole("radio", { name: path.display }));
+  fireEvent.click(screen.getByRole("button", { name: "Add path" }));
+  const reviewButton = screen.getByRole<HTMLButtonElement>("button", {
+    name: "Review scope",
+  });
+  expect(reviewButton.disabled).toBe(true);
+  const second = windowsPath("D:\\Another folder");
+  fireEvent.change(
+    screen.getByRole("textbox", { name: "Additional folder path 2" }),
+    { target: { value: second.display } },
+  );
+  fireEvent.click(reviewButton);
+  const start = screen.getByRole<HTMLButtonElement>("button", {
+    name: "Start scan",
+  });
+  await waitFor(() => expect(start.disabled).toBe(false));
+  const reviewRequest = calls.find((call) => call.name === "scope.review")
+    ?.body as { draft: unknown };
+  expect(reviewRequest.draft).toMatchObject({ includes: [path, second] });
+  fireEvent.click(start);
+  await screen.findByText("At least 42 bytes");
+  expect(calls.find((call) => call.name === "scan.start")?.body).toEqual({
+    draft: reviewRequest.draft,
+    reviewFingerprint: "verified",
+  });
+  expect(
+    screen.queryByRole("button", { name: "View folder details" }),
+  ).toBeNull();
+  expect(calls.some((call) => call.name === "browse.detail")).toBe(false);
+  fireEvent.change(screen.getByRole("combobox", { name: "Scanned folder" }), {
+    target: { value: "1" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Explain volume usage" }));
+  fireEvent.click(
+    await screen.findByRole("button", {
+      name: "Observation and difference details",
+    }),
+  );
+  const observations = within(
+    await screen.findByLabelText("Volume observations"),
+  );
+  expect(observations.getByText("0 bytes")).toBeDefined();
+  expect(observations.getByText("Not attempted")).toBeDefined();
+  expect(
+    calls.find((call) => call.name === "space.volume_gap")?.body,
+  ).toMatchObject({
+    resultVersion: "result",
+    target: { root: { resultVersion: "result", itemNo: 1 } },
+  });
+  fireEvent.click(
+    screen.getByRole("button", {
+      name: "Compare all scanned folders on this volume",
+    }),
+  );
+  await screen.findByText("All scanned folders on this volume");
+  expect(
+    calls.filter((call) => call.name === "space.volume_gap").at(-1)?.body,
+  ).toMatchObject({
+    resultVersion: "result",
+    target: { volumeId: "AQ" },
+  });
+});
+
+test("F01 FR3: normalized review preserves original selections for scan admission", async () => {
+  const { client, calls } = fixture({
+    readReview: (review) => ({
+      ...review,
+      scope: { ...review.scope, includes: review.scope.includes.slice(0, 1) },
+      notices: ["scope.descendant_absorbed"],
+    }),
+  });
+  render(<App analysis={client} />);
+  fireEvent.click(await screen.findByRole("radio", { name: path.display }));
+  fireEvent.click(screen.getByRole("button", { name: "Add path" }));
+  const second = windowsPath("C:\\fixture\\child");
+  fireEvent.change(
+    screen.getByRole("textbox", { name: "Additional folder path 2" }),
+    { target: { value: second.display } },
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
+  const start = screen.getByRole<HTMLButtonElement>("button", {
+    name: "Start scan",
+  });
+  await waitFor(() => expect(start.disabled).toBe(false));
+  expect(
+    screen.getByText(
+      "A selected folder is already inside another selected folder.",
+    ),
+  ).toBeDefined();
+  fireEvent.click(start);
+  await screen.findByText("At least 42 bytes");
+  expect(calls.find(({ name }) => name === "scan.start")?.body).toMatchObject({
+    draft: { includes: [path, second] },
+  });
+});
+
+test("F01 FR3: canonical Windows review paths do not replace the original request", async () => {
+  const canonical = windowsPath("\\\\?\\D:\\Folder");
+  const requested = windowsPath("D:\\Folder");
+  const { client, calls } = fixture({
+    readReview: (review) => ({
+      ...review,
+      scope: { ...review.scope, includes: [canonical] },
+      targets: [{ path: canonical, access: "accessible", reasonKey: null }],
+    }),
+  });
+  render(<App analysis={client} />);
+  fireEvent.change(
+    screen.getByRole("textbox", { name: "Windows folder path" }),
+    { target: { value: requested.display } },
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
+  const start = screen.getByRole<HTMLButtonElement>("button", {
+    name: "Start scan",
+  });
+  await waitFor(() => expect(start.disabled).toBe(false));
+  fireEvent.click(start);
+  await screen.findByText("At least 42 bytes");
+  expect(calls.find(({ name }) => name === "scan.start")?.body).toMatchObject({
+    draft: { includes: [requested] },
+  });
+});
+
+test("F01 FR3: editing or removing a path rejects a late review and requires another review", async () => {
+  let release: ((value: ScopeReview) => void) | undefined;
+  let captured: ScopeReview | undefined;
+  let count = 0;
+  const { client } = fixture({
+    readReview: (review) => {
+      count += 1;
+      if (count > 1) return review;
+      captured = review;
+      return new Promise<ScopeReview>((resolve) => {
+        release = resolve;
+      });
+    },
+  });
+  render(<App analysis={client} />);
+  fireEvent.click(await screen.findByRole("radio", { name: path.display }));
+  fireEvent.click(screen.getByRole("button", { name: "Add path" }));
+  const input = screen.getByRole("textbox", {
+    name: "Additional folder path 2",
+  });
+  fireEvent.change(input, { target: { value: "D:\\First" } });
+  fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
+  expect(
+    screen.getByRole("progressbar", { name: "Reviewing scope" }),
+  ).toBeDefined();
+  expect(
+    screen
+      .getByRole("button", { name: "Reviewing scope…" })
+      .getAttribute("aria-disabled"),
+  ).toBe("true");
+  fireEvent.change(input, { target: { value: "D:\\Changed" } });
+  expect(
+    screen.queryByRole("progressbar", { name: "Reviewing scope" }),
+  ).toBeNull();
+  if (!release || !captured) throw new Error("Review was not started");
+  await act(async () => release?.(captured as ScopeReview));
+  const start = screen.getByRole<HTMLButtonElement>("button", {
+    name: "Start scan",
+  });
+  expect(start.disabled).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
+  await waitFor(() => expect(start.disabled).toBe(false));
+  const summary = screen.getByLabelText("Reviewed scope");
+  expect(input.compareDocumentPosition(summary)).toBe(
+    Node.DOCUMENT_POSITION_FOLLOWING,
+  );
+  expect(summary.compareDocumentPosition(start)).toBe(
+    Node.DOCUMENT_POSITION_FOLLOWING,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Remove path 2" }));
+  expect(start.disabled).toBe(true);
+  expect(
+    screen.queryByRole("textbox", { name: "Additional folder path 2" }),
+  ).toBeNull();
+});
+
+test("F01 FR3: rejected or incomplete reviews cannot start a partial scan", async () => {
+  const { client, calls } = fixture({
+    readReview: (review) => ({
+      ...review,
+      targets: review.targets.slice(0, 1),
+    }),
+  });
+  render(<App analysis={client} />);
+  fireEvent.click(await screen.findByRole("radio", { name: path.display }));
+  fireEvent.click(screen.getByRole("button", { name: "Add path" }));
+  fireEvent.change(
+    screen.getByRole("textbox", { name: "Additional folder path 2" }),
+    { target: { value: "D:\\Denied" } },
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
+  expect((await screen.findByRole("alert")).textContent).toContain(
+    "One or more selected paths could not be verified.",
+  );
+  expect(
+    screen.getByRole<HTMLButtonElement>("button", { name: "Start scan" })
+      .disabled,
+  ).toBe(true);
+  expect(calls.some(({ name }) => name === "scan.start")).toBe(false);
+});
+
+test("F01 FR3: an unavailable selection prevents the whole scope from starting", async () => {
+  const { client, calls } = fixture({
+    readReview: (review) => ({
+      ...review,
+      targets: review.targets.map((target, index) =>
+        index === 1
+          ? { ...target, access: "denied", reasonKey: "scan.path_denied" }
+          : target,
+      ),
+    }),
+  });
+  render(<App analysis={client} />);
+  fireEvent.click(await screen.findByRole("radio", { name: path.display }));
+  fireEvent.click(screen.getByRole("button", { name: "Add path" }));
+  fireEvent.change(
+    screen.getByRole("textbox", { name: "Additional folder path 2" }),
+    { target: { value: "D:\\Denied" } },
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
+  expect((await screen.findByRole("alert")).textContent).toContain(
+    "Access to a selected folder was denied.",
+  );
+  expect(
+    screen.getByRole<HTMLButtonElement>("button", { name: "Start scan" })
+      .disabled,
+  ).toBe(true);
+  expect(calls.some(({ name }) => name === "scan.start")).toBe(false);
+});
+
+test("F01 FR3: failed multi-path review retains input and rejects start", async () => {
+  const { client, calls } = fixture({
+    readReview: () => {
+      throw new AnalysisError("INVALID_ARGUMENT", "scope.target_unavailable");
+    },
+  });
+  render(<App analysis={client} />);
+  fireEvent.click(await screen.findByRole("radio", { name: path.display }));
+  fireEvent.click(screen.getByRole("button", { name: "Add path" }));
+  fireEvent.change(
+    screen.getByRole("textbox", { name: "Additional folder path 2" }),
+    { target: { value: "D:\\Denied" } },
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
+  const message =
+    "Check that every selected path is an accessible local folder, then review the scope again.";
+  const problem = await within(
+    screen.getByRole("region", { name: "Target and scope" }),
+  ).findByText(message);
+  const review = screen.getByRole("button", { name: "Review scope" });
+  expect(problem.compareDocumentPosition(review)).toBe(
+    Node.DOCUMENT_POSITION_FOLLOWING,
+  );
+  expect(screen.queryByRole("region", { name: "Scan and results" })).toBeNull();
+  expect(
+    screen.getByRole<HTMLInputElement>("textbox", {
+      name: "Additional folder path 2",
+    }).value,
+  ).toBe("D:\\Denied");
+  expect(
+    screen.getByRole<HTMLButtonElement>("button", { name: "Start scan" })
+      .disabled,
+  ).toBe(true);
+  expect(calls.some(({ name }) => name === "scan.start")).toBe(false);
+});
+
+test("F01 FR3: multi-path controls have accessible labels and preserve the drop input", async () => {
+  const { client } = fixture();
+  const nativeDrop = createAnalysisClient().subscribeFolderDrop;
+  if (!nativeDrop) throw new Error("Expected native drop subscription");
+  const { container } = render(
+    <App analysis={{ ...client, subscribeFolderDrop: nativeDrop }} />,
+  );
+  fireEvent.click(await screen.findByRole("radio", { name: path.display }));
+  const add = screen.getByRole("button", { name: "Add path" });
+  add.focus();
+  fireEvent.keyDown(add, { key: "Enter", code: "Enter" });
+  fireEvent.keyUp(add, { key: "Enter", code: "Enter" });
+  const additional = screen.getByRole("textbox", {
+    name: "Additional folder path 2",
+  });
+  expect(document.activeElement).toBe(additional);
+  fireEvent.change(additional, { target: { value: "D:\\Kept" } });
+  folderDrop({ seq: 1, pending: true });
+  folderDrop({ seq: 1, path: "C:\\Dropped" });
+  expect(
+    screen.getByRole<HTMLInputElement>("textbox", {
+      name: "Windows folder path",
+    }).value,
+  ).toBe("C:\\Dropped");
+  expect(
+    screen.getByRole<HTMLInputElement>("textbox", {
+      name: "Additional folder path 2",
+    }).value,
+  ).toBe("D:\\Kept");
+  expect(
+    (
+      await axe.run(container, {
+        runOnly: {
+          type: "rule",
+          values: [
+            "label",
+            "button-name",
+            "aria-valid-attr",
+            "aria-allowed-role",
+            "aria-required-attr",
+          ],
+        },
+      })
+    ).violations,
+  ).toEqual([]);
+});
+
+test("F01: pending review retains focus and ignores repeated activation", async () => {
+  let release: (() => void) | undefined;
+  const { client, calls } = fixture({
+    readReview: (review) =>
+      new Promise((resolve) => {
+        release = () => resolve(review);
+      }),
+  });
+  render(<App analysis={client} />);
+  const input = await screen.findByRole<HTMLInputElement>("textbox", {
+    name: "Windows folder path",
+  });
+  expect(document.activeElement).toBe(input);
+  fireEvent.change(input, { target: { value: "C:\\fixture" } });
+  const review = screen.getByRole<HTMLButtonElement>("button", {
+    name: "Review scope",
+  });
+  review.focus();
+  fireEvent.click(review);
+  expect(document.activeElement).toBe(review);
+  expect(review.getAttribute("aria-disabled")).toBe("true");
+  fireEvent.click(review);
+  expect(calls.filter((call) => call.name === "scope.review")).toHaveLength(1);
+  if (!release) throw new Error("Review did not start");
+  await act(async () => release?.());
+  await screen.findByLabelText("Reviewed scope");
+  expect(document.activeElement).toBe(review);
+});
+
+test("F01: pending scan keeps focus and suppresses duplicate starts", async () => {
+  let release: (() => void) | undefined;
+  const { client, calls } = fixture({
+    beforeStart: () =>
+      new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+  });
+  render(<App analysis={client} />);
+  const input = await screen.findByRole("textbox", {
+    name: "Windows folder path",
+  });
+  fireEvent.change(input, { target: { value: "C:\\fixture" } });
+  fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
+  await screen.findByLabelText("Reviewed scope");
+  const start = screen.getByRole<HTMLButtonElement>("button", {
+    name: "Start scan",
+  });
+  start.focus();
+  fireEvent.click(start);
+  expect(document.activeElement).toBe(start);
+  expect(start.getAttribute("aria-disabled")).toBe("true");
+  fireEvent.click(start);
+  expect(calls.filter((call) => call.name === "scan.start")).toHaveLength(1);
+  if (!release) throw new Error("Scan did not start");
+  await act(async () => release?.());
+  await screen.findByText("At least 42 bytes");
+  expect(document.activeElement).toBe(
+    screen.getByText("Scan ended with gaps").parentElement,
+  );
+  expect(screen.queryByRole("button", { name: "Start scan" })).toBeNull();
+});
+
+test("F01: adding and removing a path restores focus to the appropriate field", async () => {
+  const { client } = fixture();
+  render(<App analysis={client} />);
+  const primary = await screen.findByRole("textbox", {
+    name: "Windows folder path",
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Add path" }));
+  const extra = screen.getByRole("textbox", {
+    name: "Additional folder path 2",
+  });
+  expect(document.activeElement).toBe(extra);
+  fireEvent.click(screen.getByRole("button", { name: "Remove path 2" }));
+  expect(document.activeElement).toBe(primary);
+});
+
+test("F01: result editor opens and closes with focus while keeping the result scope", async () => {
+  const { client, calls } = fixture();
+  await startFixtureScan(client);
+  await screen.findByText("At least 42 bytes");
+  const opener = screen.getByRole("button", { name: "Analyze again" });
+  expect(
+    screen.queryByRole("textbox", { name: "Windows folder path" }),
+  ).toBeNull();
+  expect(opener.hasAttribute("aria-controls")).toBe(false);
+  fireEvent.click(opener);
+  const editorId = opener.getAttribute("aria-controls");
+  expect(editorId).not.toBeNull();
+  expect(document.getElementById(editorId!)).toBe(
+    screen.getByRole("region", { name: "Target and scope" }),
+  );
+  expect(document.activeElement).toBe(
+    screen.getByRole("region", { name: "Target selection and scope review" }),
+  );
+  const input = screen.getByRole<HTMLInputElement>("textbox", {
+    name: "Windows folder path",
+  });
+  const reviews = () => calls.filter(({ name }) => name === "scope.review");
+  const beforeEdit = reviews().length;
+  fireEvent.change(input, { target: { value: "D:\\new" } });
+  expect(
+    screen.getByRole<HTMLButtonElement>("button", { name: "Start scan" })
+      .disabled,
+  ).toBe(true);
+  expect(screen.getByText("At least 42 bytes")).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "Close target editor" }));
+  expect(document.activeElement).toBe(opener);
+  expect(opener.getAttribute("aria-expanded")).toBe("false");
+  expect(opener.hasAttribute("aria-controls")).toBe(false);
+  await act(async () => {
+    await new Promise((resolve) => window.setTimeout(resolve, 400));
+  });
+  expect(reviews()).toHaveLength(beforeEdit);
+
+  fireEvent.click(opener);
+  expect(
+    screen.getByRole<HTMLInputElement>("textbox", {
+      name: "Windows folder path",
+    }).value,
+  ).toBe("D:\\new");
+  await waitFor(() => expect(reviews()).toHaveLength(beforeEdit + 1));
+  expect(reviews().at(-1)?.body).toMatchObject({
+    draft: { includes: [windowsPath("D:\\new")] },
+  });
+  expect(screen.getByText("At least 42 bytes")).toBeDefined();
+});
+
+test("F01: failed start keeps the editor and returns focus to scope review", async () => {
+  const { client } = fixture({ stale: true });
+  render(<App analysis={client} />);
+  fireEvent.change(
+    await screen.findByRole("textbox", { name: "Windows folder path" }),
+    {
+      target: { value: "C:\\fixture" },
+    },
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
+  await screen.findByLabelText("Reviewed scope");
+  fireEvent.click(screen.getByRole("button", { name: "Start scan" }));
+  await screen.findByText(
+    "The target or result changed. Review the scope again.",
+  );
+  expect(document.activeElement).toBe(
+    screen.getByRole("button", { name: "Review scope" }),
+  );
+  expect(
+    screen.getByRole("textbox", { name: "Windows folder path" }),
+  ).toBeDefined();
+});
+
+test("F01: pending reanalysis keeps its editor open until start settles", async () => {
+  let starts = 0;
+  let release = () => {};
+  const delayed = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const { client } = fixture({
+    beforeStart: async () => {
+      if (++starts === 2) await delayed;
+    },
+  });
+  await startFixtureScan(client);
+  await screen.findByText("At least 42 bytes");
+  fireEvent.click(screen.getByRole("button", { name: "Analyze again" }));
+  fireEvent.click(screen.getByRole("button", { name: "Start scan" }));
+  expect(
+    screen.getByRole<HTMLButtonElement>("button", {
+      name: "Close target editor",
+    }).disabled,
+  ).toBe(true);
+  await act(async () => release());
+  await waitFor(() =>
+    expect(
+      screen.queryByRole("button", { name: "Close target editor" }),
+    ).toBeNull(),
+  );
+});
+
+test("F02: scan shows its fixed paths before the first result", async () => {
+  const { client } = fixture({
+    readStatus: (base) => ({ ...base, state: "running", resultVersion: null }),
+  });
+  await startFixtureScan(client);
+  await screen.findByText("Scanning");
+  expect(
+    within(screen.getByLabelText("Scanning paths")).getByText(path.display),
+  ).toBeDefined();
+  expect(
+    screen.queryByRole("textbox", { name: "Windows folder path" }),
+  ).toBeNull();
+  expect(screen.getByRole("button", { name: "Pause scan" })).toBeDefined();
+  expect(screen.getByRole("button", { name: "Cancel scan" })).toBeDefined();
+});
+
+test.each(["done", "failed", "cancelled", "partial"] as const)(
+  "F02: %s scan without totals shows selected paths without implying progress",
+  async (state) => {
+    const { client } = fixture({
+      readStatus: (base) => ({ ...base, state, resultVersion: null }),
+    });
+    await startFixtureScan(client);
+    const paths = await screen.findByLabelText("Selected paths");
+    expect(within(paths).getByText(path.display)).toBeDefined();
+    expect(screen.queryByLabelText("Scanning paths")).toBeNull();
+  },
+);
+
+test("F01: empty target discovery preserves the typed path and focus", async () => {
+  let resolveList!: (list: TargetList) => void;
+  const targetList = new Promise<TargetList>((resolve) => {
+    resolveList = resolve;
+  });
+  const { client } = fixture({ targetList });
+  render(<App analysis={client} />);
+  const input = screen.getByRole("textbox", { name: "Windows folder path" });
+  fireEvent.change(input, { target: { value: path.display } });
+  input.focus();
+  expect(screen.queryByText(/No drives were found/)).toBeNull();
+  await act(async () =>
+    resolveList({ ...targets, targets: [], probeJobRef: null }),
+  );
+  expect(await screen.findByText(/No drives were found/)).toBeDefined();
+  expect((input as HTMLInputElement).value).toBe(path.display);
+  expect(document.activeElement).toBe(input);
+});
+
+test("F01: a listing failure is not reported as an empty successful list", async () => {
+  let rejectList!: (error: Error) => void;
+  const targetList = new Promise<TargetList>((_resolve, reject) => {
+    rejectList = reject;
+  });
+  const { client } = fixture({ targetList });
+  render(<App analysis={client} />);
+  const input = screen.getByRole("textbox", { name: "Windows folder path" });
+  fireEvent.change(input, { target: { value: path.display } });
+  input.focus();
+  await act(async () => rejectList(new Error("Drive listing failed")));
+  expect(await screen.findByText("Drive listing failed")).toBeDefined();
+  expect(screen.queryByText(/No drives were found/)).toBeNull();
+  expect((input as HTMLInputElement).value).toBe(path.display);
+  expect(document.activeElement).toBe(input);
+});
+
+test.each(["Enter", " "])(
+  "F01: refresh keeps focus during a delayed %s request",
+  async (key) => {
+    const { client, calls } = fixture();
+    const originalCall = client.call;
+    let finish!: (value: TargetList) => void;
+    const pending = new Promise<TargetList>((resolve) => {
+      finish = resolve;
+    });
+    client.call = ((name: string, body: unknown) => {
+      if (name === "target.list" && (body as { refresh: boolean }).refresh) {
+        calls.push({ name, body });
+        return pending;
+      }
+      return originalCall(name as never, body as never);
+    }) as AnalysisClient["call"];
+    render(<App analysis={client} />);
+    await screen.findByRole("radio", { name: path.display });
+    const refresh = screen.getByRole("button", { name: "Refresh targets" });
+    refresh.focus();
+    fireEvent.keyDown(refresh, { key });
+    fireEvent.keyUp(refresh, { key });
+    await screen.findByText("Finding drives…");
+    expect((refresh as HTMLButtonElement).disabled).toBe(false);
+    expect(document.activeElement).toBe(refresh);
+    fireEvent.click(refresh);
+    fireEvent.keyDown(refresh, { key });
+    fireEvent.keyUp(refresh, { key });
+    expect(calls.filter(({ name }) => name === "target.list")).toHaveLength(2);
+    await act(async () => finish(targets));
+    expect(document.activeElement).toBe(refresh);
+  },
+);
+
+test.each(["success", "failure"])(
+  "F01: refresh %s does not steal focus and can be retried",
+  async (outcome) => {
+    const { client, calls } = fixture();
+    const originalCall = client.call;
+    let finish!: (value: TargetList) => void;
+    let fail!: (error: Error) => void;
+    const pending = new Promise<TargetList>((resolve, reject) => {
+      finish = resolve;
+      fail = reject;
+    });
+    let refreshes = 0;
+    client.call = ((name: string, body: unknown) => {
+      if (name === "target.list" && (body as { refresh: boolean }).refresh) {
+        calls.push({ name, body });
+        refreshes += 1;
+        return refreshes === 1 ? pending : Promise.resolve(targets);
+      }
+      return originalCall(name as never, body as never);
+    }) as AnalysisClient["call"];
+    render(<App analysis={client} />);
+    await screen.findByRole("radio", { name: path.display });
+    const refresh = screen.getByRole("button", { name: "Refresh targets" });
+    refresh.focus();
+    fireEvent.click(refresh);
+    await screen.findByText("Finding drives…");
+    const input = screen.getByRole("textbox", { name: "Windows folder path" });
+    input.focus();
+    await act(async () =>
+      outcome === "success"
+        ? finish(targets)
+        : fail(new Error("Listing failed")),
+    );
+    expect(document.activeElement).toBe(input);
+    if (outcome === "failure")
+      expect(await screen.findByText("Listing failed")).toBeDefined();
+    fireEvent.click(refresh);
+    await waitFor(() => expect(refreshes).toBe(2));
+  },
+);
+
+test("F03 F05: temporary units follow the pinned result into browse and inspection", async () => {
+  let scans = 0;
+  const base = fixture({
+    startJob: () => (++scans === 1 ? "scan" : "other-scan"),
+    readPreferences: () => ({
+      settingsRevision: "1",
+      unitSystem: "si",
+      unit: "auto",
+      defaultBasis: "logical",
+      warningKey: null,
+    }),
+  });
+  const value = {
+    basis: "logical",
+    evidence: "measured",
+    state: "exact",
+    bytes: "1100",
+  } as const;
+  const client: AnalysisClient = {
+    ...base.client,
+    call: (async (name: string, body: unknown) => {
+      if (name === "scan.start") {
+        const response = await base.client.call("scan.start", body as never);
+        return { ...response, existing: true };
+      }
+      if (name === "browse.open") {
+        const original = await base.client.call(
+          "browse.open",
+          body as BrowseOpenRequest,
+        );
+        if (original.kind !== "opened")
+          throw new Error("Expected opened result");
+        return {
+          ...original,
+          page: {
+            ...original.page,
+            total: { state: "exact", count: 1 },
+            rows: [
+              {
+                item: { resultVersion: "result", itemNo: 1 },
+                displayName: { state: "present", value: "Sample file" },
+                kind: "file",
+                logicalSize: { state: "present", value },
+                allocatedSize: { state: "unknown", reasonKey: "unavailable" },
+                modifiedAt: { state: "absent" },
+                hasChildFolder: { state: "absent" },
+                flags: {
+                  unenumerated: { state: "absent" },
+                  excluded: { state: "absent" },
+                },
+                correspondence: { state: "absent" },
+              },
+            ],
+          },
+        };
+      }
+      if (name === "browse.detail") {
+        const detail = await base.client.call(
+          "browse.detail",
+          body as {
+            resultVersion: string;
+            item: { resultVersion: string; itemNo: number };
+          },
+        );
+        return {
+          ...detail,
+          item: { resultVersion: "result", itemNo: 1 },
+          displayName: { state: "present", value: "Sample file" },
+          kind: { state: "present", value: "file" },
+          logicalSize: { state: "present", value },
+        };
+      }
+      return base.client.call(name as never, body as never);
+    }) as AnalysisClient["call"],
+  };
+  await startFixtureScan(client);
+  await screen.findByText("At least 42 bytes");
+  fireEvent.click(screen.getByRole("button", { name: "Browse folders" }));
+  const defaultFile = await screen.findByRole("button", {
+    name: "Sample file",
+  });
+  expect(defaultFile.closest('[role="row"]')?.textContent).toContain("1.1 kB");
+  fireEvent.click(screen.getByRole("button", { name: "Back to analysis" }));
+  fireEvent.click(screen.getByRole("button", { name: "Display options" }));
+  const totalsBefore = base.calls.filter(
+    ({ name }) => name === "space.total",
+  ).length;
+  fireEvent.change(screen.getByRole("combobox", { name: "Unit system" }), {
+    target: { value: "iec" },
+  });
+  expect(base.calls.filter(({ name }) => name === "space.total")).toHaveLength(
+    totalsBefore,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Browse folders" }));
+  const file = await screen.findByRole("button", { name: "Sample file" });
+  const row = file.closest('[role="row"]');
+  expect(row?.textContent).toContain("1.1 KiB");
+  fireEvent.click(file);
+  const dialog = await screen.findByRole("dialog", {
+    name: "File details",
+  });
+  const logical = (await within(dialog).findByText("Logical size"))
+    .parentElement;
+  expect(logical?.textContent).toContain("1.1 KiB");
+  expect(logical?.textContent).toContain("1,100 bytes");
+  fireEvent.click(
+    within(dialog).getByRole("button", { name: "Close details" }),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Back to analysis" }));
+  expect(
+    screen.getByRole<HTMLSelectElement>("combobox", { name: "Unit system" })
+      .value,
+  ).toBe("iec");
+  expect(base.calls.filter(({ name }) => name === "space.total")).toHaveLength(
+    totalsBefore,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Analyze again" }));
+  fireEvent.click(screen.getByRole("button", { name: "Start scan" }));
+  await waitFor(() =>
+    expect(
+      screen.queryByRole("button", { name: "Close target editor" }),
+    ).toBeNull(),
+  );
+  const options = await screen.findByRole("button", {
+    name: "Display options",
+  });
+  if (!screen.queryByRole("combobox", { name: "Unit system" }))
+    fireEvent.click(options);
+  expect(
+    screen.getByRole<HTMLSelectElement>("combobox", { name: "Unit system" })
+      .value,
+  ).toBe("si");
+});
+
+test("F03: reusing the same existing scan keeps its temporary unit choice", async () => {
+  const base = fixture();
+  const client: AnalysisClient = {
+    ...base.client,
+    call: (async (name: string, body: unknown) => {
+      if (name === "scan.start") {
+        const response = await base.client.call("scan.start", body as never);
+        return { ...response, existing: true };
+      }
+      return base.client.call(name as never, body as never);
+    }) as AnalysisClient["call"],
+  };
+  await startFixtureScan(client);
+  await screen.findByText("At least 42 bytes");
+  fireEvent.click(screen.getByRole("button", { name: "Display options" }));
+  fireEvent.change(screen.getByRole("combobox", { name: "Unit system" }), {
+    target: { value: "si" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Analyze again" }));
+  fireEvent.click(screen.getByRole("button", { name: "Start scan" }));
+  await waitFor(() =>
+    expect(
+      screen.queryByRole("button", { name: "Close target editor" }),
+    ).toBeNull(),
+  );
+  expect(
+    screen.getByRole<HTMLSelectElement>("combobox", { name: "Unit system" })
+      .value,
+  ).toBe("si");
+  expect(base.calls.filter(({ name }) => name === "scan.start")).toHaveLength(
+    2,
+  );
+});

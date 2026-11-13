@@ -1,0 +1,34 @@
+[package]
+name = "du-launcher"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "diskunfold"
+path = "src/main.rs"
+
+[[test]]
+name = "build_info"
+path = "build_info.rs"
+
+[features]
+default = ["gui"]
+gui = ["dep:du-app-host", "du-app-host/gui", "du-cli/windows-console"]
+
+[dependencies]
+du-cli = { version = "0.1.0", path = "../../cli" }
+du-app-host = { version = "0.1.0", path = "../../app-host", optional = true }
+
+[build-dependencies]
+serde_json.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[target.'cfg(windows)'.build-dependencies]
+find-msvc-tools = "=0.1.15"
+
+[lints]
+workspace = true
