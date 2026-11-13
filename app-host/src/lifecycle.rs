@@ -12,6 +12,7 @@ use std::num::NonZeroUsize;
 
 static MANIFEST: &str = include_str!(concat!(env!("OUT_DIR"), "/assets.txt"));
 static ASSETS: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/assets.bin"));
+static ASSETS_SHA256: &str = include_str!(concat!(env!("OUT_DIR"), "/assets.sha256"));
 
 #[cfg(windows)]
 const RECENT_SCOPE_BOOTSTRAP: &str = r#"
@@ -100,21 +101,18 @@ fn run_app(
             error,
         )));
     }
-    let webview_observation =
-        match crate::startup_checks::webview_observation(capabilities.as_ref()) {
-            Ok(observation) => observation,
-            Err(error) => {
-                return Err(Box::new(crate::startup_checks::report_pre_window_error(
-                    capabilities.as_ref(),
-                    error,
-                )));
-            }
-        };
+    let observed = crate::startup_checks::host_observations(
+        capabilities.as_ref(),
+        MANIFEST,
+        ASSETS,
+        ASSETS_SHA256,
+        &product,
+    )?;
     let startup_access = Arc::new(crate::startup_checks::StartupAccessSession::new(
         capabilities.clone(),
     ));
     #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
-    let mut startup_observed = vec![webview_observation];
+    let mut startup_observed = observed;
     #[cfg(windows)]
     let (locale, settings, history, history_reader, recovery, first_run) = {
         let bundles = crate::locale::register().map_err(|error| {
@@ -233,6 +231,7 @@ fn run_app(
     );
     #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
     {
+        startup_observed.push(crate::startup_checks::host_temporary_files_observation());
         let startup_status =
             crate::startup_checks::status(first_run, startup_access.current(), &startup_observed)
                 .map_err(|error| {

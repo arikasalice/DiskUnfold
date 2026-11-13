@@ -46,7 +46,16 @@ fn startup_full_disk_access_observation_is_conservative() {
 fn startup_webview_preflight_does_not_infer_runtime_usability() {
     let system = SystemStartupCapabilities;
 
-    #[cfg(feature = "webview")]
+    // Windows reads the registered WebView2 runtime; every other platform
+    // keeps the compiled adapter from implying a usable session.
+    #[cfg(all(feature = "webview", windows))]
+    assert_ne!(
+        system.webview_availability(),
+        WebViewAvailability::Unknown,
+        "a host that can run this test either registers or lacks the runtime"
+    );
+
+    #[cfg(all(feature = "webview", not(windows)))]
     assert_eq!(system.webview_availability(), WebViewAvailability::Unknown);
 
     #[cfg(not(feature = "webview"))]

@@ -1,3 +1,4 @@
+use sha2::{Digest, Sha256};
 use std::{env, fs, io, path::Path};
 
 fn main() -> io::Result<()> {
@@ -31,6 +32,12 @@ fn main() -> io::Result<()> {
         manifest.push_str(&format!("/{url}\t{mime}\t{start}\t{}\n", bytes.len()));
     }
     fs::write(Path::new(&out).join("assets.txt"), manifest)?;
+    // The startup check recomputes this digest to detect a damaged asset store.
+    let digest: String = Sha256::digest(&bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    fs::write(Path::new(&out).join("assets.sha256"), digest)?;
     fs::write(Path::new(&out).join("assets.bin"), bytes)
 }
 

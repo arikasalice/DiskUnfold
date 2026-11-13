@@ -1,3 +1,17 @@
+.du-startup-banner {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px clamp(12px, 3vw, 24px);
+  border-bottom: 1px solid var(--du-border);
+  background: var(--du-surface);
+  overflow-wrap: anywhere;
+}
+
+.du-startup-banner .du-startup__actions .du-action {
+  flex: 0 0 auto;
+}
+
 .du-startup-screen {
   display: grid;
   gap: 18px;

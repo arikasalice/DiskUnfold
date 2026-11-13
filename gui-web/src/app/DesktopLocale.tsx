@@ -14,6 +14,7 @@ import { useLocale } from "../state/use-locale";
 import type { LocaleView } from "../state/use-locale";
 import { App } from "./App";
 import { ClosingGuard } from "../features/shutdown/ClosingGuard";
+import { StartupGate } from "../features/startup/StartupGate";
 
 function regionalFormat({ selected, profile }: LocaleView): RegionalFormat {
   const { decimalSeparator, groupingSeparator, groupingSize, datePatterns } =
@@ -67,10 +68,13 @@ function useLocalePresentation(view: LocaleView | undefined) {
 export function DesktopLocale({
   client,
   analysisEnabled = true,
+  startupBanner = false,
   children,
 }: {
   client: AnalysisClient;
   analysisEnabled?: boolean;
+  /** Shows the non-blocking startup banner above the analysis shell. */
+  startupBanner?: boolean;
   children?: ReactNode;
 }) {
   const fallbackText = useLocaleText();
@@ -132,24 +136,30 @@ export function DesktopLocale({
     cause: text(meta?.causeKey ?? "ui.common.error_generic", ""),
     ...(meta && { action: text(meta.actionKey, "") }),
   };
+  const shell = (
+    <App
+      {...(analysisEnabled ? { analysis: client } : {})}
+      nativeLocaleHost={!analysisEnabled}
+      infoClient={client}
+      locale={{
+        profile: view.profile,
+        text: (key) => text(key, ""),
+        save,
+        ...(errorKey && { errorKey }),
+        ...(issue && { issue }),
+      }}
+    />
+  );
   return (
     <LocaleTextContext.Provider value={text}>
       <RegionalFormatContext.Provider value={format}>
         <ClosingGuard client={client}>
-          {children ?? (
-            <App
-              {...(analysisEnabled ? { analysis: client } : {})}
-              nativeLocaleHost={!analysisEnabled}
-              infoClient={client}
-              locale={{
-                profile: view.profile,
-                text: (key) => text(key, ""),
-                save,
-                ...(errorKey && { errorKey }),
-                ...(issue && { issue }),
-              }}
-            />
-          )}
+          {children ??
+            (startupBanner ? (
+              <StartupGate client={client}>{shell}</StartupGate>
+            ) : (
+              shell
+            ))}
         </ClosingGuard>
       </RegionalFormatContext.Provider>
     </LocaleTextContext.Provider>

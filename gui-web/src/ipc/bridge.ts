@@ -97,14 +97,23 @@ export function hasDesktopLocaleBridge(): boolean {
   );
 }
 
-/** Detects the Mac startup-only bridge without claiming locale services exist. */
+/**
+ * Detects a trusted bridge that can answer `app.startup_status`.
+ *
+ * macOS exposes the WebKit message handler on the app scheme document.
+ * Windows WebView2 exposes the request function on the app's HTTPS origin.
+ * Neither case claims locale or analysis services exist.
+ */
 export function hasStartupStatusBridge(): boolean {
   const host = window as NativeWindow;
-  return (
-    host.top === host &&
+  if (host.top !== host) return false;
+  const webKit =
     host.location.href === "diskunfold://app/index.html" &&
-    typeof host.webkit?.messageHandlers?.diskunfold?.postMessage === "function"
-  );
+    typeof host.webkit?.messageHandlers?.diskunfold?.postMessage === "function";
+  const webView2 =
+    host.location.origin === "https://diskunfold.invalid" &&
+    typeof host.__diskunfoldRequest === "function";
+  return webKit || webView2;
 }
 
 /** Detects Windows analysis support before presenting analysis controls. */

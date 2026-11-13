@@ -15,6 +15,11 @@ mod linux;
 mod macos;
 #[cfg(target_os = "windows")]
 #[allow(unsafe_code)]
+mod webview2;
+#[cfg(any(target_os = "windows", test))]
+mod webview_runtime;
+#[cfg(target_os = "windows")]
+#[allow(unsafe_code)]
 mod windows;
 
 #[cfg(feature = "fake")]
@@ -39,12 +44,24 @@ impl StartupCapabilitiesPort for SystemStartupCapabilities {
     }
 
     fn webview_availability(&self) -> WebViewAvailability {
-        if cfg!(feature = "webview") {
+        if !cfg!(feature = "webview") {
+            WebViewAvailability::Unavailable
+        } else if cfg!(target_os = "windows") {
+            // The Windows adapter reads the registered WebView2 runtime version.
+            // Registered is not the same as creatable, but a definite absence
+            // is direct evidence; every other uncertainty stays Unknown.
+            #[cfg(target_os = "windows")]
+            {
+                webview2::webview_availability()
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                WebViewAvailability::Unknown
+            }
+        } else {
             // A compiled adapter or installed library does not prove that a
             // desktop session can create and use its webview successfully.
             WebViewAvailability::Unknown
-        } else {
-            WebViewAvailability::Unavailable
         }
     }
 
