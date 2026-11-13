@@ -1,8 +1,8 @@
 //! Generate the notices, support table and build-info resources for a build.
-use du_release_tools::{product_resources, support_table::Mode};
+use du_release_tools::{debian_copyright, product_resources, support_table::Mode};
 use std::{env, error::Error, fs, path::PathBuf, process};
 
-const USAGE: &str = "usage: build-product-resources --out <dir> [--repo <dir>] [--source-commit <sha>] [--release] [--allow-blockers]";
+const USAGE: &str = "usage: build-product-resources --out <dir> [--repo <dir>] [--source-commit <sha>] [--release] [--allow-blockers]\n       build-product-resources --debian-copyright <file> [--repo <dir>]";
 
 fn main() {
     match run() {
@@ -21,6 +21,7 @@ fn run() -> Result<bool, Box<dyn Error>> {
     let mut commit = None;
     let mut mode = Mode::Development;
     let mut allow_blockers = false;
+    let mut debian = None;
     let mut args = env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -29,8 +30,16 @@ fn run() -> Result<bool, Box<dyn Error>> {
             "--source-commit" => commit = Some(args.next().ok_or(USAGE)?),
             "--release" => mode = Mode::Release,
             "--allow-blockers" => allow_blockers = true,
+            "--debian-copyright" => debian = Some(args.next().map(PathBuf::from).ok_or(USAGE)?),
             _ => return Err(USAGE.into()),
         }
+    }
+    if let Some(path) = debian {
+        if out.is_some() || commit.is_some() || mode == Mode::Release || allow_blockers {
+            return Err(USAGE.into());
+        }
+        fs::write(path, debian_copyright::generate(&repo)?)?;
+        return Ok(true);
     }
     let out = out.ok_or(USAGE)?;
     if mode == Mode::Release && allow_blockers {

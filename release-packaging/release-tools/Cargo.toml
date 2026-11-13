@@ -10,7 +10,7 @@ du-app-db = { version = "0.1.0", path = "../../app-db" }
 du-snapshot-store = { version = "0.1.0", path = "../../snapshot-store" }
 serde.workspace = true
 serde_json.workspace = true
-spdx = "=0.13.6"
+spdx = { version = "=0.13.6", features = ["text"] }
 sha2.workspace = true
 toml.workspace = true
 

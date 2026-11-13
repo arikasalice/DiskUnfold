@@ -2,9 +2,24 @@
 
 use std::path::Path;
 
+use std::fs;
+
 use serde_json::Value;
 
 use super::{Ecosystem, NoticePackage, read_license_files};
+
+/// Reads the author of an installed npm package from its package.json.
+fn installed_author(dir: &Path) -> Vec<String> {
+    let Ok(text) = fs::read_to_string(dir.join("package.json")) else {
+        return Vec::new();
+    };
+    let Ok(manifest) = serde_json::from_str::<Value>(&text) else {
+        return Vec::new();
+    };
+    let author = &manifest["author"];
+    let text = author.as_str().or_else(|| author["name"].as_str());
+    text.map(str::to_owned).into_iter().collect()
+}
 
 /// Collects production packages recorded in package-lock.json. License texts
 /// come from the installed tree under web_root when it exists.
@@ -33,6 +48,7 @@ pub fn npm_packages(lock: &Value, web_root: &Path) -> Result<Vec<NoticePackage>,
             version: version.to_owned(),
             license: package["license"].as_str().map(str::to_owned),
             texts: read_license_files(&web_root.join(path), None),
+            authors: installed_author(&web_root.join(path)),
         });
     }
     Ok(result)
