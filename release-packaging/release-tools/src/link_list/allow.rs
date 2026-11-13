@@ -83,12 +83,6 @@ const PE_EXACT: &[&str] = &[
     "wtsapi32.dll",
     "netapi32.dll",
     "bcryptprimitives.dll",
-    // Microsoft Visual C++ runtime: redistributable and not copyleft, but not part of a clean
-    // Windows. The design asks for a static CRT; until the build links it statically the check
-    // allows exactly these names so the dependency is recorded, not hidden.
-    "vcruntime140.dll",
-    "vcruntime140_1.dll",
-    "msvcp140.dll",
 ];
 
 fn elf_family(name: &str) -> &str {

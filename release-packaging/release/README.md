@@ -59,3 +59,8 @@ actionlint .github/workflows/release.yml
 ```
 
 `actionlint` is not run in CI. Run it from an isolated install (GitHub release archive, checksum verified).
+
+## Static C runtime (Windows)
+
+.cargo/config.toml links the C runtime statically on Windows MSVC builds (+crt-static), so the executable imports system DLLs only. The link-list allow list has no vcruntime140 or msvcp140 entry; dynamic linking again fails the artifact-scan job with release.license_denied.
+

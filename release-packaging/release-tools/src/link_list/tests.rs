@@ -55,6 +55,10 @@ fn a_library_outside_the_allow_list_is_denied_with_the_design_key() -> TestResul
         macho::fixture(&["/opt/homebrew/lib/libfoo.dylib"]),
         macho::fixture(&["@rpath/libfoo.dylib"]),
         pe::fixture(&["KERNEL32.dll", "libgcc_s_seh-1.dll"]),
+        // The design asks for a static C runtime, so the Visual C++ runtime DLLs are not allowed.
+        pe::fixture(&["KERNEL32.dll", "VCRUNTIME140.dll"]),
+        pe::fixture(&["KERNEL32.dll", "VCRUNTIME140_1.dll"]),
+        pe::fixture(&["MSVCP140.dll"]),
     ] {
         let failure = check_link_list("pkg", &image)
             .err()
