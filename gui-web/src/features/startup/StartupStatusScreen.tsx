@@ -12,11 +12,10 @@ import {
 import type { AnalysisClient, StartupStatus } from "../../ipc";
 import { useLocaleText } from "../../i18n/presentation";
 import {
-  accessLabel,
-  checkLabel,
-  gradeLabel,
-  outcomeLabel,
+  checkRows,
   startupCopy,
+  startupNotice,
+  statusRows,
 } from "./startup-copy";
 import "./startup-status.css";
 
@@ -180,26 +179,23 @@ export function StartupStatusScreen({
 
   if (!status) return null;
 
-  const locationNotice = status.appLocation === "elsewhere" &&
+  // Full Disk Access is a macOS permission. Where the host reports it as not applicable
+  // (Windows, Linux) the screen shows no permission guidance, rows or settings action.
+  const permissionApplies = status.access !== "not_applicable";
+  const locationNotice = permissionApplies &&
+    status.appLocation === "elsewhere" &&
     status.access !== "confirmed" && (
       <Notice tone="info">{copy.moveToApplications}</Notice>
     );
-  const notice =
-    status.access === "denied"
-      ? copy.deniedNotice
-      : !status.analysisAllowed
-        ? copy.analysisBlockedNotice
-        : status.access === "confirmed"
-          ? copy.confirmedNotice
-          : status.access === "not_applicable"
-            ? copy.notApplicableNotice
-            : copy.unknownNotice;
+  const notice = startupNotice(status, copy);
 
   return (
     <main className="du-app du-startup-screen">
       <header className="du-startup__header">
         <Heading level={1}>{copy.title}</Heading>
-        <Text>{copy.introduction}</Text>
+        <Text>
+          {permissionApplies ? copy.introduction : copy.introductionOther}
+        </Text>
       </header>
       <div className="du-startup__panels">
         <section
@@ -215,14 +211,7 @@ export function StartupStatusScreen({
           {locationNotice}
           <Readout
             label={copy.statusHeading}
-            rows={[
-              { label: copy.grade, value: gradeLabel(status.grade, copy) },
-              { label: copy.access, value: accessLabel(status.access, copy) },
-              {
-                label: copy.analysis,
-                value: status.analysisAllowed ? copy.allowed : copy.blocked,
-              },
-            ]}
+            rows={statusRows(status, copy, permissionApplies)}
           />
         </section>
         <section
@@ -234,30 +223,24 @@ export function StartupStatusScreen({
           </Heading>
           <Readout
             label={copy.checksHeading}
-            rows={status.checks.map((check, index) => ({
-              label: checkLabel(check, copy),
-              value: outcomeLabel(check, copy),
-              wideValue: true,
-              emphasized:
-                check.check === "full_disk_access" &&
-                check.result === "blocked",
-              key: `${check.check}-${index}`,
-            }))}
+            rows={checkRows(status, copy, permissionApplies)}
           />
         </section>
       </div>
       {actionFailed && <Notice tone="error">{copy.actionFailed}</Notice>}
       {feedback && <LiveStatus>{feedback}</LiveStatus>}
-      <div className="du-startup__actions">
-        <Action
-          variant="primary"
-          isPending={pending}
-          isDisabled={loading || pending}
-          onPress={() => void openSettings()}
-        >
-          {copy.openSettings}
-        </Action>
-      </div>
+      {permissionApplies && (
+        <div className="du-startup__actions">
+          <Action
+            variant="primary"
+            isPending={pending}
+            isDisabled={loading || pending}
+            onPress={() => void openSettings()}
+          >
+            {copy.openSettings}
+          </Action>
+        </div>
+      )}
     </main>
   );
 }

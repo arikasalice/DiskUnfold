@@ -20,6 +20,7 @@ import {
   LiveStatus,
   Notice,
   Text,
+  useTitleBarContext,
 } from "../components";
 import { AnalysisPanel } from "../features/analysis/AnalysisPanel";
 import { FileInspection } from "../features/analysis/FileInspection";
@@ -47,6 +48,17 @@ import {
 import type { BrowseVisualizationProvider } from "./browse-visualization";
 
 const desktop = createAnalysisClient();
+
+/** Screen name for the window title bar, or nothing while there is no desktop connection. */
+function screenLabel(
+  text: LocaleText,
+  screen: { connected: boolean; history: boolean; browsing: boolean },
+) {
+  if (!screen.connected) return undefined;
+  if (screen.history) return text("ui.app.history", "Operation history");
+  if (screen.browsing) return text("ui.app.screen_browse", "Browse folders");
+  return text("ui.app.screen_analysis", "Analysis");
+}
 
 export function App({
   analysis,
@@ -84,6 +96,14 @@ export function App({
   const { version: browseVersion, choice: browseChoice } =
     browseState(browseSelection);
   const browseTrigger = useRef<HTMLButtonElement>(null);
+  // Names the screen for the window title bar: operation history, folder browsing or analysis.
+  useTitleBarContext(
+    screenLabel(text, {
+      connected: Boolean(client),
+      history,
+      browsing: Boolean(browseVersion),
+    }),
+  );
   const restoreBrowseFocus = useRef(false);
   const visualizationTrigger = useRef<HTMLButtonElement>(null);
   const restoreVisualizationFocus = useRef(false);

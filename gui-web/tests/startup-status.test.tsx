@@ -502,3 +502,63 @@ test("asks the user to move the app to Applications when it runs elsewhere", asy
     await screen.findByText(/Move DiskUnfold.app to the Applications folder/),
   ).toBeTruthy();
 });
+
+function platformReport(access: string): StartupStatus {
+  return {
+    ...report(access, true),
+    checks: [
+      { check: "webview", result: "pass", reasonKey: null },
+      {
+        check: "full_disk_access",
+        result: access === "not_applicable" ? "not_applicable" : "pass",
+        reasonKey: null,
+      },
+    ],
+  };
+}
+
+async function renderStartup(status: StartupStatus) {
+  const transport = vi.fn<
+    NonNullable<Parameters<typeof createAnalysisClient>[0]>
+  >(async (_, { envelope }) => ({ ...envelope, body: status }));
+  render(<StartupStatusScreen client={createAnalysisClient(transport)} />);
+  await screen.findByRole("heading", { name: "Startup status" });
+}
+
+test("macOS: Full Disk Access guidance, row and settings button are shown", async () => {
+  await renderStartup(platformReport("confirmed"));
+  expect(screen.getByText(/Full Disk Access for this Mac/)).toBeTruthy();
+  expect(screen.getAllByText("Full Disk Access").length).toBeGreaterThan(1);
+  expect(
+    screen.getByRole("button", { name: "Open Privacy & Security Settings" }),
+  ).toBeTruthy();
+});
+
+test("Windows and Linux: neutral copy without macOS permission rows or actions", async () => {
+  await renderStartup(platformReport("not_applicable"));
+  expect(
+    screen.getByText(
+      "Review startup checks for this computer. Disk analysis is not enabled in this build.",
+    ),
+  ).toBeTruthy();
+  expect(
+    screen.getByText(
+      "This build provides startup checks only; disk analysis is not enabled.",
+    ),
+  ).toBeTruthy();
+  expect(document.body.textContent).not.toMatch(
+    /Mac|Full Disk Access|Privacy & Security/,
+  );
+  expect(screen.queryByRole("button")).toBeNull();
+  expect(screen.getAllByText("Passed").length).toBeGreaterThan(0);
+});
+
+test("the neutral variant has Korean copy", async () => {
+  const raw = await readFile(
+    resolve(process.cwd(), "../user-env/i18n/ko.json"),
+    "utf8",
+  );
+  expect(raw).toContain("ui.startup.introduction_other");
+  expect(raw).toContain("이 컴퓨터의 시작 점검");
+  expect(raw).toContain("ui.startup.not_applicable_notice");
+});

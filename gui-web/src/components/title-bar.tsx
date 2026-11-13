@@ -26,7 +26,7 @@ export function TitleBarProvider({ children }: { children: ReactNode }) {
 }
 
 /** Names the screen that is shown, for the title bar. The label clears when the screen leaves. */
-export function useTitleBarContext(label: string) {
+export function useTitleBarContext(label: string | undefined) {
   const set = useContext(ContextSetter);
   useEffect(() => {
     set(label);

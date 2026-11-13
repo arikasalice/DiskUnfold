@@ -33,7 +33,8 @@ with 8 px or 20 px of non-client height they appear clipped (`win-exp-*.png`, co
 A page-drawn bar would need page-drawn caption buttons, which loses the system's snap layout flyout
 and the buttons' UI Automation. Options for a later decision are listed in the PR.
 
-## Open
+## Screen labels and platform copy
 
-- The main workspace screen sets no screen label, so its title is "DiskUnfold" (startup and closing set one).
-- The Linux startup screen says "this Mac" and "Privacy & Security Settings".
+The main workspace names its screen (Analysis, Browse folders, Operation history) in the window title, like the startup and closing screens.
+The startup screen treats Full Disk Access as macOS only: where the host reports access as not applicable (Windows, Linux) it shows neutral copy ("this computer") and drops the permission row, the Full Disk Access check row, the location notice and the settings button.
+The Windows build opens the main workspace, so its startup screen is not reachable there; only the startup banner appears.
