@@ -23,7 +23,7 @@ impl TimerSlot {
             let flow = callback();
             if matches!(flow, glib::ControlFlow::Break) {
                 // GLib destroys the source on Break; forget the id so it is never removed.
-                drop(owner.borrow_mut().take());
+                let _forgotten = owner.borrow_mut().take();
             }
             flow
         });
