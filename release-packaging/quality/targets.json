@@ -15,8 +15,8 @@
         "editions": ["Core", "Professional"],
         "cpus": ["x64", "arm64"],
         "releases": [
-          {"release": "11-25H2", "securityBasis": {"kind":"general","source":"https://learn.microsoft.com/en-us/windows/release-health/windows11-release-information","checkedOn":"2026-11-13","confirmed":false,"vendorEndDate":"2027-10-12"}},
-          {"release": "11-26H2", "securityBasis": {"kind":"general","source":"https://learn.microsoft.com/en-us/windows/release-health/windows11-release-information","checkedOn":"2026-11-13","confirmed":false,"vendorEndDate":"2028-10-10"}}
+          {"release": "11-25H2", "securityBasis": {"kind":"general","source":"https://learn.microsoft.com/en-us/windows/release-health/windows11-release-information","checkedOn":"2026-11-13","confirmed":true,"vendorEndDate":"2027-10-12"}},
+          {"release": "11-26H2", "securityBasis": {"kind":"general","source":"https://learn.microsoft.com/en-us/windows/release-health/windows11-release-information","checkedOn":"2026-11-13","confirmed":true,"vendorEndDate":"2028-10-10"}}
         ]
       },
       {
@@ -24,9 +24,9 @@
         "editions": ["macos"],
         "cpus": ["x64", "arm64"],
         "releases": [
-          {"release": "27", "securityBasis": {"kind":"general","source":"https://support.apple.com/en-us/100100","checkedOn":"2026-11-13","confirmed":false,"vendorEndDate":null}},
-          {"release": "26", "securityBasis": {"kind":"general","source":"https://support.apple.com/en-us/100100","checkedOn":"2026-11-13","confirmed":false,"vendorEndDate":null}},
-          {"release": "15", "securityBasis": {"kind":"general","source":"https://support.apple.com/en-us/100100","checkedOn":"2026-11-13","confirmed":false,"vendorEndDate":null}}
+          {"release": "27", "securityBasis": {"kind":"general","source":"https://support.apple.com/en-us/100100","checkedOn":"2026-11-13","confirmed":true,"vendorEndDate":null}},
+          {"release": "26", "securityBasis": {"kind":"general","source":"https://support.apple.com/en-us/100100","checkedOn":"2026-11-13","confirmed":true,"vendorEndDate":null}},
+          {"release": "15", "securityBasis": {"kind":"general","source":"https://support.apple.com/en-us/100100","checkedOn":"2026-11-13","confirmed":true,"vendorEndDate":null}}
         ]
       },
       {
@@ -34,8 +34,8 @@
         "editions": ["ubuntu"],
         "cpus": ["x64", "arm64"],
         "releases": [
-          {"release": "24.04", "securityBasis": {"kind":"general","source":"https://ubuntu.com/about/release-cycle","checkedOn":"2026-11-13","confirmed":false,"vendorEndDate":"2029-05"}},
-          {"release": "26.04", "securityBasis": {"kind":"general","source":"https://ubuntu.com/about/release-cycle","checkedOn":"2026-11-13","confirmed":false,"vendorEndDate":"2031-05"}}
+          {"release": "24.04", "securityBasis": {"kind":"general","source":"https://ubuntu.com/about/release-cycle","checkedOn":"2026-11-13","confirmed":true,"vendorEndDate":"2029-05"}},
+          {"release": "26.04", "securityBasis": {"kind":"general","source":"https://ubuntu.com/about/release-cycle","checkedOn":"2026-11-13","confirmed":true,"vendorEndDate":"2031-05"}}
         ]
       }
     ]

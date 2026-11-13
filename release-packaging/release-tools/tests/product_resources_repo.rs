@@ -41,8 +41,8 @@ fn repository_resources_are_deterministic_and_pass_the_license_policy() -> Resul
 }
 
 #[test]
-fn every_row_has_an_unconfirmed_basis_that_blocks_release_mode_only() -> Result<(), Box<dyn Error>>
-{
+fn every_row_has_a_confirmed_basis_so_both_modes_pass_the_support_gate()
+-> Result<(), Box<dyn Error>> {
     let commit = Some("0123456789abcdef0123456789abcdef01234567".to_owned());
     let development = generate(&repo(), commit.clone(), Mode::Development)?;
     assert!(
@@ -52,15 +52,18 @@ fn every_row_has_an_unconfirmed_basis_that_blocks_release_mode_only() -> Result<
     );
     assert_eq!(development.json["releaseGate"]["passed"], true);
 
+    // The user confirmed every security-support basis on 2026-11-13, so release mode
+    // reports no support-basis blocker.
     let release = generate(&repo(), commit, Mode::Release)?;
-    assert_eq!(release.json["releaseGate"]["passed"], false);
-    let blockers = &release.blockers;
-    assert_eq!(blockers.len(), 18, "{blockers:?}");
     assert!(
-        blockers
+        release
+            .blockers
             .iter()
-            .all(|b| b.reason_key == "release.support_basis_unconfirmed")
+            .all(|b| !b.reason_key.starts_with("release.support_basis_")),
+        "{:?}",
+        release.blockers
     );
+    assert_eq!(release.json["releaseGate"]["passed"], true);
 
     let rows = release.support_matrix["combinations"]
         .as_array()
@@ -83,7 +86,7 @@ fn every_row_has_an_unconfirmed_basis_that_blocks_release_mode_only() -> Result<
     );
     assert_eq!(
         ubuntu["securitySupport"]["source"],
-        "https://ubuntu.com/about/release-cycle [unconfirmed]"
+        "https://ubuntu.com/about/release-cycle"
     );
     Ok(())
 }
