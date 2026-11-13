@@ -26,6 +26,20 @@ fn text(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes).into_owned()
 }
 
+/// Mirrors `SupportEnvironmentIdentity::is_complete` on the published JSON:
+/// every identity key must be known and non-blank.
+fn environment_identity_is_complete(environment: &serde_json::Value) -> bool {
+    let known = |field: &str, unknown: &[&str]| {
+        environment[field]
+            .as_str()
+            .is_some_and(|value| !value.trim().is_empty() && !unknown.contains(&value))
+    };
+    known("osFamily", &["unknown"])
+        && known("release", &[])
+        && known("edition", &[])
+        && known("cpu", &["unknown", "other"])
+}
+
 #[test]
 fn version_forms_print_the_same_nine_provenance_fields() -> io::Result<()> {
     let info = embedded_product_info()?;
@@ -120,10 +134,21 @@ fn support_prints_the_published_json_envelope_and_a_matching_text_report() -> io
     ] {
         assert!(!json["result"][field].is_null(), "{field}: {stdout}");
     }
-    if info["supportMatrix"].is_null() {
+    if !environment_identity_is_complete(&json["result"]["environment"]) {
+        // An incomplete identity (for example a Windows Server edition whose
+        // release is unknown) always takes precedence over the matrix state.
+        assert_eq!(json["result"]["combinationStatus"], "unknown", "{stdout}");
+        assert_eq!(
+            json["result"]["reasonKey"], "support.env_unknown",
+            "{stdout}"
+        );
+    } else if info["supportMatrix"].is_null() {
         // No embedded table: nothing is reported as verified.
-        assert_eq!(json["result"]["combinationStatus"], "unknown");
-        assert_eq!(json["result"]["reasonKey"], "support.matrix_unavailable");
+        assert_eq!(json["result"]["combinationStatus"], "unknown", "{stdout}");
+        assert_eq!(
+            json["result"]["reasonKey"], "support.matrix_unavailable",
+            "{stdout}"
+        );
     }
 
     let default = run_launcher(&["--lang", "en", "support"])?;

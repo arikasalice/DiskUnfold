@@ -134,12 +134,14 @@ test("shows initial loading, virtual root, partial data and next page", async ()
   const load = screen.getByRole("button", { name: "Load more" });
   act(() => load.focus());
   pressLoadMore(load);
-  expect(port.page).toHaveBeenCalledWith({
-    queryRef: id,
-    resultVersion: id,
-    start: 200,
-    count: 200,
-  });
+  await waitFor(() =>
+    expect(port.page).toHaveBeenCalledWith({
+      queryRef: id,
+      resultVersion: id,
+      start: 200,
+      count: 200,
+    }),
+  );
   await act(async () =>
     later.resolve(page([row(201, "Beta")], null, 201, "lower_bound")),
   );
@@ -407,10 +409,12 @@ test.each(["directory", "file"] as const)(
     fireEvent.keyUp(load, { key: "Enter", code: "Enter" });
     expect(document.activeElement).toBe(load);
     fireEvent.click(load);
-    expect(port.page).toHaveBeenCalledTimes(1);
+    // The page read starts on a microtask after the press, so wait for it.
+    await waitFor(() => expect(port.page).toHaveBeenCalledTimes(1));
     await act(async () =>
       pending.resolve(page([{ ...row(201, "New item"), kind }], null, 201)),
     );
+    expect(port.page).toHaveBeenCalledTimes(1);
     expect(load.isConnected).toBe(false);
     expect(document.activeElement).toBe(gridRow("New item"));
     expect(gridRow("New item").getAttribute("aria-rowindex")).toBe("202");
@@ -797,7 +801,7 @@ test("pointer paging leaves the old viewport and focus alone when 200 rows are a
     expect(before).toBe(64 * 195);
     act(() => load.focus());
     clickLoadMore(load);
-    expect(port.page).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(port.page).toHaveBeenCalledTimes(1));
     await act(async () => pending.resolve(next));
     expect(listScroll.scrollY).toBe(before);
     expect(document.activeElement).toBe(load);
@@ -1425,11 +1429,9 @@ test("the sparse grid exposes valid row, header and selection semantics", async 
   const port = syntheticPort(2001, "lower_bound");
   render(<BrowsePanel port={port} resultVersion={id} />);
   const grid = await screen.findByRole("grid", { name: "Folder items" });
-  expect(
-    within(grid)
-      .getAllByRole("columnheader")
-      .map((header) => header.textContent),
-  ).toEqual([
+  // The header cells mount after the grid itself, so wait for them.
+  const headers = await within(grid).findAllByRole("columnheader");
+  expect(headers.map((header) => header.textContent)).toEqual([
     "Name",
     "Type",
     "Logical size",
@@ -1437,6 +1439,7 @@ test("the sparse grid exposes valid row, header and selection semantics", async 
     "Modified",
     "Availability",
   ]);
+  await screen.findByText("Entry 0");
   const first = gridRow("Entry 0");
   act(() => first.focus());
   fireEvent.keyDown(first, { key: " " });
@@ -1971,7 +1974,7 @@ test.each([false, true])(
       );
       expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
       await act(async () => pressLoadMore(retry));
-      expect(port.page).toHaveBeenCalledTimes(2);
+      await waitFor(() => expect(port.page).toHaveBeenCalledTimes(2));
       expect(listScroll.scrollY).toBe(scroll);
       const rows = Array.from({ length: more ? 200 : 1 }, (_, index) => ({
         ...row(201 + index, `Next ${index}`),

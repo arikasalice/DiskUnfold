@@ -2806,6 +2806,23 @@ test.each(["starting", "cancelling"] as const)(
 );
 
 test("F02 IF-23: opens an existing partial without an event, then keeps it until explicit refresh", async () => {
+  // The 500 ms status poll keeps running while a terminal status lacks its
+  // terminal marker, so a slow runner can land a legitimate poll between the
+  // final render and the assertion below. Only the explicit reads under test
+  // may reach the port, so the poll is not scheduled in this test.
+  const scheduleInterval = window.setInterval.bind(window);
+  vi.spyOn(window, "setInterval").mockImplementation(((
+    handler: TimerHandler,
+    timeout?: number,
+    ...args: unknown[]
+  ) =>
+    timeout === 500
+      ? 0
+      : scheduleInterval(
+          handler,
+          timeout,
+          ...args,
+        )) as typeof window.setInterval);
   let finish = () => {};
   let finishBackground = () => {};
   let delayBackground = false;
