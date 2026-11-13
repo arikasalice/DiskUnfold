@@ -43,7 +43,8 @@ const PHASE_FALLBACK: Record<string, string> = {
  *
  * It shows the host's lifecycle phase and the remaining job count, and offers
  * "quit without waiting" until the host reports it has closed. It has no
- * cancel action because accepted shutdown is not undone. The guard stops
+ * cancel action because accepted shutdown is not undone. Waiting is the safe
+ * default, so the button has no accent emphasis. The guard stops
  * rendering the workspace when this screen appears, so focus moves here on
  * mount and again once the user has chosen to leave (the button is then
  * disabled and cannot keep focus).
@@ -84,11 +85,7 @@ export function ClosingScreen({
       <ClosingNotices leaving={leaving} notice={notice} />
       {row.action && (
         <div className="du-closing__actions">
-          <Action
-            variant="primary"
-            isDisabled={leaving}
-            onPress={onQuitWithoutWaiting}
-          >
+          <Action isDisabled={leaving} onPress={onQuitWithoutWaiting}>
             {text("ui.closing.leave_now", "Quit without waiting")}
           </Action>
           <Text kind="muted">
