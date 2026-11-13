@@ -5,9 +5,9 @@
   "edition": "ubuntu",
   "cpu": "x64",
   "observedOn": "2026-11-13",
-  "osDetail": "Ubuntu 24.04 x64 container",
+  "osDetail": "Ubuntu 24.04.5 x64 container",
   "device": "container",
-  "executionForm": "deb install and uninstall, Xvfb smoke",
+  "executionForm": "deb installed with dpkg -i and the extracted tar.gz, each started under Xvfb with Openbox and isolated data",
   "checks": {
     "native_build": "passed",
     "native_tests": "passed",
@@ -15,8 +15,10 @@
   },
   "limits": [
     "container, not a real desktop",
-    "WebKit sandbox disabled for the smoke run",
+    "WebKit sandbox still disabled for the run: bwrap fails with Operation not permitted without WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1",
+    "closing the window ends with exit code 101: glib panics removing the shutdown timer a second time (platform-os/src/webview/linux.rs)",
+    "start grade was unverifiable: most startup checks report unverifiable in this build",
     "no 26.04 or ARM64 run"
   ],
-  "evidence": "F15 requirement matrix 2026-11-13: Ubuntu 24.04 x64 container package build, deb install and Xvfb smoke"
+  "evidence": "ac22ba92 release build. smoke-linux-quit.sh with PROBE_IPC=1: window visible, app.startup_status and app.product_info answered (installForm deb for /usr/bin/diskunfold, tar_gz for the extracted archive), window closed within 10 s, lock released, no -wal/-shm left, integrity_check ok, exit code 101."
 }

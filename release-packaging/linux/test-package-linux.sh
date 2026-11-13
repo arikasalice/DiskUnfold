@@ -154,6 +154,13 @@ cmp -s "$test_root/tar-members.expected" "$test_root/tar-members" || \
     fail 'tar.gz contains unexpected entries'
 tar -xOzf "$output/$tar_name" "DiskUnfold-0.1.0-linux-${cpu}/THIRD-PARTY-NOTICES.txt" | \
     cmp - "$notices" || fail 'tar.gz notices differ from the explicit input'
+# The app reports TarGz only when this marker names the form.
+[[ "$(tar -xOzf "$output/$tar_name" "DiskUnfold-0.1.0-linux-${cpu}/install-form" | tr -d '[:space:]')" == tar_gz ]] || \
+    fail 'tar.gz install-form marker is missing or wrong'
+# The Debian package is recognized from dpkg records, so it ships no marker.
+if dpkg-deb --fsys-tarfile "$output/$deb_name" | tar -tf - | grep -q 'install-form'; then
+    fail 'deb must not contain an install-form marker'
+fi
 dpkg-deb --fsys-tarfile "$output/$deb_name" | \
     tar -xO -f - ./usr/share/doc/diskunfold/THIRD-PARTY-NOTICES.txt | \
     cmp - "$notices" || fail 'deb notices differ from the explicit input'
