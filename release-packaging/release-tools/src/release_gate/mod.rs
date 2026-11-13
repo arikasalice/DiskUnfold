@@ -14,7 +14,10 @@ mod fuzz;
 #[cfg(test)]
 mod tests;
 
-pub use fuzz::{FuzzGateReport, VERIFICATION_FAILED, check_fuzz_crashes, registered_fuzz_targets};
+pub use fuzz::{
+    FuzzGateInput, FuzzGateRecord, FuzzRunRecord, NO_TARGETS, TARGETS_REGISTERED,
+    VERIFICATION_FAILED, check_fuzz_gate, parse_utc_timestamp, registered_fuzz_targets,
+};
 
 /// Reason key: the tag is not a stable `vMAJOR.MINOR.PATCH` version.
 pub const TAG_FORMAT_INVALID: &str = "release.tag_format_invalid";
@@ -34,6 +37,9 @@ pub const ARTIFACT_MISSING: &str = "release.artifact_missing";
 pub const SIGNATURE_UNVERIFIED: &str = "release.signature_unverified";
 /// Reason key (warning): a designed package format has no builder yet.
 pub const FORMAT_UNAVAILABLE: &str = "release.format_unavailable";
+/// Reason key: a package holds a shared library, a GPL-family license file, a bundled binary or an
+/// executable that links a library outside the system allow list.
+pub const LICENSE_DENIED: &str = "release.license_denied";
 
 /// A failed gate check.
 #[derive(Clone, Debug, Eq, PartialEq)]

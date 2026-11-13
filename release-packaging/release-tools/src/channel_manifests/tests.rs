@@ -83,7 +83,7 @@ fn parse(files: &[ChannelFile], name: &str) -> Result<Value, Box<dyn std::error:
 fn direct_lists_every_package_with_its_release_page_address() -> TestResult {
     let files = build_channel_manifests(&current_inventory()?, &official())?;
     let direct = parse(&files, "channel-direct.json")?;
-    assert_eq!(direct["status"], "available");
+    assert_eq!(direct["status"], "pending_publication");
     assert_eq!(direct["update_method"], "replace_file");
     assert_eq!(direct["entries"].as_array().ok_or("entries")?.len(), 3);
     assert_eq!(

@@ -5,26 +5,28 @@
 //! format's own tool (tar, dpkg-deb, unzip, hdiutil, or the packaged executable's own
 //! `notices` command). This module then checks the opened tree: it must contain the repository
 //! LICENSE and the generated THIRD-PARTY-NOTICES, byte for byte, where the format registry says
-//! they belong, and no shared library or GPL-family license file.
+//! they belong, and nothing that must not ship (see [`denied_members`]). The scan fails closed: an
+//! unreadable directory, a symbolic link that leaves the tree and a package that was not opened are
+//! failures. It also reads the link list of every staged executable ([`crate::link_list`]).
 
 use crate::{
+    link_list::check_link_list,
     release_gate::GateFailure,
-    release_inventory::{PackageFormat, ReleaseManifest},
+    release_inventory::{PackageFormat, ReleaseManifest, StagedFileKind},
     sbom::NOTICE_MISMATCH,
 };
 use std::{
     fs,
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
 };
 
 mod members;
 #[cfg(test)]
 mod tests;
 
-pub use members::copyleft_members;
+pub use members::{denied_members, link_escapes};
 
-/// Reason key: a package holds a shared library or a GPL-family license file.
-pub const LICENSE_DENIED: &str = "release.license_denied";
+pub use crate::release_gate::LICENSE_DENIED;
 
 /// Name of the license document inside every package.
 pub const LICENSE_FILE: &str = "LICENSE";
@@ -37,21 +39,22 @@ fn mismatch(detail: impl Into<String>) -> GateFailure {
 
 /// Returns the directory that holds the two documents inside an opened package.
 ///
-/// The locations follow the packagers: a tar.gz has one top-level folder, a deb installs them
-/// under `usr/share/doc/diskunfold`, and a portable executable, MSIX or DMG has them at the root
-/// of what the workflow opened (the executable's own `notices` output for the portable
-/// executable).
+/// The locations follow the packagers: a tar.gz has one top-level folder (a real folder, not a
+/// link), a deb installs them under `usr/share/doc/diskunfold`, and a portable executable, MSIX or
+/// DMG has them at the root of what the workflow opened (the executable's own `notices` output for
+/// the portable executable).
 fn document_dir(format: PackageFormat, tree: &Path) -> Result<PathBuf, GateFailure> {
     match format {
         PackageFormat::Deb => Ok(tree.join("usr/share/doc/diskunfold")),
         PackageFormat::TarGz => {
-            let entries: Vec<_> = fs::read_dir(tree)
-                .map_err(|error| mismatch(format!("{}: {error}", tree.display())))?
-                .filter_map(Result::ok)
-                .collect();
+            let entries = fs::read_dir(tree)
+                .and_then(|entries| entries.collect::<Result<Vec<_>, _>>())
+                .map_err(|error| mismatch(format!("{}: {error}", tree.display())))?;
             match entries.as_slice() {
-                [only] if only.path().is_dir() => Ok(only.path()),
-                _ => Err(mismatch("tar.gz must hold exactly one top-level folder")),
+                [only] if only.file_type().is_ok_and(|kind| kind.is_dir()) => Ok(only.path()),
+                _ => Err(mismatch(
+                    "tar.gz must hold exactly one top-level folder, not a link or a file",
+                )),
             }
         }
         PackageFormat::PortableExe | PackageFormat::Msix | PackageFormat::Dmg => {
@@ -75,12 +78,13 @@ fn read_document(dir: &Path, name: &str, package: &str) -> Result<Vec<u8>, GateF
 ///
 /// # Errors
 /// `release.notice_mismatch` when LICENSE or THIRD-PARTY-NOTICES is missing, is not a regular
-/// file, or differs from the expected bytes; `release.license_denied` for a shared library or a
-/// GPL-family license file among its members.
+/// file, or differs from the expected bytes; `release.license_denied` for a member that must not
+/// ship or a tree that cannot be read.
 pub fn scan_package(
     package: &str,
     format: PackageFormat,
     tree: &Path,
+    allowed_binary: &str,
     license: &[u8],
     notices: &[u8],
 ) -> Result<(), GateFailure> {
@@ -92,7 +96,9 @@ pub fn scan_package(
             )));
         }
     }
-    let denied = copyleft_members(tree);
+    let denied = denied_members(tree, allowed_binary).map_err(|failure| {
+        GateFailure::new(LICENSE_DENIED, format!("{package}: {}", failure.detail))
+    })?;
     if denied.is_empty() {
         Ok(())
     } else {
@@ -103,8 +109,51 @@ pub fn scan_package(
     }
 }
 
-/// Checks every package row against its opened tree under `extracted`. Returns the number of
-/// packages scanned.
+fn plain_file_name(name: &str) -> bool {
+    !name.is_empty()
+        && name != "."
+        && name != ".."
+        && !name.contains(['/', '\\', ':'])
+        && Path::new(name).components().count() == 1
+        && matches!(
+            Path::new(name).components().next(),
+            Some(Component::Normal(_))
+        )
+}
+
+fn staged_executable(
+    manifest: &ReleaseManifest,
+    package: &str,
+    staging: &Path,
+) -> Result<PathBuf, GateFailure> {
+    let entry = manifest
+        .staged_files
+        .iter()
+        .find(|file| file.artifact_file_name == package && file.kind == StagedFileKind::Executable)
+        .ok_or_else(|| {
+            GateFailure::new(
+                LICENSE_DENIED,
+                format!("{package}: no staged executable to read the link list from"),
+            )
+        })?;
+    let safe = entry
+        .relative_path
+        .components()
+        .all(|component| matches!(component, Component::Normal(_)));
+    if !safe {
+        return Err(GateFailure::new(
+            LICENSE_DENIED,
+            format!(
+                "{package}: unsafe executable path {}",
+                entry.relative_path.display()
+            ),
+        ));
+    }
+    Ok(staging.join(&entry.relative_path))
+}
+
+/// Checks every package row against its opened tree under `extracted` and the link list of its
+/// staged executable under `staging`. Returns the number of packages scanned.
 ///
 /// # Errors
 /// Returns the first failure; a package the workflow did not open fails with
@@ -112,19 +161,34 @@ pub fn scan_package(
 pub fn scan_release(
     manifest: &ReleaseManifest,
     extracted: &Path,
+    staging: &Path,
     license: &[u8],
     notices: &[u8],
 ) -> Result<usize, GateFailure> {
     for row in &manifest.rows {
-        let safe = !row.file_name.contains(['/', '\\']) && row.file_name != "..";
         let tree = extracted.join(&row.file_name);
-        if !safe || !tree.is_dir() {
+        if !plain_file_name(&row.file_name) || !tree.is_dir() {
             return Err(mismatch(format!(
                 "{} was not opened for the scan",
                 row.file_name
             )));
         }
-        scan_package(&row.file_name, row.format, &tree, license, notices)?;
+        scan_package(
+            &row.file_name,
+            row.format,
+            &tree,
+            &row.executable_file_name,
+            license,
+            notices,
+        )?;
+        let executable = staged_executable(manifest, &row.file_name, staging)?;
+        let bytes = fs::read(&executable).map_err(|error| {
+            GateFailure::new(
+                LICENSE_DENIED,
+                format!("{}: {}: {error}", row.file_name, executable.display()),
+            )
+        })?;
+        check_link_list(&row.file_name, &bytes)?;
     }
     Ok(manifest.rows.len())
 }

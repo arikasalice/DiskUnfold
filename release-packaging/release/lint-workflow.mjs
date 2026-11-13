@@ -8,7 +8,7 @@
 // other than matrix values.
 // Usage: node lint-workflow.mjs [workflow-file] [--verify-remote]
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -80,6 +80,15 @@ export function lintJobs(text) {
   if (!blocks.find((block) => block.name === "attest") || !jobPermissions(blocks.find((block) => block.name === "attest")).get("id-token")) {
     problems.push("permissions: attest must hold id-token: write");
   }
+  for (const expression of runScriptExpressions(text)) {
+    problems.push(`line ${expression.line}: run script embeds ${expression.text}; pass it through env instead`);
+  }
+  return problems;
+}
+
+/** Workflow expressions inside run scripts, other than matrix values: { line, text }. */
+function runScriptExpressions(text) {
+  const found = [];
   const lines = text.split(/\r?\n/);
   lines.forEach((line, index) => {
     const run = /^(\s*)(?:-\s+)?run:\s*(.*)$/.exec(line);
@@ -94,12 +103,10 @@ export function lintJobs(text) {
       }
     }
     for (const expression of body.join("\n").matchAll(/\$\{\{\s*([^}]*?)\s*\}\}/g)) {
-      if (!/^matrix\.[\w-]+$/.test(expression[1])) {
-        problems.push(`line ${index + 1}: run script embeds ${expression[0]}; pass it through env instead`);
-      }
+      if (!/^matrix\.[\w-]+$/.test(expression[1])) found.push({ line: index + 1, text: expression[0] });
     }
   });
-  return problems;
+  return found;
 }
 
 /** The single place that may set official=true is the tag push branch of the gate. */
@@ -118,43 +125,100 @@ export function lintGateMode(text) {
 
 /** What each release stage job must run (F15 HLD table 7 stages 3 to 9). */
 const STAGE_JOBS = {
-  "artifact-scan": ["release-gate scan-artifacts"],
-  "notices-sbom": ["build-sbom", "release-gate check-sboms"],
-  "release-gate": ["release-gate check-fuzz", "--label fuzz-crash"],
-  "channel-manifests": ["build-channel-manifests"],
+  "artifact-scan": ["release-gate scan-artifacts", "--staging staging"],
+  "notices-sbom": ["build-sbom", "release-gate check-sboms", "--repo ."],
+  "fuzz-gate": ["release-gate check-fuzz", "--label fuzz-crash", "--require-run"],
+  "release-gate": ["release-gate check-sboms", "--repo .", "sha256sum --check --strict SHA256SUMS"],
+  "channel-manifests": ["build-channel-manifests", "sha256sum --check --strict SHA256SUMS"],
 };
+
+/** The lines of a job that are code, not comments. A comment must never satisfy a check. */
+function codeLines(lines) {
+  return lines.filter((line) => !/^\s*#/.test(line));
+}
 
 /**
  * The stage jobs must exist, run their tool, run for dry runs too (no job-level condition), and be
- * wired into the jobs that depend on them; the build cells must run the workspace tests and name
- * release.test_failed.
+ * wired into the jobs that depend on them. None of them may swallow a failure (`continue-on-error`,
+ * `|| true`). The build cells must run the workspace tests, name release.test_failed and record
+ * that the tests passed. Comment lines never count.
  */
 export function lintStages(text) {
   const problems = [];
   const blocks = jobBlocks(text);
   const find = (name) => blocks.find((block) => block.name === name);
-  const needs = (block) => block?.lines.find((line) => /^    needs:/.test(line)) ?? "";
+  const needs = (block) => codeLines(block?.lines ?? []).find((line) => /^    needs:/.test(line)) ?? "";
   for (const [name, commands] of Object.entries(STAGE_JOBS)) {
     const block = find(name);
     if (!block) {
       problems.push(`stages: job ${name} is missing`);
       continue;
     }
-    if (block.lines.some((line) => /^    if:/.test(line))) {
+    const code = codeLines(block.lines);
+    if (code.some((line) => /^    if:/.test(line))) {
       problems.push(`stages: job ${name} must run for dry runs too, so it takes no job-level if`);
     }
     for (const command of commands) {
-      if (!block.lines.some((line) => line.includes(command))) problems.push(`stages: job ${name} must run ${command}`);
+      if (!code.some((line) => line.includes(command))) problems.push(`stages: job ${name} must run ${command}`);
+    }
+    for (const line of code) {
+      if (/continue-on-error\s*:/.test(line) || /\|\|\s*true\b/.test(line)) {
+        problems.push(`stages: job ${name} must not swallow a failure: ${line.trim()}`);
+      }
     }
   }
-  const build = find("build")?.lines.join("\n") ?? "";
-  if (!/cargo test --locked --workspace --all-features/.test(build) || !build.includes("release.test_failed")) {
+  const build = codeLines(find("build")?.lines ?? []).join("\n");
+  if (!/^\s+cargo test --locked --workspace --all-features; then\s*$/m.test(build) || !build.includes("release.test_failed")) {
     problems.push("stages: build must run cargo test --locked --workspace --all-features and report release.test_failed");
   }
-  for (const [job, required] of [["inventory", ["artifact-scan", "notices-sbom"]], ["attest", ["release-gate"]], ["publish-draft", ["release-gate"]]]) {
+  if (!/tested:\s*true/.test(build)) problems.push("stages: build must record tested: true");
+  if (/continue-on-error\s*:/.test(build)) problems.push("stages: build must not use continue-on-error");
+  const wiring = [
+    ["inventory", ["artifact-scan", "notices-sbom", "fuzz-gate"]],
+    ["release-gate", ["inventory", "fuzz-gate"]],
+    ["attest", ["release-gate"]],
+    ["publish-draft", ["release-gate"]],
+  ];
+  for (const [job, required] of wiring) {
     for (const name of required) {
       if (!new RegExp(`[\\[ ,]${name}[\\], ]`).test(needs(find(job)))) problems.push(`stages: job ${job} must need ${name}`);
     }
+  }
+  return problems;
+}
+
+/**
+ * Policy for fuzz.yml, whose crash-issue job holds the one `issues: write` permission: only
+ * schedule and manual triggers, a read-only default, pinned actions, `issues: write` in
+ * crash-issue alone and no checkout there, no expression inside a run script.
+ */
+export function lintFuzzWorkflow(text) {
+  const problems = [];
+  const trigger = text.match(/^on:\n((?:[ \t]+.*\n|\n)+)/m)?.[1] ?? "";
+  if (!/^\s+schedule:/m.test(trigger) || !/^\s+workflow_dispatch:/m.test(trigger)) {
+    problems.push("fuzz: schedule and workflow_dispatch triggers are required");
+  }
+  for (const forbidden of ["pull_request", "pull_request_target", "push:", "release:", "workflow_run"]) {
+    if (trigger.includes(forbidden)) problems.push(`fuzz: trigger ${forbidden} is not allowed`);
+  }
+  if (!/^permissions:\n\s+contents: read\s*$/m.test(text)) problems.push("fuzz: the workflow default must be contents: read");
+  text.split(/\r?\n/).forEach((line, index) => {
+    const match = USES.exec(line);
+    if (match && !PINNED.test(match[1])) problems.push(`line ${index + 1}: action ${match[1]} is not pinned to a 40 digit commit SHA`);
+    if (/^\s*(?:-\s+)?uses:/.test(line) && !match) problems.push(`line ${index + 1}: cannot read this uses: line`);
+  });
+  for (const block of jobBlocks(text)) {
+    for (const [scope, level] of jobPermissions(block)) {
+      const allowed = scope === "contents" || (scope === "issues" && block.name === "crash-issue") || scope === "issues" && level === "read";
+      if (level === "write" && !(scope === "issues" && block.name === "crash-issue")) problems.push(`fuzz: job ${block.name} must not write ${scope}`);
+      if (!allowed && level !== "none" && level !== "read") problems.push(`fuzz: job ${block.name} requests unexpected ${scope}: ${level}`);
+    }
+    if (block.name === "crash-issue" && block.lines.some((line) => /uses:\s*actions\/checkout/.test(line))) {
+      problems.push("fuzz: crash-issue must not check out the repository");
+    }
+  }
+  for (const expression of runScriptExpressions(text)) {
+    problems.push(`line ${expression.line}: run script embeds ${expression.text}; pass it through env instead`);
   }
   return problems;
 }
@@ -240,7 +304,10 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     ?? path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", ".github", "workflows", "release.yml");
   const text = readFileSync(file, "utf8");
   const problems = lintWorkflow(text);
-  if (process.argv.includes("--verify-remote")) problems.push(...verifyRemote(pinnedActions(text)));
+  const fuzzFile = path.join(path.dirname(file), "fuzz.yml");
+  const fuzzText = existsSync(fuzzFile) ? readFileSync(fuzzFile, "utf8") : "";
+  if (fuzzText) problems.push(...lintFuzzWorkflow(fuzzText));
+  if (process.argv.includes("--verify-remote")) problems.push(...verifyRemote(pinnedActions(text + "\n" + fuzzText)));
   if (problems.length > 0) {
     console.error(`release workflow lint failed (${file}):\n  ${problems.join("\n  ")}`);
     process.exit(1);

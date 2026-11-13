@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { lintStages, lintWorkflow, pinnedActions, verifyRemote } from "./lint-workflow.mjs";
+import { lintFuzzWorkflow, lintStages, lintWorkflow, pinnedActions, verifyRemote } from "./lint-workflow.mjs";
 
 const workflow = readFileSync(
   fileURLToPath(new URL("../../.github/workflows/release.yml", import.meta.url)),
@@ -97,7 +97,7 @@ test("a run script may embed only matrix values", () => {
 
 test("the stage jobs are wired in and run for dry runs", () => {
   assert.deepEqual(lintStages(workflow), []);
-  for (const job of ["artifact-scan", "notices-sbom", "release-gate", "channel-manifests"]) {
+  for (const job of ["artifact-scan", "notices-sbom", "fuzz-gate", "release-gate", "channel-manifests"]) {
     const gated = workflow.replace(new RegExp(`(\\n  ${job}:\\n)`), "$1    if: needs.gate.outputs.official == 'true'\n");
     assert.notEqual(gated, workflow, job);
     assert.ok(lintStages(gated).some((p) => p.includes(job) && p.includes("dry runs")), job);
@@ -108,19 +108,57 @@ test("the stage jobs are wired in and run for dry runs", () => {
 
 test("the stage jobs keep running their tools", () => {
   assert.ok(lintStages(workflow.replace("release-gate scan-artifacts", "true")).some((p) => p.includes("scan-artifacts")));
-  assert.ok(lintStages(workflow.replace("release-gate check-sboms", "true")).some((p) => p.includes("check-sboms")));
-  assert.ok(lintStages(workflow.replace("--label fuzz-crash", "")).some((p) => p.includes("fuzz-crash")));
+  assert.ok(lintStages(workflow.replaceAll("release-gate check-sboms", "true")).some((p) => p.includes("check-sboms")));
+  assert.ok(lintStages(workflow.replaceAll("--label fuzz-crash", "")).some((p) => p.includes("fuzz-crash")));
   assert.ok(lintStages(workflow.replaceAll("build-channel-manifests", "true")).some((p) => p.includes("build-channel-manifests")));
 });
 
 test("the build cells run the workspace tests and report release.test_failed", () => {
-  assert.ok(lintStages(workflow.replace("cargo test --locked --workspace --all-features", "true")).some((p) => p.includes("release.test_failed")));
+  assert.ok(lintStages(workflow.replaceAll("cargo test --locked --workspace --all-features", "true")).some((p) => p.includes("release.test_failed")));
   assert.ok(lintStages(workflow.replaceAll("release.test_failed", "release.tests_failed")).length > 0);
 });
 
 test("inventory, attest and publish-draft wait for the stage jobs", () => {
-  assert.ok(lintStages(workflow.replace("needs: [gate, build, package-dmg, artifact-scan, notices-sbom]", "needs: [gate, build, package-dmg]")).some((p) => p.includes("inventory must need")));
+  assert.ok(lintStages(workflow.replace("needs: [gate, build, package-dmg, artifact-scan, notices-sbom, fuzz-gate]", "needs: [gate, build, package-dmg]")).some((p) => p.includes("inventory must need")));
   assert.ok(lintStages(workflow.replace("needs: [gate, inventory, release-gate]", "needs: [gate, inventory]")).some((p) => p.includes("attest must need release-gate")));
   assert.ok(lintStages(workflow.replace("needs: [gate, inventory, release-gate, attest, verify-provenance]", "needs: [gate, inventory, attest, verify-provenance]")).some((p) => p.includes("publish-draft must need release-gate")));
 });
 
+test("a comment never satisfies a stage check", () => {
+  const commented = workflow.replace(/^( +)(target\/debug\/release-gate scan-artifacts)/m, "$1# $2");
+  assert.notEqual(commented, workflow);
+  assert.ok(lintStages(commented).some((p) => p.includes("artifact-scan must run release-gate scan-artifacts")));
+  const noTest = workflow.replaceAll("cargo test --locked --workspace --all-features", "# cargo test --locked --workspace --all-features");
+  assert.ok(lintStages(noTest).some((p) => p.includes("build must run cargo test")));
+});
+
+test("a stage job may not swallow a failure", () => {
+  const lenient = workflow.replace("  artifact-scan:\n", "  artifact-scan:\n    continue-on-error: true\n");
+  assert.ok(lintStages(lenient).some((p) => p.includes("artifact-scan must not swallow")));
+  const orTrue = workflow.replace("cargo build --locked -p du-release-tools --bin release-gate --bin build-sbom", "cargo build --locked -p du-release-tools --bin release-gate --bin build-sbom || true");
+  assert.ok(lintStages(orTrue).some((p) => p.includes("notices-sbom must not swallow")));
+});
+
+test("the build record says the tests passed", () => {
+  assert.ok(lintStages(workflow.replace("tested: true", "tested: false")).some((p) => p.includes("tested: true")));
+});
+
+const fuzzWorkflow = readFileSync(fileURLToPath(new URL("../../.github/workflows/fuzz.yml", import.meta.url)), "utf8");
+
+test("fuzz.yml satisfies the policy", () => {
+  assert.deepEqual(lintFuzzWorkflow(fuzzWorkflow), []);
+});
+
+test("fuzz.yml keeps its triggers, permissions and pins", () => {
+  assert.ok(lintFuzzWorkflow(fuzzWorkflow.replace("on:\n", "on:\n  pull_request:\n")).some((p) => p.includes("pull_request")));
+  assert.ok(lintFuzzWorkflow(fuzzWorkflow.replace("  fuzz:\n", "  fuzz:\n    permissions:\n      issues: write\n")).some((p) => p.includes("job fuzz must not write issues")));
+  assert.ok(lintFuzzWorkflow(fuzzWorkflow.replace("      issues: write\n", "      issues: write\n      contents: write\n")).some((p) => p.includes("must not write contents")));
+  assert.ok(lintFuzzWorkflow(fuzzWorkflow.replace(/actions\/cache@[0-9a-f]{40}/, "actions/cache@v4")).some((p) => p.includes("not pinned")));
+  assert.ok(lintFuzzWorkflow(fuzzWorkflow.replace("    steps:\n      - name: File the crash issue", "    steps:\n      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n      - name: File the crash issue")).some((p) => p.includes("must not check out")));
+  assert.ok(lintFuzzWorkflow(fuzzWorkflow.replace('RUN_URL: ${{ github.server_url }}', 'RUN_URL: x')
+    .replace('run: |\n          set -euo pipefail\n          gh label', 'run: |\n          echo "${{ github.head_ref }}"\n          gh label')).some((p) => p.includes("run script embeds")));
+});
+
+test("the crash issue is also filed when the fuzz job fails without a crash file", () => {
+  assert.ok(fuzzWorkflow.includes("needs.fuzz.result == 'failure'"));
+});

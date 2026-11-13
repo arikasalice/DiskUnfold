@@ -352,7 +352,8 @@ jobs:
             const host = require("child_process").execSync("rustc -vV").toString().match(/^host: (.*)$/m)[1];
             const rec = { id: e.MATRIX_ID, runnerLabel: e.RUNNER_LABEL, runnerOs: e.IMAGE_OS, runnerArch: e.IMAGE_ARCH,
               imageVersion: e.IMAGE_VERSION || null, rustHost: host, buildKind: e.DU_BUILD_KIND,
-              commit: e.DU_SOURCE_COMMIT, result: "built" };
+              commit: e.DU_SOURCE_COMMIT, result: "built and tested", tested: true,
+              testedWith: "cargo test --locked --workspace --all-features" };
             require("fs").writeFileSync("record/" + e.MATRIX_ID + ".json", JSON.stringify(rec, null, 2) + "\n");'
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -535,7 +536,7 @@ jobs:
       - name: Scan the opened packages
         run: |
           set -euo pipefail
-          target/debug/release-gate scan-artifacts --manifest merged-manifest.json --extracted extracted \
+          target/debug/release-gate scan-artifacts --manifest merged-manifest.json --extracted extracted --staging staging \
             --license LICENSE --notices release-resources/THIRD-PARTY-NOTICES | tee artifact-scan-report.txt
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -585,7 +586,7 @@ jobs:
       - name: Compare the SBOMs with the notices
         run: |
           target/debug/release-gate check-sboms --manifest merged-manifest.json --sbom-dir sbom \
-            --notices release-resources/THIRD-PARTY-NOTICES
+            --notices release-resources/THIRD-PARTY-NOTICES --repo .
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: sbom
@@ -594,11 +595,75 @@ jobs:
           retention-days: 14
 
 
+  # Release stage 8 (verification list, ANFR4), fuzz part. Blocks on an open issue labelled
+  # fuzz-crash and on a latest completed Fuzz run that did not succeed, so a fuzz job that failed or
+  # timed out without a crash file also stops the release. An official build also needs a recent
+  # Fuzz run. The outcome is written to fuzz-gate.json, which the inventory publishes in
+  # release-inventory.json and DISTRIBUTION.md; an empty fuzz registry shows there as
+  # no_fuzz_targets_registered and as a warning annotation, never as a fuzz pass. Runs for dry runs
+  # too (a developer build only records a missing run).
+  fuzz-gate:
+    needs: gate
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      issues: read
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.gate.outputs.commit }}
+          persist-credentials: false
+      - name: Install pinned Rust
+        run: |
+          channel="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$channel" --profile minimal
+          rustup default "$channel"
+      - name: Build the release tools
+        run: cargo build --locked -p du-release-tools --bin release-gate
+      - name: Fuzz gate
+        env:
+          REPOSITORY: ${{ github.repository }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          OFFICIAL: ${{ needs.gate.outputs.official }}
+          COMMIT: ${{ needs.gate.outputs.commit }}
+        run: |
+          set -euo pipefail
+          mkdir fuzz-gate
+          gh issue list --repo "$REPOSITORY" --label fuzz-crash --state open --limit 200 --json number,title,url > open-fuzz-crashes.json
+          if ! gh run list --repo "$REPOSITORY" --workflow fuzz.yml --branch "$DEFAULT_BRANCH" --status completed --limit 10 \
+              --json databaseId,conclusion,createdAt,headSha,url > fuzz-runs.json; then
+            [[ "$OFFICIAL" != true ]] || { echo "release.verification_failed: the Fuzz workflow runs cannot be listed" >&2; exit 1; }
+            echo "::warning::The Fuzz workflow runs cannot be listed (the workflow may not be on the default branch yet)."
+            echo "[]" > fuzz-runs.json
+          fi
+          target/debug/release-gate check-fuzz --issues open-fuzz-crashes.json --runs fuzz-runs.json \
+            --registry release-packaging/quality/fuzz-targets.json --now "$(date +%s)" --commit "$COMMIT" \
+            --require-run "$OFFICIAL" --record-out fuzz-gate/fuzz-gate.json | tee fuzz-gate/fuzz-gate.log
+          {
+            echo "### Fuzz gate"
+            echo
+            echo '```json'
+            cat fuzz-gate/fuzz-gate.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fuzz-gate
+          path: fuzz-gate/fuzz-gate.json
+          if-no-files-found: error
+          retention-days: 14
+
+
   # Merges every platform manifest into one release list, rehashes every staged file, and writes
   # the checksum lists, the distribution table and the provenance subject list. The SBOMs join the
-  # assets and the checksum list, so they are attested with the packages.
+  # assets and the checksum list, so they are attested with the packages. Every build record must
+  # say the tests passed, and the SBOMs must be exactly what build-sbom writes again from this
+  # commit.
   inventory:
-    needs: [gate, build, package-dmg, artifact-scan, notices-sbom]
+    needs: [gate, build, package-dmg, artifact-scan, notices-sbom, fuzz-gate]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -628,8 +693,12 @@ jobs:
         with:
           name: sbom
           path: sbom
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: fuzz-gate
+          path: fuzz-gate
       - name: Build the release tools
-        run: cargo build --locked -p du-release-tools --bin release-gate --bin build-release-inventory
+        run: cargo build --locked -p du-release-tools --bin release-gate --bin build-release-inventory --bin build-sbom
       - name: Merge manifests and check the release set
         run: |
           set -euo pipefail
@@ -645,14 +714,20 @@ jobs:
       - name: Build the inventory and checksum lists
         run: |
           set -euo pipefail
-          target/debug/build-release-inventory merged-manifest.json staging inventory
+          target/debug/build-release-inventory merged-manifest.json staging inventory --fuzz-gate fuzz-gate/fuzz-gate.json
           (cd inventory && ls)
-      # The SBOMs were written for the same merged list; check them again against the final list so
-      # an SBOM for other bytes cannot ship.
-      - name: Check the SBOMs against the release list and the notices
+      # The SBOMs were written for the same merged list. Write them again here and require the same
+      # bytes, then check them against the final list, so an SBOM for other bytes or a changed SBOM
+      # cannot ship.
+      - name: Re-verify the SBOMs
         run: |
+          set -euo pipefail
+          target/debug/build-sbom merged-manifest.json . sbom-verify
+          diff -r sbom sbom-verify
           target/debug/release-gate check-sboms --manifest merged-manifest.json --sbom-dir sbom \
             --notices release-resources/THIRD-PARTY-NOTICES
+      - name: Require tested build records
+        run: jq -e 'length == 6 and all(.[]; .tested == true)' <(jq -s '.' records/*.json)
       - name: Assemble the release assets
         env:
           OFFICIAL: ${{ needs.gate.outputs.official }}
@@ -674,6 +749,8 @@ jobs:
           cp release-resources/THIRD-PARTY-NOTICES release-resources/SUPPORT-TABLE.md release-resources/support-matrix.json release-resources/product-resources.json release-assets/
           cp sbom/*.cdx.json release-assets/
           cat sbom/SBOM-SHA256SUMS >> release-assets/SHA256SUMS
+          cp fuzz-gate/fuzz-gate.json release-assets/fuzz-gate.json
+          (cd release-assets && sha256sum fuzz-gate.json >> SHA256SUMS)
           cp release-packaging/release/VERIFY.md release-assets/VERIFY.md
           jq -s '.' records/*.json > release-assets/native-build-records.json
           node -e '
@@ -696,19 +773,14 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  # Release stage 8 (verification list, ANFR4): an open fuzz crash blocks the release. The Fuzz
-  # workflow files one issue labelled fuzz-crash per crashing run, and the issue stays open until a
-  # person closes it, so this job reads the open issues with that label. An unreadable list fails the
-  # job. The registry may have no targets yet; the job then says so, which is not a fuzz pass. Runs
-  # for dry runs too, and attest waits for it so a rejected release is never attested.
+  # Release stage 8 (verification list, ANFR4), final check before attestation: the downloaded
+  # assets are rehashed, every SBOM is checked against the release list, the notices and the
+  # component set that cargo tree and npm ls derive for its target, and the fuzz gate record must be
+  # in the inventory. attest waits for this job, so a rejected release is never attested. Runs for
+  # dry runs too.
   release-gate:
-    needs: [gate, inventory]
+    needs: [gate, inventory, fuzz-gate]
     runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-      issues: read
-    env:
-      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -719,15 +791,21 @@ jobs:
           channel="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
           rustup toolchain install "$channel" --profile minimal
           rustup default "$channel"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ needs.gate.outputs.official == 'true' && 'release-assets' || 'release-assets-developer' }}
+          path: release-assets
       - name: Build the release tools
         run: cargo build --locked -p du-release-tools --bin release-gate
-      - name: Fuzz gate (no open fuzz crash)
-        env:
-          REPOSITORY: ${{ github.repository }}
+      - name: Rehash the assets
+        run: cd release-assets && sha256sum --check --strict SHA256SUMS
+      - name: Check the SBOMs and the fuzz gate record in the assets
         run: |
           set -euo pipefail
-          gh issue list --repo "$REPOSITORY" --label fuzz-crash --state open --limit 200 --json number,title,url > open-fuzz-crashes.json
-          target/debug/release-gate check-fuzz --issues open-fuzz-crashes.json --registry release-packaging/quality/fuzz-targets.json
+          target/debug/release-gate check-sboms --manifest release-assets/release-inventory.json \
+            --sbom-dir release-assets --notices release-assets/THIRD-PARTY-NOTICES --repo .
+          jq -e '.fuzz_gate.outcome and (.fuzz_gate.open_crashes == 0)' release-assets/release-inventory.json
+          grep -q '^## Fuzz gate' release-assets/DISTRIBUTION.md
 
   # Release stage 9 (channels): writes the direct download, winget and Store manifests from the
   # release inventory. A channel that cannot be served yet says so in its file. The release manager
@@ -752,6 +830,8 @@ jobs:
           path: release-assets
       - name: Build the release tools
         run: cargo build --locked -p du-release-tools --bin build-channel-manifests
+      - name: Rehash the assets before reading their digests
+        run: cd release-assets && sha256sum --check --strict SHA256SUMS
       - name: Write the channel manifests
         env:
           REPOSITORY: ${{ github.repository }}

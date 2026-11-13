@@ -53,7 +53,7 @@ jobs:
   # files one issue unless one is already open; a person closes it once the crash is fixed.
   crash-issue:
     needs: fuzz
-    if: always() && needs.fuzz.outputs.crashes == 'true'
+    if: always() && (needs.fuzz.result == 'failure' || needs.fuzz.outputs.crashes == 'true')
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -72,6 +72,6 @@ jobs:
           open="$(gh issue list --repo "$REPOSITORY" --label fuzz-crash --state open --json number --jq length)"
           if [[ "$open" -eq 0 ]]; then
             gh issue create --repo "$REPOSITORY" --label fuzz-crash \
-              --title "Fuzz crash found" \
-              --body "A fuzz run found a crash input. Run: $RUN_URL. The inputs are in the fuzz-crashes artifact (kept 90 days). Add the input as a regression sample, fix the cause and close this issue; a release stops while it is open."
+              --title "Fuzz job failed or found a crash" \
+              --body "The Fuzz run $RUN_URL failed (a crash, a timeout or an infrastructure error) or kept crash inputs. Crash inputs are in the fuzz-crashes artifact (kept 90 days). Fix the cause, add the input as a regression sample and close this issue; a release stops while it is open."
           fi

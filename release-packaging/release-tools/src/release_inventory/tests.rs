@@ -180,6 +180,7 @@ fn sorts_rows_by_format_then_os_then_cpu_deterministically() -> Result<(), Box<d
         version: manifest.version.clone(),
         rows: manifest.rows.clone(),
         channel_references: manifest.channel_references.clone(),
+        fuzz_gate: None,
     };
     let json = render_json(&output)?;
     assert_eq!(json, render_json(&output)?);
@@ -225,6 +226,7 @@ fn renders_exact_os_versions_without_implying_intermediate_support() -> Result<(
         version: manifest.version,
         rows: manifest.rows,
         channel_references: manifest.channel_references,
+        fuzz_gate: None,
     };
     let json = render_json(&inventory)?;
     let output: serde_json::Value = serde_json::from_str(&json)?;
@@ -451,5 +453,35 @@ fn renders_each_artifact_signature_scope_and_escapes_table_delimiters() -> Resul
                 == Some(&format!("{}.cdx.json", row.file_name)[..])),
         "every row names the SBOM that describes it"
     );
+    Ok(())
+}
+
+#[test]
+fn a_fuzz_gate_record_is_published_in_the_json_and_the_markdown()
+-> Result<(), Box<dyn std::error::Error>> {
+    let inventory = ReleaseInventory {
+        product_name: "DiskUnfold".into(),
+        version: "0.1.0".into(),
+        rows: Vec::new(),
+        channel_references: Vec::new(),
+        fuzz_gate: None,
+    };
+    assert!(!render_json(&inventory)?.contains("fuzz_gate"));
+    assert!(!render_markdown(&inventory).contains("## Fuzz gate"));
+
+    let record = serde_json::json!({
+        "outcome": "no_fuzz_targets_registered", "registered_targets": 0, "open_crashes": 0,
+        "latest_run": {"run_id": 9, "url": "https://example/run/9", "conclusion": "success",
+            "created_at": "2026-11-13T00:00:00Z", "head_sha": "abc", "same_commit": false},
+        "notes": ["no fuzz targets are registered, so no fuzz evidence exists for this release; this is not a fuzz pass"]
+    });
+    let inventory = inventory.with_fuzz_gate(record);
+    let json: serde_json::Value = serde_json::from_str(&render_json(&inventory)?)?;
+    assert_eq!(json["fuzz_gate"]["outcome"], "no_fuzz_targets_registered");
+    let markdown = render_markdown(&inventory);
+    assert!(markdown.contains("## Fuzz gate"));
+    assert!(markdown.contains("Registered fuzz targets: 0"));
+    assert!(markdown.contains("not a fuzz pass"));
+    assert!(markdown.contains("same commit as the release: false"));
     Ok(())
 }

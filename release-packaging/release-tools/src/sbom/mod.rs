@@ -1,20 +1,24 @@
 //! CycloneDX SBOM generation and the notices/SBOM comparison (F15 release stage 5, 고지·SBOM 대조;
 //! FR2.HD1.app-host.DD1, FR5.HD1.app-host.DD1).
 //!
-//! An SBOM describes one released package. It lists the production packages that
-//! THIRD-PARTY-NOTICES lists (cargo crates linked into the launcher and npm packages bundled
-//! into the embedded web assets), so both documents come from the same inventory and a package
-//! that appears in only one of them fails the release with `release.notice_mismatch`. Build
-//! tools appear with scope `excluded` and are never compared with the notices.
+//! An SBOM describes one released package for its target platform: the Cargo crates that a build
+//! for the package's Rust target links (`cargo metadata --filter-platform`) and the npm packages
+//! bundled into the embedded web assets. THIRD-PARTY-NOTICES covers every target, so it must list
+//! at least everything an SBOM lists. The expected set is also derived from `cargo tree` and
+//! `npm ls`, a source independent of the inventory that wrote both documents (see
+//! [`expected`]); a package missing from the SBOM or the notices fails the release with
+//! `release.notice_mismatch`. Build tools appear with scope `excluded` and are never compared.
 
 use crate::{
     notices::{Ecosystem, NoticePackage},
     release_gate::GateFailure,
+    release_inventory::{Cpu, OsFamily},
 };
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 
+pub mod expected;
 mod identity;
 mod set;
 #[cfg(test)]
@@ -40,6 +44,8 @@ pub struct SbomSubject<'a> {
     pub file_name: &'a str,
     /// SHA-256 of the released package, lower-case hexadecimal.
     pub sha256: &'a str,
+    /// Rust target triples the package is built for; empty when the SBOM lists every target.
+    pub rust_targets: &'a [&'a str],
 }
 
 /// A build-phase tool recorded in the SBOM with scope `excluded`.
@@ -56,15 +62,50 @@ pub fn sbom_file_name(package_file_name: &str) -> String {
     format!("{package_file_name}.cdx.json")
 }
 
+/// Rust target triples that the package for an OS family and CPU is built for. A macOS universal
+/// package holds both slices.
+pub fn rust_targets(family: OsFamily, cpu: Cpu) -> Option<&'static [&'static str]> {
+    match (family, cpu) {
+        (OsFamily::Windows, Cpu::X64) => Some(&["x86_64-pc-windows-msvc"]),
+        (OsFamily::Windows, Cpu::Arm64) => Some(&["aarch64-pc-windows-msvc"]),
+        (OsFamily::Ubuntu, Cpu::X64) => Some(&["x86_64-unknown-linux-gnu"]),
+        (OsFamily::Ubuntu, Cpu::Arm64) => Some(&["aarch64-unknown-linux-gnu"]),
+        (OsFamily::Macos, Cpu::Universal) => Some(&["aarch64-apple-darwin", "x86_64-apple-darwin"]),
+        _ => None,
+    }
+}
+
 pub(crate) fn mismatch(detail: impl Into<String>) -> GateFailure {
     GateFailure::new(NOTICE_MISMATCH, detail)
 }
 
-fn purl(ecosystem: Ecosystem, name: &str, version: &str) -> String {
-    match ecosystem {
-        Ecosystem::Cargo => format!("pkg:cargo/{name}@{version}"),
-        Ecosystem::Npm => format!("pkg:npm/{}@{version}", name.replacen('@', "%40", 1)),
+/// Percent-encodes a purl name or version: everything except unreserved characters (and `/` in a
+/// name, which separates an npm scope) becomes `%XX`, so `+` in build metadata is `%2B`.
+fn purl_encode(text: &str, keep_slash: bool) -> String {
+    let mut out = String::new();
+    for byte in text.bytes() {
+        let plain = byte.is_ascii_alphanumeric()
+            || matches!(byte, b'.' | b'-' | b'_' | b'~')
+            || (keep_slash && byte == b'/');
+        if plain {
+            out.push(char::from(byte));
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
+        }
     }
+    out
+}
+
+fn purl(ecosystem: Ecosystem, name: &str, version: &str) -> String {
+    let kind = match ecosystem {
+        Ecosystem::Cargo => "cargo",
+        Ecosystem::Npm => "npm",
+    };
+    format!(
+        "pkg:{kind}/{}@{}",
+        purl_encode(name, true),
+        purl_encode(version, false)
+    )
 }
 
 fn license_entry(expression: &str) -> Value {
@@ -150,14 +191,29 @@ pub fn render_cyclonedx(
         }));
     }
     let seed = format!(
-        "{}\n{}",
+        "{}\n{}\n{}\n{}",
         subject.sha256,
+        subject.rust_targets.join(","),
+        build_tools
+            .iter()
+            .map(|tool| format!("{}={}", tool.name, tool.version))
+            .collect::<Vec<_>>()
+            .join(","),
         depends_on
             .iter()
             .filter_map(Value::as_str)
             .collect::<Vec<_>>()
             .join("\n")
     );
+    let targets = if subject.rust_targets.is_empty() {
+        "all".to_owned()
+    } else {
+        subject.rust_targets.join(",")
+    };
+    let subject_properties = vec![
+        json!({ "name": "du:file-name", "value": subject.file_name }),
+        json!({ "name": "du:rust-targets", "value": targets }),
+    ];
     let document = json!({
         "bomFormat": "CycloneDX",
         "specVersion": "1.5",
@@ -171,7 +227,7 @@ pub fn render_cyclonedx(
                 "version": subject.version,
                 "description": format!("Released package {}", subject.file_name),
                 "hashes": [{ "alg": "SHA-256", "content": subject.sha256 }],
-                "properties": [{ "name": "du:file-name", "value": subject.file_name }]
+                "properties": subject_properties
             }
         },
         "components": components,
@@ -195,26 +251,50 @@ fn describe(label: &str, ids: &BTreeSet<ComponentId>) -> String {
     format!("{label}: {}{suffix}", shown.join(", "))
 }
 
-/// Requires the required components of the SBOM and the packages listed in THIRD-PARTY-NOTICES
-/// to be the same set.
+/// Checks an SBOM against THIRD-PARTY-NOTICES and, when given, against the expected component
+/// set derived independently for the package's target (see [`expected`]).
+///
+/// - Every required SBOM component must be listed in THIRD-PARTY-NOTICES, which covers all
+///   targets and so may list more.
+/// - With `expected`, the SBOM must list exactly that set, and the notices must list all of it.
 ///
 /// # Errors
-/// Returns `release.notice_mismatch` naming the entries present on one side only, or when either
-/// document cannot be read.
-pub fn check_sbom_matches_notices(sbom_text: &str, notices_text: &str) -> Result<(), GateFailure> {
+/// Returns `release.notice_mismatch` naming the entries that disagree, or when a document cannot
+/// be read.
+pub fn check_sbom_coverage(
+    sbom_text: &str,
+    notices_text: &str,
+    expected: Option<&BTreeSet<ComponentId>>,
+) -> Result<(), GateFailure> {
     let in_sbom = sbom_components(sbom_text)?;
     let in_notices = notice_identities(notices_text)?;
-    let only_sbom: BTreeSet<ComponentId> = in_sbom.difference(&in_notices).cloned().collect();
-    let only_notices: BTreeSet<ComponentId> = in_notices.difference(&in_sbom).cloned().collect();
-    if only_sbom.is_empty() && only_notices.is_empty() {
-        return Ok(());
-    }
     let mut parts = Vec::new();
-    if !only_sbom.is_empty() {
-        parts.push(describe("only in the SBOM", &only_sbom));
+    let mut note = |label: &str, ids: BTreeSet<ComponentId>| {
+        if !ids.is_empty() {
+            parts.push(describe(label, &ids));
+        }
+    };
+    note(
+        "only in the SBOM, not in THIRD-PARTY-NOTICES",
+        in_sbom.difference(&in_notices).cloned().collect(),
+    );
+    if let Some(expected) = expected {
+        note(
+            "expected for this target but missing from the SBOM",
+            expected.difference(&in_sbom).cloned().collect(),
+        );
+        note(
+            "in the SBOM but not expected for this target",
+            in_sbom.difference(expected).cloned().collect(),
+        );
+        note(
+            "expected for this target but missing from THIRD-PARTY-NOTICES",
+            expected.difference(&in_notices).cloned().collect(),
+        );
     }
-    if !only_notices.is_empty() {
-        parts.push(describe("only in THIRD-PARTY-NOTICES", &only_notices));
+    if parts.is_empty() {
+        Ok(())
+    } else {
+        Err(mismatch(parts.join("; ")))
     }
-    Err(mismatch(parts.join("; ")))
 }

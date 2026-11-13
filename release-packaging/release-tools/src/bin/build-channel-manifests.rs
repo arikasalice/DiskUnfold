@@ -26,7 +26,12 @@ fn run() -> Result<(), Box<dyn Error>> {
             let value = args
                 .next()
                 .ok_or_else(|| invalid("an option needs a value"))?;
-            named.insert(name.to_owned(), value);
+            if !["repository", "tag", "winget-identifier"].contains(&name) {
+                return Err(invalid(&format!("unknown option --{name}")));
+            }
+            if named.insert(name.to_owned(), value).is_some() {
+                return Err(invalid(&format!("--{name} given twice")));
+            }
         } else {
             positional.push(arg);
         }

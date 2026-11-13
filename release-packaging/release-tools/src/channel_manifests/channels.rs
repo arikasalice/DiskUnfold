@@ -27,7 +27,7 @@ pub(super) fn direct(
     context: &ChannelContext<'_>,
 ) -> Result<Value, serde_json::Error> {
     let status = if context.tag.is_some() {
-        "available"
+        "pending_publication"
     } else {
         "developer_build"
     };
@@ -47,7 +47,7 @@ pub(super) fn direct(
     });
     document["checksums_file"] = json!("SHA256SUMS");
     document["note"] = json!(if context.tag.is_some() {
-        "Served from the release page once a person publishes the draft release."
+        "The release is a draft: these addresses answer only after a person publishes it."
     } else {
         "Developer build: nothing is published and no download address exists."
     });

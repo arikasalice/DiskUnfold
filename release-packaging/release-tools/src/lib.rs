@@ -15,3 +15,4 @@ pub mod support_table;
 
 pub mod artifact_scan;
 pub mod channel_manifests;
+pub mod link_list;

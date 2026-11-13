@@ -5,8 +5,8 @@
 // every build it makes is a developer build. The report states what the real gate would decide.
 //
 // Besides the gate and packaging it runs the later stages on this OS's packages: the SBOM per
-// package, the opened-package notices and license scan, the channel manifests and the fuzz gate
-// (offline: it checks an empty open-crash list, because the dry run does not read GitHub issues).
+// package, the opened-package notices, license and link-list scan, the channel manifests and the fuzz gate
+// (offline: it checks empty open-crash and Fuzz-run lists, because the dry run does not read GitHub).
 // The workspace tests run with --run-tests; the workflow always runs them in every build cell.
 //
 // Usage: node release-packaging/release/dry-run.mjs --out <new directory> [--skip-web-build] [--run-tests]
@@ -70,7 +70,11 @@ function openPackage(row, file, tree) {
   mkdirSync(tree, { recursive: true });
   if (row.format === "tar-gz") return run("tar", ["-xzf", file, "-C", tree]).status === 0 ? "" : "tar failed";
   if (row.format === "deb") return run("dpkg-deb", ["-x", file, tree]).status === 0 ? "" : "dpkg-deb failed";
-  if (row.format === "msix") return run("tar", ["-xf", file, "-C", tree]).status === 0 ? "" : "tar -xf failed on the MSIX";
+  if (row.format === "msix") {
+    // The workflow uses unzip; Windows has no unzip, and its tar reads zip archives.
+    const opened = process.platform === "win32" ? run("tar", ["-xf", file, "-C", tree]) : run("unzip", ["-q", file, "-d", tree]);
+    return opened.status === 0 ? "" : "the MSIX could not be opened";
+  }
   if (row.format !== "portable-exe") return `no way to open ${row.format} packages on this OS`;
   const data = mkdtempSync(path.join(os.tmpdir(), "du-scan-"));
   for (const [document, target] of [["LICENSE", "LICENSE"], ["THIRD-PARTY-NOTICES", "THIRD-PARTY-NOTICES.txt"]]) {
@@ -88,7 +92,7 @@ function laterStages(merged, stage, inventory) {
   const sbom = run(tool("build-sbom"), [merged, root, sbomDir]);
   record("SBOM per package (CycloneDX, cargo and npm production dependencies)", sbom.status === 0, sbom.stderr.trim());
   if (sbom.status === 0) {
-    const check = run(tool("release-gate"), ["check-sboms", "--manifest", merged, "--sbom-dir", sbomDir, "--notices", notices]);
+    const check = run(tool("release-gate"), ["check-sboms", "--manifest", merged, "--sbom-dir", sbomDir, "--notices", notices, "--repo", root]);
     record("SBOMs match the notices and the package digests", check.status === 0, check.stderr.trim());
   }
   const extracted = path.join(outDir, "extracted");
@@ -97,15 +101,11 @@ function laterStages(merged, stage, inventory) {
     return found.length === 1 ? [openPackage(row, path.join(stage, found[0]), path.join(extracted, row.file_name))].filter(Boolean) : [`${row.file_name} not found exactly once`];
   });
   record("packages opened for the scan", problems.length === 0, problems.join(" | "));
-  const scan = run(tool("release-gate"), ["scan-artifacts", "--manifest", merged, "--extracted", extracted, "--license", path.join(root, "LICENSE"), "--notices", notices]);
-  record("opened packages ship LICENSE and THIRD-PARTY-NOTICES byte for byte and hold no copyleft member", scan.status === 0, scan.stderr.trim());
+  const scan = run(tool("release-gate"), ["scan-artifacts", "--manifest", merged, "--extracted", extracted, "--staging", stage, "--license", path.join(root, "LICENSE"), "--notices", notices]);
+  record("opened packages ship LICENSE and THIRD-PARTY-NOTICES byte for byte, hold no copyleft member, and link only system libraries", scan.status === 0, scan.stderr.trim());
   const channels = path.join(outDir, "channels");
   const made = run(tool("build-channel-manifests"), [path.join(inventory, "release-inventory.json"), channels, "--repository", "local/dry-run"]);
   record("channel manifests (direct, winget, store)", made.status === 0 && existsSync(path.join(channels, "channel-store.json")), made.stderr.trim());
-  const issues = path.join(outDir, "open-fuzz-crashes.json");
-  writeFileSync(issues, "[]\n");
-  const fuzz = run(tool("release-gate"), ["check-fuzz", "--issues", issues, "--registry", path.join(root, "release-packaging", "quality", "fuzz-targets.json")]);
-  record("fuzz gate (offline: an empty open-crash list)", fuzz.status === 0, fuzz.stderr.trim());
 }
 
 /** The workflow packages with pwsh; Windows PowerShell 5.1 is the fallback. */
@@ -249,7 +249,14 @@ if (parts.length > 0) {
   const set = run(tool("release-gate"), ["check-release-set", "--manifest", merged, "--signing-applied", "false", "--scope", currentScope()]);
   record(`release set complete for ${currentScope()} and no unproven signature claims`, set.status === 0, (set.stderr || "").trim().split("\n").join(" | "));
   const inventory = path.join(outDir, "inventory");
-  const inv = run(tool("build-release-inventory"), [merged, stage, inventory]);
+  const fuzzRecord = path.join(outDir, "fuzz-gate.json");
+  writeFileSync(path.join(outDir, "open-fuzz-crashes.json"), "[]\n");
+  writeFileSync(path.join(outDir, "fuzz-runs.json"), "[]\n");
+  const fuzz = run(tool("release-gate"), ["check-fuzz", "--issues", path.join(outDir, "open-fuzz-crashes.json"), "--runs", path.join(outDir, "fuzz-runs.json"),
+    "--registry", path.join(root, "release-packaging", "quality", "fuzz-targets.json"), "--now", String(Math.floor(Date.now() / 1000)), "--commit", head,
+    "--require-run", "false", "--record-out", fuzzRecord]);
+  record("fuzz gate (offline: no open crash and no Fuzz run list is read from GitHub)", fuzz.status === 0, (fuzz.stdout.match(/::warning::.*/g) ?? []).join(" | "));
+  const inv = run(tool("build-release-inventory"), [merged, stage, inventory, "--fuzz-gate", fuzzRecord]);
   record("release inventory, SHA256SUMS, EXECUTABLE-SHA256.json, DISTRIBUTION.md", inv.status === 0, inv.stderr.trim());
   if (inv.status === 0) {
     let mismatches = 0;

@@ -54,8 +54,10 @@ pub struct ReleaseManifest {
     /// Distribution rows from the single release-list source.
     pub rows: Vec<DistributionRow>,
     /// Store and winget entries that reference a distribution row by filename, version, and CPU.
+    #[serde(default)]
     pub channel_references: Vec<ChannelReference>,
     /// Local staged files to rehash before emitting public-facing metadata.
+    #[serde(default)]
     pub staged_files: Vec<StagedFile>,
 }
 
@@ -70,6 +72,10 @@ pub struct ReleaseInventory {
     pub(crate) rows: Vec<DistributionRow>,
     /// Canonically ordered Store and winget references.
     pub(crate) channel_references: Vec<ChannelReference>,
+    /// Outcome of the fuzz gate (see `release_gate::FuzzGateRecord`), recorded so a release with no
+    /// fuzz evidence says so. Absent when the inventory was built without a fuzz record.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) fuzz_gate: Option<serde_json::Value>,
 }
 
 /// An explicit channel listing that points to an artifact row in the release list.
