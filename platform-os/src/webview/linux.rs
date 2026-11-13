@@ -1,4 +1,6 @@
-use super::contract::{Asset, CSP, Dispatch, Events, ORIGIN, WebApp, entry, message, resource};
+use super::contract::{
+    Asset, Dispatch, Events, ORIGIN, WebApp, entry, message, resource, response_headers,
+};
 use gtk4::{gio, glib, prelude::*};
 use std::{cell::RefCell, error::Error, fmt::Write, rc::Rc};
 use webkit6::{prelude::*, soup};
@@ -25,8 +27,9 @@ fn serve(context: &webkit6::WebContext, asset: fn(&str) -> Option<Asset>) {
             response.set_status(404, Some("Not Found"));
         }
         let headers = soup::MessageHeaders::new(soup::MessageHeadersType::Response);
-        headers.append("Content-Security-Policy", CSP);
-        headers.append("X-Content-Type-Options", "nosniff");
+        for (name, value) in response_headers(asset.map_or("text/plain", |a| a.mime)) {
+            headers.append(name, &value);
+        }
         response.set_http_headers(headers);
         request.finish_with_response(&response);
     });
@@ -230,9 +233,12 @@ mod tests {
     use std::sync::Arc;
 
     const INDEX: &[u8] =
-        br#"<!doctype html><title>Fixture</title><script type="module" src="/check.js"></script>"#;
+        br#"<!doctype html><title>Fixture</title><link rel="stylesheet" href="/style.css"><script type="module" src="/check.js"></script>"#;
+    const STYLE: &[u8] = b"body { margin-top: 37px; }";
     const SCRIPT: &[u8] = br#"
         try {
+            // A stylesheet that arrives without its media type is discarded under nosniff.
+            if (getComputedStyle(document.body).marginTop !== '37px') throw new Error('stylesheet not applied');
             const nativeEvent = new Promise((resolve, reject) => {
                 const timer = setTimeout(() => reject(new Error('event not received')), 5000);
                 window.addEventListener('du://event', ({ detail }) => {
@@ -276,6 +282,10 @@ mod tests {
                     "/check.js" => Some(Asset {
                         mime: "text/javascript",
                         bytes: SCRIPT,
+                    }),
+                    "/style.css" => Some(Asset {
+                        mime: "text/css",
+                        bytes: STYLE,
                     }),
                     "/frame.html" => Some(Asset {
                         mime: "text/html",

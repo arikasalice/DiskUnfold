@@ -257,6 +257,20 @@ pub(super) fn entry() -> String {
     format!("{ORIGIN}/index.html")
 }
 
+/// Response header fields for one asset, with the media type listed explicitly.
+///
+/// A custom scheme handler may replace the content type it set on the response when it later
+/// installs a header set, and `nosniff` then makes WebKit discard a stylesheet that arrives
+/// without a type. The Content-Type field therefore always travels with the other fields.
+#[cfg(any(target_os = "linux", test))]
+pub(super) fn response_headers(mime: &str) -> [(&'static str, String); 3] {
+    [
+        ("Content-Type", mime.to_owned()),
+        ("Content-Security-Policy", CSP.to_owned()),
+        ("X-Content-Type-Options", "nosniff".to_owned()),
+    ]
+}
+
 pub(super) fn resource(asset: fn(&str) -> Option<Asset>, method: &str, url: &str) -> Option<Asset> {
     let path = url.strip_prefix(ORIGIN)?;
     if method != "GET"
@@ -313,6 +327,25 @@ mod tests {
             assert!(resource(asset, "GET", &format!("{ORIGIN}{path}")).is_none());
         }
         assert!(resource(asset, "POST", &entry()).is_none());
+    }
+
+    #[test]
+    fn every_asset_response_names_its_media_type_next_to_nosniff() {
+        let headers = response_headers("text/css; charset=utf-8");
+        assert_eq!(
+            headers[0],
+            ("Content-Type", "text/css; charset=utf-8".to_owned())
+        );
+        assert!(
+            headers
+                .iter()
+                .any(|(name, value)| { *name == "X-Content-Type-Options" && value == "nosniff" })
+        );
+        assert!(
+            headers
+                .iter()
+                .any(|(name, value)| { *name == "Content-Security-Policy" && value == CSP })
+        );
     }
 
     #[test]
