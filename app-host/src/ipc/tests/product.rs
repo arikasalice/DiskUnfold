@@ -1,6 +1,14 @@
 //! IF-01 to IF-04 through the GUI dispatcher with injected ports.
 use super::*;
-use crate::product_ipc::{ProductServices, register, unavailable_product_info};
+use crate::product_ipc::{ProductServices, parse_embedded, register, unavailable_product_info};
+use crate::{shutdown::ShutdownError, startup_checks::StartupAccessSession};
+use du_core_contracts::{
+    CallEnvelope, Id,
+    shutdown_ipc::{AppQuitRequest, AppQuitResponse},
+    startup::{
+        FullDiskAccessStatus, PrivacySettingsOpenOutcome, StartupDialogOutcome, WebViewAvailability,
+    },
+};
 use du_core_contracts::{
     product_ipc::InstallForm,
     product_ports::{InstallFormPort, SelfExecutablePort},
@@ -11,9 +19,44 @@ use du_core_contracts::{
         SupportEnvironmentPort, SupportFeatureRow, SupportMatrix, SupportOsFamily, SupportStatus,
     },
 };
-use std::io::{self, Cursor, Read};
+use du_platform_os::startup::FakeStartupCapabilities;
+use sha2::{Digest, Sha256};
+use std::{
+    io::{self, Cursor, Read},
+    sync::{Condvar, Mutex},
+    thread::ThreadId,
+    time::Duration,
+};
 
 const ID: &str = "0195f856-ab83-7a59-9343-10d29775c9a9";
+const COMMANDS: [&str; 4] = [
+    "app.product_info",
+    "app.notices",
+    "app.executable_digest",
+    "app.support_info",
+];
+
+/// Quit handler that never closes; the product commands never reach it.
+struct NeverClosing;
+
+impl crate::shutdown::host::QuitHandler for NeverClosing {
+    fn request_quit(&self, _: &AppQuitRequest) -> Result<AppQuitResponse, ShutdownError> {
+        Err(ShutdownError::Engine("not used".to_owned()))
+    }
+
+    fn is_closing(&self) -> bool {
+        false
+    }
+}
+
+type Gate = Arc<(Mutex<bool>, Condvar)>;
+
+fn release(gate: &Gate) {
+    if let Ok(mut open) = gate.0.lock() {
+        *open = true;
+    }
+    gate.1.notify_all();
+}
 
 struct FakeEnvironment(SupportEnvironmentIdentity);
 
@@ -42,11 +85,23 @@ impl InstallFormPort for FakeForm {
 #[derive(Clone)]
 enum Executable {
     Bytes(&'static [u8]),
+    /// A deterministic image of the given size in bytes.
+    Generated(usize),
+    /// The first open fails; later opens return the bytes `abc`.
+    FailsOnce,
+    /// Opening waits until the gate is released, then returns the bytes `abc`.
+    Blocked(Gate),
     OpenFails,
     ReadFails,
 }
 
-struct FakeExecutable(Executable, Arc<AtomicUsize>);
+fn generated(length: usize) -> Vec<u8> {
+    (0..length)
+        .map(|index| u8::try_from(index % 251).unwrap_or(0))
+        .collect()
+}
+
+struct FakeExecutable(Executable, Arc<AtomicUsize>, Arc<Mutex<Vec<ThreadId>>>);
 
 struct FailingRead;
 
@@ -58,9 +113,25 @@ impl Read for FailingRead {
 
 impl SelfExecutablePort for FakeExecutable {
     fn open(&self) -> io::Result<Box<dyn Read + Send>> {
-        self.1.fetch_add(1, Ordering::SeqCst);
+        let attempt = self.1.fetch_add(1, Ordering::SeqCst) + 1;
+        if let Ok(mut threads) = self.2.lock() {
+            threads.push(std::thread::current().id());
+        }
         match &self.0 {
             Executable::Bytes(bytes) => Ok(Box::new(Cursor::new(bytes.to_vec()))),
+            Executable::Generated(length) => Ok(Box::new(Cursor::new(generated(*length)))),
+            Executable::FailsOnce if attempt == 1 => Err(io::Error::from(io::ErrorKind::NotFound)),
+            Executable::FailsOnce => Ok(Box::new(Cursor::new(b"abc".to_vec()))),
+            Executable::Blocked(gate) => {
+                let mut open = gate.0.lock().map_err(|_| io::Error::other("poisoned"))?;
+                while !*open {
+                    open = gate
+                        .1
+                        .wait(open)
+                        .map_err(|_| io::Error::other("poisoned"))?;
+                }
+                Ok(Box::new(Cursor::new(b"abc".to_vec())))
+            }
             Executable::OpenFails => Err(io::Error::from(io::ErrorKind::NotFound)),
             Executable::ReadFails => Ok(Box::new(FailingRead)),
         }
@@ -138,6 +209,8 @@ fn official() -> EmbeddedProductInfo {
 struct Harness {
     engine: du_engine_api::api::Engine,
     opens: Arc<AtomicUsize>,
+    threads: Arc<Mutex<Vec<ThreadId>>>,
+    access: StartupAccessSession,
 }
 
 impl Harness {
@@ -147,28 +220,63 @@ impl Harness {
         form: InstallForm,
         executable: Executable,
     ) -> Result<Self, Box<dyn std::error::Error>> {
+        Self::with_wait(info, complete, form, executable, None)
+    }
+
+    fn with_wait(
+        info: EmbeddedProductInfo,
+        complete: bool,
+        form: InstallForm,
+        executable: Executable,
+        wait: Option<Duration>,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
         let opens = Arc::new(AtomicUsize::new(0));
-        let mut builder = EngineBuilder::default();
-        register(
-            &mut builder,
-            ProductServices::new(
-                info,
-                Arc::new(FakeEnvironment(identity(complete))),
-                Arc::new(FakeForm(form)),
-                Arc::new(FakeExecutable(executable, opens.clone())),
-            ),
+        let threads = Arc::new(Mutex::new(Vec::new()));
+        let mut services = ProductServices::new(
+            info,
+            Arc::new(FakeEnvironment(identity(complete))),
+            Arc::new(FakeForm(form)),
+            Arc::new(FakeExecutable(executable, opens.clone(), threads.clone())),
         );
+        if let Some(wait) = wait {
+            services = services.with_digest_wait(wait);
+        }
+        Self::from_services(services, opens, threads)
+    }
+
+    fn from_services(
+        services: ProductServices,
+        opens: Arc<AtomicUsize>,
+        threads: Arc<Mutex<Vec<ThreadId>>>,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let mut builder = EngineBuilder::default();
+        register(&mut builder, services);
+        let capabilities = Arc::new(FakeStartupCapabilities::new(
+            FullDiskAccessStatus::Granted,
+            WebViewAvailability::Unknown,
+            PrivacySettingsOpenOutcome::RequestAccepted,
+            StartupDialogOutcome::Acknowledged,
+        ));
         Ok(Self {
             engine: builder.build()?,
             opens,
+            threads,
+            access: StartupAccessSession::new(capabilities),
         })
     }
 
+    /// Dispatches through the production `dispatch_with_shutdown` entry used by the GUI.
     fn call(&self, name: &str, body: Value) -> Result<Value, Box<dyn std::error::Error>> {
         let request = json!({"command":"du_call", "args":{"envelope":{
             "name":name, "contractVersion":1, "correlationId":ID, "body":body,
         }}});
-        let reply = dispatch(&self.engine, &request.to_string()).ok_or("missing response")?;
+        let reply = dispatch_with_shutdown(
+            &self.engine,
+            &request.to_string(),
+            &self.access,
+            &NeverClosing,
+        )
+        .ok_or("missing response")?;
         Ok(serde_json::from_str(&reply)?)
     }
 }
@@ -377,25 +485,4 @@ fn missing_embedded_matrix_leaves_a_known_environment_unknown()
     assert_eq!(body["combinations"], json!([]));
     Ok(())
 }
-
-#[test]
-fn production_ports_hash_the_running_executable() -> Result<(), Box<dyn std::error::Error>> {
-    use sha2::{Digest, Sha256};
-    let mut builder = EngineBuilder::default();
-    register(&mut builder, ProductServices::system(official()));
-    let harness = Harness {
-        engine: builder.build()?,
-        opens: Arc::new(AtomicUsize::new(0)),
-    };
-    let expected: String = Sha256::digest(std::fs::read(std::env::current_exe()?)?)
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect();
-    let body = harness.call("app.executable_digest", json!({"correlationId":ID}))?["body"].clone();
-    assert_eq!(body["sha256"], expected);
-    let info = harness.call("app.product_info", json!({}))?["body"].clone();
-    assert!(info["installForm"].is_string());
-    let support = harness.call("app.support_info", json!({}))?["body"].clone();
-    assert_eq!(support["environment"]["osFamily"], std::env::consts::OS);
-    Ok(())
-}
+mod extra;

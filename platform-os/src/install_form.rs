@@ -63,6 +63,10 @@ pub(crate) fn classify_linux(executable: &Path, dpkg_file_list: Option<&str>) ->
 }
 
 /// The DMG delivers `DiskUnfold.app`; running from that bundle layout is a DMG install.
+///
+/// This is a heuristic on the executable's directory layout. A copied or
+/// extracted `DiskUnfold.app` is classified as a DMG install as well, and an app
+/// moved out of the bundle layout is `Unknown`; no installer record is consulted.
 #[cfg(any(target_os = "macos", test))]
 pub(crate) fn classify_macos(executable: &Path) -> InstallForm {
     let in_bundle = executable

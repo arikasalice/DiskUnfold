@@ -6,7 +6,8 @@
 //! build values and operating-system ports. They open no database and no scan state.
 use std::{
     io::Read,
-    sync::{Arc, OnceLock},
+    sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError},
+    time::{Duration, Instant},
 };
 
 use du_core_contracts::{
@@ -18,6 +19,7 @@ use du_core_contracts::{
     product_ports::{InstallFormPort, SelfExecutablePort},
     product_support::{
         BuildKind, EmbeddedProductInfo, ProductBuildInfo, ProductNotices, SupportEnvironmentPort,
+        SupportMatrix,
     },
 };
 use du_engine_api::{
@@ -29,14 +31,115 @@ use sha2::{Digest, Sha256};
 
 const DIGEST_UNAVAILABLE: &str = "product.digest_unavailable";
 const INSTALL_FORM_UNKNOWN: &str = "product.install_form_unknown";
+/// Reason key used when launcher-supplied product metadata does not parse.
+///
+/// The key is not yet in the published reason-key list and needs design registration.
+pub(crate) const METADATA_INVALID: &str = "product.metadata_invalid";
+/// Longest time one digest request waits for a running hash before reporting it unavailable.
+const DIGEST_WAIT: Duration = Duration::from_secs(30);
+
+/// Parses the product metadata JSON embedded by the launcher build.
+///
+/// Any parse failure maps to `product.metadata_invalid` so a broken build cannot
+/// present invented product values.
+pub(crate) fn parse_embedded(json: &str) -> Result<EmbeddedProductInfo, std::io::Error> {
+    serde_json::from_str(json).map_err(|_| std::io::Error::other(METADATA_INVALID))
+}
+
+/// State of the executable digest computation.
+enum Slot {
+    /// No attempt has been made yet.
+    Idle,
+    /// A worker thread is hashing the executable.
+    Running,
+    /// The successful digest, cached for the rest of the run.
+    Done(String),
+    /// The latest attempt failed; the next request starts a new attempt.
+    Failed,
+}
+
+/// Computes the executable digest on a worker thread so no IPC lane hashes inline.
+struct DigestJob {
+    executable: Arc<dyn SelfExecutablePort>,
+    slot: Mutex<Slot>,
+    finished: Condvar,
+    wait: Duration,
+}
+
+impl DigestJob {
+    fn lock(&self) -> MutexGuard<'_, Slot> {
+        self.slot.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Starts a hashing attempt unless one is running or a digest is already cached.
+    fn start(self: &Arc<Self>) {
+        let mut slot = self.lock();
+        if matches!(*slot, Slot::Running | Slot::Done(_)) {
+            return;
+        }
+        *slot = Slot::Running;
+        let job = self.clone();
+        let spawned = std::thread::Builder::new()
+            .name("diskunfold-exe-digest".into())
+            .spawn(move || {
+                let result = hash_executable(job.executable.as_ref());
+                *job.lock() = result.map_or(Slot::Failed, Slot::Done);
+                job.finished.notify_all();
+            });
+        if spawned.is_err() {
+            *slot = Slot::Failed;
+        }
+    }
+
+    /// Returns the digest, waiting at most `wait` for a running attempt.
+    ///
+    /// Only a successful digest is cached; after a failure the next call retries.
+    fn get(self: &Arc<Self>) -> Result<String, ()> {
+        self.start();
+        let deadline = Instant::now() + self.wait;
+        let mut state = self.lock();
+        while matches!(*state, Slot::Running) {
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                break;
+            };
+            state = self
+                .finished
+                .wait_timeout(state, remaining)
+                .unwrap_or_else(PoisonError::into_inner)
+                .0;
+        }
+        match &*state {
+            Slot::Done(digest) => Ok(digest.clone()),
+            _ => Err(()),
+        }
+    }
+}
+
+fn hash_executable(executable: &dyn SelfExecutablePort) -> Result<String, ()> {
+    let mut reader = executable.open().map_err(|_| ())?;
+    let mut hasher = Sha256::new();
+    let mut chunk = vec![0_u8; 64 * 1024];
+    loop {
+        match reader.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(read) => hasher.update(&chunk[..read]),
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(_) => return Err(()),
+        }
+    }
+    Ok(hasher
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect())
+}
 
 /// Embedded values and ports shared by the four product commands.
 pub(crate) struct ProductServices {
     info: EmbeddedProductInfo,
     environment: Arc<dyn SupportEnvironmentPort>,
     install_form: Arc<dyn InstallFormPort>,
-    executable: Arc<dyn SelfExecutablePort>,
-    digest: OnceLock<Result<String, ()>>,
+    digest: Arc<DigestJob>,
 }
 
 impl ProductServices {
@@ -51,26 +154,44 @@ impl ProductServices {
             info,
             environment,
             install_form,
-            executable,
-            digest: OnceLock::new(),
+            digest: Arc::new(DigestJob {
+                executable,
+                slot: Mutex::new(Slot::Idle),
+                finished: Condvar::new(),
+                wait: DIGEST_WAIT,
+            }),
         }
     }
 
+    /// Shortens the digest wait; tests use it to observe a still-running hash.
+    #[cfg(test)]
+    pub(crate) fn with_digest_wait(mut self, wait: Duration) -> Self {
+        if let Some(job) = Arc::get_mut(&mut self.digest) {
+            job.wait = wait;
+        }
+        self
+    }
+
     /// Composes the services with the production operating-system adapters.
+    ///
+    /// The executable digest starts hashing on a worker thread right away, so a
+    /// later `app.executable_digest` request normally finds it finished (HLD IF-03).
     pub(crate) fn system(info: EmbeddedProductInfo) -> Self {
-        Self::new(
+        let services = Self::new(
             info,
             Arc::new(du_platform_os::support_environment::SystemSupportEnvironment),
             Arc::new(du_platform_os::install_form::SystemInstallForm),
             Arc::new(du_platform_os::self_executable::SystemSelfExecutable),
-        )
+        );
+        services.digest.start();
+        services
     }
 
     fn product_info(&self) -> ProductInfo {
         let build = &self.info.build;
         let install_form = self.install_form.install_form();
         let known = install_form != du_core_contracts::product_ipc::InstallForm::Unknown;
-        let matrix = self.info.support_matrix.as_ref();
+        let matrix = self.consistent_matrix();
         ProductInfo {
             product_version: build.product_version.clone(),
             build_kind: build.build_kind,
@@ -82,10 +203,12 @@ impl ProductServices {
             install_form_reason_key: (!known).then(|| INSTALL_FORM_UNKNOWN.to_owned()),
             app_db_format: build.app_db_format,
             snapshot_format: build.snapshot_format,
-            support_matrix_revision: build
-                .support_matrix_revision
-                .clone()
-                .or_else(|| matrix.and_then(|matrix| matrix.revision.clone())),
+            support_matrix_revision: matrix.and_then(|matrix| {
+                build
+                    .support_matrix_revision
+                    .clone()
+                    .or_else(|| matrix.revision.clone())
+            }),
             support_matrix_as_of: matrix.and_then(|matrix| matrix.as_of.clone()),
             notices: [NoticeKind::License, NoticeKind::ThirdPartyNotices]
                 .into_iter()
@@ -106,30 +229,18 @@ impl ProductServices {
         .filter(|text| !text.trim().is_empty())
     }
 
-    /// Computes the digest once per run; a failed read is remembered as unavailable.
-    fn digest(&self) -> &Result<String, ()> {
-        self.digest.get_or_init(|| {
-            let mut reader = self.executable.open().map_err(|_| ())?;
-            let mut hasher = Sha256::new();
-            let mut chunk = vec![0_u8; 64 * 1024];
-            loop {
-                match reader.read(&mut chunk) {
-                    Ok(0) => break,
-                    Ok(read) => hasher.update(&chunk[..read]),
-                    Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
-                    Err(_) => return Err(()),
-                }
-            }
-            Ok(hasher
-                .finalize()
-                .iter()
-                .map(|byte| format!("{byte:02x}"))
-                .collect())
-        })
+    /// The embedded matrix, or `None` when it is absent or when the build records a
+    /// different matrix revision than the matrix carries; both are reported as unknown.
+    fn consistent_matrix(&self) -> Option<&SupportMatrix> {
+        let matrix = self.info.support_matrix.as_ref()?;
+        match (&self.info.build.support_matrix_revision, &matrix.revision) {
+            (Some(built), Some(embedded)) if built != embedded => None,
+            _ => Some(matrix),
+        }
     }
 
     fn support_info(&self) -> SupportInfo {
-        let matrix = self.info.support_matrix.clone().unwrap_or_default();
+        let matrix = self.consistent_matrix().cloned().unwrap_or_default();
         support::evaluate(
             &matrix,
             self.environment.identity(),
@@ -139,7 +250,14 @@ impl ProductServices {
 }
 
 /// Product info used when the launcher supplies none; every value is reported unavailable.
+///
+/// Entry points that carry no build information call this. It logs loudly so a
+/// launcher that forgot to pass its build values is noticed.
 pub(crate) fn unavailable_product_info() -> EmbeddedProductInfo {
+    eprintln!(
+        "DiskUnfold: product build information was not supplied by this entry point; \
+         product and support information will be reported as unavailable"
+    );
     EmbeddedProductInfo {
         build: ProductBuildInfo {
             product_version: None,
@@ -229,8 +347,8 @@ impl UseCase for ExecutableDigestQuery {
         request: Self::Request,
         _: &CallerCtx,
     ) -> Result<Self::Response, EngineError> {
-        let (sha256, reason_key) = match self.0.digest() {
-            Ok(digest) => (Some(digest.clone()), None),
+        let (sha256, reason_key) = match self.0.digest.get() {
+            Ok(digest) => (Some(digest), None),
             Err(()) => (None, Some(DIGEST_UNAVAILABLE.to_owned())),
         };
         Ok(ExecutableDigestResponse {

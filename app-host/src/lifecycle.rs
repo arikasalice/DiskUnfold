@@ -60,8 +60,7 @@ pub fn run_with_product_info(
 /// Metadata that does not parse stops startup with `product.metadata_invalid`
 /// so a broken build cannot present invented product values.
 pub fn run_with_product_info_json(product_json: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let product = serde_json::from_str(product_json)
-        .map_err(|_| std::io::Error::other("product.metadata_invalid"))?;
+    let product = crate::product_ipc::parse_embedded(product_json)?;
     run_with_product_info(product)
 }
 
