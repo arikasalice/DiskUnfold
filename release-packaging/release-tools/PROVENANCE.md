@@ -18,7 +18,7 @@ The minimum GitHub CLI version is 2.102.0 because earlier versions could accept 
 
 The unit-test JSON is synthetic, unsigned fixture data. It tests only the parser's fail-closed policy and is never used by the production CLI as verification evidence.
 
-This repository currently has no release workflow, and the architecture DLD for release packaging is still a draft. The command is therefore not wired into a release or publication gate. A future workflow must select and protect its signer workflow and builder, pass independently sourced tag, commit, run ID, and attempt values, invoke this verifier for each artifact, and stop before publication on any failure.
+`.github/workflows/release.yml` creates the attestations (`actions/attest-build-provenance` over `SHA256SUMS`) and its `verify-provenance` job runs this verifier for every package before the draft release is created. The architecture DLD for release packaging is still unpublished, so the job names and reason keys in `release-packaging/release/README.md` need design registration. In that job the `gh` path and digest come from the runner image, the builder ID is `https://github.com/<repo>/.github/workflows/release.yml@refs/tags/<tag>`, and no real tag run has exercised the verifier yet. How a user runs it on a download is in `release-packaging/release/VERIFY.md`.
 
 References:
 

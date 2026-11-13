@@ -2,6 +2,8 @@
 
 pub mod release_inventory;
 
+pub mod release_gate;
+
 pub mod release_provenance;
 
 pub mod license_policy;
