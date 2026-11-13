@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [features]
-gui = ["dep:du-app-db", "dep:du-core-contracts", "dep:du-engine-api", "dep:du-mcp-gateway", "dep:du-platform-os", "dep:du-user-env", "dep:serde", "dep:serde_json", "du-platform-os/webview"]
+gui = ["dep:du-app-db", "dep:du-core-contracts", "dep:du-engine-api", "dep:du-mcp-gateway", "dep:du-platform-os", "dep:du-user-env", "dep:serde", "dep:serde_json", "dep:sha2", "du-platform-os/webview"]
 
 [dependencies]
 du-core-contracts = { version = "0.1.0", path = "../core-contracts", optional = true }
@@ -15,6 +15,7 @@ du-mcp-gateway = { version = "0.1.0", path = "../mcp-gateway", optional = true }
 du-platform-os = { version = "0.1.0", path = "../platform-os", optional = true }
 serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
+sha2 = { workspace = true, optional = true }
 
 [dev-dependencies]
 du-platform-os = { version = "0.1.0", path = "../platform-os", features = ["fake"] }

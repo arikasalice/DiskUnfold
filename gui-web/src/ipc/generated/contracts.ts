@@ -115,6 +115,253 @@ analysisAllowed: boolean,
  * Whether the operating system privacy settings screen was opened.
  */
 settingsOpened: boolean, };
+export type InstallForm = "msi" | "portable" | "msix" | "dmg" | "deb" | "tar_gz" | "unknown";
+export type NoticeKind = "LICENSE" | "THIRD-PARTY-NOTICES";
+export type ProductInfoRequest = Record<symbol, never>;
+export type SupportInfoRequest = Record<symbol, never>;
+export type NoticeAvailability = {
+/**
+ * Document kind.
+ */
+kind: NoticeKind,
+/**
+ * Whether the executable embeds a body for this document.
+ */
+available: boolean, };
+export type ProductInfo = {
+/**
+ * Product version string.
+ */
+productVersion: string | null,
+/**
+ * Official or developer build marker; a developer build is never verified output.
+ */
+buildKind: BuildKind,
+/**
+ * Source commit recorded at build time.
+ */
+commit: string | null,
+/**
+ * Build time in UTC (RFC 3339).
+ */
+builtAtUtc: string | null,
+/**
+ * Target operating system recorded at build time.
+ */
+targetOs: string | null,
+/**
+ * Target CPU architecture recorded at build time.
+ */
+targetCpu: string | null,
+/**
+ * Observed install form; unknown is never promoted to a guess.
+ */
+installForm: InstallForm,
+/**
+ * `product.install_form_unknown` when the install form was not established.
+ */
+installFormReasonKey: string | null,
+/**
+ * Application database format version.
+ */
+appDbFormat: number | null,
+/**
+ * Snapshot file format version.
+ */
+snapshotFormat: number | null,
+/**
+ * Embedded support-matrix revision.
+ */
+supportMatrixRevision: string | null,
+/**
+ * Embedded support-matrix preparation date (YYYY-MM-DD).
+ */
+supportMatrixAsOf: string | null,
+/**
+ * Notice documents with their availability, in a fixed order.
+ */
+notices: Array<NoticeAvailability>, };
+export type NoticesRequest = {
+/**
+ * Document kind to read.
+ */
+kind: NoticeKind, };
+export type NoticesResponse = {
+/**
+ * Requested document kind.
+ */
+kind: NoticeKind,
+/**
+ * Document body, or `None` when this build embeds no such document.
+ */
+text: string | null,
+/**
+ * Commit from which the embedded notices were generated, when recorded.
+ */
+sourceCommit: string | null, };
+export type ExecutableDigestRequest = {
+/**
+ * Correlation identifier the caller uses to match the response.
+ */
+correlationId: Id, };
+export type ExecutableDigestResponse = {
+/**
+ * Echo of the request correlation identifier.
+ */
+correlationId: Id,
+/**
+ * Lowercase hexadecimal SHA-256 of the running executable, if it could be read.
+ */
+sha256: string | null,
+/**
+ * `product.digest_unavailable` when the digest could not be computed.
+ */
+reasonKey: string | null, };
+export type BuildKind = "official" | "developer" | "unknown";
+export type SupportOsFamily = "windows" | "macos" | "linux" | "unknown";
+export type SupportCpu = "x64" | "arm64" | "other" | "unknown";
+export type SupportStatus = "officially_verified" | "conditional" | "unsupported_found" | "not_verified" | "unknown";
+export type SupportCapabilityState = "supported" | "limited" | "unsupported" | "not_applicable" | "unknown";
+export type SecuritySupportKind = "general" | "extended" | "unknown";
+export type SupportEnvironmentIdentity = {
+/**
+ * Operating-system family. Unknown is never used as a wildcard.
+ */
+osFamily: SupportOsFamily,
+/**
+ * Operating-system release or distribution release identifier.
+ */
+release: string | null,
+/**
+ * Edition or distribution identifier.
+ */
+edition: string | null,
+/**
+ * CPU architecture of the running process.
+ */
+cpu: SupportCpu, };
+export type SecuritySupportBasis = {
+/**
+ * Source reference supporting the vendor's security-support status.
+ */
+source: string | null,
+/**
+ * Date the source was checked, formatted as YYYY-MM-DD.
+ */
+checkedOn: string | null,
+/**
+ * Whether the vendor reports general or extended support.
+ */
+kind: SecuritySupportKind | null, };
+export type SupportCombinationIdentity = {
+/**
+ * Operating-system family for this row.
+ */
+osFamily: SupportOsFamily,
+/**
+ * Release or distribution release identifier.
+ */
+release: string | null,
+/**
+ * Edition or distribution identifier.
+ */
+edition: string | null,
+/**
+ * CPU architecture for this row.
+ */
+cpu: SupportCpu, };
+export type SupportFeatureRow = {
+/**
+ * Stable feature-area key.
+ */
+area: string,
+/**
+ * Support-table status for this feature area.
+ */
+status: SupportStatus,
+/**
+ * Recorded conditions or restrictions, preserved as source text.
+ */
+conditions: Array<string>, };
+export type SupportCombination = {
+/**
+ * Exact identity of this combination.
+ */
+identity: SupportCombinationIdentity,
+/**
+ * Status derived from native test records for this exact combination.
+ */
+status: SupportStatus,
+/**
+ * Vendor security-support source and check date, when recorded.
+ */
+securitySupport: SecuritySupportBasis | null,
+/**
+ * Detailed configuration and execution-form identifiers covered by tests.
+ */
+verifiedDetails: Array<string>,
+/**
+ * References to the native test records used to derive this row's status.
+ */
+verificationRecords: Array<string>,
+/**
+ * Feature-area support rows for this exact combination.
+ */
+features: Array<SupportFeatureRow>, };
+export type SupportFeatureAssessment = {
+/**
+ * Stable feature-area key.
+ */
+area: string,
+/**
+ * Status recorded in the matching support-table row.
+ */
+supportTableStatus: SupportStatus,
+/**
+ * Current capability value reported by the platform adapter.
+ */
+currentCapability: SupportCapabilityState,
+/**
+ * Recorded support conditions for the feature area.
+ */
+conditions: Array<string>,
+/**
+ * Stable reason key for an unknown or limited current capability.
+ */
+reasonKey: string | null, };
+export type SupportReport = {
+/**
+ * Embedded support-matrix revision, if present.
+ */
+matrixRevision: string | null,
+/**
+ * Date the embedded matrix was prepared.
+ */
+asOf: string | null,
+/**
+ * Current process environment identity.
+ */
+environment: SupportEnvironmentIdentity,
+/**
+ * Status of the exact current OS and CPU combination.
+ */
+combinationStatus: SupportStatus,
+/**
+ * Security-support source and date, separate from combination status.
+ */
+securitySupport: SecuritySupportBasis | null,
+/**
+ * Feature-area support and current capability rows.
+ */
+features: Array<SupportFeatureAssessment>,
+/**
+ * All rows from the embedded matrix, in their published order.
+ */
+combinations: Array<SupportCombination>,
+/**
+ * Stable reason key for an unknown or unverified combination.
+ */
+reasonKey: string | null, };
 export type AppQuitMode = "normal" | "without_waiting";
 export type AppQuitRequest = {
 /**

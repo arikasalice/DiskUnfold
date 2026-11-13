@@ -39,7 +39,30 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         #[cfg(windows)]
         None,
         Arc::new(SystemStartupCapabilities),
+        crate::product_ipc::unavailable_product_info(),
     )
+}
+
+/// Runs the GUI with the product metadata embedded by the launcher build.
+pub fn run_with_product_info(
+    product: du_core_contracts::product_support::EmbeddedProductInfo,
+) -> Result<(), Box<dyn std::error::Error>> {
+    run_app(
+        #[cfg(windows)]
+        None,
+        Arc::new(SystemStartupCapabilities),
+        product,
+    )
+}
+
+/// Runs the GUI with product metadata JSON embedded by the launcher build.
+///
+/// Metadata that does not parse stops startup with `product.metadata_invalid`
+/// so a broken build cannot present invented product values.
+pub fn run_with_product_info_json(product_json: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let product = serde_json::from_str(product_json)
+        .map_err(|_| std::io::Error::other("product.metadata_invalid"))?;
+    run_with_product_info(product)
 }
 
 /// Runs the Windows GUI with an explicitly supplied recent-scope retention policy.
@@ -55,6 +78,7 @@ pub fn run_with_recent_scope(
             warning: Box::new(warning),
         }),
         Arc::new(SystemStartupCapabilities),
+        crate::product_ipc::unavailable_product_info(),
     )
 }
 
@@ -67,6 +91,7 @@ struct RecentScopeOptions {
 fn run_app(
     #[cfg(windows)] recent: Option<RecentScopeOptions>,
     capabilities: Arc<dyn StartupCapabilitiesPort>,
+    product: du_core_contracts::product_support::EmbeddedProductInfo,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // The launcher invokes this function on its UI thread; pre-window native dialogs
     // use that same thread before any platform webview is constructed.
@@ -204,6 +229,10 @@ fn run_app(
     };
     #[allow(unused_mut)]
     let mut builder = EngineBuilder::default();
+    crate::product_ipc::register(
+        &mut builder,
+        crate::product_ipc::ProductServices::system(product),
+    );
     #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
     {
         let startup_status =

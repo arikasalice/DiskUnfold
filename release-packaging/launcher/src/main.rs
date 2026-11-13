@@ -16,7 +16,7 @@ fn main() -> ExitCode {
 
 #[cfg(feature = "gui")]
 fn launch_gui() -> ExitCode {
-    match du_app_host::run() {
+    match du_app_host::run_with_product_info_json(PRODUCT_INFO_JSON) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("DiskUnfold: {error}");

@@ -1,4 +1,5 @@
 //! Read-only support environment observations for local product information.
+use du_core_contracts::product_ports::OsReleasePort;
 use du_core_contracts::product_support::{
     SupportCapabilityObservation, SupportCapabilityState, SupportCpu, SupportEnvironmentIdentity,
     SupportEnvironmentPort, SupportOsFamily,
@@ -11,25 +12,11 @@ pub struct SystemSupportEnvironment;
 
 impl SupportEnvironmentPort for SystemSupportEnvironment {
     fn identity(&self) -> SupportEnvironmentIdentity {
-        let os_family = match std::env::consts::OS {
-            "windows" => SupportOsFamily::Windows,
-            "macos" => SupportOsFamily::Macos,
-            "linux" => SupportOsFamily::Linux,
-            _ => SupportOsFamily::Unknown,
-        };
-        let cpu = match std::env::consts::ARCH {
-            "x86_64" => SupportCpu::X64,
-            "aarch64" => SupportCpu::Arm64,
-            "x86" | "arm" => SupportCpu::Other,
-            _ => SupportCpu::Unknown,
-        };
-        let (release, edition) = release_and_edition(os_family);
-        SupportEnvironmentIdentity {
-            os_family,
-            release,
-            edition,
-            cpu,
-        }
+        identity_from(
+            std::env::consts::OS,
+            std::env::consts::ARCH,
+            &super::os_release::SystemOsRelease,
+        )
     }
 
     fn capabilities(&self) -> Vec<SupportCapabilityObservation> {
@@ -78,87 +65,86 @@ impl SupportEnvironmentPort for SystemSupportEnvironment {
     }
 }
 
-fn release_and_edition(os_family: SupportOsFamily) -> (Option<String>, Option<String>) {
-    match os_family {
-        SupportOsFamily::Linux => linux_release_and_edition(),
-        // No native release and edition adapter has been verified for these
-        // platforms yet, so a family and process CPU alone cannot match a row.
-        SupportOsFamily::Windows | SupportOsFamily::Macos | SupportOsFamily::Unknown => {
-            (None, None)
-        }
-    }
-}
-
-#[cfg(target_os = "linux")]
-fn linux_release_and_edition() -> (Option<String>, Option<String>) {
-    let Ok(contents) = std::fs::read_to_string("/etc/os-release") else {
-        return (None, None);
+/// Builds the exact identity from Rust's OS and architecture names plus release evidence.
+///
+/// An unrecognized OS yields `Unknown` and never queries release evidence, so an
+/// unfamiliar platform cannot borrow another platform's values.
+pub fn identity_from(
+    os: &str,
+    arch: &str,
+    releases: &dyn OsReleasePort,
+) -> SupportEnvironmentIdentity {
+    let os_family = match os {
+        "windows" => SupportOsFamily::Windows,
+        "macos" => SupportOsFamily::Macos,
+        "linux" => SupportOsFamily::Linux,
+        _ => SupportOsFamily::Unknown,
     };
-    let values = parse_os_release(&contents);
-    (values.get("VERSION_ID").cloned(), values.get("ID").cloned())
-}
-
-#[cfg(not(target_os = "linux"))]
-fn linux_release_and_edition() -> (Option<String>, Option<String>) {
-    (None, None)
-}
-
-#[cfg(any(target_os = "linux", test))]
-fn parse_os_release(contents: &str) -> std::collections::BTreeMap<String, String> {
-    contents
-        .lines()
-        .filter_map(|line| {
-            let (key, value) = line.split_once('=')?;
-            if !matches!(key, "ID" | "VERSION_ID") {
-                return None;
-            }
-            let value = value.trim();
-            let value = value
-                .strip_prefix('"')
-                .and_then(|value| value.strip_suffix('"'))
-                .or_else(|| {
-                    value
-                        .strip_prefix('\'')
-                        .and_then(|value| value.strip_suffix('\''))
-                })
-                .unwrap_or(value)
-                .trim();
-            if value.is_empty() {
-                return None;
-            }
-            Some((key.to_owned(), value.to_owned()))
-        })
-        .collect()
+    let cpu = match arch {
+        "x86_64" => SupportCpu::X64,
+        "aarch64" => SupportCpu::Arm64,
+        "x86" | "arm" => SupportCpu::Other,
+        _ => SupportCpu::Unknown,
+    };
+    let evidence = if os_family == SupportOsFamily::Unknown {
+        Default::default()
+    } else {
+        releases.release_and_edition()
+    };
+    SupportEnvironmentIdentity {
+        os_family,
+        release: evidence.release,
+        edition: evidence.edition,
+        cpu,
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::BTreeMap;
+    use du_core_contracts::product_ports::OsReleaseEvidence;
 
-    #[test]
-    fn parses_only_exact_os_release_identity_keys() {
-        let values =
-            parse_os_release("ID=ubuntu\nVERSION_ID=\"24.04\"\nID_LIKE=debian\nNAME=Ubuntu\n");
-        assert_eq!(
-            values,
-            BTreeMap::from([
-                ("ID".to_owned(), "ubuntu".to_owned()),
-                ("VERSION_ID".to_owned(), "24.04".to_owned()),
-            ])
-        );
-    }
+    struct Fixed(Option<&'static str>, Option<&'static str>);
 
-    #[test]
-    fn malformed_or_empty_identity_values_are_not_reported() {
-        let values = parse_os_release("ID=\nVERSION_ID=\"\"\nID_LIKE=ubuntu\n");
-        assert!(values.is_empty());
-    }
-
-    #[test]
-    fn system_identity_never_invents_windows_or_macos_release_data() {
-        for family in [SupportOsFamily::Windows, SupportOsFamily::Macos] {
-            assert_eq!(release_and_edition(family), (None, None));
+    impl OsReleasePort for Fixed {
+        fn release_and_edition(&self) -> OsReleaseEvidence {
+            OsReleaseEvidence {
+                release: self.0.map(str::to_owned),
+                edition: self.1.map(str::to_owned),
+            }
         }
+    }
+
+    #[test]
+    fn complete_evidence_yields_a_complete_identity() {
+        let identity = identity_from("linux", "x86_64", &Fixed(Some("24.04"), Some("ubuntu")));
+        assert_eq!(identity.os_family, SupportOsFamily::Linux);
+        assert_eq!(identity.cpu, SupportCpu::X64);
+        assert!(identity.is_complete());
+    }
+
+    #[test]
+    fn missing_release_or_edition_keeps_the_identity_incomplete() {
+        for fixed in [
+            Fixed(None, Some("ubuntu")),
+            Fixed(Some("24.04"), None),
+            Fixed(None, None),
+        ] {
+            assert!(!identity_from("macos", "aarch64", &fixed).is_complete());
+        }
+    }
+
+    #[test]
+    fn unrecognized_platform_never_reads_release_evidence() {
+        let identity = identity_from("freebsd", "riscv64", &Fixed(Some("14"), Some("bsd")));
+        assert_eq!(identity.os_family, SupportOsFamily::Unknown);
+        assert_eq!(identity.cpu, SupportCpu::Unknown);
+        assert_eq!((identity.release, identity.edition), (None, None));
+    }
+
+    #[test]
+    fn unrecognized_architecture_is_incomplete_even_with_release_evidence() {
+        let identity = identity_from("windows", "riscv64", &Fixed(Some("11-25H2"), Some("Core")));
+        assert!(!identity.is_complete());
     }
 }

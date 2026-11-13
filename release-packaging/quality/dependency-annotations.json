@@ -65,6 +65,12 @@
     "distributed": true,
     "reason": "Serialize typed IPC results and errors"
   },
+  "cargo:du-app-host:sha2@0.10.9": {
+    "license": "MIT OR Apache-2.0",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Compute the on-request SHA-256 of the running executable for F15 IF-03"
+  },
   "cargo:du-app-host:serde@1.0.229": {
     "license": "MIT OR Apache-2.0",
     "role": "runtime",
