@@ -152,12 +152,12 @@ pub(super) fn run(app: WebApp, events: Option<Events>) -> Result<(), Box<dyn Err
         .as_ref()
         .map(|lifecycle| Rc::clone(&lifecycle.state));
     window.connect_close_request(move |_| {
-        if let Some(events) = &close_events {
-            if events.has_shutdown_callbacks() {
-                events.request_window_close();
-                if !events.shutdown_is_complete() {
-                    return glib::Propagation::Stop;
-                }
+        if let Some(events) = &close_events
+            && events.has_shutdown_callbacks()
+        {
+            events.request_window_close();
+            if !events.shutdown_is_complete() {
+                return glib::Propagation::Stop;
             }
         }
         if let Some(state) = &close_lifecycle {
