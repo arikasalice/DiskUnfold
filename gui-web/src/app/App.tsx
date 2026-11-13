@@ -37,6 +37,7 @@ import type { LocaleSettingsProps } from "../features/settings/LocaleSettings";
 import { createAnalysisClient, hasWindowsAnalysisBridge } from "../ipc";
 import type { AnalysisClient } from "../ipc";
 import { createBrowsePort } from "./browse-port";
+import { InfoEntry } from "./InfoEntry";
 import {
   BrowseVisualizationActions,
   BrowseVisualizationView,
@@ -52,11 +53,14 @@ export function App({
   visualizationProvider,
   locale,
   nativeLocaleHost = false,
+  infoClient,
 }: {
   analysis?: AnalysisClient;
   visualizationProvider?: BrowseVisualizationProvider;
   locale?: LocaleSettingsProps;
   nativeLocaleHost?: boolean;
+  /** Host connection for the product and support screens when analysis is off. */
+  infoClient?: AnalysisClient;
 } = {}) {
   const client = analysis ?? (hasWindowsAnalysisBridge() ? desktop : undefined);
   const savedPreferences = useDisplayPreferences(client);
@@ -135,6 +139,7 @@ export function App({
         </div>
         <div className="du-app-header__actions">
           <LocaleControls locale={locale} />
+          <InfoEntry client={client} fallbackClient={infoClient} />
           <BrowseReturn
             visible={Boolean(browseVersion) && !visualizationOpen}
             autoFocus={!restoreVisualizationFocus.current}

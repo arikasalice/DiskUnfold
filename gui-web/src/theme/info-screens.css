@@ -1,0 +1,43 @@
+.du-info-screen,
+.du-info-digest,
+.du-info-digest__result,
+.du-info-notice,
+.du-info-support {
+  display: grid;
+  gap: 12px;
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+
+.du-info-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.du-info-digest__result {
+  padding: 12px;
+  background: var(--du-subtle);
+  border: 1px solid var(--du-border);
+  border-radius: var(--du-radius);
+}
+
+.du-info-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.du-info-entry {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.du-info-entry--standalone {
+  justify-content: center;
+  padding: 12px 16px;
+  border-block-start: 1px solid var(--du-border);
+}

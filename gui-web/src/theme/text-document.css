@@ -1,0 +1,24 @@
+.du-text-document {
+  max-block-size: min(24rem, 50dvh);
+  min-inline-size: 0;
+  overflow: auto;
+  padding: 12px;
+  background: var(--du-subtle);
+  color: var(--du-text);
+  border: 1px solid var(--du-border);
+  border-radius: var(--du-radius);
+}
+
+.du-text-document pre {
+  margin: 0;
+  font-family: ui-monospace, "Cascadia Mono", "Consolas", monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.du-text-document:focus-visible {
+  outline: 2px solid var(--du-focus);
+  outline-offset: 2px;
+}

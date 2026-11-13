@@ -334,6 +334,11 @@ function requestId(): Id {
   ].join("-");
 }
 
+/** Creates a fresh correlation identifier for commands that echo it back. */
+export function newCorrelationId(): Id {
+  return requestId();
+}
+
 type Transport = (
   command: string,
   args: { envelope: CallEnvelope },

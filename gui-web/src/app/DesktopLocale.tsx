@@ -140,6 +140,7 @@ export function DesktopLocale({
             <App
               {...(analysisEnabled ? { analysis: client } : {})}
               nativeLocaleHost={!analysisEnabled}
+              infoClient={client}
               locale={{
                 profile: view.profile,
                 text: (key) => text(key, ""),

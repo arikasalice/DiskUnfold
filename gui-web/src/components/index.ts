@@ -44,3 +44,4 @@ export type {
 } from "./geometry-renderer";
 
 export { ActionFeedback } from "./action-feedback";
+export { TextDocument } from "./text-document";
