@@ -335,8 +335,9 @@ printf '%s\n' "$signature_details" | grep -Eiq 'Signature=adhoc' || fail 'signat
 printf '%s\n' "$signature_details" | grep -Eiq 'flags=.*runtime' || fail 'Hardened Runtime is not enabled'
 
 signed_executable="$contents/MacOS/diskunfold"
-lipo -verify_arch arm64 "$signed_executable" >/dev/null || fail 'signed executable lost its arm64 slice'
-lipo -verify_arch x86_64 "$signed_executable" >/dev/null || fail 'signed executable lost its x86_64 slice'
+# Input file first: older lipo releases (Xcode 16) reject the operation-first order.
+lipo "$signed_executable" -verify_arch arm64 >/dev/null || fail 'signed executable lost its arm64 slice'
+lipo "$signed_executable" -verify_arch x86_64 >/dev/null || fail 'signed executable lost its x86_64 slice'
 signed_arches=$(lipo -archs "$signed_executable")
 sorted_signed_arches=$(printf '%s\n' "$signed_arches" | tr ' ' '\n' | LC_ALL=C sort | paste -sd ' ' -)
 [[ "$sorted_signed_arches" == 'arm64 x86_64' ]] || fail 'signed executable architecture set changed'
