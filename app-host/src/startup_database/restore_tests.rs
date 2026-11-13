@@ -47,8 +47,7 @@ fn failed_migration_restores_the_backup_and_blocks_with_the_startup_reason() -> 
         .err()
         .ok_or("failing migration was accepted")?;
     let message = error.to_string();
-    assert!(message.starts_with("startup.migration_failed"), "{message}");
-    assert!(message.contains("restored from backup 1"), "{message}");
+    assert_eq!(message, "startup.migration_failed: restored");
     assert_eq!(rows(&path)?, before);
     let backups = dir.path().join("db-backups");
     assert!(backups.join("backup-00000000000000000001").is_dir());
@@ -86,12 +85,7 @@ fn interrupted_restore_is_finished_before_anything_reads_the_database() -> TestR
     let error = open(dir.path())
         .err()
         .ok_or("interrupted state was opened")?;
-    assert!(
-        error
-            .to_string()
-            .contains("interrupted migration was restored"),
-        "{error}"
-    );
+    assert_eq!(error.to_string(), "startup.migration_failed: restored");
     assert_eq!(rows(&path)?, before);
     assert!(!backups.join("migration-journal.json").exists());
     Ok(())
@@ -123,10 +117,57 @@ fn failed_restore_stops_startup_and_keeps_database_backups_and_journal() -> Test
         .err()
         .ok_or("restore from a damaged backup was accepted")?;
     let message = error.to_string();
-    assert!(message.starts_with("startup.migration_failed"), "{message}");
-    assert!(message.contains("db.restore_failed"), "{message}");
+    assert_eq!(message, "startup.migration_failed: restore_failed");
+    assert!(!message.contains("db.restore_failed"), "{message}");
     assert_eq!(rows(&path)?, database_before);
     assert_eq!(fs::read(&copy)?, damaged);
     assert!(backups.join("migration-journal.json").is_file());
+    Ok(())
+}
+
+#[test]
+fn journal_probe_fails_closed_on_every_error_except_not_found() {
+    let present = fs::metadata(std::env::temp_dir());
+    assert!(matches!(journal_pending(present), Ok(true)));
+    assert!(matches!(
+        journal_pending(Err(io::ErrorKind::NotFound.into())),
+        Ok(false)
+    ));
+    for kind in [
+        io::ErrorKind::PermissionDenied,
+        io::ErrorKind::TimedOut,
+        io::ErrorKind::Other,
+    ] {
+        let error = journal_pending(Err(kind.into()))
+            .err()
+            .map(|error| error.to_string());
+        assert_eq!(
+            error.as_deref(),
+            Some("startup.migration_failed: journal_unreadable"),
+            "{kind:?}"
+        );
+    }
+}
+
+#[test]
+fn journal_that_cannot_be_read_blocks_startup_and_is_preserved() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let path = blocked_database(dir.path())?;
+    let before = rows(&path)?;
+    let backups = dir.path().join("db-backups");
+    fs::create_dir(&backups)?;
+    // A directory in the journal's place cannot be parsed; startup must not migrate or restore.
+    fs::create_dir(backups.join("migration-journal.json"))?;
+
+    let error = open(dir.path())
+        .err()
+        .ok_or("unreadable journal was accepted")?;
+    assert_eq!(
+        error.to_string(),
+        "startup.migration_failed: restore_failed"
+    );
+    assert_eq!(rows(&path)?, before);
+    assert!(backups.join("migration-journal.json").is_dir());
+    assert!(!backups.join("backup-00000000000000000001").exists());
     Ok(())
 }

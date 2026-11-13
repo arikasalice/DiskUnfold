@@ -388,7 +388,23 @@ fn sync_dir(path: &Path) -> Result<(), MigrationError> {
     {
         fs::File::open(path).map_err(io)?.sync_all().map_err(io)?;
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        // A directory handle needs FILE_FLAG_BACKUP_SEMANTICS; std's File::sync_all calls
+        // FlushFileBuffers on it, which makes the directory entries durable. The reparse point
+        // flag keeps a replaced link from being followed.
+        use std::os::windows::fs::OpenOptionsExt;
+        const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+        const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+        OpenOptions::new()
+            .write(true)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
+            .open(path)
+            .map_err(io)?
+            .sync_all()
+            .map_err(io)?;
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         let _ = path;
     }

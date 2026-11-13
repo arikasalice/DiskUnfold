@@ -106,6 +106,7 @@ pub(super) fn apply_managed_run_faulty(
 ) -> Result<ManagedRunOutcome, Box<ManagedRunFailure>> {
     let mut revision = starting_revision;
     let mut applied_steps = 0;
+    let mut failed_step = None;
     let mut failure = match restore::read_journal(root) {
         Ok(None) => None,
         Ok(Some(_)) => Some(MigrationError::Interrupted),
@@ -143,10 +144,12 @@ pub(super) fn apply_managed_run_faulty(
                 applied_steps += 1;
             }
             Ok(_) => {
+                failed_step = Some(definition.number);
                 failure = Some(MigrationError::VersionMismatch);
                 break;
             }
             Err(error) => {
+                failed_step = Some(definition.number);
                 failure = Some(error);
                 break;
             }
@@ -154,9 +157,10 @@ pub(super) fn apply_managed_run_faulty(
     }
 
     let mut restore_status = RestoreStatus::NotNeeded;
-    if failure.is_some() {
+    if let Some(error) = &failure {
         if !pending_journal {
-            restore_status = restore::restore_after_failure(path, root, fault);
+            let record = restore::Failure::new(failed_step, error);
+            restore_status = restore::restore_after_failure(path, root, record, fault);
         }
     } else if has_steps {
         restore::clear_journal(root);

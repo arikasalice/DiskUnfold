@@ -40,8 +40,21 @@ type Instance = MacOsInstanceLock;
 // follow F15 HLD rev116 §2.3.3.5 and DLD rev70 §2.6 (FR8.HD1.app-db.DD1, FR8.HD1.app-host.DD1)
 // instead: a failed migration restores the whole pre-migration backup on every platform. F14
 // DLD79 §2.5.5 needs a design revision (docs/handoff/F14-DLD79-2.5.5-needs-revision.md).
-// Both outcomes use the HLD reason startup.migration_failed; the design has no separate key for
-// a failed restore, so the text after the key says whether the backup was restored.
+// Both outcomes use the published HLD reason startup.migration_failed; the design has no
+// separate key for a failed restore, so a stable sub-reason after the key (restored or
+// restore_failed) says what happened. The sub-reasons need design confirmation (see the handoff
+// note). Internal error detail is logged to stderr and never placed in the reason.
+
+/// Logs internal detail for diagnosis; the user-facing reason carries only a stable key.
+fn log_detail(reason: &str, detail: &dyn std::fmt::Debug) {
+    eprintln!("{reason}: {detail:?}");
+}
+
+/// Builds a reason that contains only a stable key and logs the detail separately.
+fn reason(key: &str, detail: &dyn std::fmt::Debug) -> io::Error {
+    log_detail(key, detail);
+    io::Error::other(key.to_owned())
+}
 
 /// Database startup result plus whether this run created the database file.
 pub(super) struct OpenedDatabase {
@@ -227,8 +240,7 @@ fn migrate(
     version: u32,
     #[cfg(unix)] instance: &Instance,
 ) -> Result<(), io::Error> {
-    create_backup_directory(backups)
-        .map_err(|error| io::Error::other(format!("db.backup_failed: {error}")))?;
+    create_backup_directory(backups).map_err(|error| reason("db.backup_failed", &error))?;
     let _directory = prepare_backup_directory(
         backups,
         #[cfg(unix)]
@@ -258,7 +270,7 @@ fn finish_interrupted_migration(
     #[cfg(unix)] instance: &Instance,
 ) -> Result<(), io::Error> {
     // Only a leftover journal needs recovery; an ordinary start does not touch the backups.
-    if fs::symlink_metadata(backups.join(JOURNAL)).is_err() {
+    if !journal_pending(fs::symlink_metadata(backups.join(JOURNAL)))? {
         return Ok(());
     }
     let _directory = prepare_backup_directory(
@@ -268,11 +280,31 @@ fn finish_interrupted_migration(
     )?;
     match recover_interrupted(path, backups, &HISTORY_DEFINITIONS) {
         Ok(RecoveryOutcome::NothingPending | RecoveryOutcome::AlreadyComplete { .. }) => Ok(()),
-        Ok(RecoveryOutcome::Restored(restored)) => Err(io::Error::other(format!(
-            "startup.migration_failed: an interrupted migration was restored from backup {} at schema {}; the backup is preserved",
-            restored.sequence, restored.version
-        ))),
+        Ok(RecoveryOutcome::Restored(restored)) => {
+            log_detail(
+                "startup.migration_failed: interrupted migration restored",
+                &restored,
+            );
+            Err(io::Error::other(RESTORED))
+        }
         Err(error) => Err(restore_failed(&error, None)),
+    }
+}
+
+const RESTORED: &str = "startup.migration_failed: restored";
+const RESTORE_FAILED: &str = "startup.migration_failed: restore_failed";
+const JOURNAL_UNREADABLE: &str = "startup.migration_failed: journal_unreadable";
+
+/// Decides from the journal probe whether recovery is needed. Only a missing journal means no;
+/// every other error fails closed because an unreadable journal may hide an interrupted run.
+fn journal_pending(probe: io::Result<fs::Metadata>) -> io::Result<bool> {
+    match probe {
+        Ok(_) => Ok(true),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(error) => {
+            log_detail(JOURNAL_UNREADABLE, &error);
+            Err(io::Error::other(JOURNAL_UNREADABLE))
+        }
     }
 }
 
@@ -280,28 +312,25 @@ fn finish_interrupted_migration(
 fn run_failure(failure: ManagedRunFailure) -> io::Error {
     match failure.restore {
         RestoreStatus::NotNeeded => migration_error(failure.migration),
-        RestoreStatus::Restored(restored) => io::Error::other(format!(
-            "startup.migration_failed: {:?}; the database was restored from backup {} at schema {} and the backup is preserved",
-            failure.migration, restored.sequence, restored.version
-        )),
+        RestoreStatus::Restored(restored) => {
+            log_detail(RESTORED, &(&failure.migration, &restored));
+            io::Error::other(RESTORED)
+        }
         RestoreStatus::Failed(error) => restore_failed(&error, Some(&failure.migration)),
     }
 }
 
 /// Fail-closed report: the database, the backups and the journal are all kept.
 fn restore_failed(error: &MigrationError, cause: Option<&MigrationError>) -> io::Error {
-    io::Error::other(format!(
-        "startup.migration_failed: db.restore_failed: the database and its backups are preserved for recovery: restore {error:?}{}",
-        cause.map_or_else(String::new, |cause| format!(", migration {cause:?}"))
-    ))
+    log_detail(RESTORE_FAILED, &(error, cause));
+    io::Error::other(RESTORE_FAILED)
 }
 
 #[cfg(windows)]
 fn prepare_backup_directory(
     backups: &Path,
 ) -> Result<du_platform_os::windows_observation::WindowsDirectory, io::Error> {
-    open_verified_stable(backups)
-        .map_err(|error| io::Error::other(format!("db.backup_failed: {error:?}")))
+    open_verified_stable(backups).map_err(|error| reason("db.backup_failed", &error))
 }
 
 #[cfg(unix)]
@@ -310,7 +339,7 @@ fn prepare_backup_directory(_backups: &Path, instance: &Instance) -> Result<fs::
     // advisory lock does not exclude unrelated same-user filesystem mutation.
     instance
         .open_child_directory("db-backups")
-        .map_err(|error| io::Error::other(format!("db.backup_failed: {error:?}")))
+        .map_err(|error| reason("db.backup_failed", &error))
 }
 
 #[cfg(windows)]
@@ -372,7 +401,7 @@ fn lock_error(error: InstanceLockError) -> io::Error {
             io::ErrorKind::AlreadyExists,
             "DiskUnfold is already running for this data directory",
         ),
-        error => io::Error::other(format!("db.open_failed: {error:?}")),
+        error => reason("db.open_failed", &error),
     }
 }
 
@@ -383,7 +412,7 @@ fn linux_lock_error(error: LinuxInstanceLockError) -> io::Error {
             io::ErrorKind::AlreadyExists,
             "DiskUnfold is already running for this data directory",
         ),
-        error => io::Error::other(format!("db.open_failed: {error:?}")),
+        error => reason("db.open_failed", &error),
     }
 }
 
@@ -394,7 +423,7 @@ fn macos_lock_error(error: MacOsInstanceLockError) -> io::Error {
             io::ErrorKind::AlreadyExists,
             "DiskUnfold is already running for this data directory",
         ),
-        error => io::Error::other(format!("db.open_failed: {error:?}")),
+        error => reason("db.open_failed", &error),
     }
 }
 
@@ -416,12 +445,12 @@ fn verify_macos_paths(
 
 fn open_error(error: OpenError) -> io::Error {
     if error.is_corrupt_database() {
-        return io::Error::other(format!("db.corrupt: {error:?}"));
+        return reason("db.corrupt", &error);
     }
     match error {
         OpenError::UnsupportedSchema(_) => io::Error::other("db.schema_mismatch"),
         OpenError::HistorySchema(error) => migration_error(*error),
-        error => io::Error::other(format!("db.open_failed: {error:?}")),
+        error => reason("db.open_failed", &error),
     }
 }
 
@@ -434,7 +463,7 @@ fn migration_error(error: MigrationError) -> io::Error {
         MigrationError::Backup(_) => "db.backup_failed",
         _ => "startup.migration_failed",
     };
-    io::Error::other(format!("{key}: {error:?}"))
+    reason(key, &error)
 }
 
 #[cfg(all(test, windows))]

@@ -81,21 +81,27 @@ fn older_macos_database_with_wal_rows_is_migrated_and_keeps_the_rows() -> TestRe
     let path = dir.path().join(DATABASE_FILE);
     drop(AppDb::create_gui(&path).map_err(open_error)?);
 
-    // Leave a committed WAL frame behind so migration must read the existing WAL state.
+    // Keep the writer open with automatic checkpoints off, so the committed row lives only in
+    // the WAL. The row goes into an existing version 1 table; a foreign table would make the
+    // baseline unrecognized.
     let writer = Connection::open(&path)?;
     writer.pragma_update(None, "wal_autocheckpoint", 0)?;
     writer.execute_batch(
-        "CREATE TABLE wal_fixture (value INTEGER NOT NULL);
-         INSERT INTO wal_fixture (value) VALUES (41);",
+        "INSERT INTO user_env_setting VALUES ('locale.display_language', '\"ko\"', 'screen', 1, 2, 1);",
     )?;
-    drop(writer);
+    let wal = path.with_extension("db-wal");
+    assert!(wal.metadata()?.len() > 32);
 
     drop(open(dir.path())?);
+    drop(writer);
     let reader = Connection::open(&path)?;
     assert_eq!(
-        reader.query_row("SELECT value FROM wal_fixture", [], |row| row
-            .get::<_, i64>(0))?,
-        41
+        reader.query_row(
+            "SELECT value_json FROM user_env_setting WHERE setting_key = 'locale.display_language'",
+            [],
+            |row| row.get::<_, String>(0)
+        )?,
+        "\"ko\""
     );
     assert_eq!(
         reader.query_row("PRAGMA user_version", [], |row| row.get::<_, u32>(0))?,
