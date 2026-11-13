@@ -41,6 +41,7 @@ fn target_sbom(triple: &'static str) -> Result<String, Box<dyn Error>> {
         file_name: "DiskUnfold-0.1.0.test",
         sha256: &"d".repeat(64),
         rust_targets: &targets,
+        bundled: &[],
     };
     let tool = [BuildTool {
         name: "rustc",

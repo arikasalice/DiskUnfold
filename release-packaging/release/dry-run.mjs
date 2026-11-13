@@ -67,6 +67,12 @@ function sha256(file) {
 
 /** Opens one package into `tree` the way the workflow does; returns an error text or "". */
 function openPackage(row, file, tree) {
+  if (row.format === "msi" && process.platform === "win32") {
+    // Same script as the workflow: msiexec /a plus the Binary table, with the Microsoft signature check.
+    const opened = run(powerShell(), ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path.join(root, "release-packaging", "windows", "open-msi-for-scan.ps1"),
+      "-PackageDirectory", path.dirname(file), "-ScanRoot", path.dirname(tree), "-WixPath", process.env.DU_WIX_PATH ?? ""]);
+    return opened.status === 0 ? "" : (opened.stderr || opened.stdout).trim().split("\n").slice(-2).join(" | ");
+  }
   mkdirSync(tree, { recursive: true });
   if (row.format === "tar-gz") return run("tar", ["-xzf", file, "-C", tree]).status === 0 ? "" : "tar failed";
   if (row.format === "deb") return run("dpkg-deb", ["-x", file, tree]).status === 0 ? "" : "dpkg-deb failed";
@@ -225,6 +231,19 @@ if (process.platform === "win32") {
       // Windows PowerShell 5.1 leaves $PSScriptRoot empty inside parameter defaults, so pass the icon.
       "-IconPath", path.join(root, "app-host", "icons", "icon.png")]);
     record(`package ${format}`, result.status === 0, result.status === 0 ? "" : (result.stderr || result.stdout).trim().split("\n").slice(-3).join(" | "));
+    if (result.status === 0) parts.push(name);
+  }
+  // The MSI needs the pinned WiX (install-wix.ps1; DU_WIX_PATH) and Microsoft's WebView2 standalone
+  // installer (fetch-webview2.ps1; DU_WEBVIEW2_INSTALLER). Without them the step fails and says why.
+  const installer = process.env.DU_WEBVIEW2_INSTALLER;
+  if (!installer || !process.env.DU_WIX_PATH) {
+    record("package msi", false, "set DU_WIX_PATH (install-wix.ps1) and DU_WEBVIEW2_INSTALLER (fetch-webview2.ps1)");
+  } else {
+    const name = `windows-${architecture}-msi`;
+    const result = run(powerShell(), ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path.join(root, "release-packaging", "windows", "package-windows-msi.ps1"),
+      "-BinaryPath", binary, "-Version", version, "-Architecture", architecture, "-NoticesPath", notices, "-WebView2InstallerPath", installer,
+      "-IconPath", path.join(root, "app-host", "icons", "icon.ico"), "-OutputDirectory", path.join(stage, name)]);
+    record("package msi", result.status === 0, result.status === 0 ? "" : (result.stderr || result.stdout).trim().split("\n").slice(-3).join(" | "));
     if (result.status === 0) parts.push(name);
   }
 } else if (process.platform === "linux") {

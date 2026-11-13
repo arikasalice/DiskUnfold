@@ -32,6 +32,7 @@ fn row(
         executable_sha256: digest,
         run_instructions: "run".into(),
         sbom_file_name: Some(format!("{name}.cdx.json")),
+        bundled_components: Vec::new(),
     })
 }
 

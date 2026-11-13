@@ -41,6 +41,27 @@ pub struct DistributionRow {
     /// row, so the published inventory and `DISTRIBUTION.md` name the SBOM next to the package.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sbom_file_name: Option<String>,
+    /// Third-party components carried inside the package. Empty for packages that carry none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub bundled_components: Vec<BundledComponent>,
+}
+
+/// A third-party component that a package carries unmodified, such as the WebView2 Evergreen
+/// Standalone Installer inside the Windows MSI. The packager records what it verified; the
+/// digest is not pinned, because the vendor replaces the file.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct BundledComponent {
+    /// Component name as published by its vendor.
+    pub name: String,
+    /// Component version read from the bundled file.
+    pub version: String,
+    /// SHA-256 of the bundled file, as shipped.
+    pub sha256: Sha256Digest,
+    /// Verified Authenticode signer subject of the bundled file.
+    pub signer: String,
+    /// Where the file was obtained.
+    pub source: String,
 }
 
 /// The release list input consumed by the inventory generator.

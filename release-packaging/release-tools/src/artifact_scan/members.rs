@@ -11,6 +11,11 @@ use std::{
     path::{Component, Path},
 };
 
+use sha2::{Digest, Sha256};
+
+/// File name under which the workflow places the verified bundled installer in an opened MSI.
+pub const BUNDLED_INSTALLER_FILE: &str = "WebView2-Installer.exe";
+
 fn denied(detail: String) -> GateFailure {
     GateFailure::new(LICENSE_DENIED, detail)
 }
@@ -61,10 +66,32 @@ fn starts_with_binary_magic(path: &Path) -> Result<bool, std::io::Error> {
     Ok(detect(&magic[..read]).is_some())
 }
 
+/// Whether `path` is a bundled file the package record names: right file name and the SHA-256
+/// that the packager verified (Microsoft signature) and recorded.
+pub(super) fn is_recorded_bundle(path: &Path, name: &str, bundled: &[(String, String)]) -> bool {
+    let candidates: Vec<&String> = bundled
+        .iter()
+        .filter(|(file, _)| file == name)
+        .map(|(_, digest)| digest)
+        .collect();
+    if candidates.is_empty() {
+        return false;
+    }
+    let Ok(bytes) = fs::read(path) else {
+        return false;
+    };
+    let actual: String = Sha256::digest(&bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    candidates.iter().any(|digest| **digest == actual)
+}
+
 fn walk(
     dir: &Path,
     below_root: &mut Vec<String>,
     allowed_binary: &str,
+    bundled: &[(String, String)],
     found: &mut Vec<String>,
 ) -> Result<(), GateFailure> {
     let unreadable = |path: &Path, error: std::io::Error| {
@@ -95,11 +122,12 @@ fn walk(
             }
         } else if kind.is_dir() {
             below_root.push(name);
-            walk(&path, below_root, allowed_binary, found)?;
+            walk(&path, below_root, allowed_binary, bundled, found)?;
             below_root.pop();
         } else if let Some(reason) = denied_name_reason(&name) {
             found.push(format!("{relative} ({reason})"));
         } else if name != allowed_binary
+            && !is_recorded_bundle(&path, &name, bundled)
             && starts_with_binary_magic(&path).map_err(|error| unreadable(&path, error))?
         {
             found.push(format!(
@@ -117,7 +145,20 @@ fn walk(
 /// # Errors
 /// Returns `release.license_denied` when a directory or file in the tree cannot be read.
 pub fn denied_members(tree: &Path, allowed_binary: &str) -> Result<Vec<String>, GateFailure> {
+    denied_members_with(tree, allowed_binary, &[])
+}
+
+/// Like [`denied_members`], and also allows each `(file name, SHA-256)` pair in `bundled`: a
+/// binary with that name passes only when its digest is the recorded one.
+///
+/// # Errors
+/// Returns `release.license_denied` when a directory or file in the tree cannot be read.
+pub fn denied_members_with(
+    tree: &Path,
+    allowed_binary: &str,
+    bundled: &[(String, String)],
+) -> Result<Vec<String>, GateFailure> {
     let mut found = Vec::new();
-    walk(tree, &mut Vec::new(), allowed_binary, &mut found)?;
+    walk(tree, &mut Vec::new(), allowed_binary, bundled, &mut found)?;
     Ok(found)
 }

@@ -37,6 +37,17 @@ fn row(
         executable_sha256: digest,
         run_instructions: "run".into(),
         sbom_file_name: None,
+        bundled_components: if format == PackageFormat::Msi {
+            vec![crate::release_inventory::BundledComponent {
+                name: crate::release_inventory::WEBVIEW2_COMPONENT.into(),
+                version: "1.3.315.17".into(),
+                sha256: Sha256Digest::parse(&"b".repeat(64))?,
+                signer: "CN=Microsoft Corporation, O=Microsoft Corporation".into(),
+                source: "https://go.microsoft.com/fwlink/?linkid=2124701".into(),
+            }]
+        } else {
+            Vec::new()
+        },
     })
 }
 
@@ -228,24 +239,19 @@ fn merge_failure(parts: Vec<(String, ReleaseManifest)>) -> Result<GateFailure, &
 }
 
 #[test]
-fn complete_set_passes_with_an_msi_warning() -> TestResult {
+fn complete_set_passes_without_warnings() -> TestResult {
     let warnings = check_required_artifacts(&full_set(SignatureMethod::Unsigned)?)?;
-    assert_eq!(warnings.len(), 1);
-    assert_eq!(warnings[0].reason_key, FORMAT_UNAVAILABLE);
+    assert!(warnings.is_empty());
     Ok(())
 }
 
 #[test]
-fn msi_row_removes_the_warning() -> TestResult {
+fn a_missing_msi_stops_the_release() -> TestResult {
     let mut set = full_set(SignatureMethod::Unsigned)?;
-    set.rows.push(row(
-        "x.msi",
-        OsFamily::Windows,
-        Cpu::X64,
-        PackageFormat::Msi,
-        SignatureMethod::Unsigned,
-    )?);
-    assert!(check_required_artifacts(&set)?.is_empty());
+    set.rows.retain(|row| row.format != PackageFormat::Msi);
+    let failure = check_required_artifacts(&set).err().ok_or("accepted")?;
+    assert_eq!(failure.reason_key, ARTIFACT_MISSING);
+    assert!(failure.detail.contains("Msi"));
     Ok(())
 }
 

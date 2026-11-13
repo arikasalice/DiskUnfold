@@ -72,6 +72,7 @@ fn run() -> Result<(), Box<dyn Error>> {
             file_name: &row.file_name,
             sha256: row.sha256.as_str(),
             rust_targets: targets,
+            bundled: &row.bundled_components,
         };
         let text = render_cyclonedx(&subject, &by_targets[&key], &tools)?;
         let name = sbom_file_name(&row.file_name);

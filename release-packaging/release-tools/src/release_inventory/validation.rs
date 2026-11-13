@@ -157,6 +157,49 @@ fn validate_row(
     require_nonempty("signature_scope", &row.signature_scope)?;
     validate_artifact_name(&row.executable_file_name)?;
     require_nonempty("run_instructions", &row.run_instructions)?;
+    validate_bundled_components(row)
+}
+
+/// Name of the WebView2 offline installer recorded in every MSI row.
+pub const WEBVIEW2_COMPONENT: &str =
+    "Microsoft Edge WebView2 Runtime Evergreen Standalone Installer";
+
+/// Checks the bundled-component records. An MSI carries the WebView2 installer, verified as
+/// signed by Microsoft Corporation; no other format carries a component.
+fn validate_bundled_components(row: &DistributionRow) -> Result<(), InventoryError> {
+    for component in &row.bundled_components {
+        require_nonempty("bundled_components.name", &component.name)?;
+        require_nonempty("bundled_components.version", &component.version)?;
+        require_nonempty("bundled_components.signer", &component.signer)?;
+        require_nonempty("bundled_components.source", &component.source)?;
+    }
+    let webview2 = row
+        .bundled_components
+        .iter()
+        .filter(|component| component.name == WEBVIEW2_COMPONENT)
+        .count();
+    let fail = |detail: &str| InventoryError::InvalidField {
+        field: "bundled_components",
+        detail: detail.to_owned(),
+    };
+    if row.format == PackageFormat::Msi {
+        if webview2 != 1 || row.bundled_components.len() != 1 {
+            return Err(fail(
+                "an msi row must record exactly the WebView2 standalone installer",
+            ));
+        }
+        let signer = &row.bundled_components[0].signer;
+        if !signer
+            .split(", ")
+            .any(|part| part == "CN=Microsoft Corporation")
+        {
+            return Err(fail(
+                "the WebView2 installer signer must be CN=Microsoft Corporation",
+            ));
+        }
+    } else if !row.bundled_components.is_empty() {
+        return Err(fail("only an msi row may record bundled components"));
+    }
     Ok(())
 }
 

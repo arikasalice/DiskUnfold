@@ -1,68 +1,8 @@
 use super::*;
-use sha2::{Digest, Sha256};
-use std::{error::Error, fs, path::Path};
+use std::{error::Error, fs};
 use tempfile::TempDir;
 
-fn sample_manifest(root: &Path) -> Result<ReleaseManifest, Box<dyn Error>> {
-    fs::write(root.join("DiskUnfold-0.1.0-x64.msi"), b"package")?;
-    fs::write(root.join("DiskUnfold.exe"), b"executable")?;
-    let row = DistributionRow {
-        file_name: "DiskUnfold-0.1.0-x64.msi".into(),
-        version: "0.1.0".into(),
-        os: OsRange {
-            family: OsFamily::Windows,
-            versions: OsVersionScope::Range {
-                minimum: OsVersion::parse("11 25H2")?,
-                maximum: None,
-            },
-        },
-        cpu: Cpu::X64,
-        format: PackageFormat::Msi,
-        channel: DistributionChannel::Direct,
-        signature: SignatureMethod::SignPath,
-        signature_scope: "Authenticode identity and signed package integrity".into(),
-        sha256: Sha256Digest::parse(&sha256(b"package"))?,
-        executable_file_name: "DiskUnfold.exe".into(),
-        executable_sha256: Sha256Digest::parse(&sha256(b"executable"))?,
-        run_instructions: "Install the MSI, then launch DiskUnfold.".into(),
-        sbom_file_name: None,
-    };
-    Ok(ReleaseManifest {
-        product_name: "DiskUnfold".into(),
-        version: "0.1.0".into(),
-        rows: vec![row],
-        channel_references: vec![ChannelReference {
-            channel: UpdateChannel::Winget,
-            version: "0.1.0".into(),
-            cpu: Cpu::X64,
-            artifact_file_name: "DiskUnfold-0.1.0-x64.msi".into(),
-            update_method: UpdateMethod::ChannelCommand,
-        }],
-        staged_files: vec![
-            StagedFile {
-                artifact_file_name: "DiskUnfold-0.1.0-x64.msi".into(),
-                kind: StagedFileKind::Package,
-                relative_path: "DiskUnfold-0.1.0-x64.msi".into(),
-            },
-            StagedFile {
-                artifact_file_name: "DiskUnfold-0.1.0-x64.msi".into(),
-                kind: StagedFileKind::Executable,
-                relative_path: "DiskUnfold.exe".into(),
-            },
-        ],
-    })
-}
-
-fn sha256(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let digest = Sha256::digest(bytes);
-    let mut output = String::with_capacity(64);
-    for byte in digest {
-        output.push(HEX[(byte >> 4) as usize] as char);
-        output.push(HEX[(byte & 0x0f) as usize] as char);
-    }
-    output
-}
+use super::fixtures::{sample_manifest, sha256};
 
 #[test]
 fn sha256_uses_the_standard_sha256_encoding() {
@@ -104,6 +44,7 @@ fn sorts_rows_by_format_then_os_then_cpu_deterministically() -> Result<(), Box<d
     };
     mac.cpu = Cpu::Universal;
     mac.format = PackageFormat::Dmg;
+    mac.bundled_components.clear();
     manifest.rows.push(mac.clone());
     let mut deb = mac.clone();
     deb.file_name = "DiskUnfold-0.1.0-arm64.deb".into();
@@ -115,6 +56,7 @@ fn sorts_rows_by_format_then_os_then_cpu_deterministically() -> Result<(), Box<d
     };
     deb.cpu = Cpu::Arm64;
     deb.format = PackageFormat::Deb;
+    deb.bundled_components.clear();
     manifest.rows.push(deb);
 
     let mut ubuntu_x64 = mac.clone();
@@ -127,6 +69,7 @@ fn sorts_rows_by_format_then_os_then_cpu_deterministically() -> Result<(), Box<d
     };
     ubuntu_x64.cpu = Cpu::X64;
     ubuntu_x64.format = PackageFormat::TarGz;
+    ubuntu_x64.bundled_components.clear();
     manifest.rows.push(ubuntu_x64.clone());
 
     let mut ubuntu_arm64 = ubuntu_x64.clone();
@@ -212,6 +155,7 @@ fn renders_exact_os_versions_without_implying_intermediate_support() -> Result<(
         },
     };
     manifest.rows[0].format = PackageFormat::TarGz;
+    manifest.rows[0].bundled_components.clear();
     manifest.rows[0].signature = SignatureMethod::Unsigned;
     for staged in &mut manifest.staged_files {
         staged.artifact_file_name = manifest.rows[0].file_name.clone();
@@ -419,6 +363,7 @@ fn renders_each_artifact_signature_scope_and_escapes_table_delimiters() -> Resul
     macos.executable_file_name = executable_name.into();
     macos.executable_sha256 = Sha256Digest::parse(&sha256(executable))?;
     macos.run_instructions = "Open the disk image, then launch DiskUnfold.".into();
+    macos.bundled_components.clear();
     manifest.rows.push(macos);
     manifest.staged_files.extend([
         StagedFile {

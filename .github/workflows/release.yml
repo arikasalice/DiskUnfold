@@ -270,6 +270,23 @@ jobs:
           echo "release.signed_input_unsupported: package-windows-development.ps1 rejects signed input; the signed executable is in signed-exe/ but was not packaged." >&2
           exit 1
 
+      # The WebView2 Evergreen Standalone Installer goes into the MSI unmodified, as obtained from
+      # Microsoft. It is fetched from Microsoft's permanent link at build time and accepted only with a
+      # valid CN=Microsoft Corporation Authenticode signature. Its SHA-256 is not pinned (Microsoft
+      # replaces the file); the packager records the digest and version in the manifest and inventory.
+      - name: Fetch the WebView2 installer and install the pinned WiX (Windows)
+        if: matrix.os == 'windows'
+        shell: pwsh
+        env:
+          PACKAGE_CPU: ${{ matrix.cpu }}
+        run: |
+          $name = if ($env:PACKAGE_CPU -eq 'x64') { 'MicrosoftEdgeWebView2RuntimeInstallerX64.exe' } else { 'MicrosoftEdgeWebView2RuntimeInstallerARM64.exe' }
+          $dir = Join-Path $env:RUNNER_TEMP 'webview2'
+          New-Item -ItemType Directory -Path $dir | Out-Null
+          & .\release-packaging\windows\fetch-webview2.ps1 -Architecture $env:PACKAGE_CPU -OutputPath (Join-Path $dir $name)
+          "WEBVIEW2_INSTALLER=$(Join-Path $dir $name)" >> $env:GITHUB_ENV
+          $wix = & .\release-packaging\windows\install-wix.ps1 -ToolPath (Join-Path $env:RUNNER_TEMP 'wix-tool')
+          "DU_WIX_PATH=$($wix | Select-Object -Last 1)" >> $env:GITHUB_ENV
       - name: Package (Windows)
         if: matrix.os == 'windows'
         shell: pwsh
@@ -290,6 +307,13 @@ jobs:
               -OutputDirectory "stage\$env:PACKAGE_ID-$format"
             if ($LASTEXITCODE -ne 0) { throw "packaging $format failed" }
           }
+          $global:LASTEXITCODE = 0
+          & .\release-packaging\windows\package-windows-msi.ps1 `
+            -BinaryPath target\release\diskunfold.exe -Version $env:PACKAGE_VERSION `
+            -Architecture $env:PACKAGE_CPU -NoticesPath release-resources\THIRD-PARTY-NOTICES `
+            -WebView2InstallerPath $env:WEBVIEW2_INSTALLER `
+            -OutputDirectory "stage\$env:PACKAGE_ID-msi"
+          if ($LASTEXITCODE -ne 0) { throw 'packaging msi failed' }
       - name: Package (Linux)
         if: matrix.os == 'linux'
         env:
@@ -337,6 +361,18 @@ jobs:
             DISKUNFOLD_DATA_DIR="$data" "$dir/$name" notices "$document" > "$target" ||
               { echo "release.notice_mismatch: $name does not embed $document" >&2; exit 1; }
           done
+      # The MSI is opened on its own Windows runner: an administrative extract (msiexec /a) gives the
+      # installed files and the Binary table gives the embedded WebView2 installer. The script fails
+      # unless that installer has a valid CN=Microsoft Corporation signature and the SHA-256 the
+      # packager recorded; the scan then allows exactly that binary and no other.
+      - name: Open the MSI for the scan (Windows)
+        if: matrix.os == 'windows'
+        shell: pwsh
+        env:
+          PACKAGE_ID: ${{ matrix.id }}
+        run: |
+          & .\release-packaging\windows\open-msi-for-scan.ps1 `
+            -PackageDirectory "stage\$env:PACKAGE_ID-msi" -ScanRoot scan-extract -WixPath $env:DU_WIX_PATH
       - name: Record this combination
         env:
           MATRIX_ID: ${{ matrix.id }}
@@ -523,7 +559,7 @@ jobs:
                     msix) unzip -q "$found" -d "$tree" ;;
                   esac
                   ;;
-                portable-exe | dmg)
+                portable-exe | dmg | msi)
                   [[ -d "$tree" ]] ||
                     { echo "release.notice_mismatch: $name was not opened on its native runner" >&2; exit 1; }
                   ;;

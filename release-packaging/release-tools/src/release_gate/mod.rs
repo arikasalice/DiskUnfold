@@ -278,9 +278,11 @@ pub fn merge_manifests(
     Ok(merged)
 }
 
-const REQUIRED: [(OsFamily, Cpu, PackageFormat); 9] = [
+const REQUIRED: [(OsFamily, Cpu, PackageFormat); 11] = [
     (OsFamily::Windows, Cpu::X64, PackageFormat::PortableExe),
     (OsFamily::Windows, Cpu::Arm64, PackageFormat::PortableExe),
+    (OsFamily::Windows, Cpu::X64, PackageFormat::Msi),
+    (OsFamily::Windows, Cpu::Arm64, PackageFormat::Msi),
     (OsFamily::Windows, Cpu::X64, PackageFormat::Msix),
     (OsFamily::Windows, Cpu::Arm64, PackageFormat::Msix),
     (OsFamily::Ubuntu, Cpu::X64, PackageFormat::Deb),
@@ -291,7 +293,8 @@ const REQUIRED: [(OsFamily, Cpu, PackageFormat); 9] = [
 ];
 
 /// Requires every package this workflow can build. On success returns warnings for designed
-/// formats with no builder yet (MSI); the release notes must state them.
+/// formats with no builder yet; the release notes must state them. Every designed format has a
+/// builder now, so the list is empty.
 pub fn check_required_artifacts(
     manifest: &ReleaseManifest,
 ) -> Result<Vec<GateFailure>, GateFailure> {
@@ -321,18 +324,7 @@ pub fn check_required_artifacts_scoped(
             format!("missing packages: {}", missing.join(", ")),
         ));
     }
-    let has_msi = manifest
-        .rows
-        .iter()
-        .any(|row| row.format == PackageFormat::Msi);
-    Ok(if has_msi {
-        Vec::new()
-    } else {
-        vec![GateFailure::new(
-            FORMAT_UNAVAILABLE,
-            "no MSI package: the Windows MSI builder is not available yet",
-        )]
-    })
+    Ok(Vec::new())
 }
 
 /// When no signing step ran, a row may claim only `unsigned` or, on a macOS row, the ad-hoc
