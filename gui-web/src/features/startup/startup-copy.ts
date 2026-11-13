@@ -92,6 +92,10 @@ export function startupCopy(text: LocaleText) {
       "Startup checks reported a status this version does not recognize.",
     ),
     bannerDismiss: text("ui.startup.banner_dismiss", "Dismiss"),
+    bannerOpenSupport: text(
+      "ui.startup.banner_open_support",
+      "Open support information",
+    ),
     checkNames: {
       resource_integrity: text(
         "ui.startup.check.resource_integrity",

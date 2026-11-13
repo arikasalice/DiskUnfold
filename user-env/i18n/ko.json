@@ -176,6 +176,7 @@
     ["ui.startup.banner_unverifiable", "일부 시작 점검을 확인하지 못했습니다. DiskUnfold는 계속 실행됩니다.", []],
     ["ui.startup.banner_unknown", "시작 점검이 이 버전에서 알 수 없는 상태를 보고했습니다.", []],
     ["ui.startup.banner_dismiss", "닫기", []],
+    ["ui.startup.banner_open_support", "지원 정보 열기", []],
     ["ui.common.retry", "다시 시도", []],
     ["ui.common.close", "닫기", []],
     ["ui.common.translation_unverified", "번역 미확인", []],

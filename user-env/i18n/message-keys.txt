@@ -159,6 +159,7 @@ ui.startup.banner_outside_verified
 ui.startup.banner_unverifiable
 ui.startup.banner_unknown
 ui.startup.banner_dismiss
+ui.startup.banner_open_support
 ui.common.retry
 ui.common.close
 ui.common.translation_unverified

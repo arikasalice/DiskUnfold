@@ -6,13 +6,16 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
+import axe from "axe-core";
 import { afterEach, expect, test, vi } from "vitest";
 import { ApplicationEntry } from "../src/app/ApplicationEntry";
 import { DesktopLocale } from "../src/app/DesktopLocale";
 import { StartupGate } from "../src/features/startup/StartupGate";
 import { LocaleTextContext } from "../src/i18n/presentation";
 import { createAnalysisClient } from "../src/ipc";
+import { supportReport } from "./info-host";
 import type {
+  AnalysisClient,
   LocaleBundleBody,
   LocaleProfile,
   StartupCheckResult,
@@ -26,11 +29,23 @@ vi.mock("../src/ipc", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/ipc")>()),
   hasWindowsAnalysisBridge: () => bridge.available,
 }));
-vi.mock("../src/app/App", () => ({
-  App: ({ analysis }: { analysis?: unknown }) => (
-    <div>{analysis ? "Connected analysis" : "Shell without analysis"}</div>
-  ),
-}));
+vi.mock("../src/app/App", async () => {
+  const { InfoEntry } = await import("../src/app/InfoEntry");
+  return {
+    App: ({
+      analysis,
+      infoClient,
+    }: {
+      analysis?: AnalysisClient;
+      infoClient?: AnalysisClient;
+    }) => (
+      <div>
+        {analysis ? "Connected analysis" : "Shell without analysis"}
+        <InfoEntry client={analysis} fallbackClient={infoClient} />
+      </div>
+    ),
+  };
+});
 
 afterEach(() => {
   cleanup();
@@ -248,6 +263,9 @@ function bundle(language: string): LocaleBundleBody {
     messages["ui.startup.banner_heading"] = text("시작 안내");
     messages["ui.startup.banner_outside_verified"] =
       text("검증하지 않은 조합입니다.");
+    messages["ui.startup.banner_open_support"] = text("지원 정보 열기");
+    messages["ui.info.support_open"] = text("지원 정보");
+    messages["ui.common.close_details"] = text("상세 닫기");
   }
   return {
     messages,
@@ -290,6 +308,8 @@ function windowsClient(calls: string[]) {
       }
       case "app.startup_status":
         return { ...response, body: outsideVerified };
+      case "app.support_info":
+        return { ...response, body: supportReport() };
       default:
         return { ...response, body: {} };
     }
@@ -325,4 +345,99 @@ test("the shell without the startup bridge makes no startup request", async () =
   await screen.findByText("Shell without analysis");
   expect(calls).not.toContain("app.startup_status");
   expect(screen.queryByRole("region", { name: "시작 안내" })).toBeNull();
+});
+
+test("the banner opens the support information dialog and keeps the banner and focus", async () => {
+  bridge.available = true;
+  render(
+    <ApplicationEntry
+      client={windowsClient([])}
+      localeEnabled
+      startupStatusEnabled
+      analysisEnabled
+    />,
+  );
+  const banner = await screen.findByRole("region", { name: "시작 안내" });
+  const open = within(banner).getByRole("button", { name: "지원 정보 열기" });
+  open.focus();
+  fireEvent.click(open);
+
+  const dialog = await screen.findByRole("dialog", { name: "지원 정보" });
+  expect(await within(dialog).findByText("sm-7")).toBeTruthy();
+  expect((await axe.run(dialog)).violations).toEqual([]);
+
+  fireEvent.click(screen.getByRole("button", { name: "상세 닫기" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(screen.getByRole("region", { name: "시작 안내" })).toBeTruthy();
+  await waitFor(() => expect(document.activeElement).toBe(open));
+
+  // A second request opens the dialog again.
+  fireEvent.click(open);
+  expect(await screen.findByRole("dialog", { name: "지원 정보" })).toBeTruthy();
+});
+
+test("the banner action is offered only when the shell can open support information", async () => {
+  const onOpenSupport = vi.fn();
+  const first = render(
+    <StartupGate client={clientFor(() => outsideVerified)}>
+      <p>First screen</p>
+    </StartupGate>,
+  );
+  const banner = await screen.findByRole("region", { name: "Startup notice" });
+  expect(
+    within(banner).queryByRole("button", { name: "Open support information" }),
+  ).toBeNull();
+  first.unmount();
+
+  render(
+    <StartupGate
+      client={clientFor(() => outsideVerified)}
+      onOpenSupport={onOpenSupport}
+    >
+      <p>First screen</p>
+    </StartupGate>,
+  );
+  const withAction = await screen.findByRole("region", {
+    name: "Startup notice",
+  });
+  fireEvent.click(
+    within(withAction).getByRole("button", {
+      name: "Open support information",
+    }),
+  );
+  expect(onOpenSupport).toHaveBeenCalledTimes(1);
+  expect(screen.getByRole("region", { name: "Startup notice" })).toBeTruthy();
+});
+
+test("the status region exists before the banner text and receives it as a change", async () => {
+  let release: (status: StartupStatus) => void = () => undefined;
+  const pending = new Promise<StartupStatus>((resolve) => {
+    release = resolve;
+  });
+  const transport: Transport = async (_, { envelope }) => ({
+    ...envelope,
+    body: await pending,
+  });
+  const { container } = render(
+    <StartupGate client={createAnalysisClient(transport)}>
+      <p>First screen</p>
+    </StartupGate>,
+  );
+  const live = screen.getByRole("status");
+  expect(live.textContent).toBe("");
+  expect(screen.queryByRole("region")).toBeNull();
+  expect((await axe.run(container)).violations).toEqual([]);
+
+  release(outsideVerified);
+  const banner = await screen.findByRole("region", { name: "Startup notice" });
+  // The same element that was already in the page now holds the notice text.
+  expect(screen.getAllByRole("status")).toEqual([live]);
+  expect(live.textContent).toMatch(/not one of the combinations/);
+  expect(within(banner).getByText(/not one of the combinations/)).toBeTruthy();
+  expect(banner.contains(live)).toBe(true);
+  expect((await axe.run(container)).violations).toEqual([]);
+
+  fireEvent.click(within(banner).getByRole("button", { name: "Dismiss" }));
+  expect(screen.getByRole("status")).toBe(live);
+  expect(live.textContent).toBe("");
 });

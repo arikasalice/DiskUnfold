@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { Action, Notice, Readout } from "../../components";
+import { Action, LiveStatus, Notice, Readout } from "../../components";
 import { useLocaleText } from "../../i18n/presentation";
 import type { AnalysisClient, StartupStatus } from "../../ipc";
 import { StartupStatusScreen } from "./StartupStatusScreen";
@@ -30,19 +30,26 @@ function bannerMessage(status: StartupStatus, copy: StartupCopy) {
  * shows nothing: the banner is advisory and never gates the first screen.
  * Dismissal lasts for this session only and hands keyboard focus to the first
  * screen, so the focused button's removal does not drop focus to the page.
+ *
+ * The live status region is mounted before the status is read and receives the
+ * notice text afterwards, so assistive technology announces the change.
+ * `onOpenSupport` lets the shell open the support information screen from
+ * the banner; this feature does not know where that screen lives.
  */
 export function StartupGate({
   client,
   children,
+  onOpenSupport,
 }: {
   client: AnalysisClient;
   children: ReactNode;
+  onOpenSupport?: () => void;
 }) {
   const text = useLocaleText();
   const copy = useMemo(() => startupCopy(text), [text]);
   const [status, setStatus] = useState<StartupStatus>();
   const [dismissed, setDismissed] = useState(false);
-  const banner = useRef<HTMLElement>(null);
+  const banner = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let current = true;
@@ -75,30 +82,43 @@ export function StartupGate({
         check.result !== "pass" &&
         check.result !== "not_applicable",
     ) ?? [];
+  const visible = status !== undefined && status.grade !== "pass" && !dismissed;
   return (
     <>
-      {status !== undefined && status.grade !== "pass" && !dismissed && (
-        <section
-          ref={banner}
-          className="du-startup-banner"
-          aria-label={copy.bannerHeading}
-        >
-          <Notice>{bannerMessage(status, copy)}</Notice>
-          <Readout
-            label={copy.checksHeading}
-            rows={rows.map((check) => ({
-              label: checkLabel(check, copy),
-              value: outcomeLabel(check, copy),
-              wideValue: true,
-            }))}
-          />
-          <div className="du-startup__actions">
-            <Action variant="quiet" onPress={dismiss}>
-              {copy.bannerDismiss}
-            </Action>
+      <div
+        ref={banner}
+        className={visible ? "du-startup-banner" : undefined}
+        role={visible ? "region" : undefined}
+        aria-label={visible ? copy.bannerHeading : undefined}
+      >
+        <LiveStatus>
+          {visible && (
+            <Notice announce={false}>{bannerMessage(status, copy)}</Notice>
+          )}
+        </LiveStatus>
+        {visible && (
+          <div className="du-startup-banner__details">
+            <Readout
+              label={copy.checksHeading}
+              rows={rows.map((check) => ({
+                label: checkLabel(check, copy),
+                value: outcomeLabel(check, copy),
+                wideValue: true,
+              }))}
+            />
+            <div className="du-startup__actions">
+              {onOpenSupport && (
+                <Action variant="quiet" onPress={onOpenSupport}>
+                  {copy.bannerOpenSupport}
+                </Action>
+              )}
+              <Action variant="quiet" onPress={dismiss}>
+                {copy.bannerDismiss}
+              </Action>
+            </div>
           </div>
-        </section>
-      )}
+        )}
+      </div>
       {children}
     </>
   );

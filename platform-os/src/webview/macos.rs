@@ -1,3 +1,5 @@
+mod menu;
+
 use super::contract::{Asset, CSP, ShutdownCallbacks, WebApp, entry, message, resource};
 use block2::DynBlock;
 use objc2::{
@@ -167,6 +169,12 @@ define_class!(
     }
 
     impl Handler {
+        /// Menu action: links the `diskunfold` command into the user's `~/.local/bin`.
+        #[unsafe(method(installCommandLineTool:))]
+        fn install_command_line_tool(&self, _: &AnyObject) {
+            menu::install_command_line_tool(self.mtm());
+        }
+
         /// Advances the host shutdown and leaves the run loop once it completes.
         #[unsafe(method(shutdownTick:))]
         fn shutdown_tick(&self, _: &AnyObject) {
@@ -361,6 +369,7 @@ pub(super) fn run(app: WebApp, shutdown: Option<ShutdownCallbacks>) -> Result<()
                 application.setDelegate(Some(ProtocolObject::from_ref(&*handler)));
             }
             let _delegate = has_shutdown.then(|| DelegateGuard(application.clone()));
+            menu::install_main_menu(mtm, &application, &handler, has_shutdown);
             let config = WKWebViewConfiguration::new(mtm);
             config.setWebsiteDataStore(&WKWebsiteDataStore::nonPersistentDataStore(mtm));
             config.setURLSchemeHandler_forURLScheme(

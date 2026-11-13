@@ -1,6 +1,8 @@
 //! Operating-system adapters. The in-memory implementation is test-only.
 #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 pub mod application_data;
+#[cfg(unix)]
+pub mod cli_link;
 pub mod entropy;
 #[cfg(feature = "fake")]
 pub mod fake;
