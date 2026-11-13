@@ -83,7 +83,7 @@ impl<P: ShutdownPorts> ShutdownController<P> {
         let coordinator = self.lock()?;
         match coordinator.outcome() {
             ShutdownOutcome::Clean | ShutdownOutcome::Abandoned { .. } => Ok(()),
-            ShutdownOutcome::DrainTimedOut { jobs } => {
+            ShutdownOutcome::DrainTimedOut { jobs, .. } => {
                 Err(ShutdownError::DrainTimedOut { remaining: *jobs })
             }
             ShutdownOutcome::Forced(reason) => Err(ShutdownError::RetriesExhausted {

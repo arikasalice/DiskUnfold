@@ -161,6 +161,21 @@ pub struct AppLifecycleChanged {
     /// UTC observation time in the shared timestamp format; the property
     /// spelling is inferred.
     pub observed_at: Timestamp,
+    /// Present and true when the window asked to close while change work is in
+    /// progress and the host is waiting for the user's confirmation. The state
+    /// stays `running`; `remainingJobCount` keeps meaning every remaining job.
+    ///
+    /// This optional field is an addition to the published IF-07 body. Readers
+    /// that do not know it ignore it. See the F15 design deviation notes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub confirmation_required: Option<bool>,
+    /// In-progress change jobs the confirmation concerns; present with
+    /// `confirmationRequired`. An optional addition to the published body.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    #[cfg_attr(feature = "typescript", ts(type = "number"))]
+    pub in_progress_change_count: Option<u64>,
 }
 
 #[cfg(test)]
@@ -280,6 +295,8 @@ mod tests {
             remaining_job_count: 4,
             state_sequence: 2,
             observed_at: serde_json::from_value(json!("2026-11-13T00:00:00.000Z"))?,
+            confirmation_required: None,
+            in_progress_change_count: None,
         };
         let body = serde_json::to_value(&lifecycle)?;
         let envelope = EventEnvelope {
@@ -311,6 +328,39 @@ mod tests {
         }))?;
         let unknown_body: AppLifecycleChanged = serde_json::from_value(unknown_envelope.body)?;
         assert_eq!(unknown_body.state, AppLifecycleState::Draining);
+        Ok(())
+    }
+
+    #[test]
+    fn confirmation_fields_are_optional_additions_to_the_lifecycle_body()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let published = json!({
+            "state":"running",
+            "previousState":"running",
+            "remainingJobCount":3,
+            "stateSequence":4,
+            "observedAt":"2026-11-13T00:00:00.000Z"
+        });
+        let without: AppLifecycleChanged = serde_json::from_value(published.clone())?;
+        assert_eq!(without.confirmation_required, None);
+        assert_eq!(
+            serde_json::to_value(&without)?,
+            published,
+            "omitted stays omitted"
+        );
+
+        let asking = AppLifecycleChanged {
+            confirmation_required: Some(true),
+            in_progress_change_count: Some(2),
+            ..without
+        };
+        let wire = serde_json::to_value(&asking)?;
+        assert_eq!(wire["confirmationRequired"], true);
+        assert_eq!(wire["inProgressChangeCount"], 2);
+        assert_eq!(
+            wire["remainingJobCount"], 3,
+            "all remaining jobs, not only changes"
+        );
         Ok(())
     }
 }

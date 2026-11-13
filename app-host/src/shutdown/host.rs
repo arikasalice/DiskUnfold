@@ -12,7 +12,7 @@ use du_core_contracts::{
 use du_engine_api::{
     api::Engine,
     desktop::DesktopEvents,
-    shutdown::{HistoryCommitBarrier, HistoryCommitStatus},
+    shutdown::{ActiveJobCounts, HistoryCommitBarrier, HistoryCommitStatus, TerminalHistoryFlush},
 };
 use du_mcp_gateway::access::AccessGate;
 
@@ -70,6 +70,10 @@ pub(crate) struct HostShutdownPorts {
     storage: StorageResources,
     history_barrier: Option<HistoryCommitBarrier>,
     history_failures: Option<usize>,
+    terminal_flush: Option<TerminalHistoryFlush>,
+    /// Sessions closed and responses discarded by the gate's close, kept even when
+    /// the listener close failed and no report was returned.
+    gateway_counts: (usize, usize),
 }
 
 impl HostShutdownPorts {
@@ -82,6 +86,8 @@ impl HostShutdownPorts {
             storage: resources.storage,
             history_barrier: None,
             history_failures: None,
+            terminal_flush: None,
+            gateway_counts: (0, 0),
         }
     }
 
@@ -114,16 +120,23 @@ impl ShutdownPorts for HostShutdownPorts {
     /// whatever the listener does, then asks the listener to close.
     fn close_mcp_access(&mut self, deadline: Instant) -> Result<GatewayCloseReport, String> {
         let counts = self.gateway.gate.close_access();
+        // The gate returns its first close report on every call, so a retry reports
+        // the same counts instead of zeros.
+        self.gateway_counts = (counts.sessions_closed, counts.responses_discarded);
         let listener = self.gateway.listener.close_listener(deadline)?;
         let timed_out = Instant::now() > deadline;
         Ok(GatewayCloseReport {
             access_closed: !self.gateway.gate.is_accepting(),
             listener,
             timed_out,
-            sessions_closed: counts.sessions_closed,
-            responses_discarded: counts.responses_discarded,
+            sessions_closed: self.gateway_counts.0,
+            responses_discarded: self.gateway_counts.1,
             detail: timed_out.then(|| "the listener returned after the close deadline".to_owned()),
         })
+    }
+
+    fn gateway_close_counts(&self) -> (usize, usize) {
+        self.gateway_counts
     }
 
     fn force_close_mcp_access(&mut self) -> bool {
@@ -143,6 +156,30 @@ impl ShutdownPorts for HostShutdownPorts {
                 .list_active_jobs_for_shutdown()
                 .map_err(|error| error.to_string())
         })
+    }
+
+    fn active_job_counts(&mut self) -> Result<ActiveJobCounts, String> {
+        self.with_engine(|engine| {
+            engine
+                .active_job_counts()
+                .map_err(|error| error.to_string())
+        })
+    }
+
+    fn begin_terminal_history_flush(&mut self, timeout: std::time::Duration) -> Result<(), String> {
+        let flush = self.with_engine(|engine| {
+            engine
+                .begin_terminal_history_flush(timeout)
+                .map_err(|error| error.to_string())
+        })?;
+        self.terminal_flush = Some(flush);
+        Ok(())
+    }
+
+    fn poll_terminal_history_flush(&mut self) -> HistoryCommitStatus {
+        self.terminal_flush
+            .as_ref()
+            .map_or(HistoryCommitStatus::Failed, TerminalHistoryFlush::poll)
     }
 
     fn begin_history_commit_barrier(&mut self, timeout: std::time::Duration) -> Result<(), String> {
@@ -229,6 +266,10 @@ impl ShutdownPorts for HostShutdownPorts {
             remaining_job_count: u64::try_from(event.remaining_tasks).unwrap_or(u64::MAX),
             state_sequence: event.sequence,
             observed_at: observed_at.clone(),
+            confirmation_required: event.confirmation_needed.map(|_| true),
+            in_progress_change_count: event
+                .confirmation_needed
+                .map(|count| u64::try_from(count).unwrap_or(u64::MAX)),
         }) else {
             return;
         };

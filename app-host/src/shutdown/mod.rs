@@ -14,6 +14,7 @@ use std::{
 use du_core_contracts::Id;
 use du_engine_api::shutdown::{HistoryCommitStatus, ShutdownPreparation, WatchStopResult};
 
+mod abandon;
 mod controller;
 pub(crate) mod host;
 mod retry;
@@ -21,6 +22,7 @@ mod types;
 #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 pub(crate) mod webview;
 
+use abandon::AbandonFlush;
 pub(crate) use types::*;
 
 /// Bounds for every wait in the shutdown sequence.
@@ -39,6 +41,9 @@ pub(crate) struct ShutdownTimeouts {
     pub phase_retries: u32,
     /// Longest wait for the final lifecycle event to leave the host queue.
     pub final_flush: Duration,
+    /// Longest wait for the history of finished jobs to be handed over before
+    /// jobs that did not return are abandoned.
+    pub abandon_flush: Duration,
 }
 
 impl Default for ShutdownTimeouts {
@@ -51,6 +56,7 @@ impl Default for ShutdownTimeouts {
             // About two seconds at the 16 ms shutdown tick.
             phase_retries: 125,
             final_flush: Duration::from_millis(250),
+            abandon_flush: Duration::from_secs(2),
         }
     }
 }
@@ -103,6 +109,7 @@ pub(crate) struct ShutdownCoordinator<P> {
     gateway: Option<GatewayCloseReport>,
     drain_deadline: Option<Instant>,
     os_return_deadline: Option<Instant>,
+    abandon_flush: AbandonFlush,
     outcome: ShutdownOutcome,
     closed_at: Option<Instant>,
     consecutive_failures: u32,
@@ -131,6 +138,7 @@ impl<P: ShutdownPorts> ShutdownCoordinator<P> {
             gateway: None,
             drain_deadline: None,
             os_return_deadline: None,
+            abandon_flush: AbandonFlush::NotStarted,
             outcome: ShutdownOutcome::Clean,
             closed_at: None,
             consecutive_failures: 0,
@@ -148,18 +156,29 @@ impl<P: ShutdownPorts> ShutdownCoordinator<P> {
 
     /// Tells the window that a quit needs confirmation because change work runs.
     ///
-    /// The IF-07 projection keeps the state `running` and reports the number of
-    /// in-progress change jobs as the remaining work.
+    /// The IF-07 projection keeps the state `running`. `remainingJobCount` still
+    /// counts every unfinished job; the confirmation request and the number of
+    /// in-progress change jobs travel in their own optional fields.
     pub(crate) fn announce_confirmation_needed(
         &mut self,
         change_jobs: usize,
         observed_at_ms: i64,
     ) -> Result<(), ShutdownError> {
+        let remaining = match self.ports.active_job_counts() {
+            Ok(counts) => counts.total.max(change_jobs),
+            Err(error) => {
+                self.note(format!(
+                    "job count unavailable for the confirmation: {error}"
+                ));
+                change_jobs
+            }
+        };
         let sequence = self.next_sequence()?;
         self.ports.publish_lifecycle(LifecycleEvent {
             status: self.visible_status,
             previous: self.visible_status,
-            remaining_tasks: change_jobs,
+            remaining_tasks: remaining,
+            confirmation_needed: Some(change_jobs),
             sequence,
             observed_at_ms,
         });
@@ -177,8 +196,11 @@ impl<P: ShutdownPorts> ShutdownCoordinator<P> {
 
     /// Atomically admits a quit request. `confirmed` answers the change-work
     /// confirmation; an unconfirmed request with change work leaves all state alone.
-    /// Calling again while closing reports `AlreadyClosing`, and asking to leave
-    /// without waiting switches an in-progress waiting shutdown to the shorter bound.
+    /// Calling again while closing reports `AlreadyClosing`. Asking to leave
+    /// without waiting switches an in-progress waiting shutdown to the shorter
+    /// bound, but while change jobs are unfinished it needs the same confirmation
+    /// as the first request: an unconfirmed request then returns `ConfirmRequired`
+    /// and changes nothing.
     pub(crate) fn request_quit(
         &mut self,
         mode: QuitMode,
@@ -186,6 +208,17 @@ impl<P: ShutdownPorts> ShutdownCoordinator<P> {
     ) -> Result<QuitAdmission, ShutdownError> {
         if self.phase != Phase::Running {
             if mode == QuitMode::WithoutWaiting {
+                if !confirmed && self.change_work_may_be_running() {
+                    let counts = self
+                        .ports
+                        .active_job_counts()
+                        .map_err(ShutdownError::Admission)?;
+                    if counts.change > 0 {
+                        return Ok(QuitAdmission::ConfirmRequired {
+                            active_change_jobs: counts.change,
+                        });
+                    }
+                }
                 self.stop_waiting();
             }
             return Ok(QuitAdmission::AlreadyClosing);
@@ -202,6 +235,17 @@ impl<P: ShutdownPorts> ShutdownCoordinator<P> {
             QuitAdmission::ConfirmRequired { .. } => {}
         }
         Ok(admission)
+    }
+
+    /// Change jobs can only be unfinished while the engine still owns the job runtime
+    /// and the drain has not completed.
+    fn change_work_may_be_running(&self) -> bool {
+        !self.engine_released
+            && self.mode != QuitMode::WithoutWaiting
+            && matches!(
+                self.phase,
+                Phase::ClosingAccess | Phase::AccessClosed | Phase::Draining
+            )
     }
 
     fn stop_waiting(&mut self) {
@@ -311,37 +355,6 @@ impl<P: ShutdownPorts> ShutdownCoordinator<P> {
         self.emit(LifecycleStatus::AccessClosed, observed_at_ms)
     }
 
-    /// Closes MCP access. A listener that keeps failing is force-closed and the
-    /// sequence moves on, as IF-12 requires; an open gate always stops it.
-    fn close_gateway(&mut self) -> Result<GatewayCloseReport, ShutdownError> {
-        let deadline = Instant::now() + self.timeouts.gateway;
-        match self.ports.close_mcp_access(deadline) {
-            Ok(report) if report.access_closed => {
-                self.gateway_failures = 0;
-                Ok(report)
-            }
-            Ok(report) => Err(ShutdownError::GatewayAccessOpen(report.detail)),
-            Err(error) => {
-                self.gateway_failures = self.gateway_failures.saturating_add(1);
-                if self.gateway_failures < self.timeouts.gateway_attempts {
-                    return Err(ShutdownError::Gateway(error));
-                }
-                self.note(format!("gateway close failed, forcing the gate: {error}"));
-                if !self.ports.force_close_mcp_access() {
-                    return Err(ShutdownError::GatewayAccessOpen(Some(error)));
-                }
-                Ok(GatewayCloseReport {
-                    access_closed: true,
-                    listener: ListenerClose::Unconfirmed,
-                    timed_out: true,
-                    sessions_closed: 0,
-                    responses_discarded: 0,
-                    detail: Some(error),
-                })
-            }
-        }
-    }
-
     fn prepare_and_drain(&mut self, observed_at_ms: i64) -> Result<(), ShutdownError> {
         let preparation = self
             .ports
@@ -380,32 +393,6 @@ impl<P: ShutdownPorts> ShutdownCoordinator<P> {
         self.history_barrier_started = true;
         self.phase = Phase::HistoryCommit;
         Ok(())
-    }
-
-    fn drain_expired(&self) -> bool {
-        let now = Instant::now();
-        [self.drain_deadline, self.os_return_deadline]
-            .into_iter()
-            .flatten()
-            .any(|deadline| now >= deadline)
-    }
-
-    /// Leaves the jobs that did not return in time. Nothing can close the job
-    /// workers, history or database while a body still runs, so those steps are
-    /// skipped; the engine owner is released so no further command reaches it,
-    /// and the next start recovers the database. The jobs are never recorded as done.
-    fn abandon_remaining_jobs(&mut self) {
-        let jobs = self.active_jobs.len();
-        self.outcome = match self.mode {
-            QuitMode::WithoutWaiting => ShutdownOutcome::Abandoned { jobs },
-            QuitMode::Waiting => ShutdownOutcome::DrainTimedOut { jobs },
-        };
-        self.note(format!("{jobs} job(s) did not finish and were abandoned"));
-        if !self.engine_released {
-            self.ports.release_engine();
-            self.engine_released = true;
-        }
-        self.phase = Phase::ZeroizingSecrets;
     }
 
     fn finish_history_and_close_workers(
@@ -469,6 +456,7 @@ impl<P: ShutdownPorts> ShutdownCoordinator<P> {
             status,
             previous,
             remaining_tasks: self.active_jobs.len(),
+            confirmation_needed: None,
             sequence,
             observed_at_ms,
         });

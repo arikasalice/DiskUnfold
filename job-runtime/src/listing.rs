@@ -30,6 +30,15 @@ pub enum AdmissionClose {
     AlreadyClosed,
 }
 
+/// Nonterminal job totals read at one cut of the job table.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ActiveJobCounts {
+    /// Every job that has not reached a terminal state.
+    pub total: usize,
+    /// The nonterminal jobs whose kind starts with `change.`.
+    pub change: usize,
+}
+
 fn wait_reason(state: JobState) -> JobWaitReason {
     match state {
         JobState::Paused => JobWaitReason::Paused,
@@ -56,6 +65,24 @@ pub struct JobListEntry {
 }
 
 impl JobRuntime {
+    /// Counts nonterminal jobs and, of those, the nonterminal `change.*` jobs.
+    ///
+    /// Works before and after admission closes, so the host can tell the user how
+    /// much work is left without taking a shutdown decision.
+    pub fn active_job_counts(&self) -> Result<ActiveJobCounts, RuntimeError> {
+        let now = self.clock.now_ms();
+        let mut table = self.table.lock().map_err(|_| RuntimeError::Poisoned)?;
+        expire(&mut table, now);
+        let mut counts = ActiveJobCounts::default();
+        for job in table.jobs.values().filter(|job| !job.state.is_terminal()) {
+            counts.total += 1;
+            if job.descriptor.kind_id.starts_with("change.") {
+                counts.change += 1;
+            }
+        }
+        Ok(counts)
+    }
+
     /// Atomically checks active `change.*` job kinds and, if allowed, closes admission.
     ///
     /// `confirmed` is supplied only after the GUI has confirmed leaving active

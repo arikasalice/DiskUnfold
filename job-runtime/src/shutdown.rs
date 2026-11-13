@@ -28,6 +28,41 @@ pub enum ShutdownStatus {
 /// One job's shutdown cancellation result, paired with its F24 job reference.
 pub type ShutdownCancellation = (Id, Result<(CancelResult, u64), RuntimeError>);
 
+/// A non-blocking acknowledgement that the delivery queue passed a fence.
+///
+/// Everything queued before the fence, including the terminal history of every
+/// job that already finished, has been delivered when the flush completes.
+/// Jobs that are still running are not waited for and the runtime stays open.
+pub struct DeliveryFlush {
+    receiver: mpsc::Receiver<()>,
+    started_at: Instant,
+    timeout: Duration,
+    status: Cell<Option<ShutdownStatus>>,
+}
+
+impl DeliveryFlush {
+    /// Polls without waiting. `TimedOut` may be followed by `Complete` on a later poll.
+    pub fn poll(&self) -> ShutdownStatus {
+        if let Some(status) = self.status.get() {
+            return status;
+        }
+        match self.receiver.try_recv() {
+            Ok(()) => {
+                self.status.set(Some(ShutdownStatus::Complete));
+                ShutdownStatus::Complete
+            }
+            Err(mpsc::TryRecvError::Disconnected) => {
+                self.status.set(Some(ShutdownStatus::Failed));
+                ShutdownStatus::Failed
+            }
+            Err(mpsc::TryRecvError::Empty) if self.started_at.elapsed() >= self.timeout => {
+                ShutdownStatus::TimedOut
+            }
+            Err(mpsc::TryRecvError::Empty) => ShutdownStatus::Pending,
+        }
+    }
+}
+
 impl ShutdownTicket {
     pub fn poll(&self) -> ShutdownStatus {
         if let Some(status) = self.status.get() {
@@ -71,6 +106,24 @@ impl ShutdownTicket {
     }
 }
 impl JobRuntime {
+    /// Queues a fence behind everything already awaiting delivery, without
+    /// requiring jobs to be terminal and without stopping the consumer.
+    ///
+    /// Use this before abandoning jobs that will never finish, so the terminal
+    /// history of jobs that did finish is not lost with the process.
+    pub fn begin_delivery_flush(&self, timeout: Duration) -> Result<DeliveryFlush, RuntimeError> {
+        let (sender, receiver) = mpsc::channel();
+        let table = self.table.lock().map_err(|_| RuntimeError::Poisoned)?;
+        enqueue(&table, Delivery::Fence(sender))?;
+        drop(table);
+        Ok(DeliveryFlush {
+            receiver,
+            started_at: Instant::now(),
+            timeout,
+            status: Cell::new(None),
+        })
+    }
+
     /// Stop accepting jobs after all jobs terminate. Poll the ticket without blocking a UI thread.
     pub fn begin_shutdown(&self, timeout: Duration) -> Result<ShutdownTicket, RuntimeError> {
         let mut table = self.table.lock().map_err(|_| RuntimeError::Poisoned)?;

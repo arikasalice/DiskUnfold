@@ -8,6 +8,7 @@ const FAST: ShutdownTimeouts = ShutdownTimeouts {
     gateway_attempts: 3,
     phase_retries: 3,
     final_flush: Duration::from_secs(60),
+    abandon_flush: Duration::from_secs(2),
 };
 
 #[derive(Default)]
@@ -30,6 +31,10 @@ struct FakePorts {
     force_gate: bool,
     database_always_fails: bool,
     hold_events: bool,
+    counts: du_engine_api::shutdown::ActiveJobCounts,
+    flush_statuses: VecDeque<HistoryCommitStatus>,
+    flush_start_fails: bool,
+    gateway_counts: (usize, usize),
 }
 
 impl ShutdownPorts for FakePorts {
@@ -72,6 +77,30 @@ impl ShutdownPorts for FakePorts {
     fn list_active_jobs(&mut self) -> Result<Vec<Id>, String> {
         self.calls.push("list");
         Ok(self.active.iter().cloned().collect())
+    }
+
+    fn active_job_counts(&mut self) -> Result<du_engine_api::shutdown::ActiveJobCounts, String> {
+        self.calls.push("counts");
+        Ok(self.counts)
+    }
+
+    fn begin_terminal_history_flush(&mut self, _: Duration) -> Result<(), String> {
+        self.calls.push("flush_begin");
+        if self.flush_start_fails {
+            return Err("the delivery queue is unavailable".into());
+        }
+        Ok(())
+    }
+
+    fn poll_terminal_history_flush(&mut self) -> HistoryCommitStatus {
+        self.calls.push("flush_poll");
+        self.flush_statuses
+            .pop_front()
+            .unwrap_or(HistoryCommitStatus::Complete)
+    }
+
+    fn gateway_close_counts(&self) -> (usize, usize) {
+        self.gateway_counts
     }
 
     fn begin_history_commit_barrier(&mut self, _: Duration) -> Result<(), String> {
@@ -392,103 +421,5 @@ fn an_unconfirmed_gateway_close_never_starts_bulk_cancellation()
     Ok(())
 }
 
-#[test]
-fn failed_history_barrier_stays_failed_and_keeps_storage_open()
--> Result<(), Box<dyn std::error::Error>> {
-    let ports = FakePorts {
-        gateway_reports: VecDeque::from([closed_gateway(false)]),
-        barrier_statuses: VecDeque::from([
-            HistoryCommitStatus::Failed,
-            HistoryCommitStatus::Failed,
-        ]),
-        history_failures: Some(1),
-        ..FakePorts::default()
-    };
-    let mut coordinator = ShutdownCoordinator::new(ports);
-    coordinator.request_waiting_quit(true)?;
-    coordinator.advance(1)?;
-    coordinator.advance(2)?;
-    coordinator.advance(3)?;
-    assert!(matches!(
-        coordinator.advance(4),
-        Err(ShutdownError::HistoryCommitFailed {
-            failed_appends: Some(1)
-        })
-    ));
-    assert!(!coordinator.ports.workers_closed);
-    assert!(!coordinator.ports.db_closed);
-    assert!(!coordinator.is_closed());
-    assert!(matches!(
-        coordinator.advance(5),
-        Err(ShutdownError::HistoryCommitFailed {
-            failed_appends: Some(1)
-        })
-    ));
-    assert!(!coordinator.ports.workers_closed);
-    assert!(!coordinator.ports.db_closed);
-    assert!(!coordinator.is_closed());
-    Ok(())
-}
-
-#[test]
-fn database_close_failure_keeps_handle_available_for_retry()
--> Result<(), Box<dyn std::error::Error>> {
-    let ports = FakePorts {
-        gateway_reports: VecDeque::from([closed_gateway(false)]),
-        barrier_statuses: VecDeque::from([HistoryCommitStatus::Complete]),
-        fail_database_once: true,
-        ..FakePorts::default()
-    };
-    let mut coordinator = ShutdownCoordinator::new(ports);
-    coordinator.request_waiting_quit(true)?;
-    coordinator.advance(1)?;
-    coordinator.advance(2)?;
-    coordinator.advance(3)?;
-    coordinator.advance(4)?;
-    assert_eq!(coordinator.phase, Phase::ClosingStorage);
-    assert!(matches!(
-        coordinator.advance(5),
-        Err(ShutdownError::DatabaseClose(_))
-    ));
-    assert!(!coordinator.is_closed());
-    assert!(!coordinator.ports.secrets_cleared);
-    coordinator.advance(6)?;
-    coordinator.advance(7)?;
-    assert!(coordinator.is_closed());
-    Ok(())
-}
-
-#[test]
-fn history_timeout_is_reported_without_closing_owners_and_later_completion_recovers()
--> Result<(), Box<dyn std::error::Error>> {
-    let ports = FakePorts {
-        gateway_reports: VecDeque::from([closed_gateway(false)]),
-        barrier_statuses: VecDeque::from([
-            HistoryCommitStatus::TimedOut,
-            HistoryCommitStatus::Complete,
-        ]),
-        ..FakePorts::default()
-    };
-    let mut coordinator = ShutdownCoordinator::new(ports);
-    coordinator.request_waiting_quit(true)?;
-    coordinator.advance(1)?;
-    coordinator.advance(2)?;
-    coordinator.advance(3)?;
-    assert!(matches!(
-        coordinator.advance(4),
-        Err(ShutdownError::HistoryCommitTimedOut)
-    ));
-    assert_eq!(coordinator.phase, Phase::HistoryCommit);
-    assert!(!coordinator.ports.workers_closed);
-    assert!(!coordinator.ports.released);
-    assert!(!coordinator.ports.db_closed);
-    assert!(!coordinator.is_closed());
-
-    coordinator.advance(5)?;
-    assert!(coordinator.ports.workers_closed);
-    assert!(coordinator.ports.released);
-    assert_eq!(coordinator.phase, Phase::ClosingStorage);
-    Ok(())
-}
-
 mod bounds;
+mod storage;

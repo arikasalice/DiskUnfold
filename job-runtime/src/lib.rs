@@ -22,7 +22,7 @@ use du_core_contracts::{
     },
 };
 pub use history_recovery::recover_history;
-pub use listing::{AdmissionClose, JobListEntry, JobWaitReason};
+pub use listing::{ActiveJobCounts, AdmissionClose, JobListEntry, JobWaitReason};
 pub use model::FlowLimits;
 use model::*;
 pub use model::{
@@ -31,7 +31,7 @@ pub use model::{
     TerminalSnapshot,
 };
 pub use publication::DuplicateTerminal;
-pub use shutdown::{ShutdownCancellation, ShutdownStatus, ShutdownTicket};
+pub use shutdown::{DeliveryFlush, ShutdownCancellation, ShutdownStatus, ShutdownTicket};
 use std::sync::{
     Arc, Condvar, Mutex,
     atomic::{AtomicBool, AtomicUsize, Ordering},

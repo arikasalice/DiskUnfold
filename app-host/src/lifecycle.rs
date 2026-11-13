@@ -60,8 +60,7 @@ pub fn run_with_product_info(
 /// Metadata that does not parse stops startup with `product.metadata_invalid`
 /// so a broken build cannot present invented product values.
 pub fn run_with_product_info_json(product_json: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let product = crate::product_ipc::parse_embedded(product_json)?;
-    run_with_product_info(product)
+    run_with_product_info(crate::product_ipc::parse_embedded(product_json)?)
 }
 
 /// Runs the Windows GUI with an explicitly supplied recent-scope retention policy.
@@ -479,8 +478,7 @@ fn run_app(
     }
 }
 
-/// Retires the window session if the orderly shutdown did not already release the
-/// engine (for example when the page failed to load).
+/// Retires the window session if the orderly shutdown did not release the engine.
 #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 fn retire_unreleased_session(engine_owner: &Mutex<Option<Arc<du_engine_api::api::Engine>>>) {
     if let Ok(mut engine) = engine_owner.lock()

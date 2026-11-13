@@ -83,7 +83,8 @@ impl ErrorEnvelope {
             | "scope.empty"
             | "scope.target_unavailable"
             | "scope.exclude_invalid"
-            | "path.unresolvable" => ErrorCode::InvalidArgument,
+            | "path.unresolvable"
+            | "startup.shutting_down" => ErrorCode::InvalidArgument,
             "cursor.stale"
             | "cursor.expired"
             | "result.version_released"
@@ -149,6 +150,24 @@ mod tests {
             assert_eq!(envelope.reason_key, reason);
             assert_eq!(envelope.code, expected);
         }
+        Ok(())
+    }
+
+    #[test]
+    fn permanent_closing_is_not_retryable_but_transient_job_shutdown_is()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let correlation = Id::parse("0195f856-ab83-7a59-9343-10d29775c9a9")?;
+        let closing =
+            ErrorEnvelope::from_reason("startup.shutting_down", correlation.clone(), Vec::new())
+                .ok_or("startup.shutting_down is not registered")?;
+        assert_eq!(closing.code, ErrorCode::InvalidArgument);
+        assert!(
+            !closing.retryable,
+            "the app is leaving; the command can never succeed"
+        );
+        let job = ErrorEnvelope::from_reason("job.shutting_down", correlation, Vec::new())
+            .ok_or("job.shutting_down is not registered")?;
+        assert_eq!(job.code, ErrorCode::Busy);
         Ok(())
     }
 }

@@ -2,7 +2,10 @@
 
 use std::time::Instant;
 
-use super::{LifecycleStatus, ShutdownCoordinator, ShutdownError, ShutdownOutcome, ShutdownPorts};
+use super::{
+    GatewayCloseReport, LifecycleStatus, ListenerClose, ShutdownCoordinator, ShutdownError,
+    ShutdownOutcome, ShutdownPorts,
+};
 
 /// Diagnostics kept for inspection; older entries are dropped first.
 const MAX_DIAGNOSTICS: usize = 32;
@@ -62,6 +65,39 @@ impl<P: ShutdownPorts> ShutdownCoordinator<P> {
                 || self
                     .closed_at
                     .is_none_or(|closed| closed.elapsed() >= self.timeouts.final_flush))
+    }
+
+    /// Closes MCP access. A listener that keeps failing is force-closed and the
+    /// sequence moves on, as IF-12 requires; an open gate always stops it.
+    pub(super) fn close_gateway(&mut self) -> Result<GatewayCloseReport, ShutdownError> {
+        let deadline = Instant::now() + self.timeouts.gateway;
+        match self.ports.close_mcp_access(deadline) {
+            Ok(report) if report.access_closed => {
+                self.gateway_failures = 0;
+                Ok(report)
+            }
+            Ok(report) => Err(ShutdownError::GatewayAccessOpen(report.detail)),
+            Err(error) => {
+                self.gateway_failures = self.gateway_failures.saturating_add(1);
+                if self.gateway_failures < self.timeouts.gateway_attempts {
+                    return Err(ShutdownError::Gateway(error));
+                }
+                self.note(format!("gateway close failed, forcing the gate: {error}"));
+                if !self.ports.force_close_mcp_access() {
+                    return Err(ShutdownError::GatewayAccessOpen(Some(error)));
+                }
+                // The failed attempts already closed sessions and discarded responses.
+                let (sessions_closed, responses_discarded) = self.ports.gateway_close_counts();
+                Ok(GatewayCloseReport {
+                    access_closed: true,
+                    listener: ListenerClose::Unconfirmed,
+                    timed_out: true,
+                    sessions_closed,
+                    responses_discarded,
+                    detail: Some(error),
+                })
+            }
+        }
     }
 
     pub(crate) fn note(&mut self, message: String) {

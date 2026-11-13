@@ -373,3 +373,50 @@ fn accepted_shutdown_closes_admission_at_a_serialized_submission_cut()
     assert_eq!(runtime.submit(submission), Err(RuntimeError::ShuttingDown));
     Ok(())
 }
+#[test]
+fn delivery_flush_commits_finished_history_while_another_job_is_still_active()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fallback = Id::parse("00000000-0000-7000-8000-000000000001")?;
+    let history = Arc::new(History::default());
+    let runtime = JobRuntime::new(
+        Arc::new(SequentialIdentity {
+            next: AtomicUsize::new(1),
+            fallback,
+        }),
+        Arc::new(Clock),
+        history.clone(),
+        Arc::new(Events::default()),
+    )?;
+    runtime.register(descriptor())?;
+    let finished = created(runtime.submit(sample_submission(Arc::new(InstantBody))?)?)?;
+    assert_eq!(
+        runtime.cancel(&finished)?,
+        CancelResult::Accepted(JobState::Cancelled)
+    );
+    let _still_active = created(runtime.submit(sample_submission(Arc::new(InstantBody))?)?)?;
+    let counts = runtime.active_job_counts()?;
+    assert_eq!((counts.total, counts.change), (1, 0));
+
+    let flush = runtime.begin_delivery_flush(std::time::Duration::from_secs(2))?;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    while flush.poll() == ShutdownStatus::Pending {
+        if std::time::Instant::now() >= deadline {
+            return Err("the delivery flush never completed".into());
+        }
+        std::thread::yield_now();
+    }
+    assert_eq!(flush.poll(), ShutdownStatus::Complete);
+    assert_eq!(
+        history.calls.load(Ordering::SeqCst),
+        1,
+        "the finished job's history is written before the flush completes"
+    );
+    // The runtime is still open: the active job was neither waited for nor stopped.
+    assert_eq!(runtime.active_job_counts()?.total, 1);
+    assert!(
+        runtime
+            .begin_delivery_flush(std::time::Duration::from_secs(1))
+            .is_ok()
+    );
+    Ok(())
+}

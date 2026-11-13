@@ -73,6 +73,22 @@ impl ShutdownPorts for FakePorts {
         Ok(self.active_jobs.clone())
     }
 
+    fn active_job_counts(&mut self) -> Result<du_engine_api::shutdown::ActiveJobCounts, String> {
+        Ok(du_engine_api::shutdown::ActiveJobCounts {
+            total: self.active_jobs.len().max(self.active_changes),
+            change: self.active_changes,
+        })
+    }
+
+    fn begin_terminal_history_flush(&mut self, _: Duration) -> Result<(), String> {
+        self.calls.push("flush_begin");
+        Ok(())
+    }
+
+    fn poll_terminal_history_flush(&mut self) -> HistoryCommitStatus {
+        HistoryCommitStatus::Complete
+    }
+
     fn begin_history_commit_barrier(&mut self, _: Duration) -> Result<(), String> {
         self.calls.push("barrier");
         Ok(())
@@ -322,4 +338,5 @@ fn ipc_rejects_new_commands_after_shutdown_admission_starts()
     Ok(())
 }
 
+mod closing;
 mod host;

@@ -10,8 +10,9 @@ use std::{
 };
 
 use du_core_contracts::Id;
+pub use du_job_runtime::ActiveJobCounts;
 pub use du_job_runtime::{CancelResult, RuntimeError};
-use du_job_runtime::{ShutdownStatus, ShutdownTicket};
+use du_job_runtime::{DeliveryFlush, ShutdownStatus, ShutdownTicket};
 
 /// Status of the F24 delivery barrier that follows terminal job completion.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -62,6 +63,32 @@ impl HistoryCommitBarrier {
         self.ticket
             .as_ref()
             .and_then(ShutdownTicket::history_failures)
+    }
+}
+
+/// A bounded flush of the delivery queue that does not wait for active jobs.
+///
+/// Completion means the terminal history of every job that had already finished
+/// when the flush began was handed to the history port. It says nothing about
+/// jobs that are still running.
+pub struct TerminalHistoryFlush {
+    flush: Option<DeliveryFlush>,
+}
+
+impl TerminalHistoryFlush {
+    pub(crate) fn no_runtime() -> Self {
+        Self { flush: None }
+    }
+
+    /// Polls without waiting. `TimedOut` means the caller's deadline elapsed
+    /// and the history of finished jobs may still be undelivered.
+    pub fn poll(&self) -> HistoryCommitStatus {
+        match self.flush.as_ref().map(DeliveryFlush::poll) {
+            None | Some(ShutdownStatus::Complete) => HistoryCommitStatus::Complete,
+            Some(ShutdownStatus::Pending) => HistoryCommitStatus::Pending,
+            Some(ShutdownStatus::TimedOut) => HistoryCommitStatus::TimedOut,
+            Some(ShutdownStatus::Failed) => HistoryCommitStatus::Failed,
+        }
     }
 }
 
@@ -158,7 +185,11 @@ impl std::error::Error for ShutdownError {}
 pub(crate) struct ShutdownJobHooks {
     prepare: Box<dyn Fn() -> Result<ShutdownPreparation, RuntimeError> + Send + Sync>,
     list_active_jobs: Box<dyn Fn() -> Result<Vec<Id>, RuntimeError> + Send + Sync>,
+    active_counts: Option<Box<dyn Fn() -> Result<ActiveJobCounts, RuntimeError> + Send + Sync>>,
+    begin_flush: Option<FlushHook>,
 }
+
+type FlushHook = Box<dyn Fn(Duration) -> Result<DeliveryFlush, RuntimeError> + Send + Sync>;
 
 impl ShutdownJobHooks {
     pub(crate) fn new(
@@ -168,7 +199,21 @@ impl ShutdownJobHooks {
         Self {
             prepare: Box::new(prepare),
             list_active_jobs: Box::new(list_active_jobs),
+            active_counts: None,
+            begin_flush: None,
         }
+    }
+
+    /// Adds the count of nonterminal jobs and the delivery flush, which a
+    /// composition without a job runtime leaves out.
+    pub(crate) fn with_runtime_reads(
+        mut self,
+        active_counts: impl Fn() -> Result<ActiveJobCounts, RuntimeError> + Send + Sync + 'static,
+        begin_flush: impl Fn(Duration) -> Result<DeliveryFlush, RuntimeError> + Send + Sync + 'static,
+    ) -> Self {
+        self.active_counts = Some(Box::new(active_counts));
+        self.begin_flush = Some(Box::new(begin_flush));
+        self
     }
 }
 
@@ -253,6 +298,28 @@ impl ShutdownHooks {
             ticket: Some(ticket),
             complete: self.history_barrier_complete.clone(),
         })
+    }
+
+    /// Counts nonterminal jobs; callable before admission closes.
+    pub(crate) fn active_job_counts(&self) -> Result<ActiveJobCounts, ShutdownError> {
+        self.operations
+            .active_counts
+            .as_ref()
+            .map_or(Ok(ActiveJobCounts::default()), |count| {
+                count().map_err(ShutdownError::Runtime)
+            })
+    }
+
+    pub(crate) fn begin_terminal_history_flush(
+        &self,
+        timeout: Duration,
+    ) -> Result<TerminalHistoryFlush, ShutdownError> {
+        match &self.operations.begin_flush {
+            None => Ok(TerminalHistoryFlush::no_runtime()),
+            Some(begin) => Ok(TerminalHistoryFlush {
+                flush: Some(begin(timeout).map_err(ShutdownError::Runtime)?),
+            }),
+        }
     }
 
     pub(crate) fn close_workers(&self) -> Result<(), ShutdownError> {

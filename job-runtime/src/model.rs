@@ -235,7 +235,6 @@ pub(crate) enum Delivery {
         record: bool,
     },
     Retired(Id),
-    #[cfg(test)]
     Fence(mpsc::Sender<()>),
     Stop(mpsc::Sender<usize>),
 }

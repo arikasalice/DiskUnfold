@@ -16,6 +16,8 @@ pub(super) fn hooks(runtime: Arc<JobRuntime>, workers: Arc<Workers>) -> Shutdown
     let admission_runtime = runtime.clone();
     let prepare_runtime = runtime.clone();
     let list_runtime = runtime.clone();
+    let count_runtime = runtime.clone();
+    let flush_runtime = runtime.clone();
     let history_runtime = runtime;
     let job_hooks = ShutdownJobHooks::new(
         move || {
@@ -38,6 +40,10 @@ pub(super) fn hooks(runtime: Arc<JobRuntime>, workers: Arc<Workers>) -> Shutdown
                     .collect()
             })
         },
+    )
+    .with_runtime_reads(
+        move || count_runtime.active_job_counts(),
+        move |timeout| flush_runtime.begin_delivery_flush(timeout),
     );
     ShutdownHooks::new(
         move |confirmed| {

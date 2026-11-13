@@ -50,7 +50,6 @@ pub(super) fn consume(
                 let _ = sender.send(history_failures);
                 break;
             }
-            #[cfg(test)]
             Delivery::Fence(sender) => {
                 let _ = sender.send(());
             }

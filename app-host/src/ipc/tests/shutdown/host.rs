@@ -1,6 +1,6 @@
 use super::*;
 
-fn granted_access() -> crate::startup_checks::StartupAccessSession {
+pub(super) fn granted_access() -> crate::startup_checks::StartupAccessSession {
     crate::startup_checks::StartupAccessSession::new(Arc::new(FakeStartupCapabilities::new(
         FullDiskAccessStatus::Granted,
         WebViewAvailability::Unknown,
@@ -9,7 +9,7 @@ fn granted_access() -> crate::startup_checks::StartupAccessSession {
     )))
 }
 
-fn message(name: &str, version: u32, body: Value) -> String {
+pub(super) fn message(name: &str, version: u32, body: Value) -> String {
     json!({"command":"du_call", "args":{"envelope":{
         "name":name, "contractVersion":version,
         "correlationId":CORRELATION, "body":body,
@@ -21,17 +21,17 @@ type EngineSlot = std::sync::Mutex<Option<Arc<Engine>>>;
 type DatabaseSlot = std::sync::Mutex<Option<crate::shared_database::SharedDatabase>>;
 
 /// The composed host: a real job runtime, access gate, event queue and database.
-struct Host {
+pub(super) struct Host {
     slot: Arc<EngineSlot>,
     database: Arc<DatabaseSlot>,
     gate: du_mcp_gateway::access::AccessGate,
-    events: Arc<DesktopEvents>,
-    shutdown: ShutdownController<HostShutdownPorts>,
+    pub(super) events: Arc<DesktopEvents>,
+    pub(super) shutdown: ShutdownController<HostShutdownPorts>,
     access: crate::startup_checks::StartupAccessSession,
     _data: tempfile::TempDir,
 }
 
-fn host(
+pub(super) fn host(
     job: &RunningChangeJob,
     timeouts: ShutdownTimeouts,
 ) -> Result<Host, Box<dyn std::error::Error>> {
@@ -117,7 +117,7 @@ fn lifecycle(host: &Host) -> Vec<(String, u64, u64)> {
     seen
 }
 
-fn quick(timeouts: ShutdownTimeouts) -> ShutdownTimeouts {
+pub(super) fn quick(timeouts: ShutdownTimeouts) -> ShutdownTimeouts {
     ShutdownTimeouts {
         final_flush: Duration::from_millis(200),
         ..timeouts
@@ -273,7 +273,23 @@ fn asking_to_leave_without_waiting_during_a_drain_switches_to_the_short_bound()
         !host.shutdown.should_exit(),
         "a waiting drain keeps waiting on the stuck job"
     );
-    let switched = call(&host, "app.quit", json!({"mode":"without_waiting"}))?;
+    // Leaving without waiting abandons a change job mid-call, so it needs the same
+    // confirmation as the first request, and the refusal changes nothing.
+    let refused = call(&host, "app.quit", json!({"mode":"without_waiting"}))?;
+    assert_eq!(refused["body"]["outcome"], "confirm_required");
+    assert_eq!(refused["body"]["inProgressChangeCount"], 1);
+    for _ in 0..3 {
+        let _ = host.shutdown.pump(crate::shutdown::host::current_time_ms());
+    }
+    assert!(
+        !host.shutdown.should_exit(),
+        "the unconfirmed request left the waiting drain alone"
+    );
+    let switched = call(
+        &host,
+        "app.quit",
+        json!({"mode":"without_waiting","confirmUnfinishedChanges":true}),
+    )?;
     assert_eq!(switched["body"]["outcome"], "already_closing");
     pump_until_exit(&host)?;
     host.shutdown.exit_result()?;

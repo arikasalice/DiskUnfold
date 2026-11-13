@@ -6,7 +6,7 @@ use du_platform_os::webview::ShutdownCallbacks;
 #[cfg(any(windows, target_os = "linux"))]
 use du_platform_os::webview::{EventCallbacks, Events};
 
-use super::host::{HostShutdownPorts, ShutdownController, current_time_ms};
+use super::host::{HostShutdownPorts, QuitHandler, ShutdownController, current_time_ms};
 
 #[cfg(any(windows, target_os = "linux"))]
 struct DesktopEventCallbacks {
@@ -59,6 +59,7 @@ pub(crate) fn shutdown_callbacks(
 ) -> ShutdownCallbacks {
     let request_shutdown = shutdown.clone();
     let pump_shutdown = shutdown.clone();
+    let closing_shutdown = shutdown.clone();
     ShutdownCallbacks::new(
         move || request_shutdown.request_window_close(),
         move || {
@@ -67,6 +68,7 @@ pub(crate) fn shutdown_callbacks(
         },
         move || shutdown.should_exit(),
     )
+    .with_closing_probe(move || closing_shutdown.is_closing())
 }
 
 /// Builds the event source and installs the shutdown hooks used by native close requests.

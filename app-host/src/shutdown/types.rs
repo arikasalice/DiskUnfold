@@ -3,7 +3,9 @@
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
 use du_core_contracts::Id;
-use du_engine_api::shutdown::{HistoryCommitStatus, ShutdownAdmission, ShutdownPreparation};
+use du_engine_api::shutdown::{
+    ActiveJobCounts, HistoryCommitStatus, ShutdownAdmission, ShutdownPreparation,
+};
 
 /// Current UTC timestamp in Unix milliseconds for the shutdown state sequence.
 pub(crate) fn current_time_ms() -> i64 {
@@ -89,7 +91,11 @@ pub(crate) enum LifecycleStatus {
 pub(crate) struct LifecycleEvent {
     pub status: LifecycleStatus,
     pub previous: LifecycleStatus,
+    /// Every job still unfinished, whatever its kind.
     pub remaining_tasks: usize,
+    /// Set when the window asked to close and the host waits for the user to
+    /// confirm leaving change work. Holds the in-progress change job count.
+    pub confirmation_needed: Option<usize>,
     pub sequence: u64,
     pub observed_at_ms: i64,
 }
@@ -101,9 +107,9 @@ pub(crate) enum ShutdownOutcome {
     Clean,
     /// The user chose to leave without waiting and these jobs were abandoned
     /// without a success record. Their storage is left for next-start recovery.
-    Abandoned { jobs: usize },
+    Abandoned { jobs: usize, history_flushed: bool },
     /// A waiting shutdown hit its drain bound with jobs still running.
-    DrainTimedOut { jobs: usize },
+    DrainTimedOut { jobs: usize, history_flushed: bool },
     /// A step kept failing until its retry bound ended the shutdown.
     Forced(String),
 }
@@ -126,6 +132,17 @@ pub(crate) trait ShutdownPorts: Send {
     }
     fn prepare_engine_shutdown(&mut self) -> Result<ShutdownPreparation, String>;
     fn list_active_jobs(&mut self) -> Result<Vec<Id>, String>;
+    /// Counts unfinished jobs and unfinished change jobs; works while admission is open.
+    fn active_job_counts(&mut self) -> Result<ActiveJobCounts, String>;
+    /// Starts a bounded flush of terminal job history for jobs that already
+    /// finished. Used before abandoning jobs that did not return.
+    fn begin_terminal_history_flush(&mut self, timeout: Duration) -> Result<(), String>;
+    fn poll_terminal_history_flush(&mut self) -> HistoryCommitStatus;
+    /// Sessions closed and responses discarded by every gateway close attempt so far.
+    /// The default reports none.
+    fn gateway_close_counts(&self) -> (usize, usize) {
+        (0, 0)
+    }
     fn begin_history_commit_barrier(&mut self, timeout: Duration) -> Result<(), String>;
     fn poll_history_commit_barrier(&mut self) -> HistoryCommitStatus;
     fn history_failure_count(&self) -> Option<usize>;

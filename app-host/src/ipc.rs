@@ -7,7 +7,7 @@ use du_core_contracts::{
     CallEnvelope, ENVELOPE_VERSION, ErrorCode, ErrorEnvelope, Id, ResultEnvelope,
     analysis_ipc::{AnalysisJobRequest, ScanStartRequest},
     shutdown_ipc::{AppQuitRequest, AppQuitResponse},
-    startup_ipc::StartupAccessState,
+    startup_ipc::{StartupAccessState, StartupStatusRequest},
 };
 use du_engine_api::api::{CallerCtx, Channel, Engine};
 use serde::Deserialize;
@@ -199,6 +199,9 @@ fn dispatch_inner<'a>(
                 if closing && !CLOSING_ALLOWED.contains(&envelope.name.as_str()) {
                     return serialize_command_error(envelope, CLOSING_REASON);
                 }
+                if closing && envelope.name == "app.startup_status" {
+                    return dispatch_closing_startup_status(envelope, access);
+                }
                 // The engine is read only now, after the quit and closing checks, so a
                 // released slot still gets a typed answer.
                 let engine = match source.lease() {
@@ -212,7 +215,8 @@ fn dispatch_inner<'a>(
                     }
                 };
                 let caller = CallerCtx::new(Channel::Gui, address.correlation_id, None);
-                return call_engine(&engine, envelope, &address.name, &caller, access);
+                let reply = call_engine(&engine, envelope, &address.name, &caller, access);
+                return reply.map(|reply| closing_error_for_job_shutdown(reply, shutdown));
             }
             Err(_) => "command.envelope_invalid",
         }
@@ -308,6 +312,10 @@ fn dispatch_quit(
     {
         return serialize_command_error(envelope, "command.envelope_invalid");
     }
+    if !envelope.body.is_object() {
+        // Serde would read a JSON array as the request struct's fields in order.
+        return serialize_command_error(envelope, "command.body_invalid");
+    }
     let request = match serde_json::from_value::<AppQuitRequest>(envelope.body.clone()) {
         Ok(request) => request,
         Err(_) => return serialize_command_error(envelope, "command.body_invalid"),
@@ -333,21 +341,66 @@ fn dispatch_quit(
     .ok()
 }
 
+/// Answers `app.startup_status` from the registered report while the app is
+/// closing, so a released engine cannot turn a harmless read into a refusal.
+///
+/// The engine pipeline is bypassed here, so the envelope version and the request
+/// body are checked on this path.
+fn dispatch_closing_startup_status(
+    envelope: CallEnvelope,
+    access: Option<&crate::startup_checks::StartupAccessSession>,
+) -> Option<String> {
+    if envelope.contract_version != ENVELOPE_VERSION {
+        return serialize_command_error(envelope, "command.envelope_invalid");
+    }
+    if serde_json::from_value::<StartupStatusRequest>(envelope.body.clone()).is_err() {
+        return serialize_command_error(envelope, "command.body_invalid");
+    }
+    let Some(status) = access.and_then(crate::startup_checks::StartupAccessSession::current_status)
+    else {
+        return serialize_command_error(envelope, CLOSING_REASON);
+    };
+    serde_json::to_string(&ResultEnvelope {
+        name: envelope.name,
+        contract_version: ENVELOPE_VERSION,
+        correlation_id: envelope.correlation_id,
+        body: serde_json::to_value(status).ok()?,
+        error: None,
+    })
+    .ok()
+}
+
+/// A command that raced the admission cut can get the transient `job.shutting_down`
+/// from the engine. Once the app is closing that will never change, so the reply is
+/// rewritten to the permanent, non-retryable `startup.shutting_down`.
+fn closing_error_for_job_shutdown(
+    reply: String,
+    shutdown: Option<&dyn crate::shutdown::host::QuitHandler>,
+) -> String {
+    if !reply.contains("job.shutting_down")
+        || !shutdown.is_some_and(crate::shutdown::host::QuitHandler::is_closing)
+    {
+        return reply;
+    }
+    let Ok(mut result) = serde_json::from_str::<ResultEnvelope>(&reply) else {
+        return reply;
+    };
+    if let Some(error) = &result.error
+        && error.reason_key == "job.shutting_down"
+        && let Some(permanent) =
+            ErrorEnvelope::from_reason(CLOSING_REASON, error.correlation_id.clone(), Vec::new())
+    {
+        result.error = Some(permanent);
+        return serde_json::to_string(&result).unwrap_or(reply);
+    }
+    reply
+}
+
 /// Serializes a typed refusal. `startup.shutting_down` is INVALID_ARGUMENT and
 /// not retryable, as the F15 HLD allows only INVALID_ARGUMENT and INTERNAL here.
 fn serialize_command_error(envelope: CallEnvelope, reason: &str) -> Option<String> {
-    let error = if reason == CLOSING_REASON {
-        ErrorEnvelope {
-            code: ErrorCode::InvalidArgument,
-            reason_key: reason.into(),
-            message_key: reason.into(),
-            correlation_id: envelope.correlation_id.clone(),
-            item_refs: Vec::new(),
-            retryable: false,
-        }
-    } else {
-        ErrorEnvelope::from_reason_or_internal(reason, envelope.correlation_id.clone(), Vec::new())
-    };
+    let error =
+        ErrorEnvelope::from_reason_or_internal(reason, envelope.correlation_id.clone(), Vec::new());
     serde_json::to_string(&ResultEnvelope {
         name: envelope.name,
         contract_version: ENVELOPE_VERSION,

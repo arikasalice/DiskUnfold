@@ -131,6 +131,34 @@ impl Engine {
             .map_or(Ok(Vec::new()), |hooks| hooks.list_active_jobs())
     }
 
+    /// Counts nonterminal jobs and the nonterminal `change.*` jobs among them.
+    ///
+    /// Unlike the other shutdown calls this works while admission is open, so the
+    /// host can tell the user how much work a quit would interrupt. A composition
+    /// without a job runtime reports zero.
+    pub fn active_job_counts(
+        &self,
+    ) -> Result<crate::shutdown::ActiveJobCounts, crate::shutdown::ShutdownError> {
+        self.shutdown_hooks.as_ref().map_or(
+            Ok(crate::shutdown::ActiveJobCounts::default()),
+            ShutdownHooks::active_job_counts,
+        )
+    }
+
+    /// Flushes the delivery queue of finished jobs without waiting for active jobs.
+    ///
+    /// Call this before abandoning jobs that did not return, so the terminal history
+    /// of jobs that did finish is committed. Poll the returned flush to completion.
+    pub fn begin_terminal_history_flush(
+        &self,
+        timeout: Duration,
+    ) -> Result<crate::shutdown::TerminalHistoryFlush, crate::shutdown::ShutdownError> {
+        self.shutdown_hooks.as_ref().map_or_else(
+            || Ok(crate::shutdown::TerminalHistoryFlush::no_runtime()),
+            |hooks| hooks.begin_terminal_history_flush(timeout),
+        )
+    }
+
     /// Starts the F24 delivery barrier after all job bodies have become terminal.
     ///
     /// Poll the returned ticket until `Complete` before stopping workers or

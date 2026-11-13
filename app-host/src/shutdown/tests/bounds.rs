@@ -1,4 +1,5 @@
 use super::*;
+use du_engine_api::shutdown::ActiveJobCounts;
 
 fn drain_ready_coordinator(
     ports: FakePorts,
@@ -126,7 +127,10 @@ fn without_waiting_abandons_running_jobs_after_the_os_call_bound_without_history
     assert!(coordinator.is_closed());
     assert_eq!(
         coordinator.outcome(),
-        &ShutdownOutcome::Abandoned { jobs: 1 }
+        &ShutdownOutcome::Abandoned {
+            jobs: 1,
+            history_flushed: true
+        }
     );
     let ports = coordinator.into_ports();
     for skipped in ["history_barrier", "workers", "database"] {
@@ -152,6 +156,10 @@ fn asking_to_leave_without_waiting_shortens_a_waiting_drain()
     let ports = FakePorts {
         gateway_reports: VecDeque::from([closed_gateway(false)]),
         active: HashSet::from([stuck]),
+        counts: ActiveJobCounts {
+            total: 1,
+            change: 0,
+        },
         ..FakePorts::default()
     };
     let timeouts = ShutdownTimeouts {
@@ -173,8 +181,185 @@ fn asking_to_leave_without_waiting_shortens_a_waiting_drain()
     assert_eq!(coordinator.phase, Phase::ZeroizingSecrets);
     assert_eq!(
         coordinator.outcome(),
-        &ShutdownOutcome::Abandoned { jobs: 1 }
+        &ShutdownOutcome::Abandoned {
+            jobs: 1,
+            history_flushed: true
+        }
     );
+    Ok(())
+}
+
+#[test]
+fn an_unconfirmed_leave_without_waiting_during_a_drain_with_change_work_changes_nothing()
+-> Result<(), Box<dyn std::error::Error>> {
+    let stuck = id(11)?;
+    let ports = FakePorts {
+        gateway_reports: VecDeque::from([closed_gateway(false)]),
+        active: HashSet::from([stuck]),
+        counts: ActiveJobCounts {
+            total: 1,
+            change: 1,
+        },
+        ..FakePorts::default()
+    };
+    let timeouts = ShutdownTimeouts {
+        os_return: Duration::ZERO,
+        ..FAST
+    };
+    let mut coordinator = drain_ready_coordinator(ports, timeouts, QuitMode::Waiting)?;
+    coordinator.advance(3)?;
+    let events_before = coordinator.ports.events.len();
+
+    assert_eq!(
+        coordinator.request_quit(QuitMode::WithoutWaiting, false)?,
+        QuitAdmission::ConfirmRequired {
+            active_change_jobs: 1
+        }
+    );
+    assert_eq!(coordinator.mode, QuitMode::Waiting, "the mode is unchanged");
+    assert!(coordinator.os_return_deadline.is_none());
+    assert_eq!(coordinator.ports.events.len(), events_before);
+    coordinator.advance(4)?;
+    assert_eq!(
+        coordinator.phase,
+        Phase::Draining,
+        "the drain keeps waiting"
+    );
+    assert_eq!(coordinator.outcome(), &ShutdownOutcome::Clean);
+
+    assert_eq!(
+        coordinator.request_quit(QuitMode::WithoutWaiting, true)?,
+        QuitAdmission::AlreadyClosing
+    );
+    assert_eq!(coordinator.mode, QuitMode::WithoutWaiting);
+    coordinator.advance(5)?;
+    assert_eq!(coordinator.phase, Phase::ZeroizingSecrets);
+    Ok(())
+}
+
+#[test]
+fn finished_job_history_is_flushed_before_the_engine_is_released()
+-> Result<(), Box<dyn std::error::Error>> {
+    let stuck = id(12)?;
+    let ports = FakePorts {
+        gateway_reports: VecDeque::from([closed_gateway(false)]),
+        active: HashSet::from([stuck]),
+        flush_statuses: VecDeque::from([HistoryCommitStatus::Pending]),
+        ..FakePorts::default()
+    };
+    let timeouts = ShutdownTimeouts {
+        os_return: Duration::ZERO,
+        ..FAST
+    };
+    let mut coordinator = drain_ready_coordinator(ports, timeouts, QuitMode::WithoutWaiting)?;
+    coordinator.advance(3)?;
+    assert_eq!(
+        coordinator.phase,
+        Phase::Draining,
+        "a flush still running holds the abandonment"
+    );
+    assert!(!coordinator.ports.released);
+    coordinator.advance(4)?;
+    assert_eq!(coordinator.phase, Phase::ZeroizingSecrets);
+    assert_eq!(
+        coordinator.outcome(),
+        &ShutdownOutcome::Abandoned {
+            jobs: 1,
+            history_flushed: true
+        }
+    );
+    let calls = &coordinator.ports.calls;
+    let position = |name: &str| calls.iter().position(|call| *call == name);
+    assert_eq!(
+        calls.iter().filter(|call| **call == "flush_begin").count(),
+        1
+    );
+    assert!(position("flush_poll") < position("release_engine"));
+    Ok(())
+}
+
+#[test]
+fn a_flush_that_cannot_complete_records_the_possible_history_loss()
+-> Result<(), Box<dyn std::error::Error>> {
+    for (statuses, start_fails) in [
+        (VecDeque::from([HistoryCommitStatus::TimedOut]), false),
+        (VecDeque::from([HistoryCommitStatus::Failed]), false),
+        (VecDeque::new(), true),
+    ] {
+        let ports = FakePorts {
+            gateway_reports: VecDeque::from([closed_gateway(false)]),
+            active: HashSet::from([id(13)?]),
+            flush_statuses: statuses,
+            flush_start_fails: start_fails,
+            ..FakePorts::default()
+        };
+        let timeouts = ShutdownTimeouts {
+            drain: Duration::ZERO,
+            ..FAST
+        };
+        let mut coordinator = drain_ready_coordinator(ports, timeouts, QuitMode::Waiting)?;
+        coordinator.advance(3)?;
+        assert_eq!(
+            coordinator.outcome(),
+            &ShutdownOutcome::DrainTimedOut {
+                jobs: 1,
+                history_flushed: false
+            }
+        );
+        assert!(
+            coordinator
+                .diagnostics()
+                .iter()
+                .any(|note| note.contains("may be lost")),
+            "the possible loss is logged"
+        );
+        assert!(coordinator.ports.released, "the abandonment still proceeds");
+    }
+    Ok(())
+}
+
+#[test]
+fn the_confirmation_notice_counts_all_remaining_jobs_apart_from_change_jobs()
+-> Result<(), Box<dyn std::error::Error>> {
+    let ports = FakePorts {
+        counts: ActiveJobCounts {
+            total: 3,
+            change: 1,
+        },
+        ..FakePorts::default()
+    };
+    let mut coordinator = ShutdownCoordinator::new(ports);
+    coordinator.announce_running(1)?;
+    coordinator.announce_confirmation_needed(1, 2)?;
+    let events = coordinator.into_ports().events;
+    let notice = events.last().ok_or("missing notice")?;
+    assert_eq!(
+        (notice.status, notice.previous),
+        (LifecycleStatus::Running, LifecycleStatus::Running)
+    );
+    assert_eq!(notice.remaining_tasks, 3, "every remaining job");
+    assert_eq!(notice.confirmation_needed, Some(1), "change jobs only");
+    assert_eq!(events[0].confirmation_needed, None);
+    assert!(events[0].sequence < notice.sequence);
+    Ok(())
+}
+
+#[test]
+fn a_forced_gateway_close_keeps_the_counts_of_the_failed_attempts()
+-> Result<(), Box<dyn std::error::Error>> {
+    let ports = FakePorts {
+        gateway_failures_left: 3,
+        force_gate: true,
+        gateway_counts: (4, 5),
+        ..FakePorts::default()
+    };
+    let mut coordinator = ShutdownCoordinator::with_timeouts(ports, FAST);
+    coordinator.request_waiting_quit(true)?;
+    assert!(coordinator.advance(1).is_err());
+    assert!(coordinator.advance(2).is_err());
+    coordinator.advance(3)?;
+    let report = coordinator.gateway_report().ok_or("missing report")?;
+    assert_eq!((report.sessions_closed, report.responses_discarded), (4, 5));
     Ok(())
 }
 
@@ -196,7 +381,10 @@ fn a_waiting_drain_is_bounded_and_ends_as_a_failure() -> Result<(), Box<dyn std:
     assert!(coordinator.is_closed());
     assert_eq!(
         coordinator.outcome(),
-        &ShutdownOutcome::DrainTimedOut { jobs: 1 }
+        &ShutdownOutcome::DrainTimedOut {
+            jobs: 1,
+            history_flushed: true
+        }
     );
     Ok(())
 }

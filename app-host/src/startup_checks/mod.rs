@@ -1,5 +1,5 @@
 //! F15 startup-check table validation and evidence aggregation.
-use std::sync::{Arc, Mutex, MutexGuard, RwLock};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, RwLock};
 
 use du_core_contracts::startup::{
     FullDiskAccessStatus, PrivacySettingsOpenOutcome, StartupCapabilitiesPort, WebViewAvailability,
@@ -22,6 +22,9 @@ pub(super) struct StartupAccessSession {
     capabilities: Arc<dyn StartupCapabilitiesPort>,
     admission: Mutex<()>,
     access: RwLock<StartupAccessState>,
+    /// The startup report registered with the engine, kept so the host can still
+    /// answer `app.startup_status` after the engine has been released.
+    report: OnceLock<StartupStatus>,
 }
 
 impl StartupAccessSession {
@@ -32,7 +35,16 @@ impl StartupAccessSession {
             capabilities,
             admission: Mutex::new(()),
             access: RwLock::new(access),
+            report: OnceLock::new(),
         }
+    }
+
+    /// The registered startup report with the current access observation, or
+    /// `None` before the report was registered. Needs no engine.
+    pub(super) fn current_status(&self) -> Option<StartupStatus> {
+        self.report
+            .get()
+            .map(|report| with_access(report.clone(), self.current()))
     }
 
     /// Serializes IF-20 session updates with synchronous analysis admission.
@@ -357,6 +369,7 @@ pub(super) fn register(
     report: StartupStatus,
     access: Arc<StartupAccessSession>,
 ) {
+    let _ = access.report.set(report.clone());
     builder.register(StartupStatusQuery {
         report,
         access: access.clone(),
@@ -380,19 +393,22 @@ impl UseCase for StartupStatusQuery {
     }
 
     fn execute(&self, _: Self::Request, _: &CallerCtx) -> Result<Self::Response, EngineError> {
-        let mut report = self.report.clone();
-        let access = self.access.current();
-        report.access = access;
-        report.analysis_allowed = access != StartupAccessState::Denied;
-        if let Some(row) = report
-            .checks
-            .iter_mut()
-            .find(|row| row.check == StartupCheck::FullDiskAccess)
-        {
-            *row = access_result(access);
-        }
-        Ok(report)
+        Ok(with_access(self.report.clone(), self.access.current()))
     }
+}
+
+/// Applies the current access observation to a registered startup report.
+fn with_access(mut report: StartupStatus, access: StartupAccessState) -> StartupStatus {
+    report.access = access;
+    report.analysis_allowed = access != StartupAccessState::Denied;
+    if let Some(row) = report
+        .checks
+        .iter_mut()
+        .find(|row| row.check == StartupCheck::FullDiskAccess)
+    {
+        *row = access_result(access);
+    }
+    report
 }
 
 struct StartupAccessQuery {
