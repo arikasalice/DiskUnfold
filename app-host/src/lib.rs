@@ -19,6 +19,8 @@ mod locale;
 ))]
 mod locale_delivery;
 #[cfg(feature = "gui")]
+mod product_ipc;
+#[cfg(feature = "gui")]
 pub mod recent_scope_body;
 #[cfg(all(feature = "gui", windows))]
 mod recent_scope_list;
@@ -46,9 +48,9 @@ mod startup_checks;
 ))]
 mod startup_database;
 
-#[cfg(feature = "gui")]
-pub use lifecycle::run;
 #[cfg(all(feature = "gui", windows))]
 pub use lifecycle::run_with_recent_scope;
+#[cfg(feature = "gui")]
+pub use lifecycle::{run, run_with_product_info, run_with_product_info_json};
 #[cfg(all(feature = "gui", windows))]
 pub use recent_scope_worker::RecentScopeWriteWarning;

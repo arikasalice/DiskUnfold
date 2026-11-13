@@ -55,6 +55,14 @@ import type {
   SettingsRestoreRequest,
   SettingsRestoreStatus,
   StartupAccessRequest,
+  ExecutableDigestRequest,
+  ExecutableDigestResponse,
+  NoticesRequest,
+  NoticesResponse,
+  ProductInfo,
+  ProductInfoRequest,
+  SupportInfoRequest,
+  SupportReport,
   StartupAccessResponse,
   StartupStatus,
   StartupStatusRequest,
@@ -156,6 +164,29 @@ export type {
   StartupStatusRequest,
   StartupStatus,
   StartupAccessRequest,
+  BuildKind,
+  ExecutableDigestRequest,
+  ExecutableDigestResponse,
+  InstallForm,
+  NoticeAvailability,
+  NoticeKind,
+  NoticesRequest,
+  NoticesResponse,
+  ProductInfo,
+  ProductInfoRequest,
+  SecuritySupportBasis,
+  SecuritySupportKind,
+  SupportCapabilityState,
+  SupportCombination,
+  SupportCombinationIdentity,
+  SupportCpu,
+  SupportEnvironmentIdentity,
+  SupportFeatureAssessment,
+  SupportFeatureRow,
+  SupportInfoRequest,
+  SupportOsFamily,
+  SupportReport,
+  SupportStatus,
   StartupAccessResponse,
   SizeValue,
   TargetList,
@@ -212,6 +243,10 @@ type Commands = {
   "settings.restore_status": [SettingsRestoreRequest, SettingsRestoreStatus];
   "app.startup_status": [StartupStatusRequest, StartupStatus];
   "app.startup_access": [StartupAccessRequest, StartupAccessResponse];
+  "app.product_info": [ProductInfoRequest, ProductInfo];
+  "app.notices": [NoticesRequest, NoticesResponse];
+  "app.executable_digest": [ExecutableDigestRequest, ExecutableDigestResponse];
+  "app.support_info": [SupportInfoRequest, SupportReport];
   "i18n.get_profile": [LocaleGetProfileRequest, LocaleProfile];
   "i18n.get_bundle": [LocaleBundleRequest, LocaleBundleResponse];
   "i18n.report_missing": [

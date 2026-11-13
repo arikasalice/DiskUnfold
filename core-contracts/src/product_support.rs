@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 
 /// The kind of build shown by the application.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
 pub enum BuildKind {
     /// A public release build with verified release provenance.
@@ -40,6 +41,7 @@ pub struct ProductBuildInfo {
 
 /// Operating-system family observed by the current process.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
 pub enum SupportOsFamily {
     /// Microsoft Windows.
@@ -55,6 +57,7 @@ pub enum SupportOsFamily {
 
 /// CPU architecture observed for the current process.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
 pub enum SupportCpu {
     /// 64-bit x86.
@@ -70,6 +73,7 @@ pub enum SupportCpu {
 
 /// Exact platform identity fields used for support-matrix matching.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct SupportEnvironmentIdentity {
     /// Operating-system family. Unknown is never used as a wildcard.
@@ -100,6 +104,7 @@ impl SupportEnvironmentIdentity {
 
 /// Support status recorded from a published matrix or current capability probe.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
 pub enum SupportStatus {
     /// The exact combination passed the release's required native checks.
@@ -117,6 +122,7 @@ pub enum SupportStatus {
 
 /// Current value for one functional capability.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
 pub enum SupportCapabilityState {
     /// The capability is available in the current environment.
@@ -134,6 +140,7 @@ pub enum SupportCapabilityState {
 
 /// Security-support evidence recorded for one support-matrix combination.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct SecuritySupportBasis {
     /// Source reference supporting the vendor's security-support status.
@@ -146,6 +153,7 @@ pub struct SecuritySupportBasis {
 
 /// Vendor security-support category.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
 pub enum SecuritySupportKind {
     /// Standard vendor support period.
@@ -159,6 +167,7 @@ pub enum SecuritySupportKind {
 
 /// Support-matrix identity for one operating-system and CPU combination.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct SupportCombinationIdentity {
     /// Operating-system family for this row.
@@ -184,6 +193,7 @@ impl SupportCombinationIdentity {
 
 /// A feature-specific support entry recorded by the release process.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct SupportFeatureRow {
     /// Stable feature-area key.
@@ -197,6 +207,7 @@ pub struct SupportFeatureRow {
 
 /// One exact supported or observed operating-system and CPU combination.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct SupportCombination {
     /// Exact identity of this combination.
@@ -255,6 +266,7 @@ pub trait SupportEnvironmentPort: Send + Sync {
 
 /// Support details for one feature row in the current environment.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct SupportFeatureAssessment {
     /// Stable feature-area key.
@@ -272,6 +284,7 @@ pub struct SupportFeatureAssessment {
 
 /// Support information prepared for a local CLI or GUI consumer.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct SupportReport {
     /// Embedded support-matrix revision, if present.

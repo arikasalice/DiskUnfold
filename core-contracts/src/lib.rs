@@ -10,6 +10,8 @@ pub mod job;
 pub mod locale_bundle;
 pub mod locale_ipc;
 pub mod ports;
+pub mod product_ipc;
+pub mod product_ports;
 pub mod product_support;
 pub mod query_page_ipc;
 pub mod query_region_ipc;

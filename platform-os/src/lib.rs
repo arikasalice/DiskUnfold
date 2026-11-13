@@ -4,6 +4,7 @@ pub mod application_data;
 pub mod entropy;
 #[cfg(feature = "fake")]
 pub mod fake;
+pub mod install_form;
 #[cfg(target_os = "linux")]
 pub mod linux_instance_lock;
 #[cfg(all(target_os = "linux", feature = "webview"))]
@@ -16,8 +17,10 @@ pub mod macos_instance_lock;
 pub mod macos_time_zone;
 #[cfg(all(target_os = "macos", feature = "webview"))]
 pub mod macos_ui_language;
+pub mod os_release;
 #[cfg(target_os = "linux")]
 pub mod scan_observation;
+pub mod self_executable;
 pub mod startup;
 pub mod support_environment;
 pub mod volume;
@@ -38,6 +41,12 @@ pub mod windows_instance_lock;
 #[cfg(target_os = "windows")]
 #[allow(unsafe_code)]
 pub mod windows_observation;
+#[cfg(windows)]
+#[allow(unsafe_code)]
+pub mod windows_os_release;
+#[cfg(windows)]
+#[allow(unsafe_code)]
+pub mod windows_package_identity;
 #[cfg(target_os = "windows")]
 #[allow(unsafe_code)]
 pub mod windows_snapshot;

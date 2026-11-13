@@ -3,6 +3,12 @@ use du_core_contracts::browse_page_ipc::*;
 use du_core_contracts::history_ipc::*;
 use du_core_contracts::locale_bundle::*;
 use du_core_contracts::locale_ipc::*;
+use du_core_contracts::product_ipc::*;
+use du_core_contracts::product_support::{
+    BuildKind, SecuritySupportBasis, SecuritySupportKind, SupportCapabilityState,
+    SupportCombination, SupportCombinationIdentity, SupportCpu, SupportEnvironmentIdentity,
+    SupportFeatureAssessment, SupportFeatureRow, SupportOsFamily, SupportReport, SupportStatus,
+};
 use du_core_contracts::query_page_ipc::*;
 use du_core_contracts::query_region_ipc::*;
 use du_core_contracts::result_events::{
@@ -73,6 +79,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         StartupAccessAction::decl(&config),
         StartupAccessRequest::decl(&config),
         StartupAccessResponse::decl(&config),
+        InstallForm::decl(&config),
+        NoticeKind::decl(&config),
+        ProductInfoRequest::decl(&config),
+        SupportInfoRequest::decl(&config),
+        NoticeAvailability::decl(&config),
+        ProductInfo::decl(&config),
+        NoticesRequest::decl(&config),
+        NoticesResponse::decl(&config),
+        ExecutableDigestRequest::decl(&config),
+        ExecutableDigestResponse::decl(&config),
+        BuildKind::decl(&config),
+        SupportOsFamily::decl(&config),
+        SupportCpu::decl(&config),
+        SupportStatus::decl(&config),
+        SupportCapabilityState::decl(&config),
+        SecuritySupportKind::decl(&config),
+        SupportEnvironmentIdentity::decl(&config),
+        SecuritySupportBasis::decl(&config),
+        SupportCombinationIdentity::decl(&config),
+        SupportFeatureRow::decl(&config),
+        SupportCombination::decl(&config),
+        SupportFeatureAssessment::decl(&config),
+        SupportReport::decl(&config),
         AppQuitMode::decl(&config),
         AppQuitRequest::decl(&config),
         AppQuitOutcome::decl(&config),
