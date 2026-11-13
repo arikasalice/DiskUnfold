@@ -120,12 +120,12 @@ fn launcher_prints_help_and_version_to_stdout() -> io::Result<()> {
         (
             ["--lang", "en", "--version"],
             "Build type: Developer build",
-            "Source commit: Unknown",
+            "Source commit: ",
         ),
         (
             ["--lang", "ko", "--version"],
             "빌드 종류: 개발자 빌드",
-            "소스 커밋: 확인 불가",
+            "소스 커밋: ",
         ),
     ] {
         let (mut command, _data_dir) = launcher_with_temp_data()?;
@@ -135,6 +135,18 @@ fn launcher_prints_help_and_version_to_stdout() -> io::Result<()> {
         assert!(stdout.contains(env!("CARGO_PKG_VERSION")), "{stdout}");
         assert!(stdout.contains(expected_build), "{stdout}");
         assert!(stdout.contains(expected_commit), "{stdout}");
+        // A developer build shows the real checkout commit, or Unknown outside a git checkout.
+        let commit_line = stdout
+            .lines()
+            .find(|l| l.starts_with(expected_commit))
+            .unwrap_or_default();
+        let value = commit_line.trim_start_matches(expected_commit);
+        let sha = value.strip_suffix("-dirty").unwrap_or(value);
+        assert!(
+            matches!(value, "Unknown" | "확인 불가")
+                || (sha.len() == 40 && sha.bytes().all(|b| b.is_ascii_hexdigit())),
+            "{commit_line}"
+        );
         assert!(output.stderr.is_empty());
     }
     Ok(())

@@ -472,5 +472,11 @@
     "role": "build",
     "distributed": false,
     "reason": "execute GUI tests"
+  },
+  "cargo:du-release-tools:toml@1.2.1+spec-1.1.0": {
+    "license": "MIT OR Apache-2.0",
+    "role": "build",
+    "distributed": false,
+    "reason": "Read the license allow list and banned crates from deny.toml for the notices gate"
   }
 }

@@ -1,0 +1,22 @@
+{
+  "id": "win11-25h2-professional-x64-2026-11-13",
+  "os": "windows",
+  "release": "11-25H2",
+  "edition": "Professional",
+  "cpu": "x64",
+  "observedOn": "2026-11-13",
+  "osDetail": "Windows 11 25H2 Pro x64",
+  "device": "local development workstation",
+  "executionForm": "unsigned development portable exe and package",
+  "checks": {
+    "native_build": "passed",
+    "native_tests": "passed",
+    "installed_start": "not_run"
+  },
+  "limits": [
+    "installed start not run",
+    "MSIX not installed through the GUI",
+    "no Home, ARM64 or 26H2 run"
+  ],
+  "evidence": "F15 requirement matrix 2026-11-13: local development packages and unit tests"
+}

@@ -36,9 +36,34 @@ mod tests {
     use super::PRODUCT_INFO_JSON;
 
     #[test]
-    fn developer_product_metadata_does_not_claim_a_source_commit() {
-        assert!(PRODUCT_INFO_JSON.contains("\"buildKind\": \"developer\""));
-        assert!(PRODUCT_INFO_JSON.contains("\"commit\": null"));
-        assert!(PRODUCT_INFO_JSON.contains("\"sourceCommit\": null"));
+    fn builds_without_a_release_request_stay_developer_builds() -> Result<(), serde_json::Error> {
+        let info: serde_json::Value = serde_json::from_str(PRODUCT_INFO_JSON)?;
+        if option_env!("DU_BUILD_KIND") != Some("official") {
+            assert_eq!(info["build"]["buildKind"], "developer");
+        }
+        // Release-only fields stay unavailable unless the release pipeline supplies them.
+        if option_env!("DU_BUILT_AT_UTC").is_none() {
+            assert!(info["build"]["builtAtUtc"].is_null());
+        }
+        if option_env!("DU_APP_DB_FORMAT").is_none() {
+            assert!(info["build"]["appDbFormat"].is_null());
+        }
+        if option_env!("DU_RELEASE_RESOURCES").is_none() {
+            assert!(info["notices"]["thirdParty"].is_null());
+            assert!(info["supportMatrix"].is_null());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn the_embedded_commit_is_a_real_git_commit_when_one_is_known() -> Result<(), serde_json::Error>
+    {
+        let info: serde_json::Value = serde_json::from_str(PRODUCT_INFO_JSON)?;
+        if let Some(commit) = info["build"]["commit"].as_str() {
+            let sha = commit.strip_suffix("-dirty").unwrap_or(commit);
+            assert_eq!(sha.len(), 40, "{commit}");
+            assert!(sha.bytes().all(|b| b.is_ascii_hexdigit()), "{commit}");
+        }
+        Ok(())
     }
 }
