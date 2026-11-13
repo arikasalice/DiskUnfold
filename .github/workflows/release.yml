@@ -83,7 +83,8 @@ jobs:
           fi
       - name: Read the data format versions
         id: formats
-        if: steps.mode.outputs.official == 'true'
+        # Format versions come from code, so every build reports them and every run checks
+        # format-versions.json against the code; only the official mark stays tag-only.
         run: |
           set -euo pipefail
           target/debug/release-gate read-formats --file release-packaging/release/format-versions.json > formats.env
