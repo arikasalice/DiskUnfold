@@ -1,0 +1,8 @@
+.du-closing {
+  display: grid;
+  gap: 8px;
+  padding: 12px 16px;
+  border-block-end: 1px solid var(--du-border);
+  background: var(--du-surface);
+  color: var(--du-text);
+}

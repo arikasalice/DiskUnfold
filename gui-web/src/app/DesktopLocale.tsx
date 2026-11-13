@@ -13,6 +13,7 @@ import { makeLocaleReporter } from "../state/locale-missing";
 import { useLocale } from "../state/use-locale";
 import type { LocaleView } from "../state/use-locale";
 import { App } from "./App";
+import { ClosingGuard } from "../features/shutdown/ClosingGuard";
 
 function regionalFormat({ selected, profile }: LocaleView): RegionalFormat {
   const { decimalSeparator, groupingSeparator, groupingSize, datePatterns } =
@@ -90,33 +91,35 @@ export function DesktopLocale({
         <LocaleTextContext.Provider value={startupText}>
           <Notice tone="error">{startupText("ui.locale.failed", "")}</Notice>
           <Action onPress={retry}>{startupText("ui.common.retry", "")}</Action>
-          {children}
+          <ClosingGuard client={client}>{children}</ClosingGuard>
         </LocaleTextContext.Provider>
       );
     }
     return (
-      <main className="du-app">
-        {errorKey ? (
-          <>
-            <Notice tone="error">
-              {fallbackText(
-                "ui.locale.failed",
-                "Could not load language settings.",
+      <ClosingGuard client={client}>
+        <main className="du-app">
+          {errorKey ? (
+            <>
+              <Notice tone="error">
+                {fallbackText(
+                  "ui.locale.failed",
+                  "Could not load language settings.",
+                )}
+              </Notice>
+              <Action onPress={retry}>
+                {fallbackText("ui.common.retry", "Retry")}
+              </Action>
+            </>
+          ) : (
+            <Progress
+              label={fallbackText(
+                "ui.locale.loading",
+                "Loading language settings…",
               )}
-            </Notice>
-            <Action onPress={retry}>
-              {fallbackText("ui.common.retry", "Retry")}
-            </Action>
-          </>
-        ) : (
-          <Progress
-            label={fallbackText(
-              "ui.locale.loading",
-              "Loading language settings…",
-            )}
-          />
-        )}
-      </main>
+            />
+          )}
+        </main>
+      </ClosingGuard>
     );
   }
   const meta =
@@ -132,19 +135,21 @@ export function DesktopLocale({
   return (
     <LocaleTextContext.Provider value={text}>
       <RegionalFormatContext.Provider value={format}>
-        {children ?? (
-          <App
-            {...(analysisEnabled ? { analysis: client } : {})}
-            nativeLocaleHost={!analysisEnabled}
-            locale={{
-              profile: view.profile,
-              text: (key) => text(key, ""),
-              save,
-              ...(errorKey && { errorKey }),
-              ...(issue && { issue }),
-            }}
-          />
-        )}
+        <ClosingGuard client={client}>
+          {children ?? (
+            <App
+              {...(analysisEnabled ? { analysis: client } : {})}
+              nativeLocaleHost={!analysisEnabled}
+              locale={{
+                profile: view.profile,
+                text: (key) => text(key, ""),
+                save,
+                ...(errorKey && { errorKey }),
+                ...(issue && { issue }),
+              }}
+            />
+          )}
+        </ClosingGuard>
       </RegionalFormatContext.Provider>
     </LocaleTextContext.Provider>
   );

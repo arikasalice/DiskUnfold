@@ -2,6 +2,7 @@ import { App } from "./App";
 import { DesktopLocale } from "./DesktopLocale";
 import type { AnalysisClient } from "../ipc";
 import { StartupStatusScreen } from "../features/startup/StartupStatusScreen";
+import { ClosingGuard } from "../features/shutdown/ClosingGuard";
 
 /** Selects the GUI entry view from capabilities injected by the native host. */
 export function ApplicationEntry({
@@ -25,7 +26,9 @@ export function ApplicationEntry({
     );
   }
   return startupStatusEnabled ? (
-    <StartupStatusScreen client={client} />
+    <ClosingGuard client={client}>
+      <StartupStatusScreen client={client} />
+    </ClosingGuard>
   ) : (
     <App />
   );

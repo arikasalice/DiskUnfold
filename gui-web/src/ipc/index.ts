@@ -6,6 +6,8 @@ import {
 } from "./bridge";
 import type {
   AnalysisJobControl,
+  AppQuitRequest,
+  AppQuitResponse,
   AnalysisJobListRequest,
   AnalysisJobListRow,
   AnalysisJobRequest,
@@ -97,6 +99,10 @@ import type {
 export { SIZE_UNIT_RULES } from "./generated/contracts";
 export type {
   AnalysisJobControl,
+  AppLifecycleChanged,
+  AppQuitMode,
+  AppQuitRequest,
+  AppQuitResponse,
   AnalysisJobListRow,
   AnalysisJobStatus,
   AnalysisTarget,
@@ -243,6 +249,7 @@ type Commands = {
   "settings.restore_status": [SettingsRestoreRequest, SettingsRestoreStatus];
   "app.startup_status": [StartupStatusRequest, StartupStatus];
   "app.startup_access": [StartupAccessRequest, StartupAccessResponse];
+  "app.quit": [AppQuitRequest, AppQuitResponse];
   "app.product_info": [ProductInfoRequest, ProductInfo];
   "app.notices": [NoticesRequest, NoticesResponse];
   "app.executable_digest": [ExecutableDigestRequest, ExecutableDigestResponse];

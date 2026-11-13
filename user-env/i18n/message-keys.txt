@@ -929,3 +929,10 @@ ui.analysis.evidence_measured
 ui.analysis.evidence_reported
 ui.analysis.evidence_estimated
 ui.analysis.bytes_unit
+ui.closing.confirm_title
+ui.closing.confirm_body count:count
+ui.closing.confirm_action
+ui.closing.keep_open
+ui.closing.progress
+ui.closing.remaining count:count
+ui.closing.failed

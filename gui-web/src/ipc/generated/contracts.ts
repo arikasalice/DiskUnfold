@@ -410,7 +410,21 @@ stateSequence: number,
  * UTC observation time in the shared timestamp format; the property
  * spelling is inferred.
  */
-observedAt: Timestamp, };
+observedAt: Timestamp,
+/**
+ * Present and true when the window asked to close while change work is in
+ * progress and the host is waiting for the user's confirmation. The state
+ * stays `running`; `remainingJobCount` keeps meaning every remaining job.
+ *
+ * This optional field is an addition to the published IF-07 body. Readers
+ * that do not know it ignore it. See the F15 design deviation notes.
+ */
+confirmationRequired?: boolean,
+/**
+ * In-progress change jobs the confirmation concerns; present with
+ * `confirmationRequired`. An optional addition to the published body.
+ */
+inProgressChangeCount?: number, };
 export type SettingsApplyTiming = "immediate" | "next_query" | "next_job" | "next_start" | "owner_review";
 export type SettingsChangeSource = "screen" | "import" | "reset" | "owner" | "mcp";
 export type SettingsChangedKey = {

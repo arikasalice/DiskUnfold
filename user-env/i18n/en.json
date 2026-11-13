@@ -945,6 +945,13 @@
     ["ui.analysis.evidence_measured","Measured",[]],
     ["ui.analysis.evidence_reported","Reported by the file system",[]],
     ["ui.analysis.evidence_estimated","Estimated",[]],
-    ["ui.analysis.bytes_unit","bytes",[]]
+    ["ui.analysis.bytes_unit","bytes",[]],
+    ["ui.closing.confirm_title","Close DiskUnfold while file changes are running?",[]],
+    ["ui.closing.confirm_body",{"kind":"plural","parameter":"count","variants":{"one":"{count} file change is still running. Closing now stops it at the next safe point; items it already changed stay changed.","other":"{count} file changes are still running. Closing now stops them at the next safe point; items already changed stay changed."}},[["count","count"]]],
+    ["ui.closing.confirm_action","Close and stop changes",[]],
+    ["ui.closing.keep_open","Keep DiskUnfold open",[]],
+    ["ui.closing.progress","Closing DiskUnfold",[]],
+    ["ui.closing.remaining",{"kind":"plural","parameter":"count","variants":{"one":"Waiting for {count} job to finish.","other":"Waiting for {count} jobs to finish."}},[["count","count"]]],
+    ["ui.closing.failed","DiskUnfold could not start closing. Try again.",[]]
   ]
 ]

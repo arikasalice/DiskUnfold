@@ -945,6 +945,13 @@
     ["ui.analysis.evidence_measured","측정값",[]],
     ["ui.analysis.evidence_reported","파일 시스템 보고값",[]],
     ["ui.analysis.evidence_estimated","추정값",[]],
-    ["ui.analysis.bytes_unit","바이트",[]]
+    ["ui.analysis.bytes_unit","바이트",[]],
+    ["ui.closing.confirm_title","파일 변경이 진행 중입니다. DiskUnfold를 종료할까요?",[]],
+    ["ui.closing.confirm_body",{"kind":"plural","parameter":"count","variants":{"other":"파일 변경 {count}건이 아직 진행 중입니다. 지금 종료하면 다음 안전 지점에서 중단되며, 이미 변경된 항목은 그대로 유지됩니다."}},[["count","count"]]],
+    ["ui.closing.confirm_action","종료하고 변경 중단",[]],
+    ["ui.closing.keep_open","계속 사용",[]],
+    ["ui.closing.progress","DiskUnfold 종료 중",[]],
+    ["ui.closing.remaining",{"kind":"plural","parameter":"count","variants":{"other":"작업 {count}건이 끝나기를 기다리는 중입니다."}},[["count","count"]]],
+    ["ui.closing.failed","종료를 시작하지 못했습니다. 다시 시도하세요.",[]]
   ]
 ]
