@@ -3,16 +3,28 @@
 //! The assertions follow whatever the build embedded, so they hold for a
 //! developer build and for a build made with DU_RELEASE_RESOURCES.
 
-use std::{error::Error, path::PathBuf, process::Command};
+use std::{
+    error::Error,
+    path::PathBuf,
+    process::Command,
+    sync::atomic::{AtomicU64, Ordering},
+};
 
 const EMBEDDED: &str = include_str!(env!("DU_PRODUCT_INFO_PATH"));
+
+/// Distinguishes data directories made by tests that run in parallel threads;
+/// the clock alone can repeat on platforms with microsecond resolution.
+static NEXT_DIR: AtomicU64 = AtomicU64::new(0);
 
 fn data_dir() -> Result<PathBuf, Box<dyn Error>> {
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)?
         .as_nanos();
-    let path =
-        std::env::temp_dir().join(format!("diskunfold-embed-{}-{nanos}", std::process::id()));
+    let sequence = NEXT_DIR.fetch_add(1, Ordering::Relaxed);
+    let path = std::env::temp_dir().join(format!(
+        "diskunfold-embed-{}-{nanos}-{sequence}",
+        std::process::id()
+    ));
     std::fs::create_dir(&path)?;
     Ok(path)
 }
