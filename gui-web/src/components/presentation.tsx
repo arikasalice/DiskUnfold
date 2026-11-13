@@ -3,6 +3,7 @@ import {
   Activity,
   ArrowLeft,
   CircleAlert,
+  Copy,
   FolderOpen,
   HardDrive,
   History,
@@ -17,6 +18,7 @@ const icons = {
   activity: Activity,
   alert: CircleAlert,
   back: ArrowLeft,
+  copy: Copy,
   folder: FolderOpen,
   drive: HardDrive,
   history: History,
@@ -82,7 +84,7 @@ export function StatusBadge({
   live = false,
 }: {
   children: ReactNode;
-  tone?: "neutral" | "info" | "good" | "warning";
+  tone?: "neutral" | "info" | "good" | "warning" | "danger";
   live?: boolean;
 }) {
   return (

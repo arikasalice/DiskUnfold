@@ -1,0 +1,102 @@
+.du-info-screen,
+.du-info-digest,
+.du-info-digest__result,
+.du-info-notice {
+  display: grid;
+  gap: var(--du-space-3);
+  min-inline-size: 0;
+  overflow-wrap: normal;
+  word-break: keep-all;
+}
+
+/* Only identifiers (the digest, paths, commit and source values) may break
+   inside a word; prose keeps its words whole. */
+.du-info-screen .du-text--path,
+.du-info-screen .du-readout > .du-readout__wide-value dd {
+  overflow-wrap: anywhere;
+}
+
+.du-info-screen .du-readout dd {
+  overflow-wrap: normal;
+}
+
+.du-info-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--du-space-2);
+}
+
+.du-info-digest__result {
+  padding: var(--du-space-3);
+  background: var(--du-subtle);
+  border: 1px solid var(--du-border);
+  border-radius: var(--du-radius);
+}
+
+.du-info-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--du-space-2);
+  align-items: center;
+}
+
+.du-info-entry {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--du-space-2);
+  align-items: center;
+}
+
+.du-info-entry--standalone {
+  justify-content: center;
+  padding: var(--du-space-3) var(--du-space-4);
+  border-block-start: 1px solid var(--du-border);
+}
+
+/* Per-area and per-combination rows: label and badge on the first line, the
+   supporting notes below in reading order. */
+.du-info-areas .du-readout {
+  gap: 0;
+}
+
+.du-info-areas .du-readout > div {
+  display: grid;
+  grid-template-columns: minmax(0, 12rem) minmax(0, 1fr);
+  align-items: start;
+  column-gap: var(--du-space-3);
+  padding-block: var(--du-space-3);
+  border-block-start: 1px solid var(--du-border);
+}
+
+.du-info-areas .du-readout > div:first-child {
+  padding-block-start: 0;
+  border-block-start: 0;
+}
+
+.du-info-areas .du-readout dt {
+  padding-block-start: var(--du-space-1);
+  color: var(--du-text);
+  font-weight: 620;
+}
+
+.du-info-areas .du-readout dd {
+  display: grid;
+  gap: var(--du-space-1);
+  justify-items: start;
+  text-align: start;
+}
+
+.du-info-areas .du-readout__note {
+  margin-block-start: 0;
+}
+
+@media (max-width: 36rem) {
+  .du-info-areas .du-readout > div {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: var(--du-space-1);
+  }
+
+  .du-info-areas .du-readout dt {
+    padding-block-start: 0;
+  }
+}
