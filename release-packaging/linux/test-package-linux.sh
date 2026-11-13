@@ -78,7 +78,7 @@ cat > "$test_root/copyright.fixture.txt" <<'COPYRIGHT'
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: DiskUnfold
 Upstream-Contact: DiskUnfold Maintainers <arikasalice@gmail.com>
-Source: https://example.invalid/DiskUnfold
+Source: https://github.com/arikasalice/DiskUnfold
 Files: *
 Copyright: TEST FIXTURE ONLY
 License: MIT
@@ -147,6 +147,7 @@ tar --list --file "$output/$tar_name" --gzip | LC_ALL=C sort > "$test_root/tar-m
 printf '%s\n' \
     "DiskUnfold-0.1.0-linux-${cpu}/" \
     "DiskUnfold-0.1.0-linux-${cpu}/LICENSE" \
+    "DiskUnfold-0.1.0-linux-${cpu}/install-form" \
     "DiskUnfold-0.1.0-linux-${cpu}/THIRD-PARTY-NOTICES.txt" \
     "DiskUnfold-0.1.0-linux-${cpu}/diskunfold" | LC_ALL=C sort > "$test_root/tar-members.expected"
 cmp -s "$test_root/tar-members.expected" "$test_root/tar-members" || \

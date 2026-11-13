@@ -197,6 +197,8 @@ install -m 0644 "$notices" "$deb_root/usr/share/doc/diskunfold/THIRD-PARTY-NOTIC
 install -m 0755 "$binary" "$tar_root_path/diskunfold"
 install -m 0644 "$license_path" "$tar_root_path/LICENSE"
 install -m 0644 "$notices" "$tar_root_path/THIRD-PARTY-NOTICES.txt"
+printf 'tar_gz\n' > "$tar_root_path/install-form"
+chmod 0644 "$tar_root_path/install-form"
 
 mkdir -p "$work/debian"
 cat > "$work/debian/control" <<CONTROL
@@ -270,6 +272,7 @@ tar -tzf "$stage/$tar_name" | LC_ALL=C sort > "$work/tar-members"
 printf '%s\n' \
     "$tar_root/" \
     "$tar_root/LICENSE" \
+    "$tar_root/install-form" \
     "$tar_root/THIRD-PARTY-NOTICES.txt" \
     "$tar_root/diskunfold" | LC_ALL=C sort > "$work/tar-members.expected"
 cmp -s "$work/tar-members.expected" "$work/tar-members" || \

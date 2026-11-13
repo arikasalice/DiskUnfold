@@ -310,6 +310,7 @@ The F15 official release pipeline, publisher identities, signing approvals, gene
         Copy-Item -LiteralPath $sourceBinary -Destination $artifactPath
         Copy-Item -LiteralPath $licensePath -Destination (Join-Path $stageFullPath 'LICENSE')
         Write-Utf8NoBom -Path (Join-Path $stageFullPath 'DEVELOPMENT-ONLY.txt') -Contents $developmentNotice
+        Write-Utf8NoBom -Path (Join-Path $stageFullPath 'install-form') -Contents 'portable'
         $stagedExecutablePath = $artifactPath
     }
     else {

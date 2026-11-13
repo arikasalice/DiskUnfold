@@ -120,6 +120,7 @@ try {
     Assert-Equal $portableRow.sha256 $portableDigest 'Portable package SHA-256 mismatch.'
     Assert-Equal $portableRow.executable_sha256 $portableDigest 'Portable executable SHA-256 mismatch.'
     Assert-True (Test-Path -LiteralPath (Join-Path $portableOutput 'DEVELOPMENT-ONLY.txt') -PathType Leaf) 'Portable development marker is missing.'
+    Assert-Equal 'portable' ((Get-Content -LiteralPath (Join-Path $portableOutput 'install-form') -Raw).Trim()) 'Portable install-form marker is missing or wrong.'
     Assert-True ((Get-Content -LiteralPath (Join-Path $portableOutput 'DEVELOPMENT-ONLY.txt') -Raw) -match 'Do not publish') 'Portable development marker does not forbid publishing.'
 
     $collisionOutput = Join-Path $testRootFull 'collision'
