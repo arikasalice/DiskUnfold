@@ -3,7 +3,9 @@ use std::io::Read;
 use std::{fs, io};
 
 mod support;
-use support::{closed_pipe_stdio, launcher_with_temp_data};
+#[cfg(windows)]
+use support::closed_pipe_stdio;
+use support::launcher_with_temp_data;
 
 #[cfg(any(windows, target_os = "linux"))]
 fn is_localized_settings_unavailable_line(line: &str) -> bool {

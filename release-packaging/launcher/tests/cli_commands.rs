@@ -5,7 +5,9 @@ use std::io::Read;
 use std::{fs, io, process::Command, time::SystemTime};
 
 mod support;
-use support::{TempDataDir, closed_pipe_stdio, launcher_with_temp_data};
+#[cfg(windows)]
+use support::closed_pipe_stdio;
+use support::{TempDataDir, launcher_with_temp_data};
 
 const PRODUCT_INFO_JSON: &str = include_str!(env!("DU_PRODUCT_INFO_PATH"));
 const UNSUPPORTED_LINE: &str = "DiskUnfold: unsupported arguments. See --help.\n";
