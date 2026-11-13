@@ -10,6 +10,8 @@ mod macos;
 #[allow(unsafe_code)]
 mod windows;
 
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
+pub use contract::ShutdownCallbacks;
 pub use contract::{Asset, WebApp};
 #[cfg(target_os = "windows")]
 pub use contract::{
@@ -34,7 +36,7 @@ pub fn run(app: WebApp) -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(target_os = "linux")]
     return linux::run(app, None);
     #[cfg(target_os = "macos")]
-    return macos::run(app);
+    return macos::run(app, None);
     #[cfg(target_os = "windows")]
     return windows::run(app, None);
     #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
@@ -42,4 +44,16 @@ pub fn run(app: WebApp) -> Result<(), Box<dyn std::error::Error>> {
         let _ = app;
         Err("Unsupported desktop target".into())
     }
+}
+
+/// Runs the macOS webview with host-owned shutdown hooks.
+///
+/// Window close and application quit (Dock, menu) route through
+/// `ShutdownCallbacks` and are cancelled until the host reports completion.
+#[cfg(target_os = "macos")]
+pub fn run_with_shutdown(
+    app: WebApp,
+    shutdown: ShutdownCallbacks,
+) -> Result<(), Box<dyn std::error::Error>> {
+    macos::run(app, Some(shutdown))
 }

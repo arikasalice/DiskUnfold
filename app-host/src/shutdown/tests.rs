@@ -1,6 +1,15 @@
 use super::*;
 use std::collections::{HashSet, VecDeque};
 
+const FAST: ShutdownTimeouts = ShutdownTimeouts {
+    drain: Duration::from_secs(30),
+    os_return: Duration::from_secs(10),
+    gateway: Duration::from_secs(2),
+    gateway_attempts: 3,
+    phase_retries: 3,
+    final_flush: Duration::from_secs(60),
+};
+
 #[derive(Default)]
 struct FakePorts {
     admission: Option<QuitAdmission>,
@@ -17,6 +26,10 @@ struct FakePorts {
     secrets_cleared: bool,
     released: bool,
     workers_closed: bool,
+    gateway_failures_left: u32,
+    force_gate: bool,
+    database_always_fails: bool,
+    hold_events: bool,
 }
 
 impl ShutdownPorts for FakePorts {
@@ -29,9 +42,18 @@ impl ShutdownPorts for FakePorts {
 
     fn close_mcp_access(&mut self, _: Instant) -> Result<GatewayCloseReport, String> {
         self.calls.push("gateway");
+        if self.gateway_failures_left > 0 {
+            self.gateway_failures_left -= 1;
+            return Err("listener refused to close".into());
+        }
         self.gateway_reports
             .pop_front()
             .ok_or_else(|| "gateway report missing".to_owned())
+    }
+
+    fn force_close_mcp_access(&mut self) -> bool {
+        self.calls.push("force_gate");
+        self.force_gate
     }
 
     fn prepare_engine_shutdown(&mut self) -> Result<ShutdownPreparation, String> {
@@ -81,6 +103,9 @@ impl ShutdownPorts for FakePorts {
 
     fn checkpoint_and_close_database(&mut self) -> Result<(), String> {
         self.calls.push("database");
+        if self.database_always_fails {
+            return Err("database still has a live owner".into());
+        }
         if self.fail_database_once {
             self.fail_database_once = false;
             return Err("database still has a live owner".into());
@@ -97,6 +122,10 @@ impl ShutdownPorts for FakePorts {
 
     fn publish_lifecycle(&mut self, event: LifecycleEvent) {
         self.events.push(event);
+    }
+
+    fn final_events_flushed(&self) -> bool {
+        !self.hold_events
     }
 }
 
@@ -146,7 +175,16 @@ fn unconfirmed_watcher_stop_blocks_job_drain_and_storage_close()
         Err(ShutdownError::WatcherStopUnconfirmed)
     ));
     assert_eq!(coordinator.phase, Phase::AccessClosed);
-    assert!(!coordinator.ports.calls.contains(&"list"));
+    // The only job listing is the one taken before access_closed was published.
+    assert_eq!(
+        coordinator
+            .ports
+            .calls
+            .iter()
+            .filter(|call| **call == "list")
+            .count(),
+        1
+    );
     assert!(!coordinator.ports.calls.contains(&"history_barrier"));
     assert!(!coordinator.ports.workers_closed);
     assert!(!coordinator.ports.db_closed);
@@ -159,6 +197,8 @@ fn closed_gateway(timed_out: bool) -> GatewayCloseReport {
         access_closed: true,
         listener: ListenerClose::Closed,
         timed_out,
+        sessions_closed: 2,
+        responses_discarded: 3,
         detail: timed_out.then(|| "graceful close deadline elapsed".into()),
     }
 }
@@ -228,10 +268,10 @@ fn normal_shutdown_closes_gateway_then_drains_history_then_drops_owners()
             .ports
             .calls
             .iter()
-            .take(3)
+            .take(4)
             .copied()
             .collect::<Vec<_>>(),
-        ["admission", "gateway", "prepare"]
+        ["admission", "gateway", "list", "prepare"]
     );
 
     coordinator.job_finished(&job, 102)?;
@@ -320,6 +360,8 @@ fn an_unconfirmed_gateway_close_never_starts_bulk_cancellation()
                 access_closed: false,
                 listener: ListenerClose::NotInstalled,
                 timed_out: true,
+                sessions_closed: 0,
+                responses_discarded: 0,
                 detail: Some("force close failed".into()),
             },
             closed_gateway(true),
@@ -449,29 +491,4 @@ fn history_timeout_is_reported_without_closing_owners_and_later_completion_recov
     Ok(())
 }
 
-#[test]
-fn resync_replaces_the_event_count_with_the_job_list_cut() -> Result<(), Box<dyn std::error::Error>>
-{
-    let first = id(2)?;
-    let second = id(3)?;
-    let ports = FakePorts {
-        gateway_reports: VecDeque::from([closed_gateway(false)]),
-        active: HashSet::from([first.clone(), second.clone()]),
-        ..FakePorts::default()
-    };
-    let mut coordinator = ShutdownCoordinator::new(ports);
-    coordinator.request_waiting_quit(true)?;
-    coordinator.advance(1)?;
-    coordinator.advance(2)?;
-    coordinator.job_finished(&first, 3)?;
-    assert_eq!(coordinator.remaining_tasks(), 1);
-    coordinator.ports.active = HashSet::from([second.clone()]);
-    coordinator.resync_active_jobs(4)?;
-    assert_eq!(coordinator.remaining_tasks(), 1);
-    coordinator.ports.active.clear();
-    coordinator.resync_active_jobs(5)?;
-    assert_eq!(coordinator.remaining_tasks(), 0);
-    coordinator.advance(6)?;
-    assert_eq!(coordinator.phase, Phase::HistoryCommit);
-    Ok(())
-}
+mod bounds;

@@ -263,6 +263,12 @@
     "distributed": true,
     "reason": "Manage Objective-C object lifetimes and main-thread callbacks"
   },
+  "cargo:du-platform-os:libc@0.2.191": {
+    "license": "MIT OR Apache-2.0",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Resolve the real user's home directory on macOS with getpwuid_r for the Full Disk Access probe"
+  },
   "cargo:du-platform-os:rustix@1.1.6": {
     "license": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
     "role": "runtime",

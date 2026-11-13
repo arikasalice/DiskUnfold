@@ -1,12 +1,14 @@
 use super::*;
 use crate::shutdown::{
     GatewayCloseReport, LifecycleEvent, ListenerClose, QuitAdmission, ShutdownError, ShutdownPorts,
+    ShutdownTimeouts,
     host::{
-        GatewayListenerCloser, HostShutdownPorts, HostShutdownResources, QuitHandler,
-        ShutdownController,
+        GatewayListenerCloser, GatewayResources, HostShutdownPorts, HostShutdownResources,
+        QuitHandler, ShutdownController, StorageResources,
     },
 };
 use du_core_contracts::Id;
+use du_engine_api::desktop::{DesktopEvents, shutdown_fixture::RunningChangeJob};
 use du_engine_api::shutdown::{HistoryCommitStatus, ShutdownPreparation};
 use std::{
     collections::VecDeque,
@@ -24,6 +26,7 @@ struct FakePorts {
     active_changes: usize,
     active_jobs: Vec<Id>,
     fail_close_once: bool,
+    database_always_fails: bool,
     calls: Vec<&'static str>,
     barrier: VecDeque<HistoryCommitStatus>,
 }
@@ -51,6 +54,8 @@ impl ShutdownPorts for FakePorts {
             access_closed: true,
             listener: ListenerClose::NotInstalled,
             timed_out: false,
+            sessions_closed: 0,
+            responses_discarded: 0,
             detail: None,
         })
     }
@@ -95,6 +100,9 @@ impl ShutdownPorts for FakePorts {
 
     fn checkpoint_and_close_database(&mut self) -> Result<(), String> {
         self.calls.push("database");
+        if self.database_always_fails {
+            return Err("injected database close failure".to_owned());
+        }
         Ok(())
     }
 
@@ -172,6 +180,7 @@ fn ipc_normal_quit_advances_the_shutdown_pipeline() -> Result<(), Box<dyn std::e
         [
             "admission",
             "gateway",
+            "list",
             "prepare",
             "list",
             "list",
@@ -270,11 +279,15 @@ fn ipc_listener_port_failure_keeps_access_closed_and_retries_truthfully()
     });
     let shutdown = ShutdownController::new(HostShutdownPorts::new(HostShutdownResources {
         engine: Arc::new(std::sync::Mutex::new(Some(engine.clone()))),
-        gate: gate.clone(),
-        listener: listener.clone(),
-        events: Arc::new(du_engine_api::desktop::DesktopEvents::default()),
-        database: Arc::new(std::sync::Mutex::new(None)),
-        release_extra_owners: Box::new(|| {}),
+        gateway: GatewayResources {
+            gate: gate.clone(),
+            listener: listener.clone(),
+        },
+        events: Arc::new(DesktopEvents::default()),
+        storage: StorageResources {
+            database: Arc::new(std::sync::Mutex::new(None)),
+            release_extra_owners: Box::new(|| {}),
+        },
     }));
     let accepted = dispatch_quit(&engine, &shutdown, json!({"mode":"normal"}))?;
     assert_eq!(accepted["body"]["outcome"], "accepted");
@@ -303,6 +316,10 @@ fn ipc_rejects_new_commands_after_shutdown_admission_starts()
         &dispatch_inner(&engine, &command, None, Some(&shutdown))
             .ok_or("missing rejected command response")?,
     )?;
-    assert_eq!(reply["error"]["reasonKey"], "job.shutting_down");
+    assert_eq!(reply["error"]["reasonKey"], "startup.shutting_down");
+    assert_eq!(reply["error"]["code"], "INVALID_ARGUMENT");
+    assert_eq!(reply["error"]["retryable"], false);
     Ok(())
 }
+
+mod host;

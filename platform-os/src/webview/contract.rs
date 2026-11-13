@@ -25,12 +25,47 @@ pub struct Events {
     shutdown: Option<ShutdownCallbacks>,
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows"))]
+/// Native-loop hooks for an orderly shutdown owned by the application host.
+///
+/// The adapter calls `request_close` for every native close request (window
+/// close or application quit), `pump` on the UI thread about every 16 ms, and
+/// `should_exit` after each of them. A native close request is cancelled until
+/// `should_exit` returns true, so the process never leaves while the host's
+/// shutdown is still running. All three run on the UI thread and must not block.
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 #[derive(Clone)]
-struct ShutdownCallbacks {
+pub struct ShutdownCallbacks {
     request_close: Arc<dyn Fn() + Send + Sync>,
     pump: Arc<dyn Fn() + Send + Sync>,
     should_exit: Arc<dyn Fn() -> bool + Send + Sync>,
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
+impl ShutdownCallbacks {
+    /// Creates the close-request, periodic-progress and completion callbacks.
+    pub fn new(
+        request_close: impl Fn() + Send + Sync + 'static,
+        pump: impl Fn() + Send + Sync + 'static,
+        should_exit: impl Fn() -> bool + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            request_close: Arc::new(request_close),
+            pump: Arc::new(pump),
+            should_exit: Arc::new(should_exit),
+        }
+    }
+
+    pub(super) fn request_window_close(&self) {
+        (self.request_close)();
+    }
+
+    pub(super) fn pump(&self) {
+        (self.pump)();
+    }
+
+    pub(super) fn is_complete(&self) -> bool {
+        (self.should_exit)()
+    }
 }
 
 /// Callbacks for delivery loss and top-level document lifecycle changes.
@@ -67,6 +102,12 @@ impl Events {
         }
     }
 
+    /// Adds host shutdown callbacks built once and shared with other adapters.
+    pub fn with_shutdown(mut self, callbacks: ShutdownCallbacks) -> Self {
+        self.shutdown = Some(callbacks);
+        self
+    }
+
     /// Adds app-host shutdown callbacks for native close requests and event-loop polling.
     pub fn with_shutdown_callbacks(
         mut self,
@@ -74,11 +115,7 @@ impl Events {
         pump: impl Fn() + Send + Sync + 'static,
         should_exit: impl Fn() -> bool + Send + Sync + 'static,
     ) -> Self {
-        self.shutdown = Some(ShutdownCallbacks {
-            request_close: Arc::new(request_close),
-            pump: Arc::new(pump),
-            should_exit: Arc::new(should_exit),
-        });
+        self.shutdown = Some(ShutdownCallbacks::new(request_close, pump, should_exit));
         self
     }
 
@@ -104,20 +141,20 @@ impl Events {
 
     pub(super) fn request_window_close(&self) {
         if let Some(shutdown) = &self.shutdown {
-            (shutdown.request_close)();
+            shutdown.request_window_close();
         }
     }
 
     pub(super) fn pump_shutdown(&self) {
         if let Some(shutdown) = &self.shutdown {
-            (shutdown.pump)();
+            shutdown.pump();
         }
     }
 
     pub(super) fn shutdown_is_complete(&self) -> bool {
         self.shutdown
             .as_ref()
-            .is_some_and(|shutdown| (shutdown.should_exit)())
+            .is_some_and(ShutdownCallbacks::is_complete)
     }
 
     pub(super) fn has_shutdown_callbacks(&self) -> bool {

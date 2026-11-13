@@ -2,15 +2,12 @@
 
 use std::{
     sync::{Arc, Mutex},
-    time::{Instant, UNIX_EPOCH},
+    time::Instant,
 };
 
 use du_core_contracts::{
     ENVELOPE_VERSION, EventEnvelope, Timestamp,
-    shutdown_ipc::{
-        AppLifecycleChanged, AppLifecycleState, AppQuitMode, AppQuitOutcome, AppQuitRequest,
-        AppQuitResponse,
-    },
+    shutdown_ipc::{AppLifecycleChanged, AppLifecycleState},
 };
 use du_engine_api::{
     api::Engine,
@@ -21,12 +18,16 @@ use du_mcp_gateway::access::AccessGate;
 
 use super::{
     GatewayCloseReport, LifecycleEvent, LifecycleStatus, ListenerClose, QuitAdmission,
-    ShutdownCoordinator, ShutdownError, ShutdownPorts,
+    ShutdownPorts,
 };
+
+pub(crate) use super::controller::{QuitHandler, ShutdownController};
 
 /// A narrow app-host port for closing the concrete MCP listener, when installed.
 pub(crate) trait GatewayListenerCloser: Send + Sync {
     /// Closes the acceptor and every accepted socket before returning `Closed`.
+    /// The implementation must return by `deadline`; the host reports a late
+    /// return as a timeout.
     fn close_listener(&self, deadline: Instant) -> Result<ListenerClose, String>;
 }
 
@@ -41,121 +42,32 @@ impl GatewayListenerCloser for NoListenerCloser {
     }
 }
 
-/// IPC surface shared by the dispatcher and the native close-request handlers.
-pub(crate) trait QuitHandler: Send + Sync {
-    fn request_quit(&self, request: &AppQuitRequest) -> Result<AppQuitResponse, ShutdownError>;
-    fn is_closing(&self) -> bool;
+/// The MCP gateway pieces closed by IF-12.
+pub(crate) struct GatewayResources {
+    pub gate: AccessGate,
+    pub listener: Arc<dyn GatewayListenerCloser>,
 }
 
-/// Serializes quit admission, coordinator progress, and shutdown event publication.
-pub(crate) struct ShutdownController<P> {
-    coordinator: Mutex<ShutdownCoordinator<P>>,
-}
-
-impl<P: ShutdownPorts> ShutdownController<P> {
-    pub(crate) fn new(ports: P) -> Self {
-        Self {
-            coordinator: Mutex::new(ShutdownCoordinator::new(ports)),
-        }
-    }
-
-    /// Advances one bounded shutdown step and rebuilds the job set from its owner.
-    pub(crate) fn pump(&self, observed_at_ms: i64) -> Result<(), ShutdownError> {
-        let mut coordinator = self.coordinator.lock().map_err(|_| {
-            ShutdownError::Engine("shutdown coordinator lock is poisoned".to_owned())
-        })?;
-        coordinator.resync_active_jobs(observed_at_ms)?;
-        coordinator.advance(observed_at_ms)
-    }
-
-    pub(crate) fn should_exit(&self) -> bool {
-        self.coordinator
-            .lock()
-            .is_ok_and(|coordinator| coordinator.is_closed())
-    }
-
-    #[cfg(test)]
-    pub(crate) fn remaining_tasks(&self) -> usize {
-        self.coordinator
-            .lock()
-            .map_or(0, |coordinator| coordinator.remaining_tasks())
-    }
-
-    #[cfg(test)]
-    pub(crate) fn with_ports<R>(&self, read: impl FnOnce(&P) -> R) -> Option<R> {
-        self.coordinator
-            .lock()
-            .ok()
-            .map(|coordinator| read(&coordinator.ports))
-    }
-
-    #[cfg(test)]
-    pub(crate) fn with_ports_mut<R>(&self, update: impl FnOnce(&mut P) -> R) -> Option<R> {
-        self.coordinator
-            .lock()
-            .ok()
-            .map(|mut coordinator| update(&mut coordinator.ports))
-    }
-}
-
-impl<P: ShutdownPorts> QuitHandler for ShutdownController<P> {
-    fn request_quit(&self, request: &AppQuitRequest) -> Result<AppQuitResponse, ShutdownError> {
-        if cfg!(target_os = "macos") {
-            return Err(ShutdownError::NativeLifecycleUnavailable);
-        }
-
-        if request.mode == AppQuitMode::WithoutWaiting {
-            // F24 cancellation still records terminal history and joins job workers.
-            // The non-waiting F15 path needs that cross-contract behavior resolved.
-            return Err(ShutdownError::NonWaitingNotSupported);
-        }
-        let mut coordinator = self.coordinator.lock().map_err(|_| {
-            ShutdownError::Admission("shutdown coordinator lock is poisoned".to_owned())
-        })?;
-        // Do not bypass the GUI's confirmation of unfinished change work.
-        let admission = coordinator.request_waiting_quit(request.confirms_unfinished_changes())?;
-        Ok(response(admission))
-    }
-
-    fn is_closing(&self) -> bool {
-        self.coordinator
-            .lock()
-            .map_or(true, |coordinator| coordinator.is_closing())
-    }
-}
-
-fn response(admission: QuitAdmission) -> AppQuitResponse {
-    let (outcome, count) = match admission {
-        QuitAdmission::Accepted { .. } => (AppQuitOutcome::Accepted, None),
-        QuitAdmission::ConfirmRequired { active_change_jobs } => (
-            AppQuitOutcome::ConfirmRequired,
-            Some(u64::try_from(active_change_jobs).unwrap_or(u64::MAX)),
-        ),
-        QuitAdmission::AlreadyClosing => (AppQuitOutcome::AlreadyClosing, None),
-    };
-    AppQuitResponse {
-        outcome,
-        in_progress_change_count: count,
-    }
+/// Owners released in the storage steps, after the engine.
+pub(crate) struct StorageResources {
+    pub database: Arc<Mutex<Option<crate::shared_database::SharedDatabase>>>,
+    /// Releases platform-specific engine-adjacent owners (for example the recent-scope worker).
+    pub release_extra_owners: Box<dyn Fn() + Send + Sync>,
 }
 
 /// Production shutdown ports backed by app-host's shared engine and storage owners.
 pub(crate) struct HostShutdownResources {
     pub engine: Arc<Mutex<Option<Arc<Engine>>>>,
-    pub gate: AccessGate,
-    pub listener: Arc<dyn GatewayListenerCloser>,
+    pub gateway: GatewayResources,
     pub events: Arc<DesktopEvents>,
-    pub database: Arc<Mutex<Option<crate::shared_database::SharedDatabase>>>,
-    pub release_extra_owners: Box<dyn Fn() + Send + Sync>,
+    pub storage: StorageResources,
 }
 
 pub(crate) struct HostShutdownPorts {
     engine: Arc<Mutex<Option<Arc<Engine>>>>,
-    gate: AccessGate,
-    listener: Arc<dyn GatewayListenerCloser>,
+    gateway: GatewayResources,
     events: Arc<DesktopEvents>,
-    database: Arc<Mutex<Option<crate::shared_database::SharedDatabase>>>,
-    release_extra_owners: Box<dyn Fn() + Send + Sync>,
+    storage: StorageResources,
     history_barrier: Option<HistoryCommitBarrier>,
     history_failures: Option<usize>,
 }
@@ -165,11 +77,9 @@ impl HostShutdownPorts {
     pub(crate) fn new(resources: HostShutdownResources) -> Self {
         Self {
             engine: resources.engine,
-            gate: resources.gate,
-            listener: resources.listener,
+            gateway: resources.gateway,
             events: resources.events,
-            database: resources.database,
-            release_extra_owners: resources.release_extra_owners,
+            storage: resources.storage,
             history_barrier: None,
             history_failures: None,
         }
@@ -200,15 +110,25 @@ impl ShutdownPorts for HostShutdownPorts {
         })
     }
 
+    /// IF-12: closes the gate first, so no new session or request is admitted
+    /// whatever the listener does, then asks the listener to close.
     fn close_mcp_access(&mut self, deadline: Instant) -> Result<GatewayCloseReport, String> {
-        self.gate.close_access();
-        let listener = self.listener.close_listener(deadline)?;
+        let counts = self.gateway.gate.close_access();
+        let listener = self.gateway.listener.close_listener(deadline)?;
+        let timed_out = Instant::now() > deadline;
         Ok(GatewayCloseReport {
-            access_closed: !self.gate.is_accepting(),
+            access_closed: !self.gateway.gate.is_accepting(),
             listener,
-            timed_out: false,
-            detail: None,
+            timed_out,
+            sessions_closed: counts.sessions_closed,
+            responses_discarded: counts.responses_discarded,
+            detail: timed_out.then(|| "the listener returned after the close deadline".to_owned()),
         })
+    }
+
+    fn force_close_mcp_access(&mut self) -> bool {
+        self.gateway.gate.close_access();
+        !self.gateway.gate.is_accepting()
     }
 
     fn prepare_engine_shutdown(
@@ -258,15 +178,19 @@ impl ShutdownPorts for HostShutdownPorts {
         })
     }
 
+    /// Retires the window session on the orderly path, then drops the engine owner.
     fn release_engine(&mut self) {
-        if let Ok(mut engine) = self.engine.lock() {
-            engine.take();
+        if let Ok(mut engine) = self.engine.lock()
+            && let Some(engine) = engine.take()
+        {
+            engine.retire_window_session();
         }
-        (self.release_extra_owners)();
+        (self.storage.release_extra_owners)();
     }
 
     fn checkpoint_and_close_database(&mut self) -> Result<(), String> {
         let database = self
+            .storage
             .database
             .lock()
             .map_err(|_| "database owner lock is poisoned".to_owned())?
@@ -278,6 +202,7 @@ impl ShutdownPorts for HostShutdownPorts {
                 let detail = error.to_string();
                 let database = error.into_database();
                 let mut owner = self
+                    .storage
                     .database
                     .lock()
                     .map_err(|_| "database owner lock is poisoned".to_owned())?;
@@ -318,10 +243,15 @@ impl ShutdownPorts for HostShutdownPorts {
             body,
         });
     }
+
+    fn final_events_flushed(&self) -> bool {
+        !self.events.has_pending_events()
+    }
 }
 
 fn lifecycle_state(status: LifecycleStatus) -> AppLifecycleState {
     match status {
+        LifecycleStatus::Starting => AppLifecycleState::Starting,
         LifecycleStatus::Running => AppLifecycleState::Running,
         LifecycleStatus::AccessClosed => AppLifecycleState::AccessClosed,
         LifecycleStatus::Draining => AppLifecycleState::Draining,
@@ -329,11 +259,4 @@ fn lifecycle_state(status: LifecycleStatus) -> AppLifecycleState {
     }
 }
 
-/// Current UTC timestamp in Unix milliseconds for the shutdown state sequence.
-pub(crate) fn current_time_ms() -> i64 {
-    UNIX_EPOCH
-        .elapsed()
-        .ok()
-        .and_then(|elapsed| i64::try_from(elapsed.as_millis()).ok())
-        .unwrap_or(0)
-}
+pub(crate) use super::types::current_time_ms;

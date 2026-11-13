@@ -57,3 +57,15 @@ pub(super) fn hooks(runtime: Arc<JobRuntime>, workers: Arc<Workers>) -> Shutdown
         move || workers.close_and_join(),
     )
 }
+
+impl super::DesktopEvents {
+    /// Reports whether queued events remain undelivered, for shutdown flushing.
+    ///
+    /// A poisoned queue reports no pending events so a failed queue cannot hold
+    /// the process open.
+    pub fn has_pending_events(&self) -> bool {
+        self.0
+            .lock()
+            .is_ok_and(|pending| !pending.queue.is_empty() || pending.delivery_resync.is_some())
+    }
+}

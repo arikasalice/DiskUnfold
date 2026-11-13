@@ -1,13 +1,15 @@
-use super::contract::{Asset, CSP, WebApp, entry, message, resource};
+use super::contract::{Asset, CSP, ShutdownCallbacks, WebApp, entry, message, resource};
 use block2::DynBlock;
 use objc2::{
-    AnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, define_class,
+    AnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, class, define_class, msg_send,
     rc::{Retained, autoreleasepool},
-    runtime::{AnyObject, ProtocolObject},
+    runtime::{AnyObject, Bool, ProtocolObject},
+    sel,
 };
 use objc2_app_kit::{
-    NSApplication, NSApplicationActivationPolicy, NSBackingStoreType, NSImage, NSWindow,
-    NSWindowDelegate, NSWindowStyleMask,
+    NSApplication, NSApplicationActivationPolicy, NSApplicationDelegate,
+    NSApplicationTerminateReply, NSBackingStoreType, NSEvent, NSEventModifierFlags, NSEventType,
+    NSImage, NSWindow, NSWindowDelegate, NSWindowStyleMask,
 };
 use objc2_foundation::{
     NSData, NSDictionary, NSError, NSHTTPURLResponse, NSNotification, NSObject, NSObjectProtocol,
@@ -23,7 +25,33 @@ use std::{cell::RefCell, error::Error, ptr};
 
 struct State {
     app: WebApp,
+    shutdown: Option<ShutdownCallbacks>,
     error: RefCell<Option<String>>,
+}
+
+/// Interval of the shutdown progress timer, matching the Windows and Linux tickers.
+const SHUTDOWN_TICK_SECONDS: f64 = 0.016;
+
+/// Ends `NSApplication::run` from outside an event handler.
+///
+/// `stop:` only takes effect after the next event, so a timer callback must post
+/// one for the loop to observe the request.
+fn stop_application(application: &NSApplication) {
+    application.stop(None);
+    let wake = NSEvent::otherEventWithType_location_modifierFlags_timestamp_windowNumber_context_subtype_data1_data2(
+        NSEventType::ApplicationDefined,
+        NSPoint::new(0.0, 0.0),
+        NSEventModifierFlags::empty(),
+        0.0,
+        0,
+        None,
+        0,
+        0,
+        0,
+    );
+    if let Some(wake) = wake {
+        application.postEvent_atStart(&wake, true);
+    }
 }
 
 define_class!(
@@ -37,9 +65,53 @@ define_class!(
     unsafe impl NSObjectProtocol for Handler {}
 
     unsafe impl NSWindowDelegate for Handler {
+        /// Window close is a normal exit: it asks the host to shut down in order and
+        /// keeps the window open until the coordinator reports completion.
+        #[unsafe(method(windowShouldClose:))]
+        fn window_should_close(&self, _: &NSWindow) -> Bool {
+            match &self.ivars().shutdown {
+                Some(shutdown) => {
+                    shutdown.request_window_close();
+                    Bool::new(shutdown.is_complete())
+                }
+                None => Bool::YES,
+            }
+        }
+
         #[unsafe(method(windowWillClose:))]
         fn window_will_close(&self, _: &NSNotification) {
             NSApplication::sharedApplication(self.mtm()).stop(None);
+        }
+    }
+
+    unsafe impl NSApplicationDelegate for Handler {
+        /// Dock and menu quit use the same orderly path and never terminate early.
+        #[unsafe(method(applicationShouldTerminate:))]
+        fn application_should_terminate(&self, _: &NSApplication) -> NSApplicationTerminateReply {
+            match &self.ivars().shutdown {
+                Some(shutdown) => {
+                    shutdown.request_window_close();
+                    if shutdown.is_complete() {
+                        NSApplicationTerminateReply::TerminateNow
+                    } else {
+                        NSApplicationTerminateReply::TerminateCancel
+                    }
+                }
+                None => NSApplicationTerminateReply::TerminateNow,
+            }
+        }
+    }
+
+    impl Handler {
+        /// Advances the host shutdown and leaves the run loop once it completes.
+        #[unsafe(method(shutdownTick:))]
+        fn shutdown_tick(&self, _: &AnyObject) {
+            if let Some(shutdown) = &self.ivars().shutdown {
+                shutdown.pump();
+                if shutdown.is_complete() {
+                    stop_application(&NSApplication::sharedApplication(self.mtm()));
+                }
+            }
         }
     }
 
@@ -190,7 +262,7 @@ unsafe fn serve(asset: fn(&str) -> Option<Asset>, task: &ProtocolObject<dyn WKUR
     }
 }
 
-pub(super) fn run(app: WebApp) -> Result<(), Box<dyn Error>> {
+pub(super) fn run(app: WebApp, shutdown: Option<ShutdownCallbacks>) -> Result<(), Box<dyn Error>> {
     let mtm = MainThreadMarker::new().ok_or("AppKit requires the main thread")?;
     autoreleasepool(|_| {
         // SAFETY: AppKit and WebKit are initialized and operated exclusively on the main thread.
@@ -206,11 +278,16 @@ pub(super) fn run(app: WebApp) -> Result<(), Box<dyn Error>> {
             let handler = objc2::msg_send![
                 super(Handler::alloc(mtm).set_ivars(State {
                     app,
+                    shutdown,
                     error: RefCell::new(None)
                 })),
                 init
             ];
             let handler: Retained<Handler> = handler;
+            let has_shutdown = handler.ivars().shutdown.is_some();
+            if has_shutdown {
+                application.setDelegate(Some(ProtocolObject::from_ref(&*handler)));
+            }
             let config = WKWebViewConfiguration::new(mtm);
             config.setWebsiteDataStore(&WKWebsiteDataStore::nonPersistentDataStore(mtm));
             config.setURLSchemeHandler_forURLScheme(
@@ -260,7 +337,23 @@ pub(super) fn run(app: WebApp) -> Result<(), Box<dyn Error>> {
             window.center();
             window.makeKeyAndOrderFront(None);
             application.activate();
+            let timer: Option<Retained<AnyObject>> = has_shutdown.then(|| {
+                msg_send![
+                    class!(NSTimer),
+                    scheduledTimerWithTimeInterval: SHUTDOWN_TICK_SECONDS,
+                    target: &*handler,
+                    selector: sel!(shutdownTick:),
+                    userInfo: Option::<&AnyObject>::None,
+                    repeats: true
+                ]
+            });
             application.run();
+            if let Some(timer) = &timer {
+                let () = msg_send![&**timer, invalidate];
+            }
+            if has_shutdown {
+                application.setDelegate(None);
+            }
             manager.removeScriptMessageHandlerForName_contentWorld(&channel, &world);
             view.setNavigationDelegate(None);
             window.setDelegate(None);

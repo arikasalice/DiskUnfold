@@ -1,7 +1,10 @@
 //! Ordered app-host shutdown orchestration.
 //!
 //! The lifecycle owner connects this coordinator to the window, gateway access
-//! gate, engine, and final database owner.
+//! gate, engine, and final database owner. Every bounded wait in the sequence
+//! ends in a defined state: a step that keeps failing forces a nonzero exit, a
+//! gateway failure closes the gate and moves on, and jobs that outlive the drain
+//! bound are abandoned without a success record.
 
 use std::{
     collections::HashSet,
@@ -9,97 +12,47 @@ use std::{
 };
 
 use du_core_contracts::Id;
-use du_engine_api::shutdown::{HistoryCommitStatus, ShutdownAdmission, ShutdownPreparation};
+use du_engine_api::shutdown::{HistoryCommitStatus, ShutdownPreparation, WatchStopResult};
 
+mod controller;
 pub(crate) mod host;
-#[cfg(any(windows, target_os = "linux"))]
+mod retry;
+mod types;
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 pub(crate) mod webview;
 
-/// The only result returned by the atomic app.quit admission cut.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum QuitAdmission {
-    Accepted { active_change_jobs: usize },
-    ConfirmRequired { active_change_jobs: usize },
-    AlreadyClosing,
+pub(crate) use types::*;
+
+/// Bounds for every wait in the shutdown sequence.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ShutdownTimeouts {
+    /// Longest wait for cancelled jobs to reach a terminal state.
+    pub drain: Duration,
+    /// Longest wait for bodies to return from their current OS call once the
+    /// user chose to leave without waiting.
+    pub os_return: Duration,
+    /// IF-12 deadline for the gateway close.
+    pub gateway: Duration,
+    /// Failed gateway closes tolerated before the gate is force-closed.
+    pub gateway_attempts: u32,
+    /// Consecutive failed ticks tolerated before the exit is forced.
+    pub phase_retries: u32,
+    /// Longest wait for the final lifecycle event to leave the host queue.
+    pub final_flush: Duration,
 }
 
-impl From<ShutdownAdmission> for QuitAdmission {
-    fn from(value: ShutdownAdmission) -> Self {
-        match value {
-            ShutdownAdmission::Accepted { active_change_jobs } => {
-                Self::Accepted { active_change_jobs }
-            }
-            ShutdownAdmission::ConfirmRequired { active_change_jobs } => {
-                Self::ConfirmRequired { active_change_jobs }
-            }
-            ShutdownAdmission::AlreadyClosing => Self::AlreadyClosing,
+impl Default for ShutdownTimeouts {
+    fn default() -> Self {
+        Self {
+            drain: Duration::from_secs(30),
+            os_return: Duration::from_secs(10),
+            gateway: Duration::from_secs(2),
+            gateway_attempts: 3,
+            // About two seconds at the 16 ms shutdown tick.
+            phase_retries: 125,
+            final_flush: Duration::from_millis(250),
         }
     }
-}
-
-/// Listener closure states distinguish an absent transport from a closed one.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ListenerClose {
-    /// No listener has been installed in this composition.
-    NotInstalled,
-    /// The listener and every accepted socket have been closed.
-    #[allow(dead_code)] // Reserved for the F12 concrete listener adapter.
-    Closed,
-}
-
-/// A gateway outcome that reports gate and listener state separately.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct GatewayCloseReport {
-    /// True only after new gateway sessions and requests are rejected.
-    pub access_closed: bool,
-    /// Listener state; `NotInstalled` does not claim a socket was closed.
-    pub listener: ListenerClose,
-    /// True when the graceful close deadline elapsed and force-close was used.
-    pub timed_out: bool,
-    /// Optional diagnostic that does not prevent shutdown after force-close.
-    pub detail: Option<String>,
-}
-
-/// App lifecycle status sent with monotonic sequence and observation time.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum LifecycleStatus {
-    Running,
-    AccessClosed,
-    Draining,
-    Closed,
-}
-
-/// One host-owned lifecycle event; the IPC adapter maps it to the shared IF-07 type.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct LifecycleEvent {
-    pub status: LifecycleStatus,
-    pub previous: LifecycleStatus,
-    pub remaining_tasks: usize,
-    pub sequence: u64,
-    pub observed_at_ms: i64,
-}
-
-/// Narrow app-host ports used by the shutdown state machine.
-///
-/// `close_mcp_access` closes request admission and asks the transport adapter
-/// to close its listener. `NotInstalled` is distinct from a confirmed socket
-/// close; a timeout is acceptable only after the adapter confirms closure.
-/// `release_engine` drops the app-host engine owner after the history barrier
-/// and worker join; the database port may close only after all other owners
-/// have also dropped.
-pub(crate) trait ShutdownPorts: Send {
-    fn close_job_admission(&mut self, confirmed: bool) -> Result<QuitAdmission, String>;
-    fn close_mcp_access(&mut self, deadline: Instant) -> Result<GatewayCloseReport, String>;
-    fn prepare_engine_shutdown(&mut self) -> Result<ShutdownPreparation, String>;
-    fn list_active_jobs(&mut self) -> Result<Vec<Id>, String>;
-    fn begin_history_commit_barrier(&mut self, timeout: Duration) -> Result<(), String>;
-    fn poll_history_commit_barrier(&mut self) -> HistoryCommitStatus;
-    fn history_failure_count(&self) -> Option<usize>;
-    fn close_job_workers(&mut self) -> Result<(), String>;
-    fn release_engine(&mut self);
-    fn checkpoint_and_close_database(&mut self) -> Result<(), String>;
-    fn zeroize_secrets(&mut self) -> Result<(), String>;
-    fn publish_lifecycle(&mut self, event: LifecycleEvent);
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -114,43 +67,127 @@ enum Phase {
     Closed,
 }
 
-/// Ordered coordinator for the waiting shutdown path.
+impl Phase {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Running => "running",
+            Self::ClosingAccess => "closing_access",
+            Self::AccessClosed => "access_closed",
+            Self::Draining => "draining",
+            Self::HistoryCommit => "history_commit",
+            Self::ClosingStorage => "closing_storage",
+            Self::ZeroizingSecrets => "zeroizing_secrets",
+            Self::Closed => "closed",
+        }
+    }
+}
+
+/// Ordered coordinator for the shutdown sequence (F15 FR7.HD1, FR10.HD1).
 ///
-/// The non-waiting exit path is deliberately not exposed here. F15 requires
-/// unfinished work to remain unrecorded, while F24 terminal cancellation runs
-/// the ordinary history path. Those contracts need reconciliation before that
-/// mode can be connected safely.
+/// F24 cancellation records terminal history for every job that reaches a
+/// terminal state, so both quit modes run the ordinary history barrier for work
+/// that finished. Work still running at the bound is abandoned and never
+/// reported as a success.
 pub(crate) struct ShutdownCoordinator<P> {
     ports: P,
+    timeouts: ShutdownTimeouts,
     phase: Phase,
+    mode: QuitMode,
     active_jobs: HashSet<Id>,
     preparation: Option<ShutdownPreparation>,
     history_barrier_started: bool,
     engine_released: bool,
     sequence: u64,
     visible_status: LifecycleStatus,
+    gateway_failures: u32,
+    gateway: Option<GatewayCloseReport>,
+    drain_deadline: Option<Instant>,
+    os_return_deadline: Option<Instant>,
+    outcome: ShutdownOutcome,
+    closed_at: Option<Instant>,
+    consecutive_failures: u32,
+    diagnostics: Vec<String>,
 }
 
 impl<P: ShutdownPorts> ShutdownCoordinator<P> {
+    #[cfg(test)]
     pub(crate) fn new(ports: P) -> Self {
+        Self::with_timeouts(ports, ShutdownTimeouts::default())
+    }
+
+    pub(crate) fn with_timeouts(ports: P, timeouts: ShutdownTimeouts) -> Self {
         Self {
             ports,
+            timeouts,
             phase: Phase::Running,
+            mode: QuitMode::Waiting,
             active_jobs: HashSet::new(),
             preparation: None,
             history_barrier_started: false,
             engine_released: false,
             sequence: 0,
-            visible_status: LifecycleStatus::Running,
+            visible_status: LifecycleStatus::Starting,
+            gateway_failures: 0,
+            gateway: None,
+            drain_deadline: None,
+            os_return_deadline: None,
+            outcome: ShutdownOutcome::Clean,
+            closed_at: None,
+            consecutive_failures: 0,
+            diagnostics: Vec::new(),
         }
     }
 
+    /// Publishes the initial `running` lifecycle event (IF-07).
+    pub(crate) fn announce_running(&mut self, observed_at_ms: i64) -> Result<(), ShutdownError> {
+        if self.visible_status != LifecycleStatus::Starting {
+            return Ok(());
+        }
+        self.emit(LifecycleStatus::Running, observed_at_ms)
+    }
+
+    /// Tells the window that a quit needs confirmation because change work runs.
+    ///
+    /// The IF-07 projection keeps the state `running` and reports the number of
+    /// in-progress change jobs as the remaining work.
+    pub(crate) fn announce_confirmation_needed(
+        &mut self,
+        change_jobs: usize,
+        observed_at_ms: i64,
+    ) -> Result<(), ShutdownError> {
+        let sequence = self.next_sequence()?;
+        self.ports.publish_lifecycle(LifecycleEvent {
+            status: self.visible_status,
+            previous: self.visible_status,
+            remaining_tasks: change_jobs,
+            sequence,
+            observed_at_ms,
+        });
+        Ok(())
+    }
+
     /// Atomically admits a waiting quit request, or returns confirmation without mutation.
+    #[cfg(test)]
     pub(crate) fn request_waiting_quit(
         &mut self,
         confirmed: bool,
     ) -> Result<QuitAdmission, ShutdownError> {
+        self.request_quit(QuitMode::Waiting, confirmed)
+    }
+
+    /// Atomically admits a quit request. `confirmed` answers the change-work
+    /// confirmation; an unconfirmed request with change work leaves all state alone.
+    /// Calling again while closing reports `AlreadyClosing`, and asking to leave
+    /// without waiting switches an in-progress waiting shutdown to the shorter bound.
+    pub(crate) fn request_quit(
+        &mut self,
+        mode: QuitMode,
+        confirmed: bool,
+    ) -> Result<QuitAdmission, ShutdownError> {
         if self.phase != Phase::Running {
+            if mode == QuitMode::WithoutWaiting {
+                self.stop_waiting();
+            }
             return Ok(QuitAdmission::AlreadyClosing);
         }
         let admission = self
@@ -160,14 +197,24 @@ impl<P: ShutdownPorts> ShutdownCoordinator<P> {
         match admission {
             QuitAdmission::Accepted { .. } | QuitAdmission::AlreadyClosing => {
                 self.phase = Phase::ClosingAccess;
+                self.mode = mode;
             }
             QuitAdmission::ConfirmRequired { .. } => {}
         }
         Ok(admission)
     }
 
-    /// Advances one bounded step. Gateway close receives a two-second deadline;
-    /// timeout is acceptable only when the adapter confirms forced socket closure.
+    fn stop_waiting(&mut self) {
+        if self.mode == QuitMode::WithoutWaiting || self.phase == Phase::Closed {
+            return;
+        }
+        self.mode = QuitMode::WithoutWaiting;
+        if self.phase == Phase::Draining {
+            self.os_return_deadline = Some(Instant::now() + self.timeouts.os_return);
+        }
+    }
+
+    /// Advances one bounded step.
     pub(crate) fn advance(&mut self, observed_at_ms: i64) -> Result<(), ShutdownError> {
         match self.phase {
             Phase::Running | Phase::Closed => Ok(()),
@@ -234,21 +281,65 @@ impl<P: ShutdownPorts> ShutdownCoordinator<P> {
         self.phase != Phase::Running
     }
 
+    /// How the shutdown ended; `Clean` until it ends otherwise.
+    pub(crate) fn outcome(&self) -> &ShutdownOutcome {
+        &self.outcome
+    }
+
     #[cfg(test)]
     pub(crate) fn into_ports(self) -> P {
         self.ports
     }
 
     fn close_access(&mut self, observed_at_ms: i64) -> Result<(), ShutdownError> {
-        let report = self
-            .ports
-            .close_mcp_access(Instant::now() + Duration::from_secs(2))
-            .map_err(ShutdownError::Gateway)?;
-        if !report.access_closed {
-            return Err(ShutdownError::GatewayAccessOpen(report.detail));
+        let report = self.close_gateway()?;
+        if report.timed_out {
+            self.note(format!(
+                "gateway close passed its {:?} deadline (sessions closed {}, responses discarded {})",
+                self.timeouts.gateway, report.sessions_closed, report.responses_discarded
+            ));
         }
+        self.gateway = Some(report);
+        // The count is taken before the state changes so access_closed carries it.
+        self.active_jobs = self
+            .ports
+            .list_active_jobs()
+            .map_err(ShutdownError::JobList)?
+            .into_iter()
+            .collect();
         self.phase = Phase::AccessClosed;
         self.emit(LifecycleStatus::AccessClosed, observed_at_ms)
+    }
+
+    /// Closes MCP access. A listener that keeps failing is force-closed and the
+    /// sequence moves on, as IF-12 requires; an open gate always stops it.
+    fn close_gateway(&mut self) -> Result<GatewayCloseReport, ShutdownError> {
+        let deadline = Instant::now() + self.timeouts.gateway;
+        match self.ports.close_mcp_access(deadline) {
+            Ok(report) if report.access_closed => {
+                self.gateway_failures = 0;
+                Ok(report)
+            }
+            Ok(report) => Err(ShutdownError::GatewayAccessOpen(report.detail)),
+            Err(error) => {
+                self.gateway_failures = self.gateway_failures.saturating_add(1);
+                if self.gateway_failures < self.timeouts.gateway_attempts {
+                    return Err(ShutdownError::Gateway(error));
+                }
+                self.note(format!("gateway close failed, forcing the gate: {error}"));
+                if !self.ports.force_close_mcp_access() {
+                    return Err(ShutdownError::GatewayAccessOpen(Some(error)));
+                }
+                Ok(GatewayCloseReport {
+                    access_closed: true,
+                    listener: ListenerClose::Unconfirmed,
+                    timed_out: true,
+                    sessions_closed: 0,
+                    responses_discarded: 0,
+                    detail: Some(error),
+                })
+            }
+        }
     }
 
     fn prepare_and_drain(&mut self, observed_at_ms: i64) -> Result<(), ShutdownError> {
@@ -258,7 +349,7 @@ impl<P: ShutdownPorts> ShutdownCoordinator<P> {
             .map_err(ShutdownError::Engine)?;
         let watch_stop = preparation.watch_stop;
         self.preparation = Some(preparation);
-        if watch_stop == du_engine_api::shutdown::WatchStopResult::Failed {
+        if watch_stop == WatchStopResult::Failed {
             return Err(ShutdownError::WatcherStopUnconfirmed);
         }
         self.active_jobs = self
@@ -267,12 +358,20 @@ impl<P: ShutdownPorts> ShutdownCoordinator<P> {
             .map_err(ShutdownError::JobList)?
             .into_iter()
             .collect();
+        let now = Instant::now();
+        self.drain_deadline = Some(now + self.timeouts.drain);
+        if self.mode == QuitMode::WithoutWaiting {
+            self.os_return_deadline = Some(now + self.timeouts.os_return);
+        }
         self.phase = Phase::Draining;
         self.emit(LifecycleStatus::Draining, observed_at_ms)
     }
 
     fn begin_history_barrier(&mut self, _observed_at_ms: i64) -> Result<(), ShutdownError> {
         if !self.active_jobs.is_empty() {
+            if self.drain_expired() {
+                self.abandon_remaining_jobs();
+            }
             return Ok(());
         }
         self.ports
@@ -281,6 +380,32 @@ impl<P: ShutdownPorts> ShutdownCoordinator<P> {
         self.history_barrier_started = true;
         self.phase = Phase::HistoryCommit;
         Ok(())
+    }
+
+    fn drain_expired(&self) -> bool {
+        let now = Instant::now();
+        [self.drain_deadline, self.os_return_deadline]
+            .into_iter()
+            .flatten()
+            .any(|deadline| now >= deadline)
+    }
+
+    /// Leaves the jobs that did not return in time. Nothing can close the job
+    /// workers, history or database while a body still runs, so those steps are
+    /// skipped; the engine owner is released so no further command reaches it,
+    /// and the next start recovers the database. The jobs are never recorded as done.
+    fn abandon_remaining_jobs(&mut self) {
+        let jobs = self.active_jobs.len();
+        self.outcome = match self.mode {
+            QuitMode::WithoutWaiting => ShutdownOutcome::Abandoned { jobs },
+            QuitMode::Waiting => ShutdownOutcome::DrainTimedOut { jobs },
+        };
+        self.note(format!("{jobs} job(s) did not finish and were abandoned"));
+        if !self.engine_released {
+            self.ports.release_engine();
+            self.engine_released = true;
+        }
+        self.phase = Phase::ZeroizingSecrets;
     }
 
     fn finish_history_and_close_workers(
@@ -323,15 +448,21 @@ impl<P: ShutdownPorts> ShutdownCoordinator<P> {
             .zeroize_secrets()
             .map_err(ShutdownError::SecretClear)?;
         self.phase = Phase::Closed;
+        self.closed_at = Some(Instant::now());
         self.emit(LifecycleStatus::Closed, observed_at_ms)
     }
 
-    fn emit(&mut self, status: LifecycleStatus, observed_at_ms: i64) -> Result<(), ShutdownError> {
+    fn next_sequence(&mut self) -> Result<u64, ShutdownError> {
         let sequence = self
             .sequence
             .checked_add(1)
             .ok_or(ShutdownError::SequenceExhausted)?;
         self.sequence = sequence;
+        Ok(sequence)
+    }
+
+    fn emit(&mut self, status: LifecycleStatus, observed_at_ms: i64) -> Result<(), ShutdownError> {
+        let sequence = self.next_sequence()?;
         let previous = self.visible_status;
         self.visible_status = status;
         self.ports.publish_lifecycle(LifecycleEvent {
@@ -344,37 +475,6 @@ impl<P: ShutdownPorts> ShutdownCoordinator<P> {
         Ok(())
     }
 }
-
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) enum ShutdownError {
-    Admission(String),
-    Gateway(String),
-    GatewayAccessOpen(Option<String>),
-    NonWaitingNotSupported,
-    #[allow(dead_code)] // Mac AppKit has no coordinator pump in the current adapter.
-    NativeLifecycleUnavailable,
-    Engine(String),
-    WatcherStopUnconfirmed,
-    JobList(String),
-    HistoryBarrier(String),
-    HistoryBarrierMissing,
-    HistoryCommitTimedOut,
-    HistoryCommitFailed {
-        failed_appends: Option<usize>,
-    },
-    WorkerStop(String),
-    DatabaseClose(String),
-    SecretClear(String),
-    SequenceExhausted,
-}
-
-impl std::fmt::Display for ShutdownError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(formatter, "{self:?}")
-    }
-}
-
-impl std::error::Error for ShutdownError {}
 
 #[cfg(test)]
 mod tests;

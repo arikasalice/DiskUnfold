@@ -387,6 +387,17 @@
   {
     "ecosystem": "cargo",
     "owner": "du-platform-os",
+    "name": "libc",
+    "version": "0.2.191",
+    "source": "registry+https://github.com/rust-lang/crates.io-index",
+    "license": "MIT OR Apache-2.0",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Resolve the real user's home directory on macOS with getpwuid_r for the Full Disk Access probe"
+  },
+  {
+    "ecosystem": "cargo",
+    "owner": "du-platform-os",
     "name": "rustix",
     "version": "1.1.6",
     "source": "registry+https://github.com/rust-lang/crates.io-index",

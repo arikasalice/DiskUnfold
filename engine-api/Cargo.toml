@@ -5,6 +5,10 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[features]
+# Exposes a real job-runtime fixture so host tests can exercise shutdown.
+shutdown-test-support = []
+
 [dependencies]
 blake3 = "=1.8.3"
 du-analysis-index = { version = "0.1.0", path = "../analysis-index" }

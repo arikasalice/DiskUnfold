@@ -380,23 +380,29 @@ fn run_app(
         crate::shutdown::host::HostShutdownPorts::new(
             crate::shutdown::host::HostShutdownResources {
                 engine: engine_owner.clone(),
-                gate: du_mcp_gateway::access::AccessGate::default(),
-                listener: Arc::new(crate::shutdown::host::NoListenerCloser),
+                gateway: crate::shutdown::host::GatewayResources {
+                    gate: du_mcp_gateway::access::AccessGate::default(),
+                    listener: Arc::new(crate::shutdown::host::NoListenerCloser),
+                },
                 events: events.clone(),
-                database: database_owner,
-                release_extra_owners: Box::new(release_extra_owners),
+                storage: crate::shutdown::host::StorageResources {
+                    database: database_owner,
+                    release_extra_owners: Box::new(release_extra_owners),
+                },
             },
         ),
     ));
+    if let Err(error) = shutdown.announce_running() {
+        eprintln!("DiskUnfold shutdown: the running event was not published: {error}");
+    }
     let dispatch_engine = engine_owner.clone();
     let dispatch_access = startup_access.clone();
     let dispatch_shutdown = shutdown.clone();
     let app = WebApp {
         asset,
         dispatch: Arc::new(move |message| {
-            let engine = dispatch_engine.lock().ok()?.as_ref()?.clone();
             crate::ipc::dispatch_with_shutdown(
-                &engine,
+                dispatch_engine.as_ref(),
                 message,
                 &dispatch_access,
                 dispatch_shutdown.as_ref(),
@@ -422,36 +428,47 @@ fn run_app(
     {
         let event_source = crate::shutdown::webview::event_source(events.clone(), shutdown.clone());
         let result = du_platform_os::webview::run_with_events(app, event_source);
-        if let Ok(mut engine) = engine_owner.lock()
-            && let Some(engine) = engine.take()
-        {
-            engine.retire_window_session();
-        }
+        retire_unreleased_session(&engine_owner);
         #[cfg(windows)]
         if let Ok(mut worker) = recent_worker_owner.lock() {
             worker.take();
         }
-        result
+        finish(result, &shutdown)
     }
     #[cfg(target_os = "macos")]
     {
-        let result = du_platform_os::webview::run(app);
-        // AppKit currently has no shutdown callback/timer in its webview adapter.
-        // Retire the session after the native loop exits; app.quit cannot yet
-        // advance its coordinator on this platform.
-        if let Ok(mut engine) = engine_owner.lock() {
-            if let Some(engine) = engine.take() {
-                engine.retire_window_session();
-            }
-        }
-        if let Ok(mut database) = database_owner.lock() {
-            database.take();
-        }
-        result
+        // Window close, Dock and menu quit use the same orderly coordinator as the
+        // other platforms; the adapter keeps the window open until it completes.
+        let hooks = crate::shutdown::webview::shutdown_callbacks(shutdown.clone());
+        let result = du_platform_os::webview::run_with_shutdown(app, hooks);
+        retire_unreleased_session(&engine_owner);
+        finish(result, &shutdown)
     }
     #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
     {
         let _ = startup_access;
         du_platform_os::webview::run(app)
     }
+}
+
+/// Retires the window session if the orderly shutdown did not already release the
+/// engine (for example when the page failed to load).
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+fn retire_unreleased_session(engine_owner: &Mutex<Option<Arc<du_engine_api::api::Engine>>>) {
+    if let Ok(mut engine) = engine_owner.lock()
+        && let Some(engine) = engine.take()
+    {
+        engine.retire_window_session();
+    }
+}
+
+/// Turns the shutdown outcome into the process result: a window error wins, and a
+/// forced or timed-out shutdown exits nonzero.
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+fn finish(
+    window: Result<(), Box<dyn std::error::Error>>,
+    shutdown: &crate::shutdown::host::ShutdownController<crate::shutdown::host::HostShutdownPorts>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    window?;
+    shutdown.exit_result().map_err(Into::into)
 }

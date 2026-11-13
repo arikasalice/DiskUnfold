@@ -24,6 +24,8 @@ use serde_json::json;
 
 pub(crate) mod scan_completion;
 mod shutdown;
+#[cfg(feature = "shutdown-test-support")]
+pub mod shutdown_fixture;
 mod visualization;
 pub use crate::scan::{ScanDiagnosticsFactory, SharedTableLimit, SharedTableLimitSource};
 use crate::{api::EngineBuilder, jobs, scan, scope, targets, workers::Workers};

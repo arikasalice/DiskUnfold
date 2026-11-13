@@ -9,7 +9,8 @@
 //! The probe never writes, never creates files and never prompts the user. It
 //! observes the grant of the calling process (and its responsible app), which
 //! is the access the analysis engine will actually have.
-//! It uses only safe standard-library I/O, so it needs no unsafe code.
+//! Probing uses only safe standard-library I/O. The one unsafe call, the
+//! passwd lookup of the home directory, lives in the `passwd` submodule.
 
 use super::FullDiskAccessStatus;
 use std::{
@@ -17,6 +18,10 @@ use std::{
     io::{self, Read},
     path::{Path, PathBuf},
 };
+
+#[cfg(target_os = "macos")]
+#[allow(unsafe_code)]
+mod passwd;
 
 /// What one read-only attempt on a protected path established.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -55,16 +60,24 @@ pub(super) fn evidence_from_error(error: &io::Error) -> ProbeEvidence {
 /// Opens `path` read-only and reads at most one byte (or one directory entry).
 pub(super) fn probe_path(path: &Path) -> ProbeEvidence {
     let outcome = match fs::metadata(path) {
-        Ok(metadata) if metadata.is_dir() => fs::read_dir(path).map(|mut entries| {
-            // Listing succeeded; one entry is enough, so stop reading.
-            let _ = entries.next();
-        }),
+        Ok(metadata) if metadata.is_dir() => fs::read_dir(path).and_then(first_entry_outcome),
         Ok(_) => fs::File::open(path).and_then(|mut file| file.read(&mut [0u8; 1]).map(|_| ())),
         Err(error) => Err(error),
     };
     match outcome {
         Ok(()) => ProbeEvidence::Readable,
         Err(error) => evidence_from_error(&error),
+    }
+}
+
+/// Reads at most one directory entry. The first `readdir` can fail with
+/// `EPERM` after `opendir` succeeded, and that refusal must not count as a read.
+pub(super) fn first_entry_outcome<T>(
+    mut entries: impl Iterator<Item = io::Result<T>>,
+) -> io::Result<()> {
+    match entries.next() {
+        Some(Err(error)) => Err(error),
+        Some(Ok(_)) | None => Ok(()),
     }
 }
 
@@ -100,10 +113,11 @@ pub(super) fn full_disk_access_with(
     aggregate(&evidence)
 }
 
-/// Production probe using the process's home directory.
+/// Production probe using the home directory from the passwd entry of the
+/// real user, which an inherited `$HOME` cannot redirect.
 #[cfg(target_os = "macos")]
 pub(super) fn full_disk_access_status() -> FullDiskAccessStatus {
-    full_disk_access_with(std::env::var_os("HOME").map(PathBuf::from), probe_path)
+    full_disk_access_with(passwd::home_directory(), probe_path)
 }
 
 #[cfg(test)]
@@ -173,6 +187,22 @@ mod tests {
             assert_eq!(status, FullDiskAccessStatus::Denied);
             assert_eq!(*seen.borrow(), vec![PathBuf::from(SYSTEM_PROBE)]);
         }
+    }
+
+    #[test]
+    fn a_refused_first_readdir_is_blocked_not_readable() {
+        let outcome = |entry: io::Result<()>| {
+            first_entry_outcome(std::iter::once(entry))
+                .map_or_else(|error| evidence_from_error(&error), |()| Readable)
+        };
+        assert_eq!(
+            outcome(Err(io::Error::from(io::ErrorKind::PermissionDenied))),
+            Blocked
+        );
+        #[cfg(unix)]
+        assert_eq!(outcome(Err(io::Error::from_raw_os_error(1))), Blocked);
+        assert_eq!(outcome(Ok(())), Readable);
+        assert!(first_entry_outcome(std::iter::empty::<io::Result<()>>()).is_ok());
     }
 
     #[test]
