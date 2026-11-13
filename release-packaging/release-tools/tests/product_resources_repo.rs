@@ -41,21 +41,49 @@ fn repository_resources_are_deterministic_and_pass_the_license_policy() -> Resul
 }
 
 #[test]
-fn ubuntu_rows_without_a_confirmed_basis_stop_a_release() -> Result<(), Box<dyn Error>> {
+fn every_row_has_an_unconfirmed_basis_that_blocks_release_mode_only() -> Result<(), Box<dyn Error>>
+{
     let commit = Some("0123456789abcdef0123456789abcdef01234567".to_owned());
+    let development = generate(&repo(), commit.clone(), Mode::Development)?;
+    assert!(
+        development.blockers.is_empty(),
+        "{:?}",
+        development.blockers
+    );
+    assert_eq!(development.json["releaseGate"]["passed"], true);
+
     let release = generate(&repo(), commit, Mode::Release)?;
     assert_eq!(release.json["releaseGate"]["passed"], false);
     let blockers = &release.blockers;
-    let missing = blockers
-        .iter()
-        .filter(|b| b.reason_key == "release.support_basis_missing");
-    assert_eq!(missing.count(), 4, "{blockers:?}");
-    let matrix = release.support_matrix["combinations"]
+    assert_eq!(blockers.len(), 18, "{blockers:?}");
+    assert!(
+        blockers
+            .iter()
+            .all(|b| b.reason_key == "release.support_basis_unconfirmed")
+    );
+
+    let rows = release.support_matrix["combinations"]
         .as_array()
-        .map_or(0, Vec::len);
+        .cloned()
+        .unwrap_or_default();
     assert_eq!(
-        matrix, 14,
-        "rows without a basis stay out of the embedded matrix"
+        rows.len(),
+        18,
+        "every row has a basis, so every row is embedded"
+    );
+    let ubuntu = rows
+        .iter()
+        .find(|r| r["identity"]["release"] == "24.04" && r["identity"]["cpu"] == "x64")
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(ubuntu["status"], "conditional");
+    assert_eq!(
+        ubuntu["verificationRecords"][0],
+        "ubuntu-24.04-ubuntu-x64-container-2026-11-13"
+    );
+    assert_eq!(
+        ubuntu["securitySupport"]["source"],
+        "https://ubuntu.com/about/release-cycle [unconfirmed]"
     );
     Ok(())
 }
