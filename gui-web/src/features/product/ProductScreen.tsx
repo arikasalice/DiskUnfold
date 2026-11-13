@@ -5,13 +5,19 @@ import {
   Progress,
   Readout,
   ReviewSection,
+  Text,
 } from "../../components";
 import { useLocaleText } from "../../i18n/presentation";
 import type { AnalysisClient } from "../../ipc";
 import { useHostQuery } from "../../state/use-host-query";
 import { ExecutableDigest } from "./ExecutableDigest";
 import { NoticeViewer } from "./NoticeViewer";
-import { buildKindText, installFormText, productCopy } from "./product-copy";
+import {
+  buildKindText,
+  installFormText,
+  productCopy,
+  targetText,
+} from "./product-copy";
 import "../../theme/info-screens.css";
 
 /**
@@ -53,14 +59,10 @@ export function ProductScreen({ client }: { client: AnalysisClient }) {
     data.installFormReasonKey,
     copy,
   );
-  const target =
-    data.targetOs === null && data.targetCpu === null
-      ? copy.missing
-      : [data.targetOs, data.targetCpu]
-          .map((part) => missing(part))
-          .join(" / ");
+  const target = targetText(data.targetOs, data.targetCpu, copy);
   return (
     <div className="du-info-screen">
+      <Text kind="muted">{copy.intro}</Text>
       {failed && <Notice tone="error">{copy.refreshFailed}</Notice>}
       <ReviewSection title={copy.buildHeading}>
         <Readout

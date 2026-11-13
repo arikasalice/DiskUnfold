@@ -35,10 +35,14 @@ export function productCopy(text: LocaleText) {
     snapshotFormat: text("ui.product.snapshot_format", "Snapshot file format"),
     missing: text("ui.product.value_missing", "Not recorded in this build"),
     noticesHeading: text("ui.product.notices_heading", "Licenses and notices"),
-    noticeMissing: text(
-      "ui.product.notice_missing",
-      "Not included in this build.",
-    ),
+    noticeMissingNamed: (name: string) =>
+      text(
+        "ui.product.notice_missing_named",
+        "{name}: Not included in this build.",
+        {
+          name,
+        },
+      ),
     noticeLoading: text("ui.product.notice_loading", "Loading the document"),
     noticeFailed: text(
       "ui.product.notice_failed",
@@ -48,11 +52,25 @@ export function productCopy(text: LocaleText) {
       "ui.product.notice_empty",
       "This build does not include the text of this document.",
     ),
-    noticeRegion: text("ui.product.notice_region", "Document text"),
-    noticeCommit: text(
-      "ui.product.notice_commit",
-      "Generated from source commit",
-    ),
+    noticeRegionNamed: (name: string) =>
+      text("ui.product.notice_region_named", "Document text: {name}", { name }),
+    noticeCommitValue: (commit: string) =>
+      text(
+        "ui.product.notice_commit_value",
+        "Generated from source commit: {commit}",
+        { commit },
+      ),
+    targetValue: (os: string, cpu: string) =>
+      text("ui.product.target_value", "{os} / {cpu}", { os, cpu }),
+    targetOsNames: {
+      windows: text("ui.support.os_windows", "Windows"),
+      macos: text("ui.support.os_macos", "macOS"),
+      linux: text("ui.support.os_linux", "Linux"),
+    } as Record<string, string>,
+    targetCpuNames: {
+      x64: text("ui.support.cpu_x64", "x64"),
+      arm64: text("ui.support.cpu_arm64", "ARM64"),
+    } as Record<string, string>,
     noticeCommitUnknown: text(
       "ui.product.notice_commit_unknown",
       "The source commit of this document is not recorded.",
@@ -132,6 +150,29 @@ export function productCopy(text: LocaleText) {
 }
 
 export type ProductCopy = ReturnType<typeof productCopy>;
+
+/**
+ * The build target in the same words the support screen uses for the
+ * operating system and CPU. A value this version does not know is shown as
+ * the host reported it.
+ */
+export function targetText(
+  os: string | null,
+  cpu: string | null,
+  copy: ProductCopy,
+): string {
+  if (os === null && cpu === null) return copy.missing;
+  const name = (names: Record<string, string>, value: string | null) =>
+    value === null
+      ? copy.missing
+      : Object.hasOwn(names, value)
+        ? (names[value] as string)
+        : value;
+  return copy.targetValue(
+    name(copy.targetOsNames, os),
+    name(copy.targetCpuNames, cpu),
+  );
+}
 
 /** Chooses the words for a build type; an unfamiliar value reads as undetermined. */
 export function buildKindText(kind: BuildKind, copy: ProductCopy) {

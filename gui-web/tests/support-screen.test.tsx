@@ -71,22 +71,23 @@ test("calls out a feature area whose current state differs from the support tabl
 test("lists the embedded support combinations", async () => {
   const host = fakeHost({ "app.support_info": () => supportReport() });
   render(<SupportScreen client={host.client} />);
-  const table = await screen.findByRole("table", {
-    name: "Tested combinations",
-  });
-  const rows = within(table).getAllByRole("row");
-  expect(rows).toHaveLength(3);
+  const list = (await screen.findAllByLabelText("Tested combinations")).find(
+    (element) => element.tagName === "DL",
+  ) as HTMLElement;
+  expect(list).toBeTruthy();
+  const windows = within(list)
+    .getByText("Windows · 11 23H2 · Pro · x64")
+    .closest("div") as HTMLElement;
+  expect(within(windows).getByText("Officially verified")).toBeTruthy();
   expect(
-    within(rows[1] as HTMLElement).getByText("Windows · 11 23H2 · Pro"),
+    within(windows).getByText("Tested configurations: MSI, portable"),
   ).toBeTruthy();
+  const linux = within(list)
+    .getByText("Linux · 24.04 · Not specified · ARM64")
+    .closest("div") as HTMLElement;
+  expect(within(linux).getByText("Verified with conditions")).toBeTruthy();
   expect(
-    within(rows[1] as HTMLElement).getByText("MSI, portable"),
-  ).toBeTruthy();
-  expect(
-    within(rows[2] as HTMLElement).getByText("Linux · 24.04 · Not specified"),
-  ).toBeTruthy();
-  expect(
-    within(rows[2] as HTMLElement).getByText("Verified with conditions"),
+    within(linux).getByText("Tested configurations: Not specified"),
   ).toBeTruthy();
 });
 

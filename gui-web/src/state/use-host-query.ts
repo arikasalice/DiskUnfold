@@ -17,13 +17,22 @@ export type HostQuery<T> = {
  *
  * A failed read never discards an earlier successful value, so a screen can
  * keep showing the last valid content next to a retry action. The caller must
- * pass a stable `load` (for example through `useCallback`).
+ * pass a stable `load` (for example through `useCallback`). A different
+ * `load` is a different question, so the earlier value is discarded and a
+ * response to the earlier question is ignored.
  */
 export function useHostQuery<T>(load: () => Promise<T>): HostQuery<T> {
   const [data, setData] = useState<T>();
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  const [owner, setOwner] = useState(() => load);
+  if (owner !== load) {
+    setOwner(() => load);
+    setData(undefined);
+    setFailed(false);
+    setLoading(true);
+  }
   useEffect(() => {
     let active = true;
     setLoading(true);

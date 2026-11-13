@@ -322,6 +322,11 @@ label.du-field > span {
   color: var(--du-warning-text);
 }
 
+.du-badge--danger {
+  background: var(--du-danger-surface);
+  color: var(--du-danger-text);
+}
+
 .du-notice--error {
   background: var(--du-danger-surface);
   color: var(--du-danger-text);

@@ -41,14 +41,12 @@ function NoticeBody({
       )}
       {data && data.text !== null && (
         <>
-          <TextDocument
-            label={copy.noticeRegion + ": " + copy.noticeNames[kind]}
-          >
+          <TextDocument label={copy.noticeRegionNamed(copy.noticeNames[kind])}>
             {data.text}
           </TextDocument>
           <Text kind="muted">
             {data.sourceCommit
-              ? copy.noticeCommit + ": " + data.sourceCommit
+              ? copy.noticeCommitValue(data.sourceCommit)
               : copy.noticeCommitUnknown}
           </Text>
         </>
@@ -73,11 +71,7 @@ export function NoticeViewer({
     ? copy.noticeNames[kind]
     : kind;
   if (!available) {
-    return (
-      <Text>
-        {name}: {copy.noticeMissing}
-      </Text>
-    );
+    return <Text>{copy.noticeMissingNamed(name)}</Text>;
   }
   return (
     <DetailDisclosure title={name}>

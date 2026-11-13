@@ -947,6 +947,7 @@ ui.product.build_kind
 ui.product.commit
 ui.product.built_at
 ui.product.target
+ui.product.target_value os:name cpu:name
 ui.product.install_form
 ui.product.matrix_revision
 ui.product.matrix_as_of
@@ -954,12 +955,12 @@ ui.product.app_db_format
 ui.product.snapshot_format
 ui.product.value_missing
 ui.product.notices_heading
-ui.product.notice_missing
+ui.product.notice_missing_named name:name
 ui.product.notice_loading
 ui.product.notice_failed
 ui.product.notice_empty
-ui.product.notice_region
-ui.product.notice_commit
+ui.product.notice_region_named name:name
+ui.product.notice_commit_value commit:name
 ui.product.notice_commit_unknown
 ui.product.digest_heading
 ui.product.digest_intro
@@ -1007,6 +1008,9 @@ ui.support.env_cpu
 ui.support.not_detected
 ui.support.env_unknown
 ui.support.reason_other
+ui.support.reason_outside_verified
+ui.support.reason_matrix_invalid
+ui.support.reason_capability_unknown
 ui.support.combination_heading
 ui.support.combination_label
 ui.support.security_heading
@@ -1017,9 +1021,12 @@ ui.support.security_source
 ui.support.security_checked
 ui.support.features_heading
 ui.support.features_none
-ui.support.table_label
-ui.support.now_label
-ui.support.condition_label
+ui.support.table_value status:name
+ui.support.now_value state:name
+ui.support.condition_value condition:name
+ui.support.area_other_named area:name
+ui.support.system_value os:name release:name edition:name cpu:name
+ui.support.details_value details:name
 ui.support.mismatch
 ui.support.capability_limited
 ui.support.combinations_heading

@@ -4,6 +4,8 @@ import { newCorrelationId } from "../../ipc";
 import type { AnalysisClient } from "../../ipc";
 import type { ProductCopy } from "./product-copy";
 
+const SHA256_HEX = /^[0-9a-fA-F]{64}$/;
+
 type Digest =
   | { phase: "idle" }
   | { phase: "computing" }
@@ -14,9 +16,10 @@ type Digest =
 /**
  * Requests the executable SHA-256 (F15 IF-03) and shows it for comparison.
  *
- * Only the response that echoes the newest correlation identifier is applied,
- * and a response that arrives after the screen closed is discarded. The value
- * is never presented as verified.
+ * A response that arrives after the screen closed or after a newer request
+ * started is discarded. A response to the current request that echoes another
+ * correlation identifier, or carries a value that is not 64 hexadecimal
+ * digits, is a failure. The value is never presented as verified.
  */
 export function ExecutableDigest({
   client,
@@ -42,16 +45,16 @@ export function ExecutableDigest({
     setDigest({ phase: "computing" });
     client.call("app.executable_digest", { correlationId }).then(
       (response) => {
-        if (
-          current.current !== correlationId ||
-          response.correlationId !== correlationId
-        )
-          return;
-        setDigest(
-          response.sha256
-            ? { phase: "done", sha256: response.sha256 }
-            : { phase: "unavailable", reasonKey: response.reasonKey },
-        );
+        if (current.current !== correlationId) return;
+        if (response.correlationId !== correlationId) {
+          setDigest({ phase: "failed" });
+        } else if (response.sha256 === null) {
+          setDigest({ phase: "unavailable", reasonKey: response.reasonKey });
+        } else if (SHA256_HEX.test(response.sha256)) {
+          setDigest({ phase: "done", sha256: response.sha256 });
+        } else {
+          setDigest({ phase: "failed" });
+        }
       },
       () => {
         if (current.current === correlationId) setDigest({ phase: "failed" });

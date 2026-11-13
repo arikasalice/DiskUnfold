@@ -43,6 +43,18 @@ export function supportCopy(text: LocaleText) {
       "ui.support.env_unknown",
       "DiskUnfold could not identify this computer's operating system or CPU, so it cannot match it against the support table. This is not a sign of a problem. Check your system version in your system settings and compare it with the support table on the official release page.",
     ),
+    reasonOutsideVerified: text(
+      "ui.support.reason_outside_verified",
+      "This operating system and CPU are not among the combinations the project has tested. That does not mean DiskUnfold cannot run here.",
+    ),
+    reasonMatrixInvalid: text(
+      "ui.support.reason_matrix_invalid",
+      "The support table in this build could not be used, so DiskUnfold cannot say whether this computer has been tested. That does not mean it is unsupported. Check the support table on the official release page.",
+    ),
+    reasonCapabilityUnknown: text(
+      "ui.support.reason_capability_unknown",
+      "DiskUnfold could not determine what this feature area does on this computer right now.",
+    ),
     reasonOther: text(
       "ui.support.reason_other",
       "DiskUnfold reported a reason that this version does not recognize.",
@@ -69,9 +81,29 @@ export function supportCopy(text: LocaleText) {
       "ui.support.features_none",
       "No feature-area details were reported.",
     ),
-    tableLabel: text("ui.support.table_label", "Support table"),
-    nowLabel: text("ui.support.now_label", "Right now"),
-    conditionLabel: text("ui.support.condition_label", "Condition"),
+    tableValue: (status: string) =>
+      text("ui.support.table_value", "Support table: {status}", { status }),
+    nowValue: (state: string) =>
+      text("ui.support.now_value", "Right now: {state}", { state }),
+    conditionValue: (condition: string) =>
+      text("ui.support.condition_value", "Condition: {condition}", {
+        condition,
+      }),
+    areaOtherNamed: (area: string) =>
+      text("ui.support.area_other_named", "Other feature area ({area})", {
+        area,
+      }),
+    systemValue: (os: string, release: string, edition: string, cpu: string) =>
+      text("ui.support.system_value", "{os} · {release} · {edition} · {cpu}", {
+        os,
+        release,
+        edition,
+        cpu,
+      }),
+    detailsValue: (details: string) =>
+      text("ui.support.details_value", "Tested configurations: {details}", {
+        details,
+      }),
     mismatch: text(
       "ui.support.mismatch",
       "This differs from the support table. What is shown as the current state is what this computer does right now.",
@@ -104,7 +136,7 @@ export function supportCopy(text: LocaleText) {
       ),
       unsupported_found: text(
         "ui.support.status_unsupported_found",
-        "Problems found",
+        "Unsupported found",
       ),
       not_verified: text("ui.support.status_not_verified", "Not tested"),
       unknown: text("ui.support.status_unknown", "Could not be determined"),
@@ -225,6 +257,12 @@ export function reasonText(reasonKey: string, copy: SupportCopy): string {
       return copy.matrixUnavailable;
     case "support.capability_limited":
       return copy.capabilityLimited;
+    case "support.outside_verified":
+      return copy.reasonOutsideVerified;
+    case "support.matrix_invalid":
+      return copy.reasonMatrixInvalid;
+    case "support.capability_unknown":
+      return copy.reasonCapabilityUnknown;
     default:
       return copy.reasonOther;
   }

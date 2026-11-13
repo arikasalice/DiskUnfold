@@ -27,8 +27,8 @@ import "../../theme/info-screens.css";
 
 function statusTone(status: string) {
   if (status === "officially_verified") return "good" as const;
-  if (status === "conditional" || status === "unsupported_found")
-    return "warning" as const;
+  if (status === "conditional") return "warning" as const;
+  if (status === "unsupported_found") return "danger" as const;
   if (status === "not_verified") return "info" as const;
   return "neutral" as const;
 }
@@ -74,19 +74,19 @@ function SecuritySupport({
 function Environment({
   report,
   copy,
-  matrixMissing,
+  matrixNotice,
   envUnknown,
 }: {
   report: SupportReport;
   copy: SupportCopy;
-  matrixMissing: boolean;
+  matrixNotice: string | undefined;
   envUnknown: boolean;
 }) {
   const { environment: env } = report;
   return (
     <>
       <ReviewSection title={copy.tableHeading}>
-        {matrixMissing && <Notice tone="info">{copy.matrixUnavailable}</Notice>}
+        {matrixNotice && <Notice tone="info">{matrixNotice}</Notice>}
         <Readout
           label={copy.tableHeading}
           rows={[
@@ -148,14 +148,20 @@ export function SupportScreen({ client }: { client: AnalysisClient }) {
     );
   }
 
+  const matrixInvalid = data.reasonKey === "support.matrix_invalid";
   const matrixMissing =
     data.matrixRevision === null ||
     data.reasonKey === "support.matrix_unavailable";
+  const matrixNotice = matrixInvalid
+    ? copy.reasonMatrixInvalid
+    : matrixMissing
+      ? copy.matrixUnavailable
+      : undefined;
   const envUnknown =
     data.environment.osFamily === "unknown" ||
     data.environment.cpu === "unknown" ||
     data.reasonKey === "support.env_unknown";
-  const guided = matrixMissing || envUnknown;
+  const guided = matrixNotice !== undefined || envUnknown;
   return (
     <div className="du-info-screen">
       <Text kind="muted">{copy.intro}</Text>
@@ -163,7 +169,7 @@ export function SupportScreen({ client }: { client: AnalysisClient }) {
       <Environment
         report={data}
         copy={copy}
-        matrixMissing={matrixMissing}
+        matrixNotice={matrixNotice}
         envUnknown={envUnknown}
       />
       <ReviewSection title={copy.combinationHeading}>
@@ -182,7 +188,7 @@ export function SupportScreen({ client }: { client: AnalysisClient }) {
       <ReviewSection title={copy.featuresHeading}>
         <FeatureAreas features={data.features} copy={copy} />
       </ReviewSection>
-      {!matrixMissing && (
+      {matrixNotice === undefined && (
         <ReviewSection title={copy.combinationsHeading}>
           <CombinationTable combinations={data.combinations} copy={copy} />
         </ReviewSection>

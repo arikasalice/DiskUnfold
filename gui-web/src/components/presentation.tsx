@@ -84,7 +84,7 @@ export function StatusBadge({
   live = false,
 }: {
   children: ReactNode;
-  tone?: "neutral" | "info" | "good" | "warning";
+  tone?: "neutral" | "info" | "good" | "warning" | "danger";
   live?: boolean;
 }) {
   return (

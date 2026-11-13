@@ -73,3 +73,48 @@ test("uses the shared locale text for labels", () => {
   );
   expect(screen.getByRole("button", { name: "DiskUnfold 정보" })).toBeTruthy();
 });
+
+test("keeps the opener buttons in reading order and puts focus on the close control inside the dialog", async () => {
+  const { client } = host();
+  render(<InfoEntry client={client} />);
+  const nav = screen.getByRole("navigation", { name: "Product and support" });
+  const buttons = Array.from(nav.querySelectorAll("button"));
+  expect(buttons.map((button) => button.textContent)).toEqual([
+    "About DiskUnfold",
+    "Support information",
+  ]);
+  expect(buttons.every((button) => !(button.tabIndex > 0))).toBe(true);
+
+  fireEvent.click(buttons[0] as HTMLElement);
+  const dialog = await screen.findByRole("dialog", {
+    name: "About DiskUnfold",
+  });
+  await screen.findByText("0.1.0");
+  const close = screen.getByRole("button", { name: "Close details" });
+  await waitFor(() => expect(document.activeElement).toBe(close));
+  const inside = Array.from(dialog.querySelectorAll("button"));
+  expect(inside[0]).toBe(close);
+  expect(inside.map((button) => button.textContent)).toContain("Refresh");
+  expect(inside.every((button) => !(button.tabIndex > 0))).toBe(true);
+});
+
+test.each([
+  ["About DiskUnfold", "About DiskUnfold"],
+  ["Support information", "Support information"],
+])(
+  "Escape closes the %s dialog and returns focus to its opener",
+  async (opener, title) => {
+    const { client } = host();
+    render(<InfoEntry client={client} />);
+    const button = screen.getByRole("button", { name: opener });
+    button.focus();
+    fireEvent.click(button);
+    const dialog = await screen.findByRole("dialog", { name: title });
+    fireEvent.keyDown(dialog, { key: "Escape", code: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(button));
+    expect(
+      screen.getByRole("navigation", { name: "Product and support" }),
+    ).toBeTruthy();
+  },
+);

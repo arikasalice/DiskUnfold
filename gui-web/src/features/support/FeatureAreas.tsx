@@ -11,7 +11,8 @@ import type { SupportCopy } from "./support-copy";
 
 function capabilityTone(state: string) {
   if (state === "supported") return "good" as const;
-  if (state === "limited" || state === "unsupported") return "warning" as const;
+  if (state === "limited") return "warning" as const;
+  if (state === "unsupported") return "danger" as const;
   return "neutral" as const;
 }
 
@@ -22,22 +23,18 @@ function rowFor(feature: SupportFeatureAssessment, copy: SupportCopy) {
     feature.currentCapability,
   );
   const notes = [
-    copy.tableLabel + ": " + statusLabel(feature.supportTableStatus, copy),
-    ...feature.conditions.map(
-      (condition) => copy.conditionLabel + ": " + condition,
-    ),
+    copy.tableValue(statusLabel(feature.supportTableStatus, copy)),
+    ...feature.conditions.map((condition) => copy.conditionValue(condition)),
     ...(differs ? [copy.mismatch] : []),
     ...(feature.reasonKey ? [reasonText(feature.reasonKey, copy)] : []),
   ];
   return {
     label: known
       ? areaLabel(feature.area, copy)
-      : copy.areaOther + " (" + feature.area + ")",
+      : copy.areaOtherNamed(feature.area),
     value: (
       <StatusBadge tone={capabilityTone(feature.currentCapability)}>
-        {copy.nowLabel +
-          ": " +
-          capabilityLabel(feature.currentCapability, copy)}
+        {copy.nowValue(capabilityLabel(feature.currentCapability, copy))}
       </StatusBadge>
     ),
     emphasized: differs,
@@ -61,9 +58,11 @@ export function FeatureAreas({
     return <Notice tone="info">{copy.featuresNone}</Notice>;
   }
   return (
-    <Readout
-      label={copy.featuresHeading}
-      rows={features.map((feature) => rowFor(feature, copy))}
-    />
+    <div className="du-info-areas">
+      <Readout
+        label={copy.featuresHeading}
+        rows={features.map((feature) => rowFor(feature, copy))}
+      />
+    </div>
   );
 }
