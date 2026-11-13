@@ -8,6 +8,7 @@ export default defineConfig({
     // so CI gets a wider margin while local runs keep the 5 s default.
     testTimeout: process.env.CI ? 15_000 : 5_000,
     hookTimeout: process.env.CI ? 30_000 : 10_000,
+    setupFiles: ["./tests/setup-timeouts.ts"],
     coverage: {
       provider: "v8",
       reportOnFailure: true,
