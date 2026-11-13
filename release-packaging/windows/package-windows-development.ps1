@@ -401,7 +401,8 @@ The F15 official release pipeline, publisher identities, signing approvals, SBOM
             [ordered]@{
                 artifact_file_name = $artifactFileName
                 kind = 'executable'
-                relative_path = if ($Format -eq 'portable-exe') { $artifactFileName } else { 'verification\diskunfold.exe' }
+                # Manifest paths use '/' because the release inventory reads them on Linux.
+                relative_path = if ($Format -eq 'portable-exe') { $artifactFileName } else { 'verification/diskunfold.exe' }
             }
         )
     }

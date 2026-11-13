@@ -188,6 +188,9 @@ try {
     $verificationExe = Join-Path $msixOutput 'verification\diskunfold.exe'
     $verificationDigest = (Get-FileHash -LiteralPath $verificationExe -Algorithm SHA256).Hash.ToLowerInvariant()
     Assert-Equal $msixRow.executable_sha256 $verificationDigest 'MSIX executable SHA-256 mismatch.'
+    $stagedPaths = @($msixManifest.staged_files | ForEach-Object { $_.relative_path })
+    Assert-True ($stagedPaths -contains 'verification/diskunfold.exe') 'MSIX manifest must record the executable with a portable / separator.'
+    Assert-True (-not ($stagedPaths -match '\\')) 'Manifest paths must not use backslashes; the inventory reads them on Linux.'
     $authenticode = Get-AuthenticodeSignature -FilePath $msixFile
     Assert-Equal 'NotSigned' $authenticode.Status.ToString() 'MSIX must not receive an ad-hoc signature.'
     Assert-True (Test-Path -LiteralPath (Join-Path $msixOutput 'DEVELOPMENT-ONLY.txt') -PathType Leaf) 'MSIX development marker is missing.'
