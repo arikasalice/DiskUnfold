@@ -184,6 +184,15 @@ async function showList() {
   await waitFor(() => expect(screen.queryByText(/^Loading recent/)).toBeNull());
 }
 
+async function showReview() {
+  await screen.findByRole("heading", { name: "Review saved range" });
+  // The detail heading also renders before the open request settles; its
+  // targets and actions exist only after the saved-path check ends.
+  await waitFor(() =>
+    expect(screen.queryByText(/^Checking saved paths/)).toBeNull(),
+  );
+}
+
 test("F01 FR8: lists records in server order, opens only the selected reference, and applies reviewed conditions without starting a scan", async () => {
   const { client, calls } = makeClient(async (name, body) => {
     if (name === "scope.recent_list") return list("first", "second");
@@ -201,7 +210,7 @@ test("F01 FR8: lists records in server order, opens only the selected reference,
   expect(buttons).toHaveLength(2);
   expect(buttons[0]?.textContent).toBe("Review range 1");
   fireEvent.click(buttons[1]!);
-  await screen.findByRole("heading", { name: "Review saved range" });
+  await showReview();
   expect(calls.filter(({ name }) => name === "scope.recent_open")).toEqual([
     {
       name: "scope.recent_open",
@@ -239,7 +248,7 @@ test("F01 FR8: refuses apply when review is null or any target is unresolved", a
   const { onApply } = picker(client);
   await showList();
   fireEvent.click(screen.getByRole("button", { name: "Review range 1" }));
-  await screen.findByRole("heading", { name: "Review saved range" });
+  await showReview();
   expect(
     screen.getByText(/Current paths and access could not be reviewed/),
   ).toBeDefined();
