@@ -14,6 +14,9 @@ const MAX_METADATA_BYTES: u64 = 65_536;
 const MAX_DECODED_BYTES: u64 = 4 * 1024 * 1024 * 1024;
 const MAGIC: &[u8; 8] = b"DUSNAP\r\n";
 
+/// The only DUSNAP envelope format version this crate reads and writes (F15 release gate reads it).
+pub const DUSNAP_FORMAT_VERSION: u16 = 1;
+
 /// A structural error found while reading one immutable input buffer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {
@@ -52,7 +55,7 @@ fn inspect(bytes: &[u8]) -> Result<Envelope<'_>, Error> {
         return Err(Error::Magic);
     }
     let version = read_u16(bytes, 8)?;
-    if version != 1 {
+    if version != DUSNAP_FORMAT_VERSION {
         return Err(Error::UnsupportedVersion);
     }
     if read_u16(bytes, 10)? != 0 {
