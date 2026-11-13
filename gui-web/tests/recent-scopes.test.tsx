@@ -179,6 +179,9 @@ async function showList() {
     screen.getByRole("button", { name: "Recent analysis ranges" }),
   );
   await screen.findByRole("heading", { name: "Recent analysis ranges" });
+  // The heading renders while the list request is still pending, so rows,
+  // the empty notice or the error notice exist only after loading ends.
+  await waitFor(() => expect(screen.queryByText(/^Loading recent/)).toBeNull());
 }
 
 test("F01 FR8: lists records in server order, opens only the selected reference, and applies reviewed conditions without starting a scan", async () => {

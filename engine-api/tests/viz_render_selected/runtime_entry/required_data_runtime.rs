@@ -101,19 +101,33 @@ fn opted_in_missing_sizes_publish_only_same_revision_fallback_rows_sync_and_asyn
             .producer
             .required_data_mode
             .store(2, Ordering::Relaxed);
-        fixture
-            .release
-            .send(())
-            .map_err(|error| error.to_string())?;
+        // A zero wait must observe the job still running. The producer blocks the
+        // first worker until released, so the release is withheld until after the
+        // first render returns; otherwise a fast worker can finish before the
+        // zero-length wait samples the job state and the sync path is taken.
+        if !wait.is_zero() {
+            fixture
+                .release
+                .send(())
+                .map_err(|error| error.to_string())?;
+        }
         let view = fixture.open()?;
         let first = fixture.render(&view, 1)?;
         let unavailable = if first["kind"] == "job" {
             assert_eq!(wait, Duration::ZERO);
             let physical = job(&first)?;
+            fixture
+                .entered
+                .recv_timeout(Duration::from_secs(3))
+                .map_err(|error| error.to_string())?;
+            fixture
+                .release
+                .send(())
+                .map_err(|error| error.to_string())?;
             fixture.finished(&physical, JobState::Done)?;
             fixture.render(&view, 2)?
         } else {
-            assert_eq!(wait, Duration::from_secs(2));
+            assert!(!wait.is_zero(), "zero wait must return a running job");
             first
         };
         assert_eq!(unavailable["kind"], "unavailable");
@@ -353,6 +367,14 @@ fn child_evidence_failure_fails_job_without_fallback_or_model_publication() -> R
     let view = fixture.open()?;
     let pending = fixture.render(&view, 1)?;
     let physical = job(&pending)?;
+    fixture
+        .entered
+        .recv_timeout(Duration::from_secs(3))
+        .map_err(|error| error.to_string())?;
+    fixture
+        .release
+        .send(())
+        .map_err(|error| error.to_string())?;
     fixture.finished(&physical, JobState::Failed)?;
     let missing = fixture.call(
         "viz.rows",

@@ -190,9 +190,6 @@ impl EvidenceProducer for Producer {
         _: &ResultItem,
         _: &VizRenderRequest,
     ) -> Result<ItemEvidence, EngineError> {
-        if self.child_fails.load(Ordering::Relaxed) {
-            return Err(EngineError::new("fixture.evidence_unavailable", vec![]));
-        }
         let blocking = self
             .block
             .lock()
@@ -205,6 +202,10 @@ impl EvidenceProducer for Producer {
             release
                 .recv_timeout(Duration::from_secs(3))
                 .map_err(|_| EngineError::new("support.internal_error", vec![]))?;
+        }
+        // Fail only after the optional gate so a test can observe the running job first.
+        if self.child_fails.load(Ordering::Relaxed) {
+            return Err(EngineError::new("fixture.evidence_unavailable", vec![]));
         }
         Ok(ItemEvidence {
             presentation: ChildPolicyEvidence {
