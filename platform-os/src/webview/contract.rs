@@ -38,6 +38,7 @@ pub struct ShutdownCallbacks {
     request_close: Arc<dyn Fn() + Send + Sync>,
     pump: Arc<dyn Fn() + Send + Sync>,
     should_exit: Arc<dyn Fn() -> bool + Send + Sync>,
+    is_closing: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
@@ -52,7 +53,21 @@ impl ShutdownCallbacks {
             request_close: Arc::new(request_close),
             pump: Arc::new(pump),
             should_exit: Arc::new(should_exit),
+            is_closing: None,
         }
+    }
+
+    /// Adds the probe that tells whether a close request started the shutdown.
+    ///
+    /// A request that only asks the user to confirm leaves the shutdown idle. The
+    /// macOS adapter uses the probe to decide whether a postponed quit has anything
+    /// that will answer it. Without a probe the shutdown is assumed to be running.
+    pub fn with_closing_probe(
+        mut self,
+        is_closing: impl Fn() -> bool + Send + Sync + 'static,
+    ) -> Self {
+        self.is_closing = Some(Arc::new(is_closing));
+        self
     }
 
     pub(super) fn request_window_close(&self) {
@@ -65,6 +80,11 @@ impl ShutdownCallbacks {
 
     pub(super) fn is_complete(&self) -> bool {
         (self.should_exit)()
+    }
+
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    pub(super) fn is_closing(&self) -> bool {
+        self.is_closing.as_ref().is_none_or(|probe| probe())
     }
 }
 

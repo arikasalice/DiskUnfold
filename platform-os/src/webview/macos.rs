@@ -21,16 +21,73 @@ use objc2_web_kit::{
     WKURLSchemeTask, WKUserContentController, WKUserScript, WKUserScriptInjectionTime, WKWebView,
     WKWebViewConfiguration, WKWebsiteDataStore,
 };
-use std::{cell::RefCell, error::Error, ptr};
+use std::{
+    cell::{Cell, RefCell},
+    error::Error,
+    ptr,
+};
 
 struct State {
     app: WebApp,
     shutdown: Option<ShutdownCallbacks>,
     error: RefCell<Option<String>>,
+    /// True while a Dock or menu quit is postponed with `TerminateLater` and
+    /// AppKit still waits for `replyToApplicationShouldTerminate:`.
+    terminate_pending: Cell<bool>,
 }
 
 /// Interval of the shutdown progress timer, matching the Windows and Linux tickers.
 const SHUTDOWN_TICK_SECONDS: f64 = 0.016;
+
+#[link(name = "Foundation", kind = "framework")]
+unsafe extern "C" {
+    /// The run-loop mode set that covers tracking, modal and default modes.
+    static NSRunLoopCommonModes: &'static NSString;
+}
+
+/// Clears the application delegate on every exit path, including early returns
+/// and unwinding, so AppKit never keeps a pointer to the released handler.
+struct DelegateGuard(Retained<NSApplication>);
+
+impl Drop for DelegateGuard {
+    fn drop(&mut self) {
+        self.0.setDelegate(None);
+    }
+}
+
+/// Invalidates the shutdown timer on every exit path.
+struct TimerGuard(Retained<AnyObject>);
+
+impl Drop for TimerGuard {
+    fn drop(&mut self) {
+        // SAFETY: `invalidate` is sent to the NSTimer this guard retains, on the main thread.
+        unsafe {
+            let () = msg_send![&*self.0, invalidate];
+        }
+    }
+}
+
+/// Schedules the shutdown ticker in the common run-loop modes.
+///
+/// A postponed quit (`TerminateLater`) runs the loop in a modal mode, and a window
+/// resize or menu tracking uses an event-tracking mode. A timer in the default mode
+/// alone would stall in both and the shutdown would never advance.
+fn schedule_shutdown_timer(handler: &Handler) -> Retained<AnyObject> {
+    // SAFETY: Called on the main thread; the timer retains `handler` until invalidated.
+    unsafe {
+        let timer: Retained<AnyObject> = msg_send![
+            class!(NSTimer),
+            timerWithTimeInterval: SHUTDOWN_TICK_SECONDS,
+            target: handler,
+            selector: sel!(shutdownTick:),
+            userInfo: Option::<&AnyObject>::None,
+            repeats: Bool::YES
+        ];
+        let run_loop: Retained<AnyObject> = msg_send![class!(NSRunLoop), currentRunLoop];
+        let () = msg_send![&*run_loop, addTimer: &*timer, forMode: NSRunLoopCommonModes];
+        timer
+    }
+}
 
 /// Ends `NSApplication::run` from outside an event handler.
 ///
@@ -86,6 +143,10 @@ define_class!(
 
     unsafe impl NSApplicationDelegate for Handler {
         /// Dock and menu quit use the same orderly path and never terminate early.
+        ///
+        /// While the shutdown runs the quit is postponed with `TerminateLater`; the
+        /// tick answers it when the shutdown finishes. A quit that waits for the
+        /// user's confirmation is cancelled because nothing is running to answer it.
         #[unsafe(method(applicationShouldTerminate:))]
         fn application_should_terminate(&self, _: &NSApplication) -> NSApplicationTerminateReply {
             match &self.ivars().shutdown {
@@ -93,6 +154,9 @@ define_class!(
                     shutdown.request_window_close();
                     if shutdown.is_complete() {
                         NSApplicationTerminateReply::TerminateNow
+                    } else if shutdown.is_closing() {
+                        self.ivars().terminate_pending.set(true);
+                        NSApplicationTerminateReply::TerminateLater
                     } else {
                         NSApplicationTerminateReply::TerminateCancel
                     }
@@ -109,7 +173,14 @@ define_class!(
             if let Some(shutdown) = &self.ivars().shutdown {
                 shutdown.pump();
                 if shutdown.is_complete() {
-                    stop_application(&NSApplication::sharedApplication(self.mtm()));
+                    let application = NSApplication::sharedApplication(self.mtm());
+                    if self.ivars().terminate_pending.replace(false) {
+                        // Answer the postponed quit with a cancel and end the loop through
+                        // `stop:`. A terminate reply makes AppKit call exit() inside the
+                        // loop, which would skip the host's exit status and cleanup.
+                        application.replyToApplicationShouldTerminate(false);
+                    }
+                    stop_application(&application);
                 }
             }
         }
@@ -279,7 +350,8 @@ pub(super) fn run(app: WebApp, shutdown: Option<ShutdownCallbacks>) -> Result<()
                 super(Handler::alloc(mtm).set_ivars(State {
                     app,
                     shutdown,
-                    error: RefCell::new(None)
+                    error: RefCell::new(None),
+                    terminate_pending: Cell::new(false)
                 })),
                 init
             ];
@@ -288,6 +360,7 @@ pub(super) fn run(app: WebApp, shutdown: Option<ShutdownCallbacks>) -> Result<()
             if has_shutdown {
                 application.setDelegate(Some(ProtocolObject::from_ref(&*handler)));
             }
+            let _delegate = has_shutdown.then(|| DelegateGuard(application.clone()));
             let config = WKWebViewConfiguration::new(mtm);
             config.setWebsiteDataStore(&WKWebsiteDataStore::nonPersistentDataStore(mtm));
             config.setURLSchemeHandler_forURLScheme(
@@ -337,23 +410,8 @@ pub(super) fn run(app: WebApp, shutdown: Option<ShutdownCallbacks>) -> Result<()
             window.center();
             window.makeKeyAndOrderFront(None);
             application.activate();
-            let timer: Option<Retained<AnyObject>> = has_shutdown.then(|| {
-                msg_send![
-                    class!(NSTimer),
-                    scheduledTimerWithTimeInterval: SHUTDOWN_TICK_SECONDS,
-                    target: &*handler,
-                    selector: sel!(shutdownTick:),
-                    userInfo: Option::<&AnyObject>::None,
-                    repeats: true
-                ]
-            });
+            let _timer = has_shutdown.then(|| TimerGuard(schedule_shutdown_timer(&handler)));
             application.run();
-            if let Some(timer) = &timer {
-                let () = msg_send![&**timer, invalidate];
-            }
-            if has_shutdown {
-                application.setDelegate(None);
-            }
             manager.removeScriptMessageHandlerForName_contentWorld(&channel, &world);
             view.setNavigationDelegate(None);
             window.setDelegate(None);
