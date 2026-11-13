@@ -1,8 +1,7 @@
 //! Startup rows 5 and 6: support-matrix lookup and capability limits.
 use du_core_contracts::{
     product_support::{
-        EmbeddedProductInfo, SupportCapabilityState, SupportEnvironmentPort, SupportMatrix,
-        SupportStatus,
+        EmbeddedProductInfo, SupportCapabilityState, SupportEnvironmentPort, SupportStatus,
     },
     startup_ipc::{StartupCheck, StartupCheckOutcome, StartupCheckResult},
 };
@@ -27,18 +26,6 @@ fn row(
     }
 }
 
-/// The embedded matrix, unless the build records a different revision than the
-/// matrix carries. An inconsistent or missing matrix is evaluated as empty.
-fn embedded_matrix(info: &EmbeddedProductInfo) -> SupportMatrix {
-    let Some(matrix) = info.support_matrix.as_ref() else {
-        return SupportMatrix::default();
-    };
-    match (&info.build.support_matrix_revision, &matrix.revision) {
-        (Some(built), Some(embedded)) if built != embedded => SupportMatrix::default(),
-        _ => matrix.clone(),
-    }
-}
-
 /// Row 5: compares the observed environment identity with the embedded matrix.
 ///
 /// A verified combination passes, a conditional one is limited, one outside the
@@ -49,7 +36,8 @@ pub(crate) fn support_matrix_observation(
     info: &EmbeddedProductInfo,
     environment: &dyn SupportEnvironmentPort,
 ) -> StartupCheckResult {
-    let report = support::evaluate(&embedded_matrix(info), environment.identity(), &[]);
+    let matrix = support::embedded_matrix(info).cloned().unwrap_or_default();
+    let report = support::evaluate(&matrix, environment.identity(), &[]);
     let check = StartupCheck::SupportMatrix;
     match report.combination_status {
         SupportStatus::OfficiallyVerified => row(check, StartupCheckOutcome::Pass, None),

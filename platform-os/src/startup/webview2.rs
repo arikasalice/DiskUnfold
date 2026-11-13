@@ -96,11 +96,85 @@ fn probe(root: HKEY, subkey: PCWSTR) -> RuntimeProbe {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ::windows::Win32::System::Registry::{REG_DWORD, REG_SZ, RegDeleteTreeW, RegSetKeyValueW};
+
+    /// A throwaway per-user key that only this test process uses.
+    struct ScratchKey(Vec<u16>);
+
+    impl ScratchKey {
+        fn new(name: &str) -> Self {
+            let path = format!("Software\\DiskUnfoldTests\\{name}-{}", std::process::id());
+            Self(path.encode_utf16().chain(Some(0)).collect())
+        }
+
+        fn path(&self) -> PCWSTR {
+            PCWSTR(self.0.as_ptr())
+        }
+
+        fn set(&self, kind: ::windows::Win32::System::Registry::REG_VALUE_TYPE, data: &[u8]) {
+            let length = u32::try_from(data.len()).unwrap_or_default();
+            // SAFETY: `data` is readable for `length` bytes and the key path is NUL-terminated.
+            let status = unsafe {
+                RegSetKeyValueW(
+                    HKEY_CURRENT_USER,
+                    self.path(),
+                    w!("pv"),
+                    kind.0,
+                    Some(data.as_ptr().cast()),
+                    length,
+                )
+            };
+            assert!(status.is_ok(), "{status:?}");
+        }
+    }
+
+    impl Drop for ScratchKey {
+        fn drop(&mut self) {
+            // SAFETY: the path is NUL-terminated; a failed delete only leaves a test key behind.
+            let _ = unsafe { RegDeleteTreeW(HKEY_CURRENT_USER, self.path()) };
+        }
+    }
+
+    fn utf16_bytes(text: &str) -> Vec<u8> {
+        text.encode_utf16()
+            .chain(Some(0))
+            .flat_map(u16::to_le_bytes)
+            .collect()
+    }
 
     #[test]
-    fn this_machine_reports_a_definite_runtime_state() {
-        // Runtime presence varies by host; the probe must never panic and must
-        // classify to one of the three values without inventing evidence.
-        let _ = webview_availability();
+    fn an_absent_key_is_definitely_missing() {
+        let key = ScratchKey::new("absent");
+        assert_eq!(probe(HKEY_CURRENT_USER, key.path()), RuntimeProbe::Missing);
+    }
+
+    #[test]
+    fn a_registered_version_is_read_back_without_the_terminator() {
+        let key = ScratchKey::new("version");
+        key.set(REG_SZ, &utf16_bytes("131.0.2903.51"));
+        assert_eq!(
+            probe(HKEY_CURRENT_USER, key.path()),
+            RuntimeProbe::Version("131.0.2903.51".to_owned())
+        );
+        key.set(REG_SZ, &utf16_bytes("0.0.0.0"));
+        assert_eq!(
+            probe(HKEY_CURRENT_USER, key.path()),
+            RuntimeProbe::Version("0.0.0.0".to_owned())
+        );
+    }
+
+    #[test]
+    fn a_value_of_the_wrong_type_or_size_is_unreadable_not_absent() {
+        let key = ScratchKey::new("wrong-type");
+        key.set(REG_DWORD, &7_u32.to_le_bytes());
+        assert_eq!(
+            probe(HKEY_CURRENT_USER, key.path()),
+            RuntimeProbe::Unreadable
+        );
+        key.set(REG_SZ, &utf16_bytes(&"1.".repeat(200)));
+        assert_eq!(
+            probe(HKEY_CURRENT_USER, key.path()),
+            RuntimeProbe::Unreadable
+        );
     }
 }

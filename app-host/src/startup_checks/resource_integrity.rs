@@ -2,7 +2,8 @@
 use std::collections::HashSet;
 
 use du_core_contracts::startup_ipc::{StartupCheck, StartupCheckOutcome, StartupCheckResult};
-use sha2::{Digest, Sha256};
+
+use super::asset_digest::assets_digest_hex;
 
 /// Reason key for a damaged or inconsistent embedded asset set.
 pub(crate) const RESOURCE_INTEGRITY_FAILED: &str = "startup.resource_integrity_failed";
@@ -14,14 +15,16 @@ const ENTRY_ASSET: &str = "/index.html";
 ///
 /// `manifest` holds one `name<TAB>mime<TAB>start<TAB>end` line per asset in byte
 /// order, `assets` is the concatenated byte store, and `expected_sha256` is the
-/// digest the build recorded for that store. Any disagreement is an integrity
-/// failure that must stop startup, because the window would serve damaged assets.
+/// digest the build recorded over both. Any disagreement is an integrity failure
+/// that must stop startup, because the window would serve damaged assets.
 pub(crate) fn resource_integrity_observation(
     manifest: &str,
     assets: &[u8],
     expected_sha256: &str,
 ) -> Result<StartupCheckResult, std::io::Error> {
-    if !manifest_is_consistent(manifest, assets.len()) || !digest_matches(assets, expected_sha256) {
+    if !manifest_is_consistent(manifest, assets.len())
+        || !digest_matches(manifest, assets, expected_sha256)
+    {
         return Err(std::io::Error::other(RESOURCE_INTEGRITY_FAILED));
     }
     Ok(StartupCheckResult {
@@ -31,11 +34,8 @@ pub(crate) fn resource_integrity_observation(
     })
 }
 
-fn digest_matches(assets: &[u8], expected: &str) -> bool {
-    let actual: String = Sha256::digest(assets)
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect();
+fn digest_matches(manifest: &str, assets: &[u8], expected: &str) -> bool {
+    let actual = assets_digest_hex(manifest, assets);
     let expected = expected.trim();
     expected.len() == 64 && actual.eq_ignore_ascii_case(expected)
 }

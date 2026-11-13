@@ -6,21 +6,17 @@ use du_core_contracts::product_support::{
     SupportCombinationIdentity, SupportCpu, SupportEnvironmentIdentity, SupportEnvironmentPort,
     SupportMatrix, SupportOsFamily, SupportStatus,
 };
-use sha2::{Digest, Sha256};
-
-fn hex(bytes: &[u8]) -> String {
-    Sha256::digest(bytes)
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
-}
 
 const STORE: &[u8] = b"<html></html>body{}";
 const MANIFEST: &str = "/index.html\ttext/html\t0\t13\n/a.css\ttext/css\t13\t19\n";
 
+fn hex(manifest: &str, store: &[u8]) -> String {
+    asset_digest::assets_digest_hex(manifest, store)
+}
+
 #[test]
 fn consistent_assets_pass_row_one() -> Result<(), Box<dyn std::error::Error>> {
-    let row = resource_integrity_observation(MANIFEST, STORE, &hex(STORE))?;
+    let row = resource_integrity_observation(MANIFEST, STORE, &hex(MANIFEST, STORE))?;
     assert_eq!(row.check, StartupCheck::ResourceIntegrity);
     assert_eq!(row.result, StartupCheckOutcome::Pass);
     Ok(())
@@ -28,13 +24,27 @@ fn consistent_assets_pass_row_one() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 fn damaged_or_inconsistent_assets_fail_row_one_with_the_published_reason() {
-    let digest = hex(STORE);
+    let digest = hex(MANIFEST, STORE);
     let mut flipped = STORE.to_vec();
     flipped[3] ^= 1;
-    let cases: [(&str, &[u8], String); 8] = [
+    let cases: [(&str, &[u8], String); 10] = [
         (MANIFEST, &flipped, digest.clone()),
         (MANIFEST, STORE, "0".repeat(64)),
         (MANIFEST, STORE, String::new()),
+        // same tiling, different content type: only the manifest changed
+        (
+            "/index.html\ttext/plain\t0\t13\n/a.css\ttext/css\t13\t19\n",
+            STORE,
+            digest.clone(),
+        ),
+        // a digest over the byte store alone does not authenticate the manifest
+        (MANIFEST, STORE, {
+            use sha2::{Digest, Sha256};
+            Sha256::digest(STORE)
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect()
+        }),
         // gap between entries
         (
             "/index.html\ttext/html\t0\t13\n/a.css\ttext/css\t14\t19\n",
@@ -62,9 +72,10 @@ fn damaged_or_inconsistent_assets_fail_row_one_with_the_published_reason() {
         );
     }
     assert!(
-        resource_integrity_observation("/index.html\ttext/html\t0\n", STORE, &hex(STORE)).is_err()
+        resource_integrity_observation("/index.html\ttext/html\t0\n", STORE, &hex(MANIFEST, STORE))
+            .is_err()
     );
-    assert!(resource_integrity_observation("", &[], &hex(&[])).is_err());
+    assert!(resource_integrity_observation("", &[], &hex("", &[])).is_err());
 }
 
 #[test]
@@ -356,7 +367,7 @@ fn real_rows_drive_the_report_grade() -> Result<(), Box<dyn std::error::Error>> 
         capabilities: vec![capability("webview", SupportCapabilityState::Supported)],
     };
     let all_pass = vec![
-        resource_integrity_observation(MANIFEST, STORE, &hex(STORE))?,
+        resource_integrity_observation(MANIFEST, STORE, &hex(MANIFEST, STORE))?,
         StartupCheckResult {
             check: StartupCheck::Webview,
             result: StartupCheckOutcome::Pass,

@@ -7,6 +7,10 @@ use du_core_contracts::product_support::{
     SupportFeatureAssessment, SupportMatrix, SupportReport, SupportStatus,
 };
 
+mod embedded;
+
+pub use embedded::embedded_matrix;
+
 const ENVIRONMENT_UNKNOWN: &str = "support.env_unknown";
 const OUTSIDE_VERIFIED: &str = "support.outside_verified";
 const MATRIX_UNAVAILABLE: &str = "support.matrix_unavailable";

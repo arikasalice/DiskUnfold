@@ -105,6 +105,8 @@ test("shows a dismissible startup banner above the first screen without blocking
   fireEvent.click(within(banner).getByRole("button", { name: "Dismiss" }));
   expect(screen.queryByRole("region", { name: "Startup notice" })).toBeNull();
   expect(screen.getByText("First screen")).toBeTruthy();
+  // The dismissed button's removal must not drop keyboard focus to the page.
+  expect(document.activeElement).toBe(screen.getByText("First screen"));
 });
 
 test.each([

@@ -19,7 +19,6 @@ use du_core_contracts::{
     product_ports::{InstallFormPort, SelfExecutablePort},
     product_support::{
         BuildKind, EmbeddedProductInfo, ProductBuildInfo, ProductNotices, SupportEnvironmentPort,
-        SupportMatrix,
     },
 };
 use du_engine_api::{
@@ -191,7 +190,7 @@ impl ProductServices {
         let build = &self.info.build;
         let install_form = self.install_form.install_form();
         let known = install_form != du_core_contracts::product_ipc::InstallForm::Unknown;
-        let matrix = self.consistent_matrix();
+        let matrix = support::embedded_matrix(&self.info);
         ProductInfo {
             product_version: build.product_version.clone(),
             build_kind: build.build_kind,
@@ -229,18 +228,10 @@ impl ProductServices {
         .filter(|text| !text.trim().is_empty())
     }
 
-    /// The embedded matrix, or `None` when it is absent or when the build records a
-    /// different matrix revision than the matrix carries; both are reported as unknown.
-    fn consistent_matrix(&self) -> Option<&SupportMatrix> {
-        let matrix = self.info.support_matrix.as_ref()?;
-        match (&self.info.build.support_matrix_revision, &matrix.revision) {
-            (Some(built), Some(embedded)) if built != embedded => None,
-            _ => Some(matrix),
-        }
-    }
-
     fn support_info(&self) -> SupportInfo {
-        let matrix = self.consistent_matrix().cloned().unwrap_or_default();
+        let matrix = support::embedded_matrix(&self.info)
+            .cloned()
+            .unwrap_or_default();
         support::evaluate(
             &matrix,
             self.environment.identity(),

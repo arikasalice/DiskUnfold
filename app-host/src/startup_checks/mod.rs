@@ -14,6 +14,7 @@ use du_engine_api::{
     error::EngineError,
 };
 
+mod asset_digest;
 mod environment_rows;
 mod host_observations;
 mod resource_integrity;

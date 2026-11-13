@@ -13,10 +13,19 @@ mod fda;
 mod linux;
 #[cfg(all(target_os = "macos", feature = "webview"))]
 mod macos;
+#[cfg(all(target_os = "macos", feature = "webview"))]
+mod webkit_framework;
+#[cfg(all(target_os = "linux", feature = "webview"))]
+#[allow(unsafe_code)]
+mod webkit_gtk;
 #[cfg(target_os = "windows")]
 #[allow(unsafe_code)]
 mod webview2;
-#[cfg(any(target_os = "windows", test))]
+#[cfg(any(
+    target_os = "windows",
+    all(any(target_os = "linux", target_os = "macos"), feature = "webview"),
+    test
+))]
 mod webview_runtime;
 #[cfg(target_os = "windows")]
 #[allow(unsafe_code)]
@@ -44,24 +53,10 @@ impl StartupCapabilitiesPort for SystemStartupCapabilities {
     }
 
     fn webview_availability(&self) -> WebViewAvailability {
-        if !cfg!(feature = "webview") {
-            WebViewAvailability::Unavailable
-        } else if cfg!(target_os = "windows") {
-            // The Windows adapter reads the registered WebView2 runtime version.
-            // Registered is not the same as creatable, but a definite absence
-            // is direct evidence; every other uncertainty stays Unknown.
-            #[cfg(target_os = "windows")]
-            {
-                webview2::webview_availability()
-            }
-            #[cfg(not(target_os = "windows"))]
-            {
-                WebViewAvailability::Unknown
-            }
+        if cfg!(feature = "webview") {
+            runtime_availability()
         } else {
-            // A compiled adapter or installed library does not prove that a
-            // desktop session can create and use its webview successfully.
-            WebViewAvailability::Unknown
+            WebViewAvailability::Unavailable
         }
     }
 
@@ -108,4 +103,33 @@ impl StartupCapabilitiesPort for SystemStartupCapabilities {
             StartupDialogOutcome::Unsupported
         }
     }
+}
+
+/// The Windows adapter reads the registered WebView2 runtime version. Registered
+/// is not the same as creatable, but a definite absence is direct evidence.
+#[cfg(target_os = "windows")]
+fn runtime_availability() -> WebViewAvailability {
+    webview2::webview_availability()
+}
+
+/// WebKitGTK is linked into the executable; its own version report is the evidence.
+#[cfg(all(target_os = "linux", feature = "webview"))]
+fn runtime_availability() -> WebViewAvailability {
+    webview_runtime::linked_runtime_availability(webkit_gtk::linked_version().as_deref())
+}
+
+/// The WebKit framework that defines `WKWebView` reports its bundle version.
+#[cfg(all(target_os = "macos", feature = "webview"))]
+fn runtime_availability() -> WebViewAvailability {
+    webview_runtime::linked_runtime_availability(webkit_framework::framework_version().as_deref())
+}
+
+/// No adapter observes a runtime here, and a compiled adapter does not prove
+/// that a desktop session can create and use a webview.
+#[cfg(not(any(
+    target_os = "windows",
+    all(any(target_os = "linux", target_os = "macos"), feature = "webview")
+)))]
+fn runtime_availability() -> WebViewAvailability {
+    WebViewAvailability::Unknown
 }

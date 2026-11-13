@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Action, Notice, Readout } from "../../components";
 import { useLocaleText } from "../../i18n/presentation";
@@ -28,6 +28,8 @@ function bannerMessage(status: StartupStatus, copy: StartupCopy) {
  * grade is not a pass. The permission-only screen replaces `children` only when
  * the host reports that analysis entry is not allowed. A status read that fails
  * shows nothing: the banner is advisory and never gates the first screen.
+ * Dismissal lasts for this session only and hands keyboard focus to the first
+ * screen, so the focused button's removal does not drop focus to the page.
  */
 export function StartupGate({
   client,
@@ -40,6 +42,7 @@ export function StartupGate({
   const copy = useMemo(() => startupCopy(text), [text]);
   const [status, setStatus] = useState<StartupStatus>();
   const [dismissed, setDismissed] = useState(false);
+  const banner = useRef<HTMLElement>(null);
 
   useEffect(() => {
     let current = true;
@@ -57,6 +60,14 @@ export function StartupGate({
   if (status && !status.analysisAllowed) {
     return <StartupStatusScreen client={client} />;
   }
+  const dismiss = () => {
+    const next = banner.current?.nextElementSibling;
+    setDismissed(true);
+    if (next instanceof HTMLElement) {
+      if (!next.hasAttribute("tabindex")) next.tabIndex = -1;
+      next.focus({ preventScroll: true });
+    }
+  };
   const rows =
     status?.checks.filter(
       (check) =>
@@ -67,7 +78,11 @@ export function StartupGate({
   return (
     <>
       {status !== undefined && status.grade !== "pass" && !dismissed && (
-        <section className="du-startup-banner" aria-label={copy.bannerHeading}>
+        <section
+          ref={banner}
+          className="du-startup-banner"
+          aria-label={copy.bannerHeading}
+        >
           <Notice>{bannerMessage(status, copy)}</Notice>
           <Readout
             label={copy.checksHeading}
@@ -78,7 +93,7 @@ export function StartupGate({
             }))}
           />
           <div className="du-startup__actions">
-            <Action variant="quiet" onPress={() => setDismissed(true)}>
+            <Action variant="quiet" onPress={dismiss}>
               {copy.bannerDismiss}
             </Action>
           </div>
