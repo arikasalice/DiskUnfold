@@ -5,6 +5,7 @@ cli.help.usage
 cli.help.unsupported
 cli.settings.unavailable
 cli.output.interrupted
+cli.access.full_disk_access_required
 cli.product.version
 cli.product.build_kind
 cli.product.build_official

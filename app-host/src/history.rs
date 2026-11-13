@@ -24,7 +24,8 @@ pub(super) struct HistoryReader {
 impl HistoryReader {
     /// Opens one independent reader while retaining the instance and file pins.
     pub(super) fn open(data_dir: &Path, database: SharedDatabase) -> Result<Self, io::Error> {
-        let connection = AppDb::open_read_only(&data_dir.join("diskunfold.db"))
+        // The GUI owns the writer, so its reader attaches to the live database.
+        let connection = AppDb::open_read_only_live(&data_dir.join("diskunfold.db"))
             .map_err(|error| io::Error::other(format!("history.storage_unavailable: {error:?}")))?;
         Ok(Self {
             connection: Arc::new(Mutex::new(connection)),

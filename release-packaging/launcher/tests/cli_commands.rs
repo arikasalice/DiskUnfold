@@ -153,7 +153,10 @@ fn information_commands_reject_bad_arguments_with_exit_two_and_one_stderr_line()
     }
     // A missing option value is a usage error as well.
     for args in [&["support", "--format"][..], &["--lang"][..]] {
-        let output = run_launcher(args)?;
+        let output = run_launcher(
+            &[&["--lang", "en"][..], args].concat()
+                [..args.len() + if args == ["--lang"] { 0 } else { 2 }],
+        )?;
         assert_eq!(output.status.code(), Some(2), "{args:?}");
         assert!(output.stdout.is_empty(), "{args:?}");
         assert_eq!(text(&output.stderr).lines().count(), 1, "{args:?}");

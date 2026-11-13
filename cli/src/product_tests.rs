@@ -220,9 +220,49 @@ fn confirmed_full_disk_access_denial_stops_scan_with_exit_two_and_no_stdout() {
     );
     assert_eq!(exit, ExitCode::from(2));
     assert!(stdout.is_empty());
+    let line = String::from_utf8_lossy(&stderr);
+    assert_eq!(line.lines().count(), 1, "{line}");
+    assert!(
+        line.starts_with(
+            "DiskUnfold: startup.full_disk_access_required: Full Disk Access is required"
+        ),
+        "{line}"
+    );
+}
+
+#[test]
+fn full_disk_access_denial_is_explained_in_the_selected_language() {
+    let (exit, _, stderr, _) = execute_with_access(
+        &["--lang", "ko", "scan", "root"],
+        info(),
+        FullDiskAccessStatus::Denied,
+    );
+    assert_eq!(exit, ExitCode::from(2));
+    let line = String::from_utf8_lossy(&stderr);
+    assert!(
+        line.starts_with("DiskUnfold: startup.full_disk_access_required: 폴더를 분석하려면"),
+        "{line}"
+    );
+}
+
+#[test]
+fn option_without_a_value_is_an_unsupported_argument_not_an_unsupported_language() {
+    for args in [
+        &["--lang", "en", "support", "--format"][..],
+        &["--lang"][..],
+        &["--lang", "en", "support", "--format", "--lang"][..],
+    ] {
+        let (exit, stdout, stderr, _) = execute(args, info());
+        assert_eq!(exit, ExitCode::from(2), "{args:?}");
+        assert!(stdout.is_empty(), "{args:?}");
+        let line = String::from_utf8_lossy(&stderr);
+        assert!(!line.contains("locale.unsupported"), "{args:?}: {line}");
+        assert_eq!(line.lines().count(), 1, "{args:?}: {line}");
+    }
+    let (_, _, stderr, _) = execute(&["--lang", "en", "support", "--format"], info());
     assert_eq!(
         String::from_utf8_lossy(&stderr),
-        "DiskUnfold: startup.full_disk_access_required\n"
+        "DiskUnfold: unsupported arguments. See --help.\n"
     );
 }
 

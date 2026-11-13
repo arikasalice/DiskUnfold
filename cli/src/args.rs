@@ -150,13 +150,19 @@ fn consume_global_argument(
         if state.language.is_some() {
             return None;
         }
-        state.language = Some(arguments.next()?.into_string().ok()?);
+        let Some(value) = arguments.next() else {
+            // A missing value is a usage error, not an unsupported language.
+            state.invalid = true;
+            return Some(true);
+        };
+        state.language = Some(value.into_string().ok()?);
         return Some(true);
     }
     if argument == "--format" {
-        let parsed = match arguments.next()?.to_str()? {
-            "text" => Some(OutputFormat::Text),
-            "json" => Some(OutputFormat::Json),
+        let value = arguments.next();
+        let parsed = match value.as_deref().and_then(OsStr::to_str) {
+            Some("text") => Some(OutputFormat::Text),
+            Some("json") => Some(OutputFormat::Json),
             _ => None,
         };
         if state.format.is_some() {

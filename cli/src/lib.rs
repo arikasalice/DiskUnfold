@@ -24,6 +24,8 @@ const SETTINGS_UNAVAILABLE_REASON_KEY: &str = "settings_unavailable";
 const SETTINGS_UNAVAILABLE_MESSAGE_KEY: &str = "cli.settings.unavailable";
 /// Stable reason key written when analysis is refused for missing full disk access.
 const FULL_DISK_ACCESS_REQUIRED_REASON_KEY: &str = "startup.full_disk_access_required";
+/// Locale message that explains the full disk access denial to the user.
+const FULL_DISK_ACCESS_REQUIRED_MESSAGE_KEY: &str = "cli.access.full_disk_access_required";
 /// Exit code for argument errors and for a confirmed full disk access denial.
 const EXIT_USAGE: u8 = 2;
 /// Exit code for a technical failure or unavailable embedded data.
@@ -247,9 +249,13 @@ fn run_with_io_and_product_info<W: Write, E: Write>(
         args::Command::Scan(scan) => {
             drop(scan);
             if ports.access.full_disk_access_status() == FullDiskAccessStatus::Denied {
+                // One line: the stable reason key, then the localized explanation.
+                let text = message
+                    .resolve(FULL_DISK_ACCESS_REQUIRED_MESSAGE_KEY)
+                    .unwrap_or_else(|| FULL_DISK_ACCESS_REQUIRED_MESSAGE_KEY.to_owned());
                 write_stderr_line(
                     stderr,
-                    &format!("DiskUnfold: {FULL_DISK_ACCESS_REQUIRED_REASON_KEY}"),
+                    &format!("DiskUnfold: {FULL_DISK_ACCESS_REQUIRED_REASON_KEY}: {text}"),
                 );
                 return ExitCode::from(EXIT_USAGE);
             }

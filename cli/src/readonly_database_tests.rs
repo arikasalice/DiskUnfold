@@ -96,11 +96,10 @@ fn reading_stored_language_leaves_missing_older_and_newer_rollback_journal_datab
     Ok(())
 }
 
-/// Reproduces a defect owned by `du-app-db`: its read-only open of a WAL
-/// database makes SQLite create `-wal` and `-shm` files next to it.
+/// A WAL database that its writer closed cleanly has no `-wal` or `-shm` file;
+/// reading the stored language must not create them.
 #[cfg(any(windows, target_os = "linux"))]
 #[test]
-#[ignore = "app-db open_read_only creates -wal/-shm side files for WAL databases; fix is owned by the database team"]
 fn reading_stored_language_leaves_a_wal_database_untouched()
 -> Result<(), Box<dyn std::error::Error>> {
     let directory = fixture_directory()?;

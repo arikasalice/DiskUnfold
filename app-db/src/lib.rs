@@ -12,6 +12,7 @@ use rusqlite::{Connection, OpenFlags, Transaction, TransactionBehavior};
 mod history_schema;
 mod job_history;
 pub mod migration;
+mod read_only;
 pub mod recent_scope;
 mod recent_scope_schema;
 pub mod ruleset;
@@ -38,6 +39,11 @@ pub enum OpenError {
     HistorySchema(Box<migration::MigrationError>),
     Io(std::io::Error),
     WalUnavailable,
+    /// A read-only open could not give a consistent view without creating or
+    /// modifying files: the database is in WAL mode, has log frames but no
+    /// `-shm` (its writer ended abnormally), or changed while it was copied.
+    /// Start the GUI, which owns recovery, and retry.
+    ReadOnlyUnavailable,
     /// The initialized database was published. Retry by opening it, not creating it.
     CreatedButOpenFailed(Box<OpenError>),
 }
@@ -166,6 +172,12 @@ impl From<rusqlite::Error> for OpenError {
     }
 }
 
+impl From<std::io::Error> for OpenError {
+    fn from(error: std::io::Error) -> Self {
+        Self::Io(error)
+    }
+}
+
 impl AppDb {
     pub fn open(path: &Path) -> Result<Self, OpenError> {
         let mut connection = Connection::open(path)?;
@@ -205,9 +217,38 @@ impl AppDb {
         Ok(Self { connection })
     }
 
-    /// Read without creating a file, changing pragmas or running migrations.
+    /// Read without creating or modifying any file, changing pragmas or running
+    /// migrations.
+    ///
+    /// A database in rollback-journal mode opens as a read-only SQLite connection.
+    /// A WAL database whose writer is running (both `-wal` and `-shm` exist)
+    /// opens as a live read-only connection that sees later commits; it only
+    /// shares the writer's `-shm` locks and read marks. A WAL database whose
+    /// writer closed cleanly (no `-shm`, and no `-wal` frames) opens as a private
+    /// in-memory snapshot of the main file: it never sees later commits, so
+    /// reopen to refresh. A WAL database with frames but no `-shm`, one larger
+    /// than 256 MiB without a writer, or one that changes during the copy returns
+    /// [`OpenError::ReadOnlyUnavailable`]. If a running writer closes between the
+    /// side-file check and SQLite's open, SQLite may still create empty side
+    /// files; no caller can prevent that without holding the writer's lock.
     pub fn open_read_only(path: &Path) -> Result<Self, OpenError> {
-        let mut connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        Self::validate_read_only(read_only::open_connection(path)?)
+    }
+
+    /// Read through a SQLite read-only connection that follows the writer's
+    /// commits, for a process that owns the database writer (the GUI).
+    ///
+    /// Unlike [`AppDb::open_read_only`], SQLite may create the `-wal` and `-shm`
+    /// side files of a WAL database that no connection has touched yet. Read-only
+    /// consumers such as the CLI must not call this.
+    pub fn open_read_only_live(path: &Path) -> Result<Self, OpenError> {
+        Self::validate_read_only(Connection::open_with_flags(
+            path,
+            OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )?)
+    }
+
+    fn validate_read_only(mut connection: Connection) -> Result<Self, OpenError> {
         connection.busy_timeout(BUSY_TIMEOUT)?;
         let version: u32 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
         if HISTORY_DEFINITIONS
@@ -223,11 +264,12 @@ impl AppDb {
         Ok(Self { connection })
     }
 
-    /// Reads only `user_version` from a read-only connection with the normal
-    /// five-second busy timeout. This selects an open path; callers must still
-    /// validate the database through the connection they will use.
+    /// Reads only `user_version` through the same side-file-free read-only open as
+    /// [`AppDb::open_read_only`], with the normal five-second busy timeout. This
+    /// selects an open path; callers must still validate the database through the
+    /// connection they will use.
     pub fn probe_schema_version_read_only(path: &Path) -> Result<u32, OpenError> {
-        let connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        let connection = read_only::open_connection(path)?;
         connection.busy_timeout(BUSY_TIMEOUT)?;
         connection
             .pragma_query_value(None, "user_version", |row| row.get(0))
@@ -421,6 +463,8 @@ fn check_existing(connection: &Connection, read_only: bool) -> Result<(), OpenEr
     }
 }
 
+#[cfg(test)]
+mod read_only_tests;
 #[cfg(test)]
 mod recovery_tests;
 #[cfg(test)]

@@ -23,7 +23,7 @@ fn read_port_pins_owned_raw_row_and_distinguishes_failures() -> TestResult {
     let dir = tempfile::tempdir()?;
     let path = dir.path().join("port.sqlite");
     let mut writer = AppDb::create_gui_with_history(&path).map_err(|e| format!("{e:?}"))?;
-    let reader = AppDb::open_read_only(&path).map_err(|e| format!("{e:?}"))?;
+    let reader = AppDb::open_read_only_live(&path).map_err(|e| format!("{e:?}"))?;
     let port: &dyn RulesetRead = &reader;
     assert_eq!(port.read_current(), Ok(None));
     writer
