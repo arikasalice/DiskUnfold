@@ -67,6 +67,12 @@ function sha256(file) {
 
 /** Opens one package into `tree` the way the workflow does; returns an error text or "". */
 function openPackage(row, file, tree) {
+  if (row.format === "msi" && process.platform === "win32") {
+    // Same script as the workflow: msiexec /a plus the Binary table, with the Microsoft signature check.
+    const opened = run(powerShell(), ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path.join(root, "release-packaging", "windows", "open-msi-for-scan.ps1"),
+      "-PackageDirectory", path.dirname(file), "-ScanRoot", path.dirname(tree), "-WixPath", process.env.DU_WIX_PATH ?? ""]);
+    return opened.status === 0 ? "" : (opened.stderr || opened.stdout).trim().split("\n").slice(-2).join(" | ");
+  }
   mkdirSync(tree, { recursive: true });
   if (row.format === "tar-gz") return run("tar", ["-xzf", file, "-C", tree]).status === 0 ? "" : "tar failed";
   if (row.format === "deb") return run("dpkg-deb", ["-x", file, tree]).status === 0 ? "" : "dpkg-deb failed";

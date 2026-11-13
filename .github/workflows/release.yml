@@ -361,6 +361,18 @@ jobs:
             DISKUNFOLD_DATA_DIR="$data" "$dir/$name" notices "$document" > "$target" ||
               { echo "release.notice_mismatch: $name does not embed $document" >&2; exit 1; }
           done
+      # The MSI is opened on its own Windows runner: an administrative extract (msiexec /a) gives the
+      # installed files and the Binary table gives the embedded WebView2 installer. The script fails
+      # unless that installer has a valid CN=Microsoft Corporation signature and the SHA-256 the
+      # packager recorded; the scan then allows exactly that binary and no other.
+      - name: Open the MSI for the scan (Windows)
+        if: matrix.os == 'windows'
+        shell: pwsh
+        env:
+          PACKAGE_ID: ${{ matrix.id }}
+        run: |
+          & .\release-packaging\windows\open-msi-for-scan.ps1 `
+            -PackageDirectory "stage\$env:PACKAGE_ID-msi" -ScanRoot scan-extract -WixPath $env:DU_WIX_PATH
       - name: Record this combination
         env:
           MATRIX_ID: ${{ matrix.id }}
@@ -547,7 +559,7 @@ jobs:
                     msix) unzip -q "$found" -d "$tree" ;;
                   esac
                   ;;
-                portable-exe | dmg)
+                portable-exe | dmg | msi)
                   [[ -d "$tree" ]] ||
                     { echo "release.notice_mismatch: $name was not opened on its native runner" >&2; exit 1; }
                   ;;

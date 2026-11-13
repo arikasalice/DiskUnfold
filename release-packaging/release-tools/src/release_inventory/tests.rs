@@ -3,79 +3,7 @@ use sha2::{Digest, Sha256};
 use std::{error::Error, fs, path::Path};
 use tempfile::TempDir;
 
-/// The component record every msi row must carry.
-fn webview2_component() -> Result<BundledComponent, Box<dyn Error>> {
-    Ok(BundledComponent {
-        name: WEBVIEW2_COMPONENT.into(),
-        version: "1.3.315.17".into(),
-        sha256: Sha256Digest::parse(&sha256(b"webview2"))?,
-        signer: "CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US"
-            .into(),
-        source: "https://go.microsoft.com/fwlink/?linkid=2124701".into(),
-    })
-}
-
-fn sample_manifest(root: &Path) -> Result<ReleaseManifest, Box<dyn Error>> {
-    fs::write(root.join("DiskUnfold-0.1.0-x64.msi"), b"package")?;
-    fs::write(root.join("DiskUnfold.exe"), b"executable")?;
-    let row = DistributionRow {
-        file_name: "DiskUnfold-0.1.0-x64.msi".into(),
-        version: "0.1.0".into(),
-        os: OsRange {
-            family: OsFamily::Windows,
-            versions: OsVersionScope::Range {
-                minimum: OsVersion::parse("11 25H2")?,
-                maximum: None,
-            },
-        },
-        cpu: Cpu::X64,
-        format: PackageFormat::Msi,
-        channel: DistributionChannel::Direct,
-        signature: SignatureMethod::SignPath,
-        signature_scope: "Authenticode identity and signed package integrity".into(),
-        sha256: Sha256Digest::parse(&sha256(b"package"))?,
-        executable_file_name: "DiskUnfold.exe".into(),
-        executable_sha256: Sha256Digest::parse(&sha256(b"executable"))?,
-        run_instructions: "Install the MSI, then launch DiskUnfold.".into(),
-        sbom_file_name: None,
-        bundled_components: vec![webview2_component()?],
-    };
-    Ok(ReleaseManifest {
-        product_name: "DiskUnfold".into(),
-        version: "0.1.0".into(),
-        rows: vec![row],
-        channel_references: vec![ChannelReference {
-            channel: UpdateChannel::Winget,
-            version: "0.1.0".into(),
-            cpu: Cpu::X64,
-            artifact_file_name: "DiskUnfold-0.1.0-x64.msi".into(),
-            update_method: UpdateMethod::ChannelCommand,
-        }],
-        staged_files: vec![
-            StagedFile {
-                artifact_file_name: "DiskUnfold-0.1.0-x64.msi".into(),
-                kind: StagedFileKind::Package,
-                relative_path: "DiskUnfold-0.1.0-x64.msi".into(),
-            },
-            StagedFile {
-                artifact_file_name: "DiskUnfold-0.1.0-x64.msi".into(),
-                kind: StagedFileKind::Executable,
-                relative_path: "DiskUnfold.exe".into(),
-            },
-        ],
-    })
-}
-
-fn sha256(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let digest = Sha256::digest(bytes);
-    let mut output = String::with_capacity(64);
-    for byte in digest {
-        output.push(HEX[(byte >> 4) as usize] as char);
-        output.push(HEX[(byte & 0x0f) as usize] as char);
-    }
-    output
-}
+use super::fixtures::{sample_manifest, sha256};
 
 #[test]
 fn sha256_uses_the_standard_sha256_encoding() {
@@ -501,38 +429,5 @@ fn a_fuzz_gate_record_is_published_in_the_json_and_the_markdown()
     assert!(markdown.contains("Registered fuzz targets: 0"));
     assert!(markdown.contains("not a fuzz pass"));
     assert!(markdown.contains("same commit as the release: false"));
-    Ok(())
-}
-
-#[test]
-fn msi_rows_must_record_the_webview2_installer_signed_by_microsoft() -> Result<(), Box<dyn Error>> {
-    let staging = TempDir::new()?;
-    let valid = sample_manifest(staging.path())?;
-    let (inventory, _) = prepare_inventory(valid.clone(), staging.path())?;
-    let markdown = render_markdown(&inventory);
-    assert!(markdown.contains("## Bundled components"));
-    assert!(markdown.contains("| DiskUnfold-0.1.0-x64.msi | Microsoft Edge WebView2 Runtime Evergreen Standalone Installer | 1.3.315.17 |"));
-    assert!(render_json(&inventory)?.contains("bundled_components"));
-
-    let mut missing = valid.clone();
-    missing.rows[0].bundled_components.clear();
-    assert!(prepare_inventory(missing, staging.path()).is_err());
-
-    let mut other_signer = valid.clone();
-    other_signer.rows[0].bundled_components[0].signer = "CN=Someone Else".into();
-    assert!(prepare_inventory(other_signer, staging.path()).is_err());
-
-    let mut lookalike = valid.clone();
-    lookalike.rows[0].bundled_components[0].signer = "CN=Microsoft Corporation Fake, O=Evil".into();
-    assert!(prepare_inventory(lookalike, staging.path()).is_err());
-
-    let mut extra = valid.clone();
-    let component = extra.rows[0].bundled_components[0].clone();
-    extra.rows[0].bundled_components.push(component);
-    assert!(prepare_inventory(extra, staging.path()).is_err());
-
-    let mut wrong_format = valid;
-    wrong_format.rows[0].format = PackageFormat::Deb;
-    assert!(prepare_inventory(wrong_format, staging.path()).is_err());
     Ok(())
 }

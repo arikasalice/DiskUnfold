@@ -1,4 +1,8 @@
 //! Validated, deterministic release distribution inventory generation.
+#[cfg(test)]
+mod bundled_tests;
+#[cfg(test)]
+mod fixtures;
 mod model;
 mod os_range;
 mod render;

@@ -12,7 +12,7 @@
 use crate::{
     link_list::check_link_list,
     release_gate::GateFailure,
-    release_inventory::{PackageFormat, ReleaseManifest, StagedFileKind},
+    release_inventory::{BundledComponent, PackageFormat, ReleaseManifest, StagedFileKind},
     sbom::NOTICE_MISMATCH,
 };
 use std::{
@@ -24,7 +24,7 @@ mod members;
 #[cfg(test)]
 mod tests;
 
-pub use members::{denied_members, link_escapes};
+pub use members::{BUNDLED_INSTALLER_FILE, denied_members, denied_members_with, link_escapes};
 
 pub use crate::release_gate::LICENSE_DENIED;
 
@@ -57,10 +57,10 @@ fn document_dir(format: PackageFormat, tree: &Path) -> Result<PathBuf, GateFailu
                 )),
             }
         }
-        PackageFormat::PortableExe | PackageFormat::Msix | PackageFormat::Dmg => {
-            Ok(tree.to_path_buf())
-        }
-        PackageFormat::Msi => Err(mismatch("no scan layout is registered for msi packages")),
+        PackageFormat::PortableExe
+        | PackageFormat::Msix
+        | PackageFormat::Dmg
+        | PackageFormat::Msi => Ok(tree.to_path_buf()),
     }
 }
 
@@ -87,6 +87,7 @@ pub fn scan_package(
     allowed_binary: &str,
     license: &[u8],
     notices: &[u8],
+    bundled: &[BundledComponent],
 ) -> Result<(), GateFailure> {
     let dir = document_dir(format, tree)?;
     for (name, expected) in [(LICENSE_FILE, license), (NOTICES_FILE, notices)] {
@@ -96,7 +97,27 @@ pub fn scan_package(
             )));
         }
     }
-    let denied = denied_members(tree, allowed_binary).map_err(|failure| {
+    let allowed: Vec<(String, String)> = bundled
+        .iter()
+        .map(|component| {
+            (
+                BUNDLED_INSTALLER_FILE.to_owned(),
+                component.sha256.as_str().to_owned(),
+            )
+        })
+        .collect();
+    if format == PackageFormat::Msi
+        && !members::is_recorded_bundle(
+            &tree.join(BUNDLED_INSTALLER_FILE),
+            BUNDLED_INSTALLER_FILE,
+            &allowed,
+        )
+    {
+        return Err(mismatch(format!(
+            "{package} does not carry the WebView2 installer that the manifest records; the opened tree needs {BUNDLED_INSTALLER_FILE} with the recorded SHA-256"
+        )));
+    }
+    let denied = denied_members_with(tree, allowed_binary, &allowed).map_err(|failure| {
         GateFailure::new(LICENSE_DENIED, format!("{package}: {}", failure.detail))
     })?;
     if denied.is_empty() {
@@ -180,6 +201,7 @@ pub fn scan_release(
             &row.executable_file_name,
             license,
             notices,
+            &row.bundled_components,
         )?;
         let executable = staged_executable(manifest, &row.file_name, staging)?;
         let bytes = fs::read(&executable).map_err(|error| {

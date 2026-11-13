@@ -2,8 +2,8 @@ use super::*;
 use crate::{
     link_list::detect,
     release_inventory::{
-        Cpu, DistributionChannel, DistributionRow, OsFamily, OsRange, OsVersion, OsVersionScope,
-        Sha256Digest, SignatureMethod, StagedFile,
+        BundledComponent, Cpu, DistributionChannel, DistributionRow, OsFamily, OsRange, OsVersion,
+        OsVersionScope, Sha256Digest, SignatureMethod, StagedFile, WEBVIEW2_COMPONENT,
     },
 };
 use tempfile::TempDir;
@@ -36,7 +36,7 @@ fn tree_for(format: PackageFormat) -> Result<TempDir, Box<dyn std::error::Error>
 }
 
 fn scan(format: PackageFormat, tree: &Path) -> Result<(), GateFailure> {
-    scan_package("pkg", format, tree, "diskunfold", LICENSE, NOTICES)
+    scan_package("pkg", format, tree, "diskunfold", LICENSE, NOTICES, &[])
 }
 
 const FORMATS: [PackageFormat; 5] = [
@@ -259,10 +259,66 @@ fn permissive_member_names_are_not_flagged() -> TestResult {
 }
 
 #[test]
-fn msi_has_no_scan_layout_and_fails_closed() -> TestResult {
-    let tree = tree_for(PackageFormat::Msix)?;
-    assert!(scan(PackageFormat::Msi, tree.path()).is_err());
+fn msi_tree_with_the_recorded_installer_passes() -> TestResult {
+    let installer = b"MZ microsoft signed installer".as_slice();
+    let tree = tree_for(PackageFormat::Msi)?;
+    write(tree.path(), BUNDLED_INSTALLER_FILE, installer)?;
+    let bundled = [recorded(installer)?];
+    scan_msi(tree.path(), &bundled)?;
     Ok(())
+}
+
+#[test]
+fn msi_fails_closed_without_the_recorded_installer() -> TestResult {
+    let installer = b"MZ microsoft signed installer".as_slice();
+    let bundled = [recorded(installer)?];
+    let missing = tree_for(PackageFormat::Msi)?;
+    let failure = scan_msi(missing.path(), &bundled).err().ok_or("accepted")?;
+    assert_eq!(failure.reason_key, NOTICE_MISMATCH);
+    let swapped = tree_for(PackageFormat::Msi)?;
+    write(swapped.path(), BUNDLED_INSTALLER_FILE, b"MZ another binary")?;
+    assert!(scan_msi(swapped.path(), &bundled).is_err());
+    assert!(scan_msi(missing.path(), &[]).is_err());
+    Ok(())
+}
+
+#[test]
+fn only_the_recorded_installer_name_and_digest_are_allowed_to_be_a_binary() -> TestResult {
+    let installer = b"MZ microsoft signed installer".as_slice();
+    let bundled = [recorded(installer)?];
+    let tree = tree_for(PackageFormat::Msi)?;
+    write(tree.path(), BUNDLED_INSTALLER_FILE, installer)?;
+    write(tree.path(), "other.exe", installer)?;
+    let failure = scan_msi(tree.path(), &bundled).err().ok_or("accepted")?;
+    assert!(failure.detail.contains("other.exe"));
+    Ok(())
+}
+
+fn scan_msi(tree: &Path, bundled: &[BundledComponent]) -> Result<(), GateFailure> {
+    scan_package(
+        "pkg",
+        PackageFormat::Msi,
+        tree,
+        "diskunfold",
+        LICENSE,
+        NOTICES,
+        bundled,
+    )
+}
+
+fn recorded(bytes: &[u8]) -> Result<BundledComponent, Box<dyn std::error::Error>> {
+    use sha2::{Digest, Sha256};
+    let digest: String = Sha256::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    Ok(BundledComponent {
+        name: WEBVIEW2_COMPONENT.into(),
+        version: "1.3.315.17".into(),
+        sha256: Sha256Digest::parse(&digest)?,
+        signer: "CN=Microsoft Corporation".into(),
+        source: "https://go.microsoft.com/fwlink/?linkid=2124701".into(),
+    })
 }
 
 fn row(name: &str, format: PackageFormat) -> Result<DistributionRow, Box<dyn std::error::Error>> {
@@ -287,6 +343,7 @@ fn row(name: &str, format: PackageFormat) -> Result<DistributionRow, Box<dyn std
         executable_sha256: digest,
         run_instructions: "run".into(),
         sbom_file_name: None,
+        bundled_components: Vec::new(),
     })
 }
 
