@@ -1,5 +1,6 @@
 //! The CLI reads stored settings without creating, repairing or migrating the database.
 
+#[cfg(any(windows, target_os = "linux"))]
 use crate::startup_locale::stored_language_in_directory;
 
 #[cfg(any(windows, target_os = "linux"))]
