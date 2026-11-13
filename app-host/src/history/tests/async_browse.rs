@@ -88,7 +88,20 @@ fn copies_a_pinned_windows_scan_path_through_desktop_ipc() -> Result<(), Box<dyn
     let (root, file) = captured[0]
         .split_once("\r\n")
         .ok_or("missing path separator")?;
-    assert!(root.ends_with(&*fixture.path().to_string_lossy()));
+    // The scan reports the final on-disk path. `tempfile` may hand back an
+    // 8.3 short name (CI sets TEMP to C:\Users\RUNNER~1\...) or a drive-letter
+    // spelling that differs from the long form, so compare against the same
+    // resolved long path rather than the spelling the test happened to use.
+    let resolved = fs::canonicalize(fixture.path())?;
+    let expected = resolved.to_string_lossy();
+    let expected = expected.strip_prefix(r"\\?\").unwrap_or(&expected);
+    assert!(
+        root.eq_ignore_ascii_case(expected)
+            || root
+                .strip_prefix(r"\\?\")
+                .is_some_and(|r| r.eq_ignore_ascii_case(expected)),
+        "root {root:?} != resolved fixture {expected:?}"
+    );
     assert_eq!(file, format!("{root}\\{name}"));
     Ok(())
 }

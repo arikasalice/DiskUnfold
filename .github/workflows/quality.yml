@@ -51,6 +51,16 @@ jobs:
       - run: cargo fmt --all -- --check
       - run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
       - run: cargo test --locked --workspace --all-features
+      # Ubuntu 24.04 runners set kernel.apparmor_restrict_unprivileged_userns=1, which
+      # blocks the unprivileged user namespace that WebKitGTK's bubblewrap sandbox needs
+      # ("bwrap: setting up uid map: Permission denied"), so the web process hangs until
+      # the smoke times out (exit 124). The sandbox stays enabled: we lift the host
+      # restriction on this disposable runner instead of setting
+      # WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS. Only this job needs it; fuzz.yml and
+      # release.yml never start a WebKit view.
+      - name: Allow unprivileged user namespaces for the WebKit sandbox
+        if: runner.os == 'Linux'
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - name: Linux launch smoke
         if: runner.os == 'Linux'
         shell: bash
