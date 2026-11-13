@@ -96,7 +96,7 @@
     "license": "MIT OR Apache-2.0",
     "role": "runtime",
     "distributed": true,
-    "reason": "Compute the on-request SHA-256 of the running executable for F15 IF-03"
+    "reason": "Compute the on-request SHA-256 of the running executable for F15 IF-03, and (also as a build dependency) the digest of the embedded GUI assets that startup row 1 verifies for F15 FR4.HD1"
   },
   {
     "ecosystem": "cargo",

@@ -25,7 +25,7 @@ block2 = { version = "=0.6.2", optional = true }
 libc = "=0.2.191"
 objc2 = { version = "=0.6.5", optional = true }
 objc2-app-kit = { version = "=0.3.2", optional = true, default-features = false, features = ["std", "NSAlert", "NSApplication", "NSEvent", "NSGraphicsContext", "NSRunningApplication", "NSResponder", "NSView", "NSWindow", "NSWorkspace", "NSGraphics", "NSImage"] }
-objc2-foundation = { version = "=0.3.2", optional = true, default-features = false, features = ["std", "NSArray", "NSDate", "NSDictionary", "NSError", "NSFormatter", "NSGeometry", "NSISO8601DateFormatter", "NSLocale", "NSNotification", "NSString", "NSTimeZone", "NSURL", "NSURLRequest", "NSURLResponse", "NSValue"] }
+objc2-foundation = { version = "=0.3.2", optional = true, default-features = false, features = ["std", "NSArray", "NSBundle", "NSDate", "NSDictionary", "NSError", "NSFormatter", "NSGeometry", "NSISO8601DateFormatter", "NSLocale", "NSNotification", "NSString", "NSTimeZone", "NSURL", "NSURLRequest", "NSURLResponse", "NSValue"] }
 objc2-web-kit = { version = "=0.3.2", optional = true, default-features = false, features = ["std", "block2", "objc2-app-kit", "objc2-core-foundation", "WKFrameInfo", "WKNavigation", "WKNavigationAction", "WKNavigationDelegate", "WKNavigationResponse", "WKScriptMessage", "WKScriptMessageHandlerWithReply", "WKURLSchemeHandler", "WKURLSchemeTask", "WKUserContentController", "WKUserScript", "WKContentWorld", "WKWebView", "WKWebViewConfiguration", "WKWebsiteDataStore"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]

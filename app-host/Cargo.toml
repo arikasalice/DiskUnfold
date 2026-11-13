@@ -21,6 +21,9 @@ sha2 = { workspace = true, optional = true }
 du-platform-os = { version = "0.1.0", path = "../platform-os", features = ["fake"] }
 du-engine-api = { version = "0.1.0", path = "../engine-api", features = ["shutdown-test-support"] }
 
+[build-dependencies]
+sha2 = { workspace = true }
+
 [target.'cfg(any(windows, target_os = "linux", target_os = "macos"))'.dependencies]
 du-app-db = { version = "0.1.0", path = "../app-db", optional = true }
 du-user-env = { version = "0.1.0", path = "../user-env", optional = true }

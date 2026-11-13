@@ -19,8 +19,12 @@ export function ApplicationEntry({
 }) {
   if (localeEnabled) {
     return (
-      <DesktopLocale client={client} analysisEnabled={analysisEnabled}>
-        {startupStatusEnabled ? (
+      <DesktopLocale
+        client={client}
+        analysisEnabled={analysisEnabled}
+        startupBanner={startupStatusEnabled && analysisEnabled}
+      >
+        {startupStatusEnabled && !analysisEnabled ? (
           <>
             <StartupStatusScreen client={client} />
             <InfoEntry client={client} standalone />

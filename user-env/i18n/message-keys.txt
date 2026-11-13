@@ -153,6 +153,12 @@ ui.startup.check.temporary_files
 ui.startup.check.support_matrix
 ui.startup.check.capability
 ui.startup.check.full_disk_access
+ui.startup.banner_heading
+ui.startup.banner_limited
+ui.startup.banner_outside_verified
+ui.startup.banner_unverifiable
+ui.startup.banner_unknown
+ui.startup.banner_dismiss
 ui.common.retry
 ui.common.close
 ui.common.translation_unverified

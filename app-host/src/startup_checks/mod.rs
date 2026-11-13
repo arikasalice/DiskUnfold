@@ -14,6 +14,16 @@ use du_engine_api::{
     error::EngineError,
 };
 
+mod asset_digest;
+mod environment_rows;
+mod host_observations;
+mod resource_integrity;
+mod temporary_files;
+
+pub(super) use environment_rows::{capability_observation, support_matrix_observation};
+pub(super) use resource_integrity::resource_integrity_observation;
+pub(super) use temporary_files::host_temporary_files_observation;
+
 /// Holds the current startup permission observation and its explicit OS actions.
 ///
 /// The status is refreshed only by the startup check or an IF-20 request. Unknown
@@ -443,4 +453,7 @@ impl UseCase for StartupAccessQuery {
     }
 }
 #[cfg(test)]
+mod observation_tests;
+#[cfg(test)]
 mod tests;
+pub(super) use host_observations::host_observations;

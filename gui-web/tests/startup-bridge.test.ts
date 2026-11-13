@@ -53,3 +53,49 @@ test.each([
 
   expect(hasStartupStatusBridge()).toBe(false);
 });
+
+function stubWebView2Window(
+  origin: string,
+  request: unknown,
+  mainFrame = true,
+) {
+  const host: Record<string, unknown> = {
+    location: { href: `${origin}/index.html`, origin },
+    __diskunfoldRequest: request,
+  };
+  Object.defineProperty(host, "top", {
+    configurable: true,
+    value: mainFrame ? host : {},
+  });
+  vi.stubGlobal("window", host);
+}
+
+test("detects the trusted Windows WebView2 bridge for the startup banner", () => {
+  stubWebView2Window("https://diskunfold.invalid", vi.fn());
+
+  expect(hasStartupStatusBridge()).toBe(true);
+});
+
+test.each([
+  ["an external origin", "https://example.invalid", vi.fn(), true],
+  ["a nested frame", "https://diskunfold.invalid", vi.fn(), false],
+  [
+    "a page without the request function",
+    "https://diskunfold.invalid",
+    undefined,
+    true,
+  ],
+  [
+    "a non-function request value",
+    "https://diskunfold.invalid",
+    "request",
+    true,
+  ],
+])(
+  "rejects %s from the Windows startup bridge",
+  (_, origin, request, mainFrame) => {
+    stubWebView2Window(origin, request, mainFrame);
+
+    expect(hasStartupStatusBridge()).toBe(false);
+  },
+);

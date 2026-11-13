@@ -1,5 +1,25 @@
 use std::{env, fs, io, path::Path};
 
+use sha2::{Digest, Sha256};
+
+/// Mirrors `startup_checks::asset_digest`: the embedded-assets test fails if they diverge.
+const DIGEST_DOMAIN: &[u8] = b"diskunfold.gui-assets.v1\0";
+
+fn assets_digest_hex(manifest: &str, assets: &[u8]) -> String {
+    let length = |len: usize| u64::try_from(len).unwrap_or(u64::MAX).to_le_bytes();
+    let mut hasher = Sha256::new();
+    hasher.update(DIGEST_DOMAIN);
+    hasher.update(length(manifest.len()));
+    hasher.update(manifest.as_bytes());
+    hasher.update(length(assets.len()));
+    hasher.update(assets);
+    hasher
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
 fn main() -> io::Result<()> {
     if env::var_os("CARGO_FEATURE_GUI").is_none() {
         return Ok(());
@@ -30,7 +50,10 @@ fn main() -> io::Result<()> {
         bytes.extend(fs::read(path)?);
         manifest.push_str(&format!("/{url}\t{mime}\t{start}\t{}\n", bytes.len()));
     }
+    // The startup check recomputes this digest to detect a damaged asset set.
+    let digest = assets_digest_hex(&manifest, &bytes);
     fs::write(Path::new(&out).join("assets.txt"), manifest)?;
+    fs::write(Path::new(&out).join("assets.sha256"), digest)?;
     fs::write(Path::new(&out).join("assets.bin"), bytes)
 }
 
