@@ -12,6 +12,12 @@
   flex: 0 0 auto;
 }
 
+.du-startup-banner__details {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
 .du-startup-screen {
   display: grid;
   gap: 18px;

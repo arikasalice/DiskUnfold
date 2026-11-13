@@ -176,6 +176,7 @@
     ["ui.startup.banner_unverifiable", "Some startup checks could not be verified. DiskUnfold keeps running.", []],
     ["ui.startup.banner_unknown", "Startup checks reported a status this version does not recognize.", []],
     ["ui.startup.banner_dismiss", "Dismiss", []],
+    ["ui.startup.banner_open_support", "Open support information", []],
     ["ui.common.retry", "Retry", []],
     ["ui.common.close", "Close", []],
     ["ui.common.translation_unverified", "Translation unverified", []],

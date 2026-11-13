@@ -119,22 +119,27 @@ export function LiveStatus({
   );
 }
 
-/** Notices are announced when they first appear. Errors are assertive. */
+/**
+ * Notices are announced when they first appear. Errors are assertive.
+ *
+ * A notice that is placed inside a persistent live region passes
+ * `announce={false}`, so the region announces it once when its content changes.
+ */
 export function Notice({
   children,
   tone = "info",
   id,
+  announce = true,
 }: {
   children: ReactNode;
   tone?: "info" | "error";
   id?: string;
+  announce?: boolean;
 }) {
+  let role: "alert" | "status" | undefined;
+  if (announce) role = tone === "error" ? "alert" : "status";
   return (
-    <div
-      id={id}
-      className={`du-notice du-notice--${tone}`}
-      role={tone === "error" ? "alert" : "status"}
-    >
+    <div id={id} className={`du-notice du-notice--${tone}`} role={role}>
       <Icon name={tone === "error" ? "alert" : "activity"} />
       <div>{children}</div>
     </div>

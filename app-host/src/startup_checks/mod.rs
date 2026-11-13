@@ -455,5 +455,7 @@ impl UseCase for StartupAccessQuery {
 #[cfg(test)]
 mod observation_tests;
 #[cfg(test)]
+mod temporary_files_tests;
+#[cfg(test)]
 mod tests;
 pub(super) use host_observations::host_observations;

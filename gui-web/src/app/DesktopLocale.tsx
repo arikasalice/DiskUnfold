@@ -1,4 +1,10 @@
-import { useEffect, useLayoutEffect, useMemo } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useState,
+} from "react";
 import type { ReactNode } from "react";
 import { Action, Notice, Progress } from "../components";
 import { LocaleTextContext, useLocaleText } from "../i18n/presentation";
@@ -13,6 +19,7 @@ import { makeLocaleReporter } from "../state/locale-missing";
 import { useLocale } from "../state/use-locale";
 import type { LocaleView } from "../state/use-locale";
 import { App } from "./App";
+import { SupportRequestContext } from "./support-request";
 import { ClosingGuard } from "../features/shutdown/ClosingGuard";
 import { StartupGate } from "../features/startup/StartupGate";
 
@@ -81,6 +88,11 @@ export function DesktopLocale({
   const { view, startupFallbackBundle, save, retry, errorKey, commandError } =
     useLocale(client, children != null);
   const reporter = useMemo(() => makeLocaleReporter(client), [client]);
+  const [supportRequests, setSupportRequests] = useState(0);
+  const openSupport = useCallback(
+    () => setSupportRequests((count) => count + 1),
+    [],
+  );
   useEffect(() => () => reporter.cancel(), [reporter]);
   const format = useMemo(() => view && regionalFormat(view), [view]);
   const text = useMemo(
@@ -153,14 +165,18 @@ export function DesktopLocale({
   return (
     <LocaleTextContext.Provider value={text}>
       <RegionalFormatContext.Provider value={format}>
-        <ClosingGuard client={client}>
-          {children ??
-            (startupBanner ? (
-              <StartupGate client={client}>{shell}</StartupGate>
-            ) : (
-              shell
-            ))}
-        </ClosingGuard>
+        <SupportRequestContext.Provider value={supportRequests}>
+          <ClosingGuard client={client}>
+            {children ??
+              (startupBanner ? (
+                <StartupGate client={client} onOpenSupport={openSupport}>
+                  {shell}
+                </StartupGate>
+              ) : (
+                shell
+              ))}
+          </ClosingGuard>
+        </SupportRequestContext.Provider>
       </RegionalFormatContext.Provider>
     </LocaleTextContext.Provider>
   );
