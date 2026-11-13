@@ -154,6 +154,13 @@ cmp -s "$test_root/tar-members.expected" "$test_root/tar-members" || \
     fail 'tar.gz contains unexpected entries'
 tar -xOzf "$output/$tar_name" "DiskUnfold-0.1.0-linux-${cpu}/THIRD-PARTY-NOTICES.txt" | \
     cmp - "$notices" || fail 'tar.gz notices differ from the explicit input'
+# The app reports TarGz only when this marker names the form.
+[[ "$(tar -xOzf "$output/$tar_name" "DiskUnfold-0.1.0-linux-${cpu}/install-form" | tr -d '[:space:]')" == tar_gz ]] || \
+    fail 'tar.gz install-form marker is missing or wrong'
+# The Debian package is recognized from dpkg records, so it ships no marker.
+if dpkg-deb --fsys-tarfile "$output/$deb_name" | tar -tf - | grep -q 'install-form'; then
+    fail 'deb must not contain an install-form marker'
+fi
 dpkg-deb --fsys-tarfile "$output/$deb_name" | \
     tar -xO -f - ./usr/share/doc/diskunfold/THIRD-PARTY-NOTICES.txt | \
     cmp - "$notices" || fail 'deb notices differ from the explicit input'
@@ -180,6 +187,22 @@ if "$package_script" --binary "$binary" --version 0.1.0 --cpu "$cpu" \
 fi
 [[ ! -e "$test_root/symlink-output" && ! -L "$test_root/symlink-output" ]] || \
     fail 'invalid notices input created a package output directory'
+
+: > "$test_root/empty-notices.txt"
+if "$package_script" --binary "$binary" --version 0.1.0 --cpu "$cpu" \
+    --maintainer "$maintainer" --notices "$test_root/empty-notices.txt" \
+    --debian-copyright "$debian_copyright" \
+    --output-dir "$test_root/empty-notices-output" >/dev/null 2>&1; then
+    fail 'empty notices input was accepted'
+fi
+if "$package_script" --binary "$binary" --version 0.1.0 --cpu "$cpu" \
+    --maintainer "$maintainer" \
+    --debian-copyright "$debian_copyright" \
+    --output-dir "$test_root/missing-notices-output" >/dev/null 2>&1; then
+    fail 'a missing --notices option was accepted'
+fi
+[[ ! -e "$test_root/empty-notices-output" && ! -e "$test_root/missing-notices-output" ]] || \
+    fail 'rejected notices input created a package output directory'
 
 ln -s "$debian_copyright" "$test_root/copyright-link"
 if "$package_script" --binary "$binary" --version 0.1.0 --cpu "$cpu" \

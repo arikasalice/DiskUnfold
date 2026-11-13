@@ -7,16 +7,18 @@
   "observedOn": "2026-11-13",
   "osDetail": "Windows 11 25H2 Pro x64",
   "device": "local development workstation",
-  "executionForm": "unsigned development portable exe and package",
+  "executionForm": "unsigned development portable exe from package-windows-development.ps1, started with isolated data",
   "checks": {
     "native_build": "passed",
     "native_tests": "passed",
-    "installed_start": "not_run"
+    "installed_start": "limited"
   },
   "limits": [
-    "installed start not run",
+    "start grade was unverifiable, not pass: startup checks resource_integrity, webview, temporary_files, support_matrix and capability report unverifiable in this build",
+    "run used a developer build (buildKind developer), not an official release build or a released version; F15 DLD rev70 release-packaging step 3 grants officially verified only for a pass record on the latest released version",
+    "a portable exe is not an installed MSI or MSIX start",
     "MSIX not installed through the GUI",
     "no Home, ARM64 or 26H2 run"
   ],
-  "evidence": "F15 requirement matrix 2026-11-13: local development packages and unit tests"
+  "evidence": "ac22ba92 release build packaged as portable exe (SHA-256 b4c65581...ed69). smoke-windows-quit.ps1 -ProbeIpc: main window found through UI Automation, app.startup_status and app.product_info answered (installForm portable), window closed, exit code 0 in 0.35 s, no process or WebView2 helper left, instance lock released, no -wal/-shm left, integrity_check ok."
 }

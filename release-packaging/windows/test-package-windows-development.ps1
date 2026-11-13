@@ -45,7 +45,7 @@ function Assert-TestPathHasNoReparsePoint {
 }
 
 function Invoke-Packager {
-    param([string] $Format, [string] $OutputDirectory, [string] $RequestedArchitecture = $Architecture)
+    param([string] $Format, [string] $OutputDirectory, [string] $RequestedArchitecture = $Architecture, [string] $Notices, [switch] $ReleaseMode)
 
     $parameters = @{
         BinaryPath = $BinaryPath
@@ -54,6 +54,8 @@ function Invoke-Packager {
         Format = $Format
         OutputDirectory = $OutputDirectory
     }
+    if ($Notices) { $parameters['NoticesPath'] = $Notices }
+    if ($ReleaseMode) { $parameters['Release'] = $true }
     & $packageScript @parameters | Out-Null
 }
 
@@ -123,6 +125,22 @@ try {
     Assert-Equal 'portable' ((Get-Content -LiteralPath (Join-Path $portableOutput 'install-form') -Raw).Trim()) 'Portable install-form marker is missing or wrong.'
     Assert-True ((Get-Content -LiteralPath (Join-Path $portableOutput 'DEVELOPMENT-ONLY.txt') -Raw) -match 'Do not publish') 'Portable development marker does not forbid publishing.'
 
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $portableOutput 'THIRD-PARTY-NOTICES.txt'))) 'Development package without notices must not invent THIRD-PARTY-NOTICES.txt.'
+    $noticesFixture = Join-Path $testRootFull 'THIRD-PARTY-NOTICES.fixture'
+    [System.IO.File]::WriteAllText($noticesFixture, "TEST FIXTURE ONLY third-party notices`n")
+    $noticedPortable = Join-Path $testRootFull 'portable-noticed'
+    Invoke-Packager -Format 'portable-exe' -OutputDirectory $noticedPortable -Notices $noticesFixture
+    Assert-Equal (Get-Content -LiteralPath $noticesFixture -Raw) (Get-Content -LiteralPath (Join-Path $noticedPortable 'THIRD-PARTY-NOTICES.txt') -Raw) 'Portable package notices differ from the supplied file.'
+    Assert-ExpectedFailure { Invoke-Packager -Format 'portable-exe' -OutputDirectory (Join-Path $testRootFull 'release-no-notices') -ReleaseMode } 'Release mode accepted a missing notices file.' 'Release mode requires -NoticesPath'
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $testRootFull 'release-no-notices'))) 'Failed release packaging left an output directory.'
+    Assert-ExpectedFailure { Invoke-Packager -Format 'portable-exe' -OutputDirectory (Join-Path $testRootFull 'release-missing-file') -ReleaseMode -Notices (Join-Path $testRootFull 'does-not-exist') } 'Release mode accepted a nonexistent notices file.' ''
+    $emptyNotices = Join-Path $testRootFull 'empty-notices'
+    [System.IO.File]::WriteAllText($emptyNotices, '')
+    Assert-ExpectedFailure { Invoke-Packager -Format 'portable-exe' -OutputDirectory (Join-Path $testRootFull 'release-empty') -ReleaseMode -Notices $emptyNotices } 'Release mode accepted an empty notices file.' 'is empty'
+    $releasePortable = Join-Path $testRootFull 'release-portable'
+    Invoke-Packager -Format 'portable-exe' -OutputDirectory $releasePortable -ReleaseMode -Notices $noticesFixture
+    Assert-True (Test-Path -LiteralPath (Join-Path $releasePortable 'THIRD-PARTY-NOTICES.txt') -PathType Leaf) 'Release package is missing THIRD-PARTY-NOTICES.txt.'
+
     $collisionOutput = Join-Path $testRootFull 'collision'
     [System.IO.Directory]::CreateDirectory($collisionOutput) | Out-Null
     $sentinelPath = Join-Path $collisionOutput 'keep.txt'
@@ -150,12 +168,13 @@ try {
     }
     finally {
         if ($junctionCreated -and (Test-Path -LiteralPath $junctionPath -PathType Container)) {
-            Remove-Item -LiteralPath $junctionPath -Force
+            # Directory.Delete on a junction removes only the link, never its target.
+            [System.IO.Directory]::Delete($junctionPath, $false)
         }
     }
 
     $msixOutput = Join-Path $testRootFull 'msix'
-    Invoke-Packager -Format 'msix' -OutputDirectory $msixOutput
+    Invoke-Packager -Format 'msix' -OutputDirectory $msixOutput -Notices $noticesFixture
     $msixManifest = Get-Content -LiteralPath (Join-Path $msixOutput 'manifest.json') -Raw | ConvertFrom-Json
     if ($msixManifest.rows.Count -ne 1) { throw 'MSIX manifest must have one row.' }
     $msixRow = $msixManifest.rows[0]
@@ -172,6 +191,7 @@ try {
     $authenticode = Get-AuthenticodeSignature -FilePath $msixFile
     Assert-Equal 'NotSigned' $authenticode.Status.ToString() 'MSIX must not receive an ad-hoc signature.'
     Assert-True (Test-Path -LiteralPath (Join-Path $msixOutput 'DEVELOPMENT-ONLY.txt') -PathType Leaf) 'MSIX development marker is missing.'
+    Assert-Equal (Get-Content -LiteralPath $noticesFixture -Raw) (Get-Content -LiteralPath (Join-Path $msixOutput 'THIRD-PARTY-NOTICES.txt') -Raw) 'MSIX staging notices differ from the supplied file.'
 
     $programFilesX86 = [System.Environment]::GetEnvironmentVariable('ProgramFiles(x86)')
     $sdkBin = Join-Path $programFilesX86 'Windows Kits\10\bin'
@@ -189,6 +209,7 @@ try {
         throw ("Could not unpack test MSIX: {0}" -f ($unpackOutput -join [Environment]::NewLine))
     }
     $appxManifest = Get-Content -LiteralPath (Join-Path $unpacked 'AppxManifest.xml') -Raw
+    Assert-Equal (Get-Content -LiteralPath $noticesFixture -Raw) (Get-Content -LiteralPath (Join-Path $unpacked 'THIRD-PARTY-NOTICES.txt') -Raw) 'MSIX package member notices differ from the supplied file.'
     $parsedAppxManifest = [xml]$appxManifest
     $namespaceManager = [System.Xml.XmlNamespaceManager]::new($parsedAppxManifest.NameTable)
     $namespaceManager.AddNamespace('appx', 'http://schemas.microsoft.com/appx/manifest/foundation/windows10')
