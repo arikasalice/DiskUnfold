@@ -944,6 +944,14 @@ ui.closing.keep_open
 ui.closing.progress
 ui.closing.remaining count:count
 ui.closing.failed
+ui.closing.leave_now
+ui.closing.leave_title
+ui.closing.keep_waiting
+ui.closing.phase_access_closed
+ui.closing.phase_closed
+ui.closing.leaving
+ui.closing.already_closing
+ui.closing.hint
 ui.product.intro
 ui.product.loading
 ui.product.load_failed

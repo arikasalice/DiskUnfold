@@ -1,8 +1,36 @@
+.du-closing-host {
+  display: contents;
+}
+
+/* The covered workspace stays mounted but takes no space, so the page cannot scroll behind the screen. */
+.du-closing-host[inert] {
+  display: none;
+}
+
 .du-closing {
+  position: fixed;
+  inset: 0;
+  z-index: 9;
   display: grid;
-  gap: 8px;
-  padding: 12px 16px;
-  border-block-end: 1px solid var(--du-border);
+  align-content: center;
+  justify-items: center;
+  gap: 16px;
+  padding: 24px;
   background: var(--du-surface);
   color: var(--du-text);
+  text-align: center;
+}
+
+.du-closing:focus {
+  outline: none;
+}
+
+.du-closing > .du-progress {
+  inline-size: min(100%, 24rem);
+}
+
+.du-closing__actions {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
 }
