@@ -18,12 +18,13 @@
   min-width: 0;
 }
 
-.du-startup-screen {
+.du-app.du-startup-screen {
   display: grid;
   gap: 18px;
   width: min(100%, 56rem);
   margin-inline: auto;
-  padding-block: clamp(18px, 4vh, 36px);
+  /* `.du-app` sets the block padding to zero; the extra class keeps the title off the bar. */
+  padding-block: var(--du-space-6);
 }
 
 .du-startup__header,

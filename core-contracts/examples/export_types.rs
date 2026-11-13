@@ -77,6 +77,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         StartupAccessState::decl(&config),
         StartupStatus::decl(&config),
         StartupAccessAction::decl(&config),
+        StartupAppLocation::decl(&config),
         StartupAccessRequest::decl(&config),
         StartupAccessResponse::decl(&config),
         InstallForm::decl(&config),

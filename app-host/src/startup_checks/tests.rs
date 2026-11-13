@@ -75,15 +75,25 @@ fn missing_observations_are_unverifiable_and_do_not_become_a_pass()
 }
 
 #[test]
-fn opening_an_existing_database_does_not_prove_data_directory_writability() {
-    assert_eq!(
-        data_format_and_open_observation(true).result,
-        StartupCheckOutcome::Pass
-    );
-    assert_eq!(
-        data_format_and_open_observation(false).result,
-        StartupCheckOutcome::Unverifiable
-    );
+fn an_opened_database_passes_the_data_format_row_on_first_run_and_on_reopen()
+-> Result<(), Box<dyn std::error::Error>> {
+    // The first-run flag is reported separately and no longer changes this row.
+    let observation = data_format_and_open_observation();
+    assert_eq!(observation.check, StartupCheck::DataFormatAndOpen);
+    assert_eq!(observation.result, StartupCheckOutcome::Pass);
+    for first_run in [true, false] {
+        let report = status(
+            first_run,
+            StartupAccessState::Confirmed,
+            std::slice::from_ref(&observation),
+        )
+        .map_err(|error| format!("{error:?}"))?;
+        assert_eq!(report.first_run, first_run);
+        assert!(report.checks.iter().any(|row| {
+            row.check == StartupCheck::DataFormatAndOpen && row.result == StartupCheckOutcome::Pass
+        }));
+    }
+    Ok(())
 }
 
 #[test]

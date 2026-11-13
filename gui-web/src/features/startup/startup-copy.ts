@@ -33,6 +33,10 @@ export function startupCopy(text: LocaleText) {
       "ui.startup.denied_notice",
       "Full Disk Access is denied. Open Privacy & Security Settings, add DiskUnfold under Full Disk Access, then check the permission again.",
     ),
+    moveToApplications: text(
+      "ui.startup.move_to_applications",
+      "DiskUnfold is running from a disk image or another folder, so it will not appear in the Full Disk Access list. Move DiskUnfold.app to the Applications folder, open it from there, then grant Full Disk Access.",
+    ),
     analysisBlockedNotice: text(
       "ui.startup.analysis_blocked_notice",
       "Startup checks do not allow analysis. Review the listed results for details.",
@@ -53,7 +57,6 @@ export function startupCopy(text: LocaleText) {
       "ui.startup.open_settings",
       "Open Privacy & Security Settings",
     ),
-    recheck: text("ui.startup.recheck", "Check permission again"),
     settingsOpened: text(
       "ui.startup.settings_opened",
       "System Settings reported that its privacy page opened. Grant Full Disk Access to DiskUnfold, then check the permission again.",
@@ -62,7 +65,6 @@ export function startupCopy(text: LocaleText) {
       "ui.startup.settings_not_confirmed",
       "macOS did not confirm that Settings opened. If needed, open System Settings › Privacy & Security › Full Disk Access, add DiskUnfold, then check again.",
     ),
-    rechecked: text("ui.startup.rechecked", "Permission status refreshed."),
     unknown: text("ui.startup.unknown", "Unknown"),
     pass: text("ui.startup.pass", "Passed"),
     limited: text("ui.startup.limited", "Limited"),
@@ -157,6 +159,10 @@ export function outcomeLabel(result: StartupCheckResult, copy: StartupCopy) {
   switch (result.result) {
     case "pass":
       return copy.pass;
+    case "blocked":
+      // The access row is blocked only by a confirmed denial; show the same word as the
+      // status area, which reads the same observation.
+      return result.check === "full_disk_access" ? copy.denied : copy.unknown;
     case "limited":
       return copy.limited;
     case "outside_verified":

@@ -1,6 +1,7 @@
 mod menu;
 
 use super::contract::{Asset, CSP, ShutdownCallbacks, WebApp, entry, message, resource};
+use crate::cli_link::Language;
 use block2::DynBlock;
 use objc2::{
     AnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, class, define_class, msg_send,
@@ -31,6 +32,8 @@ use std::{
 
 struct State {
     app: WebApp,
+    /// Language of the native alerts, taken from the application's display language.
+    language: Language,
     shutdown: Option<ShutdownCallbacks>,
     error: RefCell<Option<String>>,
     /// True while a Dock or menu quit is postponed with `TerminateLater` and
@@ -172,7 +175,7 @@ define_class!(
         /// Menu action: links the `diskunfold` command into the user's `~/.local/bin`.
         #[unsafe(method(installCommandLineTool:))]
         fn install_command_line_tool(&self, _: &AnyObject) {
-            menu::install_command_line_tool(self.mtm());
+            menu::install_command_line_tool(self.mtm(), self.ivars().language);
         }
 
         /// Advances the host shutdown and leaves the run loop once it completes.
@@ -348,6 +351,7 @@ pub(super) fn run(app: WebApp, shutdown: Option<ShutdownCallbacks>) -> Result<()
         unsafe {
             let application = NSApplication::sharedApplication(mtm);
             let locale_enabled = app.locale_enabled;
+            let language = Language::from_tag(&app.native_language);
             application.setActivationPolicy(NSApplicationActivationPolicy::Regular);
             if let Some(icon) =
                 NSImage::initWithData(NSImage::alloc(), &NSData::with_bytes(app.icon))
@@ -357,6 +361,7 @@ pub(super) fn run(app: WebApp, shutdown: Option<ShutdownCallbacks>) -> Result<()
             let handler = objc2::msg_send![
                 super(Handler::alloc(mtm).set_ivars(State {
                     app,
+                    language,
                     shutdown,
                     error: RefCell::new(None),
                     terminate_pending: Cell::new(false)

@@ -373,7 +373,7 @@ fn real_rows_drive_the_report_grade() -> Result<(), Box<dyn std::error::Error>> 
             result: StartupCheckOutcome::Pass,
             reason_key: None,
         },
-        data_format_and_open_observation(true),
+        data_format_and_open_observation(),
         temporary_files::temporary_files_observation(tempfile::tempdir()?.path()),
         support_matrix_observation(
             &product(Some(SupportStatus::OfficiallyVerified), Some("m1")),

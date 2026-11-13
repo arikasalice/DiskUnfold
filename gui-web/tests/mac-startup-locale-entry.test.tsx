@@ -198,11 +198,6 @@ test("Mac startup status remains available after a transient profile transport f
                 template: "Verified retry",
                 parameters: {},
               },
-              "ui.startup.recheck": {
-                kind: "text",
-                template: "Check permission again",
-                parameters: {},
-              },
               "ui.startup.title": {
                 kind: "text",
                 template: "Verified English startup",
@@ -259,7 +254,7 @@ test("Mac startup status remains available after a transient profile transport f
     "app.startup_status",
   ]);
   fireEvent.click(
-    screen.getByRole("button", { name: "Check permission again" }),
+    screen.getByRole("button", { name: "ui.startup.open_settings" }),
   );
   await waitFor(() => expect(requests).toContain("app.startup_access"));
   expect(requests).toContain("app.startup_status");

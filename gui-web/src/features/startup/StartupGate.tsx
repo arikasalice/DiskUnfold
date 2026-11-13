@@ -65,7 +65,7 @@ export function StartupGate({
   }, [client]);
 
   if (status && !status.analysisAllowed) {
-    return <StartupStatusScreen client={client} />;
+    return <StartupStatusScreen client={client} onAllowed={setStatus} />;
   }
   const dismiss = () => {
     const next = banner.current?.nextElementSibling;

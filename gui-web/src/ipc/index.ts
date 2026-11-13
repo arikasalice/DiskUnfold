@@ -162,6 +162,7 @@ export type {
   SpaceDetail,
   SpaceDetailSize,
   StartupAccessAction,
+  StartupAppLocation,
   StartupAccessState,
   StartupCheck,
   StartupCheckOutcome,

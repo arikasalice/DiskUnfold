@@ -144,6 +144,24 @@ pub struct StartupStatus {
     pub access: StartupAccessState,
     /// Whether analysis entry is allowed in the current session.
     pub analysis_allowed: bool,
+    /// Where the running application is installed, when the platform can tell.
+    ///
+    /// Omitted when unknown. Full Disk Access cannot be granted usefully to an app that
+    /// runs from `elsewhere`, so the screen asks the user to move it first.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub app_location: Option<StartupAppLocation>,
+}
+
+/// Where the running application bundle sits relative to the application folders.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum StartupAppLocation {
+    /// In `/Applications` or `~/Applications`.
+    Applications,
+    /// Anywhere else, such as a mounted disk image, a quarantine copy or a scratch folder.
+    Elsewhere,
 }
 
 /// Selects one of the two startup access actions defined by IF-20.

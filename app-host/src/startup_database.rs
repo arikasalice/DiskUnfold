@@ -154,6 +154,7 @@ fn open_existing_macos(
     instance: &MacOsInstanceLock,
     pinned_file: &fs::File,
 ) -> Result<AppDb, io::Error> {
+    write_probe::verify(data_dir)?;
     verify_macos_paths(instance, data_dir, Some(pinned_file))?;
     let version = AppDb::probe_schema_version_read_only(path).map_err(open_error)?;
     verify_macos_paths(instance, data_dir, Some(pinned_file))?;
@@ -211,6 +212,7 @@ fn open_existing(
     data_dir: &Path,
     #[cfg(target_os = "linux")] instance: &LinuxInstanceLock,
 ) -> Result<AppDb, io::Error> {
+    write_probe::verify(data_dir)?;
     let version = AppDb::probe_schema_version_read_only(path).map_err(open_error)?;
     if version == HISTORY_SCHEMA_VERSION {
         return AppDb::open_gui_with_history_after_version_probe(path).map_err(open_error);
@@ -477,6 +479,9 @@ fn migration_error(error: MigrationError) -> io::Error {
     };
     reason(key, &error)
 }
+
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+mod write_probe;
 
 #[cfg(all(test, windows))]
 mod tests;
