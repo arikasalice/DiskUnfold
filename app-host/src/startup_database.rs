@@ -2,11 +2,15 @@
 
 use std::{fs, io, path::Path};
 
-use du_app_db::{AppDb, HISTORY_SCHEMA_VERSION, OpenError, migration::MigrationError};
-#[cfg(any(windows, target_os = "linux"))]
 use du_app_db::{
-    HISTORY_DEFINITIONS,
-    migration::managed::{RetentionDiagnostic, apply_managed_run},
+    AppDb, HISTORY_DEFINITIONS, HISTORY_SCHEMA_VERSION, OpenError,
+    migration::{
+        MigrationError,
+        managed::{
+            JOURNAL, ManagedRunFailure, RecoveryOutcome, RestoreStatus, RetentionDiagnostic,
+            apply_managed_run, recover_interrupted,
+        },
+    },
 };
 #[cfg(target_os = "linux")]
 use du_platform_os::{
@@ -26,6 +30,18 @@ use du_platform_os::{
 };
 
 use crate::shared_database::{DatabaseGuard, SharedDatabase};
+
+#[cfg(target_os = "linux")]
+type Instance = LinuxInstanceLock;
+#[cfg(target_os = "macos")]
+type Instance = MacOsInstanceLock;
+
+// F14 DLD rev79 §2.5.5 keeps the steps a failed migration already applied. The user decided to
+// follow F15 HLD rev116 §2.3.3.5 and DLD rev70 §2.6 (FR8.HD1.app-db.DD1, FR8.HD1.app-host.DD1)
+// instead: a failed migration restores the whole pre-migration backup on every platform. F14
+// DLD79 §2.5.5 needs a design revision (docs/handoff/F14-DLD79-2.5.5-needs-revision.md).
+// Both outcomes use the HLD reason startup.migration_failed; the design has no separate key for
+// a failed restore, so the text after the key says whether the backup was restored.
 
 /// Database startup result plus whether this run created the database file.
 pub(super) struct OpenedDatabase {
@@ -56,6 +72,7 @@ pub(super) fn open_with_status(data_dir: &Path) -> Result<OpenedDatabase, io::Er
     create_data_directory(&data_dir).map_err(|error| data_folder_error(Some(error)))?;
     let instance = WindowsInstanceLock::acquire(&data_dir).map_err(lock_error)?;
     let path = data_dir.join(DATABASE_FILE);
+    finish_interrupted_migration(&path, &data_dir.join("db-backups"))?;
     let (database, file, first_run) =
         if let Some(file) = instance.pin_database().map_err(lock_error)? {
             (open_existing(&path, &data_dir)?, file, false)
@@ -75,10 +92,11 @@ pub(super) fn open_with_status(data_dir: &Path) -> Result<OpenedDatabase, io::Er
 
 /// Opens or atomically creates the current macOS GUI database under its per-directory lock.
 ///
-/// Existing lower-format databases are not migrated while the published F14/F15 migration
-/// failure contract conflict remains unresolved. The SQLite read-only probe may initialize WAL
-/// sidecars; it preserves the main database and existing WAL frames and leaves sidecars under
-/// SQLite's normal locking and recovery behavior.
+/// Lower-format databases follow the same backup, migrate and full-restore path as Windows and
+/// Linux. Restoring writes into the pinned database file instead of replacing it, so the path
+/// identity checks stay valid, and they run again around every phase. The SQLite read-only probe
+/// may initialize WAL sidecars; it preserves the main database and existing WAL frames and
+/// leaves sidecars under SQLite's normal locking and recovery behavior.
 #[cfg(target_os = "macos")]
 pub(super) fn open_with_status(data_dir: &Path) -> Result<OpenedDatabase, io::Error> {
     let data_dir = std::path::absolute(data_dir).map_err(|error| data_folder_error(Some(error)))?;
@@ -86,6 +104,8 @@ pub(super) fn open_with_status(data_dir: &Path) -> Result<OpenedDatabase, io::Er
     let instance = MacOsInstanceLock::acquire(&data_dir).map_err(macos_lock_error)?;
     verify_macos_paths(&instance, &data_dir, None)?;
     let path = data_dir.join(DATABASE_FILE);
+    finish_interrupted_migration(&path, &data_dir.join("db-backups"), &instance)?;
+    verify_macos_paths(&instance, &data_dir, None)?;
     let (database, file, first_run) = match instance.pin_database().map_err(macos_lock_error)? {
         Some(file) => {
             verify_macos_paths(&instance, &data_dir, Some(&file))?;
@@ -125,14 +145,18 @@ fn open_existing_macos(
     let version = AppDb::probe_schema_version_read_only(path).map_err(open_error)?;
     verify_macos_paths(instance, data_dir, Some(pinned_file))?;
     if version < HISTORY_SCHEMA_VERSION {
-        return Err(io::Error::other(format!(
-            "startup.migration_failed: database schema {version} is preserved; migration awaits the published F14/F15 policy resolution"
-        )));
+        let result = migrate(path, &data_dir.join("db-backups"), version, instance);
+        verify_macos_paths(instance, data_dir, Some(pinned_file))?;
+        result?;
     }
     if version > HISTORY_SCHEMA_VERSION {
         return Err(io::Error::other("db.schema_mismatch"));
     }
-    let database = AppDb::open_gui_with_history_after_version_probe(path).map_err(open_error)?;
+    let database = if version < HISTORY_SCHEMA_VERSION {
+        AppDb::open_gui_with_history(path).map_err(open_error)?
+    } else {
+        AppDb::open_gui_with_history_after_version_probe(path).map_err(open_error)?
+    };
     verify_macos_paths(instance, data_dir, Some(pinned_file))?;
     Ok(database)
 }
@@ -150,6 +174,7 @@ pub(super) fn open_with_status(data_dir: &Path) -> Result<OpenedDatabase, io::Er
     create_data_directory(&data_dir).map_err(|error| data_folder_error(Some(error)))?;
     let instance = LinuxInstanceLock::acquire(&data_dir).map_err(linux_lock_error)?;
     let path = data_dir.join(DATABASE_FILE);
+    finish_interrupted_migration(&path, &data_dir.join("db-backups"), &instance)?;
     let (database, file, first_run) =
         if let Some(file) = instance.pin_database().map_err(linux_lock_error)? {
             (open_existing(&path, &data_dir, &instance)?, file, false)
@@ -195,25 +220,25 @@ fn open_existing(
     AppDb::open_gui_with_history(path).map_err(open_error)
 }
 
-#[cfg(any(windows, target_os = "linux"))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 fn migrate(
     path: &Path,
     backups: &Path,
     version: u32,
-    #[cfg(target_os = "linux")] instance: &LinuxInstanceLock,
+    #[cfg(unix)] instance: &Instance,
 ) -> Result<(), io::Error> {
     create_backup_directory(backups)
         .map_err(|error| io::Error::other(format!("db.backup_failed: {error}")))?;
     let _directory = prepare_backup_directory(
         backups,
-        #[cfg(target_os = "linux")]
+        #[cfg(unix)]
         instance,
     )?;
     let outcome = match apply_managed_run(path, backups, &HISTORY_DEFINITIONS, version) {
         Ok(outcome) => outcome,
         Err(failure) => {
             report_retention(&failure.retention);
-            return Err(migration_error(failure.migration));
+            return Err(run_failure(*failure));
         }
     };
     report_retention(&outcome.retention);
@@ -221,6 +246,54 @@ fn migrate(
         return Err(io::Error::other("db.schema_mismatch"));
     }
     Ok(())
+}
+
+/// Finishes a migration or restore that a previous run left unfinished, before anything else
+/// reads the database. A journal that is found always blocks this start: the restore result is
+/// reported and the next start migrates again from the restored database.
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+fn finish_interrupted_migration(
+    path: &Path,
+    backups: &Path,
+    #[cfg(unix)] instance: &Instance,
+) -> Result<(), io::Error> {
+    // Only a leftover journal needs recovery; an ordinary start does not touch the backups.
+    if fs::symlink_metadata(backups.join(JOURNAL)).is_err() {
+        return Ok(());
+    }
+    let _directory = prepare_backup_directory(
+        backups,
+        #[cfg(unix)]
+        instance,
+    )?;
+    match recover_interrupted(path, backups, &HISTORY_DEFINITIONS) {
+        Ok(RecoveryOutcome::NothingPending | RecoveryOutcome::AlreadyComplete { .. }) => Ok(()),
+        Ok(RecoveryOutcome::Restored(restored)) => Err(io::Error::other(format!(
+            "startup.migration_failed: an interrupted migration was restored from backup {} at schema {}; the backup is preserved",
+            restored.sequence, restored.version
+        ))),
+        Err(error) => Err(restore_failed(&error, None)),
+    }
+}
+
+/// Maps a failed run to the startup reason, naming the restore result when a restore ran.
+fn run_failure(failure: ManagedRunFailure) -> io::Error {
+    match failure.restore {
+        RestoreStatus::NotNeeded => migration_error(failure.migration),
+        RestoreStatus::Restored(restored) => io::Error::other(format!(
+            "startup.migration_failed: {:?}; the database was restored from backup {} at schema {} and the backup is preserved",
+            failure.migration, restored.sequence, restored.version
+        )),
+        RestoreStatus::Failed(error) => restore_failed(&error, Some(&failure.migration)),
+    }
+}
+
+/// Fail-closed report: the database, the backups and the journal are all kept.
+fn restore_failed(error: &MigrationError, cause: Option<&MigrationError>) -> io::Error {
+    io::Error::other(format!(
+        "startup.migration_failed: db.restore_failed: the database and its backups are preserved for recovery: restore {error:?}{}",
+        cause.map_or_else(String::new, |cause| format!(", migration {cause:?}"))
+    ))
 }
 
 #[cfg(windows)]
@@ -231,11 +304,8 @@ fn prepare_backup_directory(
         .map_err(|error| io::Error::other(format!("db.backup_failed: {error:?}")))
 }
 
-#[cfg(target_os = "linux")]
-fn prepare_backup_directory(
-    _backups: &Path,
-    instance: &LinuxInstanceLock,
-) -> Result<fs::File, io::Error> {
+#[cfg(unix)]
+fn prepare_backup_directory(_backups: &Path, instance: &Instance) -> Result<fs::File, io::Error> {
     // Pins the no-follow directory object through publication. The cooperative
     // advisory lock does not exclude unrelated same-user filesystem mutation.
     instance
@@ -267,7 +337,7 @@ fn create_backup_directory(path: &Path) -> io::Result<()> {
     fs::create_dir_all(path)
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(unix)]
 fn create_backup_directory(path: &Path) -> io::Result<()> {
     use std::os::unix::fs::DirBuilderExt;
     let mut builder = fs::DirBuilder::new();
@@ -287,7 +357,7 @@ fn create_backup_directory(path: &Path) -> io::Result<()> {
         })
 }
 
-#[cfg(any(windows, target_os = "linux"))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 fn report_retention(retention: &RetentionDiagnostic) {
     if retention.inspection_failed || (retention.cleanup_unavailable && retention.content_valid > 3)
     {
@@ -369,6 +439,9 @@ fn migration_error(error: MigrationError) -> io::Error {
 
 #[cfg(all(test, windows))]
 mod tests;
+
+#[cfg(all(test, any(windows, target_os = "linux", target_os = "macos")))]
+mod restore_tests;
 
 #[cfg(all(test, target_os = "linux"))]
 mod linux_tests;

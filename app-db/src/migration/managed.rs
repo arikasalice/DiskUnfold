@@ -13,6 +13,10 @@ use crate::APPLICATION_ID;
 
 mod run;
 pub use run::{ManagedRunFailure, ManagedRunOutcome, apply_managed_run};
+mod restore;
+pub use restore::{
+    JOURNAL, RecoveryOutcome, RestoreStage, RestoreStatus, RestoredBackup, recover_interrupted,
+};
 
 const FORMAT: &str = "diskunfold-backup-v1";
 const COPY: &str = "database.sqlite";
@@ -57,7 +61,7 @@ fn apply_next_managed_with(
     definitions: &Definitions<'_>,
     inspect: impl FnOnce(&Path) -> Result<RetentionDiagnostic, MigrationError>,
 ) -> Result<ManagedOutcome, MigrationError> {
-    let step = apply_managed_step(path, root, definitions, None)?;
+    let step = apply_managed_step(path, root, definitions, None, None)?;
     let retention = retention_or_unavailable(inspect(root));
     Ok(ManagedOutcome {
         revision: step.revision,
@@ -71,14 +75,21 @@ struct ManagedStep {
     backup_sequence: u64,
 }
 
+/// Revisions recorded in the journal that the first step of a run writes before its transaction.
+struct JournalPlan {
+    source_version: u32,
+    target_version: u32,
+}
+
 fn apply_managed_step(
     path: &Path,
     root: &Path,
     definitions: &Definitions<'_>,
     expected_predecessor: Option<u32>,
+    journal: Option<&JournalPlan>,
 ) -> Result<ManagedStep, MigrationError> {
     check_root(root).map_err(backup_error)?;
-    let mut sequence = None;
+    let sequence = std::cell::Cell::new(None);
     let revision = apply_next_with_backup(
         path,
         definitions,
@@ -86,12 +97,19 @@ fn apply_managed_step(
             if expected_predecessor.is_some_and(|expected| version != expected) {
                 return Err(MigrationError::VersionMismatch);
             }
-            sequence = Some(publish(source, version, root).map_err(backup_error)?);
+            sequence.set(Some(publish(source, version, root).map_err(backup_error)?));
             Ok(())
         },
-        || Ok(()),
+        || match (journal, sequence.get()) {
+            // The backup is verified and journaled before the first write to the database.
+            (Some(plan), Some(sequence)) => {
+                restore::begin_journal(root, sequence, plan.source_version, plan.target_version)
+                    .map_err(backup_error)
+            }
+            _ => Ok(()),
+        },
     )?;
-    let backup_sequence = sequence.ok_or(MigrationError::Integrity)?;
+    let backup_sequence = sequence.get().ok_or(MigrationError::Integrity)?;
     Ok(ManagedStep {
         revision,
         backup_sequence,
@@ -377,6 +395,8 @@ fn sync_dir(path: &Path) -> Result<(), MigrationError> {
     Ok(())
 }
 
+#[cfg(test)]
+mod restore_tests;
 #[cfg(test)]
 mod retention_tests;
 #[cfg(test)]

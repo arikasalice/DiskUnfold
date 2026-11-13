@@ -58,6 +58,10 @@ pub enum MigrationError {
     Integrity,
     UnrecognizedBaseline,
     BackupBusy,
+    /// A journal from an earlier unfinished migration exists; it must be recovered first.
+    Interrupted,
+    /// Restoring the pre-migration backup failed; the database and backups were kept.
+    RestoreFailed(Box<MigrationError>),
 }
 
 impl From<rusqlite::Error> for MigrationError {
