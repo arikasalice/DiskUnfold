@@ -355,11 +355,21 @@ mod tests {
     #[test]
     fn real_windows_host_reports_a_release_and_edition() {
         let observed = SystemOsRelease.release_and_edition();
-        let release = observed.release.unwrap_or_default();
-        assert!(
-            release.starts_with("11-") || release.starts_with("10-"),
-            "unexpected Windows release {release:?}"
-        );
-        assert!(observed.edition.is_some_and(|edition| !edition.is_empty()));
+        let edition = observed.edition.clone().unwrap_or_default();
+        assert!(!edition.is_empty(), "the Windows edition must be observed");
+        // Server editions (for example GitHub windows-2022 runners) report an
+        // unknown release by design; client editions must report 10- or 11-.
+        let server = edition
+            .get(..6)
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case("server"));
+        if server {
+            assert_eq!(observed.release, None, "server edition {edition:?}");
+        } else {
+            let release = observed.release.unwrap_or_default();
+            assert!(
+                release.starts_with("11-") || release.starts_with("10-"),
+                "unexpected Windows release {release:?} for edition {edition:?}"
+            );
+        }
     }
 }
