@@ -1,9 +1,17 @@
 import type { AppLifecycleChanged, EventEnvelope } from "../../ipc";
 
+/** Where the closing screen is in the host's shutdown steps (F15 IF-07). */
+export type ClosingPhase = "access_closed" | "draining" | "closed";
+
 /** The part of an `app.lifecycle_changed` event the closing guard acts on. */
 export type ClosingSignal =
   | { kind: "confirm"; changeCount: number; sequence: number }
-  | { kind: "closing"; remaining: number; sequence: number }
+  | {
+      kind: "closing";
+      phase: "access_closed" | "draining";
+      remaining: number;
+      sequence: number;
+    }
   | { kind: "closed"; sequence: number }
   | { kind: "ignore" };
 
@@ -32,6 +40,7 @@ export function readClosingSignal(event: EventEnvelope): ClosingSignal {
   if (body.state === "access_closed" || body.state === "draining") {
     return {
       kind: "closing",
+      phase: body.state,
       remaining: count(body.remainingJobCount) ?? 0,
       sequence,
     };

@@ -41,6 +41,9 @@
   --du-space-2: 8px;
   --du-space-3: 12px;
   --du-space-4: 16px;
+  --du-space-6: 24px;
+  --du-measure-closing: 24rem;
+  --du-measure-closing-text: 32rem;
   --du-font-mono: ui-monospace, "Cascadia Mono", "Consolas", monospace;
   --du-font-size-code: 13px;
   --du-state-duration: 120ms;

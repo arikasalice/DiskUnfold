@@ -1,8 +1,44 @@
 .du-closing {
+  position: fixed;
+  inset: 0;
+  z-index: 9;
   display: grid;
-  gap: 8px;
-  padding: 12px 16px;
-  border-block-end: 1px solid var(--du-border);
+  /* "safe" keeps the title reachable when the content is taller than the
+     window, for example at 300% zoom; the screen then scrolls. */
+  align-content: safe center;
+  justify-items: center;
+  gap: var(--du-space-4);
+  padding: var(--du-space-6);
+  overflow-y: auto;
   background: var(--du-surface);
   color: var(--du-text);
+  text-align: center;
+}
+
+.du-closing:focus {
+  outline: none;
+}
+
+.du-closing > * {
+  max-inline-size: min(100%, var(--du-measure-closing-text));
+}
+
+.du-closing > .du-heading {
+  font-size: clamp(20px, 3vw, 26px);
+  letter-spacing: -0.015em;
+}
+
+.du-closing > .du-progress {
+  inline-size: min(100%, var(--du-measure-closing));
+}
+
+.du-closing > .du-notice {
+  text-align: start;
+}
+
+.du-closing__actions {
+  display: grid;
+  justify-items: center;
+  gap: var(--du-space-2);
+  margin-block-start: var(--du-space-2);
 }
