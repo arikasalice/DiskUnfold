@@ -45,6 +45,7 @@ fn report(license: &str) -> NoticeReport {
             file: "LICENSE".into(),
             text: "MIT text".into(),
         }],
+        authors: Vec::new(),
     }];
     let policy = DenyPolicy {
         allowed: ["MIT".to_owned()].into(),

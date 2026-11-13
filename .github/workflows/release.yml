@@ -95,8 +95,14 @@ jobs:
         if: steps.mode.outputs.official == 'true'
         run: |
           file=release-packaging/linux/debian-copyright
+          review="$file.reviewed"
           if [[ ! -s "$file" ]] || grep -qiE 'fixture|dry run' "$file"; then
             echo "release.debian_copyright_missing: $file must be a reviewed Debian machine-readable copyright file" >&2
+            exit 1
+          fi
+          digest=$(sha256sum "$file" | cut -d ' ' -f 1)
+          if [[ ! -f "$review" ]] || ! grep -qx "sha256: $digest" "$review" || ! grep -qE '^reviewer: [^[:space:]]' "$review"; then
+            echo "release.debian_copyright_missing: $review must record 'sha256: $digest' and a reviewer for the current $file" >&2
             exit 1
           fi
       - run: npm ci --ignore-scripts
