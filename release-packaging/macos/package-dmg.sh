@@ -4,9 +4,15 @@ set -euo pipefail
 
 usage() {
     cat <<'USAGE'
-Usage: package-dmg.sh --binary PATH --version X.Y.Z [--bundle-id REVERSE_DNS] --notices PATH --output-dir NEW_DIR
+Usage: package-dmg.sh --binary PATH --version X.Y.Z [--bundle-id REVERSE_DNS] [--signing-identity NAME [--keychain PATH]] --notices PATH --output-dir NEW_DIR
 
 --bundle-id defaults to the project identifier com.diskunfold.app.
+--signing-identity names a code-signing identity in the keychain (--keychain, or the default
+search list). The default is ad-hoc signing ("-"), whose code requirement is the executable's
+hash and so changes with every build. A named identity makes the code requirement
+"identifier + certificate", which stays the same between builds, so macOS keeps privacy
+grants such as Full Disk Access across updates. The identity is meant for the fixed
+self-signed certificate; it is not a Developer ID and the result is not notarized.
 The output directory must not exist. The DMG contains the app, repository
 LICENSE, and the explicitly supplied THIRD-PARTY-NOTICES file. The output also
 contains a one-row release-tools manifest.json and the signed executable staged
@@ -26,9 +32,11 @@ version=''
 bundle_id='com.diskunfold.app'
 notices=''
 output_dir=''
+signing_identity='-'
+keychain=''
 while (($#)); do
     case "$1" in
-        --binary|--version|--bundle-id|--notices|--output-dir)
+        --binary|--version|--bundle-id|--notices|--output-dir|--signing-identity|--keychain)
             (($# >= 2)) || fail "missing value for $1"
             case "$1" in
                 --binary) binary=$2 ;;
@@ -36,6 +44,8 @@ while (($#)); do
                 --bundle-id) bundle_id=$2 ;;
                 --notices) notices=$2 ;;
                 --output-dir) output_dir=$2 ;;
+                --signing-identity) signing_identity=$2 ;;
+                --keychain) keychain=$2 ;;
             esac
             shift 2
             ;;
@@ -326,13 +336,32 @@ PLIST
 printf 'APPL????' > "$contents/PkgInfo"
 plutil -lint "$contents/Info.plist" >/dev/null || fail 'generated Info.plist is invalid'
 
-# Ad-hoc signing preserves Hardened Runtime without asserting an Apple identity.
-codesign --force --sign - --timestamp=none --options runtime \
-    --entitlements "$entitlements_path" "$app_root"
-codesign --verify --all-architectures --deep --strict "$app_root" || fail 'ad-hoc app signature verification failed'
+# Ad-hoc signing preserves Hardened Runtime without asserting an Apple identity. A named identity
+# (the fixed self-signed certificate) keeps the code requirement the same between builds.
+sign_args=(--force --sign "$signing_identity" --timestamp=none --options runtime
+    --entitlements "$entitlements_path")
+[[ -z "$keychain" ]] || sign_args+=(--keychain "$keychain")
+codesign "${sign_args[@]}" "$app_root"
+codesign --verify --all-architectures --deep --strict "$app_root" || fail 'app signature verification failed'
 signature_details=$(codesign --display --verbose=4 "$app_root" 2>&1) || fail 'could not inspect app signature'
-printf '%s\n' "$signature_details" | grep -Eiq 'Signature=adhoc' || fail 'signature is not ad-hoc'
 printf '%s\n' "$signature_details" | grep -Eiq 'flags=.*runtime' || fail 'Hardened Runtime is not enabled'
+requirement=$(codesign --display --requirements - "$app_root" 2>&1) || fail 'could not read the designated requirement'
+if [[ "$signing_identity" == '-' ]]; then
+    printf '%s\n' "$signature_details" | grep -Eiq 'Signature=adhoc' || fail 'signature is not ad-hoc'
+    signature_kind=hardened_runtime_ad_hoc
+    signature_scope='Hardened Runtime ad-hoc signature seals DiskUnfold.app; the DMG is not separately code-signed. No Apple developer identity and no notarization. The code requirement is a per-build hash, so macOS privacy grants do not carry over to a later build.'
+else
+    # The requirement must name the certificate, not a build hash, or privacy grants would not
+    # survive an update.
+    printf '%s\n' "$signature_details" | grep -Eiq 'Signature=adhoc' && fail 'signing identity produced an ad-hoc signature'
+    # A self-signed certificate is its own root, so codesign may print "certificate root" where a
+    # longer chain prints "certificate leaf"; both pin the requirement to this one certificate.
+    printf '%s\n' "$requirement" | grep -Eq 'designated => .*identifier "'"$bundle_id"'" and certificate (leaf|root) = H"[0-9a-f]{40}"' || \
+        fail 'designated requirement is not identifier plus certificate'
+    printf '%s\n' "$requirement" | grep -Eiq 'cdhash' && fail 'designated requirement still depends on a build hash'
+    signature_kind=hardened_runtime_self_signed
+    signature_scope='Hardened Runtime signature with the fixed self-signed DiskUnfold Development Signing certificate seals DiskUnfold.app; the DMG is not separately code-signed. Not a Developer ID signature and not notarized: macOS reports the developer as unidentified. The code requirement (identifier plus certificate) is the same for every build so macOS privacy grants carry over.'
+fi
 
 signed_executable="$contents/MacOS/diskunfold"
 # Input file first: older lipo releases (Xcode 16) reject the operation-first order.
@@ -399,8 +428,8 @@ cat > "$work_dir/manifest.json" <<MANIFEST
     "cpu": "universal",
     "format": "dmg",
     "channel": "direct",
-    "signature": "hardened_runtime_ad_hoc",
-    "signature_scope": "Hardened Runtime ad-hoc signature seals DiskUnfold.app; the DMG is not separately code-signed. No Apple developer identity and no notarization.",
+    "signature": "$signature_kind",
+    "signature_scope": "$signature_scope",
     "sha256": "$package_digest",
     "executable_file_name": "diskunfold",
     "executable_sha256": "$mounted_digest",

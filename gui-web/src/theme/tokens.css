@@ -42,6 +42,12 @@
   --du-space-3: 12px;
   --du-space-4: 16px;
   --du-space-6: 24px;
+  /* Window bar drawn by the page where the native title bar is transparent (macOS). The host
+     publishes the real values from the traffic-light buttons; the defaults mean no bar. */
+  --du-titlebar-height: 0px;
+  --du-titlebar-inset-start: 0px;
+  /* Space between the top edge of the content area and the first screen content. */
+  --du-screen-top: var(--du-space-6);
   --du-measure-closing: 24rem;
   --du-measure-closing-text: 32rem;
   --du-font-mono: ui-monospace, "Cascadia Mono", "Consolas", monospace;

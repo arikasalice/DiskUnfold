@@ -47,6 +47,7 @@ body {
 .du-app-header {
   border-bottom: 1px solid var(--du-border);
   min-block-size: 52px;
+  margin-block-start: var(--du-space-2);
   padding-block: 4px;
 }
 

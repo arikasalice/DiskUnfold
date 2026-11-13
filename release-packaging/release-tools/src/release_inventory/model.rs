@@ -175,6 +175,10 @@ pub enum SignatureMethod {
     Store,
     /// Hardened Runtime ad-hoc signing for a macOS application.
     HardenedRuntimeAdHoc,
+    /// Hardened Runtime signing with a fixed self-signed certificate for a macOS application.
+    /// It is neither a Developer ID signature nor notarized; it only keeps the code
+    /// requirement stable between builds.
+    HardenedRuntimeSelfSigned,
     /// No platform signature is applied to the artifact.
     Unsigned,
 }

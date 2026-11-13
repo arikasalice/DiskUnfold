@@ -19,9 +19,13 @@ export class NativeIpcTransportError extends Error {
 interface NativeWindow extends Window {
   __diskunfoldRequest?: NativeRequest;
   __diskunfoldLocale?: boolean;
+  __diskunfoldTitlebar?: boolean;
   __diskunfoldRecentScopes?: unknown;
   webkit?: {
-    messageHandlers?: { diskunfold?: { postMessage: NativeRequest } };
+    messageHandlers?: {
+      diskunfold?: { postMessage: NativeRequest };
+      diskunfoldWindow?: { postMessage: (message: string) => void };
+    };
   };
 }
 
@@ -79,6 +83,37 @@ function isErrorEnvelope(
     !Object.hasOwn(value, "itemRefs") ||
     (Array.isArray(value.itemRefs) && value.itemRefs.every(isItemRef))
   );
+}
+
+/**
+ * Detects the transparent native title bar of the macOS window.
+ *
+ * The host hides the native title text and lets the page draw the bar, and marks the
+ * app-scheme document with a read-only `__diskunfoldTitlebar` property. Other platforms
+ * keep their native frame, so no bar is drawn there.
+ */
+export function hasCustomTitlebar(): boolean {
+  const host = window as NativeWindow;
+  const marker = Object.getOwnPropertyDescriptor(host, "__diskunfoldTitlebar");
+  return (
+    host.top === host &&
+    host.location.href === "diskunfold://app/index.html" &&
+    marker?.value === true &&
+    typeof host.webkit?.messageHandlers?.diskunfoldWindow?.postMessage ===
+      "function"
+  );
+}
+
+/** Asks the host to move the window with the mouse press that is being handled. */
+export function requestWindowDrag(): void {
+  const handlers = (window as NativeWindow).webkit?.messageHandlers;
+  handlers?.diskunfoldWindow?.postMessage("drag");
+}
+
+/** Asks the host to zoom the window, as a double click on a native title bar does. */
+export function requestWindowZoom(): void {
+  const handlers = (window as NativeWindow).webkit?.messageHandlers;
+  handlers?.diskunfoldWindow?.postMessage("zoom");
 }
 
 /** Detects a trusted native locale bridge for the embedded desktop webview. */

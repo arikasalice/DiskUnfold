@@ -310,6 +310,27 @@ fn ad_hoc_signature_is_accepted_only_on_macos_rows() -> TestResult {
 const RECORDED_FORMATS: &str = include_str!("../../../release/format-versions.json");
 
 #[test]
+fn self_signed_signature_is_accepted_only_on_macos_rows() -> TestResult {
+    let mut set = full_set(SignatureMethod::Unsigned)?;
+    for row in &mut set.rows {
+        if row.os.family == OsFamily::Macos {
+            row.signature = SignatureMethod::HardenedRuntimeSelfSigned;
+        }
+    }
+    check_signature_claims(&set, false)?;
+    for row in &mut set.rows {
+        if row.os.family == OsFamily::Windows {
+            row.signature = SignatureMethod::HardenedRuntimeSelfSigned;
+        }
+    }
+    let failure = check_signature_claims(&set, false)
+        .err()
+        .ok_or("accepted")?;
+    assert_eq!(failure.reason_key, SIGNATURE_UNVERIFIED);
+    Ok(())
+}
+
+#[test]
 fn recorded_format_versions_equal_the_versions_defined_in_code() -> TestResult {
     let recorded = check_format_versions(RECORDED_FORMATS)?;
     assert_eq!(recorded, FormatVersions::from_code());

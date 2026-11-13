@@ -45,3 +45,4 @@ export type {
 
 export { ActionFeedback } from "./action-feedback";
 export { TextDocument } from "./text-document";
+export { TitleBar, TitleBarProvider, useTitleBarContext } from "./title-bar";

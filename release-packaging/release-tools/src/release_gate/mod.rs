@@ -326,8 +326,8 @@ pub fn check_required_artifacts_scoped(
     })
 }
 
-/// When no signing step ran, a row may claim only `unsigned` or, on a macOS row, the ad-hoc
-/// signature that the macOS packager applies itself.
+/// When no signing step ran, a row may claim only `unsigned` or, on a macOS row, the ad-hoc or
+/// self-signed signature that the macOS packager applies itself.
 pub fn check_signature_claims(
     manifest: &ReleaseManifest,
     signing_applied: bool,
@@ -340,7 +340,9 @@ pub fn check_signature_claims(
         .iter()
         .filter(|row| match row.signature {
             SignatureMethod::Unsigned => false,
-            SignatureMethod::HardenedRuntimeAdHoc => row.os.family != OsFamily::Macos,
+            SignatureMethod::HardenedRuntimeAdHoc | SignatureMethod::HardenedRuntimeSelfSigned => {
+                row.os.family != OsFamily::Macos
+            }
             SignatureMethod::SignPath | SignatureMethod::Store => true,
         })
         .map(|row| row.file_name.as_str())

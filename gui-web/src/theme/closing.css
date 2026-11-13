@@ -1,6 +1,6 @@
 .du-closing {
   position: fixed;
-  inset: 0;
+  inset: var(--du-titlebar-height) 0 0;
   z-index: 9;
   display: grid;
   /* "safe" keeps the title reachable when the content is taller than the

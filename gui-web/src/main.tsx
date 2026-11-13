@@ -7,6 +7,7 @@ import {
   hasWindowsAnalysisBridge,
 } from "./ipc";
 import "./theme/tokens.css";
+import "./theme/titlebar.css";
 import "./theme/workspace.css";
 import "./theme/analysis-workspace.css";
 import "./theme/drive-picker.css";

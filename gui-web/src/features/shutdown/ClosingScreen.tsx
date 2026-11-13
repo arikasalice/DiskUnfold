@@ -6,6 +6,7 @@ import {
   Notice,
   Progress,
   Text,
+  useTitleBarContext,
 } from "../../components";
 import { useLocaleText } from "../../i18n/presentation";
 import type { ClosingPhase } from "./lifecycle";
@@ -63,6 +64,7 @@ export function ClosingScreen({
   onQuitWithoutWaiting: () => void;
 }) {
   const text = useLocaleText();
+  useTitleBarContext(text("ui.closing.progress", "Closing DiskUnfold"));
   const screen = useRef<HTMLElement>(null);
   useEffect(() => {
     screen.current?.focus();

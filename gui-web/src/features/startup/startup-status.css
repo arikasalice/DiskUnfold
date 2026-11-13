@@ -24,7 +24,7 @@
   width: min(100%, 56rem);
   margin-inline: auto;
   /* `.du-app` sets the block padding to zero; the extra class keeps the title off the bar. */
-  padding-block: var(--du-space-6);
+  padding-block: var(--du-screen-top);
 }
 
 .du-startup__header,

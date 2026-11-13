@@ -7,6 +7,7 @@ import {
   Progress,
   Readout,
   Text,
+  useTitleBarContext,
 } from "../../components";
 import type { AnalysisClient, StartupStatus } from "../../ipc";
 import { useLocaleText } from "../../i18n/presentation";
@@ -45,6 +46,7 @@ export function StartupStatusScreen({
 }) {
   const text = useLocaleText();
   const copy = useMemo(() => startupCopy(text), [text]);
+  useTitleBarContext(copy.title);
   const [status, setStatus] = useState<StartupStatus>();
   const [loading, setLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);

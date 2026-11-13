@@ -421,6 +421,9 @@ export function windowsPath(input: string): OsPath {
 
 export {
   hasDesktopLocaleBridge,
+  hasCustomTitlebar,
+  requestWindowDrag,
+  requestWindowZoom,
   hasStartupStatusBridge,
   hasWindowsAnalysisBridge,
   NativeIpcTransportError,
