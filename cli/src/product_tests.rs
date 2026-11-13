@@ -9,6 +9,10 @@ use du_core_contracts::product_support::{
     SupportCapabilityState, SupportCpu, SupportEnvironmentIdentity, SupportEnvironmentPort,
     SupportOsFamily,
 };
+use du_platform_os::startup::{
+    FullDiskAccessStatus, PrivacySettingsOpenOutcome, StartupCapabilitiesPort,
+    StartupDialogOutcome, WebViewAvailability,
+};
 
 use crate::run_with_io_and_product_info;
 
@@ -59,6 +63,35 @@ fn execute(
     input: &[&str],
     product_info: EmbeddedProductInfo,
 ) -> (ExitCode, Vec<u8>, Vec<u8>, usize) {
+    execute_with_access(input, product_info, FullDiskAccessStatus::NotApplicable)
+}
+
+/// Reports a fixed full disk access status and refuses every other startup action.
+struct FixedAccess(FullDiskAccessStatus);
+
+impl StartupCapabilitiesPort for FixedAccess {
+    fn full_disk_access_status(&self) -> FullDiskAccessStatus {
+        self.0
+    }
+
+    fn webview_availability(&self) -> WebViewAvailability {
+        WebViewAvailability::Unknown
+    }
+
+    fn open_privacy_settings(&self) -> PrivacySettingsOpenOutcome {
+        PrivacySettingsOpenOutcome::Unsupported
+    }
+
+    fn show_pre_window_error_dialog(&self, _: &str, _: &str) -> StartupDialogOutcome {
+        StartupDialogOutcome::Unsupported
+    }
+}
+
+fn execute_with_access(
+    input: &[&str],
+    product_info: EmbeddedProductInfo,
+    access: FullDiskAccessStatus,
+) -> (ExitCode, Vec<u8>, Vec<u8>, usize) {
     static STORED_READS: AtomicUsize = AtomicUsize::new(0);
     STORED_READS.store(0, Ordering::Relaxed);
     let mut stdout = Vec::new();
@@ -66,7 +99,10 @@ fn execute(
     let exit = run_with_io_and_product_info(
         input.iter().map(OsString::from),
         product_info,
-        &FixedEnvironment,
+        &crate::OsPorts {
+            environment: &FixedEnvironment,
+            access: &FixedAccess(access),
+        },
         || {
             STORED_READS.fetch_add(1, Ordering::Relaxed);
             Err(())
@@ -173,4 +209,109 @@ fn version_prints_build_provenance_without_opening_settings() {
         assert!(output.contains(expected_commit), "{output}");
         assert!(output.contains("0.1.0-test"), "{output}");
     }
+}
+
+#[test]
+fn confirmed_full_disk_access_denial_stops_scan_with_exit_two_and_no_stdout() {
+    let (exit, stdout, stderr, _) = execute_with_access(
+        &["--lang", "en", "scan", "root"],
+        info(),
+        FullDiskAccessStatus::Denied,
+    );
+    assert_eq!(exit, ExitCode::from(2));
+    assert!(stdout.is_empty());
+    assert_eq!(
+        String::from_utf8_lossy(&stderr),
+        "DiskUnfold: startup.full_disk_access_required\n"
+    );
+}
+
+#[test]
+fn unknown_or_granted_full_disk_access_does_not_report_a_denial() {
+    for status in [
+        FullDiskAccessStatus::Unknown,
+        FullDiskAccessStatus::Granted,
+        FullDiskAccessStatus::NotApplicable,
+    ] {
+        let (exit, _, stderr, _) =
+            execute_with_access(&["--lang", "en", "scan", "root"], info(), status);
+        assert_eq!(exit, ExitCode::from(2), "{status:?}");
+        assert!(
+            !String::from_utf8_lossy(&stderr).contains("full_disk_access_required"),
+            "{status:?}"
+        );
+    }
+}
+
+#[test]
+fn information_commands_ignore_a_denied_full_disk_access_status() {
+    for args in [
+        &["--version"][..],
+        &["notices", "LICENSE"][..],
+        &["support", "--format", "json"][..],
+    ] {
+        let (exit, stdout, stderr, _) =
+            execute_with_access(args, info(), FullDiskAccessStatus::Denied);
+        assert_eq!(exit, ExitCode::SUCCESS, "{args:?}");
+        assert!(!stdout.is_empty(), "{args:?}");
+        assert!(stderr.is_empty(), "{args:?}");
+    }
+}
+
+#[test]
+fn blank_embedded_notice_is_reported_as_unavailable() {
+    let mut product = info();
+    product.notices.license = Some(" \n".to_owned());
+    let (exit, stdout, _, _) = execute(&["--lang", "en", "notices", "LICENSE"], product);
+    assert_eq!(exit, ExitCode::from(1));
+    assert!(stdout.is_empty());
+}
+
+fn matrix(revision: &str) -> du_core_contracts::product_support::SupportMatrix {
+    du_core_contracts::product_support::SupportMatrix {
+        revision: Some(revision.to_owned()),
+        as_of: Some("2026-01-01".to_owned()),
+        combinations: Vec::new(),
+    }
+}
+
+#[test]
+fn support_ignores_a_matrix_whose_revision_differs_from_the_build_record() {
+    let mut product = info();
+    product.build.support_matrix_revision = Some("r2".to_owned());
+    product.support_matrix = Some(matrix("r1"));
+    let (exit, stdout, _, _) = execute(&["support", "--format", "json"], product);
+    assert_eq!(exit, ExitCode::SUCCESS);
+    let json: serde_json::Value =
+        serde_json::from_slice(&stdout).unwrap_or(serde_json::Value::Null);
+    assert_eq!(json["result"]["reasonKey"], "support.matrix_unavailable");
+}
+
+#[test]
+fn support_json_equals_the_evaluation_behind_the_support_screen() {
+    let mut product = info();
+    product.build.support_matrix_revision = Some("r1".to_owned());
+    product.support_matrix = Some(matrix("r1"));
+    let expected = du_engine_api::support::evaluate(
+        &matrix("r1"),
+        FixedEnvironment.identity(),
+        &FixedEnvironment.capabilities(),
+    );
+    let (exit, stdout, _, _) = execute(&["support", "--format", "json"], product);
+    assert_eq!(exit, ExitCode::SUCCESS);
+    let json: serde_json::Value =
+        serde_json::from_slice(&stdout).unwrap_or(serde_json::Value::Null);
+    assert_eq!(
+        json["result"],
+        serde_json::to_value(expected).unwrap_or_default()
+    );
+}
+
+#[test]
+fn invalid_embedded_product_metadata_exits_one() {
+    let exit = crate::run_with_product_info_json(
+        ["--version"].into_iter().map(OsString::from),
+        "not json",
+    );
+    assert_eq!(exit, ExitCode::from(1));
 }

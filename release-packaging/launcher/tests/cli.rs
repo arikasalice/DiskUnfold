@@ -1,55 +1,9 @@
 #[cfg(windows)]
 use std::io::Read;
-use std::{
-    fs, io,
-    path::PathBuf,
-    process::Command,
-    sync::atomic::{AtomicU64, Ordering},
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::{fs, io};
 
-static NEXT_DATA_DIR: AtomicU64 = AtomicU64::new(0);
-
-struct TempDataDir(PathBuf);
-
-impl TempDataDir {
-    fn new() -> io::Result<Self> {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_err(io::Error::other)?
-            .as_nanos();
-        let sequence = NEXT_DATA_DIR.fetch_add(1, Ordering::Relaxed);
-        let path = std::env::temp_dir().join(format!(
-            "diskunfold-cli-test-{}-{nonce}-{sequence}",
-            std::process::id()
-        ));
-        fs::create_dir(&path)?;
-        Ok(Self(path))
-    }
-
-    fn path(&self) -> &std::path::Path {
-        &self.0
-    }
-}
-
-impl Drop for TempDataDir {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
-    }
-}
-
-fn launcher_with_temp_data() -> io::Result<(Command, TempDataDir)> {
-    let data_dir = TempDataDir::new()?;
-    let mut command = Command::new(env!("CARGO_BIN_EXE_diskunfold"));
-    command.env("DISKUNFOLD_DATA_DIR", data_dir.path());
-    let isolated = command.get_envs().any(|(name, value)| {
-        name == "DISKUNFOLD_DATA_DIR" && value == Some(data_dir.path().as_os_str())
-    });
-    if !isolated || !data_dir.path().is_dir() {
-        return Err(io::Error::other("isolated CLI data directory not ready"));
-    }
-    Ok((command, data_dir))
-}
+mod support;
+use support::{closed_pipe_stdio, launcher_with_temp_data};
 
 #[cfg(any(windows, target_os = "linux"))]
 fn is_localized_settings_unavailable_line(line: &str) -> bool {
@@ -84,13 +38,6 @@ fn assert_localized_settings_unavailable_warning_once(stderr: &str) {
         1,
         "{stderr}"
     );
-}
-
-#[cfg(windows)]
-fn closed_pipe_stdio() -> io::Result<std::process::Stdio> {
-    let (reader, writer) = io::pipe()?;
-    drop(reader);
-    Ok(std::process::Stdio::from(writer))
 }
 
 #[test]

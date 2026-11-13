@@ -4,8 +4,8 @@ use std::io::{self, Write};
 
 use du_core_contracts::product_support::{
     BuildKind, EmbeddedProductInfo, ProductBuildInfo, ProductNotices, SecuritySupportKind,
-    SupportCapabilityState, SupportCombination, SupportCpu, SupportOsFamily, SupportReport,
-    SupportStatus,
+    SupportCapabilityState, SupportCombination, SupportCpu, SupportMatrix, SupportOsFamily,
+    SupportReport, SupportStatus,
 };
 use du_user_env::i18n::Registry;
 
@@ -56,6 +56,34 @@ pub(crate) fn notice_text(
         NoticeDocument::License => product_info.notices.license.as_deref(),
         NoticeDocument::ThirdParty => product_info.notices.third_party.as_deref(),
     }
+    // IF-02 treats a blank embedded document as not embedded.
+    .filter(|text| !text.trim().is_empty())
+}
+
+/// Returns the embedded matrix unless the build records a different revision.
+///
+/// This is the same rule IF-04 applies, so `support` and the support screen
+/// evaluate the same table.
+pub(crate) fn consistent_matrix(product_info: &EmbeddedProductInfo) -> Option<&SupportMatrix> {
+    let matrix = product_info.support_matrix.as_ref()?;
+    match (
+        &product_info.build.support_matrix_revision,
+        &matrix.revision,
+    ) {
+        (Some(built), Some(embedded)) if built != embedded => None,
+        _ => Some(matrix),
+    }
+}
+
+/// Matrix revision shown by `version`, derived as IF-01 derives it.
+fn support_matrix_revision(product_info: &EmbeddedProductInfo) -> Option<String> {
+    consistent_matrix(product_info).and_then(|matrix| {
+        product_info
+            .build
+            .support_matrix_revision
+            .clone()
+            .or_else(|| matrix.revision.clone())
+    })
 }
 
 pub(crate) fn write_version(
@@ -106,7 +134,7 @@ pub(crate) fn write_version(
         ),
         (
             "cli.product.support_matrix",
-            product_info.build.support_matrix_revision.clone(),
+            support_matrix_revision(product_info),
         ),
     ];
     for (key, value) in fields {

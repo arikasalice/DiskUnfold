@@ -10,7 +10,10 @@ use du_core_contracts::product_support::{
     EmbeddedProductInfo, SupportEnvironmentPort, SupportMatrix,
 };
 use du_engine_api::support;
-use du_platform_os::support_environment::SystemSupportEnvironment;
+use du_platform_os::{
+    startup::{FullDiskAccessStatus, StartupCapabilitiesPort, SystemStartupCapabilities},
+    support_environment::SystemSupportEnvironment,
+};
 use du_user_env::{i18n::embedded, locale::DecisionError};
 
 mod args;
@@ -19,6 +22,12 @@ mod startup_locale;
 
 const SETTINGS_UNAVAILABLE_REASON_KEY: &str = "settings_unavailable";
 const SETTINGS_UNAVAILABLE_MESSAGE_KEY: &str = "cli.settings.unavailable";
+/// Stable reason key written when analysis is refused for missing full disk access.
+const FULL_DISK_ACCESS_REQUIRED_REASON_KEY: &str = "startup.full_disk_access_required";
+/// Exit code for argument errors and for a confirmed full disk access denial.
+const EXIT_USAGE: u8 = 2;
+/// Exit code for a technical failure or unavailable embedded data.
+const EXIT_FAILURE: u8 = 1;
 
 pub fn run(arguments: impl Iterator<Item = OsString>) -> ExitCode {
     run_with_product_info(arguments, default_product_info())
@@ -39,6 +48,7 @@ pub fn run_with_product_info(
         arguments,
         product_info,
         &SystemSupportEnvironment,
+        &SystemStartupCapabilities,
         startup_locale::stored_language,
         startup_locale::preferred_ui_languages,
     )
@@ -68,6 +78,7 @@ fn run_with(
         arguments,
         default_product_info(),
         &SystemSupportEnvironment,
+        &SystemStartupCapabilities,
         read_stored,
         read_os,
     )
@@ -77,6 +88,7 @@ fn run_with_product(
     arguments: impl Iterator<Item = OsString>,
     product_info: EmbeddedProductInfo,
     environment: &impl SupportEnvironmentPort,
+    access: &impl StartupCapabilitiesPort,
     read_stored: impl FnOnce() -> Result<Option<String>, ()>,
     read_os: impl FnOnce() -> Option<Vec<String>>,
 ) -> ExitCode {
@@ -85,7 +97,10 @@ fn run_with_product(
     run_with_io_and_product_info(
         arguments,
         product_info,
-        environment,
+        &OsPorts {
+            environment,
+            access,
+        },
         read_stored,
         read_os,
         &mut stdout.lock(),
@@ -105,7 +120,10 @@ fn run_with_io<W: Write, E: Write>(
     run_with_io_and_product_info(
         arguments,
         default_product_info(),
-        &SystemSupportEnvironment,
+        &OsPorts {
+            environment: &SystemSupportEnvironment,
+            access: &SystemStartupCapabilities,
+        },
         read_stored,
         read_os,
         stdout,
@@ -113,10 +131,23 @@ fn run_with_io<W: Write, E: Write>(
     )
 }
 
+/// Operating-system ports consulted by the CLI commands.
+struct OsPorts<'a, E, A> {
+    /// Environment identity and capabilities for `support`.
+    environment: &'a E,
+    /// Full disk access observation for commands that start analysis (IF-09).
+    access: &'a A,
+}
+
+/// Runs the CLI with injected product, environment and access ports.
+///
+/// The information commands (`version`, `notices`, `support`) never open the
+/// engine or the application database. The access port is consulted only by
+/// commands that would start analysis, before any job exists.
 fn run_with_io_and_product_info<W: Write, E: Write>(
     arguments: impl Iterator<Item = OsString>,
     product_info: EmbeddedProductInfo,
-    environment: &impl SupportEnvironmentPort,
+    ports: &OsPorts<'_, impl SupportEnvironmentPort, impl StartupCapabilitiesPort>,
     read_stored: impl FnOnce() -> Result<Option<String>, ()>,
     read_os: impl FnOnce() -> Option<Vec<String>>,
     stdout: &mut W,
@@ -193,17 +224,17 @@ fn run_with_io_and_product_info<W: Write, E: Write>(
                         .resolve("cli.notices.unavailable")
                         .unwrap_or_else(|| "cli.notices.unavailable".to_owned());
                     write_stderr_line(stderr, &text);
-                    return ExitCode::from(1);
+                    return ExitCode::from(EXIT_FAILURE);
                 }
             }
         }
         args::Command::Support(format) => {
-            let matrix = product_info
-                .support_matrix
-                .as_ref()
-                .unwrap_or(&EMPTY_MATRIX);
-            let report =
-                support::evaluate(matrix, environment.identity(), &environment.capabilities());
+            let matrix = product_output::consistent_matrix(&product_info).unwrap_or(&EMPTY_MATRIX);
+            let report = support::evaluate(
+                matrix,
+                ports.environment.identity(),
+                &ports.environment.capabilities(),
+            );
             match format {
                 args::OutputFormat::Json => product_output::write_support_json(stdout, &report),
                 args::OutputFormat::Text => {
@@ -212,14 +243,25 @@ fn run_with_io_and_product_info<W: Write, E: Write>(
             }
         }
         // Scan admission is parsed, but execution awaits the engine and policy composition.
+        // The access check precedes any job, so a confirmed denial never creates one.
         args::Command::Scan(scan) => {
             drop(scan);
+            if ports.access.full_disk_access_status() == FullDiskAccessStatus::Denied {
+                write_stderr_line(
+                    stderr,
+                    &format!("DiskUnfold: {FULL_DISK_ACCESS_REQUIRED_REASON_KEY}"),
+                );
+                return ExitCode::from(EXIT_USAGE);
+            }
             return write_unsupported(stderr, message.resolve("cli.help.unsupported"));
         }
         args::Command::NotProvided | args::Command::Unsupported => {
             return write_unsupported(stderr, message.resolve("cli.help.unsupported"));
         }
     };
+    // A buffered tail (for example a notice without a final newline) must reach
+    // the stream before a closed stdout can be reported as exit code 5.
+    let output = output.and_then(|()| stdout.flush());
     if output.is_err() {
         write_output_interrupted_diagnostic(
             stderr,
@@ -288,3 +330,6 @@ mod validation_tests;
 
 #[cfg(test)]
 mod product_tests;
+
+#[cfg(test)]
+mod readonly_database_tests;

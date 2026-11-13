@@ -65,19 +65,24 @@ pub(super) fn select_with_policy(
 
 #[cfg(windows)]
 pub(super) fn stored_language() -> Result<Option<String>, ()> {
+    let path = std::path::absolute(du_platform_os::application_data::directory().ok_or(())?)
+        .map_err(|_| ())?;
+    stored_language_in_directory(&path)
+}
+
+#[cfg(windows)]
+pub(crate) fn stored_language_in_directory(path: &std::path::Path) -> Result<Option<String>, ()> {
     use du_app_db::AppDb;
     use du_core_contracts::settings::SettingsStore;
     use du_platform_os::{
-        application_data::{DATABASE_FILE, directory},
-        windows_instance_lock::pin_existing_database,
+        application_data::DATABASE_FILE, windows_instance_lock::pin_existing_database,
         windows_observation::open_verified_stable,
     };
 
-    let path = std::path::absolute(directory().ok_or(())?).map_err(|_| ())?;
     if !path.try_exists().map_err(|_| ())? {
         return Ok(None);
     }
-    let directory = open_verified_stable(&path).map_err(|_| ())?;
+    let directory = open_verified_stable(path).map_err(|_| ())?;
     let Some(_pinned) = pin_existing_database(&directory).map_err(|_| ())? else {
         return Ok(None);
     };
@@ -93,7 +98,9 @@ pub(super) fn stored_language() -> Result<Option<String>, ()> {
 }
 
 #[cfg(target_os = "linux")]
-fn stored_language_in_directory(directory: &std::path::Path) -> Result<Option<String>, ()> {
+pub(crate) fn stored_language_in_directory(
+    directory: &std::path::Path,
+) -> Result<Option<String>, ()> {
     use du_app_db::AppDb;
     use du_core_contracts::settings::SettingsStore;
     use du_platform_os::application_data::DATABASE_FILE;
@@ -108,7 +115,7 @@ fn stored_language_in_directory(directory: &std::path::Path) -> Result<Option<St
 }
 
 #[cfg(any(windows, target_os = "linux"))]
-fn language_from_snapshot(
+pub(crate) fn language_from_snapshot(
     snapshot: &du_core_contracts::settings::SettingsSnapshot,
 ) -> Result<Option<String>, ()> {
     if snapshot.schema_version != du_core_contracts::settings::SETTINGS_SCHEMA_VERSION {
@@ -144,16 +151,6 @@ pub(super) fn preferred_ui_languages() -> Option<Vec<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[cfg(any(windows, target_os = "linux"))]
-    #[test]
-    fn old_schema_uses_unavailable_settings_without_migration() {
-        let snapshot = du_core_contracts::settings::SettingsSnapshot {
-            schema_version: 1,
-            ..Default::default()
-        };
-        assert_eq!(language_from_snapshot(&snapshot), Err(()));
-    }
 
     #[cfg(target_os = "linux")]
     #[test]
