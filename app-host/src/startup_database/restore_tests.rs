@@ -133,6 +133,10 @@ fn journal_probe_fails_closed_on_every_error_except_not_found() {
         journal_pending(Err(io::ErrorKind::NotFound.into())),
         Ok(false)
     ));
+    assert!(matches!(
+        journal_pending(Err(io::ErrorKind::NotADirectory.into())),
+        Ok(false)
+    ));
     for kind in [
         io::ErrorKind::PermissionDenied,
         io::ErrorKind::TimedOut,

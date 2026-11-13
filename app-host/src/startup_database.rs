@@ -295,12 +295,21 @@ const RESTORED: &str = "startup.migration_failed: restored";
 const RESTORE_FAILED: &str = "startup.migration_failed: restore_failed";
 const JOURNAL_UNREADABLE: &str = "startup.migration_failed: journal_unreadable";
 
-/// Decides from the journal probe whether recovery is needed. Only a missing journal means no;
-/// every other error fails closed because an unreadable journal may hide an interrupted run.
+/// Decides from the journal probe whether recovery is needed. A missing journal means no, and so
+/// does a backup path that is not a directory (nothing can be stored below it; the migration
+/// then reports the backup obstacle). Every other error fails closed because an unreadable
+/// journal may hide an interrupted run.
 fn journal_pending(probe: io::Result<fs::Metadata>) -> io::Result<bool> {
     match probe {
         Ok(_) => Ok(true),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(error)
+            if matches!(
+                error.kind(),
+                io::ErrorKind::NotFound | io::ErrorKind::NotADirectory
+            ) =>
+        {
+            Ok(false)
+        }
         Err(error) => {
             log_detail(JOURNAL_UNREADABLE, &error);
             Err(io::Error::other(JOURNAL_UNREADABLE))
