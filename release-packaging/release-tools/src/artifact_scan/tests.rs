@@ -163,7 +163,7 @@ fn a_member_link_that_escapes_the_root_fails_and_an_inside_link_passes() -> Test
     let tree = tree_for(PackageFormat::Msix)?;
     std::os::unix::fs::symlink("diskunfold", tree.path().join("inside-link"))?;
     scan(PackageFormat::Msix, tree.path())?;
-    for target in ["../../etc/passwd", "/etc/passwd"] {
+    for target in ["../../../etc/passwd", "/etc/passwd"] {
         let tree = tree_for(PackageFormat::Msix)?;
         write(tree.path(), "usr/bin/placeholder", b"x")?;
         std::os::unix::fs::symlink(target, tree.path().join("usr/bin/escape"))?;
