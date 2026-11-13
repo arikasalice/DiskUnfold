@@ -279,21 +279,26 @@ fn response_without_delivery_observer_still_reaches_native_post()
 #[test]
 fn revoked_folder_queue_is_purged_and_inflight_completion_is_not_delivered()
 -> Result<(), Box<dyn std::error::Error>> {
+    const BLOCKED_PATH: u16 = 7;
     let (started, started_rx) = mpsc::channel();
+    let (finished, finished_rx) = mpsc::channel();
     let (release, gate) = mpsc::channel();
     let gate = Arc::new(Mutex::new(gate));
-    let expired_effects = Arc::new(Mutex::new(Vec::new()));
-    let verifier_effects = Arc::clone(&expired_effects);
-    let verifier_gate = Arc::clone(&gate);
+    let effects = Arc::new(Mutex::new(Vec::new()));
+    let verifier_effects = Arc::clone(&effects);
     let verifier: Arc<FolderVerifier> = Arc::new(move |id, path| {
-        if id == 1 && path.first() == Some(&10) {
+        let blocked = path.first() == Some(&BLOCKED_PATH);
+        if blocked {
             let _ = started.send(id);
-            if let Ok(gate) = verifier_gate.lock() {
+            if let Ok(gate) = gate.lock() {
                 let _ = gate.recv_timeout(Duration::from_secs(5));
             }
         }
         if let Ok(mut effects) = verifier_effects.lock() {
             effects.push(id);
+        }
+        if blocked {
+            let _ = finished.send(id);
         }
         format!(
             "folder-drop:{id}:{}",
@@ -304,20 +309,33 @@ fn revoked_folder_queue_is_purged_and_inflight_completion_is_not_delivered()
     let pool = WorkerPool::start_with_folder_verifier(&app, verifier)?;
     let old_owner = pool.controller_owner()?;
     let old_requests = old_owner.requests(app.route);
-    assert_eq!(
-        old_requests.enqueue_folder(1, vec![10]),
-        EnqueueResult::Accepted
-    );
-    assert_eq!(started_rx.recv_timeout(Duration::from_secs(5))?, 1);
-    for id in 10..10 + folder_validation::WAITING_LIMIT as u64 {
+
+    // Occupy every folder worker so the next drops stay in the waiting queue.
+    let in_flight: Vec<u64> = (1..=folder_validation::WORKER_COUNT as u64).collect();
+    for id in &in_flight {
         assert_eq!(
-            old_requests.enqueue_folder(id, vec![id as u16]),
+            old_requests.enqueue_folder(*id, vec![BLOCKED_PATH]),
+            EnqueueResult::Accepted
+        );
+    }
+    let mut claimed: Vec<u64> = (0..in_flight.len())
+        .map(|_| started_rx.recv_timeout(Duration::from_secs(5)))
+        .collect::<Result<_, _>>()?;
+    claimed.sort_unstable();
+    assert_eq!(claimed, in_flight);
+    let waiting: Vec<u64> = (100..100 + folder_validation::WAITING_LIMIT as u64).collect();
+    for id in &waiting {
+        assert_eq!(
+            old_requests.enqueue_folder(*id, vec![*id as u16]),
             EnqueueResult::Accepted
         );
     }
 
+    // A new controller revokes the old generation before any worker is released.
     let new_owner = pool.controller_owner()?;
-    release.send(())?;
+    for _ in &in_flight {
+        release.send(())?;
+    }
     assert_eq!(
         old_requests.enqueue_folder(99, vec![99]),
         EnqueueResult::Stale
@@ -330,11 +348,25 @@ fn revoked_folder_queue_is_purged_and_inflight_completion_is_not_delivered()
         recv_message(&new_owner, Duration::from_secs(5))?,
         "folder-drop:1:42"
     );
-    let effects = expired_effects
-        .lock()
-        .map_err(|_| "folder effect lock poisoned")?;
-    assert_eq!(effects.iter().filter(|id| **id == 1).count(), 2);
-    assert!(effects.iter().all(|id| *id == 1));
+    // Wait for the revoked in-flight work to finish, then prove none of it was delivered.
+    for _ in &in_flight {
+        finished_rx.recv_timeout(Duration::from_secs(5))?;
+    }
+    assert!(
+        recv_message(&new_owner, Duration::from_millis(200)).is_err(),
+        "a revoked in-flight completion must not be delivered"
+    );
+    let effects = effects.lock().map_err(|_| "folder effect lock poisoned")?;
+    assert!(
+        waiting.iter().all(|id| !effects.contains(id)),
+        "revoked waiting drops must never be verified: {effects:?}"
+    );
+    let mut expected = in_flight.clone();
+    expected.push(1);
+    let mut observed = effects.clone();
+    observed.sort_unstable();
+    expected.sort_unstable();
+    assert_eq!(observed, expected);
     Ok(())
 }
 
