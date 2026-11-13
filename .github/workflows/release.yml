@@ -244,9 +244,13 @@ jobs:
         run: |
           New-Item -ItemType Directory -Path stage | Out-Null
           foreach ($format in 'portable-exe', 'msix') {
+            # The packager is a script, so $LASTEXITCODE only reflects native tools it ran.
+            # Reset it so a format that runs no native tool (portable-exe) is not misread.
+            $global:LASTEXITCODE = 0
             & .\release-packaging\windows\package-windows-development.ps1 `
               -BinaryPath target\release\diskunfold.exe -Version $env:PACKAGE_VERSION `
               -Architecture $env:PACKAGE_CPU -Format $format `
+              -NoticesPath release-resources\THIRD-PARTY-NOTICES `
               -OutputDirectory "stage\$env:PACKAGE_ID-$format"
             if ($LASTEXITCODE -ne 0) { throw "packaging $format failed" }
           }
