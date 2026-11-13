@@ -1,6 +1,5 @@
 use super::*;
-use sha2::{Digest, Sha256};
-use std::{error::Error, fs, path::Path};
+use std::{error::Error, fs};
 use tempfile::TempDir;
 
 use super::fixtures::{sample_manifest, sha256};
