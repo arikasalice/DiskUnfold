@@ -76,6 +76,7 @@ impl ErrorEnvelope {
             | "sort.key_unknown"
             | "viz.viewport_invalid"
             | "viz.format_unknown"
+            | "snapshot.format_unknown"
             | "viz.strategy_unknown"
             | "viz.measure_unknown"
             | "viz.denominator_invalid"
@@ -138,6 +139,10 @@ mod tests {
         for (reason, expected) in [
             ("locale.unsupported", ErrorCode::InvalidArgument),
             ("locale.format_unknown", ErrorCode::InvalidArgument),
+            (
+                crate::snapshot_format::SNAPSHOT_FORMAT_UNKNOWN,
+                ErrorCode::InvalidArgument,
+            ),
             ("settings.value_invalid", ErrorCode::InvalidArgument),
             ("locale.profile_modified", ErrorCode::StaleVersion),
             ("locale.bundle_unavailable", ErrorCode::NotFound),

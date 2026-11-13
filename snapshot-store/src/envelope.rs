@@ -4,6 +4,7 @@
 //! JSON, inspect zstd frames, or decompress records. An unkeyed integrity hash
 //! does not establish the origin or authenticity of a file.
 
+pub mod format;
 pub mod spool;
 
 const HEADER_BYTES: u64 = 16;

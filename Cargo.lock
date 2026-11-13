@@ -378,6 +378,9 @@ dependencies = [
 [[package]]
 name = "du-snapshot-files"
 version = "0.1.0"
+dependencies = [
+ "du-core-contracts",
+]
 
 [[package]]
 name = "du-snapshot-store"
