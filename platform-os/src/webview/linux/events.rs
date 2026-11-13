@@ -1,4 +1,5 @@
 use super::super::contract::{EventPostFailure, Events, entry};
+use super::timer::TimerSlot;
 use gtk4::{gio, glib};
 use std::{cell::RefCell, rc::Rc, time::Duration};
 use webkit6::prelude::*;
@@ -85,7 +86,7 @@ impl EventLifecycle {
         Self { state, events }
     }
 
-    pub(super) fn start_polling(&self, view: &webkit6::WebView, events: Events) -> glib::SourceId {
+    pub(super) fn start_polling(&self, view: &webkit6::WebView, events: Events) -> TimerSlot {
         start_event_polling(view, Rc::clone(&self.state), events)
     }
 }
@@ -210,9 +211,9 @@ pub(super) fn start_event_polling(
     view: &webkit6::WebView,
     state: Rc<RefCell<DocumentSession>>,
     events: Events,
-) -> glib::SourceId {
+) -> TimerSlot {
     let view = view.downgrade();
-    glib::timeout_add_local(EVENT_POLL_INTERVAL, move || {
+    TimerSlot::every(EVENT_POLL_INTERVAL, move || {
         let (closed, active, ready, sending, generation) = {
             let document = state.borrow();
             (

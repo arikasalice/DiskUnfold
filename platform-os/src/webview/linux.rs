@@ -3,7 +3,9 @@ use gtk4::{gio, glib, prelude::*};
 use std::{cell::RefCell, error::Error, fmt::Write, rc::Rc};
 use webkit6::{prelude::*, soup};
 mod events;
+mod timer;
 use events::{EventLifecycle, retire_session};
+use timer::TimerSlot;
 
 fn serve(context: &webkit6::WebContext, asset: fn(&str) -> Option<Asset>) {
     if let Some(security) = context.security_manager() {
@@ -192,7 +194,7 @@ pub(super) fn run(app: WebApp, events: Option<Events>) -> Result<(), Box<dyn Err
         .map(|events| {
             let events = events.clone();
             let shutdown_loop = event_loop.clone();
-            glib::timeout_add_local(std::time::Duration::from_millis(16), move || {
+            TimerSlot::every(std::time::Duration::from_millis(16), move || {
                 events.pump_shutdown();
                 if events.shutdown_is_complete() {
                     shutdown_loop.quit();
