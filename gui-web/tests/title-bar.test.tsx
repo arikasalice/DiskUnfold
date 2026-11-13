@@ -120,3 +120,16 @@ test("the host marker and window message handler enable the bar and carry its me
   requestWindowZoom();
   expect(postMessage.mock.calls).toEqual([["drag"], ["zoom"]]);
 });
+
+test("the document title names the app and the current screen", () => {
+  const { element } = bar(false);
+  const view = render(
+    <TitleBarProvider>
+      {element}
+      <Screen label="Startup and privacy" />
+    </TitleBarProvider>,
+  );
+  expect(document.title).toBe("DiskUnfold — Startup and privacy");
+  view.rerender(<TitleBarProvider>{element}</TitleBarProvider>);
+  expect(document.title).toBe("DiskUnfold");
+});

@@ -5,6 +5,7 @@ use gtk4::{gio, glib, prelude::*};
 use std::{cell::RefCell, error::Error, fmt::Write, rc::Rc};
 use webkit6::{prelude::*, soup};
 mod events;
+mod headerbar;
 mod timer;
 use events::{EventLifecycle, retire_session};
 use timer::TimerSlot;
@@ -150,6 +151,7 @@ pub(super) fn run(app: WebApp, events: Option<Events>) -> Result<(), Box<dyn Err
         .default_height(600)
         .child(&view)
         .build();
+    headerbar::install(&window, &view);
     let event_loop = glib::MainLoop::new(None, false);
     let close = event_loop.clone();
     let close_events = events.clone();
