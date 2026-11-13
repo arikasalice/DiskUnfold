@@ -10,8 +10,11 @@ use crate::release_inventory::{
 };
 use std::{collections::BTreeSet, fmt, path::PathBuf};
 
+mod fuzz;
 #[cfg(test)]
 mod tests;
+
+pub use fuzz::{FuzzGateReport, VERIFICATION_FAILED, check_fuzz_crashes, registered_fuzz_targets};
 
 /// Reason key: the tag is not a stable `vMAJOR.MINOR.PATCH` version.
 pub const TAG_FORMAT_INVALID: &str = "release.tag_format_invalid";
@@ -42,7 +45,7 @@ pub struct GateFailure {
 }
 
 impl GateFailure {
-    fn new(reason_key: &'static str, detail: impl Into<String>) -> Self {
+    pub(crate) fn new(reason_key: &'static str, detail: impl Into<String>) -> Self {
         Self {
             reason_key,
             detail: detail.into(),

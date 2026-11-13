@@ -116,6 +116,49 @@ export function lintGateMode(text) {
   return problems;
 }
 
+/** What each release stage job must run (F15 HLD table 7 stages 3 to 9). */
+const STAGE_JOBS = {
+  "artifact-scan": ["release-gate scan-artifacts"],
+  "notices-sbom": ["build-sbom", "release-gate check-sboms"],
+  "release-gate": ["release-gate check-fuzz", "--label fuzz-crash"],
+  "channel-manifests": ["build-channel-manifests"],
+};
+
+/**
+ * The stage jobs must exist, run their tool, run for dry runs too (no job-level condition), and be
+ * wired into the jobs that depend on them; the build cells must run the workspace tests and name
+ * release.test_failed.
+ */
+export function lintStages(text) {
+  const problems = [];
+  const blocks = jobBlocks(text);
+  const find = (name) => blocks.find((block) => block.name === name);
+  const needs = (block) => block?.lines.find((line) => /^    needs:/.test(line)) ?? "";
+  for (const [name, commands] of Object.entries(STAGE_JOBS)) {
+    const block = find(name);
+    if (!block) {
+      problems.push(`stages: job ${name} is missing`);
+      continue;
+    }
+    if (block.lines.some((line) => /^    if:/.test(line))) {
+      problems.push(`stages: job ${name} must run for dry runs too, so it takes no job-level if`);
+    }
+    for (const command of commands) {
+      if (!block.lines.some((line) => line.includes(command))) problems.push(`stages: job ${name} must run ${command}`);
+    }
+  }
+  const build = find("build")?.lines.join("\n") ?? "";
+  if (!/cargo test --locked --workspace --all-features/.test(build) || !build.includes("release.test_failed")) {
+    problems.push("stages: build must run cargo test --locked --workspace --all-features and report release.test_failed");
+  }
+  for (const [job, required] of [["inventory", ["artifact-scan", "notices-sbom"]], ["attest", ["release-gate"]], ["publish-draft", ["release-gate"]]]) {
+    for (const name of required) {
+      if (!new RegExp(`[\\[ ,]${name}[\\], ]`).test(needs(find(job)))) problems.push(`stages: job ${job} must need ${name}`);
+    }
+  }
+  return problems;
+}
+
 /** Returns the list of policy problems found in the workflow text. */
 export function lintWorkflow(text) {
   const problems = [];
@@ -161,7 +204,7 @@ export function lintWorkflow(text) {
     problems.push("publish: the workflow must never publish a release");
   }
   if (!/attest-build-provenance@/.test(text)) problems.push("provenance: attest-build-provenance step is missing");
-  return [...problems, ...lintJobs(text), ...lintGateMode(text)];
+  return [...problems, ...lintJobs(text), ...lintGateMode(text), ...lintStages(text)];
 }
 
 /** Lists the distinct pinned actions as { repository, sha, version }. */

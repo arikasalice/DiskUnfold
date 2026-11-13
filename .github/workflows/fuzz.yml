@@ -9,6 +9,8 @@ jobs:
   fuzz:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+    outputs:
+      crashes: ${{ steps.crashes.outputs.found }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -37,3 +39,39 @@ jobs:
           path: quality-output/fuzz-crashes/
           retention-days: 90
           if-no-files-found: ignore
+      - name: Detect crash inputs
+        id: crashes
+        if: always()
+        run: |
+          if [[ -d quality-output/fuzz-crashes && -n "$(find quality-output/fuzz-crashes -type f -print -quit)" ]]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+  # The release workflow's release-gate job stops a release while an issue labelled fuzz-crash is
+  # open (F15 architecture DLD: an open crash issue makes the release gate stop the release). A crash
+  # files one issue unless one is already open; a person closes it once the crash is fixed.
+  crash-issue:
+    needs: fuzz
+    if: always() && needs.fuzz.outputs.crashes == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: File the crash issue
+        env:
+          REPOSITORY: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          gh label create fuzz-crash --repo "$REPOSITORY" --color B60205 \
+            --description "A fuzz run found a crash; an open issue blocks the release gate" 2> /dev/null || true
+          open="$(gh issue list --repo "$REPOSITORY" --label fuzz-crash --state open --json number --jq length)"
+          if [[ "$open" -eq 0 ]]; then
+            gh issue create --repo "$REPOSITORY" --label fuzz-crash \
+              --title "Fuzz crash found" \
+              --body "A fuzz run found a crash input. Run: $RUN_URL. The inputs are in the fuzz-crashes artifact (kept 90 days). Add the input as a regression sample, fix the cause and close this issue; a release stops while it is open."
+          fi

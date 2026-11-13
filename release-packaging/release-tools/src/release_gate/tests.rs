@@ -36,6 +36,7 @@ fn row(
         executable_file_name: "diskunfold".into(),
         executable_sha256: digest,
         run_instructions: "run".into(),
+        sbom_file_name: None,
     })
 }
 

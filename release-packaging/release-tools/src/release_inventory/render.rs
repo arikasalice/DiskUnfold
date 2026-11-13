@@ -9,8 +9,8 @@ pub fn render_markdown(inventory: &ReleaseInventory) -> String {
     output.push_str(
         "> Internal inventory output. Staged paths are rehashed, but package contents, executable membership, signatures, and build provenance are not verified or created by this tool. This output is not a release gate.\n\n",
     );
-    output.push_str("| File | Version | OS support | CPU | Format | Channel | Signature | Signature scope | SHA-256 | Run instructions |\n");
-    output.push_str("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n");
+    output.push_str("| File | Version | OS support | CPU | Format | Channel | Signature | Signature scope | SHA-256 | SBOM | Run instructions |\n");
+    output.push_str("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n");
     for row in &inventory.rows {
         let os_support = match &row.os.versions {
             OsVersionScope::Range { minimum, maximum } => format!(
@@ -33,7 +33,7 @@ pub fn render_markdown(inventory: &ReleaseInventory) -> String {
             ),
         };
         output.push_str(&format!(
-            "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |\n",
+            "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |\n",
             markdown_cell(&row.file_name),
             markdown_cell(&row.version),
             markdown_cell(&os_support),
@@ -43,6 +43,7 @@ pub fn render_markdown(inventory: &ReleaseInventory) -> String {
             row.signature.as_str(),
             markdown_cell(&row.signature_scope),
             markdown_cell(row.sha256.as_str()),
+            markdown_cell(row.sbom_file_name.as_deref().unwrap_or("not generated")),
             markdown_cell(&row.run_instructions),
         ));
     }

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { lintWorkflow, pinnedActions, verifyRemote } from "./lint-workflow.mjs";
+import { lintStages, lintWorkflow, pinnedActions, verifyRemote } from "./lint-workflow.mjs";
 
 const workflow = readFileSync(
   fileURLToPath(new URL("../../.github/workflows/release.yml", import.meta.url)),
@@ -94,3 +94,33 @@ test("a run script may embed only matrix values", () => {
   assert.ok(lintWorkflow(injected).some((p) => p.includes("run script embeds")));
   assert.deepEqual(lintWorkflow(workflow).filter((p) => p.includes("matrix")), []);
 });
+
+test("the stage jobs are wired in and run for dry runs", () => {
+  assert.deepEqual(lintStages(workflow), []);
+  for (const job of ["artifact-scan", "notices-sbom", "release-gate", "channel-manifests"]) {
+    const gated = workflow.replace(new RegExp(`(\\n  ${job}:\\n)`), "$1    if: needs.gate.outputs.official == 'true'\n");
+    assert.notEqual(gated, workflow, job);
+    assert.ok(lintStages(gated).some((p) => p.includes(job) && p.includes("dry runs")), job);
+    const removed = workflow.replace(new RegExp(`\\n  ${job}:\\n`), "\n  renamed-job:\n");
+    assert.ok(lintStages(removed).some((p) => p.includes(`${job} is missing`)), job);
+  }
+});
+
+test("the stage jobs keep running their tools", () => {
+  assert.ok(lintStages(workflow.replace("release-gate scan-artifacts", "true")).some((p) => p.includes("scan-artifacts")));
+  assert.ok(lintStages(workflow.replace("release-gate check-sboms", "true")).some((p) => p.includes("check-sboms")));
+  assert.ok(lintStages(workflow.replace("--label fuzz-crash", "")).some((p) => p.includes("fuzz-crash")));
+  assert.ok(lintStages(workflow.replaceAll("build-channel-manifests", "true")).some((p) => p.includes("build-channel-manifests")));
+});
+
+test("the build cells run the workspace tests and report release.test_failed", () => {
+  assert.ok(lintStages(workflow.replace("cargo test --locked --workspace --all-features", "true")).some((p) => p.includes("release.test_failed")));
+  assert.ok(lintStages(workflow.replaceAll("release.test_failed", "release.tests_failed")).length > 0);
+});
+
+test("inventory, attest and publish-draft wait for the stage jobs", () => {
+  assert.ok(lintStages(workflow.replace("needs: [gate, build, package-dmg, artifact-scan, notices-sbom]", "needs: [gate, build, package-dmg]")).some((p) => p.includes("inventory must need")));
+  assert.ok(lintStages(workflow.replace("needs: [gate, inventory, release-gate]", "needs: [gate, inventory]")).some((p) => p.includes("attest must need release-gate")));
+  assert.ok(lintStages(workflow.replace("needs: [gate, inventory, release-gate, attest, verify-provenance]", "needs: [gate, inventory, attest, verify-provenance]")).some((p) => p.includes("publish-draft must need release-gate")));
+});
+

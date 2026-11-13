@@ -22,6 +22,9 @@ pub fn prepare_inventory(
     staging_root: &Path,
 ) -> Result<(ReleaseInventory, Vec<VerifiedFile>), InventoryError> {
     validate_and_sort(&mut manifest)?;
+    for row in &mut manifest.rows {
+        row.sbom_file_name = Some(crate::sbom::sbom_file_name(&row.file_name));
+    }
     let verified = verify_staged_files(&manifest, staging_root)?;
     let inventory = ReleaseInventory {
         product_name: manifest.product_name,

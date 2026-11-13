@@ -3,12 +3,14 @@
 //! Results are `key=value` lines on stdout (safe to append to GITHUB_OUTPUT). A failed check
 //! prints `reason_key: detail` on stderr and exits with 1; a usage error exits with 2.
 use du_release_tools::{
+    artifact_scan::scan_release,
     release_gate::{
-        FormatVersions, GateFailure, check_commits, check_format_versions,
+        FormatVersions, GateFailure, check_commits, check_format_versions, check_fuzz_crashes,
         check_required_artifacts_scoped, check_signature_claims, check_tag_version,
         merge_manifests, parse_release_tag,
     },
     release_inventory::{Cpu, OsFamily, ReleaseManifest},
+    sbom::check_sbom_set,
 };
 use std::{collections::BTreeMap, env, error::Error, fs, path::PathBuf, process};
 
@@ -17,7 +19,10 @@ const USAGE: &str = "usage:
   release-gate read-formats [--file FILE]
   release-gate merge-manifests --out FILE NAME=DIRECTORY...
   release-gate check-release-set --manifest FILE --signing-applied true|false [--scope FAMILY:CPU,...]
-  (scope entries: windows|ubuntu|macos : x64|arm64|universal; default is the full release set)";
+  (scope entries: windows|ubuntu|macos : x64|arm64|universal; default is the full release set)
+  release-gate check-sboms --manifest FILE --sbom-dir DIR --notices FILE
+  release-gate scan-artifacts --manifest FILE --extracted DIR --license FILE --notices FILE
+  release-gate check-fuzz --issues FILE --registry FILE";
 
 enum Failure {
     Usage(String),
@@ -174,6 +179,45 @@ fn run() -> Result<(), Failure> {
                 println!("warning={}", warning.reason_key);
             }
             println!("rows={}", manifest.rows.len());
+        }
+        _ => return run_stage_command(&command, &named),
+    }
+    Ok(())
+}
+
+fn read_manifest(named: &BTreeMap<String, String>) -> Result<ReleaseManifest, Failure> {
+    Ok(serde_json::from_str(&fs::read_to_string(require(
+        named, "manifest",
+    )?)?)?)
+}
+
+/// The release stages that check generated documents and opened packages.
+fn run_stage_command(command: &str, named: &BTreeMap<String, String>) -> Result<(), Failure> {
+    match command {
+        "check-sboms" => {
+            let notices = fs::read_to_string(require(named, "notices")?)?;
+            let dir = PathBuf::from(require(named, "sbom-dir")?);
+            let checked = check_sbom_set(&read_manifest(named)?, &dir, &notices)?;
+            println!("sboms={checked}");
+        }
+        "scan-artifacts" => {
+            let license = fs::read(require(named, "license")?)?;
+            let notices = fs::read(require(named, "notices")?)?;
+            let extracted = PathBuf::from(require(named, "extracted")?);
+            let scanned = scan_release(&read_manifest(named)?, &extracted, &license, &notices)?;
+            println!("packages_scanned={scanned}");
+        }
+        "check-fuzz" => {
+            let issues = fs::read_to_string(require(named, "issues")?)?;
+            let registry = fs::read_to_string(require(named, "registry")?)?;
+            let report = check_fuzz_crashes(&issues, &registry)?;
+            println!("open_fuzz_crashes=0");
+            println!("fuzz_targets={}", report.registered_targets);
+            if report.registered_targets == 0 {
+                eprintln!(
+                    "note: no fuzz target is registered, so the gate had no fuzz results to consult; this is not a fuzz pass"
+                );
+            }
         }
         _ => return Err(usage("unknown command")),
     }

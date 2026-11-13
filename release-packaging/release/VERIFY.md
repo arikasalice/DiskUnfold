@@ -61,3 +61,7 @@ See `release-packaging/release-tools/PROVENANCE.md` for the exact trust boundary
 ## Executables inside packages
 
 `EXECUTABLE-SHA256.json` lists the SHA-256 of the executable inside each package. After you install or extract a package, hash the executable and compare it with the entry for that package. The release workflow does not attest these executables separately; they are covered through the package they ship in.
+
+## SBOM
+
+Each package has a CycloneDX SBOM named `<package file name>.cdx.json`. It lists the third-party Cargo crates and npm packages that DiskUnfold ships, with their versions and SPDX license expressions, and it records the SHA-256 of the package it describes. The release workflow checked that the SBOM and `THIRD-PARTY-NOTICES` list the same packages. The SBOM files are listed in `SHA256SUMS` and covered by the same build provenance as the packages. The list covers the dependencies of every operating system, so a package can list a crate that its own build does not link.

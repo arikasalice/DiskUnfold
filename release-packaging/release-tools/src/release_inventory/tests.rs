@@ -25,6 +25,7 @@ fn sample_manifest(root: &Path) -> Result<ReleaseManifest, Box<dyn Error>> {
         executable_file_name: "DiskUnfold.exe".into(),
         executable_sha256: Sha256Digest::parse(&sha256(b"executable"))?,
         run_instructions: "Install the MSI, then launch DiskUnfold.".into(),
+        sbom_file_name: None,
     };
     Ok(ReleaseManifest {
         product_name: "DiskUnfold".into(),
@@ -434,13 +435,21 @@ fn renders_each_artifact_signature_scope_and_escapes_table_delimiters() -> Resul
     let markdown = render_markdown(&inventory);
 
     assert!(markdown.contains(
-        "| File | Version | OS support | CPU | Format | Channel | Signature | Signature scope | SHA-256 | Run instructions |"
+        "| File | Version | OS support | CPU | Format | Channel | Signature | Signature scope | SHA-256 | SBOM | Run instructions |"
     ));
     assert!(markdown.contains("| SignPath | Authenticode identity and signed package integrity |"));
     let expected_macos_row = format!(
-        "| {package_name} | 0.1.0 | macos 15–open | universal | dmg | direct | Hardened Runtime ad-hoc | The app bundle is ad-hoc signed; the DMG is unsigned \\| not notarized | {} | Open the disk image, then launch DiskUnfold. |",
+        "| {package_name} | 0.1.0 | macos 15–open | universal | dmg | direct | Hardened Runtime ad-hoc | The app bundle is ad-hoc signed; the DMG is unsigned \\| not notarized | {} | {package_name}.cdx.json | Open the disk image, then launch DiskUnfold. |",
         sha256(package),
     );
     assert!(markdown.contains(&expected_macos_row));
+    assert!(
+        inventory
+            .rows()
+            .iter()
+            .all(|row| row.sbom_file_name.as_deref()
+                == Some(&format!("{}.cdx.json", row.file_name)[..])),
+        "every row names the SBOM that describes it"
+    );
     Ok(())
 }

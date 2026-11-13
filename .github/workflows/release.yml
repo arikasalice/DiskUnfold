@@ -1,13 +1,21 @@
 # F15 release pipeline (FR1.HD1, FR2.HD1, FR5.HD1, FR9.HD1, NFR1.HD1, NFR2.HD1).
 #
-# A push of a stable version tag runs the gate, native builds, packaging, checksums, the release
-# inventory, SLSA build provenance and a verification pass, then creates a DRAFT GitHub release.
+# A push of a stable version tag runs the gate, native builds with the workspace tests on each
+# cell's CPU, packaging, the opened-package scan, SBOMs, checksums, the release inventory, the
+# fuzz gate, SLSA build provenance and a verification pass, then creates a DRAFT GitHub release.
 # Nothing is published automatically. A manual run (workflow_dispatch) is a dry run: it builds
-# developer builds only, never attests or publishes, and its artifacts are labelled developer.
+# developer builds and runs every stage above except attest, verify-provenance and
+# publish-draft; its artifacts are labelled developer.
 #
 # Job names are not registered in a published architecture DLD (release-packaging section) and
-# need design registration: gate, build, package-dmg, inventory, attest, verify-provenance,
-# publish-draft.
+# need design registration: gate, build, package-dmg, artifact-scan, notices-sbom, inventory,
+# release-gate, channel-manifests, attest, verify-provenance, publish-draft.
+#
+# Release stage table (F15 HLD table 7) to job: 1 gate; 2 build; 3 the test step of build
+# (release.test_failed); 4 and 5 artifact-scan (release.license_denied, release.notice_mismatch)
+# and notices-sbom (release.notice_mismatch); 6 build, package-dmg; 7 inventory, attest,
+# verify-provenance; 8 release-gate (release.verification_failed) and publish-draft; 9
+# channel-manifests writes the files the release manager submits (the submission is manual).
 name: Release
 on:
   push:
@@ -190,7 +198,34 @@ jobs:
       - name: Confirm the embedded build kind and commit
         env:
           EXPECTED_KIND: ${{ env.DU_BUILD_KIND }}
-        run: node release-packaging/release/check-build-kind.mjs --expected "$EXPECTED_KIND" --commit "$DU_SOURCE_COMMIT"
+          MATRIX_OS: ${{ matrix.os }}
+          RUST_TARGET: ${{ matrix.rust_target }}
+        run: |
+          set -euo pipefail
+          binary="target/release/diskunfold"
+          [[ "$MATRIX_OS" != linux ]] || binary="target/$RUST_TARGET/release/diskunfold"
+          [[ "$MATRIX_OS" != windows ]] || binary="$binary.exe"
+          node release-packaging/release/check-build-kind.mjs --expected "$EXPECTED_KIND" --commit "$DU_SOURCE_COMMIT" --binary "$binary"
+
+      # Release stage 3 (tests per combination, NFR1.HD1): the workspace tests run here, on the CPU
+      # that the Confirm native architecture step checked against this cell, before anything is
+      # packaged. They are the Quality workflow's native test step with its CI-only compile
+      # settings. The build variables are removed so the tests build and check developer launchers;
+      # the release launcher above is already checked. A failure stops the release.
+      - name: Run the workspace tests on this CPU
+        env:
+          CARGO_INCREMENTAL: "0"
+          CARGO_PROFILE_DEV_DEBUG: "0"
+          CARGO_PROFILE_TEST_DEBUG: "0"
+          MATRIX_ID: ${{ matrix.id }}
+        run: |
+          set -uo pipefail
+          if ! env -u DU_BUILD_KIND -u DU_SOURCE_COMMIT -u DU_RELEASE_TAG -u DU_BUILT_AT_UTC \
+              -u DU_APP_DB_FORMAT -u DU_SNAPSHOT_FORMAT -u DU_RELEASE_RESOURCES \
+              cargo test --locked --workspace --all-features; then
+            echo "release.test_failed: the workspace tests failed on $MATRIX_ID" >&2
+            exit 1
+          fi
 
       # Signing is attempted only when SignPath secrets and variables exist. The Windows packager
       # accepts unsigned input only, so a successful signing request stops the job instead of
@@ -282,6 +317,26 @@ jobs:
             --notices release-resources/THIRD-PARTY-NOTICES \
             --debian-copyright "$copyright" \
             --output-dir "stage/${{ matrix.id }}"
+      # The portable executable is one file, so its documents are the ones it embeds. Run the
+      # packaged executable's own notices command and keep the output for the opened-package scan
+      # (artifact-scan compares it with the generated LICENSE and THIRD-PARTY-NOTICES).
+      - name: Open the portable executable for the scan (Windows)
+        if: matrix.os == 'windows'
+        env:
+          PACKAGE_ID: ${{ matrix.id }}
+        run: |
+          set -euo pipefail
+          dir="stage/$PACKAGE_ID-portable-exe"
+          name="$(node -p "require('./$dir/manifest.json').rows[0].file_name")"
+          tree="scan-extract/$name"
+          data="$RUNNER_TEMP/scan-data"
+          mkdir -p "$tree" "$data"
+          for document in LICENSE THIRD-PARTY-NOTICES; do
+            target="$tree/$document"
+            [[ "$document" == LICENSE ]] || target="$tree/$document.txt"
+            DISKUNFOLD_DATA_DIR="$data" "$dir/$name" notices "$document" > "$target" ||
+              { echo "release.notice_mismatch: $name does not embed $document" >&2; exit 1; }
+          done
       - name: Record this combination
         env:
           MATRIX_ID: ${{ matrix.id }}
@@ -310,6 +365,13 @@ jobs:
         with:
           name: staging-${{ matrix.id }}
           path: stage/
+          if-no-files-found: error
+          retention-days: 14
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: matrix.os == 'windows'
+        with:
+          name: scan-extract-${{ matrix.id }}
+          path: scan-extract/
           if-no-files-found: error
           retention-days: 14
       - name: Collect the macOS slice
@@ -365,6 +427,32 @@ jobs:
             echo "release.notarization_unsupported: the DMG packager applies an ad-hoc signature; Developer ID signing and notarization are not integrated, so the DMG stays labelled ad-hoc signed." >&2
             exit 1
           fi
+      # Mount the finished DMG read-only for the opened-package scan. LICENSE and
+      # THIRD-PARTY-NOTICES.txt are copied out; every other file is recorded by name as an empty
+      # file so the scan can check the member names without carrying the application.
+      - name: Open the DMG for the scan
+        run: |
+          set -euo pipefail
+          dmg="$(find stage/macos-universal -maxdepth 1 -name '*.dmg')"
+          [[ -n "$dmg" && "$(printf '%s\n' "$dmg" | wc -l)" -eq 1 ]] || { echo "expected exactly one DMG" >&2; exit 1; }
+          tree="scan-extract/$(basename "$dmg")"
+          mount="$RUNNER_TEMP/scan-mount"
+          mkdir -p "$tree" "$mount"
+          hdiutil attach -readonly -nobrowse -noautoopen -mountpoint "$mount" "$dmg" > /dev/null
+          trap 'hdiutil detach "$mount" -force > /dev/null || true' EXIT
+          cp "$mount/LICENSE" "$mount/THIRD-PARTY-NOTICES.txt" "$tree/" ||
+            { echo "release.notice_mismatch: $(basename "$dmg") does not ship LICENSE and THIRD-PARTY-NOTICES.txt" >&2; exit 1; }
+          (cd "$mount" && find . -type f ! -path './.*' ! -name LICENSE ! -name THIRD-PARTY-NOTICES.txt -print0) |
+            while IFS= read -r -d '' member; do
+              mkdir -p "$tree/$(dirname "$member")"
+              : > "$tree/$member"
+            done
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: scan-extract-macos-universal
+          path: scan-extract/
+          if-no-files-found: error
+          retention-days: 14
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: staging-macos-universal
@@ -372,10 +460,145 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  # Merges every platform manifest into one release list, rehashes every staged file, and writes
-  # the checksum lists, the distribution table and the provenance subject list.
-  inventory:
+  # Release stages 4 and 5 (license gate on the packages, notices): opens every package and checks
+  # that it ships the repository LICENSE and the generated THIRD-PARTY-NOTICES byte for byte at the
+  # place its format registers, and holds no shared library or GPL-family license file. Linux
+  # formats and MSIX are opened here; the portable executable (Windows cells) and the DMG
+  # (package-dmg) are opened on their native runners because only they can run or mount them. A
+  # package that was not opened fails the scan. Runs for dry runs too.
+  artifact-scan:
     needs: [gate, build, package-dmg]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.gate.outputs.commit }}
+          persist-credentials: false
+      - name: Install pinned Rust
+        run: |
+          channel="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$channel" --profile minimal
+          rustup default "$channel"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: staging-*
+          path: staging
+          merge-multiple: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: scan-extract-*
+          path: extracted
+          merge-multiple: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-resources
+          path: release-resources
+      - name: Build the release tools
+        run: cargo build --locked -p du-release-tools --bin release-gate
+      - name: Merge manifests
+        run: |
+          set -euo pipefail
+          parts=()
+          for dir in staging/*/; do
+            name="$(basename "$dir")"
+            parts+=("$name=$dir")
+          done
+          target/debug/release-gate merge-manifests --out merged-manifest.json "${parts[@]}"
+      - name: Open the packages
+        run: |
+          set -euo pipefail
+          jq -r '.rows[] | [.file_name, .format] | @tsv' merged-manifest.json |
+            while IFS=$'\t' read -r name format; do
+              tree="extracted/$name"
+              case "$format" in
+                tar-gz | deb | msix)
+                  found="$(find staging -type f -name "$name")"
+                  [[ -n "$found" && "$(printf '%s\n' "$found" | wc -l)" -eq 1 ]] ||
+                    { echo "release.artifact_missing: package $name not found exactly once" >&2; exit 1; }
+                  mkdir -p "$tree"
+                  case "$format" in
+                    tar-gz) tar -xzf "$found" -C "$tree" ;;
+                    deb) dpkg-deb -x "$found" "$tree" ;;
+                    msix) unzip -q "$found" -d "$tree" ;;
+                  esac
+                  ;;
+                portable-exe | dmg)
+                  [[ -d "$tree" ]] ||
+                    { echo "release.notice_mismatch: $name was not opened on its native runner" >&2; exit 1; }
+                  ;;
+                *)
+                  echo "release.notice_mismatch: no way to open $format packages ($name)" >&2
+                  exit 1
+                  ;;
+              esac
+            done
+      - name: Scan the opened packages
+        run: |
+          set -euo pipefail
+          target/debug/release-gate scan-artifacts --manifest merged-manifest.json --extracted extracted \
+            --license LICENSE --notices release-resources/THIRD-PARTY-NOTICES | tee artifact-scan-report.txt
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: artifact-scan
+          path: artifact-scan-report.txt
+          if-no-files-found: error
+          retention-days: 14
+
+  # Release stage 5 (notices and SBOM): writes one CycloneDX SBOM per released package from the same
+  # inventory that generated THIRD-PARTY-NOTICES (cargo metadata --locked and the npm lockfile),
+  # then fails when an SBOM and the notices list different packages. Runs for dry runs too.
+  notices-sbom:
+    needs: [gate, build, package-dmg]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.gate.outputs.commit }}
+          persist-credentials: false
+      - name: Install pinned Rust
+        run: |
+          channel="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$channel" --profile minimal
+          rustup default "$channel"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: staging-*
+          path: staging
+          merge-multiple: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-resources
+          path: release-resources
+      - name: Build the release tools
+        run: cargo build --locked -p du-release-tools --bin release-gate --bin build-sbom
+      - name: Merge manifests
+        run: |
+          set -euo pipefail
+          parts=()
+          for dir in staging/*/; do
+            name="$(basename "$dir")"
+            parts+=("$name=$dir")
+          done
+          target/debug/release-gate merge-manifests --out merged-manifest.json "${parts[@]}"
+      - name: Write the SBOMs
+        run: target/debug/build-sbom merged-manifest.json . sbom
+      - name: Compare the SBOMs with the notices
+        run: |
+          target/debug/release-gate check-sboms --manifest merged-manifest.json --sbom-dir sbom \
+            --notices release-resources/THIRD-PARTY-NOTICES
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sbom
+          path: sbom/
+          if-no-files-found: error
+          retention-days: 14
+
+
+  # Merges every platform manifest into one release list, rehashes every staged file, and writes
+  # the checksum lists, the distribution table and the provenance subject list. The SBOMs join the
+  # assets and the checksum list, so they are attested with the packages.
+  inventory:
+    needs: [gate, build, package-dmg, artifact-scan, notices-sbom]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -401,6 +624,10 @@ jobs:
         with:
           name: release-resources
           path: release-resources
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: sbom
+          path: sbom
       - name: Build the release tools
         run: cargo build --locked -p du-release-tools --bin release-gate --bin build-release-inventory
       - name: Merge manifests and check the release set
@@ -420,6 +647,12 @@ jobs:
           set -euo pipefail
           target/debug/build-release-inventory merged-manifest.json staging inventory
           (cd inventory && ls)
+      # The SBOMs were written for the same merged list; check them again against the final list so
+      # an SBOM for other bytes cannot ship.
+      - name: Check the SBOMs against the release list and the notices
+        run: |
+          target/debug/release-gate check-sboms --manifest merged-manifest.json --sbom-dir sbom \
+            --notices release-resources/THIRD-PARTY-NOTICES
       - name: Assemble the release assets
         env:
           OFFICIAL: ${{ needs.gate.outputs.official }}
@@ -439,6 +672,8 @@ jobs:
           done
           cp inventory/SHA256SUMS inventory/EXECUTABLE-SHA256.json inventory/release-inventory.json inventory/DISTRIBUTION.md release-assets/
           cp release-resources/THIRD-PARTY-NOTICES release-resources/SUPPORT-TABLE.md release-resources/support-matrix.json release-resources/product-resources.json release-assets/
+          cp sbom/*.cdx.json release-assets/
+          cat sbom/SBOM-SHA256SUMS >> release-assets/SHA256SUMS
           cp release-packaging/release/VERIFY.md release-assets/VERIFY.md
           jq -s '.' records/*.json > release-assets/native-build-records.json
           node -e '
@@ -461,9 +696,80 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  # Release stage 8 (verification list, ANFR4): an open fuzz crash blocks the release. The Fuzz
+  # workflow files one issue labelled fuzz-crash per crashing run, and the issue stays open until a
+  # person closes it, so this job reads the open issues with that label. An unreadable list fails the
+  # job. The registry may have no targets yet; the job then says so, which is not a fuzz pass. Runs
+  # for dry runs too, and attest waits for it so a rejected release is never attested.
+  release-gate:
+    needs: [gate, inventory]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      issues: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.gate.outputs.commit }}
+          persist-credentials: false
+      - name: Install pinned Rust
+        run: |
+          channel="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$channel" --profile minimal
+          rustup default "$channel"
+      - name: Build the release tools
+        run: cargo build --locked -p du-release-tools --bin release-gate
+      - name: Fuzz gate (no open fuzz crash)
+        env:
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh issue list --repo "$REPOSITORY" --label fuzz-crash --state open --limit 200 --json number,title,url > open-fuzz-crashes.json
+          target/debug/release-gate check-fuzz --issues open-fuzz-crashes.json --registry release-packaging/quality/fuzz-targets.json
+
+  # Release stage 9 (channels): writes the direct download, winget and Store manifests from the
+  # release inventory. A channel that cannot be served yet says so in its file. The release manager
+  # checks the files and submits; a failure here does not stop the draft release (the design keeps
+  # the public release when a channel submission fails). Runs for dry runs too.
+  channel-manifests:
+    needs: [gate, inventory]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.gate.outputs.commit }}
+          persist-credentials: false
+      - name: Install pinned Rust
+        run: |
+          channel="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$channel" --profile minimal
+          rustup default "$channel"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ needs.gate.outputs.official == 'true' && 'release-assets' || 'release-assets-developer' }}
+          path: release-assets
+      - name: Build the release tools
+        run: cargo build --locked -p du-release-tools --bin build-channel-manifests
+      - name: Write the channel manifests
+        env:
+          REPOSITORY: ${{ github.repository }}
+          TAG: ${{ needs.gate.outputs.tag }}
+        run: |
+          set -euo pipefail
+          target/debug/build-channel-manifests release-assets/release-inventory.json channel-manifests \
+            --repository "$REPOSITORY" --tag "$TAG"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ needs.gate.outputs.official == 'true' && 'channel-manifests' || 'channel-manifests-developer' }}
+          path: channel-manifests/
+          if-no-files-found: error
+          retention-days: 14
+
   attest:
     if: needs.gate.outputs.official == 'true'
-    needs: [gate, inventory]
+    needs: [gate, inventory, release-gate]
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -530,7 +836,7 @@ jobs:
   # Creates a draft release. A person reviews the draft and publishes it; nothing here publishes.
   publish-draft:
     if: needs.gate.outputs.official == 'true'
-    needs: [gate, inventory, attest, verify-provenance]
+    needs: [gate, inventory, release-gate, attest, verify-provenance]
     runs-on: ubuntu-24.04
     permissions:
       contents: write

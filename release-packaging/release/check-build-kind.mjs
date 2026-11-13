@@ -1,9 +1,12 @@
 // Confirms the build kind and commit embedded in the newest launcher build
 // (F15 FR5.HD1.app-host.DD1). An official build must also carry both data format versions and a
-// support-matrix revision. Usage:
+// support-matrix revision. With --binary it also runs the built executable's `version` command and
+// compares its output with the build (release stage 3, version output comparison). Usage:
 //   node check-build-kind.mjs --expected official|developer --commit <40 hex> [--target-dir DIR]
+//     [--binary PATH]
 import { execFileSync } from "node:child_process";
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
 function findProductInfos(directory, found = []) {
@@ -55,11 +58,32 @@ function targetDirectory() {
   return JSON.parse(metadata).target_directory;
 }
 
+/** Returns a list of problems in the English output of `diskunfold version`. */
+export function checkVersionOutput(output, expectedKind, commit) {
+  const problems = [];
+  const label = expectedKind === "official" ? "Official release build" : "Developer build";
+  if (!output.includes(label)) problems.push(`version output does not show "${label}"`);
+  if (!output.includes(commit)) problems.push(`version output does not show commit ${commit}`);
+  return problems;
+}
+
+function versionOutput(binary) {
+  const data = mkdtempSync(path.join(os.tmpdir(), "du-version-"));
+  try {
+    return execFileSync(binary, ["--lang", "en", "version"], {
+      encoding: "utf8",
+      env: { ...process.env, DISKUNFOLD_DATA_DIR: data },
+    });
+  } finally {
+    rmSync(data, { recursive: true, force: true });
+  }
+}
+
 if (process.argv[1]?.endsWith("check-build-kind.mjs")) {
   const expected = argument("--expected");
   const commit = argument("--commit");
   if (!["official", "developer"].includes(expected) || !commit) {
-    console.error("usage: check-build-kind.mjs --expected official|developer --commit <sha> [--target-dir DIR]");
+    console.error("usage: check-build-kind.mjs --expected official|developer --commit <sha> [--target-dir DIR] [--binary PATH]");
     process.exit(2);
   }
   const infos = findProductInfos(targetDirectory());
@@ -74,4 +98,13 @@ if (process.argv[1]?.endsWith("check-build-kind.mjs")) {
     process.exit(1);
   }
   console.log(`embedded build info matches: kind=${expected} commit=${commit}`);
+  const binary = argument("--binary");
+  if (binary) {
+    const versionProblems = checkVersionOutput(versionOutput(binary), expected, commit);
+    if (versionProblems.length > 0) {
+      console.error(`release.build_kind_mismatch in the output of ${binary} version:\n  ${versionProblems.join("\n  ")}`);
+      process.exit(1);
+    }
+    console.log("version output matches the build");
+  }
 }

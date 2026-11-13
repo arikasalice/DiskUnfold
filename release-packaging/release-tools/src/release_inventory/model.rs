@@ -35,6 +35,12 @@ pub struct DistributionRow {
     pub executable_sha256: Sha256Digest,
     /// User-facing installation and launch instructions.
     pub run_instructions: String,
+    /// File name of the CycloneDX SBOM that describes this package.
+    ///
+    /// Packagers leave it unset; `prepare_inventory` sets it to `<file_name>.cdx.json` for every
+    /// row, so the published inventory and `DISTRIBUTION.md` name the SBOM next to the package.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sbom_file_name: Option<String>,
 }
 
 /// The release list input consumed by the inventory generator.
