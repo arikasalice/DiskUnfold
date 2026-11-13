@@ -35,6 +35,12 @@ pub struct DistributionRow {
     pub executable_sha256: Sha256Digest,
     /// User-facing installation and launch instructions.
     pub run_instructions: String,
+    /// File name of the CycloneDX SBOM that describes this package.
+    ///
+    /// Packagers leave it unset; `prepare_inventory` sets it to `<file_name>.cdx.json` for every
+    /// row, so the published inventory and `DISTRIBUTION.md` name the SBOM next to the package.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sbom_file_name: Option<String>,
 }
 
 /// The release list input consumed by the inventory generator.
@@ -48,8 +54,10 @@ pub struct ReleaseManifest {
     /// Distribution rows from the single release-list source.
     pub rows: Vec<DistributionRow>,
     /// Store and winget entries that reference a distribution row by filename, version, and CPU.
+    #[serde(default)]
     pub channel_references: Vec<ChannelReference>,
     /// Local staged files to rehash before emitting public-facing metadata.
+    #[serde(default)]
     pub staged_files: Vec<StagedFile>,
 }
 
@@ -64,6 +72,10 @@ pub struct ReleaseInventory {
     pub(crate) rows: Vec<DistributionRow>,
     /// Canonically ordered Store and winget references.
     pub(crate) channel_references: Vec<ChannelReference>,
+    /// Outcome of the fuzz gate (see `release_gate::FuzzGateRecord`), recorded so a release with no
+    /// fuzz evidence says so. Absent when the inventory was built without a fuzz record.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) fuzz_gate: Option<serde_json::Value>,
 }
 
 /// An explicit channel listing that points to an artifact row in the release list.

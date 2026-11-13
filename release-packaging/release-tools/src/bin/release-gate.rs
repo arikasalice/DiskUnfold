@@ -3,12 +3,14 @@
 //! Results are `key=value` lines on stdout (safe to append to GITHUB_OUTPUT). A failed check
 //! prints `reason_key: detail` on stderr and exits with 1; a usage error exits with 2.
 use du_release_tools::{
+    artifact_scan::scan_release,
     release_gate::{
-        FormatVersions, GateFailure, check_commits, check_format_versions,
-        check_required_artifacts_scoped, check_signature_claims, check_tag_version,
-        merge_manifests, parse_release_tag,
+        FormatVersions, FuzzGateInput, GateFailure, check_commits, check_format_versions,
+        check_fuzz_gate, check_required_artifacts_scoped, check_signature_claims,
+        check_tag_version, merge_manifests, parse_release_tag,
     },
     release_inventory::{Cpu, OsFamily, ReleaseManifest},
+    sbom::check_sbom_set,
 };
 use std::{collections::BTreeMap, env, error::Error, fs, path::PathBuf, process};
 
@@ -17,7 +19,11 @@ const USAGE: &str = "usage:
   release-gate read-formats [--file FILE]
   release-gate merge-manifests --out FILE NAME=DIRECTORY...
   release-gate check-release-set --manifest FILE --signing-applied true|false [--scope FAMILY:CPU,...]
-  (scope entries: windows|ubuntu|macos : x64|arm64|universal; default is the full release set)";
+  (scope entries: windows|ubuntu|macos : x64|arm64|universal; default is the full release set)
+  release-gate check-sboms --manifest FILE --sbom-dir DIR --notices FILE [--repo DIR]
+  release-gate scan-artifacts --manifest FILE --extracted DIR --staging DIR --license FILE --notices FILE
+  release-gate check-fuzz --issues FILE --registry FILE --runs FILE --now UNIX-SECONDS --commit SHA
+      --require-run true|false [--max-age-days N] [--record-out FILE]";
 
 enum Failure {
     Usage(String),
@@ -175,7 +181,87 @@ fn run() -> Result<(), Failure> {
             }
             println!("rows={}", manifest.rows.len());
         }
+        _ => return run_stage_command(&command, &named),
+    }
+    Ok(())
+}
+
+/// Reads a merged manifest or a `release-inventory.json`; the inventory's `fuzz_gate` record is
+/// not part of the manifest and is ignored here.
+fn read_manifest(named: &BTreeMap<String, String>) -> Result<ReleaseManifest, Failure> {
+    let mut value: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(require(named, "manifest")?)?)?;
+    if let Some(object) = value.as_object_mut() {
+        object.remove("fuzz_gate");
+    }
+    Ok(serde_json::from_value(value)?)
+}
+
+/// The release stages that check generated documents and opened packages.
+fn run_stage_command(command: &str, named: &BTreeMap<String, String>) -> Result<(), Failure> {
+    match command {
+        "check-sboms" => {
+            let notices = fs::read_to_string(require(named, "notices")?)?;
+            let dir = PathBuf::from(require(named, "sbom-dir")?);
+            let repo = named.get("repo").map(PathBuf::from);
+            let checked = check_sbom_set(&read_manifest(named)?, &dir, &notices, repo.as_deref())?;
+            println!("sboms={checked}");
+        }
+        "scan-artifacts" => {
+            let license = fs::read(require(named, "license")?)?;
+            let notices = fs::read(require(named, "notices")?)?;
+            let extracted = PathBuf::from(require(named, "extracted")?);
+            let staging = PathBuf::from(require(named, "staging")?);
+            let scanned = scan_release(
+                &read_manifest(named)?,
+                &extracted,
+                &staging,
+                &license,
+                &notices,
+            )?;
+            println!("packages_scanned={scanned}");
+        }
+        "check-fuzz" => run_fuzz_gate(named)?,
         _ => return Err(usage("unknown command")),
+    }
+    Ok(())
+}
+
+fn run_fuzz_gate(named: &BTreeMap<String, String>) -> Result<(), Failure> {
+    let number = |name: &str, default: Option<i64>| -> Result<i64, Failure> {
+        match named.get(name) {
+            Some(value) => value
+                .parse()
+                .map_err(|_| usage(&format!("--{name} must be a number"))),
+            None => default.ok_or_else(|| usage(&format!("missing --{name}"))),
+        }
+    };
+    let require_run = match require(named, "require-run")?.as_str() {
+        "true" => true,
+        "false" => false,
+        _ => return Err(usage("--require-run must be true or false")),
+    };
+    let issues = fs::read_to_string(require(named, "issues")?)?;
+    let registry = fs::read_to_string(require(named, "registry")?)?;
+    let runs = fs::read_to_string(require(named, "runs")?)?;
+    let commit = require(named, "commit")?;
+    let record = check_fuzz_gate(&FuzzGateInput {
+        issues_json: &issues,
+        registry_text: &registry,
+        runs_json: &runs,
+        now_unix: number("now", None)?,
+        release_commit: &commit,
+        require_run,
+        max_age_days: number("max-age-days", Some(3))?,
+    })?;
+    println!("open_fuzz_crashes=0");
+    println!("fuzz_targets={}", record.registered_targets);
+    println!("fuzz_outcome={}", record.outcome);
+    for note in &record.notes {
+        println!("::warning::{note}");
+    }
+    if let Some(out) = named.get("record-out") {
+        fs::write(out, serde_json::to_string_pretty(&record)? + "\n")?;
     }
     Ok(())
 }

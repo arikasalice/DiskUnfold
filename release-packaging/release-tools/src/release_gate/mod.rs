@@ -10,8 +10,14 @@ use crate::release_inventory::{
 };
 use std::{collections::BTreeSet, fmt, path::PathBuf};
 
+mod fuzz;
 #[cfg(test)]
 mod tests;
+
+pub use fuzz::{
+    FuzzGateInput, FuzzGateRecord, FuzzRunRecord, NO_TARGETS, TARGETS_REGISTERED,
+    VERIFICATION_FAILED, check_fuzz_gate, parse_utc_timestamp, registered_fuzz_targets,
+};
 
 /// Reason key: the tag is not a stable `vMAJOR.MINOR.PATCH` version.
 pub const TAG_FORMAT_INVALID: &str = "release.tag_format_invalid";
@@ -31,6 +37,9 @@ pub const ARTIFACT_MISSING: &str = "release.artifact_missing";
 pub const SIGNATURE_UNVERIFIED: &str = "release.signature_unverified";
 /// Reason key (warning): a designed package format has no builder yet.
 pub const FORMAT_UNAVAILABLE: &str = "release.format_unavailable";
+/// Reason key: a package holds a shared library, a GPL-family license file, a bundled binary or an
+/// executable that links a library outside the system allow list.
+pub const LICENSE_DENIED: &str = "release.license_denied";
 
 /// A failed gate check.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -42,7 +51,7 @@ pub struct GateFailure {
 }
 
 impl GateFailure {
-    fn new(reason_key: &'static str, detail: impl Into<String>) -> Self {
+    pub(crate) fn new(reason_key: &'static str, detail: impl Into<String>) -> Self {
         Self {
             reason_key,
             detail: detail.into(),

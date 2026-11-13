@@ -9,8 +9,8 @@ pub fn render_markdown(inventory: &ReleaseInventory) -> String {
     output.push_str(
         "> Internal inventory output. Staged paths are rehashed, but package contents, executable membership, signatures, and build provenance are not verified or created by this tool. This output is not a release gate.\n\n",
     );
-    output.push_str("| File | Version | OS support | CPU | Format | Channel | Signature | Signature scope | SHA-256 | Run instructions |\n");
-    output.push_str("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n");
+    output.push_str("| File | Version | OS support | CPU | Format | Channel | Signature | Signature scope | SHA-256 | SBOM | Run instructions |\n");
+    output.push_str("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n");
     for row in &inventory.rows {
         let os_support = match &row.os.versions {
             OsVersionScope::Range { minimum, maximum } => format!(
@@ -33,7 +33,7 @@ pub fn render_markdown(inventory: &ReleaseInventory) -> String {
             ),
         };
         output.push_str(&format!(
-            "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |\n",
+            "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |\n",
             markdown_cell(&row.file_name),
             markdown_cell(&row.version),
             markdown_cell(&os_support),
@@ -43,6 +43,7 @@ pub fn render_markdown(inventory: &ReleaseInventory) -> String {
             row.signature.as_str(),
             markdown_cell(&row.signature_scope),
             markdown_cell(row.sha256.as_str()),
+            markdown_cell(row.sbom_file_name.as_deref().unwrap_or("not generated")),
             markdown_cell(&row.run_instructions),
         ));
     }
@@ -77,6 +78,42 @@ pub fn render_markdown(inventory: &ReleaseInventory) -> String {
             markdown_cell(&reference.artifact_file_name),
             reference.update_method.as_str(),
         ));
+    }
+    if let Some(fuzz) = &inventory.fuzz_gate {
+        output.push_str(&render_fuzz_gate(fuzz));
+    }
+    output
+}
+
+/// The fuzz gate section: what was checked and, for an empty registry, that no fuzz evidence exists.
+fn render_fuzz_gate(fuzz: &serde_json::Value) -> String {
+    let text = |value: &serde_json::Value| {
+        value
+            .as_str()
+            .map_or_else(|| value.to_string(), str::to_owned)
+    };
+    let mut output = String::from("\n## Fuzz gate\n\n");
+    output.push_str(&format!(
+        "- Outcome: {}\n- Registered fuzz targets: {}\n- Open fuzz crash issues: {}\n",
+        text(&fuzz["outcome"]),
+        text(&fuzz["registered_targets"]),
+        text(&fuzz["open_crashes"]),
+    ));
+    let run = &fuzz["latest_run"];
+    if run.is_null() {
+        output.push_str("- Latest completed Fuzz run: none found\n");
+    } else {
+        output.push_str(&format!(
+            "- Latest completed Fuzz run: {} ({}, {}, commit {}, same commit as the release: {})\n",
+            markdown_cell(&text(&run["url"])),
+            markdown_cell(&text(&run["conclusion"])),
+            markdown_cell(&text(&run["created_at"])),
+            markdown_cell(&text(&run["head_sha"])),
+            text(&run["same_commit"]),
+        ));
+    }
+    for note in fuzz["notes"].as_array().into_iter().flatten() {
+        output.push_str(&format!("- Note: {}\n", markdown_cell(&text(note))));
     }
     output
 }

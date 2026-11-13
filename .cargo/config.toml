@@ -1,0 +1,6 @@
+# F15 release stage 3/4 (static C runtime on Windows): MSVC builds link the C runtime statically,
+# so the executable imports system DLLs only and needs no Visual C++ redistributable
+# (architecture HLD 2.3.5, WiX/MSVC static CRT). Applies to every Windows MSVC build, so
+# tests and the shipped binary use the same runtime.
+[target.'cfg(all(windows, target_env = "msvc"))']
+rustflags = ["-C", "target-feature=+crt-static"]

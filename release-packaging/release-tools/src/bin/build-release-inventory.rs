@@ -23,13 +23,18 @@ fn run() -> Result<(), Box<dyn Error>> {
     let Some(output_dir) = args.next().map(PathBuf::from) else {
         return Err(usage().into());
     };
-    if args.next().is_some() {
-        return Err(usage().into());
-    }
+    let fuzz_gate = match (args.next(), args.next(), args.next()) {
+        (None, _, _) => None,
+        (Some(flag), Some(file), None) if flag == "--fuzz-gate" => Some(PathBuf::from(file)),
+        _ => return Err(usage().into()),
+    };
 
     let manifest_text = fs::read_to_string(&manifest_path)?;
     let manifest: ReleaseManifest = serde_json::from_str(&manifest_text)?;
-    let (inventory, verified) = prepare_inventory(manifest, &staging_root)?;
+    let (mut inventory, verified) = prepare_inventory(manifest, &staging_root)?;
+    if let Some(file) = fuzz_gate {
+        inventory = inventory.with_fuzz_gate(serde_json::from_str(&fs::read_to_string(file)?)?);
+    }
     let json = render_json(&inventory)?;
     let markdown = render_markdown(&inventory);
     let checksums = render_checksums(&verified);
@@ -53,6 +58,6 @@ fn write_output(path: &std::path::Path, contents: &[u8]) -> io::Result<()> {
 fn usage() -> io::Error {
     io::Error::new(
         io::ErrorKind::InvalidInput,
-        "usage: build-release-inventory <manifest.json> <staging-root> <output-directory>",
+        "usage: build-release-inventory <manifest.json> <staging-root> <output-directory> [--fuzz-gate fuzz-gate.json]",
     )
 }

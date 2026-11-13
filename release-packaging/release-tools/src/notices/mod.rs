@@ -115,10 +115,28 @@ pub(crate) fn read_license_files(dir: &Path, extra: Option<&str>) -> Vec<License
 /// # Errors
 /// Returns a message when cargo metadata or the lockfile cannot be read.
 pub fn shipped_packages(repo: &Path) -> Result<Vec<NoticePackage>, String> {
+    shipped_packages_for(repo, None)
+}
+
+/// Like [`shipped_packages`], limited to the Cargo dependencies that a build for the Rust target
+/// triple links (`cargo metadata --filter-platform`). The npm packages are the same for every
+/// target. `None` lists the dependencies of every target, which is what THIRD-PARTY-NOTICES covers.
+///
+/// # Errors
+/// Returns a message when cargo metadata or the lockfile cannot be read.
+pub fn shipped_packages_for(
+    repo: &Path,
+    triple: Option<&str>,
+) -> Result<Vec<NoticePackage>, String> {
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
-    let output = Command::new(cargo)
+    let mut command = Command::new(cargo);
+    command
         .current_dir(repo)
-        .args(["metadata", "--locked", "--format-version", "1"])
+        .args(["metadata", "--locked", "--format-version", "1"]);
+    if let Some(triple) = triple {
+        command.args(["--filter-platform", triple]);
+    }
+    let output = command
         .output()
         .map_err(|e| format!("start cargo metadata: {e}"))?;
     if !output.status.success() {

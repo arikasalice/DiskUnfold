@@ -4,10 +4,16 @@
 // builder as .github/workflows/release.yml, but never signs, attests, uploads or publishes, and
 // every build it makes is a developer build. The report states what the real gate would decide.
 //
-// Usage: node release-packaging/release/dry-run.mjs --out <new directory> [--skip-web-build]
+// Besides the gate and packaging it runs the later stages on this OS's packages: the SBOM per
+// package, the opened-package notices, license and link-list scan, the channel manifests and the fuzz gate
+// (offline: it checks empty open-crash and Fuzz-run lists, because the dry run does not read GitHub).
+// The workspace tests run with --run-tests; the workflow always runs them in every build cell.
+//
+// Usage: node release-packaging/release/dry-run.mjs --out <new directory> [--skip-web-build] [--run-tests]
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -23,13 +29,16 @@ function argument(name) {
 
 function run(command, args, options = {}) {
   console.log(`> ${command} ${args.join(" ")}`);
+  const env = { ...process.env, ...(options.env ?? {}) };
+  // An undefined value removes the variable from the child's environment.
+  for (const [name, value] of Object.entries(env)) if (value === undefined) delete env[name];
   const result = spawnSync(command, args, {
     cwd: root,
     encoding: "utf8",
     shell: false,
     maxBuffer: 256 * 1024 * 1024,
     ...options,
-    env: { ...process.env, ...(options.env ?? {}) },
+    env,
   });
   if (result.error) throw result.error;
   return result;
@@ -54,6 +63,49 @@ function gateCheck(name, ok, detail = "") {
 
 function sha256(file) {
   return createHash("sha256").update(readFileSync(file)).digest("hex");
+}
+
+/** Opens one package into `tree` the way the workflow does; returns an error text or "". */
+function openPackage(row, file, tree) {
+  mkdirSync(tree, { recursive: true });
+  if (row.format === "tar-gz") return run("tar", ["-xzf", file, "-C", tree]).status === 0 ? "" : "tar failed";
+  if (row.format === "deb") return run("dpkg-deb", ["-x", file, tree]).status === 0 ? "" : "dpkg-deb failed";
+  if (row.format === "msix") {
+    // The workflow uses unzip; Windows has no unzip, and its tar reads zip archives.
+    const opened = process.platform === "win32" ? run("tar", ["-xf", file, "-C", tree]) : run("unzip", ["-q", file, "-d", tree]);
+    return opened.status === 0 ? "" : "the MSIX could not be opened";
+  }
+  if (row.format !== "portable-exe") return `no way to open ${row.format} packages on this OS`;
+  const data = mkdtempSync(path.join(os.tmpdir(), "du-scan-"));
+  for (const [document, target] of [["LICENSE", "LICENSE"], ["THIRD-PARTY-NOTICES", "THIRD-PARTY-NOTICES.txt"]]) {
+    const shown = spawnSync(file, ["notices", document], { env: { ...process.env, DISKUNFOLD_DATA_DIR: data } });
+    if (shown.status !== 0) return `${row.file_name} does not embed ${document}`;
+    writeFileSync(path.join(tree, target), shown.stdout);
+  }
+  return "";
+}
+
+/** SBOMs, opened-package scan, channel manifests and fuzz gate for this OS's packages. */
+function laterStages(merged, stage, inventory) {
+  const manifest = JSON.parse(readFileSync(merged, "utf8"));
+  const sbomDir = path.join(outDir, "sbom");
+  const sbom = run(tool("build-sbom"), [merged, root, sbomDir]);
+  record("SBOM per package (CycloneDX, cargo and npm production dependencies)", sbom.status === 0, sbom.stderr.trim());
+  if (sbom.status === 0) {
+    const check = run(tool("release-gate"), ["check-sboms", "--manifest", merged, "--sbom-dir", sbomDir, "--notices", notices, "--repo", root]);
+    record("SBOMs match the notices and the package digests", check.status === 0, check.stderr.trim());
+  }
+  const extracted = path.join(outDir, "extracted");
+  const problems = manifest.rows.flatMap((row) => {
+    const found = readdirSync(stage, { recursive: true }).filter((entry) => path.basename(entry) === row.file_name);
+    return found.length === 1 ? [openPackage(row, path.join(stage, found[0]), path.join(extracted, row.file_name))].filter(Boolean) : [`${row.file_name} not found exactly once`];
+  });
+  record("packages opened for the scan", problems.length === 0, problems.join(" | "));
+  const scan = run(tool("release-gate"), ["scan-artifacts", "--manifest", merged, "--extracted", extracted, "--staging", stage, "--license", path.join(root, "LICENSE"), "--notices", notices]);
+  record("opened packages ship LICENSE and THIRD-PARTY-NOTICES byte for byte, hold no copyleft member, and link only system libraries", scan.status === 0, scan.stderr.trim());
+  const channels = path.join(outDir, "channels");
+  const made = run(tool("build-channel-manifests"), [path.join(inventory, "release-inventory.json"), channels, "--repository", "local/dry-run"]);
+  record("channel manifests (direct, winget, store)", made.status === 0 && existsSync(path.join(channels, "channel-store.json")), made.stderr.trim());
 }
 
 /** The workflow packages with pwsh; Windows PowerShell 5.1 is the fallback. */
@@ -147,9 +199,16 @@ const buildEnv = {
 const cargoBuild = run("cargo", ["build", "--locked", "--release", "-p", "du-launcher"], { stdio: "inherit", env: buildEnv });
 record("native launcher build (developer)", cargoBuild.status === 0);
 if (cargoBuild.status !== 0) process.exit(1);
-const kind = run(process.execPath, ["release-packaging/release/check-build-kind.mjs", "--expected", "developer", "--commit", head, "--target-dir", target]);
-record("embedded build kind is developer and commit matches", kind.status === 0, (kind.stderr || kind.stdout).trim());
 const binary = path.join(target, "release", "diskunfold" + exe);
+const kind = run(process.execPath, ["release-packaging/release/check-build-kind.mjs", "--expected", "developer", "--commit", head, "--target-dir", target, "--binary", binary]);
+record("embedded build kind is developer, commit matches, version output matches", kind.status === 0, (kind.stderr || kind.stdout).trim());
+if (process.argv.includes("--run-tests")) {
+  const tests = run("cargo", ["test", "--locked", "--workspace", "--all-features"], {
+    stdio: "inherit",
+    env: { DU_BUILD_KIND: undefined, DU_SOURCE_COMMIT: undefined, DU_RELEASE_TAG: undefined, DU_BUILT_AT_UTC: undefined, DU_APP_DB_FORMAT: undefined, DU_SNAPSHOT_FORMAT: undefined, DU_RELEASE_RESOURCES: undefined },
+  });
+  record("workspace tests (release.test_failed on failure)", tests.status === 0);
+}
 
 // 4. Package for this OS.
 const stage = path.join(outDir, "stage");
@@ -162,6 +221,7 @@ if (process.platform === "win32") {
     const name = `windows-${architecture}-${format}`;
     const result = run(powerShell(), ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path.join(root, "release-packaging", "windows", "package-windows-development.ps1"),
       "-BinaryPath", binary, "-Version", version, "-Architecture", architecture, "-Format", format, "-OutputDirectory", path.join(stage, name),
+      "-NoticesPath", notices,
       // Windows PowerShell 5.1 leaves $PSScriptRoot empty inside parameter defaults, so pass the icon.
       "-IconPath", path.join(root, "app-host", "icons", "icon.png")]);
     record(`package ${format}`, result.status === 0, result.status === 0 ? "" : (result.stderr || result.stdout).trim().split("\n").slice(-3).join(" | "));
@@ -189,7 +249,14 @@ if (parts.length > 0) {
   const set = run(tool("release-gate"), ["check-release-set", "--manifest", merged, "--signing-applied", "false", "--scope", currentScope()]);
   record(`release set complete for ${currentScope()} and no unproven signature claims`, set.status === 0, (set.stderr || "").trim().split("\n").join(" | "));
   const inventory = path.join(outDir, "inventory");
-  const inv = run(tool("build-release-inventory"), [merged, stage, inventory]);
+  const fuzzRecord = path.join(outDir, "fuzz-gate.json");
+  writeFileSync(path.join(outDir, "open-fuzz-crashes.json"), "[]\n");
+  writeFileSync(path.join(outDir, "fuzz-runs.json"), "[]\n");
+  const fuzz = run(tool("release-gate"), ["check-fuzz", "--issues", path.join(outDir, "open-fuzz-crashes.json"), "--runs", path.join(outDir, "fuzz-runs.json"),
+    "--registry", path.join(root, "release-packaging", "quality", "fuzz-targets.json"), "--now", String(Math.floor(Date.now() / 1000)), "--commit", head,
+    "--require-run", "false", "--record-out", fuzzRecord]);
+  record("fuzz gate (offline: no open crash and no Fuzz run list is read from GitHub)", fuzz.status === 0, (fuzz.stdout.match(/::warning::.*/g) ?? []).join(" | "));
+  const inv = run(tool("build-release-inventory"), [merged, stage, inventory, "--fuzz-gate", fuzzRecord]);
   record("release inventory, SHA256SUMS, EXECUTABLE-SHA256.json, DISTRIBUTION.md", inv.status === 0, inv.stderr.trim());
   if (inv.status === 0) {
     let mismatches = 0;
@@ -201,6 +268,7 @@ if (parts.length > 0) {
     }
     record("SHA256SUMS rechecked against the staged package bytes", lines.length > 0 && mismatches === 0, `${lines.length} packages`);
     console.log("\n" + readFileSync(path.join(inventory, "DISTRIBUTION.md"), "utf8"));
+    laterStages(merged, stage, inventory);
   }
 }
 

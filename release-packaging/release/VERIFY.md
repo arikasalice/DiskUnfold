@@ -61,3 +61,7 @@ See `release-packaging/release-tools/PROVENANCE.md` for the exact trust boundary
 ## Executables inside packages
 
 `EXECUTABLE-SHA256.json` lists the SHA-256 of the executable inside each package. After you install or extract a package, hash the executable and compare it with the entry for that package. The release workflow does not attest these executables separately; they are covered through the package they ship in.
+
+## SBOM
+
+Each package has a CycloneDX SBOM named `<package file name>.cdx.json`. It lists the third-party Cargo crates and npm packages that a build for that package's CPU and operating system links, with their versions and SPDX license expressions, and it records the SHA-256 of the package it describes and the Rust targets it was written for. The release workflow checked that every package in the SBOM is in `THIRD-PARTY-NOTICES` (which covers every operating system) and that the SBOM matches the set that `cargo tree` and `npm ls` report for the target. `fuzz-gate.json` and the "Fuzz gate" section of `DISTRIBUTION.md` say whether any fuzz target was registered. The SBOM files and `fuzz-gate.json` are listed in `SHA256SUMS` and covered by the same build provenance as the packages.

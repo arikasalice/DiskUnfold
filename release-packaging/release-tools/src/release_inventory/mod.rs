@@ -12,6 +12,13 @@ pub use render::{render_checksums, render_executable_checksums, render_json, ren
 pub use validation::{prepare_inventory, validate_and_sort};
 
 impl ReleaseInventory {
+    /// Attaches the fuzz gate record that the JSON and Markdown outputs publish.
+    #[must_use]
+    pub fn with_fuzz_gate(mut self, record: serde_json::Value) -> Self {
+        self.fuzz_gate = Some(record);
+        self
+    }
+
     /// Returns the product name represented by this normalized inventory.
     pub fn product_name(&self) -> &str {
         &self.product_name
