@@ -84,6 +84,7 @@ impl ErrorEnvelope {
             | "scope.empty"
             | "scope.target_unavailable"
             | "scope.exclude_invalid"
+            | "scan.priority_out_of_scope"
             | "path.unresolvable"
             | "startup.shutting_down" => ErrorCode::InvalidArgument,
             "cursor.stale"

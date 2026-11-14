@@ -220,10 +220,14 @@ impl IngestSink {
             .ok_or(QueryError::NotFound)
     }
 
-    /// Runs an in-memory operation while the exact result remains current.
-    /// The callback must not reenter this store or perform blocking I/O. The
-    /// pinned result identifies its lineage, so admission does not scan other
-    /// lineages. The map lookup is not a worst-case constant-time guarantee.
+    /// Runs a bounded in-memory operation while the exact result remains current.
+    ///
+    /// The callback runs while the result-store state lock is held. It must not
+    /// reenter this store, perform I/O, wait on channels or tasks, or call
+    /// runtime or application callbacks. If it takes another lock, keep the
+    /// order acyclic and document it at the call site. The pinned result
+    /// identifies its lineage, so admission does not scan other lineages. The
+    /// map lookup is not a worst-case constant-time guarantee.
     pub fn with_current<T>(
         &self,
         expected: &Arc<ResultVersion>,

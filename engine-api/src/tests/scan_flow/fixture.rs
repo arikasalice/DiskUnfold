@@ -3,19 +3,23 @@ use super::*;
 pub(super) fn scan_harness_with_gate(
     finish_gate: Option<Arc<Mutex<mpsc::Receiver<()>>>>,
 ) -> Result<ScanHarness, Box<dyn std::error::Error>> {
-    scan_harness_with_admissions(finish_gate, None, None, false)
+    scan_harness_with_admissions(finish_gate, None, None, false, false)
+}
+
+pub(super) fn scan_harness_with_priority() -> Result<ScanHarness, Box<dyn std::error::Error>> {
+    scan_harness_with_admissions(None, None, None, false, true)
 }
 
 pub(super) fn scan_harness_with_recent_admissions()
 -> Result<ScanHarness, Box<dyn std::error::Error>> {
-    scan_harness_with_admissions(None, None, None, true)
+    scan_harness_with_admissions(None, None, None, true, false)
 }
 
 pub(super) fn scan_harness_with_comparison(
     finish_gate: Option<Arc<Mutex<mpsc::Receiver<()>>>>,
     comparison: Option<Arc<dyn crate::scope::exclusion::PathComparison>>,
 ) -> Result<ScanHarness, Box<dyn std::error::Error>> {
-    scan_harness_with_admissions(finish_gate, comparison, None, false)
+    scan_harness_with_admissions(finish_gate, comparison, None, false, false)
 }
 
 pub(super) fn scan_harness_with_options(
@@ -23,7 +27,7 @@ pub(super) fn scan_harness_with_options(
     comparison: Option<Arc<dyn crate::scope::exclusion::PathComparison>>,
     limit: Option<crate::desktop::SharedTableLimitSource>,
 ) -> Result<ScanHarness, Box<dyn std::error::Error>> {
-    scan_harness_with_admissions(finish_gate, comparison, limit, false)
+    scan_harness_with_admissions(finish_gate, comparison, limit, false, false)
 }
 
 fn scan_harness_with_admissions(
@@ -31,6 +35,7 @@ fn scan_harness_with_admissions(
     comparison: Option<Arc<dyn crate::scope::exclusion::PathComparison>>,
     limit: Option<crate::desktop::SharedTableLimitSource>,
     recent: bool,
+    priority_scenario: bool,
 ) -> Result<ScanHarness, Box<dyn std::error::Error>> {
     let ids = Arc::new(Ids {
         next: AtomicUsize::new(1),
@@ -38,6 +43,36 @@ fn scan_harness_with_admissions(
     });
     let (release, blocked) = mpsc::channel();
     let (send, terminal) = mpsc::channel();
+    let (
+        priority,
+        priority_opened,
+        priority_visit_entered,
+        priority_visit_release,
+        priority_b_completed,
+        priority_visits,
+    ) = if priority_scenario {
+        let (open_entered, open_entered_rx) = mpsc::channel();
+        let (visit_entered, visit_entered_rx) = mpsc::channel();
+        let (visit_release, visit_released) = mpsc::channel();
+        let (visits, visits_rx) = mpsc::channel();
+        let (completed_b, completed_b_rx) = mpsc::channel();
+        (
+            Some(Arc::new(super::PriorityState {
+                open_entered,
+                visit_entered,
+                visit_release: Arc::new(Mutex::new(visit_released)),
+                visits,
+                completed_b,
+            })),
+            Some(open_entered_rx),
+            Some(visit_entered_rx),
+            Some(visit_release),
+            Some(completed_b_rx),
+            Some(visits_rx),
+        )
+    } else {
+        (None, None, None, None, None, None)
+    };
     let roots = Arc::new(Roots {
         file_id: AtomicUsize::new(1),
         opens: AtomicUsize::new(0),
@@ -49,6 +84,7 @@ fn scan_harness_with_admissions(
         read_handles: Arc::new(Mutex::new(Vec::new())),
         release: Arc::new(Mutex::new(blocked)),
         finish_gate,
+        priority,
     });
     let clock = Arc::new(Clock);
     let events = Arc::new(crate::desktop::scan_completion::ScanEvents::new(Arc::new(
@@ -103,6 +139,9 @@ fn scan_harness_with_admissions(
             publisher,
         )?
         .source(),
+        (None, None) if priority_scenario => {
+            crate::scan::register_with_priority(&mut builder, workers, roots.clone(), ids)?
+        }
         (None, None) => crate::scan::register_with_comparison(
             &mut builder,
             workers,
@@ -124,5 +163,10 @@ fn scan_harness_with_admissions(
         versions,
         completed_scans,
         recent_scope_admissions,
+        priority_opened,
+        priority_visit_entered,
+        priority_visit_release,
+        priority_b_completed,
+        priority_visits,
     })
 }
