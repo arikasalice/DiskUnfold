@@ -3,13 +3,19 @@ use super::{
     trace::{Trace, TracedRoots},
     *,
 };
-use du_core_contracts::{scan_failures::ScanFailureKind, scan_observation::FilterDecision};
+use du_core_contracts::{
+    result::ResultCompleteness,
+    scan_failures::{ScanFailureKind, unentered_reason::BOUNDARY_OTHER_VOLUME},
+    scan_observation::FilterDecision,
+};
 use std::os::unix::fs::MetadataExt;
 
 /// Scans `/` with every top-level name excluded except the system mounts.
 ///
-/// Each mount point is classified outside the boundary: it is recorded as an
-/// unread range, never opened or enumerated, and not counted as a failure.
+/// The adapter reports each mount point as `ObservedKind::MountPoint`, so it is
+/// classified outside the boundary: listed as an unread range, never opened or
+/// enumerated, not counted as a failure and not a scope gap. The result stays
+/// complete.
 #[test]
 fn linux_scan_leaves_system_mounts_outside_the_boundary() -> TestResult {
     let root_device = fs::metadata("/")?.dev();
@@ -65,6 +71,13 @@ fn linux_scan_leaves_system_mounts_outside_the_boundary() -> TestResult {
     assert_eq!(finish.body["failed"], 0, "{}", finish.body);
     let status: AnalysisJobStatus = read(&engine, "job.get", json!({"jobRef": start.job_ref}))?;
     let version = status.result_version.ok_or("missing result version")?;
+    let total: SpaceTotal = read(
+        &engine,
+        "space.total",
+        json!({"resultVersion": version, "requestSeq": 1, "target": {"kind": "scope_root"}}),
+    )?;
+    assert_eq!(total.completeness, ResultCompleteness::Complete);
+    assert_eq!(total.inaccessible_ranges, None);
     let failures: ScanFailures = read(&engine, "scan.failures", json!({"resultVersion": version}))?;
     let rows: Vec<_> = failures
         .rows
@@ -78,12 +91,13 @@ fn linux_scan_leaves_system_mounts_outside_the_boundary() -> TestResult {
         })
         .collect();
     assert_eq!(rows.len(), mounts.len(), "{rows:?}");
+    assert_eq!(failures.total_count, mounts.len() as u64);
     for name in &mounts {
         let suffix = format!("/{}", String::from_utf8_lossy(name));
         assert!(
             rows.iter()
                 .any(|(kind, reason, path)| *kind == ScanFailureKind::UnreadRange
-                    && reason == "scan.unclassified"
+                    && reason == BOUNDARY_OTHER_VOLUME
                     && path.ends_with(&suffix)),
             "{suffix}: {rows:?}"
         );
@@ -95,7 +109,7 @@ fn linux_scan_leaves_system_mounts_outside_the_boundary() -> TestResult {
     let offered = trace.offered.lock().map_err(|_| "trace poisoned")?.len();
     assert_eq!(offered, mounts.len() + others.len());
     eprintln!(
-        "F02_LINUX_BOUNDARY state=done failed=0 outside_boundary={} offered={offered} opened=0",
+        "F02_LINUX_BOUNDARY state=done failed=0 complete outside_boundary={} offered={offered} opened=0",
         mounts.len()
     );
     Ok(())
