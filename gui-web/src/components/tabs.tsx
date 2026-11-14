@@ -12,11 +12,11 @@ import "../theme/tabs.css";
 export type TabsItem<K extends string> = {
   /** Stable identity of the tab; it is what the selection reports. */
   key: K;
-  /** The tab's name, which is also its accessible name. */
+  /** The tab's name. The accessible name is the visible text: the label, then the count. */
   label: string;
-  /** A short count drawn after the label; assistive technology reads it as the tab's description. */
+  /** A short count drawn after the label and read as part of the tab's name. */
   count?: string;
-  /** Extra text for assistive technology only, read after the count. */
+  /** Extra text for assistive technology only, read as the tab's description. */
   description?: string;
 };
 
@@ -56,37 +56,38 @@ export function Tabs<K extends string>({
     >
       <TabList className="du-tabs__list" aria-label={label}>
         {items.map((item) => {
-          const countId = `${base}-${item.key}-count`;
           const descriptionId = `${base}-${item.key}-description`;
-          const described = [
-            item.count !== undefined ? countId : "",
-            item.description !== undefined ? descriptionId : "",
-          ]
-            .filter(Boolean)
-            .join(" ");
           return (
             <Tab
               key={item.key}
               id={item.key}
-              aria-label={item.label}
-              {...(described !== "" && { "aria-describedby": described })}
+              {...(item.description !== undefined && {
+                "aria-describedby": descriptionId,
+              })}
               className="du-tab"
             >
               <span className="du-tab__label">{item.label}</span>
               {item.count !== undefined && (
-                <span className="du-tab__count" id={countId}>
-                  {item.count}
-                </span>
-              )}
-              {item.description !== undefined && (
-                <span className="du-visually-hidden" id={descriptionId}>
-                  {item.description}
-                </span>
+                <>
+                  {/* Keeps the label and the count apart in the computed name. */}{" "}
+                  <span className="du-tab__count">{item.count}</span>
+                </>
               )}
             </Tab>
           );
         })}
       </TabList>
+      {/* Descriptions live outside the tabs so they never join a tab's name. */}
+      <div hidden>
+        {items.map(
+          (item) =>
+            item.description !== undefined && (
+              <span key={item.key} id={`${base}-${item.key}-description`}>
+                {item.description}
+              </span>
+            ),
+        )}
+      </div>
       <TabPanel id={value} className="du-tabs__panel">
         {children}
       </TabPanel>

@@ -35,9 +35,9 @@ export function mount(
   return { fake, ...view };
 }
 
-/** The tab of a category, found by its tab role. */
+/** The tab of a category, found by its tab role; its name is the label and then the count. */
 export function tab(name: string): HTMLElement {
-  return screen.getByRole("tab", { name });
+  return screen.getByRole("tab", { name: new RegExp(`^${name}(\\s|$)`) });
 }
 
 export async function classified(

@@ -33,11 +33,10 @@ test("the tabs part exposes a tab list, tabs and one labelled panel", () => {
   render(<Harness />);
   const list = screen.getByRole("tablist", { name: "Letters" });
   const tabs = screen.getAllByRole("tab");
-  expect(tabs.map((tab) => tab.getAttribute("aria-label"))).toEqual([
-    "Alpha",
-    "Beta",
-    "Gamma",
-  ]);
+  // The name is the visible text, so the count is part of it.
+  expect(screen.getByRole("tab", { name: "Alpha 3" })).toBe(tabs[0]);
+  expect(screen.getByRole("tab", { name: "Beta 0" })).toBe(tabs[1]);
+  expect(screen.getByRole("tab", { name: "Gamma" })).toBe(tabs[2]);
   expect(list.contains(tabs[0]!)).toBe(true);
   expect(screen.queryByRole("radio")).toBeNull();
   expect(tabs.map((tab) => tab.getAttribute("aria-selected"))).toEqual([
@@ -48,14 +47,9 @@ test("the tabs part exposes a tab list, tabs and one labelled panel", () => {
   const panel = screen.getByRole("tabpanel");
   expect(panel.getAttribute("aria-labelledby")).toBe(tabs[0]!.id);
   expect(panel.textContent).toBe("Panel of a");
-  // The count is drawn in the tab and read as its description with the extra text.
-  expect(tabs[0]!.textContent).toContain("3");
-  const described = (tabs[0]!.getAttribute("aria-describedby") ?? "").split(
-    " ",
-  );
-  expect(
-    described.map((id) => document.getElementById(id)?.textContent),
-  ).toEqual(["3", "The first tab"]);
+  // Extra text is the description only.
+  const described = tabs[0]!.getAttribute("aria-describedby") ?? "";
+  expect(document.getElementById(described)?.textContent).toBe("The first tab");
   expect(tabs[2]!.getAttribute("aria-describedby")).toBeNull();
 });
 

@@ -63,7 +63,7 @@ test("F36 FR2: the summary lists groups with counts, sizes from the totals, and 
   expect(within(tab("Groups")).getByText("2")).toBeDefined();
   expect(within(tab("Unclassified")).getByText("11")).toBeDefined();
   expect(screen.getByText("The result is partial")).toBeDefined();
-  expect(screen.getByRole("tab", { name: "Overlaps" })).toBeDefined();
+  expect(tab("Overlaps")).toBeDefined();
   expect(
     screen.getByRole("region", { name: "Classification status" }),
   ).toBeDefined();
