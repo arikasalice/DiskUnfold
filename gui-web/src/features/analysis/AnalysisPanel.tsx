@@ -619,6 +619,7 @@ export function AnalysisPanel({
               primaryPathRef={firstPath}
             />
           </div>
+          {!resultActive && !recentOpen && startAlternative}
         </section>
         {!recentOpen && (
           <ScopeActions
@@ -653,7 +654,6 @@ export function AnalysisPanel({
         editorOpen={editorOpen}
         editorId={editorId}
         opener={editorOpener}
-        startAlternative={startAlternative}
         onOpen={() => {
           focusEditor.current = true;
           setEditorOpen(true);
@@ -748,7 +748,6 @@ function AnalysisHeader({
   editorId,
   opener,
   onOpen,
-  startAlternative,
 }: {
   hasTotal: boolean;
   resultActive: boolean;
@@ -759,7 +758,6 @@ function AnalysisHeader({
   editorId: string;
   opener: Ref<HTMLButtonElement>;
   onOpen: () => void;
-  startAlternative: ReactNode;
 }) {
   const text = useLocaleText();
   return (
@@ -790,7 +788,6 @@ function AnalysisHeader({
           )}
         </Text>
       )}
-      {!resultActive && startAlternative}
     </header>
   );
 }

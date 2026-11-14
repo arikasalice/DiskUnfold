@@ -2,7 +2,9 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { expect, test } from "vitest";
 import { AnalysisError } from "../src/ipc";
 import {
+  followPrepared,
   isOpenSample,
+  isSampleScreen,
   isSampleSource,
   useSampleSession,
 } from "../src/state/sample-session";
@@ -20,6 +22,38 @@ test("a closed session is not open", () => {
   expect(isOpenSample(sampleSession())).toBe(true);
 });
 
+test("the sample screen shows for an active session, or one reset after it was active", () => {
+  expect(isSampleScreen(undefined, false)).toBe(false);
+  expect(isSampleScreen(sampleSession({ state: "active" }), false)).toBe(true);
+  // Before the first activation the entry button shows the progress instead.
+  expect(isSampleScreen(sampleSession({ state: "preparing" }), false)).toBe(
+    false,
+  );
+  expect(isSampleScreen(sampleSession({ state: "resetting" }), true)).toBe(
+    true,
+  );
+  expect(isSampleScreen(sampleSession({ state: "unavailable" }), true)).toBe(
+    false,
+  );
+});
+
+test("the prepared count follows only the loading job and only newer values", () => {
+  const body = (sequence: number, completed: number, unit = "items") => ({
+    topic: "job.progress",
+    seq: sequence,
+    contractVersion: 1,
+    occurredAt: "2026-02-01T00:00:00Z",
+    jobRef: "job-1",
+    body: { sequence, unit, completed },
+  });
+  const first = followPrepared(undefined, "job-1", body(2, 10));
+  expect(first?.completed).toBe(10);
+  expect(followPrepared(first, "job-1", body(1, 99))).toBe(first);
+  expect(followPrepared(first, "job-1", body(3, 30))?.completed).toBe(30);
+  expect(followPrepared(first, "job-2", body(3, 30))).toBe(first);
+  expect(followPrepared(first, "job-1", body(3, 30, "bytes"))).toBe(first);
+  expect(followPrepared(undefined, undefined, body(1, 5))).toBeUndefined();
+});
 async function opened(reply: { current: ReturnType<typeof sampleSession> }) {
   const fake = sampleClient({
     "sample.open": () => sampleSession({ state: "preparing", sequence: 1 }),

@@ -622,6 +622,18 @@ test("F01: a target with an unavailable type can be selected and reviewed", asyn
   );
 });
 
+test("F32: the sample entry sits inside the target card below the path input and review actions", async () => {
+  const { client } = fixture({ targetList: targets });
+  render(<App analysis={client} />);
+  const card = await screen.findByRole("region", {
+    name: "Target selection and scope review",
+  });
+  const entry = screen.getByRole("button", { name: "Try sample data first" });
+  expect(card.contains(entry)).toBe(true);
+  expect(
+    screen.getByText("Look around with example data. Your files are not read."),
+  ).toBeDefined();
+});
 test("F01: slow drive listing leaves direct folder review available", async () => {
   const { client, calls } = fixture({
     targetList: {

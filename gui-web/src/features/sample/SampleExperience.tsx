@@ -1,28 +1,23 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
-import {
-  Action,
-  ExampleBadge,
-  Heading,
-  Notice,
-  SampleBanner,
-  SelectField,
-} from "../../components";
+import { Action, Band, Notice, SelectField } from "../../components";
 import { useLocaleText } from "../../i18n/presentation";
 import type { LocaleText } from "../../i18n/presentation";
 import type { SampleObservationRef, SampleSession } from "../../ipc";
 import type { SampleCommand, SampleProblem } from "../../state/sample-session";
 import { useSampleConfirm } from "./SampleConfirm";
 import type { SampleConfirmKind } from "./SampleConfirm";
-import {
-  SampleProblemNotice,
-  SampleProgress,
-  SampleUnavailable,
-} from "./SampleStates";
+import { SampleAnnouncer } from "./SampleAnnouncer";
+import { SampleProblemNotice, SampleProgress } from "./SampleStates";
 import "../../theme/sample.css";
 
 export type SampleExperienceProps = {
+  /** The held session, whatever its state; the sample screen shows only while `screen` is true. */
   session: SampleSession | undefined;
+  /** True once the session has been active and has not failed since. */
+  reached: boolean;
+  /** True while the sample result screen owns the main area. */
+  screen: boolean;
   pending: SampleCommand | undefined;
   problem: SampleProblem | undefined;
   onReset: () => Promise<unknown>;
@@ -31,6 +26,8 @@ export type SampleExperienceProps = {
   /** Called after the session was released, to start a fresh real analysis. */
   onRealAnalysis: () => void;
   onDismiss: () => void;
+  /** Gives the focus to the entry button after the sample ended under the dialog. */
+  onFocusEntry: () => void;
   /** Renders the result browser for one sample result version. */
   children: (resultVersion: string) => ReactNode;
 };
@@ -117,48 +114,36 @@ function ActiveSample({
   );
 }
 
-function SampleStrip({
-  session,
-  busy,
-  ask,
-}: {
-  session: SampleSession;
-  busy: boolean;
-  ask: Ask;
-}) {
+/** The strip: its statement first, then real analysis, then closing the sample. */
+function SampleStrip({ busy, ask }: { busy: boolean; ask: Ask }) {
   const text = useLocaleText();
-  // An unavailable sample offers only retry and real analysis, in its own notice.
-  const actions = session.state !== "unavailable";
   return (
-    <SampleBanner
+    <Band
       label={text("ui.sample.banner_label", "Sample experience")}
-      status={text("ui.sample.banner_status", "Sample experience in progress")}
-      detail={
-        session.bundleVersion
-          ? text("ui.sample.bundle_version", "Sample set version {version}", {
-              version: session.bundleVersion,
-            })
-          : undefined
-      }
+      focusable
+      actions={[
+        <Action
+          key="real"
+          variant="primary"
+          isDisabled={busy}
+          onPress={(event) => ask("real", event.target)}
+        >
+          {text("ui.sample.real_analysis", "Start real analysis")}
+        </Action>,
+        <Action
+          key="close"
+          isDisabled={busy}
+          onPress={(event) => ask("end", event.target)}
+        >
+          {text("ui.sample.close", "Close sample")}
+        </Action>,
+      ]}
     >
-      {actions && (
-        <>
-          <Action
-            isDisabled={busy}
-            onPress={(event) => ask("end", event.target)}
-          >
-            {text("ui.sample.end", "End experience")}
-          </Action>
-          <Action
-            variant="primary"
-            isDisabled={busy}
-            onPress={(event) => ask("real", event.target)}
-          >
-            {text("ui.sample.real_analysis", "Start real analysis")}
-          </Action>
-        </>
+      {text(
+        "ui.sample.banner_statement",
+        "Sample experience · Separate from your files · Changes cannot run",
       )}
-    </SampleBanner>
+    </Band>
   );
 }
 
@@ -173,64 +158,47 @@ function SampleBody({
   ask: Ask;
   children: SampleExperienceProps["children"];
 }) {
-  switch (session.state) {
-    case "preparing":
-    case "resetting":
-      return <SampleProgress resetting={session.state === "resetting"} />;
-    case "unavailable":
-      return (
-        <SampleUnavailable
-          reason={session.unavailableReason}
-          isDisabled={busy}
-          onRetry={(trigger) => ask("reset", trigger)}
-          onRealAnalysis={(trigger) => ask("real", trigger)}
-        />
-      );
-    case "active":
-      return (
-        <ActiveSample session={session} busy={busy} ask={ask}>
-          {children}
-        </ActiveSample>
-      );
-    default:
-      return null;
-  }
+  if (session.state === "active")
+    return (
+      <ActiveSample session={session} busy={busy} ask={ask}>
+        {children}
+      </ActiveSample>
+    );
+  // Only an active session that is prepared again reaches the screen otherwise.
+  return <SampleProgress resetting />;
 }
 
 /**
- * Everything the sample experience shows: the global strip, failure notices
- * and the sample result context. The caller keeps the real analysis hidden
- * while a session is open, so no sample state reaches a real result list.
+ * Everything the sample result screen shows: the global strip, failure
+ * notices and the result context. The caller keeps the real analysis hidden
+ * while the screen is open, so no sample state reaches a real result list.
+ * The state announcer stays mounted throughout, also before and after the
+ * screen, so each state change is spoken once.
  */
 export function SampleExperience(props: SampleExperienceProps) {
-  const { session, pending, problem } = props;
+  const { session, pending, problem, screen } = props;
   const text = useLocaleText();
   const busy = pending !== undefined;
   const { ask, dialog } = useSampleConfirm(async (kind: SampleConfirmKind) => {
     if (kind === "reset") await props.onReset();
     else if ((await props.onClose()) && kind === "real") props.onRealAnalysis();
-  });
+  }, props.onFocusEntry);
   return (
     <>
-      {session && <SampleStrip session={session} busy={busy} ask={ask} />}
-      <SampleProblemNotice problem={problem} onDismiss={props.onDismiss} />
-      {session && (
-        <section
-          className="du-sample"
-          aria-label={text("ui.sample.heading", "Sample data experience")}
-        >
-          <header className="du-sample__header">
-            <Heading level={2}>
-              {text("ui.sample.heading", "Sample data experience")}
-            </Heading>
-            <ExampleBadge>
-              {text("ui.sample.example_badge", "Example")}
-            </ExampleBadge>
-          </header>
-          <SampleBody session={session} busy={busy} ask={ask}>
-            {props.children}
-          </SampleBody>
-        </section>
+      <SampleAnnouncer session={session} reached={props.reached} />
+      {screen && session && (
+        <>
+          <SampleStrip busy={busy} ask={ask} />
+          <SampleProblemNotice problem={problem} onDismiss={props.onDismiss} />
+          <section
+            className="du-sample"
+            aria-label={text("ui.sample.heading", "Sample data experience")}
+          >
+            <SampleBody session={session} busy={busy} ask={ask}>
+              {props.children}
+            </SampleBody>
+          </section>
+        </>
       )}
       {dialog}
     </>

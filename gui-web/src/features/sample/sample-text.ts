@@ -1,7 +1,12 @@
 import type { LocaleText } from "../../i18n/presentation";
 import type { SampleProblem } from "../../state/sample-session";
 
-/** Fallback wording per sample unavailability reason; unknown keys use the generic wording. */
+/**
+ * Fallback wording per sample unavailability reason; unknown keys use the
+ * generic wording. A sample missing from the installation reads as a full
+ * notice of its own; the others complete the sentence "The sample cannot be
+ * opened · ...".
+ */
 export function unavailableText(
   reason: string | undefined,
   text: LocaleText,
@@ -10,27 +15,27 @@ export function unavailableText(
     case "sample.missing":
       return text(
         "ui.sample.reason_missing",
-        "The sample data is missing from this installation.",
+        "This installation does not include sample data. Choose a folder to start analyzing right away.",
       );
     case "sample.format_unsupported":
       return text(
         "ui.sample.reason_format_unsupported",
-        "This version cannot read the sample data format.",
+        "This version cannot read the example data format.",
       );
     case "sample.bundle_invalid":
       return text(
         "ui.sample.reason_bundle_invalid",
-        "The sample data is damaged and cannot be used.",
+        "The example data is damaged and cannot be used.",
       );
     case "sample.load_failed":
       return text(
         "ui.sample.reason_load_failed",
-        "The sample data could not be loaded.",
+        "The example data could not be read.",
       );
     default:
       return text(
         "ui.sample.reason_generic",
-        "The sample experience cannot be used right now.",
+        "The example data cannot be used right now.",
       );
   }
 }

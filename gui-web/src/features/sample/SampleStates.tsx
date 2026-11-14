@@ -1,35 +1,74 @@
-import { Action, Notice, Progress, Text } from "../../components";
+import { Action, Heading, Notice, Progress, Text } from "../../components";
 import { useLocaleText } from "../../i18n/presentation";
 import type { SampleProblem } from "../../state/sample-session";
 import { problemText, unavailableText } from "./sample-text";
 
-/** Progress while the sample is being prepared or reset. */
-export function SampleProgress({ resetting }: { resetting: boolean }) {
+/**
+ * Progress while the sample is being prepared or reset: a title, the number
+ * of example items prepared when it is known, and an indeterminate bar (the
+ * total is not known). The words are not a live region: the sample announcer
+ * reports each state change once.
+ */
+export function SampleProgress({
+  resetting,
+  preparedItems,
+  onCancel,
+  cancelDisabled = false,
+}: {
+  resetting: boolean;
+  /** Example items prepared so far; omitted while it is not known. */
+  preparedItems?: number | undefined;
+  /** Offers "Cancel experience" when the preparation can be cancelled. */
+  onCancel?: () => void;
+  cancelDisabled?: boolean;
+}) {
   const text = useLocaleText();
   const label = resetting
     ? text("ui.sample.resetting", "Resetting the sample experience")
     : text("ui.sample.preparing", "Preparing the sample data");
   return (
-    <div className="du-sample__unavailable">
-      <Text>{label}</Text>
-      <Progress label={label} />
+    <div className="du-sample__progress">
+      <div className="du-sample__progress-body">
+        <Heading level={3}>{label}</Heading>
+        {preparedItems !== undefined && (
+          <Text kind="muted">
+            {text(
+              "ui.sample.prepared_items",
+              preparedItems === 1
+                ? "{count} example item prepared"
+                : "{count} example items prepared",
+              { count: BigInt(preparedItems) },
+            )}
+          </Text>
+        )}
+        <Progress label={label} />
+      </div>
+      {onCancel && (
+        <Action isDisabled={cancelDisabled} onPress={onCancel}>
+          {text("ui.sample.cancel_preparing", "Cancel experience")}
+        </Action>
+      )}
     </div>
   );
 }
 
-/** Explains why the sample cannot be used; the only actions are retry and real analysis. */
+/**
+ * Tells, at the entry button, that the sample cannot be used. A sample that
+ * this installation does not carry is an information notice with no action.
+ * Any other cause is an error notice that says real analysis still works and
+ * offers retry, which asks for no confirmation.
+ */
 export function SampleUnavailable({
   reason,
   isDisabled,
   onRetry,
-  onRealAnalysis,
 }: {
   reason: string | undefined;
   isDisabled: boolean;
-  onRetry: (trigger: Element) => void;
-  onRealAnalysis: (trigger: Element) => void;
+  onRetry: () => void;
 }) {
   const text = useLocaleText();
+  const missing = reason === "sample.missing";
   return (
     <section
       className="du-sample__unavailable"
@@ -38,24 +77,21 @@ export function SampleUnavailable({
         "The sample experience is unavailable",
       )}
     >
-      <Notice tone="error">
-        <Text>{unavailableText(reason, text)}</Text>
+      {/* The sample announcer reports the state, so the notice stays silent. */}
+      <Notice tone={missing ? "info" : "error"} announce={false}>
+        <div className="du-sample__notice-row">
+          <Text>
+            {missing
+              ? unavailableText(reason, text)
+              : `${text("ui.sample.open_failed", "The sample cannot be opened")} · ${unavailableText(reason, text)} ${text("ui.sample.real_still_available", "You can still run a real analysis.")}`}
+          </Text>
+          {!missing && (
+            <Action isDisabled={isDisabled} onPress={onRetry}>
+              {text("ui.sample.retry", "Try again")}
+            </Action>
+          )}
+        </div>
       </Notice>
-      <div className="du-sample__unavailable-actions">
-        <Action
-          isDisabled={isDisabled}
-          onPress={(event) => onRetry(event.target)}
-        >
-          {text("ui.sample.retry", "Try again")}
-        </Action>
-        <Action
-          variant="primary"
-          isDisabled={isDisabled}
-          onPress={(event) => onRealAnalysis(event.target)}
-        >
-          {text("ui.sample.real_analysis", "Start real analysis")}
-        </Action>
-      </div>
     </section>
   );
 }
@@ -74,7 +110,7 @@ export function SampleProblemNotice({
     <Notice tone="error">
       <Text>{problemText(problem, text)}</Text>
       <Action variant="quiet" onPress={onDismiss}>
-        {text("ui.sample.dismiss", "Dismiss")}
+        {text("ui.sample.dismiss", "Dismiss notice")}
       </Action>
     </Notice>
   );

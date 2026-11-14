@@ -15,7 +15,12 @@ export type SampleCommand = "open" | "reset" | "close";
 /** What the user needs to be told about a failed sample command. */
 export type SampleProblem = "busy" | "closed" | "failed";
 
-/** True when a response must carry the sample badge: a missing source counts as a sample. */
+/**
+ * True when a response must carry the sample badge: a missing source counts as
+ * a sample, as the contract rule requires. The engine's browse.detail answer
+ * is expected to fill dataSource every time; whether it does is checked on the
+ * Rust side, and the screen keeps this rule until that is confirmed.
+ */
 export function isSampleSource(source: DataSource | undefined): boolean {
   return source !== "real";
 }
@@ -25,6 +30,23 @@ export function isOpenSample(
   session: SampleSession | undefined,
 ): session is SampleSession {
   return session !== undefined && session.state !== "closed";
+}
+
+/**
+ * True while the sample result screen owns the main area: an active session,
+ * or an active one that is being prepared again after a reset. Before the
+ * first activation, and while the sample is unavailable, the real analysis
+ * screen stays and the sample state is shown at the entry button.
+ */
+export function isSampleScreen(
+  session: SampleSession | undefined,
+  reached: boolean,
+): session is SampleSession {
+  if (session === undefined) return false;
+  if (session.state === "active") return true;
+  return (
+    reached && (session.state === "preparing" || session.state === "resetting")
+  );
 }
 
 /**
@@ -63,6 +85,47 @@ export function readSampleEvent(body: unknown): SampleStateChanged | undefined {
   )
     return undefined;
   return value as SampleStateChanged;
+}
+
+/** Reads the number of items a job.progress body reports, or nothing when it cannot be trusted. */
+export function readItemProgress(
+  body: unknown,
+): { sequence: number; completed: number } | undefined {
+  if (typeof body !== "object" || body === null) return undefined;
+  const value = body as {
+    unit?: unknown;
+    completed?: unknown;
+    sequence?: unknown;
+  };
+  if (
+    value.unit !== "items" ||
+    typeof value.completed !== "number" ||
+    !Number.isSafeInteger(value.completed) ||
+    typeof value.sequence !== "number" ||
+    !Number.isSafeInteger(value.sequence)
+  )
+    return undefined;
+  return { sequence: value.sequence, completed: value.completed };
+}
+
+type Prepared = { jobRef: string; sequence: number; completed: number };
+
+/**
+ * Follows the item count of the sample's loading job. A progress event counts
+ * only for the job the last state event named, and only when it is newer than
+ * the count held.
+ */
+export function followPrepared(
+  held: Prepared | undefined,
+  loadingJob: string | undefined,
+  event: EventEnvelope,
+): Prepared | undefined {
+  const progress = readItemProgress(event.body);
+  if (!progress || event.jobRef === undefined || event.jobRef !== loadingJob)
+    return held;
+  if (held?.jobRef === loadingJob && held.sequence >= progress.sequence)
+    return held;
+  return { jobRef: loadingJob, ...progress };
 }
 
 function sessionState(
@@ -115,7 +178,10 @@ export function useSampleSession(client: AnalysisClient | undefined) {
   const [session, setSession] = useState<SampleSession>();
   const [pending, setPending] = useState<SampleCommand>();
   const [problem, setProblem] = useState<SampleProblem>();
+  const [reachedRef, setReachedRef] = useState<string>();
+  const [prepared, setPrepared] = useState<Prepared>();
   const held = useRef<SampleSession>(undefined);
+  const loadingJob = useRef<string>(undefined);
   const busy = useRef(false);
   const read = useRef(0);
   const sawEvent = useRef(false);
@@ -123,6 +189,12 @@ export function useSampleSession(client: AnalysisClient | undefined) {
   const store = useCallback((next: SampleSession | undefined) => {
     held.current = next;
     setSession(next);
+    // The screen is reached by the first activation and lost by a failure or a release.
+    if (next?.state === "active") setReachedRef(next.sessionRef);
+    else if (next === undefined || next.state === "unavailable")
+      setReachedRef(undefined);
+    if (next?.state !== "preparing" && next?.state !== "resetting")
+      setPrepared(undefined);
   }, []);
 
   const accept = useCallback(
@@ -177,8 +249,15 @@ export function useSampleSession(client: AnalysisClient | undefined) {
         void refresh();
         return;
       }
+      if (event.topic === "job.progress") {
+        setPrepared((before) =>
+          followPrepared(before, loadingJob.current, event),
+        );
+        return;
+      }
       if (event.topic !== "sample.state_changed") return;
       const body = readSampleEvent(event.body);
+      if (body?.jobRef !== undefined) loadingJob.current = body.jobRef;
       if (!held.current) {
         sawEvent.current = true;
         return;
@@ -276,8 +355,21 @@ export function useSampleSession(client: AnalysisClient | undefined) {
 
   const dismiss = useCallback(() => setProblem(undefined), []);
 
+  const reached = session !== undefined && session.sessionRef === reachedRef;
   return useMemo(
-    () => ({ session, pending, problem, open, reset, close, dismiss }),
-    [session, pending, problem, open, reset, close, dismiss],
+    () => ({
+      session,
+      /** True once the held session has been active and has not failed since. */
+      reached,
+      /** Example items prepared so far while the sample loads; unknown when the host sends no count. */
+      preparedItems: prepared?.completed,
+      pending,
+      problem,
+      open,
+      reset,
+      close,
+      dismiss,
+    }),
+    [session, reached, prepared, pending, problem, open, reset, close, dismiss],
   );
 }
