@@ -2,7 +2,7 @@
 use crate::display_path::windows;
 
 /// Restores the extended form of a plain drive or UNC path.
-fn extended(plain: &str) -> String {
+pub(super) fn extended(plain: &str) -> String {
     match plain.strip_prefix(r"\\") {
         Some(network) => format!(r"\\?\UNC\{network}"),
         None => format!(r"\\?\{plain}"),
@@ -136,6 +136,31 @@ fn one_trailing_separator_is_allowed() {
     shown(r"\\?\C:\", r"C:\");
     shown(r"\\?\C:\a\", r"C:\a\");
     shown(r"\\?\UNC\server\share\", r"\\server\share\");
+}
+
+/// Win32 file functions look up the `UNC` marker without regard to case, so
+/// every spelling follows the same checks and shows the same plain form.
+#[test]
+fn the_unc_marker_follows_the_same_rules_in_any_case() {
+    let long = format!(r"server\share\{}", "b".repeat(250));
+    for marker in ["unc", "Unc", "uNC"] {
+        let input = |rest: &str| format!(r"\\?\{marker}\{rest}");
+        assert_eq!(windows(&input(r"server\share\x")), r"\\server\share\x");
+        assert_eq!(windows(&input(r"server\share\")), r"\\server\share\");
+        for rest in [
+            r"server",
+            r"server\",
+            r"\share",
+            r"server\share\trailing.",
+            r"server\NUL",
+            r"CON\share",
+            r"server\share\a\..\b",
+            &long,
+        ] {
+            kept(&input(rest));
+        }
+    }
+    kept(r"\\?\uncserver\share");
 }
 
 #[test]

@@ -232,7 +232,8 @@ fn run_native_scan_measurement(
         if body["state"] != "done" {
             return Err("scan did not finish successfully".into());
         }
-        if body["completed"].as_u64() != Some((directories * (files_per_directory + 1)) as u64)
+        // Every directory, every file and the scope root are completed.
+        if body["completed"].as_u64() != Some((directories * (files_per_directory + 1) + 1) as u64)
             || ["failed", "skipped", "unprocessed"]
                 .iter()
                 .any(|key| body[*key].as_u64() != Some(0))

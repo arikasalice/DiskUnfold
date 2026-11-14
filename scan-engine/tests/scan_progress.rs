@@ -120,7 +120,8 @@ fn recorded_and_failed_items_are_reported_with_an_unknown_total()
         2,
         &|_| true,
     );
-    assert_eq!((outcome.counts.completed, outcome.counts.failed), (3, 1));
+    // Three readable files and the root are completed; one file failed.
+    assert_eq!((outcome.counts.completed, outcome.counts.failed), (4, 1));
     let reports = context.0.lock().map_err(|_| "reports")?.clone();
     assert!(reports.iter().all(|report| report.total.is_none()));
     assert!(
@@ -128,6 +129,6 @@ fn recorded_and_failed_items_are_reported_with_an_unknown_total()
             .windows(2)
             .all(|pair| pair[0].completed <= pair[1].completed)
     );
-    assert_eq!(reports.last().map(|report| report.completed), Some(4));
+    assert_eq!(reports.last().map(|report| report.completed), Some(5));
     Ok(())
 }

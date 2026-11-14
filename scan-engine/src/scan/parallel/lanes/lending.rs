@@ -13,8 +13,29 @@
 //! to its own lane, under the same conditions, once the lane it serves queues
 //! no marked work and its own lane has claimable work and room. Without a
 //! marked area, or without queued marked work, no worker moves this way.
+//!
+//! A move sends no wake of its own, although it frees a worker seat in the
+//! lane it leaves and may return stack items to that lane's queue. A waiting
+//! worker can therefore miss that seat for a short time. The delay is bounded:
+//! a move happens only when another worker stays in the lane it leaves
+//! (`members > 1`), the end of that worker's directory wakes every waiting
+//! worker, and a waiting worker checks again every 25 ms at the latest.
 use super::{Lanes, NORMAL, Taken};
 use crate::scan::parallel::Queue;
+
+/// Lane moves made by `lend_or_return`, counted for tests only.
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(in crate::scan::parallel) struct Moves {
+    /// Moves that leave the worker lent to the marked area's lane.
+    pub(in crate::scan::parallel) lent: usize,
+    /// Moves back to the worker's own lane.
+    pub(in crate::scan::parallel) returned: usize,
+    /// Stack items the moving workers returned to the lane they left.
+    pub(in crate::scan::parallel) drained: usize,
+    /// Workers of the marked area's lane that found nothing to claim there.
+    pub(in crate::scan::parallel) emptied: usize,
+}
 
 impl Lanes {
     /// The lane of the area root `root` while its lane queue holds marked work.
@@ -61,10 +82,21 @@ impl Lanes {
         if !self.can_leave(seat, lane) {
             return lane;
         }
+        #[cfg(test)]
+        let drained = self.seats[seat].stack.len();
         // Leaving returns the stack to this lane's queue; it fits (see above).
         self.leave(seat);
         self.join(seat, to);
         self.seats[seat].home = home.filter(|&home| home != to);
+        #[cfg(test)]
+        {
+            if self.seats[seat].home.is_some() {
+                self.moves.lent += 1;
+            } else {
+                self.moves.returned += 1;
+            }
+            self.moves.drained += drained;
+        }
         to
     }
 }
@@ -87,6 +119,10 @@ impl Queue {
             let lane = self.lanes.lend_or_return(seat, lane, marked);
             if let Some(taken) = self.lanes.claim_in(seat, lane) {
                 return Some(taken);
+            }
+            #[cfg(test)]
+            if root.and_then(|root| self.lanes.lane_of(root)) == Some(lane) {
+                self.lanes.moves.emptied += 1;
             }
             self.lanes.leave(seat);
         }
