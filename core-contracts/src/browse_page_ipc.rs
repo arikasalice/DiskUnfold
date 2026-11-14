@@ -59,6 +59,7 @@ pub struct FolderFlags {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct FolderQueryRow {
     pub item: ItemRef,
+    /// Human-readable display text; never reopen or compare a path from it.
     pub display_name: BrowseValue<String>,
     pub kind: ResultItemKind,
     pub logical_size: BrowseValue<SizeValue>,
@@ -75,7 +76,9 @@ pub struct FolderQueryRow {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SearchQueryRow {
     pub item: ItemRef,
+    /// Human-readable display text; never reopen or compare a path from it.
     pub display_name: BrowseValue<String>,
+    /// Human-readable display text; never reopen or compare a path from it.
     pub display_path: BrowseValue<String>,
     pub kind: ResultItemKind,
     pub logical_size: BrowseValue<SizeValue>,
@@ -166,6 +169,7 @@ pub enum QueryPageResponse {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct BrowseBreadcrumb {
     pub item: ItemRef,
+    /// Human-readable display text; never reopen or compare a path from it.
     pub display_name: BrowseValue<String>,
 }
 /// The opened location's relationship to its scope.
