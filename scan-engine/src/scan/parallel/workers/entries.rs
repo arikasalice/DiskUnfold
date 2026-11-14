@@ -1,5 +1,9 @@
-//! Directory admission and child scheduling for an observed entry.
+//! Directory admission, child scheduling and opening of assigned children.
+//!
+//! An admitted child is queued with a shared reference to this directory's
+//! handle and is opened relative to it only when a worker claims it.
 use super::*;
+use crate::scan::parallel::frame::OpenFailure;
 
 #[derive(Clone, Copy)]
 struct ChildReservation {
@@ -47,15 +51,11 @@ pub(super) fn process_entry(
         frame.deferred.push_back(timed);
         return Ok(None);
     }
-    open_and_schedule(
-        frame,
-        entry,
-        path,
-        reservation.registered,
-        shared,
-        sender,
-        context,
-    )
+    let Some(parent) = frame.directory.anchor().cloned() else {
+        return Err(());
+    };
+    let child = Frame::child(frame.root_index, path, parent, timed.entry);
+    Ok(schedule(shared, context, child, reservation.registered))
 }
 
 fn reserve_child(
@@ -104,51 +104,34 @@ fn continue_child(
     Ok(false)
 }
 
-fn open_and_schedule(
-    frame: &Frame,
-    entry: &ObservedEntry,
-    path: Vec<Vec<u8>>,
-    registered: bool,
+/// Opens a claimed child relative to its parent handle.
+///
+/// Returns `None` when the child is open and processing continues in this
+/// turn. A rejected open is recorded as an open-stage failure of the child and
+/// completes its outstanding work; `Some(false)` stops the worker.
+pub(super) fn open_pending(
+    frame: &mut Frame,
     shared: &Shared,
     sender: &SyncSender<Event>,
     context: &dyn JobContext,
-) -> Result<Option<Frame>, ()> {
-    match frame.directory.open_child(entry) {
-        Ok(directory) => Ok(schedule(
-            shared,
-            context,
-            Frame {
-                root_index: frame.root_index,
-                path,
-                directory,
-                entries: VecDeque::new(),
-                deferred: VecDeque::new(),
-                root: false,
-                first_batch: false,
-                root_published: false,
-                batch_pending: false,
-                case_observed: false,
-                boundary: Boundary::child(entry),
-            },
-            registered,
-        )),
-        Err(error) => {
-            if registered && !release_path(shared, frame.root_index, &path, context) {
-                return Err(());
-            }
-            let reason = reason(&error);
-            shared.disconnects.observe_reason(frame.root_index, reason);
-            sender
-                .send(Event::Failure {
-                    root_index: frame.root_index,
-                    path,
-                    root: false,
-                    reason,
-                    stage: du_core_contracts::scan_failures::ScanFailureStage::OpenDirectory,
-                    observed_at: context.utc_now(),
-                })
-                .map_err(|_| ())?;
-            Ok(None)
-        }
-    }
+) -> Option<bool> {
+    let error = match frame.directory.open() {
+        Ok(()) => return None,
+        Err(OpenFailure::Unavailable) => return Some(false),
+        Err(OpenFailure::Port(error)) => error,
+    };
+    let reason = reason(&error);
+    shared.disconnects.observe_reason(frame.root_index, reason);
+    let sent = sender
+        .send(Event::Failure {
+            root_index: frame.root_index,
+            path: frame.path.clone(),
+            root: false,
+            reason,
+            stage: du_core_contracts::scan_failures::ScanFailureStage::OpenDirectory,
+            observed_at: context.utc_now(),
+        })
+        .is_ok();
+    complete(shared, frame.root_index, &frame.path, context);
+    Some(sent)
 }

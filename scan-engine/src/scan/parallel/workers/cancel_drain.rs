@@ -32,9 +32,12 @@ pub(super) fn frame(
 }
 
 /// Owns frames outside the queue lock before sending to the bounded publisher.
+///
+/// Any held item may be drained here, including items of other lanes or on
+/// other workers' stacks: draining opens and reads nothing.
 pub(super) fn drain(
     shared: &Shared,
-    local: &mut Vec<Frame>,
+    seat: usize,
     sender: &SyncSender<Event>,
     context: &dyn JobContext,
     policy: Policy<'_>,
@@ -43,16 +46,12 @@ pub(super) fn drain(
         if shared.abort.load(Ordering::Acquire) {
             return false;
         }
-        let next = if let Some(frame) = local.pop() {
-            Some(frame)
-        } else {
-            match shared.queue.lock() {
-                Ok(mut queue) => queue.ready.pop_front(),
-                Err(error) => {
-                    drop(error.into_inner());
-                    shared.abort(context);
-                    return false;
-                }
+        let next = match shared.queue.lock() {
+            Ok(mut queue) => queue.lanes.take_any(seat),
+            Err(error) => {
+                drop(error.into_inner());
+                shared.abort(context);
+                return false;
             }
         };
         match next {
@@ -119,7 +118,7 @@ mod tests {
         let pending = Frame {
             root_index: 0,
             path: Vec::new(),
-            directory: Box::new(Empty),
+            directory: Directory::opened(Box::new(Empty)),
             entries: VecDeque::from([entry(b"first"), entry(b"second")]),
             deferred: VecDeque::new(),
             root: true,
@@ -129,41 +128,29 @@ mod tests {
             case_observed: false,
             boundary: Boundary::Unknown,
         };
-        let shared = Shared {
-            queue: Arc::new(Mutex::new(Queue {
-                ready: VecDeque::new(),
-                ready_high_water: Some(0),
-                last_root: None,
-                priority: None,
-                outstanding: None,
-                remaining: 1,
-                root_remaining: vec![1],
-                root_groups: vec![0],
-                active_groups: vec![0],
-                device_limit: 1,
-                started: true,
-            })),
-            wake: Arc::new(Condvar::new()),
-            abort: AtomicBool::new(false),
-            disconnects: disconnect::Disconnects::new(1, &[]),
-            track_priority_paths: false,
-            visited: Default::default(),
-        };
+        let shared = single_root();
+        let seat = member(&shared)?;
         let context = Flip(std::sync::atomic::AtomicUsize::new(0));
         let (sender, receiver) = mpsc::sync_channel(4);
-        let mut local = Vec::new();
         let include = |_: &[Vec<u8>]| true;
+        let mut turn = Turn {
+            shared: &shared,
+            seat,
+            lane: 0,
+            reserved: false,
+        };
         assert!(super::super::process(
             pending,
             &shared,
             &sender,
             &context,
             Policy::Legacy(&include),
-            &mut local
+            &mut turn
         ));
+        drop(turn);
         assert!(drain(
             &shared,
-            &mut local,
+            seat,
             &sender,
             &context,
             Policy::Legacy(&include)
@@ -176,6 +163,21 @@ mod tests {
             2
         );
         Ok(())
+    }
+
+    fn single_root() -> Shared {
+        let mut queue = Queue::for_test(vec![0], 1);
+        queue.remaining = 1;
+        queue.root_remaining = vec![1];
+        Shared::for_test(queue, false)
+    }
+
+    /// Registers a worker seat that is a member of lane 0.
+    fn member(shared: &Shared) -> Result<usize, String> {
+        let mut queue = shared.queue.lock().map_err(|_| "queue lock")?;
+        let seat = queue.lanes.register_seat();
+        queue.lanes.join(seat, 0);
+        Ok(seat)
     }
 
     #[test]
@@ -194,7 +196,7 @@ mod tests {
         let pending = Frame {
             root_index: 0,
             path: Vec::new(),
-            directory: Box::new(Empty),
+            directory: Directory::opened(Box::new(Empty)),
             entries: VecDeque::new(),
             deferred: VecDeque::from([entry]),
             root: true,
@@ -235,7 +237,7 @@ mod tests {
         let item = Frame {
             root_index: 0,
             path: Vec::new(),
-            directory: Box::new(Empty),
+            directory: Directory::opened(Box::new(Empty)),
             entries: VecDeque::from([entry]),
             deferred: VecDeque::new(),
             root: true,
@@ -335,7 +337,7 @@ mod tests {
         let pending = Frame {
             root_index: 0,
             path: Vec::new(),
-            directory: Box::new(Empty),
+            directory: Directory::opened(Box::new(Empty)),
             entries: VecDeque::from([observed]),
             deferred: VecDeque::new(),
             root: true,
@@ -348,25 +350,10 @@ mod tests {
         let (entered, started) = mpsc::channel();
         let (finished, done) = mpsc::channel();
         let worker = std::thread::spawn(move || {
-            let shared = Shared {
-                queue: Arc::new(Mutex::new(Queue {
-                    ready: VecDeque::new(),
-                    ready_high_water: None,
-                    last_root: None,
-                    priority: None,
-                    outstanding: None,
-                    remaining: 1,
-                    root_remaining: vec![1],
-                    root_groups: vec![0],
-                    active_groups: vec![0],
-                    device_limit: 1,
-                    started: true,
-                })),
-                wake: Arc::new(Condvar::new()),
-                abort: AtomicBool::new(false),
-                disconnects: disconnect::Disconnects::new(1, &[]),
-                track_priority_paths: false,
-                visited: Default::default(),
+            let shared = single_root();
+            let Ok(seat) = member(&shared) else {
+                let _ = finished.send(false);
+                return;
             };
             let cancelled = Flip(std::sync::atomic::AtomicUsize::new(1));
             let _ = entered.send(());
@@ -376,7 +363,12 @@ mod tests {
                 &sender,
                 &cancelled,
                 Policy::Legacy(&|_| true),
-                &mut Vec::new(),
+                &mut Turn {
+                    shared: &shared,
+                    seat,
+                    lane: 0,
+                    reserved: false,
+                },
             );
             let _ = finished.send(result);
         });

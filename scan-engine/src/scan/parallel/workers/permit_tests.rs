@@ -18,64 +18,38 @@ impl AnchoredDirectory for Empty {
         })
     }
 }
+
+fn root_frame() -> Frame {
+    Frame::root(0, Box::new(Empty))
+}
+
 #[test]
-fn permit_is_released_during_panic_unwind() {
-    let frame = Frame {
-        root_index: 0,
-        path: Vec::new(),
-        directory: Box::new(Empty),
-        entries: VecDeque::new(),
-        deferred: VecDeque::new(),
-        root: true,
-        first_batch: false,
-        root_published: false,
-        batch_pending: false,
-        case_observed: false,
-        boundary: Boundary::Unknown,
-    };
-    let shared = Shared {
-        queue: Arc::new(Mutex::new(Queue {
-            ready: VecDeque::from([frame]),
-            ready_high_water: Some(1),
-            last_root: None,
-            priority: None,
-            outstanding: None,
-            remaining: 1,
-            root_remaining: vec![1],
-            root_groups: vec![0],
-            active_groups: vec![0],
-            device_limit: 1,
-            started: true,
-        })),
-        wake: Arc::new(Condvar::new()),
-        abort: AtomicBool::new(false),
-        disconnects: disconnect::Disconnects::new(1, &[]),
-        track_priority_paths: false,
-        visited: Default::default(),
-    };
+fn reserved_slot_and_seat_are_released_during_panic_unwind() {
+    let mut queue = Queue::for_test(vec![0], 1);
+    queue.remaining = 1;
+    queue.root_remaining = vec![1];
+    assert!(queue.push_root(root_frame()));
+    let shared = Shared::for_test(queue, false);
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let seat = SeatGuard::register(&shared);
+        let index = seat.as_ref().map_or(usize::MAX, |seat| seat.index);
         let mut queue = shared
             .queue
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let claim = dispatch::claim_ready(&shared, &mut queue);
+        let claim = dispatch::claim(&shared, &mut queue, index);
         drop(queue);
         let _claim = claim;
-        assert!(
-            shared
-                .queue
-                .lock()
-                .is_ok_and(|queue| queue.active_groups[0] == 1)
-        );
+        let _seat = seat;
+        assert!(shared.queue.lock().is_ok_and(|queue| {
+            queue.lanes.lanes[0].members == 1 && queue.lanes.lanes[0].reserved() == 1
+        }));
         std::panic::resume_unwind(Box::new("injected panic"));
     }));
     assert!(result.is_err());
-    assert!(
-        shared
-            .queue
-            .lock()
-            .is_ok_and(|queue| queue.active_groups[0] == 0)
-    );
+    assert!(shared.queue.lock().is_ok_and(|queue| {
+        queue.lanes.lanes[0].members == 0 && queue.lanes.lanes[0].reserved() == 0
+    }));
 }
 
 #[test]
@@ -89,68 +63,44 @@ fn ready_peak_tracks_simultaneous_frames_and_overflow() -> Result<(), Box<dyn st
             Err(JobFlowError::Closed)
         }
     }
-    let frame = || Frame {
-        root_index: 0,
-        path: Vec::new(),
-        directory: Box::new(Empty),
-        entries: VecDeque::new(),
-        deferred: VecDeque::new(),
-        root: true,
-        first_batch: false,
-        root_published: false,
-        batch_pending: false,
-        case_observed: false,
-        boundary: Boundary::Unknown,
-    };
-    let shared = Shared {
-        queue: Arc::new(Mutex::new(Queue {
-            ready: VecDeque::new(),
-            ready_high_water: Some(0),
-            last_root: None,
-            priority: None,
-            outstanding: None,
-            remaining: 0,
-            root_remaining: vec![0],
-            root_groups: vec![0],
-            active_groups: vec![0],
-            device_limit: 1,
-            started: true,
-        })),
-        wake: Arc::new(Condvar::new()),
-        abort: AtomicBool::new(false),
-        disconnects: disconnect::Disconnects::new(1, &[]),
-        track_priority_paths: false,
-        visited: Default::default(),
-    };
+    let shared = Shared::for_test(Queue::for_test(vec![0], 1), false);
     for _ in 0..QUEUED_DIRECTORIES {
-        assert!(schedule(&shared, &Context, frame(), false).is_none());
+        assert!(schedule(&shared, &Context, root_frame(), false).is_none());
     }
-    let mut local = vec![schedule(&shared, &Context, frame(), false).ok_or("overflow frame")?];
-    let mut queue = shared
-        .queue
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    assert_eq!(queue.ready_high_water, Some(QUEUED_DIRECTORIES));
-    assert!(queue.pop_fair().is_some());
-    queue.active_groups[0] -= 1;
-    assert_eq!(queue.ready.len(), QUEUED_DIRECTORIES - 1);
-    queue.push_ready(frame());
-    assert_eq!(queue.ready_high_water, Some(QUEUED_DIRECTORIES));
-    drop(queue);
+    let overflow = schedule(&shared, &Context, root_frame(), false).ok_or("overflow frame")?;
+    let seat = {
+        let mut queue = shared.queue.lock().map_err(|_| "queue lock")?;
+        assert_eq!(queue.lanes.peak(), Some(QUEUED_DIRECTORIES));
+        let seat = queue.lanes.register_seat();
+        let claim = dispatch::claim(&shared, &mut queue, seat).ok_or("claim")?;
+        assert_eq!(queue.lanes.queued(), QUEUED_DIRECTORIES - 1);
+        // The claimed slot stays reserved: new work does not fit.
+        let overflow = queue.offer(0, overflow).ok_or("reserved slot was reused")?;
+        queue.stack(seat, 0, overflow);
+        let Claim { frame, mut turn } = claim;
+        let reserved = std::mem::take(&mut turn.reserved);
+        queue.requeue(seat, 0, reserved, frame);
+        drop(queue);
+        drop(turn);
+        seat
+    };
+    {
+        let queue = shared.queue.lock().map_err(|_| "queue lock")?;
+        assert_eq!(queue.lanes.queued(), QUEUED_DIRECTORIES);
+        assert_eq!(queue.lanes.stacked(0), 1);
+        assert_eq!(queue.lanes.peak(), Some(QUEUED_DIRECTORIES));
+    }
     let (sender, _receiver) = std::sync::mpsc::sync_channel(1);
     assert!(super::cancel_drain::drain(
         &shared,
-        &mut local,
+        seat,
         &sender,
         &Context,
         Policy::Legacy(&|_| true)
     ));
-    let queue = shared
-        .queue
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    assert!(queue.ready.is_empty());
-    assert_eq!(queue.ready_high_water, Some(QUEUED_DIRECTORIES));
-    drop(queue);
+    let queue = shared.queue.lock().map_err(|_| "queue lock")?;
+    assert_eq!(queue.lanes.queued(), 0);
+    assert_eq!(queue.lanes.stacked(0), 0);
+    assert_eq!(queue.lanes.peak(), Some(QUEUED_DIRECTORIES));
     Ok(())
 }

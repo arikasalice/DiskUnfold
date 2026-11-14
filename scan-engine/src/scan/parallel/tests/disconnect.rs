@@ -197,42 +197,18 @@ fn a_batch_already_in_flight_is_drained_after_another_root_disconnects()
             opens: Arc::new(AtomicUsize::new(0)),
         }),
     ];
-    let shared = Shared {
-        queue: Arc::new(Mutex::new(Queue {
-            ready_high_water: Some(2),
-            ready: roots
-                .into_iter()
-                .enumerate()
-                .map(|(root, directory)| Frame {
-                    root_index: root as u32,
-                    path: Vec::new(),
-                    directory,
-                    entries: VecDeque::new(),
-                    deferred: VecDeque::new(),
-                    root: true,
-                    first_batch: false,
-                    root_published: false,
-                    batch_pending: false,
-                    case_observed: false,
-                    boundary: Boundary::Pending,
-                })
-                .collect(),
-            last_root: None,
-            priority: None,
-            outstanding: None,
-            remaining: 2,
-            root_remaining: vec![1; 2],
-            root_groups: vec![0; 2],
-            active_groups: vec![0; 2],
-            device_limit: 2,
-            started: true,
-        })),
-        wake: Arc::new(Condvar::new()),
-        abort: AtomicBool::new(false),
-        disconnects: super::super::disconnect::Disconnects::new(2, &[vec![1], vec![1]]),
-        track_priority_paths: false,
-        visited: Default::default(),
-    };
+    let shared = super::super::scheduler::create(
+        roots,
+        DevicePlan {
+            groups: vec![0; 2],
+            limit: 2,
+        },
+        None,
+        super::super::disconnect::Disconnects::new(2, &[vec![1], vec![1]]),
+        None,
+    )
+    .map_err(|error| format!("{error:?}"))?;
+    shared.queue.lock().map_err(|_| "queue lock")?.started = true;
     let context = Context {
         completed: Arc::new(AtomicUsize::new(0)),
         abandoned: Arc::new(AtomicUsize::new(0)),

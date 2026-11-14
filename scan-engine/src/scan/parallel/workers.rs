@@ -1,18 +1,20 @@
-//! Worker scheduling and bounded per-root directory processing.
+//! Worker turns over lane work and bounded per-directory processing.
 //!
-//! Each worker parks outside queue locks and device permits after transferring
-//! an item or returned batch into owned state. An in-flight adapter call is
-//! allowed to return first; a pause request is not itself a completed pause.
-//! Internal abort wakes parked flows without setting the user cancellation flag.
+//! Each worker parks outside the scheduler lock after transferring an item or
+//! returned batch into owned state. An in-flight adapter call is allowed to
+//! return first; a pause request is not itself a completed pause. Internal
+//! abort wakes parked flows without setting the user cancellation flag.
 use super::*;
 mod cancel_drain;
 mod disconnected;
 mod dispatch;
 mod entries;
+mod handoff;
 #[cfg(test)]
 mod priority_dispatch_tests;
 mod read_batch;
-use entries::process_entry;
+use entries::{open_pending, process_entry};
+use handoff::{complete, register_path, release_path, requeue, schedule};
 use read_batch::{ReadFailure, next_entries};
 
 pub(super) fn worker(
@@ -22,10 +24,15 @@ pub(super) fn worker(
     policy: Policy<'_>,
     flow: Box<dyn JobFlow>,
 ) {
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        worker_loop(shared, &sender, context, policy, &*flow)
-    }));
-    if !matches!(result, Ok(true)) {
+    if let Some(seat) = SeatGuard::register(shared) {
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            worker_loop(shared, seat.index, &sender, context, policy, &*flow)
+        }));
+        drop(seat);
+        if !matches!(result, Ok(true)) {
+            shared.abort(context);
+        }
+    } else {
         shared.abort(context);
     }
     flow.finish(JobCounts::default());
@@ -33,54 +40,81 @@ pub(super) fn worker(
 
 fn worker_loop(
     shared: &Shared,
+    seat: usize,
     sender: &SyncSender<Event>,
     context: &dyn JobContext,
     policy: Policy<'_>,
     flow: &dyn JobFlow,
 ) -> bool {
-    let mut local = Vec::new();
-    let mut prefer_shared = true;
     while context.checkpoint() != Checkpoint::Cancel && !shared.abort.load(Ordering::Acquire) {
         if flow.safe_point() == Checkpoint::Cancel {
             break;
         }
-        let claim = dispatch::take(shared, context, &mut local, prefer_shared, flow);
-        prefer_shared = !prefer_shared;
-        let Some(Claim {
-            frame,
-            permit: _permit,
-        }) = claim
-        else {
+        let Some(Claim { frame, mut turn }) = dispatch::take(shared, context, seat, flow) else {
             break;
         };
-        if !process(frame, shared, sender, context, policy, &mut local) {
+        if !process(frame, shared, sender, context, policy, &mut turn) {
             return false;
         }
     }
     if context.checkpoint() == Checkpoint::Cancel && !shared.abort.load(Ordering::Acquire) {
-        return cancel_drain::drain(shared, &mut local, sender, context, policy);
+        return cancel_drain::drain(shared, seat, sender, context, policy);
     }
     true
 }
 
-struct Permit<'a> {
+/// A worker's seat; dropping it leaves the lane, also during unwinding.
+struct SeatGuard<'a> {
     shared: &'a Shared,
-    group: usize,
+    index: usize,
 }
-impl Drop for Permit<'_> {
+
+impl<'a> SeatGuard<'a> {
+    fn register(shared: &'a Shared) -> Option<Self> {
+        let index = shared.queue.lock().ok()?.lanes.register_seat();
+        Some(Self { shared, index })
+    }
+}
+
+impl Drop for SeatGuard<'_> {
     fn drop(&mut self) {
         let mut queue = self
             .shared
             .queue
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        queue.active_groups[self.group] -= 1;
+        queue.lanes.release_seat(self.index);
         self.shared.wake.notify_all();
     }
 }
+
+/// One claimed item's lane, seat and reserved lane-queue slot.
+///
+/// The slot of an item claimed from the lane queue is released when the turn
+/// ends without returning the item, also during unwinding.
+struct Turn<'a> {
+    shared: &'a Shared,
+    seat: usize,
+    lane: usize,
+    reserved: bool,
+}
+
+impl Drop for Turn<'_> {
+    fn drop(&mut self) {
+        if self.reserved {
+            let mut queue = self
+                .shared
+                .queue
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            queue.lanes.release_reservation(self.lane);
+        }
+    }
+}
+
 struct Claim<'a> {
     frame: Frame,
-    permit: Permit<'a>,
+    turn: Turn<'a>,
 }
 
 fn process(
@@ -89,7 +123,7 @@ fn process(
     sender: &SyncSender<Event>,
     context: &dyn JobContext,
     policy: Policy<'_>,
-    local: &mut Vec<Frame>,
+    turn: &mut Turn<'_>,
 ) -> bool {
     if shared.abort.load(Ordering::Acquire) {
         return true;
@@ -100,9 +134,14 @@ fn process(
     if context.checkpoint() == Checkpoint::Cancel {
         return cancel_drain::frame(frame, &shared.visited, sender, policy);
     }
+    if frame.directory.is_pending()
+        && let Some(finished) = open_pending(&mut frame, shared, sender, context)
+    {
+        return finished;
+    }
     match observe_once(&mut frame, shared, sender, context) {
         Observed::Ready => {}
-        Observed::SendFailed => return false,
+        Observed::Failed => return false,
         Observed::Cancelled => return cancel_drain::frame(frame, &shared.visited, sender, policy),
         Observed::Disconnected => {
             return disconnected::close_frame(frame, shared, sender, context, policy);
@@ -115,25 +154,20 @@ fn process(
         frame.entries.pop_front()
     };
     if let Some(entry) = next {
-        match process_entry(&mut frame, entry, recorded, shared, sender, context, policy) {
-            Ok(Some(child)) => {
-                local.push(frame);
-                local.push(child);
-                return true;
+        return match process_entry(&mut frame, entry, recorded, shared, sender, context, policy) {
+            Ok(child) => {
+                requeue(shared, turn, frame, child, context);
+                true
             }
-            Ok(None) => {
-                requeue(shared, frame, local, context);
-                return true;
-            }
-            Err(()) => return false,
-        }
+            Err(()) => false,
+        };
     }
     if !publish_first_batch(&mut frame, sender, shared, context) {
         return false;
     }
     if frame.batch_pending {
         frame.batch_pending = false;
-        requeue(shared, frame, local, context);
+        requeue(shared, turn, frame, None, context);
         return true;
     }
     if context.checkpoint() == Checkpoint::Cancel {
@@ -143,16 +177,16 @@ fn process(
         return disconnected::close_frame(frame, shared, sender, context, policy);
     }
     let mut undecided = Vec::new();
-    let outcome = next_entries(&mut frame, context, policy, &mut undecided);
+    let outcome = next_entries(&frame, context, policy, &mut undecided);
     if !send_undecided(&frame, undecided, sender) {
         return false;
     }
-    process_batch(frame, shared, sender, context, local, outcome)
+    process_batch(frame, shared, sender, context, turn, outcome)
 }
 
 enum Observed {
     Ready,
-    SendFailed,
+    Failed,
     Cancelled,
     Disconnected,
 }
@@ -160,7 +194,7 @@ enum Observed {
 /// Observes per-directory facts once, before the first enumeration.
 ///
 /// A root first reports its own identity so that the admission table can
-/// compare child volumes with it. Both calls run under the claimed permit.
+/// compare child volumes with it. Both calls run in the claiming worker's turn.
 fn observe_once(
     frame: &mut Frame,
     shared: &Shared,
@@ -168,7 +202,13 @@ fn observe_once(
     context: &dyn JobContext,
 ) -> Observed {
     if frame.boundary == Boundary::Pending {
-        frame.boundary = shared.visited.observe_root(&*frame.directory);
+        match frame
+            .directory
+            .with(|directory| shared.visited.observe_root(directory))
+        {
+            Some(boundary) => frame.boundary = boundary,
+            None => return Observed::Failed,
+        }
     }
     if frame.case_observed {
         return Observed::Ready;
@@ -176,13 +216,16 @@ fn observe_once(
     frame.case_observed = true;
     let Some(evidence) = frame
         .directory
-        .observe_directory_case(&|| context.utc_now())
+        .with(|directory| directory.observe_directory_case(&|| context.utc_now()))
     else {
+        return Observed::Failed;
+    };
+    let Some(evidence) = evidence else {
         return Observed::Ready;
     };
     let event = Event::DirectoryCase(frame.root_index, frame.path.clone(), evidence);
     if sender.send(event).is_err() {
-        Observed::SendFailed
+        Observed::Failed
     } else if context.checkpoint() == Checkpoint::Cancel {
         Observed::Cancelled
     } else if shared.disconnects.closed(frame.root_index) {
@@ -208,15 +251,16 @@ fn process_batch(
     shared: &Shared,
     sender: &SyncSender<Event>,
     context: &dyn JobContext,
-    local: &mut Vec<Frame>,
+    turn: &mut Turn<'_>,
     outcome: Result<Option<Vec<TimedObservedEntry>>, ReadFailure>,
 ) -> bool {
     match outcome {
         Ok(None) => {
-            requeue(shared, frame, local, context);
+            requeue(shared, turn, frame, None, context);
             true
         }
         Err(ReadFailure::Filter) => context.checkpoint() == Checkpoint::Cancel,
+        Err(ReadFailure::Unavailable) => false,
         Ok(Some(batch)) if batch.is_empty() => {
             if context.checkpoint() == Checkpoint::Cancel {
                 complete(shared, frame.root_index, &frame.path, context);
@@ -229,7 +273,7 @@ fn process_batch(
             frame.first_batch |= frame.root && !frame.root_published;
             frame.batch_pending = true;
             frame.entries = batch.into();
-            requeue(shared, frame, local, context);
+            requeue(shared, turn, frame, None, context);
             true
         }
         outcome => {
@@ -297,29 +341,12 @@ fn send_root_batch(
     } else {
         frame
             .directory
-            .observed_modified_at_timed(&|| context.utc_now())
+            .with(|directory| directory.observed_modified_at_timed(&|| context.utc_now()))
+            .unwrap_or((None, None))
     };
     sender
         .send(Event::RootBatch(frame.root_index, modified_at, observed_at))
         .is_ok()
-}
-
-fn requeue(shared: &Shared, frame: Frame, local: &mut Vec<Frame>, context: &dyn JobContext) {
-    let mut queue = match shared.queue.lock() {
-        Ok(queue) => queue,
-        Err(error) => {
-            drop(error.into_inner());
-            shared.abort(context);
-            local.push(frame);
-            return;
-        }
-    };
-    if queue.ready.len() < QUEUED_DIRECTORIES {
-        queue.push_ready(frame);
-        shared.wake.notify_one();
-        return;
-    }
-    local.push(frame);
 }
 
 /// Applies the admission table to an entry returned for this frame.
@@ -335,110 +362,6 @@ fn admit(
 ) -> Admission {
     let excluded = matches!(policy, Policy::Legacy(include) if !include(path));
     admission::decide(excluded, entry, frame.boundary, visited)
-}
-fn schedule(
-    shared: &Shared,
-    context: &dyn JobContext,
-    frame: Frame,
-    registered: bool,
-) -> Option<Frame> {
-    let mut queue = match shared.queue.lock() {
-        Ok(queue) => queue,
-        Err(error) => {
-            drop(error.into_inner());
-            shared.abort(context);
-            return Some(frame);
-        }
-    };
-    if shared.track_priority_paths && !registered {
-        let Some(outstanding) = queue.outstanding.as_mut() else {
-            drop(queue);
-            shared.abort(context);
-            return Some(frame);
-        };
-        if !outstanding.register(frame.root_index, &frame.path) {
-            drop(queue);
-            shared.abort(context);
-            return Some(frame);
-        }
-    }
-    queue.remaining += 1;
-    queue.root_remaining[frame.root_index as usize] += 1;
-    if queue.ready.len() < QUEUED_DIRECTORIES {
-        queue.push_ready(frame);
-        shared.wake.notify_one();
-        return None;
-    }
-    Some(frame)
-}
-fn register_path(
-    shared: &Shared,
-    root_index: u32,
-    path: &[Vec<u8>],
-    context: &dyn JobContext,
-) -> bool {
-    match shared.queue.lock() {
-        Ok(mut queue) => {
-            if queue
-                .outstanding
-                .as_mut()
-                .is_some_and(|outstanding| outstanding.register(root_index, path))
-            {
-                true
-            } else {
-                drop(queue);
-                shared.abort(context);
-                false
-            }
-        }
-        Err(error) => {
-            drop(error.into_inner());
-            shared.abort(context);
-            false
-        }
-    }
-}
-fn release_path(
-    shared: &Shared,
-    root_index: u32,
-    path: &[Vec<u8>],
-    context: &dyn JobContext,
-) -> bool {
-    match shared.queue.lock() {
-        Ok(mut queue) => {
-            if queue.complete_path(root_index, path) {
-                shared.wake.notify_all();
-                true
-            } else {
-                drop(queue);
-                shared.abort(context);
-                false
-            }
-        }
-        Err(error) => {
-            drop(error.into_inner());
-            shared.abort(context);
-            false
-        }
-    }
-}
-fn complete(shared: &Shared, root_index: u32, path: &[Vec<u8>], context: &dyn JobContext) {
-    match shared.queue.lock() {
-        Ok(mut queue) => {
-            queue.remaining -= 1;
-            queue.root_remaining[root_index as usize] -= 1;
-            if shared.track_priority_paths && !queue.complete_path(root_index, path) {
-                drop(queue);
-                shared.abort(context);
-                return;
-            }
-            shared.wake.notify_all();
-        }
-        Err(error) => {
-            drop(error.into_inner());
-            shared.abort(context);
-        }
-    }
 }
 
 #[cfg(test)]

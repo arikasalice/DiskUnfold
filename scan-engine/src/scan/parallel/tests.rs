@@ -424,45 +424,31 @@ impl AnchoredDirectory for Root {
 }
 
 #[test]
-fn ready_roots_take_turns_even_when_one_has_many_frames() {
-    let frame = |root_index| Frame {
-        root_index,
-        path: Vec::new(),
-        directory: Box::new(Root {
-            complete: true,
-            reads: Arc::new(AtomicUsize::new(0)),
-        }),
-        entries: VecDeque::new(),
-        deferred: VecDeque::new(),
-        root: false,
-        first_batch: false,
-        root_published: false,
-        batch_pending: false,
-        case_observed: false,
-        boundary: Boundary::Unknown,
+fn roots_of_one_lane_take_turns_even_when_one_has_many_frames() {
+    let frame = |root_index| {
+        Frame::root(
+            root_index,
+            Box::new(Root {
+                complete: true,
+                reads: Arc::new(AtomicUsize::new(0)),
+            }),
+        )
     };
-    let mut queue = Queue {
-        ready: VecDeque::from([frame(0), frame(0), frame(1), frame(2), frame(0), frame(1)]),
-        ready_high_water: Some(6),
-        last_root: None,
-        priority: None,
-        outstanding: None,
-        remaining: 6,
-        root_remaining: vec![3, 2, 1],
-        root_groups: vec![0, 1, 2],
-        active_groups: vec![0; 3],
-        device_limit: 10,
-        started: true,
-    };
+    let mut queue = Queue::for_test(vec![0, 0, 0], 10);
+    for root in [0, 0, 1, 2, 0, 1] {
+        assert!(queue.push_root(frame(root)));
+    }
+    let seat = queue.lanes.register_seat();
     let mut selected = Vec::new();
-    while let Some((frame, _)) = queue.pop_fair() {
-        selected.push(frame.root_index);
+    while let Some(taken) = queue.claim_for(seat) {
+        selected.push(taken.frame.root_index);
     }
     assert_eq!(selected, [0, 1, 2, 0, 1, 0]);
 }
 
 mod cadence;
 mod device;
+mod lanes;
 mod panic_boundary;
 mod priority;
 

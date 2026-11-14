@@ -1,10 +1,12 @@
-//! Bounded handle-based workers and a single result publisher.
+//! Bounded handle-based workers in per-storage lanes and a single result publisher.
 use super::{
     PreMetadataFilter, ResultIds,
     admission::{self, Admission, Boundary, Visited},
     record_at,
 };
 mod control;
+mod frame;
+mod lanes;
 mod queue;
 pub(crate) use control::ScanControlSession;
 pub use control::{ScanControlError, ScanControlHandle, ScanPriorityOutcome};
@@ -19,7 +21,6 @@ use du_core_contracts::{
     },
 };
 use std::{
-    collections::VecDeque,
     sync::{
         Arc, Condvar, Mutex,
         atomic::{AtomicBool, Ordering},
@@ -28,11 +29,17 @@ use std::{
     thread,
     time::Duration,
 };
+#[cfg(test)]
+use frame::Directory;
+use frame::Frame;
+#[cfg(test)]
+use std::collections::VecDeque;
 
 mod disconnect;
 mod scheduler;
 mod volume_reports;
 
+/// Queued directory work per lane, counting items claimed from the lane queue.
 const QUEUED_DIRECTORIES: usize = 64;
 const BUFFERED_OBSERVATIONS: usize = 8192;
 const MAX_WORKERS: usize = 64;
@@ -42,34 +49,15 @@ static FAIL_SPAWN_AT: std::sync::atomic::AtomicUsize =
 #[cfg(test)]
 static TEST_WORKER_STARTED: AtomicBool = AtomicBool::new(false);
 
-struct Frame {
-    root_index: u32,
-    path: Vec<Vec<u8>>,
-    directory: Box<dyn AnchoredDirectory>,
-    entries: VecDeque<TimedObservedEntry>,
-    deferred: VecDeque<TimedObservedEntry>,
-    root: bool,
-    first_batch: bool,
-    root_published: bool,
-    batch_pending: bool,
-    case_observed: bool,
-    boundary: Boundary,
-}
 struct Queue {
-    ready: VecDeque<Frame>,
-    /// Maximum simultaneous frames in this shared deque, including initial roots.
-    /// Worker-local overflow, active frames and the observation channel are excluded.
-    /// Cancellation drains do not reset the peak. Each enqueue costs O(1); the
-    /// counter is updated only when diagnostics are enabled.
-    ready_high_water: Option<usize>,
-    last_root: Option<u32>,
+    /// Lane queues, worker seats and the optional queued-work peak. The peak
+    /// covers all lane queues, including initial roots; worker stacks, active
+    /// items and the observation channel are excluded.
+    lanes: lanes::Lanes,
     priority: Option<queue::PriorityRegion>,
     outstanding: Option<queue::OutstandingPaths>,
     remaining: usize,
     root_remaining: Vec<usize>,
-    root_groups: Vec<usize>,
-    active_groups: Vec<usize>,
-    device_limit: usize,
     started: bool,
 }
 

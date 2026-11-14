@@ -7,10 +7,12 @@ use super::*;
 pub(super) enum ReadFailure {
     Filter,
     Observation(PortError),
+    /// The directory handle is unusable after a panic in another call.
+    Unavailable,
 }
 
 pub(super) fn next_entries(
-    frame: &mut Frame,
+    frame: &Frame,
     context: &dyn JobContext,
     policy: Policy<'_>,
     undecided: &mut Vec<Vec<u8>>,
@@ -18,7 +20,8 @@ pub(super) fn next_entries(
     let Policy::BeforeMetadata(include) = policy else {
         return frame
             .directory
-            .next_batch_timed(&|| context.utc_now())
+            .with(|directory| directory.next_batch_timed(&|| context.utc_now()))
+            .ok_or(ReadFailure::Unavailable)?
             .map(Some)
             .map_err(ReadFailure::Observation);
     };
@@ -36,7 +39,8 @@ pub(super) fn next_entries(
     };
     let batch = frame
         .directory
-        .next_filtered_timed(&mut decide, &|| context.utc_now())
+        .with(|directory| directory.next_filtered_timed(&mut decide, &|| context.utc_now()))
+        .ok_or(ReadFailure::Unavailable)?
         .map_err(|error| {
             if error.kind == PortErrorKind::Unsupported {
                 ReadFailure::Filter

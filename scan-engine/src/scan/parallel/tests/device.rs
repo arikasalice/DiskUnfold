@@ -2,44 +2,42 @@ use super::*;
 
 #[test]
 fn default_four_per_key_does_not_block_a_distinct_key() {
-    let frame = |root_index| Frame {
-        root_index,
-        path: Vec::new(),
-        directory: Box::new(SmallRoot {
-            fail: false,
-            done: false,
-            name: Vec::new(),
-        }),
-        entries: VecDeque::new(),
-        deferred: VecDeque::new(),
-        root: true,
-        first_batch: false,
-        root_published: false,
-        batch_pending: false,
-        case_observed: false,
-        boundary: Boundary::Unknown,
+    let frame = |root_index| {
+        Frame::root(
+            root_index,
+            Box::new(SmallRoot {
+                fail: false,
+                done: false,
+                name: Vec::new(),
+            }),
+        )
     };
-    let mut queue = Queue {
-        ready_high_water: Some(6),
-        ready: (0..6).map(frame).collect(),
-        last_root: None,
-        priority: None,
-        outstanding: None,
-        remaining: 6,
-        root_remaining: vec![1; 6],
-        root_groups: vec![0, 0, 0, 0, 0, 1],
-        active_groups: vec![0; 6],
-        device_limit: 4,
-        started: true,
-    };
-    let mut roots = Vec::new();
-    while let Some((frame, _)) = queue.pop_fair() {
-        roots.push(frame.root_index);
+    let mut queue = Queue::for_test(vec![0, 0, 0, 0, 0, 1], 4);
+    for root in 0..6 {
+        assert!(queue.push_root(frame(root)));
     }
-    assert_eq!(roots, [0, 1, 2, 3, 5]);
-    assert_eq!(queue.active_groups[0], 4);
-    queue.active_groups[0] -= 1;
-    assert_eq!(queue.pop_fair().map(|(frame, _)| frame.root_index), Some(4));
+    let seats: Vec<_> = (0..6).map(|_| queue.lanes.register_seat()).collect();
+    let mut roots = Vec::new();
+    for &seat in &seats {
+        if let Some(taken) = queue.claim_for(seat) {
+            roots.push(taken.frame.root_index);
+        }
+    }
+    // Lane 0 admits four workers; the fifth becomes lane 1's worker.
+    assert_eq!(roots, [0, 5, 1, 2, 3]);
+    assert_eq!(queue.lanes.lanes[0].members, 4);
+    assert_eq!(queue.lanes.lanes[1].members, 1);
+    assert_eq!(queue.lanes.seats[seats[5]].lane, None);
+    // A lane 0 worker continues with its own lane's remaining root.
+    assert_eq!(
+        queue.claim_for(seats[0]).map(|taken| taken.frame.root_index),
+        Some(4)
+    );
+    // Lane 1's worker finds no more work there and leaves; nothing is left
+    // anywhere that a worker outside lane 0 may take.
+    assert!(queue.claim_for(seats[1]).is_none());
+    assert!(queue.claim_for(seats[5]).is_none());
+    assert_eq!(queue.lanes.lanes[1].members, 0);
 }
 
 #[test]
