@@ -52,11 +52,11 @@ where
     fn execute(
         &self,
         request: Self::Request,
-        _: &CallerCtx,
+        caller: &CallerCtx,
     ) -> Result<Self::Response, EngineError> {
-        let prepared = self
-            .source
-            .prepare(request, self.line_ending, &self.path_text)?;
+        let prepared =
+            self.source
+                .prepare(request, caller.channel, self.line_ending, &self.path_text)?;
         Ok(write(prepared, &self.clipboard))
     }
 }

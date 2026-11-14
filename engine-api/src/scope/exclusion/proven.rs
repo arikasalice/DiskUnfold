@@ -206,7 +206,12 @@ impl ProvenRules {
         let rules = rules
             .iter()
             .map(|rule| match rule {
-                ScopeExclusion::Path { path } => Ok((path.clone(), windows_rule(path)?)),
+                // Display text is rebuilt from the raw path, so text projected for
+                // a response cannot reach the stored original when it is resent.
+                ScopeExclusion::Path { path } => {
+                    let checked = windows_rule(path)?;
+                    Ok((checked.clone(), checked))
+                }
                 ScopeExclusion::NamePattern { .. } => Err(invalid()),
             })
             .collect::<Result<_, _>>()?;

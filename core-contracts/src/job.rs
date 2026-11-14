@@ -77,6 +77,18 @@ pub struct JobDescriptor {
     pub resource_classes: Vec<ResourceClass>,
     pub history: HistoryMode,
 }
+/// Outcome counts of one job.
+///
+/// Every processed unit is counted in exactly one field. The amount of work
+/// done, as progress reports it, is `completed + failed`; that sum never
+/// decreases during a job. `completed` alone can decrease by one when a unit
+/// that was counted as completed turns out to have failed, for example a
+/// listed folder whose contents could not be read afterwards.
+///
+/// For `scan.metadata` a unit is one recorded item of the scope, and
+/// `failed` equals the number of scope gaps of the result. A scope root is
+/// counted once as failed when it could not be read; a root that was read is
+/// not counted.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct JobCounts {
     pub completed: u64,

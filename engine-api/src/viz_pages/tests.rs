@@ -345,6 +345,7 @@ fn admitted_group_page_survives_eviction_and_replacement() -> Result<(), String>
 }
 
 mod cache_cancellation;
+mod hidden_source;
 
 #[test]
 fn deferred_cache_keeps_strategy_metadata_bound_to_its_rows() -> Result<(), String> {

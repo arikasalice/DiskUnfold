@@ -5,29 +5,27 @@ use du_core_contracts::{
     scan_observation::{ObservedEntry, ObservedKind},
 };
 
-pub(super) fn unread(
-    build: &mut du_analysis_index::BuildHandle,
-    root_index: u32,
-    relative: Vec<Vec<u8>>,
-    stage: Stage,
-    reason: &str,
-    observed_at: Option<du_core_contracts::Timestamp>,
-) -> Result<(), du_analysis_index::BuildError> {
-    build.record_scan_issue(du_core_contracts::scan_failures::ScanIssue {
-        root_index,
-        relative,
-        kind: Kind::UnreadRange,
-        stage,
-        reason_key: reason.into(),
-        observed_at,
-    })
+/// The reason key of an explicit volume disconnection.
+pub(super) const DISCONNECTED: &str = "scan.disconnected";
+
+/// Whether an adapter error reports an explicit volume disconnection.
+pub(super) fn disconnected(error: &PortError) -> bool {
+    error.kind == PortErrorKind::Io && error.reason_key == DISCONNECTED
+}
+
+/// Whether a returned entry carries a disconnection in its metadata or size.
+pub(super) fn disconnected_entry(entry: &ObservedEntry) -> bool {
+    match &entry.metadata {
+        Err(error) => disconnected(error),
+        Ok(metadata) => metadata.size.as_ref().is_err_and(disconnected),
+    }
 }
 
 pub(super) fn reason(error: &PortError) -> &'static str {
     match error.kind {
         PortErrorKind::PermissionDenied => "scan.path_denied",
         PortErrorKind::NotFound => "scan.path_vanished",
-        PortErrorKind::Io if error.reason_key == "scan.disconnected" => "scan.disconnected",
+        PortErrorKind::Io if disconnected(error) => DISCONNECTED,
         _ => "scan.unclassified",
     }
 }

@@ -63,13 +63,13 @@ fn seeded() -> Result<(PathCopy, Id), String> {
 fn preserves_original_text_and_uses_pinned_item_order() -> Result<(), String> {
     let (copy, revision) = seeded()?;
     let prepared = copy
-        .prepare(request(&revision, [1, 0]), "\r\n", text)
+        .prepare(request(&revision, [1, 0]), Channel::Gui, "\r\n", text)
         .map_err(|e| format!("{e:?}"))?
         .map_err(|e| format!("{e:?}"))?;
     assert_eq!(prepared.text, "/한글 \r\n/e\u{301}");
     assert_eq!(prepared.count, 2);
     let single = copy
-        .prepare(request(&revision, [2]), "\r\n", text)
+        .prepare(request(&revision, [2]), Channel::Gui, "\r\n", text)
         .map_err(|e| format!("{e:?}"))?
         .map_err(|e| format!("{e:?}"))?;
     assert_eq!(single.text, "/a\nb");
@@ -84,7 +84,7 @@ fn refuses_whole_batch_when_any_path_is_ambiguous_or_unrepresentable() -> Result
         ([0, 3], BrowseCopyPathRefusal::Unrepresentable),
     ] {
         let outcome = copy
-            .prepare(request(&revision, numbers), "\n", text)
+            .prepare(request(&revision, numbers), Channel::Gui, "\n", text)
             .map_err(|e| format!("{e:?}"))?;
         assert_eq!(outcome.err(), Some(reason));
     }
@@ -106,7 +106,7 @@ fn bounds_and_reference_errors_precede_conversion() -> Result<(), String> {
     let mut conversions = 0;
     for (request, reason) in outcomes {
         assert_eq!(
-            copy.prepare(request, "\n", |_| {
+            copy.prepare(request, Channel::Gui, "\n", |_| {
                 conversions += 1;
                 None
             })
@@ -116,9 +116,44 @@ fn bounds_and_reference_errors_precede_conversion() -> Result<(), String> {
     }
     assert_eq!(conversions, 0);
     let limit = copy
-        .prepare(request(&revision, [0; 1_000]), "\n", text)
+        .prepare(request(&revision, [0; 1_000]), Channel::Gui, "\n", text)
         .map_err(|e| format!("{e:?}"))?
         .map_err(|e| format!("{e:?}"))?;
     assert_eq!(limit.count, 1_000);
+    Ok(())
+}
+
+#[test]
+fn a_sample_result_is_prepared_only_for_the_gui() -> Result<(), String> {
+    let store = IngestSink::default();
+    let root = ResultScopeRoot {
+        path: ResultNativePath {
+            encoding: PathEncoding::Unix,
+            raw: PathBytes::from_bytes(b"/sample"),
+        },
+        volume_id: vec![1],
+        file_id: vec![1],
+    };
+    let session = du_analysis_index::SampleSessionKey::new(id(9));
+    let mut build = store
+        .open_sample_forest(id(1), vec![root], &session)
+        .map_err(|e| format!("{e:?}"))?;
+    build
+        .add_directory_at(0, vec![])
+        .map_err(|e| format!("{e:?}"))?;
+    let revision = id(2);
+    build
+        .seal(revision.clone(), ResultCompleteness::Complete)
+        .map_err(|e| format!("{e:?}"))?;
+    let copy = PathCopy(store);
+    for channel in [Channel::Mcp, Channel::Cli] {
+        let refused = copy.prepare(request(&revision, [0]), channel, "\n", text);
+        assert_eq!(refused.err(), Some(EngineError::reason("ref.unavailable")));
+    }
+    let shown = copy
+        .prepare(request(&revision, [0]), Channel::Gui, "\n", text)
+        .map_err(|e| format!("{e:?}"))?
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(shown.text, "/sample");
     Ok(())
 }

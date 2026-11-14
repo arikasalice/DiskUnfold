@@ -1,5 +1,7 @@
 //! Read-only target discovery, scope normalization and scan orchestration.
 pub mod sample_bundle;
+pub mod sample_job;
+pub mod sample_source;
 pub mod scan;
 pub mod scan_job;
 pub mod scope;

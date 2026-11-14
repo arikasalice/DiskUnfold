@@ -1,0 +1,55 @@
+.du-band {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--du-space-2) var(--du-space-3);
+  padding: var(--du-space-2) var(--du-space-3);
+  border-radius: var(--du-radius);
+}
+
+.du-band svg {
+  flex: none;
+}
+
+.du-band__words {
+  flex: 1 1 240px;
+  margin: 0;
+  min-inline-size: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.du-band__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--du-space-2);
+  margin-inline-start: auto;
+}
+
+.du-band--info {
+  background: var(--du-info-surface);
+  color: var(--du-info-text);
+}
+
+.du-band--warning {
+  background: var(--du-warning-surface);
+  color: var(--du-warning-text);
+}
+
+.du-band--error {
+  background: var(--du-danger-surface);
+  color: var(--du-danger-text);
+}
+
+.du-band--success {
+  background: var(--du-good-surface);
+  color: var(--du-good-text);
+}
+
+.du-band__words:focus-visible {
+  outline: 2px solid var(--du-focus);
+  outline-offset: 2px;
+}

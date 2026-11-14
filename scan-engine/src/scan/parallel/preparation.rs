@@ -63,20 +63,23 @@ fn identities(
 /// Records unverified and repeated roots before their first enumeration.
 ///
 /// A disconnected root is skipped; its closure records its own unread range.
+/// Returns, per root, whether its item was counted here.
 pub(super) fn record_starts(
     build: &mut BuildHandle,
     starts: &[RootStart],
     disconnects: &Disconnects,
     counts: &mut JobCounts,
     context: &dyn JobContext,
-) -> Result<(), BuildError> {
+) -> Result<Vec<bool>, BuildError> {
+    let mut counted = vec![false; starts.len()];
     for (index, &start) in starts.iter().enumerate() {
-        let index = u32::try_from(index).map_err(|_| BuildError::Unavailable)?;
+        let root = u32::try_from(index).map_err(|_| BuildError::Unavailable)?;
         let verified = matches!(start, RootStart::Collect(Boundary::Volume(_)));
-        if !verified && !disconnects.closed(index) {
+        if !verified && !disconnects.closed(root) {
             let observed_at = context.utc_now();
-            admission::record_root_start(build, index, start, counts, observed_at.as_ref())?;
+            admission::record_root_start(build, root, start, counts, observed_at.as_ref())?;
+            counted[index] = true;
         }
     }
-    Ok(())
+    Ok(counted)
 }

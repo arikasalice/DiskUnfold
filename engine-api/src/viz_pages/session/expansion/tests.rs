@@ -1,4 +1,5 @@
 use super::*;
+use crate::api::Channel;
 use du_analysis_index::{
     IngestSink, Observation,
     visualization::{
@@ -56,7 +57,7 @@ fn fixture() -> Result<(CurrentAnalysis, projection::Model, Dispatcher), String>
     }
     scan.seal(id(3), ResultCompleteness::Complete)
         .map_err(|e| format!("{e:?}"))?;
-    let source = crate::current_analysis::admit_selected(&sink, &id(3), None)
+    let source = crate::current_analysis::admit_selected(&sink, &id(3), None, Channel::Gui)
         .map_err(|e| format!("{e:?}"))?;
     let parent = ItemRef {
         result_version: id(3),

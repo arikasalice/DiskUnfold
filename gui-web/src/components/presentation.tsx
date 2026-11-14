@@ -7,6 +7,7 @@ import {
   CircleCheck,
   CircleX,
   Copy,
+  FlaskConical,
   FolderOpen,
   HardDrive,
   History,
@@ -28,13 +29,18 @@ const icons = {
   alert: CircleAlert,
   back: ArrowLeft,
   copy: Copy,
+  error: CircleX,
   folder: FolderOpen,
+  sample: FlaskConical,
   drive: HardDrive,
   history: History,
+  info: Info,
   language: Languages,
   layers: Layers3,
   refresh: RefreshCw,
   scan: ScanLine,
+  success: CircleCheck,
+  warning: TriangleAlert,
 };
 
 export type IconName = keyof typeof icons;
@@ -168,17 +174,20 @@ export function Notice({
   tone = "info",
   id,
   announce = true,
+  icon,
 }: {
   children: ReactNode;
   tone?: "info" | "error";
   id?: string;
   announce?: boolean;
+  /** Replaces the default notice icon. */
+  icon?: IconName;
 }) {
   let role: "alert" | "status" | undefined;
   if (announce) role = tone === "error" ? "alert" : "status";
   return (
     <div id={id} className={`du-notice du-notice--${tone}`} role={role}>
-      <Icon name={tone === "error" ? "alert" : "activity"} />
+      <Icon name={icon ?? (tone === "error" ? "alert" : "activity")} />
       <div>{children}</div>
     </div>
   );

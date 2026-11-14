@@ -853,7 +853,11 @@ geometry?: VizGeometry, };
 export type VizDenominatorBasis = "parent_folder" | "scope" | "analysis_total";
 export type VizRatio = string;
 export type VizDenominator = { basis: VizDenominatorBasis, value: VizQuantity, size?: SizeValue, };
-export type VizRow = { itemRef: ItemRef | null, groupRef: string | null, displayName: string, size: SizeValue, quantity?: VizQuantity, ratio: VizRatio | null, denominator: VizDenominator, legendClassKey: string, displayFlags: Array<string>, };
+export type VizRow = { itemRef: ItemRef | null, groupRef: string | null,
+/**
+ * Human-readable display text; never reopen or compare a path from it.
+ */
+displayName: string, size: SizeValue, quantity?: VizQuantity, ratio: VizRatio | null, denominator: VizDenominator, legendClassKey: string, displayFlags: Array<string>, };
 export type VizRowsRequest = { modelRef: string, resultRevision: Id, start: number, count: number, };
 export type VizGroupRowsRequest = { modelRef: string, groupRef: string, start: number, count: number, };
 export type VizSizeRange = { "kind": "known", min: SizeValue, max: SizeValue, } | { "kind": "unknown" };
@@ -871,7 +875,11 @@ itemRef: ItemRef, };
 export type VizLocate = { "location": "shape", shapeIndex: number, } | { "location": "group", groupRef: string, } | { "location": "outside_view", } | { "location": "outside_scope", };
 export type PathEncoding = "unix" | "windows_utf16le";
 export type PathBytes = string;
-export type OsPath = { encoding: PathEncoding, raw: PathBytes, display: string, lossy: boolean, };
+export type OsPath = { encoding: PathEncoding, raw: PathBytes,
+/**
+ * Human-readable display text; never reopen or compare a path from it.
+ */
+display: string, lossy: boolean, };
 export type ItemRef = { resultVersion: Id, itemNo: number, };
 export type ErrorCode = "AUTH_REQUIRED" | "ORIGIN_DENIED" | "SCOPE_DENIED" | "INVALID_ARGUMENT" | "NOT_FOUND" | "STALE_VERSION" | "BUSY" | "INTERNAL";
 export type ErrorEnvelope = { code: ErrorCode, reasonKey: string, messageKey: string, correlationId: Id, itemRefs?: Array<ItemRef>, retryable: boolean, };
@@ -916,7 +924,11 @@ export type ScanStart = { jobRef: Id, existing: boolean, scopeVersion: Id, scope
 export type ScanFailureKind = "collection_failed" | "unread_range" | "uncertain" | "untraversed_link";
 export type ScanFailureStage = "metadata" | "open_directory" | "enumerate" | "traverse";
 export type ScanFailurePathRef = { rootIndex: number, relative: Array<PathBytes>, };
-export type ScanFailureRow = { kind: ScanFailureKind, stage: ScanFailureStage, pathRef: ScanFailurePathRef, reasonKey: string, observedAt?: Timestamp, displayPath?: string, };
+export type ScanFailureRow = { kind: ScanFailureKind, stage: ScanFailureStage, pathRef: ScanFailurePathRef, reasonKey: string, observedAt?: Timestamp,
+/**
+ * Human-readable display text; never reopen or compare a path from it.
+ */
+displayPath?: string, };
 export type ScanFailuresRequest = { resultVersion: Id, kind?: ScanFailureKind, cursor?: string, count?: number, };
 export type ScanFailures = { resultVersion: Id, rows: Array<ScanFailureRow>, totalCount: number, nextCursor?: string, };
 export type ScanPriorityRequest = {
@@ -969,7 +981,9 @@ sequence: number,
  */
 unit: ProgressUnit,
 /**
- * Units processed so far.
+ * Units processed so far: the completed and the failed count of the job
+ * added together (see [`crate::job::JobCounts`]). Each unit is counted
+ * once, and the value never decreases within a job.
  */
 completed: number,
 /**
@@ -1050,8 +1064,20 @@ export type QueryStrategy = { id: string, revision: number, };
 export type IdentityCapability = { state: SpaceCapabilityState, reasonKey?: string | null, };
 export type CorrespondenceKey = { volumeId: PathBytes, pathCompareKey: PathBytes, fileId: PathBytes | null, identityCapability: IdentityCapability, };
 export type FolderFlags = { unenumerated: BrowseValue<boolean>, excluded: BrowseValue<boolean>, };
-export type FolderQueryRow = { item: ItemRef, displayName: BrowseValue<string>, kind: ResultItemKind, logicalSize: BrowseValue<SizeValue>, allocatedSize: BrowseValue<SizeValue>, modifiedAt: BrowseValue<Timestamp>, hasChildFolder: BrowseValue<boolean>, flags: FolderFlags, correspondence: BrowseValue<CorrespondenceKey>, };
-export type SearchQueryRow = { item: ItemRef, displayName: BrowseValue<string>, displayPath: BrowseValue<string>, kind: ResultItemKind, logicalSize: BrowseValue<SizeValue>, allocatedSize: BrowseValue<SizeValue>, modifiedAt: BrowseValue<Timestamp>, createdAt: BrowseValue<Timestamp>, missingFields: Array<string>, reasonKeys: Array<string>, };
+export type FolderQueryRow = { item: ItemRef,
+/**
+ * Human-readable display text; never reopen or compare a path from it.
+ */
+displayName: BrowseValue<string>, kind: ResultItemKind, logicalSize: BrowseValue<SizeValue>, allocatedSize: BrowseValue<SizeValue>, modifiedAt: BrowseValue<Timestamp>, hasChildFolder: BrowseValue<boolean>, flags: FolderFlags, correspondence: BrowseValue<CorrespondenceKey>, };
+export type SearchQueryRow = { item: ItemRef,
+/**
+ * Human-readable display text; never reopen or compare a path from it.
+ */
+displayName: BrowseValue<string>,
+/**
+ * Human-readable display text; never reopen or compare a path from it.
+ */
+displayPath: BrowseValue<string>, kind: ResultItemKind, logicalSize: BrowseValue<SizeValue>, allocatedSize: BrowseValue<SizeValue>, modifiedAt: BrowseValue<Timestamp>, createdAt: BrowseValue<Timestamp>, missingFields: Array<string>, reasonKeys: Array<string>, };
 export type QueryTotal = { "state": "exact", count: number, } | { "state": "lower_bound", count: number, };
 export type FolderRowKind = "folder";
 export type SearchRowKind = "search";
@@ -1063,7 +1089,11 @@ export type FolderQueryPage = { rowKind: FolderRowKind,
 browseContext?: BrowseContext, queryRef: Id, resultVersion: Id, rows: Array<FolderQueryRow>, total: QueryTotal, unknownCount: number, observedAt: Timestamp | null, completeness: ResultCompleteness, nextCursor: string | null, };
 export type SearchQueryPage = { rowKind: SearchRowKind, queryRef: Id, resultVersion: Id, rows: Array<SearchQueryRow>, total: QueryTotal, unknownCount: number, observedAt: Timestamp | null, completeness: ResultCompleteness, nextCursor: string | null, };
 export type QueryPageResponse = FolderQueryPage | SearchQueryPage;
-export type BrowseBreadcrumb = { item: ItemRef, displayName: BrowseValue<string>, };
+export type BrowseBreadcrumb = { item: ItemRef,
+/**
+ * Human-readable display text; never reopen or compare a path from it.
+ */
+displayName: BrowseValue<string>, };
 export type BrowseRootKind = "virtual_root" | "scope_root" | "folder";
 export type BrowseContext = { origin: ResultOrigin,
 /**
@@ -1080,7 +1110,15 @@ dataSource?: DataSource, location: ItemRef | null, breadcrumbs: Array<BrowseBrea
  */
 resultVersion: Id, };
 export type BrowseDetailRequest = { resultVersion: Id, item: ItemRef, };
-export type BrowseDetail = { item: ItemRef, displayPath: BrowseValue<string>, displayName: BrowseValue<string>, kind: BrowseValue<ResultItemKind>, logicalSize: BrowseValue<SizeValue>, allocatedSize: BrowseValue<SizeValue>, modifiedAt: BrowseValue<Timestamp>, createdAt: BrowseValue<Timestamp>, observedAt: BrowseValue<Timestamp>, origin: BrowseOrigin,
+export type BrowseDetail = { item: ItemRef,
+/**
+ * Human-readable display text; never reopen or compare a path from it.
+ */
+displayPath: BrowseValue<string>,
+/**
+ * Human-readable display text; never reopen or compare a path from it.
+ */
+displayName: BrowseValue<string>, kind: BrowseValue<ResultItemKind>, logicalSize: BrowseValue<SizeValue>, allocatedSize: BrowseValue<SizeValue>, modifiedAt: BrowseValue<Timestamp>, createdAt: BrowseValue<Timestamp>, observedAt: BrowseValue<Timestamp>, origin: BrowseOrigin,
 /**
  * Data source of the pinned version; absent means a sample (F32 FR2.HD2).
  */
@@ -1112,7 +1150,11 @@ export type SpacePlaceholderState = "none" | "partial" | "full";
 export type SpaceAuxiliary = { size: SizeValue, includedInAllocated: boolean | null, };
 export type SpaceCapabilityState = "supported" | "partial" | "unsupported";
 export type SpaceDetailCapability = { key: string, state: SpaceCapabilityState, reasonKey: string | null, };
-export type SpaceDetail = { item: ItemRef, logical: BrowseValue<SpaceDetailSize>, allocated: BrowseValue<SpaceDetailSize>, uniquePhysical: BrowseValue<SpaceDetailSize>, exclusive: BrowseValue<SpaceDetailSize>, shared: BrowseValue<SpaceDetailSize>, linkGroup: BrowseValue<SpaceLinkGroup>, placeholderLocalState?: BrowseValue<SpacePlaceholderState>, auxiliary: BrowseValue<SpaceAuxiliary>, exclusiveDecision: SpaceExclusiveDecision, observedAt: BrowseValue<Timestamp>, capabilities: BrowseValue<Array<SpaceDetailCapability>>, };
+export type SpaceDetail = { item: ItemRef, logical: BrowseValue<SpaceDetailSize>, allocated: BrowseValue<SpaceDetailSize>, uniquePhysical: BrowseValue<SpaceDetailSize>, exclusive: BrowseValue<SpaceDetailSize>, shared: BrowseValue<SpaceDetailSize>, linkGroup: BrowseValue<SpaceLinkGroup>, placeholderLocalState?: BrowseValue<SpacePlaceholderState>, auxiliary: BrowseValue<SpaceAuxiliary>, exclusiveDecision: SpaceExclusiveDecision, observedAt: BrowseValue<Timestamp>, capabilities: BrowseValue<Array<SpaceDetailCapability>>,
+/**
+ * Data source of the pinned version; absent means a sample (F32 FR9.HD1).
+ */
+dataSource?: DataSource, };
 export type SampleSessionState = "preparing" | "active" | "resetting" | "unavailable" | "closed";
 export type SampleEventState = "inactive" | "loading" | "active" | "failed";
 export type SampleOpenRequest = Record<symbol, never>;
@@ -1206,9 +1248,13 @@ export type GroupMembersRequest = { classificationRef: Id, resultVersion: Id, ca
  * Defaults to descending logical size; the path order always breaks ties.
  */
 sort?: BrowseSortKey, start: number, count: number, };
-export type GroupMemberRow = { item: ItemRef, displayName: BrowseValue<string>,
+export type GroupMemberRow = { item: ItemRef,
 /**
- * Original observed path; a group name never appears here.
+ * Human-readable display text; never reopen or compare a path from it.
+ */
+displayName: BrowseValue<string>,
+/**
+ * Observed path as display text, never a group name; never reopen or compare by it.
  */
 displayPath: BrowseValue<string>, logicalSize: BrowseValue<SizeValue>, allocatedSize: BrowseValue<SizeValue>,
 /**
@@ -1228,7 +1274,11 @@ export type GroupExplanation = { classificationRef: Id, item: ItemRef,
 /**
  * Data source of the pinned version, always set by the producer; absent means a sample (F32 FR2.HD2).
  */
-dataSource?: DataSource, displayPath: BrowseValue<string>, observedAt?: Timestamp, rules: Array<GroupRuleDecision>, };
+dataSource?: DataSource,
+/**
+ * Human-readable display text; never reopen or compare a path from it.
+ */
+displayPath: BrowseValue<string>, observedAt?: Timestamp, rules: Array<GroupRuleDecision>, };
 export type GroupTotalsRequest = { classificationRef: Id, groupIds: Array<Id>, };
 export type GroupTotal = { sizes: Array<SpaceTotalSize>, completeness: ResultCompleteness, };
 export type GroupTotalRow = { groupId: Id, total: GroupTotal, };
