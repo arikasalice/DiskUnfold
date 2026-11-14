@@ -22,11 +22,21 @@ pub(in crate::scan::parallel) type Arrival = (u64, Frame);
 /// Work-proportional cost counters, kept per thread for tests only.
 #[cfg(test)]
 pub(in crate::scan::parallel) mod cost {
-    use std::cell::Cell;
+    use std::{
+        cell::Cell,
+        sync::atomic::{AtomicI64, AtomicUsize, Ordering},
+    };
     thread_local! {
         static COMPARED: Cell<u64> = const { Cell::new(0) };
         static INSPECTED: Cell<u64> = const { Cell::new(0) };
     }
+    /// Items on all worker stacks of the process, for measurement runs.
+    ///
+    /// Process-wide: only a measurement process that runs one collection at a
+    /// time reads these values.
+    static STACKED: AtomicI64 = AtomicI64::new(0);
+    static STACKED_PEAK: AtomicI64 = AtomicI64::new(0);
+    static STACK_PEAK: AtomicUsize = AtomicUsize::new(0);
     pub(in crate::scan::parallel) fn compared() {
         COMPARED.with(|cell| cell.set(cell.get() + 1));
     }
@@ -38,6 +48,21 @@ pub(in crate::scan::parallel) mod cost {
         (
             COMPARED.with(|c| c.replace(0)),
             INSPECTED.with(|c| c.replace(0)),
+        )
+    }
+    /// Records a stack of `len` items after `added` items (negative: removed).
+    pub(in crate::scan::parallel) fn stacked(len: usize, added: i64) {
+        let now = STACKED.fetch_add(added, Ordering::Relaxed) + added;
+        STACKED_PEAK.fetch_max(now, Ordering::Relaxed);
+        STACK_PEAK.fetch_max(len, Ordering::Relaxed);
+    }
+    /// Returns and clears (deepest single worker stack, most items on all stacks).
+    pub(in crate::scan::parallel) fn take_stack_peaks() -> (usize, usize) {
+        STACKED.store(0, Ordering::Relaxed);
+        let all = STACKED_PEAK.swap(0, Ordering::Relaxed);
+        (
+            STACK_PEAK.swap(0, Ordering::Relaxed),
+            usize::try_from(all).unwrap_or(0),
         )
     }
 }
@@ -54,6 +79,15 @@ fn inspected(count: usize) {
     cost::inspected(count);
     #[cfg(not(test))]
     let _ = count;
+}
+
+/// Reports a worker stack change to the measurement counters in tests.
+#[inline]
+fn stacked(stack: &Stack, added: i64) {
+    #[cfg(test)]
+    cost::stacked(stack.classes.iter().map(VecDeque::len).sum(), added);
+    #[cfg(not(test))]
+    let _ = (stack, added);
 }
 
 /// Depth index key; comparisons are counted in tests.
@@ -255,13 +289,16 @@ impl Stack {
     pub(in crate::scan::parallel) fn push(&mut self, class: usize, arrival: Arrival) {
         inspected(1);
         self.classes[class.min(NORMAL)].push_back(arrival);
+        stacked(self, 1);
     }
 
     /// The newest item of the lowest class, continuing the owner's chain.
     pub(in crate::scan::parallel) fn pop_top(&mut self) -> Option<Frame> {
         let class = self.best_class()?;
         inspected(1);
-        self.classes[class].pop_back().map(|(_, frame)| frame)
+        let frame = self.classes[class].pop_back().map(|(_, frame)| frame)?;
+        stacked(self, -1);
+        Some(frame)
     }
 
     /// Class and depth of the oldest item of the lowest class, for stealing.
@@ -276,7 +313,9 @@ impl Stack {
     /// Removes the oldest item of the lowest class; it heads the largest subtree.
     pub(in crate::scan::parallel) fn pop_bottom(&mut self) -> Option<Frame> {
         let class = self.best_class()?;
-        self.classes[class].pop_front().map(|(_, frame)| frame)
+        let frame = self.classes[class].pop_front().map(|(_, frame)| frame)?;
+        stacked(self, -1);
+        Some(frame)
     }
 
     /// Removes every item of `root` from `classes` in one pass over them.
@@ -302,13 +341,16 @@ impl Stack {
             }
             *items = kept;
         }
+        stacked(self, -(taken.len() as i64));
         taken
     }
 
     /// Returns items to `class`, keeping arrival order with items already there.
     pub(in crate::scan::parallel) fn restore(&mut self, class: usize, mut arrivals: Vec<Arrival>) {
         arrivals.sort_by_key(|(order, _)| *order);
+        let added = arrivals.len() as i64;
         merge_in_order(&mut self.classes[class.min(NORMAL)], arrivals);
+        stacked(self, added);
     }
 
     /// Removes every item, lowest class first, for draining or leaving a lane.
@@ -317,6 +359,7 @@ impl Stack {
         for (class, items) in self.classes.iter_mut().enumerate() {
             drained.extend(items.drain(..).map(|(_, frame)| (class, frame)));
         }
+        stacked(self, -(drained.len() as i64));
         drained
     }
 }

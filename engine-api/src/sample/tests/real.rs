@@ -186,12 +186,21 @@ fn closing_a_running_load_cancels_the_real_job() -> Result<(), String> {
             .is_ok_and(|s| s == JobState::Running)
     })?;
     super::ok(real.sessions.close(&opened.session_ref))?;
+    // The runtime sets the terminal state first and handles history later on
+    // its delivery thread, so the history check waits for the confirmed outcome.
     wait_for(|| {
         real.runtime
-            .state(&job)
-            .is_ok_and(|s| s == JobState::Cancelled)
+            .snapshot(&job)
+            .is_ok_and(|s| s.state == JobState::Cancelled && s.terminal.is_some())
     })?;
     assert!(status(&real, &opened.session_ref).is_err());
+    let terminal = real
+        .runtime
+        .snapshot(&job)
+        .map_err(|e| format!("{e:?}"))?
+        .terminal
+        .ok_or("unconfirmed terminal")?;
+    assert!(!terminal.history_recorded);
     assert_eq!(real.history.0.load(Ordering::Relaxed), 0);
     let _ = JobCounts::default();
     Ok(())
