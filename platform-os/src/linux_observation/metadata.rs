@@ -42,20 +42,21 @@ pub(super) struct Facts {
     links: Option<u64>,
     modified: Option<(i64, u32)>,
     pub(super) mount: Option<u64>,
-    /// `Some(true)` for a mount root or automount trigger; `None` if not reported.
-    boundary: Option<bool>,
+    /// `STATX_ATTR_MOUNT_ROOT`; `None` when the kernel does not report it.
+    mount_root: Option<bool>,
+    /// `STATX_ATTR_AUTOMOUNT` was reported for an automount trigger.
+    automount: bool,
 }
 
 impl Facts {
     fn from_statx(value: &Statx) -> Self {
         let returned = StatxFlags::from_bits_retain(value.stx_mask);
         let has = |flag| returned.contains(flag);
-        let edges = StatxAttributes::MOUNT_ROOT | StatxAttributes::AUTOMOUNT;
-        let known = value.stx_attributes_mask & edges;
-        let boundary = if !(value.stx_attributes & known).is_empty() {
-            Some(true)
-        } else {
-            known.contains(StatxAttributes::MOUNT_ROOT).then_some(false)
+        let attribute = |flag: StatxAttributes| {
+            value
+                .stx_attributes_mask
+                .contains(flag)
+                .then(|| value.stx_attributes.contains(flag))
         };
         Self {
             file_type: has(StatxFlags::TYPE)
@@ -68,7 +69,8 @@ impl Facts {
             modified: has(StatxFlags::MTIME)
                 .then_some((value.stx_mtime.tv_sec, value.stx_mtime.tv_nsec)),
             mount: has(StatxFlags::MNT_ID).then_some(value.stx_mnt_id),
-            boundary,
+            mount_root: attribute(StatxAttributes::MOUNT_ROOT),
+            automount: attribute(StatxAttributes::AUTOMOUNT) == Some(true),
         }
     }
 
@@ -92,11 +94,22 @@ impl Facts {
         Timestamp::from_unix_millis(millis)
     }
 
+    /// True when this observation itself shows a directory with another mount
+    /// on it: the kernel reports a mount root or a mount ID that differs from
+    /// the parent's. A different device alone does not establish a mount.
+    fn mounted_directory(&self, anchor: &Anchor) -> bool {
+        self.is_directory()
+            && (self.mount_root == Some(true) || !super::same_mount(self.mount, anchor.mount))
+    }
+
     /// True for another mount of the directory's device or an automount trigger.
     ///
-    /// An entry on another device is handled before this check.
+    /// Mounted directories and entries on another device are handled before
+    /// this check, so this leaves file mounts and unmounted automount triggers.
     fn crosses(&self, anchor: &Anchor) -> bool {
-        self.boundary == Some(true) || !super::same_mount(self.mount, anchor.mount)
+        self.automount
+            || self.mount_root == Some(true)
+            || !super::same_mount(self.mount, anchor.mount)
     }
 }
 
@@ -128,10 +141,13 @@ fn query(dir: impl AsFd, name: &CStr, flags: AtFlags) -> Result<Facts, PortError
 
 /// Observes one admitted entry relative to its verified directory.
 ///
-/// An entry on another device, such as a mount point, is reported with that
-/// device and its own inode and kind only, so the collector classifies it
-/// outside the boundary. Another mount of the same device and an automount
-/// trigger on it remain per-entry failures that are never entered.
+/// A directory with a mount on it, on the same device or another, is a
+/// [`ObservedKind::MountPoint`] with the mounted root's device and inode only.
+/// The lookup crosses into the mounted root, so the kernel reports the mount
+/// root attribute and the mount ID there (Linux 5.8 and later). Without that
+/// evidence, an entry on another device keeps its own kind under the same
+/// rule. A file mount on the parent's device and an unmounted automount
+/// trigger remain per-entry failures. None of these is ever entered.
 pub(super) fn observe(anchor: &Anchor, name: &CStr) -> Result<MetadataObservation, PortError> {
     #[cfg(test)]
     PROBES.with(|count| count.set(count.get() + 1));
@@ -140,8 +156,16 @@ pub(super) fn observe(anchor: &Anchor, name: &CStr) -> Result<MetadataObservatio
         name,
         AtFlags::SYMLINK_NOFOLLOW | AtFlags::NO_AUTOMOUNT,
     )?;
+    classify(anchor, &facts)
+}
+
+/// Applies the rules of [`observe`] to the facts of one entry query.
+fn classify(anchor: &Anchor, facts: &Facts) -> Result<MetadataObservation, PortError> {
+    if facts.mounted_directory(anchor) {
+        return Ok(other_volume(facts, ObservedKind::MountPoint));
+    }
     if facts.device != anchor.device {
-        return Ok(other_volume(&facts));
+        return Ok(other_volume(facts, facts.kind()));
     }
     if facts.crosses(anchor) {
         return Err(invalid());
@@ -167,11 +191,12 @@ pub(super) fn observe(anchor: &Anchor, name: &CStr) -> Result<MetadataObservatio
     })
 }
 
-/// An entry on another device: its own identity and kind, with no size, time,
-/// allocation, link count or space identity, as `MetadataObservation` requires.
-fn other_volume(facts: &Facts) -> MetadataObservation {
+/// An entry on another volume: its own identity and `kind`, with no size,
+/// time, allocation, link count or space identity, as `MetadataObservation`
+/// requires.
+fn other_volume(facts: &Facts, kind: ObservedKind) -> MetadataObservation {
     MetadataObservation {
-        kind: facts.kind(),
+        kind,
         device: facts.device,
         inode: facts.inode.unwrap_or(0),
         size: Err(unavailable()),
@@ -182,3 +207,6 @@ fn other_volume(facts: &Facts) -> MetadataObservation {
         space_identity: None,
     }
 }
+
+#[cfg(test)]
+mod tests;
