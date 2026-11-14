@@ -1,5 +1,6 @@
 import axe from "axe-core";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -68,4 +69,48 @@ test("the dialog has no accessibility violations", async () => {
   expect((await axe.run(screen.getByRole("alertdialog"))).violations).toEqual(
     [],
   );
+});
+
+function keyDown(
+  target: Element,
+  key: string,
+  init: { isComposing: boolean | undefined; keyCode: number },
+) {
+  const event = new KeyboardEvent("keydown", {
+    key,
+    bubbles: true,
+    cancelable: true,
+  });
+  Object.defineProperty(event, "isComposing", { value: init.isComposing });
+  Object.defineProperty(event, "keyCode", { value: init.keyCode });
+  act(() => {
+    target.dispatchEvent(event);
+  });
+  return event;
+}
+
+test("an Enter the input method is processing is not cancelled in any entry", () => {
+  const { onConfirm } = renderDialog();
+  for (const name of ["Note", "Date"]) {
+    const entry = screen.getByLabelText(name);
+    for (const init of [
+      { isComposing: true, keyCode: 13 },
+      { isComposing: false, keyCode: 229 },
+    ])
+      expect(keyDown(entry, "Enter", init).defaultPrevented).toBe(false);
+  }
+  expect(onConfirm).not.toHaveBeenCalled();
+});
+
+test("an Escape the input method is processing does not close the dialog, even in an entry with no composition handling", () => {
+  const { onCancel } = renderDialog();
+  const entry = screen.getByLabelText("Date");
+  for (const init of [
+    { isComposing: true, keyCode: 229 },
+    { isComposing: false, keyCode: 229 },
+  ])
+    keyDown(entry, "Escape", init);
+  expect(onCancel).not.toHaveBeenCalled();
+  keyDown(entry, "Escape", { isComposing: false, keyCode: 27 });
+  expect(onCancel).toHaveBeenCalledTimes(1);
 });
