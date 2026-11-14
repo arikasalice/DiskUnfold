@@ -62,6 +62,10 @@ pub struct VizModel {
     #[serde(deserialize_with = "required_nullable")]
     pub focus_item_ref: Option<ItemRef>,
     pub origin: ResultOrigin,
+    /// Data source of the pinned version; absent means a sample (F32 FR2.HD2).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub data_source: Option<crate::data_source::DataSource>,
     pub staleness: VizStaleness,
     pub representation: VizRepresentation,
     pub denominator: VizDenominator,
