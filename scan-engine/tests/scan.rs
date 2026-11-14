@@ -5,8 +5,8 @@ use du_core_contracts::{
     ports::{PortError, PortErrorKind},
     result::{ResultCompleteness, ResultItemKind, ResultVersionRead},
     scan_observation::{
-        AnchoredDirectory, DirectoryObservations, MetadataObservation, ObservedEntry, ObservedKind,
-        SpaceIdentity,
+        AnchoredDirectory, DirectoryObservations, HandleIdentity, MetadataObservation,
+        ObservedEntry, ObservedKind, SpaceIdentity,
     },
 };
 use du_scan_engine::scan::{ResultIds, collect};
@@ -40,6 +40,17 @@ impl AnchoredDirectory for Directory {
             entries: Some(vec![file(b"child", 3)]),
             fail: false,
         }))
+    }
+    fn observed_identity(&self) -> Option<HandleIdentity> {
+        Some(root_identity())
+    }
+}
+/// A root identity distinct from every fixture entry, on the same volume.
+fn root_identity() -> HandleIdentity {
+    HandleIdentity {
+        device: 1,
+        inode: u64::MAX,
+        ancestors: Vec::new(),
     }
 }
 fn error() -> PortError {
@@ -307,6 +318,9 @@ impl DirectoryObservations for EmptyRoot {
 }
 
 impl AnchoredDirectory for EmptyRoot {
+    fn observed_identity(&self) -> Option<HandleIdentity> {
+        Some(root_identity())
+    }
     fn open_child(&self, _: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError> {
         Err(error())
     }

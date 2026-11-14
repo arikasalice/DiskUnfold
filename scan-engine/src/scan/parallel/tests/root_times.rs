@@ -14,6 +14,9 @@ impl DirectoryObservations for TimedRoot {
 }
 
 impl AnchoredDirectory for TimedRoot {
+    fn observed_identity(&self) -> Option<du_core_contracts::scan_observation::HandleIdentity> {
+        crate::scan::test_identity(self)
+    }
     fn open_child(&self, entry: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError> {
         self.source.open_child(entry)
     }

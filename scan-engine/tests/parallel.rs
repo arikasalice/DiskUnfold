@@ -5,7 +5,8 @@ use du_core_contracts::{
     ports::{PortError, PortErrorKind},
     result::{ResultCompleteness, ResultItemKind, ResultVersionRead},
     scan_observation::{
-        AnchoredDirectory, DirectoryObservations, MetadataObservation, ObservedEntry, ObservedKind,
+        AnchoredDirectory, DirectoryObservations, HandleIdentity, MetadataObservation,
+        ObservedEntry, ObservedKind,
     },
 };
 use du_scan_engine::scan::{ResultIds, collect_parallel};
@@ -138,6 +139,17 @@ impl AnchoredDirectory for Directory {
             gate: self.gate.clone(),
             delayed: self.delayed,
         }))
+    }
+    fn observed_identity(&self) -> Option<HandleIdentity> {
+        Some(root_identity())
+    }
+}
+/// A root identity distinct from every fixture entry, on the same volume.
+fn root_identity() -> HandleIdentity {
+    HandleIdentity {
+        device: 1,
+        inode: u64::MAX,
+        ancestors: Vec::new(),
     }
 }
 fn context(limit: usize) -> Context {
@@ -365,6 +377,9 @@ impl AnchoredDirectory for WideRoot {
     fn open_child(&self, _: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError> {
         Ok(Box::new(WideRoot { done: true }))
     }
+    fn observed_identity(&self) -> Option<HandleIdentity> {
+        Some(root_identity())
+    }
 }
 
 #[test]
@@ -403,6 +418,9 @@ impl DirectoryObservations for BatchRoot {
     }
 }
 impl AnchoredDirectory for BatchRoot {
+    fn observed_identity(&self) -> Option<HandleIdentity> {
+        Some(root_identity())
+    }
     fn open_child(&self, _: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError> {
         Err(error())
     }

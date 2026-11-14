@@ -4,7 +4,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use du_analysis_index::IngestSink;
+use du_analysis_index::{IngestSink, ScopeHeader};
 use du_core_contracts::{
     Id,
     job::{
@@ -69,6 +69,7 @@ pub struct MetadataScan {
     roots: Mutex<Option<DeviceRoots>>,
     store: IngestSink,
     scope: Id,
+    scope_fingerprint: Option<String>,
     lineage: Option<Id>,
     ids: Arc<dyn ResultIds>,
     filter: Option<Arc<PreMetadataFilter<'static>>>,
@@ -120,6 +121,7 @@ impl MetadataScan {
             roots: Mutex::new(Some(roots)),
             store,
             scope,
+            scope_fingerprint: None,
             lineage: None,
             ids,
             filter: None,
@@ -132,6 +134,15 @@ impl MetadataScan {
     /// Binds this scan to the stable lineage of its verified scope and source.
     pub fn with_lineage(mut self, lineage: Id) -> Self {
         self.lineage = Some(lineage);
+        self
+    }
+
+    /// Carries the fingerprint of the frozen scope in every result header.
+    ///
+    /// The caller passes the canonical fingerprint computed for the same scope
+    /// version that this scan collects (FR1.HD1.app-host.DD1).
+    pub fn with_scope_fingerprint(mut self, fingerprint: String) -> Self {
+        self.scope_fingerprint = Some(fingerprint);
         self
     }
 
@@ -201,13 +212,21 @@ impl JobBody for MetadataScan {
                         )
                     })
                     .unzip();
-                let build = match &self.lineage {
-                    Some(lineage) => self.store.open_forest_in_lineage(
+                let build = match (&self.scope_fingerprint, &self.lineage) {
+                    (Some(fingerprint), lineage) => self.store.open_scoped_forest(
+                        ScopeHeader {
+                            version_id: self.scope.clone(),
+                            fingerprint: fingerprint.clone(),
+                        },
+                        observed,
+                        lineage.clone(),
+                    ),
+                    (None, Some(lineage)) => self.store.open_forest_in_lineage(
                         self.scope.clone(),
                         observed,
                         lineage.clone(),
                     ),
-                    None => self.store.open_forest(self.scope.clone(), observed),
+                    (None, None) => self.store.open_forest(self.scope.clone(), observed),
                 };
                 let build = build.and_then(|mut build| {
                     if let Some(limit) = self.shared_table_limit {
@@ -305,6 +324,10 @@ mod device_tests {
         }
     }
     impl AnchoredDirectory for Empty {
+        // Device grouping never collects, so identity is not supported here.
+        fn observed_identity(&self) -> Option<du_core_contracts::scan_observation::HandleIdentity> {
+            None
+        }
         fn open_child(&self, _: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError> {
             Err(PortError {
                 kind: PortErrorKind::Unsupported,

@@ -231,6 +231,11 @@ fn check_replacement_submission(
     assert_eq!(first.lineage_id(), second.lineage_id());
     assert!(first.lineage_id().is_some());
     assert_ne!(first.scope_version_id(), second.scope_version_id());
+    // FR1.HD1.app-host.DD1: each result header repeats the admitted scope.
+    assert_eq!(first.scope_version_id(), &receipt.scope_version);
+    let fingerprint = Some(receipt.scope_fingerprint.as_str());
+    assert_eq!(first.scope_fingerprint(), fingerprint);
+    assert_eq!(second.scope_fingerprint(), fingerprint);
     assert!(versions.pin_current(first_version).is_err());
     assert_eq!(first.items().len(), 2);
     Ok(())

@@ -265,6 +265,7 @@ impl UseCase for StartScan {
             self.ids.clone(),
         )
         .with_lineage(lineage.clone())
+        .with_scope_fingerprint(scope_fingerprint.clone())
         .with_shared_table_limit((self.limit)().entries());
         if let Some(factory) = &self.diagnostics {
             job = job.with_diagnostics(factory());

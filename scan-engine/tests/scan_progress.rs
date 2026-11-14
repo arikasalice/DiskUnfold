@@ -5,7 +5,8 @@ use du_core_contracts::{
     job::{Checkpoint, JobContext, JobCounts, JobFlow, JobFlowError, JobProgress},
     ports::{PortError, PortErrorKind},
     scan_observation::{
-        AnchoredDirectory, DirectoryObservations, MetadataObservation, ObservedEntry, ObservedKind,
+        AnchoredDirectory, DirectoryObservations, HandleIdentity, MetadataObservation,
+        ObservedEntry, ObservedKind,
     },
 };
 use du_scan_engine::scan::{ResultIds, collect_parallel};
@@ -87,6 +88,14 @@ impl DirectoryObservations for Root {
 impl AnchoredDirectory for Root {
     fn open_child(&self, _: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError> {
         Err(denied())
+    }
+    /// A root identity on the entries' volume, distinct from every fixture entry.
+    fn observed_identity(&self) -> Option<HandleIdentity> {
+        Some(HandleIdentity {
+            device: 1,
+            inode: u64::MAX,
+            ancestors: Vec::new(),
+        })
     }
 }
 

@@ -1,5 +1,9 @@
 //! Bounded handle-based workers and a single result publisher.
-use super::{PreMetadataFilter, ResultIds, record_at};
+use super::{
+    PreMetadataFilter, ResultIds,
+    admission::{self, Admission, Boundary, Visited},
+    record_at,
+};
 mod control;
 mod queue;
 pub(crate) use control::ScanControlSession;
@@ -26,6 +30,7 @@ use std::{
 };
 
 mod disconnect;
+mod preparation;
 mod scheduler;
 mod volume_reports;
 
@@ -49,6 +54,7 @@ struct Frame {
     root_published: bool,
     batch_pending: bool,
     case_observed: bool,
+    boundary: Boundary,
 }
 struct Queue {
     ready: VecDeque<Frame>,
@@ -74,6 +80,7 @@ struct Shared {
     abort: AtomicBool,
     disconnects: disconnect::Disconnects,
     track_priority_paths: bool,
+    visited: Visited,
 }
 impl Shared {
     /// Stops all scan flows after an internal failure, without requesting user cancellation.
@@ -85,7 +92,9 @@ impl Shared {
     }
 }
 enum Event {
-    Item(u32, Vec<Vec<u8>>, Box<TimedObservedEntry>),
+    Item(u32, Vec<Vec<u8>>, Box<TimedObservedEntry>, Admission),
+    /// A name withheld by an undecidable exclusion rule; it was never observed.
+    Undecided(u32, Vec<Vec<u8>>),
     DirectoryCase(u32, Vec<Vec<u8>>, DirectoryCaseEvidence),
     Failure {
         root_index: u32,
@@ -313,16 +322,17 @@ fn run(
         build.seal(id.clone(), ResultCompleteness::Cancelled)?;
         return Ok((id, true, root_count));
     }
-    match reports.prepare_start(&roots, context, &disconnects) {
-        Ok(()) => {}
+    let prepared = match preparation::prepare(&mut reports, roots, context, &disconnects) {
+        Ok(prepared) => prepared,
         Err(JobFlowError::Cancelled) => {
             let id = ids.next_id();
             build.seal(id.clone(), ResultCompleteness::Cancelled)?;
             return Ok((id, true, root_count));
         }
         Err(_) => return Err(BuildError::Unavailable),
-    }
+    };
     build.set_volume_reports(reports.snapshot())?;
+    preparation::record_starts(&mut build, &prepared.starts, &disconnects, counts, context)?;
     let flows = match acquire_flows(context, limit) {
         Ok(flows) => flows,
         Err(JobFlowError::Cancelled) => {
@@ -332,7 +342,7 @@ fn run(
         }
         Err(_) => return Err(BuildError::Unavailable),
     };
-    let shared = scheduler::create(roots, devices, diagnostics, disconnects, scan_control)?;
+    let shared = scheduler::create(prepared, devices, diagnostics, disconnects, scan_control)?;
     let (sender, receiver) = mpsc::sync_channel(BUFFERED_OBSERVATIONS);
     let mut progress = Progress {
         failed_roots: vec![false; root_count],

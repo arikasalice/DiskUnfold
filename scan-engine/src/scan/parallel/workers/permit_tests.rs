@@ -10,6 +10,10 @@ impl DirectoryObservations for Empty {
     }
 }
 impl AnchoredDirectory for Empty {
+    // Placed in a frame directly; root identities are never queried here.
+    fn observed_identity(&self) -> Option<du_core_contracts::scan_observation::HandleIdentity> {
+        None
+    }
     fn open_child(&self, _: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError> {
         Err(PortError {
             kind: PortErrorKind::Unsupported,
@@ -31,6 +35,7 @@ fn permit_is_released_during_panic_unwind() {
         root_published: false,
         batch_pending: false,
         case_observed: false,
+        boundary: Boundary::Unknown,
     };
     let shared = Shared {
         queue: Arc::new(Mutex::new(Queue {
@@ -50,6 +55,7 @@ fn permit_is_released_during_panic_unwind() {
         abort: AtomicBool::new(false),
         disconnects: disconnect::Disconnects::new(1, &[]),
         track_priority_paths: false,
+        visited: Default::default(),
     };
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let mut queue = shared
@@ -98,6 +104,7 @@ fn ready_peak_tracks_simultaneous_frames_and_overflow() -> Result<(), Box<dyn st
         root_published: false,
         batch_pending: false,
         case_observed: false,
+        boundary: Boundary::Unknown,
     };
     let shared = Shared {
         queue: Arc::new(Mutex::new(Queue {
@@ -117,6 +124,7 @@ fn ready_peak_tracks_simultaneous_frames_and_overflow() -> Result<(), Box<dyn st
         abort: AtomicBool::new(false),
         disconnects: disconnect::Disconnects::new(1, &[]),
         track_priority_paths: false,
+        visited: Default::default(),
     };
     for _ in 0..QUEUED_DIRECTORIES {
         assert!(schedule(&shared, &Context, frame(), false).is_none());
