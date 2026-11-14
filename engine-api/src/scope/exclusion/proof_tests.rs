@@ -52,3 +52,51 @@ fn original_and_fingerprint_are_derived_from_same_bound_conditions() -> Result<(
     );
     Ok(())
 }
+
+struct Literal;
+
+impl PathComparison for Literal {
+    fn path(&self, path: &OsPath) -> Option<ComparisonPath> {
+        let raw = path.raw.bytes().ok()?;
+        let (units, _) = raw.as_chunks::<2>();
+        let text = String::from_utf16(
+            &units
+                .iter()
+                .map(|u| u16::from_le_bytes(*u))
+                .collect::<Vec<_>>(),
+        )
+        .ok()?;
+        Some(ComparisonPath {
+            volume: vec![1],
+            components: text
+                .split('\\')
+                .map(|part| part.as_bytes().to_vec())
+                .collect(),
+            serialized_key: path.clone(),
+        })
+    }
+
+    fn component(&self, _: &ComparisonPath, _: &[Vec<u8>], raw: &[u8]) -> Option<Vec<u8>> {
+        Some(raw.to_vec())
+    }
+}
+
+#[test]
+fn a_resent_projected_label_does_not_replace_the_native_original() -> Result<(), EngineError> {
+    let native = path(r"\\?\C:\Fixture\Secret");
+    let resent = OsPath {
+        display: r"C:\Fixture\Secret".into(),
+        ..native.clone()
+    };
+    let rules =
+        proven::ProvenRules::admit(Arc::new(Literal), &[ScopeExclusion::Path { path: resent }])?;
+    let frozen = rules
+        .freeze(&[(path(r"\\?\C:\Fixture"), vec![1])])
+        .ok_or_else(|| EngineError::reason("support.internal_error"))?;
+    let ScopeExclusion::Path { path: original } = &frozen.rules[0].original else {
+        return Err(EngineError::reason("support.internal_error"));
+    };
+    assert_eq!(original.display, native.display);
+    assert_eq!(original.raw, native.raw);
+    Ok(())
+}
