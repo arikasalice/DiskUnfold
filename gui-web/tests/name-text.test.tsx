@@ -103,7 +103,7 @@ test("a path marks only its last component", () => {
   );
 });
 
-test("the current location of a path line is drawn as a name", () => {
+test("the ancestors and the current location of a path line are drawn as names", () => {
   const { container } = render(
     <Breadcrumbs
       label="Folder path"
@@ -116,5 +116,6 @@ test("the current location of a path line is drawn as a name", () => {
   const current = container.querySelector('[aria-current="location"]')!;
   expect(current.getAttribute("title")).toBe("보고서 ");
   expect(marks(current)).toHaveLength(1);
-  expect(marks(container)).toHaveLength(1);
+  expect(marks(container.querySelector("button")!)).toHaveLength(1);
+  expect(marks(container)).toHaveLength(2);
 });

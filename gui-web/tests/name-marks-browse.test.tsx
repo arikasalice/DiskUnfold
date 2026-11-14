@@ -12,6 +12,10 @@ import { BrowsePanel } from "../src/features/browse/BrowsePanel";
 import type { BrowsePort } from "../src/features/browse/BrowsePanel";
 import type { BrowseOpenResponse, FolderQueryRow } from "../src/ipc";
 import { useScanPriority } from "../src/state/scan-priority";
+import type {
+  ScanPriority,
+  ScanPriorityNotice,
+} from "../src/state/scan-priority";
 import { priorityClient, ref, running, version } from "./scan-priority-fixture";
 
 afterEach(cleanup);
@@ -96,6 +100,39 @@ function rowOf(name: RegExp) {
     .closest<HTMLElement>('[role="row"]')!;
 }
 
+/** The selection bar's status region, which shows and announces the notice. */
+function noticeStatus() {
+  return within(
+    screen.getByRole("toolbar", { name: "Selection actions" }),
+  ).getByRole("status");
+}
+
+/** What a screen reader reads: the text without elements hidden from it. */
+function spoken(element: Element) {
+  const copy = element.cloneNode(true) as Element;
+  for (const hidden of copy.querySelectorAll('[aria-hidden="true"]'))
+    hidden.remove();
+  return copy.textContent;
+}
+
+function renderNotice(notice: Omit<ScanPriorityNotice, "id" | "jobRef">) {
+  const priority: ScanPriority = {
+    canRequest: () => true,
+    requested: () => false,
+    status: () => undefined,
+    request: vi.fn(),
+    notice: { ...notice, id: 1, jobRef: "scan" },
+  };
+  render(
+    <BrowsePanel
+      port={port()}
+      resultVersion={version}
+      priority={priority}
+      inspectItem={() => "Details"}
+    />,
+  );
+}
+
 test("F02: two folders that differ only by a trailing space read differently in the folder list", async () => {
   await setup();
   const spaced = rowOf(/^보고서\s*, The name ends with 1 space$/);
@@ -117,7 +154,7 @@ test("F02: the path line and the location hierarchy mark the current folder name
   expect(hierarchy.querySelectorAll(".du-name__mark")).toHaveLength(1);
 });
 
-test("F02: the Analyze first notice writes the marks into its text and sends the item itself", async () => {
+test("F02: the Analyze first notice marks the name on screen, reads the real name and sends the item itself", async () => {
   const { answers } = await setup();
   const row = rowOf(/^보고서\s*, The name ends/);
   fireEvent.click(within(row).getByRole("button", { name: "Analyze first" }));
@@ -128,8 +165,52 @@ test("F02: the Analyze first notice writes the marks into its text and sends the
       appliedPriorityArea: ref(1),
     }),
   );
-  expect(screen.getAllByText("‘보고서\u2423’ is analyzed first")).toHaveLength(
-    1,
+  const status = noticeStatus();
+  expect(
+    document.querySelectorAll(".du-selection-actions__notice"),
+  ).toHaveLength(1);
+  const marks = status.querySelectorAll(".du-name__mark");
+  expect(marks).toHaveLength(1);
+  expect(marks[0]?.getAttribute("aria-hidden")).toBe("true");
+  expect(spoken(status)).toBe(
+    "‘보고서 , The name ends with 1 space’ is analyzed first",
+  );
+});
+
+test("F02: a notice that replaces a request marks both names and reads neither mark", async () => {
+  renderNotice({
+    outcome: "accepted",
+    name: "새 폴더 ",
+    previous: "  옛 폴더",
+    applied: true,
+    paused: false,
+  });
+  const status = await waitFor(noticeStatus);
+  const marks = status.querySelectorAll('.du-name__mark[aria-hidden="true"]');
+  expect(Array.from(marks, (mark) => mark.textContent)).toEqual([
+    "\u2423",
+    "\u2423\u2423",
+  ]);
+  const reading = spoken(status);
+  expect(reading).not.toContain("\u2423");
+  expect(reading).toBe(
+    "‘새 폴더 , The name ends with 1 space’ is now analyzed first. " +
+      "‘  옛 폴더, The name starts with 2 spaces’ returns to its normal order.",
+  );
+});
+
+test("F02: a notice whose names have no edge white space keeps its sentence", async () => {
+  renderNotice({
+    outcome: "accepted",
+    name: "first",
+    previous: "보고서",
+    applied: true,
+    paused: false,
+  });
+  const status = await waitFor(noticeStatus);
+  expect(status.querySelector(".du-name")).toBeNull();
+  expect(status.textContent).toBe(
+    "‘first’ is now analyzed first. ‘보고서’ returns to its normal order.",
   );
 });
 

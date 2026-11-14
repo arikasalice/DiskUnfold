@@ -1,7 +1,8 @@
 import { useId, useLayoutEffect, useRef } from "react";
-import { Action, markNameEdges, SelectionActions } from "../../components";
+import type { ReactNode } from "react";
+import { Action, NameText, SelectionActions } from "../../components";
 import { scanPriorityText, scanPriorityTone } from "../../ipc";
-import type { FolderQueryRow } from "../../ipc";
+import type { FolderQueryRow, ScanPriorityAnnouncement } from "../../ipc";
 import { useLocaleText } from "../../i18n/presentation";
 import type { LocaleText } from "../../i18n/presentation";
 import type { BrowsePages } from "../../state/browse-pages";
@@ -138,6 +139,41 @@ function summaryText(
 }
 
 /**
+ * Stand-ins passed through the localized sentence in place of the folder
+ * names, so the sentence is split exactly where each name stands even when a
+ * name repeats or matches a word of the sentence. Translations do not use
+ * these private use characters.
+ */
+const NAME_SLOT = "\uE000";
+const PREVIOUS_SLOT = "\uE001";
+
+/**
+ * The outcome sentence with each folder name drawn by `NameText`: edge white
+ * space is marked on screen only, and the status region reads the real name
+ * followed by the explanation of its edge white space. A name without edge
+ * white space leaves the sentence as plain text.
+ */
+function noticeText(
+  notice: ScanPriorityAnnouncement,
+  text: LocaleText,
+): ReactNode {
+  const names = new Map([[NAME_SLOT, notice.name]]);
+  if (notice.previous !== undefined) names.set(PREVIOUS_SLOT, notice.previous);
+  const sentence = scanPriorityText(
+    {
+      ...notice,
+      name: NAME_SLOT,
+      previous: notice.previous === undefined ? undefined : PREVIOUS_SLOT,
+    },
+    text,
+  );
+  return sentence.split(/([\uE000\uE001])/u).map((part, index) => {
+    const name = names.get(part);
+    return name === undefined ? part : <NameText key={index} name={name} />;
+  });
+}
+
+/**
  * The selection action bar offers "Analyze first" while the list shows the
  * running scan's current result. It acts only on one selected folder that the
  * row action would also offer; otherwise the summary says why.
@@ -217,19 +253,7 @@ export function SelectionAnalyzeFirst({
         notice && {
           id: notice.id,
           tone: scanPriorityTone(notice.outcome),
-          // The notice text is a string, so the marks are written into it and
-          // the spoken explanation is left out; the request keeps the real name.
-          text: scanPriorityText(
-            {
-              ...notice,
-              name: markNameEdges(notice.name),
-              previous:
-                notice.previous === undefined
-                  ? undefined
-                  : markNameEdges(notice.previous),
-            },
-            text,
-          ),
+          text: noticeText(notice, text),
         }
       }
     >

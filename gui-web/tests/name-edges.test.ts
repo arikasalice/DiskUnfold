@@ -1,10 +1,5 @@
 import { expect, test } from "vitest";
-import {
-  markNameEdges,
-  NAME_SPACE_MARK,
-  nameEdges,
-  pathNameEdges,
-} from "../src/components";
+import { nameEdges, pathNameEdges } from "../src/components";
 
 // Every character with the Unicode White_Space property.
 const WHITE_SPACE = [
@@ -82,7 +77,11 @@ test("a name of only white space is marked in full and an empty name not at all"
 });
 
 test("a name ending with a dot has no mark", () => {
-  expect(markNameEdges("보고서.")).toBe("보고서.");
+  expect(nameEdges("보고서.")).toMatchObject({
+    middle: "보고서.",
+    leadingCount: 0,
+    trailingCount: 0,
+  });
 });
 
 test("combining marks and emoji stay whole and a space that carries a mark is not blank", () => {
@@ -109,9 +108,11 @@ test("right-to-left names keep their marks at the logical start and end", () => 
     middle: "\u05e9\u05dc\u05d5\u05dd",
     trailingCount: 1,
   });
-  expect(markNameEdges(" \u0645\u0644\u0641")).toBe(
-    `${NAME_SPACE_MARK}\u0645\u0644\u0641`,
-  );
+  expect(nameEdges(" \u0645\u0644\u0641")).toMatchObject({
+    leadingCount: 1,
+    middle: "\u0645\u0644\u0641",
+    trailingCount: 0,
+  });
 });
 
 test("the parts always join back into the name", () => {
@@ -136,9 +137,4 @@ test("a path marks only its last component", () => {
     tail: "\\",
   });
   expect(pathNameEdges("/")).toMatchObject({ head: "", tail: "/" });
-});
-
-test("marks replace edge white space only in text that must be a string", () => {
-  expect(markNameEdges("  초안 ")).toBe("\u2423\u2423초안\u2423");
-  expect(markNameEdges("보고서 초안")).toBe("보고서 초안");
 });

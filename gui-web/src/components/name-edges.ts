@@ -79,17 +79,3 @@ export function pathNameEdges(path: string): PathNameEdges {
     tail: path.slice(end),
   };
 }
-
-/**
- * The name with each edge white space character replaced by the mark, for
- * text that can only hold a string. The result is for display only; keep the
- * original name for every value that is stored, sent, compared or copied.
- */
-export function markNameEdges(name: string): string {
-  const edges = nameEdges(name);
-  return (
-    NAME_SPACE_MARK.repeat(edges.leadingCount) +
-    edges.middle +
-    NAME_SPACE_MARK.repeat(edges.trailingCount)
-  );
-}
