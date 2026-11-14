@@ -131,7 +131,7 @@ fn decide_with(
     if excluded {
         return Admission::Excluded;
     }
-    let Some(meta) = consistent(entry) else {
+    let Some(meta) = consistent(entry, parent.boundary) else {
         return Admission::Record;
     };
     if meta.kind == ObservedKind::Link {
@@ -157,10 +157,17 @@ fn decide_with(
     }
 }
 
-fn consistent(entry: &ObservedEntry) -> Option<&MetadataObservation> {
+/// Metadata that describes the enumerated entry, or `None` to record it as is.
+///
+/// The enumerated and observed inodes must match on the parent's volume. On
+/// another volume they are not comparable: a Linux mount point enumerates the
+/// covered directory of the parent while its metadata is the mounted root.
+/// Such an entry is only ever classified outside the boundary, never entered.
+fn consistent(entry: &ObservedEntry, boundary: Boundary) -> Option<&MetadataObservation> {
     entry.metadata.as_ref().ok().filter(|meta| {
+        let other_volume = matches!(boundary, Boundary::Volume(device) if meta.device != device);
         meta.inode != 0
-            && meta.inode == entry.enumerated_inode
+            && (other_volume || meta.inode == entry.enumerated_inode)
             && (entry.enumerated_kind == ObservedKind::Unknown
                 || entry.enumerated_kind == meta.kind)
             && !matches!(meta.kind, ObservedKind::Unknown | ObservedKind::Other)

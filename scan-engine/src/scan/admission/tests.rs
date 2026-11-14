@@ -109,6 +109,44 @@ fn inconsistent_metadata_is_recorded_and_never_entered() {
 }
 
 #[test]
+fn another_volume_is_outside_the_boundary_whatever_its_enumerated_inode() {
+    let visited = Visited::default();
+    let parent = at(0, Boundary::Volume(1));
+    // A Linux mount point: enumeration reports the covered directory (inode 7)
+    // of the parent volume and its metadata the mounted root (inode 1).
+    let mut mount = entry(ObservedKind::Directory, 2, 1);
+    mount.enumerated_inode = 7;
+    assert_eq!(
+        preview(false, &mount, parent, &visited),
+        Admission::OutsideBoundary
+    );
+    assert_eq!(
+        decide(false, &mount, parent, &visited),
+        Admission::OutsideBoundary
+    );
+    assert!(!visited.known(0, 2, 1));
+    // Without a known parent volume, the inodes must still match.
+    assert_eq!(
+        decide(false, &mount, at(0, Boundary::Unknown), &visited),
+        Admission::Record
+    );
+    // The same mismatch on the parent's own volume is a replaced entry.
+    let mut replaced = entry(ObservedKind::Directory, 1, 1);
+    replaced.enumerated_inode = 7;
+    assert_eq!(
+        decide(false, &replaced, parent, &visited),
+        Admission::Record
+    );
+    // A changed kind is still recorded as is.
+    let mut changed_kind = mount.clone();
+    changed_kind.enumerated_kind = ObservedKind::File;
+    assert_eq!(
+        decide(false, &changed_kind, parent, &visited),
+        Admission::Record
+    );
+}
+
+#[test]
 fn roots_are_reserved_in_order_and_ancestors_block_only_their_root() {
     // Root 1 lies below root 0 (inode 20); root 2 repeats root 0.
     let (visited, starts) = Visited::reserve_roots(vec![
