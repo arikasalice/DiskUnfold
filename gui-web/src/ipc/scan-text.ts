@@ -387,20 +387,6 @@ export function scanJobReasonText(reasonKey: string, text: LocaleText): string {
   );
 }
 
-/** Explains a scope review or scan start failure. */
-export function scopeErrorText(error: unknown, text: LocaleText): string {
-  if (error instanceof AnalysisError) {
-    if (error.code === "STALE_VERSION")
-      return text(
-        "ui.analysis.target_or_result_changed",
-        "The target or result changed. Review the scope again.",
-      );
-    if (scopeNotices.has(error.reasonKey))
-      return scopeNoticeText(error.reasonKey, text);
-  }
-  return text("ui.analysis.operation_failed", "The operation failed");
-}
-
 const reviewReasons = new Map<string, Message>([
   [
     "path.unresolvable",
@@ -417,6 +403,29 @@ const reviewReasons = new Map<string, Message>([
     ],
   ],
 ]);
+
+/**
+ * Explains a scope review or scan start failure.
+ *
+ * A stale version asks for a new review. Otherwise an error whose reason key
+ * has display copy (a scope notice, review reason or job reason, in that
+ * order) shows that copy, and every other failure uses the general message.
+ */
+export function scopeErrorText(error: unknown, text: LocaleText): string {
+  if (error instanceof AnalysisError) {
+    if (error.code === "STALE_VERSION")
+      return text(
+        "ui.analysis.target_or_result_changed",
+        "The target or result changed. Review the scope again.",
+      );
+    const message =
+      scopeNotices.get(error.reasonKey) ??
+      reviewReasons.get(error.reasonKey) ??
+      jobReasons.get(error.reasonKey);
+    if (message) return text(...message);
+  }
+  return text("ui.analysis.operation_failed", "The operation failed");
+}
 
 /** Explains a failed scope review request. */
 export function scopeReviewErrorText(error: unknown, text: LocaleText): string {
