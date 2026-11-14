@@ -16,7 +16,7 @@ import {
   StatusBadge,
   Text,
 } from "../../components";
-import { SIZE_UNIT_RULES } from "../../ipc";
+import { SIZE_UNIT_RULES, scanJobReasonText, scanProblemText } from "../../ipc";
 import type { AnalysisClient, JobState, OsPath, SpaceTotal } from "../../ipc";
 import type { ScanControl, useScanResult } from "../../state/analysis-scan";
 import { ScanIssues } from "./ScanIssues";
@@ -114,8 +114,7 @@ export function ScanOutput({
   const pathsLabel = running
     ? text("ui.analysis.scanning_paths", "Scanning paths")
     : text("ui.analysis.selected_paths", "Selected paths");
-  const error =
-    problem ?? scan.controlError ?? scan.error ?? scan.status?.reasonKey;
+  const error = problem ?? scanErrorText(scan, text);
   const awaitingTotals =
     !running &&
     Boolean(scan.status?.resultVersion) &&
@@ -157,6 +156,7 @@ export function ScanOutput({
             displayChoice={displayChoice}
             onDisplayChoice={onDisplayChoice}
             onSizeBasisChange={onSizeBasisChange}
+            onReopenLatest={scan.showLatest}
           />
         ) : running ? (
           <Text kind="muted">
@@ -178,6 +178,16 @@ export function ScanOutput({
       </section>
     </>
   );
+}
+
+function scanErrorText(
+  scan: ReturnType<typeof useScanResult>,
+  text: LocaleText,
+): string | undefined {
+  const problem = scan.controlError ?? scan.error;
+  if (problem) return scanProblemText(problem, text);
+  const reason = scan.status?.reasonKey;
+  return reason ? scanJobReasonText(reason, text) : undefined;
 }
 
 function ScanOutputHeader({
@@ -434,6 +444,7 @@ function PinnedResult({
   displayChoice,
   onDisplayChoice,
   onSizeBasisChange,
+  onReopenLatest,
 }: {
   client: AnalysisClient;
   total: SpaceTotal;
@@ -443,6 +454,7 @@ function PinnedResult({
   onDisplayChoice: (choice: SizeDisplay) => void;
   onSizeBasisChange?:
     ((resultVersion: string, basis: SizeBasisFilter) => void) | undefined;
+  onReopenLatest: () => void;
 }) {
   const [basisChoice, setBasis] = useState<SizeBasisFilter>();
   const regional = useRegionalFormat();
@@ -540,9 +552,9 @@ function PinnedResult({
         display={display}
       />
       <ScanIssues
-        key={`issues:${total.resultVersion}`}
         client={client}
         resultVersion={total.resultVersion}
+        onReopenLatest={onReopenLatest}
       />
       <ScopeDetails
         key={total.resultVersion}
