@@ -34,13 +34,16 @@ const SYNC_LIMIT: Duration = Duration::from_millis(500);
 /// scope's files without walking the scope at admission.
 const SYNC_ITEMS: usize = 200_000;
 
-/// Test-only view that always takes the job path.
+/// Test-only views that always take the job path: this one and every view whose reference
+/// starts with [`FORCE_JOB_PREFIX`], so that several views can share one job.
 #[cfg(test)]
 pub(super) const FORCE_JOB_VIEW: &str = "018f3333-0000-7000-8000-00000000f00b";
+#[cfg(test)]
+pub(super) const FORCE_JOB_PREFIX: &str = "018f3333-0000-7000-8000-00000000f0";
 
 fn sync_allowed(view: &Id, items: usize) -> bool {
     #[cfg(test)]
-    if view.as_str() == FORCE_JOB_VIEW {
+    if view.as_str().starts_with(FORCE_JOB_PREFIX) {
         return false;
     }
     let _ = view;
@@ -133,7 +136,12 @@ fn admitted(
             deadline: Instant::now() + SYNC_LIMIT,
             expired: AtomicBool::new(false),
         };
-        match run(&admission, &services.registry, &control) {
+        match run(
+            &admission,
+            &services.registry,
+            services.assembly.decision_limit,
+            &control,
+        ) {
             Ok(classification) => {
                 services.registered.register(
                     admission.classification_ref.clone(),
@@ -171,15 +179,17 @@ struct Admission {
 fn run(
     admission: &Admission,
     registry: &Registry,
+    limit: usize,
     control: &dyn Control,
 ) -> Result<Classification, group::Error> {
-    group::classify_scope(
+    group::classify_scope_bounded(
         admission.version.clone(),
         admission.scope.as_ref(),
         registry,
         admission.conditions.clone(),
         Parallelism::default(),
         control,
+        limit,
     )
 }
 
@@ -354,40 +364,47 @@ fn submit(
     let body = Arc::new(Body {
         admission,
         registry: services.registry.clone(),
+        decision_limit: services.assembly.decision_limit,
         slot,
     });
     let runtime = &services.assembly.runtime;
-    let submitted = runtime
-        .submit_with_publication(
-            Submission {
-                kind_id: JOB_KIND.into(),
-                deduplication_key: Some(DeduplicationKey {
-                    scope: version_id.as_str().to_owned(),
-                    input: key.clone(),
-                    channel: "gui".into(),
-                    key,
-                }),
-                body,
-                priority: JobPriority::Normal,
-                scope_summary: "virtual group classification".into(),
-                correlation_id: caller.correlation_id.clone(),
-                sample: data_source == DataSource::Sample,
-            },
-            publish,
-        )
-        .map_err(runtime_error)?;
-    let (job, reference) = match submitted {
-        SubmitResult::Created(job) => {
-            services.registered.track(job.clone(), reference.clone());
-            (job, reference)
-        }
-        SubmitResult::Existing(job) => {
-            let known = services.registered.tracked(&job).ok_or_else(internal)?;
-            (job, known)
-        }
-    };
+    // Submission, reference tracking and the channel binding happen under the channel
+    // lock, so a view that receives this job as a duplicate finds it tracked and counts
+    // this view as a holder.
+    let (job, reference) = services
+        .channels
+        .bind_submission((view, seq), runtime, || {
+            let submitted = runtime
+                .submit_with_publication(
+                    Submission {
+                        kind_id: JOB_KIND.into(),
+                        deduplication_key: Some(DeduplicationKey {
+                            scope: version_id.as_str().to_owned(),
+                            input: key.clone(),
+                            channel: "gui".into(),
+                            key,
+                        }),
+                        body,
+                        priority: JobPriority::Normal,
+                        scope_summary: "virtual group classification".into(),
+                        correlation_id: caller.correlation_id.clone(),
+                        sample: data_source == DataSource::Sample,
+                    },
+                    publish,
+                )
+                .map_err(runtime_error)?;
+            match submitted {
+                SubmitResult::Created(job) => {
+                    services.registered.track(job.clone(), reference.clone());
+                    Ok((job, reference))
+                }
+                SubmitResult::Existing(job) => {
+                    let known = services.registered.tracked(&job).ok_or_else(internal)?;
+                    Ok((job, known))
+                }
+            }
+        })?;
     services.assembly.workers.notify();
-    services.channels.set_job(view, seq, job.clone())?;
     Ok(GroupClassifyResponse::Job {
         request_seq: seq,
         job_ref: job,
@@ -408,6 +425,7 @@ fn runtime_error(error: RuntimeError) -> EngineError {
 struct Body {
     admission: Admission,
     registry: Registry,
+    decision_limit: usize,
     slot: Arc<Mutex<Option<Classification>>>,
 }
 
@@ -448,7 +466,12 @@ impl JobBody for Body {
             context: context.as_ref(),
             total: AtomicU64::new(UNKNOWN_TOTAL),
         };
-        let failure = match run(&self.admission, &self.registry, &control) {
+        let failure = match run(
+            &self.admission,
+            &self.registry,
+            self.decision_limit,
+            &control,
+        ) {
             Ok(classification) => match self.slot.lock() {
                 Ok(mut slot) => {
                     *slot = Some(classification);
