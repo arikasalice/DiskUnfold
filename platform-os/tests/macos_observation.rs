@@ -341,9 +341,46 @@ fn volume_identity_does_not_depend_on_the_opened_directory() -> TestResult {
     Ok(())
 }
 
-/// Uses the read-only system volume layout of macOS 10.15 and later.
+/// The mount path of the file system holding `path`, following links.
+fn mounted_on(path: &str) -> Option<Vec<u8>> {
+    let stats = rustix::fs::statfs(path).ok()?;
+    Some(
+        stats
+            .f_mntonname
+            .iter()
+            .take_while(|&&c| c != 0)
+            .map(|&c| u8::from_ne_bytes(c.to_ne_bytes()))
+            .collect(),
+    )
+}
+
+/// Why this machine lacks the read-only system volume layout of macOS 10.15
+/// and later, which the firmlink checks rely on; `None` when it has it.
+fn missing_system_layout() -> Option<&'static str> {
+    let directory = |path: &str| fs::symlink_metadata(path).is_ok_and(|meta| meta.is_dir());
+    if mounted_on("/").as_deref() != Some(b"/") {
+        return Some("/ is not a mount root");
+    }
+    if mounted_on("/System/Volumes/Data").as_deref() != Some(b"/System/Volumes/Data") {
+        return Some("no data volume is mounted at /System/Volumes/Data");
+    }
+    if !directory("/Users") || mounted_on("/Users").as_deref() != Some(b"/System/Volumes/Data") {
+        return Some("/Users is not a firmlink directory into the data volume");
+    }
+    if !directory("/System/Library") || mounted_on("/System/Library").as_deref() != Some(b"/") {
+        return Some("/System/Library is not on the system volume");
+    }
+    None
+}
+
+/// Uses the read-only system volume layout of macOS 10.15 and later; a runner
+/// whose disks are laid out otherwise prints the reason and skips the checks.
 #[test]
-fn firmlinks_and_mount_points_are_links_that_are_never_entered() -> TestResult {
+fn firmlinks_are_links_and_mount_points_are_reported_and_never_entered() -> TestResult {
+    if let Some(reason) = missing_system_layout() {
+        eprintln!("skipped: {reason}");
+        return Ok(());
+    }
     let mut system = open(Path::new("/"))?;
     assert_eq!(system.directory.ancestor_file_ids(), Some(&[][..]));
     let entries = all(&mut *system.directory)?;
@@ -358,22 +395,20 @@ fn firmlinks_and_mount_points_are_links_that_are_never_entered() -> TestResult {
     let mut volumes = open(Path::new("/System/Volumes"))?;
     let entries = all(&mut *volumes.directory)?;
     let data = find(&entries, b"Data")?;
-    assert_eq!(kind(data), Some(ObservedKind::Link));
+    assert_eq!(data.enumerated_kind, ObservedKind::MountPoint);
+    assert_eq!(kind(data), Some(ObservedKind::MountPoint));
     assert!(volumes.directory.open_child(data).is_err());
     let data_root = open(Path::new("/System/Volumes/Data"))?;
     assert_eq!(data_root.directory.ancestor_file_ids(), Some(&[][..]));
     assert_ne!(data_root.volume_id, system.volume_id);
     let library = open(Path::new("/System/Library"))?;
-    assert_eq!(
-        library.directory.ancestor_file_ids().map(<[Vec<u8>]>::len),
-        Some(2)
-    );
     let ancestors = |directory: &dyn AnchoredDirectory| {
         directory
             .observed_identity()
             .map(|identity| identity.ancestors)
     };
     assert_eq!(ancestors(&*system.directory), Some(Vec::new()));
+    // Ancestors run from the volume root down to the parent.
     assert_eq!(
         ancestors(&*library.directory),
         Some(vec![
@@ -381,5 +416,9 @@ fn firmlinks_and_mount_points_are_links_that_are_never_entered() -> TestResult {
             fs::metadata("/System")?.ino()
         ])
     );
+    // A root reached through the /Users firmlink keeps no ancestor evidence.
+    let users = open(Path::new("/Users"))?;
+    assert_eq!(users.directory.ancestor_file_ids(), None);
+    assert_eq!(ancestors(&*users.directory), Some(Vec::new()));
     Ok(())
 }

@@ -3,13 +3,14 @@ use super::{dataless, errors};
 use du_core_contracts::{Timestamp, ports::PortError, scan_observation::ObservedKind};
 use libc::{
     ATTR_BIT_MAP_COUNT, ATTR_CMN_DEVID, ATTR_CMN_FILEID, ATTR_CMN_FLAGS, ATTR_CMN_MODTIME,
-    ATTR_CMN_NAME, ATTR_CMN_OBJTYPE, ATTR_CMN_RETURNED_ATTRS, ATTR_DIR_MOUNTSTATUS,
-    ATTR_FILE_DATAALLOCSIZE, ATTR_FILE_DATALENGTH, ATTR_FILE_LINKCOUNT, DIR_MNTSTATUS_MNTPOINT,
+    ATTR_CMN_NAME, ATTR_CMN_OBJTYPE, ATTR_CMN_RETURNED_ATTRS, ATTR_DIR_DATALENGTH,
+    ATTR_DIR_MOUNTSTATUS, ATTR_FILE_ALLOCSIZE, ATTR_FILE_DATALENGTH, ATTR_FILE_LINKCOUNT,
+    DIR_MNTSTATUS_MNTPOINT,
 };
 use std::os::fd::{AsRawFd, BorrowedFd};
 
 /// Bytes offered to one bulk call; it returns as many whole records as fit.
-const BUFFER_BYTES: usize = 64 * 1024;
+pub(super) const BUFFER_BYTES: usize = 64 * 1024;
 
 // <sys/attr.h> and <sys/stat.h> values that libc 0.2.191 does not export.
 const ATTR_CMN_ERROR: u32 = 0x2000_0000;
@@ -18,7 +19,7 @@ const SF_FIRMLINK: u32 = 0x0080_0000;
 // <sys/vnode.h> `enum vtype`.
 const VNON: u32 = 0;
 const VREG: u32 = 1;
-const VDIR: u32 = 2;
+pub(super) const VDIR: u32 = 2;
 const VLNK: u32 = 5;
 const VBAD: u32 = 8;
 
@@ -30,13 +31,18 @@ pub(super) const COMMON: u32 = ATTR_CMN_RETURNED_ATTRS
     | ATTR_CMN_MODTIME
     | ATTR_CMN_FLAGS
     | ATTR_CMN_FILEID;
-pub(super) const DIRECTORY: u32 = ATTR_DIR_MOUNTSTATUS;
-pub(super) const FILE: u32 = ATTR_FILE_LINKCOUNT | ATTR_FILE_DATALENGTH | ATTR_FILE_DATAALLOCSIZE;
+pub(super) const DIRECTORY: u32 = ATTR_DIR_MOUNTSTATUS | ATTR_DIR_DATALENGTH;
+/// `ATTR_FILE_DATALENGTH` is the logical length of the data fork, which
+/// `stat` reports as `st_size`. `ATTR_FILE_ALLOCSIZE` is the allocation of
+/// every fork, which `stat` reports as `st_blocks` and `du` counts: it
+/// includes a resource fork, unlike `ATTR_FILE_DATAALLOCSIZE`, and it is the
+/// compressed allocation of a file with transparent APFS compression.
+pub(super) const FILE: u32 = ATTR_FILE_LINKCOUNT | ATTR_FILE_ALLOCSIZE | ATTR_FILE_DATALENGTH;
 /// Length word plus the five returned-attribute groups.
 const HEADER: usize = 24;
 
 /// One directory record. `None` means the file system did not return the value.
-#[derive(Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(super) struct Record {
     pub(super) name: Vec<u8>,
     /// Per-entry `errno` reported instead of some attributes.
@@ -48,38 +54,58 @@ pub(super) struct Record {
     pub(super) flags: Option<u32>,
     pub(super) file_id: Option<u64>,
     pub(super) mount_status: Option<u32>,
+    /// Logical length of a directory, `st_size` of the directory itself.
+    pub(super) directory_length: Option<i64>,
     pub(super) link_count: Option<u32>,
+    /// Allocation of every fork of a non-directory.
+    pub(super) allocated: Option<i64>,
+    /// Logical length of the data fork of a non-directory.
     pub(super) data_length: Option<i64>,
-    pub(super) data_allocated: Option<i64>,
 }
 
 impl Record {
-    /// Kind for both views of the record. Symbolic links, firmlinks, mount
-    /// points and automount triggers lead elsewhere and are links.
+    /// Kind for both views of the record.
+    ///
+    /// A directory whose mount status says that a file system is mounted on
+    /// it is a mount point. Firmlinks and automount triggers that are not
+    /// mounted lead elsewhere too, but the record does not establish another
+    /// volume: a firmlink reports no mount status and its target may share the
+    /// volume group, and a trigger mounts a file system only when it is
+    /// crossed. They cannot be told apart from links and are links.
     pub(super) fn kind(&self) -> ObservedKind {
-        let leaves = self
-            .mount_status
-            .is_some_and(|status| status & (DIR_MNTSTATUS_MNTPOINT | DIR_MNTSTATUS_TRIGGER) != 0)
-            || self.flags.is_some_and(|flags| flags & SF_FIRMLINK != 0);
+        let status = self.mount_status.unwrap_or(0);
+        let firmlink = self.flags.is_some_and(|flags| flags & SF_FIRMLINK != 0);
         match self.object_type {
             Some(VREG) => ObservedKind::File,
-            Some(VDIR) if leaves => ObservedKind::Link,
+            Some(VDIR) if firmlink => ObservedKind::Link,
+            Some(VDIR) if status & DIR_MNTSTATUS_MNTPOINT != 0 => ObservedKind::MountPoint,
+            Some(VDIR) if status & DIR_MNTSTATUS_TRIGGER != 0 => ObservedKind::Link,
             Some(VDIR) => ObservedKind::Directory,
             Some(VLNK) => ObservedKind::Link,
             None | Some(VNON | VBAD) => ObservedKind::Unknown,
             Some(_) => ObservedKind::Other,
         }
     }
+
+    /// The logical length of the entry itself: the directory length for a
+    /// directory and the data fork length, or link target length, otherwise.
+    pub(super) fn length(&self) -> Option<i64> {
+        if self.object_type == Some(VDIR) {
+            self.directory_length
+        } else {
+            self.data_length
+        }
+    }
 }
 
-/// Reads the next records of `directory`; an empty result ends the directory.
+/// Reads the next records of `directory` into `buffer`; an empty result ends
+/// the directory. `buffer` is reused across calls on one directory.
 ///
 /// Runs with dataless materialization refused, so a dataless directory fails
 /// instead of being downloaded. `EINTR` is retried.
-pub(super) fn read(directory: BorrowedFd<'_>) -> Result<Vec<Record>, PortError> {
-    let mut buffer = vec![0u8; BUFFER_BYTES];
-    let count = dataless::without_materialization(|| request(directory, &mut buffer))??;
-    parse(&buffer, count)
+pub(super) fn read(directory: BorrowedFd<'_>, buffer: &mut [u8]) -> Result<Vec<Record>, PortError> {
+    let count = dataless::without_materialization(|| request(directory, buffer))??;
+    parse(buffer, count)
 }
 
 fn request(directory: BorrowedFd<'_>, buffer: &mut [u8]) -> Result<usize, PortError> {
@@ -115,6 +141,12 @@ fn request(directory: BorrowedFd<'_>, buffer: &mut [u8]) -> Result<usize, PortEr
 }
 
 /// Parses `count` packed records; malformed or unrequested layouts are rejected.
+///
+/// One malformed record rejects the whole reply, including the records that
+/// parsed before it: a reply that breaks the requested layout cannot be
+/// trusted, and the kernel offers no way to resume after a single record.
+/// The directory then ends with that error, and the collector reports it as
+/// a directory that could not be read in full.
 pub(super) fn parse(bytes: &[u8], count: usize) -> Result<Vec<Record>, PortError> {
     let mut records = Vec::with_capacity(count);
     let mut offset = 0usize;
@@ -157,9 +189,11 @@ fn record_from(bytes: &[u8]) -> Result<Record, PortError> {
         flags: cursor.optional(common & ATTR_CMN_FLAGS, Cursor::u32)?,
         file_id: cursor.optional(common & ATTR_CMN_FILEID, Cursor::u64)?,
         mount_status: cursor.optional(directory & ATTR_DIR_MOUNTSTATUS, Cursor::u32)?,
+        directory_length: cursor.optional(directory & ATTR_DIR_DATALENGTH, Cursor::i64)?,
+        // File attributes follow bit order: link count, allocation, length.
         link_count: cursor.optional(file & ATTR_FILE_LINKCOUNT, Cursor::u32)?,
+        allocated: cursor.optional(file & ATTR_FILE_ALLOCSIZE, Cursor::i64)?,
         data_length: cursor.optional(file & ATTR_FILE_DATALENGTH, Cursor::i64)?,
-        data_allocated: cursor.optional(file & ATTR_FILE_DATAALLOCSIZE, Cursor::i64)?,
     })
 }
 

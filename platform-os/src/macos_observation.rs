@@ -4,8 +4,9 @@
 //! its kind, sizes, identity and modification time in one record, so no item
 //! is opened to read its metadata. Child directories are opened relative to the
 //! parent descriptor with `O_NOFOLLOW` and must match the enumerated identity.
-//! Symbolic links, firmlinks, mount points and automount triggers are reported
-//! as links and never entered. Directory reads and opens refuse dataless-object
+//! Mount points are reported as such; symbolic links, firmlinks and automount
+//! triggers are reported as links. None of them is ever entered. Directory
+//! reads and opens refuse dataless-object
 //! materialization on the calling thread, so no file provider is asked to
 //! download content.
 mod bulk;
@@ -42,6 +43,8 @@ struct MacDirectory {
     /// Identity of the actual volume, also used in file space identities.
     volume_id: Arc<[u8]>,
     pending: VecDeque<TimedObservedEntry>,
+    /// Bulk reply buffer, allocated by the first read and released at the end.
+    buffer: Vec<u8>,
     filtered: Option<bool>,
     filter_failed: bool,
     finished: bool,
@@ -61,6 +64,7 @@ impl MacDirectory {
             inode,
             volume_id,
             pending: VecDeque::new(),
+            buffer: Vec::new(),
             filtered: None,
             filter_failed: false,
             finished: false,
