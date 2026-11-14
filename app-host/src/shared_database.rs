@@ -46,7 +46,7 @@ enum InstanceGuard {
 
 /// One application-owned database connection for settings and history writes.
 #[derive(Clone)]
-pub(super) struct SharedDatabase(Arc<Database>);
+pub(super) struct SharedDatabase(pub(crate) Arc<Database>);
 
 /// Failure to take the shared writer lock or finish its WAL checkpoint.
 #[derive(Debug)]
@@ -158,8 +158,8 @@ impl std::error::Error for SharedDatabaseCloseError {
     }
 }
 
-struct Database {
-    connection: Mutex<AppDb>,
+pub(crate) struct Database {
+    pub(crate) connection: Mutex<AppDb>,
     _guard: Option<DatabaseGuard>,
 }
 

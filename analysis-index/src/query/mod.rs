@@ -4,7 +4,7 @@ mod condition;
 pub mod page;
 pub(crate) mod plan;
 pub mod prepared;
-mod sorting;
+pub(crate) mod sorting;
 mod total;
 pub use condition::{Basis, Boundary, Condition, Kind, NameEncoding, NameTest, Predicate, Truth};
 pub use total::TotalWithObservationRange;
@@ -454,7 +454,7 @@ fn evaluate(
     })
 }
 
-fn collect_strategies(condition: &Condition, result: &mut BTreeSet<(String, u32)>) {
+pub(crate) fn collect_strategies(condition: &Condition, result: &mut BTreeSet<(String, u32)>) {
     match condition {
         Condition::Predicate(predicate) => {
             let (id, revision) = predicate.strategy();

@@ -35,6 +35,12 @@
     "distributed": true,
     "reason": "Verify the exact built-in SQLite migration definitions"
   },
+  "cargo:du-analysis-index:blake3@1.8.3": {
+    "license": "CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Fingerprint the canonical F36 virtual-group ruleset content"
+  },
   "cargo:du-platform-os:tempfile@3.27.0": {
     "license": "MIT OR Apache-2.0",
     "role": "test",
