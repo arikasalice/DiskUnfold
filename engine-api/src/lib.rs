@@ -18,6 +18,7 @@ mod refresh_scope;
 mod registry;
 #[doc(hidden)]
 pub mod required_data;
+pub mod sample;
 pub mod scan;
 mod scan_failures;
 pub mod scope;
