@@ -134,10 +134,15 @@ fn process(
     if context.checkpoint() == Checkpoint::Cancel {
         return cancel_drain::frame(frame, &shared.visited, sender, policy);
     }
-    if frame.directory.is_pending()
-        && let Some(finished) = open_pending(&mut frame, shared, sender, context)
-    {
-        return finished;
+    if frame.directory.is_pending() {
+        if let Some(finished) = open_pending(&mut frame, shared, sender, context) {
+            return finished;
+        }
+        // The open is this turn's only OS call. The opened directory goes back
+        // to its lane, so an area prioritized while the open was in flight
+        // applies to the next assignment (FR8.HD1.app-host.DD1).
+        requeue(shared, turn, frame, None, context);
+        return true;
     }
     match observe_once(&mut frame, shared, sender, context) {
         Observed::Ready => {}

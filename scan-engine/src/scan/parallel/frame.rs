@@ -6,6 +6,8 @@
 //! it is queued. The child is opened relative to the retained parent handle when
 //! a worker of the same lane is assigned to it, so queued work never resolves a
 //! path again and the admission and identity binding of the entry stay intact.
+//! The open is a turn of its own: the opened directory returns to its lane and
+//! its first read is assigned again, in the current priority order.
 use super::admission::Boundary;
 use du_core_contracts::{
     ports::PortError,
