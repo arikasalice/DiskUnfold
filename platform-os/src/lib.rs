@@ -15,9 +15,12 @@ pub mod linux_time_zone;
 pub mod linux_ui_language;
 #[cfg(target_os = "macos")]
 pub mod macos_instance_lock;
+#[cfg(target_os = "macos")]
+#[allow(unsafe_code)]
+pub mod macos_observation;
 #[cfg(all(target_os = "macos", feature = "webview"))]
 pub mod macos_time_zone;
-#[cfg(all(target_os = "macos", feature = "webview"))]
+#[cfg(target_os = "macos")]
 pub mod macos_ui_language;
 pub mod os_release;
 #[cfg(target_os = "linux")]

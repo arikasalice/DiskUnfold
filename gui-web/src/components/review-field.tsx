@@ -7,12 +7,15 @@ export function ReviewField({
   onChange,
   description,
   isDisabled = false,
+  error,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   description: string;
   isDisabled?: boolean;
+  /** Linked to the input as its error message and announced once. */
+  error?: string | undefined;
 }) {
   const imeComposition = useImeComposition();
 
@@ -22,10 +25,16 @@ export function ReviewField({
       value={value}
       onChange={onChange}
       isDisabled={isDisabled}
+      isInvalid={error !== undefined}
     >
       <Label>{label}</Label>
       <Input {...imeComposition} />
       <Text slot="description">{description}</Text>
+      {error !== undefined && (
+        <Text slot="errorMessage" role="alert">
+          {error}
+        </Text>
+      )}
     </TextField>
   );
 }

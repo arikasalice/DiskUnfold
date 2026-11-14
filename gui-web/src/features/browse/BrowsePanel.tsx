@@ -5,7 +5,9 @@ import type { KeyboardEvent, ReactNode } from "react";
 import {
   Action,
   Breadcrumbs,
-  canHandleBrowseKey,
+  BROWSE_SCREEN,
+  browseKeyTable,
+  dispatchKey,
   Heading,
   Notice,
   Progress,
@@ -205,13 +207,20 @@ export function BrowsePanel({
   }
 
   function handleBrowseKey(event: KeyboardEvent<HTMLElement>) {
+    // The key assignment table row `go_up` (Alt+ArrowUp) decides the action;
+    // dispatchKey applies composition, input and dialog precedence first.
     if (
-      event.key !== "ArrowUp" ||
-      !event.altKey ||
       !parent ||
-      !canHandleBrowseKey(event)
+      !(event.target instanceof Node) ||
+      !event.currentTarget.contains(event.target)
     )
       return;
+    const dispatched = dispatchKey(
+      event.nativeEvent,
+      browseKeyTable,
+      BROWSE_SCREEN,
+    );
+    if (dispatched.stage !== "table" || dispatched.action !== "go_up") return;
     event.preventDefault();
     if (!event.repeat) goUp();
   }

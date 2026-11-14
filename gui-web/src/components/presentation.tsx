@@ -2,6 +2,7 @@ import type { ReactNode, Ref } from "react";
 import {
   Activity,
   ArrowLeft,
+  Circle,
   CircleAlert,
   CircleCheck,
   CircleX,
@@ -18,6 +19,10 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import { ProgressBar } from "react-aria-components";
+import { useLocaleText } from "../i18n/presentation";
+import { STATUS_TONES } from "./status-table";
+import type { StatusRow, StatusShape, StatusTone } from "./status-table";
+import "../theme/status-badge.css";
 
 const icons = {
   activity: Activity,
@@ -39,6 +44,14 @@ const icons = {
 };
 
 export type IconName = keyof typeof icons;
+
+const statusShapes = {
+  dot: Circle,
+  info: Info,
+  check: CircleCheck,
+  warning: TriangleAlert,
+  cross: CircleX,
+} satisfies Record<StatusShape, typeof Circle>;
 
 /** Decorative icon. An action's accessible name always comes from its label. */
 export function Icon({ name }: { name: IconName }) {
@@ -88,21 +101,42 @@ export function Text({
   );
 }
 
+/**
+ * A status shown by shape, text and colour together.
+ *
+ * Pass the already localized text as `children` with a `tone`, or pass a
+ * {@link StatusRow} whose message key names the status. The shape comes from
+ * the status table, so the status is readable without colour.
+ */
 export function StatusBadge({
   children,
   tone = "neutral",
+  status,
   live = false,
 }: {
-  children: ReactNode;
-  tone?: "neutral" | "info" | "good" | "warning" | "danger";
+  children?: ReactNode;
+  tone?: StatusTone;
+  status?: StatusRow;
   live?: boolean;
 }) {
+  const text = useLocaleText();
+  const shape = status?.shape ?? STATUS_TONES[tone].shape;
+  const Glyph = statusShapes[shape];
+  const shown = status?.tone ?? tone;
   return (
     <span
-      className={`du-badge du-badge--${tone}`}
+      className={`du-badge du-badge--${shown}`}
+      data-status-shape={shape}
       role={live ? "status" : undefined}
     >
-      {children}
+      <Glyph
+        className="du-badge__shape"
+        aria-hidden
+        focusable="false"
+        size={14}
+        strokeWidth={2}
+      />
+      {children ?? (status && text(status.messageKey, status.messageKey))}
     </span>
   );
 }

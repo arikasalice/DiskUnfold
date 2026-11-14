@@ -22,4 +22,4 @@
 ## 이 점검에서 보인 다른 사항 (커밋 대상 아님)
 
 - `gui-web/src/components/`는 건드리지 않았고 이관 항목에도 공통 부품 변경이 없다.
-- FR6.HD2.app-host.DD1은 세션 누락 목록이 1,000건을 넘길 때 "버린 수를 센다"고 정한다. `user-env/src/i18n/missing.rs`는 가장 오래된 항목을 버리기만 하고 버린 수는 세지 않는다. user-env 구현 경로라 이번 PR에서 바꾸지 않았다.
+- FR6.HD2.app-host.DD1은 세션 누락 목록이 1,000건을 넘길 때 "버린 수를 센다"고 정한다. `user-env/src/i18n/missing.rs`는 가장 오래된 항목을 버릴 때마다 `Registry::dropped_missing_messages()`로 읽을 수 있는 카운터를 올린다. 현재 이 값을 읽는 곳은 시험뿐이고, 진단 내보내기 소비자는 아직 없다.

@@ -15,7 +15,7 @@ du-user-env = { version = "0.0.1", path = "../user-env" }
 du-platform-os = { version = "0.0.1", path = "../platform-os" }
 serde_json.workspace = true
 
-[target.'cfg(any(windows, target_os = "linux"))'.dependencies]
+[target.'cfg(any(windows, target_os = "linux", target_os = "macos"))'.dependencies]
 du-app-db = { version = "0.0.1", path = "../app-db" }
 
 [lints]

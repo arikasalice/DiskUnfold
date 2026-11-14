@@ -54,11 +54,6 @@ fn invoke(
         return Err(not_provided());
     }
     if caller.channel == Channel::Gui {
-        // GUI command contracts use object request bodies. Check the container
-        // before Serde, which also accepts positional arrays for Rust structs.
-        if !body.is_object() {
-            return Err(EngineError::reason("command.body_invalid"));
-        }
         return use_case.invoke(body, caller);
     }
 

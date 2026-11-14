@@ -24,7 +24,8 @@ pub(super) fn close_frame(
     };
     let root = frame.root_index;
     let path = frame.path.clone();
-    let sent = cancel_drain::frame(frame, sender, policy) && sender.send(gap).is_ok();
+    let sent =
+        cancel_drain::frame(frame, &shared.visited, sender, policy) && sender.send(gap).is_ok();
     complete(shared, root, &path, context);
     sent
 }

@@ -4,6 +4,7 @@ use std::{fs, path::Path, time::Duration};
 
 use rusqlite::{Connection, OpenFlags, Transaction, TransactionBehavior};
 
+mod group_rules;
 mod history_schema;
 mod job_history;
 pub mod migration;

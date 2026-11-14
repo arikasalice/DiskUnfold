@@ -1,6 +1,7 @@
 import { useId, useLayoutEffect, useRef } from "react";
 import type { KeyboardEvent, ReactNode } from "react";
 import { Action } from "./controls";
+import { isImeProcessingKey } from "./ime-composition";
 import { Notice } from "./presentation";
 import "./geometry-renderer.css";
 
@@ -214,7 +215,7 @@ function primitive(
 }
 function moveFocus(event: KeyboardEvent<HTMLDivElement>) {
   if (
-    event.nativeEvent.isComposing ||
+    isImeProcessingKey(event.nativeEvent) ||
     !["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)
   )
     return;
