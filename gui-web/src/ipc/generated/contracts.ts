@@ -883,7 +883,10 @@ export type PublishedCompleteness = "complete" | "partial" | "unknown";
 export type DataSource = "real" | "sample";
 export type ResultVersionChanged = { lineageId: Id, sourceRef: Id, origin: string,
 /**
- * Data source of the pinned version; absent means a sample (F32 FR2.HD1).
+ * Data source of the lineage's versions; absent means a sample (F32 FR2.HD1).
+ *
+ * Sample results never publish this notice, so producers send `real` today.
+ * Consumers must not use this value to decide which lineages they track.
  */
 dataSource?: DataSource, sequence: number, change: ResultVersionChange, previousResultVersion?: Id, completeness?: PublishedCompleteness, observedAt?: Timestamp, };
 export type TargetKind = "internal" | "external" | "network_mount" | "folder_mount";
