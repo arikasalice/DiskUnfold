@@ -11,11 +11,11 @@
 mod bulk;
 mod dataless;
 mod enumeration;
-mod errors;
-mod scope;
+pub(crate) mod errors;
+pub(crate) mod scope;
 #[cfg(test)]
 mod tests;
-mod volume;
+pub(crate) mod volume;
 
 pub use scope::MacScopeRoots;
 

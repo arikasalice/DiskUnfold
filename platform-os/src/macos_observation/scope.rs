@@ -25,9 +25,11 @@ use std::{
 /// root belongs to the volume of the final directory.
 ///
 /// The canonical path is read back from the opened descriptor. `volume_id` is
-/// `uuid:` and the volume UUID, or `dev:` and the hexadecimal device number when
-/// the file system reports no UUID; `file_id` is the inode as little-endian
-/// bytes. Ancestor identities are available only when every ancestor up to a
+/// `uuid:` and the volume UUID, or `dev:` and the hexadecimal device number of
+/// the file system ID when the volume reports no UUID. It is the same for every
+/// directory on one volume and matches the identity `MacVolumes` lists for its
+/// mount. `file_id` is the inode as little-endian bytes. Ancestor identities
+/// are available only when every ancestor up to a
 /// confirmed volume root is on the same volume; an APFS firmlink such as
 /// `/Users` leaves them unavailable. Pass the returned directory to the
 /// collector unchanged; reopening the canonical path is not equivalent.
@@ -53,15 +55,7 @@ impl ScopeRootPort for MacScopeRoots {
 }
 
 fn open_verified(path: &[u8]) -> Result<MacDirectory, PortError> {
-    let names = components(path)?;
-    let mut current =
-        dataless::without_materialization(|| retry(|| open("/", flags(), Mode::empty())))?
-            .map_err(errors::os)?;
-    let mut walked = Vec::with_capacity(names.len());
-    for name in &names {
-        let (next, _) = open_directory(current.as_fd(), name)?;
-        walked.push(std::mem::replace(&mut current, next));
-    }
+    let (current, walked) = walk(path)?;
     let stat = directory_stat(&current)?;
     let volume_id: Arc<[u8]> = volume::identity(current.as_fd())?.into();
     let root = volume::is_mount_root(current.as_fd()).unwrap_or(false);
@@ -74,6 +68,28 @@ fn open_verified(path: &[u8]) -> Result<MacDirectory, PortError> {
     ))
 }
 
+/// Opens a directory path the way scope roots are opened: from `/`, one
+/// component at a time, refusing links and dataless directories.
+pub(crate) fn open_path(path: &[u8]) -> Result<OwnedFd, PortError> {
+    let (directory, _) = walk(path)?;
+    directory_stat(&directory)?;
+    Ok(directory)
+}
+
+/// Returns the final directory and every directory opened on the way to it.
+fn walk(path: &[u8]) -> Result<(OwnedFd, Vec<OwnedFd>), PortError> {
+    let names = components(path)?;
+    let mut current =
+        dataless::without_materialization(|| retry(|| open("/", flags(), Mode::empty())))?
+            .map_err(errors::os)?;
+    let mut walked = Vec::with_capacity(names.len());
+    for name in &names {
+        let (next, _) = open_directory(current.as_fd(), name)?;
+        walked.push(std::mem::replace(&mut current, next));
+    }
+    Ok((current, walked))
+}
+
 fn flags() -> OFlags {
     // NONBLOCK keeps a FIFO from blocking before DIRECTORY rejects it.
     OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC | OFlags::NONBLOCK
@@ -83,7 +99,7 @@ fn flags() -> OFlags {
 ///
 /// A link reports `ENOTDIR`. A dataless directory is refused, because reading it
 /// would ask its file provider to materialize the listing.
-pub(super) fn open_directory(
+pub(crate) fn open_directory(
     parent: BorrowedFd<'_>,
     name: &CStr,
 ) -> Result<(OwnedFd, Stat), PortError> {

@@ -39,7 +39,7 @@ const TABLE: [(i32, PortErrorKind, &str); 14] = [
     (libc::EBUSY, PortErrorKind::Busy, "os.query_failed"),
 ];
 
-pub(super) fn errno(code: i32) -> PortError {
+pub(crate) fn errno(code: i32) -> PortError {
     let (kind, reason) = TABLE
         .iter()
         .find(|row| row.0 == code)
@@ -53,16 +53,16 @@ pub(super) fn errno(code: i32) -> PortError {
     }
 }
 
-pub(super) fn os(error: rustix::io::Errno) -> PortError {
+pub(crate) fn os(error: rustix::io::Errno) -> PortError {
     errno(error.raw_os_error())
 }
 
 /// Classifies `errno`; call immediately after the failed libc call.
-pub(super) fn last() -> PortError {
+pub(crate) fn last() -> PortError {
     errno(std::io::Error::last_os_error().raw_os_error().unwrap_or(0))
 }
 
-pub(super) fn invalid() -> PortError {
+pub(crate) fn invalid() -> PortError {
     PortError {
         kind: PortErrorKind::Unsupported,
         reason_key: "path.unresolvable".into(),

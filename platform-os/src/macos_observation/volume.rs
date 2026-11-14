@@ -1,4 +1,4 @@
-//! Volume identity and space read through an already open descriptor.
+//! Volume identity and space read through an open descriptor or a mount path.
 //!
 //! The kernel packs volume attributes in its own order, which is not bit order:
 //! macOS 15 and later place `ATTR_VOL_SPACEUSED` before `ATTR_VOL_UUID`. Each
@@ -15,12 +15,13 @@ use libc::{
     ATTR_VOL_INFO, ATTR_VOL_SPACEUSED, ATTR_VOL_UUID, DIR_MNTSTATUS_MNTPOINT,
 };
 use std::{
+    ffi::CStr,
     fmt::Write,
     os::fd::{AsFd, AsRawFd, BorrowedFd, OwnedFd},
 };
 
 /// File system ID bytes in the layout of `fsid_t`.
-type Fsid = [u8; 8];
+pub(crate) type Fsid = [u8; 8];
 
 /// A reply to one volume attribute request.
 #[derive(Debug, PartialEq, Eq)]
@@ -31,21 +32,42 @@ pub(super) struct VolumeReply<const N: usize> {
     pub(super) value: Option<[u8; N]>,
 }
 
+/// Where an attribute request is sent.
+#[derive(Clone, Copy)]
+enum Target<'a> {
+    /// An open descriptor.
+    Open(BorrowedFd<'a>),
+    /// A mount path; a final symbolic link is not followed.
+    Mount(&'a CStr),
+}
+
 fn attributes(
-    fd: BorrowedFd<'_>,
+    target: Target<'_>,
     mut list: libc::attrlist,
     reply: &mut [u8],
 ) -> Result<(), PortError> {
-    // SAFETY: `list` and `reply` are live and writable for the call, the length
-    // is the exact size of `reply`, and `fd` stays open for its duration.
-    let status = unsafe {
-        libc::fgetattrlist(
-            fd.as_raw_fd(),
-            (&raw mut list).cast(),
-            reply.as_mut_ptr().cast(),
-            reply.len(),
-            0,
-        )
+    let status = match target {
+        // SAFETY: `list` and `reply` are live and writable for the call, the
+        // length is the exact size of `reply`, and `fd` stays open throughout.
+        Target::Open(fd) => unsafe {
+            libc::fgetattrlist(
+                fd.as_raw_fd(),
+                (&raw mut list).cast(),
+                reply.as_mut_ptr().cast(),
+                reply.len(),
+                0,
+            )
+        },
+        // SAFETY: as above, and `path` is NUL-terminated and outlives the call.
+        Target::Mount(path) => unsafe {
+            libc::getattrlist(
+                path.as_ptr(),
+                (&raw mut list).cast(),
+                reply.as_mut_ptr().cast(),
+                reply.len(),
+                libc::FSOPT_NOFOLLOW,
+            )
+        },
     };
     if status == 0 {
         Ok(())
@@ -70,13 +92,13 @@ fn request(common: u32, volume: u32, directory: u32) -> libc::attrlist {
 /// whose value is `N` bytes. `Ok(None)` means the file system declines volume
 /// attribute requests.
 fn volume_attribute<const N: usize>(
-    fd: BorrowedFd<'_>,
+    target: Target<'_>,
     attribute: u32,
 ) -> Result<Option<VolumeReply<N>>, PortError> {
     // Length, returned groups, file system ID and up to 16 value bytes.
     let mut reply = [0u8; 48];
     match attributes(
-        fd,
+        target,
         request(ATTR_CMN_FSID, ATTR_VOL_INFO | attribute, 0),
         &mut reply,
     ) {
@@ -140,7 +162,7 @@ pub(super) fn format(fsid: Fsid, uuid: Option<[u8; 16]>) -> Vec<u8> {
 }
 
 /// The file system ID of `stats`, in the layout attribute replies use.
-fn fsid(stats: &libc::statfs) -> Fsid {
+pub(crate) fn fsid(stats: &libc::statfs) -> Fsid {
     // SAFETY: `fsid_t` is a `repr(C)` struct holding only `[i32; 2]`, so it has
     // the size of `Fsid` and each of its bit patterns is a valid byte array.
     unsafe { std::mem::transmute::<libc::fsid_t, Fsid>(stats.f_fsid) }
@@ -151,8 +173,8 @@ fn fsid(stats: &libc::statfs) -> Fsid {
 ///
 /// The value depends only on the volume, never on which of its directories
 /// `fd` refers to.
-pub(super) fn identity(fd: BorrowedFd<'_>) -> Result<Vec<u8>, PortError> {
-    match volume_attribute::<16>(fd, ATTR_VOL_UUID)? {
+pub(crate) fn identity(fd: BorrowedFd<'_>) -> Result<Vec<u8>, PortError> {
+    match volume_attribute::<16>(Target::Open(fd), ATTR_VOL_UUID)? {
         Some(reply) => Ok(format(reply.fsid, reply.value)),
         None => {
             let stats = rustix::fs::fstatfs(fd).map_err(errors::os)?;
@@ -161,10 +183,28 @@ pub(super) fn identity(fd: BorrowedFd<'_>) -> Result<Vec<u8>, PortError> {
     }
 }
 
+/// Identity of a listed mount, in the form `identity` returns for any directory
+/// on it. It is read through the mount path and accepted only while that path
+/// leads to the listed file system; `None` when that is not confirmed.
+pub(crate) fn mount_identity(path: &CStr, listed: Fsid) -> Option<Vec<u8>> {
+    match volume_attribute::<16>(Target::Mount(path), ATTR_VOL_UUID) {
+        Ok(Some(reply)) if reply.fsid == listed => Some(format(reply.fsid, reply.value)),
+        Ok(None) => rustix::fs::statfs(path)
+            .ok()
+            .filter(|stats| fsid(stats) == listed)
+            .map(|_| format(listed, None)),
+        _ => None,
+    }
+}
+
 /// Whether `fd` is the root directory of a mounted file system.
 pub(super) fn is_mount_root(fd: BorrowedFd<'_>) -> Result<bool, PortError> {
     let mut reply = [0u8; 28];
-    attributes(fd, request(0, 0, ATTR_DIR_MOUNTSTATUS), &mut reply)?;
+    attributes(
+        Target::Open(fd),
+        request(0, 0, ATTR_DIR_MOUNTSTATUS),
+        &mut reply,
+    )?;
     let mut cursor = Cursor::new(&reply, 4);
     let [_, _, directory, ..] = cursor.returned()?;
     Ok(cursor
@@ -209,7 +249,7 @@ fn space(fd: BorrowedFd<'_>) -> Result<VolumeSpace, PortError> {
         .f_bfree
         .checked_mul(block)
         .ok_or_else(errors::invalid)?;
-    let reported = volume_attribute::<8>(fd, ATTR_VOL_SPACEUSED)?
+    let reported = volume_attribute::<8>(Target::Open(fd), ATTR_VOL_SPACEUSED)?
         .and_then(|reply| reply.value)
         .and_then(|bytes| u64::try_from(i64::from_ne_bytes(bytes)).ok());
     let used = match reported {
@@ -224,7 +264,7 @@ fn space(fd: BorrowedFd<'_>) -> Result<VolumeSpace, PortError> {
 }
 
 /// Reads only while the descriptor still resolves to the expected volume.
-pub(super) fn checked<T>(
+pub(crate) fn checked<T>(
     expected: &[u8],
     identity: impl Fn() -> Result<Vec<u8>, PortError>,
     read: impl FnOnce() -> Result<T, PortError>,
@@ -239,7 +279,8 @@ pub(super) fn checked<T>(
     result
 }
 
-fn changed() -> PortError {
+/// The observed volume is no longer the expected one.
+pub(crate) fn changed() -> PortError {
     PortError {
         kind: PortErrorKind::IdentityChanged,
         reason_key: "scan.disconnected".into(),
