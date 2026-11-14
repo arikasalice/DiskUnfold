@@ -370,6 +370,7 @@ fn explanation_keeps_rule_decisions_and_wrong_versions_are_refused() -> TestResu
         json!({ "classificationRef": reference, "item": item }),
     )?;
     assert_eq!(explanation["rules"][0]["decision"], "no_match");
+    assert_eq!(explanation["dataSource"], "real");
     assert_eq!(explanation["rules"][1]["decision"], "no_match");
     let (_, error) = harness.call(
         "group.members",
@@ -398,6 +399,7 @@ fn unregistered_predicates_make_their_rule_undecidable() -> TestResult {
     )?;
     let summary = &response["summary"];
     assert_eq!(summary["rulesetVersion"], 0);
+    assert_eq!(summary["dataSource"], "real");
     assert_eq!(summary["groups"][0]["ruleUnevaluable"], true);
     assert_eq!(summary["groups"][0]["undecidableCount"], 4);
     assert_eq!(summary["undecidableCount"], 1);
@@ -445,6 +447,7 @@ fn job_classification_registers_only_when_done() -> TestResult {
                 "rules": { "kind": "draft", "rules": [{ "displayName": "Video", "condition": ends_with(".mp4") }] } }),
     )?;
     assert_eq!(response["kind"], "job");
+    assert_eq!(response["dataSource"], "real");
     let reference = response["classificationRef"].clone();
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {

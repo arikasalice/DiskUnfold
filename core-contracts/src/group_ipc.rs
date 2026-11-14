@@ -93,6 +93,10 @@ pub struct GroupRuleIssue {
 ///
 /// A rejection carries `reasonKey = "group.rule_invalid"` and the first failing
 /// check of each rejected rule. Conflicts and storage failures are error envelopes.
+///
+/// F36 DLD rev 59 lists a review failure as INVALID_ARGUMENT(`group.rule_invalid`).
+/// This contract returns it as the normal `rejected` outcome instead, because the error
+/// envelope cannot carry the per-rule issues the editor needs; the reason key is the same.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[serde(
