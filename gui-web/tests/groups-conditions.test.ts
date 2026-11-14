@@ -10,6 +10,7 @@ import {
   rowsFromCondition,
   ruleProblems,
   toRuleDraft,
+  trimGroupName,
 } from "../src/state/groups-conditions";
 import type { ConditionRow, DraftRule } from "../src/state/groups-conditions";
 import type { GroupRule, QueryCondition } from "../src/ipc";
@@ -210,4 +211,35 @@ test("F36 FR3: a condition tree counts its single tests", () => {
       ],
     }),
   ).toBe(4);
+});
+
+test("F36 FR3: a group name is sent without surrounding Unicode white space, as the engine stores it", () => {
+  for (const [input, sent] of [
+    ["  Movies", "Movies"],
+    ["Movies  ", "Movies"],
+    ["\tMovies\t", "Movies"],
+    ["\u3000영상\u3000", "영상"],
+    ["\u00a0Movies\u00a0", "Movies"],
+    // Rust trims U+0085 and keeps U+FEFF; String.prototype.trim does the opposite.
+    ["\u0085Movies\u0085", "Movies"],
+    ["\ufeffMovies", "\ufeffMovies"],
+    [" 보고서 초안 ", "보고서 초안"],
+    ["Report \u3000 draft", "Report \u3000 draft"],
+  ] as const) {
+    expect(trimGroupName(input)).toBe(sent);
+  }
+  const draft: DraftRule = {
+    key: "k",
+    groupId: MOVIES,
+    displayName: "\u3000보고서 초안\t",
+    rows: [{ kind: "name", op: "contains", text: "mp4" }],
+    readOnly: undefined,
+    preserved: undefined,
+  };
+  expect(toRuleDraft(draft, "iec").displayName).toBe("보고서 초안");
+  expect(ruleProblems(draft, "iec")).toEqual([]);
+  for (const blank of ["", " \t", "\u3000\u00a0", "\u0085"])
+    expect(ruleProblems({ ...draft, displayName: blank }, "iec")).toEqual([
+      { kind: "empty_name" },
+    ]);
 });
