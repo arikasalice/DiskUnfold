@@ -206,6 +206,19 @@ function SelectionAnalyzeFirst({
   );
 }
 
+/** The disabled reason of the copy action: the host's reason first, else "Unavailable now". */
+function copyDisabled(
+  hostReason: string | undefined,
+  unavailable: boolean,
+  text: ReturnType<typeof useLocaleText>,
+): { disabledReason?: string } {
+  if (hostReason !== undefined) return { disabledReason: hostReason };
+  if (!unavailable) return {};
+  return {
+    disabledReason: text("ui.browse.unavailable_now", "Unavailable now"),
+  };
+}
+
 export function BrowseResults({
   pages,
   display,
@@ -220,6 +233,7 @@ export function BrowseResults({
   openFolder,
   openItem,
   copyPath,
+  copyDisabledReason,
   reopen,
   priority,
 }: {
@@ -237,6 +251,8 @@ export function BrowseResults({
   openItem:
     ((row: FolderQueryRow, trigger: Element | null) => void) | undefined;
   copyPath: ((item: ItemRef) => Promise<BrowseCopyPathOutcome>) | undefined;
+  /** Why copying the path is off for every row, when the host turned it off. */
+  copyDisabledReason: string | undefined;
   reopen: () => void;
   priority?: ScanPriority | undefined;
 }) {
@@ -415,14 +431,11 @@ export function BrowseResults({
                 label: text("ui.browse.copy_path", "Copy path"),
                 onAction: (trigger: HTMLElement | null) =>
                   copy.copy(row, trigger),
-                ...(!copyPath || busy || copy.busy
-                  ? {
-                      disabledReason: text(
-                        "ui.browse.unavailable_now",
-                        "Unavailable now",
-                      ),
-                    }
-                  : {}),
+                ...copyDisabled(
+                  copyDisabledReason,
+                  !copyPath || busy || copy.busy,
+                  text,
+                ),
               },
             ]}
           >

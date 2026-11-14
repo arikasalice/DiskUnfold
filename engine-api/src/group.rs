@@ -5,6 +5,7 @@
 mod channels;
 mod classify;
 mod codec;
+mod pin;
 mod read;
 mod rules;
 mod summary;

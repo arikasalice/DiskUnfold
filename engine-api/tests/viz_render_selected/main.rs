@@ -127,6 +127,7 @@ fn policy(item: &du_core_contracts::result::ResultItem) -> ChildPolicyEvidence {
 fn request(parent: &ItemRef, right: u32) -> Request<'_> {
     Request {
         selected_revision: &parent.result_version,
+        channel: du_engine_api::api::Channel::Gui,
         requested_revision: None,
         parent,
         basis: SizeBasis::Logical,

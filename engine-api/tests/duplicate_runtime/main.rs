@@ -24,7 +24,10 @@ use du_duplicate_engine::{
     result_store::{ContentCoverage, ResultStore, ScopeEvidence},
     verification::{Snapshot, State, VerificationTarget},
 };
-use du_engine_api::duplicate_scope::{Selection, select_whole_scan};
+use du_engine_api::{
+    api::Channel,
+    duplicate_scope::{Selection, select_whole_scan},
+};
 use du_job_runtime::{
     CancelResult, FlowLimits, JobClock, JobEvent, JobEvents, JobIdentity, JobPriority, JobRuntime,
     Submission, SubmitResult,
@@ -245,8 +248,8 @@ fn scan() -> Result<(IngestSink, Selection), String> {
     build
         .seal(id(2), ResultCompleteness::Complete)
         .map_err(|e| format!("{e:?}"))?;
-    let selection =
-        select_whole_scan(&source, &id(2), 0, || false).map_err(|e| format!("{e:?}"))?;
+    let selection = select_whole_scan(&source, Channel::Gui, &id(2), 0, || false)
+        .map_err(|e| format!("{e:?}"))?;
     Ok((source, selection))
 }
 struct Harness {

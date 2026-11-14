@@ -32,6 +32,7 @@ pub fn prepare_inventory(
         rows: manifest.rows,
         channel_references: manifest.channel_references,
         fuzz_gate: None,
+        sample_bundle: None,
     };
     Ok((inventory, verified))
 }

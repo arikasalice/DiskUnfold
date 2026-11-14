@@ -10,6 +10,7 @@ pub mod debian_copyright;
 pub mod license_policy;
 pub mod notices;
 pub mod product_resources;
+pub mod sample_bundle;
 pub mod sbom;
 pub mod support_table;
 

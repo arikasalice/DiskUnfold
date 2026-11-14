@@ -37,8 +37,12 @@ impl UseCase for Query {
         Ok(())
     }
 
-    fn execute(&self, request: Self::Request, _: &CallerCtx) -> Result<SpaceDetail, EngineError> {
-        let version = super::pin(&self.0, Some(&request.result_version))?;
+    fn execute(
+        &self,
+        request: Self::Request,
+        caller: &CallerCtx,
+    ) -> Result<SpaceDetail, EngineError> {
+        let version = super::pin(&self.0, Some(&request.result_version), caller.channel)?;
         let facts = version
             .space_detail(&request.item)
             .map_err(super::query_error)?;
@@ -68,6 +72,9 @@ fn project(version: &ResultVersion, facts: ItemEvidence) -> SpaceDetail {
         exclusive_decision,
         observed_at,
         capabilities: unknown(UNAVAILABLE),
+        data_source: Some(du_core_contracts::result::ResultVersionRead::data_source(
+            version,
+        )),
     }
 }
 

@@ -19,6 +19,7 @@ use du_core_contracts::{
 use crate::{
     api::{CallerCtx, Channel, EngineBuilder, UseCase},
     error::EngineError,
+    source_exposure::{admit_version_source, pin_current_for, pin_latest_for},
 };
 
 /// Registers the GUI query against the same store used for scan publication.
@@ -67,6 +68,7 @@ impl UseCase for Total {
                 .queries
                 .open_search(query_ref, request.result_version.as_ref())
                 .map_err(search_error)?;
+            admit_version_source(query.version.as_ref(), caller)?;
             let aggregate =
                 query
                     .space_total(|| caller.is_cancelled())
@@ -76,7 +78,7 @@ impl UseCase for Total {
                     })?;
             return Ok(response(&query.version, request.request_seq, &aggregate));
         }
-        let version = pin(&self.store, request.result_version.as_ref())?;
+        let version = pin(&self.store, request.result_version.as_ref(), caller.channel)?;
         total(&version, request)
     }
 }
@@ -89,11 +91,15 @@ fn search_error(error: SearchReadError) -> EngineError {
     })
 }
 
-fn pin(store: &IngestSink, id: Option<&Id>) -> Result<Arc<ResultVersion>, EngineError> {
+/// Pins the requested result, or the latest one, for a caller on `channel`.
+fn pin(
+    store: &IngestSink,
+    id: Option<&Id>,
+    channel: Channel,
+) -> Result<Arc<ResultVersion>, EngineError> {
     match id {
-        Some(id) => store.pin_current(id).map_err(query_error),
-        None => store
-            .pin()
+        Some(id) => pin_current_for(store, id, channel).map_err(|error| query_error(error.query())),
+        None => pin_latest_for(store, channel)
             .map_err(|_| EngineError::reason("support.internal_error"))?
             .ok_or_else(|| EngineError::reason("ref.unavailable")),
     }

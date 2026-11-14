@@ -2,6 +2,8 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::Arc;
 
+use du_core_contracts::Timestamp;
+
 use super::{
     BundleDecodeLimits, BundleFailure, BundleFormatReader, BundleFormatReaderRegistry,
     BundleHeader, BundleSourcePort, DecodedBundleRecords, DecodedObservation, FormatReaderError,
@@ -103,7 +105,8 @@ impl Fixture {
                 scenario_references: vec![RecordScenarioReference {
                     scenario_id: "tree".to_owned(),
                 }],
-                observations: vec![DecodedObservation; observations],
+                observations: vec![observation(); observations],
+                ..Default::default()
             }),
             trace: Rc::clone(&trace),
             record_payload_address: Rc::clone(&record_payload_address),
@@ -184,7 +187,8 @@ fn exact_size_and_item_count_boundaries_are_accepted() {
             };
             MAX_BUNDLE_ITEMS
         ],
-        observations: vec![DecodedObservation; MAX_OBSERVATIONS],
+        observations: vec![observation(); MAX_OBSERVATIONS],
+        ..Default::default()
     });
 
     let verified = verify(&fixture);
@@ -297,7 +301,8 @@ fn header_declared_item_count_must_match_decoded_records() {
         scenario_references: vec![RecordScenarioReference {
             scenario_id: "tree".to_owned(),
         }],
-        observations: vec![DecodedObservation],
+        observations: vec![observation()],
+        ..Default::default()
     });
 
     assert_eq!(verify(&fixture), Err(BundleFailure::Corrupt));
@@ -315,7 +320,8 @@ fn invalid_scenario_reference_prevents_view_availability() {
                 scenario_id: "missing-scenario".to_owned(),
             },
         ],
-        observations: vec![DecodedObservation; 2],
+        observations: vec![observation(); 2],
+        ..Default::default()
     });
 
     assert_eq!(verify(&fixture), Err(BundleFailure::Corrupt));
@@ -343,4 +349,13 @@ fn parser_failure_does_not_publish_a_partial_view() {
     *fixture.decoded_mut() = Err(FormatReaderError);
 
     assert_eq!(verify(&fixture), Err(BundleFailure::Corrupt));
+}
+
+#[allow(clippy::expect_used, reason = "the epoch is always representable")]
+fn observation() -> DecodedObservation {
+    DecodedObservation {
+        index: 0,
+        observed_at: Timestamp::from_unix_millis(0).expect("epoch is representable"),
+        items: Vec::new(),
+    }
 }

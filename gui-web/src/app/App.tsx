@@ -41,6 +41,8 @@ import { useScanPriority } from "../state/scan-priority";
 import type { ScanPriority, ScanPriorityContext } from "../state/scan-priority";
 import { createBrowsePort } from "./browse-port";
 import { InfoEntry } from "./InfoEntry";
+import { SampleContext, SampleEntrySlot } from "./SampleBrowse";
+import { useSampleFlow } from "./use-sample-flow";
 import {
   BrowseVisualizationActions,
   BrowseVisualizationView,
@@ -51,13 +53,31 @@ import type { BrowseVisualizationProvider } from "./browse-visualization";
 
 const desktop = createAnalysisClient();
 
+/** The analysis target screen shows when nothing else owns the main area. */
+function analysisVisible(screen: {
+  connected: boolean;
+  history: boolean;
+  browsing: boolean;
+  sample: boolean;
+}) {
+  return (
+    screen.connected && !screen.history && !screen.browsing && !screen.sample
+  );
+}
+
 /** Screen name for the window title bar, or nothing while there is no desktop connection. */
 function screenLabel(
   text: LocaleText,
-  screen: { connected: boolean; history: boolean; browsing: boolean },
+  screen: {
+    connected: boolean;
+    history: boolean;
+    browsing: boolean;
+    sample: boolean;
+  },
 ) {
   if (!screen.connected) return undefined;
   if (screen.history) return text("ui.app.history", "Operation history");
+  if (screen.sample) return text("ui.sample.screen", "Sample experience");
   if (screen.browsing) return text("ui.app.screen_browse", "Browse folders");
   return text("ui.app.screen_analysis", "Analysis");
 }
@@ -97,6 +117,8 @@ export function App({
   const [visualizationOpen, setVisualizationOpen] = useState(false);
   const [scanContext, setScanContext] = useState<ScanPriorityContext>();
   const priority = useScanPriority(client, scanContext);
+  const flow = useSampleFlow(client);
+  const { sampleOpen, analysisKey, analysisSlot } = flow;
   const { version: browseVersion, choice: browseChoice } =
     browseState(browseSelection);
   const browseTrigger = useRef<HTMLButtonElement>(null);
@@ -106,6 +128,7 @@ export function App({
       connected: Boolean(client),
       history,
       browsing: Boolean(browseVersion),
+      sample: sampleOpen,
     }),
   );
   const restoreBrowseFocus = useRef(false);
@@ -141,7 +164,12 @@ export function App({
       restoreVisualizationFocus.current = false;
     }
   }, [visualizationOpen]);
-  const analysisOpen = client && !history && browseVersion === undefined;
+  const analysisOpen = analysisVisible({
+    connected: Boolean(client),
+    history,
+    browsing: browseVersion !== undefined,
+    sample: sampleOpen,
+  });
   const chosenDisplay = effectiveDisplay(browseChoice, preferences.display);
   const browseDisplay = withRegionalFormat(chosenDisplay, regional);
   const onSizeBasisChange = useCallback(
@@ -191,7 +219,7 @@ export function App({
               visible={Boolean(analysisOpen)}
             />
           )}
-          {client && !history && !browseVersion && (
+          {analysisOpen && (
             <Action
               variant="quiet"
               icon="history"
@@ -204,6 +232,11 @@ export function App({
         </div>
       </header>
       <LocaleLoadNotice locale={locale} />
+      <SampleContext
+        client={client}
+        flow={flow}
+        display={withRegionalFormat(preferences.display, regional)}
+      />
       {analysisUnavailableNotice(nativeLocaleHost, text)}
       {shouldShowConnectionUnavailable(client, nativeLocaleHost) && (
         <div className="du-analysis-slot">
@@ -228,8 +261,14 @@ export function App({
         </div>
       )}
       {client && (
-        <div className="du-analysis-slot" hidden={!analysisOpen}>
+        <div
+          ref={analysisSlot}
+          tabIndex={-1}
+          className="du-analysis-slot"
+          hidden={!analysisOpen}
+        >
           <AnalysisPanel
+            key={analysisKey}
             client={client}
             preferences={preferences}
             onSizeBasisChange={onSizeBasisChange}
@@ -239,6 +278,7 @@ export function App({
             }}
             browseTrigger={browseTrigger}
             onScanContext={setScanContext}
+            startAlternative={<SampleEntrySlot flow={flow} />}
           />
         </div>
       )}
