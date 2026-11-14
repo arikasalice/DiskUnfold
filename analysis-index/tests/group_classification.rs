@@ -78,7 +78,6 @@ fn overlap_and_unclassified_counts_and_independent_totals() -> Result<(), String
 fn an_empty_scope_is_a_confirmed_result_with_no_files() -> Result<(), String> {
     let (version, _) = fixture()?;
     let empty = folder_ref(&version, 0, "empty")?;
-    assert_eq!(group::scope_file_count(&version, Some(&empty)), Ok(0));
     let read = classify(&version, Some(&empty), vec![starts_with("a")], default())?;
     let summary = read.summary();
     assert_eq!(
@@ -311,8 +310,11 @@ fn partial_results_and_untraversed_links_are_not_exhaustive_coverage() -> Result
 #[test]
 fn only_a_folder_of_the_same_version_can_be_a_scope() -> Result<(), String> {
     let (version, scope) = fixture()?;
-    assert_eq!(group::scope_file_count(&version, Some(&scope)), Ok(3));
-    assert_eq!(group::scope_file_count(&version, None), Ok(4));
+    let files = |root: Option<&ItemRef>| {
+        classify(&version, root, vec![], default()).map(|read| read.summary().scope_files)
+    };
+    assert_eq!(files(Some(&scope))?, 3);
+    assert_eq!(files(None)?, 4);
     let file = version
         .items()
         .iter()
@@ -330,10 +332,6 @@ fn only_a_folder_of_the_same_version_can_be_a_scope() -> Result<(), String> {
         },
     ];
     for candidate in candidates {
-        assert_eq!(
-            group::scope_file_count(&version, Some(&candidate)),
-            Err(Error::InvalidRoot)
-        );
         assert!(matches!(
             group::classify_scope(
                 Arc::clone(&version),

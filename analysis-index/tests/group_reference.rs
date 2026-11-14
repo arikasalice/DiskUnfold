@@ -366,10 +366,6 @@ fn a_forest_is_classified_across_all_its_roots() -> Result<(), String> {
         .filter(|f| f.root == 1 && f.dir == "docs")
         .count();
     assert_eq!(narrow.summary().scope_files as usize, expected);
-    assert_eq!(
-        group::scope_file_count(&version, Some(&docs)),
-        Ok(expected as u64)
-    );
     Ok(())
 }
 

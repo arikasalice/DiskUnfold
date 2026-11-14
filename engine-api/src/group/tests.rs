@@ -22,6 +22,8 @@ use serde_json::{Value, json};
 use super::GroupAssembly;
 use crate::api::{CallerCtx, Channel, Engine, EngineBuilder};
 
+mod admission;
+
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
 struct Ids(AtomicUsize);
@@ -388,17 +390,16 @@ fn explanation_keeps_rule_decisions_and_wrong_versions_are_refused() -> TestResu
 
 #[test]
 fn unregistered_predicates_make_their_rule_undecidable() -> TestResult {
-    let harness = harness()?;
-    let response = classify(
-        &harness,
-        1,
-        json!({ "kind": "draft", "rules": [
-            { "displayName": "Tagged", "condition": tag() },
-            { "displayName": "Video", "condition": ends_with(".mp4") },
-        ] }),
-    )?;
+    // Only a stored rule can name a predicate this build lacks; a draft is rejected.
+    let rules = Arc::new(MemoryRules::default());
+    *rules.0.lock().map_err(|_| "poisoned")? = Some(admission::stored(&[
+        ("Tagged", tag(), "pred.tag"),
+        ("Video", ends_with(".mp4"), "pred.name"),
+    ])?);
+    let harness = harness_with(rules)?;
+    let response = classify(&harness, 1, json!({ "kind": "saved", "rulesetVersion": 1 }))?;
     let summary = &response["summary"];
-    assert_eq!(summary["rulesetVersion"], 0);
+    assert_eq!(summary["rulesetVersion"], 1);
     assert_eq!(summary["dataSource"], "real");
     assert_eq!(summary["groups"][0]["ruleUnevaluable"], true);
     assert_eq!(summary["groups"][0]["undecidableCount"], 4);

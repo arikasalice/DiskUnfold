@@ -2,7 +2,7 @@
 use std::{
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::{Duration, Instant},
 };
@@ -30,20 +30,21 @@ use crate::{
 
 /// Provisional synchronous wait (F36 DLD Q3) before work moves to a job.
 const SYNC_LIMIT: Duration = Duration::from_millis(500);
-/// Scopes larger than this go straight to a job.
-const SYNC_FILES: u64 = 200_000;
+/// Results with more items than this go straight to a job. The item count bounds the
+/// scope's files without walking the scope at admission.
+const SYNC_ITEMS: usize = 200_000;
 
 /// Test-only view that always takes the job path.
 #[cfg(test)]
 pub(super) const FORCE_JOB_VIEW: &str = "018f3333-0000-7000-8000-00000000f00b";
 
-fn sync_allowed(view: &Id, files: u64) -> bool {
+fn sync_allowed(view: &Id, items: usize) -> bool {
     #[cfg(test)]
     if view.as_str() == FORCE_JOB_VIEW {
         return false;
     }
     let _ = view;
-    files <= SYNC_FILES
+    items <= SYNC_ITEMS
 }
 
 /// Rules fixed at admission.
@@ -96,48 +97,56 @@ impl UseCase for Classify {
             request.scope.as_ref(),
             resolved.clone_meta(),
         ));
-        let store = &services.assembly.store;
-        if let Some(found) = services.registered.find(&meta.key, store) {
-            services.channels.finish(&view, seq);
-            return summary_response(services, seq, &found);
-        }
-        let classification_ref = services.assembly.ids.next_id();
-        let files =
-            group::scope_file_count(&version, request.scope.as_ref()).map_err(classify_error)?;
         let admission = Admission {
             version,
             scope: request.scope,
             conditions: resolved.conditions,
             meta,
-            classification_ref,
-            files,
+            classification_ref: services.assembly.ids.next_id(),
         };
-        if sync_allowed(&view, files) {
-            let control = SyncControl {
-                caller,
-                flag: &flag,
-                deadline: Instant::now() + SYNC_LIMIT,
-                expired: AtomicBool::new(false),
-            };
-            match run(&admission, &services.registry, &control) {
-                Ok(classification) => {
-                    services.registered.register(
-                        admission.classification_ref.clone(),
-                        classification,
-                        admission.meta.clone(),
-                    )?;
-                    services.channels.finish(&view, seq);
-                    return summary_response(services, seq, &admission.classification_ref);
-                }
-                Err(group::Error::Cancelled) if control.timed_out() => {}
-                Err(error) => {
-                    services.channels.finish(&view, seq);
-                    return Err(classify_error(error));
-                }
-            }
+        let response = admitted(services, caller, admission, (&view, seq), &flag);
+        // A job keeps the channel handle until it ends; every other outcome releases it.
+        if !matches!(response, Ok(GroupClassifyResponse::Job { .. })) {
+            services.channels.finish(&view, seq);
         }
-        submit(services, caller, admission, (&view, seq))
+        response
     }
+}
+
+/// Runs an admitted request: a registered duplicate, a synchronous run or a job.
+fn admitted(
+    services: &Services,
+    caller: &CallerCtx,
+    admission: Admission,
+    channel: (&Id, u32),
+    flag: &AtomicBool,
+) -> Result<GroupClassifyResponse, EngineError> {
+    let (view, seq) = channel;
+    let store = &services.assembly.store;
+    if let Some(found) = services.registered.find(&admission.meta.key, store) {
+        return summary_response(services, seq, &found);
+    }
+    if sync_allowed(view, admission.version.items().len()) {
+        let control = SyncControl {
+            caller,
+            flag,
+            deadline: Instant::now() + SYNC_LIMIT,
+            expired: AtomicBool::new(false),
+        };
+        match run(&admission, &services.registry, &control) {
+            Ok(classification) => {
+                services.registered.register(
+                    admission.classification_ref.clone(),
+                    classification,
+                    admission.meta.clone(),
+                )?;
+                return summary_response(services, seq, &admission.classification_ref);
+            }
+            Err(group::Error::Cancelled) if control.timed_out() => {}
+            Err(error) => return Err(classify_error(error)),
+        }
+    }
+    submit(services, caller, admission, channel)
 }
 
 impl Resolved {
@@ -157,8 +166,6 @@ struct Admission {
     conditions: Vec<Condition>,
     meta: Arc<Meta>,
     classification_ref: Id,
-    /// Files in the scope; the confirmed progress total of a job.
-    files: u64,
 }
 
 fn run(
@@ -193,20 +200,36 @@ fn resolve(services: &Services, source: GroupRuleSource) -> Result<Resolved, Eng
             })
         }
         GroupRuleSource::Draft { rules: drafts } => {
-            let mut rules = Vec::with_capacity(drafts.len());
+            let mut lowered = Vec::with_capacity(drafts.len());
             for draft in drafts {
-                let condition = lower_condition(draft.condition)
-                    .map_err(|_| EngineError::reason("query.syntax_invalid"))?
-                    .normalize();
-                rules.push(ruleset::Rule {
-                    group_id: draft
-                        .group_id
-                        .unwrap_or_else(|| services.assembly.ids.next_id()),
-                    display_name: ruleset::normalize_name(&draft.display_name),
-                    predicates: ruleset::strategies(&condition),
-                    condition,
+                lowered.push(ruleset::RuleDraft {
+                    group_id: draft.group_id,
+                    display_name: draft.display_name,
+                    condition: lower_condition(draft.condition)
+                        .map_err(|_| EngineError::reason("query.syntax_invalid"))?,
                 });
             }
+            // Drafts pass the checks of a save; group IDs must name saved rules.
+            let saved = codec::load(services.rules.as_ref())?;
+            let limits = ruleset::RuleLimits::default();
+            let issues = ruleset::review(&saved.ruleset, &lowered, &services.registry, limits);
+            if let Some(issue) = issues.first() {
+                return Err(EngineError::reason(issue.reason_key));
+            }
+            let rules: Vec<ruleset::Rule> = lowered
+                .into_iter()
+                .map(|draft| {
+                    let condition = draft.condition.normalize();
+                    ruleset::Rule {
+                        group_id: draft
+                            .group_id
+                            .unwrap_or_else(|| services.assembly.ids.next_id()),
+                        display_name: ruleset::normalize_name(&draft.display_name),
+                        predicates: ruleset::strategies(&condition),
+                        condition,
+                    }
+                })
+                .collect();
             Ok(Resolved {
                 fingerprint: ruleset::fingerprint(&rules),
                 conditions: rules.iter().map(|rule| rule.condition.clone()).collect(),
@@ -227,11 +250,13 @@ fn meta(
         .iter()
         .flat_map(|id| id.as_str().as_bytes().to_vec())
         .collect();
-    // Duplicate key: result version, scope, rule content and group identities.
+    // Duplicate key: result version, scope, ruleset version, rule content and group
+    // identities. The ruleset version keeps a summary from reporting an older version.
     let key = format!(
-        "{}|{}|{}|{}",
+        "{}|{}|{}|{}|{}",
         version.version_id().as_str(),
         scope.map_or_else(|| "*".to_owned(), |item| item.item_no.to_string()),
+        ruleset_version,
         fingerprint,
         hex(blake3::hash(&ids).as_bytes()),
     );
@@ -266,6 +291,7 @@ fn classify_error(error: group::Error) -> EngineError {
         }
         group::Error::Source(QueryError::NotFound) => EngineError::reason("ref.unavailable"),
         group::Error::InvalidRule(_) => EngineError::reason("query.syntax_invalid"),
+        group::Error::ScopeTooLarge => EngineError::reason("group.rule_limit"),
         _ => internal(),
     }
 }
@@ -387,8 +413,11 @@ struct Body {
 
 struct JobControl<'a> {
     context: &'a dyn JobContext,
-    total: u64,
+    /// Files in the scope, or [`UNKNOWN_TOTAL`] until the scope has been collected.
+    total: AtomicU64,
 }
+
+const UNKNOWN_TOTAL: u64 = u64::MAX;
 
 impl Control for JobControl<'_> {
     fn cancelled(&self) -> bool {
@@ -397,10 +426,15 @@ impl Control for JobControl<'_> {
 
     /// Reports evaluated files against the scope's file count (F24 job.progress).
     fn progress(&self, completed_files: u64) {
+        let total = self.total.load(Ordering::Acquire);
         self.context.report_progress(JobProgress {
             completed: completed_files,
-            total: Some(self.total),
+            total: (total != UNKNOWN_TOTAL).then_some(total),
         });
+    }
+
+    fn scope_files(&self, files: u64) {
+        self.total.store(files, Ordering::Release);
     }
 }
 
@@ -412,7 +446,7 @@ impl JobBody for Body {
     fn run(&self, context: Arc<dyn JobContext>) -> JobOutcome {
         let control = JobControl {
             context: context.as_ref(),
-            total: self.admission.files,
+            total: AtomicU64::new(UNKNOWN_TOTAL),
         };
         let failure = match run(&self.admission, &self.registry, &control) {
             Ok(classification) => match self.slot.lock() {
@@ -424,6 +458,7 @@ impl JobBody for Body {
             },
             Err(group::Error::Cancelled) => None,
             Err(group::Error::Source(QueryError::StaleVersion)) => Some("result.version_stale"),
+            Err(group::Error::ScopeTooLarge) => Some("group.rule_limit"),
             Err(_) => Some("support.internal_error"),
         };
         JobOutcome {

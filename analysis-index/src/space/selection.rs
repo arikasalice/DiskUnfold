@@ -27,7 +27,28 @@ pub(crate) fn sum(
     membership_complete: bool,
     cancelled: impl FnMut() -> bool,
 ) -> Result<SpaceAggregate, Error> {
-    calculate(version, items, membership_complete, None, cancelled)
+    let rows = items
+        .iter()
+        .map(|reference| version.detail(reference).map(|detail| detail.item));
+    calculate(version, rows, membership_complete, None, cancelled)
+}
+
+/// Calculates a set total from item numbers of `version`, without building references.
+///
+/// Same rules as [`sum`]; an item number outside the version is `Item(NotFound)`.
+pub(crate) fn sum_item_numbers(
+    version: &ResultVersion,
+    numbers: &[u32],
+    membership_complete: bool,
+    cancelled: impl FnMut() -> bool,
+) -> Result<SpaceAggregate, Error> {
+    let rows = numbers.iter().map(|&number| {
+        version
+            .items()
+            .get(number as usize)
+            .ok_or(QueryError::NotFound)
+    });
+    calculate(version, rows, membership_complete, None, cancelled)
 }
 
 pub(crate) fn sum_with_range(
@@ -38,9 +59,12 @@ pub(crate) fn sum_with_range(
 ) -> Result<(SpaceAggregate, crate::observation_range::RangeIndices), Error> {
     let complete = membership_complete && version.completeness() == ResultCompleteness::Complete;
     let mut range = crate::observation_range::RangeIndices::selection(complete);
+    let rows = items
+        .iter()
+        .map(|reference| version.detail(reference).map(|detail| detail.item));
     let total = calculate(
         version,
-        items,
+        rows,
         membership_complete,
         Some(&mut range),
         cancelled,
@@ -48,9 +72,9 @@ pub(crate) fn sum_with_range(
     Ok((total, range))
 }
 
-fn calculate(
-    version: &ResultVersion,
-    items: &[ItemRef],
+fn calculate<'a>(
+    version: &'a ResultVersion,
+    rows: impl Iterator<Item = Result<&'a du_core_contracts::result::ResultItem, QueryError>>,
     membership_complete: bool,
     mut range: Option<&mut crate::observation_range::RangeIndices>,
     mut cancelled: impl FnMut() -> bool,
@@ -60,11 +84,11 @@ fn calculate(
     let mut physical = Physical::with_limit(version.shared_table_limit);
     let mut complete =
         membership_complete && version.completeness() == ResultCompleteness::Complete;
-    for reference in items {
+    for row in rows {
         if cancelled() {
             return Err(Error::Cancelled);
         }
-        let row = version.detail(reference).map_err(Error::Item)?.item;
+        let row = row.map_err(Error::Item)?;
         let file = row.kind == ResultItemKind::File;
         complete &= file;
         if !file && let Some(range) = &mut range {

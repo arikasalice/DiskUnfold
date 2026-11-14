@@ -271,6 +271,7 @@ pub struct Recording {
     cancel_from_poll: Option<usize>,
     polls: AtomicUsize,
     reports: Mutex<Vec<u64>>,
+    scope_totals: Mutex<Vec<u64>>,
 }
 
 impl Recording {
@@ -289,6 +290,14 @@ impl Recording {
     pub fn reports(&self) -> Vec<u64> {
         self.reports.lock().map(|r| r.clone()).unwrap_or_default()
     }
+
+    /// Scope file counts announced before evaluation, in call order.
+    pub fn scope_totals(&self) -> Vec<u64> {
+        self.scope_totals
+            .lock()
+            .map(|r| r.clone())
+            .unwrap_or_default()
+    }
 }
 
 impl Control for Recording {
@@ -300,6 +309,12 @@ impl Control for Recording {
     fn progress(&self, completed_files: u64) {
         if let Ok(mut reports) = self.reports.lock() {
             reports.push(completed_files);
+        }
+    }
+
+    fn scope_files(&self, files: u64) {
+        if let Ok(mut totals) = self.scope_totals.lock() {
+            totals.push(files);
         }
     }
 }
