@@ -114,7 +114,7 @@ impl Progress {
                 if root && !self.root_published[root_index as usize] {
                     self.failed_roots[root_index as usize] = true;
                 }
-                let counted = self.counted(root_index, &path);
+                let counted = self.counted_roots.counted(root_index, &path);
                 let times = (observed_at, context.utc_now());
                 let range = (root_index, path);
                 record::record_failure(build, counts, range, (stage, reason), times, counted)?;
@@ -156,26 +156,6 @@ impl Progress {
         }
         self.published = true;
         Ok(())
-    }
-
-    /// How the directory of a failed range was counted before the failure.
-    ///
-    /// A directory below a root was counted as completed when it was
-    /// enumerated. A root was counted when it was admitted; its first failure
-    /// moves it to failed unless it was already counted as failed.
-    fn counted(&mut self, root_index: u32, path: &[Vec<u8>]) -> record::Counted {
-        if !path.is_empty() {
-            return record::Counted::Completed;
-        }
-        let earlier = usize::try_from(root_index)
-            .ok()
-            .and_then(|index| self.counted_roots.get_mut(index))
-            .is_some_and(|failed| std::mem::replace(failed, true));
-        if earlier {
-            record::Counted::Failed
-        } else {
-            record::Counted::Completed
-        }
     }
 }
 

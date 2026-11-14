@@ -10,8 +10,7 @@
 use super::{
     ResultIds,
     admission::{self, Admission, Boundary, Parent, RootStart, Visited},
-    issues,
-    record::{self, Counted},
+    issues, record,
 };
 use du_analysis_index::{BuildError, BuildHandle, IngestSink};
 use du_core_contracts::{
@@ -97,7 +96,7 @@ pub(super) fn run(
             visited,
             closed: false,
             // An unverifiable root was already counted as failed at its start.
-            root_failed: root.boundary == Boundary::Unknown,
+            failed: record::FailedRanges::new(vec![root.boundary == Boundary::Unknown]),
         };
         walk.root(root, ids)?
     };
@@ -137,9 +136,8 @@ struct Walk<'a> {
     visited: Visited,
     /// The volume reported an explicit disconnection; nothing more is opened.
     closed: bool,
-    /// The root item was counted as failed, so a later root failure is not
-    /// counted again. Otherwise it counts as completed since its start.
-    root_failed: bool,
+    /// The ranges that failed, so that each one is counted once.
+    failed: record::FailedRanges,
 }
 
 impl Walk<'_> {
@@ -298,11 +296,7 @@ impl Walk<'_> {
 
     /// Records an unread range; the directory stays counted once, as failed.
     fn fail(&mut self, path: Vec<Vec<u8>>, stage: Stage, reason: &str) -> Result<(), BuildError> {
-        let counted = if !path.is_empty() || !std::mem::replace(&mut self.root_failed, true) {
-            Counted::Completed
-        } else {
-            Counted::Failed
-        };
+        let counted = self.failed.counted(0, &path);
         let range = (0, path);
         record::record_failure(
             self.build,

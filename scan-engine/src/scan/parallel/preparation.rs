@@ -65,14 +65,15 @@ fn identities(
 ///
 /// A root on a volume closed as disconnected counts as completed without a
 /// range; its closure records its own unread range and moves the count to
-/// failed. Returns, per root, whether it was counted as failed here.
+/// failed. Returns the failed ranges, which hold the roots counted as failed
+/// here.
 pub(super) fn record_starts(
     build: &mut BuildHandle,
     starts: &[RootStart],
     disconnects: &Disconnects,
     counts: &mut JobCounts,
     context: &dyn JobContext,
-) -> Result<Vec<bool>, BuildError> {
+) -> Result<record::FailedRanges, BuildError> {
     let mut failed = vec![false; starts.len()];
     for (index, &start) in starts.iter().enumerate() {
         let root = u32::try_from(index).map_err(|_| BuildError::Unavailable)?;
@@ -86,5 +87,5 @@ pub(super) fn record_starts(
         admission::record_root_start(build, root, start, counts, observed_at.as_ref())?;
         failed[index] = start == RootStart::Collect(Boundary::Unknown);
     }
-    Ok(failed)
+    Ok(record::FailedRanges::new(failed))
 }

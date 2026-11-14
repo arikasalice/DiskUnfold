@@ -126,7 +126,7 @@ struct Progress {
     root_published: Vec<bool>,
     /// Roots already counted as failed; any other root counts as completed
     /// since its admission, and its first failure moves it to failed.
-    counted_roots: Vec<bool>,
+    counted_roots: record::FailedRanges,
     published: bool,
     cadence: PublicationCadence,
 }
