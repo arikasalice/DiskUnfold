@@ -31,7 +31,10 @@ pub struct ResultVersionChanged {
     pub lineage_id: Id,
     pub source_ref: Id,
     pub origin: String,
-    /// Data source of the pinned version; absent means a sample (F32 FR2.HD1).
+    /// Data source of the lineage's versions; absent means a sample (F32 FR2.HD1).
+    ///
+    /// Sample results never publish this notice, so producers send `real` today.
+    /// Consumers must not use this value to decide which lineages they track.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "typescript", ts(optional))]
     pub data_source: Option<crate::data_source::DataSource>,
