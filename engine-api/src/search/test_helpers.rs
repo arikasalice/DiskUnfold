@@ -7,17 +7,23 @@ use du_core_contracts::{CallEnvelope, ENVELOPE_VERSION, Id};
 use du_job_runtime::{JobRuntime, JobSnapshot};
 use serde_json::{Value, json};
 
+/// Waits until the runtime has confirmed the job's terminal outcome.
+///
+/// The runtime sets the terminal state when the job finishes and attaches
+/// `JobSnapshot::terminal` later, on its delivery thread, after history
+/// handling. A terminal state alone therefore does not make `terminal`
+/// readable; callers that inspect it must wait for the confirmed outcome.
 pub(super) fn wait_terminal(runtime: &JobRuntime, job: &Id) -> Result<JobSnapshot, String> {
     for _ in 0..10_000 {
         let snapshot = runtime
             .snapshot(job)
             .map_err(|error| format!("{error:?}"))?;
-        if snapshot.state.is_terminal() {
+        if snapshot.state.is_terminal() && snapshot.terminal.is_some() {
             return Ok(snapshot);
         }
         std::thread::sleep(std::time::Duration::from_millis(1));
     }
-    Err("job did not reach a terminal state".into())
+    Err("job did not reach a confirmed terminal outcome".into())
 }
 
 pub(super) fn finished_event(events: &DesktopEvents, job: &Id) -> Result<Value, String> {
