@@ -10,6 +10,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+mod assignment_cost;
 mod bounds;
 mod control;
 mod determinism;

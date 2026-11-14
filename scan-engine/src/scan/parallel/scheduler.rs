@@ -111,9 +111,18 @@ pub(super) fn queue_for(
 impl Queue {
     /// A started queue without roots; tests add frames and counts themselves.
     pub(super) fn for_test(groups: Vec<usize>, limit: usize) -> Self {
+        Self::for_test_with_capacity(groups, limit, QUEUED_DIRECTORIES)
+    }
+
+    /// Like [`Queue::for_test`] with a lane queue capacity other than the default.
+    pub(super) fn for_test_with_capacity(
+        groups: Vec<usize>,
+        limit: usize,
+        capacity: usize,
+    ) -> Self {
         let root_count = groups.len();
         Self {
-            lanes: lanes::Lanes::new(&groups, limit, QUEUED_DIRECTORIES, true),
+            lanes: lanes::Lanes::new(&groups, limit, capacity, true),
             priority: None,
             outstanding: None,
             remaining: 0,
