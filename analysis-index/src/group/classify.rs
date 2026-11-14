@@ -24,6 +24,9 @@ use crate::{
 
 const DEFAULT_CHUNK_ITEMS: usize = 4096;
 const MAX_DEFAULT_WORKERS: usize = 4;
+/// Provisional bound (F36 DLD Q3) on files times rules of one classification. A decision
+/// takes one byte, so the decision table of an admitted scope stays below 256 MiB.
+pub const MAX_DECISIONS: usize = 1 << 28;
 
 /// Cancellation and progress hooks shared by every worker of one classification.
 ///
@@ -33,6 +36,8 @@ pub trait Control: Sync {
     fn cancelled(&self) -> bool;
     /// Receives the number of files evaluated so far. Reported values never decrease.
     fn progress(&self, completed_files: u64);
+    /// Receives the number of files in the scope once, before any of them is evaluated.
+    fn scope_files(&self, _files: u64) {}
 }
 
 /// Work division of one classification. The result never depends on these values.
@@ -67,7 +72,8 @@ impl Default for Parallelism {
 ///
 /// # Errors
 /// Returns [`Error::InvalidRoot`] for a root that is not a folder of `version`,
-/// [`Error::InvalidRule`] for a rule beyond the condition limits and [`Error::Cancelled`].
+/// [`Error::InvalidRule`] for a rule beyond the condition limits, [`Error::ScopeTooLarge`]
+/// when files times rules exceeds [`MAX_DECISIONS`] and [`Error::Cancelled`].
 pub fn classify_scope(
     version: Arc<ResultVersion>,
     root: Option<&ItemRef>,
@@ -83,6 +89,10 @@ pub fn classify_scope(
         return Err(Error::Cancelled);
     }
     let scope = scope::collect(&version, root, control)?;
+    if !within_limit(scope.files.len(), rules.len(), MAX_DECISIONS) {
+        return Err(Error::ScopeTooLarge);
+    }
+    control.scope_files(u64::try_from(scope.files.len()).unwrap_or(u64::MAX));
     let decisions = evaluate(&version, &scope.files, &plans, parallelism, control)?;
     drop(plans);
     if control.cancelled() {
@@ -98,6 +108,13 @@ pub fn classify_scope(
         decisions,
         coverage_complete: scope.coverage_complete,
     }))
+}
+
+/// Reports whether a decision table of `files` rows and `rules` columns fits `limit`.
+fn within_limit(files: usize, rules: usize, limit: usize) -> bool {
+    files
+        .checked_mul(rules)
+        .is_some_and(|decisions| decisions <= limit)
 }
 
 /// Resolves every rule once. `None` marks a rule with a predicate the registry lacks.
@@ -275,5 +292,19 @@ impl Shared<'_> {
         *completed = completed.saturating_add(u64::try_from(files).unwrap_or(u64::MAX));
         self.control.progress(*completed);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::within_limit;
+
+    #[test]
+    fn the_decision_limit_counts_files_times_rules_without_overflow() {
+        assert!(within_limit(4, 2, 8));
+        assert!(!within_limit(4, 3, 8));
+        assert!(within_limit(0, 64, 0));
+        assert!(within_limit(1_000_000, 0, 0));
+        assert!(!within_limit(usize::MAX, 2, usize::MAX));
     }
 }

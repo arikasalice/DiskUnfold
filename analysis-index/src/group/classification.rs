@@ -11,6 +11,7 @@ use super::{
     Decision, Error, REASON_RULE_UNEVALUABLE, REASON_VALUE_UNKNOWN,
     page::OrderCache,
     summary::{Summary, Tally, row_at},
+    totals::TotalsCache,
 };
 use crate::{ResultVersion, query::Condition};
 
@@ -43,6 +44,7 @@ pub struct Classification {
     pub(super) coverage_complete: bool,
     pub(super) summary: Summary,
     pub(super) orders: Mutex<OrderCache>,
+    pub(super) totals: Mutex<TotalsCache>,
 }
 
 /// Recount of the observed files across all rules, independent of group selection.
@@ -78,6 +80,7 @@ impl Classification {
             coverage_complete: parts.coverage_complete,
             summary,
             orders: Mutex::default(),
+            totals: Mutex::default(),
         }
     }
 

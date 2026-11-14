@@ -109,8 +109,7 @@ fn the_default_division_uses_large_chunks_and_a_few_workers() {
 #[test]
 fn progress_grows_in_order_and_ends_at_the_scope_file_count() -> Result<(), String> {
     let (files, version) = version(1)?;
-    let total = group::scope_file_count(&version, None).map_err(err)?;
-    assert_eq!(total, files.len() as u64);
+    let total = files.len() as u64;
     for (chunk, workers) in [(1, 1), (5, 3), (1, 3), (1000, 3)] {
         let control = Recording::default();
         group::classify_scope(
@@ -123,6 +122,8 @@ fn progress_grows_in_order_and_ends_at_the_scope_file_count() -> Result<(), Stri
         )
         .map_err(err)?;
         let reports = control.reports();
+        // The scope total is announced once, before the first progress report.
+        assert_eq!(control.scope_totals(), [total]);
         assert!(
             reports.windows(2).all(|pair| pair[0] < pair[1]),
             "{reports:?}"
