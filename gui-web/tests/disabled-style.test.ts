@@ -77,3 +77,26 @@ test("a quiet action draws no border when disabled, as when enabled", () => {
   expect(shared).toBeGreaterThan(-1);
   expect(quiet).toBeGreaterThan(shared);
 });
+
+test("in forced colours a quiet action draws an edge: ButtonText, GrayText when disabled", () => {
+  const forced = block(
+    workspace,
+    /@media \(forced-colors: active\) \{[\s\S]*?\n\}/,
+  );
+  expect(block(forced, /\.du-action--quiet \{[^}]*\}/)).toMatch(
+    /border-color: ButtonText;/,
+  );
+  // Hover and press keep the edge through the interaction border variable.
+  expect(block(forced, /\.du-action--quiet \{[^}]*\}/)).toMatch(
+    /--du-action-interaction-border: ButtonText;/,
+  );
+  expect(
+    block(forced, /\.du-action--quiet\[data-disabled\],[^{]*\{[^}]*\}/),
+  ).toMatch(/border-color: GrayText;/);
+  // Same specificity as the borderless disabled rule of normal mode, so the
+  // forced-colour rule must come after it.
+  const borderless = workspace.search(
+    /^\.du-action--quiet\[data-disabled\] \{[^}]*border-color: transparent;/m,
+  );
+  expect(workspace.indexOf(forced)).toBeGreaterThan(borderless);
+});

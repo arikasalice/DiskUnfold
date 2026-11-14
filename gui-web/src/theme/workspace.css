@@ -476,6 +476,19 @@ label.du-field > span {
     text-decoration: underline;
   }
 
+  /* Without the accent colour a quiet action looks like body text, so it
+     draws an edge here only: ButtonText, or GrayText when disabled. These
+     follow the borderless quiet rules above at the same specificity. */
+  .du-action--quiet {
+    --du-action-interaction-border: ButtonText;
+    border-color: ButtonText;
+  }
+
+  .du-action--quiet[data-disabled],
+  .du-action--quiet[aria-disabled="true"] {
+    border-color: GrayText;
+  }
+
   .du-field :is(input, select):hover:enabled {
     border-style: dashed;
   }
