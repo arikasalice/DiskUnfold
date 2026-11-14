@@ -6,6 +6,7 @@ use du_core_contracts::{
     Timestamp,
     locale_bundle::{LocaleDatePattern, LocaleFormatTable, LocaleMessageValue},
     locale_message::{LocaleMessagePort, LocaleMessageRequest, RenderedLocaleMessage},
+    time_zone::TimeZonePort,
 };
 
 use super::Registry;
@@ -19,6 +20,8 @@ const BASELINE_LANGUAGE: &str = "en";
 /// Display preferences applied to counts, sizes, timestamps and numbers.
 ///
 /// A port takes these once at construction. A settings change builds a new port.
+/// The local UTC offset is not a setting: the port observes it for each
+/// timestamp through its [`TimeZonePort`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LocaleFormatSettings {
     /// Number format identifier, for example `lang_default` or `no_grouping`.
@@ -31,8 +34,6 @@ pub struct LocaleFormatSettings {
     pub size_unit_system: String,
     /// Selected size unit or `auto`.
     pub size_unit: String,
-    /// Observed local UTC offset in seconds, used only by the `local` policy.
-    pub local_offset_seconds: Option<i32>,
 }
 
 /// Owned copy of one bundle's format table, validated at registration.
@@ -87,19 +88,36 @@ const fn date_pattern_id(id: LocaleDatePattern) -> &'static str {
 /// that falls back to English still formats numbers and dates for the
 /// requested language. The port is immutable after construction, so it can be
 /// shared across threads.
+///
+/// Under the `local` time zone policy the port observes the offset for each
+/// timestamp value through its [`TimeZonePort`], so timestamps on either side
+/// of a daylight saving change each show their own offset. The `utc` policy
+/// never observes. When an observation fails the timestamp is formatted as
+/// UTC.
+///
+/// [`format_raw`] also returns markers and warnings, such as the
+/// `locale.timezone_unavailable` marker. The port discards them because
+/// [`RenderedLocaleMessage`] has no field to carry them. F23 may add an
+/// optional field when it needs them.
 pub struct RegistryMessagePort {
     registry: Arc<Registry>,
     settings: LocaleFormatSettings,
+    time_zone: Arc<dyn TimeZonePort>,
     tables: BTreeMap<String, OwnedFormatTable>,
 }
 
 impl RegistryMessagePort {
-    /// Builds a port over a registered bundle set and the active format settings.
+    /// Builds a port over a registered bundle set, the active format settings
+    /// and the time zone source used by the `local` policy.
     ///
     /// A bundle whose format table cannot be read is left without one; values
     /// that need formatting then render as `value.unknown`. Startup
     /// registration already rejects such tables, so this is a defensive path.
-    pub fn new(registry: Arc<Registry>, settings: LocaleFormatSettings) -> Self {
+    pub fn new(
+        registry: Arc<Registry>,
+        settings: LocaleFormatSettings,
+        time_zone: Arc<dyn TimeZonePort>,
+    ) -> Self {
         let tables = registry
             .languages()
             .filter_map(|language| {
@@ -111,8 +129,24 @@ impl RegistryMessagePort {
         Self {
             registry,
             settings,
+            time_zone,
             tables,
         }
+    }
+
+    /// Observes the local offset for one timestamp; `None` unless the policy is
+    /// `local` and the observation succeeds.
+    fn local_offset_seconds(&self, raw: &RawValue) -> Option<i32> {
+        if self.settings.time_zone_policy != "local" {
+            return None;
+        }
+        let RawValue::Time(ValueState::Exact(instant)) = raw else {
+            return None;
+        };
+        self.time_zone
+            .observe(instant)
+            .ok()
+            .map(|zone| zone.offset_seconds)
     }
 
     fn table_for(&self, language: &str) -> Option<&OwnedFormatTable> {
@@ -156,7 +190,7 @@ impl RegistryMessagePort {
             &raw,
             &profile,
             &table.view(),
-            self.settings.local_offset_seconds,
+            self.local_offset_seconds(&raw),
         );
         match output.visual {
             FormatText::Literal(text) => Some(text),
