@@ -405,35 +405,56 @@ const reviewReasons = new Map<string, Message>([
 ]);
 
 /**
- * Explains a scope review or scan start failure.
- *
- * A stale version asks for a new review. Otherwise an error whose reason key
- * has display copy (a scope notice, review reason or job reason, in that
- * order) shows that copy, and every other failure uses the general message.
+ * The job reasons scan.start reports when it cannot admit the scan. A start
+ * request is never cancelled, so "The scan was cancelled." is not among them.
  */
-export function scopeErrorText(error: unknown, text: LocaleText): string {
+const startJobReasons = new Map(
+  [...jobReasons].filter(([key]) => key !== "job.cancelled"),
+);
+
+/**
+ * A stale version asks for a new review; otherwise the first table that has
+ * display copy for the reason key explains it, and every other failure uses
+ * the general message.
+ */
+function failureText(
+  error: unknown,
+  tables: readonly ReadonlyMap<string, Message>[],
+  text: LocaleText,
+): string {
   if (error instanceof AnalysisError) {
     if (error.code === "STALE_VERSION")
       return text(
         "ui.analysis.target_or_result_changed",
         "The target or result changed. Review the scope again.",
       );
-    const message =
-      scopeNotices.get(error.reasonKey) ??
-      reviewReasons.get(error.reasonKey) ??
-      jobReasons.get(error.reasonKey);
-    if (message) return text(...message);
+    for (const table of tables) {
+      const message = table.get(error.reasonKey);
+      if (message) return text(...message);
+    }
   }
   return text("ui.analysis.operation_failed", "The operation failed");
 }
 
-/** Explains a failed scope review request. */
+/**
+ * Explains a scan start failure: a scope notice or target reason for a
+ * selection that changed since its review, then a review reason, then an
+ * admission reason such as a full job queue or a closing application.
+ */
+export function scopeErrorText(error: unknown, text: LocaleText): string {
+  return failureText(
+    error,
+    [scopeNotices, reviewReasons, startJobReasons],
+    text,
+  );
+}
+
+/**
+ * Explains a failed scope review request: a review reason first, then a scope
+ * notice. A review is not a job, so job reasons are not looked up.
+ */
 export function scopeReviewErrorText(error: unknown, text: LocaleText): string {
-  const message =
-    error instanceof AnalysisError
-      ? reviewReasons.get(error.reasonKey)
-      : undefined;
-  return message ? text(...message) : scopeErrorText(error, text);
+  return failureText(error, [reviewReasons, scopeNotices], text);
 }
 
 /** The target evidence a rejected scope review reports. */
