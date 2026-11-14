@@ -21,6 +21,8 @@ use std::{
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
+mod exclusions;
+
 fn ipc(
     engine: &Engine,
     name: &str,
