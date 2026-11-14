@@ -15,6 +15,7 @@ use du_core_contracts::result_events::{
     PublishedCompleteness, ResultVersionChange, ResultVersionChanged,
 };
 use du_core_contracts::scan_failures::*;
+use du_core_contracts::scan_priority::{ScanPriorityRequest, ScanPriorityResponse};
 use du_core_contracts::settings_events::*;
 use du_core_contracts::settings_ipc::*;
 use du_core_contracts::shutdown_ipc::*;
@@ -267,6 +268,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ScanFailureRow::decl(&config),
         ScanFailuresRequest::decl(&config),
         ScanFailures::decl(&config),
+        ScanPriorityRequest::decl(&config),
+        ScanPriorityResponse::decl(&config),
         JobState::decl(&config),
         du_core_contracts::job::JobControl::decl(&config),
         AnalysisJobRequest::decl(&config),
