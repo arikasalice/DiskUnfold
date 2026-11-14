@@ -23,13 +23,11 @@ fn original_and_fingerprint_are_derived_from_same_bound_conditions() -> Result<(
     let key = path("c:\\fixture\\secret");
     let mut proof = BoundScopeProof {
         root_pairs: vec![(path("C:\\Fixture"), path("c:\\fixture"))],
-        rules: vec![VerifiedExclusion {
-            original: original.clone(),
-            comparison: ComparisonPath {
-                volume: vec![1],
-                components: vec![b"secret".to_vec()],
-                serialized_key: key.clone(),
+        rules: vec![BoundRule {
+            original: ScopeExclusion::Path {
+                path: original.clone(),
             },
+            key: ScopeExclusion::Path { path: key.clone() },
         }],
         boundary: ScopeBoundary::CurrentVolume,
         included_mounts: vec![],
@@ -44,7 +42,9 @@ fn original_and_fingerprint_are_derived_from_same_bound_conditions() -> Result<(
         vec![ScopeExclusion::Path { path: key }]
     );
     let fingerprint = proof.fingerprint()?;
-    proof.rules[0].comparison.serialized_key = path("c:\\fixture\\other");
+    proof.rules[0].key = ScopeExclusion::Path {
+        path: path("c:\\fixture\\other"),
+    };
     assert_ne!(proof.fingerprint()?, fingerprint);
     assert_eq!(
         proof.fingerprint()?,
