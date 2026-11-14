@@ -4,6 +4,7 @@ import {
   subscribeNative,
   subscribeNativeFolderDrop,
 } from "./bridge";
+import { AnalysisError } from "./analysis-error";
 import type {
   AnalysisJobControl,
   AppQuitRequest,
@@ -52,6 +53,8 @@ import type {
   ResultEnvelope,
   ScanFailures,
   ScanFailuresRequest,
+  ScanPriorityRequest,
+  ScanPriorityResponse,
   ScanStart,
   ScanStartRequest,
   SettingsRestoreRequest,
@@ -104,6 +107,7 @@ export type {
   AppQuitRequest,
   AppQuitResponse,
   AnalysisJobListRow,
+  AnalysisJobProgress,
   AnalysisJobStatus,
   AnalysisTarget,
   BrowseCopyPathOutcome,
@@ -153,6 +157,8 @@ export type {
   ScanFailureStage,
   ScanFailures,
   ScanFailuresRequest,
+  ScanPriorityRequest,
+  ScanPriorityResponse,
   ScanStart,
   SettingsRestoreStatus,
   ScopeDraft,
@@ -181,6 +187,7 @@ export type {
   NoticesResponse,
   ProductInfo,
   ProductInfoRequest,
+  ProgressUnit,
   SecuritySupportBasis,
   SecuritySupportKind,
   SupportCapabilityState,
@@ -239,6 +246,7 @@ type Commands = {
   "scope.recent_open": [RecentScopeOpenRequest, RecentScopeOpen];
   "scan.start": [ScanStartRequest, ScanStart];
   "scan.failures": [ScanFailuresRequest, ScanFailures];
+  "scan.prioritize": [ScanPriorityRequest, ScanPriorityResponse];
   "job.get": [AnalysisJobRequest, AnalysisJobStatus];
   "job.list": [AnalysisJobListRequest, AnalysisJobListRow[]];
   "job.pause": [AnalysisJobRequest, AnalysisJobControl];
@@ -300,17 +308,28 @@ export type FolderDrop = { seq: number } & (
   | { reason: "invalid_target" | "unsupported" }
 );
 
-/** Carries a command failure while preserving retryability when the host knows it. */
-export class AnalysisError extends Error {
-  constructor(
-    readonly code: string,
-    readonly reasonKey: string,
-    /** Retryability from the native error envelope, when available. */
-    readonly retryable?: boolean,
-  ) {
-    super(reasonKey);
-  }
-}
+export { AnalysisError };
+export {
+  rejectedScopeReviewText,
+  resultReadProblem,
+  SCAN_ISSUE_FILTERS,
+  scanIssueKindText,
+  scanIssueReasonText,
+  scanIssueStageText,
+  scanIssuesProblemText,
+  scanIssuesRecoveryText,
+  scanJobReasonText,
+  scanProblemText,
+  scopeErrorText,
+  scopeNoticeText,
+  scopeReviewErrorText,
+} from "./scan-text";
+export type {
+  ResultReadProblem,
+  ScanControl,
+  ScanIssueFilter,
+  ScanProblem,
+} from "./scan-text";
 
 /** Creates the UUID v7 request identifier required by the host envelope. */
 function requestId(): Id {

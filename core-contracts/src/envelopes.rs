@@ -84,7 +84,12 @@ impl ErrorEnvelope {
             | "scope.empty"
             | "scope.target_unavailable"
             | "scope.exclude_invalid"
+            | "scan.priority_out_of_scope"
             | "path.unresolvable"
+            | "group.unknown"
+            | "group.rule_invalid"
+            | "group.name_duplicate"
+            | "group.rule_limit"
             | "startup.shutting_down" => ErrorCode::InvalidArgument,
             "cursor.stale"
             | "cursor.expired"
@@ -92,6 +97,7 @@ impl ErrorEnvelope {
             | "result.version_stale"
             | "scope.changed"
             | "result.requery_required"
+            | "group.rules_modified"
             | "history.version_changed" => ErrorCode::StaleVersion,
             "locale.profile_modified" => ErrorCode::StaleVersion,
             "ref.unavailable"
@@ -100,6 +106,7 @@ impl ErrorEnvelope {
             | "job.not_found"
             | "history.removed"
             | "viz.model_expired"
+            | "group.result_expired"
             | "locale.bundle_unavailable" => ErrorCode::NotFound,
             "command.window_denied" => ErrorCode::OriginDenied,
             "path.outside_scope" | "path.link_escape" => ErrorCode::ScopeDenied,

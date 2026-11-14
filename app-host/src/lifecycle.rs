@@ -1,18 +1,21 @@
+//! Assemble the GUI process and run its window lifecycle.
 use std::sync::{Arc, Mutex};
 
 use du_core_contracts::startup::StartupCapabilitiesPort;
 use du_engine_api::api::EngineBuilder;
 use du_platform_os::startup::SystemStartupCapabilities;
-use du_platform_os::webview::{Asset, WebApp};
+use du_platform_os::webview::WebApp;
 
 #[cfg(windows)]
 use crate::recent_scope_worker::{RecentScopeWorker, RecentScopeWriteWarning};
 #[cfg(windows)]
 use std::num::NonZeroUsize;
 
-static MANIFEST: &str = include_str!(concat!(env!("OUT_DIR"), "/assets.txt"));
-static ASSETS: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/assets.bin"));
-static ASSETS_SHA256: &str = include_str!(concat!(env!("OUT_DIR"), "/assets.sha256"));
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+mod analysis;
+mod assets;
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+mod startup_state;
 
 #[cfg(windows)]
 const RECENT_SCOPE_BOOTSTRAP: &str = r#"
@@ -20,20 +23,6 @@ if (window === window.top && location.href === 'https://diskunfold.invalid/index
     Object.defineProperty(window, '__diskunfoldRecentScopes', { value: true });
 }
 "#;
-
-fn asset(path: &str) -> Option<Asset> {
-    let mut fields = MANIFEST.lines().find_map(|line| {
-        let (name, data) = line.split_once('\t')?;
-        (name == path).then_some(data.split('\t'))
-    })?;
-    let mime = fields.next()?;
-    let start: usize = fields.next()?.parse().ok()?;
-    let end: usize = fields.next()?.parse().ok()?;
-    Some(Asset {
-        mime,
-        bytes: ASSETS.get(start..end)?,
-    })
-}
 
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     run_app(
@@ -103,9 +92,9 @@ fn run_app(
     }
     let observed = crate::startup_checks::host_observations(
         capabilities.as_ref(),
-        MANIFEST,
-        ASSETS,
-        ASSETS_SHA256,
+        assets::MANIFEST,
+        assets::ASSETS,
+        assets::ASSETS_SHA256,
         &product,
     )?;
     let startup_access = Arc::new(crate::startup_checks::StartupAccessSession::new(
@@ -113,110 +102,21 @@ fn run_app(
     ));
     #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
     let mut startup_observed = observed;
+    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+    let state = startup_state::open(capabilities.as_ref(), &mut startup_observed)?;
     #[cfg(windows)]
-    let (locale, settings, history, history_reader, recovery, first_run) = {
-        let bundles = crate::locale::register().map_err(|error| {
-            crate::startup_checks::report_pre_window_error(capabilities.as_ref(), error)
-        })?;
-        let configured = bundles.configured_languages().collect::<Vec<_>>();
-        let data_dir = du_platform_os::application_data::directory()
-            .ok_or_else(|| crate::startup_database::data_folder_error(None))
-            .map_err(|error| {
-                crate::startup_checks::report_pre_window_error(capabilities.as_ref(), error)
-            })?;
-        let opened = crate::startup_database::open_with_status(&data_dir).map_err(|error| {
-            crate::startup_checks::report_pre_window_error(capabilities.as_ref(), error)
-        })?;
-        let first_run = opened.first_run;
-        startup_observed.push(crate::startup_checks::data_format_and_open_observation());
-        let database = opened.database;
-        let settings =
-            crate::settings::StartupSettings::load(&database, &configured).map_err(|error| {
-                crate::startup_checks::report_pre_window_error(capabilities.as_ref(), error)
-            })?;
-        let stored = settings.stored_language().map_err(|error| {
-            crate::startup_checks::report_pre_window_error(capabilities.as_ref(), error)
-        })?;
-        let locale = Arc::new(
-            crate::locale::initialize(bundles, stored.as_deref()).map_err(|error| {
-                crate::startup_checks::report_pre_window_error(capabilities.as_ref(), error)
-            })?,
-        );
-        let reader =
-            crate::history::HistoryReader::open(&data_dir, database.clone()).map_err(|error| {
-                crate::startup_checks::report_pre_window_error(capabilities.as_ref(), error)
-            })?;
-        (
-            locale,
-            settings,
-            database.history(crate::settings::current_time_ms),
-            reader,
-            database,
-            first_run,
-        )
-    };
-    #[cfg(target_os = "linux")]
-    let (locale, settings, database, first_run) = {
-        let bundles = crate::locale::register().map_err(|error| {
-            crate::startup_checks::report_pre_window_error(capabilities.as_ref(), error)
-        })?;
-        let configured = bundles.configured_languages().collect::<Vec<_>>();
-        let data_dir = du_platform_os::application_data::directory()
-            .ok_or_else(|| crate::startup_database::data_folder_error(None))
-            .map_err(|error| {
-                crate::startup_checks::report_pre_window_error(capabilities.as_ref(), error)
-            })?;
-        let opened = crate::startup_database::open_with_status(&data_dir).map_err(|error| {
-            crate::startup_checks::report_pre_window_error(capabilities.as_ref(), error)
-        })?;
-        let first_run = opened.first_run;
-        startup_observed.push(crate::startup_checks::data_format_and_open_observation());
-        let database = opened.database;
-        let settings =
-            crate::settings::StartupSettings::load(&database, &configured).map_err(|error| {
-                crate::startup_checks::report_pre_window_error(capabilities.as_ref(), error)
-            })?;
-        let stored = settings.stored_language().map_err(|error| {
-            crate::startup_checks::report_pre_window_error(capabilities.as_ref(), error)
-        })?;
-        let locale = Arc::new(
-            crate::locale::initialize(bundles, stored.as_deref()).map_err(|error| {
-                crate::startup_checks::report_pre_window_error(capabilities.as_ref(), error)
-            })?,
-        );
-        (locale, settings, database, first_run)
-    };
-    #[cfg(target_os = "macos")]
-    let (database, settings, locale, first_run) = {
-        let bundles = crate::locale::register().map_err(|error| {
-            crate::startup_checks::report_pre_window_error(capabilities.as_ref(), error)
-        })?;
-        let configured = bundles.configured_languages().collect::<Vec<_>>();
-        let data_dir = du_platform_os::application_data::directory()
-            .ok_or_else(|| crate::startup_database::data_folder_error(None))
-            .map_err(|error| {
-                crate::startup_checks::report_pre_window_error(capabilities.as_ref(), error)
-            })?;
-        let opened = crate::startup_database::open_with_status(&data_dir).map_err(|error| {
-            crate::startup_checks::report_pre_window_error(capabilities.as_ref(), error)
-        })?;
-        let first_run = opened.first_run;
-        startup_observed.push(crate::startup_checks::data_format_and_open_observation());
-        let database = opened.database;
-        let settings =
-            crate::settings::StartupSettings::load(&database, &configured).map_err(|error| {
-                crate::startup_checks::report_pre_window_error(capabilities.as_ref(), error)
-            })?;
-        let stored = settings.stored_language().map_err(|error| {
-            crate::startup_checks::report_pre_window_error(capabilities.as_ref(), error)
-        })?;
-        let locale = Arc::new(
-            crate::locale::initialize(bundles, stored.as_deref()).map_err(|error| {
-                crate::startup_checks::report_pre_window_error(capabilities.as_ref(), error)
-            })?,
-        );
-        (database, settings, locale, first_run)
-    };
+    let history_reader =
+        crate::history::HistoryReader::open(&state.data_dir, state.database.clone()).map_err(
+            |error| crate::startup_checks::report_pre_window_error(capabilities.as_ref(), error),
+        )?;
+    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+    let startup_state::StartupState {
+        locale,
+        settings,
+        database,
+        first_run,
+        ..
+    } = state;
     #[allow(unused_mut)]
     let mut builder = EngineBuilder::default();
     crate::product_ipc::register(
@@ -240,70 +140,20 @@ fn run_app(
     settings.register_restore_status(&mut builder);
     #[cfg(windows)]
     settings.clone().register_display_preferences(&mut builder);
-    #[cfg(windows)]
-    let desktop = {
-        use du_engine_api::desktop;
-        let roots = Arc::new(du_platform_os::windows_observation::WindowsScopeRoots);
-        let volumes = Arc::new(du_platform_os::volume::WindowsVolumes);
-        let history = Arc::new(history);
-        let random = &du_platform_os::entropy::OsRandom;
-        let scan_limit = settings.clone().scan_limit_source();
-        if recent.is_some() {
-            crate::recent_scope_open::register(
-                &mut builder,
-                recovery.clone(),
-                roots.clone(),
-                volumes.clone(),
-            );
-            // Bound retained handles independently from the number of persisted rows.
-            const PENDING_ADMISSIONS: NonZeroUsize = NonZeroUsize::new(32).unwrap();
-            desktop::register_services_with_recent_scope_worker(
-                &mut builder,
-                roots,
-                volumes,
-                history,
-                random,
-                scan_limit,
-                PENDING_ADMISSIONS,
-            )
-            .map_err(|error| {
-                crate::startup_checks::report_pre_window_error(capabilities.as_ref(), error)
-            })?
-        } else {
-            desktop::register_services(&mut builder, roots, volumes, history, random, scan_limit)
-                .map_err(|error| {
-                    crate::startup_checks::report_pre_window_error(capabilities.as_ref(), error)
-                })?
-        }
-    };
-    #[cfg(windows)]
-    let recent_worker = recent
-        .map(|options| {
-            let admissions = desktop
-                .recent_scope_admissions
-                .ok_or_else(|| std::io::Error::other("recent scope admission queue unavailable"))?;
-            crate::recent_scope_list::register(&mut builder, recovery.clone(), options.cap);
-            RecentScopeWorker::start(admissions, recovery.clone(), options.cap, options.warning)
-        })
-        .transpose()
-        .map_err(|error| {
-            crate::startup_checks::report_pre_window_error(capabilities.as_ref(), error)
-        })?;
-    #[cfg(windows)]
-    let events = {
-        use du_platform_os::windows_clipboard::WindowsClipboard;
-        builder.register(crate::clipboard::CopyPath::new(
-            desktop.path_copy,
-            WindowsClipboard,
-            |path: &du_core_contracts::result::ResultNativePath| WindowsClipboard.path_text(path),
-            "\r\n",
-        ));
-        desktop.events
-    };
-    #[cfg(target_os = "linux")]
-    let events = Arc::new(du_engine_api::desktop::DesktopEvents::default());
-    #[cfg(target_os = "macos")]
-    let events = Arc::new(du_engine_api::desktop::DesktopEvents::default());
+    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+    let analysis::Desktop {
+        events,
+        analysis_registered,
+        #[cfg(windows)]
+        recent_worker,
+    } = analysis::register_desktop(
+        &mut builder,
+        capabilities.as_ref(),
+        &settings,
+        &database,
+        #[cfg(windows)]
+        recent,
+    )?;
     #[cfg(any(windows, target_os = "linux"))]
     {
         let inventory = locale.clone();
@@ -339,44 +189,22 @@ fn run_app(
             .register_locale_profile_read_only(&mut builder, runtime);
         crate::locale_delivery::register(&mut builder, locale.clone());
     }
+    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+    analysis::recover_history(
+        analysis_registered,
+        &events,
+        &database,
+        capabilities.as_ref(),
+    )?;
     #[cfg(windows)]
-    events
-        .recover_history(&recovery, crate::settings::current_time_ms())
-        .map_err(std::io::Error::other)
-        .map_err(|error| {
-            crate::startup_checks::report_pre_window_error(capabilities.as_ref(), error)
-        })?;
-    #[cfg(windows)]
-    du_engine_api::history::detail::register(&mut builder, history_reader.clone());
-    #[cfg(windows)]
-    du_engine_api::history::items::register(
-        &mut builder,
-        history_reader.clone(),
-        &du_platform_os::entropy::OsRandom,
-    )
-    .map_err(|error| std::io::Error::other(format!("history.storage_unavailable: {error:?}")))
-    .map_err(|error| {
-        crate::startup_checks::report_pre_window_error(capabilities.as_ref(), error)
-    })?;
-    #[cfg(windows)]
-    du_engine_api::history::register(
-        &mut builder,
-        history_reader,
-        &du_platform_os::entropy::OsRandom,
-    )
-    .map_err(|error| std::io::Error::other(format!("history.storage_unavailable: {error:?}")))
-    .map_err(|error| {
-        crate::startup_checks::report_pre_window_error(capabilities.as_ref(), error)
-    })?;
+    analysis::register_history_reads(&mut builder, capabilities.as_ref(), history_reader)?;
     let engine = Arc::new(builder.build().map_err(|error| {
         crate::startup_checks::report_pre_window_error(
             capabilities.as_ref(),
             std::io::Error::other(format!("startup.registration_failed: {error}")),
         )
     })?);
-    #[cfg(windows)]
-    let database_owner = recovery;
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
     let database_owner = database;
     let engine_owner = Arc::new(Mutex::new(Some(engine)));
     let database_owner = Arc::new(Mutex::new(Some(database_owner)));
@@ -421,7 +249,7 @@ fn run_app(
     #[cfg(target_os = "macos")]
     let native_language = locale.language().to_owned();
     let app = WebApp {
-        asset,
+        asset: assets::asset,
         dispatch: Arc::new(move |message| {
             crate::ipc::dispatch_with_shutdown(
                 dispatch_engine.as_ref(),

@@ -16,6 +16,7 @@ export function DataTable<Row>({
   totalRows,
   getRowKey,
   scrollLabel,
+  getRowLabel,
 }: {
   label: string;
   columns: string[];
@@ -28,6 +29,8 @@ export function DataTable<Row>({
   getRowKey?: (row: Row) => string;
   /** Name of the scrollable region. Defaults to the localized "<label> scroll area". */
   scrollLabel?: string;
+  /** Accessible row name, for rows whose cells alone do not identify them. */
+  getRowLabel?: (row: Row, index: number) => string;
 }) {
   const text = useLocaleText();
   const [scrollTop, setScrollTop] = useState(0);
@@ -92,6 +95,7 @@ export function DataTable<Row>({
             <tr
               key={getRowKey?.(row) ?? start + index}
               aria-rowindex={start + index + 2}
+              aria-label={getRowLabel?.(row, start + index)}
             >
               {renderCells(row, start + index).map((cell, column) => (
                 <td key={column}>
