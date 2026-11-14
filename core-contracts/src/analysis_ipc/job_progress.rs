@@ -23,7 +23,10 @@ pub struct AnalysisJobProgress {
     pub unit: ProgressUnit,
     /// Units processed so far: the completed and the failed count of the job
     /// added together (see [`crate::job::JobCounts`]). Each unit is counted
-    /// once, and the value never decreases within a job.
+    /// once, and the value never decreases within a job. The terminal counts
+    /// of a job that ends without a result can add up to less than this
+    /// value: that job reports 0 completed and its counted units as
+    /// unprocessed.
     #[cfg_attr(feature = "typescript", ts(type = "number"))]
     pub completed: u64,
     /// The confirmed total, omitted while the total is not established.

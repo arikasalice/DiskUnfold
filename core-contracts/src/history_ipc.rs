@@ -125,6 +125,9 @@ pub struct HistoryChangedBody {
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct HistoryListCounts {
+    /// "0" when the job ended without a result: its counted units are then
+    /// in `unprocessed`, so `completed + failed` can be lower than the last
+    /// progress value the job reported.
     pub completed: String,
     pub overwritten: String,
     pub failed: String,
