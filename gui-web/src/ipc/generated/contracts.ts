@@ -724,7 +724,13 @@ count: string,
  * The UTC time observed for the committed change.
  */
 observedAt: Timestamp, };
-export type HistoryListCounts = { completed: string, overwritten: string, failed: string, skipped: string, unprocessed: string, };
+export type HistoryListCounts = {
+/**
+ * "0" when the job ended without a result: its counted units are then
+ * in `unprocessed`, so `completed + failed` can be lower than the last
+ * progress value the job reported.
+ */
+completed: string, overwritten: string, failed: string, skipped: string, unprocessed: string, };
 export type HistoryListSummary = { kindId: string, kindVersion: number, scopeSummary: string | null, state: HistoryEndState, counts: HistoryListCounts | null, startedAtMs: number | null, finishedAtMs: number | null, predecessorJobRef: Id | null, relation: HistoryRelation | null, sessionRestoreAvailable: boolean | null, };
 export type HistoryListRow = { jobRef: Id | null, summary: HistoryListSummary | null,
 /**
@@ -983,7 +989,10 @@ unit: ProgressUnit,
 /**
  * Units processed so far: the completed and the failed count of the job
  * added together (see [`crate::job::JobCounts`]). Each unit is counted
- * once, and the value never decreases within a job.
+ * once, and the value never decreases within a job. The terminal counts
+ * of a job that ends without a result can add up to less than this
+ * value: that job reports 0 completed and its counted units as
+ * unprocessed.
  */
 completed: number,
 /**
@@ -1007,7 +1016,12 @@ export type AnalysisJobTerminal = { state: JobState,
 /**
  * Per-job sequence of the terminal event.
  */
-sequence: number, completed: number, overwritten: number, failed: number, skipped: number, unprocessed: number,
+sequence: number,
+/**
+ * 0 when the job ended without a result: its counted units are then in
+ * `unprocessed`, so `completed + failed` can be below its last progress.
+ */
+completed: number, overwritten: number, failed: number, skipped: number, unprocessed: number,
 /**
  * Whether the terminal summary is present in the history store.
  */
