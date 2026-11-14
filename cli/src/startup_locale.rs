@@ -133,20 +133,11 @@ pub(super) fn stored_language() -> Result<Option<String>, ()> {
     Ok(None)
 }
 
-#[cfg(windows)]
-pub(super) fn preferred_ui_languages() -> Option<Vec<String>> {
-    du_platform_os::windows_ui_language::preferred_ui_languages().ok()
-}
+mod os_language;
+pub(super) use os_language::preferred_ui_languages;
 
-#[cfg(target_os = "linux")]
-pub(super) fn preferred_ui_languages() -> Option<Vec<String>> {
-    du_platform_os::linux_ui_language::preferred_ui_languages()
-}
-
-#[cfg(not(any(windows, target_os = "linux")))]
-pub(super) fn preferred_ui_languages() -> Option<Vec<String>> {
-    None
-}
+#[cfg(test)]
+mod macos_tests;
 
 #[cfg(test)]
 mod tests {
