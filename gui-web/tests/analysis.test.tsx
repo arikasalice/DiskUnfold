@@ -2510,6 +2510,46 @@ test("F02 NFR5.HD1: the progress card counts checked items without claiming a pe
   ).toBeNull();
 });
 
+test("F02 NFR5.HD1: a byte share near 2^53 is rounded down exactly", async () => {
+  const { client, listeners } = fixture({
+    readStatus: (base) => ({ ...base, state: "running", resultVersion: null }),
+  });
+  await startFixtureScan(client);
+  await screen.findByText("Scanning");
+  const send = (sequence: number, completed: number, total: number) =>
+    act(() => {
+      for (const listener of listeners)
+        listener({
+          topic: "job.progress",
+          contractVersion: 1,
+          jobRef: "scan",
+          seq: sequence,
+          occurredAt: timestamp,
+          body: {
+            sequence,
+            unit: "bytes",
+            completed,
+            total,
+            totalKnown: true,
+            waitReason: "none",
+            observedAt: timestamp,
+          },
+        });
+    });
+  // Past 2^53 / 100 bytes, done * 100 is rounded as a number: here it reaches
+  // 52 * total although the exact share is just below 52%.
+  const total = 9_007_199_254_740_864;
+  const done = 4_683_743_612_465_249;
+  expect(Math.floor((done * 100) / total)).toBe(52);
+  send(5, done, total);
+  await screen.findByText(/^51% · .+ left$/);
+  expect(screen.queryByText(/^52% ·/)).toBeNull();
+
+  // One byte short of the largest exact total still reads below 100%.
+  send(6, Number.MAX_SAFE_INTEGER - 1, Number.MAX_SAFE_INTEGER);
+  await screen.findByText(/^99% · .+ left$/);
+});
+
 test("F02 FR8.HD1: the panel withdraws the scan it reported when it goes away", async () => {
   const { client } = fixture({
     readStatus: (base) => ({

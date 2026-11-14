@@ -285,12 +285,14 @@ function determinateProgress(progress: AnalysisJobProgress | undefined) {
 /**
  * With a confirmed total, the share is rounded down so the card never reads
  * 100% before the work is done, and the rest is what job.progress still owes.
+ * Integer arithmetic keeps byte counts above 2^53 / 100 exact.
  */
 function progressShare(completed: number, total: number) {
-  const done = Math.min(completed, total);
+  const whole = BigInt(Math.trunc(total));
+  const done = BigInt(Math.trunc(Math.min(completed, total)));
   return {
-    percent: BigInt(total === 0 ? 100 : Math.floor((done * 100) / total)),
-    remaining: BigInt(total - done),
+    percent: whole === 0n ? 100n : (done * 100n) / whole,
+    remaining: whole - done,
   };
 }
 
