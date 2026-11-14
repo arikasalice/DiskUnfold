@@ -56,6 +56,7 @@ impl JobBody for Compute {
             render::Request {
                 selected_revision: self.admitted.source.result_version(),
                 requested_revision: request.result_revision.as_ref(),
+                channel: self.admitted.channel,
                 parent: &request.aggregate_scope_ref,
                 basis: request.size_basis.clone(),
                 bounds: du_analysis_index::visualization::geometry::Rect {

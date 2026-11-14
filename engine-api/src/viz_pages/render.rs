@@ -25,12 +25,13 @@ use super::{
     ModelPages, PreparedModelInput, prepare_scoped_model_input,
     production::{self, RowPresentation},
 };
-use crate::{current_analysis, viz_catalog};
+use crate::{api::Channel, current_analysis, viz_catalog};
 
 /// Normalized rendering choices for the exact, unfiltered single-parent path.
 pub struct Request<'a> {
     pub selected_revision: &'a Id,
     pub requested_revision: Option<&'a Id>,
+    pub channel: Channel,
     pub parent: &'a ItemRef,
     pub basis: SizeBasis,
     pub bounds: Rect,
@@ -110,8 +111,7 @@ impl PreparedRender {
         self.input.condition_fingerprint = fingerprint;
     }
 }
-/// A private candidate with a reference reserved before entering the F24 gate.
-/// The reference is neither registered nor returned to a wire consumer here.
+/// A private candidate whose reference is reserved before the F24 gate, not yet registered.
 pub struct ReservedRender {
     candidate: PreparedRender,
     reference: String,
@@ -186,6 +186,7 @@ impl ModelPages {
             &self.source,
             request.selected_revision,
             request.requested_revision,
+            request.channel,
         )
         .map_err(Error::Source)?;
         self.prepare_from(

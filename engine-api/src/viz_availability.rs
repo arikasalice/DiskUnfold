@@ -105,7 +105,7 @@ impl UseCase for ReadAvailability {
     fn execute(
         &self,
         request: Self::Request,
-        _: &CallerCtx,
+        caller: &CallerCtx,
     ) -> Result<Self::Response, EngineError> {
         if request.source_ref.kind != "scan" {
             return Err(unavailable());
@@ -114,6 +114,7 @@ impl UseCase for ReadAvailability {
             &self.source,
             Some(&request.source_ref.reference),
             Some(&request.result_revision),
+            caller.channel,
         )
         .map_err(source_error)?;
         validate_scope(&request.aggregate_scope_ref, &source)?;

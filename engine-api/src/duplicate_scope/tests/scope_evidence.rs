@@ -13,6 +13,7 @@ fn overlapping_roots_and_exclusions_keep_the_admitted_scope_evidence() -> Result
     let exclusions = [excluded];
     let selection = select_scope(
         &source,
+        Channel::Gui,
         Scope {
             version: &id(2),
             roots: &roots,
@@ -33,8 +34,8 @@ fn overlapping_roots_and_exclusions_keep_the_admitted_scope_evidence() -> Result
 #[test]
 fn whole_scan_binds_root_and_rejects_foreign_exclusion() -> Result<(), String> {
     let (source, _) = fixture()?;
-    let selection =
-        select_whole_scan(&source, &id(2), 4, || false).map_err(|e| format!("{e:?}"))?;
+    let selection = select_whole_scan(&source, Channel::Gui, &id(2), 4, || false)
+        .map_err(|e| format!("{e:?}"))?;
     assert_eq!(
         selection.scope_evidence().roots,
         vec![ItemRef {

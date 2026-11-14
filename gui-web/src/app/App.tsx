@@ -42,6 +42,8 @@ import { createAnalysisClient, hasWindowsAnalysisBridge } from "../ipc";
 import type { AnalysisClient } from "../ipc";
 import { createBrowsePort } from "./browse-port";
 import { InfoEntry } from "./InfoEntry";
+import { SampleContext, SampleEntrySlot } from "./SampleBrowse";
+import { useSampleFlow } from "./use-sample-flow";
 import {
   BrowseVisualizationActions,
   BrowseVisualizationView,
@@ -52,6 +54,18 @@ import type { BrowseVisualizationProvider } from "./browse-visualization";
 
 const desktop = createAnalysisClient();
 
+/** The analysis target screen shows when nothing else owns the main area. */
+function analysisVisible(screen: {
+  connected: boolean;
+  history: boolean;
+  browsing: boolean;
+  sample: boolean;
+}) {
+  return (
+    screen.connected && !screen.history && !screen.browsing && !screen.sample
+  );
+}
+
 /** Screen name for the window title bar, or nothing while there is no desktop connection. */
 function screenLabel(
   text: LocaleText,
@@ -60,10 +74,12 @@ function screenLabel(
     history: boolean;
     browsing: boolean;
     groups: boolean;
+    sample: boolean;
   },
 ) {
   if (!screen.connected) return undefined;
   if (screen.history) return text("ui.app.history", "Operation history");
+  if (screen.sample) return text("ui.sample.screen", "Sample experience");
   if (screen.groups) return text("ui.app.screen_groups", "Group by my rules");
   if (screen.browsing) return text("ui.app.screen_browse", "Browse folders");
   return text("ui.app.screen_analysis", "Analysis");
@@ -102,6 +118,8 @@ export function App({
     basis: SizeBasisFilter;
   }>();
   const [visualizationOpen, setVisualizationOpen] = useState(false);
+  const flow = useSampleFlow(client);
+  const { sampleOpen, analysisKey, analysisSlot } = flow;
   const { version: browseVersion, choice: browseChoice } =
     browseState(browseSelection);
   const groups = useGroupsEntry(browseVersion);
@@ -113,6 +131,7 @@ export function App({
       history,
       browsing: Boolean(browseVersion),
       groups: groups.open,
+      sample: sampleOpen,
     }),
   );
   const restoreBrowseFocus = useRef(false);
@@ -148,7 +167,12 @@ export function App({
       restoreVisualizationFocus.current = false;
     }
   }, [visualizationOpen]);
-  const analysisOpen = client && !history && browseVersion === undefined;
+  const analysisOpen = analysisVisible({
+    connected: Boolean(client),
+    history,
+    browsing: browseVersion !== undefined,
+    sample: sampleOpen,
+  });
   const controls = browseControls(
     Boolean(browseVersion),
     visualizationOpen,
@@ -200,8 +224,9 @@ export function App({
             }}
           />
           <GroupsEntryAction
-            visible={groups.entryVisible(visualizationOpen)}
-            sample={groups.sample}
+            // The sample screen browses on its own; there the entry stays disabled with its reason.
+            visible={groups.entryVisible(visualizationOpen) || sampleOpen}
+            sample={groups.sample || sampleOpen}
             trigger={groups.trigger}
             onOpen={groups.show}
           />
@@ -211,7 +236,7 @@ export function App({
               visible={Boolean(analysisOpen)}
             />
           )}
-          {client && !history && !browseVersion && (
+          {analysisOpen && (
             <Action
               variant="quiet"
               icon="history"
@@ -224,6 +249,11 @@ export function App({
         </div>
       </header>
       <LocaleLoadNotice locale={locale} />
+      <SampleContext
+        client={client}
+        flow={flow}
+        display={withRegionalFormat(preferences.display, regional)}
+      />
       {analysisUnavailableNotice(nativeLocaleHost, text)}
       {shouldShowConnectionUnavailable(client, nativeLocaleHost) && (
         <div className="du-analysis-slot">
@@ -248,8 +278,14 @@ export function App({
         </div>
       )}
       {client && (
-        <div className="du-analysis-slot" hidden={!analysisOpen}>
+        <div
+          ref={analysisSlot}
+          tabIndex={-1}
+          className="du-analysis-slot"
+          hidden={!analysisOpen}
+        >
           <AnalysisPanel
+            key={analysisKey}
             client={client}
             preferences={preferences}
             onSizeBasisChange={onSizeBasisChange}
@@ -258,6 +294,7 @@ export function App({
               setBrowseSelection({ version, choice });
             }}
             browseTrigger={browseTrigger}
+            startAlternative={<SampleEntrySlot flow={flow} />}
           />
         </div>
       )}

@@ -40,11 +40,11 @@ pub fn descriptor() -> JobDescriptor {
     }
 }
 
-/// Per-scan opt-in evidence for the shared directory-ready deque.
+/// Per-scan opt-in evidence for the directory queues of the scan's lanes.
 ///
 /// This is not scan memory or channel occupancy. A result is unavailable until
 /// the workers stop, or if collection exits before creating the queue. Initial
-/// roots count; worker-local overflow and in-flight frames do not. Use one
+/// roots count; worker overflow stacks and in-flight frames do not. Use one
 /// instance per scan.
 #[derive(Default)]
 pub struct ScanDiagnostics {
@@ -52,7 +52,7 @@ pub struct ScanDiagnostics {
 }
 
 impl ScanDiagnostics {
-    /// Returns the greatest simultaneous shared-ready deque length, if observed.
+    /// Returns the greatest number of items held in all lane queues at once, if observed.
     pub fn shared_ready_peak(&self) -> Option<usize> {
         self.ready_peak.lock().ok().and_then(|peak| *peak)
     }
@@ -160,8 +160,9 @@ impl MetadataScan {
 
     /// Enables directory-priority control for this metadata job.
     ///
-    /// The opt-in allocates bounded outstanding-path accounting for the live
-    /// scheduler. Jobs that do not expose priority control avoid that work.
+    /// The opt-in counts outstanding directory work by path for the live
+    /// scheduler; that count grows with the queued and running directories.
+    /// Jobs that do not expose priority control avoid that work.
     pub fn with_priority_control(mut self) -> Self {
         if self.control.is_none() {
             self.control = Some(Arc::new(ScanControlSession::new(self.root_count)));

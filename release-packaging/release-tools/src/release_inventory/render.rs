@@ -86,6 +86,15 @@ pub fn render_markdown(inventory: &ReleaseInventory) -> String {
     if let Some(fuzz) = &inventory.fuzz_gate {
         output.push_str(&render_fuzz_gate(fuzz));
     }
+    if let Some(bundle) = &inventory.sample_bundle {
+        output.push_str(&format!(
+            "\n## Sample data bundle\n\n- Bundle version: {}\n- Format version: {}\n- Declared items: {}\n- BLAKE3: {}\n",
+            markdown_cell(&bundle.bundle_version),
+            bundle.format_version,
+            bundle.declared_item_count,
+            bundle.blake3,
+        ));
+    }
     output
 }
 

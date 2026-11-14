@@ -58,7 +58,7 @@ impl UseCase for Render {
         request: Self::Request,
         caller: &CallerCtx,
     ) -> Result<Self::Response, EngineError> {
-        let admitted = self.0.admit(request)?;
+        let admitted = self.0.admit(request, caller)?;
         self.0.render(admitted, caller.correlation_id.clone())
     }
 }

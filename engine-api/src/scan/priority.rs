@@ -39,7 +39,7 @@ impl UseCase for PrioritizeScan {
     fn execute(
         &self,
         request: Self::Request,
-        _: &CallerCtx,
+        caller: &CallerCtx,
     ) -> Result<Self::Response, EngineError> {
         let mut admitted = self.admitted.lock().map_err(|_| internal())?;
         let Some(active) = admitted
@@ -63,10 +63,12 @@ impl UseCase for PrioritizeScan {
         }
 
         let lineage = active.receipt.lineage_id.as_ref().ok_or_else(internal)?;
-        let version = self
-            .store
-            .pin_current(&request.priority_area.result_version)
-            .map_err(map_pin_error)?;
+        let version = crate::source_exposure::pin_current_for(
+            &self.store,
+            &request.priority_area.result_version,
+            caller.channel,
+        )
+        .map_err(|error| map_pin_error(error.query()))?;
         if version.scope_version_id() != &active.receipt.scope_version
             || version.lineage_id() != Some(lineage)
         {

@@ -1,15 +1,47 @@
-//! Admit one live model for a read-only item-location lookup.
+//! Admit one live model for a read-only item-location lookup, and check its channel.
 use std::sync::Arc;
 
 use du_analysis_index::{
     QueryError,
     visualization::projection::{self, Location},
 };
-use du_core_contracts::ItemRef;
+use du_core_contracts::{Id, ItemRef};
 
 use super::{Error, ModelPages, source_error, touch};
+use crate::{
+    api::Channel,
+    source_exposure::{PinError, pin_current_for},
+};
 
 impl ModelPages {
+    /// Refuses a version whose source `channel` may not see, before any row of it is read.
+    ///
+    /// Only a hidden source fails here, as `Error::ItemUnavailable`. A missing or stale
+    /// version passes, so the read that follows reports it with its usual error.
+    pub fn refuse_hidden(&self, revision: &Id, channel: Channel) -> Result<(), Error> {
+        match pin_current_for(&self.source, revision, channel) {
+            Err(PinError::Hidden) => Err(Error::ItemUnavailable),
+            _ => Ok(()),
+        }
+    }
+
+    /// Like [`Self::refuse_hidden`], for the version a registered model was built from.
+    ///
+    /// An unknown model passes; the read that follows reports it as expired.
+    pub fn refuse_hidden_model(&self, model_ref: &str, channel: Channel) -> Result<(), Error> {
+        let revision = {
+            let state = self.state.lock().map_err(|_| Error::Unavailable)?;
+            state
+                .entries
+                .get(model_ref)
+                .map(|entry| entry.revision.clone())
+        };
+        match revision {
+            Some(revision) => self.refuse_hidden(&revision, channel),
+            None => Ok(()),
+        }
+    }
+
     /// Locates an item in the exact live model without changing the selection.
     ///
     /// Raw table registrations do not carry projection scope or geometry.

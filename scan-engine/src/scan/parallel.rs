@@ -1,10 +1,12 @@
-//! Bounded handle-based workers and a single result publisher.
+//! Bounded handle-based workers in per-storage lanes and a single result publisher.
 use super::{
     PreMetadataFilter, ResultIds,
     admission::{self, Admission, Boundary, Visited},
     record_at,
 };
 mod control;
+mod frame;
+mod lanes;
 mod queue;
 pub(crate) use control::ScanControlSession;
 pub use control::{ScanControlError, ScanControlHandle, ScanPriorityOutcome};
@@ -18,8 +20,12 @@ use du_core_contracts::{
         AnchoredDirectory, DirectoryCaseEvidence, ObservedEntry, ObservedKind, TimedObservedEntry,
     },
 };
+#[cfg(test)]
+use frame::Directory;
+use frame::Frame;
+#[cfg(test)]
+use std::collections::VecDeque;
 use std::{
-    collections::VecDeque,
     sync::{
         Arc, Condvar, Mutex,
         atomic::{AtomicBool, Ordering},
@@ -34,6 +40,17 @@ mod preparation;
 mod scheduler;
 mod volume_reports;
 
+/// Directory work held in one lane queue, counting items claimed from it that
+/// will be returned to it (NFR3.HD1.app-host.DD1).
+///
+/// Provisional value. The F02 DLD fixes the 8,192-entry stage channel but no
+/// lane queue size. 64 matches the largest worker count of one lane, the SSD
+/// device permit and [`MAX_WORKERS`], so every worker of a full lane can find
+/// shared work without stealing. A queued directory holds at most one returned
+/// batch, and a pending child shares its parent's handle, so open handles stay
+/// within twice the queued, stacked and running directories. Work that does
+/// not fit stays on the finding worker's stack. Confirm the value by
+/// measurement before it is published in the design.
 const QUEUED_DIRECTORIES: usize = 64;
 const BUFFERED_OBSERVATIONS: usize = 8192;
 const MAX_WORKERS: usize = 64;
@@ -43,34 +60,15 @@ static FAIL_SPAWN_AT: std::sync::atomic::AtomicUsize =
 #[cfg(test)]
 static TEST_WORKER_STARTED: AtomicBool = AtomicBool::new(false);
 
-struct Frame {
-    root_index: u32,
-    path: Vec<Vec<u8>>,
-    directory: Box<dyn AnchoredDirectory>,
-    entries: VecDeque<TimedObservedEntry>,
-    deferred: VecDeque<TimedObservedEntry>,
-    root: bool,
-    first_batch: bool,
-    root_published: bool,
-    batch_pending: bool,
-    case_observed: bool,
-    boundary: Boundary,
-}
 struct Queue {
-    ready: VecDeque<Frame>,
-    /// Maximum simultaneous frames in this shared deque, including initial roots.
-    /// Worker-local overflow, active frames and the observation channel are excluded.
-    /// Cancellation drains do not reset the peak. Each enqueue costs O(1); the
-    /// counter is updated only when diagnostics are enabled.
-    ready_high_water: Option<usize>,
-    last_root: Option<u32>,
+    /// Lane queues, worker seats and the optional queued-work peak. The peak
+    /// covers all lane queues, including initial roots; worker stacks, active
+    /// items and the observation channel are excluded.
+    lanes: lanes::Lanes,
     priority: Option<queue::PriorityRegion>,
     outstanding: Option<queue::OutstandingPaths>,
     remaining: usize,
     root_remaining: Vec<usize>,
-    root_groups: Vec<usize>,
-    active_groups: Vec<usize>,
-    device_limit: usize,
     started: bool,
 }
 

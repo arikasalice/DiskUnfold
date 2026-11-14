@@ -5,7 +5,10 @@ use du_core_contracts::{
     Timestamp,
     result::{ResultCompleteness, ResultNativePath, ResultScopeRoot},
 };
-use du_engine_api::duplicate_scope::{Error, Scope, select_scope, select_whole_scan};
+use du_engine_api::{
+    api::Channel,
+    duplicate_scope::{Error, Scope, select_scope, select_whole_scan},
+};
 
 fn id(n: u8) -> Id {
     Id::from_v7_bytes([1, 2, 3, 4, 5, n, 0x70, 0, 0x80, 0, 0, 0, 0, 0, 0, n])
@@ -83,7 +86,8 @@ fn build(
 #[test]
 fn selects_only_the_pinned_scan_root_without_user_scope_refs() -> Result<(), String> {
     let source = build(true, vec![1], ResultCompleteness::Complete, false)?;
-    let selected = select_whole_scan(&source, &id(2), 8, || false).map_err(|e| format!("{e:?}"))?;
+    let selected = select_whole_scan(&source, Channel::Gui, &id(2), 8, || false)
+        .map_err(|e| format!("{e:?}"))?;
     assert_eq!(selected.version(), &id(2));
     assert_eq!(selected.files().len(), 1);
     assert_eq!(selected.files()[0].size, 8);
@@ -101,7 +105,8 @@ fn selects_only_the_pinned_scan_root_without_user_scope_refs() -> Result<(), Str
         }),
         Err(Error::InvalidScope)
     );
-    let empty = select_whole_scan(&source, &id(2), 9, || false).map_err(|e| format!("{e:?}"))?;
+    let empty = select_whole_scan(&source, Channel::Gui, &id(2), 9, || false)
+        .map_err(|e| format!("{e:?}"))?;
     assert!(empty.files().is_empty());
     assert_eq!(empty.counts().below_minimum, 1);
     Ok(())
@@ -116,12 +121,12 @@ fn missing_partial_and_unread_scan_evidence_fail_closed() -> Result<(), String> 
         build(true, vec![1], ResultCompleteness::Complete, true)?,
     ] {
         assert!(matches!(
-            select_whole_scan(&source, &id(2), 0, || false),
+            select_whole_scan(&source, Channel::Gui, &id(2), 0, || false),
             Err(Error::Unavailable)
         ));
     }
     assert!(matches!(
-        select_whole_scan(&IngestSink::default(), &id(2), 0, || false),
+        select_whole_scan(&IngestSink::default(), Channel::Gui, &id(2), 0, || false),
         Err(Error::MissingVersion)
     ));
     Ok(())
@@ -131,16 +136,16 @@ fn missing_partial_and_unread_scan_evidence_fail_closed() -> Result<(), String> 
 fn stale_and_cancelled_requests_return_no_selection() -> Result<(), String> {
     let source = build(true, vec![1], ResultCompleteness::Complete, false)?;
     assert!(matches!(
-        select_whole_scan(&source, &id(3), 0, || false),
+        select_whole_scan(&source, Channel::Gui, &id(3), 0, || false),
         Err(Error::StaleVersion)
     ));
     assert!(matches!(
-        select_whole_scan(&source, &id(2), 0, || true),
+        select_whole_scan(&source, Channel::Gui, &id(2), 0, || true),
         Err(Error::Cancelled)
     ));
     let mut checks = 0;
     assert!(matches!(
-        select_whole_scan(&source, &id(2), 0, || {
+        select_whole_scan(&source, Channel::Gui, &id(2), 0, || {
             checks += 1;
             checks == 4
         }),
@@ -165,7 +170,7 @@ fn multi_root_results_are_not_silently_treated_as_single_root() -> Result<(), St
         .seal(id(2), ResultCompleteness::Complete)
         .map_err(|e| format!("{e:?}"))?;
     assert!(matches!(
-        select_whole_scan(&source, &id(2), 0, || false),
+        select_whole_scan(&source, Channel::Gui, &id(2), 0, || false),
         Err(Error::Unavailable)
     ));
     Ok(())
@@ -176,7 +181,7 @@ fn publication_during_selection_does_not_switch_the_pinned_source() -> Result<()
     let source = build(true, vec![1], ResultCompleteness::Complete, false)?;
     let mut checks = 0;
     let mut publication = None;
-    let selected = select_whole_scan(&source, &id(2), 0, || {
+    let selected = select_whole_scan(&source, Channel::Gui, &id(2), 0, || {
         checks += 1;
         if checks == 2 {
             publication = Some((|| -> Result<(), String> {
@@ -195,7 +200,7 @@ fn publication_during_selection_does_not_switch_the_pinned_source() -> Result<()
     assert_eq!(selected.version(), &id(2));
     assert_eq!(selected.files().len(), 1);
     assert!(matches!(
-        select_whole_scan(&source, &id(2), 0, || false),
+        select_whole_scan(&source, Channel::Gui, &id(2), 0, || false),
         Err(Error::StaleVersion)
     ));
     Ok(())
@@ -216,12 +221,13 @@ fn explicit_scope_keeps_overlapping_roots_and_exclusions_bound_to_one_version() 
         exclusions,
         min_bytes: 8,
     };
-    let selected = select_scope(&source, scope(&[]), || false).map_err(|e| format!("{e:?}"))?;
+    let selected =
+        select_scope(&source, Channel::Gui, scope(&[]), || false).map_err(|e| format!("{e:?}"))?;
     assert_eq!(selected.files().len(), 1);
     assert_eq!(selected.files()[0].item, item(2));
     let excluded = [item(1)];
-    let omitted =
-        select_scope(&source, scope(&excluded), || false).map_err(|e| format!("{e:?}"))?;
+    let omitted = select_scope(&source, Channel::Gui, scope(&excluded), || false)
+        .map_err(|e| format!("{e:?}"))?;
     assert!(omitted.files().is_empty());
     assert_eq!(omitted.counts().excluded, 1);
     let foreign = [ItemRef {
@@ -229,11 +235,11 @@ fn explicit_scope_keeps_overlapping_roots_and_exclusions_bound_to_one_version() 
         item_no: 1,
     }];
     assert!(matches!(
-        select_scope(&source, scope(&foreign), || false),
+        select_scope(&source, Channel::Gui, scope(&foreign), || false),
         Err(Error::InvalidScope)
     ));
     assert!(matches!(
-        select_scope(&source, scope(&[]), || true),
+        select_scope(&source, Channel::Gui, scope(&[]), || true),
         Err(Error::Cancelled)
     ));
     Ok(())
@@ -298,10 +304,11 @@ fn explicit_scope_keeps_identical_names_under_distinct_scan_roots() -> Result<()
         exclusions: &[],
         min_bytes: 0,
     };
-    let both = select_scope(&source, scope(&references), || false).map_err(|e| format!("{e:?}"))?;
+    let both = select_scope(&source, Channel::Gui, scope(&references), || false)
+        .map_err(|e| format!("{e:?}"))?;
     assert_eq!(both.files().len(), 2);
-    let right =
-        select_scope(&source, scope(&references[1..]), || false).map_err(|e| format!("{e:?}"))?;
+    let right = select_scope(&source, Channel::Gui, scope(&references[1..]), || false)
+        .map_err(|e| format!("{e:?}"))?;
     assert_eq!(right.counts().outside, 1);
     let [file] = right.files() else {
         return Err("expected one file".into());
