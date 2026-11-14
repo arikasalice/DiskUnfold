@@ -11,8 +11,12 @@ export type BreadcrumbEntry = {
 };
 
 /**
- * Navigation within a location hierarchy. Current locations are text, drawn
- * as a name so white space at its edges is visible.
+ * Navigation within a location hierarchy. Every label, on an ancestor action
+ * or as text, is drawn as a name, so white space at its edges is marked on
+ * screen and an action reads as the real name followed by an explanation of
+ * that white space. A label that is not a file or folder name, such as a
+ * translated root label, has no edge white space and renders as plain text.
+ * The `title` keeps the real label.
  */
 export function Breadcrumbs({
   label,
@@ -36,13 +40,15 @@ export function Breadcrumbs({
           <li key={entry.id} title={entry.label}>
             {index > 0 && <span aria-hidden="true">/</span>}
             {entry.onPress && !entry.current ? (
-              <Action onPress={entry.onPress}>{entry.label}</Action>
+              <Action onPress={entry.onPress}>
+                <NameText name={entry.label} />
+              </Action>
             ) : (
               <span
                 aria-current={entry.current ? "location" : undefined}
                 title={entry.label}
               >
-                {entry.current ? <NameText name={entry.label} /> : entry.label}
+                <NameText name={entry.label} />
               </span>
             )}
           </li>
