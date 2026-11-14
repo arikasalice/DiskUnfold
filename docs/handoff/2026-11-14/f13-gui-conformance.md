@@ -36,3 +36,18 @@
 - `src/app/DesktopLocale.tsx`: 움직임·배율 판정 호출을 theme 모듈 호출로 교체(작은 변경).
 - 새 사용자 문구가 필요할 때 `user-env/i18n/en.json`·`ko.json`·`message-keys.txt` 추가(구현 단계에서 목록으로 보고).
 - `features/browse/BrowsePanel.tsx:263-275`의 `Alt+ArrowUp` 처리를 키 배정 표로 옮기는 변경.
+
+## 2단계 처리 결과
+
+위 표는 `3fbdcbf7` 시점의 판정이다. 구현 뒤 상태는 다음과 같다. 사실로 확인한 범위는 happy-dom 시험이며 실제 WebView 배치는 확인하지 않았다.
+
+| DD | 처리 | 근거 |
+| --- | --- | --- |
+| FR3·FR4·FR6 | 변경 없음 | 범위 밖. `data-table.tsx`의 영어 `scroll area`만 `scrollLabel` 속성으로 대체할 수 있게 했고 기본값은 그대로다. 문구 키 `ui.common.scroll_area` 같은 새 키는 user-env 담당 추가가 필요하다. |
+| FR7.HD1 | 부품과 시험만 해소, 화면 적용은 남음 | `components/text-fit.tsx`(`ClampedText` 두 줄 줄임·`MiddleEllipsisText` 가운데 줄임, 잘렸을 때만 초점과 전체 문구 표시), `theme/text-fit.css`, `tests/text-fit.test.tsx`(한국어·영어 긴 문구, 경로 원문 접근성 이름, 고정 폭 없음). 기존 화면의 한 줄 줄임 CSS와 `DataTable` 열 폭·행 높이는 feature 파일 교체가 필요해 바꾸지 않았다. |
+| FR8.HD1 | 해소 | `components/status-table.ts`·`presentation.tsx`(상태 표시 표 모양·문구 키·색, `StatusBadge`가 사용), `controls.tsx`·`review-field.tsx`의 `error`(칸 연결 오류 문구와 `role="alert"` 한 번), `eslint-rules.mjs`의 `du/control-name`·`du/status-needs-shape-and-name`, `tests/eslint-rules.test.ts`(위반 fixture 실패 확인), `tests/status-badge.test.tsx`, `tests/common-parts-a11y.test.tsx`(axe 위반 0). 기존 호출부의 `tone`만 쓰는 배지는 모양이 자동으로 붙는다. 아직 `error`를 쓰는 화면은 없다. |
+| FR8.HD2 | 해소(격자), 나머지 화면은 일부 | `components/key-dispatch.ts`(조합 → 입력란 → 대화상자 → 화면 표 → 무시), `key-table.ts`(행 구조, 중복이면 생성 시 예외), `browse-keys.ts`·`browse-grid.tsx`(격자 키를 표로 이동), `tests/key-dispatch.test.ts`. `item-actions`·`geometry-renderer`·`use-browse-paging`은 조합 단계만 공통 판정을 쓴다. `BrowsePanel`의 `Alt+ArrowUp`은 표에 행만 있고 처리는 feature에 남아 있다. 초점이 사라질 때의 이동 규칙은 공통화하지 않았다. |
+| FR10.HD1 | 해소 | `components/ime-composition.ts`의 `IME_DECISION_TABLE`·`decideImeKey`·`isImeProcessingKey`, `tests/ime-decision-table.test.tsx`(7행 각각), `tests/ime-single-source.test.ts`(다른 파일이 조합 신호를 직접 읽으면 실패). |
+| FR10.HD2 | 해소 | `components/confirm-dialog.tsx`(입력란 Enter 기본 동작 차단, 승인 입력란 정책 `never`, 마운트 뒤 취소 단추에 초점), `tests/confirm-dialog-keys.test.tsx`. 실제 승인 화면의 입력란은 아직 없다. |
+| FR11.HD1·FR12.HD1 | theme 모듈 해소, 호출 교체는 남음 | `theme/presentation-settings.ts`(`resolveMotionLevel`·`scaleFactor`·`applyPresentation`), `tests/presentation-settings.test.ts`(네 조합, 질의 불가, 변경 통지, 여섯 배율, 허용 밖 값 100%). `app/DesktopLocale.tsx`가 아직 같은 판정을 자체 구현하고 있어 한 줄 호출로 바꿔야 한다(소유 경로 밖). |
+| NFR2.HD1 | 변경 없음 | 범위 밖. |
