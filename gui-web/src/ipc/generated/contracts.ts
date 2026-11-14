@@ -928,6 +928,36 @@ supportedControls: Array<JobControl>, sequence: number,
 terminal?: AnalysisJobTerminal, };
 export type JobResyncReason = "subscriber_queue_limit" | "subscriber_delivery_failed";
 export type JobResyncRequired = { reason: JobResyncReason, discardedEvents: number, observedAt: Timestamp, };
+export type ProgressUnit = "items" | "bytes";
+export type AnalysisJobProgress = {
+/**
+ * Per-job sequence shared with state changes and the terminal event.
+ */
+sequence: number,
+/**
+ * The progress unit declared by the job kind.
+ */
+unit: ProgressUnit,
+/**
+ * Units processed so far.
+ */
+completed: number,
+/**
+ * The confirmed total, omitted while the total is not established.
+ */
+total?: number,
+/**
+ * Whether `total` is confirmed.
+ */
+totalKnown: boolean,
+/**
+ * The wait reason observed with this value.
+ */
+waitReason: AnalysisJobWaitReason,
+/**
+ * UTC time at which the runtime observed this value.
+ */
+observedAt: Timestamp, };
 export type ScanResult = { lineageId: Id, sequence: number, resultVersion?: Id, };
 export type AnalysisJobTerminal = { state: JobState,
 /**
