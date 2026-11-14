@@ -1,13 +1,6 @@
 //! A stalled lane keeps its own workers, and no directory work changes lanes.
-use super::*;
+use super::{remote::*, *};
 use crate::scan::parallel::lanes::{Origin, Taken};
-
-fn context() -> Context {
-    Context {
-        completed: Arc::new(AtomicUsize::new(0)),
-        abandoned: Arc::new(AtomicUsize::new(0)),
-    }
-}
 
 #[test]
 fn a_stalled_lane_keeps_its_workers_while_another_lane_finishes() -> Result<(), TestError> {
@@ -33,12 +26,21 @@ fn a_stalled_lane_keeps_its_workers_while_another_lane_finishes() -> Result<(), 
         }),
     );
     let job_probe = probe.clone();
-    let collector = thread::spawn(move || run_forest(&job_probe, vec![0, 1], 4, 2, &context()));
+    let remote = Arc::new(Remote::default());
+    let _unpark = Unpark(remote.clone());
+    let job_context = RemoteContext(remote.clone());
+    let collector = thread::spawn(move || run_forest(&job_probe, vec![0, 1], 4, 2, &job_context));
     wait_until(|| probe.finished(1) == shape.directories())?;
     // Both lane 0 workers are stuck; the two others finished lane 1 and could
     // not join lane 0, which is at its limit of two workers.
     gate.until(|state| state.waiting == 2)?;
-    thread::sleep(Duration::from_millis(100));
+    // The stuck workers reach no safe point. Two more safe points of each other
+    // worker enclose a whole claim attempt made after this state was reached.
+    let seen = remote.read(|state| state.safe_points.clone())?;
+    remote.until(|state| {
+        let advanced = state.safe_points.iter().zip(&seen);
+        advanced.filter(|(now, then)| **now >= **then + 2).count() == 2
+    })?;
     assert_eq!(gate.most(), 2);
     assert!(probe.finished(0) < shape.directories());
     gate.release();
@@ -49,7 +51,7 @@ fn a_stalled_lane_keeps_its_workers_while_another_lane_finishes() -> Result<(), 
     Ok(())
 }
 
-fn frame(root: u32, path: Vec<Vec<u8>>) -> Frame {
+pub(super) fn frame(root: u32, path: Vec<Vec<u8>>) -> Frame {
     struct Unused;
     impl DirectoryObservations for Unused {
         fn next_batch(&mut self) -> Result<Vec<ObservedEntry>, PortError> {
@@ -71,7 +73,7 @@ fn frame(root: u32, path: Vec<Vec<u8>>) -> Frame {
 }
 
 /// Every queued or stacked item lies in the lane of its root.
-fn assert_lanes_hold_only_their_roots(queue: &Queue) {
+pub(super) fn assert_lanes_hold_only_their_roots(queue: &Queue) {
     for (lane, state) in queue.lanes.lanes.iter().enumerate() {
         for item in state.ready.frames() {
             assert_eq!(queue.lanes.lane_of(item.root_index), Some(lane));
