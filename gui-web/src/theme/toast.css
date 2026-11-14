@@ -1,0 +1,45 @@
+.du-toast-region {
+  position: fixed;
+  inset-block-end: var(--du-space-6);
+  inset-inline-end: var(--du-space-6);
+  z-index: 30;
+  max-inline-size: min(26rem, calc(100vw - 2 * var(--du-space-6)));
+  pointer-events: none;
+}
+
+.du-toast {
+  display: flex;
+  align-items: center;
+  gap: var(--du-space-2);
+  padding: 14px 20px;
+  border: 1px solid var(--du-border);
+  border-radius: var(--du-radius);
+  background: var(--du-surface);
+  color: var(--du-text);
+  box-shadow: var(--du-shadow);
+  font-weight: 600;
+}
+
+.du-toast__mark {
+  color: var(--du-success-text);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .du-toast {
+    animation: du-toast-in 160ms ease-out;
+  }
+}
+
+@keyframes du-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+@media (forced-colors: active) {
+  .du-toast {
+    forced-color-adjust: none;
+    outline: 1px solid CanvasText;
+  }
+}

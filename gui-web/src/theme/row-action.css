@@ -1,0 +1,29 @@
+/* Shown only on the hovered or focused row; hidden rows keep their height. */
+.du-row-action {
+  visibility: hidden;
+  flex: none;
+  min-block-size: 30px;
+  padding-block: 3px;
+}
+
+[role="row"]:is(:hover, :focus-within) .du-row-action,
+.du-row-action[data-focus-visible] {
+  visibility: visible;
+}
+
+.du-row-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-inline-size: 0;
+}
+
+.du-row-status > :first-child {
+  min-inline-size: 0;
+}
+
+.du-row-status[data-requested] > :first-child {
+  color: var(--du-info-text);
+  font-weight: 650;
+}

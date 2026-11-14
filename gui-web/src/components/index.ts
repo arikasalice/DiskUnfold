@@ -44,5 +44,8 @@ export type {
 } from "./geometry-renderer";
 
 export { ActionFeedback } from "./action-feedback";
+export { RowAction } from "./row-action";
+export { Toast } from "./toast";
+export type { ToastMessage } from "./toast";
 export { TextDocument } from "./text-document";
 export { TitleBar, TitleBarProvider, useTitleBarContext } from "./title-bar";

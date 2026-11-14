@@ -420,6 +420,21 @@ label.du-field > span {
   .du-progress__indicator {
     animation: none;
   }
+
+  /* A still segment would read as a percentage; a dashed track does not. */
+  .du-progress:not(.du-progress--determinate) .du-progress__indicator {
+    width: 100%;
+    background: repeating-linear-gradient(
+      90deg,
+      var(--du-accent) 0 8px,
+      transparent 8px 16px
+    );
+  }
+}
+
+.du-progress--determinate .du-progress__indicator {
+  animation: none;
+  transition: width var(--du-state-duration) linear;
 }
 
 @media (forced-colors: active) {

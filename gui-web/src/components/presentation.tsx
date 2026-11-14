@@ -146,8 +146,48 @@ export function Notice({
   );
 }
 
-/** An indeterminate operation does not claim a percentage. */
-export function Progress({ label }: { label: string }) {
+/**
+ * An operation without a confirmed total is indeterminate and claims no
+ * percentage. A confirmed total draws a determinate bar. A paused operation
+ * keeps the bar's place without motion or a progress role.
+ */
+export function Progress({
+  label,
+  value,
+  maxValue,
+  paused = false,
+}: {
+  label: string;
+  value?: number;
+  maxValue?: number;
+  paused?: boolean;
+}) {
+  if (paused)
+    return (
+      <div className="du-progress du-progress--paused" aria-hidden>
+        <div className="du-progress__track" />
+      </div>
+    );
+  const determinate =
+    value !== undefined && maxValue !== undefined && maxValue > 0;
+  if (determinate) {
+    const ratio = Math.min(1, Math.max(0, value / maxValue));
+    return (
+      <ProgressBar
+        aria-label={label}
+        value={Math.min(value, maxValue)}
+        maxValue={maxValue}
+        className="du-progress du-progress--determinate"
+      >
+        <div className="du-progress__track" aria-hidden>
+          <div
+            className="du-progress__indicator"
+            style={{ width: `${ratio * 100}%` }}
+          />
+        </div>
+      </ProgressBar>
+    );
+  }
   return (
     <ProgressBar aria-label={label} isIndeterminate className="du-progress">
       <div className="du-progress__track" aria-hidden>
