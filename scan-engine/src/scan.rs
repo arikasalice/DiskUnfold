@@ -52,7 +52,9 @@ pub type PreMetadataFilter<'a> = dyn Fn(u32, &[Vec<u8>], &[u8]) -> du_core_contr
 /// available. An unsupported flow or a zero worker limit fails without OS calls.
 /// Cancellation is checked before each open and enumeration call. `JobContext`
 /// does not atomically couple that check to issuing the call, so a cancellation
-/// racing between those operations can still allow one call to start.
+/// racing between those operations can still allow one call to start. A call
+/// already waiting inside the adapter is not interrupted by cancellation; it
+/// returns only when the adapter or the OS ends it.
 pub fn collect_parallel(
     sink: &IngestSink,
     scope: Id,
