@@ -14,6 +14,7 @@ export function DataTable<Row>({
   density = "comfortable",
   totalRows,
   getRowKey,
+  scrollLabel,
 }: {
   label: string;
   columns: string[];
@@ -24,6 +25,8 @@ export function DataTable<Row>({
   /** Total known rows, or -1 when only a lower bound is known. */
   totalRows?: number;
   getRowKey?: (row: Row) => string;
+  /** Name of the scrollable region. Defaults to the English "<label> scroll area". */
+  scrollLabel?: string;
 }) {
   const [scrollTop, setScrollTop] = useState(0);
   const rowHeight = density === "compact" ? 64 : ROW_HEIGHT;
@@ -42,7 +45,7 @@ export function DataTable<Row>({
     <div
       className="du-table-viewport"
       role="region"
-      aria-label={`${label} scroll area`}
+      aria-label={scrollLabel ?? `${label} scroll area`}
       tabIndex={0}
       onScroll={onScroll}
     >

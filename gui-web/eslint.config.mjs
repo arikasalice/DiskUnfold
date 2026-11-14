@@ -1,4 +1,5 @@
 import tseslint from "typescript-eslint";
+import duRules from "./eslint-rules.mjs";
 
 const nativeBoundary = {
   selector:
@@ -19,6 +20,21 @@ export default [
   {
     files: ["src/**/*.{ts,tsx}"],
     rules: { complexity: ["error", 20] },
+  },
+  {
+    files: ["src/**/*.{ts,tsx}"],
+    plugins: { du: duRules },
+    rules: {
+      "du/control-name": "error",
+      "du/status-needs-shape-and-name": "error",
+      "du/no-physical-key": "error",
+    },
+  },
+  {
+    // The no-connection fallback is shown before any language bundle exists, so
+    // its text cannot come from a message key.
+    files: ["src/app/App.tsx"],
+    rules: { "du/control-name": "off" },
   },
   {
     files: ["src/**/*.{ts,tsx}"],

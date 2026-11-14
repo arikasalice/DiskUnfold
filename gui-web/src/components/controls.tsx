@@ -76,7 +76,13 @@ export function DateField({
   );
 }
 
-/** A labelled native-path input with optional focus on insertion. */
+/**
+ * A labelled native-path input with optional focus on insertion.
+ *
+ * `error` is linked to the input as its error message and announced once when
+ * it appears. `onEnter` runs once for an Enter that is not part of an IME
+ * composition.
+ */
 export function PathField({
   label,
   description,
@@ -86,6 +92,8 @@ export function PathField({
   isDisabled,
   autoFocus,
   onCompositionChange,
+  onEnter,
+  error,
   ref,
 }: {
   label: string;
@@ -96,15 +104,20 @@ export function PathField({
   isDisabled: boolean;
   autoFocus?: boolean;
   onCompositionChange?: (composing: boolean) => void;
+  onEnter?: () => void;
+  error?: string | undefined;
   ref?: Ref<HTMLInputElement>;
 }) {
-  const imeComposition = useImeComposition(onCompositionChange);
+  const imeComposition = useImeComposition(onCompositionChange, {
+    ...(onEnter && { onEnter }),
+  });
 
   return (
     <TextField
       value={value}
       onChange={onChange}
       isDisabled={isDisabled}
+      isInvalid={error !== undefined}
       className="du-field"
     >
       <Label>{label}</Label>
@@ -119,6 +132,11 @@ export function PathField({
       <Text slot="description" aria-live="polite">
         {description}
       </Text>
+      {error !== undefined && (
+        <Text slot="errorMessage" role="alert">
+          {error}
+        </Text>
+      )}
     </TextField>
   );
 }

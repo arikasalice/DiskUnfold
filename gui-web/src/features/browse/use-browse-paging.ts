@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
 import type { BrowseGridFocus } from "../../components";
+import { isImeProcessingKey } from "../../components";
 import { AnalysisError } from "../../ipc";
 import type { QueryPageRequest, QueryPageResponse } from "../../ipc";
 import {
@@ -134,11 +135,7 @@ export function useBrowsePaging({
         cancelIntent();
     }
     function onKey(event: globalThis.KeyboardEvent) {
-      if (
-        !event.isComposing &&
-        event.keyCode !== 229 &&
-        scrollKeys.has(event.key)
-      )
+      if (!isImeProcessingKey(event) && scrollKeys.has(event.key))
         cancelIntent();
     }
     const input = ["wheel", "touchstart", "touchmove", "pointerdown"] as const;

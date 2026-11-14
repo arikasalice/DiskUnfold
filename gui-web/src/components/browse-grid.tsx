@@ -15,23 +15,44 @@ import {
   TableBody,
   TableHeader,
 } from "react-aria-components";
-import { canHandleBrowseKey } from "./browse-keys";
+import {
+  BROWSE_SCREEN,
+  browseKeyTable,
+  canHandleBrowseKey,
+} from "./browse-keys";
 import { useBrowseGridViewport } from "./browse-grid-viewport";
 import "../theme/browse-grid.css";
 
 const virtualRows = { ...DefaultCollectionRenderer, isVirtualized: true };
-const gridKeys = new Set([
-  "ArrowUp",
-  "ArrowDown",
-  "ArrowLeft",
-  "ArrowRight",
-  "Home",
-  "End",
-  "PageUp",
-  "PageDown",
-  "Enter",
-  " ",
-]);
+
+function isGridKey(key: string) {
+  return browseKeyTable.usesKey(BROWSE_SCREEN, key);
+}
+
+/** The row a navigation action moves to, or undefined for other actions. */
+function moveTarget(
+  action: string | undefined,
+  index: number | undefined,
+  count: number,
+  pageRows: number,
+): number | undefined {
+  switch (action) {
+    case "move_previous":
+      return Math.max(0, (index ?? 1) - 1);
+    case "move_next":
+      return Math.min(count - 1, (index ?? -1) + 1);
+    case "move_first":
+      return 0;
+    case "move_last":
+      return count - 1;
+    case "move_page_up":
+      return Math.max(0, (index ?? 0) - pageRows);
+    case "move_page_down":
+      return Math.min(count - 1, (index ?? 0) + pageRows);
+    default:
+      return undefined;
+  }
+}
 
 export type BrowseGridFocus = {
   index: number;
@@ -66,10 +87,7 @@ function guardedKeys(handler: ComponentProps<"div">["onKeyDown"]) {
   return (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.target instanceof Element && event.target.closest("button"))
       return;
-    if (
-      !gridKeys.has(event.key) ||
-      (canHandleBrowseKey(event) && !event.altKey)
-    )
+    if (!isGridKey(event.key) || (canHandleBrowseKey(event) && !event.altKey))
       handler?.(event);
   };
 }
@@ -159,7 +177,7 @@ export function BrowseGrid<Item>({
     toggle: (key: string) => void,
   ) {
     if (
-      !gridKeys.has(event.key) ||
+      !isGridKey(event.key) ||
       !(event.target instanceof Element) ||
       !event.currentTarget.contains(event.target) ||
       event.target.closest("button")
@@ -167,30 +185,21 @@ export function BrowseGrid<Item>({
       return;
     const index = rowIndex(event.target);
     if (!canHandleBrowseKey(event) || event.altKey) return;
-    const moves = {
-      ArrowUp: Math.max(0, (index ?? 1) - 1),
-      ArrowDown: Math.min(count - 1, (index ?? -1) + 1),
-      Home: 0,
-      End: count - 1,
-      PageUp: Math.max(0, (index ?? 0) - viewport.pageRows),
-      PageDown: Math.min(count - 1, (index ?? 0) + viewport.pageRows),
-    };
-    const target = Object.hasOwn(moves, event.key)
-      ? moves[event.key as keyof typeof moves]
-      : undefined;
+    const action = browseKeyTable.find(BROWSE_SCREEN, event)?.action;
+    const target = moveTarget(action, index, count, viewport.pageRows);
     if (target !== undefined) {
       event.preventDefault();
       event.stopPropagation();
-      onMove(target, event.key === "End");
+      onMove(target, action === "move_last");
     } else if (
-      (event.key === "Enter" || event.key === " ") &&
+      (action === "open_item" || action === "toggle_selection") &&
       index !== undefined
     ) {
       event.preventDefault();
       event.stopPropagation();
       const item = getRow(index);
       if (event.repeat || item === undefined) return;
-      if (event.key === " ") toggle(getKey(item));
+      if (action === "toggle_selection") toggle(getKey(item));
       else onOpen(item);
     }
   }

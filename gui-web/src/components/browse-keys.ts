@@ -1,38 +1,46 @@
 import type { KeyboardEvent } from "react";
+import { classifyKeyStage } from "./key-dispatch";
+import { createKeyTable } from "./key-table";
+import type { KeyBinding, KeyModifier } from "./key-table";
 
-const editingOrPopup =
-  'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"], [role="combobox"]';
-const activePopup =
-  'dialog[open], [role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"], [role="combobox"][aria-expanded="true"]';
+/** The screen identifier of the folder and file browsing surface. */
+export const BROWSE_SCREEN = "browse";
 
-function isVisiblePopup(popup: Element): boolean {
-  if (popup.closest('[hidden], [inert], [aria-hidden="true"]')) return false;
-  if (getComputedStyle(popup).visibility === "hidden") return false;
-  for (
-    let ancestor: Element | null = popup;
-    ancestor;
-    ancestor = ancestor.parentElement
-  ) {
-    if (getComputedStyle(ancestor).display === "none") return false;
-  }
-  return true;
+function binding(
+  key: string,
+  action: string,
+  modifiers: readonly KeyModifier[] = [],
+): KeyBinding {
+  return {
+    screen: BROWSE_SCREEN,
+    key,
+    modifiers,
+    action,
+    descriptionKey: `ui.browse.keys.${action}`,
+  };
 }
 
-/** Native document scrolling is observed only outside editing and popups. */
-export function canObserveBrowseKey(event: globalThis.KeyboardEvent): boolean {
-  const target = event.target;
-  if (
-    event.defaultPrevented ||
-    event.isComposing ||
-    event.keyCode === 229 ||
-    !(target instanceof Element) ||
-    target.closest(editingOrPopup)
-  ) {
-    return false;
-  }
+/** The browsing surface's key assignment table, by logical key. */
+export const browseKeyTable = createKeyTable([
+  binding("ArrowUp", "move_previous"),
+  binding("ArrowDown", "move_next"),
+  binding("ArrowLeft", "cell_previous"),
+  binding("ArrowRight", "cell_next"),
+  binding("Home", "move_first"),
+  binding("End", "move_last"),
+  binding("PageUp", "move_page_up"),
+  binding("PageDown", "move_page_down"),
+  binding("Enter", "open_item"),
+  binding(" ", "toggle_selection"),
+  binding("ArrowUp", "go_up", ["alt"]),
+]);
 
-  return !Array.from(target.ownerDocument.querySelectorAll(activePopup)).some(
-    isVisiblePopup,
+/** Native document scrolling is observed only when the screen owns the key. */
+export function canObserveBrowseKey(event: globalThis.KeyboardEvent): boolean {
+  return (
+    !event.defaultPrevented &&
+    event.target instanceof Element &&
+    classifyKeyStage(event) === "screen"
   );
 }
 
