@@ -139,6 +139,13 @@ export function App({
     }),
   );
   const restoreBrowseFocus = useRef(false);
+  // False during the render that opens the folder list, whose title takes the
+  // focus; "Back to analysis" takes it when it returns later, as after a view
+  // over the list closes without restoring its own trigger.
+  const browseShown = useRef(false);
+  useEffect(() => {
+    browseShown.current = Boolean(browseVersion);
+  }, [browseVersion]);
   const visualizationTrigger = useRef<HTMLButtonElement>(null);
   const restoreVisualizationFocus = useRef(false);
   const visualization = useBrowseVisualization(
@@ -213,7 +220,9 @@ export function App({
           <BrowseReturn
             visible={controls.backVisible}
             autoFocus={
-              !restoreVisualizationFocus.current && !groups.restoringFocus()
+              browseShown.current &&
+              !restoreVisualizationFocus.current &&
+              !groups.restoringFocus()
             }
             onPress={() => {
               restoreBrowseFocus.current = true;
@@ -453,6 +462,7 @@ function BrowseSurface({
         resultVersion={resultVersion}
         display={display}
         priority={priority}
+        focusTitle
         onOpening={onOpening}
         onOpened={(opened) => onOpened(resultVersion, opened)}
         inspectItem={(item, kind) => (

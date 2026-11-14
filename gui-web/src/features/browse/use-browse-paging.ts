@@ -314,9 +314,30 @@ export function useBrowsePaging({
             active === removed &&
             document.activeElement === removed &&
             originFocus === focusGeneration.current
-          )
-            focusPanel();
+          ) {
+            // "Load more" went away: the first row it loaded is next.
+            if (!retryAttempt && page.length > 0) focusLoaded(removed);
+            else focusPanel();
+          }
           if (retryAttempt) setFailure(undefined);
+        }
+        function focusLoaded(removed: Element) {
+          const request: FocusRequest = {
+            index: task.start,
+            keepLoadButton: false,
+            eligible: () => {
+              const now = document.activeElement;
+              return (
+                latest() &&
+                (now === removed || now === null || now === document.body)
+              );
+            },
+            finish: () =>
+              setFocusRequest((current) =>
+                current === request ? undefined : current,
+              ),
+          };
+          setFocusRequest(request);
         }
         if (task.continuation) {
           if (page.length > 0 && !keyboard)

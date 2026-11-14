@@ -1868,8 +1868,11 @@ test("F03: browse precedes result evidence and returning restores focus", async 
       resultVersion: "result",
     }),
   );
+  // Entering the folder list moves focus to its title (design review of PR #60).
+  expect(document.activeElement).toBe(
+    screen.getByRole("heading", { name: "Folders and files" }),
+  );
   const back = screen.getByRole("button", { name: "Back to analysis" });
-  expect(document.activeElement).toBe(back);
   fireEvent.click(back);
   expect(document.activeElement).toBe(browse);
   expect(screen.getByText("At least 42 bytes")).toBe(evidence);

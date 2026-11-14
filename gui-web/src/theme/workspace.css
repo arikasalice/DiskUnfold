@@ -94,6 +94,11 @@ body {
   line-height: 1.2;
 }
 
+/* A title that takes the focus by script when its screen opens draws no frame. */
+.du-heading[tabindex="-1"]:focus {
+  outline: none;
+}
+
 .du-heading--1 {
   font-size: 18px;
   font-weight: 690;

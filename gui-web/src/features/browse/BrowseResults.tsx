@@ -36,6 +36,13 @@ import {
 } from "./SelectionAnalyzeFirst";
 import type { Selection } from "./SelectionAnalyzeFirst";
 
+/**
+ * Focuses the list's entry after a new folder replaced it: its first row, or
+ * for an empty folder the "Up" action. `origin` is the control that held
+ * focus when the folder was opened.
+ */
+export type ListEntryFocus = (origin: Element) => void;
+
 function size(
   value: FolderQueryRow["logicalSize"],
   display: SizeDisplay,
@@ -162,6 +169,8 @@ export function BrowseResults({
   navigationSeq,
   canRead,
   focusPanel,
+  focusUp,
+  listEntry,
   barFocus,
   openFailures,
   retryOpen,
@@ -181,7 +190,16 @@ export function BrowseResults({
   navigationEpoch: number;
   navigationSeq: () => number;
   canRead: () => boolean;
+  /**
+   * Focuses the panel. Used only where no nearer next step exists: an empty
+   * folder without an available "Up", a final page that added no rows, and a
+   * successful page retry.
+   */
   focusPanel: () => void;
+  /** Focuses "Up" when it is available; false when it is not. */
+  focusUp: () => boolean;
+  /** Receives this list's entry focus, which the panel calls after opening it. */
+  listEntry: RefObject<ListEntryFocus | undefined>;
   /** Whether the selection action bar holds focus; outlives this list. */
   barFocus: RefObject<boolean>;
   /** Counts failed openings of a new list; see {@link SelectionAnalyzeFirst}. */
@@ -254,11 +272,27 @@ export function BrowseResults({
     }
   }, [paging.failure, paging.retryButton]);
   /**
+   * Focuses a row once it is drawn, unless `eligible` says focus has moved
+   * on by then.
+   */
+  function requestRow(index: number, eligible: () => boolean) {
+    const request: BrowseGridFocus = {
+      index,
+      eligible,
+      finish: () =>
+        setRowFocus((current) => (current === request ? undefined : current)),
+    };
+    setRowFocus(request);
+  }
+  /** An empty folder's next step is "Up"; without it, the panel. */
+  function focusEmpty() {
+    if (!focusUp()) focusPanel();
+  }
+  /**
    * Focuses a row, the element keyboard navigation of the list focuses: the
    * first selected row shown, else the first row shown. A list that has not
    * drawn its rows yet focuses its first row once drawn, unless focus has
-   * moved elsewhere than the panel by then. Only a list without rows falls
-   * back to the panel.
+   * moved elsewhere than the panel by then. An empty list focuses "Up".
    */
   function focusList() {
     const rows = scrollRoot.current;
@@ -270,24 +304,42 @@ export function BrowseResults({
       return;
     }
     if (pages.count === 0) {
-      focusPanel();
+      focusEmpty();
       return;
     }
-    const request: BrowseGridFocus = {
-      index: 0,
-      eligible: () => {
-        const active = document.activeElement;
-        return (
-          active === null ||
-          active === document.body ||
-          (active !== scrollRoot.current && active.contains(scrollRoot.current))
-        );
-      },
-      finish: () =>
-        setRowFocus((current) => (current === request ? undefined : current)),
-    };
-    setRowFocus(request);
+    requestRow(0, () => {
+      const active = document.activeElement;
+      return (
+        active === null ||
+        active === document.body ||
+        (active !== scrollRoot.current && active.contains(scrollRoot.current))
+      );
+    });
   }
+  /**
+   * The entry of a newly opened folder: its first row, or "Up" when it is
+   * empty. The first row is focused once drawn while focus still rests on the
+   * control that opened the folder, or was lost with it.
+   */
+  function focusEntry(origin: Element) {
+    if (pages.count === 0) {
+      focusEmpty();
+      return;
+    }
+    const row =
+      scrollRoot.current?.querySelector<HTMLElement>('[data-row="0"]');
+    if (row) {
+      row.focus({ preventScroll: true });
+      return;
+    }
+    requestRow(0, () => {
+      const active = document.activeElement;
+      return active === null || active === document.body || active === origin;
+    });
+  }
+  useLayoutEffect(() => {
+    listEntry.current = focusEntry;
+  });
   return (
     <div className="du-browse-results">
       <div className="du-browse-controls">

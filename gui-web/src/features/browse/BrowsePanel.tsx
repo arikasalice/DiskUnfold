@@ -25,6 +25,7 @@ import { BROWSE_PAGE_SIZE, BrowsePages } from "../../state/browse-pages";
 import type { ScanPriority } from "../../state/scan-priority";
 import { folderPath } from "./browse-display";
 import { BrowseResults } from "./BrowseResults";
+import type { ListEntryFocus } from "./BrowseResults";
 import {
   BrowseItemDialog,
   ObservationSummary,
@@ -65,6 +66,7 @@ export function BrowsePanel({
   rootLabel,
   actionsDisabledReason,
   titleBadge,
+  focusTitle = false,
 }: {
   port: BrowsePort;
   resultVersion?: string;
@@ -84,6 +86,11 @@ export function BrowsePanel({
   actionsDisabledReason?: string;
   /** A badge shown beside the title, such as the sample experience's "Example" mark. */
   titleBadge?: ReactNode;
+  /**
+   * Moves focus to the title when the panel mounts, for a host that shows the
+   * panel as its own screen. The title draws no focus frame.
+   */
+  focusTitle?: boolean;
 }) {
   const text = useLocaleText();
   const [view, setView] = useState<View>();
@@ -100,6 +107,9 @@ export function BrowsePanel({
   }>(undefined);
   const virtualRootVersion = useRef<string>(undefined);
   const panel = useRef<HTMLElement>(null);
+  const title = useRef<HTMLHeadingElement>(null);
+  const upAction = useRef<HTMLButtonElement>(null);
+  const listEntry = useRef<ListEntryFocus>(undefined);
   const focusAfterUpdate = useRef<Element>(undefined);
   // Survives the remount of the results, so a new list's selection action
   // bar can take over the focus its predecessor held.
@@ -118,8 +128,11 @@ export function BrowsePanel({
     lastAttempt.current = { location, pinned };
     const requestSeq = ++sequence.current;
     const active = document.activeElement;
+    // The title holds the screen's entry focus; opening the first list keeps it there.
     const restoreFocus =
-      active !== panel.current && panel.current?.contains(active);
+      active !== panel.current &&
+      active !== title.current &&
+      panel.current?.contains(active);
 
     opening.current?.abort();
     onOpening?.();
@@ -186,6 +199,19 @@ export function BrowsePanel({
     navigate(lastAttempt.current?.location, lastAttempt.current?.pinned, true);
   }
 
+  /** Focuses "Up" when it is available; false when it is not. */
+  function focusUp(): boolean {
+    const up = upAction.current;
+    if (!up || up.disabled) return false;
+    up.focus({ preventScroll: true });
+    return document.activeElement === up;
+  }
+
+  useEffect(() => {
+    if (focusTitle) title.current?.focus({ preventScroll: true });
+    // Only the screen's entry moves focus to the title.
+  }, []);
+
   useEffect(() => {
     inspection.reset();
     virtualRootVersion.current = undefined;
@@ -205,7 +231,7 @@ export function BrowsePanel({
       (document.activeElement === focus ||
         (!focus.isConnected && document.activeElement === document.body))
     )
-      panel.current?.focus();
+      listEntry.current?.(focus);
   }, [view]);
 
   const page = view?.opened.page;
@@ -252,7 +278,7 @@ export function BrowsePanel({
     >
       <div className="du-browse-header">
         <div className="du-browse-title">
-          <Heading level={2}>
+          <Heading level={2} ref={title} programmaticFocus={focusTitle}>
             {text("ui.browse.folders_and_files", "Folders and files")}
           </Heading>
           {titleBadge}
@@ -290,7 +316,11 @@ export function BrowsePanel({
             <PreviousResultNotice previous={previousResult} />
             <div className="du-browse-context">
               <div className="du-card__actions">
-                <Action onPress={goUp} isDisabled={!parent || previousResult}>
+                <Action
+                  ref={upAction}
+                  onPress={goUp}
+                  isDisabled={!parent || previousResult}
+                >
                   {text("ui.browse.up", "Up")}
                 </Action>
                 <Breadcrumbs
@@ -334,6 +364,8 @@ export function BrowsePanel({
             navigationSeq={() => sequence.current}
             canRead={() => opening.current === undefined && !previousResult}
             focusPanel={() => panel.current?.focus({ preventScroll: true })}
+            focusUp={focusUp}
+            listEntry={listEntry}
             barFocus={barFocus}
             openFailures={openFailures}
             retryOpen={retry}
