@@ -2,6 +2,11 @@
 
 #[cfg(all(feature = "gui", windows))]
 mod clipboard;
+#[cfg(all(
+    feature = "gui",
+    any(windows, target_os = "linux", target_os = "macos")
+))]
+mod group_rules_store;
 #[cfg(all(feature = "gui", windows))]
 mod history;
 #[cfg(feature = "gui")]

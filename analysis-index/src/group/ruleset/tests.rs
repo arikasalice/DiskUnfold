@@ -96,7 +96,14 @@ fn same_content_is_unchanged_and_order_changes_the_fingerprint() -> Result<(), S
         &mut next,
     ))?;
     let again = redraft(&first);
-    let unchanged = plan_save(&first, again.clone(), &registry, RuleLimits::default(), 2, &mut next);
+    let unchanged = plan_save(
+        &first,
+        again.clone(),
+        &registry,
+        RuleLimits::default(),
+        2,
+        &mut next,
+    );
     assert_eq!(unchanged, SavePlan::Unchanged);
     let mut reordered = again;
     reordered.reverse();
@@ -128,7 +135,14 @@ fn removing_a_group_writes_a_new_version_without_it() -> Result<(), String> {
     ))?;
     let mut drafts = redraft(&first);
     drafts.remove(0);
-    let second = written(plan_save(&first, drafts, &registry, RuleLimits::default(), 2, &mut next))?;
+    let second = written(plan_save(
+        &first,
+        drafts,
+        &registry,
+        RuleLimits::default(),
+        2,
+        &mut next,
+    ))?;
     assert_eq!(second.rules.len(), 1);
     assert_eq!(second.rules[0].group_id, first.rules[1].group_id);
     Ok(())
@@ -216,7 +230,14 @@ fn unknown_group_ids_are_rejected_and_empty_rulesets_are_unchanged() {
             reason_key: "group.unknown"
         }])
     );
-    let empty = plan_save(&Ruleset::empty(), Vec::new(), &registry, RuleLimits::default(), 1, &mut next);
+    let empty = plan_save(
+        &Ruleset::empty(),
+        Vec::new(),
+        &registry,
+        RuleLimits::default(),
+        1,
+        &mut next,
+    );
     assert_eq!(empty, SavePlan::Unchanged);
 }
 
@@ -242,4 +263,3 @@ fn stored_rules_with_unregistered_predicates_are_kept_and_marked() {
         vec![RuleReview::PredicateUnregistered, RuleReview::Ok]
     );
 }
-
