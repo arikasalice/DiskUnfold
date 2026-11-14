@@ -193,8 +193,11 @@ fn invalid_requests_fail_and_a_cancelled_page_leaves_no_partial_order() -> Resul
         Err(Error::InvalidSort(_))
     ));
     let by_size = [sort("sort.size", true)];
+    // The default sort is read from the order built with the classification; another
+    // direction is ordered on request and stops when cancelled.
+    let smallest_first = [sort("sort.size", false)];
     assert_eq!(
-        page(Category::Group(1), &by_size, true).map(|_| ()),
+        page(Category::Group(1), &smallest_first, true).map(|_| ()),
         Err(Error::Cancelled)
     );
     let first = page(Category::Group(1), &by_size, false).map_err(err)?;

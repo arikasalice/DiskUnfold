@@ -2,7 +2,7 @@
 use std::sync::Arc;
 
 use du_analysis_index::{
-    group::{self, Category, Classification, Decision},
+    group::{self, Category, Classification, DEFAULT_MEMBER_SORT, Decision},
     query::{Basis, Sort},
 };
 use du_core_contracts::{
@@ -29,9 +29,9 @@ const PAGE_LIMIT: u32 = 1_000;
 
 fn default_sort() -> BrowseSortKey {
     BrowseSortKey {
-        id: "sort.size".into(),
-        revision: 1,
-        descending: true,
+        id: DEFAULT_MEMBER_SORT.id.into(),
+        revision: DEFAULT_MEMBER_SORT.revision,
+        descending: DEFAULT_MEMBER_SORT.descending,
         size_basis: Some(SizeBasis::Logical),
     }
 }

@@ -167,7 +167,7 @@ fn member_pages_stop_at_the_end_and_refuse_counts_outside_the_limit() -> TestRes
     Ok(())
 }
 
-fn runtime() -> Boxed<JobRuntime> {
+pub(super) fn runtime() -> Boxed<JobRuntime> {
     Ok(JobRuntime::new(
         Arc::new(Ids(AtomicUsize::new(1))),
         Arc::new(Clock),
@@ -178,24 +178,6 @@ fn runtime() -> Boxed<JobRuntime> {
 
 fn debug<E: std::fmt::Debug>(error: E) -> String {
     format!("{error:?}")
-}
-
-#[test]
-fn views_sharing_one_job_release_it_without_cancelling_each_other() -> TestResult {
-    let runtime = runtime()?;
-    let channels = Channels::default();
-    let job = id(30);
-    for view in [id(7), id(8)] {
-        channels.admit(&view, 1, &runtime).map_err(debug)?;
-        channels.set_job(&view, 1, job.clone()).map_err(debug)?;
-    }
-    // View 8 still waits for the job, so view 7 only releases its own interest.
-    let first = channels.cancel(&id(7), 1, &runtime).map_err(debug)?;
-    assert_eq!(first, GroupCancelOutcome::Accepted);
-    // The last holder reaches the runtime, which does not know this job.
-    let last = channels.cancel(&id(8), 1, &runtime).map_err(debug)?;
-    assert_eq!(last, GroupCancelOutcome::NoEffect);
-    Ok(())
 }
 
 #[test]
