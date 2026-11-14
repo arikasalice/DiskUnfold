@@ -48,6 +48,11 @@ test.each(Object.entries(themes))(
   "disabled text reaches 3:1 on every surface a control sits on (%s)",
   (_theme, read) => {
     const text = read("disabled-text");
+    // The pressed surface is left out: no rule draws disabled text on it.
+    // Every pressed-surface rule excludes [data-disabled] or uses :enabled,
+    // and the focusable aria-disabled actions that can still be pressed (the
+    // selection action bar and the groups entry) override their background
+    // with --du-disabled-surface at a higher specificity.
     for (const surface of [
       "surface",
       "page",

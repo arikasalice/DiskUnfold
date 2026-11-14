@@ -382,4 +382,6 @@ fn validate_setting_presentation(
 }
 
 #[cfg(test)]
+mod slot_tests;
+#[cfg(test)]
 mod tests;

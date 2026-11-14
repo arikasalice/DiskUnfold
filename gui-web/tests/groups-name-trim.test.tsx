@@ -1,5 +1,6 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { expect, test } from "vitest";
+import { ruleset } from "./groups-fixtures";
 import { mount } from "./groups-view-helpers";
 
 async function openNameField() {
@@ -53,4 +54,91 @@ test("F36 FR3: surrounding space alone is no change, and a name of only spaces i
       .getByRole("button", { name: "Save" })
       .hasAttribute("disabled"),
   ).toBe(true);
+});
+
+/** Opens the editor on stored rules whose first name has surrounding white space. */
+async function openStoredName(stored: string) {
+  const base = ruleset();
+  const mounted = mount({
+    "group.rules.get": () => ({
+      ...base,
+      rules: base.rules.map((rule, index) =>
+        index === 0 ? { ...rule, displayName: stored } : rule,
+      ),
+    }),
+  });
+  fireEvent.click(await screen.findByRole("button", { name: "Edit rules" }));
+  const editor = await screen.findByRole("region", {
+    name: "Edit group rules",
+  });
+  const name = within(editor).getByRole("textbox", {
+    name: "Group name",
+  }) as HTMLInputElement;
+  return { ...mounted, editor, name };
+}
+
+// The engine has always trimmed names it stores, so such a name can only come
+// from a row another writer left behind.
+test("F36 FR3: a stored name with surrounding space is shown as stored and trimmed when the field loses focus", async () => {
+  const { name } = await openStoredName(" Movies\u3000");
+  expect(name.value).toBe(" Movies\u3000");
+  fireEvent.focus(name);
+  fireEvent.blur(name);
+  expect(name.value).toBe("Movies");
+});
+
+test("F36 FR3: trimming a stored name is no change: nothing is unsaved and Save stays unavailable", async () => {
+  const { editor, name } = await openStoredName("\tMovies ");
+  fireEvent.focus(name);
+  fireEvent.blur(name);
+  expect(name.value).toBe("Movies");
+  expect(within(editor).queryByText("Not saved")).toBeNull();
+  expect(
+    within(editor).getByText("There are no changes to save."),
+  ).toBeDefined();
+  expect(
+    within(editor)
+      .getByRole("button", { name: "Save" })
+      .hasAttribute("disabled"),
+  ).toBe(true);
+});
+
+// jsdom has no input method: these tests replay the event order a webview
+// reports and check what the field does with it, not what an IME delivers.
+test("F36 FR3: leaving during a composition keeps the composing text and trims the composed value once it ends", async () => {
+  const { name } = await openStoredName(" Movies");
+  fireEvent.focus(name);
+  fireEvent.compositionStart(name);
+  fireEvent.change(name, { target: { value: " Movies 보" } });
+  fireEvent.blur(name);
+  expect(name.value).toBe(" Movies 보");
+  fireEvent.change(name, { target: { value: " Movies 봄" } });
+  fireEvent.compositionEnd(name);
+  expect(name.value).toBe("Movies 봄");
+});
+
+test("F36 FR3: a composition that ends before the field loses focus is trimmed on leaving", async () => {
+  const { name } = await openStoredName(" Movies");
+  fireEvent.focus(name);
+  fireEvent.compositionStart(name);
+  fireEvent.change(name, { target: { value: " Movies 보" } });
+  fireEvent.change(name, { target: { value: " Movies 봄" } });
+  fireEvent.compositionEnd(name);
+  expect(name.value).toBe(" Movies 봄");
+  fireEvent.blur(name);
+  expect(name.value).toBe("Movies 봄");
+});
+
+test("F36 FR3: returning to the field before the composition ends leaves the name for the next time focus leaves", async () => {
+  const { name } = await openStoredName(" Movies");
+  fireEvent.focus(name);
+  fireEvent.compositionStart(name);
+  fireEvent.change(name, { target: { value: " Movies 보" } });
+  fireEvent.blur(name);
+  fireEvent.focus(name);
+  fireEvent.change(name, { target: { value: " Movies 봄" } });
+  fireEvent.compositionEnd(name);
+  expect(name.value).toBe(" Movies 봄");
+  fireEvent.blur(name);
+  expect(name.value).toBe("Movies 봄");
 });

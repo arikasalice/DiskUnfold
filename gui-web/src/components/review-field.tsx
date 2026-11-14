@@ -13,21 +13,25 @@ export function ReviewField({
   label: string;
   value: string;
   onChange: (value: string) => void;
-  /** Called when the field loses focus. */
+  /**
+   * Called when the field loses focus; if an input method composition is
+   * active then, once that composition ends.
+   */
   onBlur?: () => void;
   description: string;
   isDisabled?: boolean;
   /** Linked to the input as its error message and announced once. */
   error?: string | undefined;
 }) {
-  const imeComposition = useImeComposition();
+  const imeComposition = useImeComposition(undefined, {
+    ...(onBlur && { onLeave: onBlur }),
+  });
 
   return (
     <TextField
       className="du-field"
       value={value}
       onChange={onChange}
-      {...(onBlur ? { onBlur: () => onBlur() } : {})}
       isDisabled={isDisabled}
       isInvalid={error !== undefined}
     >
