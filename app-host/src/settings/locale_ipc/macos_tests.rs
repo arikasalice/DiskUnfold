@@ -90,7 +90,7 @@ fn mac_startup_serves_saved_locale_read_only_through_gui_ipc()
     assert_eq!(profile["body"]["displayLanguage"], "ko");
     assert_eq!(profile["body"]["languageSource"], "stored");
     assert_eq!(profile["body"]["profileRevision"], "1");
-    assert_eq!(profile["body"]["localTimeZoneStatus"], "offset_only");
+    assert_eq!(profile["body"]["localTimeZoneStatus"], "identified");
 
     let bundle = call(&engine, "i18n.get_bundle", json!({"language":"ko"}))?;
     assert!(bundle["error"].is_null(), "bundle query failed: {bundle}");
