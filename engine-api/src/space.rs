@@ -19,6 +19,7 @@ use du_core_contracts::{
 use crate::{
     api::{CallerCtx, Channel, EngineBuilder, UseCase},
     error::EngineError,
+    source_exposure::admit_version_source,
 };
 
 /// Registers the GUI query against the same store used for scan publication.
@@ -67,6 +68,7 @@ impl UseCase for Total {
                 .queries
                 .open_search(query_ref, request.result_version.as_ref())
                 .map_err(search_error)?;
+            admit_version_source(query.version.as_ref(), caller)?;
             let aggregate =
                 query
                     .space_total(|| caller.is_cancelled())
@@ -77,6 +79,7 @@ impl UseCase for Total {
             return Ok(response(&query.version, request.request_seq, &aggregate));
         }
         let version = pin(&self.store, request.result_version.as_ref())?;
+        admit_version_source(version.as_ref(), caller)?;
         total(&version, request)
     }
 }
