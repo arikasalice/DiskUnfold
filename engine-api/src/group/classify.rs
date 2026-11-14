@@ -15,7 +15,7 @@ use du_analysis_index::{
 use du_core_contracts::{
     Id, ItemRef,
     group_ipc::{GroupClassifyRequest, GroupClassifyResponse, GroupRuleSource},
-    job::{Checkpoint, JobBody, JobContext, JobOutcome},
+    job::{Checkpoint, JobBody, JobContext, JobOutcome, JobProgress},
     result::ResultVersionRead,
 };
 use du_job_runtime::{DeduplicationKey, JobPriority, RuntimeError, Submission, SubmitResult};
@@ -101,15 +101,16 @@ impl UseCase for Classify {
             return summary_response(services, seq, &found);
         }
         let classification_ref = services.assembly.ids.next_id();
+        let files =
+            group::scope_file_count(&version, request.scope.as_ref()).map_err(classify_error)?;
         let admission = Admission {
             version,
             scope: request.scope,
             conditions: resolved.conditions,
             meta,
             classification_ref,
+            files,
         };
-        let files = group::scope_file_count(&admission.version, admission.scope.as_ref())
-            .map_err(classify_error)?;
         if sync_allowed(&view, files) {
             let control = SyncControl {
                 caller,
@@ -155,6 +156,8 @@ struct Admission {
     conditions: Vec<Condition>,
     meta: Arc<Meta>,
     classification_ref: Id,
+    /// Files in the scope; the confirmed progress total of a job.
+    files: u64,
 }
 
 fn run(
@@ -379,14 +382,23 @@ struct Body {
     slot: Arc<Mutex<Option<Classification>>>,
 }
 
-struct JobControl<'a>(&'a dyn JobContext);
+struct JobControl<'a> {
+    context: &'a dyn JobContext,
+    total: u64,
+}
 
 impl Control for JobControl<'_> {
     fn cancelled(&self) -> bool {
-        self.0.checkpoint() == Checkpoint::Cancel
+        self.context.checkpoint() == Checkpoint::Cancel
     }
 
-    fn progress(&self, _: u64) {}
+    /// Reports evaluated files against the scope's file count (F24 job.progress).
+    fn progress(&self, completed_files: u64) {
+        self.context.report_progress(JobProgress {
+            completed: completed_files,
+            total: Some(self.total),
+        });
+    }
 }
 
 impl JobBody for Body {
@@ -395,7 +407,10 @@ impl JobBody for Body {
     }
 
     fn run(&self, context: Arc<dyn JobContext>) -> JobOutcome {
-        let control = JobControl(context.as_ref());
+        let control = JobControl {
+            context: context.as_ref(),
+            total: self.admission.files,
+        };
         let failure = match run(&self.admission, &self.registry, &control) {
             Ok(classification) => match self.slot.lock() {
                 Ok(mut slot) => {
