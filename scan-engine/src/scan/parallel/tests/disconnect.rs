@@ -41,6 +41,9 @@ impl DirectoryObservations for ScriptedRoot {
 }
 
 impl AnchoredDirectory for ScriptedRoot {
+    fn observed_identity(&self) -> Option<du_core_contracts::scan_observation::HandleIdentity> {
+        crate::scan::test_identity(self)
+    }
     fn open_child(&self, _: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError> {
         self.opens.fetch_add(1, Ordering::AcqRel);
         Err(disconnected())
@@ -173,6 +176,9 @@ impl DirectoryObservations for GatedRoot {
 }
 
 impl AnchoredDirectory for GatedRoot {
+    fn observed_identity(&self) -> Option<du_core_contracts::scan_observation::HandleIdentity> {
+        crate::scan::test_identity(self)
+    }
     fn open_child(&self, _: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError> {
         Err(disconnected())
     }
@@ -214,7 +220,8 @@ fn a_batch_already_in_flight_is_drained_after_another_root_disconnects()
                     root_published: false,
                     batch_pending: false,
                     case_observed: false,
-                    boundary: Boundary::Pending,
+                    // Workers receive roots whose identities were already reserved.
+                    boundary: Boundary::Volume(1),
                 })
                 .collect(),
             last_root: None,

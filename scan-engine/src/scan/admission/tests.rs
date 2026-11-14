@@ -1,7 +1,7 @@
 use super::*;
 use du_core_contracts::{
     ports::{PortError, PortErrorKind},
-    scan_observation::{DirectoryObservations, HandleIdentity},
+    scan_observation::HandleIdentity,
 };
 
 fn entry(kind: ObservedKind, device: u64, inode: u64) -> ObservedEntry {
@@ -23,29 +23,22 @@ fn entry(kind: ObservedKind, device: u64, inode: u64) -> ObservedEntry {
     }
 }
 
-struct Root(Option<HandleIdentity>);
-impl DirectoryObservations for Root {
-    fn next_batch(&mut self) -> Result<Vec<ObservedEntry>, PortError> {
-        Ok(Vec::new())
-    }
+fn identity(device: u64, inode: u64, ancestors: &[u64]) -> Option<HandleIdentity> {
+    Some(HandleIdentity {
+        device,
+        inode,
+        ancestors: ancestors.to_vec(),
+    })
 }
-impl AnchoredDirectory for Root {
-    fn open_child(&self, _: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError> {
-        Err(PortError {
-            kind: PortErrorKind::Unsupported,
-            reason_key: "os.unsupported".into(),
-            os_code: None,
-        })
-    }
-    fn observed_identity(&self) -> Option<HandleIdentity> {
-        self.0.clone()
-    }
+
+fn at(root: u32, boundary: Boundary) -> Parent {
+    Parent { root, boundary }
 }
 
 #[test]
 fn rows_match_in_the_published_order() {
     let visited = Visited::default();
-    let parent = Boundary::Volume(1);
+    let parent = at(0, Boundary::Volume(1));
     let link_elsewhere = entry(ObservedKind::Link, 2, 5);
     assert_eq!(
         decide(true, &link_elsewhere, parent, &visited),
@@ -69,26 +62,18 @@ fn rows_match_in_the_published_order() {
         decide(false, &directory, parent, &visited),
         Admission::Revisit
     );
+    let unknown = at(0, Boundary::Unknown);
     assert_eq!(
-        decide(false, &directory, Boundary::Unknown, &visited),
+        decide(false, &directory, unknown, &visited),
         Admission::Revisit
     );
     let unseen = entry(ObservedKind::Directory, 1, 8);
     assert_eq!(
-        decide(false, &unseen, Boundary::Unknown, &visited),
+        decide(false, &unseen, unknown, &visited),
         Admission::Unverifiable
     );
     assert_eq!(
-        decide(false, &unseen, Boundary::Pending, &visited),
-        Admission::Unverifiable
-    );
-    assert_eq!(
-        decide(
-            false,
-            &entry(ObservedKind::File, 1, 9),
-            Boundary::Unknown,
-            &visited
-        ),
+        decide(false, &entry(ObservedKind::File, 1, 9), unknown, &visited),
         Admission::Record
     );
     assert_eq!(
@@ -100,6 +85,7 @@ fn rows_match_in_the_published_order() {
 #[test]
 fn inconsistent_metadata_is_recorded_and_never_entered() {
     let visited = Visited::default();
+    let parent = at(0, Boundary::Volume(1));
     let mut changed = entry(ObservedKind::Directory, 1, 7);
     changed.enumerated_inode = 8;
     let mut failed = entry(ObservedKind::Directory, 1, 7);
@@ -109,16 +95,13 @@ fn inconsistent_metadata_is_recorded_and_never_entered() {
         os_code: None,
     });
     for entry in [changed, failed, entry(ObservedKind::Other, 2, 7)] {
-        assert_eq!(
-            decide(false, &entry, Boundary::Volume(1), &visited),
-            Admission::Record
-        );
+        assert_eq!(decide(false, &entry, parent, &visited), Admission::Record);
     }
     assert_eq!(
         decide(
             false,
             &entry(ObservedKind::Directory, 1, 7),
-            Boundary::Volume(1),
+            parent,
             &visited
         ),
         Admission::Enter
@@ -126,35 +109,65 @@ fn inconsistent_metadata_is_recorded_and_never_entered() {
 }
 
 #[test]
-fn root_identity_and_ancestors_are_reserved() {
-    let visited = Visited::default();
-    let boundary = visited.observe_root(&Root(Some(HandleIdentity {
-        device: 3,
-        inode: 30,
-        ancestors: vec![10, 20],
-    })));
-    assert_eq!(boundary, Boundary::Volume(3));
-    for inode in [10, 20, 30] {
-        assert_eq!(
-            decide(
-                false,
-                &entry(ObservedKind::Directory, 3, inode),
-                boundary,
-                &visited
-            ),
-            Admission::Revisit
-        );
-    }
+fn roots_are_reserved_in_order_and_ancestors_block_only_their_root() {
+    // Root 1 lies below root 0 (inode 20); root 2 repeats root 0.
+    let (visited, starts) = Visited::reserve_roots(vec![
+        identity(3, 20, &[10]),
+        identity(3, 30, &[20, 10, 15]),
+        identity(3, 20, &[10]),
+        None,
+    ]);
+    assert_eq!(
+        starts,
+        [
+            RootStart::Collect(Boundary::Volume(3)),
+            RootStart::Collect(Boundary::Volume(3)),
+            RootStart::Revisit,
+            RootStart::Collect(Boundary::Unknown),
+        ]
+    );
+    let dir = |inode| entry(ObservedKind::Directory, 3, inode);
+    let (outer, inner) = (at(0, Boundary::Volume(3)), at(1, Boundary::Volume(3)));
+    // Another root, or the root itself, is always a revisit.
+    assert_eq!(decide(false, &dir(30), outer, &visited), Admission::Revisit);
+    assert_eq!(decide(false, &dir(20), inner, &visited), Admission::Revisit);
+    // Root 1's ancestor 15 lies inside root 0, which may enter it.
+    assert_eq!(decide(false, &dir(10), outer, &visited), Admission::Revisit);
+    assert_eq!(decide(false, &dir(15), inner, &visited), Admission::Revisit);
+    assert_eq!(decide(false, &dir(15), outer, &visited), Admission::Enter);
     assert_eq!(
         decide(
             false,
             &entry(ObservedKind::Directory, 4, 10),
-            boundary,
+            outer,
             &visited
         ),
         Admission::OutsideBoundary
     );
-    assert_eq!(visited.observe_root(&Root(None)), Boundary::Unknown);
+}
+
+#[test]
+fn preview_decides_without_reserving() {
+    let visited = Visited::default();
+    let parent = at(0, Boundary::Volume(1));
+    let directory = entry(ObservedKind::Directory, 1, 7);
+    assert_eq!(
+        preview(false, &directory, parent, &visited),
+        Admission::Enter
+    );
+    assert_eq!(
+        decide(false, &directory, parent, &visited),
+        Admission::Enter
+    );
+    assert_eq!(
+        preview(false, &directory, parent, &visited),
+        Admission::Revisit
+    );
+    let unseen = entry(ObservedKind::Directory, 1, 8);
+    assert_eq!(
+        preview(false, &unseen, at(0, Boundary::Unknown), &visited),
+        Admission::Unverifiable
+    );
 }
 
 #[test]

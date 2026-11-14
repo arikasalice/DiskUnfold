@@ -2,7 +2,7 @@
 use super::*;
 
 /// Drains only still-owned returned entries; deferred entries were sent already.
-/// Each entry keeps its admission row; no drained directory is opened.
+/// Each entry keeps its admission row; no drained directory is opened or reserved.
 pub(super) fn frame(
     mut frame: Frame,
     visited: &Visited,
@@ -12,7 +12,7 @@ pub(super) fn frame(
     while let Some(entry) = frame.entries.pop_front() {
         let mut path = frame.path.clone();
         path.push(entry.entry.name.clone());
-        let admission = super::admit(&frame, &entry.entry, &path, visited, policy);
+        let admission = super::admit(&frame, &entry.entry, &path, visited, policy, false);
         if admission == Admission::Excluded {
             continue;
         }
@@ -81,6 +81,10 @@ mod tests {
         }
     }
     impl AnchoredDirectory for Empty {
+        // Placed in a frame directly; root identities are never queried here.
+        fn observed_identity(&self) -> Option<du_core_contracts::scan_observation::HandleIdentity> {
+            None
+        }
         fn open_child(&self, _: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError> {
             Err(PortError {
                 kind: PortErrorKind::Unsupported,
@@ -211,6 +215,56 @@ mod tests {
             Policy::Legacy(&|_| true)
         ));
         assert!(receiver.try_recv().is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn drained_directory_is_reported_without_being_reserved() -> Result<(), String> {
+        let directory = ObservedEntry {
+            name: b"never-opened".to_vec(),
+            enumerated_inode: 9,
+            enumerated_kind: ObservedKind::Directory,
+            metadata: Ok(du_core_contracts::scan_observation::MetadataObservation {
+                kind: ObservedKind::Directory,
+                device: 1,
+                inode: 9,
+                size: Ok(0),
+                allocated: None,
+                link_count: None,
+                space_identity: None,
+                modified_at: None,
+                native_modified_at: None,
+            }),
+        };
+        let pending = Frame {
+            root_index: 0,
+            path: Vec::new(),
+            directory: Box::new(Empty),
+            entries: VecDeque::from([TimedObservedEntry::from(directory.clone())]),
+            deferred: VecDeque::new(),
+            root: true,
+            first_batch: false,
+            root_published: false,
+            batch_pending: false,
+            case_observed: false,
+            boundary: Boundary::Volume(1),
+        };
+        let (sender, receiver) = mpsc::sync_channel(1);
+        let visited = Visited::default();
+        assert!(frame(pending, &visited, &sender, Policy::Legacy(&|_| true)));
+        assert!(matches!(
+            receiver.try_recv(),
+            Ok(Event::Item(_, _, _, Admission::Enter))
+        ));
+        // A later admission of the same identity may still enter it.
+        let parent = admission::Parent {
+            root: 0,
+            boundary: Boundary::Volume(1),
+        };
+        assert_eq!(
+            admission::decide(false, &directory, parent, &visited),
+            Admission::Enter
+        );
         Ok(())
     }
 

@@ -418,6 +418,9 @@ impl DirectoryObservations for BatchRoot {
     }
 }
 impl AnchoredDirectory for BatchRoot {
+    fn observed_identity(&self) -> Option<HandleIdentity> {
+        Some(root_identity())
+    }
     fn open_child(&self, _: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError> {
         Err(error())
     }

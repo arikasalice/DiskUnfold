@@ -91,6 +91,10 @@ impl AnchoredDirectory for GatedDirectory {
     fn ancestor_file_ids(&self) -> Option<&[Vec<u8>]> {
         self.inner.ancestor_file_ids()
     }
+
+    fn observed_identity(&self) -> Option<du_core_contracts::scan_observation::HandleIdentity> {
+        self.inner.observed_identity()
+    }
 }
 
 fn gate_failed() -> PortError {
@@ -100,6 +104,9 @@ fn gate_failed() -> PortError {
         os_code: None,
     }
 }
+
+/// Bytes of the file inside the scope's only subfolder.
+const NESTED_BYTES: u64 = 7;
 
 struct BlockedScan {
     _fixture: tempfile::TempDir,
@@ -119,6 +126,13 @@ fn blocked_scan() -> Result<BlockedScan, Box<dyn std::error::Error>> {
     for file in 0..300 {
         fs::write(scope.join(format!("file-{file:03}")), [1_u8])?;
     }
+    // NTFS orders this folder after every file, so it arrives in the gated
+    // second batch: a completed scan enters it, a cancelled one drains it.
+    fs::create_dir(scope.join("zz-nested"))?;
+    fs::write(
+        scope.join("zz-nested").join("inner.bin"),
+        [3_u8; NESTED_BYTES as usize],
+    )?;
     let profile = tempfile::tempdir()?;
     let database = crate::startup_database::open(profile.path())?;
     let (waiting, reached) = mpsc::channel();
@@ -231,10 +245,11 @@ fn completed_scan_keeps_the_same_open_ntfs_root_after_path_replacement()
         .iter()
         .find(|entry| entry.size.basis == SizeBasis::Logical)
         .ok_or("missing logical total")?;
+    // The subfolder below the opened root was entered and collected.
     assert_eq!(
         logical.size.amount,
         SizeAmount::Exact {
-            bytes: 300_u64.into()
+            bytes: (300 + NESTED_BYTES).into()
         }
     );
     assert_eq!(test.batches.load(Ordering::SeqCst), 3);
@@ -287,6 +302,7 @@ fn pause_acknowledges_the_request_then_resumes_the_same_native_scan()
         json!({"resultVersion": result, "requestSeq": 2, "target": {"kind": "scope_root"}}),
     )?;
     assert_eq!(total.completeness, ResultCompleteness::Complete);
+    // The subfolder below the opened root was entered and collected.
     assert!(
         total
             .sizes
@@ -294,7 +310,7 @@ fn pause_acknowledges_the_request_then_resumes_the_same_native_scan()
             .any(|entry| entry.size.basis == SizeBasis::Logical
                 && entry.size.amount
                     == SizeAmount::Exact {
-                        bytes: 300_u64.into()
+                        bytes: (300 + NESTED_BYTES).into()
                     })
     );
     assert_eq!(test.batches.load(Ordering::SeqCst), 3);

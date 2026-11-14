@@ -65,6 +65,9 @@ impl DirectoryObservations for SmallRoot {
     }
 }
 impl AnchoredDirectory for SmallRoot {
+    fn observed_identity(&self) -> Option<du_core_contracts::scan_observation::HandleIdentity> {
+        crate::scan::test_identity(self)
+    }
     fn open_child(&self, _: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError> {
         Err(PortError {
             kind: PortErrorKind::Unsupported,
@@ -282,6 +285,9 @@ fn cancellation_after_one_root_releases_flow_and_counts_only_unfinished_roots()
         }
     }
     impl AnchoredDirectory for StopRoot {
+        fn observed_identity(&self) -> Option<du_core_contracts::scan_observation::HandleIdentity> {
+            crate::scan::test_identity(self)
+        }
         fn open_child(&self, _: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError> {
             Err(PortError {
                 kind: PortErrorKind::Unsupported,
@@ -414,6 +420,9 @@ impl DirectoryObservations for Root {
     }
 }
 impl AnchoredDirectory for Root {
+    fn observed_identity(&self) -> Option<du_core_contracts::scan_observation::HandleIdentity> {
+        crate::scan::test_identity(self)
+    }
     fn open_child(&self, _: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError> {
         Err(PortError {
             kind: PortErrorKind::Unsupported,

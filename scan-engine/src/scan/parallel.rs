@@ -30,6 +30,7 @@ use std::{
 };
 
 mod disconnect;
+mod preparation;
 mod scheduler;
 mod volume_reports;
 
@@ -321,16 +322,17 @@ fn run(
         build.seal(id.clone(), ResultCompleteness::Cancelled)?;
         return Ok((id, true, root_count));
     }
-    match reports.prepare_start(&roots, context, &disconnects) {
-        Ok(()) => {}
+    let prepared = match preparation::prepare(&mut reports, roots, context, &disconnects) {
+        Ok(prepared) => prepared,
         Err(JobFlowError::Cancelled) => {
             let id = ids.next_id();
             build.seal(id.clone(), ResultCompleteness::Cancelled)?;
             return Ok((id, true, root_count));
         }
         Err(_) => return Err(BuildError::Unavailable),
-    }
+    };
     build.set_volume_reports(reports.snapshot())?;
+    preparation::record_starts(&mut build, &prepared.starts, &disconnects, counts, context)?;
     let flows = match acquire_flows(context, limit) {
         Ok(flows) => flows,
         Err(JobFlowError::Cancelled) => {
@@ -340,7 +342,7 @@ fn run(
         }
         Err(_) => return Err(BuildError::Unavailable),
     };
-    let shared = scheduler::create(roots, devices, diagnostics, disconnects, scan_control)?;
+    let shared = scheduler::create(prepared, devices, diagnostics, disconnects, scan_control)?;
     let (sender, receiver) = mpsc::sync_channel(BUFFERED_OBSERVATIONS);
     let mut progress = Progress {
         failed_roots: vec![false; root_count],

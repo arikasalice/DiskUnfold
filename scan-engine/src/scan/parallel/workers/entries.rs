@@ -23,7 +23,10 @@ pub(super) fn process_entry(
     let admission = if recorded {
         Admission::Enter
     } else {
-        admit(frame, entry, &path, &shared.visited, policy)
+        // After cancellation or disconnection the entry will not be opened.
+        let stopping = context.checkpoint() == Checkpoint::Cancel
+            || shared.disconnects.closed(frame.root_index);
+        admit(frame, entry, &path, &shared.visited, policy, !stopping)
     };
     if admission == Admission::Excluded {
         return Ok(None);

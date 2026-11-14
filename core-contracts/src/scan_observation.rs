@@ -214,13 +214,15 @@ pub trait AnchoredDirectory: DirectoryObservations {
 
     /// Identity of this handle in the `MetadataObservation` identity space.
     ///
-    /// The collector compares child volumes with this value. `None` means
-    /// volume identification is unsupported for this handle; the collector then
-    /// cannot decide the boundary of child directories and does not enter them.
-    /// The default declines the observation without filesystem I/O.
-    fn observed_identity(&self) -> Option<HandleIdentity> {
-        None
-    }
+    /// The collector reads it once for every scope root, in root order and
+    /// under a metadata flow, before any root is enumerated, and compares child
+    /// volumes with it. It may perform filesystem I/O on this handle.
+    ///
+    /// `None` means the identity is unsupported or could not be verified. The
+    /// collector then records the root as an unread range, keeps the scan
+    /// result incomplete and does not enter its child directories. A wrapper
+    /// must forward the value of the handle it wraps.
+    fn observed_identity(&self) -> Option<HandleIdentity>;
 }
 
 /// The identity and canonical path of a scope root obtained from its open handle.

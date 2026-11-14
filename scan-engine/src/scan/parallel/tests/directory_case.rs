@@ -53,12 +53,12 @@ impl DirectoryObservations for CaseDir {
 }
 impl AnchoredDirectory for CaseDir {
     fn observed_identity(&self) -> Option<du_core_contracts::scan_observation::HandleIdentity> {
-        self.root
-            .then(|| du_core_contracts::scan_observation::HandleIdentity {
-                device: self.device,
-                inode: 1,
-                ancestors: Vec::new(),
-            })
+        // A childless double can be a scope root too; entries never use inode 1.
+        Some(du_core_contracts::scan_observation::HandleIdentity {
+            device: self.device,
+            inode: 1,
+            ancestors: Vec::new(),
+        })
     }
     fn open_child(&self, entry: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError> {
         if entry.name == b"failed" {
@@ -305,6 +305,9 @@ impl DirectoryObservations for CaseThenCancel {
     }
 }
 impl AnchoredDirectory for CaseThenCancel {
+    fn observed_identity(&self) -> Option<du_core_contracts::scan_observation::HandleIdentity> {
+        crate::scan::test_identity(self)
+    }
     fn open_child(&self, _: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError> {
         Err(PortError {
             kind: PortErrorKind::Unsupported,
