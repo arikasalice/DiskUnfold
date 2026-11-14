@@ -1,6 +1,9 @@
 mod menu;
+mod scheme;
+mod titlebar;
 
-use super::contract::{Asset, CSP, ShutdownCallbacks, WebApp, entry, message, resource};
+use super::contract::{ShutdownCallbacks, WebApp, entry, message};
+use crate::cli_link::Language;
 use block2::DynBlock;
 use objc2::{
     AnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, class, define_class, msg_send,
@@ -14,14 +17,14 @@ use objc2_app_kit::{
     NSImage, NSWindow, NSWindowDelegate, NSWindowStyleMask,
 };
 use objc2_foundation::{
-    NSData, NSDictionary, NSError, NSHTTPURLResponse, NSNotification, NSObject, NSObjectProtocol,
-    NSPoint, NSRect, NSSize, NSString, NSURL, NSURLRequest,
+    NSData, NSError, NSNotification, NSObject, NSObjectProtocol, NSPoint, NSRect, NSSize, NSString,
+    NSURL, NSURLRequest,
 };
 use objc2_web_kit::{
     WKContentWorld, WKNavigation, WKNavigationAction, WKNavigationActionPolicy,
-    WKNavigationDelegate, WKScriptMessage, WKScriptMessageHandlerWithReply, WKURLSchemeHandler,
-    WKURLSchemeTask, WKUserContentController, WKUserScript, WKUserScriptInjectionTime, WKWebView,
-    WKWebViewConfiguration, WKWebsiteDataStore,
+    WKNavigationDelegate, WKScriptMessage, WKScriptMessageHandler, WKScriptMessageHandlerWithReply,
+    WKURLSchemeHandler, WKURLSchemeTask, WKUserContentController, WKUserScript,
+    WKUserScriptInjectionTime, WKWebView, WKWebViewConfiguration, WKWebsiteDataStore,
 };
 use std::{
     cell::{Cell, RefCell},
@@ -31,8 +34,12 @@ use std::{
 
 struct State {
     app: WebApp,
+    /// Language of the native alerts, taken from the application's display language.
+    language: Language,
     shutdown: Option<ShutdownCallbacks>,
     error: RefCell<Option<String>>,
+    /// The page view, kept so window messages and full-screen changes can reach its window.
+    view: RefCell<Option<Retained<WKWebView>>>,
     /// True while a Dock or menu quit is postponed with `TerminateLater` and
     /// AppKit still waits for `replyToApplicationShouldTerminate:`.
     terminate_pending: Cell<bool>,
@@ -141,6 +148,17 @@ define_class!(
         fn window_will_close(&self, _: &NSNotification) {
             NSApplication::sharedApplication(self.mtm()).stop(None);
         }
+
+        /// The native title bar is hidden in full screen, so the page's bar collapses.
+        #[unsafe(method(windowDidEnterFullScreen:))]
+        fn window_did_enter_full_screen(&self, _: &NSNotification) {
+            publish_titlebar(self.ivars());
+        }
+
+        #[unsafe(method(windowDidExitFullScreen:))]
+        fn window_did_exit_full_screen(&self, _: &NSNotification) {
+            publish_titlebar(self.ivars());
+        }
     }
 
     unsafe impl NSApplicationDelegate for Handler {
@@ -172,7 +190,7 @@ define_class!(
         /// Menu action: links the `diskunfold` command into the user's `~/.local/bin`.
         #[unsafe(method(installCommandLineTool:))]
         fn install_command_line_tool(&self, _: &AnyObject) {
-            menu::install_command_line_tool(self.mtm());
+            menu::install_command_line_tool(self.mtm(), self.ivars().language);
         }
 
         /// Advances the host shutdown and leaves the run loop once it completes.
@@ -203,7 +221,7 @@ define_class!(
         ) {
             // SAFETY: These objects and the synchronously completed task remain valid in this callback.
             unsafe {
-                serve(self.ivars().app.asset, task);
+                scheme::serve(self.ivars().app.asset, task);
             }
         }
 
@@ -242,6 +260,60 @@ define_class!(
             if error.code() != -999 {
                 *self.ivars().error.borrow_mut() = Some(error.localizedDescription().to_string());
                 NSApplication::sharedApplication(self.mtm()).stop(None);
+            }
+        }
+
+        /// The buttons are laid out once the window is on screen, so the page gets their
+        /// measured space after the first load.
+        #[unsafe(method(webView:didFinishNavigation:))]
+        unsafe fn navigation_finished(&self, _: &WKWebView, _: Option<&WKNavigation>) {
+            publish_titlebar(self.ivars());
+        }
+    }
+
+    unsafe impl WKScriptMessageHandler for Handler {
+        /// Window messages from the page's bar: `drag` moves the window with the mouse press
+        /// that is being handled and `zoom` zooms it. Only the app document's main frame may
+        /// send them.
+        #[unsafe(method(userContentController:didReceiveScriptMessage:))]
+        unsafe fn receive_window_message(
+            &self,
+            _: &WKUserContentController,
+            message: &WKScriptMessage,
+        ) {
+            // SAFETY: WKWebView provides the frame metadata and body on this callback.
+            let (trusted, body) = unsafe {
+                let frame = message.frameInfo();
+                (
+                    frame.isMainFrame()
+                        && request_url(&frame.request()).is_some_and(|url| url == entry()),
+                    message
+                        .body()
+                        .downcast_ref::<NSString>()
+                        .map(ToString::to_string),
+                )
+            };
+            if !trusted {
+                return;
+            }
+            let Some(window) = self
+                .ivars()
+                .view
+                .borrow()
+                .as_ref()
+                .and_then(|view| view.window())
+            else {
+                return;
+            };
+            match body.as_deref() {
+                Some("drag") => {
+                    if let Some(event) = NSApplication::sharedApplication(self.mtm()).currentEvent()
+                    {
+                        window.performWindowDragWithEvent(&event);
+                    }
+                }
+                Some("zoom") => window.zoom(None),
+                _ => {}
             }
         }
     }
@@ -284,61 +356,18 @@ fn request_url(request: &NSURLRequest) -> Option<String> {
     Some(request.URL()?.absoluteString()?.to_string())
 }
 
-unsafe fn serve(asset: fn(&str) -> Option<Asset>, task: &ProtocolObject<dyn WKURLSchemeTask>) {
-    // SAFETY: Called only during startURLSchemeTask; complete synchronously before returning.
-    unsafe {
-        let request = task.request();
-        let Some(url) = request.URL() else {
-            task.didFailWithError(&NSError::errorWithDomain_code_userInfo(
-                &NSString::from_str("DiskUnfold"),
-                1,
-                None,
-            ));
-            return;
-        };
-        let method = request
-            .HTTPMethod()
-            .map_or_else(String::new, |x| x.to_string());
-        let absolute = url
-            .absoluteString()
-            .map_or_else(String::new, |x| x.to_string());
-        let asset = resource(asset, &method, &absolute);
-        let keys = [
-            NSString::from_str("Content-Type"),
-            NSString::from_str("Content-Security-Policy"),
-            NSString::from_str("X-Content-Type-Options"),
-            NSString::from_str("Access-Control-Allow-Origin"),
-        ];
-        let values = [
-            NSString::from_str(asset.map_or("text/plain", |a| a.mime)),
-            NSString::from_str(CSP),
-            NSString::from_str("nosniff"),
-            NSString::from_str("*"),
-        ];
-        let headers = NSDictionary::from_slices(
-            &keys.each_ref().map(|x| &**x),
-            &values.each_ref().map(|x| &**x),
-        );
-        if let Some(response) = NSHTTPURLResponse::initWithURL_statusCode_HTTPVersion_headerFields(
-            NSHTTPURLResponse::alloc(),
-            &url,
-            if asset.is_some() { 200 } else { 403 },
-            None,
-            Some(&headers),
-        ) {
-            task.didReceiveResponse(&response);
-            if let Some(asset) = asset {
-                task.didReceiveData(&NSData::with_bytes(asset.bytes));
-            }
-            task.didFinish();
-        } else {
-            task.didFailWithError(&NSError::errorWithDomain_code_userInfo(
-                &NSString::from_str("DiskUnfold"),
-                1,
-                None,
-            ));
-        }
-    }
+/// Publishes the measured title bar space to the page's CSS custom properties.
+fn publish_titlebar(state: &State) {
+    let view = state.view.borrow();
+    let Some(view) = view.as_ref() else {
+        return;
+    };
+    let Some(window) = view.window() else {
+        return;
+    };
+    let script = titlebar::publish_script(titlebar::metrics(&window));
+    // SAFETY: Called on the main thread with a valid script string and no completion handler.
+    unsafe { view.evaluateJavaScript_completionHandler(&NSString::from_str(&script), None) };
 }
 
 pub(super) fn run(app: WebApp, shutdown: Option<ShutdownCallbacks>) -> Result<(), Box<dyn Error>> {
@@ -348,6 +377,7 @@ pub(super) fn run(app: WebApp, shutdown: Option<ShutdownCallbacks>) -> Result<()
         unsafe {
             let application = NSApplication::sharedApplication(mtm);
             let locale_enabled = app.locale_enabled;
+            let language = Language::from_tag(&app.native_language);
             application.setActivationPolicy(NSApplicationActivationPolicy::Regular);
             if let Some(icon) =
                 NSImage::initWithData(NSImage::alloc(), &NSData::with_bytes(app.icon))
@@ -357,8 +387,10 @@ pub(super) fn run(app: WebApp, shutdown: Option<ShutdownCallbacks>) -> Result<()
             let handler = objc2::msg_send![
                 super(Handler::alloc(mtm).set_ivars(State {
                     app,
+                    language,
                     shutdown,
                     error: RefCell::new(None),
+                    view: RefCell::new(None),
                     terminate_pending: Cell::new(false)
                 })),
                 init
@@ -384,6 +416,28 @@ pub(super) fn run(app: WebApp, shutdown: Option<ShutdownCallbacks>) -> Result<()
                 &world,
                 &channel,
             );
+            let bounds = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(900.0, 600.0));
+            let window = NSWindow::initWithContentRect_styleMask_backing_defer(
+                NSWindow::alloc(mtm),
+                bounds,
+                NSWindowStyleMask::Titled
+                    | NSWindowStyleMask::Closable
+                    | NSWindowStyleMask::Resizable
+                    | titlebar::style_mask(),
+                NSBackingStoreType::Buffered,
+                false,
+            );
+            titlebar::configure(&window);
+            let window_channel = NSString::from_str("diskunfoldWindow");
+            manager
+                .addScriptMessageHandler_name(ProtocolObject::from_ref(&*handler), &window_channel);
+            let bar_script = WKUserScript::initWithSource_injectionTime_forMainFrameOnly(
+                WKUserScript::alloc(mtm),
+                &NSString::from_str(&titlebar::marker_script(titlebar::metrics(&window))),
+                WKUserScriptInjectionTime::AtDocumentStart,
+                true,
+            );
+            manager.addUserScript(&bar_script);
             if locale_enabled {
                 let source = NSString::from_str(
                     "if (window === window.top && location.href === 'diskunfold://app/index.html') { Object.defineProperty(window, '__diskunfoldLocale', { value: true }); }",
@@ -396,19 +450,10 @@ pub(super) fn run(app: WebApp, shutdown: Option<ShutdownCallbacks>) -> Result<()
                 );
                 manager.addUserScript(&script);
             }
-            let bounds = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(900.0, 600.0));
             let view =
                 WKWebView::initWithFrame_configuration(WKWebView::alloc(mtm), bounds, &config);
             view.setNavigationDelegate(Some(ProtocolObject::from_ref(&*handler)));
-            let window = NSWindow::initWithContentRect_styleMask_backing_defer(
-                NSWindow::alloc(mtm),
-                bounds,
-                NSWindowStyleMask::Titled
-                    | NSWindowStyleMask::Closable
-                    | NSWindowStyleMask::Resizable,
-                NSBackingStoreType::Buffered,
-                false,
-            );
+            *handler.ivars().view.borrow_mut() = Some(view.clone());
             window.setReleasedWhenClosed(false);
             window.setTitle(&NSString::from_str("DiskUnfold"));
             window.setContentView(Some(&view));
@@ -422,7 +467,9 @@ pub(super) fn run(app: WebApp, shutdown: Option<ShutdownCallbacks>) -> Result<()
             let _timer = has_shutdown.then(|| TimerGuard(schedule_shutdown_timer(&handler)));
             application.run();
             manager.removeScriptMessageHandlerForName_contentWorld(&channel, &world);
+            manager.removeScriptMessageHandlerForName(&window_channel);
             view.setNavigationDelegate(None);
+            handler.ivars().view.borrow_mut().take();
             window.setDelegate(None);
             match handler.ivars().error.take() {
                 Some(error) => Err(error.into()),

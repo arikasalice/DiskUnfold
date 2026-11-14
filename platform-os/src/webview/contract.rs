@@ -238,6 +238,9 @@ pub struct WebApp {
     /// Exposes the Mac locale bridge marker only after locale queries are registered.
     #[cfg(target_os = "macos")]
     pub locale_enabled: bool,
+    /// Display language tag (for example `ko`) that selects the language of native alerts.
+    #[cfg(target_os = "macos")]
+    pub native_language: String,
     /// Selects a bounded Windows queue; the dispatch callback still validates every request.
     #[cfg(target_os = "windows")]
     pub route: fn(&str) -> DispatchLane,

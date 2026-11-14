@@ -448,20 +448,63 @@ jobs:
           chmod +x diskunfold-universal
           archs="$(lipo -archs diskunfold-universal)"
           [[ "$archs" == "x86_64 arm64" || "$archs" == "arm64 x86_64" ]] || { echo "unexpected slices: $archs" >&2; exit 1; }
+      # A fixed self-signed identity keeps the app's code requirement (identifier + certificate)
+      # the same for every build, so macOS keeps privacy grants such as Full Disk Access across
+      # updates. It is not an Apple Developer ID and the DMG is not notarized. Without the two
+      # secrets the DMG falls back to ad-hoc signing, whose requirement changes with every build.
+      - name: Import the self-signed signing identity
+        id: identity
+        env:
+          P12_BASE64: ${{ secrets.MACOS_SELF_SIGNED_P12_BASE64 }}
+          P12_PASSWORD: ${{ secrets.MACOS_SELF_SIGNED_P12_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$P12_BASE64" || -z "$P12_PASSWORD" ]]; then
+            echo "signing=ad-hoc" >> "$GITHUB_OUTPUT"
+            echo "::warning::MACOS_SELF_SIGNED_P12_BASE64 or MACOS_SELF_SIGNED_P12_PASSWORD is not available; the DMG is signed ad-hoc and macOS privacy grants will not carry over to the next build."
+            echo "macOS signing: ad-hoc (no self-signed identity available)" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          keychain="$RUNNER_TEMP/diskunfold-signing.keychain-db"
+          keychain_secret="$(openssl rand -hex 16)"
+          printf '%s' "$P12_BASE64" | base64 --decode > "$RUNNER_TEMP/diskunfold-identity.p12"
+          security create-keychain -p "$keychain_secret" "$keychain"
+          security set-keychain-settings -lut 3600 "$keychain"
+          security unlock-keychain -p "$keychain_secret" "$keychain"
+          security import "$RUNNER_TEMP/diskunfold-identity.p12" -k "$keychain" -P "$P12_PASSWORD" -T /usr/bin/codesign
+          rm -f "$RUNNER_TEMP/diskunfold-identity.p12"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_secret" "$keychain" > /dev/null
+          echo "signing=self-signed" >> "$GITHUB_OUTPUT"
+          echo "keychain=$keychain" >> "$GITHUB_OUTPUT"
+          echo "macOS signing: self-signed DiskUnfold Development Signing (not notarized, not Developer ID)" >> "$GITHUB_STEP_SUMMARY"
       - name: Package the DMG
         env:
           PACKAGE_VERSION: ${{ needs.gate.outputs.version }}
+          SIGNING: ${{ steps.identity.outputs.signing }}
+          KEYCHAIN: ${{ steps.identity.outputs.keychain }}
         run: |
           set -euo pipefail
           mkdir stage
+          identity_args=()
+          if [[ "$SIGNING" == self-signed ]]; then
+            identity_args=(--signing-identity "DiskUnfold Development Signing" --keychain "$KEYCHAIN")
+          fi
           bash release-packaging/macos/package-dmg.sh --binary diskunfold-universal --version "$PACKAGE_VERSION" \
-            --notices release-resources/THIRD-PARTY-NOTICES --output-dir stage/macos-universal
+            ${identity_args[@]+"${identity_args[@]}"} --notices release-resources/THIRD-PARTY-NOTICES --output-dir stage/macos-universal
+      - name: Remove the temporary signing keychain
+        if: always()
+        env:
+          KEYCHAIN: ${{ steps.identity.outputs.keychain }}
+        run: |
+          if [[ -n "$KEYCHAIN" ]]; then
+            security delete-keychain "$KEYCHAIN" || true
+          fi
       - name: Stop when Apple notarization is configured
         env:
           APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
         run: |
           if [[ -n "$APPLE_NOTARY_KEY_ID" ]]; then
-            echo "release.notarization_unsupported: the DMG packager applies an ad-hoc signature; Developer ID signing and notarization are not integrated, so the DMG stays labelled ad-hoc signed." >&2
+            echo "release.notarization_unsupported: the DMG packager applies an ad-hoc or self-signed signature; Developer ID signing and notarization are not integrated, so the DMG keeps that label." >&2
             exit 1
           fi
       # Mount the finished DMG read-only for the opened-package scan. LICENSE and

@@ -128,9 +128,7 @@ fn run_app(
             crate::startup_checks::report_pre_window_error(capabilities.as_ref(), error)
         })?;
         let first_run = opened.first_run;
-        startup_observed.push(crate::startup_checks::data_format_and_open_observation(
-            first_run,
-        ));
+        startup_observed.push(crate::startup_checks::data_format_and_open_observation());
         let database = opened.database;
         let settings =
             crate::settings::StartupSettings::load(&database, &configured).map_err(|error| {
@@ -172,9 +170,7 @@ fn run_app(
             crate::startup_checks::report_pre_window_error(capabilities.as_ref(), error)
         })?;
         let first_run = opened.first_run;
-        startup_observed.push(crate::startup_checks::data_format_and_open_observation(
-            first_run,
-        ));
+        startup_observed.push(crate::startup_checks::data_format_and_open_observation());
         let database = opened.database;
         let settings =
             crate::settings::StartupSettings::load(&database, &configured).map_err(|error| {
@@ -205,9 +201,7 @@ fn run_app(
             crate::startup_checks::report_pre_window_error(capabilities.as_ref(), error)
         })?;
         let first_run = opened.first_run;
-        startup_observed.push(crate::startup_checks::data_format_and_open_observation(
-            first_run,
-        ));
+        startup_observed.push(crate::startup_checks::data_format_and_open_observation());
         let database = opened.database;
         let settings =
             crate::settings::StartupSettings::load(&database, &configured).map_err(|error| {
@@ -424,6 +418,8 @@ fn run_app(
     let dispatch_engine = engine_owner.clone();
     let dispatch_access = startup_access.clone();
     let dispatch_shutdown = shutdown.clone();
+    #[cfg(target_os = "macos")]
+    let native_language = locale.language().to_owned();
     let app = WebApp {
         asset,
         dispatch: Arc::new(move |message| {
@@ -448,6 +444,8 @@ fn run_app(
             .and_then(|worker| worker.as_ref().map(|_| RECENT_SCOPE_BOOTSTRAP)),
         #[cfg(target_os = "macos")]
         locale_enabled: true,
+        #[cfg(target_os = "macos")]
+        native_language,
         icon: include_bytes!("../icons/icon.png"),
     };
     #[cfg(any(windows, target_os = "linux"))]

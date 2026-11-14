@@ -447,4 +447,94 @@ if compgen -G "$test_root/.work.*" >/dev/null; then
 fi
 assert_no_test_mounts
 
+
+# A named signing identity makes the designated requirement "identifier + certificate", so it
+# does not change between builds; ad-hoc signing pins it to the executable hash instead.
+for tool in openssl security; do
+    command -v "$tool" >/dev/null 2>&1 || { printf 'test-package-dmg: required tool unavailable: %s\n' "$tool" >&2; exit 1; }
+done
+identity_name='DiskUnfold Test Signing'
+cat > "$test_root/identity.cnf" <<'CNF'
+[req]
+distinguished_name=dn
+x509_extensions=ext
+prompt=no
+[dn]
+CN=DiskUnfold Test Signing
+[ext]
+basicConstraints=critical,CA:FALSE
+keyUsage=critical,digitalSignature
+extendedKeyUsage=critical,codeSigning
+CNF
+openssl req -x509 -newkey rsa:2048 -nodes -keyout "$test_root/identity.key" \
+    -out "$test_root/identity.crt" -days 2 -config "$test_root/identity.cnf" >/dev/null 2>&1
+keychain_secret=$(openssl rand -hex 12)
+openssl pkcs12 -export -inkey "$test_root/identity.key" -in "$test_root/identity.crt" \
+    -name "$identity_name" -out "$test_root/identity.p12" -passout "pass:$keychain_secret" >/dev/null 2>&1
+test_keychain="$test_root/signing.keychain-db"
+security create-keychain -p "$keychain_secret" "$test_keychain"
+security set-keychain-settings "$test_keychain"
+security unlock-keychain -p "$keychain_secret" "$test_keychain"
+security import "$test_root/identity.p12" -k "$test_keychain" -P "$keychain_secret" -T /usr/bin/codesign >/dev/null
+security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_secret" "$test_keychain" >/dev/null
+
+# A second build: the same program with different bytes.
+cat > "$test_root/main2.c" <<'SOURCE'
+int main(void) { return 1; }
+SOURCE
+clang -arch arm64 -mmacosx-version-min=15.0 -O2 -o "$test_root/second-arm64" "$test_root/main2.c"
+clang -arch x86_64 -mmacosx-version-min=15.0 -O2 -o "$test_root/second-x86_64" "$test_root/main2.c"
+lipo -create "$test_root/second-arm64" "$test_root/second-x86_64" -output "$test_root/second-universal"
+
+requirement_of() { codesign --display --requirements - "$1" 2>&1 | grep 'designated =>'; }
+first_signed="$test_root/signed-1"
+second_signed="$test_root/signed-2"
+"$package_script" --binary "$test_root/diskunfold-universal" --version 0.1.0 \
+    --signing-identity "$identity_name" --keychain "$test_keychain" \
+    --notices "$notices_path" --output-dir "$first_signed" >/dev/null
+"$package_script" --binary "$test_root/second-universal" --version 0.1.0 \
+    --signing-identity "$identity_name" --keychain "$test_keychain" \
+    --notices "$notices_path" --output-dir "$second_signed" >/dev/null
+first_requirement=$(requirement_of "$first_signed/unpacked/macos-universal/diskunfold")
+second_requirement=$(requirement_of "$second_signed/unpacked/macos-universal/diskunfold")
+printf '%s\n' "$first_requirement" | grep -Eq 'identifier "com.diskunfold.app" and certificate (leaf|root) = H"[0-9a-f]{40}"'
+if printf '%s\n' "$first_requirement" | grep -Eiq 'cdhash'; then
+    printf 'test-package-dmg: identity-signed requirement depends on a build hash\n' >&2
+    exit 1
+fi
+[[ "$first_requirement" == "$second_requirement" ]] || {
+    printf 'test-package-dmg: requirement changed between builds: %s vs %s\n' "$first_requirement" "$second_requirement" >&2
+    exit 1
+}
+python3 - "$first_signed/manifest.json" <<'PY'
+import json
+import sys
+
+row = json.load(open(sys.argv[1], encoding="utf-8"))["rows"][0]
+assert row["signature"] == "hardened_runtime_self_signed", row["signature"]
+assert "not notarized" in row["signature_scope"] and "Not a Developer ID" in row["signature_scope"]
+print("self-signed manifest label verified")
+PY
+
+# The ad-hoc requirement of the same two builds does differ, which is why grants were lost.
+adhoc_second="$test_root/adhoc-2"
+"$package_script" --binary "$test_root/second-universal" --version 0.1.0 \
+    --notices "$notices_path" --output-dir "$adhoc_second" >/dev/null
+adhoc_first_requirement=$(requirement_of "$package_dir/unpacked/macos-universal/diskunfold")
+adhoc_second_requirement=$(requirement_of "$adhoc_second/unpacked/macos-universal/diskunfold")
+printf '%s\n' "$adhoc_first_requirement" | grep -Eiq 'cdhash'
+[[ "$adhoc_first_requirement" != "$adhoc_second_requirement" ]]
+
+# An identity that is not in the keychain stops the packager and leaves no output.
+if "$package_script" --binary "$test_root/diskunfold-universal" --version 0.1.0 \
+    --signing-identity 'DiskUnfold Missing Identity' --keychain "$test_keychain" \
+    --notices "$notices_path" --output-dir "$test_root/missing-identity" >/dev/null 2>&1; then
+    printf 'test-package-dmg: a missing signing identity was accepted\n' >&2
+    exit 1
+fi
+[[ ! -e "$test_root/missing-identity" ]]
+security delete-keychain "$test_keychain"
+assert_no_test_mounts
+
 printf 'macOS DMG packaging checks passed (arm64 host; x86_64 slice cross-compiled)\n'
+

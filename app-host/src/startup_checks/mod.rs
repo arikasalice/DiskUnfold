@@ -14,6 +14,7 @@ use du_engine_api::{
     error::EngineError,
 };
 
+mod app_location;
 mod asset_digest;
 mod environment_rows;
 mod host_observations;
@@ -306,21 +307,22 @@ pub fn status(
         first_run,
         access,
         analysis_allowed: access != StartupAccessState::Denied,
+        app_location: app_location::app_location(),
     })
 }
 
-/// Maps the database startup observation without inferring directory writability from an open.
+/// Reports the database startup observation after the database was opened.
 ///
-/// A successfully published first database proves the data-directory write path. Opening an
-/// existing database verifies its format and connection only, so that combined row stays unknown.
-pub(super) fn data_format_and_open_observation(first_run: bool) -> StartupCheckResult {
+/// The host calls this only when `startup_database` returned an open database, so the format
+/// version was compared with this build and, for an existing database, was current or migrated.
+/// The same open proved that the data directory accepts new files: a first start published the
+/// database, and a reopen created and removed a probe file (`startup_database::write_probe`)
+/// under the instance lock. Both paths therefore pass; a failure never reaches this function
+/// because it stops startup with `db.*` or `startup.data_dir_unwritable`.
+pub(super) fn data_format_and_open_observation() -> StartupCheckResult {
     StartupCheckResult {
         check: StartupCheck::DataFormatAndOpen,
-        result: if first_run {
-            StartupCheckOutcome::Pass
-        } else {
-            StartupCheckOutcome::Unverifiable
-        },
+        result: StartupCheckOutcome::Pass,
         reason_key: None,
     }
 }

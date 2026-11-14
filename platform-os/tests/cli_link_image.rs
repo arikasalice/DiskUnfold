@@ -26,7 +26,10 @@ fn the_link_runs_the_app_copied_from_the_mounted_image() -> Result<(), Box<dyn s
     let executable = std::fs::canonicalize(installed.join("Contents/MacOS").join(LINK_NAME))?;
 
     let bin = sandbox.path().join("home/.local/bin");
-    assert_eq!(install_link(&executable, &bin)?, LinkOutcome::Created);
+    assert_eq!(
+        install_link(&executable, &bin, std::slice::from_ref(&applications))?,
+        LinkOutcome::Created
+    );
 
     // A shell that sees only the temporary folder resolves and runs the command.
     let path = format!("{}:/usr/bin:/bin", bin.display());

@@ -91,6 +91,7 @@ impl SignatureMethod {
             Self::SignPath => "SignPath",
             Self::Store => "Store signing",
             Self::HardenedRuntimeAdHoc => "Hardened Runtime ad-hoc",
+            Self::HardenedRuntimeSelfSigned => "self-signed (not notarized)",
             Self::Unsigned => "unsigned",
         }
     }

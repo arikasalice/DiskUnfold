@@ -1,0 +1,41 @@
+.du-titlebar {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 11;
+  display: flex;
+  align-items: center;
+  gap: var(--du-space-2);
+  box-sizing: border-box;
+  block-size: var(--du-titlebar-height);
+  min-inline-size: 0;
+  padding-inline: var(--du-titlebar-inset-start) var(--du-space-4);
+  overflow: hidden;
+  background: var(--du-page);
+  border-block-end: 1px solid var(--du-border);
+  color: var(--du-muted);
+  cursor: default;
+  user-select: none;
+  -webkit-user-select: none;
+  white-space: nowrap;
+}
+
+.du-titlebar .du-brand-mark {
+  inline-size: var(--du-space-4);
+  block-size: var(--du-space-4);
+}
+
+.du-titlebar__name {
+  color: var(--du-text);
+  font-weight: 600;
+}
+
+.du-titlebar__context {
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.du-titlebar__context::before {
+  content: "\2014";
+  margin-inline-end: var(--du-space-2);
+}

@@ -2,7 +2,7 @@
 //!
 //! The menu carries the command line tool link action and an orderly Quit item.
 use super::Handler;
-use crate::cli_link;
+use crate::cli_link::{self, Language};
 use objc2::{
     MainThreadMarker, MainThreadOnly,
     rc::Retained,
@@ -61,23 +61,27 @@ fn item(mtm: MainThreadMarker, title: &str, action: Sel, key: &str) -> Retained<
 }
 
 /// Links the running bundle's executable into the user's `~/.local/bin` and reports the result.
-pub(super) fn install_command_line_tool(mtm: MainThreadMarker) {
-    let directory = std::env::var_os("HOME")
+///
+/// Only a bundle in `/Applications` or `~/Applications` installs the link; the alert is
+/// written in `language`.
+pub(super) fn install_command_line_tool(mtm: MainThreadMarker, language: Language) {
+    let home = std::env::var_os("HOME")
         .map(PathBuf::from)
-        .filter(|home| home.is_absolute())
-        .map(|home| cli_link::default_directory(&home));
+        .filter(|home| home.is_absolute());
+    let directory = home.as_deref().map(cli_link::default_directory);
+    let folders = home
+        .as_deref()
+        .map(cli_link::application_folders)
+        .unwrap_or_default();
     let result = directory.as_deref().map(|directory| {
         std::env::current_exe()
             .and_then(std::fs::canonicalize)
             .map_err(cli_link::LinkError::Io)
-            .and_then(|executable| cli_link::install_link(&executable, directory))
+            .and_then(|executable| cli_link::install_link(&executable, directory, &folders))
     });
     let (title, detail) = match (&result, &directory) {
-        (Some(result), Some(directory)) => cli_link::describe(result, directory),
-        _ => (
-            "The command line tool could not be installed".to_owned(),
-            "The home folder could not be found.".to_owned(),
-        ),
+        (Some(result), Some(directory)) => cli_link::describe(result, directory, language),
+        _ => cli_link::describe_missing_home(language),
     };
     let alert = NSAlert::new(mtm);
     alert.setMessageText(&NSString::from_str(&title));

@@ -31,7 +31,11 @@ export function startupCopy(text: LocaleText) {
     blocked: text("ui.startup.blocked", "Blocked by startup checks"),
     deniedNotice: text(
       "ui.startup.denied_notice",
-      "Full Disk Access is denied. Open Privacy & Security Settings, add DiskUnfold under Full Disk Access, then check the permission again.",
+      "Full Disk Access is denied. Open Privacy & Security Settings and add DiskUnfold under Full Disk Access. DiskUnfold checks again automatically and continues once access is granted.",
+    ),
+    moveToApplications: text(
+      "ui.startup.move_to_applications",
+      "DiskUnfold is running from a disk image or another folder, so it will not appear in the Full Disk Access list. Move DiskUnfold.app to the Applications folder, open it from there, then grant Full Disk Access.",
     ),
     analysisBlockedNotice: text(
       "ui.startup.analysis_blocked_notice",
@@ -39,7 +43,7 @@ export function startupCopy(text: LocaleText) {
     ),
     unknownNotice: text(
       "ui.startup.unknown_notice",
-      "macOS could not confirm Full Disk Access. Unknown access is not treated as a denial. You can open Privacy & Security Settings and check again.",
+      "macOS could not confirm Full Disk Access. Unknown access is not treated as a denial. You can open Privacy & Security Settings to review it. DiskUnfold keeps checking automatically.",
     ),
     confirmedNotice: text(
       "ui.startup.confirmed_notice",
@@ -53,16 +57,14 @@ export function startupCopy(text: LocaleText) {
       "ui.startup.open_settings",
       "Open Privacy & Security Settings",
     ),
-    recheck: text("ui.startup.recheck", "Check permission again"),
     settingsOpened: text(
       "ui.startup.settings_opened",
-      "System Settings reported that its privacy page opened. Grant Full Disk Access to DiskUnfold, then check the permission again.",
+      "System Settings reported that its privacy page opened. Grant Full Disk Access to DiskUnfold. This screen updates automatically.",
     ),
     settingsNotConfirmed: text(
       "ui.startup.settings_not_confirmed",
-      "macOS did not confirm that Settings opened. If needed, open System Settings › Privacy & Security › Full Disk Access, add DiskUnfold, then check again.",
+      "macOS did not confirm that Settings opened. If needed, open System Settings › Privacy & Security › Full Disk Access, and add DiskUnfold. This screen updates automatically.",
     ),
-    rechecked: text("ui.startup.rechecked", "Permission status refreshed."),
     unknown: text("ui.startup.unknown", "Unknown"),
     pass: text("ui.startup.pass", "Passed"),
     limited: text("ui.startup.limited", "Limited"),
@@ -157,6 +159,10 @@ export function outcomeLabel(result: StartupCheckResult, copy: StartupCopy) {
   switch (result.result) {
     case "pass":
       return copy.pass;
+    case "blocked":
+      // The access row is blocked only by a confirmed denial; show the same word as the
+      // status area, which reads the same observation.
+      return result.check === "full_disk_access" ? copy.denied : copy.unknown;
     case "limited":
       return copy.limited;
     case "outside_verified":

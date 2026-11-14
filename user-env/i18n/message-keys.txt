@@ -129,15 +129,14 @@ ui.startup.analysis
 ui.startup.allowed
 ui.startup.blocked
 ui.startup.denied_notice
+ui.startup.move_to_applications
 ui.startup.analysis_blocked_notice
 ui.startup.unknown_notice
 ui.startup.confirmed_notice
 ui.startup.not_applicable_notice
 ui.startup.open_settings
-ui.startup.recheck
 ui.startup.settings_opened
 ui.startup.settings_not_confirmed
-ui.startup.rechecked
 ui.startup.unknown
 ui.startup.pass
 ui.startup.limited

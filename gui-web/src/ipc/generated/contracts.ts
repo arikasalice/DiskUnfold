@@ -95,8 +95,16 @@ access: StartupAccessState,
 /**
  * Whether analysis entry is allowed in the current session.
  */
-analysisAllowed: boolean, };
+analysisAllowed: boolean,
+/**
+ * Where the running application is installed, when the platform can tell.
+ *
+ * Omitted when unknown. Full Disk Access cannot be granted usefully to an app that
+ * runs from `elsewhere`, so the screen asks the user to move it first.
+ */
+appLocation?: StartupAppLocation, };
 export type StartupAccessAction = "open_privacy_settings" | "recheck";
+export type StartupAppLocation = "applications" | "elsewhere";
 export type StartupAccessRequest = {
 /**
  * Action to perform.

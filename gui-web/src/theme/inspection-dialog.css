@@ -1,7 +1,7 @@
 .du-inspection-overlay {
   position: fixed;
   z-index: 10;
-  inset: 0;
+  inset: var(--du-titlebar-height) 0 0;
   display: grid;
   place-items: center;
   padding: 12px;
