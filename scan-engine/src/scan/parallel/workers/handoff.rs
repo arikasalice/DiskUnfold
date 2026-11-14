@@ -8,6 +8,13 @@ use super::*;
 ///
 /// The item goes back first, so a child stacked by this call lies above it and
 /// the worker continues into the child before resuming the item.
+///
+/// A waiting worker belongs to no lane: a worker with nothing to claim leaves
+/// its lane before it waits, so no other worker of this lane is waiting. A
+/// waiting worker that joins this lane can claim every returned item, from
+/// the lane queue or by stealing from a stack. One waiting worker is woken per
+/// returned item, up to the lane's free worker seats; with none free, no
+/// waiting worker could join and none is woken.
 pub(super) fn requeue(
     shared: &Shared,
     turn: &mut Turn<'_>,
@@ -24,13 +31,18 @@ pub(super) fn requeue(
             return;
         }
     };
+    let returned = 1 + usize::from(child.is_some());
     queue.requeue(turn.seat, turn.lane, reserved, frame);
     if let Some(child) = child
         && let Some(child) = queue.offer(turn.lane, child)
     {
         queue.stack(turn.seat, turn.lane, child);
     }
-    shared.wake.notify_one();
+    let wakes = returned.min(queue.lanes.free_seats(turn.lane));
+    drop(queue);
+    for _ in 0..wakes {
+        shared.wake.notify_one();
+    }
 }
 
 /// Counts a new child as outstanding and queues it in its root's lane.
