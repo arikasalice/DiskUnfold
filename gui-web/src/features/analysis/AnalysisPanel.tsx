@@ -221,6 +221,8 @@ export function AnalysisPanel({
         : undefined,
     );
   }, [onScanContext, scanJob, priorityVersion, scanning]);
+  // A panel that goes away no longer offers its scan to "Analyze first".
+  useEffect(() => () => onScanContext?.(undefined), [onScanContext]);
   const restoredIsCurrent = restoredInput?.revision === editRevision.current;
   const dropEnabled = client.subscribeFolderDrop !== undefined;
   const pathDescription =

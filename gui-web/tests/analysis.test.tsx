@@ -10,6 +10,7 @@ import {
 import axe from "axe-core";
 import { afterEach, expect, test, vi } from "vitest";
 import { App } from "../src/app/App";
+import { AnalysisPanel } from "../src/features/analysis/AnalysisPanel";
 import type {
   BrowseVisualizationProvider,
   BrowseVisualizationSelection,
@@ -2507,6 +2508,42 @@ test("F02 NFR5.HD1: the progress card counts checked items without claiming a pe
   expect(
     screen.queryByRole("progressbar", { name: "Scanning folder" }),
   ).toBeNull();
+});
+
+test("F02 FR8.HD1: the panel withdraws the scan it reported when it goes away", async () => {
+  const { client } = fixture({
+    readStatus: (base) => ({
+      ...base,
+      state: "running",
+      scanResult: { lineageId: "lineage", sequence: 1, resultVersion: "part" },
+    }),
+  });
+  const reported = vi.fn();
+  const view = render(
+    <AnalysisPanel
+      client={client}
+      preferences={{
+        display: { system: "iec", unit: "auto" },
+        basis: "logical",
+        warning: undefined,
+      }}
+      onScanContext={reported}
+    />,
+  );
+  fireEvent.click(await screen.findByRole("radio", { name: path.display }));
+  fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
+  const start = screen.getByRole<HTMLButtonElement>("button", {
+    name: "Start scan",
+  });
+  await waitFor(() => expect(start.disabled).toBe(false));
+  fireEvent.click(start);
+  await waitFor(() =>
+    expect(reported).toHaveBeenLastCalledWith(
+      expect.objectContaining({ jobRef: "scan", scanning: true }),
+    ),
+  );
+  view.unmount();
+  expect(reported).toHaveBeenLastCalledWith(undefined);
 });
 
 test("F02 FR10: cancellation is announced before acknowledgement and a rejection clears it", async () => {
