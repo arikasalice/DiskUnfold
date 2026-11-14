@@ -403,6 +403,7 @@ ui.analysis.choose_path_again
 ui.common.close_details
 ui.common.details
 ui.common.dismiss
+ui.common.scroll_area name:name
 ui.unit.byte
 ui.inspection.unavailable_in_scan
 ui.inspection.name
@@ -684,6 +685,17 @@ ui.browse.unavailable_now
 ui.browse.unavailable_while_opening
 ui.browse.unknown_items count:count
 ui.browse.up
+ui.browse.keys.move_previous
+ui.browse.keys.move_next
+ui.browse.keys.move_first
+ui.browse.keys.move_last
+ui.browse.keys.move_page_up
+ui.browse.keys.move_page_down
+ui.browse.keys.cell_previous
+ui.browse.keys.cell_next
+ui.browse.keys.open_item
+ui.browse.keys.toggle_selection
+ui.browse.keys.go_up
 ui.visualization.actions
 ui.visualization.backToVisualization
 ui.visualization.back_to_folders
