@@ -91,7 +91,6 @@ impl ErrorEnvelope {
             | "group.unknown"
             | "group.rule_invalid"
             | "group.name_duplicate"
-            | "group.name_invalid"
             | "group.rule_limit"
             | "startup.shutting_down" => ErrorCode::InvalidArgument,
             "cursor.stale"

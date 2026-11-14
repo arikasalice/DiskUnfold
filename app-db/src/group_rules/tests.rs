@@ -85,7 +85,7 @@ fn empty_rule_list_is_stored_and_read_back() -> TestResult {
 #[test]
 fn mismatched_expected_revision_conflicts_and_leaves_content_unchanged() -> TestResult {
     let (_dir, _path, mut db) = new_db()?;
-    let other = ruleset(1, vec![rule(1, 0)]);
+    let other = ruleset(6, vec![rule(1, 0)]);
     assert_eq!(
         db.replace_group_ruleset(5, &other),
         GroupRulesSaveOutcome::Conflict {
@@ -98,8 +98,8 @@ fn mismatched_expected_revision_conflicts_and_leaves_content_unchanged() -> Test
         db.replace_group_ruleset(0, &first),
         GroupRulesSaveOutcome::Saved
     );
-    let second = ruleset(2, vec![rule(2, 0)]);
     for expected in [0, 2, 7] {
+        let second = ruleset(expected + 1, vec![rule(2, 0)]);
         assert_eq!(
             db.replace_group_ruleset(expected, &second),
             GroupRulesSaveOutcome::Conflict {
@@ -108,6 +108,62 @@ fn mismatched_expected_revision_conflicts_and_leaves_content_unchanged() -> Test
         );
     }
     assert_eq!(db.read_group_ruleset(), Ok(Some(first)));
+    Ok(())
+}
+
+#[test]
+fn a_revision_that_does_not_advance_by_one_writes_nothing() -> TestResult {
+    let (_dir, _path, mut db) = new_db()?;
+    let first = ruleset(1, vec![rule(1, 0)]);
+    assert_eq!(
+        db.replace_group_ruleset(0, &first),
+        GroupRulesSaveOutcome::Saved
+    );
+    for next in [ruleset(1, vec![rule(2, 0)]), ruleset(3, vec![rule(2, 0)])] {
+        assert_eq!(
+            db.replace_group_ruleset(1, &next),
+            GroupRulesSaveOutcome::Failed
+        );
+    }
+    assert_eq!(
+        db.replace_group_ruleset(u32::MAX, &first),
+        GroupRulesSaveOutcome::Failed
+    );
+    assert_eq!(db.read_group_ruleset(), Ok(Some(first)));
+    Ok(())
+}
+
+#[test]
+fn the_schema_holds_at_most_one_header_row() -> TestResult {
+    let (_dir, _path, mut db) = new_db()?;
+    let first = ruleset(1, vec![rule(1, 0)]);
+    assert_eq!(
+        db.replace_group_ruleset(0, &first),
+        GroupRulesSaveOutcome::Saved
+    );
+    let second = db.connection.execute(
+        "INSERT INTO analysis_index_group_ruleset
+            (ruleset_id, format_version, version_no, revision, fingerprint,
+             created_at_ms, updated_at_ms)
+         VALUES (?1, 1, 1, 1, zeroblob(32), 1, 1)",
+        [vec![7u8; 16]],
+    );
+    assert!(second.is_err(), "a second header row was accepted");
+    assert_eq!(db.read_group_ruleset(), Ok(Some(first)));
+    Ok(())
+}
+
+#[test]
+fn an_unsupported_format_version_is_returned_as_stored() -> TestResult {
+    let (_dir, _path, mut db) = new_db()?;
+    let mut future = ruleset(1, vec![rule(1, 0)]);
+    future.format_version = 2;
+    assert_eq!(
+        db.replace_group_ruleset(0, &future),
+        GroupRulesSaveOutcome::Saved
+    );
+    // The adapter does not interpret formats; the engine refuses formats it does not define.
+    assert_eq!(db.read_group_ruleset(), Ok(Some(future)));
     Ok(())
 }
 

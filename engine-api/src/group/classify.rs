@@ -14,6 +14,7 @@ use du_analysis_index::{
 };
 use du_core_contracts::{
     Id, ItemRef,
+    data_source::DataSource,
     group_ipc::{GroupClassifyRequest, GroupClassifyResponse, GroupRuleSource},
     job::{Checkpoint, JobBody, JobContext, JobOutcome, JobProgress},
     result::ResultVersionRead,
@@ -305,6 +306,7 @@ fn submit(
     let slot = Arc::new(Mutex::new(None));
     let key = admission.meta.key.clone();
     let version_id = admission.version.version_id().clone();
+    let data_source = admission.version.data_source();
     let reference = admission.classification_ref.clone();
     let publish = {
         let registered = services.registered.clone();
@@ -343,7 +345,7 @@ fn submit(
                 priority: JobPriority::Normal,
                 scope_summary: "virtual group classification".into(),
                 correlation_id: caller.correlation_id.clone(),
-                sample: false,
+                sample: data_source == DataSource::Sample,
             },
             publish,
         )
@@ -365,6 +367,7 @@ fn submit(
         job_ref: job,
         classification_ref: reference,
         result_version: version_id,
+        data_source: Some(data_source),
     })
 }
 

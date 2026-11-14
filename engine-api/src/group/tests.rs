@@ -107,6 +107,10 @@ fn logical(bytes: u64) -> SizeValue {
 
 /// Files: a.mp4 10, b.mp4 20, c.txt 5, sub/d.mp4 7.
 fn harness() -> Result<Harness, Box<dyn std::error::Error>> {
+    harness_with(Arc::new(MemoryRules::default()))
+}
+
+fn harness_with(rules: Arc<MemoryRules>) -> Result<Harness, Box<dyn std::error::Error>> {
     let sink = IngestSink::default();
     publish(&sink, 2)?;
     let runtime = Arc::new(JobRuntime::new(
@@ -124,7 +128,7 @@ fn harness() -> Result<Harness, Box<dyn std::error::Error>> {
         ids: Arc::new(Ids(AtomicUsize::new(1_000))),
         clock: Arc::new(Clock),
     }
-    .register(&mut builder, Arc::new(MemoryRules::default()))
+    .register(&mut builder, rules)
     .map_err(|error| format!("{error:?}"))?;
     Ok(Harness {
         engine: builder.build()?,
@@ -273,28 +277,42 @@ fn classification_counts_overlap_once_and_totals_use_the_union() -> TestResult {
     let response = classify(&harness, 1, json!({ "kind": "saved", "rulesetVersion": 1 }))?;
     assert_eq!(response["kind"], "summary");
     let summary = &response["summary"];
+    check_summary(summary);
+    let reference = summary["classificationRef"].clone();
+    let version = summary["resultVersion"].clone();
+    check_overlap(&harness, &reference, &version)?;
+    check_totals(&harness, &reference)
+}
+
+fn check_summary(summary: &Value) {
     assert_eq!(summary["scopeFileCount"], 4);
     assert_eq!(summary["matchedCount"], 3);
     assert_eq!(summary["overlapCount"], 2);
     assert_eq!(summary["unclassifiedCount"], 1);
     assert_eq!(summary["undecidableCount"], 0);
     assert_eq!(summary["reconciled"], true);
+    assert_eq!(summary["origin"], "scan");
+    assert_eq!(summary["dataSource"], "real");
     assert_eq!(summary["groups"][0]["memberCount"], 3);
     assert_eq!(summary["groups"][1]["memberCount"], 2);
-    let reference = summary["classificationRef"].clone();
-    let version = summary["resultVersion"].clone();
+}
 
+fn check_overlap(harness: &Harness, reference: &Value, version: &Value) -> TestResult {
     let overlap = harness.ok(
         "group.members",
         json!({ "classificationRef": reference, "resultVersion": version,
                 "category": { "kind": "overlap" }, "start": 0, "count": 10 }),
     )?;
     assert_eq!(overlap["total"], 2);
+    assert_eq!(overlap["dataSource"], "real");
     for row in overlap["rows"].as_array().ok_or("rows")? {
         assert_eq!(row["groups"].as_array().map(Vec::len), Some(2));
         assert_eq!(row["displayPath"]["state"], "present");
     }
+    Ok(())
+}
 
+fn check_totals(harness: &Harness, reference: &Value) -> TestResult {
     let totals = harness.ok(
         "group.totals",
         json!({ "classificationRef": reference, "groupIds": [] }),
@@ -305,6 +323,33 @@ fn classification_counts_overlap_once_and_totals_use_the_union() -> TestResult {
     assert_eq!(totals["overlapCount"], 2);
     assert_eq!(totals["ratios"][0]["state"], "value");
     assert_eq!(totals["ratios"][0]["numerator"], "37");
+    assert_eq!(totals["dataSource"], "real");
+    Ok(())
+}
+
+#[test]
+fn a_ruleset_format_this_build_does_not_define_is_neither_read_nor_overwritten() -> TestResult {
+    let rules = Arc::new(MemoryRules::default());
+    let future = StoredGroupRuleset {
+        ruleset_id: id(5),
+        format_version: 2,
+        version_no: 3,
+        revision: 3,
+        fingerprint: [1; 32],
+        created_at_ms: 1,
+        updated_at_ms: 2,
+        rules: Vec::new(),
+    };
+    *rules.0.lock().map_err(|_| "poisoned")? = Some(future.clone());
+    let harness = harness_with(rules.clone())?;
+    let (_, error) = harness.call("group.rules.get", json!({}))?;
+    assert_eq!(error.as_deref(), Some("db.schema_mismatch"));
+    let (_, error) = harness.call(
+        "group.rules.save",
+        json!({ "expectedRevision": 3, "rules": [{ "displayName": "A", "condition": ends_with(".a") }] }),
+    )?;
+    assert_eq!(error.as_deref(), Some("db.schema_mismatch"));
+    assert_eq!(*rules.0.lock().map_err(|_| "poisoned")?, Some(future));
     Ok(())
 }
 
