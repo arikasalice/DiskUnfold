@@ -19,7 +19,7 @@ use du_job_runtime::{
     JobClock, JobEvent, JobEvents, JobIdentity, JobPriority, JobRuntime, Submission, SubmitResult,
 };
 use du_scan_engine::{
-    sample_bundle::{ValidatedBundle, embedded::EmbeddedSampleBundle},
+    sample_bundle::{SampleObservationState, ValidatedBundle, embedded::EmbeddedSampleBundle},
     sample_job::{
         SAMPLE_JOB_KIND, SampleLoad, SampleLoadEnd, SampleLoadReport, SampleLoadTarget, descriptor,
     },
@@ -132,6 +132,24 @@ fn context(run: &Run, cancel: bool, release_at_poll: Option<usize>) -> Arc<dyn J
     })
 }
 
+/// The gap examples of one observation point, which the collector counts as failed.
+fn gaps(run: &Run, position: usize) -> u64 {
+    run.bundle.observations()[position]
+        .items
+        .iter()
+        .filter(|item| {
+            matches!(
+                item.state,
+                Some(
+                    SampleObservationState::AccessDenied
+                        | SampleObservationState::Vanished
+                        | SampleObservationState::SizeUnknown
+                )
+            )
+        })
+        .count() as u64
+}
+
 #[test]
 fn both_observations_are_published_as_sample_versions_in_order() -> TestResult {
     let run = setup()?;
@@ -156,9 +174,14 @@ fn both_observations_are_published_as_sample_versions_in_order() -> TestResult {
         assert_eq!(version.items().len(), expected.items.len() + 1);
     }
     assert_ne!(sealed[0].1, sealed[1].1);
+    // The collector counts each bundle item and each point's scope root once,
+    // so the total adds one root per observation point.
     let declared = run.bundle.header().declared_item_count;
+    let roots = run.bundle.observation_count() as u64;
     let (done, total) = run.report.progress();
-    assert_eq!((done, total), (declared, declared));
+    assert_eq!((done, total), (declared + roots, declared + roots));
+    assert_eq!(outcome.counts.completed + outcome.counts.failed, total);
+    assert_eq!(outcome.counts.unprocessed, 0);
     // A sample version never becomes the implicit current result.
     assert!(run.sink.pin().map_err(|e| format!("{e:?}"))?.is_none());
     Ok(())
@@ -171,6 +194,22 @@ fn cancelling_after_the_first_point_leaves_no_version() -> TestResult {
     assert!(!outcome.completed_scope && outcome.failure_reason_key.is_none());
     assert_eq!(run.report.end(), Some(SampleLoadEnd::Cancelled));
     assert!(run.report.observations().is_empty());
+    // Only the first point was collected: its items and its root. No version
+    // stays reachable, so nothing is completed (NFR5.HD1.app-host.DD1): the
+    // first point's gap examples stay failed and every other unit of both
+    // points, roots included, is unprocessed.
+    let points = run.bundle.observations();
+    let first = points[0].items.len() as u64 + 1;
+    let second = points[1].items.len() as u64 + 1;
+    let counts = &outcome.counts;
+    assert_eq!(counts.completed, 0);
+    assert_eq!(counts.failed, gaps(&run, 0));
+    assert_eq!(counts.unprocessed, first + second - counts.failed);
+    assert_eq!(run.job.progress_total(), first + second);
+    assert_eq!(
+        outcome.unprocessed_summary.as_deref(),
+        Some(format!("unprocessed_items={}", counts.unprocessed).as_str())
+    );
     let issued = run.ids.issued.lock().map_err(|_| "poisoned")?.clone();
     assert!(!issued.is_empty());
     for version_id in issued {
@@ -198,6 +237,17 @@ fn a_failing_point_discards_the_whole_session() -> TestResult {
     assert_eq!(run.report.end(), Some(SampleLoadEnd::Failed));
     assert!(run.report.observations().is_empty());
     let issued = run.ids.issued.lock().map_err(|_| "poisoned")?.clone();
+    // The second point failed after its root was admitted. No version stays
+    // reachable, so nothing is completed; the gap examples met before the
+    // failure stay failed and every other unit of the total is unprocessed.
+    let total = run.job.progress_total();
+    let failed = outcome.counts.failed;
+    assert_eq!(outcome.counts.completed, 0);
+    assert!(
+        failed >= gaps(&run, 0) && failed <= gaps(&run, 0) + gaps(&run, 1),
+        "failed={failed}"
+    );
+    assert_eq!(outcome.counts.unprocessed, total - failed);
     for version_id in issued {
         assert!(run.sink.pin_current(&version_id).is_err());
     }
@@ -224,6 +274,17 @@ fn a_session_released_between_points_refuses_the_next_registration() -> TestResu
     assert!(!outcome.completed_scope);
     assert_eq!(run.report.end(), Some(SampleLoadEnd::Failed));
     assert!(run.report.observations().is_empty());
+    // The second point's build was refused before its root was admitted, so
+    // only the first point's gap examples are failed; the first point's other
+    // units, whose versions were released, and the whole second point are
+    // unprocessed.
+    let points = run.bundle.observations();
+    let first = points[0].items.len() as u64 + 1;
+    let second = points[1].items.len() as u64 + 1;
+    let counts = &outcome.counts;
+    assert_eq!(counts.completed, 0);
+    assert_eq!(counts.failed, gaps(&run, 0));
+    assert_eq!(counts.unprocessed, first + second - counts.failed);
     // The first point was built and discarded; nothing stays reachable.
     let issued = run.ids.issued.lock().map_err(|_| "poisoned")?.clone();
     assert!(!issued.is_empty());

@@ -8,7 +8,7 @@ pub(super) struct Gate {
     changed: Condvar,
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub(super) struct GateState {
     pub(super) released: bool,
     pub(super) waiting: usize,
@@ -40,17 +40,26 @@ impl Gate {
         self.changed.notify_all();
     }
 
-    /// Waits until `ready` holds for the gate state.
+    /// Waits until `ready` holds for the gate state. A timeout names the
+    /// caller, the time waited and the last state seen.
+    #[track_caller]
     pub(super) fn until(&self, ready: impl Fn(&GateState) -> bool) -> Result<(), TestError> {
+        let (awaited, limit, started) =
+            (Location::caller(), Duration::from_secs(10), Instant::now());
         let state = self.state.lock().map_err(|_| "gate lock")?;
         let (state, _) = self
             .changed
-            .wait_timeout_while(state, Duration::from_secs(10), |state| !ready(state))
+            .wait_timeout_while(state, limit, |state| !ready(state))
             .map_err(|_| "gate lock")?;
         if ready(&state) {
             Ok(())
         } else {
-            Err("gate condition was not reached".into())
+            let elapsed = started.elapsed();
+            Err(format!(
+                "gate condition awaited at {awaited} was not reached after {elapsed:?} \
+                 (limit {limit:?}); last state {state:?}"
+            )
+            .into())
         }
     }
 

@@ -128,8 +128,9 @@ enum Policy<'a> {
 struct Progress {
     failed_roots: Vec<bool>,
     root_published: Vec<bool>,
-    /// Roots whose item was already counted, so a failure counts them once.
-    counted_roots: Vec<bool>,
+    /// Roots already counted as failed; any other root counts as completed
+    /// since its admission, and its first failure moves it to failed.
+    counted_roots: record::FailedRanges,
     published: bool,
     cadence: PublicationCadence,
 }
@@ -287,13 +288,7 @@ fn collect_with_policy(
                 .then(|| format!("unprocessed_roots={unprocessed_roots}")),
             result_version_id: Some(id),
         },
-        Err(_) => JobOutcome {
-            counts,
-            completed_scope: false,
-            failure_reason_key: Some("support.internal_error".into()),
-            unprocessed_summary: None,
-            result_version_id: None,
-        },
+        Err(_) => super::internal_failure(counts),
     }
 }
 
