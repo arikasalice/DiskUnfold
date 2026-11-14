@@ -48,6 +48,8 @@ export function useGroupsEntry(browseVersion: string | undefined) {
     onBrowsed: (version: string, opened: BrowsedLocation) =>
       setBrowsed({ version, scope: browsedFolder(opened) }),
     show: () => setOpen(true),
+    /** True while closing hands focus back to the entry button. */
+    restoringFocus: () => restoreFocus.current,
     close: () => {
       restoreFocus.current = true;
       setOpen(false);
