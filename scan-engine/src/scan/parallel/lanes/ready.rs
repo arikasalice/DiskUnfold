@@ -240,6 +240,11 @@ impl Stack {
         self.classes.iter().position(|items| !items.is_empty())
     }
 
+    /// Items on the stack, read from the per-class lengths.
+    pub(in crate::scan::parallel) fn len(&self) -> usize {
+        self.classes.iter().map(VecDeque::len).sum()
+    }
+
     /// Every stacked item, for structural checks in tests.
     #[cfg(test)]
     pub(in crate::scan::parallel) fn frames(&self) -> impl Iterator<Item = &Frame> {

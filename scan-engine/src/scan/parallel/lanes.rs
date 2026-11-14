@@ -3,10 +3,20 @@
 //! NFR2.HD1.app-host.DD1: every device group of the scope has one lane. Its
 //! directory work lives only in that lane's queue or on the overflow stacks of
 //! the workers assigned to the lane, and only those workers claim or steal it.
-//! A worker belongs to at most one lane at a time and joins another lane only
-//! when its own lane has nothing it can claim, by becoming that lane's worker
-//! within the lane's limit. A lane whose OS calls stall therefore keeps only
-//! the workers already inside it, and its queued work never moves elsewhere.
+//! A worker belongs to at most one lane at a time and joins a lane only within
+//! that lane's worker limit. It stays in its lane while the lane has work it
+//! can claim; otherwise it leaves and joins another lane with claimable work.
+//! A lane whose OS calls stall therefore holds at most its limit of workers,
+//! and its queued work never moves elsewhere.
+//!
+//! FR8.HD1.app-host.DD1: while the lane of the marked area queues marked work
+//! and has room, a worker of another lane moves there after its current turn
+//! (see `lending`). It moves only when another worker stays in its own lane
+//! and its overflow stack fits in its own lane queue, which takes the stack
+//! back. A stalled area lane thus never takes the last worker of a lane, and
+//! no lane queue exceeds its capacity. A lent worker returns to its own lane
+//! under the same conditions once the lane it serves queues no marked work.
+//! Without a marked area no worker moves this way.
 //!
 //! NFR3.HD1.app-host.DD1: a lane queue holds at most `capacity` items, counting
 //! items claimed from it that will be returned to it. A newly found child that
@@ -19,6 +29,7 @@
 //! the distinct depths and roots queued. A steal reads one class head per other
 //! worker of the lane, and joining a lane reads each lane's counters once. No
 //! claim visits queued items, with or without a marked area.
+mod lending;
 mod ready;
 use super::{
     Frame, Queue,
@@ -84,6 +95,8 @@ impl Lane {
 pub(super) struct Seat {
     pub(super) lane: Option<usize>,
     pub(super) stack: Stack,
+    /// The lane this worker left to serve the marked area's lane, if any.
+    pub(super) home: Option<usize>,
 }
 
 /// Where a claimed item came from.
@@ -201,6 +214,7 @@ impl Lanes {
     }
 
     fn leave(&mut self, seat: usize) {
+        self.seats[seat].home = None;
         let Some(lane) = self.seats[seat].lane.take() else {
             return;
         };
@@ -367,29 +381,6 @@ fn split(region: &PriorityRegion, items: Vec<Arrival>) -> [Vec<Arrival>; CLASSES
 }
 
 impl Queue {
-    /// Claims the next item for `seat`, joining or leaving lanes as needed.
-    ///
-    /// A worker stays in its lane while that lane has claimable work. Without
-    /// any, it leaves and may join another lane with claimable work and room.
-    pub(super) fn claim_for(&mut self, seat: usize) -> Option<Taken> {
-        if !self.started || seat >= self.lanes.seats.len() {
-            return None;
-        }
-        if let Some(lane) = self.lanes.seats[seat].lane {
-            if let Some(taken) = self.lanes.claim_in(seat, lane) {
-                return Some(taken);
-            }
-            self.lanes.leave(seat);
-        }
-        let lane = self.lanes.choose()?;
-        self.lanes.join(seat, lane);
-        let taken = self.lanes.claim_in(seat, lane);
-        if taken.is_none() {
-            self.lanes.leave(seat);
-        }
-        taken
-    }
-
     /// Returns a claimed item after one turn.
     ///
     /// An item claimed from the lane queue goes back to it in its reserved

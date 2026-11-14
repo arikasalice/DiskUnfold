@@ -30,11 +30,12 @@ fn gated_probe(gate: &Arc<Gate>, calls: &Calls) -> Arc<Probe> {
     )
 }
 
-/// Collects `probe` on a thread with one worker per lane and priority control.
-fn spawn_scan(
+/// Collects `probe` on a thread with priority control and `limit` workers per lane.
+pub(super) fn spawn_scan(
     probe: &Arc<Probe>,
     groups: Vec<usize>,
     workers: usize,
+    limit: usize,
     context: Arc<dyn JobContext>,
 ) -> (
     ScanControlHandle,
@@ -50,7 +51,7 @@ fn spawn_scan(
             .map(|index| observed_root(&format!("P:\\{index}"), index as u8 + 1))
             .collect();
         let build = sink.open_forest(ids.next_id(), roots);
-        let devices = DevicePlan { groups, limit: 1 };
+        let devices = DevicePlan { groups, limit };
         let options = (devices, None, Some(&*session));
         let outcome = collect_open_forest_diagnostic(
             build,
@@ -90,8 +91,13 @@ fn a_request_during_pause_is_accepted_and_applies_after_resume() -> Result<(), T
     );
     let (_open, _unpark) = (Opened(gate.clone()), Unpark(remote.clone()));
     let probe = gated_probe(&gate, &calls);
-    let (handle, collector) =
-        spawn_scan(&probe, vec![0], 1, Arc::new(RemoteContext(remote.clone())));
+    let (handle, collector) = spawn_scan(
+        &probe,
+        vec![0],
+        1,
+        1,
+        Arc::new(RemoteContext(remote.clone())),
+    );
     gate.until(|state| state.entered == 1)?;
     remote.set(|state| state.paused = true)?;
     // Accepted only acknowledges the request; nothing is assigned while paused.
@@ -127,8 +133,13 @@ fn a_request_during_cancellation_assigns_no_more_work() -> Result<(), TestError>
     );
     let (_open, _unpark) = (Opened(gate.clone()), Unpark(remote.clone()));
     let probe = gated_probe(&gate, &calls);
-    let (handle, collector) =
-        spawn_scan(&probe, vec![0], 1, Arc::new(RemoteContext(remote.clone())));
+    let (handle, collector) = spawn_scan(
+        &probe,
+        vec![0],
+        1,
+        1,
+        Arc::new(RemoteContext(remote.clone())),
+    );
     gate.until(|state| state.entered == 1)?;
     remote.set(|state| state.cancelled = true)?;
     // The scheduler is still attached, so the request is acknowledged, but
@@ -168,7 +179,7 @@ fn requests_racing_the_end_of_the_job_neither_panic_nor_block_nor_leak() -> Resu
             completed: Arc::new(AtomicUsize::new(0)),
             abandoned: Arc::new(AtomicUsize::new(0)),
         });
-        let (handle, collector) = spawn_scan(&probe, vec![0, 1], 4, context);
+        let (handle, collector) = spawn_scan(&probe, vec![0, 1], 4, 1, context);
         let racers: Vec<_> = (0..2_u32)
             .map(|racer| {
                 let handle = handle.clone();

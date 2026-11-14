@@ -15,6 +15,7 @@ mod bounds;
 mod control;
 mod determinism;
 mod isolation;
+mod lending;
 mod order;
 mod priority;
 mod remote;

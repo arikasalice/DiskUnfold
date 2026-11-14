@@ -49,7 +49,7 @@ fn a_stalled_lane_keeps_its_workers_while_another_lane_finishes() -> Result<(), 
     Ok(())
 }
 
-fn frame(root: u32, path: Vec<Vec<u8>>) -> Frame {
+pub(super) fn frame(root: u32, path: Vec<Vec<u8>>) -> Frame {
     struct Unused;
     impl DirectoryObservations for Unused {
         fn next_batch(&mut self) -> Result<Vec<ObservedEntry>, PortError> {
@@ -71,7 +71,7 @@ fn frame(root: u32, path: Vec<Vec<u8>>) -> Frame {
 }
 
 /// Every queued or stacked item lies in the lane of its root.
-fn assert_lanes_hold_only_their_roots(queue: &Queue) {
+pub(super) fn assert_lanes_hold_only_their_roots(queue: &Queue) {
     for (lane, state) in queue.lanes.lanes.iter().enumerate() {
         for item in state.ready.frames() {
             assert_eq!(queue.lanes.lane_of(item.root_index), Some(lane));
