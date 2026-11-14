@@ -178,7 +178,7 @@ fn json_output_is_byte_identical_in_both_languages_even_with_missing_translation
 }
 
 /// Stored display language ko or en, read from an isolated data directory.
-#[cfg(any(windows, target_os = "linux"))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 #[test]
 fn stored_language_does_not_change_json_bytes_but_changes_text() -> Result<(), String> {
     use du_core_contracts::settings::{
