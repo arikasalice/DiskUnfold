@@ -564,7 +564,9 @@ function PinnedResult({
         <Metric
           label={basisLabel}
           detail={
-            lead ? displayMeasurement(lead.size, lead.completeness) : undefined
+            lead
+              ? displayMeasurement(lead.size, lead.completeness, text)
+              : undefined
           }
         >
           {lead ? displaySize(lead.size, display, text) : unavailable}
@@ -583,7 +585,7 @@ function PinnedResult({
               wideValue: true,
               notes: [
                 ...(raw && raw !== value ? [raw] : []),
-                displayMeasurement(size, completeness),
+                displayMeasurement(size, completeness, text),
                 ...measurementLimits.map(displayMeasurementLimit),
               ],
             };

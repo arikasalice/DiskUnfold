@@ -670,6 +670,9 @@ ui.browse.analyze_first_collected
 ui.browse.analyze_first_requested
 ui.browse.item_actions name:name
 ui.browse.item_count count:count
+ui.browse.item_count_at_least count:count
+ui.browse.origin_scan
+ui.browse.origin_incremental
 ui.browse.keys.cell_next
 ui.browse.keys.cell_previous
 ui.browse.keys.go_up

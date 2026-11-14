@@ -64,7 +64,7 @@ function availability(
   if (flags[1]?.state === "present" && flags[1].value)
     found.push(text("ui.browse.excluded", "Excluded"));
   if (flags.some((flag) => flag.state === "unknown"))
-    found.push(text("ui.browse.availability_unknown", "Availability unknown"));
+    found.push(text("ui.browse.availability_unknown", "Unknown"));
   return found.join(" · ") || text("ui.browse.not_reported", "Not reported");
 }
 

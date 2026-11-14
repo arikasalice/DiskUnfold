@@ -2510,6 +2510,28 @@ test("F02 NFR5.HD1: the progress card counts checked items without claiming a pe
   ).toBeNull();
 });
 
+test("F02: the measurement under the summary total uses the active language", async () => {
+  const { client } = fixture();
+  const marked: LocaleText = (key, fallback) =>
+    /^ui\.analysis\.(measurement|evidence)_/.test(key) ? `<${key}>` : fallback;
+  render(
+    <LocaleTextContext.Provider value={marked}>
+      <App analysis={client} />
+    </LocaleTextContext.Provider>,
+  );
+  fireEvent.click(await screen.findByRole("radio", { name: path.display }));
+  fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
+  const start = screen.getByRole<HTMLButtonElement>("button", {
+    name: "Start scan",
+  });
+  await waitFor(() => expect(start.disabled).toBe(false));
+  fireEvent.click(start);
+  const metric = await screen.findByRole("group", { name: "Logical size" });
+  expect(metric.querySelector(".du-metric__detail")?.textContent).toMatch(
+    /^<ui\.analysis\.measurement_\w+>( · <ui\.analysis\.evidence_\w+>)?$/,
+  );
+});
+
 test("F02 NFR5.HD1: a byte share near 2^53 is rounded down exactly", async () => {
   const { client, listeners } = fixture({
     readStatus: (base) => ({ ...base, state: "running", resultVersion: null }),
