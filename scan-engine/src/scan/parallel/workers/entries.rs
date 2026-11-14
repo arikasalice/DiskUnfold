@@ -48,6 +48,14 @@ pub(super) fn process_entry(
             .map_err(|_| ())?;
     }
     if !continue_child(frame, &path, reservation, shared, context)? {
+        // An entered directory left unread on a disconnected volume is a gap
+        // of its own; a cancelled one is only listed as recorded.
+        let closed = context.checkpoint() != Checkpoint::Cancel
+            && shared.disconnects.closed(frame.root_index);
+        if enter && closed && !super::disconnected::unread(frame.root_index, path, sender, context)
+        {
+            return Err(());
+        }
         return Ok(None);
     }
     if frame.root && !frame.root_published {

@@ -194,9 +194,9 @@ impl SampleLoad {
                 None,
             ),
         );
-        // The collector also counts the scope root directory, which is not a bundle item.
-        let root_dirs = 1;
-        counts.completed += outcome.counts.completed.saturating_sub(root_dirs);
+        // The collector counts each bundle item once and never the scope root
+        // directory that was read without a gap (NFR5.HD1.app-host.DD1).
+        counts.completed += outcome.counts.completed;
         counts.failed += outcome.counts.failed;
         if outcome.failure_reason_key.is_some() {
             return Err(SampleLoadEnd::Failed);
@@ -237,8 +237,7 @@ impl SampleLoad {
         {
             return Err(SampleLoadEnd::Failed);
         }
-        let processed =
-            (outcome.counts.completed + outcome.counts.failed).saturating_sub(root_dirs);
+        let processed = outcome.counts.completed + outcome.counts.failed;
         self.report.with(|state| {
             state.completed_items += processed;
             state

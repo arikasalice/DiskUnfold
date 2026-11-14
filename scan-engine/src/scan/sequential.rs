@@ -2,13 +2,16 @@
 //!
 //! Entries and unread directory ranges are recorded through the functions the
 //! parallel collector uses (FR12.HD1.app-host.DD1, DEC-006). An explicit
-//! disconnection closes every directory still being collected, and a
-//! cancellation records the entries already returned without opening any
-//! directory, as the parallel collector's drains do.
+//! disconnection closes the directory that reported it; the directories still
+//! on the stack were already being read and are read to their end without
+//! opening anything, and every enumerated directory left unread is a gap of
+//! its own, as in the parallel collector. A cancellation records the entries
+//! already returned without opening any directory.
 use super::{
     ResultIds,
     admission::{self, Admission, Boundary, Parent, RootStart, Visited},
-    issues, record,
+    issues,
+    record::{self, Counted},
 };
 use du_analysis_index::{BuildError, BuildHandle, IngestSink};
 use du_core_contracts::{
@@ -37,10 +40,6 @@ enum Step {
     Continue,
     Push(Frame),
     Pop,
-    /// The volume disconnected; every directory still on the stack is closed.
-    Close,
-    /// The top directory failed with a disconnection; the rest are closed.
-    PopAndClose,
 }
 
 struct Frame {
@@ -96,6 +95,9 @@ pub(super) fn run(
             include,
             checkpoint,
             visited,
+            closed: false,
+            // An unverifiable root was already counted as failed at its start.
+            root_counted: root.boundary == Boundary::Unknown,
         };
         walk.root(root, ids)?
     };
@@ -132,6 +134,10 @@ struct Walk<'a> {
     include: &'a mut dyn FnMut(&[Vec<u8>]) -> bool,
     checkpoint: &'a mut dyn FnMut() -> Checkpoint,
     visited: Visited,
+    /// The volume reported an explicit disconnection; nothing more is opened.
+    closed: bool,
+    /// The root item was counted, so a later root failure is not counted again.
+    root_counted: bool,
 }
 
 impl Walk<'_> {
@@ -156,7 +162,8 @@ impl Walk<'_> {
         let disconnected = batch.iter().any(issues::disconnected_entry);
         root.entries = batch.into();
         if disconnected {
-            return self.close(vec![root]);
+            self.close(&mut root)?;
+            return Ok(Stop::Disconnected);
         }
         while let Some(entry) = root.entries.pop_front() {
             if (self.checkpoint)() == Checkpoint::Cancel {
@@ -185,14 +192,13 @@ impl Walk<'_> {
                 Step::Pop => {
                     stack.pop();
                 }
-                Step::Close => return self.close(stack),
-                Step::PopAndClose => {
-                    stack.pop();
-                    return self.close(stack);
-                }
             }
         }
-        Ok(Stop::Finished)
+        Ok(if self.closed {
+            Stop::Disconnected
+        } else {
+            Stop::Finished
+        })
     }
 
     fn step(&mut self, frame: &mut Frame) -> Result<Step, BuildError> {
@@ -202,7 +208,9 @@ impl Walk<'_> {
         }
         if let Some(entry) = frame.entries.pop_front() {
             let path = frame.child_path(&entry);
-            let (row, entry) = self.record(frame.boundary, entry, path.clone(), true)?;
+            // After a disconnection no directory is entered, so none is reserved.
+            let reserve = !self.closed;
+            let (row, entry) = self.record(frame.boundary, entry, path.clone(), reserve)?;
             if row == Admission::Enter {
                 return self.open(frame, &entry, path);
             }
@@ -213,31 +221,35 @@ impl Walk<'_> {
             Ok(batch) if batch.len() <= MAX_BATCH => {
                 let disconnected = batch.iter().any(issues::disconnected_entry);
                 frame.entries = batch.into();
-                Ok(if disconnected {
-                    Step::Close
-                } else {
-                    Step::Continue
-                })
+                if disconnected {
+                    self.close(frame)?;
+                    return Ok(Step::Pop);
+                }
+                Ok(Step::Continue)
             }
             failure => {
                 let reason = failure_reason(&failure);
                 self.fail(frame.path.clone(), Stage::Enumerate, reason)?;
-                Ok(if reason == issues::DISCONNECTED {
-                    Step::PopAndClose
-                } else {
-                    Step::Pop
-                })
+                self.closed |= reason == issues::DISCONNECTED;
+                Ok(Step::Pop)
             }
         }
     }
 
     /// Opens an entered directory relative to its parent's handle.
+    ///
+    /// After a disconnection the directory is not opened and is a gap of its
+    /// own, whether or not another collector would have reached it already.
     fn open(
         &mut self,
         parent: &Frame,
         entry: &ObservedEntry,
         path: Vec<Vec<u8>>,
     ) -> Result<Step, BuildError> {
+        if self.closed {
+            self.fail(path, Stage::Enumerate, issues::DISCONNECTED)?;
+            return Ok(Step::Continue);
+        }
         match parent.dir.open_child(entry) {
             Ok(dir) => {
                 if (self.checkpoint)() != Checkpoint::Cancel
@@ -250,11 +262,8 @@ impl Walk<'_> {
             Err(error) => {
                 let reason = issues::reason(&error);
                 self.fail(path, Stage::OpenDirectory, reason)?;
-                Ok(if reason == issues::DISCONNECTED {
-                    Step::Close
-                } else {
-                    Step::Continue
-                })
+                self.closed |= reason == issues::DISCONNECTED;
+                Ok(Step::Continue)
             }
         }
     }
@@ -285,7 +294,15 @@ impl Walk<'_> {
         Ok((row, timed.entry))
     }
 
+    /// Records an unread range; the directory stays counted once, as failed.
     fn fail(&mut self, path: Vec<Vec<u8>>, stage: Stage, reason: &str) -> Result<(), BuildError> {
+        let counted = if !path.is_empty() {
+            Counted::Completed
+        } else if std::mem::replace(&mut self.root_counted, true) {
+            Counted::Failed
+        } else {
+            Counted::Uncounted
+        };
         let range = (0, path);
         record::record_failure(
             self.build,
@@ -293,6 +310,7 @@ impl Walk<'_> {
             range,
             (stage, reason),
             (None, None),
+            counted,
         )
     }
 
@@ -312,17 +330,27 @@ impl Walk<'_> {
         Ok(Stop::Cancelled)
     }
 
-    /// Closes every unfinished directory after a disconnection; each is a gap.
+    /// Closes the directory whose own read reported a disconnection.
     ///
-    /// Entered root directories that were not yet opened lie inside the
-    /// root's gap and get no gap of their own.
-    fn close(&mut self, stack: Vec<Frame>) -> Result<Stop, BuildError> {
-        for frame in stack.into_iter().rev() {
-            let path = frame.path.clone();
-            self.drain(frame)?;
-            self.fail(path, Stage::Enumerate, issues::DISCONNECTED)?;
+    /// Its returned entries are recorded without opening any of them; the
+    /// directory and every entered directory among them is a gap of its own.
+    fn close(&mut self, frame: &mut Frame) -> Result<(), BuildError> {
+        self.closed = true;
+        while let Some(entry) = frame.recorded_directories.pop_front() {
+            self.fail(
+                frame.child_path(&entry),
+                Stage::Enumerate,
+                issues::DISCONNECTED,
+            )?;
         }
-        Ok(Stop::Disconnected)
+        while let Some(entry) = frame.entries.pop_front() {
+            let path = frame.child_path(&entry);
+            let (row, _) = self.record(frame.boundary, entry, path.clone(), false)?;
+            if row == Admission::Enter {
+                self.fail(path, Stage::Enumerate, issues::DISCONNECTED)?;
+            }
+        }
+        self.fail(frame.path.clone(), Stage::Enumerate, issues::DISCONNECTED)
     }
 }
 

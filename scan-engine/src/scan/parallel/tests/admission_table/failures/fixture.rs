@@ -19,6 +19,8 @@ pub(super) struct Faults {
     /// Set once the root returns its first batch.
     pub(super) cancel: Arc<AtomicBool>,
     opened: Mutex<Vec<u64>>,
+    /// A nonzero seed delays reads and opens, which varies worker interleaving.
+    seed: u64,
 }
 
 pub(super) struct FaultDir {
@@ -31,10 +33,19 @@ impl FaultDir {
     pub(super) fn root(
         listings: HashMap<u64, Listing>,
     ) -> (Arc<Faults>, Box<dyn AnchoredDirectory>) {
+        Self::seeded(listings, 0)
+    }
+
+    /// Like [`FaultDir::root`], with seed-dependent delays.
+    pub(super) fn seeded(
+        listings: HashMap<u64, Listing>,
+        seed: u64,
+    ) -> (Arc<Faults>, Box<dyn AnchoredDirectory>) {
         let faults = Arc::new(Faults {
             listings,
             cancel: Arc::new(AtomicBool::new(false)),
             opened: Mutex::default(),
+            seed,
         });
         let root = Box::new(Self {
             faults: Arc::clone(&faults),
@@ -51,11 +62,19 @@ impl Faults {
             .lock()
             .map_or(true, |opened| opened.contains(&inode))
     }
+
+    fn delay(&self, inode: u64, step: u64) {
+        if self.seed != 0 {
+            let micros = (inode * 7 + step * 13 + self.seed * 31) % 1500;
+            thread::sleep(Duration::from_micros(micros));
+        }
+    }
 }
 
 impl FaultDir {
     fn read(&mut self) -> Result<Vec<ObservedEntry>, PortError> {
         let first = std::mem::replace(&mut self.reads, 1) == 0;
+        self.faults.delay(self.inode, u64::from(first));
         let listing = self.faults.listings.get(&self.inode).cloned();
         match listing {
             Some(Listing::Entries(entries)) if first => Ok(entries),
@@ -109,6 +128,7 @@ impl DirectoryObservations for FaultDir {
 impl AnchoredDirectory for FaultDir {
     fn open_child(&self, entry: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError> {
         let inode = entry.metadata.as_ref().map_err(Clone::clone)?.inode;
+        self.faults.delay(inode, 2);
         if let Ok(mut opened) = self.faults.opened.lock() {
             opened.push(inode);
         }
