@@ -5,14 +5,10 @@ import type { KeyboardEvent, ReactNode } from "react";
 import {
   Action,
   Breadcrumbs,
-  DetailDisclosure,
-  Readout,
   canHandleBrowseKey,
   Heading,
-  InspectionDialog,
   Notice,
   Progress,
-  Text,
 } from "../../components";
 import type {
   BrowseOpenRequest,
@@ -24,10 +20,18 @@ import type {
   QueryPageResponse,
 } from "../../ipc";
 import { BROWSE_PAGE_SIZE, BrowsePages } from "../../state/browse-pages";
-import { folderPath, rowKey } from "./browse-display";
+import { folderPath } from "./browse-display";
 import { BrowseResults } from "./BrowseResults";
+import {
+  BrowseItemDialog,
+  ObservationSummary,
+  PreviousResultNotice,
+  isPreviousResult,
+  parentLocation,
+  readOnlyBreadcrumbs,
+} from "./browse-panel-parts";
+import type { InspectItem, Opened } from "./browse-panel-parts";
 import { useItemInspection } from "./use-item-inspection";
-import type { InspectedItem } from "./use-item-inspection";
 
 /** Injected boundary for opening folders and paging through a pinned result. */
 export interface BrowsePort {
@@ -44,80 +48,7 @@ export type BrowseOpenLocation = Extract<
   { kind: "opened" }
 >;
 
-type Opened = Extract<BrowseOpenResponse, { kind: "opened" }>;
 type View = { opened: Opened; pages: BrowsePages };
-type ParentLocation = { item?: ItemRef };
-type InspectItem = (item: ItemRef, kind: InspectedItem["kind"]) => ReactNode;
-
-function BrowseItemDialog({
-  inspection,
-  inspectItem,
-  close,
-}: {
-  inspection: InspectedItem | undefined;
-  inspectItem: InspectItem | undefined;
-  close: () => void;
-}) {
-  const text = useLocaleText();
-  if (!inspection || !inspectItem) return null;
-  const title =
-    inspection.kind === "folder"
-      ? text("ui.browse.folder_details", "Folder details")
-      : text("ui.browse.file_details", "File details");
-  return (
-    <InspectionDialog title={title} onClose={close}>
-      {inspectItem(inspection.item, inspection.kind)}
-    </InspectionDialog>
-  );
-}
-
-function parentLocation(
-  opened: Opened,
-  knownVirtualRoot: boolean,
-): ParentLocation | undefined {
-  const { rootKind, location, breadcrumbs, page } = opened;
-  if (!location || location.resultVersion !== page.resultVersion)
-    return undefined;
-  if (rootKind === "scope_root") return knownVirtualRoot ? {} : undefined;
-  if (rootKind !== "folder") return undefined;
-  const current = breadcrumbs.at(-1)?.item;
-  const parent = breadcrumbs.at(-2)?.item;
-  if (!current || rowKey(current) !== rowKey(location)) return undefined;
-  return parent?.resultVersion === page.resultVersion
-    ? { item: parent }
-    : undefined;
-}
-
-function isPreviousResult(displayed?: string, selected?: string): boolean {
-  return (
-    displayed !== undefined && selected !== undefined && displayed !== selected
-  );
-}
-
-function readOnlyBreadcrumbs(
-  entries: ReturnType<typeof folderPath>,
-  readOnly: boolean,
-) {
-  if (!readOnly) return entries;
-  return entries.map((entry) => ({
-    id: entry.id,
-    label: entry.label,
-    ...(entry.current === undefined ? {} : { current: entry.current }),
-  }));
-}
-
-function PreviousResultNotice({ previous }: { previous: boolean }) {
-  const text = useLocaleText();
-  if (!previous) return null;
-  return (
-    <Notice>
-      {text(
-        "ui.browse.previous_result",
-        "Showing the previous result. Open the selected result to navigate.",
-      )}
-    </Notice>
-  );
-}
 
 /** Isolated folder browser; its host supplies the transport and pinned result. */
 export function BrowsePanel({
@@ -408,112 +339,5 @@ export function BrowsePanel({
         close={inspection.close}
       />
     </section>
-  );
-}
-
-function ObservationSummary({
-  opened,
-  hasVirtualRoot,
-  rootLabel,
-}: {
-  opened: Opened;
-  hasVirtualRoot: boolean;
-  rootLabel: string | undefined;
-}) {
-  const text = useLocaleText();
-  const page = opened.page;
-  return (
-    <div className="du-browse-observation">
-      <Text kind="muted">
-        {opened.origin} ·{" "}
-        {page.observedAt?.slice(0, 10) ??
-          text("ui.browse.unavailable", "Unavailable")}{" "}
-        ·{" "}
-        {page.total.state === "lower_bound"
-          ? `${text("ui.browse.at_least", "At least")} `
-          : ""}
-        {text("ui.browse.item_count", "{count} items", {
-          count: String(page.total.count),
-        })}
-        {page.completeness === "complete"
-          ? ` · ${text("ui.browse.complete", "Complete")}`
-          : ""}
-      </Text>
-      <DetailDisclosure
-        title={text("ui.browse.observation_details", "Observation details")}
-      >
-        <section
-          tabIndex={0}
-          aria-label={text(
-            "ui.browse.full_location_observation",
-            "Full folder location and observation",
-          )}
-        >
-          <Readout
-            label={text(
-              "ui.browse.folder_location_observation",
-              "Folder location and observation",
-            )}
-            rows={[
-              {
-                label: text(
-                  "ui.browse.location_hierarchy",
-                  "Location hierarchy",
-                ),
-                value: folderPath(
-                  opened,
-                  hasVirtualRoot,
-                  () => undefined,
-                  text,
-                  rootLabel,
-                )
-                  .map((entry) => entry.label)
-                  .join(" / "),
-                wideValue: true,
-              },
-              {
-                label: text("ui.browse.source", "Source"),
-                value: opened.origin,
-              },
-              {
-                label: text("ui.browse.observed", "Observed"),
-                value:
-                  page.observedAt ??
-                  text("ui.browse.unavailable", "Unavailable"),
-                wideValue: true,
-              },
-              {
-                label: text("ui.browse.result", "Result"),
-                value: text("ui.browse.pinned_result", "Pinned result"),
-              },
-              {
-                label: text("ui.browse.completeness", "Completeness"),
-                value:
-                  page.completeness === "complete"
-                    ? text("ui.browse.complete", "Complete")
-                    : text("ui.browse.incomplete", "Incomplete"),
-              },
-            ]}
-          />
-          {page.unknownCount > 0 && (
-            <Text kind="muted">
-              {text(
-                "ui.browse.unknown_items",
-                "{count} items could not be evaluated.",
-                { count: String(page.unknownCount) },
-              )}
-            </Text>
-          )}
-          {page.completeness !== "complete" && (
-            <Text>
-              {text(
-                "ui.browse.some_items_unavailable",
-                "Some items may be unavailable.",
-              )}
-            </Text>
-          )}
-        </section>
-      </DetailDisclosure>
-    </div>
   );
 }
