@@ -6,6 +6,7 @@ use std::{
     process::ExitCode,
 };
 
+use du_core_contracts::ErrorCode;
 use du_core_contracts::product_support::{
     EmbeddedProductInfo, SupportEnvironmentPort, SupportMatrix,
 };
@@ -14,11 +15,18 @@ use du_platform_os::{
     startup::{FullDiskAccessStatus, StartupCapabilitiesPort, SystemStartupCapabilities},
     support_environment::SystemSupportEnvironment,
 };
-use du_user_env::{i18n::embedded, locale::DecisionError};
+use du_user_env::{
+    i18n::{Registry, embedded},
+    locale::DecisionError,
+};
 
 mod args;
+mod diagnostics;
+mod machine_output;
 mod product_output;
 mod startup_locale;
+
+use diagnostics::{write_error_line, write_stderr_line};
 
 const SETTINGS_UNAVAILABLE_REASON_KEY: &str = "settings_unavailable";
 const SETTINGS_UNAVAILABLE_MESSAGE_KEY: &str = "cli.settings.unavailable";
@@ -155,14 +163,75 @@ fn run_with_io_and_product_info<W: Write, E: Write>(
     stdout: &mut W,
     stderr: &mut E,
 ) -> ExitCode {
-    let Some(args) = args::parse(arguments) else {
-        write_stderr_line(stderr, "DiskUnfold: locale.unsupported");
+    let args = args::parse(arguments);
+    let registry = embedded::register(&[]);
+    let Some(args) = args else {
+        write_locale_unsupported(stderr, registry.as_ref().ok());
         return ExitCode::from(2);
     };
-    let Ok(registry) = embedded::register(&[]) else {
-        write_stderr_line(stderr, "DiskUnfold: locale.registration_failed");
+    let Ok(registry) = registry else {
+        write_registration_failed(stderr);
         return ExitCode::FAILURE;
     };
+    run_with_registry(
+        Parsed {
+            args,
+            registry: &registry,
+        },
+        product_info,
+        ports,
+        read_stored,
+        read_os,
+        stdout,
+        stderr,
+    )
+}
+
+/// Runs a parsed request against a registered language registry.
+///
+/// After the command finishes, each message that used a fallback is reported
+/// once on stderr as `locale.translation_fallback`. The report never changes
+/// the exit code.
+fn run_with_registry<W: Write, E: Write>(
+    parsed: Parsed<'_>,
+    product_info: EmbeddedProductInfo,
+    ports: &OsPorts<'_, impl SupportEnvironmentPort, impl StartupCapabilitiesPort>,
+    read_stored: impl FnOnce() -> Result<Option<String>, ()>,
+    read_os: impl FnOnce() -> Option<Vec<String>>,
+    stdout: &mut W,
+    stderr: &mut E,
+) -> ExitCode {
+    let registry = parsed.registry;
+    let exit = run_command(
+        parsed,
+        product_info,
+        ports,
+        read_stored,
+        read_os,
+        stdout,
+        stderr,
+    );
+    diagnostics::write_translation_fallbacks(stderr, registry);
+    exit
+}
+
+/// A parsed request together with the registry that resolves its messages.
+struct Parsed<'a> {
+    args: args::Arguments,
+    registry: &'a Registry,
+}
+
+/// Selects the language and runs one command.
+fn run_command<W: Write, E: Write>(
+    parsed: Parsed<'_>,
+    product_info: EmbeddedProductInfo,
+    ports: &OsPorts<'_, impl SupportEnvironmentPort, impl StartupCapabilitiesPort>,
+    read_stored: impl FnOnce() -> Result<Option<String>, ()>,
+    read_os: impl FnOnce() -> Option<Vec<String>>,
+    stdout: &mut W,
+    stderr: &mut E,
+) -> ExitCode {
+    let Parsed { args, registry } = parsed;
     let skip_stored_settings = matches!(
         &args.command,
         args::Command::Help
@@ -173,7 +242,7 @@ fn run_with_io_and_product_info<W: Write, E: Write>(
             | args::Command::Unsupported
     );
     let (selection, settings_unavailable) = match startup_locale::select_with_policy(
-        &registry,
+        registry,
         args.language.as_deref(),
         skip_stored_settings,
         read_stored,
@@ -181,17 +250,17 @@ fn run_with_io_and_product_info<W: Write, E: Write>(
     ) {
         Ok(selection) => selection,
         Err(DecisionError::UnsupportedLanguage) => {
-            write_stderr_line(stderr, "DiskUnfold: locale.unsupported");
+            write_locale_unsupported(stderr, Some(registry));
             return ExitCode::from(2);
         }
         Err(DecisionError::RegistrationFailed) => {
-            write_stderr_line(stderr, "DiskUnfold: locale.registration_failed");
+            write_registration_failed(stderr);
             return ExitCode::FAILURE;
         }
     };
-    let message = product_output::Messages::new(&registry, &selection.language);
+    let message = product_output::Messages::new(registry, &selection.language);
     let Some(product_name) = message.resolve("ui.product.name") else {
-        write_stderr_line(stderr, "DiskUnfold: locale.registration_failed");
+        write_registration_failed(stderr);
         return ExitCode::FAILURE;
     };
     if settings_unavailable || selection.stored_unavailable {
@@ -212,7 +281,7 @@ fn run_with_io_and_product_info<W: Write, E: Write>(
     let output = match args.command {
         args::Command::Help => {
             let Some(usage) = message.resolve("cli.help.usage") else {
-                write_stderr_line(stderr, "DiskUnfold: locale.registration_failed");
+                write_registration_failed(stderr);
                 return ExitCode::FAILURE;
             };
             write!(stdout, "{product_name}\n\n{usage}\n")
@@ -238,7 +307,8 @@ fn run_with_io_and_product_info<W: Write, E: Write>(
                 &ports.environment.capabilities(),
             );
             match format {
-                args::OutputFormat::Json => product_output::write_support_json(stdout, &report),
+                // The machine renderer receives the raw report only: no resolver, no format profile.
+                args::OutputFormat::Json => machine_output::write_support_json(stdout, &report),
                 args::OutputFormat::Text => {
                     product_output::write_support_text(stdout, &message, &report)
                 }
@@ -249,13 +319,15 @@ fn run_with_io_and_product_info<W: Write, E: Write>(
         args::Command::Scan(scan) => {
             drop(scan);
             if ports.access.full_disk_access_status() == FullDiskAccessStatus::Denied {
-                // One line: the stable reason key, then the localized explanation.
+                // One line: reason key, localized explanation, English error code.
                 let text = message
                     .resolve(FULL_DISK_ACCESS_REQUIRED_MESSAGE_KEY)
                     .unwrap_or_else(|| FULL_DISK_ACCESS_REQUIRED_MESSAGE_KEY.to_owned());
-                write_stderr_line(
+                write_error_line(
                     stderr,
-                    &format!("DiskUnfold: {FULL_DISK_ACCESS_REQUIRED_REASON_KEY}: {text}"),
+                    FULL_DISK_ACCESS_REQUIRED_REASON_KEY,
+                    &ErrorCode::InvalidArgument,
+                    Some(&text),
                 );
                 return ExitCode::from(EXIT_USAGE);
             }
@@ -279,11 +351,35 @@ fn run_with_io_and_product_info<W: Write, E: Write>(
 
 fn write_unsupported(stderr: &mut impl Write, localized: Option<String>) -> ExitCode {
     let Some(unsupported) = localized else {
-        write_stderr_line(stderr, "DiskUnfold: locale.registration_failed");
+        write_registration_failed(stderr);
         return ExitCode::FAILURE;
     };
     write_stderr_line(stderr, &unsupported);
     ExitCode::from(2)
+}
+
+/// Writes the `locale.unsupported` error line, in English because the
+/// requested language is not available. Without a registry only the key and
+/// code are written.
+fn write_locale_unsupported(stderr: &mut impl Write, registry: Option<&Registry>) {
+    let text = registry
+        .and_then(|registry| registry.resolve_plain_text("en", "reason.locale.unsupported.cause"));
+    write_error_line(
+        stderr,
+        "locale.unsupported",
+        &ErrorCode::InvalidArgument,
+        text.as_deref(),
+    );
+}
+
+/// Writes the `locale.registration_failed` error line; no text can be resolved.
+fn write_registration_failed(stderr: &mut impl Write) {
+    write_error_line(
+        stderr,
+        "locale.registration_failed",
+        &ErrorCode::Internal,
+        None,
+    );
 }
 
 static EMPTY_MATRIX: SupportMatrix = SupportMatrix {
@@ -303,11 +399,6 @@ fn output_exit_code(write_result: io::Result<()>) -> ExitCode {
     } else {
         ExitCode::from(5)
     }
-}
-
-/// Writes a diagnostic line without panicking when stderr has been closed.
-fn write_stderr_line(stderr: &mut impl Write, message: &str) {
-    let _ = writeln!(stderr, "{message}");
 }
 
 /// Writes the localized text message, preserving the stable reason key if the
@@ -331,8 +422,16 @@ fn write_output_interrupted_diagnostic(stderr: &mut impl Write, localized_messag
 #[cfg(test)]
 mod tests;
 
+/// Expected `locale.unsupported` error line: reason key, English cause, English error code.
+#[cfg(test)]
+const LOCALE_UNSUPPORTED_LINE: &[u8] =
+    b"DiskUnfold: locale.unsupported: The requested language is unavailable. [INVALID_ARGUMENT]\n";
+
 #[cfg(test)]
 mod validation_tests;
+
+#[cfg(test)]
+mod fallback_tests;
 
 #[cfg(test)]
 mod product_tests;
