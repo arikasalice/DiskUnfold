@@ -474,6 +474,13 @@ jobs:
           security import "$RUNNER_TEMP/diskunfold-identity.p12" -k "$keychain" -P "$P12_PASSWORD" -T /usr/bin/codesign
           rm -f "$RUNNER_TEMP/diskunfold-identity.p12"
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_secret" "$keychain" > /dev/null
+          # codesign resolves the identity through the user keychain search list on hosted runners,
+          # so the temporary keychain must be listed; the cleanup step restores the original list.
+          original_list="$(security list-keychains -d user | tr -d '"' | xargs)"
+          echo "original_keychains=$original_list" >> "$GITHUB_OUTPUT"
+          # shellcheck disable=SC2086
+          security list-keychains -d user -s "$keychain" $original_list
+          security find-identity -v -p codesigning "$keychain"
           echo "signing=self-signed" >> "$GITHUB_OUTPUT"
           echo "keychain=$keychain" >> "$GITHUB_OUTPUT"
           echo "macOS signing: self-signed DiskUnfold Development Signing (not notarized, not Developer ID)" >> "$GITHUB_STEP_SUMMARY"
@@ -495,8 +502,13 @@ jobs:
         if: always()
         env:
           KEYCHAIN: ${{ steps.identity.outputs.keychain }}
+          ORIGINAL_KEYCHAINS: ${{ steps.identity.outputs.original_keychains }}
         run: |
           if [[ -n "$KEYCHAIN" ]]; then
+            if [[ -n "$ORIGINAL_KEYCHAINS" ]]; then
+              # shellcheck disable=SC2086
+              security list-keychains -d user -s $ORIGINAL_KEYCHAINS || true
+            fi
             security delete-keychain "$KEYCHAIN" || true
           fi
       - name: Stop when Apple notarization is configured
