@@ -24,6 +24,7 @@ import { App } from "./App";
 import { SupportRequestContext } from "./support-request";
 import { LocaleSettings } from "../features/settings/LocaleSettings";
 import type { LocaleSettingsProps } from "../features/settings/LocaleSettings";
+import { useLocaleSettingsExtras } from "../features/settings/use-locale-settings-extras";
 import { ClosingGuard } from "../features/shutdown/ClosingGuard";
 import { StartupGate } from "../features/startup/StartupGate";
 
@@ -95,6 +96,8 @@ export function DesktopLocale({
   );
   useEffect(() => () => reporter.cancel(), [reporter]);
   const format = useMemo(() => view && regionalFormat(view), [view]);
+  // The size unit is a read-only row, shown only where analysis (and so its settings) is on.
+  const settingsExtras = useLocaleSettingsExtras(view, client, analysisEnabled);
   const text = useMemo(
     () => view && format && createLocaleText(view, format, reporter.note),
     [view, format, reporter],
@@ -150,10 +153,11 @@ export function DesktopLocale({
   };
   const locale: LocaleSettingsProps = {
     profile: view.profile,
-    text: (key) => text(key, ""),
+    text: (key, values) => text(key, "", values),
     save,
     ...(errorKey && { errorKey }),
     ...(issue && { issue }),
+    ...settingsExtras,
   };
   const shell = (
     <App

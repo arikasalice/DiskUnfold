@@ -115,6 +115,21 @@ ui.locale.loading
 ui.locale.failed
 ui.locale.save_failed
 ui.locale.modified
+ui.locale.panel_title
+ui.locale.table_label
+ui.locale.column_setting
+ui.locale.column_value
+ui.locale.column_timing
+ui.locale.timing_immediate
+ui.locale.example value:name
+ui.locale.translation_partial
+ui.locale.translation_notice
+ui.locale.scale_previous scale:count
+ui.locale.scale_revert
+ui.locale.scale_revert_to scale:count
+ui.locale.motion_note
+ui.locale.size_unit
+ui.locale.read_only_here
 ui.startup.title
 ui.startup.introduction
 ui.startup.introduction_other

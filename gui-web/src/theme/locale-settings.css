@@ -1,0 +1,131 @@
+/*
+ * Appearance and language table (F13 FR3.HD1.gui-web.DD1, FR4.HD1.gui-web.DD1).
+ *
+ * The table is a grid of three columns. When the table itself is narrow (a
+ * small window or a large app scale) every row becomes one column, so the
+ * table never scrolls sideways. Korean words are kept whole; only a word that
+ * is longer than the line may break.
+ */
+.du-locale-table {
+  container-type: inline-size;
+  display: grid;
+  min-inline-size: 0;
+  overflow-wrap: break-word;
+  word-break: keep-all;
+}
+
+.du-locale-table :is(.du-action, .du-badge, .du-notice) {
+  overflow-wrap: break-word;
+  word-break: keep-all;
+}
+
+.du-locale-head,
+.du-locale-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.8fr) minmax(0, 0.7fr);
+  column-gap: var(--du-space-3);
+  align-items: start;
+  padding: var(--du-space-2) var(--du-space-3);
+}
+
+.du-locale-head {
+  align-items: center;
+  border-radius: 6px;
+  background: var(--du-subtle);
+  color: var(--du-muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.du-locale-row {
+  border-block-end: 1px solid var(--du-border);
+}
+
+/* The row being edited keeps a visible surface; the control keeps its own focus ring. */
+.du-locale-row:focus-within {
+  background: var(--du-selected-surface);
+}
+
+.du-locale-row__name,
+.du-locale-row__timing {
+  display: flex;
+  align-items: center;
+  min-block-size: 44px;
+  min-inline-size: 0;
+}
+
+.du-locale-row__name .du-text {
+  font-weight: 620;
+}
+
+.du-locale-row__value {
+  display: grid;
+  gap: var(--du-space-1);
+  min-inline-size: 0;
+}
+
+/* The row name is already the first column, so the selector's own label is
+   kept for assistive technology only. */
+.du-locale-table label.du-field > span {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.du-locale-table .du-field {
+  position: relative;
+}
+
+.du-locale-value__line,
+.du-locale-revert {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--du-space-1) var(--du-space-2);
+  min-inline-size: 0;
+}
+
+.du-locale-value__line > .du-field {
+  flex: 1 1 9rem;
+  max-inline-size: 16rem;
+}
+
+.du-locale-row__value > .du-field {
+  max-inline-size: 16rem;
+}
+
+.du-locale-band {
+  display: block;
+  padding: var(--du-space-2) 0;
+}
+
+@container (max-width: 34rem) {
+  .du-locale-head {
+    position: absolute;
+    inline-size: 1px;
+    block-size: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+
+  .du-locale-row {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: var(--du-space-1);
+  }
+
+  .du-locale-row__name,
+  .du-locale-row__timing {
+    min-block-size: 0;
+  }
+
+  .du-locale-row__value > .du-field,
+  .du-locale-value__line > .du-field {
+    max-inline-size: none;
+  }
+}
