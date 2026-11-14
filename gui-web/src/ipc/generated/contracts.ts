@@ -1096,7 +1096,11 @@ export type GroupSummary = { classificationRef: Id, resultVersion: Id,
 /**
  * Result origin, such as `scan` or `incremental`.
  */
-sourceKind: string, observedAt?: Timestamp, completeness: ResultCompleteness, scope: ItemRef,
+sourceKind: string, observedAt?: Timestamp, completeness: ResultCompleteness,
+/**
+ * Classified folder; absent when the whole result (every scope root) was classified.
+ */
+scope?: ItemRef,
 /**
  * Zero when the rules came from an unsaved draft.
  */

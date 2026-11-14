@@ -204,7 +204,10 @@ pub struct GroupSummary {
     #[cfg_attr(feature = "typescript", ts(optional))]
     pub observed_at: Option<Timestamp>,
     pub completeness: ResultCompleteness,
-    pub scope: ItemRef,
+    /// Classified folder; absent when the whole result (every scope root) was classified.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub scope: Option<ItemRef>,
     /// Zero when the rules came from an unsaved draft.
     pub ruleset_version: u32,
     pub ruleset_fingerprint: String,
