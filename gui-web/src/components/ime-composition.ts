@@ -151,12 +151,23 @@ const MODIFIER_KEYS = new Set([
  * composition, a second separate Enter press, another non-modifier key press,
  * a new composition, or blur. The first Enter press while the mark is set is
  * consumed (row `just-ended-enter`), so at most one Enter is lost.
+ *
+ * `onLeave` runs once focus leaves the input. When focus leaves during a
+ * composition it waits for that composition to end, so the entry never
+ * rewrites its value under an active composition and acts on the composed
+ * value. Focusing the input again cancels the wait.
  */
 export function useImeComposition(
   onCompositionChange?: (composing: boolean) => void,
-  options: { onEnter?: () => void; enter?: EnterPolicy } = {},
+  options: {
+    onEnter?: () => void;
+    enter?: EnterPolicy;
+    onLeave?: () => void;
+  } = {},
 ) {
   const state = useRef<CompositionState>("idle");
+  // Focus left during a composition; `onLeave` waits for its end.
+  const leftWhileComposing = useRef(false);
   // True once the mark has consumed an Enter press that has not been released.
   const enterConsumed = useRef(false);
   // The physical key of the latest key press, to pair it with its release.
@@ -182,6 +193,9 @@ export function useImeComposition(
   function onCompositionEnd() {
     setState("just-ended");
     onCompositionChange?.(false);
+    if (!leftWhileComposing.current) return;
+    leftWhileComposing.current = false;
+    options.onLeave?.();
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLInputElement>) {
@@ -226,8 +240,15 @@ export function useImeComposition(
   }
 
   function onBlur() {
+    const composing = state.current === "composing";
     setState("idle");
     onCompositionChange?.(false);
+    if (composing) leftWhileComposing.current = true;
+    else options.onLeave?.();
+  }
+
+  function onFocus() {
+    leftWhileComposing.current = false;
   }
 
   return {
@@ -235,6 +256,7 @@ export function useImeComposition(
     onCompositionEnd,
     onCompositionStart,
     onCompositionUpdate,
+    onFocus,
     onKeyDown,
     onKeyUp,
   };
