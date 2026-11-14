@@ -129,7 +129,12 @@ fn total(version: &ResultVersion, request: SpaceTotalRequest) -> Result<SpaceTot
     Ok(response(version, request.request_seq, aggregate))
 }
 
-fn response(version: &ResultVersion, request_seq: u32, aggregate: &SpaceAggregate) -> SpaceTotal {
+/// Converts one F03 aggregate to the published per-basis total.
+pub(crate) fn response(
+    version: &ResultVersion,
+    request_seq: u32,
+    aggregate: &SpaceAggregate,
+) -> SpaceTotal {
     SpaceTotal {
         result_version: version.version_id().clone(),
         request_seq,

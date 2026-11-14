@@ -96,7 +96,8 @@ impl Progress {
             }
             Event::Undecided(root_index, path) => {
                 // The source supplied no observation time for a withheld name.
-                admission::record_unread(build, root_index, path, None)?;
+                let unread = admission::Unread::Unverifiable;
+                admission::record_unread(build, (root_index, path), unread, counts, None)?;
                 self.cadence.changed();
                 Ok(())
             }
@@ -175,10 +176,10 @@ fn record_item(
     row: Admission,
 ) -> Result<(), BuildError> {
     let entry = &timed.entry;
-    if row.unentered() {
-        counts.completed += 1;
+    if let Some(unread) = row.unread() {
         let observed_at = timed.observed_at.as_ref();
-        return admission::record_unentered(build, root_index, entry, &path, observed_at);
+        let range = (root_index, path.as_slice());
+        return admission::record_unentered(build, range, entry, unread, counts, observed_at);
     }
     let gap = entry_gap(entry);
     record_at(

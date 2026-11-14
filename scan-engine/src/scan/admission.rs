@@ -1,25 +1,19 @@
 //! First-match directory admission for one frozen scope version.
 //!
 //! FR1.HD1.app-host.DD1 and FR6.HD1.app-host.DD1 order the rows as follows:
-//! exclusion rule → excluded, link → untraversed link, other volume → outside
-//! boundary, visited → revisit blocked, undecidable boundary → unverifiable,
-//! otherwise → enter. The sequential and parallel collectors use only this table.
+//! exclusion rule → excluded, link → untraversed link, other volume or mount
+//! point → outside boundary, visited → revisit blocked, undecidable boundary →
+//! unverifiable, otherwise → enter. The sequential and parallel collectors use
+//! only this table.
 use du_analysis_index::{BuildError, BuildHandle, Observation};
 use du_core_contracts::{
     Timestamp,
     job::JobCounts,
-    scan_failures::{ScanFailureKind, ScanFailureStage, ScanIssue},
+    scan_failures::{ScanFailureKind, ScanFailureStage, ScanIssue, unentered_reason},
     scan_observation::{FilterDecision, MetadataObservation, ObservedEntry, ObservedKind},
 };
 mod visited;
 pub(super) use visited::{RootStart, Visited};
-
-/// Reason kept for entries the table did not enter.
-///
-/// The published failure classification has no kind, stage or reason key for
-/// an outside-boundary, revisited or unverifiable entry. Until it does, such an
-/// entry stays an unread range with the generic unclassified reason.
-const UNENTERED_REASON: &str = "scan.unclassified";
 
 /// The first matching row for one enumerated entry.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -30,7 +24,7 @@ pub(super) enum Admission {
     Record,
     /// A link recorded with its own observation and an untraversed marker.
     UntraversedLink,
-    /// Observed on another volume than its parent directory.
+    /// Observed on another volume than its parent directory, or a mount point.
     OutsideBoundary,
     /// A directory whose volume and file identity was already admitted.
     Revisit,
@@ -41,12 +35,39 @@ pub(super) enum Admission {
 }
 
 impl Admission {
-    /// True for rows that leave the entry as an unread range without entering it.
-    pub(super) fn unentered(self) -> bool {
-        matches!(
-            self,
-            Self::OutsideBoundary | Self::Revisit | Self::Unverifiable
-        )
+    /// The unread range of a row that leaves the entry without entering it.
+    pub(super) fn unread(self) -> Option<Unread> {
+        match self {
+            Self::OutsideBoundary => Some(Unread::OtherVolume),
+            Self::Revisit => Some(Unread::Revisit),
+            Self::Unverifiable => Some(Unread::Unverifiable),
+            _ => None,
+        }
+    }
+}
+
+/// Why a range was left unread, and whether that lowers completeness.
+///
+/// Every range is listed as an unread range at the traverse stage. Only an
+/// unverifiable range is a scope gap and a failure; another volume is a
+/// boundary of the scope version and a revisit was already collected once.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Unread {
+    /// Another volume, including a mount point.
+    OtherVolume,
+    /// A directory already reserved by another path or an earlier root.
+    Revisit,
+    /// The boundary, the exclusion rule or the identity could not be decided.
+    Unverifiable,
+}
+
+impl Unread {
+    fn reason_key(self) -> &'static str {
+        match self {
+            Self::OtherVolume => unentered_reason::BOUNDARY_OTHER_VOLUME,
+            Self::Revisit => unentered_reason::REVISIT_BLOCKED,
+            Self::Unverifiable => unentered_reason::BOUNDARY_UNVERIFIABLE,
+        }
     }
 }
 
@@ -131,11 +152,15 @@ fn decide_with(
     if excluded {
         return Admission::Excluded;
     }
-    let Some(meta) = consistent(entry, parent.boundary) else {
+    let Some(meta) = consistent(entry) else {
         return Admission::Record;
     };
     if meta.kind == ObservedKind::Link {
         return Admission::UntraversedLink;
+    }
+    // The adapter established another volume even when the parent's is unknown.
+    if meta.kind == ObservedKind::MountPoint {
+        return Admission::OutsideBoundary;
     }
     if let Boundary::Volume(device) = parent.boundary
         && meta.device != device
@@ -157,38 +182,42 @@ fn decide_with(
     }
 }
 
-/// Metadata that describes the enumerated entry, or `None` to record it as is.
-///
-/// The enumerated and observed inodes must match on the parent's volume. On
-/// another volume they are not comparable: a Linux mount point enumerates the
-/// covered directory of the parent while its metadata is the mounted root.
-/// Such an entry is only ever classified outside the boundary, never entered.
-fn consistent(entry: &ObservedEntry, boundary: Boundary) -> Option<&MetadataObservation> {
-    entry.metadata.as_ref().ok().filter(|meta| {
-        let other_volume = matches!(boundary, Boundary::Volume(device) if meta.device != device);
-        meta.inode != 0
-            && (other_volume || meta.inode == entry.enumerated_inode)
-            && (entry.enumerated_kind == ObservedKind::Unknown
-                || entry.enumerated_kind == meta.kind)
-            && !matches!(meta.kind, ObservedKind::Unknown | ObservedKind::Other)
+fn consistent(entry: &ObservedEntry) -> Option<&MetadataObservation> {
+    entry.metadata.as_ref().ok().filter(|meta| match meta.kind {
+        // The mounted root's identity differs from the covered directory's,
+        // and only a directory can be a mount point.
+        ObservedKind::MountPoint => matches!(
+            entry.enumerated_kind,
+            ObservedKind::Unknown | ObservedKind::Directory | ObservedKind::MountPoint
+        ),
+        ObservedKind::Unknown | ObservedKind::Other => false,
+        _ => {
+            meta.inode != 0
+                && meta.inode == entry.enumerated_inode
+                && (entry.enumerated_kind == ObservedKind::Unknown
+                    || entry.enumerated_kind == meta.kind)
+        }
     })
 }
 
-/// Records an entry that the table did not enter as an unread range.
+/// Records an entry that the table did not enter, with its unread range.
 ///
 /// No size, time or space facts are kept because they may describe another
-/// volume or a range that was not read.
+/// volume or a range that was not read. A mount point stays a directory item.
 pub(super) fn record_unentered(
     build: &mut BuildHandle,
-    root_index: u32,
+    (root_index, path): (u32, &[Vec<u8>]),
     entry: &ObservedEntry,
-    path: &[Vec<u8>],
+    unread: Unread,
+    counts: &mut JobCounts,
     observed_at: Option<&Timestamp>,
 ) -> Result<(), BuildError> {
-    let directory = entry
-        .metadata
-        .as_ref()
-        .is_ok_and(|meta| meta.kind == ObservedKind::Directory);
+    let directory = entry.metadata.as_ref().is_ok_and(|meta| {
+        matches!(
+            meta.kind,
+            ObservedKind::Directory | ObservedKind::MountPoint
+        )
+    });
     if directory {
         build.add_directory_at(root_index, path.to_vec())?;
     } else {
@@ -200,37 +229,48 @@ pub(super) fn record_unentered(
             },
         )?;
     }
-    record_unread(build, root_index, path.to_vec(), observed_at)
+    record_unread(
+        build,
+        (root_index, path.to_vec()),
+        unread,
+        counts,
+        observed_at,
+    )
 }
 
 /// Records a range that was not read, without any observation of its own.
+///
+/// Every range is listed. Only an unverifiable range is also a scope gap and
+/// a failure; other ranges count as completed (FR12.HD1.app-host.DD1).
 pub(super) fn record_unread(
     build: &mut BuildHandle,
-    root_index: u32,
-    path: Vec<Vec<u8>>,
+    (root_index, path): (u32, Vec<Vec<u8>>),
+    unread: Unread,
+    counts: &mut JobCounts,
     observed_at: Option<&Timestamp>,
 ) -> Result<(), BuildError> {
+    let reason_key = unread.reason_key();
     build.record_scan_issue(ScanIssue {
         root_index,
         relative: path.clone(),
         kind: ScanFailureKind::UnreadRange,
         stage: ScanFailureStage::Traverse,
-        reason_key: UNENTERED_REASON.into(),
+        reason_key: reason_key.into(),
         observed_at: observed_at.cloned(),
     })?;
-    build.record_gap_at(
-        root_index,
-        path,
-        UNENTERED_REASON.into(),
-        observed_at.cloned(),
-    )
+    if unread != Unread::Unverifiable {
+        counts.completed += 1;
+        return Ok(());
+    }
+    counts.failed += 1;
+    build.record_gap_at(root_index, path, reason_key.into(), observed_at.cloned())
 }
 
 /// Records how a root starts, before any of its entries is observed.
 ///
-/// A root without a verified identity is an unread range counted as a
-/// failure, because none of its child directories can be entered. A root that
-/// repeats an earlier root is a revisit and is never enumerated.
+/// A root without a verified identity is an unverifiable range, because none
+/// of its child directories can be entered. A root that repeats an earlier
+/// root is a revisit and is never enumerated.
 pub(super) fn record_root_start(
     build: &mut BuildHandle,
     root_index: u32,
@@ -238,12 +278,12 @@ pub(super) fn record_root_start(
     counts: &mut JobCounts,
     observed_at: Option<&Timestamp>,
 ) -> Result<(), BuildError> {
-    match start {
+    let unread = match start {
         RootStart::Collect(Boundary::Volume(_)) => return Ok(()),
-        RootStart::Collect(Boundary::Unknown) => counts.failed += 1,
-        RootStart::Revisit => counts.completed += 1,
-    }
-    record_unread(build, root_index, Vec::new(), observed_at)
+        RootStart::Collect(Boundary::Unknown) => Unread::Unverifiable,
+        RootStart::Revisit => Unread::Revisit,
+    };
+    record_unread(build, (root_index, Vec::new()), unread, counts, observed_at)
 }
 
 #[cfg(test)]

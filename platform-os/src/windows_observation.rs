@@ -180,6 +180,14 @@ pub(crate) fn final_path(
     path.truncate(length);
     Ok(path)
 }
+/// The kind reported for the attributes of an entry or an opened handle.
+///
+/// Every reparse point, including a volume mount point, is a `Link`, never an
+/// `ObservedKind::MountPoint`. Junctions and volume mount points share the tag
+/// `IO_REPARSE_TAG_MOUNT_POINT`; only the reparse data's target tells them
+/// apart, and reading it is another `FSCTL_GET_REPARSE_POINT` call per entry.
+/// Entries are opened with `FILE_OPEN_REPARSE_POINT`, so a mount point is
+/// observed on its parent's volume and is not entered either way.
 fn kind(attributes: u32) -> ObservedKind {
     if attributes & FILE_ATTRIBUTE_REPARSE_POINT.0 != 0 {
         ObservedKind::Link

@@ -24,6 +24,23 @@ pub enum ScanFailureStage {
     Traverse,
 }
 
+/// Reason keys of entries that the directory admission table did not enter.
+///
+/// Each is recorded as [`ScanFailureKind::UnreadRange`] at
+/// [`ScanFailureStage::Traverse`] (FR1.HD1.app-host.DD1). Only an
+/// unverifiable range is a scope gap and lowers the result's completeness.
+pub mod unentered_reason {
+    /// The entry is on another volume than its parent, including a mount
+    /// point. The scope version sets this boundary, so it is not a gap.
+    pub const BOUNDARY_OTHER_VOLUME: &str = "scan.boundary_other_volume";
+    /// The directory was already collected through another path or by a root
+    /// with a lower index, so it is not a gap.
+    pub const REVISIT_BLOCKED: &str = "scan.revisit_blocked";
+    /// The volume boundary, the exclusion rule or the directory identity
+    /// could not be decided. The range is a gap and counts as a failure.
+    pub const BOUNDARY_UNVERIFIABLE: &str = "scan.boundary_unverifiable";
+}
+
 /// A collection fact retained in one immutable result. Paths are root-relative.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ScanIssue {

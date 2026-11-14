@@ -278,11 +278,24 @@ pub trait ScopeRootPort: Send + Sync {
     }
 }
 
+/// The kind of an enumerated entry, as reported by the adapter.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ObservedKind {
     File,
     Directory,
     Link,
+    /// A directory entry at which another volume is mounted.
+    ///
+    /// An adapter reports it only when its own observation of the entry
+    /// establishes the mount; an entry it cannot tell apart from a link stays a
+    /// `Link`. The entry follows the rule for another volume in
+    /// [`MetadataObservation`]: `device` and `inode` may identify the mounted
+    /// volume and its root, and the size, times, allocation, link count and
+    /// space identity are not reported. Enumeration may have reported the same
+    /// entry as a `Directory` with the identity of the covered directory, so
+    /// the collector compares neither with the metadata. It records the entry
+    /// as a directory outside the boundary and never enters it.
+    MountPoint,
     Other,
     Unknown,
 }
@@ -304,7 +317,8 @@ pub enum NativeModifiedTime {
 /// is an error, and the times, allocation, link count and space identity are
 /// `None`. When the parent's volume is known, the collector classifies the
 /// entry outside the boundary. It never enters such an entry and never uses a
-/// size reported for it.
+/// size reported for it. A [`ObservedKind::MountPoint`] follows the same rule
+/// and is outside the boundary whether or not the parent's volume is known.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MetadataObservation {
     pub kind: ObservedKind,

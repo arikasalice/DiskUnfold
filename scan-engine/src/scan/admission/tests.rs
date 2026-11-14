@@ -109,40 +109,27 @@ fn inconsistent_metadata_is_recorded_and_never_entered() {
 }
 
 #[test]
-fn another_volume_is_outside_the_boundary_whatever_its_enumerated_inode() {
+fn a_mount_point_is_outside_any_boundary_and_reserves_nothing() {
     let visited = Visited::default();
+    // Enumerated as the covered directory, observed as the mounted root.
+    let mut mount = entry(ObservedKind::MountPoint, 1, 40);
+    mount.enumerated_kind = ObservedKind::Directory;
+    mount.enumerated_inode = 41;
+    for boundary in [Boundary::Volume(1), Boundary::Volume(2), Boundary::Unknown] {
+        assert_eq!(
+            decide(false, &mount, at(0, boundary), &visited),
+            Admission::OutsideBoundary
+        );
+    }
     let parent = at(0, Boundary::Volume(1));
-    // A Linux mount point: enumeration reports the covered directory (inode 7)
-    // of the parent volume and its metadata the mounted root (inode 1).
-    let mut mount = entry(ObservedKind::Directory, 2, 1);
-    mount.enumerated_inode = 7;
+    assert_eq!(decide(true, &mount, parent, &visited), Admission::Excluded);
+    // Only a directory can be a mount point.
+    mount.enumerated_kind = ObservedKind::File;
+    assert_eq!(decide(false, &mount, parent, &visited), Admission::Record);
+    let same_identity = entry(ObservedKind::Directory, 1, 40);
     assert_eq!(
-        preview(false, &mount, parent, &visited),
-        Admission::OutsideBoundary
-    );
-    assert_eq!(
-        decide(false, &mount, parent, &visited),
-        Admission::OutsideBoundary
-    );
-    assert!(!visited.known(0, 2, 1));
-    // Without a known parent volume, the inodes must still match.
-    assert_eq!(
-        decide(false, &mount, at(0, Boundary::Unknown), &visited),
-        Admission::Record
-    );
-    // The same mismatch on the parent's own volume is a replaced entry.
-    let mut replaced = entry(ObservedKind::Directory, 1, 1);
-    replaced.enumerated_inode = 7;
-    assert_eq!(
-        decide(false, &replaced, parent, &visited),
-        Admission::Record
-    );
-    // A changed kind is still recorded as is.
-    let mut changed_kind = mount.clone();
-    changed_kind.enumerated_kind = ObservedKind::File;
-    assert_eq!(
-        decide(false, &changed_kind, parent, &visited),
-        Admission::Record
+        decide(false, &same_identity, parent, &visited),
+        Admission::Enter
     );
 }
 
