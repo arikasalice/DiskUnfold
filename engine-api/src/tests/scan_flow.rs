@@ -59,6 +59,8 @@ impl JobEvents for Events {
     }
 }
 
+impl crate::desktop::scan_completion::ProgressEvents for Events {}
+
 struct Roots {
     file_id: AtomicUsize,
     opens: AtomicUsize,
