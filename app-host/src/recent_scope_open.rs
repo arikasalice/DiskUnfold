@@ -105,11 +105,13 @@ impl UseCase for Open {
         } else {
             None
         };
-        Ok(RecentScopeOpen {
-            draft,
-            targets,
-            review,
-        })
+        Ok(du_engine_api::display_path::recent_scope_open(
+            RecentScopeOpen {
+                draft,
+                targets,
+                review,
+            },
+        ))
     }
 }
 
