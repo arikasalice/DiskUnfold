@@ -146,12 +146,15 @@ impl<'de> Deserialize<'de> for SizeValue {
         })
     }
 }
+/// A native path identified by its encoding and raw bytes; equality ignores
+/// the display text.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct OsPath {
     pub encoding: PathEncoding,
     pub raw: PathBytes,
+    /// Human-readable display text; never reopen or compare a path from it.
     pub display: String,
     pub lossy: bool,
 }

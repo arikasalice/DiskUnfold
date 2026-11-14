@@ -88,6 +88,13 @@ impl UseCase for Review {
         request: Self::Request,
         _: &CallerCtx,
     ) -> Result<Self::Response, EngineError> {
+        // Only the response is projected; admission repeats review from raw paths.
+        self.review(request).map(crate::display_path::scope_review)
+    }
+}
+
+impl Review {
+    fn review(&self, request: ScopeReviewRequest) -> Result<ScopeReview, EngineError> {
         let mut draft = request.draft;
         validate(&draft, self.comparison.is_some())?;
         if !draft.exclusions.is_empty() {
