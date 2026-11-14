@@ -156,9 +156,14 @@ fn both_observations_are_published_as_sample_versions_in_order() -> TestResult {
         assert_eq!(version.items().len(), expected.items.len() + 1);
     }
     assert_ne!(sealed[0].1, sealed[1].1);
+    // The collector counts each bundle item and each point's scope root once,
+    // so the total adds one root per observation point.
     let declared = run.bundle.header().declared_item_count;
+    let roots = run.bundle.observation_count() as u64;
     let (done, total) = run.report.progress();
-    assert_eq!((done, total), (declared, declared));
+    assert_eq!((done, total), (declared + roots, declared + roots));
+    assert_eq!(outcome.counts.completed + outcome.counts.failed, total);
+    assert_eq!(outcome.counts.unprocessed, 0);
     // A sample version never becomes the implicit current result.
     assert!(run.sink.pin().map_err(|e| format!("{e:?}"))?.is_none());
     Ok(())
@@ -171,6 +176,19 @@ fn cancelling_after_the_first_point_leaves_no_version() -> TestResult {
     assert!(!outcome.completed_scope && outcome.failure_reason_key.is_none());
     assert_eq!(run.report.end(), Some(SampleLoadEnd::Cancelled));
     assert!(run.report.observations().is_empty());
+    // Only the first point was collected: its items and its root. The second
+    // point, root included, stays unprocessed.
+    let points = run.bundle.observations();
+    let first = points[0].items.len() as u64 + 1;
+    let second = points[1].items.len() as u64 + 1;
+    let counts = &outcome.counts;
+    assert_eq!(counts.completed + counts.failed, first);
+    assert_eq!(counts.unprocessed, second);
+    assert_eq!(run.job.progress_total(), first + second);
+    assert_eq!(
+        outcome.unprocessed_summary.as_deref(),
+        Some(format!("unprocessed_items={second}").as_str())
+    );
     let issued = run.ids.issued.lock().map_err(|_| "poisoned")?.clone();
     assert!(!issued.is_empty());
     for version_id in issued {
@@ -224,6 +242,14 @@ fn a_session_released_between_points_refuses_the_next_registration() -> TestResu
     assert!(!outcome.completed_scope);
     assert_eq!(run.report.end(), Some(SampleLoadEnd::Failed));
     assert!(run.report.observations().is_empty());
+    // The second point's build was refused before its root was admitted, so
+    // only the first point is counted and the second, root included, is not.
+    let points = run.bundle.observations();
+    let first = points[0].items.len() as u64 + 1;
+    let second = points[1].items.len() as u64 + 1;
+    let counts = &outcome.counts;
+    assert_eq!(counts.completed + counts.failed, first);
+    assert_eq!(counts.unprocessed, second);
     // The first point was built and discarded; nothing stays reachable.
     let issued = run.ids.issued.lock().map_err(|_| "poisoned")?.clone();
     assert!(!issued.is_empty());

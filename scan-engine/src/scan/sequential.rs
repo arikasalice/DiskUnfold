@@ -97,7 +97,7 @@ pub(super) fn run(
             visited,
             closed: false,
             // An unverifiable root was already counted as failed at its start.
-            root_counted: root.boundary == Boundary::Unknown,
+            root_failed: root.boundary == Boundary::Unknown,
         };
         walk.root(root, ids)?
     };
@@ -111,7 +111,8 @@ pub(super) fn run(
     Ok((id, stop != Stop::Cancelled))
 }
 
-/// Records the root's case evidence and how it starts, and reserves its identity.
+/// Records the root's case evidence and how it starts, counts the root item
+/// once and reserves its identity.
 fn start_root(
     build: &mut BuildHandle,
     root: &mut Frame,
@@ -136,8 +137,9 @@ struct Walk<'a> {
     visited: Visited,
     /// The volume reported an explicit disconnection; nothing more is opened.
     closed: bool,
-    /// The root item was counted, so a later root failure is not counted again.
-    root_counted: bool,
+    /// The root item was counted as failed, so a later root failure is not
+    /// counted again. Otherwise it counts as completed since its start.
+    root_failed: bool,
 }
 
 impl Walk<'_> {
@@ -296,12 +298,10 @@ impl Walk<'_> {
 
     /// Records an unread range; the directory stays counted once, as failed.
     fn fail(&mut self, path: Vec<Vec<u8>>, stage: Stage, reason: &str) -> Result<(), BuildError> {
-        let counted = if !path.is_empty() {
+        let counted = if !path.is_empty() || !std::mem::replace(&mut self.root_failed, true) {
             Counted::Completed
-        } else if std::mem::replace(&mut self.root_counted, true) {
-            Counted::Failed
         } else {
-            Counted::Uncounted
+            Counted::Failed
         };
         let range = (0, path);
         record::record_failure(

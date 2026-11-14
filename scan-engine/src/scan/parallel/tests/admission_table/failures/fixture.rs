@@ -12,7 +12,13 @@ pub(super) enum Listing {
     FailsAfter(Vec<ObservedEntry>, PortError),
     /// More entries than one batch may hold.
     Oversized,
+    /// These batches in order, then this error or, without one, the end.
+    Batches(Vec<Vec<ObservedEntry>>, Option<PortError>),
 }
+
+/// A listing key whose presence makes the root report no identity, so the
+/// root's boundary cannot be verified.
+pub(super) const UNVERIFIED: u64 = u64::MAX;
 
 pub(super) struct Faults {
     listings: HashMap<u64, Listing>,
@@ -73,7 +79,9 @@ impl Faults {
 
 impl FaultDir {
     fn read(&mut self) -> Result<Vec<ObservedEntry>, PortError> {
-        let first = std::mem::replace(&mut self.reads, 1) == 0;
+        let index = self.reads;
+        self.reads = index.saturating_add(1);
+        let first = index == 0;
         self.faults.delay(self.inode, u64::from(first));
         let listing = self.faults.listings.get(&self.inode).cloned();
         match listing {
@@ -81,6 +89,11 @@ impl FaultDir {
             Some(Listing::FailsAfter(entries, _)) if first && !entries.is_empty() => Ok(entries),
             Some(Listing::FailsAfter(_, error)) => Err(error),
             Some(Listing::Oversized) => Ok((0..8193).map(|_| file("many", 900)).collect()),
+            Some(Listing::Batches(batches, error)) => match (batches.get(index), error) {
+                (Some(batch), _) => Ok(batch.clone()),
+                (None, Some(error)) => Err(error),
+                (None, None) => Ok(Vec::new()),
+            },
             _ => Ok(Vec::new()),
         }
     }
@@ -143,6 +156,9 @@ impl AnchoredDirectory for FaultDir {
     }
 
     fn observed_identity(&self) -> Option<HandleIdentity> {
+        if self.inode == ROOT && self.faults.listings.contains_key(&UNVERIFIED) {
+            return None;
+        }
         Some(HandleIdentity {
             device: 1,
             inode: self.inode,

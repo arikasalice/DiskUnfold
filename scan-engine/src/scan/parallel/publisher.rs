@@ -161,8 +161,8 @@ impl Progress {
     /// How the directory of a failed range was counted before the failure.
     ///
     /// A directory below a root was counted as completed when it was
-    /// enumerated. A root is counted by its first failure unless its
-    /// unverifiable start was already counted.
+    /// enumerated. A root was counted when it was admitted; its first failure
+    /// moves it to failed unless it was already counted as failed.
     fn counted(&mut self, root_index: u32, path: &[Vec<u8>]) -> record::Counted {
         if !path.is_empty() {
             return record::Counted::Completed;
@@ -170,11 +170,11 @@ impl Progress {
         let earlier = usize::try_from(root_index)
             .ok()
             .and_then(|index| self.counted_roots.get_mut(index))
-            .is_some_and(|counted| std::mem::replace(counted, true));
+            .is_some_and(|failed| std::mem::replace(failed, true));
         if earlier {
             record::Counted::Failed
         } else {
-            record::Counted::Uncounted
+            record::Counted::Completed
         }
     }
 }

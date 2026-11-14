@@ -6,14 +6,15 @@
 //! the pre-metadata filter, must record the same items, failure list, scope
 //! gaps, counts and completeness. Disconnection and cancellation cases stop
 //! at a point that does not depend on worker scheduling. Every result counts
-//! each item once (NFR5.HD1.app-host.DD1): `failed` equals the number of
-//! scope gaps, and `completed + failed` the number of items other than a root
-//! that was read without a gap.
+//! each item once, the scope root included (NFR5.HD1.app-host.DD1): `failed`
+//! equals the number of paths with a scope gap, and `completed + failed` the
+//! number of items.
 use super::*;
 use du_core_contracts::result::SpaceAggregate;
 use std::sync::atomic::{AtomicBool, Ordering::SeqCst};
 mod fixture;
 mod nested;
+mod root_counts;
 use fixture::*;
 
 const WORKERS: [usize; 4] = [1, 2, 4, 8];
@@ -168,13 +169,20 @@ fn parallel_seeded(
 }
 
 /// Checks that a published result counted each of its items exactly once.
+///
+/// A root whose unverifiable start was counted and whose read then failed
+/// keeps two gap rows at one path, so gaps are counted by path.
 fn assert_counted_once(collected: &Collected, label: &str) {
     let (items, _, gaps) = &collected.run.summary;
     let counts = &collected.run.outcome.counts;
-    assert_eq!(counts.failed, gaps.len() as u64, "{label}: failed = gaps");
-    let uncounted_root = !gaps.iter().any(|gap| gap.1.is_empty());
-    let counted = items.len() as u64 - u64::from(uncounted_root);
-    assert_eq!(counts.completed + counts.failed, counted, "{label}: once");
+    let paths: std::collections::BTreeSet<_> = gaps.iter().map(|gap| (gap.0, &gap.1)).collect();
+    assert_eq!(
+        counts.failed,
+        paths.len() as u64,
+        "{label}: failed = gap paths"
+    );
+    let items = items.len() as u64;
+    assert_eq!(counts.completed + counts.failed, items, "{label}: once");
 }
 
 /// Runs every parallel variant and compares it with the sequential baseline.
@@ -267,8 +275,8 @@ fn every_failure_kind_gives_one_result_from_both_collectors() -> Result<(), Stri
     assert_eq!(baseline.run.outcome.counts.failed, 10);
     // Each failed entry or directory counts once, as failed; the unknown and
     // other kinds, the file without a size and the five unread directories
-    // are not completed as well.
-    assert_eq!(baseline.run.outcome.counts.completed, 7);
+    // are not completed as well. The root read without a gap is completed.
+    assert_eq!(baseline.run.outcome.counts.completed, 8);
     assert_eq!(baseline.run.completeness, ResultCompleteness::Missing);
     let root = baseline.root.ok_or("missing root aggregate")?;
     assert_eq!(root.completeness, ResultCompleteness::Missing);
@@ -299,12 +307,15 @@ fn a_failed_first_root_read_leaves_no_result() -> Result<(), String> {
             Some("support.internal_error")
         );
         assert_eq!(baseline.run.outcome.counts.failed, 1);
+        // The root was admitted as completed and its failed read moved it.
+        assert_eq!(baseline.run.outcome.counts.completed, 0);
         // The older result stays pinned.
         assert_eq!(baseline.run.completeness, ResultCompleteness::Complete);
         for workers in WORKERS {
             let (run, _) = parallel(listings.clone(), workers, false, false)?;
             assert!(!run.published, "workers={workers}");
             assert_eq!(run.run.outcome.counts.failed, 1, "workers={workers}");
+            assert_eq!(run.run.outcome.counts.completed, 0, "workers={workers}");
             assert_eq!(run.run.summary, baseline.run.summary, "workers={workers}");
         }
     }

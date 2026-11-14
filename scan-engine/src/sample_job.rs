@@ -132,9 +132,14 @@ impl SampleLoad {
         }
     }
 
-    /// The progress total: the item count the bundle header declares.
+    /// The progress total in the unit the collector counts: the item count the
+    /// bundle header declares plus the scope root of each observation point.
     pub fn progress_total(&self) -> u64 {
-        self.bundle.header().declared_item_count
+        let roots = self.bundle.observation_count() as u64;
+        self.bundle
+            .header()
+            .declared_item_count
+            .saturating_add(roots)
     }
 
     fn load(&self, context: &Arc<dyn JobContext>, counts: &mut JobCounts) -> SampleLoadEnd {
@@ -194,8 +199,8 @@ impl SampleLoad {
                 None,
             ),
         );
-        // The collector counts each bundle item once and never the scope root
-        // directory that was read without a gap (NFR5.HD1.app-host.DD1).
+        // The collector counts each bundle item and the scope root directory
+        // once (NFR5.HD1.app-host.DD1).
         counts.completed += outcome.counts.completed;
         counts.failed += outcome.counts.failed;
         if outcome.failure_reason_key.is_some() {

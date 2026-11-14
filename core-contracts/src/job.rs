@@ -86,9 +86,12 @@ pub struct JobDescriptor {
 /// listed folder whose contents could not be read afterwards.
 ///
 /// For `scan.metadata` a unit is one recorded item of the scope, and
-/// `failed` equals the number of scope gaps of the result. A scope root is
-/// counted once as failed when it could not be read; a root that was read is
-/// not counted.
+/// `failed` equals the number of paths with a scope gap in the result. A
+/// scope root is an item and is counted once when the collector admits it:
+/// as failed when its identity could not be verified, otherwise as completed.
+/// A root that later could not be read moves from completed to failed. So
+/// `completed + failed` equals the number of items of the result, unless the
+/// job was cancelled before its roots were admitted; then nothing is counted.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct JobCounts {
     pub completed: u64,

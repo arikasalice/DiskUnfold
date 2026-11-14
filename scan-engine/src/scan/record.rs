@@ -8,7 +8,10 @@
 //!
 //! NFR5.HD1.app-host.DD1 progress counts every recorded item once: an entry
 //! adds one to either `completed` or `failed`, never to both. A failed item
-//! is one that leaves a scope gap, so `failed` equals the number of gaps.
+//! is one that leaves a scope gap, so `failed` equals the number of paths
+//! with a gap. A scope root is an item too: it is counted when the collector
+//! admits it, and a later failure of the root moves it from completed to
+//! failed, so `completed + failed` equals the number of result items.
 use super::{
     admission::{self, Admission, Unread},
     issues,
@@ -31,12 +34,12 @@ pub(super) type GapClock<'a> = &'a dyn Fn() -> Option<Timestamp>;
 /// The failure keeps the directory counted once, as failed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Counted {
-    /// A scope root that was not counted yet; the failure counts it.
-    Uncounted,
-    /// A directory counted as completed when it was enumerated; the failure
-    /// moves that count to failed.
+    /// A directory counted as completed when it was enumerated, or a root
+    /// counted as completed when it was admitted; the failure moves that
+    /// count to failed.
     Completed,
-    /// A root already counted as failed, such as an unverifiable root.
+    /// A root already counted as failed, such as an unverifiable root or a
+    /// root whose failure was already recorded.
     Failed,
 }
 
@@ -103,7 +106,6 @@ pub(super) fn record_failure(
     counted: Counted,
 ) -> Result<(), BuildError> {
     match counted {
-        Counted::Uncounted => counts.failed += 1,
         Counted::Completed => {
             counts.completed = counts.completed.saturating_sub(1);
             counts.failed += 1;

@@ -105,7 +105,8 @@ pub fn collect_parallel_filtered(
 /// directories already being read are read to their end without opening any
 /// more, and each enumerated directory left unread is a gap of its own. A
 /// cancellation records the entries already returned without opening any.
-/// Each item is counted once, as completed or as failed (NFR5.HD1.app-host.DD1).
+/// Each item is counted once, as completed or as failed, the root included
+/// (NFR5.HD1.app-host.DD1).
 /// A failed first root read leaves no result unless it reports a disconnection.
 pub fn collect(
     sink: &IngestSink,

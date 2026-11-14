@@ -60,10 +60,12 @@ fn identities(
     Some(identities)
 }
 
-/// Records unverified and repeated roots before their first enumeration.
+/// Counts every root item once and records unverified and repeated roots,
+/// before any root is enumerated.
 ///
-/// A disconnected root is skipped; its closure records its own unread range.
-/// Returns, per root, whether its item was counted here.
+/// A root on a volume closed as disconnected counts as completed without a
+/// range; its closure records its own unread range and moves the count to
+/// failed. Returns, per root, whether it was counted as failed here.
 pub(super) fn record_starts(
     build: &mut BuildHandle,
     starts: &[RootStart],
@@ -71,15 +73,18 @@ pub(super) fn record_starts(
     counts: &mut JobCounts,
     context: &dyn JobContext,
 ) -> Result<Vec<bool>, BuildError> {
-    let mut counted = vec![false; starts.len()];
+    let mut failed = vec![false; starts.len()];
     for (index, &start) in starts.iter().enumerate() {
         let root = u32::try_from(index).map_err(|_| BuildError::Unavailable)?;
-        let verified = matches!(start, RootStart::Collect(Boundary::Volume(_)));
-        if !verified && !disconnects.closed(root) {
-            let observed_at = context.utc_now();
-            admission::record_root_start(build, root, start, counts, observed_at.as_ref())?;
-            counted[index] = true;
+        if disconnects.closed(root) {
+            counts.completed += 1;
+            continue;
         }
+        let verified = matches!(start, RootStart::Collect(Boundary::Volume(_)));
+        // A verified start records nothing with a time, so the clock is not read.
+        let observed_at = if verified { None } else { context.utc_now() };
+        admission::record_root_start(build, root, start, counts, observed_at.as_ref())?;
+        failed[index] = start == RootStart::Collect(Boundary::Unknown);
     }
-    Ok(counted)
+    Ok(failed)
 }

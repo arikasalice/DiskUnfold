@@ -91,8 +91,9 @@ fn a_disconnected_child_batch_closes_only_the_child() -> Result<(), String> {
         gap(&["a", "lost"], REASON),
         gap(&["a", "sub"], REASON),
     ];
-    // z.txt and x.txt are completed; a, lost and sub are each one failure.
-    let baseline = check(child_batch_disconnects, issues, gaps, (2, 3))?;
+    // The root, z.txt and x.txt are completed; a, lost and sub are each one
+    // failure.
+    let baseline = check(child_batch_disconnects, issues, gaps, (3, 3))?;
     let names: Vec<_> = baseline.run.summary.0.iter().map(|item| &item.1).collect();
     let expected = [
         path(&[]),
@@ -110,11 +111,12 @@ fn a_disconnected_child_batch_closes_only_the_child() -> Result<(), String> {
 fn a_disconnected_child_open_closes_only_the_child() -> Result<(), String> {
     let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
     let issues = vec![range(&["a"], Stage::OpenDirectory, REASON)];
+    // The root and z.txt are completed; a is one failure.
     check(
         child_open_disconnects,
         issues,
         vec![gap(&["a"], REASON)],
-        (1, 1),
+        (2, 1),
     )?;
     Ok(())
 }
