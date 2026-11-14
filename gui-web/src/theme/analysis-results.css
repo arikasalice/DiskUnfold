@@ -10,3 +10,8 @@
 .du-analysis__result .du-metric__value {
   font-size: clamp(18px, 2.5vw, 24px);
 }
+
+.du-scan-progress {
+  display: grid;
+  gap: 6px;
+}

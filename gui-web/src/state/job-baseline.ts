@@ -1,17 +1,51 @@
-import type { AnalysisClient, EventEnvelope } from "../ipc";
+import type {
+  AnalysisClient,
+  AnalysisJobProgress,
+  EventEnvelope,
+} from "../ipc";
 
 const MAX_PENDING = 1024;
 const TIMEOUT_MS = 10_000;
 const INITIAL_RETRY_MS = 1_000;
 const MAX_RETRY_MS = 8_000;
-type Update = { sequence: number; terminal: boolean };
+type Update = {
+  sequence: number;
+  terminal: boolean;
+  progress?: AnalysisJobProgress;
+};
 
-/** Maintains one active job's list baseline and orders later job notifications. */
+function count(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+/** Reads a job.progress body; a malformed body yields nothing. */
+function progressBody(body: object): AnalysisJobProgress | undefined {
+  const value = body as Partial<AnalysisJobProgress>;
+  if (
+    !count(value.completed) ||
+    typeof value.totalKnown !== "boolean" ||
+    (value.unit !== "items" && value.unit !== "bytes") ||
+    (value.totalKnown && !count(value.total))
+  )
+    return undefined;
+  return value as AnalysisJobProgress;
+}
+
+/**
+ * Maintains one active job's list baseline and orders later job notifications.
+ *
+ * A well-formed job.progress body goes to `progressed` and does not ask for a
+ * status read. Other ordered notifications, including a malformed progress
+ * body, call `changed`. Values at or below the delivered sequence, after the
+ * terminal event, or held across a resynchronization at or below the new
+ * baseline are discarded.
+ */
 export function watchJobBaseline(
   client: AnalysisClient,
   jobRef: string,
   changed: () => void,
   failed: (reason: unknown) => void,
+  progressed?: (progress: AnalysisJobProgress) => void,
 ) {
   let alive = true;
   let epoch = 0;
@@ -28,6 +62,11 @@ export function watchJobBaseline(
     sequence = update.sequence;
     terminal = update.terminal;
     return true;
+  }
+
+  function deliver(update: Update) {
+    if (update.progress && progressed) progressed(update.progress);
+    else changed();
   }
 
   function restart() {
@@ -51,11 +90,14 @@ export function watchJobBaseline(
           sequence = cut;
           terminal = ended;
           pending.sort((left, right) => left.sequence - right.sequence);
-          for (const update of pending) accept(update);
+          let progress: AnalysisJobProgress | undefined;
+          for (const update of pending)
+            if (accept(update) && update.progress) progress = update.progress;
           pending = [];
           ready = true;
           retryDelay = INITIAL_RETRY_MS;
           changed();
+          if (progress && !terminal) progressed?.(progress);
         };
         const confirm = () => {
           void client
@@ -133,9 +175,12 @@ export function watchJobBaseline(
       restart();
       return;
     }
-    const update = {
+    const progress =
+      event.topic === "job.progress" ? progressBody(body) : undefined;
+    const update: Update = {
       sequence: body.sequence,
       terminal: event.topic === "job.finished",
+      ...(progress ? { progress } : {}),
     };
     if (!ready) {
       if (pending.length >= MAX_PENDING) {
@@ -143,7 +188,7 @@ export function watchJobBaseline(
         return;
       }
       pending.push(update);
-    } else if (accept(update)) changed();
+    } else if (accept(update)) deliver(update);
   }
 
   const unsubscribe = client.subscribe(receive);

@@ -3,6 +3,7 @@ import { AnalysisError, resultReadProblem } from "../ipc";
 import { watchJobBaseline } from "./job-baseline";
 import type {
   AnalysisClient,
+  AnalysisJobProgress,
   AnalysisJobStatus,
   EventEnvelope,
   JobState,
@@ -104,12 +105,35 @@ function isNewLineageEvent(
   );
 }
 
+/** Returns a value only when it belongs to the given job. */
+function jobValue<T extends { jobRef: string }>(
+  value: T | undefined,
+  jobRef: string | undefined,
+): T | undefined {
+  return value && value.jobRef === jobRef ? value : undefined;
+}
+
+/** Progress is shown only for the current job while it can still change. */
+function runningValue(
+  progress: { jobRef: string; value: AnalysisJobProgress } | undefined,
+  jobRef: string | undefined,
+  status: AnalysisJobStatus | undefined,
+): AnalysisJobProgress | undefined {
+  return status && isRunning(status.state)
+    ? jobValue(progress, jobRef)?.value
+    : undefined;
+}
+
 /** Opens a scan's first available result and keeps it pinned in the view. */
 export function useScanResult(
   client: AnalysisClient,
   receipt: ScanStart | null,
 ) {
   const [status, setStatus] = useState<AnalysisJobStatus>();
+  const [progress, setProgress] = useState<{
+    jobRef: string;
+    value: AnalysisJobProgress;
+  }>();
   const [total, setTotal] = useState<{ jobRef: string; value: SpaceTotal }>();
   const [latest, setLatest] = useState<{ jobRef: string; version: string }>();
   const [switchingJob, setSwitchingJob] = useState<string>();
@@ -155,7 +179,9 @@ export function useScanResult(
     let rejected: string | undefined;
     let staleFailure: AnalysisError | undefined;
     let statusReadFailed = false;
-    let statusFrame: number | undefined;
+    let frame: number | undefined;
+    let statusDue = false;
+    let queuedProgress: AnalysisJobProgress | undefined;
     let hiddenWork = false;
 
     function clearControl() {
@@ -312,6 +338,7 @@ export function useScanResult(
       jobSequence = next.sequence;
       jobState = next.state;
       terminal = !isRunning(next.state);
+      if (terminal) queuedProgress = undefined;
       terminalPending = terminal && next.terminal === undefined;
       receiveControlStatus(next.state);
       setStatus(next);
@@ -413,7 +440,21 @@ export function useScanResult(
       staleFailure = undefined;
       void refresh(true);
     };
-    // Notifications invalidate status. Read it once for all events in this frame.
+    // Notifications invalidate status. Read it once for all events in this
+    // frame, and draw only the latest progress value received in that frame.
+    function scheduleFrame() {
+      if (frame !== undefined) return;
+      frame = window.requestAnimationFrame(() => {
+        frame = undefined;
+        drawProgress();
+        if (!statusDue) return;
+        statusDue = false;
+        const readResult = scheduledResult;
+        scheduledResult = false;
+        void refresh(readResult);
+      });
+    }
+
     function scheduleStatusRead(resultOnly = false) {
       scheduledResult ||= resultOnly;
       // A hidden window renders no frames; catch up when it becomes visible.
@@ -421,13 +462,21 @@ export function useScanResult(
         hiddenWork = true;
         return;
       }
-      if (statusFrame !== undefined) return;
-      statusFrame = window.requestAnimationFrame(() => {
-        statusFrame = undefined;
-        const readResult = scheduledResult;
-        scheduledResult = false;
-        void refresh(readResult);
-      });
+      statusDue = true;
+      scheduleFrame();
+    }
+
+    function receiveProgress(value: AnalysisJobProgress) {
+      if (!alive || terminal) return;
+      queuedProgress = value;
+      if (!documentHidden()) scheduleFrame();
+    }
+
+    function drawProgress() {
+      const value = queuedProgress;
+      queuedProgress = undefined;
+      if (!value || !alive || terminal) return;
+      setProgress({ jobRef: scanJob, value });
     }
 
     function pollDue() {
@@ -436,15 +485,17 @@ export function useScanResult(
 
     function visibilityChanged() {
       if (documentHidden()) {
-        if (statusFrame === undefined) return;
-        window.cancelAnimationFrame(statusFrame);
-        statusFrame = undefined;
-        hiddenWork = true;
+        if (frame === undefined) return;
+        window.cancelAnimationFrame(frame);
+        frame = undefined;
+        if (statusDue) hiddenWork = true;
+        statusDue = false;
         return;
       }
+      drawProgress();
       const due = hiddenWork || pollDue();
       hiddenWork = false;
-      if (!due || statusFrame !== undefined) return;
+      if (!due || frame !== undefined) return;
       const readResult = scheduledResult;
       scheduledResult = false;
       void refresh(readResult);
@@ -460,8 +511,11 @@ export function useScanResult(
           recordError(failure, false);
         }
       },
+      receiveProgress,
     );
     const unsubscribe = client.subscribe((event) => {
+      // Values held before a resynchronization are not drawn.
+      if (event.topic === "job.resync_required") queuedProgress = undefined;
       if (
         event.topic === "job.resync_required" ||
         isNewLineageEvent(event, lineage, resultSequence)
@@ -470,12 +524,7 @@ export function useScanResult(
       }
     });
     const timer = window.setInterval(() => {
-      if (
-        !documentHidden() &&
-        !inFlight &&
-        statusFrame === undefined &&
-        pollDue()
-      )
+      if (!documentHidden() && !inFlight && !statusDue && pollDue())
         void refresh();
     }, 500);
     document.addEventListener("visibilitychange", visibilityChanged);
@@ -487,7 +536,7 @@ export function useScanResult(
       issueControl.current = undefined;
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", visibilityChanged);
-      if (statusFrame !== undefined) window.cancelAnimationFrame(statusFrame);
+      if (frame !== undefined) window.cancelAnimationFrame(frame);
       baseline.dispose();
       unsubscribe();
     };
@@ -499,6 +548,10 @@ export function useScanResult(
   const unavailable = currentError?.unavailable ?? false;
   return {
     status: currentStatus,
+    /** The latest ordered job.progress value while the scan is running. */
+    progress: runningValue(progress, jobRef, currentStatus),
+    /** The scan's newest published result version, which may not be displayed yet. */
+    currentVersion: jobValue(latest, jobRef)?.version,
     ...controlsForJob(jobRef, currentStatus, unavailable, control),
     requestControl: (command: ScanControl) => issueControl.current?.(command),
     total: currentTotal,

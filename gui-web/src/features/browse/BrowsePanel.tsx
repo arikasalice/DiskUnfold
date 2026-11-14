@@ -22,6 +22,7 @@ import type {
   QueryPageResponse,
 } from "../../ipc";
 import { BROWSE_PAGE_SIZE, BrowsePages } from "../../state/browse-pages";
+import type { ScanPriority } from "../../state/scan-priority";
 import { folderPath } from "./browse-display";
 import { BrowseResults } from "./BrowseResults";
 import {
@@ -60,6 +61,7 @@ export function BrowsePanel({
   onOpening,
   onOpened,
   display = { system: "iec", unit: "auto" },
+  priority,
   rootLabel,
   actionsDisabledReason,
   titleBadge,
@@ -70,6 +72,8 @@ export function BrowsePanel({
   onOpening?: () => void;
   onOpened?: (opened: BrowseOpenLocation) => void;
   display?: SizeDisplay;
+  /** "Analyze first" for a running scan's current partial result, when available. */
+  priority?: ScanPriority;
   /** Names the top of the folder path instead of "Scope roots", e.g. for the sample root. */
   rootLabel?: string;
   /**
@@ -332,6 +336,7 @@ export function BrowsePanel({
               actionsDisabledReason === undefined ? port.copyPath : undefined
             }
             copyDisabledReason={actionsDisabledReason}
+            priority={priority}
             reopen={() =>
               navigate(
                 view.opened.location ?? undefined,

@@ -242,6 +242,20 @@ ui.analysis.result_heading
 ui.analysis.progress_heading
 ui.analysis.waiting_cancel
 ui.analysis.scanning_folder
+ui.analysis.progress_items count:count
+ui.analysis.progress_items_remaining percent:count count:count
+ui.analysis.progress_bytes size:size
+ui.analysis.progress_bytes_remaining percent:count size:size
+ui.analysis.priority_accepted name:name
+ui.analysis.priority_accepted_switched name:name previous:name
+ui.analysis.priority_applied name:name
+ui.analysis.priority_applied_switched name:name previous:name
+ui.analysis.priority_paused name:name
+ui.analysis.priority_paused_switched name:name previous:name
+ui.analysis.priority_no_effect
+ui.analysis.priority_ended
+ui.analysis.priority_stale
+ui.analysis.priority_failed
 ui.analysis.reading_totals_pending
 ui.analysis.reading_totals
 ui.analysis.waiting_scan
@@ -642,8 +656,23 @@ ui.browse.folders_and_files
 ui.browse.full_location_observation
 ui.browse.incomplete
 ui.browse.inspect
+ui.browse.analyze_first
+ui.browse.priority_requested
+ui.browse.priority_analyzing
+ui.browse.selection_actions
+ui.browse.no_selection
+ui.browse.selected_count count:count
+ui.browse.selected_one
+ui.browse.analyze_first_one_folder
+ui.browse.analyze_first_folders_only
+ui.browse.analyze_first_excluded
+ui.browse.analyze_first_collected
+ui.browse.analyze_first_requested
 ui.browse.item_actions name:name
 ui.browse.item_count count:count
+ui.browse.item_count_at_least count:count
+ui.browse.origin_scan
+ui.browse.origin_incremental
 ui.browse.keys.cell_next
 ui.browse.keys.cell_previous
 ui.browse.keys.go_up

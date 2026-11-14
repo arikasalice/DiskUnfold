@@ -10,6 +10,7 @@ import {
 import axe from "axe-core";
 import { afterEach, expect, test, vi } from "vitest";
 import { App } from "../src/app/App";
+import { AnalysisPanel } from "../src/features/analysis/AnalysisPanel";
 import type {
   BrowseVisualizationProvider,
   BrowseVisualizationSelection,
@@ -2437,6 +2438,174 @@ test("F02 NFR5: a burst of status events results in one read per frame", async (
   } finally {
     clock.mockRestore();
   }
+});
+
+test("F02 NFR5.HD1: the progress card counts checked items without claiming a percentage until the total is known", async () => {
+  let state: AnalysisJobStatus["state"] = "running";
+  let sequence = 3;
+  const { client, listeners } = fixture({
+    readStatus: (base) => ({ ...base, state, sequence, resultVersion: null }),
+  });
+  await startFixtureScan(client);
+  await screen.findByText("Scanning");
+  const send = (sequence: number, completed: number, total?: number) =>
+    act(() => {
+      for (const listener of listeners)
+        listener({
+          topic: "job.progress",
+          contractVersion: 1,
+          jobRef: "scan",
+          seq: sequence,
+          occurredAt: timestamp,
+          body: {
+            sequence,
+            unit: "items",
+            completed,
+            ...(total === undefined ? {} : { total }),
+            totalKnown: total !== undefined,
+            waitReason: "none",
+            observedAt: timestamp,
+          },
+        });
+    });
+  send(5, 128420);
+  const count = await screen.findByText(
+    "128420 items checked · Counting all items",
+  );
+  expect(count.closest('[role="status"],[aria-live]')).toBeNull();
+  const bar = screen.getByRole("progressbar", { name: "Scanning folder" });
+  expect(bar.getAttribute("aria-valuenow")).toBeNull();
+  expect(screen.queryByText(/%/)).toBeNull();
+
+  send(6, 1500, 2000);
+  // The share and the rest come from job.progress alone.
+  await screen.findByText("75% · 500 items left");
+  expect(
+    screen
+      .getByRole("progressbar", { name: "Scanning folder" })
+      .getAttribute("aria-valuenow"),
+  ).toBe("1500");
+  // Rounded down: the card does not read 100% while work remains.
+  send(7, 1999, 2000);
+  await screen.findByText("99% · 1 items left");
+
+  state = "paused";
+  // A status read after the change reports at least the notified sequence.
+  sequence = 8;
+  act(() => {
+    for (const listener of listeners)
+      listener({
+        topic: "job.state_changed",
+        contractVersion: 1,
+        jobRef: "scan",
+        seq: 8,
+        occurredAt: timestamp,
+        body: { sequence: 8 },
+      });
+  });
+  await screen.findByText("Scan paused");
+  expect(screen.getByText("99% · 1 items left")).toBeDefined();
+  expect(
+    screen.queryByRole("progressbar", { name: "Scanning folder" }),
+  ).toBeNull();
+});
+
+test("F02: the measurement under the summary total uses the active language", async () => {
+  const { client } = fixture();
+  const marked: LocaleText = (key, fallback) =>
+    /^ui\.analysis\.(measurement|evidence)_/.test(key) ? `<${key}>` : fallback;
+  render(
+    <LocaleTextContext.Provider value={marked}>
+      <App analysis={client} />
+    </LocaleTextContext.Provider>,
+  );
+  fireEvent.click(await screen.findByRole("radio", { name: path.display }));
+  fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
+  const start = screen.getByRole<HTMLButtonElement>("button", {
+    name: "Start scan",
+  });
+  await waitFor(() => expect(start.disabled).toBe(false));
+  fireEvent.click(start);
+  const metric = await screen.findByRole("group", { name: "Logical size" });
+  expect(metric.querySelector(".du-metric__detail")?.textContent).toMatch(
+    /^<ui\.analysis\.measurement_\w+>( · <ui\.analysis\.evidence_\w+>)?$/,
+  );
+});
+
+test("F02 NFR5.HD1: a byte share near 2^53 is rounded down exactly", async () => {
+  const { client, listeners } = fixture({
+    readStatus: (base) => ({ ...base, state: "running", resultVersion: null }),
+  });
+  await startFixtureScan(client);
+  await screen.findByText("Scanning");
+  const send = (sequence: number, completed: number, total: number) =>
+    act(() => {
+      for (const listener of listeners)
+        listener({
+          topic: "job.progress",
+          contractVersion: 1,
+          jobRef: "scan",
+          seq: sequence,
+          occurredAt: timestamp,
+          body: {
+            sequence,
+            unit: "bytes",
+            completed,
+            total,
+            totalKnown: true,
+            waitReason: "none",
+            observedAt: timestamp,
+          },
+        });
+    });
+  // Past 2^53 / 100 bytes, done * 100 is rounded as a number: here it reaches
+  // 52 * total although the exact share is just below 52%.
+  const total = 9_007_199_254_740_864;
+  const done = 4_683_743_612_465_249;
+  expect(Math.floor((done * 100) / total)).toBe(52);
+  send(5, done, total);
+  await screen.findByText(/^51% · .+ left$/);
+  expect(screen.queryByText(/^52% ·/)).toBeNull();
+
+  // One byte short of the largest exact total still reads below 100%.
+  send(6, Number.MAX_SAFE_INTEGER - 1, Number.MAX_SAFE_INTEGER);
+  await screen.findByText(/^99% · .+ left$/);
+});
+
+test("F02 FR8.HD1: the panel withdraws the scan it reported when it goes away", async () => {
+  const { client } = fixture({
+    readStatus: (base) => ({
+      ...base,
+      state: "running",
+      scanResult: { lineageId: "lineage", sequence: 1, resultVersion: "part" },
+    }),
+  });
+  const reported = vi.fn();
+  const view = render(
+    <AnalysisPanel
+      client={client}
+      preferences={{
+        display: { system: "iec", unit: "auto" },
+        basis: "logical",
+        warning: undefined,
+      }}
+      onScanContext={reported}
+    />,
+  );
+  fireEvent.click(await screen.findByRole("radio", { name: path.display }));
+  fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
+  const start = screen.getByRole<HTMLButtonElement>("button", {
+    name: "Start scan",
+  });
+  await waitFor(() => expect(start.disabled).toBe(false));
+  fireEvent.click(start);
+  await waitFor(() =>
+    expect(reported).toHaveBeenLastCalledWith(
+      expect.objectContaining({ jobRef: "scan", scanning: true }),
+    ),
+  );
+  view.unmount();
+  expect(reported).toHaveBeenLastCalledWith(undefined);
 });
 
 test("F02 FR10: cancellation is announced before acknowledgement and a rejection clears it", async () => {

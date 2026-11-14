@@ -76,6 +76,8 @@ type GridProps<Item> = {
   getRow: (index: number) => Item | undefined;
   getKey: (item: Item) => string;
   renderCells: (item: Item) => readonly ReactNode[];
+  /** Receives the selected row keys, or "all" after select all. */
+  onSelectionChange?: (keys: "all" | ReadonlySet<string>) => void;
 };
 
 function rowIndex(target: Element | null): number | undefined {
@@ -154,6 +156,7 @@ export function BrowseGrid<Item>({
   getRow,
   getKey,
   renderCells,
+  onSelectionChange,
 }: GridProps<Item>) {
   const ownRoot = useRef<HTMLDivElement>(null);
   const root = scrollRoot ?? ownRoot;
@@ -225,6 +228,11 @@ export function BrowseGrid<Item>({
           className="du-browse-grid"
           selectionMode="multiple"
           selectionBehavior="toggle"
+          onSelectionChange={(keys) =>
+            onSelectionChange?.(
+              keys === "all" ? "all" : new Set([...keys].map(String)),
+            )
+          }
           render={(props, { state }) => {
             const element = props as ComponentProps<"div">;
             return (
