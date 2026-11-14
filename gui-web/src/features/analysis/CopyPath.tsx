@@ -12,6 +12,8 @@ type CopyPathProps = {
   client: AnalysisClient;
   item: ItemRef;
   path: BrowseValue<string>;
+  /** Turns the copy action off and shows this reason; the sample experience sets it. */
+  disabledReason?: string;
 };
 
 type CopyPathRefusal = Extract<
@@ -123,7 +125,12 @@ export function CopyPath(props: CopyPathProps) {
   );
 }
 
-function CopyPathForItem({ client, item, path }: CopyPathProps) {
+function CopyPathForItem({
+  client,
+  item,
+  path,
+  disabledReason,
+}: CopyPathProps) {
   const text = useLocaleText();
   const [status, setStatus] = useState<CopyStatus>();
   const statusText = copyStatusText(status, text);
@@ -185,9 +192,17 @@ function CopyPathForItem({ client, item, path }: CopyPathProps) {
         ) : (
           pathReasonText(path.reasonKey, text)
         )}
-        <Action ref={copyButton} aria-disabled={busy} onPress={copy}>
+        <Action
+          ref={copyButton}
+          isDisabled={disabledReason !== undefined}
+          aria-disabled={busy}
+          onPress={copy}
+        >
           {text("ui.browse.copy_path", "Copy path")}
         </Action>
+        {disabledReason !== undefined && (
+          <Text kind="muted">{disabledReason}</Text>
+        )}
       </div>
       <LiveStatus>{statusText}</LiveStatus>
       {status && !busy && (

@@ -1,8 +1,15 @@
 import { useEffect, useState } from "react";
-import { DetailDisclosure, Notice, Progress, Readout } from "../../components";
+import {
+  DetailDisclosure,
+  ExampleBadge,
+  Notice,
+  Progress,
+  Readout,
+} from "../../components";
 import { useLocaleText } from "../../i18n/presentation";
 import { useTimestampText } from "../../i18n/regional-format";
 import { AnalysisError } from "../../ipc";
+import { isSampleSource } from "../../state/sample-session";
 import type {
   AnalysisClient,
   BrowseValue,
@@ -255,14 +262,26 @@ function rows(
     },
     {
       label: text("ui.analysis.space_capabilities", "Space capabilities"),
-      value: describe(
-        detail.capabilities,
-        (capabilities) =>
-          capabilities
-            .map(({ key, state }) => `${key} · ${state}`)
-            .join(", ") ||
-          text("ui.analysis.space_none_reported", "None reported"),
-        text,
+      value: (
+        <>
+          {describe(
+            detail.capabilities,
+            (capabilities) =>
+              capabilities
+                .map(({ key, state }) => `${key} · ${state}`)
+                .join(", ") ||
+              text("ui.analysis.space_none_reported", "None reported"),
+            text,
+          )}
+          {isSampleSource(detail.dataSource) && (
+            <>
+              {" "}
+              <ExampleBadge>
+                {text("ui.sample.example_badge", "Example")}
+              </ExampleBadge>
+            </>
+          )}
+        </>
       ),
     },
     ...(detail.placeholderLocalState

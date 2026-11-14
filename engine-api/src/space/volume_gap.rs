@@ -43,9 +43,9 @@ impl UseCase for Query {
     fn execute(
         &self,
         request: VolumeGapRequest,
-        _: &CallerCtx,
+        caller: &CallerCtx,
     ) -> Result<VolumeGapResponse, EngineError> {
-        let version = super::pin(&self.0, Some(&request.result_version))?;
+        let version = super::pin(&self.0, Some(&request.result_version), caller.channel)?;
         let result = match (
             request.target.root.as_ref(),
             request.target.volume_id.as_ref(),

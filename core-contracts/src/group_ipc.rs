@@ -341,8 +341,9 @@ pub struct GroupMembersRequest {
 #[serde(rename_all = "camelCase")]
 pub struct GroupMemberRow {
     pub item: ItemRef,
+    /// Human-readable display text; never reopen or compare a path from it.
     pub display_name: BrowseValue<String>,
-    /// Original observed path; a group name never appears here.
+    /// Observed path as display text, never a group name; never reopen or compare by it.
     pub display_path: BrowseValue<String>,
     pub logical_size: BrowseValue<SizeValue>,
     pub allocated_size: BrowseValue<SizeValue>,
@@ -420,6 +421,7 @@ pub struct GroupExplanation {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "typescript", ts(optional))]
     pub data_source: Option<DataSource>,
+    /// Human-readable display text; never reopen or compare a path from it.
     pub display_path: BrowseValue<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "typescript", ts(optional))]
@@ -494,6 +496,5 @@ pub struct GroupTotals {
     pub ratios: Vec<GroupRatio>,
     pub size_rule: QueryStrategy,
 }
-
 #[cfg(test)]
 mod tests;

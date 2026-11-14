@@ -2,7 +2,7 @@
 use super::{
     PreMetadataFilter, ResultIds,
     admission::{self, Admission, Boundary, Visited},
-    record_at,
+    record,
 };
 mod control;
 mod frame;
@@ -17,7 +17,7 @@ use du_core_contracts::{
     ports::{PortError, PortErrorKind},
     result::ResultCompleteness,
     scan_observation::{
-        AnchoredDirectory, DirectoryCaseEvidence, ObservedEntry, ObservedKind, TimedObservedEntry,
+        AnchoredDirectory, DirectoryCaseEvidence, ObservedEntry, TimedObservedEntry,
     },
 };
 #[cfg(test)]
@@ -124,6 +124,8 @@ enum Policy<'a> {
 struct Progress {
     failed_roots: Vec<bool>,
     root_published: Vec<bool>,
+    /// Roots whose item was already counted, so a failure counts them once.
+    counted_roots: Vec<bool>,
     published: bool,
     cadence: PublicationCadence,
 }

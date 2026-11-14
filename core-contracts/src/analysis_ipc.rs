@@ -319,7 +319,8 @@ pub struct AnalysisJobStatus {
     pub terminal: Option<AnalysisJobTerminal>,
 }
 
-/// The terminal outcome recoverable after a job event is missed.
+/// The terminal outcome recoverable after a job event is missed. The counts
+/// follow [`crate::job::JobCounts`]: each unit is in exactly one of them.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]

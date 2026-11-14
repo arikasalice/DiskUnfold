@@ -8,7 +8,7 @@ use std::{
 };
 
 use du_analysis_index::{
-    IngestSink, QueryError, ResultVersion,
+    QueryError, ResultVersion,
     group::{self, Classification, Control, Parallelism, ruleset},
     query::{Condition, Registry},
 };
@@ -21,7 +21,9 @@ use du_core_contracts::{
 };
 use du_job_runtime::{DeduplicationKey, JobPriority, RuntimeError, Submission, SubmitResult};
 
-use super::{JOB_KIND, Meta, Services, codec, hex, internal, summary::summary_response, tables};
+use super::{
+    JOB_KIND, Meta, Services, codec, hex, internal, pin::pin, summary::summary_response, tables,
+};
 use crate::{
     api::{CallerCtx, Channel, UseCase},
     browse::folder::lower_condition,
@@ -79,7 +81,11 @@ impl UseCase for Classify {
         let services = &self.0;
         let seq = request.request_seq;
         let resolved = resolve(services, request.rules)?;
-        let version = pin(&services.assembly.store, request.result_version.as_ref())?;
+        let version = pin(
+            &services.assembly.store,
+            request.result_version.as_ref(),
+            caller.channel,
+        )?;
         if !tables::source_allowed(version.origin()) {
             return Ok(GroupClassifyResponse::NotApplicable {
                 request_seq: seq,
@@ -276,20 +282,6 @@ fn meta(
         ruleset_version,
         fingerprint,
         key,
-    }
-}
-
-fn pin(store: &IngestSink, id: Option<&Id>) -> Result<Arc<ResultVersion>, EngineError> {
-    match id {
-        Some(id) => store.pin_current(id).map_err(|error| match error {
-            QueryError::StaleVersion => EngineError::reason("result.version_stale"),
-            QueryError::NotFound => EngineError::reason("result.version_not_found"),
-            _ => internal(),
-        }),
-        None => store
-            .pin()
-            .map_err(|_| internal())?
-            .ok_or_else(|| EngineError::reason("result.version_not_found")),
     }
 }
 

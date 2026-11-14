@@ -7,6 +7,10 @@
 //! returned batch into owned state. An in-flight adapter call is allowed to
 //! return first; a pause request is not itself a completed pause. Internal
 //! abort wakes parked flows without setting the user cancellation flag.
+//!
+//! After an explicit disconnection a directory whose enumeration started is
+//! read to its end without opening children; one not started yet is closed
+//! (see `disconnected`).
 use super::*;
 mod cancel_drain;
 mod disconnected;
@@ -131,7 +135,10 @@ fn process(
     if shared.abort.load(Ordering::Acquire) {
         return true;
     }
-    if shared.disconnects.closed(frame.root_index) {
+    // The case observation precedes the first read in the same turn, so it
+    // marks a directory whose enumeration started in an earlier turn.
+    let started = frame.case_observed;
+    if disconnected::unstarted_on_closed(&frame, shared, started) {
         return disconnected::close_frame(frame, shared, sender, context, policy);
     }
     if context.checkpoint() == Checkpoint::Cancel {
@@ -163,7 +170,7 @@ fn process(
             Err(()) => false,
         };
     }
-    if !publish_first_batch(&mut frame, sender, shared, context) {
+    if !publish_first_batch(&mut frame, sender, context) {
         return false;
     }
     if frame.batch_pending {
@@ -174,7 +181,7 @@ fn process(
     if context.checkpoint() == Checkpoint::Cancel {
         return cancel_drain::frame(frame, &shared.visited, sender, policy);
     }
-    if shared.disconnects.closed(frame.root_index) {
+    if disconnected::unstarted_on_closed(&frame, shared, started) {
         return disconnected::close_frame(frame, shared, sender, context, policy);
     }
     let mut undecided = Vec::new();
@@ -182,7 +189,7 @@ fn process(
     if !send_undecided(&frame, undecided, sender) {
         return false;
     }
-    process_batch(frame, shared, sender, context, turn, outcome)
+    process_batch(frame, shared, sender, (context, policy), turn, outcome)
 }
 
 /// Opens a claimed pending child as a turn of its own.
@@ -264,7 +271,7 @@ fn process_batch(
     mut frame: Frame,
     shared: &Shared,
     sender: &SyncSender<Event>,
-    context: &dyn JobContext,
+    (context, policy): (&dyn JobContext, Policy<'_>),
     turn: &mut Turn<'_>,
     outcome: Result<Option<Vec<TimedObservedEntry>>, ReadFailure>,
 ) -> bool {
@@ -283,10 +290,14 @@ fn process_batch(
             finish_directory(&frame, sender, shared, context)
         }
         Ok(Some(batch)) if batch.len() <= 8192 => {
-            disconnected::observe_batch(shared, frame.root_index, &batch);
+            let own = disconnected::observe_batch(shared, frame.root_index, &batch);
             frame.first_batch |= frame.root && !frame.root_published;
-            frame.batch_pending = true;
             frame.entries = batch.into();
+            if own {
+                // This directory's own read reported the disconnection.
+                return disconnected::close_frame(frame, shared, sender, context, policy);
+            }
+            frame.batch_pending = true;
             requeue(shared, turn, frame, None, context);
             true
         }
@@ -318,7 +329,7 @@ fn finish_directory(
     shared: &Shared,
     context: &dyn JobContext,
 ) -> bool {
-    if frame.root && !frame.root_published && !send_root_batch(frame, sender, shared, context) {
+    if frame.root && !frame.root_published && !send_root_batch(frame, sender, context) {
         return false;
     }
     complete(shared, frame.root_index, &frame.path, context);
@@ -328,12 +339,11 @@ fn finish_directory(
 fn publish_first_batch(
     frame: &mut Frame,
     sender: &SyncSender<Event>,
-    shared: &Shared,
     context: &dyn JobContext,
 ) -> bool {
     if frame.root && frame.first_batch {
         frame.first_batch = false;
-        if !send_root_batch(frame, sender, shared, context) {
+        if !send_root_batch(frame, sender, context) {
             return false;
         }
         frame.root_published = true;
@@ -341,23 +351,16 @@ fn publish_first_batch(
     true
 }
 
-fn send_root_batch(
-    frame: &Frame,
-    sender: &SyncSender<Event>,
-    shared: &Shared,
-    context: &dyn JobContext,
-) -> bool {
+fn send_root_batch(frame: &Frame, sender: &SyncSender<Event>, context: &dyn JobContext) -> bool {
     if context.checkpoint() == Checkpoint::Cancel {
         return true;
     }
-    let (modified_at, observed_at) = if shared.disconnects.closed(frame.root_index) {
-        (None, None)
-    } else {
-        frame
-            .directory
-            .with(|directory| directory.observed_modified_at_timed(&|| context.utc_now()))
-            .unwrap_or((None, None))
-    };
+    // A root whose own read reported a disconnection never gets here; any
+    // other root is read to its end, so it is observed like any other.
+    let (modified_at, observed_at) = frame
+        .directory
+        .with(|directory| directory.observed_modified_at_timed(&|| context.utc_now()))
+        .unwrap_or((None, None));
     sender
         .send(Event::RootBatch(frame.root_index, modified_at, observed_at))
         .is_ok()

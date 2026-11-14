@@ -284,8 +284,8 @@
     "primarySurface": "workspace",
     "sourceDldRevision": 38,
     "sourceStatus": "published",
-    "delivery": "presentation-only",
-    "integrationNote": "Generated types and owning controller required; gallery actions do not execute product commands."
+    "delivery": "existing-partial-ui",
+    "integrationNote": "Sample session hook, global sample banner, start entry on the analysis target screen, progress, unavailable notice, confirmations, real-analysis switch and sample result browsing are built against the committed sample.* contract. The engine sample.* commands are not wired yet, so only fake-client tests exercise them; visualization and sample plan screens are not connected."
   },
   {
     "feature": "F33",
