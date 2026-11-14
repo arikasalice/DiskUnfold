@@ -22,6 +22,7 @@
     ["cli.help.unsupported", "DiskUnfold: unsupported arguments. See --help.", []],
     ["cli.settings.unavailable", "Saved settings are unavailable. Using a fallback language.", []],
     ["cli.output.interrupted", "Output was interrupted.", []],
+    ["cli.diagnostics.translation_fallback_omitted", "More messages used English text or a message key because of a missing translation. Only the first ones are listed above.", []],
     ["cli.access.full_disk_access_required", "Full Disk Access is required to analyze folders. Allow it for your terminal in System Settings > Privacy & Security > Full Disk Access, then run the command again.", []],
     ["cli.product.version", "Version", []],
     ["cli.product.build_kind", "Build type", []],
