@@ -193,6 +193,7 @@ fn read_manifest(named: &BTreeMap<String, String>) -> Result<ReleaseManifest, Fa
         serde_json::from_str(&fs::read_to_string(require(named, "manifest")?)?)?;
     if let Some(object) = value.as_object_mut() {
         object.remove("fuzz_gate");
+        object.remove("sample_bundle");
     }
     Ok(serde_json::from_value(value)?)
 }

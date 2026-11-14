@@ -1,0 +1,67 @@
+.du-sample-banner {
+  margin-block: var(--du-space-2);
+}
+
+.du-sample-banner .du-notice {
+  border: 1px solid var(--du-border);
+}
+
+.du-sample-banner__body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--du-space-2) var(--du-space-3);
+}
+
+.du-sample-banner__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--du-space-2);
+  margin-inline-start: auto;
+}
+
+.du-example-badge .du-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--du-space-1);
+}
+
+.du-example-badge svg {
+  inline-size: 14px;
+  block-size: 14px;
+}
+
+.du-sample,
+.du-sample__toolbar,
+.du-sample__unavailable,
+.du-sample-entry {
+  display: grid;
+  gap: var(--du-space-3);
+  min-inline-size: 0;
+}
+
+.du-sample__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--du-space-3);
+  padding-block: var(--du-space-3);
+}
+
+.du-sample__toolbar {
+  grid-auto-flow: column;
+  grid-auto-columns: max-content;
+  align-items: end;
+  justify-content: start;
+}
+
+.du-sample__unavailable-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--du-space-2);
+  margin-block-start: var(--du-space-2);
+}
+
+.du-sample-entry {
+  justify-items: start;
+}

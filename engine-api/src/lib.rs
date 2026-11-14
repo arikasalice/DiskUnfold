@@ -18,12 +18,14 @@ mod refresh_scope;
 mod registry;
 #[doc(hidden)]
 pub mod required_data;
+pub mod sample;
 pub mod scan;
 mod scan_failures;
 pub mod scope;
 pub mod search;
 pub mod search_page;
 pub mod shutdown;
+mod source_exposure;
 pub mod space;
 pub mod support;
 mod target_enumeration;

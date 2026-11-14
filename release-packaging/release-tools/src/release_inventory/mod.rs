@@ -21,6 +21,13 @@ impl ReleaseInventory {
         self
     }
 
+    /// Attaches the verified sample bundle version and hash that the JSON and Markdown publish.
+    #[must_use]
+    pub fn with_sample_bundle(mut self, record: crate::sample_bundle::SampleBundleRecord) -> Self {
+        self.sample_bundle = Some(record);
+        self
+    }
+
     /// Returns the product name represented by this normalized inventory.
     pub fn product_name(&self) -> &str {
         &self.product_name

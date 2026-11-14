@@ -7,11 +7,16 @@ use du_core_contracts::visualization::{
     rows::VizDenominatorBasis,
 };
 impl Runtime {
-    pub(super) fn admit(&self, mut request: VizRenderRequest) -> Result<Admitted, EngineError> {
+    pub(super) fn admit(
+        &self,
+        mut request: VizRenderRequest,
+        caller: &crate::api::CallerCtx,
+    ) -> Result<Admitted, EngineError> {
         self.regions
             .validate_region(&self.owner, &request.view_channel, ())
             .map_err(|_| unavailable())?;
         let source = self.pin_source(&request)?;
+        crate::source_exposure::admit_version_source(source.version().as_ref(), caller)?;
         validate_scope(&request, &source)?;
         let max_shapes = validate_viewport(&request, &self.assembly.policy)?;
         let strategy = request.strategy.as_ref().map(|s| LayoutStrategyKey {

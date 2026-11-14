@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 du-app-db = { version = "0.0.1", path = "../../app-db" }
 du-snapshot-store = { version = "0.0.1", path = "../../snapshot-store" }
+blake3.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 spdx = { version = "=0.13.6", features = ["text"] }

@@ -117,4 +117,8 @@ pub struct SpaceDetail {
     pub exclusive_decision: SpaceExclusiveDecision,
     pub observed_at: BrowseValue<Timestamp>,
     pub capabilities: BrowseValue<Vec<SpaceDetailCapability>>,
+    /// Data source of the pinned version; absent means a sample (F32 FR9.HD1).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub data_source: Option<crate::data_source::DataSource>,
 }

@@ -240,6 +240,9 @@ version = "0.0.1"
 [[package]]
 name = "du-change-planner"
 version = "0.0.1"
+dependencies = [
+ "du-core-contracts",
+]
 
 [[package]]
 name = "du-cli"
@@ -347,6 +350,7 @@ dependencies = [
 name = "du-release-tools"
 version = "0.0.1"
 dependencies = [
+ "blake3",
  "du-app-db",
  "du-snapshot-store",
  "serde",
@@ -364,6 +368,9 @@ dependencies = [
  "blake3",
  "du-analysis-index",
  "du-core-contracts",
+ "du-job-runtime",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

@@ -1117,3 +1117,37 @@ ui.support.security_unknown
 ui.info.product_open
 ui.info.support_open
 ui.info.nav
+ui.sample.banner_label
+ui.sample.banner_status
+ui.sample.bundle_version version:name
+ui.sample.end
+ui.sample.real_analysis
+ui.sample.entry
+ui.sample.entry_hint
+ui.sample.screen
+ui.sample.heading
+ui.sample.root_name
+ui.sample.example_badge
+ui.sample.preparing
+ui.sample.resetting
+ui.sample.unavailable_title
+ui.sample.reason_missing
+ui.sample.reason_format_unsupported
+ui.sample.reason_bundle_invalid
+ui.sample.reason_load_failed
+ui.sample.reason_generic
+ui.sample.retry
+ui.sample.reset
+ui.sample.observation
+ui.sample.observation_option number:name time:name
+ui.sample.observation_untimed number:name
+ui.sample.no_observation
+ui.sample.busy
+ui.sample.failed
+ui.sample.closed
+ui.sample.confirm_end_title
+ui.sample.confirm_reset_title
+ui.sample.confirm_real_title
+ui.sample.confirm_body
+ui.sample.cancel
+ui.sample.dismiss

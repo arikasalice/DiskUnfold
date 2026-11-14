@@ -165,11 +165,12 @@ fn register_services_inner(
     let clock = Arc::new(SystemClock(Instant::now()));
     let events = Arc::new(DesktopEvents::default());
     let scan_events = Arc::new(scan_completion::ScanEvents::new(events.clone()));
+    let sample_events = Arc::new(crate::sample::SampleEvents::new(scan_events.clone()));
     let runtime = Arc::new(JobRuntime::new_with_limits(
         ids.clone(),
         clock.clone(),
         history,
-        scan_events.clone(),
+        sample_events.clone(),
         FlowLimits {
             metadata_io: 16,
             queued_items: 64,
@@ -217,6 +218,14 @@ fn register_services_inner(
     };
     let store = sets.source();
     let completed_scans = scan_events.bind(store.clone())?;
+    super::sample_sink::bind(
+        &sample_events,
+        builder,
+        &workers,
+        store.clone(),
+        ids.clone(),
+        &events,
+    )?;
     let visualization = VisualizationServices::new(store.clone(), ids.clone(), workers.clone());
     let search = crate::browse::folder::commands::register(builder, sets, ids, workers, random)?;
     crate::scan_failures::register(builder, store.clone(), random);

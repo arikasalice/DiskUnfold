@@ -4,6 +4,7 @@ import type { LocaleText } from "../../i18n/presentation";
 import { useTimestampText } from "../../i18n/regional-format";
 import {
   DetailDisclosure,
+  ExampleBadge,
   Notice,
   Progress,
   Readout,
@@ -17,6 +18,7 @@ import type {
   ItemRef,
 } from "../../ipc";
 import { CopyPath } from "./CopyPath";
+import { isSampleSource } from "../../state/sample-session";
 import { ItemSpaceDetails } from "./ItemSpaceDetails";
 import {
   displaySizeParts,
@@ -139,9 +141,21 @@ function attributes(
     },
     {
       label: text("ui.inspection.source", "Source"),
-      value: detail.observationOnly
-        ? text("ui.inspection.scan_record", "Scan record")
-        : text("ui.inspection.scan", "Scan"),
+      value: (
+        <>
+          {detail.observationOnly
+            ? text("ui.inspection.scan_record", "Scan record")
+            : text("ui.inspection.scan", "Scan")}
+          {isSampleSource(detail.dataSource) && (
+            <>
+              {" "}
+              <ExampleBadge>
+                {text("ui.sample.example_badge", "Example")}
+              </ExampleBadge>
+            </>
+          )}
+        </>
+      ),
     },
     {
       label: text("ui.inspection.path", "Path"),

@@ -1,5 +1,8 @@
 //! Session result lineages and current-version ownership.
-use crate::{BuildError, IngestSink, QueryError, ResultOrigin, ResultVersion, ScanCompletion};
+use crate::{
+    BuildError, IngestSink, QueryError, ResultOrigin, ResultVersion, SampleSessionKey,
+    ScanCompletion,
+};
 use du_core_contracts::{Id, analysis_ipc::ScanResult, result::ResultCompleteness};
 use std::{
     collections::{HashMap, HashSet},
@@ -7,6 +10,8 @@ use std::{
 };
 
 type Lineage = Option<Id>;
+
+mod sample;
 
 #[derive(Clone)]
 pub(super) struct Entry {
@@ -24,10 +29,18 @@ pub(super) struct State {
     active: HashSet<Lineage>,
     used_versions: HashSet<Id>,
     pub(super) awaiting_terminal: HashMap<Id, Weak<OnceLock<ScanCompletion>>>,
+    /// Sample lineages and the session that owns each; never bound to a scope fingerprint.
+    sample_lineages: HashMap<Id, SampleSessionKey>,
+    next_sample: u64,
 }
 impl State {
     pub(super) fn next_event_sequence(&mut self, lineage: Option<&Id>) -> Option<u64> {
-        let sequence = self.event_sequences.entry(lineage?.clone()).or_default();
+        let lineage = lineage?;
+        // Sample publications are announced by the sample session events, not by result notices.
+        if self.sample_lineages.contains_key(lineage) {
+            return None;
+        }
+        let sequence = self.event_sequences.entry(lineage.clone()).or_default();
         let next = sequence
             .checked_add(1)
             .filter(|next| *next < (1_u64 << 53))?;
@@ -49,6 +62,7 @@ impl State {
     pub(super) fn pin(&self) -> Option<Arc<ResultVersion>> {
         self.current
             .values()
+            .filter(|entry| entry.result.data_source.is_real())
             .max_by_key(|entry| entry.order)
             .map(|entry| Arc::clone(&entry.result))
     }
@@ -72,10 +86,7 @@ impl State {
         }
     }
     pub(super) fn begin(&mut self, lineage: &Lineage) -> Result<Option<Entry>, BuildError> {
-        if lineage
-            .as_ref()
-            .is_some_and(|id| !self.lineages.values().any(|bound| bound == id))
-        {
+        if lineage.as_ref().is_some_and(|id| !self.is_bound(id)) {
             return Err(BuildError::Unavailable);
         }
         if !self.active.insert(lineage.clone()) {
@@ -111,6 +122,9 @@ impl State {
         expected_base: Option<&Id>,
         reserved: bool,
     ) -> Result<Option<Entry>, BuildError> {
+        if !self.admits_publication(lineage, &result) {
+            return Err(BuildError::Unavailable);
+        }
         if expected_base.is_some() && self.active.contains(lineage) {
             return Err(BuildError::Busy);
         }
@@ -152,6 +166,7 @@ impl State {
         if !finish
             || result.origin != ResultOrigin::Scan
             || result.lineage_id.is_none()
+            || !result.data_source.is_real()
             || !matches!(
                 result.completeness,
                 ResultCompleteness::Complete | ResultCompleteness::Partial
@@ -214,7 +229,7 @@ impl IngestSink {
         state
             .current
             .values()
-            .filter(|entry| entry.result.lineage_id.is_some())
+            .filter(|entry| entry.result.lineage_id.is_some() && entry.result.data_source.is_real())
             .max_by_key(|entry| entry.order)
             .map(|entry| Arc::clone(&entry.result))
             .ok_or(QueryError::NotFound)

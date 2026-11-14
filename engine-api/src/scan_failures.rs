@@ -14,6 +14,7 @@ use crate::{
     api::{CallerCtx, Channel, EngineBuilder, UseCase},
     browse::display,
     error::EngineError,
+    source_exposure::admit_version_source,
 };
 
 pub(crate) fn register(builder: &mut EngineBuilder, store: IngestSink, random: &dyn Random) {
@@ -42,7 +43,7 @@ impl UseCase for Failures {
     fn execute(
         &self,
         request: Self::Request,
-        _: &CallerCtx,
+        caller: &CallerCtx,
     ) -> Result<Self::Response, EngineError> {
         let count = request.count.unwrap_or(200);
         if !(1..=1_000).contains(&count) {
@@ -53,6 +54,7 @@ impl UseCase for Failures {
             .store
             .pin_current(&request.result_version)
             .map_err(query_error)?;
+        admit_version_source(version.as_ref(), caller)?;
         let issues = version.scan_issues();
         let matching = issues
             .iter()
