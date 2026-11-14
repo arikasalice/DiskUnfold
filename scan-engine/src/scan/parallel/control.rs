@@ -25,6 +25,16 @@ pub enum ScanControlError {
 /// interrupted, a paused scan applies it from its first assignment after
 /// resuming, and a scan whose cancellation was requested assigns no further
 /// directory, so an accepted area can end without any effect.
+///
+/// Directory work never leaves the storage lane of its root. While the area's
+/// lane queues work of the area and has fewer workers than its limit, a worker
+/// of another lane moves there when it finishes its current turn. A worker
+/// stays in its lane when it is that lane's last worker, or when the work on
+/// its overflow stack does not fit in its lane queue; it moves once that work
+/// fits. The area can therefore wait for those workers' turns, and a stalled
+/// area lane takes at most its own worker limit, never the last worker of
+/// another lane. Once the area's lane queues no area work, lent workers return
+/// to their own lanes under the same conditions.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ScanPriorityOutcome {
     /// The area replaced any previous area for later directory assignments.
