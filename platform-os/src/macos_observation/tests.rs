@@ -260,3 +260,66 @@ fn volume_reads_require_the_expected_identity_before_and_after() {
         Err(failure)
     );
 }
+
+/// Packs a reply to one volume attribute request after its returned groups.
+fn volume_reply(
+    returned: [u32; 5],
+    values: &[&[u8]],
+) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    let mut out = vec![0u8; 4];
+    for group in returned {
+        out.extend(group.to_ne_bytes());
+    }
+    for value in values {
+        out.extend(*value);
+    }
+    let total = u32::try_from(out.len())?.to_ne_bytes();
+    out.get_mut(0..4).ok_or("short")?.copy_from_slice(&total);
+    Ok(out)
+}
+
+#[test]
+fn volume_replies_carry_one_attribute_after_the_file_system_id() -> TestResult {
+    let fsid = [0x0e, 0, 0, 1, 0x1a, 0, 0, 0];
+    let uuid = [
+        0x20, 0x8c, 0x96, 0x9d, 0x12, 0x19, 0x43, 0x1c, 0x9d, 0x79, 0xab, 0x8f, 0x16, 0x61, 0xcd,
+        0x8f,
+    ];
+    let common = libc::ATTR_CMN_RETURNED_ATTRS | libc::ATTR_CMN_FSID;
+    let reply = volume_reply([common, libc::ATTR_VOL_UUID, 0, 0, 0], &[&fsid, &uuid])?;
+    let parsed =
+        volume::parse_volume::<16>(&reply, libc::ATTR_VOL_UUID).map_err(|e| format!("{e:?}"))?;
+    assert_eq!((parsed.fsid, parsed.value), (fsid, Some(uuid)));
+    assert_eq!(
+        volume::format(parsed.fsid, parsed.value),
+        b"uuid:208C969D-1219-431C-9D79-AB8F1661CD8F"
+    );
+    // Without a UUID the identity is the device number of the file system ID.
+    let absent = volume_reply([common, 0, 0, 0, 0], &[&fsid])?;
+    let parsed =
+        volume::parse_volume::<16>(&absent, libc::ATTR_VOL_UUID).map_err(|e| format!("{e:?}"))?;
+    assert_eq!(parsed.value, None);
+    assert_eq!(volume::format(parsed.fsid, parsed.value), b"dev:0100000e");
+    assert_eq!(volume::format(parsed.fsid, Some([0; 16])), b"dev:0100000e");
+    // The kernel places space used before the UUID, so a reply carrying both
+    // has another layout and is refused rather than misread.
+    let both = volume_reply(
+        [
+            common,
+            libc::ATTR_VOL_UUID | libc::ATTR_VOL_SPACEUSED,
+            0,
+            0,
+            0,
+        ],
+        &[&fsid, &[0u8; 8], &uuid],
+    )?;
+    let no_fsid = volume_reply(
+        [libc::ATTR_CMN_RETURNED_ATTRS, libc::ATTR_VOL_UUID, 0, 0, 0],
+        &[&uuid],
+    )?;
+    let truncated = reply.get(..reply.len() - 1).ok_or("short")?;
+    for malformed in [&both[..], &no_fsid, truncated] {
+        assert!(volume::parse_volume::<16>(malformed, libc::ATTR_VOL_UUID).is_err());
+    }
+    Ok(())
+}
