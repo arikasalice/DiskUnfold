@@ -25,9 +25,10 @@ export type TabsItem<K extends string> = {
  * the selection never rests on colour alone. Left and Right move between tabs,
  * Home and End jump to the ends, and a focused tab is selected at once.
  *
- * `children` is the panel: it stays mounted while the selection changes and
- * is labelled by the selected tab. The owning feature decides what each key
- * shows. `value` must be the key of one of `items`.
+ * `children` is the panel of the selected tab: only that one panel is
+ * rendered, it is labelled by the selected tab, and the selected tab points to
+ * it with `aria-controls`. The owning feature decides what each key shows.
+ * `value` must be the key of one of `items`.
  */
 export function Tabs<K extends string>({
   label,

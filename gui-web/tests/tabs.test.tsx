@@ -46,6 +46,7 @@ test("the tabs part exposes a tab list, tabs and one labelled panel", () => {
   ]);
   const panel = screen.getByRole("tabpanel");
   expect(panel.getAttribute("aria-labelledby")).toBe(tabs[0]!.id);
+  expect(tabs[0]!.getAttribute("aria-controls")).toBe(panel.id);
   expect(panel.textContent).toBe("Panel of a");
   // Extra text is the description only.
   const described = tabs[0]!.getAttribute("aria-describedby") ?? "";
