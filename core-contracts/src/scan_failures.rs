@@ -73,6 +73,7 @@ pub struct ScanFailureRow {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "typescript", ts(optional))]
     pub observed_at: Option<Timestamp>,
+    /// Human-readable display text; never reopen or compare a path from it.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "typescript", ts(optional))]
     pub display_path: Option<String>,

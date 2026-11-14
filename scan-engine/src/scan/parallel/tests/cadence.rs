@@ -65,6 +65,7 @@ fn timed_publications_pin_independent_versions_and_failed_build_rolls_back()
     let mut progress = Progress {
         failed_roots: vec![false],
         root_published: vec![false],
+        counted_roots: vec![false],
         published: false,
         cadence: PublicationCadence::default(),
     };
@@ -196,6 +197,7 @@ fn publishes_after_deadline_without_another_observation() -> Result<(), Box<dyn 
         let mut progress = Progress {
             failed_roots: vec![false],
             root_published: vec![false],
+            counted_roots: vec![false],
             published: false,
             cadence: PublicationCadence::default(),
         };
@@ -287,6 +289,7 @@ fn abort_and_cancel_do_not_publish_queued_batches() -> Result<(), Box<dyn std::e
         let mut progress = Progress {
             failed_roots: vec![false],
             root_published: vec![false],
+            counted_roots: vec![false],
             published: false,
             cadence: PublicationCadence::default(),
         };

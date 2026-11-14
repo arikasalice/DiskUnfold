@@ -103,7 +103,9 @@ pub enum BrowseOrigin {
 #[serde(rename_all = "camelCase")]
 pub struct BrowseDetail {
     pub item: ItemRef,
+    /// Human-readable display text; never reopen or compare a path from it.
     pub display_path: BrowseValue<String>,
+    /// Human-readable display text; never reopen or compare a path from it.
     pub display_name: BrowseValue<String>,
     pub kind: BrowseValue<ResultItemKind>,
     pub logical_size: BrowseValue<SizeValue>,

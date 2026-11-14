@@ -185,7 +185,7 @@ impl AnchoredDirectory for GatedRoot {
 }
 
 #[test]
-fn a_batch_already_in_flight_is_drained_after_another_root_disconnects()
+fn a_root_already_being_read_is_read_to_its_end_after_another_root_disconnects()
 -> Result<(), Box<dyn std::error::Error>> {
     let (entered, wait_entered) = mpsc::channel();
     let (release, wait_release) = mpsc::channel();
@@ -244,19 +244,17 @@ fn a_batch_already_in_flight_is_drained_after_another_root_disconnects()
         ));
         Ok(())
     })?;
-    assert_eq!(reads.load(Ordering::Acquire), 1);
+    // Its enumeration had started, so it is read to its end and is no gap.
+    assert_eq!(reads.load(Ordering::Acquire), 2);
     let rest: Vec<_> = received.try_iter().collect();
     assert!(rest.iter().any(
         |event| matches!(event, Event::Item(0, path, _, _) if path == &vec![native("in-flight")])
     ));
-    assert!(rest.iter().any(|event| matches!(
-        event,
-        Event::Failure {
-            root_index: 0,
-            reason: "scan.disconnected",
-            ..
-        }
-    )));
+    assert!(
+        !rest
+            .iter()
+            .any(|event| matches!(event, Event::Failure { root_index: 0, .. }))
+    );
     assert!(!shared.abort.load(Ordering::Acquire));
     Ok(())
 }

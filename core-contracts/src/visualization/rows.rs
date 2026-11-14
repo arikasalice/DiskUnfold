@@ -90,6 +90,7 @@ where
 pub struct VizRow {
     pub item_ref: Option<ItemRef>,
     pub group_ref: Option<String>,
+    /// Human-readable display text; never reopen or compare a path from it.
     pub display_name: String,
     pub size: SizeValue,
     #[serde(skip_serializing_if = "Option::is_none")]

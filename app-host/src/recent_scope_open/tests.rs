@@ -63,7 +63,11 @@ fn id(number: u8) -> Id {
 }
 
 fn store_fixture(sql: &Connection) -> TestResult {
-    let folder = path(r"C:\Fixture");
+    store_fixture_at(sql, r"C:\Fixture", r"C:\")
+}
+
+fn store_fixture_at(sql: &Connection, applied: &str, entry: &str) -> TestResult {
+    let folder = path(applied);
     let conditions = ScopeDraft {
         includes: vec![folder.clone()],
         exclusions: vec![],
@@ -78,7 +82,7 @@ fn store_fixture(sql: &Connection) -> TestResult {
         "normalizedScope":{"includes":[{"encoding":folder.encoding,"raw":folder.raw}],
             "exclusions":[],"boundary":"current_volume","includedMounts":[]},
         "targets":[{"appliedPath":folder,"volumeId":PathBytes::from_bytes(b"volume"),
-            "entryPath":path(r"C:\"),"relativePath":path(r"\Fixture")}]
+            "entryPath":path(entry),"relativePath":path(r"\Fixture")}]
     });
     sql.execute(
         "INSERT INTO user_env_recent_scope VALUES(?1,?2,1,?3,1,30,30,30,1)",
@@ -210,5 +214,69 @@ fn proposals_and_unverifiable_results_preserve_draft_and_never_admit_a_review() 
         |row| row.get(0),
     )?;
     assert_eq!(last_used_at, 30);
+    Ok(())
+}
+
+#[test]
+fn restored_extended_paths_are_shown_without_changing_the_stored_row() -> TestResult {
+    check_restored(r"\\?\C:\Fixture", r"C:\Fixture")
+}
+
+#[test]
+fn restored_paths_keep_the_prefix_for_trailing_dots_and_long_paths() -> TestResult {
+    check_restored(r"\\?\C:\trailing.", r"\\?\C:\trailing.")?;
+    let long = format!(r"\\?\C:\{}\{}", "d".repeat(130), "e".repeat(130));
+    check_restored(&long, &long)
+}
+
+/// Opens a stored scope applied at `applied` and checks that the folder is
+/// shown as `expected` while the stored row stays byte-identical.
+fn check_restored(applied: &str, expected: &str) -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let path_on_disk = dir.path().join("scope.db");
+    let db = AppDb::create_gui_with_history(&path_on_disk).map_err(|e| format!("{e:?}"))?;
+    let sql = Connection::open(&path_on_disk)?;
+    store_fixture_at(&sql, applied, r"\\?\C:\")?;
+    let read_body = || -> rusqlite::Result<String> {
+        sql.query_row("SELECT scope_body FROM user_env_recent_scope", [], |row| {
+            row.get(0)
+        })
+    };
+    let stored = read_body()?;
+    let proposal = path(r"\\?\D:\");
+    let mut builder = EngineBuilder::default();
+    register(
+        &mut builder,
+        SharedDatabase::new(db, None),
+        Arc::new(Roots::default()),
+        Arc::new(Volumes {
+            evidence: Some(RecentVolumeObservation {
+                identity_kind: b"fixture",
+                entries: vec![RecentVolumeEntry {
+                    path: proposal.clone(),
+                    same_entry: false,
+                }],
+            }),
+            calls: AtomicUsize::new(0),
+        }),
+    );
+    let response = ipc(&builder.build()?, id(1))?;
+    assert!(response.error.is_none(), "{:?}", response.error);
+    let folder = path(applied);
+    for (shown, display, native) in [
+        (&response.body["draft"]["includes"][0], expected, &folder),
+        (&response.body["targets"][0]["path"], expected, &folder),
+        (
+            &response.body["targets"][0]["proposedEntry"],
+            r"D:\",
+            &proposal,
+        ),
+    ] {
+        assert_eq!(shown["display"], display);
+        assert_eq!(shown["raw"], json!(native.raw));
+        assert_eq!(shown["encoding"], "windows_utf16le");
+        assert_eq!(shown["lossy"], false);
+    }
+    assert_eq!(read_body()?, stored);
     Ok(())
 }

@@ -117,6 +117,10 @@ pub struct HistoryChangedBody {
 }
 
 /// Terminal counts represented as decimal strings without JavaScript rounding.
+///
+/// The counts follow [`crate::job::JobCounts`]: each unit is in exactly one
+/// of them, and the work done is `completed + failed`. For `scan.metadata`,
+/// `failed` equals the number of scope gaps of the result.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]

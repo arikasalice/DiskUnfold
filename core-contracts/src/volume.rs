@@ -58,6 +58,7 @@ pub enum VolumeTargetKind {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VolumeMount {
     pub mount_path: Vec<u8>,
+    /// Human-readable display text; never reopen or compare a path from it.
     pub display_path: String,
     pub filesystem: Vec<u8>,
     /// mountinfo source, which may be a device, network source, or non-path label.
