@@ -58,8 +58,11 @@ fn open_verified(path: &[u8]) -> Result<MacDirectory, PortError> {
     let (current, walked) = walk(path)?;
     let stat = directory_stat(&current)?;
     let volume_id: Arc<[u8]> = volume::identity(current.as_fd())?.into();
-    let root = volume::is_mount_root(current.as_fd()).unwrap_or(false);
-    let ancestors = Ancestors::collect(&volume_id, root, walked);
+    // An unreadable mount status leaves the ancestors unavailable rather than
+    // guessing whether the opened directory is a volume root.
+    let ancestors = volume::is_mount_root(current.as_fd())
+        .ok()
+        .and_then(|root| Ancestors::collect(&volume_id, root, walked));
     Ok(MacDirectory::new(
         current,
         (device(&stat), stat.st_ino),
@@ -130,8 +133,19 @@ pub(super) fn device(stat: &Stat) -> u64 {
 /// Identity of a verified directory in the space enumeration records report.
 ///
 /// A zero inode identifies no directory, so no identity is reported for it.
-/// `ancestors` are the little-endian inodes [`Ancestors`] retains; a handle
-/// without that evidence reports none.
+/// `ancestors` are the little-endian inodes [`Ancestors`] retains, from the
+/// volume root down to the parent.
+///
+/// `HandleIdentity::ancestors` cannot tell missing evidence (`None`) from a
+/// confirmed volume root (`Some(&[])`): both report no ancestor. Missing
+/// evidence is common on macOS. Every root reached through a firmlink, such
+/// as one below `/Users`, `/Applications` or `/private`, has a parent chain
+/// that leaves its volume at the firmlink, and child handles retain none. The
+/// collector uses ancestors only to refuse entering one of them again from
+/// below the root. Without them it may enter such a directory once, but the
+/// root itself is reserved before enumeration, so the walk back down stops
+/// there as a revisit and no directory is read twice. APFS creates no
+/// directory hard links, so on APFS no child leads back to an ancestor.
 pub(super) fn handle_identity(
     device: u64,
     inode: u64,
@@ -181,6 +195,12 @@ fn retry<T>(mut call: impl FnMut() -> rustix::io::Result<T>) -> rustix::io::Resu
 }
 
 /// Verified same-volume ancestors, kept open so their identities stay meaningful.
+///
+/// Identities run from the volume root down to the parent of the opened
+/// directory. They exist only when every directory on that chain is on the
+/// volume of the opened directory, which a firmlink on the path breaks: for
+/// `/Users/name` the chain reaches `/` on the system volume and is dropped.
+/// `/System/Library` keeps `/` and `/System`, in that order.
 pub(super) struct Ancestors {
     _handles: Vec<OwnedFd>,
     ids: Vec<Vec<u8>>,

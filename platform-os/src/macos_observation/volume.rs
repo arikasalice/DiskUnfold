@@ -238,6 +238,15 @@ impl VolumeSpaceReader for Reader {
     }
 }
 
+/// Total, used and free bytes of the volume holding `fd`.
+///
+/// Free bytes are `f_bfree`, the free blocks of the file system whatever the
+/// caller may use, as the Windows and Linux adapters report actual free space.
+/// `f_bavail` would apply the caller's reserve and quota instead. On APFS,
+/// `f_blocks` and `f_bfree` describe the container that every volume in it
+/// shares, while `ATTR_VOL_SPACEUSED` is the usage of this volume alone, so
+/// used and free bytes need not add up to the total. Without a reported usage,
+/// used bytes fall back to the container's total minus free.
 fn space(fd: BorrowedFd<'_>) -> Result<VolumeSpace, PortError> {
     let stats = rustix::fs::fstatfs(fd).map_err(errors::os)?;
     let block = u64::from(stats.f_bsize);
