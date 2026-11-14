@@ -1,7 +1,10 @@
 //! Build local release inventory and checksum files from one manifest.
-use du_release_tools::release_inventory::{
-    ReleaseManifest, prepare_inventory, render_checksums, render_executable_checksums, render_json,
-    render_markdown,
+use du_release_tools::{
+    release_inventory::{
+        ReleaseManifest, prepare_inventory, render_checksums, render_executable_checksums,
+        render_json, render_markdown,
+    },
+    sample_bundle::verify_sample_bundle,
 };
 use std::{env, error::Error, fs, io, path::PathBuf, process};
 
@@ -23,17 +26,27 @@ fn run() -> Result<(), Box<dyn Error>> {
     let Some(output_dir) = args.next().map(PathBuf::from) else {
         return Err(usage().into());
     };
-    let fuzz_gate = match (args.next(), args.next(), args.next()) {
-        (None, _, _) => None,
-        (Some(flag), Some(file), None) if flag == "--fuzz-gate" => Some(PathBuf::from(file)),
-        _ => return Err(usage().into()),
-    };
+    let mut fuzz_gate = None;
+    let mut sample_bundle = None;
+    while let Some(flag) = args.next() {
+        let Some(file) = args.next().map(PathBuf::from) else {
+            return Err(usage().into());
+        };
+        match flag.to_str() {
+            Some("--fuzz-gate") if fuzz_gate.is_none() => fuzz_gate = Some(file),
+            Some("--sample-bundle") if sample_bundle.is_none() => sample_bundle = Some(file),
+            _ => return Err(usage().into()),
+        }
+    }
 
     let manifest_text = fs::read_to_string(&manifest_path)?;
     let manifest: ReleaseManifest = serde_json::from_str(&manifest_text)?;
     let (mut inventory, verified) = prepare_inventory(manifest, &staging_root)?;
     if let Some(file) = fuzz_gate {
         inventory = inventory.with_fuzz_gate(serde_json::from_str(&fs::read_to_string(file)?)?);
+    }
+    if let Some(file) = sample_bundle {
+        inventory = inventory.with_sample_bundle(verify_sample_bundle(&fs::read(file)?)?);
     }
     let json = render_json(&inventory)?;
     let markdown = render_markdown(&inventory);
@@ -58,6 +71,6 @@ fn write_output(path: &std::path::Path, contents: &[u8]) -> io::Result<()> {
 fn usage() -> io::Error {
     io::Error::new(
         io::ErrorKind::InvalidInput,
-        "usage: build-release-inventory <manifest.json> <staging-root> <output-directory> [--fuzz-gate fuzz-gate.json]",
+        "usage: build-release-inventory <manifest.json> <staging-root> <output-directory> [--fuzz-gate fuzz-gate.json] [--sample-bundle bundle.v1.bin]",
     )
 }

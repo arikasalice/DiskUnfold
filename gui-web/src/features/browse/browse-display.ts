@@ -24,10 +24,11 @@ export function folderPath(
   knownVirtualRoot: boolean,
   open: (location?: ItemRef) => void,
   text: LocaleText = (key, fallback) => fallback || key,
+  rootLabel?: string,
 ): BreadcrumbEntry[] {
   const root = {
     id: "scope-roots",
-    label: text("ui.browse.scope_roots", "Scope roots"),
+    label: rootLabel ?? text("ui.browse.scope_roots", "Scope roots"),
   };
   if (opened.rootKind === "virtual_root") return [{ ...root, current: true }];
   const entries: BreadcrumbEntry[] = [];

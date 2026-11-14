@@ -127,6 +127,7 @@ export function BrowsePanel({
   onOpening,
   onOpened,
   display = { system: "iec", unit: "auto" },
+  rootLabel,
 }: {
   port: BrowsePort;
   resultVersion?: string;
@@ -134,6 +135,8 @@ export function BrowsePanel({
   onOpening?: () => void;
   onOpened?: (opened: BrowseOpenLocation) => void;
   display?: SizeDisplay;
+  /** Names the top of the folder path instead of "Scope roots", e.g. for the sample root. */
+  rootLabel?: string;
 }) {
   const text = useLocaleText();
   const [view, setView] = useState<View>();
@@ -337,6 +340,7 @@ export function BrowsePanel({
                       hasVirtualRoot,
                       (item) => navigate(item, page.resultVersion),
                       text,
+                      rootLabel,
                     ),
                     previousResult,
                   )}
@@ -346,6 +350,7 @@ export function BrowsePanel({
             <ObservationSummary
               opened={view.opened}
               hasVirtualRoot={hasVirtualRoot}
+              rootLabel={rootLabel}
             />
             {page.completeness !== "complete" && (
               <Notice>
@@ -393,9 +398,11 @@ export function BrowsePanel({
 function ObservationSummary({
   opened,
   hasVirtualRoot,
+  rootLabel,
 }: {
   opened: Opened;
   hasVirtualRoot: boolean;
+  rootLabel: string | undefined;
 }) {
   const text = useLocaleText();
   const page = opened.page;
@@ -437,7 +444,13 @@ function ObservationSummary({
                   "ui.browse.location_hierarchy",
                   "Location hierarchy",
                 ),
-                value: folderPath(opened, hasVirtualRoot, () => undefined, text)
+                value: folderPath(
+                  opened,
+                  hasVirtualRoot,
+                  () => undefined,
+                  text,
+                  rootLabel,
+                )
                   .map((entry) => entry.label)
                   .join(" / "),
                 wideValue: true,
