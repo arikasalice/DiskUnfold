@@ -1,8 +1,11 @@
 use crate::delivery::enqueue;
-use crate::model::{Cancellation, Delivery, JobClock, JobEvent, Limits, Table};
+use crate::model::{Cancellation, Delivery, JobClock, JobEvent, Limits, ProgressCell, Table};
 use du_core_contracts::{
     Id, Timestamp,
-    job::{Checkpoint, JobContext, JobCounts, JobFlow, JobFlowError, JobState, ResourceClass},
+    job::{
+        Checkpoint, JobContext, JobCounts, JobFlow, JobFlowError, JobProgress, JobState,
+        ResourceClass,
+    },
 };
 use std::sync::{
     Arc, Condvar, Mutex,
@@ -32,6 +35,7 @@ pub(crate) struct Context {
 pub(crate) struct Services {
     pub(crate) limits: Arc<Limits>,
     pub(crate) clock: Arc<dyn JobClock>,
+    pub(crate) progress: Arc<ProgressCell>,
 }
 impl Context {
     pub(crate) fn new(
@@ -83,6 +87,10 @@ impl JobContext for Context {
 
     fn monotonic_now(&self) -> Option<std::time::Duration> {
         self.services.clock.monotonic_now()
+    }
+
+    fn report_progress(&self, progress: JobProgress) {
+        self.services.progress.report(&self.id, progress);
     }
 
     fn checkpoint(&self) -> Checkpoint {

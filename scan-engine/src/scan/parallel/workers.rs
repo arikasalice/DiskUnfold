@@ -192,24 +192,13 @@ enum Observed {
 }
 
 /// Observes per-directory facts once, before the first enumeration.
-///
-/// A root first reports its own identity so that the admission table can
-/// compare child volumes with it. Both calls run in the claiming worker's turn.
+/// Root identities were already reserved before any worker started.
 fn observe_once(
     frame: &mut Frame,
     shared: &Shared,
     sender: &SyncSender<Event>,
     context: &dyn JobContext,
 ) -> Observed {
-    if frame.boundary == Boundary::Pending {
-        match frame
-            .directory
-            .with(|directory| shared.visited.observe_root(directory))
-        {
-            Some(boundary) => frame.boundary = boundary,
-            None => return Observed::Failed,
-        }
-    }
     if frame.case_observed {
         return Observed::Ready;
     }
@@ -352,16 +341,26 @@ fn send_root_batch(
 /// Applies the admission table to an entry returned for this frame.
 ///
 /// A legacy path predicate is the exclusion row; entries filtered before
-/// metadata already passed it inside the adapter.
+/// metadata already passed it inside the adapter. `reserve` is false where
+/// the entry will not be opened, so no unentered directory is reserved.
 fn admit(
     frame: &Frame,
     entry: &ObservedEntry,
     path: &[Vec<u8>],
     visited: &Visited,
     policy: Policy<'_>,
+    reserve: bool,
 ) -> Admission {
     let excluded = matches!(policy, Policy::Legacy(include) if !include(path));
-    admission::decide(excluded, entry, frame.boundary, visited)
+    let parent = admission::Parent {
+        root: frame.root_index,
+        boundary: frame.boundary,
+    };
+    if reserve {
+        admission::decide(excluded, entry, parent, visited)
+    } else {
+        admission::preview(excluded, entry, parent, visited)
+    }
 }
 
 #[cfg(test)]

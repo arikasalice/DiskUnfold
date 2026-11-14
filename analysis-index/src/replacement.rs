@@ -28,6 +28,7 @@ impl IngestSink {
             reserved: false,
             published: false,
             origin: ResultOrigin::Incremental,
+            data_source: base.data_source,
             size_rule: base.size_rule,
             shared_table_limit: base.shared_table_limit,
             scope_version_id: base.scope_version_id.clone(),

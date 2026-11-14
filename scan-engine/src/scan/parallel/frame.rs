@@ -123,8 +123,18 @@ pub(super) struct Frame {
 
 impl Frame {
     /// A scope root whose handle was opened and verified at scan admission.
-    pub(super) fn root(root_index: u32, directory: Box<dyn AnchoredDirectory>) -> Self {
-        Self::with_directory(root_index, Vec::new(), Directory::opened(directory), true)
+    ///
+    /// `boundary` comes from the root identity reserved, in root order, before
+    /// any worker started.
+    pub(super) fn root(
+        root_index: u32,
+        directory: Box<dyn AnchoredDirectory>,
+        boundary: Boundary,
+    ) -> Self {
+        let mut frame =
+            Self::with_directory(root_index, Vec::new(), Directory::opened(directory), true);
+        frame.boundary = boundary;
+        frame
     }
 
     /// An admitted child directory waiting to be opened from `parent`.
@@ -157,11 +167,7 @@ impl Frame {
             root_published: false,
             batch_pending: false,
             case_observed: false,
-            boundary: if root {
-                Boundary::Pending
-            } else {
-                Boundary::Unknown
-            },
+            boundary: Boundary::Unknown,
         }
     }
 

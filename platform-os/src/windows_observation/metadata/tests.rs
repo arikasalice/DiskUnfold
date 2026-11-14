@@ -1,5 +1,31 @@
 use super::super::open_verified;
+use super::{other_volume, verified_identity};
 use du_core_contracts::scan_observation::{AnchoredDirectory, DirectoryObservations, ObservedKind};
+
+#[test]
+fn zero_index_or_other_volume_yields_no_root_identity() {
+    assert_eq!(verified_identity(7, 7, 0, None), None);
+    assert_eq!(verified_identity(7, 8, 42, None), None);
+    let ids = [
+        5_u64.to_le_bytes().to_vec(),
+        vec![1; 16],
+        6_u64.to_le_bytes().to_vec(),
+    ];
+    let identity = verified_identity(7, 7, 42, Some(&ids));
+    assert_eq!(identity.as_ref().map(|value| value.inode), Some(42));
+    // A 128-bit ancestor ID cannot be compared with the 64-bit index.
+    assert_eq!(identity.map(|value| value.ancestors), Some(vec![5, 6]));
+}
+
+#[test]
+fn other_volume_entry_carries_identity_without_size_or_times() {
+    let observed = other_volume(ObservedKind::Directory, 9, 11);
+    assert_eq!((observed.device, observed.inode), (9, 11));
+    assert!(observed.size.is_err());
+    assert!(observed.modified_at.is_none() && observed.native_modified_at.is_none());
+    assert!(observed.allocated.is_none() && observed.link_count.is_none());
+    assert!(observed.space_identity.is_none());
+}
 
 #[test]
 fn root_identity_is_comparable_with_child_metadata_and_keeps_ancestors()

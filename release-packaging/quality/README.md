@@ -58,3 +58,35 @@ To compare runs, give the coverage script a previous `coverage-summary.json` as 
 The quality workflow publishes a small coverage baseline artifact on main pushes. A PR compares with its exact base commit, and a main push compares with its previous commit. The lookup is restricted to completed push runs of this repository's quality workflow. The report checks the source commit, run, platform and measurement settings, and compares each language only when both coverage commands and their tests succeeded. A missing, expired or incompatible baseline gives N/A. The Actions job summary shows changes in percentage points, and declines remain informational.
 
 CI pins cargo-deny 0.20.2 and cargo-llvm-cov 0.9.1. The native desktop graph removes the Tauri dependencies rejected by the Rust gate, including the GTK3 path to `proc-macro-error` (RUSTSEC-2024-0370). The CycloneDX gate removes the old npm license checker and its CC-BY-3.0 data dependencies. Both changes are validated with the same allowlists.
+
+## Accessibility review list
+
+`accessibility-review.json` is the product-wide accessibility review list (NFR3.HD1.gui-web.DD1). It has three parts:
+
+- **Task rows.** One row per main task: scope selection (F01), browsing (F05), search (F04), display language and format change (F13), plan review (F10), approval (F28), cancel (F24) and result review (F30). Each row names the owning feature and says whether the GUI has an entry point today, with the file that shows it. Feature numbers follow the AIDA DiskUnfold 0.1 feature order. The entry point flags were read from the source at commit `3fbdcbf7`. A feature owner sets `present` to true in the same change that mounts the screen.
+- **Combination axes.** Assistive technology by OS (Windows Narrator, macOS VoiceOver, Ubuntu Orca), display language (`ko`, `en`), keyboard layout (Korean 2-set `ko-2set`, US English `en-us`), app scale (150, 175 and 200 percent) and the minimum window (`1024x700`). That is 36 combinations.
+- **Check items.** Name, role and state conveyed; focus visible and in order; not dependent on color; composition confirmation does not run an action; truncated text readable in full; main actions reachable.
+
+A release review records one cell for every task, combination and check item (8 x 36 x 6 = 1728 cells). `node release-packaging/quality/accessibility-review.mjs --template <productVersion> <osVersion>` prints a results file with every cell set to `unverified`. A reviewer replaces each cell with a result as the combination is exercised. Cells can carry different `osVersion` values.
+
+A record in the results file has these fields:
+
+| Field | Meaning |
+| --- | --- |
+| `task`, `check` | Ids from the list. |
+| `combination` | One value for each of the five axes (`assistiveTechnology` is the id). |
+| `result` | `pass`, `fail`, `unverified` or `not_applicable`. |
+| `productVersion`, `osVersion` | Product build and OS build that were reviewed. A file covers one product version. |
+| `evidence` | Review note, capture or test number. Required unless the result is `unverified`. |
+| `blocksTask` | Required on `fail`: true when the input means kept the reviewer from completing the task. Not allowed on other results. |
+
+The measure is the number of (task, combination) pairs with a failed check that has `blocksTask: true`. The pass threshold is 0. A failure that does not block the task still fails the review. An `unverified` or missing cell is never a pass: the review is `incomplete`. A task whose row says there is no entry point can be `not_applicable` or `unverified` but cannot `pass`.
+
+```sh
+node release-packaging/quality/accessibility-review.mjs --check
+node release-packaging/quality/accessibility-review.mjs --results path/to/results.json
+node --test release-packaging/quality/
+```
+
+`--check` validates the list definition without release results; the measure is then null (not available), not zero. `--results` evaluates a results file and exits 0 only when the review passes. Both modes write `quality-output/accessibility-review-report.json`. The merge stage runs `--check` and the tests. The combination review runs on the release tag. This tool does not drive assistive technology; a person or a separate automated run produces the results file. No workflow runs the release review yet.
+

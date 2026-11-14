@@ -125,6 +125,10 @@ impl DirectoryObservations for PriorityChild {
 }
 
 impl AnchoredDirectory for PriorityChild {
+    // Only root identities are queried; this double is opened as a child.
+    fn observed_identity(&self) -> Option<du_core_contracts::scan_observation::HandleIdentity> {
+        None
+    }
     fn open_child(&self, _: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError> {
         Err(test_io_error())
     }

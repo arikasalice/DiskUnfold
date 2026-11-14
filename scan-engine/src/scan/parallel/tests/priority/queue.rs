@@ -10,6 +10,7 @@ fn frame(root_index: u32, path: Vec<Vec<u8>>) -> Frame {
             gate: None,
             visits: mpsc::channel().0,
         }),
+        Boundary::Unknown,
     );
     frame.root = false;
     frame.path = path;

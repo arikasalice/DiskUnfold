@@ -27,6 +27,20 @@
     "certainty": "confirmed",
     "status": "failed"
   }],
+  ["locale.registration_failed", {
+    "causeKey": "reason.locale.registration_failed.cause",
+    "actionKey": "reason.locale.registration_failed.action",
+    "irreversible": false,
+    "certainty": "confirmed",
+    "status": "failed"
+  }],
+  ["locale.translation_fallback", {
+    "causeKey": "reason.locale.translation_fallback.cause",
+    "actionKey": "reason.locale.translation_fallback.action",
+    "irreversible": false,
+    "certainty": "confirmed",
+    "status": "incomplete"
+  }],
   ["i18n.bundle_integrity_failed", {
     "causeKey": "i18n.bundle_integrity_failed",
     "actionKey": "reason.i18n.bundle_integrity_failed.action",

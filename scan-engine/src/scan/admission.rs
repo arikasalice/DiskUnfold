@@ -7,15 +7,12 @@
 use du_analysis_index::{BuildError, BuildHandle, Observation};
 use du_core_contracts::{
     Timestamp,
+    job::JobCounts,
     scan_failures::{ScanFailureKind, ScanFailureStage, ScanIssue},
-    scan_observation::{
-        AnchoredDirectory, FilterDecision, MetadataObservation, ObservedEntry, ObservedKind,
-    },
+    scan_observation::{FilterDecision, MetadataObservation, ObservedEntry, ObservedKind},
 };
-use std::{
-    collections::HashSet,
-    sync::{Mutex, PoisonError},
-};
+mod visited;
+pub(super) use visited::{RootStart, Visited};
 
 /// Reason kept for entries the table did not enter.
 ///
@@ -56,11 +53,9 @@ impl Admission {
 /// The volume that the children of one directory are compared with.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Boundary {
-    /// A root handle whose identity has not been observed yet.
-    Pending,
     /// The observed volume identity of the directory.
     Volume(u64),
-    /// Volume identification is unsupported for the directory.
+    /// The identity of the root could not be observed or verified.
     Unknown,
 }
 
@@ -74,46 +69,13 @@ impl Boundary {
     }
 }
 
-/// Directory identities admitted during one job.
-///
-/// The set lives only for the job and holds one volume and file identity pair
-/// per admitted directory, so it grows with the directories collected and
-/// never with files.
-#[derive(Default)]
-pub(super) struct Visited(Mutex<HashSet<(u64, u64)>>);
-
-impl Visited {
-    /// Observes a root handle and reserves its identity.
-    ///
-    /// Verified ancestors are reserved too, so a path back to them is never
-    /// entered. An unsupported identity leaves the boundary of child
-    /// directories undecidable. This performs one adapter call under a permit.
-    pub(super) fn observe_root(&self, directory: &dyn AnchoredDirectory) -> Boundary {
-        match directory.observed_identity() {
-            Some(identity) => {
-                for ancestor in identity.ancestors {
-                    self.reserve(identity.device, ancestor);
-                }
-                self.reserve(identity.device, identity.inode);
-                Boundary::Volume(identity.device)
-            }
-            None => Boundary::Unknown,
-        }
-    }
-
-    fn reserve(&self, device: u64, inode: u64) -> bool {
-        self.0
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .insert((device, inode))
-    }
-
-    fn contains(&self, device: u64, inode: u64) -> bool {
-        self.0
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .contains(&(device, inode))
-    }
+/// The root and parent boundary that one enumerated entry is decided against.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct Parent {
+    /// Index of the scope root whose traversal enumerated the entry.
+    pub root: u32,
+    /// Volume boundary of the directory that enumerated the entry.
+    pub boundary: Boundary,
 }
 
 /// Applies the exclusion row before any metadata is observed.
@@ -140,8 +102,31 @@ pub(super) fn exclusion(
 pub(super) fn decide(
     excluded: bool,
     entry: &ObservedEntry,
-    parent: Boundary,
+    parent: Parent,
     visited: &Visited,
+) -> Admission {
+    decide_with(excluded, entry, parent, visited, true)
+}
+
+/// Decides like [`decide`] without reserving the identity of an `Enter` row.
+///
+/// For entries that will not be opened, such as those drained after
+/// cancellation, so that no directory is reserved without being entered.
+pub(super) fn preview(
+    excluded: bool,
+    entry: &ObservedEntry,
+    parent: Parent,
+    visited: &Visited,
+) -> Admission {
+    decide_with(excluded, entry, parent, visited, false)
+}
+
+fn decide_with(
+    excluded: bool,
+    entry: &ObservedEntry,
+    parent: Parent,
+    visited: &Visited,
+    reserve: bool,
 ) -> Admission {
     if excluded {
         return Admission::Excluded;
@@ -152,7 +137,7 @@ pub(super) fn decide(
     if meta.kind == ObservedKind::Link {
         return Admission::UntraversedLink;
     }
-    if let Boundary::Volume(device) = parent
+    if let Boundary::Volume(device) = parent.boundary
         && meta.device != device
     {
         return Admission::OutsideBoundary;
@@ -160,17 +145,15 @@ pub(super) fn decide(
     if meta.kind != ObservedKind::Directory {
         return Admission::Record;
     }
-    let Boundary::Volume(_) = parent else {
-        return if visited.contains(meta.device, meta.inode) {
-            Admission::Revisit
-        } else {
-            Admission::Unverifiable
-        };
+    let (root, device, inode) = (parent.root, meta.device, meta.inode);
+    let first = match parent.boundary {
+        Boundary::Volume(_) if reserve => visited.reserve(root, device, inode),
+        _ => !visited.known(root, device, inode),
     };
-    if visited.reserve(meta.device, meta.inode) {
-        Admission::Enter
-    } else {
-        Admission::Revisit
+    match (first, parent.boundary) {
+        (false, _) => Admission::Revisit,
+        (true, Boundary::Volume(_)) => Admission::Enter,
+        (true, Boundary::Unknown) => Admission::Unverifiable,
     }
 }
 
@@ -234,6 +217,26 @@ pub(super) fn record_unread(
         UNENTERED_REASON.into(),
         observed_at.cloned(),
     )
+}
+
+/// Records how a root starts, before any of its entries is observed.
+///
+/// A root without a verified identity is an unread range counted as a
+/// failure, because none of its child directories can be entered. A root that
+/// repeats an earlier root is a revisit and is never enumerated.
+pub(super) fn record_root_start(
+    build: &mut BuildHandle,
+    root_index: u32,
+    start: RootStart,
+    counts: &mut JobCounts,
+    observed_at: Option<&Timestamp>,
+) -> Result<(), BuildError> {
+    match start {
+        RootStart::Collect(Boundary::Volume(_)) => return Ok(()),
+        RootStart::Collect(Boundary::Unknown) => counts.failed += 1,
+        RootStart::Revisit => counts.completed += 1,
+    }
+    record_unread(build, root_index, Vec::new(), observed_at)
 }
 
 #[cfg(test)]

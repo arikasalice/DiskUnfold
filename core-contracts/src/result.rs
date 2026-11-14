@@ -116,4 +116,10 @@ pub trait ResultVersionRead: Send + Sync {
     fn observed_at(&self) -> Option<&Timestamp> {
         None
     }
+
+    /// Data source of the observations retained by this version.
+    ///
+    /// Every implementation states its source explicitly; consumers treat an
+    /// unknown source as a sample.
+    fn data_source(&self) -> crate::data_source::DataSource;
 }

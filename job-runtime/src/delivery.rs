@@ -1,4 +1,5 @@
 use crate::model::*;
+use crate::progress::ProgressTicker;
 use du_core_contracts::job::{
     HistoryAppendOutcome, HistoryChangeReason, HistoryChanged, JobHistory, JobSummary,
 };
@@ -7,6 +8,9 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
     mpsc,
 };
+
+/// How long an idle delivery thread waits before expiring finished jobs.
+const IDLE_EXPIRY: std::time::Duration = std::time::Duration::from_secs(60);
 
 pub(super) fn enqueue(table: &Table, delivery: Delivery) -> Result<(), RuntimeError> {
     table
@@ -31,42 +35,29 @@ pub(super) fn consume(
         table: &table,
     };
     let mut history_failures = 0usize;
+    let mut ticker = ProgressTicker::default();
     loop {
-        let delivery = match receiver.recv_timeout(std::time::Duration::from_secs(60)) {
-            Ok(delivery) => delivery,
-            Err(mpsc::RecvTimeoutError::Timeout) => {
-                if let Some(table) = context.table.upgrade() {
-                    let now = clock.now_ms();
-                    if let Ok(mut table) = table.lock() {
-                        expire(&mut table, now);
-                    }
-                }
-                continue;
-            }
-            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+        // Progress ticks run only while a submitted job awaits its terminal delivery.
+        let ticking = context.outstanding.load(Ordering::Acquire) > 0;
+        let wait = if ticking {
+            ticker.wait(clock.monotonic_now())
+        } else {
+            IDLE_EXPIRY
         };
-        match delivery {
-            Delivery::Stop(sender) => {
-                let _ = sender.send(history_failures);
-                break;
-            }
-            Delivery::Fence(sender) => {
-                let _ = sender.send(());
-            }
-            Delivery::Event(event) => context.events.publish(event),
-            Delivery::Retired(id) => context.events.retire_job(&id),
-            Delivery::Item(event, pending) => {
-                context.events.publish(event);
-                pending.fetch_sub(1, Ordering::AcqRel);
-            }
-            Delivery::Terminal {
-                summary,
-                sequence,
-                record,
-            } => {
-                history_failures =
-                    history_failures.saturating_add(context.terminal(summary, sequence, record))
-            }
+        match receiver.recv_timeout(wait) {
+            Ok(delivery) => match context.deliver(delivery) {
+                Ok(failures) => history_failures = history_failures.saturating_add(failures),
+                Err(stop) => {
+                    let _ = stop.send(history_failures);
+                    break;
+                }
+            },
+            Err(mpsc::RecvTimeoutError::Timeout) if !ticking => context.expire(&*clock),
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+        }
+        if context.outstanding.load(Ordering::Acquire) > 0 {
+            ticker.poll(context.table, &*clock);
         }
     }
 }
@@ -79,6 +70,42 @@ struct DeliveryContext<'a> {
 }
 
 impl DeliveryContext<'_> {
+    /// Delivers one queued item and returns its history failures, or the stop
+    /// acknowledgement that ends delivery.
+    fn deliver(&self, delivery: Delivery) -> Result<usize, mpsc::Sender<usize>> {
+        match delivery {
+            Delivery::Stop(sender) => return Err(sender),
+            Delivery::Fence(sender) => {
+                let _ = sender.send(());
+            }
+            Delivery::Event(event) => self.events.publish(event),
+            Delivery::Retired(id) => self.events.retire_job(&id),
+            Delivery::Item(event, pending) => {
+                self.events.publish(event);
+                pending.fetch_sub(1, Ordering::AcqRel);
+            }
+            Delivery::Progress(event, cell) => {
+                self.events.publish_progress(*event);
+                cell.delivered();
+            }
+            Delivery::Terminal {
+                summary,
+                sequence,
+                record,
+            } => return Ok(self.terminal(summary, sequence, record)),
+        }
+        Ok(0)
+    }
+
+    fn expire(&self, clock: &dyn JobClock) {
+        if let Some(table) = self.table.upgrade() {
+            let now = clock.now_ms();
+            if let Ok(mut table) = table.lock() {
+                expire(&mut table, now);
+            }
+        }
+    }
+
     fn terminal(&self, summary: Box<JobSummary>, sequence: u64, record: bool) -> usize {
         let (history_recorded, warning, receipt) = if record {
             match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {

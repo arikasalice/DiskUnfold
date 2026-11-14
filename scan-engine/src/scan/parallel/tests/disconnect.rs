@@ -41,6 +41,9 @@ impl DirectoryObservations for ScriptedRoot {
 }
 
 impl AnchoredDirectory for ScriptedRoot {
+    fn observed_identity(&self) -> Option<du_core_contracts::scan_observation::HandleIdentity> {
+        crate::scan::test_identity(self)
+    }
     fn open_child(&self, _: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError> {
         self.opens.fetch_add(1, Ordering::AcqRel);
         Err(disconnected())
@@ -173,6 +176,9 @@ impl DirectoryObservations for GatedRoot {
 }
 
 impl AnchoredDirectory for GatedRoot {
+    fn observed_identity(&self) -> Option<du_core_contracts::scan_observation::HandleIdentity> {
+        crate::scan::test_identity(self)
+    }
     fn open_child(&self, _: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError> {
         Err(disconnected())
     }
@@ -197,8 +203,14 @@ fn a_batch_already_in_flight_is_drained_after_another_root_disconnects()
             opens: Arc::new(AtomicUsize::new(0)),
         }),
     ];
-    let shared = super::super::scheduler::create(
+    // Workers receive roots whose identities were already reserved.
+    let prepared = super::super::preparation::Prepared {
         roots,
+        starts: vec![admission::RootStart::Collect(Boundary::Volume(1)); 2],
+        visited: Visited::default(),
+    };
+    let shared = super::super::scheduler::create(
+        prepared,
         DevicePlan {
             groups: vec![0; 2],
             limit: 2,

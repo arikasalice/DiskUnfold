@@ -7,6 +7,7 @@ fn fast_physical_completion_returns_model_within_configured_wait() -> Result<(),
     fixture.release.send(()).map_err(|e| e.to_string())?;
     let model = fixture.render(&a, 1)?;
     assert_eq!(model["kind"], "model");
+    assert_eq!(model["model"]["dataSource"], "real");
     assert_eq!(
         model["model"]["representation"]["colorMode"],
         "parent_folder"

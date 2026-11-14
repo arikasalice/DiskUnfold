@@ -10,6 +10,10 @@ impl DirectoryObservations for Empty {
     }
 }
 impl AnchoredDirectory for Empty {
+    // Placed in a frame directly; root identities are never queried here.
+    fn observed_identity(&self) -> Option<du_core_contracts::scan_observation::HandleIdentity> {
+        None
+    }
     fn open_child(&self, _: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError> {
         Err(PortError {
             kind: PortErrorKind::Unsupported,
@@ -20,7 +24,7 @@ impl AnchoredDirectory for Empty {
 }
 
 fn root_frame() -> Frame {
-    Frame::root(0, Box::new(Empty))
+    Frame::root(0, Box::new(Empty), Boundary::Unknown)
 }
 
 #[test]

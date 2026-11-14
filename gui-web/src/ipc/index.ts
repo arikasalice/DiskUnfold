@@ -97,6 +97,10 @@ import type {
   VizViewOpenRequest,
   VizRows,
   VizRowsRequest,
+  SampleClosed,
+  SampleOpenRequest,
+  SampleSession,
+  SampleSessionRequest,
 } from "./generated/contracts";
 
 export { SIZE_UNIT_RULES } from "./generated/contracts";
@@ -107,6 +111,7 @@ export type {
   AppQuitRequest,
   AppQuitResponse,
   AnalysisJobListRow,
+  AnalysisJobProgress,
   AnalysisJobStatus,
   AnalysisTarget,
   BrowseCopyPathOutcome,
@@ -186,6 +191,7 @@ export type {
   NoticesResponse,
   ProductInfo,
   ProductInfoRequest,
+  ProgressUnit,
   SecuritySupportBasis,
   SecuritySupportKind,
   SupportCapabilityState,
@@ -235,6 +241,15 @@ export type {
   VizSourceRef,
   VizViewChannel,
   VizViewOpenRequest,
+  DataSource,
+  SampleEventState,
+  SampleObservationRef,
+  SampleSessionState,
+  SampleStateChanged,
+  SampleClosed,
+  SampleOpenRequest,
+  SampleSession,
+  SampleSessionRequest,
 } from "./generated/contracts";
 
 type Commands = {
@@ -288,6 +303,10 @@ type Commands = {
   "viz.group_rows": [VizGroupRowsRequest, VizGroupRows];
   "viz.rows": [VizRowsRequest, VizRows];
   "viz.locate": [VizLocateRequest, VizLocate];
+  "sample.open": [SampleOpenRequest, SampleSession];
+  "sample.status": [SampleSessionRequest, SampleSession];
+  "sample.reset": [SampleSessionRequest, SampleSession];
+  "sample.close": [SampleSessionRequest, SampleClosed];
 };
 
 export interface AnalysisClient {

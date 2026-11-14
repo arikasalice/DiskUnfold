@@ -54,12 +54,20 @@ impl ScopeRootPort for Roots {
             },
             volume_id: b"fixture-volume".to_vec(),
             file_id: absolute_path.to_vec(),
-            directory: Box::new(Directory),
+            directory: Box::new(Directory(fixture_inode(absolute_path))),
         })
     }
 }
 
-struct Directory;
+/// A distinct nonzero file identity for each fixture root path (FNV-1a).
+fn fixture_inode(path: &[u8]) -> u64 {
+    path.iter().fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
+        (hash ^ u64::from(*byte)).wrapping_mul(0x0100_0000_01b3)
+    }) | 1
+}
+
+/// An empty verified root; distinct roots must not repeat one directory.
+struct Directory(u64);
 
 impl DirectoryObservations for Directory {
     fn next_batch(
@@ -79,6 +87,14 @@ impl DirectoryObservations for Directory {
 impl AnchoredDirectory for Directory {
     fn open_child(&self, _: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError> {
         Err(unavailable())
+    }
+
+    fn observed_identity(&self) -> Option<du_core_contracts::scan_observation::HandleIdentity> {
+        Some(du_core_contracts::scan_observation::HandleIdentity {
+            device: 1,
+            inode: self.0,
+            ancestors: Vec::new(),
+        })
     }
 }
 

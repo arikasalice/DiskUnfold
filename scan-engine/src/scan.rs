@@ -2,7 +2,7 @@
 mod admission;
 mod issues;
 mod parallel;
-use admission::{Admission, Boundary, Visited};
+use admission::{Admission, Boundary, Parent, RootStart, Visited};
 use du_analysis_index::{
     BuildError, BuildHandle, FileIdentity, IngestSink, Observation, SharingEvidence,
     SpaceObservation,
@@ -23,6 +23,19 @@ use std::collections::VecDeque;
 /// Supplies distinct result identifiers for partial and terminal publications.
 pub trait ResultIds: Send + Sync {
     fn next_id(&self) -> Id;
+}
+
+/// A verified identity on device 1 for a test root; it differs between live
+/// handles that are not zero-sized and from every small fixture inode.
+#[cfg(test)]
+pub(crate) fn test_identity<T>(
+    handle: &T,
+) -> Option<du_core_contracts::scan_observation::HandleIdentity> {
+    Some(du_core_contracts::scan_observation::HandleIdentity {
+        device: 1,
+        inode: (1 << 63) | std::ptr::from_ref(handle).addr() as u64,
+        ancestors: Vec::new(),
+    })
 }
 
 /// A frozen decision over a root, parent path and native child name.
@@ -143,14 +156,11 @@ fn run(
 ) -> Result<(Id, bool), BuildError> {
     let mut build = sink.open(scope)?;
     build.add_directory(Vec::new())?;
-    let visited = Visited::default();
-    let first_batch = record_root_batch(
-        &mut build, &mut *root, checkpoint, include, counts, &visited,
-    )?;
+    let first_batch = record_root_batch(&mut build, &mut *root, checkpoint, include, counts)?;
     let cancelled = match first_batch {
         RootBatch::Cancelled => true,
         RootBatch::Exhausted => false,
-        RootBatch::Ready(recorded_directories, boundary) => {
+        RootBatch::Ready(recorded_directories, boundary, visited) => {
             build.publish_partial(ids.next_id())?;
             walk(
                 &mut build,
@@ -183,7 +193,7 @@ fn run(
 enum RootBatch {
     Cancelled,
     Exhausted,
-    Ready(VecDeque<ObservedEntry>, Boundary),
+    Ready(VecDeque<ObservedEntry>, Boundary, Visited),
 }
 
 /// Records the first root batch without retaining an open handle for every child.
@@ -193,7 +203,6 @@ fn record_root_batch(
     checkpoint: &mut dyn FnMut() -> Checkpoint,
     include: &mut dyn FnMut(&[Vec<u8>]) -> bool,
     counts: &mut JobCounts,
-    visited: &Visited,
 ) -> Result<RootBatch, BuildError> {
     if checkpoint() == Checkpoint::Cancel {
         return Ok(RootBatch::Cancelled);
@@ -201,7 +210,12 @@ fn record_root_batch(
     if let Some(evidence) = root.observe_directory_case(&|| None) {
         build.set_directory_case_evidence(0, &[], evidence)?;
     }
-    let boundary = visited.observe_root(root);
+    let (visited, starts) = Visited::reserve_roots(vec![root.observed_identity()]);
+    let boundary = match starts.first() {
+        Some(&RootStart::Collect(boundary)) => boundary,
+        _ => Boundary::Unknown,
+    };
+    admission::record_root_start(build, 0, RootStart::Collect(boundary), counts, None)?;
     let entries = match root.next_batch() {
         Ok(entries) if entries.len() <= 8192 => entries,
         _ => {
@@ -218,13 +232,13 @@ fn record_root_batch(
             return Ok(RootBatch::Cancelled);
         }
         let path = [entry.name.clone()];
-        if record_entry(build, &entry, &path, (boundary, visited), include, counts)?
+        if record_entry(build, &entry, &path, (boundary, &visited), include, counts)?
             == Admission::Enter
         {
             directories.push_back(entry);
         }
     }
-    Ok(RootBatch::Ready(directories, boundary))
+    Ok(RootBatch::Ready(directories, boundary, visited))
 }
 
 /// Returns true when traversal stopped at a cancellation checkpoint.
@@ -302,7 +316,8 @@ fn record_entry(
     include: &mut dyn FnMut(&[Vec<u8>]) -> bool,
     counts: &mut JobCounts,
 ) -> Result<Admission, BuildError> {
-    let row = admission::decide(!include(path), entry, boundary, visited);
+    let parent = Parent { root: 0, boundary };
+    let row = admission::decide(!include(path), entry, parent, visited);
     if row.unentered() {
         counts.completed += 1;
         admission::record_unentered(build, 0, entry, path, None)?;
