@@ -31,6 +31,10 @@ pub struct ResultVersionChanged {
     pub lineage_id: Id,
     pub source_ref: Id,
     pub origin: String,
+    /// Data source of the pinned version; absent means a sample (F32 FR2.HD1).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub data_source: Option<crate::data_source::DataSource>,
     #[cfg_attr(feature = "typescript", ts(type = "number"))]
     pub sequence: u64,
     pub change: ResultVersionChange,

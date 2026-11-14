@@ -323,6 +323,10 @@ impl ResultVersionRead for ResultVersion {
         &self.roots
     }
 
+    fn data_source(&self) -> du_core_contracts::data_source::DataSource {
+        self.data_source
+    }
+
     fn scope_gaps(&self) -> &[du_core_contracts::result::ResultScopeGap] {
         &self.gaps
     }

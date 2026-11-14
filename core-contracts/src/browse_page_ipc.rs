@@ -184,6 +184,10 @@ pub enum BrowseRootKind {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct BrowseContext {
     pub origin: ResultOrigin,
+    /// Data source of the pinned version; absent means a sample (F32 FR2.HD2).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub data_source: Option<crate::data_source::DataSource>,
     #[serde(deserialize_with = "required_nullable")]
     pub location: Option<ItemRef>,
     pub breadcrumbs: Vec<BrowseBreadcrumb>,
@@ -206,6 +210,10 @@ pub enum BrowseOpenResponse {
     Opened {
         request_seq: u32,
         origin: ResultOrigin,
+        /// Data source of the pinned version; absent means a sample (F32 FR2.HD2).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "typescript", ts(optional))]
+        data_source: Option<crate::data_source::DataSource>,
         #[serde(deserialize_with = "required_nullable")]
         location: Option<ItemRef>,
         breadcrumbs: Vec<BrowseBreadcrumb>,

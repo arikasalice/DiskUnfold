@@ -197,6 +197,7 @@ pub(super) fn build_model(
         navigation_scope_ref: request.navigation_scope_ref.clone(),
         focus_item_ref: request.focus_item_ref.clone(),
         origin: ResultOrigin("scan".into()),
+        data_source: Some(admitted.source.version().data_source()),
         staleness: admitted.facts.staleness.clone(),
         representation: VizRepresentation {
             format: request.format.clone(),

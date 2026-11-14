@@ -44,6 +44,7 @@ impl PublicationEvents {
                 lineage_id: lineage.clone(),
                 source_ref: lineage.clone(),
                 origin: relevant.origin().into(),
+                data_source: Some(relevant.data_source),
                 sequence,
                 change,
                 previous_result_version: previous.map(|result| result.version_id.clone()),

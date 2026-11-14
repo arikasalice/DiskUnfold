@@ -85,6 +85,8 @@ impl ErrorEnvelope {
             | "scope.target_unavailable"
             | "scope.exclude_invalid"
             | "path.unresolvable"
+            | "sample.mixed_source"
+            | "snapshot.sample_source"
             | "startup.shutting_down" => ErrorCode::InvalidArgument,
             "cursor.stale"
             | "cursor.expired"
@@ -100,6 +102,7 @@ impl ErrorEnvelope {
             | "job.not_found"
             | "history.removed"
             | "viz.model_expired"
+            | "sample.session_closed"
             | "locale.bundle_unavailable" => ErrorCode::NotFound,
             "command.window_denied" => ErrorCode::OriginDenied,
             "path.outside_scope" | "path.link_escape" => ErrorCode::ScopeDenied,
@@ -173,6 +176,31 @@ mod tests {
         let job = ErrorEnvelope::from_reason("job.shutting_down", correlation, Vec::new())
             .ok_or("job.shutting_down is not registered")?;
         assert_eq!(job.code, ErrorCode::Busy);
+        Ok(())
+    }
+
+    #[test]
+    fn sample_reasons_keep_the_published_error_codes() -> Result<(), Box<dyn std::error::Error>> {
+        let correlation = Id::parse("0195f856-ab83-7a59-9343-10d29775c9a9")?;
+        for (reason, expected) in [
+            (
+                crate::data_source::SAMPLE_MIXED_SOURCE,
+                ErrorCode::InvalidArgument,
+            ),
+            (
+                crate::sample_ipc::SNAPSHOT_SAMPLE_SOURCE,
+                ErrorCode::InvalidArgument,
+            ),
+            (
+                crate::sample_ipc::SAMPLE_SESSION_CLOSED,
+                ErrorCode::NotFound,
+            ),
+        ] {
+            let envelope = ErrorEnvelope::from_reason(reason, correlation.clone(), Vec::new())
+                .ok_or("sample reason was not registered")?;
+            assert_eq!(envelope.code, expected);
+            assert!(!envelope.retryable);
+        }
         Ok(())
     }
 }

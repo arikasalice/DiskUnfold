@@ -267,6 +267,7 @@ fn result_and_history_notices_stay_on_the_existing_downstream() -> Result<(), St
                 lineage_id: id.clone(),
                 source_ref: id,
                 origin: "scan".into(),
+                data_source: None,
                 sequence: 1,
                 change: ResultVersionChange::Published,
                 previous_result_version: None,
