@@ -12,9 +12,19 @@ use std::{
     path::Path,
 };
 
-fn unresolvable(item: &ObservedEntry) -> bool {
-    item.metadata.as_ref().err().is_some_and(|error| {
-        error.kind == PortErrorKind::Unsupported && error.reason_key == "path.unresolvable"
+/// A mount point below a directory on `parent_device`: the mounted volume's
+/// identity and kind only, without size, times, allocation or space facts.
+fn outside(item: &ObservedEntry, parent_device: u64) -> bool {
+    item.metadata.as_ref().is_ok_and(|meta| {
+        meta.device != parent_device
+            && meta.inode != 0
+            && meta.kind == ObservedKind::Directory
+            && meta.size.is_err()
+            && meta.modified_at.is_none()
+            && meta.native_modified_at.is_none()
+            && meta.allocated.is_none()
+            && meta.link_count.is_none()
+            && meta.space_identity.is_none()
     })
 }
 
@@ -170,7 +180,7 @@ fn denied_directory_affects_only_its_own_subtree() -> TestResult {
 
 /// Uses the system mounts below `/` (for example `/proc`) as boundaries.
 #[test]
-fn system_mount_points_are_neither_observed_nor_entered() -> TestResult {
+fn system_mount_points_report_their_own_volume_and_are_not_entered() -> TestResult {
     let root_device = fs::metadata("/")?.dev();
     let mounted: Vec<&[u8]> = [&b"proc"[..], b"sys", b"dev"]
         .into_iter()
@@ -202,7 +212,13 @@ fn system_mount_points_are_neither_observed_nor_entered() -> TestResult {
     }
     assert_eq!(items.len(), mounted.len());
     for item in &items {
-        assert!(unresolvable(item), "{:?}", item.metadata);
+        assert!(outside(item, root_device), "{:?}", item.metadata);
+        let path = Path::new("/").join(std::str::from_utf8(&item.name)?);
+        assert_eq!(
+            item.metadata.as_ref().map(|meta| meta.device),
+            Ok(fs::metadata(path)?.dev())
+        );
+        assert!(system.directory.open_child(item).is_err());
         assert!(
             system
                 .directory
@@ -224,8 +240,9 @@ fn prepared_mount_point_is_a_boundary() -> TestResult {
     let mut root = open(parent)?;
     let entries = drain(&mut *root.directory)?;
     let mount = entry(&entries, b"mnt")?;
-    assert!(unresolvable(mount), "{:?}", mount.metadata);
     let device = fs::metadata(parent)?.dev();
+    assert!(outside(mount, device), "{:?}", mount.metadata);
+    assert!(root.directory.open_child(mount).is_err());
     assert!(root.directory.open_child(&forged(mount, device)).is_err());
     let inner = open(&parent.join("mnt"))?;
     assert_ne!(inner.volume_id, root.volume_id);

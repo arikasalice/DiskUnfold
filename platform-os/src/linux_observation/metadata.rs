@@ -92,11 +92,11 @@ impl Facts {
         Timestamp::from_unix_millis(millis)
     }
 
-    /// True when the entry belongs to another volume or mount than the directory.
+    /// True for another mount of the directory's device or an automount trigger.
+    ///
+    /// An entry on another device is handled before this check.
     fn crosses(&self, anchor: &Anchor) -> bool {
-        self.device != anchor.device
-            || self.boundary == Some(true)
-            || !super::same_mount(self.mount, anchor.mount)
+        self.boundary == Some(true) || !super::same_mount(self.mount, anchor.mount)
     }
 }
 
@@ -128,8 +128,10 @@ fn query(dir: impl AsFd, name: &CStr, flags: AtFlags) -> Result<Facts, PortError
 
 /// Observes one admitted entry relative to its verified directory.
 ///
-/// An entry on another device or mount, or an automount trigger, is reported as
-/// a per-entry failure so the collector never records or enters it.
+/// An entry on another device, such as a mount point, is reported with that
+/// device and its own inode and kind only, so the collector classifies it
+/// outside the boundary. Another mount of the same device and an automount
+/// trigger on it remain per-entry failures that are never entered.
 pub(super) fn observe(anchor: &Anchor, name: &CStr) -> Result<MetadataObservation, PortError> {
     #[cfg(test)]
     PROBES.with(|count| count.set(count.get() + 1));
@@ -138,6 +140,9 @@ pub(super) fn observe(anchor: &Anchor, name: &CStr) -> Result<MetadataObservatio
         name,
         AtFlags::SYMLINK_NOFOLLOW | AtFlags::NO_AUTOMOUNT,
     )?;
+    if facts.device != anchor.device {
+        return Ok(other_volume(&facts));
+    }
     if facts.crosses(anchor) {
         return Err(invalid());
     }
@@ -160,4 +165,20 @@ pub(super) fn observe(anchor: &Anchor, name: &CStr) -> Result<MetadataObservatio
         }),
         kind,
     })
+}
+
+/// An entry on another device: its own identity and kind, with no size, time,
+/// allocation, link count or space identity, as `MetadataObservation` requires.
+fn other_volume(facts: &Facts) -> MetadataObservation {
+    MetadataObservation {
+        kind: facts.kind(),
+        device: facts.device,
+        inode: facts.inode.unwrap_or(0),
+        size: Err(unavailable()),
+        modified_at: None,
+        native_modified_at: None,
+        allocated: None,
+        link_count: None,
+        space_identity: None,
+    }
 }

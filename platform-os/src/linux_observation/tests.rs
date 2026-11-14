@@ -142,6 +142,45 @@ fn opens_child_and_empty_directories_through_their_entries() -> TestResult {
 }
 
 #[test]
+fn reports_handle_identity_of_roots_and_children() -> TestResult {
+    let temp = tempfile::tempdir()?;
+    let nested = temp.path().join("one").join("two");
+    fs::create_dir_all(nested.join("child"))?;
+    let mut root = open(&nested)?;
+    let info = fs::metadata(&nested)?;
+    let identity = root
+        .directory
+        .observed_identity()
+        .ok_or("missing root identity")?;
+    assert_eq!((identity.device, identity.inode), (info.dev(), info.ino()));
+    let retained = root
+        .directory
+        .ancestor_file_ids()
+        .map_or_else(Vec::new, <[_]>::to_vec)
+        .into_iter()
+        .map(|id| <[u8; 8]>::try_from(id.as_slice()).map(u64::from_le_bytes))
+        .collect::<Result<Vec<_>, _>>()?;
+    assert_eq!(identity.ancestors, retained);
+    if root.directory.ancestor_file_ids().is_some() {
+        let parent = fs::metadata(temp.path().join("one"))?.ino();
+        assert_eq!(identity.ancestors.last(), Some(&parent));
+    }
+    let entries = drain(&mut *root.directory)?;
+    let child = entry(&entries, b"child")?;
+    let meta = child.metadata.as_ref().map_err(|e| fail(e.clone()))?;
+    // Children are compared with the root identity in the same device space.
+    assert_eq!(meta.device, identity.device);
+    let opened = root.directory.open_child(child).map_err(fail)?;
+    let child_identity = opened.observed_identity().ok_or("missing child identity")?;
+    assert_eq!(
+        (child_identity.device, child_identity.inode),
+        (identity.device, meta.inode)
+    );
+    assert!(child_identity.ancestors.is_empty());
+    Ok(())
+}
+
+#[test]
 fn retains_same_mount_ancestors_and_reads_volume_space() -> TestResult {
     let temp = tempfile::tempdir()?;
     let nested = temp.path().join("one").join("two");
@@ -214,6 +253,24 @@ fn normalizes_paths_and_refuses_links_parents_and_files() -> TestResult {
         Some(PortErrorKind::NotFound)
     );
     Ok(())
+}
+
+/// A Windows path whose UTF-16LE units include ASCII has NUL bytes or does
+/// not start with `/`, so it is refused before any directory is opened.
+#[test]
+fn refuses_windows_encoded_paths() {
+    let wide = |text: &str| -> Vec<u8> { text.encode_utf16().flat_map(u16::to_le_bytes).collect() };
+    for text in ["C:\\data", "\\\\?\\C:\\data", "/tmp", "/"] {
+        let refused = LinuxScopeRoots
+            .open_root(&wide(text))
+            .err()
+            .map(|error| (error.kind, error.reason_key));
+        assert_eq!(
+            refused,
+            Some((PortErrorKind::Unsupported, "path.unresolvable".to_owned())),
+            "{text}"
+        );
+    }
 }
 
 #[test]
