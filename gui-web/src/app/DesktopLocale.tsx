@@ -189,7 +189,11 @@ export function DesktopLocale({
   );
 }
 
-/** Puts the language and display entry above a screen that has no shell header. */
+/**
+ * Puts the language and display entry above a screen that has no shell header.
+ * The status region is always mounted, so the first failure is announced when
+ * its text arrives instead of being missed with a region that appears with it.
+ */
 function LocaleEntryScreen({
   locale,
   children,
@@ -201,9 +205,11 @@ function LocaleEntryScreen({
     <>
       <header className="du-locale-entry">
         <LocaleSettings {...locale} />
-        {locale.errorKey === "ui.locale.failed" && (
-          <LiveStatus>{locale.text(locale.errorKey)}</LiveStatus>
-        )}
+        <LiveStatus>
+          {locale.errorKey === "ui.locale.failed"
+            ? locale.text(locale.errorKey)
+            : ""}
+        </LiveStatus>
       </header>
       {children}
     </>

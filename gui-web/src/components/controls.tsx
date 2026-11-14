@@ -80,8 +80,9 @@ export function DateField({
  * A labelled native-path input with optional focus on insertion.
  *
  * `error` is linked to the input as its error message and announced once when
- * it appears. `onEnter` runs once for an Enter that is not part of an IME
- * composition.
+ * it appears. While an error shows, the description stops being a live region,
+ * so the same moment is not read twice. `onEnter` runs once for an Enter that
+ * is not part of an IME composition.
  */
 export function PathField({
   label,
@@ -129,7 +130,10 @@ export function PathField({
         autoComplete="off"
         {...imeComposition}
       />
-      <Text slot="description" aria-live="polite">
+      <Text
+        slot="description"
+        aria-live={error === undefined ? "polite" : "off"}
+      >
         {description}
       </Text>
       {error !== undefined && (

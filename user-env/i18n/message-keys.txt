@@ -643,6 +643,17 @@ ui.browse.incomplete
 ui.browse.inspect
 ui.browse.item_actions name:name
 ui.browse.item_count count:count
+ui.browse.keys.cell_next
+ui.browse.keys.cell_previous
+ui.browse.keys.go_up
+ui.browse.keys.move_first
+ui.browse.keys.move_last
+ui.browse.keys.move_next
+ui.browse.keys.move_page_down
+ui.browse.keys.move_page_up
+ui.browse.keys.move_previous
+ui.browse.keys.open_item
+ui.browse.keys.toggle_selection
 ui.browse.list_end_unknown
 ui.browse.load_more
 ui.browse.loading
@@ -684,17 +695,6 @@ ui.browse.unavailable_now
 ui.browse.unavailable_while_opening
 ui.browse.unknown_items count:count
 ui.browse.up
-ui.browse.keys.move_previous
-ui.browse.keys.move_next
-ui.browse.keys.move_first
-ui.browse.keys.move_last
-ui.browse.keys.move_page_up
-ui.browse.keys.move_page_down
-ui.browse.keys.cell_previous
-ui.browse.keys.cell_next
-ui.browse.keys.open_item
-ui.browse.keys.toggle_selection
-ui.browse.keys.go_up
 ui.visualization.actions
 ui.visualization.backToVisualization
 ui.visualization.back_to_folders
