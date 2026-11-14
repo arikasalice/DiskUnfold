@@ -3,15 +3,19 @@ import {
   Activity,
   ArrowLeft,
   CircleAlert,
+  CircleCheck,
+  CircleX,
   Copy,
   FlaskConical,
   FolderOpen,
   HardDrive,
   History,
+  Info,
   Languages,
   Layers3,
   RefreshCw,
   ScanLine,
+  TriangleAlert,
 } from "lucide-react";
 import { ProgressBar } from "react-aria-components";
 
@@ -20,14 +24,18 @@ const icons = {
   alert: CircleAlert,
   back: ArrowLeft,
   copy: Copy,
+  error: CircleX,
   folder: FolderOpen,
   sample: FlaskConical,
   drive: HardDrive,
   history: History,
+  info: Info,
   language: Languages,
   layers: Layers3,
   refresh: RefreshCw,
   scan: ScanLine,
+  success: CircleCheck,
+  warning: TriangleAlert,
 };
 
 export type IconName = keyof typeof icons;

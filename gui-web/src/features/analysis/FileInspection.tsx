@@ -101,6 +101,7 @@ function attributes(
   item: ItemRef,
   text: LocaleText,
   renderTime: (value: string) => string,
+  actionsDisabledReason?: string,
 ) {
   return [
     {
@@ -160,7 +161,16 @@ function attributes(
     {
       label: text("ui.inspection.path", "Path"),
       wideValue: true,
-      value: <CopyPath client={client} item={item} path={detail.displayPath} />,
+      value: (
+        <CopyPath
+          client={client}
+          item={item}
+          path={detail.displayPath}
+          {...(actionsDisabledReason === undefined
+            ? {}
+            : { disabledReason: actionsDisabledReason })}
+        />
+      ),
     },
     {
       label: text("ui.inspection.kind", "Kind"),
@@ -175,11 +185,14 @@ export function FileInspection({
   item,
   itemKind = "file",
   display = windowsSizeDisplay,
+  actionsDisabledReason,
 }: {
   client: AnalysisClient;
   item: ItemRef;
   itemKind?: "file" | "folder";
   display?: SizeDisplay;
+  /** Turns off the actions that act on a real path and shows this reason (the sample experience). */
+  actionsDisabledReason?: string;
 }) {
   const [detail, setDetail] = useState<BrowseDetail>();
   const [problem, setProblem] = useState<
@@ -266,6 +279,7 @@ export function FileInspection({
                   item,
                   text,
                   renderTime,
+                  actionsDisabledReason,
                 )}
               />
             </div>

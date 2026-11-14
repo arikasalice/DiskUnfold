@@ -128,6 +128,8 @@ export function BrowsePanel({
   onOpened,
   display = { system: "iec", unit: "auto" },
   rootLabel,
+  actionsDisabledReason,
+  titleBadge,
 }: {
   port: BrowsePort;
   resultVersion?: string;
@@ -137,6 +139,14 @@ export function BrowsePanel({
   display?: SizeDisplay;
   /** Names the top of the folder path instead of "Scope roots", e.g. for the sample root. */
   rootLabel?: string;
+  /**
+   * Turns off the actions that act on a real path, such as copying it, and
+   * shows this reason beside them. The sample experience sets it because its
+   * items are not files on the disk.
+   */
+  actionsDisabledReason?: string;
+  /** A badge shown beside the title, such as the sample experience's "Example" mark. */
+  titleBadge?: ReactNode;
 }) {
   const text = useLocaleText();
   const [view, setView] = useState<View>();
@@ -284,9 +294,12 @@ export function BrowsePanel({
       onKeyDownCapture={handleBrowseKey}
     >
       <div className="du-browse-header">
-        <Heading level={2}>
-          {text("ui.browse.folders_and_files", "Folders and files")}
-        </Heading>
+        <div className="du-browse-title">
+          <Heading level={2}>
+            {text("ui.browse.folders_and_files", "Folders and files")}
+          </Heading>
+          {titleBadge}
+        </div>
         {busy && (
           <Progress
             label={text("ui.browse.opening_folder", "Opening folder")}
@@ -375,7 +388,10 @@ export function BrowsePanel({
             focusPanel={() => panel.current?.focus({ preventScroll: true })}
             openFolder={(item) => navigate(item, page.resultVersion)}
             openItem={inspectItem ? openItem : undefined}
-            copyPath={port.copyPath}
+            copyPath={
+              actionsDisabledReason === undefined ? port.copyPath : undefined
+            }
+            copyDisabledReason={actionsDisabledReason}
             reopen={() =>
               navigate(
                 view.opened.location ?? undefined,

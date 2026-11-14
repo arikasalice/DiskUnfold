@@ -32,7 +32,6 @@ import type {
   BrowsePort,
 } from "../features/browse/BrowsePanel";
 import { HistoryPanel } from "../features/history/HistoryPanel";
-import { SampleEntry } from "../features/sample";
 import { SettingsRestoration } from "../features/settings/SettingsRestoration";
 import { LocaleSettings } from "../features/settings/LocaleSettings";
 import type { LocaleSettingsProps } from "../features/settings/LocaleSettings";
@@ -40,7 +39,7 @@ import { createAnalysisClient, hasWindowsAnalysisBridge } from "../ipc";
 import type { AnalysisClient } from "../ipc";
 import { createBrowsePort } from "./browse-port";
 import { InfoEntry } from "./InfoEntry";
-import { SampleContext } from "./SampleBrowse";
+import { SampleContext, SampleEntrySlot } from "./SampleBrowse";
 import { useSampleFlow } from "./use-sample-flow";
 import {
   BrowseVisualizationActions,
@@ -115,7 +114,7 @@ export function App({
   }>();
   const [visualizationOpen, setVisualizationOpen] = useState(false);
   const flow = useSampleFlow(client);
-  const { sample, sampleOpen, analysisKey, analysisSlot } = flow;
+  const { sampleOpen, analysisKey, analysisSlot } = flow;
   const { version: browseVersion, choice: browseChoice } =
     browseState(browseSelection);
   const browseTrigger = useRef<HTMLButtonElement>(null);
@@ -274,12 +273,7 @@ export function App({
               setBrowseSelection({ version, choice });
             }}
             browseTrigger={browseTrigger}
-            startAlternative={
-              <SampleEntry
-                isDisabled={sample.pending !== undefined}
-                onStart={() => void sample.open()}
-              />
-            }
+            startAlternative={<SampleEntrySlot flow={flow} />}
           />
         </div>
       )}

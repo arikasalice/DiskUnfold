@@ -35,12 +35,15 @@ function copy(kind: SampleConfirmKind, text: LocaleText) {
 }
 
 /**
- * Asks before a sample command that discards sample state. The dialog keeps
- * both buttons disabled until `run` settles, then returns the focus to the
- * control that asked, when that control still exists.
+ * Asks before a sample command that discards what the user did in the sample.
+ * The cancel button takes the first focus. Both buttons stay disabled until
+ * `run` settles; then the focus returns to the control that asked, or, when
+ * that control no longer exists (the sample ended), `onOrphaned` is called
+ * so the caller can hand the focus to the entry button.
  */
 export function useSampleConfirm(
   run: (kind: SampleConfirmKind) => Promise<void>,
+  onOrphaned: () => void,
 ) {
   const text = useLocaleText();
   const [asked, setAsked] = useState<SampleConfirmKind>();
@@ -51,17 +54,17 @@ export function useSampleConfirm(
     setAsked(undefined);
     const target = opener.current;
     opener.current = null;
-    if (target instanceof HTMLElement)
-      setTimeout(() => {
-        if (target.isConnected) target.focus();
-      }, 0);
+    setTimeout(() => {
+      if (target instanceof HTMLElement && target.isConnected) target.focus();
+      else onOrphaned();
+    }, 0);
   };
 
   const dialog = asked && (
     <ConfirmDialog
       title={copy(asked, text).title}
       confirmLabel={copy(asked, text).action}
-      cancelLabel={text("ui.sample.cancel", "Cancel")}
+      cancelLabel={text("ui.sample.cancel", "Continue experience")}
       isPending={working}
       onCancel={finish}
       onConfirm={() => {
@@ -75,7 +78,13 @@ export function useSampleConfirm(
       <Text>
         {text(
           "ui.sample.confirm_body",
-          "Only the sample experience state is discarded. Your real analysis results, plans and settings stay as they are.",
+          "Items you selected and view settings from this experience are not saved and will be lost.",
+        )}
+      </Text>
+      <Text>
+        {text(
+          "ui.sample.confirm_files_safe",
+          "Your real files are not changed.",
         )}
       </Text>
     </ConfirmDialog>

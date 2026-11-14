@@ -44,6 +44,7 @@ export type {
 } from "./geometry-renderer";
 
 export { ActionFeedback } from "./action-feedback";
-export { ExampleBadge, SampleBanner } from "./sample-banner";
+export { Band } from "./band";
+export { ExampleBadge } from "./example-badge";
 export { TextDocument } from "./text-document";
 export { TitleBar, TitleBarProvider, useTitleBarContext } from "./title-bar";

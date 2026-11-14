@@ -1118,9 +1118,9 @@ ui.info.product_open
 ui.info.support_open
 ui.info.nav
 ui.sample.banner_label
-ui.sample.banner_status
-ui.sample.bundle_version version:name
+ui.sample.banner_statement
 ui.sample.end
+ui.sample.close
 ui.sample.real_analysis
 ui.sample.entry
 ui.sample.entry_hint
@@ -1128,9 +1128,17 @@ ui.sample.screen
 ui.sample.heading
 ui.sample.root_name
 ui.sample.example_badge
+ui.sample.action_unavailable
 ui.sample.preparing
 ui.sample.resetting
+ui.sample.prepared_items count:count
+ui.sample.cancel_preparing
+ui.sample.announce_ready
+ui.sample.announce_reset_done
+ui.sample.announce_unavailable reason:name
 ui.sample.unavailable_title
+ui.sample.open_failed
+ui.sample.real_still_available
 ui.sample.reason_missing
 ui.sample.reason_format_unsupported
 ui.sample.reason_bundle_invalid
@@ -1149,5 +1157,6 @@ ui.sample.confirm_end_title
 ui.sample.confirm_reset_title
 ui.sample.confirm_real_title
 ui.sample.confirm_body
+ui.sample.confirm_files_safe
 ui.sample.cancel
 ui.sample.dismiss
