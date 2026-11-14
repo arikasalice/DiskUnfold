@@ -287,6 +287,11 @@ label.du-field > span {
   color: var(--du-disabled-text);
 }
 
+/* A disabled action keeps the edge it has when enabled, so a quiet one stays borderless. */
+.du-action--quiet[data-disabled] {
+  border-color: transparent;
+}
+
 .du-field input:disabled::placeholder,
 .du-choice[data-disabled] .du-choice__description {
   color: var(--du-disabled-text);

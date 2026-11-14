@@ -240,12 +240,24 @@ export function toRuleDraft(
 ): GroupRuleDraft {
   return {
     ...(rule.groupId !== undefined ? { groupId: rule.groupId } : {}),
-    displayName: rule.displayName,
+    displayName: trimGroupName(rule.displayName),
     condition:
       rule.readOnly && rule.preserved
         ? rule.preserved
         : conditionFromRows(rule.rows, system),
   };
+}
+
+const SURROUNDING_WHITE_SPACE = /^\p{White_Space}+|\p{White_Space}+$/gu;
+
+/**
+ * A group name without surrounding white space, as the engine stores and compares it.
+ *
+ * Uses the Unicode White_Space property, the set Rust `str::trim` removes; it differs
+ * from `String.prototype.trim` for U+0085 and U+FEFF. Inner white space is kept.
+ */
+export function trimGroupName(name: string): string {
+  return name.replace(SURROUNDING_WHITE_SPACE, "");
 }
 
 /** Everything that keeps a rule from being saved. Read-only conditions are never edited. */
@@ -254,7 +266,8 @@ export function ruleProblems(
   system: SizeSystem,
 ): RuleProblem[] {
   const problems: RuleProblem[] = [];
-  if (rule.displayName.trim() === "") problems.push({ kind: "empty_name" });
+  if (trimGroupName(rule.displayName) === "")
+    problems.push({ kind: "empty_name" });
   if (rule.readOnly) return problems;
   if (rule.rows.length === 0) problems.push({ kind: "empty_condition" });
   rule.rows.forEach((row, index) => {

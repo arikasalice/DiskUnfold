@@ -263,3 +263,75 @@ fn stored_rules_with_unregistered_predicates_are_kept_and_marked() {
         vec![RuleReview::PredicateUnregistered, RuleReview::Ok]
     );
 }
+
+#[test]
+fn names_lose_surrounding_unicode_white_space_and_keep_inner_space() -> Result<(), String> {
+    for (input, stored) in [
+        ("  Video", "Video"),
+        ("Video  ", "Video"),
+        ("\tVideo\t", "Video"),
+        ("\u{3000}영상\u{3000}", "영상"),
+        ("\u{a0}Video\u{a0}", "Video"),
+        ("\u{85}\u{2028}Video\u{202f}\u{205f}", "Video"),
+        (" 보고서 초안 ", "보고서 초안"),
+        ("Report \u{3000} draft", "Report \u{3000} draft"),
+    ] {
+        assert_eq!(normalize_name(input), stored, "{input:?}");
+    }
+    let registry = Registry::baseline();
+    let mut next = ids();
+    let first = written(plan_save(
+        &Ruleset::empty(),
+        vec![draft("\u{3000}보고서 초안\t", file())],
+        &registry,
+        RuleLimits::default(),
+        1,
+        &mut next,
+    ))?;
+    assert_eq!(first.rules[0].display_name, "보고서 초안");
+    // Other surrounding space around the same name is the same content: nothing is written.
+    let mut padded = redraft(&first);
+    padded[0].display_name = "\u{a0} 보고서 초안 \u{3000}".into();
+    assert_eq!(
+        plan_save(
+            &first,
+            padded,
+            &registry,
+            RuleLimits::default(),
+            2,
+            &mut next
+        ),
+        SavePlan::Unchanged
+    );
+    Ok(())
+}
+
+#[test]
+fn blank_and_duplicate_names_are_judged_after_trimming() {
+    let registry = Registry::baseline();
+    let limits = RuleLimits {
+        max_rules: 8,
+        max_name_chars: 4,
+    };
+    let drafts = vec![
+        draft("Ab", file()),
+        draft("\u{3000}ab\u{a0}", name(".a")),
+        draft("", file()),
+        draft(" \t\u{3000}\u{a0}", file()),
+        // Surrounding space does not count toward the name length limit.
+        draft("\t abcd \u{3000}", file()),
+        draft("a  b", name(".b")),
+    ];
+    let issues = review(&Ruleset::empty(), &drafts, &registry, limits);
+    assert_eq!(
+        issues
+            .iter()
+            .map(|issue| (issue.index, issue.reason_key))
+            .collect::<Vec<_>>(),
+        vec![
+            (1, "group.name_duplicate"),
+            (2, "group.rule_limit"),
+            (3, "group.rule_limit"),
+        ]
+    );
+}
