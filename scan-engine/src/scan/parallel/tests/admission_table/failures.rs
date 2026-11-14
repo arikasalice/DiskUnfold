@@ -17,6 +17,7 @@ mod nested;
 mod root_counts;
 mod spread;
 use fixture::*;
+mod cancel_disconnect;
 
 const WORKERS: [usize; 4] = [1, 2, 4, 8];
 
