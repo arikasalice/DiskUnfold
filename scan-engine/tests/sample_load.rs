@@ -50,13 +50,14 @@ impl ResultIds for Ids {
 }
 
 /// Runtime context stand-in: a wall clock far from the bundle's times, optional cancellation
-/// after the first sealed point, and optional session release while the second point builds.
+/// after the first sealed point, and an optional session release at a chosen checkpoint poll
+/// after the first sealed point (poll 0 falls between the two points, poll 2 inside the second).
 struct Context {
     report: Arc<SampleLoadReport>,
     sink: IngestSink,
     session: SampleSessionKey,
     cancel_after_first: bool,
-    release_during_second: bool,
+    release_at_poll: Option<usize>,
     polls_after_first: AtomicUsize,
 }
 
@@ -67,8 +68,8 @@ impl JobContext for Context {
             return Checkpoint::Cancel;
         }
         if sealed == 1
-            && self.release_during_second
-            && self.polls_after_first.fetch_add(1, Ordering::SeqCst) == 2
+            && let Some(poll) = self.release_at_poll
+            && self.polls_after_first.fetch_add(1, Ordering::SeqCst) == poll
         {
             let _ = self.sink.release_sample_session(&self.session);
         }
@@ -120,13 +121,13 @@ fn setup() -> Result<Run, Box<dyn std::error::Error>> {
     })
 }
 
-fn context(run: &Run, cancel: bool, release: bool) -> Arc<dyn JobContext> {
+fn context(run: &Run, cancel: bool, release_at_poll: Option<usize>) -> Arc<dyn JobContext> {
     Arc::new(Context {
         report: Arc::clone(&run.report),
         sink: run.sink.clone(),
         session: run.session.clone(),
         cancel_after_first: cancel,
-        release_during_second: release,
+        release_at_poll,
         polls_after_first: AtomicUsize::new(0),
     })
 }
@@ -134,7 +135,7 @@ fn context(run: &Run, cancel: bool, release: bool) -> Arc<dyn JobContext> {
 #[test]
 fn both_observations_are_published_as_sample_versions_in_order() -> TestResult {
     let run = setup()?;
-    let outcome = run.job.run(context(&run, false, false));
+    let outcome = run.job.run(context(&run, false, None));
     assert!(outcome.completed_scope && outcome.failure_reason_key.is_none());
     assert_eq!(run.report.end(), Some(SampleLoadEnd::Done));
     let sealed = run.report.observations();
@@ -166,7 +167,7 @@ fn both_observations_are_published_as_sample_versions_in_order() -> TestResult {
 #[test]
 fn cancelling_after_the_first_point_leaves_no_version() -> TestResult {
     let run = setup()?;
-    let outcome = run.job.run(context(&run, true, false));
+    let outcome = run.job.run(context(&run, true, None));
     assert!(!outcome.completed_scope && outcome.failure_reason_key.is_none());
     assert_eq!(run.report.end(), Some(SampleLoadEnd::Cancelled));
     assert!(run.report.observations().is_empty());
@@ -188,7 +189,7 @@ fn cancelling_after_the_first_point_leaves_no_version() -> TestResult {
 #[test]
 fn a_failing_point_discards_the_whole_session() -> TestResult {
     let run = setup()?;
-    let outcome = run.job.run(context(&run, false, true));
+    let outcome = run.job.run(context(&run, false, Some(2)));
     assert_eq!(
         outcome.failure_reason_key.as_deref(),
         Some(SAMPLE_LOAD_FAILED)
@@ -209,12 +210,41 @@ fn a_failing_point_discards_the_whole_session() -> TestResult {
     Ok(())
 }
 
+/// A close that lands between two observation points releases the session before the load
+/// registers the next lineage. The store refuses that registration, so the load ends as a
+/// failure (which a closed session ignores) and no version stays reachable.
+#[test]
+fn a_session_released_between_points_refuses_the_next_registration() -> TestResult {
+    let run = setup()?;
+    let outcome = run.job.run(context(&run, false, Some(0)));
+    assert_eq!(
+        outcome.failure_reason_key.as_deref(),
+        Some(SAMPLE_LOAD_FAILED)
+    );
+    assert!(!outcome.completed_scope);
+    assert_eq!(run.report.end(), Some(SampleLoadEnd::Failed));
+    assert!(run.report.observations().is_empty());
+    // The first point was built and discarded; nothing stays reachable.
+    let issued = run.ids.issued.lock().map_err(|_| "poisoned")?.clone();
+    assert!(!issued.is_empty());
+    for version_id in issued {
+        assert!(run.sink.pin_current(&version_id).is_err());
+    }
+    assert_eq!(
+        run.sink
+            .release_sample_session(&run.session)
+            .map_err(|e| format!("{e:?}"))?,
+        0
+    );
+    Ok(())
+}
+
 #[test]
 fn loading_the_same_bundle_twice_gives_the_same_items_and_totals() -> TestResult {
     let mut shapes = Vec::new();
     for _ in 0..2 {
         let run = setup()?;
-        let outcome = run.job.run(context(&run, false, false));
+        let outcome = run.job.run(context(&run, false, None));
         let mut versions = Vec::new();
         for (index, version_id, observed_at) in run.report.observations() {
             let version = run

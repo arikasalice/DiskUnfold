@@ -14,7 +14,7 @@ use crate::{
     sample::register_with,
 };
 
-fn engine(rig: &Rig) -> Result<Engine, String> {
+pub(super) fn engine(rig: &Rig) -> Result<Engine, String> {
     let mut builder = EngineBuilder::default();
     register_with(
         &mut builder,

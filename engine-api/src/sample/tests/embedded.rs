@@ -20,26 +20,32 @@ use super::{
     real::{Clock, Downstream, History, Ids, wait_for},
 };
 use crate::{
-    api::{Channel, EngineBuilder},
-    sample::{EmbeddedSampleLoader, SampleEvents, embedded::unavailable_reason, register},
+    api::{Channel, Engine, EngineBuilder},
+    sample::{
+        EmbeddedSampleLoader, SampleEvents, SampleLoader, embedded::unavailable_reason, register,
+    },
     workers::Workers,
 };
 
-#[test]
-fn failures_map_to_their_unavailable_reasons() {
-    assert_eq!(unavailable_reason(BundleFailure::Missing), SAMPLE_MISSING);
-    assert_eq!(
-        unavailable_reason(BundleFailure::UnsupportedFormat),
-        SAMPLE_FORMAT_UNSUPPORTED
-    );
-    assert_eq!(
-        unavailable_reason(BundleFailure::Corrupt),
-        SAMPLE_BUNDLE_INVALID
-    );
+/// The sample use cases over the embedded bundle, a real runtime and the shared result store.
+pub(super) struct Embedded {
+    pub(super) engine: Engine,
+    pub(super) store: IngestSink,
+    pub(super) runtime: Arc<JobRuntime>,
+    pub(super) ids: Arc<Ids>,
+    pub(super) sink: Arc<Sink>,
+    pub(super) downstream: Arc<Downstream>,
+    pub(super) history: Arc<History>,
 }
 
-#[test]
-fn the_embedded_bundle_loads_sample_versions_that_close_releases() -> Result<(), String> {
+pub(super) fn embedded() -> Result<Embedded, String> {
+    embedded_with(|store, ids| Arc::new(EmbeddedSampleLoader::new(store, ids)))
+}
+
+/// Like [`embedded`], with a loader built over the shared store and identifier source.
+pub(super) fn embedded_with(
+    make_loader: impl FnOnce(IngestSink, Arc<Ids>) -> Arc<dyn SampleLoader>,
+) -> Result<Embedded, String> {
     let history = Arc::new(History::default());
     let downstream = Arc::new(Downstream(Mutex::default()));
     let events = Arc::new(SampleEvents::new(downstream.clone()));
@@ -59,13 +65,47 @@ fn the_embedded_bundle_loads_sample_versions_that_close_releases() -> Result<(),
         .map_err(|e| format!("{e:?}"))?,
     );
     let store = IngestSink::with_version_publisher(runtime.result_version_publisher());
-    let workers = Arc::new(Workers::start(runtime).map_err(|e| e.to_string())?);
-    let loader = Arc::new(EmbeddedSampleLoader::new(store.clone(), ids));
+    let workers = Arc::new(Workers::start(runtime.clone()).map_err(|e| e.to_string())?);
+    let loader = make_loader(store.clone(), ids.clone());
+    let sink = Arc::new(Sink::default());
     let mut builder = EngineBuilder::default();
-    let sessions = register(&mut builder, workers, loader, Arc::new(Sink::default()))
-        .map_err(|e| format!("{e:?}"))?;
+    let sessions =
+        register(&mut builder, workers, loader, sink.clone()).map_err(|e| format!("{e:?}"))?;
     events.bind(sessions)?;
     let engine = builder.build().map_err(|e| format!("{e:?}"))?;
+    Ok(Embedded {
+        engine,
+        store,
+        runtime,
+        ids,
+        sink,
+        downstream,
+        history,
+    })
+}
+
+#[test]
+fn failures_map_to_their_unavailable_reasons() {
+    assert_eq!(unavailable_reason(BundleFailure::Missing), SAMPLE_MISSING);
+    assert_eq!(
+        unavailable_reason(BundleFailure::UnsupportedFormat),
+        SAMPLE_FORMAT_UNSUPPORTED
+    );
+    assert_eq!(
+        unavailable_reason(BundleFailure::Corrupt),
+        SAMPLE_BUNDLE_INVALID
+    );
+}
+
+#[test]
+fn the_embedded_bundle_loads_sample_versions_that_close_releases() -> Result<(), String> {
+    let Embedded {
+        engine,
+        store,
+        downstream,
+        history,
+        ..
+    } = embedded()?;
 
     let opened = call(&engine, "sample.open", Channel::Gui, json!({}));
     assert!(opened.error.is_none(), "{:?}", opened.error);

@@ -3,6 +3,14 @@ use super::{Entry, Lineage, State};
 use crate::{BuildError, ResultVersion, SampleSessionKey};
 use du_core_contracts::Id;
 
+/// How many released session keys the store remembers.
+///
+/// Every experience session draws a fresh UUID, so a key is never reused on purpose. The
+/// only caller that can still name a released key is that session's own load job, which a
+/// close cancels and which stops at its next checkpoint. Keeping the latest 64 keys covers
+/// any such late registration while the list stays bounded however many sessions open.
+const RELEASED_SESSION_LIMIT: usize = 64;
+
 impl State {
     /// Returns true for a lineage bound to a scope fingerprint or owned by a sample session.
     pub(super) fn is_bound(&self, id: &Id) -> bool {
@@ -19,12 +27,18 @@ impl State {
 
     /// Registers a fresh lineage owned by `session` and returns its identifier.
     ///
+    /// A session released earlier is refused with `BuildError::Unavailable`, so a load that
+    /// races a close cannot register a lineage no later release would reclaim.
+    ///
     /// The identifier is a UUID v7 built from a store-local counter, so it is unique within
     /// this store and distinct from every bound analysis lineage.
     pub(crate) fn register_sample_lineage(
         &mut self,
         session: &SampleSessionKey,
     ) -> Result<Id, BuildError> {
+        if self.released_samples.contains(session) {
+            return Err(BuildError::Unavailable);
+        }
         loop {
             let next = self
                 .next_sample
@@ -50,8 +64,17 @@ impl State {
 
     /// Detaches every lineage of `session`, returning the entries that were current.
     ///
+    /// The key is remembered as released even when it owned no lineage yet, because the
+    /// first registration of a load may still be on its way.
+    ///
     /// A build still holding a detached lineage can no longer publish.
     pub(crate) fn release_sample_session(&mut self, session: &SampleSessionKey) -> Vec<Entry> {
+        if !self.released_samples.contains(session) {
+            if self.released_samples.len() == RELEASED_SESSION_LIMIT {
+                self.released_samples.pop_front();
+            }
+            self.released_samples.push_back(session.clone());
+        }
         let lineages: Vec<Id> = self
             .sample_lineages
             .iter()

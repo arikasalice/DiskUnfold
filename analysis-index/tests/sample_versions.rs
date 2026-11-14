@@ -173,19 +173,62 @@ fn release_stops_an_open_build_from_publishing_again() -> Check {
                 .is_some_and(|e| is_missing(&e))
         );
     }
-    // A new build under the same key starts a fresh lineage and publishes normally.
-    sample(&sink, &session, 12)?
+    // A released session is closed: the same key cannot register a lineage again.
+    assert_eq!(
+        sink.open_sample_forest(id(12)?, vec![root()], &session)
+            .err(),
+        Some(BuildError::Unavailable)
+    );
+    // A fresh key starts a fresh lineage and publishes normally.
+    let fresh = key(2)?;
+    sample(&sink, &fresh, 12)?
         .seal(id(23)?, ResultCompleteness::Complete)
         .map_err(debug)?;
     sink.pin_current(&id(23)?).map_err(debug)?;
 
-    let sealed = sample(&sink, &session, 13)?;
-    assert_eq!(sink.release_sample_session(&session).map_err(debug)?, 1);
+    let sealed = sample(&sink, &fresh, 13)?;
+    assert_eq!(sink.release_sample_session(&fresh).map_err(debug)?, 1);
     assert!(matches!(
         sealed.seal(id(31)?, ResultCompleteness::Complete),
         Err(BuildError::Unavailable)
     ));
     assert!(sink.pin_current(&id(31)?).is_err());
+    Ok(())
+}
+
+#[test]
+fn a_session_released_before_its_first_build_refuses_that_build() -> Check {
+    let sink = IngestSink::default();
+    let session = key(1)?;
+    // The close arrives while the load is between two observation points.
+    assert_eq!(sink.release_sample_session(&session).map_err(debug)?, 0);
+    let late = sink.open_sample_forest(id(10)?, vec![root()], &session);
+    assert_eq!(late.err(), Some(BuildError::Unavailable));
+    assert!(sink.pin_current(&id(20)?).is_err());
+    // Another session is unaffected, and its release leaves no lineage behind.
+    let other = key(2)?;
+    sample(&sink, &other, 11)?
+        .seal(id(21)?, ResultCompleteness::Complete)
+        .map_err(debug)?;
+    assert_eq!(sink.release_sample_session(&other).map_err(debug)?, 1);
+    Ok(())
+}
+
+#[test]
+fn only_the_most_recent_released_keys_are_remembered() -> Check {
+    let sink = IngestSink::default();
+    for n in 1..=65 {
+        sink.release_sample_session(&key(n)?).map_err(debug)?;
+    }
+    // The oldest key fell off the bounded list; the newest 64 stay refused.
+    assert!(
+        sink.open_sample_forest(id(900)?, vec![root()], &key(1)?)
+            .is_ok()
+    );
+    for n in [2, 65] {
+        let refused = sink.open_sample_forest(id(901)?, vec![root()], &key(n)?);
+        assert_eq!(refused.err(), Some(BuildError::Unavailable), "key {n}");
+    }
     Ok(())
 }
 

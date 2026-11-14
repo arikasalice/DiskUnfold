@@ -7,7 +7,7 @@ use std::sync::{
 
 use du_analysis_index::SampleSessionKey;
 use du_core_contracts::{
-    Id,
+    Id, Timestamp,
     job::{JobBody, JobContext, JobCounts, JobOutcome, JobState},
     sample_ipc::{SampleClosed, SampleObservationRef, SampleSession, SampleStateChanged},
 };
@@ -22,6 +22,7 @@ use crate::error::EngineError;
 mod embedded;
 mod engine;
 mod flow;
+mod lifecycle;
 mod progress;
 mod real;
 mod structure;
@@ -71,6 +72,7 @@ pub(super) struct Loader {
     pub(super) open: Mutex<Result<SampleBundleInfo, &'static str>>,
     pub(super) released: Mutex<Vec<SampleSessionKey>>,
     pub(super) built: AtomicU64,
+    pub(super) keys: Mutex<Vec<SampleSessionKey>>,
     pub(super) report: Arc<Report>,
     pub(super) release_count: u64,
     log: Log,
@@ -84,8 +86,11 @@ impl SampleLoader for Loader {
             .unwrap_or(Err("poisoned"))
     }
 
-    fn job(&self, _: &SampleSessionKey) -> (Arc<dyn JobBody>, Arc<dyn SampleLoadReport>) {
+    fn job(&self, key: &SampleSessionKey) -> (Arc<dyn JobBody>, Arc<dyn SampleLoadReport>) {
         self.built.fetch_add(1, Ordering::Relaxed);
+        if let Ok(mut keys) = self.keys.lock() {
+            keys.push(key.clone());
+        }
         (Arc::new(Body), self.report.clone())
     }
 
@@ -189,6 +194,15 @@ pub(super) fn closed_error() -> EngineError {
 
 impl Rig {
     pub(super) fn new() -> Self {
+        Self::build(None)
+    }
+
+    /// A rig whose session clock is `clock`, for tests that make the clock fail.
+    pub(super) fn with_clock(clock: fn() -> Option<Timestamp>) -> Self {
+        Self::build(Some(clock))
+    }
+
+    fn build(clock: Option<fn() -> Option<Timestamp>>) -> Self {
         let log = Log::default();
         let loader = Arc::new(Loader {
             open: Mutex::new(Ok(SampleBundleInfo {
@@ -196,6 +210,7 @@ impl Rig {
             })),
             released: Mutex::default(),
             built: AtomicU64::new(0),
+            keys: Mutex::default(),
             report: Arc::new(Report::default()),
             release_count: 3,
             log: log.clone(),
@@ -211,11 +226,11 @@ impl Rig {
             log: log.clone(),
         });
         let sink = Arc::new(Sink::default());
-        let sessions = Arc::new(SampleSessions::new(
-            jobs.clone(),
-            loader.clone(),
-            sink.clone(),
-        ));
+        let created = SampleSessions::new(jobs.clone(), loader.clone(), sink.clone());
+        let sessions = Arc::new(match clock {
+            Some(clock) => created.with_clock(clock),
+            None => created,
+        });
         let _ = jobs.sessions.set(sessions.clone());
         Self {
             sessions,

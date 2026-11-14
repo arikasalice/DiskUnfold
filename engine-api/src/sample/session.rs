@@ -17,10 +17,7 @@
 //! A new session whose job cannot be queued is never created. A load job that ends while
 //! a command runs is applied right after that command, never inside it.
 
-use std::{
-    sync::{Arc, Mutex},
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::sync::{Arc, Mutex};
 
 use du_analysis_index::SampleSessionKey;
 use du_core_contracts::{
@@ -33,7 +30,7 @@ use du_core_contracts::{
 };
 use du_job_runtime::{DeduplicationKey, JobPriority, RuntimeError, Submission, SubmitResult};
 
-use super::{KIND, SampleEventSink, SampleJobs, SampleLoadReport, SampleLoader};
+use super::{KIND, SampleEventSink, SampleJobs, SampleLoadReport, SampleLoader, clock};
 use crate::error::EngineError;
 
 /// A terminal `scan.sample` event waiting to be applied to the session.
@@ -49,6 +46,7 @@ pub(crate) struct SampleSessions {
     sink: Arc<dyn SampleEventSink>,
     slot: Mutex<Option<Session>>,
     finished: Mutex<Vec<Finished>>,
+    clock: fn() -> Option<Timestamp>,
 }
 
 struct Session {
@@ -56,6 +54,7 @@ struct Session {
     key: SampleSessionKey,
     state: SampleSessionState,
     sequence: u64,
+    last_observed_at: Option<Timestamp>,
     bundle_version: Option<String>,
     job_ref: Option<Id>,
     report: Option<Arc<dyn SampleLoadReport>>,
@@ -82,6 +81,7 @@ impl Session {
             session_ref,
             state: SampleSessionState::Closed,
             sequence: 0,
+            last_observed_at: None,
             bundle_version: None,
             job_ref: None,
             report: None,
@@ -138,7 +138,15 @@ impl SampleSessions {
             sink,
             slot: Mutex::new(None),
             finished: Mutex::new(Vec::new()),
+            clock: clock::now,
         }
+    }
+
+    /// Replaces the wall clock, so a test can make it fail.
+    #[cfg(test)]
+    pub(crate) fn with_clock(mut self, clock: fn() -> Option<Timestamp>) -> Self {
+        self.clock = clock;
+        self
     }
 
     /// Opens the session, or returns the one that is still open.
@@ -186,6 +194,8 @@ impl SampleSessions {
             self.move_to(session, SampleSessionState::Resetting, None, None);
             session.discard_results();
             self.loader.release(&session.key);
+            // The store closes a released key for good, so the reload gets a new one.
+            session.key = SampleSessionKey::new(new_id());
             let launch = self
                 .launch(session, correlation_id)
                 .unwrap_or(Launch::Unavailable(SAMPLE_LOAD_FAILED));
@@ -204,21 +214,39 @@ impl SampleSessions {
                 .as_mut()
                 .filter(|session| session.session_ref == *session_ref)
                 .ok_or_else(session_closed)?;
-            if session.state != SampleSessionState::Closed {
-                let job_ref = session.job_ref.take();
-                if let Some(job_ref) = &job_ref {
-                    self.jobs.cancel(job_ref);
-                }
-                session.released_versions = self.loader.release(&session.key);
-                session.discard_results();
-                self.move_to(session, SampleSessionState::Closed, None, job_ref);
-            }
-            Ok(SampleClosed {
-                session_ref: session.session_ref.clone(),
-                state: SampleSessionState::Closed,
-                released_versions: session.released_versions,
-            })
+            Ok(self.close_session(session))
         })
+    }
+
+    /// Closes the open session, if any, when the window session ends.
+    ///
+    /// This is the same path as `sample.close`, so the load job is cancelled and every
+    /// result version is released before the process goes away. A closed or missing
+    /// session is left alone.
+    pub(crate) fn retire(&self) {
+        let _ = self.command(|slot| {
+            if let Some(session) = slot.as_mut() {
+                self.close_session(session);
+            }
+            Ok(())
+        });
+    }
+
+    fn close_session(&self, session: &mut Session) -> SampleClosed {
+        if session.state != SampleSessionState::Closed {
+            let job_ref = session.job_ref.take();
+            if let Some(job_ref) = &job_ref {
+                self.jobs.cancel(job_ref);
+            }
+            session.released_versions = self.loader.release(&session.key);
+            session.discard_results();
+            self.move_to(session, SampleSessionState::Closed, None, job_ref);
+        }
+        SampleClosed {
+            session_ref: session.session_ref.clone(),
+            state: SampleSessionState::Closed,
+            released_versions: session.released_versions,
+        }
     }
 
     /// Queues the end of a `scan.sample` job and applies it as soon as no command runs.
@@ -372,9 +400,16 @@ impl SampleSessions {
         if to != SampleSessionState::Unavailable {
             session.unavailable_reason = None;
         }
-        // The clock cannot fail for any realistic time; the state is committed regardless.
-        let Some(observed_at) = now() else {
-            return;
+        // The state is committed, so the event goes out even when the clock cannot be read.
+        let observed_at = match (self.clock)() {
+            Some(time) => {
+                session.last_observed_at = Some(time.clone());
+                time
+            }
+            None => match clock::fallback(session.last_observed_at.as_ref()) {
+                Some(time) => time,
+                None => return,
+            },
         };
         self.sink.publish(
             SampleStateChanged {
@@ -422,9 +457,4 @@ fn submit_error(error: RuntimeError) -> EngineError {
 
 fn new_id() -> Id {
     Id::from_v7_bytes(*uuid::Uuid::now_v7().as_bytes())
-}
-
-fn now() -> Option<Timestamp> {
-    let elapsed = SystemTime::now().duration_since(UNIX_EPOCH).ok()?;
-    Timestamp::from_unix_millis(i64::try_from(elapsed.as_millis()).ok()?)
 }

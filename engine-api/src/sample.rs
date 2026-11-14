@@ -14,6 +14,7 @@ use du_job_runtime::RuntimeError;
 
 use crate::{api::EngineBuilder, workers::Workers};
 
+mod clock;
 mod commands;
 mod embedded;
 mod events;
@@ -91,5 +92,8 @@ fn register_with(
 ) -> Arc<SampleSessions> {
     let sessions = Arc::new(SampleSessions::new(jobs, loader, events));
     commands::register(builder, &sessions);
+    // The host retires the window session on shutdown; the experience session goes with it.
+    let retiring = sessions.clone();
+    builder.on_session_retire(move || retiring.retire());
     sessions
 }

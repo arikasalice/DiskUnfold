@@ -23,6 +23,12 @@ impl IngestSink {
     /// (`pin_current`, `pin_scan` with a revision), never through `pin()` or an
     /// unqualified `pin_scan`, and their publication sends no result-version notice.
     /// Roots are validated as in [`IngestSink::open_forest`].
+    ///
+    /// A session that was released is closed for good: the call fails with
+    /// `BuildError::Unavailable`, so a load that is still running when its session closes
+    /// cannot register a lineage again. A caller that wants to reload uses a new key. The
+    /// store remembers only the most recent released keys (64), which is enough because
+    /// each experience session uses a fresh identifier.
     pub fn open_sample_forest(
         &self,
         scope_version_id: Id,
@@ -56,7 +62,7 @@ impl IngestSink {
     /// Readers that already pinned a version keep reading it. Afterwards `pin_current`
     /// rejects those IDs, and a build of the session that is still open fails when it tries
     /// to publish. An unknown or already released session returns 0, so the call is safe to
-    /// repeat.
+    /// repeat. Releasing a key that owns nothing yet still closes it against later builds.
     pub fn release_sample_session(&self, session: &SampleSessionKey) -> Result<u64, BuildError> {
         let released = self
             .state

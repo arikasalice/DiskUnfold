@@ -5,7 +5,7 @@ use crate::{
 };
 use du_core_contracts::{Id, analysis_ipc::ScanResult, result::ResultCompleteness};
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, VecDeque},
     sync::{Arc, OnceLock, Weak},
 };
 
@@ -32,6 +32,8 @@ pub(super) struct State {
     /// Sample lineages and the session that owns each; never bound to a scope fingerprint.
     sample_lineages: HashMap<Id, SampleSessionKey>,
     next_sample: u64,
+    /// The most recently released sample sessions; see `sample::RELEASED_SESSION_LIMIT`.
+    released_samples: VecDeque<SampleSessionKey>,
 }
 impl State {
     pub(super) fn next_event_sequence(&mut self, lineage: Option<&Id>) -> Option<u64> {
