@@ -21,7 +21,11 @@ use crate::{api::EngineBuilder, jobs, scan, scope, targets, workers::Workers};
 const TARGET_PROBE_DEADLINE: Duration = Duration::from_secs(2);
 const TARGET_ENUMERATION_DEADLINE: Duration = Duration::from_secs(2);
 
-/// Registers the Windows desktop analysis flow and returns its event source.
+/// Registers the desktop analysis flow and returns its event source.
+///
+/// Every desktop platform uses this one registration. It registers the
+/// `scan.metadata` job kind together with `scan.start` and `scan.failures`;
+/// registering it twice on one builder makes the engine build fail.
 pub fn register(
     builder: &mut EngineBuilder,
     roots: Arc<dyn ScopeRootPort>,

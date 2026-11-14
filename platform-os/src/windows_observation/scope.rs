@@ -80,3 +80,6 @@ pub(crate) fn volume_name(path: &[u16]) -> Result<Vec<u8>, PortError> {
     }
     Ok(bytes(&path[..prefix.len() + close + 1]))
 }
+
+#[cfg(test)]
+mod tests;
