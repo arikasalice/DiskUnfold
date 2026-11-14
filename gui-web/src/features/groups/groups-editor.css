@@ -1,0 +1,168 @@
+/* The rule editor area of the virtual-group screen; loaded with the editor component. */
+/* The rule editor: the applied result stays on the left, the editor opens on the right. */
+@media (min-width: 60rem) {
+  .du-groups-layout[data-editing] {
+    grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+    gap: 24px;
+    align-items: start;
+  }
+}
+
+.du-groups-editor {
+  gap: 16px;
+  padding: 20px 24px;
+  background: var(--du-surface);
+  border: 2px solid var(--du-focus);
+  border-radius: var(--du-radius);
+  container: du-groups-editor / inline-size;
+}
+
+/* The border above already marks the editor; taking the focus by script adds no second frame. */
+.du-groups-editor:focus {
+  outline: none;
+}
+
+.du-groups-editor__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.du-groups-editor__head .du-heading {
+  margin-block-start: 0;
+}
+
+.du-groups-editor__body,
+.du-groups-rule {
+  gap: 16px;
+}
+
+.du-groups-cond {
+  display: grid;
+  gap: 4px;
+  min-inline-size: 0;
+}
+
+.du-groups-cond__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  grid-template-areas:
+    "kind op remove"
+    "value value value";
+  gap: 8px;
+  align-items: center;
+}
+
+.du-groups-cond__kind {
+  grid-area: kind;
+}
+
+.du-groups-cond__op {
+  grid-area: op;
+}
+
+.du-groups-cond__value {
+  grid-area: value;
+}
+
+.du-groups-cond__remove {
+  grid-area: remove;
+}
+
+@container du-groups-editor (min-width: 32rem) {
+  .du-groups-cond__row {
+    grid-template-columns:
+      minmax(5.5rem, 1fr) minmax(6.5rem, 1.2fr) minmax(8rem, 2fr)
+      auto;
+    grid-template-areas: "kind op value remove";
+  }
+}
+
+.du-groups-cond__row .du-field :is(input, select),
+.du-groups-cond__basis .du-field select {
+  min-block-size: 42px;
+}
+
+.du-groups-cond__size {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(4.5rem, auto);
+  gap: 8px;
+}
+
+.du-groups-cond__basis {
+  max-inline-size: 16rem;
+}
+
+/* An empty or invalid value: a thicker border, a mark and the reason under the row. */
+.du-groups-cond[data-invalid] .du-groups-cond__value input {
+  border-color: var(--du-danger-text);
+  box-shadow: 0 0 0 1px var(--du-danger-text);
+}
+
+.du-groups-cond__error {
+  color: var(--du-danger-text);
+  font-size: 12px;
+}
+
+.du-groups-cond__error::before {
+  content: "\2715\00a0";
+}
+
+.du-groups-preview {
+  gap: 8px;
+  padding-block-start: 16px;
+  border-block-start: 1px solid var(--du-border);
+}
+
+.du-groups-preview .du-metric[data-prominent] {
+  padding-block: 0;
+  border-block-end: 0;
+}
+
+.du-groups-preview .du-metric__value,
+.du-groups-preview .du-metric[data-prominent] .du-metric__value {
+  font-size: 18px;
+  letter-spacing: 0;
+  font-weight: 700;
+}
+
+.du-groups-preview .du-live-status {
+  color: var(--du-muted);
+  font-size: 12px;
+}
+
+.du-groups-manage {
+  gap: 8px;
+  padding-block-end: 12px;
+  border-block-end: 1px solid var(--du-border);
+}
+
+.du-groups-editor__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.du-groups-editor__apply {
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+  margin-inline-start: auto;
+  text-align: end;
+}
+
+/* Narrow windows and large zoom. */
+@media (max-width: 44rem) {
+  .du-groups-editor {
+    padding: 16px;
+  }
+
+  .du-groups-editor__apply {
+    justify-items: start;
+    margin-inline-start: 0;
+    text-align: start;
+  }
+}

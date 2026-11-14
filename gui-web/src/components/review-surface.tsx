@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { ReactNode, Ref } from "react";
 import { Action } from "./controls";
 import { Heading, Notice, Progress, Text } from "./presentation";
 import "../theme/review-surface.css";
@@ -44,6 +44,7 @@ export function ContentState({
 export function ReviewSurface({
   title,
   description,
+  titleRef,
   context,
   tools,
   children,
@@ -51,6 +52,8 @@ export function ReviewSurface({
 }: {
   title: string;
   description: string;
+  /** Receives the title heading, so the screen can move the focus there. */
+  titleRef?: Ref<HTMLHeadingElement>;
   context?: ReactNode;
   tools?: ReactNode;
   children: ReactNode;
@@ -60,7 +63,12 @@ export function ReviewSurface({
     <section className="du-review-surface" aria-label={title}>
       <header className="du-review-surface__header">
         <div>
-          <Heading level={2}>{title}</Heading>
+          <Heading
+            level={2}
+            {...(titleRef && { ref: titleRef, programmaticFocus: true })}
+          >
+            {title}
+          </Heading>
           <Text kind="muted">{description}</Text>
         </div>
         {tools && <div className="du-review-actions">{tools}</div>}
