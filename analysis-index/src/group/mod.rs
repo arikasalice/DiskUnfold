@@ -27,9 +27,9 @@ mod summary;
 mod totals;
 
 pub use classification::{Classification, Reconciliation};
-pub use classify::{Control, MAX_DECISIONS, Parallelism, classify_scope};
+pub use classify::{Control, MAX_DECISIONS, Parallelism, classify_scope, classify_scope_bounded};
 pub use explain::{NodeDecision, RuleExplanation};
-pub use page::{Category, Page, PageRow};
+pub use page::{Category, DEFAULT_MEMBER_SORT, Page, PageRow};
 pub use store::ClassificationStore;
 pub use summary::{GroupCounts, Summary};
 pub use totals::Totals;

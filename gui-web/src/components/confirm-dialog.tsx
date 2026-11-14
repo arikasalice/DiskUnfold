@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import type { ReactNode } from "react";
 import { Dialog, Heading, Modal, ModalOverlay } from "react-aria-components";
 import { Action } from "./controls";
-import { EnterPolicyProvider } from "./ime-composition";
+import { EnterPolicyProvider, isImeProcessingKey } from "./ime-composition";
 import "../theme/inspection-dialog.css";
 import "../theme/confirm-dialog.css";
 
@@ -18,6 +18,9 @@ const textEntry =
  *
  * Enter in a text entry inside the dialog never submits or confirms. Only a
  * press on the confirm button (Space, Enter or a pointer) requests the action.
+ * An Enter or Escape that the input method is processing is left alone: Enter
+ * is not cancelled and Escape cancels the composition without closing the
+ * dialog, for entries that do not use `useImeComposition` too.
  */
 export function ConfirmDialog({
   title,
@@ -60,6 +63,10 @@ export function ConfirmDialog({
           <div
             className="du-confirm-dialog__content"
             onKeyDown={(event) => {
+              if (isImeProcessingKey(event.nativeEvent)) {
+                if (event.key === "Escape") event.stopPropagation();
+                return;
+              }
               if (event.key === "Enter" && event.target instanceof Element) {
                 if (event.target.matches(textEntry)) event.preventDefault();
               }

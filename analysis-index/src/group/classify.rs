@@ -82,6 +82,36 @@ pub fn classify_scope(
     parallelism: Parallelism,
     control: &dyn Control,
 ) -> Result<Classification, Error> {
+    classify_scope_bounded(
+        version,
+        root,
+        registry,
+        rules,
+        parallelism,
+        control,
+        MAX_DECISIONS,
+    )
+}
+
+/// Same as [`classify_scope`] with an explicit bound on files times rules.
+///
+/// A smaller `max_decisions` lets a caller keep a classification small; the published
+/// bound is [`MAX_DECISIONS`]. Besides the decisions, the classification prepares what the
+/// first reads need so they do not repeat whole-scope work: the totals of the default
+/// selection (every group) and the member order of the default sort
+/// ([`DEFAULT_MEMBER_SORT`]). Both are built here, so `control` can cancel them.
+///
+/// # Errors
+/// Same as [`classify_scope`], with [`Error::ScopeTooLarge`] measured against `max_decisions`.
+pub fn classify_scope_bounded(
+    version: Arc<ResultVersion>,
+    root: Option<&ItemRef>,
+    registry: &Registry,
+    rules: Vec<Condition>,
+    parallelism: Parallelism,
+    control: &dyn Control,
+    max_decisions: usize,
+) -> Result<Classification, Error> {
     scope::validate_root(&version, root)?;
     let plans = prepare_rules(registry, &rules)?;
     let rule_unavailable: Vec<bool> = plans.iter().map(Option::is_none).collect();
@@ -89,7 +119,7 @@ pub fn classify_scope(
         return Err(Error::Cancelled);
     }
     let scope = scope::collect(&version, root, control)?;
-    if !within_limit(scope.files.len(), rules.len(), MAX_DECISIONS) {
+    if !within_limit(scope.files.len(), rules.len(), max_decisions) {
         return Err(Error::ScopeTooLarge);
     }
     control.scope_files(u64::try_from(scope.files.len()).unwrap_or(u64::MAX));
@@ -98,7 +128,7 @@ pub fn classify_scope(
     if control.cancelled() {
         return Err(Error::Cancelled);
     }
-    Ok(Classification::assemble(Parts {
+    let mut classification = Classification::assemble(Parts {
         version,
         root: root.cloned(),
         predicates: leaf_strategies(&rules),
@@ -107,7 +137,9 @@ pub fn classify_scope(
         files: scope.files,
         decisions,
         coverage_complete: scope.coverage_complete,
-    }))
+    });
+    classification.prepare_reads(registry, control)?;
+    Ok(classification)
 }
 
 /// Reports whether a decision table of `files` rows and `rules` columns fits `limit`.

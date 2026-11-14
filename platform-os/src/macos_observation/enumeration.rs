@@ -16,15 +16,27 @@ const BATCH_SIZE: usize = 256;
 impl MacDirectory {
     /// Reads one bulk buffer. Names are decided before any entry is recorded;
     /// excluded records are dropped and no item is ever opened. An error ends
-    /// the directory.
+    /// the directory, and so does one malformed record (see [`bulk::parse`]).
+    ///
+    /// The bulk buffer is allocated on the first read of this handle, reused by
+    /// later reads and released when the directory ends.
     fn fill(
         &mut self,
         include: &mut dyn FnMut(&[u8]) -> FilterDecision,
         clock: &dyn Fn() -> Option<Timestamp>,
     ) -> Result<(), PortError> {
-        let records = bulk::read(self.fd.as_fd()).inspect_err(|_| self.finished = true)?;
+        if self.buffer.is_empty() {
+            self.buffer = vec![0u8; bulk::BUFFER_BYTES];
+        }
+        let records = match bulk::read(self.fd.as_fd(), &mut self.buffer) {
+            Ok(records) => records,
+            Err(error) => {
+                self.finish();
+                return Err(error);
+            }
+        };
         if records.is_empty() {
-            self.finished = true;
+            self.finish();
             return Ok(());
         }
         for record in records {
@@ -44,9 +56,15 @@ impl MacDirectory {
         Ok(())
     }
 
+    fn finish(&mut self) {
+        self.finished = true;
+        self.buffer = Vec::new();
+    }
+
     /// The enumerated and metadata views come from the same record, so they
-    /// always agree; replacement is detected when a child is opened.
-    fn observe(&self, record: bulk::Record) -> ObservedEntry {
+    /// always agree; replacement is detected when a child is opened. For a
+    /// mount point the record describes the covered directory of this volume.
+    pub(super) fn observe(&self, record: bulk::Record) -> ObservedEntry {
         let kind = record.kind();
         let inode = record.file_id.unwrap_or(0);
         let metadata = self.metadata(&record, &kind, inode);
@@ -58,6 +76,15 @@ impl MacDirectory {
         }
     }
 
+    /// Metadata of one record.
+    ///
+    /// `size` is the logical length of the entry itself, as `st_size`
+    /// reports it: the data fork of a file, the target length of a symbolic
+    /// link and the directory length of a directory. `allocated` is reported
+    /// for files only and counts every fork, as `st_blocks` and `du` do.
+    ///
+    /// A mount point, or an entry on another device, follows the rule for
+    /// another volume: identity and kind only.
     fn metadata(
         &self,
         record: &bulk::Record,
@@ -68,8 +95,8 @@ impl MacDirectory {
             return Err(errors::errno(code.cast_signed()));
         }
         let device = record.device.ok_or_else(errors::unavailable)?;
-        if device != self.device {
-            return Err(errors::invalid());
+        if device != self.device || *kind == ObservedKind::MountPoint {
+            return Ok(other_volume(kind.clone(), device, inode));
         }
         let file = *kind == ObservedKind::File;
         Ok(MetadataObservation {
@@ -77,7 +104,7 @@ impl MacDirectory {
             device,
             inode,
             size: record
-                .data_length
+                .length()
                 .and_then(|bytes| u64::try_from(bytes).ok())
                 .ok_or_else(errors::unavailable),
             modified_at: record
@@ -85,7 +112,7 @@ impl MacDirectory {
                 .and_then(|(seconds, nanoseconds)| bulk::timestamp(seconds, nanoseconds)),
             native_modified_at: None,
             allocated: record
-                .data_allocated
+                .allocated
                 .filter(|_| file)
                 .and_then(|bytes| u64::try_from(bytes).ok()),
             link_count: record
@@ -97,6 +124,23 @@ impl MacDirectory {
                 file: inode.to_le_bytes().to_vec(),
             }),
         })
+    }
+}
+
+/// An entry of another volume, or a mount point, with its identity and kind
+/// only, as `MetadataObservation` requires. A mount point carries the device
+/// and inode of the directory it covers, which is what the record reports.
+pub(super) fn other_volume(kind: ObservedKind, device: u64, inode: u64) -> MetadataObservation {
+    MetadataObservation {
+        kind,
+        device,
+        inode,
+        size: Err(errors::unavailable()),
+        modified_at: None,
+        native_modified_at: None,
+        allocated: None,
+        link_count: None,
+        space_identity: None,
     }
 }
 

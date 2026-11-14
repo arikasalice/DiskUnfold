@@ -144,6 +144,10 @@ test("Mac capabilities render the localized F15 screen through the WebKit IPC br
   ).toBeTruthy();
   expect(screen.getByRole("heading", { name: "공통 시작 화면" })).toBeTruthy();
   expect(document.documentElement.lang).toBe("ko");
+  // The status region exists before any failure, so the first one is announced.
+  const entryStatus = document.querySelector(".du-locale-entry [role=status]");
+  expect(entryStatus).not.toBeNull();
+  expect(entryStatus?.textContent).toBe("");
   await waitFor(() => expect(requests).toContain("app.startup_status"));
   expect(requests.slice(0, 4)).toEqual([
     "i18n.get_profile",

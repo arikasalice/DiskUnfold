@@ -1,9 +1,10 @@
 //! Record parsing, classification and thread policy checks without fixture files.
-use super::{bulk, dataless, errors, scope, volume};
+use super::{MacDirectory, bulk, dataless, errors, scope, volume};
 use du_core_contracts::{
     ports::PortErrorKind,
     scan_observation::{HandleIdentity, ObservedKind},
 };
+use std::sync::Arc;
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
@@ -56,8 +57,8 @@ fn file_values() -> Vec<u8> {
     values.extend(0u32.to_ne_bytes()); // flags
     values.extend(42u64.to_ne_bytes()); // file ID
     values.extend(2u32.to_ne_bytes()); // link count
+    values.extend(24_576i64.to_ne_bytes()); // allocation of every fork
     values.extend(3i64.to_ne_bytes()); // data length
-    values.extend(4096i64.to_ne_bytes()); // data allocation
     values
 }
 
@@ -79,9 +80,28 @@ fn parses_every_requested_value_in_attribute_order() -> TestResult {
     assert_eq!(parsed.modified, Some((1_600_000_000, 5_000_000)));
     assert_eq!(parsed.file_id, Some(42));
     assert_eq!(parsed.mount_status, None);
+    assert_eq!(parsed.directory_length, None);
     assert_eq!(parsed.link_count, Some(2));
+    assert_eq!(parsed.allocated, Some(24_576));
     assert_eq!(parsed.data_length, Some(3));
-    assert_eq!(parsed.data_allocated, Some(4096));
+    assert_eq!(parsed.length(), Some(3));
+    Ok(())
+}
+
+#[test]
+fn directory_records_carry_mount_status_then_length() -> TestResult {
+    let mut values = Vec::new();
+    values.extend(2u32.to_ne_bytes()); // VDIR
+    values.extend(1u32.to_ne_bytes()); // DIR_MNTSTATUS_MNTPOINT
+    values.extend(64i64.to_ne_bytes()); // directory length
+    let common = libc::ATTR_CMN_RETURNED_ATTRS | libc::ATTR_CMN_NAME | libc::ATTR_CMN_OBJTYPE;
+    let bytes = record([common, 0, bulk::DIRECTORY, 0, 0], None, &values, b"mnt")?;
+    let records = bulk::parse(&bytes, 1).map_err(|e| format!("{e:?}"))?;
+    let parsed = records.first().ok_or("missing record")?;
+    assert_eq!(parsed.mount_status, Some(1));
+    assert_eq!(parsed.directory_length, Some(64));
+    assert_eq!(parsed.length(), Some(64));
+    assert_eq!(parsed.kind(), ObservedKind::MountPoint);
     Ok(())
 }
 
@@ -143,7 +163,7 @@ fn malformed_or_unrequested_layouts_are_rejected() -> TestResult {
 }
 
 #[test]
-fn directories_that_lead_elsewhere_are_links() {
+fn mount_points_are_reported_and_other_ways_out_are_links() {
     let directory = |mount_status, flags| bulk::Record {
         object_type: Some(2),
         mount_status,
@@ -151,10 +171,17 @@ fn directories_that_lead_elsewhere_are_links() {
         ..Default::default()
     };
     assert_eq!(directory(Some(0), Some(0)).kind(), ObservedKind::Directory);
-    assert_eq!(directory(Some(1), None).kind(), ObservedKind::Link);
+    assert_eq!(directory(None, None).kind(), ObservedKind::Directory);
+    assert_eq!(directory(Some(1), None).kind(), ObservedKind::MountPoint);
+    // A trigger that has been crossed has a file system mounted on it.
+    assert_eq!(directory(Some(3), None).kind(), ObservedKind::MountPoint);
     assert_eq!(directory(Some(2), None).kind(), ObservedKind::Link);
     assert_eq!(
         directory(Some(0), Some(0x0080_0000)).kind(),
+        ObservedKind::Link
+    );
+    assert_eq!(
+        directory(Some(1), Some(0x0080_0000)).kind(),
         ObservedKind::Link
     );
     let typed = |object_type| bulk::Record {
@@ -165,6 +192,112 @@ fn directories_that_lead_elsewhere_are_links() {
     assert_eq!(typed(7).kind(), ObservedKind::Other);
     assert_eq!(typed(0).kind(), ObservedKind::Unknown);
     assert_eq!(typed(8).kind(), ObservedKind::Unknown);
+}
+
+/// A directory handle on `/` that only serves as the parent of test records.
+fn parent(device: u64) -> Result<MacDirectory, Box<dyn std::error::Error>> {
+    let fd = rustix::fs::open(
+        "/",
+        rustix::fs::OFlags::RDONLY | rustix::fs::OFlags::DIRECTORY,
+        rustix::fs::Mode::empty(),
+    )?;
+    Ok(MacDirectory::new(
+        fd,
+        (device, 2),
+        Arc::from(&b"uuid:x"[..]),
+        None,
+    ))
+}
+
+#[test]
+fn sizes_follow_stat_and_only_files_report_allocation() -> TestResult {
+    let parent = parent(7)?;
+    let base = |object_type| bulk::Record {
+        name: b"x".to_vec(),
+        device: Some(7),
+        object_type: Some(object_type),
+        file_id: Some(42),
+        link_count: Some(1),
+        allocated: Some(24_576),
+        data_length: Some(4),
+        ..Default::default()
+    };
+    // A file with a resource fork: the data fork length and every fork's allocation.
+    let file = parent
+        .observe(base(1))
+        .metadata
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!((file.size, file.allocated), (Ok(4), Some(24_576)));
+    assert_eq!(file.link_count, Some(1));
+    assert!(file.space_identity.is_some());
+    let link = parent
+        .observe(base(5))
+        .metadata
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(
+        (link.kind, link.size, link.allocated),
+        (ObservedKind::Link, Ok(4), None)
+    );
+    assert_eq!((link.link_count, link.space_identity), (None, None));
+    let mut directory = base(2);
+    directory.directory_length = Some(256);
+    let directory = parent
+        .observe(directory)
+        .metadata
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(
+        (directory.kind, directory.size, directory.allocated),
+        (ObservedKind::Directory, Ok(256), None)
+    );
+    // A directory length the file system did not return stays unknown.
+    let unreported = parent
+        .observe(base(2))
+        .metadata
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(
+        unreported.size.map_err(|e| e.kind),
+        Err(PortErrorKind::Unsupported)
+    );
+    Ok(())
+}
+
+#[test]
+fn mount_points_and_other_devices_carry_identity_and_kind_only() -> TestResult {
+    let parent = parent(7)?;
+    let mut mount = bulk::Record {
+        name: b"mnt".to_vec(),
+        device: Some(7),
+        object_type: Some(2),
+        file_id: Some(42),
+        mount_status: Some(1),
+        directory_length: Some(64),
+        modified: Some((1_600_000_000, 0)),
+        ..Default::default()
+    };
+    let mut other = mount.clone();
+    other.mount_status = Some(0);
+    other.device = Some(8);
+    for (record, kind, device) in [
+        (mount.clone(), ObservedKind::MountPoint, 7),
+        (other, ObservedKind::Directory, 8),
+    ] {
+        let entry = parent.observe(record);
+        assert_eq!(
+            (entry.enumerated_kind.clone(), entry.enumerated_inode),
+            (kind.clone(), 42)
+        );
+        let meta = entry.metadata.map_err(|e| format!("{e:?}"))?;
+        assert_eq!((meta.kind, meta.device, meta.inode), (kind, device, 42));
+        assert!(meta.size.is_err());
+        assert!(meta.modified_at.is_none() && meta.native_modified_at.is_none());
+        assert!(meta.allocated.is_none() && meta.link_count.is_none());
+        assert!(meta.space_identity.is_none());
+    }
+    // A per-entry error still wins over the mount rule.
+    mount.error = Some(libc::EACCES.cast_unsigned());
+    let denied = parent.observe(mount).metadata.err().map(|e| e.kind);
+    assert_eq!(denied, Some(PortErrorKind::PermissionDenied));
+    Ok(())
 }
 
 #[test]

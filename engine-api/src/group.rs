@@ -42,6 +42,8 @@ pub struct GroupAssembly {
     pub(crate) workers: Arc<Workers>,
     pub(crate) ids: Arc<dyn JobIdentity>,
     pub(crate) clock: Arc<dyn JobClock>,
+    /// Bound on files times rules of one classification.
+    pub(crate) decision_limit: usize,
 }
 
 impl GroupAssembly {
@@ -85,6 +87,7 @@ pub(crate) fn compose(
         workers: workers.clone(),
         ids,
         clock: Arc::new(UtcClock),
+        decision_limit: du_analysis_index::group::MAX_DECISIONS,
     }
 }
 
