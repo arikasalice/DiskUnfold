@@ -12,6 +12,7 @@ use du_platform_os::macos_observation::MacScopeRoots;
 use std::{
     ffi::OsStr,
     fs,
+    io::Write,
     os::unix::{ffi::OsStrExt, fs::MetadataExt},
     path::{Path, PathBuf},
     time::{Duration, UNIX_EPOCH},
@@ -63,6 +64,17 @@ fn meta(entry: &ObservedEntry) -> Result<MetadataObservation, String> {
 
 fn kind(entry: &ObservedEntry) -> Option<ObservedKind> {
     entry.metadata.as_ref().ok().map(|meta| meta.kind.clone())
+}
+
+/// Names only the form of a volume identity, for failure messages.
+fn form(volume_id: &[u8]) -> &'static str {
+    if volume_id.starts_with(b"uuid:") {
+        "uuid:"
+    } else if volume_id.starts_with(b"dev:") {
+        "dev:"
+    } else {
+        "unknown"
+    }
 }
 
 #[test]
@@ -243,7 +255,21 @@ fn volume_space_is_bound_to_the_root_volume() -> TestResult {
         .directory
         .volume_space_reader()
         .map_err(|e| format!("{e:?}"))?;
-    let space = reader.read(&root.volume_id).map_err(|e| format!("{e:?}"))?;
+    // Allocate space on the volume between the two identity readings, as
+    // concurrent writers do. The identity must not depend on usage.
+    let mut grown = fs::File::create(path.join("grown"))?;
+    grown.write_all(&vec![7u8; 4 << 20])?;
+    grown.sync_all()?;
+    let reopened = open(&path)?;
+    let forms = format!(
+        "identity at open: {}, identity after writing: {}",
+        form(&root.volume_id),
+        form(&reopened.volume_id)
+    );
+    let space = reader
+        .read(&root.volume_id)
+        .map_err(|e| format!("{e:?}; {forms}"))?;
+    assert_eq!(root.volume_id, reopened.volume_id, "{forms}");
     assert!(space.total_bytes > 0);
     assert!(space.free_bytes <= space.total_bytes);
     assert!(space.used_bytes <= space.total_bytes);
@@ -253,6 +279,31 @@ fn volume_space_is_bound_to_the_root_volume() -> TestResult {
         .ok_or("another volume was accepted")?;
     assert_eq!(wrong.kind, PortErrorKind::IdentityChanged);
     assert_eq!(wrong.reason_key, "space.volume_report_unavailable");
+    Ok(())
+}
+
+/// A directory inside a volume and that volume's mount root share one identity.
+#[test]
+fn volume_identity_does_not_depend_on_the_opened_directory() -> TestResult {
+    let (_guard, path) = fixture()?;
+    let nested = path.join("a/b");
+    fs::create_dir_all(&nested)?;
+    let stats = rustix::fs::statfs(&nested)?;
+    let mount: Vec<u8> = stats
+        .f_mntonname
+        .iter()
+        .take_while(|&&c| c != 0)
+        .map(|&c| u8::from_ne_bytes(c.to_ne_bytes()))
+        .collect();
+    let volume_root = open(Path::new(OsStr::from_bytes(&mount)))?;
+    let inner = open(&nested)?;
+    assert_eq!(
+        inner.volume_id,
+        volume_root.volume_id,
+        "nested: {}, mount root: {}",
+        form(&inner.volume_id),
+        form(&volume_root.volume_id)
+    );
     Ok(())
 }
 
