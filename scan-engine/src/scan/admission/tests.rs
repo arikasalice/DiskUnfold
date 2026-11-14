@@ -109,6 +109,31 @@ fn inconsistent_metadata_is_recorded_and_never_entered() {
 }
 
 #[test]
+fn a_mount_point_is_outside_any_boundary_and_reserves_nothing() {
+    let visited = Visited::default();
+    // Enumerated as the covered directory, observed as the mounted root.
+    let mut mount = entry(ObservedKind::MountPoint, 1, 40);
+    mount.enumerated_kind = ObservedKind::Directory;
+    mount.enumerated_inode = 41;
+    for boundary in [Boundary::Volume(1), Boundary::Volume(2), Boundary::Unknown] {
+        assert_eq!(
+            decide(false, &mount, at(0, boundary), &visited),
+            Admission::OutsideBoundary
+        );
+    }
+    let parent = at(0, Boundary::Volume(1));
+    assert_eq!(decide(true, &mount, parent, &visited), Admission::Excluded);
+    // Only a directory can be a mount point.
+    mount.enumerated_kind = ObservedKind::File;
+    assert_eq!(decide(false, &mount, parent, &visited), Admission::Record);
+    let same_identity = entry(ObservedKind::Directory, 1, 40);
+    assert_eq!(
+        decide(false, &same_identity, parent, &visited),
+        Admission::Enter
+    );
+}
+
+#[test]
 fn roots_are_reserved_in_order_and_ancestors_block_only_their_root() {
     // Root 1 lies below root 0 (inode 20); root 2 repeats root 0.
     let (visited, starts) = Visited::reserve_roots(vec![

@@ -3,6 +3,18 @@
   gap: 12px;
 }
 
+/* Locale entry above a screen that has no shell header. */
+.du-locale-entry {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--du-space-2);
+  align-items: center;
+  justify-content: flex-end;
+  width: min(100%, 56rem);
+  margin-inline: auto;
+  padding: var(--du-space-2) clamp(14px, 3vw, 36px) 0;
+}
+
 @media (max-width: 680px) {
   .du-action--compact .du-action__caption {
     display: none;

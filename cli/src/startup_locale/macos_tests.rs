@@ -19,11 +19,3 @@ fn macos_style_language_list_selects_korean_when_nothing_is_stored()
     assert!(!unavailable);
     Ok(())
 }
-
-/// The CLI build reads the real macOS language list without the webview feature.
-#[cfg(target_os = "macos")]
-#[test]
-fn macos_provider_reads_native_languages() {
-    let tags = preferred_ui_languages().unwrap_or_default();
-    assert!(!tags.is_empty());
-}

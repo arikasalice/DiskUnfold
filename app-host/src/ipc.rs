@@ -107,9 +107,10 @@ pub(crate) fn dispatch_lane(message: &str) -> du_platform_os::webview::DispatchL
         Some("target.list" | "scope.recent_open") => DispatchLane::Volume,
         // The digest handler may wait for the background hash; keep it off the ordered lane.
         Some("app.executable_digest") => DispatchLane::Volume,
-        Some("query.cancel" | "query.region.close" | "viz.cancel" | "viz.view.close") => {
-            DispatchLane::QueryControl
-        }
+        Some(
+            "query.cancel" | "query.region.close" | "viz.cancel" | "viz.view.close"
+            | "group.cancel",
+        ) => DispatchLane::QueryControl,
         // Quit joins the job controls so a request blocked behind ordered work
         // cannot hold up leaving the app. Scan priority only records an in-memory
         // scheduling signal and must not wait behind ordered OS-bound requests.

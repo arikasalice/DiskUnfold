@@ -5,6 +5,7 @@ cli.help.usage
 cli.help.unsupported
 cli.settings.unavailable
 cli.output.interrupted
+cli.diagnostics.translation_fallback_omitted
 cli.access.full_disk_access_required
 cli.product.version
 cli.product.build_kind
@@ -402,6 +403,7 @@ ui.analysis.choose_path_again
 ui.common.close_details
 ui.common.details
 ui.common.dismiss
+ui.common.scroll_area name:name
 ui.unit.byte
 ui.inspection.unavailable_in_scan
 ui.inspection.name
@@ -683,6 +685,17 @@ ui.browse.unavailable_now
 ui.browse.unavailable_while_opening
 ui.browse.unknown_items count:count
 ui.browse.up
+ui.browse.keys.move_previous
+ui.browse.keys.move_next
+ui.browse.keys.move_first
+ui.browse.keys.move_last
+ui.browse.keys.move_page_up
+ui.browse.keys.move_page_down
+ui.browse.keys.cell_previous
+ui.browse.keys.cell_next
+ui.browse.keys.open_item
+ui.browse.keys.toggle_selection
+ui.browse.keys.go_up
 ui.visualization.actions
 ui.visualization.backToVisualization
 ui.visualization.back_to_folders
@@ -873,6 +886,9 @@ ui.analysis.issue_reason_access_denied
 ui.analysis.issue_reason_path_missing
 ui.analysis.issue_reason_unverified
 ui.analysis.issue_reason_link_skipped
+ui.analysis.issue_reason_other_volume
+ui.analysis.issue_reason_already_covered
+ui.analysis.issue_reason_range_unconfirmed
 ui.analysis.issues_region
 ui.analysis.issues_hide
 ui.analysis.issues_view

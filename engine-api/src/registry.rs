@@ -18,6 +18,11 @@ impl<U: UseCase> RegisteredUseCase for U {
     }
 
     fn invoke(&self, body: Value, caller: &CallerCtx) -> Result<Value, EngineError> {
+        // Request contracts use object bodies on every channel. Check the container
+        // before Serde, which also accepts positional arrays for Rust structs.
+        if !body.is_object() {
+            return Err(EngineError::reason("command.body_invalid"));
+        }
         let request = serde_json::from_value(body)
             .map_err(|_| EngineError::reason("command.body_invalid"))?;
         self.check_scope(&request, caller)?;
@@ -40,5 +45,17 @@ impl Registry {
 
     pub(crate) fn get(&self, name: &str) -> Option<&dyn RegisteredUseCase> {
         self.0.get(name).map(Box::as_ref)
+    }
+
+    /// Lists every registered command with its allowed channels, ordered by name.
+    #[cfg(test)]
+    pub(crate) fn commands(&self) -> Vec<(&'static str, &'static [Channel])> {
+        let mut commands: Vec<_> = self
+            .0
+            .iter()
+            .map(|(name, use_case)| (*name, use_case.channels()))
+            .collect();
+        commands.sort_by_key(|(name, _)| *name);
+        commands
     }
 }

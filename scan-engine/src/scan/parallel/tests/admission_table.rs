@@ -6,10 +6,11 @@
 use super::*;
 use du_core_contracts::{
     result::{ResultItem, ResultItemKind},
-    scan_failures::{ScanFailureKind as Kind, ScanFailureStage as Stage},
+    scan_failures::{ScanFailureKind as Kind, ScanFailureStage as Stage, unentered_reason},
     scan_observation::{FilterDecision, FilteredBatch, HandleIdentity},
 };
 use std::collections::{BTreeMap, HashMap};
+mod outcomes;
 mod roots;
 mod rows;
 
@@ -17,6 +18,10 @@ const ROOT: u64 = 100;
 const SKIP: u64 = 103;
 const ODD: u64 = 104;
 const MOUNT: u64 = 300;
+/// The root of the volume mounted at `vol`.
+const MOUNTED_ROOT: u64 = 400;
+/// The directory that the mount at `vol` covers on the parent volume.
+const COVERED: u64 = 401;
 /// Worker counts and delay seeds that each determinism test runs.
 const RUNS: [(usize, u64); 7] = [(1, 0), (1, 3), (2, 1), (4, 2), (8, 3), (4, 5), (8, 7)];
 
@@ -48,9 +53,10 @@ struct Tree {
     priority: Mutex<Vec<Result<ScanPriorityOutcome, ScanControlError>>>,
 }
 
-/// One volume with an alias pair, a cycle, a mount, links and filtered names.
+/// One volume with an alias pair, a cycle, another volume, a mount point,
+/// links and filtered names.
 fn listings() -> Listings {
-    use ObservedKind::{Directory as D, File as F, Link as L};
+    use ObservedKind::{Directory as D, File as F, Link as L, MountPoint as M};
     BTreeMap::from([
         (
             ROOT,
@@ -60,6 +66,7 @@ fn listings() -> Listings {
                 node("twin", D, 1, 102),
                 node("mnt", D, 2, MOUNT),
                 node("foreign.bin", F, 2, 301),
+                node("vol", M, 3, MOUNTED_ROOT),
                 node("away", L, 1, 204),
                 node("skip", D, 1, SKIP),
                 node("odd", D, 1, ODD),
@@ -78,6 +85,8 @@ fn listings() -> Listings {
         (SKIP, vec![node("hidden.txt", F, 1, 206)]),
         (ODD, vec![node("odd.txt", F, 1, 207)]),
         (MOUNT, vec![node("other.txt", F, 2, 302)]),
+        (MOUNTED_ROOT, vec![node("mounted.txt", F, 3, 402)]),
+        (COVERED, vec![node("covered.txt", F, 1, 403)]),
     ])
 }
 
@@ -110,12 +119,14 @@ impl Tree {
     }
 
     /// Observes like an adapter: an entry on another volume than its parent
-    /// carries only its kind and identity, never a size.
+    /// carries only its kind and identity, never a size. A mount point is
+    /// enumerated as the covered directory, as Linux and macOS list it.
     fn observe(&self, node: &Node, parent_device: u64) -> ObservedEntry {
         if let Ok(mut probes) = self.probes.lock() {
             probes.push(node.name);
         }
-        let size = if node.device == parent_device {
+        let mount = node.kind == ObservedKind::MountPoint;
+        let size = if node.device == parent_device && !mount {
             Ok(1)
         } else {
             Err(PortError {
@@ -124,10 +135,15 @@ impl Tree {
                 os_code: None,
             })
         };
+        let (enumerated_inode, enumerated_kind) = if mount {
+            (COVERED, ObservedKind::Directory)
+        } else {
+            (node.inode, node.kind.clone())
+        };
         ObservedEntry {
             name: node.name.as_bytes().to_vec(),
-            enumerated_inode: node.inode,
-            enumerated_kind: node.kind.clone(),
+            enumerated_inode,
+            enumerated_kind,
             metadata: Ok(MetadataObservation {
                 kind: node.kind.clone(),
                 device: node.device,
@@ -321,16 +337,33 @@ fn path(parts: &[&str]) -> Vec<Vec<u8>> {
     parts.iter().map(|part| part.as_bytes().to_vec()).collect()
 }
 
-/// The temporary expression of an entry the table did not enter.
-fn unread(root: u32, parts: &[&str]) -> Issue {
-    let reason = "scan.unclassified".to_string();
+/// The failure-list row of an entry the table did not enter.
+fn unentered(root: u32, parts: &[&str], reason: &str) -> Issue {
     (
         root,
         path(parts),
         Kind::UnreadRange,
         Stage::Traverse,
-        reason,
+        reason.to_string(),
     )
+}
+
+fn other_volume(root: u32, parts: &[&str]) -> Issue {
+    unentered(root, parts, unentered_reason::BOUNDARY_OTHER_VOLUME)
+}
+
+fn revisit(root: u32, parts: &[&str]) -> Issue {
+    unentered(root, parts, unentered_reason::REVISIT_BLOCKED)
+}
+
+fn unverifiable(root: u32, parts: &[&str]) -> Issue {
+    unentered(root, parts, unentered_reason::BOUNDARY_UNVERIFIABLE)
+}
+
+/// The scope gap that an unverifiable range leaves.
+fn unverifiable_gap(root: u32, parts: &[&str]) -> Gap {
+    let reason = unentered_reason::BOUNDARY_UNVERIFIABLE.to_string();
+    (root, path(parts), reason)
 }
 
 fn link(root: u32, parts: &[&str]) -> Issue {

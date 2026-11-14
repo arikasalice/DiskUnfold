@@ -325,7 +325,10 @@ test("cancelling the confirmation sends nothing more and returns focus to the bu
   act(() => quitButton().focus());
   press(quitButton());
   const dialog = await screen.findByRole("alertdialog");
-  expect(dialog.contains(document.activeElement)).toBe(true);
+  // The dialog moves focus inside after it is rendered, not in the same task.
+  await waitFor(() =>
+    expect(dialog.contains(document.activeElement)).toBe(true),
+  );
   expect(dialog.textContent).toContain("1 file change is still running");
   fireEvent.click(screen.getByRole("button", { name: "Keep waiting" }));
   await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
