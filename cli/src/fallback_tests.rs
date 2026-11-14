@@ -12,6 +12,7 @@ use crate::{
 };
 
 const FALLBACK_PREFIX: &str = "DiskUnfold: locale.translation_fallback: ";
+const CAP: usize = diagnostics::MAX_TRANSLATION_FALLBACK_LINES;
 
 /// Registers the built-in bundles with the given Korean keys left out.
 ///
@@ -174,6 +175,131 @@ fn json_output_is_byte_identical_in_both_languages_even_with_missing_translation
     let text_en = execute(&full, &["--lang", "en", "support"])?;
     let text_ko = execute(&full, &["--lang", "ko", "support"])?;
     assert_ne!(text_en.stdout, text_ko.stdout);
+    Ok(())
+}
+
+/// Records `count` Korean key displays and returns the warnings written for them.
+fn warnings_for_undeclared_keys(count: usize) -> Result<Vec<String>, String> {
+    let registry = embedded::register(&[]).map_err(|error| format!("{error:?}"))?;
+    let messages = product_output::Messages::new(&registry, "ko");
+    for number in 0..count {
+        assert!(
+            messages
+                .resolve(&format!("cli.test.undeclared_{number}"))
+                .is_some()
+        );
+    }
+    let mut stderr = Vec::new();
+    diagnostics::write_translation_fallbacks(&mut stderr, &registry);
+    Ok(String::from_utf8_lossy(&stderr)
+        .lines()
+        .map(ToOwned::to_owned)
+        .collect())
+}
+
+#[test]
+fn warnings_up_to_the_cap_are_all_written_without_a_summary() -> Result<(), String> {
+    for count in [1, CAP - 1, CAP] {
+        let lines = warnings_for_undeclared_keys(count)?;
+        assert_eq!(lines.len(), count);
+        assert!(
+            lines
+                .iter()
+                .all(|line| line.contains("[key=cli.test.undeclared_"))
+        );
+        assert!(lines.iter().all(|line| !line.contains("omitted=")));
+    }
+    Ok(())
+}
+
+#[test]
+fn warnings_beyond_the_cap_are_cut_and_summarized_in_one_line() -> Result<(), String> {
+    for count in [CAP + 1, CAP + 37] {
+        let lines = warnings_for_undeclared_keys(count)?;
+        assert_eq!(lines.len(), CAP + 1, "{lines:?}");
+        // The first records are listed in order; the cut ones are not named.
+        for (number, line) in lines[..CAP].iter().enumerate() {
+            assert!(
+                line.ends_with(&format!("[key=cli.test.undeclared_{number} language=ko]")),
+                "{line}"
+            );
+        }
+        let summary = &lines[CAP];
+        assert!(summary.starts_with(FALLBACK_PREFIX), "{summary}");
+        assert!(
+            summary.ends_with(&format!("[omitted={}]", count - CAP)),
+            "{summary}"
+        );
+        assert!(
+            !summary.contains("key=") && !summary.contains("language="),
+            "{summary}"
+        );
+        assert!(
+            summary.contains("번역이 없어 영어 문구나 문구 키로 표시된 문구가 더 있습니다"),
+            "the summary text is localized: {summary}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn capped_warnings_keep_the_exit_code_and_output_and_carry_no_parameter_values()
+-> Result<(), String> {
+    let full = embedded::register(&[]).map_err(|error| format!("{error:?}"))?;
+    let baseline = execute(&full, &["--lang", "ko", "support"])?;
+    assert!(baseline.stderr.is_empty(), "{}", baseline.stderr);
+
+    // Leave out every Korean support and product label: far more than the cap fall back.
+    let english = embedded::resources()
+        .map_err(|error| format!("{error:?}"))?
+        .iter()
+        .map(|resource| embedded::parse_bundle(resource.bytes))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| format!("{error:?}"))?
+        .into_iter()
+        .find(|bundle| bundle.language == "en")
+        .ok_or("no English bundle")?;
+    let omitted: Vec<&str> = english
+        .messages
+        .iter()
+        .map(|(key, _)| key.as_str())
+        .filter(|key| key.starts_with("cli.support.") || key.starts_with("cli.product."))
+        .collect();
+    let registry = registry_without_korean(&omitted)?;
+    let outcome = execute(&registry, &["--lang", "ko", "support"])?;
+
+    assert_eq!(outcome.exit, baseline.exit);
+    assert_eq!(
+        outcome.stdout.iter().filter(|byte| **byte == b'\n').count(),
+        baseline
+            .stdout
+            .iter()
+            .filter(|byte| **byte == b'\n')
+            .count()
+    );
+    let lines: Vec<&str> = outcome.stderr.lines().collect();
+    assert_eq!(lines.len(), CAP + 1, "{}", outcome.stderr);
+    for line in &lines[..CAP] {
+        // Only a key and a language follow the cause text: no value from the report.
+        let tail = line
+            .rsplit_once(" [key=")
+            .map(|(_, tail)| tail)
+            .unwrap_or_default();
+        let (key, language) = tail.split_once(" language=").unwrap_or_default();
+        assert!(key.starts_with("cli.") && language == "ko]", "{line}");
+    }
+    // The summary names a count and nothing else from the run.
+    let summary = lines[CAP];
+    let count = summary
+        .rsplit_once(" [omitted=")
+        .map(|(_, tail)| tail)
+        .unwrap_or_default();
+    assert!(
+        count
+            .strip_suffix(']')
+            .is_some_and(|number| number.parse::<usize>().is_ok()),
+        "{summary}"
+    );
     Ok(())
 }
 
