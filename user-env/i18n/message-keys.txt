@@ -415,6 +415,8 @@ ui.analysis.keep_editing
 ui.analysis.use_recent_range
 ui.analysis.choose_path_again
 ui.common.close_details
+ui.common.name_leading_spaces count:count
+ui.common.name_trailing_spaces count:count
 ui.common.details
 ui.common.dismiss
 ui.common.scroll_area name:name

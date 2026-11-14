@@ -5,6 +5,7 @@ import { useTimestampText } from "../../i18n/regional-format";
 import {
   DetailDisclosure,
   ExampleBadge,
+  NameText,
   Notice,
   Progress,
   Readout,
@@ -113,11 +114,15 @@ function attributes(
       value:
         detail.displayName.state === "present" ? (
           <div className="du-inspection-name">
-            <Text>{detail.displayName.value}</Text>
+            <Text>
+              <NameText name={detail.displayName.value} />
+            </Text>
             <DetailDisclosure
               title={text("ui.inspection.full_name", "Full name")}
             >
-              <Text focusable>{detail.displayName.value}</Text>
+              <Text focusable>
+                <NameText name={detail.displayName.value} />
+              </Text>
             </DetailDisclosure>
           </div>
         ) : (

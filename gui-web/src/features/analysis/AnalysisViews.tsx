@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ReactNode, Ref } from "react";
 import { useLocaleText } from "../../i18n/presentation";
 import type { LocaleText } from "../../i18n/presentation";
@@ -10,6 +10,7 @@ import {
   InspectionDialog,
   LiveStatus,
   Metric,
+  NameText,
   Notice,
   Progress,
   Readout,
@@ -87,6 +88,16 @@ function Coverage({ total }: { total: SpaceTotal }) {
   );
 }
 
+/** The analysis roots in order, each drawn as a path whose last component is a name. */
+function RootPaths({ roots }: { roots: readonly OsPath[] }) {
+  return roots.map((root, index) => (
+    <Fragment key={index}>
+      {index > 0 && ", "}
+      <NameText path name={root.display} />
+    </Fragment>
+  ));
+}
+
 /** Shows only totals from the scan's pinned result, with basis and coverage kept separate. */
 export function ScanOutput({
   client,
@@ -148,7 +159,7 @@ export function ScanOutput({
             rows={[
               {
                 label: pathsLabel,
-                value: roots.map((root) => root.display).join(", "),
+                value: <RootPaths roots={roots} />,
               },
             ]}
           />
@@ -556,7 +567,7 @@ function PinnedResult({
         rows={[
           {
             label: pathsLabel,
-            value: roots.map((root) => root.display).join(", "),
+            value: <RootPaths roots={roots} />,
           },
         ]}
       />

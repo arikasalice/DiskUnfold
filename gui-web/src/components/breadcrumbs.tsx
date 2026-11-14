@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef } from "react";
 import { Action } from "./controls";
+import { NameText } from "./name-text";
 import "../theme/breadcrumbs.css";
 
 export type BreadcrumbEntry = {
@@ -9,7 +10,10 @@ export type BreadcrumbEntry = {
   onPress?: () => void;
 };
 
-/** Navigation within a location hierarchy. Current locations are text. */
+/**
+ * Navigation within a location hierarchy. Current locations are text, drawn
+ * as a name so white space at its edges is visible.
+ */
 export function Breadcrumbs({
   label,
   entries,
@@ -38,7 +42,7 @@ export function Breadcrumbs({
                 aria-current={entry.current ? "location" : undefined}
                 title={entry.label}
               >
-                {entry.label}
+                {entry.current ? <NameText name={entry.label} /> : entry.label}
               </span>
             )}
           </li>

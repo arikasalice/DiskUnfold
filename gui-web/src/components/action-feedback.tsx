@@ -1,8 +1,12 @@
 import { Action } from "./controls";
 import { useLocaleText } from "../i18n/presentation";
+import { NameText } from "./name-text";
 import { LiveStatus } from "./presentation";
 
-/** Persistent feedback occupies its own layout row and keeps full names accessible. */
+/**
+ * Persistent feedback occupies its own layout row and keeps full names
+ * accessible. The name is drawn with its edge white space visible.
+ */
 export function ActionFeedback({
   status,
   parts,
@@ -21,7 +25,9 @@ export function ActionFeedback({
         {parts ? (
           <>
             {parts.beforeName}
-            <span className="du-feedback-name">{parts.name}</span>
+            <span className="du-feedback-name">
+              <NameText name={parts.name} />
+            </span>
             {parts.afterName}
           </>
         ) : (

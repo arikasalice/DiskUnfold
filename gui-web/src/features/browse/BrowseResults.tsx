@@ -4,6 +4,7 @@ import {
   BrowseGrid,
   ItemActions,
   ActionFeedback,
+  NameText,
   Notice,
   RowAction,
   Text,
@@ -359,7 +360,7 @@ export function BrowseResults({
                 isDisabled={readOnly}
                 onPress={() => openFolder(row.item)}
               >
-                {browseDisplayName(row.displayName, text)}
+                <NameText name={browseDisplayName(row.displayName, text)} />
               </Action>
             ) : row.kind === "file" && openItem ? (
               <Action
@@ -367,10 +368,12 @@ export function BrowseResults({
                 isDisabled={busy}
                 onPress={(event) => openItem(row, event.target)}
               >
-                {browseDisplayName(row.displayName, text)}
+                <NameText name={browseDisplayName(row.displayName, text)} />
               </Action>
             ) : (
-              <Text>{browseDisplayName(row.displayName, text)}</Text>
+              <Text>
+                <NameText name={browseDisplayName(row.displayName, text)} />
+              </Text>
             )}
           </ItemActions>,
           <Text>

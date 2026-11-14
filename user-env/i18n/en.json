@@ -432,6 +432,8 @@
     ["ui.analysis.use_recent_range","Use this range",[]],
     ["ui.analysis.choose_path_again","Choose a path again",[]],
     ["ui.common.close_details", "Close details", []],
+    ["ui.common.name_leading_spaces",{"kind":"plural","parameter":"count","variants":{"one":"The name starts with {count} space","other":"The name starts with {count} spaces"}},[["count","count"]]],
+    ["ui.common.name_trailing_spaces",{"kind":"plural","parameter":"count","variants":{"one":"The name ends with {count} space","other":"The name ends with {count} spaces"}},[["count","count"]]],
     ["ui.common.details", "Details", []],
     ["ui.common.dismiss", "Dismiss", []],
     ["ui.common.scroll_area", "{name} scroll area", [["name", "name"]]],

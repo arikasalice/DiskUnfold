@@ -1,5 +1,5 @@
 import { useId, useLayoutEffect, useRef } from "react";
-import { Action, SelectionActions } from "../../components";
+import { Action, markNameEdges, SelectionActions } from "../../components";
 import { scanPriorityText, scanPriorityTone } from "../../ipc";
 import type { FolderQueryRow } from "../../ipc";
 import { useLocaleText } from "../../i18n/presentation";
@@ -177,7 +177,19 @@ export function SelectionAnalyzeFirst({
         notice && {
           id: notice.id,
           tone: scanPriorityTone(notice.outcome),
-          text: scanPriorityText(notice, text),
+          // The notice text is a string, so the marks are written into it and
+          // the spoken explanation is left out; the request keeps the real name.
+          text: scanPriorityText(
+            {
+              ...notice,
+              name: markNameEdges(notice.name),
+              previous:
+                notice.previous === undefined
+                  ? undefined
+                  : markNameEdges(notice.previous),
+            },
+            text,
+          ),
         }
       }
     >

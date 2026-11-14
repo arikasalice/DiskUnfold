@@ -432,6 +432,8 @@
     ["ui.analysis.use_recent_range","이 범위 사용",[]],
     ["ui.analysis.choose_path_again","경로 다시 선택",[]],
     ["ui.common.close_details", "상세 닫기", []],
+    ["ui.common.name_leading_spaces",{"kind":"plural","parameter":"count","variants":{"other":"이름 앞에 공백이 {count}개 있습니다"}},[["count","count"]]],
+    ["ui.common.name_trailing_spaces",{"kind":"plural","parameter":"count","variants":{"other":"이름 끝에 공백이 {count}개 있습니다"}},[["count","count"]]],
     ["ui.common.details", "상세 정보", []],
     ["ui.common.dismiss", "닫기", []],
     ["ui.common.scroll_area", "{name} 스크롤 영역", [["name", "name"]]],
