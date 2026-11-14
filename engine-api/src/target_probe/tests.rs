@@ -1,5 +1,6 @@
 use super::*;
 mod capacity;
+mod runtime;
 use du_core_contracts::{
     PathBytes, PathEncoding,
     analysis_ipc::{TargetAccess, TargetStatusChanged},
@@ -14,6 +15,14 @@ use std::sync::{
 
 struct FixedClock;
 
+/// Probe limit for tests whose in-time step is a call that returns at once.
+///
+/// The probe compares `Instant::now()` with its deadline, so tests cannot
+/// move time. A call that must time out is held by a gate until the test
+/// releases it; a call that must finish in time returns immediately, and this
+/// limit leaves seconds of margin for a loaded runner to schedule its thread.
+const IN_TIME_LIMIT: Duration = Duration::from_secs(2);
+
 impl JobClock for FixedClock {
     fn now_ms(&self) -> i64 {
         5
@@ -23,8 +32,13 @@ impl JobClock for FixedClock {
 struct Context {
     cancelled: AtomicBool,
     events: Arc<Mutex<Vec<TargetStatusChanged>>>,
+    /// Signalled once per flow when its probe I/O thread finishes the flow.
+    finished: Option<mpsc::Sender<()>>,
 }
-struct TestFlow(Arc<Mutex<Vec<TargetStatusChanged>>>);
+struct TestFlow(
+    Arc<Mutex<Vec<TargetStatusChanged>>>,
+    Option<mpsc::Sender<()>>,
+);
 impl JobFlow for TestFlow {
     fn report_item(&self, payload: &[u8]) -> Result<(), JobFlowError> {
         let item =
@@ -35,7 +49,11 @@ impl JobFlow for TestFlow {
             .push(item);
         Ok(())
     }
-    fn finish(self: Box<Self>, _: JobCounts) {}
+    fn finish(self: Box<Self>, _: JobCounts) {
+        if let Some(finished) = &self.1 {
+            let _ = finished.send(());
+        }
+    }
 }
 impl JobContext for Context {
     fn checkpoint(&self) -> Checkpoint {
@@ -46,7 +64,10 @@ impl JobContext for Context {
         }
     }
     fn try_start_flow(&self) -> Result<Box<dyn JobFlow>, JobFlowError> {
-        Ok(Box::new(TestFlow(self.events.clone())))
+        Ok(Box::new(TestFlow(
+            self.events.clone(),
+            self.finished.clone(),
+        )))
     }
 }
 struct Port(Arc<(Mutex<bool>, Condvar)>);
@@ -107,6 +128,7 @@ fn a_late_but_returned_call_is_not_counted_as_still_blocking_a_permit()
     let context = Context {
         cancelled: AtomicBool::new(false),
         events: events.clone(),
+        finished: None,
     };
     let deadline = Instant::now();
     let (send, receiver) = mpsc::sync_channel(1);
@@ -149,13 +171,18 @@ fn a_late_but_returned_call_is_not_counted_as_still_blocking_a_permit()
 }
 
 #[test]
-fn blocked_call_times_out_without_delaying_fast_target_or_emitting_late_result() {
+fn blocked_call_times_out_without_delaying_fast_target_or_emitting_late_result()
+-> Result<(), Box<dyn std::error::Error>> {
     let gate = Arc::new((Mutex::new(false), Condvar::new()));
     let events = Arc::new(Mutex::new(Vec::new()));
+    let (finished, flows_finished) = mpsc::channel();
     let context = Arc::new(Context {
         cancelled: AtomicBool::new(false),
         events: events.clone(),
+        finished: Some(finished),
     });
+    // "slow" stays blocked until the gate opens, so it exceeds any limit;
+    // "fast" returns at once and is reported before that limit expires.
     let body = TargetProbe {
         clock: Arc::new(FixedClock),
         targets: vec![probe_target("slow"), probe_target("fast")],
@@ -168,7 +195,7 @@ fn blocked_call_times_out_without_delaying_fast_target_or_emitting_late_result()
             state: CapabilityState::Supported,
             reason_key: None,
         },
-        timeout: Duration::from_millis(100),
+        timeout: IN_TIME_LIMIT,
     };
     let outcome = body.run(context);
     assert!(outcome.completed_scope);
@@ -181,21 +208,31 @@ fn blocked_call_times_out_without_delaying_fast_target_or_emitting_late_result()
     assert_eq!(snapshot[0].access, TargetAccess::Accessible);
     assert_eq!(snapshot[1].access, TargetAccess::Unresponsive);
     release(&gate);
-    std::thread::sleep(Duration::from_millis(20));
+    // Both I/O threads have finished their flows, so no report can follow.
+    for _ in 0..2 {
+        flows_finished.recv_timeout(Duration::from_secs(5))?;
+    }
     assert_eq!(events.lock().map(|events| events.len()).unwrap_or(0), 2);
+    Ok(())
 }
 #[test]
-fn cancellation_reports_unknown_without_waiting_for_blocked_call() {
+fn cancellation_reports_unknown_without_waiting_for_blocked_call()
+-> Result<(), Box<dyn std::error::Error>> {
     let gate = Arc::new((Mutex::new(false), Condvar::new()));
+    let (started, wait_started) = mpsc::sync_channel(1);
     let events = Arc::new(Mutex::new(Vec::new()));
     let context = Arc::new(Context {
         cancelled: AtomicBool::new(false),
         events: events.clone(),
+        finished: None,
     });
     let body = TargetProbe {
         clock: Arc::new(FixedClock),
         targets: vec![probe_target("slow")],
-        volumes: Arc::new(Port(gate.clone())),
+        volumes: Arc::new(SignalPort {
+            gate: gate.clone(),
+            started,
+        }),
         capacity: Capability {
             state: CapabilityState::Supported,
             reason_key: None,
@@ -208,7 +245,8 @@ fn cancellation_reports_unknown_without_waiting_for_blocked_call() {
     };
     let worker_context = context.clone();
     let worker = std::thread::spawn(move || body.run(worker_context));
-    std::thread::sleep(Duration::from_millis(30));
+    // Cancel only once the call is blocked inside the port.
+    wait_started.recv_timeout(Duration::from_secs(5))?;
     context.cancelled.store(true, Ordering::SeqCst);
     let outcome = worker.join().ok();
     assert!(outcome.is_some());
@@ -220,165 +258,6 @@ fn cancellation_reports_unknown_without_waiting_for_blocked_call() {
         Some(TargetAccess::Unknown)
     );
     release(&gate);
-}
-
-struct RuntimeFixture(mpsc::Sender<du_job_runtime::JobEvent>);
-impl du_job_runtime::JobIdentity for RuntimeFixture {
-    fn next_id(&self) -> du_core_contracts::Id {
-        du_core_contracts::Id::from_v7_bytes(*uuid::Uuid::now_v7().as_bytes())
-    }
-}
-impl du_job_runtime::JobClock for RuntimeFixture {
-    fn now_ms(&self) -> i64 {
-        1
-    }
-}
-impl du_job_runtime::JobEvents for RuntimeFixture {
-    fn publish(&self, event: du_job_runtime::JobEvent) {
-        let _ = self.0.send(event);
-    }
-}
-impl du_core_contracts::job::JobHistory for RuntimeFixture {
-    fn append(
-        &self,
-        _: &du_core_contracts::job::JobSummary,
-    ) -> Result<du_core_contracts::job::HistoryAppend, String> {
-        Err("unexpected history".into())
-    }
-}
-#[test]
-fn actual_runtime_reuses_single_permit_for_three_targets() -> Result<(), Box<dyn std::error::Error>>
-{
-    use du_job_runtime::{FlowLimits, JobEvent, JobIdentity, JobPriority, JobRuntime, Submission};
-    let (send, recv) = mpsc::channel();
-    let fixture = Arc::new(RuntimeFixture(send));
-    let runtime = Arc::new(JobRuntime::new_with_limits(
-        fixture.clone(),
-        fixture.clone(),
-        fixture.clone(),
-        fixture.clone(),
-        FlowLimits {
-            metadata_io: 1,
-            queued_items: 16,
-            item_bytes: 65536,
-        },
-    )?);
-    runtime.register(target_probe::descriptor())?;
-    let gate = Arc::new((Mutex::new(false), Condvar::new()));
-    let cap = Capability {
-        state: CapabilityState::Supported,
-        reason_key: None,
-    };
-    let body = TargetProbe {
-        clock: Arc::new(FixedClock),
-        targets: vec![
-            probe_target("delay"),
-            probe_target("fast"),
-            probe_target("third"),
-        ],
-        volumes: Arc::new(Port(gate)),
-        capacity: cap.clone(),
-        path_access: cap,
-        timeout: Duration::from_secs(2),
-    };
-    runtime.submit(Submission {
-        kind_id: TARGET_PROBE_KIND.into(),
-        deduplication_key: None,
-        body: Arc::new(body),
-        priority: JobPriority::Normal,
-        scope_summary: String::new(),
-        correlation_id: fixture.next_id(),
-        sample: false,
-    })?;
-    let worker = runtime.clone();
-    let thread = std::thread::spawn(move || worker.run_next());
-    let mut items = Vec::new();
-    let mut finished = 0;
-    while finished == 0 {
-        match recv.recv_timeout(Duration::from_secs(3))? {
-            JobEvent::ItemResult { payload, .. } => {
-                items.push(serde_json::from_slice::<TargetStatusChanged>(&payload)?)
-            }
-            JobEvent::Finished { .. } => finished += 1,
-            _ => {}
-        }
-    }
-    thread.join().map_err(|_| "worker panic")??;
-    assert_eq!(items.len(), 3);
-    assert!(
-        items
-            .iter()
-            .all(|item| item.access == TargetAccess::Accessible)
-    );
-    Ok(())
-}
-
-#[test]
-fn actual_runtime_timeout_retains_permit_and_suppresses_late_result()
--> Result<(), Box<dyn std::error::Error>> {
-    use du_job_runtime::{FlowLimits, JobEvent, JobIdentity, JobPriority, JobRuntime, Submission};
-    let (send, recv) = mpsc::channel();
-    let fixture = Arc::new(RuntimeFixture(send));
-    let runtime = Arc::new(JobRuntime::new_with_limits(
-        fixture.clone(),
-        fixture.clone(),
-        fixture.clone(),
-        fixture.clone(),
-        FlowLimits {
-            metadata_io: 1,
-            queued_items: 16,
-            item_bytes: 65536,
-        },
-    )?);
-    runtime.register(target_probe::descriptor())?;
-    let gate = Arc::new((Mutex::new(false), Condvar::new()));
-    let cap = Capability {
-        state: CapabilityState::Supported,
-        reason_key: None,
-    };
-    let body = TargetProbe {
-        clock: Arc::new(FixedClock),
-        targets: vec![probe_target("slow"), probe_target("fast")],
-        volumes: Arc::new(Port(gate.clone())),
-        capacity: cap.clone(),
-        path_access: cap,
-        timeout: Duration::from_millis(100),
-    };
-    runtime.submit(Submission {
-        kind_id: TARGET_PROBE_KIND.into(),
-        deduplication_key: None,
-        body: Arc::new(body),
-        priority: JobPriority::Normal,
-        scope_summary: String::new(),
-        correlation_id: fixture.next_id(),
-        sample: false,
-    })?;
-    let worker = runtime.clone();
-    let thread = std::thread::spawn(move || worker.run_next());
-    let mut items = Vec::new();
-    while items.len() < 2 {
-        if let JobEvent::ItemResult { payload, .. } = recv.recv_timeout(Duration::from_secs(3))? {
-            items.push(serde_json::from_slice::<TargetStatusChanged>(&payload)?);
-        }
-    }
-    assert!(
-        items
-            .iter()
-            .all(|item| item.access == TargetAccess::Unresponsive)
-    );
-    release(&gate);
-    loop {
-        match recv.recv_timeout(Duration::from_secs(3))? {
-            JobEvent::ItemResult { .. } => return Err("late item emitted".into()),
-            JobEvent::Finished { .. } => break,
-            _ => {}
-        }
-    }
-    thread.join().map_err(|_| "worker panic")??;
-    assert!(!matches!(
-        recv.recv_timeout(Duration::from_millis(50)),
-        Ok(JobEvent::ItemResult { .. } | JobEvent::Finished { .. })
-    ));
     Ok(())
 }
 
@@ -409,80 +288,4 @@ impl VolumePort for SignalPort {
             available_bytes: 1,
         })
     }
-}
-
-#[test]
-fn actual_runtime_foreign_permit_saturation_ends_with_reason()
--> Result<(), Box<dyn std::error::Error>> {
-    use du_job_runtime::{
-        FlowLimits, JobEvent, JobIdentity, JobPriority, JobRuntime, Submission, SubmitResult,
-    };
-    let (send, recv) = mpsc::channel();
-    let fixture = Arc::new(RuntimeFixture(send));
-    let runtime = Arc::new(JobRuntime::new_with_limits(
-        fixture.clone(),
-        fixture.clone(),
-        fixture.clone(),
-        fixture.clone(),
-        FlowLimits {
-            metadata_io: 1,
-            queued_items: 16,
-            item_bytes: 65536,
-        },
-    )?);
-    runtime.register(target_probe::descriptor())?;
-    let gate = Arc::new((Mutex::new(false), Condvar::new()));
-    let (started, wait_started) = mpsc::sync_channel(1);
-    let cap = Capability {
-        state: CapabilityState::Supported,
-        reason_key: None,
-    };
-    let submit = |body: TargetProbe| Submission {
-        kind_id: TARGET_PROBE_KIND.into(),
-        deduplication_key: None,
-        body: Arc::new(body),
-        priority: JobPriority::Normal,
-        scope_summary: String::new(),
-        correlation_id: fixture.next_id(),
-        sample: false,
-    };
-    runtime.submit(submit(TargetProbe {
-        clock: Arc::new(FixedClock),
-        targets: vec![probe_target("slow")],
-        volumes: Arc::new(SignalPort {
-            gate: gate.clone(),
-            started,
-        }),
-        capacity: cap.clone(),
-        path_access: cap.clone(),
-        timeout: Duration::from_secs(5),
-    }))?;
-    let first_runtime = runtime.clone();
-    let first = std::thread::spawn(move || first_runtime.run_next());
-    wait_started.recv_timeout(Duration::from_secs(2))?;
-    let second = match runtime.submit(submit(TargetProbe {
-        clock: Arc::new(FixedClock),
-        targets: vec![probe_target("fast")],
-        volumes: Arc::new(Port(gate.clone())),
-        capacity: cap.clone(),
-        path_access: cap,
-        timeout: Duration::from_millis(80),
-    }))? {
-        SubmitResult::Created(id) => id,
-        _ => return Err("unexpected existing".into()),
-    };
-    let second_runtime = runtime.clone();
-    let second_worker = std::thread::spawn(move || second_runtime.run_next());
-    loop {
-        if let JobEvent::Finished { summary, .. } = recv.recv_timeout(Duration::from_secs(2))?
-            && summary.job_id == second
-        {
-            assert_eq!(summary.failure_reason_key.as_deref(), Some("os.call_slow"));
-            break;
-        }
-    }
-    second_worker.join().map_err(|_| "second panic")??;
-    release(&gate);
-    first.join().map_err(|_| "first panic")??;
-    Ok(())
 }
