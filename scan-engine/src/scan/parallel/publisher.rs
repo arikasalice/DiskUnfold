@@ -1,5 +1,6 @@
 //! Timed publication of new scan observations.
 use super::*;
+use du_core_contracts::job::JobProgress;
 
 pub(super) struct Services<'a> {
     pub context: &'a dyn JobContext,
@@ -53,8 +54,18 @@ pub(super) fn consume(
             services.ids,
             services.clock,
         )?;
+        services.context.report_progress(processed(counts));
     }
     Ok(())
+}
+
+/// F24 item progress: every recorded item, failures included; the total stays
+/// unknown while the tree is being enumerated.
+fn processed(counts: &JobCounts) -> JobProgress {
+    JobProgress {
+        completed: counts.completed.saturating_add(counts.failed),
+        total: None,
+    }
 }
 
 impl Progress {

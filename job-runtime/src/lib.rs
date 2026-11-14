@@ -6,6 +6,7 @@ mod flows;
 mod history_recovery;
 mod listing;
 mod model;
+mod progress;
 mod publication;
 mod result_publisher;
 mod shutdown;
@@ -23,13 +24,13 @@ use du_core_contracts::{
 };
 pub use history_recovery::recover_history;
 pub use listing::{ActiveJobCounts, AdmissionClose, JobListEntry, JobWaitReason};
-pub use model::FlowLimits;
 use model::*;
 pub use model::{
-    CancelResult, DeduplicationKey, JobClock, JobEvent, JobEvents, JobIdentity, JobPriority,
-    JobRuntime, JobSnapshot, ResultBinding, RuntimeError, Submission, SubmitResult,
+    CancelResult, DeduplicationKey, FlowLimits, JobClock, JobEvent, JobEvents, JobIdentity,
+    JobPriority, JobRuntime, JobSnapshot, ResultBinding, RuntimeError, Submission, SubmitResult,
     TerminalSnapshot,
 };
+pub use progress::JobProgressEvent;
 pub use publication::DuplicateTerminal;
 pub use shutdown::{DeliveryFlush, ShutdownCancellation, ShutdownStatus, ShutdownTicket};
 use std::sync::{
@@ -221,6 +222,7 @@ impl JobRuntime {
                 summary: None,
                 terminal: None,
                 order,
+                progress: Default::default(),
             },
         );
         Ok(SubmitResult::Created(id))
@@ -393,6 +395,7 @@ impl JobRuntime {
         job.state = JobState::Running;
         job.started_at_ms = Some(now);
         job.sequence = sequence;
+        let progress = job.progress.start();
         let cancellation = job.cancel.clone();
         let body = job.body.take().ok_or(RuntimeError::InvalidState)?;
         let publication = job.publication.take();
@@ -405,6 +408,7 @@ impl JobRuntime {
             flows::Services {
                 limits: self.flow_limits.clone(),
                 clock: self.clock.clone(),
+                progress,
             },
         ));
         let body_context = context.clone();
@@ -434,6 +438,7 @@ impl JobRuntime {
         }
         let state = final_state(job, &outcome);
         job.state = state;
+        job.progress.close();
         job.sequence += 2;
         let state_sequence = job.sequence - 1;
         let summary = JobSummary {

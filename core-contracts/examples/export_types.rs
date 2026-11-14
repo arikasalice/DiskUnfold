@@ -279,6 +279,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         AnalysisJobListRow::decl(&config),
         JobResyncReason::decl(&config),
         JobResyncRequired::decl(&config),
+        du_core_contracts::job::ProgressUnit::decl(&config),
+        AnalysisJobProgress::decl(&config),
         ScanResult::decl(&config),
         AnalysisJobTerminal::decl(&config),
         AnalysisJobStatus::decl(&config),
