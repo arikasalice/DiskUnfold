@@ -2,6 +2,11 @@
   inline-size: min(100%, 30rem);
 }
 
+/* Only carries the key guard; the dialog's own layout is unchanged. */
+.du-confirm-dialog__content {
+  display: contents;
+}
+
 .du-confirm-dialog__actions {
   display: flex;
   flex-wrap: wrap;
