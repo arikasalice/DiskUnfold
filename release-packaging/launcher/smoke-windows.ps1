@@ -22,7 +22,8 @@ param(
   [switch]$VerifyInspectionKeyboard,
   [switch]$VerifyPathCopyContention,
   [switch]$VerifyRecentScope,
-  [switch]$VerifyNativeFolderDrop
+  [switch]$VerifyNativeFolderDrop,
+  [switch]$VerifyVirtualGroups
 )
 
 $ErrorActionPreference = 'Stop'
@@ -977,6 +978,206 @@ function Test-LocaleSwitch {
   $english.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern).SetValue('')
   'F13 native locale: switched between Korean and English without discarding the scope draft'
 }
+# Save the window as a PNG under %TEMP% when the interactive desktop allows it.
+function Save-SmokeCapture($name) {
+  try {
+    Add-Type -AssemblyName System.Drawing
+    $bounds = $window.Current.BoundingRectangle
+    $directory = Join-Path ([IO.Path]::GetTempPath()) 'diskunfold-virtual-groups-captures'
+    [IO.Directory]::CreateDirectory($directory) | Out-Null
+    $bitmap = [Drawing.Bitmap]::new([int]$bounds.Width, [int]$bounds.Height)
+    $graphics = [Drawing.Graphics]::FromImage($bitmap)
+    try {
+      $graphics.CopyFromScreen([int]$bounds.X, [int]$bounds.Y, 0, 0, $bitmap.Size)
+      $path = Join-Path $directory "$name.png"
+      $bitmap.Save($path, [Drawing.Imaging.ImageFormat]::Png)
+    } finally { $graphics.Dispose(); $bitmap.Dispose() }
+    "Capture: $path"
+  } catch { Write-Warning "Capture '$name' failed: $($_.Exception.Message)" }
+}
+function Get-UINames($within = $window) {
+  @($within.FindAll($scopeTree, [Windows.Automation.Condition]::TrueCondition) |
+    ForEach-Object { $_.Current.Name } | Where-Object { $_ })
+}
+# Write the control types and names of the whole window, to adapt the names on failure.
+function Write-UITree($label) {
+  $lines = $window.FindAll($scopeTree, [Windows.Automation.Condition]::TrueCondition) | ForEach-Object {
+    '{0}|{1}|enabled={2}|offscreen={3}' -f $_.Current.ControlType.ProgrammaticName, $_.Current.Name, $_.Current.IsEnabled, $_.Current.IsOffscreen
+  }
+  $path = Join-Path $root "uia-tree-$label.txt"
+  Set-Content -LiteralPath $path -Value $lines -Encoding UTF8
+  $path
+}
+# An input's accessible name can carry its description, so fall back to a prefix match.
+function Find-EditByLabel($fieldName) {
+  $exact = Find-UI $fieldName $edit
+  if ($exact) { return $exact }
+  $window.FindAll($scopeTree, [Windows.Automation.PropertyCondition]::new($ae::ControlTypeProperty, $edit)) |
+    Where-Object { $_.Current.Name.StartsWith($fieldName) } | Select-Object -First 1
+}
+# Wait-UI owns a $label parameter, so these helpers use $fieldName inside their probes.
+function Set-GroupField($fieldName, $value) {
+  $field = Wait-UI "field $fieldName" { Find-EditByLabel $fieldName }
+  $field.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern).SetValue($value)
+  $null = Wait-UI "value of $fieldName" {
+    $current = Find-EditByLabel $fieldName
+    $current -and $current.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern).Current.Value -ceq $value
+  }
+}
+# The closed native select moves by key press, as in Select-SmokeLanguage.
+function Select-GroupOption($fieldName, $key, $expected) {
+  $combo = Wait-UI "selector $fieldName" { Find-UI $fieldName ([Windows.Automation.ControlType]::ComboBox) }
+  $combo.SetFocus()
+  $null = Wait-UI "focused $fieldName" {
+    $current = Find-UI $fieldName ([Windows.Automation.ControlType]::ComboBox)
+    $current -and $current.Current.HasKeyboardFocus
+  }
+  Send-SmokeKey $key
+  $null = Wait-UI "$fieldName = $expected" {
+    $current = Find-UI $fieldName ([Windows.Automation.ControlType]::ComboBox)
+    $pattern = $null
+    $current -and $current.TryGetCurrentPattern([Windows.Automation.ValuePattern]::Pattern, [ref]$pattern) -and
+      $pattern.Current.Value -ceq $expected
+  }
+}
+function Get-FixtureState($path) {
+  Get-ChildItem -LiteralPath $path -Recurse -Force | Sort-Object FullName | ForEach-Object {
+    '{0}|{1}|{2}' -f $_.FullName.Substring($path.Length), $(if ($_.PSIsContainer) { 'dir' } else { $_.Length }), $_.LastWriteTimeUtc.Ticks
+  }
+}
+# Close the app and open it again on the same isolated data folder.
+function Restart-SmokeApplication {
+  $process.Refresh()
+  $null = $process.CloseMainWindow()
+  if (-not $process.WaitForExit(10000)) { Stop-Process -Id $process.Id; throw 'The test process did not exit before restart' }
+  if ($process.ExitCode -ne 0 -or (Get-Item (Join-Path $root 'stderr.txt')).Length -ne 0) { throw "Abnormal exit before restart, log at $root" }
+  Start-Sleep -Seconds 3
+  $script:process = Start-Process -FilePath $exe -PassThru -Environment @{ LOCALAPPDATA = $profile; DISKUNFOLD_DATA_DIR = (Join-Path $profile 'DiskUnfold') } -RedirectStandardError (Join-Path $root 'stderr-restart.txt') -RedirectStandardOutput (Join-Path $root 'stdout-restart.txt')
+  $script:window = Wait-UI 'restarted main window' {
+    $process.Refresh()
+    if ($process.MainWindowHandle -ne 0) { $ae::FromHandle($process.MainWindowHandle) }
+  }
+  $null = Wait-UI 'path field after restart' { Find-UI 'Windows folder path' $edit }
+}
+# Scan the fixture, open the browse screen and return its virtual-group entry button.
+function Open-VirtualGroups($path, $total) {
+  Set-Scope $path
+  Invoke-UI (Wait-Enabled 'Review scope' $true)
+  Invoke-UI (Wait-Enabled 'Start scan' $true)
+  $null = Wait-FinalLogicalSize $total
+  Invoke-UI (Wait-Enabled 'Browse folders' $true)
+  Wait-UI 'virtual group entry' {
+    $item = Find-UI 'View as virtual groups' $button
+    if ($item -and $item.Current.IsEnabled -and -not $item.Current.IsOffscreen) { $item }
+  }
+}
+# Count cells of the summary row that starts at the named element, up to the next row.
+function Get-RowCounts($names, $start, $stops) {
+  $index = [Array]::IndexOf($names, $start)
+  if ($index -lt 0) { throw "Summary row '$start' was not found in: $($names -join ' / ')" }
+  $end = $names.Count
+  foreach ($stop in $stops) {
+    $position = [Array]::IndexOf($names, $stop)
+    if ($position -gt $index -and $position -lt $end) { $end = $position }
+  }
+  @($names[$index..($end - 1)] | Where-Object { $_ -match '^\d+ items?$' })
+}
+# F36: classify a real scan with two user rules; files stay unchanged and rules persist.
+function Test-VirtualGroups {
+  $fixture = Join-Path $root 'group-scope'
+  [IO.Directory]::CreateDirectory((Join-Path $fixture 'sub')) | Out-Null
+  [IO.File]::WriteAllBytes((Join-Path $fixture 'a.mp4'), [byte[]]::new(10))
+  [IO.File]::WriteAllBytes((Join-Path $fixture 'b.mp4'), [byte[]]::new(20))
+  [IO.File]::WriteAllBytes((Join-Path $fixture 'c.txt'), [byte[]]::new(5))
+  [IO.File]::WriteAllBytes((Join-Path $fixture 'sub\d.mp4'), [byte[]]::new(7))
+  $before = (Get-FixtureState $fixture) -join [Environment]::NewLine
+  # A failed focus check is reported after the remaining steps have run.
+  $deferred = @()
+  try {
+    $entry = Open-VirtualGroups $fixture '42 bytes'
+    $null = Save-SmokeCapture '1-browse-entry'
+    Invoke-UI $entry
+    $null = Wait-UI 'virtual group screen' { Find-UI 'Group by my rules' $null }
+    'F36 native entry: "View as virtual groups" opened the screen'
+
+    Invoke-UI (Wait-Enabled 'Edit rules' $true)
+    $null = Wait-UI 'rule editor' { Find-UI 'Edit group rules' $null }
+    Invoke-UI (Wait-Enabled 'Add group' $true)
+    Set-GroupField 'Group name' 'Video'
+    Set-GroupField 'Name text' '.mp4'
+    Select-GroupOption 'Name comparison' 0x23 'Ends with' # VK_END: last option
+    Invoke-UI (Wait-Enabled 'Add group' $true)
+    Set-GroupField 'Group name' 'Big'
+    Invoke-UI (Wait-Enabled 'Add size condition' $true)
+    Invoke-UI (Wait-Enabled 'Remove condition 1' $true)
+    Set-GroupField 'Size' '10'
+    $null = Save-SmokeCapture '2-rule-editor'
+    Invoke-UI (Wait-Enabled 'Save' $true)
+    $null = Wait-UI 'saved rules' {
+      -not (Find-UI 'Edit group rules' $null) -and (Find-UI 'Video, Big' $null)
+    }
+    'F36 native rule editor: saved "Video" (name ends with .mp4) and "Big" (logical size at least 10)'
+
+    Invoke-UI (Wait-Enabled 'Start classifying' $true)
+    $table = Wait-UI 'virtual group summary' { Find-UI 'Virtual group summary' $null } 60
+    $null = Wait-UI 'summary rows' { (Get-UINames $table) -contains 'Show members of Big' }
+    $names = @(Get-UINames $table)
+    $video = @(Get-RowCounts $names 'Show members of Video' @('Show members of Big', 'Unclassified'))
+    $big = @(Get-RowCounts $names 'Show members of Big' @('Show members of Video', 'Unclassified'))
+    $null = Save-SmokeCapture '3-classified'
+    if ($video[0] -ne '3 items' -or $big[0] -ne '2 items') {
+      throw "Expected member counts 3 and 2, observed Video=$($video -join ',') Big=$($big -join ',')"
+    }
+    $categories = (Get-UINames (Find-UI 'Categories' $null)) -join ' | '
+    if ($categories -notmatch 'Overlaps.*?\b2 items' -or $categories -notmatch 'Unclassified.*?\b1 item\b') {
+      throw "Expected 2 overlaps and 1 unclassified in the categories: $categories"
+    }
+    'F36 native summary: Video 3 items, Big 2 items; overlaps 2 items, unclassified 1 item (sizes: {0})' -f (($names | Where-Object { $_ -match ' bytes$' }) -join ', ')
+
+    $totals = Wait-UI 'combined total' {
+      $section = Find-UI 'Combined total' $null
+      if ($section -and (Get-UINames $section) -contains 'Combined total, Logical size') { $section }
+    }
+    $totalNames = @(Get-UINames $totals)
+    $label = [Array]::IndexOf($totalNames, 'Combined total, Logical size')
+    $following = @($totalNames[($label + 1)..([Math]::Min($label + 3, $totalNames.Count - 1))])
+    if ($following -notcontains '37 bytes') { throw "Combined logical total was not 37 bytes: $($totalNames -join ' / ')" }
+    'F36 native combined total: 37 bytes, files in several groups counted once'
+
+    Invoke-UI (Wait-Enabled 'Back to folders' $true)
+    try {
+      $null = Wait-UI 'focus on the virtual group entry' {
+        $focused = $ae::FocusedElement
+        $focused -and $focused.Current.Name -ceq 'View as virtual groups' -and -not (Find-UI 'Group by my rules' $null)
+      }
+    } catch {
+      $focused = $ae::FocusedElement
+      $observed = if ($focused) { '{0} "{1}"' -f $focused.Current.ControlType.ProgrammaticName, $focused.Current.Name } else { 'none' }
+      $deferred += "Focus did not return to 'View as virtual groups'; focused element: $observed"
+      Write-Warning $deferred[-1]
+    }
+    if ($deferred.Count -eq 0) { 'F36 native return: focus is on "View as virtual groups"' }
+    if (((Get-FixtureState $fixture) -join [Environment]::NewLine) -ne $before) { throw 'The fixture changed during classification' }
+    $files = @(Get-ChildItem -LiteralPath $fixture -Recurse -File | ForEach-Object { '{0}={1}' -f $_.FullName.Substring($fixture.Length + 1), $_.Length } | Sort-Object)
+    if (($files -join ',') -ne 'a.mp4=10,b.mp4=20,c.txt=5,sub\d.mp4=7') { throw "Unexpected fixture files: $($files -join ',')" }
+    'F36 fixture unchanged: ' + ($files -join ', ')
+
+    Restart-SmokeApplication
+    $entry = Open-VirtualGroups $fixture '42 bytes'
+    Invoke-UI $entry
+    $null = Wait-UI 'stored rules after restart' { Find-UI 'Video, Big' $null }
+    $null = Save-SmokeCapture '4-after-restart'
+    Invoke-UI (Wait-Enabled 'Back to folders' $true)
+    'F36 native persistence: reopened on the same data folder and the saved rules "Video, Big" remained'
+    if (((Get-FixtureState $fixture) -join [Environment]::NewLine) -ne $before) { throw 'The fixture changed after restart' }
+    Invoke-UI (Wait-Enabled 'Back to analysis' $true)
+    if ($deferred.Count -gt 0) { throw ($deferred -join '; ') }
+  } catch {
+    $treePath = try { Write-UITree 'virtual-groups-failure' } catch { '<tree unavailable>' }
+    Write-Warning "Virtual group UI tree: $treePath"
+    throw
+  }
+}
 try {
   $window = Wait-UI 'main window' {
     $process.Refresh()
@@ -1014,6 +1215,7 @@ try {
   }
   if ($VerifyNativeFolderDrop) { Test-NativeFolderDrop }
   if ($VerifyAutomaticScopeReview) { Test-AutomaticScopeReview }
+  if ($VerifyVirtualGroups) { Test-VirtualGroups }
   if ($VerifyDeniedSubtree) { Test-DeniedSubtree }
   if ($VerifyJunctionBoundary) { Test-JunctionBoundary }
   if ($VerifyReplacedScopeRoot) { Test-ReplacedScopeRoot }
@@ -1133,6 +1335,10 @@ try {
   Test-ScaledFileInspection
   if ($VerifyPhysicalAccounting) { Test-PhysicalAccounting }
 } catch {
+  if ($VerifyVirtualGroups) {
+    $treePath = try { Write-UITree 'failure' } catch { '<tree unavailable>' }
+    Write-Warning "UI tree at failure: $treePath"
+  }
   Write-Warning "Native smoke failed. Isolated fixture and logs: $root"
   throw
 } finally {
@@ -1141,7 +1347,9 @@ try {
     if (-not $process.WaitForExit(10000)) { Stop-Process -Id $process.Id; throw 'The test process did not exit' }
   }
 }
-if ($process.ExitCode -ne 0 -or (Get-Item (Join-Path $root 'stderr.txt')).Length -ne 0) { throw "Abnormal exit, log at $root" }
+$restartLog = Join-Path $root 'stderr-restart.txt'
+if ($process.ExitCode -ne 0 -or (Get-Item (Join-Path $root 'stderr.txt')).Length -ne 0 -or
+    ((Test-Path -LiteralPath $restartLog) -and (Get-Item -LiteralPath $restartLog).Length -ne 0)) { throw "Abnormal exit, log at $root" }
 'Native app exited cleanly.'
 function Remove-SmokeFixture {
   [CmdletBinding()]
