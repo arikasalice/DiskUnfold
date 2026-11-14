@@ -19,6 +19,7 @@ use super::{
 };
 use crate::error::EngineError;
 
+mod embedded;
 mod engine;
 mod flow;
 mod real;

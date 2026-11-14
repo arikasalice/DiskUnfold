@@ -25,7 +25,7 @@ fn engine(rig: &Rig) -> Result<Engine, String> {
     builder.build().map_err(|error| format!("{error:?}"))
 }
 
-fn call(engine: &Engine, name: &str, channel: Channel, body: Value) -> ResultEnvelope {
+pub(super) fn call(engine: &Engine, name: &str, channel: Channel, body: Value) -> ResultEnvelope {
     let id = job_id(7);
     engine.call(
         CallEnvelope {

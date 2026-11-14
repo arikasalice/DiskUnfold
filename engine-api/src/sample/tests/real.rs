@@ -28,7 +28,7 @@ use crate::{
     workers::Workers,
 };
 
-struct Ids(AtomicUsize);
+pub(super) struct Ids(pub(super) AtomicUsize);
 
 impl JobIdentity for Ids {
     fn next_id(&self) -> Id {
@@ -36,7 +36,7 @@ impl JobIdentity for Ids {
     }
 }
 
-struct Clock;
+pub(super) struct Clock;
 
 impl JobClock for Clock {
     fn now_ms(&self) -> i64 {
@@ -45,7 +45,7 @@ impl JobClock for Clock {
 }
 
 #[derive(Default)]
-struct History(AtomicUsize);
+pub(super) struct History(pub(super) AtomicUsize);
 
 impl JobHistory for History {
     fn append(&self, _: &JobSummary) -> Result<HistoryAppend, String> {
@@ -54,7 +54,7 @@ impl JobHistory for History {
     }
 }
 
-struct Downstream(Mutex<Vec<JobState>>);
+pub(super) struct Downstream(pub(super) Mutex<Vec<JobState>>);
 
 impl JobEvents for Downstream {
     fn publish(&self, event: JobEvent) {
@@ -147,7 +147,7 @@ fn real(hold: bool) -> Result<Real, String> {
     })
 }
 
-fn wait_for(mut done: impl FnMut() -> bool) -> Result<(), String> {
+pub(super) fn wait_for(mut done: impl FnMut() -> bool) -> Result<(), String> {
     let deadline = Instant::now() + Duration::from_secs(10);
     while !done() {
         if Instant::now() > deadline {

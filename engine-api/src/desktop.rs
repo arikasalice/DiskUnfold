@@ -99,7 +99,6 @@ pub fn register_with_scan_diagnostics(
             shared_table_limit: Arc::new(SharedTableLimit::default),
             diagnostics: Some(diagnostics),
             recent_admission_capacity: None,
-            sample_loader: None,
         },
     )?
     .events)
@@ -123,7 +122,6 @@ struct DesktopRegistrationOptions {
     shared_table_limit: SharedTableLimitSource,
     diagnostics: Option<ScanDiagnosticsFactory>,
     recent_admission_capacity: Option<NonZeroUsize>,
-    sample_loader: Option<Arc<dyn sample::SampleLoader>>,
 }
 
 /// Registers analysis and exposes the observed-path reader for app-host only.
@@ -145,7 +143,6 @@ pub fn register_services(
             shared_table_limit,
             diagnostics: None,
             recent_admission_capacity: None,
-            sample_loader: None,
         },
     )
 }
@@ -173,7 +170,6 @@ pub fn register_services_with_recent_scope_worker(
             shared_table_limit,
             diagnostics: None,
             recent_admission_capacity: Some(recent_admission_capacity),
-            sample_loader: None,
         },
     )
 }
@@ -190,7 +186,6 @@ fn register_services_inner(
         shared_table_limit,
         diagnostics,
         recent_admission_capacity,
-        sample_loader,
     } = options;
     let ids = Arc::new(SystemIdentity);
     let clock = Arc::new(SystemClock(Instant::now()));
@@ -249,7 +244,15 @@ fn register_services_inner(
     };
     let store = sets.source();
     let completed_scans = scan_events.bind(store.clone())?;
-    sample_sink::bind(&sample_events, builder, &workers, sample_loader, &events)?;
+    let sample_ids = ids.clone();
+    sample_sink::bind(
+        &sample_events,
+        builder,
+        &workers,
+        store.clone(),
+        sample_ids,
+        &events,
+    )?;
     let visualization = VisualizationServices::new(store.clone(), ids.clone(), workers.clone());
     let search = crate::browse::folder::commands::register(builder, sets, ids, workers, random)?;
     crate::scan_failures::register(builder, store.clone(), random);
@@ -286,6 +289,8 @@ fn utc_now_timestamp() -> Option<Timestamp> {
 
 #[cfg(test)]
 mod delivery_failure_tests;
+#[cfg(test)]
+mod sample_tests;
 #[cfg(test)]
 mod tests;
 

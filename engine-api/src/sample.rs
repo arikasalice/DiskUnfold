@@ -7,7 +7,7 @@ use std::sync::Arc;
 use du_analysis_index::SampleSessionKey;
 use du_core_contracts::{
     Id,
-    job::{HistoryMode, JobBody, JobControl, JobDescriptor, ProgressUnit},
+    job::JobBody,
     sample_ipc::{SampleObservationRef, SampleStateChanged},
 };
 use du_job_runtime::RuntimeError;
@@ -15,18 +15,20 @@ use du_job_runtime::RuntimeError;
 use crate::{api::EngineBuilder, workers::Workers};
 
 mod commands;
+mod embedded;
 mod events;
 mod jobs;
 mod session;
 #[cfg(test)]
 mod tests;
 
+pub use embedded::EmbeddedSampleLoader;
 pub use events::SampleEvents;
 pub(crate) use jobs::SampleJobs;
 pub(crate) use session::SampleSessions;
 
 /// Job kind of the sample load job.
-pub const KIND: &str = "scan.sample";
+pub const KIND: &str = du_scan_engine::sample_job::SAMPLE_JOB_KIND;
 
 /// Facts about a bundle that passed validation.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -65,23 +67,7 @@ pub trait SampleEventSink: Send + Sync {
     fn publish(&self, body: SampleStateChanged, job_ref: Option<Id>);
 }
 
-/// Describes the sample load job so the runtime accepts its submissions.
-///
-/// The job is cancellable, takes no metadata I/O flow and is never recorded in history.
-pub fn descriptor() -> JobDescriptor {
-    JobDescriptor {
-        kind_id: KIND.into(),
-        version: 1,
-        display_name_key: KIND.into(),
-        controls: vec![JobControl::Cancel],
-        safe_points: vec!["observation".into()],
-        progress_unit: ProgressUnit::Items,
-        resource_classes: Vec::new(),
-        history: HistoryMode::None,
-    }
-}
-
-/// Registers the descriptor and the four GUI-only sample use cases.
+/// Registers the scan-engine job descriptor and the four GUI-only sample use cases.
 ///
 /// Returns the session owner, which must be bound to the runtime's [`SampleEvents`] so
 /// that `scan.sample` terminal events reach it.
@@ -91,7 +77,9 @@ pub(crate) fn register(
     loader: Arc<dyn SampleLoader>,
     events: Arc<dyn SampleEventSink>,
 ) -> Result<Arc<SampleSessions>, RuntimeError> {
-    workers.runtime.register(descriptor())?;
+    workers
+        .runtime
+        .register(du_scan_engine::sample_job::descriptor())?;
     Ok(register_with(builder, workers, loader, events))
 }
 

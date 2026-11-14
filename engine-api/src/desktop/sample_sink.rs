@@ -2,15 +2,17 @@
 
 use std::sync::Arc;
 
+use du_analysis_index::IngestSink;
 use du_core_contracts::{
     ENVELOPE_VERSION, EventEnvelope, Id,
     sample_ipc::{SAMPLE_STATE_CHANGED, SampleStateChanged},
 };
+use du_job_runtime::JobIdentity;
 
 use super::DesktopEvents;
 use crate::{
     api::EngineBuilder,
-    sample::{self, SampleEventSink, SampleEvents, SampleLoader},
+    sample::{self, EmbeddedSampleLoader, SampleEventSink, SampleEvents},
     workers::Workers,
 };
 
@@ -43,17 +45,18 @@ impl SampleEventSink for DesktopSampleSink {
     }
 }
 
-/// Composes the sample flow when a loader exists; without one nothing is registered.
+/// Registers the sample use cases over the embedded bundle and the shared result `store`.
+///
+/// Binds the session owner to `events` so that `scan.sample` terminal events reach it.
 pub(super) fn bind(
     events: &SampleEvents,
     builder: &mut EngineBuilder,
     workers: &Arc<Workers>,
-    loader: Option<Arc<dyn SampleLoader>>,
+    store: IngestSink,
+    ids: Arc<dyn JobIdentity>,
     desktop: &Arc<DesktopEvents>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let Some(loader) = loader else {
-        return Ok(());
-    };
+    let loader = Arc::new(EmbeddedSampleLoader::new(store, ids));
     let sink = Arc::new(DesktopSampleSink::new(desktop.clone()));
     events.bind(sample::register(builder, workers.clone(), loader, sink)?)?;
     Ok(())
