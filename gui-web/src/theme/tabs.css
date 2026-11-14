@@ -1,0 +1,71 @@
+/* The common tab row: bold with an underline when selected, never colour alone. */
+.du-tabs {
+  display: grid;
+  gap: 16px;
+  min-inline-size: 0;
+}
+
+.du-tabs__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 8px;
+  border-block-end: 1px solid var(--du-border);
+}
+
+.du-tab {
+  position: relative;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 10px 16px 9px;
+  margin-block-end: -1px;
+  border: 0;
+  border-block-end: 3px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--du-muted);
+  font: inherit;
+  cursor: default;
+  outline: none;
+  transition: background-color var(--du-state-duration) ease;
+}
+
+.du-tab[data-hovered]:not([data-disabled], [data-selected]) {
+  background: var(--du-hover-surface);
+}
+
+.du-tab[data-pressed]:not([data-disabled], [data-selected]) {
+  background: var(--du-pressed-surface);
+}
+
+.du-tab[data-selected]:not([data-disabled]) {
+  border-block-end-color: var(--du-accent);
+  color: var(--du-accent);
+  font-weight: 700;
+}
+
+.du-tab[data-disabled] {
+  color: var(--du-disabled-text);
+}
+
+.du-tab[data-focus-visible] {
+  outline: 2px solid var(--du-focus);
+  outline-offset: -2px;
+}
+
+.du-tabs__panel {
+  display: grid;
+  gap: 16px;
+  min-inline-size: 0;
+}
+
+.du-tabs__panel[data-focus-visible] {
+  outline: 2px solid var(--du-focus);
+  outline-offset: 2px;
+}
+
+@media (forced-colors: active) {
+  .du-tab[data-selected] {
+    border-block-end-color: Highlight;
+  }
+}
