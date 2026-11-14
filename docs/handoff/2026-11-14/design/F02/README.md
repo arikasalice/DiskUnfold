@@ -48,6 +48,18 @@
 
 3. 다른 폴더로 바꿔 요청했을 때 알림이 두 폴더를 모두 말한다: "이제 ‘프로젝트’ 폴더를 먼저 분석합니다. ‘영상’ 폴더는 원래 순서로 돌아갑니다." / "‘Projects’ is now analyzed first. ‘Videos’ returns to its normal order." 첫 폴더의 상태가 말없이 사라지면 요청이 취소된 것인지 끝난 것인지 알 수 없다.
 
+알림 문구의 조정 (2026-11-15, F02 회신과 독립 검토 소견 반영): 엔진의 접수 응답과 적용 확인은 다르므로 알림을 나눈다.
+
+| 상황 | 한국어 | English |
+| --- | --- | --- |
+| 적용 확인 | ‘영상’ 폴더를 먼저 분석합니다 | ‘Videos’ is analyzed first |
+| 적용 확인, 바꿔 요청 | 이제 ‘프로젝트’ 폴더를 먼저 분석합니다. ‘영상’ 폴더는 원래 순서로 돌아갑니다. | ‘Projects’ is now analyzed first. ‘Videos’ returns to its normal order. |
+| 접수만 확인 | ‘영상’ 폴더를 먼저 분석하도록 요청했습니다 | Requested to analyze ‘Videos’ first |
+| 접수만 확인, 바꿔 요청 | ‘프로젝트’ 폴더를 먼저 분석하도록 요청했습니다. ‘영상’ 폴더 요청을 대신합니다. | Requested to analyze ‘Projects’ first. This replaces the request for ‘Videos’. |
+| 일시정지 중 요청 | 스캔을 계속하면 ‘영상’ 폴더를 먼저 분석합니다 | ‘Videos’ will be analyzed first when the scan continues |
+
+접수만 확인된 경우에 "원래 순서로 돌아갑니다"를 쓰지 않는다. 새 요청이 적용됐는지 모르는 때에 앞 폴더의 순서가 바뀌었다고 말하게 되기 때문이다. 알림이 보이는 동안 선택 동작 줄을 유지하는 것과 성공·정보·실패를 공용 아이콘으로 구분하는 것은 받아들인다.
+
 후속으로 넘기는 것 (병합을 막지 않는다):
 
 - 일시정지 때 막대 자리가 비는 것. 막대의 바탕 줄만 남기고 움직이는 부분을 없앤다. 전체 개수를 알 때는 채운 길이를 흐린 색으로 남긴다. 자리가 비면 막대가 그려지지 않은 것처럼 보인다.
