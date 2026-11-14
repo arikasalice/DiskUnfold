@@ -6,6 +6,7 @@ pub mod envelope;
 mod record_framing;
 pub mod records;
 pub mod retention;
+pub mod source_admission;
 pub mod storage_match;
 pub mod trend;
 pub mod zstd_frame;

@@ -29,6 +29,7 @@ use crate::{
         Permit, RegionError,
         commands::{Regions, region_error},
     },
+    source_exposure::{admit_source, admit_version_source},
     workers::Workers,
 };
 
@@ -112,6 +113,7 @@ impl UseCase for Open {
         #[cfg(test)]
         tests::pause_at(request_seq, 1);
         let prepared = self.browse.prepare(request, &sorts).map_err(folder_error)?;
+        admit_version_source(prepared.version.as_ref(), caller)?;
         if caller.is_cancelled() {
             return Err(folder_error(Error::Cancelled));
         }
@@ -293,14 +295,15 @@ impl UseCase for Page {
     fn execute(
         &self,
         request: Self::Request,
-        _: &CallerCtx,
+        caller: &CallerCtx,
     ) -> Result<Self::Response, EngineError> {
         let continuation = matches!(request, QueryPageRequest::Continuation(_));
-        match self
+        let (page, source) = self
             .0
             .read_query_request(request)
-            .map_err(|error| cursor_error(error, continuation))?
-        {
+            .map_err(|error| cursor_error(error, continuation))?;
+        admit_source(source, caller)?;
+        match page {
             AdmittedQueryPage::Folder(page) => page.into_response(),
             AdmittedQueryPage::Search(page) => Ok(QueryPageResponse::Search(page)),
         }

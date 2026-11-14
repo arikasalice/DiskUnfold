@@ -1,5 +1,7 @@
 //! Assemble the GUI and own its lifecycle.
 
+#[cfg(feature = "gui")]
+pub mod approval_source;
 #[cfg(all(feature = "gui", windows))]
 mod clipboard;
 #[cfg(all(feature = "gui", windows))]
