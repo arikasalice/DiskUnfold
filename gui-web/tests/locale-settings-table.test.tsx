@@ -57,7 +57,7 @@ function shipped(
     messages[key] =
       typeof message === "string"
         ? { kind: "text", template: message, parameters: named }
-        : { kind: "plural", parameters: named, ...message };
+        : { parameters: named, ...message };
   }
   return {
     messages,
