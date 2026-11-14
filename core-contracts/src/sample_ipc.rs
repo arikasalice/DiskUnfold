@@ -14,6 +14,9 @@ pub const SAMPLE_BUNDLE_INVALID: &str = "sample.bundle_invalid";
 /// Unavailable: the load job ended as partial or failed.
 pub const SAMPLE_LOAD_FAILED: &str = "sample.load_failed";
 /// `NOT_FOUND`: the session was closed or belongs to an earlier app session.
+///
+/// A receiver that re-reads `sample.status` after missing events and gets this
+/// reason treats the session as `inactive` (closed).
 pub const SAMPLE_SESSION_CLOSED: &str = "sample.session_closed";
 /// `INVALID_ARGUMENT`: a sample result cannot be saved as a snapshot.
 pub const SNAPSHOT_SAMPLE_SOURCE: &str = "snapshot.sample_source";
@@ -26,7 +29,10 @@ pub const CAPABILITY_SAMPLE_EXAMPLE: &str = "sample.example";
 /// Action key offered with an unavailable session: start a real analysis instead.
 pub const SAMPLE_REAL_ANALYSIS_ACTION: &str = "sample.start_real_analysis";
 
-/// The sample session state owned by the engine.
+/// The sample session state, returned in command responses.
+///
+/// Events publish the coarser [`SampleEventState`]; use
+/// [`SampleSessionState::event_state`] as the single mapping between the two.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
@@ -129,7 +135,10 @@ pub struct SampleSession {
     pub real_analysis_action: Option<String>,
 }
 
-/// Result of closing a session. Closing an already closed session repeats it.
+/// Result of closing a session.
+///
+/// Closing the most recently closed session again repeats this result until a new
+/// session opens. After that, the earlier reference answers `sample.session_closed`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
@@ -140,7 +149,12 @@ pub struct SampleClosed {
     pub released_versions: u64,
 }
 
-/// Body of `sample.state_changed`. Receivers drop sequences at or below the last seen.
+/// Body of `sample.state_changed`.
+///
+/// Sequences start again for each session. A receiver drops events whose
+/// `session_ref` is not its current session and, within one session, drops
+/// sequences at or below the last one it applied. `state` may equal
+/// `previous_state`, for example when a reset moves from resetting to preparing.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]

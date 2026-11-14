@@ -217,7 +217,7 @@ fn preserves_lineage_sequence_and_withdrawal_without_a_replacement()
         source_ref: lineage_id.clone(),
         lineage_id,
         origin: "scan".into(),
-        data_source: None,
+        data_source: Some(du_core_contracts::data_source::DataSource::Real),
         sequence: 7,
         change: ResultVersionChange::Published,
         previous_result_version: None,
