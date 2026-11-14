@@ -74,6 +74,9 @@ fn project(version: &ResultVersion, facts: ItemEvidence) -> SpaceDetail {
         exclusive_decision,
         observed_at,
         capabilities: unknown(UNAVAILABLE),
+        data_source: Some(du_core_contracts::result::ResultVersionRead::data_source(
+            version,
+        )),
     }
 }
 
