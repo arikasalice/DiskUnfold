@@ -23,7 +23,8 @@ pub(super) fn close_frame(
         observed_at: context.utc_now(),
     };
     let root = frame.root_index;
+    let path = frame.path.clone();
     let sent = cancel_drain::frame(frame, sender, policy) && sender.send(gap).is_ok();
-    complete(shared, root, context);
+    complete(shared, root, &path, context);
     sent
 }

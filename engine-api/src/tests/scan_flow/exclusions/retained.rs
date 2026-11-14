@@ -54,6 +54,7 @@ fn exclusion_inside_absorbed_root_stays_bound_to_retained_root()
         read_handles: Arc::new(Mutex::new(Vec::new())),
         release: Arc::new(Mutex::new(receiver)),
         finish_gate: None,
+        priority: None,
     })));
     let _release = release;
     let comparison: Arc<dyn PathComparison> = Arc::new(ProvenComparison);

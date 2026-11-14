@@ -191,7 +191,44 @@ fn launcher_applies_the_language_option_on_either_side_of_help() -> io::Result<(
     let output = command.args(["--lang", "fr", "--help"]).output()?;
     assert_eq!(output.status.code(), Some(2));
     assert!(output.stdout.is_empty());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("locale.unsupported"));
+    // Error line: reason key, English text and the English error code.
+    assert_eq!(
+        String::from_utf8_lossy(&output.stderr),
+        "DiskUnfold: locale.unsupported: The requested language is unavailable. [INVALID_ARGUMENT]\n"
+    );
+    Ok(())
+}
+
+/// FR9.HD1.cli.DD1: the same result in two display languages is byte-identical in json.
+#[test]
+fn support_json_bytes_do_not_depend_on_the_display_language() -> io::Result<()> {
+    let run = |arguments: &[&str]| -> io::Result<std::process::Output> {
+        let (mut command, _data_dir) = launcher_with_temp_data()?;
+        command.args(arguments).output()
+    };
+    let reference = run(&["--lang", "en", "support", "--format", "json"])?;
+    assert_eq!(reference.status.code(), Some(0));
+    assert!(!reference.stdout.is_empty());
+    assert!(reference.stderr.is_empty());
+    for arguments in [
+        &["--lang", "ko", "support", "--format", "json"][..],
+        &["support", "--format", "json", "--lang", "ko"][..],
+        &["--lang", "KO-kr", "support", "--format", "json"][..],
+        // No explicit language: the language comes from the isolated data directory and the OS.
+        &["support", "--format", "json"][..],
+    ] {
+        let output = run(arguments)?;
+        assert_eq!(output.status.code(), Some(0), "{arguments:?}");
+        assert_eq!(output.stdout, reference.stdout, "{arguments:?}");
+        assert!(output.stderr.is_empty(), "{arguments:?}");
+    }
+
+    // Only the human text differs between languages, and both stay successful.
+    let english = run(&["--lang", "en", "support", "--format", "text"])?;
+    let korean = run(&["--lang", "ko", "support", "--format", "text"])?;
+    assert_eq!(english.status.code(), Some(0));
+    assert_eq!(korean.status.code(), Some(0));
+    assert_ne!(english.stdout, korean.stdout);
     Ok(())
 }
 

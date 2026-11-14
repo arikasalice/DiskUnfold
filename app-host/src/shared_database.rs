@@ -19,7 +19,6 @@ use du_app_db::recent_scope::{
 };
 use du_app_db::{AppDb, AppDbCloseError};
 use du_app_db::{WalCheckpoint, WalCheckpointError};
-#[cfg(windows)]
 use du_core_contracts::job::{
     HistoryAppend, HistoryAppendOutcome, HistoryInterruptionReceipt, HistoryRecovery, JobHistory,
     JobSummary,
@@ -289,7 +288,6 @@ impl SharedDatabase {
         SharedSettings(self.clone())
     }
 
-    #[cfg(windows)]
     /// An F24 history port using the same connection and an injected UTC clock.
     pub(super) fn history(&self, now_ms: fn() -> i64) -> SharedHistory {
         SharedHistory {
@@ -375,7 +373,6 @@ impl SharedDatabase {
     }
 }
 
-#[cfg(windows)]
 impl HistoryRecovery for SharedDatabase {
     fn mark_interrupted(&self, now_ms: i64) -> Result<Option<HistoryInterruptionReceipt>, String> {
         self.0
@@ -468,13 +465,11 @@ impl SettingsStore for SharedSettings {
 }
 
 /// F24 history adapter; F21 linkage is written by `AppDb` in one transaction.
-#[cfg(windows)]
 pub(super) struct SharedHistory {
     database: SharedDatabase,
     now_ms: fn() -> i64,
 }
 
-#[cfg(windows)]
 impl JobHistory for SharedHistory {
     fn append(&self, summary: &JobSummary) -> Result<HistoryAppend, String> {
         self.append_with_receipt(summary)

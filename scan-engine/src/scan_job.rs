@@ -15,7 +15,10 @@ use du_core_contracts::{
     scan_observation::OpenedScopeRoot,
 };
 
-use crate::scan::{DevicePlan, PreMetadataFilter, ResultIds, collect_open_forest_diagnostic};
+use crate::scan::{
+    DevicePlan, PreMetadataFilter, ResultIds, ScanControlHandle, ScanControlSession,
+    collect_open_forest_diagnostic,
+};
 
 type DeviceRoots = Vec<(OpenedScopeRoot, Option<Vec<u8>>)>;
 
@@ -71,6 +74,8 @@ pub struct MetadataScan {
     filter: Option<Arc<PreMetadataFilter<'static>>>,
     shared_table_limit: Option<usize>,
     diagnostics: Option<Arc<ScanDiagnostics>>,
+    root_count: usize,
+    control: Option<Arc<ScanControlSession>>,
 }
 
 impl MetadataScan {
@@ -110,6 +115,7 @@ impl MetadataScan {
         scope: Id,
         ids: Arc<dyn ResultIds>,
     ) -> Self {
+        let root_count = roots.len();
         Self {
             roots: Mutex::new(Some(roots)),
             store,
@@ -119,6 +125,8 @@ impl MetadataScan {
             filter: None,
             shared_table_limit: None,
             diagnostics: None,
+            root_count,
+            control: None,
         }
     }
     /// Binds this scan to the stable lineage of its verified scope and source.
@@ -137,6 +145,27 @@ impl MetadataScan {
     pub fn with_diagnostics(mut self, diagnostics: Arc<ScanDiagnostics>) -> Self {
         self.diagnostics = Some(diagnostics);
         self
+    }
+
+    /// Enables directory-priority control for this metadata job.
+    ///
+    /// The opt-in allocates bounded outstanding-path accounting for the live
+    /// scheduler. Jobs that do not expose priority control avoid that work.
+    pub fn with_priority_control(mut self) -> Self {
+        if self.control.is_none() {
+            self.control = Some(Arc::new(ScanControlSession::new(self.root_count)));
+        }
+        self
+    }
+
+    /// Returns a weak control handle bound to this scan's worker scheduler.
+    ///
+    /// Store the handle with the admitted job reference. A caller must resolve
+    /// each region from the same scan's current pinned result before forwarding
+    /// its root index and raw relative components. The handle cannot extend the
+    /// job or scheduler lifetime.
+    pub fn control_handle(&self) -> Option<ScanControlHandle> {
+        self.control.as_ref().map(ScanControlSession::handle)
     }
 
     /// Installs an immutable pre-metadata decision for every root of this job.
@@ -194,16 +223,25 @@ impl JobBody for MetadataScan {
                     &*context,
                     DEFAULT_SCAN_WORKERS,
                     self.filter.as_deref(),
-                    (devices, self.diagnostics.as_deref()),
+                    (
+                        devices,
+                        self.diagnostics.as_deref(),
+                        self.control.as_deref(),
+                    ),
                 )
             }
-            _ => JobOutcome {
-                counts: Default::default(),
-                completed_scope: false,
-                failure_reason_key: Some("support.internal_error".into()),
-                unprocessed_summary: None,
-                result_version_id: None,
-            },
+            _ => {
+                if let Some(control) = &self.control {
+                    control.finish();
+                }
+                JobOutcome {
+                    counts: Default::default(),
+                    completed_scope: false,
+                    failure_reason_key: Some("support.internal_error".into()),
+                    unprocessed_summary: None,
+                    result_version_id: None,
+                }
+            }
         }
     }
 }
