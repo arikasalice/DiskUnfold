@@ -1,6 +1,11 @@
-//! Shared-ready deque scheduling and optional peak accounting.
+//! Priority areas over outstanding directory work and optional peak accounting.
 use super::*;
 use std::collections::HashMap;
+
+/// Number of priority classes; lower classes are claimed first.
+pub(super) const CLASSES: usize = 3;
+/// The class of every item while no area is marked; see [`rank_in`].
+pub(super) const NORMAL: usize = CLASSES - 1;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct PriorityRegion {
@@ -137,6 +142,11 @@ impl OutstandingPaths {
 
 impl Queue {
     /// Changes only the next scheduling order. The caller resolves scope authority.
+    ///
+    /// Accepting a new or replacement area moves the items of the old and new
+    /// area roots between priority classes once. The work grows with the items
+    /// of those roots in their lanes' queues and with their lanes' worker
+    /// stacks, not with other roots or lanes; claims never scan items.
     pub(super) fn prioritize(&mut self, region: PriorityRegion) -> PriorityDecision {
         let Some(outstanding) = self.outstanding.as_ref() else {
             return PriorityDecision::NoEffect {
@@ -157,7 +167,8 @@ impl Queue {
                 remaining,
             };
         }
-        self.priority = Some(region);
+        let previous = self.priority.replace(region).map(|old| old.root_index);
+        self.reclassify(previous);
         PriorityDecision::Accepted { remaining }
     }
 
@@ -168,75 +179,38 @@ impl Queue {
         if !outstanding.complete(root_index, path) {
             return false;
         }
-        if self
+        let finished = self
             .priority
             .as_ref()
-            .is_some_and(|region| outstanding.count(region.root_index, &region.path) == 0)
-        {
-            self.priority = None;
+            .is_some_and(|region| outstanding.count(region.root_index, &region.path) == 0);
+        if finished {
+            // Only ancestors of the finished area can still be marked.
+            let previous = self.priority.take().map(|old| old.root_index);
+            self.reclassify(previous);
         }
         true
     }
 
-    pub(super) fn priority_rank(&self, frame: &Frame) -> u8 {
-        let Some(region) = &self.priority else {
-            return 0;
-        };
-        if frame.root_index != region.root_index {
-            return 2;
-        }
-        if frame.path.starts_with(&region.path) {
-            0
-        } else if region.path.starts_with(&frame.path) {
-            1
-        } else {
-            2
-        }
+    /// The priority class of `frame` under the current area.
+    pub(super) fn priority_rank(&self, frame: &Frame) -> usize {
+        rank_in(self.priority.as_ref(), frame)
     }
+}
 
-    pub(super) fn best_ready_rank(&self) -> Option<u8> {
-        if !self.started {
-            return None;
-        }
-        self.ready
-            .iter()
-            .filter(|frame| {
-                self.active_groups[self.root_groups[frame.root_index as usize]] < self.device_limit
-            })
-            .map(|frame| self.priority_rank(frame))
-            .min()
-    }
-
-    pub(super) fn push_ready(&mut self, frame: Frame) {
-        self.ready.push_back(frame);
-        if let Some(peak) = &mut self.ready_high_water {
-            *peak = (*peak).max(self.ready.len());
-        }
-    }
-
-    pub(super) fn pop_fair(&mut self) -> Option<(Frame, usize)> {
-        let last = self.last_root;
-        let index = self
-            .ready
-            .iter()
-            .enumerate()
-            .filter(|(_, frame)| {
-                self.active_groups[self.root_groups[frame.root_index as usize]] < self.device_limit
-            })
-            .min_by_key(|(index, frame)| {
-                (
-                    self.priority_rank(frame),
-                    last.is_some_and(|value| frame.root_index <= value),
-                    frame.root_index,
-                    *index,
-                )
-            })
-            .map(|(index, _)| index)?;
-        let frame = self.ready.remove(index)?;
-        self.last_root = Some(frame.root_index);
-        let group = self.root_groups[frame.root_index as usize];
-        self.active_groups[group] += 1;
-        Some((frame, group))
+/// Class 0 lies inside the area, class 1 is an ancestor of it and every other
+/// item, or every item without an area, is in the normal class.
+pub(super) fn rank_in(region: Option<&PriorityRegion>, frame: &Frame) -> usize {
+    let Some(region) = region else {
+        return NORMAL;
+    };
+    if frame.root_index != region.root_index {
+        NORMAL
+    } else if frame.path.starts_with(&region.path) {
+        0
+    } else if region.path.starts_with(&frame.path) {
+        1
+    } else {
+        NORMAL
     }
 }
 
@@ -246,12 +220,13 @@ pub(super) fn record_ready_peak(
 ) {
     if let Some(observer) = diagnostics
         && let Ok(queue) = shared.queue.lock()
-        && let Some(peak) = queue.ready_high_water
+        && let Some(peak) = queue.lanes.peak()
     {
         observer.record_ready_peak(peak);
     }
 }
 
+/// Device groups of the scope roots and the worker limit of each group's lane.
 pub(crate) struct DevicePlan {
     pub groups: Vec<usize>,
     pub limit: usize,
