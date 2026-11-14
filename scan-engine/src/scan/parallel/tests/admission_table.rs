@@ -10,6 +10,7 @@ use du_core_contracts::{
     scan_observation::{FilterDecision, FilteredBatch, HandleIdentity},
 };
 use std::collections::{BTreeMap, HashMap};
+mod failures;
 mod open_failure;
 mod outcomes;
 mod roots;
