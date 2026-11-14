@@ -187,7 +187,7 @@ fn matrix() -> SupportMatrix {
 fn official() -> EmbeddedProductInfo {
     EmbeddedProductInfo {
         build: ProductBuildInfo {
-            product_version: Some("0.1.0".into()),
+            product_version: Some("0.0.1".into()),
             build_kind: BuildKind::Official,
             commit: Some("abc123".into()),
             built_at_utc: Some("2026-11-01T00:00:00Z".into()),
@@ -288,7 +288,7 @@ fn product_info_reports_embedded_values_and_the_observed_install_form()
     let reply = harness.call("app.product_info", json!({}))?;
     assert!(reply.get("error").is_none(), "{reply}");
     let body = &reply["body"];
-    assert_eq!(body["productVersion"], "0.1.0");
+    assert_eq!(body["productVersion"], "0.0.1");
     assert_eq!(body["buildKind"], "official");
     assert_eq!(body["commit"], "abc123");
     assert_eq!(body["targetOs"], "linux");

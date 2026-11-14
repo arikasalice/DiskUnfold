@@ -34,7 +34,7 @@ test("shows the build facts, opens a notice on demand and has no accessibility v
     }),
   });
   const { container } = render(<ProductScreen client={host.client} />);
-  expect(await screen.findByText("0.1.0")).toBeTruthy();
+  expect(await screen.findByText("0.0.1")).toBeTruthy();
   const facts = within(container.querySelector("dl") as HTMLElement);
   expect(facts.getByText("Official build")).toBeTruthy();
   expect(facts.getByText("6cd1a30c9f")).toBeTruthy();
@@ -69,7 +69,7 @@ test("calculates the digest, offers a copy and never calls it verified", async (
     }),
   });
   const { container } = render(<ProductScreen client={host.client} />);
-  await screen.findByText("0.1.0");
+  await screen.findByText("0.0.1");
   press("Calculate digest");
   expect(await screen.findByText(SHA)).toBeTruthy();
   expect(container.textContent).toContain(
@@ -93,7 +93,7 @@ test("reports a failed copy without hiding the digest", async () => {
     }),
   });
   render(<ProductScreen client={host.client} />);
-  await screen.findByText("0.1.0");
+  await screen.findByText("0.0.1");
   press("Calculate digest");
   await screen.findByText(SHA);
   press("Copy digest");
@@ -182,7 +182,7 @@ test("retries a failed product read and a failed notice read", async () => {
     "Product information could not be read.",
   );
   press("Retry");
-  await screen.findByText("0.1.0");
+  await screen.findByText("0.0.1");
   expect(screen.queryByRole("alert")).toBeNull();
 
   press(/License/);
@@ -203,12 +203,12 @@ test("keeps the last values when a refresh fails", async () => {
       ++reads === 1 ? productInfo() : new HostFailure(),
   });
   render(<ProductScreen client={host.client} />);
-  await screen.findByText("0.1.0");
+  await screen.findByText("0.0.1");
   press("Refresh");
   expect((await screen.findByRole("alert")).textContent).toContain(
     "last successful read",
   );
-  expect(screen.getByText("0.1.0")).toBeTruthy();
+  expect(screen.getByText("0.0.1")).toBeTruthy();
 });
 
 test("drops a digest response that arrives after the screen closed", async () => {
@@ -223,7 +223,7 @@ test("drops a digest response that arrives after the screen closed", async () =>
       }),
   });
   const { unmount } = render(<ProductScreen client={late.client} />);
-  await screen.findByText("0.1.0");
+  await screen.findByText("0.0.1");
   press("Calculate digest");
   await waitFor(() => expect(ids).toHaveLength(1));
   unmount();
@@ -247,7 +247,7 @@ test("treats a digest response that echoes another request as a failure instead 
     }),
   });
   render(<ProductScreen client={host.client} />);
-  await screen.findByText("0.1.0");
+  await screen.findByText("0.0.1");
   press("Calculate digest");
   await waitFor(() => expect(host.count("app.executable_digest")).toBe(1));
   await act(async () => undefined);
@@ -274,7 +274,7 @@ test.each([
     }),
   });
   render(<ProductScreen client={host.client} />);
-  await screen.findByText("0.1.0");
+  await screen.findByText("0.0.1");
   press("Calculate digest");
   expect((await screen.findByRole("alert")).textContent).toContain(
     "could not be requested",
@@ -294,7 +294,7 @@ test("accepts an uppercase hexadecimal digest", async () => {
     }),
   });
   render(<ProductScreen client={host.client} />);
-  await screen.findByText("0.1.0");
+  await screen.findByText("0.0.1");
   press("Calculate digest");
   expect(await screen.findByText(upper)).toBeTruthy();
 });
@@ -320,7 +320,7 @@ test("opens with the introduction and names the build target like the support sc
       <ProductScreen client={host.client} />
     </LocaleTextContext.Provider>,
   );
-  await screen.findByText("0.1.0");
+  await screen.findByText("0.0.1");
   const first = container.querySelector(".du-info-screen")?.firstElementChild;
   expect(first?.textContent).toContain("does not contact any server");
   expect(
@@ -340,7 +340,7 @@ test("names a target the host reported in words this version lacks as reported",
       productInfo({ targetOs: "haiku", targetCpu: null }),
   });
   const { container } = render(<ProductScreen client={host.client} />);
-  await screen.findByText("0.1.0");
+  await screen.findByText("0.0.1");
   expect(
     within(container.querySelector("dl") as HTMLElement).getByText(
       "haiku / Not recorded in this build",
@@ -369,7 +369,7 @@ test("labels carry their value through one locale message", async () => {
       <ProductScreen client={host.client} />
     </LocaleTextContext.Provider>,
   );
-  await screen.findByText("0.1.0");
+  await screen.findByText("0.0.1");
   press(/License/);
   await screen.findByText("Body");
   expect(screen.getByText("Generated from source commit: abc123")).toBeTruthy();
@@ -482,7 +482,7 @@ test("reports a failed digest request", async () => {
     "app.executable_digest": () => new HostFailure(),
   });
   render(<ProductScreen client={host.client} />);
-  await screen.findByText("0.1.0");
+  await screen.findByText("0.0.1");
   press("Calculate digest");
   expect((await screen.findByRole("alert")).textContent).toContain(
     "could not be requested",

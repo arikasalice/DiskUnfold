@@ -93,22 +93,3 @@ function Remove-GeneratedDirectory {
         Remove-Item -LiteralPath $resolved -Recurse -Force
     }
 }
-
-
-# Plain text to a minimal RTF document (the MSI license dialog shows RTF). Backslash and braces are
-# escaped, line breaks become paragraphs and characters above 127 become Unicode escapes.
-function ConvertTo-Rtf {
-    param([Parameter(Mandatory = $true)][string] $Text)
-
-    $builder = [System.Text.StringBuilder]::new()
-    [void] $builder.Append('{\rtf1\ansi\ansicpg1252\deff0{\fonttbl{\f0\fnil\fcharset0 Segoe UI;}}\viewkind4\uc1\pard\f0\fs18 ')
-    foreach ($char in $Text.Replace("`r`n", "`n").ToCharArray()) {
-        $code = [int] $char
-        if ($char -eq '\' -or $char -eq '{' -or $char -eq '}') { [void] $builder.Append('\').Append($char) }
-        elseif ($char -eq "`n") { [void] $builder.Append('\par ') }
-        elseif ($code -gt 127) { [void] $builder.Append('\u').Append([int16] $code).Append('?') }
-        elseif ($code -ge 32) { [void] $builder.Append($char) }
-    }
-    [void] $builder.Append('}')
-    return $builder.ToString()
-}

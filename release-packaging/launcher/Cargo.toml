@@ -18,8 +18,8 @@ default = ["gui"]
 gui = ["dep:du-app-host", "du-app-host/gui", "du-cli/windows-console"]
 
 [dependencies]
-du-cli = { version = "0.1.0", path = "../../cli" }
-du-app-host = { version = "0.1.0", path = "../../app-host", optional = true }
+du-cli = { version = "0.0.1", path = "../../cli" }
+du-app-host = { version = "0.0.1", path = "../../app-host", optional = true }
 
 [build-dependencies]
 serde_json.workspace = true

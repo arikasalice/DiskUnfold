@@ -49,6 +49,10 @@ test("publishing without --draft is rejected", () => {
   assert.ok(lintWorkflow(workflow.replace(" --draft", "")).some((p) => p.includes("--draft")));
 });
 
+test("publishing without --prerelease is rejected", () => {
+  assert.ok(lintWorkflow(workflow.replace(" --prerelease", "")).some((p) => p.includes("--prerelease")));
+});
+
 test("remote verification accepts a matching tag and rejects a moved one", () => {
   const action = { repository: "owner/repo", sha: SHA, version: "v1.0.0" };
   assert.deepEqual(verifyRemote([action], () => `${SHA}\trefs/tags/v1.0.0\n`), []);

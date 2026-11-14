@@ -6,7 +6,7 @@ use tempfile::NamedTempFile;
 fn expectation() -> ReleaseProvenanceExpectation {
     ReleaseProvenanceExpectation {
         repository: "arikasalice/DiskUnfold".to_owned(),
-        tag: "v0.1.0".to_owned(),
+        tag: "v0.0.1".to_owned(),
         commit: "a".repeat(40),
         run_id: "1880241037".to_owned(),
         run_attempt: "2".to_owned(),
@@ -37,7 +37,7 @@ fn fixture(digest: &str, expected: &ReleaseProvenanceExpectation) -> Value {
             "verifiedTimestamps": [],
             "statement": {
                 "_type": IN_TOTO_STATEMENT_V1,
-                "subject": [{"name": "DiskUnfold-0.1.0-x64.msi", "digest": {"sha256": digest}}],
+                "subject": [{"name": "DiskUnfold-0.0.1-x64.msi", "digest": {"sha256": digest}}],
                 "predicateType": SLSA_PROVENANCE_V1,
                 "predicate": {
                     "buildDefinition": {
@@ -95,7 +95,7 @@ fn accepts_synthetic_fixture_when_all_bound_values_match() -> Result<(), Box<dyn
     let output = serde_json::to_vec(&fixture(&digest, &expected))?;
     let result = validate_gh_verified_output(&output, &digest, &expected)?;
     assert_eq!(result.artifact_sha256, digest);
-    assert_eq!(result.source_ref, "refs/tags/v0.1.0");
+    assert_eq!(result.source_ref, "refs/tags/v0.0.1");
     assert_eq!(result.source_commit, expected.commit);
     assert_eq!(
         result.invocation_id,
@@ -283,7 +283,7 @@ fn rejects_duplicate_subjects_unconfigured_parameters_and_malformed_json()
 fn rejects_noncanonical_expectations() -> Result<(), Box<dyn Error>> {
     let digest = "b".repeat(64);
     let invalid_values = [
-        ("tag", "refs/tags/v0.1.0"),
+        ("tag", "refs/tags/v0.0.1"),
         ("commit", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"),
         ("run_attempt", "02"),
         ("workflow_path", "../release.yml"),

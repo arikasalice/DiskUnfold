@@ -8,10 +8,10 @@ import { classifyAttestation, expectedDigest, expectedPolicy, sha256File } from 
 const DIGEST = "a".repeat(64);
 
 test("expectedDigest reads the sha256sum format by exact file name", () => {
-  const sums = `${DIGEST}  DiskUnfold-0.1.0-x64.exe\n${"b".repeat(64)} *other.deb\n`;
-  assert.equal(expectedDigest(sums, "DiskUnfold-0.1.0-x64.exe"), DIGEST);
+  const sums = `${DIGEST}  DiskUnfold-0.0.1-x64.exe\n${"b".repeat(64)} *other.deb\n`;
+  assert.equal(expectedDigest(sums, "DiskUnfold-0.0.1-x64.exe"), DIGEST);
   assert.equal(expectedDigest(sums, "other.deb"), "b".repeat(64));
-  assert.equal(expectedDigest(sums, "DiskUnfold-0.1.0-x64"), undefined);
+  assert.equal(expectedDigest(sums, "DiskUnfold-0.0.1-x64"), undefined);
   assert.equal(expectedDigest("not a checksum line", "x"), undefined);
 });
 

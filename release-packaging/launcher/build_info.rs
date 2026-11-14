@@ -221,10 +221,10 @@ mod tests {
 
     fn official_inputs() -> BuildInputs {
         BuildInputs {
-            version: Some("0.1.0".into()),
+            version: Some("0.0.1".into()),
             requested_kind: Some("official".into()),
             supplied_commit: Some(COMMIT.into()),
-            release_tag: Some("v0.1.0".into()),
+            release_tag: Some("v0.0.1".into()),
             built_at_utc: Some("2026-11-13T01:02:03Z".into()),
             app_db_format: Some("3".into()),
             snapshot_format: Some("1".into()),

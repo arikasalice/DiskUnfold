@@ -7,8 +7,8 @@ license.workspace = true
 
 [dependencies]
 blake3 = "=1.8.3"
-du-analysis-index = { version = "0.1.0", path = "../analysis-index" }
-du-core-contracts = { version = "0.1.0", path = "../core-contracts" }
+du-analysis-index = { version = "0.0.1", path = "../analysis-index" }
+du-core-contracts = { version = "0.0.1", path = "../core-contracts" }
 serde_json.workspace = true
 zstd = { version = "=0.14.3", default-features = false }
 

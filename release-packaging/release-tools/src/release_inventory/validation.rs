@@ -157,50 +157,25 @@ fn validate_row(
     require_nonempty("signature_scope", &row.signature_scope)?;
     validate_artifact_name(&row.executable_file_name)?;
     require_nonempty("run_instructions", &row.run_instructions)?;
-    validate_bundled_components(row)
+    Ok(())
 }
 
-/// Name of the WebView2 offline installer recorded in every MSI row.
-pub const WEBVIEW2_COMPONENT: &str =
-    "Microsoft Edge WebView2 Runtime Evergreen Standalone Installer";
+/// Substrings (lower case) that identify a Microsoft download site or shortcut for the WebView2
+/// Runtime. DiskUnfold does not distribute the runtime, and no published artifact links to a
+/// download of it; the startup dialog opens Microsoft's public WebView2 page instead.
+const MICROSOFT_DOWNLOAD_MARKERS: [&str; 4] = [
+    "go.microsoft.com",
+    "fwlink",
+    "msedge.sf.dl.delivery.mp.microsoft.com",
+    "microsoft.com/download",
+];
 
-/// Checks the bundled-component records. An MSI carries the WebView2 installer, verified as
-/// signed by Microsoft Corporation; no other format carries a component.
-fn validate_bundled_components(row: &DistributionRow) -> Result<(), InventoryError> {
-    for component in &row.bundled_components {
-        require_nonempty("bundled_components.name", &component.name)?;
-        require_nonempty("bundled_components.version", &component.version)?;
-        require_nonempty("bundled_components.signer", &component.signer)?;
-        require_nonempty("bundled_components.source", &component.source)?;
-    }
-    let webview2 = row
-        .bundled_components
-        .iter()
-        .filter(|component| component.name == WEBVIEW2_COMPONENT)
-        .count();
-    let fail = |detail: &str| InventoryError::InvalidField {
-        field: "bundled_components",
-        detail: detail.to_owned(),
-    };
-    if row.format == PackageFormat::Msi {
-        if webview2 != 1 || row.bundled_components.len() != 1 {
-            return Err(fail(
-                "an msi row must record exactly the WebView2 standalone installer",
-            ));
-        }
-        let signer = &row.bundled_components[0].signer;
-        if !signer
-            .split(", ")
-            .any(|part| part == "CN=Microsoft Corporation")
-        {
-            return Err(fail(
-                "the WebView2 installer signer must be CN=Microsoft Corporation",
-            ));
-        }
-    } else if !row.bundled_components.is_empty() {
-        return Err(fail("only an msi row may record bundled components"));
-    }
-    Ok(())
+/// Returns the first Microsoft download marker found in `text`, if any.
+pub fn microsoft_download_reference(text: &str) -> Option<&'static str> {
+    let lower = text.to_ascii_lowercase();
+    MICROSOFT_DOWNLOAD_MARKERS
+        .into_iter()
+        .find(|marker| lower.contains(marker))
 }
 
 fn validate_channel_references(manifest: &ReleaseManifest) -> Result<(), InventoryError> {

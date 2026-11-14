@@ -47,30 +47,10 @@ pub fn render_markdown(inventory: &ReleaseInventory) -> String {
             markdown_cell(&row.run_instructions),
         ));
     }
-    if inventory
-        .rows
-        .iter()
-        .any(|row| !row.bundled_components.is_empty())
-    {
-        output.push_str("\n## Bundled components\n\n");
-        output.push_str(
-            "These third-party files are carried unmodified inside the package, as obtained from their vendor. Their digests are recorded here at packaging time and are not pinned, because the vendor replaces the file. The vendor's license governs them.\n\n",
-        );
-        output.push_str("| Package | Component | Version | SHA-256 | Verified signer | Source |\n| --- | --- | --- | --- | --- | --- |\n");
-        for row in &inventory.rows {
-            for component in &row.bundled_components {
-                output.push_str(&format!(
-                    "| {} | {} | {} | {} | {} | {} |\n",
-                    markdown_cell(&row.file_name),
-                    markdown_cell(&component.name),
-                    markdown_cell(&component.version),
-                    markdown_cell(component.sha256.as_str()),
-                    markdown_cell(&component.signer),
-                    markdown_cell(&component.source),
-                ));
-            }
-        }
-    }
+    output.push_str("\n## Runtime requirements\n\n");
+    output.push_str(
+        "- Windows 11: the Microsoft Edge WebView2 Runtime ships with Windows. DiskUnfold does not bundle it. If it is missing, DiskUnfold says so at startup and offers to open Microsoft's WebView2 page.\n- macOS: WebKit is part of the system.\n- Ubuntu: the .deb installs GTK 4 and WebKitGTK 6.0 automatically. The tar.gz does not; its README.txt lists the packages and the `apt` command.\n",
+    );
     output.push_str("\n## Executable checksums\n\n");
     output.push_str("| Package | Executable | SHA-256 |\n| --- | --- | --- |\n");
     for row in &inventory.rows {

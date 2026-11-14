@@ -58,6 +58,10 @@ node release-packaging/release/verify-download.mjs <file> --repo OWNER/REPO --ta
 
 See `release-packaging/release-tools/PROVENANCE.md` for the exact trust boundary of that command.
 
+## Runtime requirements
+
+DiskUnfold needs a system web view and does not bundle one. Windows 11 ships the Microsoft Edge WebView2 Runtime, and macOS has WebKit built in. On Ubuntu the .deb installs GTK 4 and WebKitGTK 6.0 automatically; the tar.gz does not, so read the README.txt inside it for the packages and the `apt` command. If the Windows runtime is missing, DiskUnfold shows a message at startup and can open Microsoft's public WebView2 page; the release files contain no Microsoft download link.
+
 ## Executables inside packages
 
 `EXECUTABLE-SHA256.json` lists the SHA-256 of the executable inside each package. After you install or extract a package, hash the executable and compare it with the entry for that package. The release workflow does not attest these executables separately; they are covered through the package they ship in.

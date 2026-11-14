@@ -9,24 +9,24 @@ license.workspace = true
 gui = ["dep:du-app-db", "dep:du-core-contracts", "dep:du-engine-api", "dep:du-mcp-gateway", "dep:du-platform-os", "dep:du-user-env", "dep:serde", "dep:serde_json", "dep:sha2", "du-platform-os/webview"]
 
 [dependencies]
-du-core-contracts = { version = "0.1.0", path = "../core-contracts", optional = true }
-du-engine-api = { version = "0.1.0", path = "../engine-api", optional = true }
-du-mcp-gateway = { version = "0.1.0", path = "../mcp-gateway", optional = true }
-du-platform-os = { version = "0.1.0", path = "../platform-os", optional = true }
+du-core-contracts = { version = "0.0.1", path = "../core-contracts", optional = true }
+du-engine-api = { version = "0.0.1", path = "../engine-api", optional = true }
+du-mcp-gateway = { version = "0.0.1", path = "../mcp-gateway", optional = true }
+du-platform-os = { version = "0.0.1", path = "../platform-os", optional = true }
 serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 sha2 = { workspace = true, optional = true }
 
 [dev-dependencies]
-du-platform-os = { version = "0.1.0", path = "../platform-os", features = ["fake"] }
-du-engine-api = { version = "0.1.0", path = "../engine-api", features = ["shutdown-test-support"] }
+du-platform-os = { version = "0.0.1", path = "../platform-os", features = ["fake"] }
+du-engine-api = { version = "0.0.1", path = "../engine-api", features = ["shutdown-test-support"] }
 
 [build-dependencies]
 sha2 = { workspace = true }
 
 [target.'cfg(any(windows, target_os = "linux", target_os = "macos"))'.dependencies]
-du-app-db = { version = "0.1.0", path = "../app-db", optional = true }
-du-user-env = { version = "0.1.0", path = "../user-env", optional = true }
+du-app-db = { version = "0.0.1", path = "../app-db", optional = true }
+du-user-env = { version = "0.0.1", path = "../user-env", optional = true }
 
 [target.'cfg(any(windows, target_os = "linux", target_os = "macos"))'.dev-dependencies]
 rusqlite.workspace = true

@@ -11,7 +11,7 @@
 | `lint-workflow.mjs` | Policy lint for the workflow: SHA pins with version comments, no TODO markers, tag-only triggers, draft-only release creation. `--verify-remote` resolves every pinned tag with `git ls-remote`. |
 | `verify-download.mjs`, `VERIFY.md` | How a user verifies a download. `VERIFY.md` is published with the release. |
 
-The Windows cells also build the MSI: fetch-webview2.ps1 downloads the WebView2 Evergreen Standalone Installer from Microsoft's permanent link and verifies the Microsoft signature (the digest is recorded, not pinned), install-wix.ps1 installs the pinned WiX 6.0.2 (needs the runner's .NET SDK), and package-windows-msi.ps1 packages. The MSI row records the installer's SHA-256 and version under bundled_components, and the release set requires an MSI for x64 and arm64. See release-packaging/windows/README.md.
+The Windows cells also build the MSI: install-wix.ps1 installs the pinned WiX 6.0.2 (needs the runner's .NET SDK), and package-windows-msi.ps1 packages. The MSI does not bundle the WebView2 Runtime, because Windows 11 ships it; the release set requires an MSI for x64 and arm64. See release-packaging/windows/README.md.
 
 Gate commands live in `release-packaging/release-tools` (`release-gate`, `build-product-resources`, `build-release-inventory`, `verify-release-provenance`).
 

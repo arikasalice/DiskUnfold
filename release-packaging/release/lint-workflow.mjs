@@ -264,6 +264,9 @@ export function lintWorkflow(text) {
   if (create.length !== 1 || !/--draft/.test(createBlock.split("release-assets/*")[0])) {
     problems.push("publish: exactly one gh release create is allowed and it must use --draft");
   }
+  if (create.length === 1 && !/--prerelease/.test(createBlock.split("release-assets/*")[0])) {
+    problems.push("publish: gh release create must use --prerelease while the release line is 0.x");
+  }
   if (/--draft=false|--latest|gh release edit/.test(text)) {
     problems.push("publish: the workflow must never publish a release");
   }

@@ -32,7 +32,7 @@ test("reaches both screens with one click each and returns focus to the opener",
   const dialog = await screen.findByRole("dialog", {
     name: "About DiskUnfold",
   });
-  expect(await screen.findByText("0.1.0")).toBeTruthy();
+  expect(await screen.findByText("0.0.1")).toBeTruthy();
   expect((await axe.run(dialog)).violations).toEqual([]);
   fireEvent.click(screen.getByRole("button", { name: "Close details" }));
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
@@ -89,7 +89,7 @@ test("keeps the opener buttons in reading order and puts focus on the close cont
   const dialog = await screen.findByRole("dialog", {
     name: "About DiskUnfold",
   });
-  await screen.findByText("0.1.0");
+  await screen.findByText("0.0.1");
   const close = screen.getByRole("button", { name: "Close details" });
   await waitFor(() => expect(document.activeElement).toBe(close));
   const inside = Array.from(dialog.querySelectorAll("button"));
