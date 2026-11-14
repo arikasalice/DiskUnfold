@@ -143,6 +143,19 @@ pub struct DirectoryCaseEvidence {
     pub reason_key: Option<String>,
 }
 
+/// Volume and file identity of one verified directory handle.
+///
+/// Values are adapter-scoped and comparable only with the `device` and
+/// `inode` that the same adapter reports in [`MetadataObservation`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HandleIdentity {
+    pub device: u64,
+    pub inode: u64,
+    /// Same-volume ancestor identities verified while opening this handle, in
+    /// the `inode` space. Empty when the adapter retained none.
+    pub ancestors: Vec<u64>,
+}
+
 /// A directory already opened and verified by an operating-system adapter.
 ///
 /// Child opens must be relative to this handle, without following links or
@@ -189,6 +202,16 @@ pub trait AnchoredDirectory: DirectoryObservations {
     /// `None` means unavailable; `Some(&[])` confirms a volume root. Evidence
     /// applies only while this anchored directory and its supporting handles live.
     fn ancestor_file_ids(&self) -> Option<&[Vec<u8>]> {
+        None
+    }
+
+    /// Identity of this handle in the `MetadataObservation` identity space.
+    ///
+    /// The collector compares child volumes with this value. `None` means
+    /// volume identification is unsupported for this handle; the collector then
+    /// cannot decide the boundary of child directories and does not enter them.
+    /// The default declines the observation without filesystem I/O.
+    fn observed_identity(&self) -> Option<HandleIdentity> {
         None
     }
 }
