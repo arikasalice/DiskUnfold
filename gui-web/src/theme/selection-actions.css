@@ -11,10 +11,41 @@
   background: var(--du-subtle);
 }
 
+.du-selection-actions__message {
+  display: flex;
+  min-inline-size: 0;
+  align-items: center;
+}
+
 .du-selection-actions__summary {
   min-inline-size: 0;
   color: var(--du-muted);
   font-size: 0.875em;
+}
+
+.du-selection-actions__notice {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--du-text);
+  font-size: 0.875em;
+  font-weight: 600;
+}
+
+.du-selection-actions__notice svg {
+  flex: none;
+}
+
+.du-selection-actions__notice[data-tone="success"] svg {
+  color: var(--du-success-text);
+}
+
+.du-selection-actions__notice[data-tone="info"] svg {
+  color: var(--du-info-text);
+}
+
+.du-selection-actions__notice[data-tone="error"] svg {
+  color: var(--du-danger-text);
 }
 
 .du-selection-actions__items {

@@ -413,6 +413,68 @@ test("F02 FR8.HD1: superseded and late responses are discarded", async () => {
 const fallbackText: LocaleText = (_key, fallback, values) =>
   interpolate(fallback, (name) => String(values?.[name] ?? ""));
 
+function selectionBar() {
+  return screen.queryByRole("toolbar", { name: "Selection actions" });
+}
+
+test("F02 FR8.HD1: the bar shows the outcome in place of its summary with a mark for its kind", async () => {
+  const { answers } = await setup();
+  const bar = selectionBar()!;
+  const status = within(bar).getByRole("status");
+  expect(status.textContent).toBe("");
+  await requestFirst("Photos");
+  await act(async () =>
+    answers[0]?.resolve({
+      controlResult: "accepted",
+      appliedPriorityArea: ref(1),
+    }),
+  );
+  expect(status.textContent).toBe("‘Photos’ is analyzed first");
+  expect(status.querySelector('[data-tone="success"] svg')).not.toBeNull();
+  expect(
+    within(bar).getByText("Select one folder to analyze it first").hidden,
+  ).toBe(true);
+
+  await requestFirst("Videos");
+  await act(async () => answers[1]?.reject(new Error("closed")));
+  expect(status.textContent).toBe("This folder could not be analyzed first.");
+  expect(status.querySelector('[data-tone="error"] svg')).not.toBeNull();
+  // Nothing floats over the list any more.
+  expect(document.querySelector(".du-toast-region")).toBeNull();
+});
+
+test("F02 FR8.HD1: the bar stays while an outcome shows after the scan ended, then the summary returns or the bar goes", async () => {
+  const { answers, rerender } = await setup();
+  await requestFirst("Photos");
+  vi.useFakeTimers();
+  await act(async () => answers[0]?.resolve({ controlResult: "accepted" }));
+  const bar = selectionBar()!;
+  act(() => {
+    vi.advanceTimersByTime(SCAN_PRIORITY_NOTICE_MS);
+  });
+  expect(within(bar).getByRole("status").textContent).toBe("");
+  expect(
+    within(bar).getByText("Select one folder to analyze it first").hidden,
+  ).toBe(false);
+
+  fireEvent.click(rowAction("Videos")!);
+  rerender(undefined);
+  await act(async () =>
+    answers[1]?.resolve({ controlResult: "already_terminal" }),
+  );
+  const ended = selectionBar()!;
+  expect(within(ended).getByRole("status").textContent).toBe(
+    "The analysis has finished.",
+  );
+  expect(
+    within(ended).getByRole("status").querySelector('[data-tone="info"] svg'),
+  ).not.toBeNull();
+  act(() => {
+    vi.advanceTimersByTime(SCAN_PRIORITY_NOTICE_MS);
+  });
+  expect(selectionBar()).toBeNull();
+});
+
 test("F02 FR8.HD1: a receipt without the applied area can be sent again and returns to neutral", async () => {
   vi.useFakeTimers();
   const { client, answers } = priorityClient();

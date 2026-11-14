@@ -11,9 +11,7 @@ import {
   Heading,
   Notice,
   Progress,
-  Toast,
 } from "../../components";
-import { scanPriorityText } from "../../ipc";
 import type {
   BrowseOpenRequest,
   BrowseOpenResponse,
@@ -354,22 +352,6 @@ export function BrowsePanel({
         inspectItem={inspectItem}
         close={inspection.close}
       />
-      {priority && <PriorityToast priority={priority} />}
     </section>
-  );
-}
-
-function PriorityToast({ priority }: { priority: ScanPriority }) {
-  const text = useLocaleText();
-  const notice = priority.notice;
-  return (
-    <Toast
-      message={
-        notice && {
-          id: notice.id,
-          text: scanPriorityText(notice, text),
-        }
-      }
-    />
   );
 }

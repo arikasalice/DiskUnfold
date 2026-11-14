@@ -24,7 +24,7 @@ import { formatByteUnit } from "../../i18n/bytes";
 import type { SizeDisplay } from "../../i18n/bytes";
 import { useTimestampText } from "../../i18n/regional-format";
 import { useLocaleText } from "../../i18n/presentation";
-import { SIZE_UNIT_RULES } from "../../ipc";
+import { SIZE_UNIT_RULES, scanPriorityText, scanPriorityTone } from "../../ipc";
 import { useBrowsePaging } from "./use-browse-paging";
 import { useBrowseCopy } from "./use-browse-copy";
 
@@ -151,6 +151,11 @@ type Selection = "all" | ReadonlySet<string>;
  * The selection action bar offers "Analyze first" while the list shows the
  * running scan's current result. It is enabled only for one selected folder
  * that the row action would also offer.
+ *
+ * The bar also shows the outcome of the last request in place of its summary
+ * for as long as the scan priority state offers it, and stays while it does,
+ * so an outcome such as "The analysis has finished." is not removed with the
+ * bar when the scan ends.
  */
 function SelectionAnalyzeFirst({
   pages,
@@ -165,7 +170,13 @@ function SelectionAnalyzeFirst({
 }) {
   const text = useLocaleText();
   const first = pages.row(0);
-  if (!priority || readOnly || !first || !priority.canRequest(first.item))
+  const notice = priority?.notice;
+  if (
+    !priority ||
+    readOnly ||
+    !first ||
+    (!priority.canRequest(first.item) && !notice)
+  )
     return null;
   const count = selection === "all" ? pages.count : selection.size;
   const key =
@@ -179,6 +190,13 @@ function SelectionAnalyzeFirst({
   return (
     <SelectionActions
       label={text("ui.browse.selection_actions", "Selection actions")}
+      notice={
+        notice && {
+          id: notice.id,
+          tone: scanPriorityTone(notice.outcome),
+          text: scanPriorityText(notice, text),
+        }
+      }
       summary={
         count === 0
           ? text(
