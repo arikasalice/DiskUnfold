@@ -83,6 +83,24 @@ const issueReasons = new Map<string, Message>([
     "scan.link_untraversed",
     ["ui.analysis.issue_reason_link_skipped", "The link target was skipped"],
   ],
+  [
+    "scan.boundary_other_volume",
+    ["ui.analysis.issue_reason_other_volume", "On another drive, not included"],
+  ],
+  [
+    "scan.revisit_blocked",
+    [
+      "ui.analysis.issue_reason_already_covered",
+      "Already covered from another location",
+    ],
+  ],
+  [
+    "scan.boundary_unverifiable",
+    [
+      "ui.analysis.issue_reason_range_unconfirmed",
+      "Could not confirm that this item is in the selected range",
+    ],
+  ],
 ]);
 
 /** Names an issue kind; unknown kinds use a general label. */

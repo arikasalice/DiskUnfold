@@ -6,8 +6,10 @@ fn table_rows_decide_entry_without_opening_out_of_scope_directories() -> Result<
     let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
     let tree = tree(0);
     let run = filtered_run(&tree, 4, true)?;
-    assert_eq!(run.outcome.counts.failed, 0);
-    for inode in [SKIP, ODD, MOUNT] {
+    // Only the undecidable name is a failure and a gap.
+    assert_eq!(run.outcome.counts.failed, 1);
+    assert_eq!(run.completeness, ResultCompleteness::Missing);
+    for inode in [SKIP, ODD, MOUNT, MOUNTED_ROOT, COVERED] {
         assert_eq!(tree.enumerated(inode), 0, "inode {inode} was enumerated");
     }
     for inode in [ROOT, 101, 102] {
@@ -17,7 +19,9 @@ fn table_rows_decide_entry_without_opening_out_of_scope_directories() -> Result<
             "inode {inode} was not entered once"
         );
     }
-    assert!(!tree.probed("odd") && !tree.probed("skip") && !tree.probed("other.txt"));
+    for name in ["odd", "skip", "other.txt", "mounted.txt", "covered.txt"] {
+        assert!(!tree.probed(name), "{name} was observed");
+    }
     let (items, issues, gaps) = run.summary;
     let item = |parts: &[&str], kind, size| (0, path(parts), kind, size);
     let expected_items: Vec<Item> = vec![
@@ -33,29 +37,23 @@ fn table_rows_decide_entry_without_opening_out_of_scope_directories() -> Result<
         item(&["mnt"], ResultItemKind::Directory, false),
         item(&["top.txt"], ResultItemKind::File, true),
         item(&["twin"], ResultItemKind::Directory, false),
+        item(&["vol"], ResultItemKind::Directory, false),
     ];
     assert_eq!(items, expected_items);
     let mut expected_issues = vec![
-        unread(0, &["a", "loop"]),
-        unread(0, &["foreign.bin"]),
-        unread(0, &["mnt"]),
-        unread(0, &["odd"]),
-        unread(0, &["twin"]),
+        revisit(0, &["a", "loop"]),
+        other_volume(0, &["foreign.bin"]),
+        other_volume(0, &["mnt"]),
+        unverifiable(0, &["odd"]),
+        revisit(0, &["twin"]),
+        other_volume(0, &["vol"]),
         link(0, &["a", "up"]),
         link(0, &["away"]),
     ];
     // Published order: root, relative path bytes, then kind and stage.
     expected_issues.sort_by(|a, b| (a.0, &a.1, a.2).cmp(&(b.0, &b.1, b.2)));
     assert_eq!(issues, expected_issues);
-    let gap_paths: Vec<_> = gaps.into_iter().map(|(_, gap, _)| gap).collect();
-    let expected_gaps = [
-        &["a", "loop"][..],
-        &["foreign.bin"],
-        &["mnt"],
-        &["odd"],
-        &["twin"],
-    ];
-    assert_eq!(gap_paths, expected_gaps.map(path));
+    assert_eq!(gaps, [unverifiable_gap(0, &["odd"])]);
     Ok(())
 }
 
@@ -80,17 +78,24 @@ fn unverified_root_identity_is_an_unread_root_and_keeps_the_result_missing() -> 
     assert!(run.outcome.result_version_id.is_some());
     assert_eq!(run.completeness, ResultCompleteness::Missing);
     assert_eq!(tree.enumerated(ROOT), 1);
-    for inode in [101, 102, SKIP, ODD, MOUNT] {
+    for inode in [101, 102, SKIP, ODD, MOUNT, MOUNTED_ROOT, COVERED] {
         assert_eq!(tree.enumerated(inode), 0);
     }
     let (items, issues, gaps) = run.summary;
     assert!(items.contains(&(0, path(&["top.txt"]), ResultItemKind::File, true)));
     // The root itself is the unread range that reports the missing identity.
-    assert!(issues.contains(&unread(0, &[])));
-    assert!(gaps.contains(&(0, Vec::new(), "scan.unclassified".into())));
-    for unverifiable in [&["a"][..], &["b"], &["twin"], &["mnt"], &["odd"]] {
-        assert!(issues.contains(&unread(0, unverifiable)));
+    assert!(issues.contains(&unverifiable(0, &[])));
+    let unread = [&[][..], &["a"], &["b"], &["mnt"], &["odd"], &["twin"]];
+    for parts in unread {
+        assert!(issues.contains(&unverifiable(0, parts)), "{parts:?}");
     }
+    let mut expected_gaps = unread.map(|parts| unverifiable_gap(0, parts)).to_vec();
+    // The other-volume file without a size is an unread value of its own.
+    expected_gaps.push((0, path(&["foreign.bin"]), "scan.unclassified".into()));
+    expected_gaps.sort();
+    assert_eq!(gaps, expected_gaps);
+    // The adapter established the mount, so it stays outside the boundary.
+    assert!(issues.contains(&other_volume(0, &["vol"])));
     // Without a boundary, the other-volume file is recorded without a size.
     let failed_size = (
         0,
@@ -100,7 +105,8 @@ fn unverified_root_identity_is_an_unread_root_and_keeps_the_result_missing() -> 
         "scan.unclassified".to_string(),
     );
     assert!(issues.contains(&failed_size));
-    assert_eq!(run.outcome.counts.failed, 2);
+    // The root, five unverifiable ranges and the file without a size.
+    assert_eq!(run.outcome.counts.failed, 7);
     Ok(())
 }
 
@@ -111,7 +117,7 @@ fn sequential_and_legacy_parallel_paths_share_the_table() -> Result<(), String> 
     let ids = Ids(AtomicUsize::new(1));
     let sequential_tree = tree(0);
     let sink = IngestSink::default();
-    let outcome = crate::scan::collect(
+    let sequential_outcome = crate::scan::collect(
         &sink,
         ids.next_id(),
         Dir::root(&sequential_tree, true),
@@ -119,18 +125,31 @@ fn sequential_and_legacy_parallel_paths_share_the_table() -> Result<(), String> 
         || Checkpoint::Continue,
         include,
     );
-    assert!(outcome.result_version_id.is_some());
-    let sequential = summary(&*sink.pin().map_err(|e| format!("{e:?}"))?.ok_or("missing")?);
+    let sequential_version = sink.pin().map_err(|e| format!("{e:?}"))?.ok_or("missing")?;
+    let sequential = summary(&sequential_version);
     let parallel_tree = tree(0);
     let sink = IngestSink::default();
     let build = sink.open_forest(ids.next_id(), vec![observed_root("C:\\A", 1)]);
     let roots = vec![Dir::root(&parallel_tree, true)];
-    collect_open_forest(build, roots, &ids, &context(), 3, &include);
-    let parallel = summary(&*sink.pin().map_err(|e| format!("{e:?}"))?.ok_or("missing")?);
+    let parallel_outcome = collect_open_forest(build, roots, &ids, &context(), 3, &include);
+    let parallel_version = sink.pin().map_err(|e| format!("{e:?}"))?.ok_or("missing")?;
+    let parallel = summary(&parallel_version);
     assert_eq!(sequential, parallel);
+    // Other volumes, the mount point and the revisits leave no gap or failure.
+    assert!(sequential.2.is_empty());
+    for (outcome, version) in [
+        (&sequential_outcome, &sequential_version),
+        (&parallel_outcome, &parallel_version),
+    ] {
+        assert!(outcome.result_version_id.is_some());
+        assert_eq!(outcome.counts.failed, 0);
+        assert_eq!(version.completeness(), ResultCompleteness::Complete);
+    }
     for tree in [&sequential_tree, &parallel_tree] {
         assert_eq!(tree.enumerated(SKIP), 0);
         assert_eq!(tree.enumerated(MOUNT), 0);
+        assert_eq!(tree.enumerated(MOUNTED_ROOT), 0);
+        assert_eq!(tree.enumerated(COVERED), 0);
         assert_eq!(tree.enumerated(ROOT), 1);
         assert_eq!(tree.enumerated(ODD), 1);
     }
@@ -154,9 +173,12 @@ fn sequential_collector_reports_an_unverified_root() -> Result<(), String> {
     assert!(outcome.completed_scope);
     let version = sink.pin().map_err(|e| format!("{e:?}"))?.ok_or("missing")?;
     assert_eq!(version.completeness(), ResultCompleteness::Missing);
-    let (_, issues, _) = summary(&version);
-    assert!(issues.contains(&unread(0, &[])));
-    assert!(issues.contains(&unread(0, &["a"])));
+    let (_, issues, gaps) = summary(&version);
+    assert!(issues.contains(&unverifiable(0, &[])));
+    assert!(issues.contains(&unverifiable(0, &["a"])));
+    assert!(issues.contains(&other_volume(0, &["vol"])));
+    assert!(gaps.contains(&unverifiable_gap(0, &[])));
+    assert!(gaps.contains(&unverifiable_gap(0, &["a"])));
     assert_eq!(tree.enumerated(101), 0);
     Ok(())
 }
