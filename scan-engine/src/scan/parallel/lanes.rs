@@ -231,6 +231,13 @@ impl Lanes {
         }
     }
 
+    /// Workers that may still join `lane` within its worker limit.
+    pub(super) fn free_seats(&self, lane: usize) -> usize {
+        self.lanes
+            .get(lane)
+            .map_or(0, |state| state.limit().saturating_sub(state.members))
+    }
+
     /// A lane with claimable work and room for one more worker.
     ///
     /// Lanes with fewer workers come first, so workers stuck in a stalled
