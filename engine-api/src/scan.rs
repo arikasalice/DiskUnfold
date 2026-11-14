@@ -32,7 +32,8 @@ pub type ScanDiagnosticsFactory =
 /// Reads an already validated setting snapshot when a new scan is admitted.
 pub type SharedTableLimitSource = Arc<dyn Fn() -> SharedTableLimit + Send + Sync>;
 
-/// Registers the metadata job and the query sharing its immutable result store.
+/// Registers the metadata job, its GUI priority control and the query sharing
+/// its immutable result store.
 pub(crate) fn register_with_limit(
     builder: &mut EngineBuilder,
     workers: Arc<Workers>,
@@ -51,11 +52,12 @@ pub(crate) fn register_with_limit(
             limit,
             diagnostics,
             admissions: None,
-            priority_control: false,
+            priority_control: true,
         },
     )
 }
 
+/// Registers the desktop scan flow with recent-scope admissions and GUI priority control.
 pub(crate) fn register_with_admissions(
     builder: &mut EngineBuilder,
     workers: Arc<Workers>,
@@ -75,7 +77,7 @@ pub(crate) fn register_with_admissions(
             limit,
             diagnostics,
             admissions: Some(admissions),
-            priority_control: false,
+            priority_control: true,
         },
     )
 }
