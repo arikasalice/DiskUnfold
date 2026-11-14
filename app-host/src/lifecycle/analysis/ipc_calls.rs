@@ -52,14 +52,19 @@ pub(super) fn finished(events: &DesktopEvents, job: &Id) -> Result<EventEnvelope
 
 /// Returns the logical bytes and whether the total is exact rather than a lower bound.
 pub(super) fn logical(total: &SpaceTotal) -> Result<(u64, bool), Failure> {
+    amount(total, SizeBasis::Logical)
+}
+
+/// Returns the bytes of `basis` and whether the total is exact rather than a lower bound.
+pub(super) fn amount(total: &SpaceTotal, basis: SizeBasis) -> Result<(u64, bool), Failure> {
     let size = total
         .sizes
         .iter()
-        .find(|value| value.size.basis == SizeBasis::Logical)
-        .ok_or("missing logical size")?;
+        .find(|value| value.size.basis == basis)
+        .ok_or(format!("missing {basis:?} size"))?;
     match &size.size.amount {
         SizeAmount::Exact { bytes } => Ok((bytes.as_str().parse()?, true)),
         SizeAmount::LowerBound { bytes } => Ok((bytes.as_str().parse()?, false)),
-        other => Err(format!("unexpected logical size: {other:?}").into()),
+        other => Err(format!("unexpected {basis:?} size: {other:?}").into()),
     }
 }

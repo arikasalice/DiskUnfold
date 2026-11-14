@@ -22,6 +22,8 @@ use std::{
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
+mod mount;
+
 fn draft(path: &Path) -> Value {
     let include = json!({
         "encoding": "unix",
@@ -66,7 +68,11 @@ fn macos_scan_reviews_collects_and_reports_failures() -> TestResult {
     outcome
 }
 
-fn scan(base: &Path, profile: &Path, denied: bool) -> TestResult {
+/// The macOS adapters, an engine and its database in `profile`; keep the
+/// database for as long as the engine is used.
+type Assembled = (Engine, DesktopServices, SharedDatabase);
+
+fn engine(profile: &Path) -> Result<Assembled, Box<dyn std::error::Error>> {
     let ports = scan_ports().ok_or("macOS collection adapters are not injected")?;
     let database = crate::startup_database::open(profile)?;
     let mut builder = EngineBuilder::default();
@@ -74,6 +80,11 @@ fn scan(base: &Path, profile: &Path, denied: bool) -> TestResult {
     let services = register_analysis(&mut builder, ports, &database, limit, None)?;
     let engine = builder.build()?;
     verify_registered(&engine, true)?;
+    Ok((engine, services, database))
+}
+
+fn scan(base: &Path, profile: &Path, denied: bool) -> TestResult {
+    let (engine, services, _database) = engine(profile)?;
     let alias = base.with_file_name("alias");
     symlink(base, &alias)?;
     let linked: ScopeReview = read(
