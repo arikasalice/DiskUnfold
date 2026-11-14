@@ -4,6 +4,7 @@ import {
   subscribeNative,
   subscribeNativeFolderDrop,
 } from "./bridge";
+import { AnalysisError } from "./analysis-error";
 import type {
   AnalysisJobControl,
   AppQuitRequest,
@@ -300,17 +301,28 @@ export type FolderDrop = { seq: number } & (
   | { reason: "invalid_target" | "unsupported" }
 );
 
-/** Carries a command failure while preserving retryability when the host knows it. */
-export class AnalysisError extends Error {
-  constructor(
-    readonly code: string,
-    readonly reasonKey: string,
-    /** Retryability from the native error envelope, when available. */
-    readonly retryable?: boolean,
-  ) {
-    super(reasonKey);
-  }
-}
+export { AnalysisError };
+export {
+  rejectedScopeReviewText,
+  resultReadProblem,
+  SCAN_ISSUE_FILTERS,
+  scanIssueKindText,
+  scanIssueReasonText,
+  scanIssueStageText,
+  scanIssuesProblemText,
+  scanIssuesRecoveryText,
+  scanJobReasonText,
+  scanProblemText,
+  scopeErrorText,
+  scopeNoticeText,
+  scopeReviewErrorText,
+} from "./scan-text";
+export type {
+  ResultReadProblem,
+  ScanControl,
+  ScanIssueFilter,
+  ScanProblem,
+} from "./scan-text";
 
 /** Creates the UUID v7 request identifier required by the host envelope. */
 function requestId(): Id {
