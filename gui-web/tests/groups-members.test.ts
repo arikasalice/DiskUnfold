@@ -152,6 +152,33 @@ test("F36 FR6: the same view is not read again", async () => {
   expect(fake.count("group.members")).toBe(1);
 });
 
+test("F36 FR6: a view that differs only in count or result version is a new view with its own total and request version", async () => {
+  const { fake, reader } = setup();
+  reader.setView(view());
+  reader.show(0, 10);
+  await flush();
+  expect(reader.row(0)).toBeDefined();
+  expect(reader.getSnapshot().total).toBe(1000);
+
+  // Same classification, category and sort: only the announced count changed.
+  reader.setView(view({ count: 250 }));
+  expect(reader.getSnapshot().total).toBe(250);
+  expect(reader.row(0)).toBeUndefined();
+  await flush();
+  expect(fake.count("group.members")).toBe(2);
+
+  // Only the result version changed: the next read asks for the new version.
+  reader.setView(view({ count: 250, resultVersion: "newer-result" }));
+  expect(reader.row(0)).toBeUndefined();
+  await flush();
+  expect(fake.count("group.members")).toBe(3);
+  expect(bodies(fake)[2]).toMatchObject({
+    classificationRef: CLASSIFICATION,
+    resultVersion: "newer-result",
+  });
+  expect(reader.row(0)?.item.itemNo).toBe(1);
+});
+
 test("F36 FR6: an unreadable classification is reported; other failures can be retried", async () => {
   let reason: [string, string] = ["NOT_FOUND", "group.result_expired"];
   const { fake, reader, unreadable } = setup(() => {
@@ -165,6 +192,8 @@ test("F36 FR6: an unreadable classification is reported; other failures can be r
 
   reason = ["BUSY", "db.busy"];
   reader.setView(view({ count: 999 }));
+  // A changed count is a new view, so the total follows it at once.
+  expect(reader.getSnapshot().total).toBe(999);
   reader.show(0, 11);
   await flush();
   expect(reader.getSnapshot().failed).toBeDefined();

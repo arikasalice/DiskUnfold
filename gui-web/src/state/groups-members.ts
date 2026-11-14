@@ -39,11 +39,19 @@ export type MembersView = {
   count: number;
 };
 
-/** The cache key: classification, category and sort. Any change drops the cache. */
+/**
+ * The cache key: classification, result version, category, announced count and
+ * sort. Any change drops the cache. The version and the count belong to the key
+ * because the cached rows and the total were read for them: a new view that
+ * differs only there must not keep the earlier total or request the earlier
+ * version.
+ */
 export function membersCacheKey(view: MembersView): string {
   return [
     view.classificationRef,
+    view.resultVersion,
     categoryKey(view.category),
+    String(view.count),
     sortKey(view.sort),
   ].join("|");
 }

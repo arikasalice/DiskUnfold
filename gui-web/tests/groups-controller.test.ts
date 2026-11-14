@@ -502,3 +502,66 @@ test("F36 FR2: closing the screen cancels a running classification and stops lis
   );
   expect(fake.listenerCount()).toBe(0);
 });
+
+const cancelBodies = (fake: ReturnType<typeof fakeClient>) =>
+  fake.calls
+    .filter((call) => call.name === "group.cancel")
+    .map((call) => call.body);
+
+test("F36 #29 review (2): closing while the request is still being sent drops the view", async () => {
+  const answer = deferred<unknown>();
+  const { fake, controller } = setup({
+    "group.classify": () => answer.promise,
+  });
+  await flush();
+  const started = controller.classify();
+  await flush();
+  expect(controller.getSnapshot().phase).toBe("requesting");
+  controller.dispose();
+  await flush();
+  expect(cancelBodies(fake)).toEqual([
+    { kind: "view", viewRef: "view-1", requestSeq: 1 },
+  ]);
+  answer.resolve({ kind: "summary", requestSeq: 1, summary: summary() });
+  await started;
+});
+
+test("F36 #29 review (2): closing after a stale answer arrived while the job ran still drops the view", async () => {
+  const { fake, controller } = setup({
+    "group.classify": (body: Body) => ({
+      kind: "job",
+      requestSeq: body.requestSeq,
+      jobRef: "job-6",
+      classificationRef: CLASSIFICATION,
+      resultVersion: RESULT,
+    }),
+    "job.get": () => ({
+      jobRef: "job-6",
+      kind: "x",
+      state: "running",
+      sequence: 1,
+      resultVersion: null,
+      reasonKey: null,
+    }),
+  });
+  await controller.classify();
+  expect(controller.getSnapshot().phase).toBe("working");
+  controller.reportUnreadable(
+    new AnalysisError("NOT_FOUND", "group.result_expired"),
+  );
+  expect(controller.getSnapshot().phase).toBe("requery_needed");
+  controller.dispose();
+  await flush();
+  expect(cancelBodies(fake)).toEqual([
+    { kind: "view", viewRef: "view-1", requestSeq: 1 },
+  ]);
+});
+
+test("F36 #29 review (2): closing after the classification finished sends no cancel", async () => {
+  const { fake, controller } = setup();
+  await controller.classify();
+  expect(controller.getSnapshot().phase).toBe("showing");
+  controller.dispose();
+  await flush();
+  expect(cancelBodies(fake)).toEqual([]);
+});

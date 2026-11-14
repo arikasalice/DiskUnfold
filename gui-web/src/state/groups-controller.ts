@@ -99,6 +99,12 @@ export class GroupsController {
   private target: { resultVersion: Id | undefined; scope: ItemRef | undefined };
   private condition: ViewCondition;
   private pending: Pending | undefined;
+  /**
+   * True from the moment a classification is asked for until it ends. Unlike
+   * `pending`, a stale answer does not clear it while the request may still
+   * be running on the host, so closing the screen can still drop that work.
+   */
+  private unsettled = false;
   private stopJob: (() => void) | undefined;
   private stopEvents: (() => void) | undefined;
   private started = false;
@@ -156,7 +162,7 @@ export class GroupsController {
     this.disposed = true;
     this.stopEvents?.();
     this.stopWatchingJob();
-    if (this.pending && this.state.phase === "working")
+    if (this.unsettled)
       void this.client
         .call("group.cancel", {
           kind: "view",
@@ -214,6 +220,7 @@ export class GroupsController {
     this.target = retarget;
     this.stopWatchingJob();
     this.pending = undefined;
+    this.unsettled = true;
     this.patch({ scope: retarget.scope });
     let ruleset: GroupRuleset;
     try {
@@ -340,6 +347,7 @@ export class GroupsController {
     } else {
       this.judge({ requestSeq }, () => {
         this.pending = undefined;
+        this.unsettled = false;
         this.move("not_applicable", { reasonKey: response.reasonKey });
       });
     }
@@ -347,6 +355,7 @@ export class GroupsController {
 
   private showSummary(summary: GroupSummary, event: "summary" | "job_summary") {
     this.pending = undefined;
+    this.unsettled = false;
     this.stopWatchingJob();
     // The folder stays what was asked for, whatever the answer echoes.
     this.target = {
@@ -454,6 +463,7 @@ export class GroupsController {
 
   private endJob(outcome: GroupsOutcome) {
     this.pending = undefined;
+    this.unsettled = false;
     this.stopWatchingJob();
     this.move("job_ended", { outcome, jobRef: undefined });
   }
@@ -461,12 +471,15 @@ export class GroupsController {
   private failRequest(error: unknown, seq: number | undefined) {
     if (this.disposed || (seq !== undefined && seq !== this.channel.last))
       return;
+    // The host answered with an error, so no request of this call is running.
+    this.unsettled = false;
     const failure = describeFailure(error);
     if (isRequeryReason(failure.reasonKey)) {
       this.markStale(failure.reasonKey);
       return;
     }
     this.pending = undefined;
+    this.unsettled = false;
     this.move("request_failed", {
       outcome: { kind: "failed", ...failure },
       reasonKey: failure.reasonKey,
@@ -481,6 +494,9 @@ export class GroupsController {
           ? "expired"
           : "version";
     this.pending = undefined;
+    // A request that is still running stays open; one that already ended does not.
+    this.unsettled &&=
+      this.state.phase === "requesting" || this.state.phase === "working";
     this.stopWatchingJob();
     this.move("stale", { staleReason, jobRef: undefined });
   }
