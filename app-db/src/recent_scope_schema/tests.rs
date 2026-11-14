@@ -34,6 +34,15 @@ fn production_migration_preserves_existing_settings_and_reopens() -> TestResult 
             &HISTORY_DEFINITIONS
         )
         .map_err(|e| format!("{e:?}"))?,
+        5
+    );
+    assert_eq!(
+        migration::apply_next(
+            &path,
+            &dir.path().join("before-group-rules.db"),
+            &HISTORY_DEFINITIONS
+        )
+        .map_err(|e| format!("{e:?}"))?,
         HISTORY_SCHEMA_VERSION
     );
     let db = AppDb::open_gui_with_history(&path).map_err(|e| format!("{e:?}"))?;
