@@ -44,6 +44,8 @@ use super::{
     queue::{CLASSES, NORMAL, PriorityRegion, rank_in},
 };
 #[cfg(test)]
+pub(super) use lending::Moves;
+#[cfg(test)]
 pub(super) use ready::cost;
 use ready::{Arrival, ReadyQueue, Stack};
 use std::collections::HashMap;
@@ -132,6 +134,8 @@ pub(super) struct Lanes {
     arrivals: u64,
     queued: usize,
     peak: Option<usize>,
+    #[cfg(test)]
+    pub(super) moves: lending::Moves,
 }
 
 impl Lanes {
@@ -155,6 +159,8 @@ impl Lanes {
             arrivals: 0,
             queued: 0,
             peak: track_peak.then_some(0),
+            #[cfg(test)]
+            moves: lending::Moves::default(),
         }
     }
 

@@ -1,7 +1,7 @@
 //! A job context whose flows park on pause and stop on cancellation.
 use super::*;
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub(super) struct Switches {
     pub(super) paused: bool,
     pub(super) cancelled: bool,
@@ -25,16 +25,26 @@ impl Remote {
         Ok(())
     }
 
+    /// Waits until `ready` holds for the switches. A timeout names the
+    /// caller, the time waited and the last state seen.
+    #[track_caller]
     pub(super) fn until(&self, ready: impl Fn(&Switches) -> bool) -> Result<(), TestError> {
+        let (awaited, limit, started) =
+            (Location::caller(), Duration::from_secs(10), Instant::now());
         let state = self.state.lock().map_err(|_| "remote lock")?;
         let (state, _) = self
             .changed
-            .wait_timeout_while(state, Duration::from_secs(10), |state| !ready(state))
+            .wait_timeout_while(state, limit, |state| !ready(state))
             .map_err(|_| "remote lock")?;
         if ready(&state) {
             Ok(())
         } else {
-            Err("flows did not reach the expected state".into())
+            let elapsed = started.elapsed();
+            Err(format!(
+                "flows awaited at {awaited} did not reach the expected state after \
+                 {elapsed:?} (limit {limit:?}); last state {state:?}"
+            )
+            .into())
         }
     }
 
