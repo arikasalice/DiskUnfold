@@ -82,6 +82,7 @@ fn scan_harness() -> Result<ScanHarness, Box<dyn std::error::Error>> {
     scan_harness_with_gate(None)
 }
 
+mod display;
 mod fixture;
 mod priority;
 mod recent;

@@ -3,13 +3,14 @@ pub mod copy_path;
 pub mod folder;
 use du_analysis_index::{IngestSink, QueryError, ResultVersion};
 use du_core_contracts::{
-    PathEncoding, SizeAmount, SizeBasis, SizeEvidence, SizeValue,
+    SizeAmount, SizeBasis, SizeEvidence, SizeValue,
     browse_ipc::{BrowseDetail, BrowseDetailRequest, BrowseOrigin, BrowseValue},
     result::{ResultItem, ResultItemKind, ResultVersionRead},
 };
 
 use crate::{
     api::{CallerCtx, Channel, EngineBuilder, UseCase},
+    display_path,
     error::EngineError,
 };
 
@@ -50,7 +51,7 @@ fn project(
     let item_no = detail.item.item_no;
     let display_path = version.native_path(&request.item).ok().and_then(|path| {
         let bytes = path.raw.bytes().ok()?;
-        display(&path.encoding, &bytes)
+        display_path::path(&path.encoding, &bytes)
     });
     let display_name = match detail.item.parent {
         None => display_path.clone(),
@@ -123,22 +124,9 @@ fn item_display_name(
     item: &ResultItem,
 ) -> Option<String> {
     let (_, root) = version.observed_root_for(reference).ok()?;
+    // A root has no name of its own and is shown by its complete path.
     if item.parent.is_none() {
-        return display(&root.path.encoding, &root.path.raw.bytes().ok()?);
+        return display_path::path(&root.path.encoding, &root.path.raw.bytes().ok()?);
     }
-    display(&root.path.encoding, &item.name)
-}
-
-pub(crate) fn display(encoding: &PathEncoding, bytes: &[u8]) -> Option<String> {
-    match encoding {
-        PathEncoding::Unix => Some(String::from_utf8_lossy(bytes).into_owned()),
-        PathEncoding::WindowsUtf16le => {
-            let (pairs, remainder) = bytes.as_chunks::<2>();
-            if !remainder.is_empty() {
-                return None;
-            }
-            let units: Vec<_> = pairs.iter().copied().map(u16::from_le_bytes).collect();
-            Some(String::from_utf16_lossy(&units))
-        }
-    }
+    display_path::name(&root.path.encoding, &item.name)
 }

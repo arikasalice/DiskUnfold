@@ -23,6 +23,7 @@ use super::GroupAssembly;
 use crate::api::{CallerCtx, Channel, Engine, EngineBuilder};
 
 mod admission;
+mod display;
 mod sharing;
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
@@ -127,6 +128,16 @@ fn harness_custom(
 ) -> Result<Harness, Box<dyn std::error::Error>> {
     let sink = IngestSink::default();
     publish(&sink, 2)?;
+    harness_from(sink, rules, idle, decision_limit)
+}
+
+/// Registers the use cases over results the caller already published to `sink`.
+fn harness_from(
+    sink: IngestSink,
+    rules: Arc<MemoryRules>,
+    idle: bool,
+    decision_limit: usize,
+) -> Result<Harness, Box<dyn std::error::Error>> {
     let runtime = Arc::new(JobRuntime::new(
         Arc::new(Ids(AtomicUsize::new(1))),
         Arc::new(Clock),

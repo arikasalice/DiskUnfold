@@ -1,7 +1,7 @@
 //! Assembly of admitted single-parent projections into pinned page rows.
 //! Legend classifications and display flags must come from their owning producer.
 use super::{Error as PagesError, ModelInput, ModelPages};
-use crate::browse;
+use crate::display_path;
 use du_analysis_index::{
     ResultVersion,
     visualization::{projection, ratio},
@@ -237,7 +237,7 @@ fn make_row(
         .observed_root_for(&presentation.item)
         .map_err(|_| Error::MissingDisplayName)?;
     let display_name =
-        browse::display(&root.path.encoding, name).ok_or(Error::MissingDisplayName)?;
+        display_path::name(&root.path.encoding, name).ok_or(Error::MissingDisplayName)?;
     let numerator = quantity(size)?;
     let ratio = ratio::calculate(&numerator, &denominator.value)
         .as_deref()

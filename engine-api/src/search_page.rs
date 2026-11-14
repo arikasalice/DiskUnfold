@@ -10,7 +10,7 @@ use du_core_contracts::{
     browse_page_ipc::{QueryPage, QueryTotal, SearchQueryPage, SearchQueryRow, SearchRowKind},
 };
 
-use crate::browse::display;
+use crate::display_path;
 
 /// The admitted page cannot be projected as a search page.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -75,7 +75,7 @@ pub(crate) fn row(
         path.raw
             .bytes()
             .ok()
-            .and_then(|bytes| display(&path.encoding, &bytes))
+            .and_then(|bytes| display_path::path(&path.encoding, &bytes))
     });
     let name = if item.parent.is_none() {
         path.clone()
@@ -83,7 +83,7 @@ pub(crate) fn row(
         version
             .observed_root_for(reference)
             .ok()
-            .and_then(|(_, root)| display(&root.path.encoding, &item.name))
+            .and_then(|(_, root)| display_path::name(&root.path.encoding, &item.name))
     };
     Ok(SearchQueryRow {
         item: reference.clone(),
@@ -106,6 +106,9 @@ pub(crate) fn row(
 fn to_count(value: u64) -> Result<u32, ProjectionError> {
     u32::try_from(value).map_err(|_| ProjectionError::CountOverflow)
 }
+
+#[cfg(test)]
+mod tests;
 
 fn field<T>(value: Option<T>, reason: &str) -> BrowseValue<T> {
     value.map_or_else(|| unknown(reason), |value| BrowseValue::Present { value })

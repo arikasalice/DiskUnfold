@@ -12,7 +12,7 @@ use du_core_contracts::{
 
 use crate::{
     api::{CallerCtx, Channel, EngineBuilder, UseCase},
-    browse::display,
+    display_path,
     error::EngineError,
 };
 
@@ -92,7 +92,7 @@ fn project(version: &ResultVersion, issue: &ScanIssue) -> ScanFailureRow {
     let display_path = version
         .issue_path(issue.root_index, &issue.relative)
         .ok()
-        .and_then(|path| display(&path.encoding, &path.raw.bytes().ok()?));
+        .and_then(|path| display_path::path(&path.encoding, &path.raw.bytes().ok()?));
     ScanFailureRow {
         kind: issue.kind,
         stage: issue.stage,

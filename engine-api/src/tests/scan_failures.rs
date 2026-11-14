@@ -29,6 +29,10 @@ fn id(value: u8) -> Result<Id, String> {
 }
 
 fn fixture() -> Result<(IngestSink, Id), String> {
+    fixture_at("C:\\Fixture")
+}
+
+fn fixture_at(root: &str) -> Result<(IngestSink, Id), String> {
     use ScanFailureKind::{CollectionFailed, UnreadRange, UntraversedLink};
     use ScanFailureStage::{Metadata, OpenDirectory, Traverse};
     let wide = |path: &str| {
@@ -43,7 +47,7 @@ fn fixture() -> Result<(IngestSink, Id), String> {
             ResultScopeRoot {
                 path: ResultNativePath {
                     encoding: PathEncoding::WindowsUtf16le,
-                    raw: PathBytes::from_bytes(&wide("C:\\Fixture")),
+                    raw: PathBytes::from_bytes(&wide(root)),
                 },
                 volume_id: vec![1],
                 file_id: vec![2],
@@ -186,5 +190,25 @@ fn does_not_register_without_secure_randomness_or_expose_rows_outside_gui() -> R
     )?;
     assert!(response.error.is_some());
     assert!(response.body.is_null());
+    Ok(())
+}
+
+#[test]
+fn extended_root_failures_show_the_drive_form_and_keep_raw_references() -> Result<(), String> {
+    let (store, version) = fixture_at(r"\\?\C:\Fixture")?;
+    let engine = engine(store, true)?;
+    let page = page(
+        &engine,
+        json!({"resultVersion":version, "kind":"unread_range"}),
+    )?;
+    assert!(page.error.is_none());
+    let row = &page.body["rows"][0];
+    assert_eq!(row["displayPath"], r"C:\Fixture\denied");
+    assert_eq!(row["pathRef"]["rootIndex"], 0);
+    let denied: Vec<u8> = "denied".encode_utf16().flat_map(u16::to_le_bytes).collect();
+    assert_eq!(
+        row["pathRef"]["relative"],
+        json!([PathBytes::from_bytes(&denied)])
+    );
     Ok(())
 }

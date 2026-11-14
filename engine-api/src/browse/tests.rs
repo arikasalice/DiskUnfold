@@ -1,7 +1,7 @@
 use super::*;
 use du_analysis_index::{Observation, SharingEvidence, SpaceObservation};
 use du_core_contracts::{
-    ByteSize, CallEnvelope, ENVELOPE_VERSION, Id, ItemRef, PathBytes,
+    ByteSize, CallEnvelope, ENVELOPE_VERSION, Id, ItemRef, PathBytes, PathEncoding,
     result::{ResultCompleteness, ResultNativePath, ResultScopeRoot},
 };
 use serde_json::{Value, json};
@@ -274,5 +274,85 @@ fn check_item(
     assert_eq!(body["observationOnly"], true);
     assert_eq!(body["dataSource"], "real");
     assert!(!body.to_string().contains("\"raw\""));
+    Ok(())
+}
+
+// Result paths accept drive roots only, so UNC and volume forms are covered by
+// the display rule's own tests.
+#[test]
+fn extended_windows_roots_are_shown_without_the_prefix() -> Result<(), String> {
+    let sink = IngestSink::default();
+    let version = id(2)?;
+    let roots = [r"\\?\C:\첫째", r"\\?\D:\", r"E:\plain"];
+    let mut build = sink
+        .open_forest(
+            id(1)?,
+            roots
+                .iter()
+                .map(|path| root(PathEncoding::WindowsUtf16le, &wide(path)))
+                .collect(),
+        )
+        .map_err(|e| format!("{e:?}"))?;
+    for index in 0..3 {
+        build
+            .add_directory_at(index, vec![])
+            .map_err(|e| format!("{e:?}"))?;
+        build
+            .add_file_at(
+                index,
+                Observation {
+                    path: vec![wide("이름")],
+                    size: None,
+                },
+            )
+            .map_err(|e| format!("{e:?}"))?;
+    }
+    let pinned = build
+        .seal(version.clone(), ResultCompleteness::Complete)
+        .map_err(|e| format!("{e:?}"))?;
+    let mut builder = EngineBuilder::default();
+    register(&mut builder, sink);
+    let engine = builder.build().map_err(|e| e.to_string())?;
+    let shown = [r"C:\첫째", r"D:\", r"E:\plain"];
+    let join = |root: &str| {
+        if root.ends_with('\\') {
+            format!("{root}이름")
+        } else {
+            format!(r"{root}\이름")
+        }
+    };
+    for item in pinned.items() {
+        let reference = ItemRef {
+            result_version: version.clone(),
+            item_no: item.item_no,
+        };
+        let (index, _) = pinned
+            .observed_root_for(&reference)
+            .map_err(|e| format!("{e:?}"))?;
+        let index = usize::try_from(index).map_err(|e| e.to_string())?;
+        let response = call_detail(&engine, &version, &version, item.item_no)?;
+        assert!(response.error.is_none());
+        let (name, path, native) = if item.parent.is_none() {
+            (
+                shown[index].to_owned(),
+                shown[index].to_owned(),
+                wide(roots[index]),
+            )
+        } else {
+            (
+                "이름".to_owned(),
+                join(shown[index]),
+                wide(&join(roots[index])),
+            )
+        };
+        assert_eq!(response.body["displayName"]["value"], name);
+        assert_eq!(response.body["displayPath"]["value"], path);
+        assert_eq!(response.body["item"]["itemNo"], item.item_no);
+        // The native path that later commands reopen keeps the extended prefix.
+        let observed = pinned
+            .native_path(&reference)
+            .map_err(|e| format!("{e:?}"))?;
+        assert_eq!(observed.raw, PathBytes::from_bytes(&native));
+    }
     Ok(())
 }
