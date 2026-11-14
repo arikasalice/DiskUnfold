@@ -15,29 +15,129 @@ use du_core_contracts::{
 };
 use std::{
     collections::VecDeque,
-    sync::{Arc, Mutex},
+    sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError},
+    time::Duration,
 };
+
+/// How often a wait for a busy handle checks its stop condition.
+const STOP_CHECK: Duration = Duration::from_millis(25);
 
 /// A verified directory handle shared by its frame and its queued children.
 ///
-/// An adapter call holds this handle's own lock only for the duration of that
+/// One adapter call at a time holds the handle, only for the duration of that
 /// call. No scheduler lock is taken while it is held, and it is never held
 /// across a channel send, so calls on one handle never wait on another lane.
+/// The port reads a batch through `&mut self` and opens a child through
+/// `&self`, so a child open still waits for a read of its parent in progress;
+/// that wait can stop (see [`Directory::open`]).
 #[derive(Clone)]
-pub(super) struct Anchor(Arc<Mutex<Box<dyn AnchoredDirectory>>>);
+pub(super) struct Anchor(Arc<Handle>);
+
+struct Handle {
+    slot: Mutex<Slot>,
+    returned: Condvar,
+}
+
+enum Slot {
+    Free(Box<dyn AnchoredDirectory>),
+    /// An adapter call holds the handle.
+    InUse,
+    /// An adapter call on the handle panicked. The handle is kept unused until
+    /// the last reference to it is dropped, so unwinding does not close it.
+    Broken {
+        _retained: Option<Box<dyn AnchoredDirectory>>,
+    },
+}
+
+/// Why an adapter call on a shared handle did not run.
+enum Unrun {
+    /// The stop condition held while another call held the handle.
+    Stopped,
+    /// An earlier call on the handle panicked.
+    Unavailable,
+}
+
+/// The handle, taken out of its slot for one adapter call.
+struct Lease<'a> {
+    handle: &'a Handle,
+    directory: Option<Box<dyn AnchoredDirectory>>,
+}
+
+impl Drop for Lease<'_> {
+    fn drop(&mut self) {
+        let mut slot = lock(&self.handle.slot);
+        *slot = match self.directory.take() {
+            Some(directory) if !std::thread::panicking() => Slot::Free(directory),
+            directory => Slot::Broken {
+                _retained: directory,
+            },
+        };
+        drop(slot);
+        self.handle.returned.notify_all();
+    }
+}
+
+fn lock(slot: &Mutex<Slot>) -> MutexGuard<'_, Slot> {
+    // The slot lock is never held across an adapter call, so it is not
+    // poisoned by an adapter panic; a poisoned slot still holds a valid state.
+    slot.lock().unwrap_or_else(PoisonError::into_inner)
+}
 
 impl Anchor {
     fn new(directory: Box<dyn AnchoredDirectory>) -> Self {
-        Self(Arc::new(Mutex::new(directory)))
+        Self(Arc::new(Handle {
+            slot: Mutex::new(Slot::Free(directory)),
+            returned: Condvar::new(),
+        }))
     }
 
-    /// Runs one adapter call on the handle.
+    /// Runs one adapter call on the handle once no other call holds it.
     ///
-    /// Returns `None` when an earlier call on this handle panicked; the scan is
-    /// then already being aborted by the worker that observed the panic.
-    fn with<R>(&self, call: impl FnOnce(&mut dyn AnchoredDirectory) -> R) -> Option<R> {
-        let mut directory = self.0.lock().ok()?;
-        Some(call(&mut **directory))
+    /// While another call holds the handle, `stop` is checked each time the
+    /// wait wakes and finds the handle still in use, at least every
+    /// [`STOP_CHECK`], without holding any lock.
+    /// Returns [`Unrun::Unavailable`] when an earlier call on this handle
+    /// panicked; the scan is then already being aborted by the worker that
+    /// observed the panic.
+    fn with<R>(
+        &self,
+        stop: &dyn Fn() -> bool,
+        call: impl FnOnce(&mut dyn AnchoredDirectory) -> R,
+    ) -> Result<R, Unrun> {
+        let mut lease = self.lease(stop)?;
+        let directory = lease.directory.as_deref_mut().ok_or(Unrun::Unavailable)?;
+        Ok(call(directory))
+    }
+
+    fn lease(&self, stop: &dyn Fn() -> bool) -> Result<Lease<'_>, Unrun> {
+        let handle = &*self.0;
+        let mut slot = lock(&handle.slot);
+        loop {
+            match std::mem::replace(&mut *slot, Slot::InUse) {
+                Slot::Free(directory) => {
+                    return Ok(Lease {
+                        handle,
+                        directory: Some(directory),
+                    });
+                }
+                Slot::InUse => {}
+                broken @ Slot::Broken { .. } => {
+                    *slot = broken;
+                    return Err(Unrun::Unavailable);
+                }
+            }
+            slot = match handle.returned.wait_timeout(slot, STOP_CHECK) {
+                Ok((slot, _)) => slot,
+                Err(error) => error.into_inner().0,
+            };
+            if matches!(*slot, Slot::InUse) {
+                drop(slot);
+                if stop() {
+                    return Err(Unrun::Stopped);
+                }
+                slot = lock(&handle.slot);
+            }
+        }
     }
 }
 
@@ -58,6 +158,9 @@ pub(super) enum OpenFailure {
     Port(PortError),
     /// The parent handle is unusable after a panic in another adapter call.
     Unavailable,
+    /// The stop condition held while a call on the parent handle was in
+    /// progress. The child was not opened and is still pending.
+    Stopped,
 }
 
 impl Directory {
@@ -87,21 +190,32 @@ impl Directory {
     }
 
     /// Runs one adapter call on an opened handle; `None` if it is not usable.
+    ///
+    /// Waits without a stop condition while another call holds the handle.
     pub(super) fn with<R>(&self, call: impl FnOnce(&mut dyn AnchoredDirectory) -> R) -> Option<R> {
-        self.anchor().and_then(|anchor| anchor.with(call))
+        self.anchor()
+            .and_then(|anchor| anchor.with(&|| false, call).ok())
     }
 
     /// Opens a pending child relative to its retained parent handle.
     ///
     /// The adapter revalidates the observed entry. On success the parent
     /// reference is released; an opened directory is left unchanged.
-    pub(super) fn open(&mut self) -> Result<(), OpenFailure> {
+    ///
+    /// When another call holds the parent handle, typically the parent's own
+    /// read, the open waits for it and returns [`OpenFailure::Stopped`] as soon
+    /// as `stop` holds, so a stalled parent read does not hold a cancelled
+    /// worker. `stop` is called without holding any lock.
+    pub(super) fn open(&mut self, stop: &dyn Fn() -> bool) -> Result<(), OpenFailure> {
         let Self::Pending { parent, entry } = self else {
             return Ok(());
         };
         let opened = parent
-            .with(|directory| directory.open_child(entry))
-            .ok_or(OpenFailure::Unavailable)?
+            .with(stop, |directory| directory.open_child(entry))
+            .map_err(|unrun| match unrun {
+                Unrun::Stopped => OpenFailure::Stopped,
+                Unrun::Unavailable => OpenFailure::Unavailable,
+            })?
             .map_err(OpenFailure::Port)?;
         *self = Self::opened(opened);
         Ok(())

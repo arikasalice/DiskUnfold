@@ -83,6 +83,69 @@ fn cancel_stops_every_lane_after_the_call_in_flight() -> Result<(), TestError> {
 }
 
 #[test]
+fn cancel_releases_a_worker_waiting_to_open_a_child_of_a_stalled_read() -> Result<(), TestError> {
+    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "worker test lock")?;
+    let shape = Shape {
+        depth: 1,
+        dirs: 2,
+        files: 0,
+        batch: 2,
+    };
+    let (gate, remote) = (Arc::new(Gate::default()), Arc::new(Remote::default()));
+    let (_open, _unpark) = (Opened(gate.clone()), Unpark(remote.clone()));
+    let (blocked, reads, first) = (gate.clone(), AtomicUsize::new(0), AtomicBool::new(true));
+    // Root 0's second read stalls after its first returned "d0" and "d1".
+    // Its lane's only worker claims the shallower root before any child, so
+    // no child is opened before the stall. Root 1's first read waits for that
+    // stall; its worker then finishes lane 1 and joins lane 0, where it claims
+    // a pending child whose open waits for the stalled read.
+    let probe = Probe::new(
+        shape,
+        2,
+        Box::new(move |root, path, call| {
+            if call != Call::Read || !path.is_empty() {
+                return Ok(());
+            }
+            if root == 0 && reads.fetch_add(1, Ordering::SeqCst) == 1 {
+                blocked.wait()?;
+            } else if root == 1 && first.swap(false, Ordering::SeqCst) {
+                let stalled = blocked.until(|state| state.entered == 1);
+                stalled.map_err(|_| io_error("test.gate"))?;
+            }
+            Ok(())
+        }),
+    );
+    let shared = shared_for(&probe, vec![0, 1], 2, QUEUED_DIRECTORIES)?;
+    let context = RemoteContext(remote.clone());
+    let opens = run_workers_in(&shared, 2, 16, &context, |receiver, sender| {
+        drop(sender);
+        let waited = (|| -> Result<usize, TestError> {
+            gate.until(|state| state.entered == 1)?;
+            // The lane 1 worker claimed a child of root 0; its open waits.
+            wait_until(|| {
+                shared
+                    .queue
+                    .lock()
+                    .is_ok_and(|queue| queue.lanes.lanes[0].reserved() == 2)
+            })?;
+            remote.set(|state| state.cancelled = true)?;
+            // Only the worker inside the stalled read still holds its flow.
+            remote.until(|state| state.active == 1)?;
+            Ok(probe.opens[0].load(Ordering::SeqCst))
+        })();
+        gate.release();
+        receiver.iter().for_each(drop);
+        waited
+    })??;
+    // No child of root 0 was opened, before or after the cancellation.
+    assert_eq!(opens, 0);
+    assert_eq!(probe.opens[0].load(Ordering::SeqCst), 0);
+    assert!(!shared.abort.load(Ordering::SeqCst));
+    assert_eq!(probe.live.load(Ordering::SeqCst), 0);
+    Ok(())
+}
+
+#[test]
 fn a_disconnected_root_closes_only_the_rest_of_its_own_lane() -> Result<(), TestError> {
     let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "worker test lock")?;
     let shape = Shape {
