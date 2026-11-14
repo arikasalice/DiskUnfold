@@ -5,6 +5,7 @@ import {
   Notice,
   Progress,
   StatusBadge,
+  Text,
 } from "../../components";
 import { useLocaleText } from "../../i18n/presentation";
 import type { LocaleText } from "../../i18n/presentation";
@@ -16,6 +17,8 @@ type Props = {
   snapshot: GroupsSnapshot;
   onClassify: () => void;
   onCancel: () => void;
+  /** No rules are saved: the rule editor is the next step, so starting is not emphasized. */
+  quietStart?: boolean;
 };
 
 function staleMessage(snapshot: GroupsSnapshot, text: LocaleText): string {
@@ -35,6 +38,26 @@ function staleMessage(snapshot: GroupsSnapshot, text: LocaleText): string {
   );
 }
 
+/** A band: a message with up to two actions, laid out like the common band board. */
+function Band({
+  tone = "info",
+  actions,
+  children,
+}: {
+  tone?: "info" | "error";
+  actions?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <Notice tone={tone}>
+      <div className="du-groups-band">
+        <Text>{children}</Text>
+        {actions && <div className="du-groups-badges">{actions}</div>}
+      </div>
+    </Notice>
+  );
+}
+
 function EndState({
   snapshot,
   onClassify,
@@ -47,25 +70,42 @@ function EndState({
   if (!outcome) return null;
   const failed = outcome.kind === "failed";
   return (
-    <Notice tone={failed ? "error" : "info"}>
+    <Band
+      tone={failed ? "error" : "info"}
+      actions={
+        <Action onPress={onClassify}>
+          {failed
+            ? text("ui.groups.retry", "Try again")
+            : text("ui.groups.reclassify", "Classify again")}
+        </Action>
+      }
+    >
       {failed
         ? `${text("ui.groups.failed", "The classification failed.")} ${reasonLabel(outcome.reasonKey, text)}`
-        : text("ui.groups.cancelled", "The classification was cancelled.")}{" "}
-      <Action onPress={onClassify}>
-        {failed
-          ? text("ui.groups.retry", "Try again")
-          : text("ui.groups.reclassify", "Classify again")}
-      </Action>
-    </Notice>
+        : text("ui.groups.cancelled", "The classification was cancelled.")}
+    </Band>
   );
 }
 
-function Banner({ snapshot, onClassify, onCancel }: Props): ReactNode {
+function Banner({
+  snapshot,
+  onClassify,
+  onCancel,
+  quietStart = false,
+}: Props): ReactNode {
   const text = useLocaleText();
+  const again = (
+    <Action onPress={onClassify}>
+      {text("ui.groups.reclassify", "Classify again")}
+    </Action>
+  );
   switch (snapshot.phase) {
     case "idle":
       return (
-        <Action variant="primary" onPress={onClassify}>
+        <Action
+          {...(quietStart ? {} : { variant: "primary" as const })}
+          onPress={onClassify}
+        >
           {text("ui.groups.start", "Start classifying")}
         </Action>
       );
@@ -94,28 +134,17 @@ function Banner({ snapshot, onClassify, onCancel }: Props): ReactNode {
       return <EndState snapshot={snapshot} onClassify={onClassify} />;
     case "updatable":
       return (
-        <Notice>
-          {text("ui.groups.updatable", "A newer result is available.")}{" "}
-          <Action onPress={onClassify}>
-            {text("ui.groups.reclassify", "Classify again")}
-          </Action>
-        </Notice>
+        <Band actions={again}>
+          {text("ui.groups.updatable", "A newer result is available.")}
+        </Band>
       );
     case "requery_needed":
-      return (
-        <Notice>
-          {staleMessage(snapshot, text)}{" "}
-          <Action onPress={onClassify}>
-            {text("ui.groups.reclassify", "Classify again")}
-          </Action>
-        </Notice>
-      );
+      return <Band actions={again}>{staleMessage(snapshot, text)}</Band>;
     case "not_applicable":
       return (
-        <Notice>
-          {text("ui.groups.not_applicable", "This result cannot be grouped.")}{" "}
-          {reasonLabel(snapshot.reasonKey, text)}
-        </Notice>
+        <Band>
+          {`${text("ui.groups.not_applicable", "This result cannot be grouped.")} ${reasonLabel(snapshot.reasonKey, text)}`}
+        </Band>
       );
   }
 }

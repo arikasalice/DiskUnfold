@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 import {
   amountToBytes,
   conditionFromRows,
+  countConditions,
   decodeNameOperand,
   draftFromRule,
   encodeNameOperand,
@@ -149,7 +150,25 @@ test("F36 FR3: every reason a rule cannot be saved is reported", () => {
   expect(ruleProblems({ ...base, rows: [] }, "iec")).toEqual([
     { kind: "empty_condition" },
   ]);
-  expect(ruleProblems(base, "iec")).toEqual([{ kind: "invalid_name", row: 0 }]);
+  // A blank value is its own problem, apart from a size that is not whole bytes.
+  expect(ruleProblems(base, "iec")).toEqual([{ kind: "empty_value", row: 0 }]);
+  expect(
+    ruleProblems(
+      {
+        ...base,
+        rows: [
+          {
+            kind: "size",
+            basis: "logical",
+            op: "at_least",
+            amount: " ",
+            unit: 0,
+          },
+        ],
+      },
+      "iec",
+    ),
+  ).toEqual([{ kind: "empty_value", row: 0 }]);
   expect(
     ruleProblems(
       {
@@ -173,4 +192,22 @@ test("F36 FR3: every reason a rule cannot be saved is reported", () => {
       "iec",
     ),
   ).toEqual([]);
+});
+
+test("F36 FR3: a condition tree counts its single tests", () => {
+  const leaf = (value: "file" | "directory"): QueryCondition => ({
+    kind: "predicate",
+    predicate: { kind: "type", value },
+  });
+  expect(countConditions(leaf("file"))).toBe(1);
+  expect(
+    countConditions({
+      kind: "all",
+      children: [
+        leaf("file"),
+        { kind: "not", child: leaf("directory") },
+        { kind: "any", children: [leaf("file"), leaf("directory")] },
+      ],
+    }),
+  ).toBe(4);
 });

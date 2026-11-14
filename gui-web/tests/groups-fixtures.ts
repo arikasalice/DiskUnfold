@@ -121,7 +121,8 @@ export function summary(overrides: Partial<GroupSummary> = {}): GroupSummary {
   return {
     classificationRef: CLASSIFICATION,
     resultVersion: RESULT,
-    sourceKind: "scan",
+    origin: "scan",
+    dataSource: "real",
     observedAt: "2026-11-01T05:32:00.000Z",
     completeness: "complete",
     rulesetVersion: 3,
@@ -187,7 +188,7 @@ export function memberRow(
   };
 }
 
-const total = (bytes: string) => ({
+export const total = (bytes: string) => ({
   sizes: [
     {
       size: exact(bytes),

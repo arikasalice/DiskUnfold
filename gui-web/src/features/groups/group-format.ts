@@ -2,7 +2,13 @@ import { formatByteUnit } from "../../i18n/bytes";
 import type { SizeDisplay } from "../../i18n/bytes";
 import type { LocaleText } from "../../i18n/presentation";
 import { SIZE_UNIT_RULES } from "../../ipc";
-import type { BrowseValue, SizeBasis, SizeValue } from "../../ipc";
+import type {
+  BrowseValue,
+  GroupSummaryRow,
+  GroupTotal,
+  SizeBasis,
+  SizeValue,
+} from "../../ipc";
 
 function byteText(bytes: string, display: SizeDisplay, lowerBound: boolean) {
   return formatByteUnit(
@@ -25,7 +31,7 @@ export function sizeValueText(
   text: LocaleText,
 ): string {
   if (value.state === "unknown")
-    return text("ui.groups.size_unknown", "Unknown");
+    return text("ui.groups.size_unknown", "Cannot be confirmed");
   if (value.state === "exact") return byteText(value.bytes, display, false);
   return text("ui.groups.size_at_least", "{size} or more", {
     size: byteText(value.bytes, display, true),
@@ -41,8 +47,62 @@ export function memberSizeText(
   if (value.state === "absent")
     return text("ui.browse.not_recorded", "Not recorded");
   if (value.state === "unknown")
-    return text("ui.groups.size_unknown", "Unknown");
+    return text("ui.groups.size_unknown", "Cannot be confirmed");
   return sizeValueText(value.value, display, text);
+}
+
+/** The size a group total shows: the logical size when measured, else the first one. */
+export function totalSizeText(
+  total: GroupTotal | undefined,
+  display: SizeDisplay,
+  text: LocaleText,
+): string {
+  const entry =
+    total?.sizes.find((size) => size.size.basis === "logical") ??
+    total?.sizes[0];
+  return entry
+    ? sizeValueText(entry.size, display, text)
+    : text("ui.groups.size_unknown", "Cannot be confirmed");
+}
+
+/**
+ * Files a rule could not decide may still belong to its group, so the counts
+ * of such a group are lower bounds.
+ */
+export function isLowerBound(row: GroupSummaryRow): boolean {
+  return row.undecidableCount > 0 || row.ruleUnevaluable;
+}
+
+/** Shows a count; a lower bound reads "or more" and an unknown count reads "cannot be confirmed". */
+export function countText(
+  value: number | undefined,
+  lowerBound: boolean,
+  text: LocaleText,
+): string {
+  if (value === undefined)
+    return text("ui.groups.size_unknown", "Cannot be confirmed");
+  return lowerBound
+    ? text("ui.groups.items_at_least", "{count} items or more", {
+        count: String(value),
+      })
+    : text("ui.groups.items_count", "{count} items", { count: String(value) });
+}
+
+/**
+ * The member count and the overlap count of a group row. A rule that cannot
+ * be evaluated with nothing decided has no count to show, and zero would be wrong.
+ */
+export function rowCountTexts(
+  row: GroupSummaryRow,
+  text: LocaleText,
+): { members: string; overlap: string } {
+  const bounded = isLowerBound(row);
+  const known = (count: number) =>
+    row.ruleUnevaluable && count === 0 ? undefined : count;
+  return {
+    members: countText(known(row.memberCount), bounded, text),
+    overlap: countText(known(row.overlapMemberCount), bounded, text),
+  };
 }
 
 /** Shows a text value of a member row; absent and unknown read differently. */

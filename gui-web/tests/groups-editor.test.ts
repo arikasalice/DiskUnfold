@@ -98,7 +98,8 @@ test("F36 FR3: a new group is sent without an identity and with an encoded name 
   const key = editor.getSnapshot().selected!;
   expect(editor.getSnapshot().blocker).toBe("empty_name");
   editor.rename(key, "New");
-  expect(editor.getSnapshot().blocker).toBe("invalid_input");
+  // The new group's name condition has no value yet.
+  expect(editor.getSnapshot().blocker).toBe("empty_value");
   editor.setRow(key, 0, { kind: "name", op: "starts_with", text: "mp4" });
   expect(editor.getSnapshot().blocker).toBeUndefined();
   await editor.save();

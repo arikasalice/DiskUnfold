@@ -20,7 +20,12 @@ export function asCategoryTab(value: string): CategoryTab | undefined {
   return TABS.find((tab) => tab === value);
 }
 
-/** Category tabs with their counts, built from the common choice group. */
+/**
+ * Category tabs with their counts, built from the common choice group because
+ * there is no tab component yet. The stylesheet draws them as tabs: the
+ * selected one is bold with an underline, so the selection is not shown by
+ * colour alone. The description stays in the page for assistive technology.
+ */
 export function GroupCategoryTabs({
   summary,
   value,
@@ -31,16 +36,17 @@ export function GroupCategoryTabs({
   onChange: (tab: CategoryTab) => void;
 }) {
   const text = useLocaleText();
-  const items = (count: number) =>
-    text("ui.groups.items_count", "{count} items", { count: String(count) });
   const details: Record<
     CategoryTab,
     { label: string; description: string; count: number; icon: IconName }
   > = {
     groups: {
       label: text("ui.groups.tab_groups", "Groups"),
-      description: text("ui.groups.tab_groups_desc", "Files a rule matched"),
-      count: summary.matchedCount,
+      description: text(
+        "ui.groups.tab_groups_desc",
+        "The groups of your rules",
+      ),
+      count: summary.groups.length,
       icon: "layers",
     },
     overlap: {
@@ -72,26 +78,33 @@ export function GroupCategoryTabs({
     },
   };
   return (
-    <ChoiceGroup
-      id="du-groups-categories"
-      label={text("ui.groups.tabs_label", "Categories")}
-      value={value}
-      isDisabled={false}
-      onChange={(next) => {
-        const tab = asCategoryTab(next);
-        if (tab) onChange(tab);
-      }}
-    >
-      {TABS.map((tab) => (
-        <Choice
-          key={tab}
-          value={tab}
-          label={details[tab].label}
-          description={details[tab].description}
-          icon={details[tab].icon}
-          status={{ text: items(details[tab].count), tone: "neutral" }}
-        />
-      ))}
-    </ChoiceGroup>
+    <div className="du-groups-tabs">
+      <ChoiceGroup
+        id="du-groups-categories"
+        label={text("ui.groups.tabs_label", "Categories")}
+        value={value}
+        isDisabled={false}
+        onChange={(next) => {
+          const tab = asCategoryTab(next);
+          if (tab) onChange(tab);
+        }}
+      >
+        {TABS.map((tab) => (
+          <Choice
+            key={tab}
+            value={tab}
+            label={details[tab].label}
+            description={details[tab].description}
+            icon={details[tab].icon}
+            status={{
+              text: text("ui.groups.tab_count", "{count}", {
+                count: String(details[tab].count),
+              }),
+              tone: "neutral",
+            }}
+          />
+        ))}
+      </ChoiceGroup>
+    </div>
   );
 }

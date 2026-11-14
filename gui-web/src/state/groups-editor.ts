@@ -19,7 +19,22 @@ export type EditorPhase =
 
 /** Why the save button is not available. */
 export type SaveBlocker =
-  "unchanged" | "empty_name" | "empty_condition" | "invalid_input" | "conflict";
+  | "unchanged"
+  | "empty_name"
+  | "empty_condition"
+  | "empty_value"
+  | "invalid_input"
+  | "conflict";
+
+/** True when an input of the draft keeps it from being saved or previewed. */
+export function isInputBlocker(blocker: SaveBlocker | undefined): boolean {
+  return (
+    blocker === "empty_name" ||
+    blocker === "empty_condition" ||
+    blocker === "empty_value" ||
+    blocker === "invalid_input"
+  );
+}
 
 /** Immutable view model of the editor. */
 export type EditorSnapshot = {
@@ -53,6 +68,8 @@ function blockerOf(
     return "empty_name";
   if (problems.some((problem) => problem.kind === "empty_condition"))
     return "empty_condition";
+  if (problems.some((problem) => problem.kind === "empty_value"))
+    return "empty_value";
   if (problems.length > 0) return "invalid_input";
   return dirty ? undefined : "unchanged";
 }
@@ -93,14 +110,18 @@ export class GroupRuleEditor {
     this.listeners.clear();
   }
 
-  /** Opens the editor on a copy of the stored rules. */
-  open(ruleset: GroupRuleset): void {
+  /**
+   * Opens the editor on a copy of the stored rules. The group named by
+   * `groupId` is selected when the stored rules still have it.
+   */
+  open(ruleset: GroupRuleset, groupId?: string): void {
     if (this.state.phase !== "viewing") return;
     const drafts = ruleset.rules.map((rule) =>
       draftFromRule(rule, this.system, this.nextKey()),
     );
     this.baseline = serialize(drafts, this.system);
-    this.state = this.snapshot("editing", ruleset, drafts, drafts[0]?.key);
+    const chosen = drafts.find((rule) => rule.groupId === groupId) ?? drafts[0];
+    this.state = this.snapshot("editing", ruleset, drafts, chosen?.key);
     this.emit();
   }
 

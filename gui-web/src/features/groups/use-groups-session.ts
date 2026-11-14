@@ -18,6 +18,7 @@ import type {
 } from "../../state/groups-details";
 import { GroupRuleEditor } from "../../state/groups-editor";
 import { GroupMembersReader } from "../../state/groups-members";
+import { GroupPreview } from "../../state/groups-preview";
 import type { SizeSystem } from "../../state/groups-conditions";
 
 /** Everything one open virtual-group screen owns. */
@@ -27,6 +28,8 @@ export type GroupsSession = {
   totals: LatestRead<TotalsKey, GroupTotals>;
   explain: LatestRead<ExplainKey, GroupExplanation>;
   editor: GroupRuleEditor;
+  /** Previews the editor's draft on its own view channel; never stores anything. */
+  preview: GroupPreview;
 };
 
 /**
@@ -58,9 +61,18 @@ export function useGroupsSession(
     const editor = new GroupRuleEditor(client, system, (ruleset) =>
       controller.applySavedRuleset(ruleset),
     );
+    // The preview classifies the result the screen shows, not a newer one.
+    const preview = new GroupPreview(client, system, editor, () => {
+      const state = controller.getSnapshot();
+      return {
+        resultVersion: state.summary?.resultVersion ?? resultVersion,
+        scope: state.scope,
+      };
+    });
     controller.start();
-    setSession({ controller, members, totals, explain, editor });
+    setSession({ controller, members, totals, explain, editor, preview });
     return () => {
+      preview.dispose();
       controller.dispose();
       members.dispose();
       totals.dispose();

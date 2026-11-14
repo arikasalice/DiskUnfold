@@ -46,7 +46,15 @@ const REASONS: Readonly<Record<string, Entry>> = {
   ],
   "group.rule_limit": [
     "ui.groups.reason_rule_limit",
-    "There are too many rules.",
+    "The number of groups or a group name is over the limit.",
+  ],
+  "predicate.unknown": [
+    "ui.groups.reason_predicate_unknown",
+    "A condition is not registered, so the rules cannot be used.",
+  ],
+  "query.syntax_invalid": [
+    "ui.groups.reason_syntax_invalid",
+    "A condition is not valid.",
   ],
   "group.rules_modified": [
     "ui.groups.reason_rules_modified",

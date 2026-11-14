@@ -45,11 +45,15 @@ export type DraftRule = {
   preserved: QueryCondition | undefined;
 };
 
-/** A reason a rule cannot be saved yet. */
+/**
+ * A reason a rule cannot be saved yet. `empty_value` is a name or size
+ * condition whose value is blank; `invalid_size` is a size that is filled in
+ * but is not a whole number of bytes.
+ */
 export type RuleProblem =
   | { kind: "empty_name" }
   | { kind: "empty_condition" }
-  | { kind: "invalid_name"; row: number }
+  | { kind: "empty_value"; row: number }
   | { kind: "invalid_size"; row: number };
 
 const U64_MAX = 18_446_744_073_709_551_615n;
@@ -255,14 +259,24 @@ export function ruleProblems(
   if (rule.rows.length === 0) problems.push({ kind: "empty_condition" });
   rule.rows.forEach((row, index) => {
     if (row.kind === "name" && row.text.trim() === "")
-      problems.push({ kind: "invalid_name", row: index });
-    if (
-      row.kind === "size" &&
-      amountToBytes(row.amount, system, row.unit) === undefined
-    )
+      problems.push({ kind: "empty_value", row: index });
+    if (row.kind !== "size") return;
+    if (row.amount.trim() === "")
+      problems.push({ kind: "empty_value", row: index });
+    else if (amountToBytes(row.amount, system, row.unit) === undefined)
       problems.push({ kind: "invalid_size", row: index });
   });
   return problems;
+}
+
+/** The number of single tests (leaf predicates) in a condition tree. */
+export function countConditions(condition: QueryCondition): number {
+  if (condition.kind === "predicate") return 1;
+  if (condition.kind === "not") return countConditions(condition.child);
+  return condition.children.reduce(
+    (sum, child) => sum + countConditions(child),
+    0,
+  );
 }
 
 /** A new empty condition row of a kind. */

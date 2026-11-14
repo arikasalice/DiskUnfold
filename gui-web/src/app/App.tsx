@@ -201,6 +201,7 @@ export function App({
           />
           <GroupsEntryAction
             visible={groups.entryVisible(visualizationOpen)}
+            sample={groups.sample}
             trigger={groups.trigger}
             onOpen={groups.show}
           />

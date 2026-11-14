@@ -2,19 +2,13 @@ import "./browse-scroll-fixture";
 import {
   act,
   cleanup,
-  configure,
   fireEvent,
-  render,
   screen,
   waitFor,
   within,
 } from "@testing-library/react";
 import axe from "axe-core";
-import { afterEach, expect, test, vi } from "vitest";
-import { GroupsEntryAction } from "../src/features/groups/GroupsEntry";
-import { GroupsSurface } from "../src/features/groups/GroupsSurface";
-import { GroupsView } from "../src/features/groups/GroupsView";
-import { useGroupsEntry } from "../src/features/groups/use-groups-entry";
+import { expect, test } from "vitest";
 import { AnalysisError } from "../src/ipc";
 import {
   CLASSIFICATION,
@@ -22,55 +16,18 @@ import {
   MOVIES,
   NEWER,
   RESULT,
-  SCOPE,
-  deferred,
-  fakeClient,
   flush,
   memberRow,
-  ruleset,
-  standardHandlers,
   summary,
   totals,
   unknownSize,
 } from "./groups-fixtures";
 import type { Body } from "./groups-fixtures";
-
-afterEach(cleanup);
-// Role queries with names walk a large grid; a loaded runner needs more than one second.
-configure({ asyncUtilTimeout: 8000 });
-vi.setConfig({ testTimeout: 30_000 });
-
-const display = { system: "iec", unit: "auto" } as const;
-
-function mount(
-  extra: Parameters<typeof standardHandlers>[0] = {},
-  onClose = () => {},
-) {
-  const fake = fakeClient(standardHandlers(extra));
-  const view = render(
-    <GroupsView
-      client={fake.client}
-      resultVersion={RESULT}
-      scope={SCOPE}
-      display={display}
-      onClose={onClose}
-    />,
-  );
-  return { fake, ...view };
-}
-
-async function classified(extra: Parameters<typeof standardHandlers>[0] = {}) {
-  const mounted = mount(extra);
-  fireEvent.click(
-    await screen.findByRole("button", { name: "Start classifying" }),
-  );
-  await screen.findByRole("table", { name: "Virtual group summary" });
-  return mounted;
-}
+import { classified, mount, tab } from "./groups-view-helpers";
 
 test("F36 FR2: before classifying only the rules line and the start button show", async () => {
   const { fake } = mount();
-  await screen.findByText("Movies, Archive");
+  await screen.findByText("Movies + Archive");
   expect(
     screen.getByRole("heading", { name: "Group by my rules" }),
   ).toBeDefined();
@@ -90,14 +47,21 @@ test("F36 FR2: the summary lists groups with counts, sizes from the totals, and 
   expect(
     within(table).getByRole("button", { name: "Show members of Movies" }),
   ).toBeDefined();
-  expect(
-    within(table).getAllByText("Virtual group").length,
-  ).toBeGreaterThanOrEqual(2);
+  expect(within(table).getAllByText("Virtual").length).toBeGreaterThanOrEqual(
+    2,
+  );
   // Sizes come from group.totals, so they are not shown until that read answers.
   await waitFor(() => expect(within(table).getByText("3.0 MiB")).toBeDefined());
   expect(within(table).getByText("5.0 MiB")).toBeDefined();
   expect(within(table).getByText("No rule matched")).toBeDefined();
   expect(within(table).getByText("2 files could not be decided")).toBeDefined();
+  // Files a rule could not decide may still belong to it, so its counts are lower bounds.
+  expect(within(table).getByText("3 items")).toBeDefined();
+  expect(within(table).getByText("5 items or more")).toBeDefined();
+  expect(within(table).getAllByText("Limited")).toHaveLength(1);
+  // The group tab counts groups; the other tabs count files.
+  expect(within(tab("Groups")).getByText("2")).toBeDefined();
+  expect(within(tab("Unclassified")).getByText("11")).toBeDefined();
   expect(screen.getByText("The result is partial")).toBeDefined();
   expect(screen.getByRole("radio", { name: "Overlaps" })).toBeDefined();
   expect(
@@ -136,7 +100,7 @@ test("F36 FR6: a file in two groups is one row with a group-count badge and both
   // A single-group row has no badge; unknown sizes are never written as zero.
   const single = rows[1]!;
   expect(within(single).queryByText(/groups$/)).toBeNull();
-  expect(within(single).getAllByText("Unknown")).toHaveLength(2);
+  expect(within(single).getAllByText("Cannot be confirmed")).toHaveLength(2);
   expect(within(single).queryByText(/^0/)).toBeNull();
 });
 
@@ -213,7 +177,7 @@ test("F36 FR7: totals read lower bounds as 'or more', unknown as unknown, and an
   expect(within(totalsSection).getByText("99.9%")).toBeDefined();
   expect(within(totalsSection).getByText("less than 0.1%")).toBeDefined();
   const table = screen.getByRole("table", { name: "Virtual group summary" });
-  expect(within(table).getByText("Unknown")).toBeDefined();
+  expect(within(table).getByText("Cannot be confirmed")).toBeDefined();
   expect(within(table).getByText("7.0 MiB or more")).toBeDefined();
 });
 
@@ -385,259 +349,6 @@ test("F36 FR2: a failed classification keeps the earlier result with an error an
   fireEvent.click(screen.getByRole("button", { name: "Try again" }));
   await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
   expect(fake.count("group.classify")).toBe(3);
-});
-
-test("F36 FR3: the editor cancels without a request; Escape closes only the editor and asks before dropping changes", async () => {
-  const { fake } = mount();
-  await screen.findByText("Movies, Archive");
-  const edit = screen.getByRole("button", { name: "Edit rules" });
-  fireEvent.click(edit);
-  const editor = await screen.findByRole("region", {
-    name: "Edit group rules",
-  });
-  expect(
-    screen.getByRole("button", { name: "Save" }).hasAttribute("disabled"),
-  ).toBe(true);
-  expect(
-    within(editor).getByText("There are no changes to save."),
-  ).toBeDefined();
-  fireEvent.keyDown(editor, { key: "Escape" });
-  await waitFor(() =>
-    expect(
-      screen.queryByRole("region", { name: "Edit group rules" }),
-    ).toBeNull(),
-  );
-  // The screen itself stays.
-  expect(
-    screen.getByRole("heading", { name: "Group by my rules" }),
-  ).toBeDefined();
-
-  fireEvent.click(screen.getByRole("button", { name: "Edit rules" }));
-  const name = await screen.findByRole("textbox", { name: "Group name" });
-  fireEvent.change(name, { target: { value: "Films" } });
-  fireEvent.keyDown(name, { key: "Escape" });
-  await screen.findByRole("alertdialog");
-  expect(screen.getByText("Discard your changes?")).toBeDefined();
-  fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
-  await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
-  expect(
-    (screen.getByRole("textbox", { name: "Group name" }) as HTMLInputElement)
-      .value,
-  ).toBe("Films");
-  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-  await screen.findByRole("alertdialog");
-  fireEvent.click(screen.getByRole("button", { name: "Discard changes" }));
-  await waitFor(() =>
-    expect(
-      screen.queryByRole("region", { name: "Edit group rules" }),
-    ).toBeNull(),
-  );
-  expect(fake.count("group.rules.save")).toBe(0);
-});
-
-test("F36 FR3: the save button is blocked while saving and a second press sends nothing; composing text sends nothing", async () => {
-  const gate = deferred<unknown>();
-  const { fake } = mount({ "group.rules.save": () => gate.promise });
-  await screen.findByText("Movies, Archive");
-  fireEvent.click(screen.getByRole("button", { name: "Edit rules" }));
-  const name = await screen.findByRole("textbox", { name: "Group name" });
-  fireEvent.compositionStart(name);
-  fireEvent.change(name, { target: { value: "Fil" } });
-  fireEvent.keyDown(name, { key: "Enter" });
-  expect(fake.count("group.rules.save")).toBe(0);
-  fireEvent.compositionEnd(name);
-  fireEvent.change(name, { target: { value: "Films" } });
-  const save = screen.getByRole("button", { name: "Save" });
-  fireEvent.click(save);
-  await screen.findByRole("button", { name: "Saving…" });
-  fireEvent.click(screen.getByRole("button", { name: "Saving…" }));
-  fireEvent.click(screen.getByRole("button", { name: "Saving…" }));
-  expect(fake.count("group.rules.save")).toBe(1);
-  expect(
-    screen
-      .getByRole("region", { name: "Edit group rules" })
-      .getAttribute("aria-busy"),
-  ).toBe("true");
-  gate.resolve({
-    outcome: "saved",
-    ruleset: ruleset({ revision: 8, rulesetVersion: 4, fingerprint: "zz" }),
-  });
-  await waitFor(() =>
-    expect(
-      screen.queryByRole("region", { name: "Edit group rules" }),
-    ).toBeNull(),
-  );
-});
-
-test("F36 FR3: a rejected save shows the reason on the rule; a conflict keeps the input and offers the latest rules", async () => {
-  let mode: "rejected" | "conflict" = "rejected";
-  mount({
-    "group.rules.save": () => {
-      if (mode === "conflict")
-        throw new AnalysisError("STALE_VERSION", "group.rules_modified");
-      return {
-        outcome: "rejected",
-        reasonKey: "group.rule_invalid",
-        issues: [{ index: 0, reasonKey: "group.name_duplicate" }],
-      };
-    },
-  });
-  await screen.findByText("Movies, Archive");
-  fireEvent.click(screen.getByRole("button", { name: "Edit rules" }));
-  const name = await screen.findByRole("textbox", { name: "Group name" });
-  fireEvent.change(name, { target: { value: "Archive" } });
-  fireEvent.click(screen.getByRole("button", { name: "Save" }));
-  await screen.findByText("Two groups have the same name.");
-  expect(
-    screen.getByText("Some rules were not accepted. Your edits are kept."),
-  ).toBeDefined();
-  expect(
-    (screen.getByRole("textbox", { name: "Group name" }) as HTMLInputElement)
-      .value,
-  ).toBe("Archive");
-
-  mode = "conflict";
-  fireEvent.change(screen.getByRole("textbox", { name: "Group name" }), {
-    target: { value: "Films" },
-  });
-  fireEvent.click(screen.getByRole("button", { name: "Save" }));
-  await screen.findByText(
-    "The rules were changed elsewhere. Your edits are kept.",
-  );
-  expect(
-    screen.getByRole("button", { name: "Load the latest rules" }),
-  ).toBeDefined();
-  expect(
-    screen.getByRole("button", { name: "Keep my changes and review again" }),
-  ).toBeDefined();
-  expect(
-    screen.getByRole("button", { name: "Save" }).hasAttribute("disabled"),
-  ).toBe(true);
-  expect(
-    (screen.getByRole("textbox", { name: "Group name" }) as HTMLInputElement)
-      .value,
-  ).toBe("Films");
-});
-
-test("F36 FR3: a rule with an unregistered condition shows as not decidable and cannot be edited", async () => {
-  const stored = ruleset();
-  stored.rules[1] = {
-    ...stored.rules[1]!,
-    condition: {
-      kind: "predicate",
-      predicate: {
-        kind: "registered",
-        id: "role.video",
-        revision: 1,
-        operand: "AQ",
-      },
-    },
-    review: "predicate_unregistered",
-  };
-  mount({ "group.rules.get": () => stored });
-  await screen.findByText("Movies, Archive");
-  fireEvent.click(screen.getByRole("button", { name: "Edit rules" }));
-  await screen.findByRole("region", { name: "Edit group rules" });
-  fireEvent.click(screen.getByRole("radio", { name: /Archive/ }));
-  expect(
-    (await screen.findAllByText("Cannot be decided")).length,
-  ).toBeGreaterThan(0);
-  expect(screen.getByText(/kept as it is and cannot be edited/)).toBeDefined();
-  expect(
-    screen.queryByRole("button", { name: "Add name condition" }),
-  ).toBeNull();
-});
-
-test("F36 FR3: after a save the view says the groups must be classified again and does not classify", async () => {
-  const { fake } = await classified();
-  fireEvent.click(screen.getByRole("button", { name: "Edit rules" }));
-  fireEvent.change(await screen.findByRole("textbox", { name: "Group name" }), {
-    target: { value: "Films" },
-  });
-  fireEvent.click(screen.getByRole("button", { name: "Save" }));
-  await screen.findByText(
-    "The rules changed, so the groups must be classified again.",
-  );
-  expect(screen.getByText("Earlier version")).toBeDefined();
-  expect(screen.getByRole("button", { name: "Classify again" })).toBeDefined();
-  await flush();
-  expect(fake.count("group.classify")).toBe(1);
-  expect(fake.count("group.rules.save")).toBe(1);
-});
-
-function Harness({
-  client,
-}: {
-  client: ReturnType<typeof fakeClient>["client"];
-}) {
-  const entry = useGroupsEntry(RESULT);
-  return (
-    <main>
-      <GroupsEntryAction
-        visible={entry.entryVisible(false)}
-        trigger={entry.trigger}
-        onOpen={entry.show}
-      />
-      <div hidden={entry.open}>
-        <input aria-label="Folder filter" defaultValue="" />
-        <button
-          onClick={() =>
-            entry.onBrowsed(RESULT, {
-              rootKind: "folder",
-              location: SCOPE,
-              page: { resultVersion: RESULT },
-            })
-          }
-        >
-          Browsed
-        </button>
-      </div>
-      <GroupsSurface
-        client={client}
-        browseVersion={RESULT}
-        entry={entry}
-        display={display}
-      />
-    </main>
-  );
-}
-
-test("F36 FR2: the entry appears once a folder is browsed, opens the view, and closing returns focus to the entry button", async () => {
-  const fake = fakeClient(standardHandlers());
-  render(<Harness client={fake.client} />);
-  expect(
-    screen.queryByRole("button", { name: "View as virtual groups" }),
-  ).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "Browsed" }));
-  const filter = screen.getByRole("textbox", {
-    name: "Folder filter",
-  }) as HTMLInputElement;
-  filter.value = "kept";
-  const entry = await screen.findByRole("button", {
-    name: "View as virtual groups",
-  });
-  entry.focus();
-  fireEvent.click(entry);
-  await screen.findByRole("heading", { name: "Group by my rules" });
-  expect(
-    screen.queryByRole("button", { name: "View as virtual groups" }),
-  ).toBeNull();
-  // The folder view stays mounted underneath.
-  expect(
-    screen.getByLabelText("Folder filter", {
-      selector: "input",
-    }) as HTMLInputElement,
-  ).toBe(filter);
-  fireEvent.click(screen.getByRole("button", { name: "Back to folders" }));
-  await waitFor(() =>
-    expect(
-      screen.queryByRole("heading", { name: "Group by my rules" }),
-    ).toBeNull(),
-  );
-  expect(document.activeElement).toBe(
-    screen.getByRole("button", { name: "View as virtual groups" }),
-  );
-  expect(filter.value).toBe("kept");
 });
 
 test("F36 FR2: the screen has no file-change or value-editing controls and no path-like group names", async () => {

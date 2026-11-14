@@ -1,4 +1,4 @@
-import { AnalysisError, newCorrelationId } from "../ipc";
+import { newCorrelationId } from "../ipc";
 import type {
   AnalysisClient,
   EventEnvelope,
@@ -8,7 +8,10 @@ import type {
   Id,
   ItemRef,
 } from "../ipc";
+import { describeFailure } from "./groups-failure";
 import { watchJobBaseline } from "./job-baseline";
+
+export { describeFailure };
 import {
   ViewChannel,
   isRequeryReason,
@@ -61,19 +64,6 @@ type Pending = {
   classificationRef?: Id;
   resultVersion?: Id;
 };
-
-/** Extracts the reason of a failed call, if the host reported one. */
-export function describeFailure(error: unknown): {
-  reasonKey: string | undefined;
-  retryable: boolean;
-} {
-  if (error instanceof AnalysisError)
-    return {
-      reasonKey: error.reasonKey,
-      retryable: error.retryable === true,
-    };
-  return { reasonKey: undefined, retryable: false };
-}
 
 /** True while the visible summary is not the answer to the latest request. */
 export function showsPreviousClassification(snapshot: GroupsSnapshot) {

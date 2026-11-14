@@ -1,11 +1,13 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { ItemRef } from "../../ipc";
+import type { DataSource, ItemRef } from "../../ipc";
 
 /** The part of a browse answer the virtual-group view needs. */
 type BrowsedLocation = {
   rootKind: string;
   location: ItemRef | null;
   page: { resultVersion: string };
+  /** Absent reads as a sample (F32 FR2.HD2); only a real result opens the groups view. */
+  dataSource?: DataSource | undefined;
 };
 
 /** The folder a browse result shows; the virtual root stands for the whole result. */
@@ -24,6 +26,8 @@ export function useGroupsEntry(browseVersion: string | undefined) {
   const [browsed, setBrowsed] = useState<{
     version: string;
     scope: ItemRef | undefined;
+    /** True unless the browse answer says the result is real. */
+    sample: boolean;
   }>();
   const trigger = useRef<HTMLButtonElement>(null);
   const restoreFocus = useRef(false);
@@ -43,10 +47,19 @@ export function useGroupsEntry(browseVersion: string | undefined) {
     trigger,
     /** The folder the open screen classifies; undefined means the whole result. */
     scope: known ? browsed?.scope : undefined,
+    /**
+     * True while the browsed result is a sample. Until the sample view of the
+     * groups screen ships, the entry button stays disabled for it.
+     */
+    sample: known ? browsed?.sample === true : false,
     /** The entry button shows once the browse screen reports its folder. */
     entryVisible: (blocked: boolean) => known && !blocked && !open,
     onBrowsed: (version: string, opened: BrowsedLocation) =>
-      setBrowsed({ version, scope: browsedFolder(opened) }),
+      setBrowsed({
+        version,
+        scope: browsedFolder(opened),
+        sample: opened.dataSource !== "real",
+      }),
     show: () => setOpen(true),
     /** True while closing hands focus back to the entry button. */
     restoringFocus: () => restoreFocus.current,
