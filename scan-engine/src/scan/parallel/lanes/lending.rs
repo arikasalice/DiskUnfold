@@ -13,6 +13,13 @@
 //! to its own lane, under the same conditions, once the lane it serves queues
 //! no marked work and its own lane has claimable work and room. Without a
 //! marked area, or without queued marked work, no worker moves this way.
+//!
+//! A move sends no wake of its own, although it frees a worker seat in the
+//! lane it leaves and may return stack items to that lane's queue. A waiting
+//! worker can therefore miss that seat for a short time. The delay is bounded:
+//! a move happens only when another worker stays in the lane it leaves
+//! (`members > 1`), the end of that worker's directory wakes every waiting
+//! worker, and a waiting worker checks again every 25 ms at the latest.
 use super::{Lanes, NORMAL, Taken};
 use crate::scan::parallel::Queue;
 

@@ -140,13 +140,17 @@ fn joinable(queue: &Queue) -> Vec<usize> {
         .collect()
 }
 
-/// A move frees a seat in the lane it leaves without waking anyone. The
-/// worker that the area lane's return woke takes that seat instead, in the
-/// order where the move comes between that wake and the woken worker's claim.
+/// A move frees a seat in the lane it leaves without waking anyone. In the
+/// order where the move comes between the area lane's wake and the woken
+/// worker's claim, the woken worker takes that seat and no lane is left with
+/// both a free seat and claimable work.
 ///
-/// `requeue` wakes one waiting worker per returned item up to the lane's free
-/// seats, and a waiting worker belongs to no lane, so the steps below stand
-/// for the worker turns and wakes of `requeue` and `dispatch::take`.
+/// This drives the queue directly: each step stands for a worker turn, and
+/// the wakes are the ones the comments name. It does not run `notify_one`,
+/// the wake count of `handoff::requeue` or the timed wait of
+/// `dispatch::take`, so it fixes the queue state after this order, not that
+/// a sleeping thread is woken. See the module documentation of
+/// `lanes::lending` for the bound on a missed wake.
 #[test]
 fn a_move_between_a_wake_and_the_woken_claim_leaves_no_work_unclaimed() -> Result<(), TestError> {
     let mut queue = Queue::for_test(vec![0, 1], 2);
