@@ -1,14 +1,29 @@
 //! Validation boundary for an immutable, embedded sample bundle.
 //!
-//! The published design does not define the bundle's byte layout. A registered format reader
-//! therefore owns decoding, while this module owns the ordered integrity and reference checks.
+//! A registered format reader owns decoding (format version 1 is in [`format_v1`] and its byte
+//! layout is documented there), while this module owns the ordered integrity and reference
+//! checks: presence, format reader, digest, size and item limits, then record decoding. The first
+//! failure stops the sequence and no partial bundle is ever exposed.
 
 use std::collections::HashSet;
 use std::ops::Range;
 use std::sync::Arc;
 
+pub mod embedded;
+pub mod format_v1;
+pub mod model;
+mod raw;
+
+pub use model::{
+    CandidateOperation, CleanupCandidate, DecodedObservation, ExampleCapabilities, ProtectionRule,
+    SampleItem, SampleItemKind, SampleObservationState, SampleScenario,
+};
+
+/// Largest accepted bundle body in bytes.
 pub const MAX_BUNDLE_SIZE_BYTES: usize = 8 * 1024 * 1024;
+/// Largest accepted item count across all observation points.
 pub const MAX_BUNDLE_ITEMS: usize = 20_000;
+/// Largest accepted number of observation points.
 pub const MAX_OBSERVATIONS: usize = 2;
 
 const MIN_OBSERVATIONS: usize = 1;
@@ -75,15 +90,24 @@ pub struct BundleDecodeLimits {
     pub max_observations: usize,
 }
 
-/// Marker for one observation point fully decoded from the payload.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct DecodedObservation;
-
-/// Complete decode summary used to validate counts and scenario references.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// Complete decode result used to validate counts and scenario references and then retained
+/// unchanged by the validated bundle.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct DecodedBundleRecords {
+    /// One reference per decoded item, across all observations.
     pub scenario_references: Vec<RecordScenarioReference>,
+    /// Observation points in bundle order.
     pub observations: Vec<DecodedObservation>,
+    /// Scenarios the payload declares.
+    pub scenarios: Vec<SampleScenario>,
+    /// Synthetic content fragments referenced by item content numbers.
+    pub content_fragments: Vec<String>,
+    /// Capability states the bundle records as examples.
+    pub example_capabilities: ExampleCapabilities,
+    /// Example protection rules for the sample cleanup plan.
+    pub protection_rules: Vec<ProtectionRule>,
+    /// Example cleanup candidates per operation kind.
+    pub cleanup_candidates: Vec<CleanupCandidate>,
 }
 
 /// A view is constructed only after digest, limits, records and references all pass.
@@ -92,28 +116,42 @@ pub struct ValidatedBundle {
     body: Arc<[u8]>,
     payload_range: Range<usize>,
     header: BundleHeader,
-    record_references: Vec<RecordScenarioReference>,
-    observation_count: usize,
+    records: Arc<DecodedBundleRecords>,
 }
 
 impl ValidatedBundle {
+    /// Returns the digest-verified payload bytes.
     pub fn record_bytes(&self) -> &[u8] {
         &self.body[self.payload_range.clone()]
     }
 
+    /// Returns the verified header.
     pub fn header(&self) -> &BundleHeader {
         &self.header
     }
 
+    /// Returns one scenario reference per decoded item.
     pub fn record_references(&self) -> &[RecordScenarioReference] {
-        &self.record_references
+        &self.records.scenario_references
     }
 
+    /// Returns the number of observation points.
     pub fn observation_count(&self) -> usize {
-        self.observation_count
+        self.records.observations.len()
+    }
+
+    /// Returns the immutable decoded records.
+    pub fn records(&self) -> &DecodedBundleRecords {
+        &self.records
+    }
+
+    /// Returns the observation points in bundle order.
+    pub fn observations(&self) -> &[DecodedObservation] {
+        &self.records.observations
     }
 }
 
+/// Runs the ordered validation and returns the bundle only when every step passed.
 pub fn validate_bundle(
     source: &dyn BundleSourcePort,
     readers: &dyn BundleFormatReaderRegistry,
@@ -153,8 +191,7 @@ fn validate_with_digest(
         body,
         payload_range: header.payload_range.clone(),
         header,
-        record_references: decoded.scenario_references,
-        observation_count: decoded.observations.len(),
+        records: Arc::new(decoded),
     })
 }
 

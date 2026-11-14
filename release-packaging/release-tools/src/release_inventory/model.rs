@@ -76,6 +76,10 @@ pub struct ReleaseInventory {
     /// fuzz evidence says so. Absent when the inventory was built without a fuzz record.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) fuzz_gate: Option<serde_json::Value>,
+    /// Version and digest of the built-in sample bundle, recorded so a release names the sample
+    /// data it ships. Absent when the inventory was built without a bundle.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) sample_bundle: Option<crate::sample_bundle::SampleBundleRecord>,
 }
 
 /// An explicit channel listing that points to an artifact row in the release list.

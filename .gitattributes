@@ -2,3 +2,4 @@
 *.ico binary
 *.icns binary
 *.png binary
+scan-engine/assets/sample/*.bin binary
