@@ -1,5 +1,5 @@
-import { useId, useLayoutEffect, useRef } from "react";
-import type { ReactNode } from "react";
+import { useId, useLayoutEffect, useRef, useState } from "react";
+import type { ReactNode, RefObject } from "react";
 import { Action, NameText, SelectionActions } from "../../components";
 import { scanPriorityText, scanPriorityTone } from "../../ipc";
 import type { FolderQueryRow, ScanPriorityAnnouncement } from "../../ipc";
@@ -43,6 +43,34 @@ export function canAnalyzeFirst(
     !collected(row) &&
     priority.canRequest(row.item) &&
     !priority.requested(row.item)
+  );
+}
+
+/**
+ * Whether the row would offer "Analyze first" but belongs to an earlier result
+ * of the running scan, so the action stays unavailable until the list shows
+ * the scan's newest result.
+ */
+export function waitsForNewerResult(
+  row: FolderQueryRow,
+  priority: ScanPriority | undefined,
+  readOnly: boolean,
+): boolean {
+  return (
+    priority !== undefined &&
+    !readOnly &&
+    row.kind === "directory" &&
+    !excluded(row) &&
+    !collected(row) &&
+    priority.superseded(row.item)
+  );
+}
+
+/** Why "Analyze first" is unavailable while the list shows an earlier result. */
+export function newerResultReason(text: LocaleText): string {
+  return text(
+    "ui.browse.analyze_first_newer_result",
+    "A newer result is available · Switch to it to analyze a folder first",
   );
 }
 
@@ -146,14 +174,91 @@ function noticeText(
 }
 
 /**
+ * Whether the bar shows. It shows for the running scan's current result, an
+ * earlier result of that scan or a pending outcome, and stays ("held") while
+ * "Show latest result" switches the read-only list to the newest result.
+ */
+function barState(
+  first: FolderQueryRow | undefined,
+  priority: ScanPriority | undefined,
+  readOnly: boolean,
+  switching: boolean,
+) {
+  const behind =
+    first !== undefined && priority?.superseded(first.item) === true;
+  const live =
+    priority !== undefined &&
+    !readOnly &&
+    first !== undefined &&
+    (priority.canRequest(first.item) ||
+      behind ||
+      priority.notice !== undefined);
+  const held =
+    switching && readOnly && priority !== undefined && first !== undefined;
+  return { behind, held, visible: live || held };
+}
+
+/**
+ * Keeps focus out of large areas when the bar comes and goes. A bar that goes
+ * away while it holds focus sends it to the list. A bar mounted for a list
+ * that replaced one whose bar held focus takes it on "Analyze first", or
+ * sends it to the list when it does not show.
+ */
+function useBarFocus(
+  bar: RefObject<HTMLDivElement | null>,
+  analyzeFirst: RefObject<HTMLButtonElement | null>,
+  barFocus: RefObject<boolean>,
+  visible: boolean,
+  focusList: () => void,
+) {
+  const holdsFocus = useRef(false);
+  useLayoutEffect(() => {
+    function track(event: FocusEvent) {
+      holdsFocus.current =
+        event.target instanceof Node &&
+        (bar.current?.contains(event.target) ?? false);
+      barFocus.current = holdsFocus.current;
+    }
+    document.addEventListener("focusin", track);
+    return () => document.removeEventListener("focusin", track);
+  }, [bar, barFocus]);
+  useLayoutEffect(() => {
+    if (!barFocus.current) return;
+    barFocus.current = false;
+    if (document.activeElement !== document.body) return;
+    if (analyzeFirst.current)
+      analyzeFirst.current.focus({ preventScroll: true });
+    else focusList();
+    // Runs once per list: the owner remounts the bar with each new list.
+  }, []);
+  useLayoutEffect(() => {
+    if (visible || !holdsFocus.current) return;
+    holdsFocus.current = false;
+    barFocus.current = false;
+    if (document.activeElement === document.body) focusList();
+  }, [visible, focusList, barFocus]);
+}
+
+/**
  * The selection action bar offers "Analyze first" while the list shows the
  * running scan's current result. It acts only on one selected folder that the
  * row action would also offer; otherwise the summary says why.
  *
+ * While the list shows an earlier result of the running scan, the bar stays
+ * with "Analyze first" unavailable and its summary says that a newer result
+ * is available, ahead of any reason about the selection. When the host can
+ * switch the list, the bar also offers "Show latest result".
+ *
  * An unavailable action stays focusable through `aria-disabled` and refers to
  * the summary for its reason, so pressing it by keyboard keeps focus in the
  * bar while the folder becomes requested. If the bar goes away while it holds
- * focus, focus moves to the panel.
+ * focus, focus moves to the list through `focusList`.
+ *
+ * "Show latest result" keeps the bar while the list switches: both actions
+ * stay focusable but unavailable until the newest result replaces the list.
+ * When a list replaces the one whose bar held focus, as `barFocus` records
+ * across the remount, focus moves to the new bar's "Analyze first", or to the
+ * list when the new result shows no bar. No large area takes the focus frame.
  *
  * The bar also shows the outcome of the last request in place of its summary
  * for as long as the scan priority state offers it, and stays while it does,
@@ -165,49 +270,50 @@ export function SelectionAnalyzeFirst({
   selection,
   priority,
   readOnly,
-  focusPanel,
+  focusList,
+  barFocus,
 }: {
   pages: BrowsePages;
   selection: Selection;
   priority: ScanPriority | undefined;
   readOnly: boolean;
-  focusPanel: () => void;
+  /** Moves focus to the list when the bar goes away while it holds focus. */
+  focusList: () => void;
+  /**
+   * Whether the bar holds focus, kept by the owner of the list so that it
+   * survives the remount of the bar when a new list replaces it.
+   */
+  barFocus: RefObject<boolean>;
 }) {
   const text = useLocaleText();
   const summaryId = useId();
   const bar = useRef<HTMLDivElement>(null);
-  const holdsFocus = useRef(false);
+  const analyzeFirst = useRef<HTMLButtonElement>(null);
+  const [switching, setSwitching] = useState(false);
   const first = pages.row(0);
   const notice = priority?.notice;
-  const visible =
-    priority !== undefined &&
-    !readOnly &&
-    first !== undefined &&
-    (priority.canRequest(first.item) || notice !== undefined);
-  useLayoutEffect(() => {
-    function track(event: FocusEvent) {
-      holdsFocus.current =
-        event.target instanceof Node &&
-        (bar.current?.contains(event.target) ?? false);
-    }
-    document.addEventListener("focusin", track);
-    return () => document.removeEventListener("focusin", track);
-  }, []);
-  useLayoutEffect(() => {
-    if (visible || !holdsFocus.current) return;
-    holdsFocus.current = false;
-    if (document.activeElement === document.body) focusPanel();
-  }, [visible, focusPanel]);
+  const { behind, held, visible } = barState(
+    first,
+    priority,
+    readOnly,
+    switching,
+  );
+  useBarFocus(bar, analyzeFirst, barFocus, visible, focusList);
   if (!visible || !priority) return null;
   const count = selection === "all" ? pages.count : selection.size;
   const row = selectedRow(pages, selection);
   const target =
     row && canAnalyzeFirst(row, priority, readOnly) ? row : undefined;
+  const showLatest = behind && !held ? priority.showLatest : undefined;
   return (
     <SelectionActions
       ref={bar}
       label={text("ui.browse.selection_actions", "Selection actions")}
-      summary={summaryText(count, row, priority, text)}
+      summary={
+        behind || held
+          ? newerResultReason(text)
+          : summaryText(count, row, priority, text)
+      }
       summaryId={summaryId}
       notice={
         notice && {
@@ -217,7 +323,22 @@ export function SelectionAnalyzeFirst({
         }
       }
     >
+      {(showLatest || held) && (
+        <Action
+          {...(showLatest === undefined
+            ? { "aria-disabled": true, "aria-describedby": summaryId }
+            : {})}
+          onPress={() => {
+            if (!showLatest) return;
+            setSwitching(true);
+            showLatest();
+          }}
+        >
+          {text("ui.analysis.show_latest", "Show latest result")}
+        </Action>
+      )}
       <Action
+        ref={analyzeFirst}
         {...(target === undefined
           ? { "aria-disabled": true, "aria-describedby": summaryId }
           : {})}

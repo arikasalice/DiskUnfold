@@ -118,6 +118,8 @@ function spoken(element: Element) {
 function renderNotice(notice: Omit<ScanPriorityNotice, "id" | "jobRef">) {
   const priority: ScanPriority = {
     canRequest: () => true,
+    superseded: () => false,
+    showLatest: undefined,
     requested: () => false,
     status: () => undefined,
     request: vi.fn(),

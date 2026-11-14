@@ -41,7 +41,11 @@ import type { LocaleSettingsProps } from "../features/settings/LocaleSettings";
 import { createAnalysisClient, hasWindowsAnalysisBridge } from "../ipc";
 import type { AnalysisClient } from "../ipc";
 import { useScanPriority } from "../state/scan-priority";
-import type { ScanPriority, ScanPriorityContext } from "../state/scan-priority";
+import type {
+  ScanPriority,
+  ScanPriorityContext,
+  ScanPriorityView,
+} from "../state/scan-priority";
 import { createBrowsePort } from "./browse-port";
 import { InfoEntry } from "./InfoEntry";
 import { SampleContext, SampleEntrySlot } from "./SampleBrowse";
@@ -111,17 +115,13 @@ export function App({
   };
   const [connectionChecks, setConnectionChecks] = useState(0);
   const [history, setHistory] = useState(false);
-  const [browseSelection, setBrowseSelection] = useState<{
-    version: string;
-    choice: SizeDisplay | undefined;
-  }>();
+  const [browseSelection, setBrowseSelection] = useState<BrowseSelection>();
   const [basisSelection, setBasisSelection] = useState<{
     version: string;
     basis: SizeBasisFilter;
   }>();
   const [visualizationOpen, setVisualizationOpen] = useState(false);
   const [scanContext, setScanContext] = useState<ScanPriorityContext>();
-  const priority = useScanPriority(client, scanContext);
   const flow = useSampleFlow(client);
   const { sampleOpen, analysisKey, analysisSlot } = flow;
   const { version: browseVersion, choice: browseChoice } =
@@ -145,6 +145,17 @@ export function App({
     client,
     visualizationProvider,
     browseVersion,
+  );
+  // Opens the folder list on a result; the analysis panel and the list's
+  // "Show latest result" use the same path.
+  const openBrowse = (selection: BrowseSelection) => {
+    visualization.invalidate();
+    setBrowseSelection(selection);
+  };
+  const priority = useScanPriority(
+    client,
+    scanContext,
+    priorityView(browseSelection, openBrowse),
   );
   const browsePort = useMemo(
     () => (client && browseVersion ? createBrowsePort(client) : undefined),
@@ -293,10 +304,9 @@ export function App({
             client={client}
             preferences={preferences}
             onSizeBasisChange={onSizeBasisChange}
-            onBrowse={(version, choice) => {
-              visualization.invalidate();
-              setBrowseSelection({ version, choice });
-            }}
+            onBrowse={(version, choice, scan) =>
+              openBrowse({ version, choice, scan })
+            }
             browseTrigger={browseTrigger}
             onScanContext={setScanContext}
             startAlternative={<SampleEntrySlot flow={flow} />}
@@ -485,8 +495,34 @@ function browseControls(
   };
 }
 
-function browseState(
-  selection: { version: string; choice: SizeDisplay | undefined } | undefined,
-) {
+function browseState(selection: BrowseSelection | undefined) {
   return selection ?? { version: undefined, choice: undefined };
+}
+
+/**
+ * The result the folder list shows, its size display choice, and the scan
+ * that published it when the analysis panel opened it from that scan.
+ */
+type BrowseSelection = {
+  version: string;
+  choice: SizeDisplay | undefined;
+  scan: string | undefined;
+};
+
+/**
+ * Names the scan of the listed result for "Analyze first", so an earlier
+ * result of the running scan can offer its newest one through the same
+ * opening path. A list without a known scan passes no view.
+ */
+function priorityView(
+  selection: BrowseSelection | undefined,
+  open: (selection: BrowseSelection) => void,
+): ScanPriorityView | undefined {
+  if (!selection?.scan) return undefined;
+  const { choice, scan } = selection;
+  return {
+    jobRef: scan,
+    resultVersion: selection.version,
+    open: (version) => open({ version, choice, scan }),
+  };
 }

@@ -16,7 +16,10 @@ import type {
   ScanPriorityResponse,
 } from "../src/ipc";
 import { useScanPriority } from "../src/state/scan-priority";
-import type { ScanPriorityContext } from "../src/state/scan-priority";
+import type {
+  ScanPriorityContext,
+  ScanPriorityView,
+} from "../src/state/scan-priority";
 
 /*
  * A folder list of the running scan's current result and a scan.prioritize
@@ -78,20 +81,27 @@ const rows = [
   }),
 ];
 
-function port(): BrowsePort {
-  const response: BrowseOpenResponse = {
+/** The opened root of the fixture's folder, as a result of the given version. */
+export function openedRoot(
+  resultVersion: string,
+  requestSeq: number,
+): BrowseOpenResponse {
+  return {
     kind: "opened",
-    requestSeq: 1,
+    requestSeq,
     origin: "scan",
-    location: { resultVersion: version, itemNo: 0 },
+    location: { resultVersion, itemNo: 0 },
     breadcrumbs: [],
     rootKind: "scope_root",
     currentCorrespondence: false,
     page: {
       rowKind: "folder",
-      queryRef: version,
-      resultVersion: version,
-      rows,
+      queryRef: resultVersion,
+      resultVersion,
+      rows: rows.map((shown) => ({
+        ...shown,
+        item: { ...shown.item, resultVersion },
+      })),
       total: { state: "exact", count: rows.length },
       unknownCount: 0,
       observedAt: null,
@@ -101,9 +111,14 @@ function port(): BrowsePort {
     sortStrategies: [],
     predicateStrategies: [],
   };
+}
+
+function port(): BrowsePort {
   return {
     open: vi.fn((request) =>
-      Promise.resolve({ ...response, requestSeq: request.requestSeq }),
+      Promise.resolve(
+        openedRoot(request.resultVersion ?? version, request.requestSeq),
+      ),
     ),
     page: vi.fn(),
     copyPath: vi.fn(),
@@ -134,12 +149,14 @@ function Harness({
   client,
   context,
   browsePort,
+  view,
 }: {
   client: AnalysisClient;
   context: ScanPriorityContext | undefined;
   browsePort: BrowsePort;
+  view: ScanPriorityView | undefined;
 }) {
-  const priority = useScanPriority(client, context);
+  const priority = useScanPriority(client, context, view);
   return (
     <BrowsePanel
       port={browsePort}
@@ -158,16 +175,30 @@ export const running = {
 
 export async function setup(
   context: ScanPriorityContext | undefined = running,
+  shown?: ScanPriorityView,
 ) {
   const { client, answers } = priorityClient();
   const browsePort = port();
-  const view = render(
-    <Harness client={client} context={context} browsePort={browsePort} />,
+  const rendered = render(
+    <Harness
+      client={client}
+      context={context}
+      browsePort={browsePort}
+      view={shown}
+    />,
   );
   await screen.findByText("Photos");
-  const rerender = (next: ScanPriorityContext | undefined) =>
-    view.rerender(
-      <Harness client={client} context={next} browsePort={browsePort} />,
+  const rerender = (
+    next: ScanPriorityContext | undefined,
+    nextShown: ScanPriorityView | undefined = shown,
+  ) =>
+    rendered.rerender(
+      <Harness
+        client={client}
+        context={next}
+        browsePort={browsePort}
+        view={nextShown}
+      />,
     );
   return { answers, browsePort, rerender };
 }

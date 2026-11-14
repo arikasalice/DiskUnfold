@@ -687,6 +687,7 @@
     ["ui.browse.analyze_first_excluded","Excluded folders cannot be analyzed first",[]],
     ["ui.browse.analyze_first_collected","This folder is already fully analyzed",[]],
     ["ui.browse.analyze_first_requested","Already requested",[]],
+    ["ui.browse.analyze_first_newer_result","A newer result is available · Switch to it to analyze a folder first",[]],
     ["ui.browse.item_actions","Actions for {name}",[["name","name"]]],
     ["ui.browse.item_count","{count} items",[["count","count"]]],
     ["ui.browse.item_count_at_least","At least {count} items",[["count","count"]]],

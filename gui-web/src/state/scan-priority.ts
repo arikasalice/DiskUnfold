@@ -10,12 +10,27 @@ import type {
 /**
  * A running scan this window started and its newest partial result version.
  * `scanning` is true only while the job state is `running`; a paused or
- * pausing scan is not working on any folder.
+ * pausing scan is not working on any folder. `paused` is true only while the
+ * job state is `pause_requested` or `paused`. A scan that is neither, such
+ * as one being cancelled, will not apply a priority area.
  */
 export type ScanPriorityContext = {
   jobRef: string;
   resultVersion: string;
   scanning?: boolean;
+  paused?: boolean;
+};
+
+/**
+ * The result a folder list shows, named with the scan that published it, and
+ * how the host switches the list to another result of that scan. The host
+ * names the scan only when it opened the list from that scan's result; a list
+ * of any other result passes no view.
+ */
+export type ScanPriorityView = {
+  jobRef: string;
+  resultVersion: string;
+  open?: ((resultVersion: string) => void) | undefined;
 };
 
 /**
@@ -43,6 +58,16 @@ export type ScanPriorityStatus = "requested" | "analyzing";
 export type ScanPriority = {
   /** Whether this item belongs to the running scan's current partial result. */
   canRequest: (item: ItemRef) => boolean;
+  /**
+   * Whether this item belongs to an earlier result of the running scan, so
+   * "Analyze first" waits until the list shows the scan's newest result.
+   */
+  superseded: (item: ItemRef) => boolean;
+  /**
+   * Switches the list to the running scan's newest result while it shows an
+   * earlier one, when the host can do so.
+   */
+  showLatest: (() => void) | undefined;
   /**
    * Whether this folder's request is still unanswered or confirmed as the
    * applied area, so "Analyze first" is not offered for it again.
@@ -94,6 +119,30 @@ function answeredState(
 }
 
 /**
+ * Recognizes a list that shows an earlier result of the running scan: the
+ * view names the same scan and a result other than the scan's newest.
+ */
+function newerResult(
+  client: AnalysisClient | undefined,
+  context: ScanPriorityContext | undefined,
+  view: ScanPriorityView | undefined,
+): Pick<ScanPriority, "superseded" | "showLatest"> {
+  if (
+    !client ||
+    !context ||
+    view?.jobRef !== context.jobRef ||
+    view.resultVersion === context.resultVersion
+  )
+    return { superseded: () => false, showLatest: undefined };
+  const { resultVersion: shown, open } = view;
+  const newest = context.resultVersion;
+  return {
+    superseded: (item) => item.resultVersion === shown,
+    showLatest: open && (() => open(newest)),
+  };
+}
+
+/**
  * Sends scan.prioritize for a folder of the running scan's current partial
  * result (F02 FR8.HD1, HLD IF-03).
  *
@@ -124,16 +173,24 @@ function answeredState(
  *
  * The notice says what the response confirmed: whether the folder is the
  * applied area, whether the scan was paused, and which requested folder the
- * request replaced. An outcome is offered for announcement for
+ * request replaced. A response that arrives when the scan is neither running
+ * nor paused, including after it ended, reads only as a receipt: the scan will
+ * not apply the area. An outcome is offered for announcement for
  * {@link SCAN_PRIORITY_NOTICE_MS} and only while no other scan is current, so
  * a view that mounts later, or a later scan, does not announce it again.
  * An outcome that says the area applies when the paused scan continues is
  * withdrawn once the scan continues, and stays withdrawn if the scan then
  * ends while it would still be shown.
+ *
+ * `view` names the scan of the result a folder list shows. While it is an
+ * earlier result of the running scan, the list's items are
+ * {@link ScanPriority.superseded} and `showLatest` opens the newest one
+ * through `view.open`.
  */
 export function useScanPriority(
   client: AnalysisClient | undefined,
   context: ScanPriorityContext | undefined,
+  view?: ScanPriorityView,
 ): ScanPriority {
   const [marked, setMarked] = useState<Marked>();
   const [notice, setNotice] = useState<ScanPriorityNotice>();
@@ -144,10 +201,13 @@ export function useScanPriority(
   const jobRef = context?.jobRef;
   const resultVersion = context?.resultVersion;
   const scanning = context?.scanning === true;
+  const paused = !scanning && context?.paused === true;
   useEffect(() => {
     current.current =
-      jobRef && resultVersion ? { jobRef, resultVersion, scanning } : undefined;
-  }, [jobRef, resultVersion, scanning]);
+      jobRef && resultVersion
+        ? { jobRef, resultVersion, scanning, paused }
+        : undefined;
+  }, [jobRef, resultVersion, scanning, paused]);
 
   const mark = useCallback((next: Marked | undefined) => {
     shown.current = next;
@@ -165,13 +225,15 @@ export function useScanPriority(
           now.resultVersion !== owner.item.resultVersion)
       )
         return;
+      // Only a running or paused scan still applies the area it confirmed.
+      const live = now?.scanning === true || now?.paused === true;
       setNotice({
         id: ++notices.current,
         jobRef: owner.jobRef,
         outcome,
         name: owner.name,
-        applied,
-        paused: now !== undefined && now.scanning !== true,
+        applied: applied && live,
+        paused: now?.scanning !== true && now?.paused === true,
         previous: owner.previous,
       });
     },
@@ -269,6 +331,7 @@ export function useScanPriority(
       client !== undefined &&
       resultVersion !== undefined &&
       item.resultVersion === resultVersion,
+    ...newerResult(client, context, view),
     requested: (item) => mine(item) && marked?.state !== "received",
     status: (item) => {
       if (!mine(item)) return undefined;

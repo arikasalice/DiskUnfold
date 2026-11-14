@@ -21,6 +21,8 @@
   min-inline-size: 0;
   color: var(--du-muted);
   font-size: 0.875em;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
 }
 
 .du-selection-actions__notice {
@@ -30,6 +32,8 @@
   color: var(--du-text);
   font-size: 0.875em;
   font-weight: 600;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
 }
 
 .du-selection-actions__notice svg {

@@ -154,7 +154,15 @@ export function AnalysisPanel({
 }: {
   client: AnalysisClient;
   preferences: AnalysisDisplayPreferences;
-  onBrowse?: (version: string, choice: SizeDisplay | undefined) => void;
+  /**
+   * Opens the folder list for a result this panel shows; `scan` names the
+   * scan that published it.
+   */
+  onBrowse?: (
+    version: string,
+    choice: SizeDisplay | undefined,
+    scan: string | undefined,
+  ) => void;
   onSizeBasisChange?:
     ((version: string, basis: SizeBasisFilter) => void) | undefined;
   browseTrigger?: Ref<HTMLButtonElement>;
@@ -213,14 +221,16 @@ export function AnalysisPanel({
   const running = scan.running;
   const scanJob = receipt?.jobRef;
   const priorityVersion = running ? scan.currentVersion : undefined;
-  const scanning = scan.status?.state === "running";
+  const scanState = scan.status?.state;
+  const scanning = scanState === "running";
+  const paused = scanState === "pause_requested" || scanState === "paused";
   useEffect(() => {
     onScanContext?.(
       scanJob && priorityVersion
-        ? { jobRef: scanJob, resultVersion: priorityVersion, scanning }
+        ? { jobRef: scanJob, resultVersion: priorityVersion, scanning, paused }
         : undefined,
     );
-  }, [onScanContext, scanJob, priorityVersion, scanning]);
+  }, [onScanContext, scanJob, priorityVersion, scanning, paused]);
   // A panel that goes away no longer offers its scan to "Analyze first".
   useEffect(() => () => onScanContext?.(undefined), [onScanContext]);
   const restoredIsCurrent = restoredInput?.revision === editRevision.current;
@@ -737,7 +747,7 @@ export function AnalysisPanel({
               actions={
                 <ResultActions
                   version={scan.total?.resultVersion}
-                  onBrowse={bindBrowse(onBrowse, displayChoice)}
+                  onBrowse={bindBrowse(onBrowse, displayChoice, scanJob)}
                   trigger={browseTrigger}
                   running={running}
                   state={scan.status?.state}
@@ -822,8 +832,15 @@ function shouldFocusReview(pending: boolean, working: boolean) {
 
 function bindBrowse(
   open:
-    ((version: string, choice: SizeDisplay | undefined) => void) | undefined,
+    | ((
+        version: string,
+        choice: SizeDisplay | undefined,
+        scan: string | undefined,
+      ) => void)
+    | undefined,
   choice: SizeDisplay | undefined,
+  scan: string | undefined,
 ): ((version: string) => void) | undefined {
-  return open ? (version) => open(version, choice) : undefined;
+  // The shown total belongs to the receipt's job, so its version is that scan's.
+  return open ? (version) => open(version, choice, scan) : undefined;
 }
