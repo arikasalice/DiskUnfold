@@ -49,7 +49,7 @@ function Invoke-Packager {
 
     $parameters = @{
         BinaryPath = $BinaryPath
-        Version = '0.1.0'
+        Version = '0.0.1'
         Architecture = $RequestedArchitecture
         Format = $Format
         OutputDirectory = $OutputDirectory
@@ -113,7 +113,7 @@ try {
     $portableManifest = Get-Content -LiteralPath (Join-Path $portableOutput 'manifest.json') -Raw | ConvertFrom-Json
     if ($portableManifest.rows.Count -ne 1) { throw 'Portable manifest must have one row.' }
     $portableRow = $portableManifest.rows[0]
-    Assert-Equal "DiskUnfold-0.1.0-$Architecture.exe" $portableRow.file_name 'Portable filename mismatch.'
+    Assert-Equal "DiskUnfold-0.0.1-$Architecture.exe" $portableRow.file_name 'Portable filename mismatch.'
     Assert-Equal 'portable-exe' $portableRow.format 'Portable format mismatch.'
     Assert-Equal 'unsigned' $portableRow.signature 'Portable signature must remain unsigned.'
     Assert-True ($portableRow.signature_scope -match 'development-only') 'Portable manifest is missing its development signature scope.'
@@ -178,7 +178,7 @@ try {
     $msixManifest = Get-Content -LiteralPath (Join-Path $msixOutput 'manifest.json') -Raw | ConvertFrom-Json
     if ($msixManifest.rows.Count -ne 1) { throw 'MSIX manifest must have one row.' }
     $msixRow = $msixManifest.rows[0]
-    Assert-Equal "DiskUnfold-0.1.0-$Architecture.msix" $msixRow.file_name 'MSIX filename mismatch.'
+    Assert-Equal "DiskUnfold-0.0.1-$Architecture.msix" $msixRow.file_name 'MSIX filename mismatch.'
     Assert-Equal 'msix' $msixRow.format 'MSIX format mismatch.'
     Assert-Equal 'unsigned' $msixRow.signature 'MSIX manifest must record unsigned development status.'
     Assert-True ($msixRow.signature_scope -match 'placeholder development identity') 'MSIX manifest is missing its development identity scope.'

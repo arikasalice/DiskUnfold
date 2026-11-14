@@ -20,20 +20,10 @@ fn sha256(bytes: &[u8]) -> String {
     output
 }
 
-fn webview2_component() -> Value {
-    json!({
-        "name": "Microsoft Edge WebView2 Runtime Evergreen Standalone Installer",
-        "version": "1.3.315.17",
-        "sha256": sha256(b"webview2 fixture"),
-        "signer": "CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US",
-        "source": "https://go.microsoft.com/fwlink/?linkid=2124701"
-    })
-}
-
 fn write_manifest(root: &Path, bad_package_digest: bool) -> Result<(), Box<dyn Error>> {
     let package = b"synthetic package fixture";
     let executable = b"synthetic executable fixture";
-    fs::write(root.join("DiskUnfold-0.1.0-x64.msi"), package)?;
+    fs::write(root.join("DiskUnfold-0.0.1-x64.msi"), package)?;
     fs::write(root.join("DiskUnfold.exe"), executable)?;
     let package_digest = if bad_package_digest {
         "0".repeat(64)
@@ -42,10 +32,10 @@ fn write_manifest(root: &Path, bad_package_digest: bool) -> Result<(), Box<dyn E
     };
     let manifest = json!({
         "product_name": "DiskUnfold",
-        "version": "0.1.0",
+        "version": "0.0.1",
         "rows": [{
-            "file_name": "DiskUnfold-0.1.0-x64.msi",
-            "version": "0.1.0",
+            "file_name": "DiskUnfold-0.0.1-x64.msi",
+            "version": "0.0.1",
             "os": {"family": "windows", "minimum": "11 25H2", "maximum": null},
             "cpu": "x64",
             "format": "msi",
@@ -56,18 +46,17 @@ fn write_manifest(root: &Path, bad_package_digest: bool) -> Result<(), Box<dyn E
             "executable_file_name": "DiskUnfold.exe",
             "executable_sha256": sha256(executable),
             "run_instructions": "Install the package, then launch DiskUnfold.",
-            "bundled_components": [webview2_component()]
         }],
         "channel_references": [{
             "channel": "winget",
-            "version": "0.1.0",
+            "version": "0.0.1",
             "cpu": "x64",
-            "artifact_file_name": "DiskUnfold-0.1.0-x64.msi",
+            "artifact_file_name": "DiskUnfold-0.0.1-x64.msi",
             "update_method": "channel_command"
         }],
         "staged_files": [
-            {"artifact_file_name": "DiskUnfold-0.1.0-x64.msi", "kind": "package", "relative_path": "DiskUnfold-0.1.0-x64.msi"},
-            {"artifact_file_name": "DiskUnfold-0.1.0-x64.msi", "kind": "executable", "relative_path": "DiskUnfold.exe"}
+            {"artifact_file_name": "DiskUnfold-0.0.1-x64.msi", "kind": "package", "relative_path": "DiskUnfold-0.0.1-x64.msi"},
+            {"artifact_file_name": "DiskUnfold-0.0.1-x64.msi", "kind": "executable", "relative_path": "DiskUnfold.exe"}
         ]
     });
     fs::write(
@@ -78,8 +67,8 @@ fn write_manifest(root: &Path, bad_package_digest: bool) -> Result<(), Box<dyn E
 }
 
 fn write_multi_distribution_manifest(root: &Path) -> Result<(), Box<dyn Error>> {
-    let windows_package = "DiskUnfold-0.1.0-x64.msi";
-    let macos_package = "DiskUnfold-0.1.0-universal.dmg";
+    let windows_package = "DiskUnfold-0.0.1-x64.msi";
+    let macos_package = "DiskUnfold-0.0.1-universal.dmg";
     let windows_executable = b"windows executable fixture";
     let macos_executable = b"macos executable fixture";
     fs::create_dir_all(root.join("unpacked/windows-x64"))?;
@@ -96,11 +85,11 @@ fn write_multi_distribution_manifest(root: &Path) -> Result<(), Box<dyn Error>> 
     )?;
     let manifest = json!({
         "product_name": "DiskUnfold",
-        "version": "0.1.0",
+        "version": "0.0.1",
         "rows": [
             {
                 "file_name": windows_package,
-                "version": "0.1.0",
+                "version": "0.0.1",
                 "os": {"family": "windows", "minimum": "11 25H2", "maximum": null},
                 "cpu": "x64",
                 "format": "msi",
@@ -111,11 +100,10 @@ fn write_multi_distribution_manifest(root: &Path) -> Result<(), Box<dyn Error>> 
                 "executable_file_name": "DiskUnfold.exe",
                 "executable_sha256": sha256(windows_executable),
                 "run_instructions": "Install the MSI, then launch DiskUnfold.",
-                "bundled_components": [webview2_component()]
             },
             {
                 "file_name": macos_package,
-                "version": "0.1.0",
+                "version": "0.0.1",
                 "os": {"family": "macos", "minimum": "15", "maximum": null},
                 "cpu": "universal",
                 "format": "dmg",
@@ -173,13 +161,13 @@ fn cli_generates_local_inventory_and_rejects_digest_mismatch_before_writing()
         fs::read_to_string(output.join("DISTRIBUTION.md"))?.contains("Internal inventory output")
     );
     let checksums = fs::read_to_string(output.join("SHA256SUMS"))?;
-    assert!(checksums.contains("DiskUnfold-0.1.0-x64.msi"));
+    assert!(checksums.contains("DiskUnfold-0.0.1-x64.msi"));
     assert!(!checksums.contains("DiskUnfold.exe"));
     let executable_checksums: Value =
         serde_json::from_slice(&fs::read(output.join("EXECUTABLE-SHA256.json"))?)?;
     assert_eq!(
         executable_checksums["executables"][0]["artifact_file_name"],
-        "DiskUnfold-0.1.0-x64.msi"
+        "DiskUnfold-0.0.1-x64.msi"
     );
     assert_eq!(
         executable_checksums["executables"][0]["executable_file_name"],
@@ -188,6 +176,16 @@ fn cli_generates_local_inventory_and_rejects_digest_mismatch_before_writing()
     let distribution = fs::read_to_string(output.join("DISTRIBUTION.md"))?;
     assert!(distribution.contains("not verified or created by this tool"));
     assert!(distribution.contains("not a release gate"));
+    for entry in fs::read_dir(&output)? {
+        let path = entry?.path();
+        let published = fs::read_to_string(&path)?;
+        assert_eq!(
+            du_release_tools::release_inventory::microsoft_download_reference(&published),
+            None,
+            "{}",
+            path.display()
+        );
+    }
 
     let bad_staging = temporary.path().join("bad-staging");
     let bad_output = temporary.path().join("bad-output");
@@ -241,13 +239,13 @@ fn cli_emits_verifiable_package_sums_and_package_scoped_executable_hashes()
     );
     let expected_executables = [
         (
-            "DiskUnfold-0.1.0-x64.msi",
+            "DiskUnfold-0.0.1-x64.msi",
             sha256(&fs::read(
                 staging.join("unpacked/windows-x64/DiskUnfold.exe"),
             )?),
         ),
         (
-            "DiskUnfold-0.1.0-universal.dmg",
+            "DiskUnfold-0.0.1-universal.dmg",
             sha256(&fs::read(
                 staging.join("unpacked/macos-universal/DiskUnfold.exe"),
             )?),
@@ -273,7 +271,7 @@ fn cli_emits_verifiable_package_sums_and_package_scoped_executable_hashes()
 
     // A published asset directory is flat: package files and SHA256SUMS share this directory.
     fs::create_dir(&release_assets)?;
-    for name in ["DiskUnfold-0.1.0-x64.msi", "DiskUnfold-0.1.0-universal.dmg"] {
+    for name in ["DiskUnfold-0.0.1-x64.msi", "DiskUnfold-0.0.1-universal.dmg"] {
         fs::copy(staging.join(name), release_assets.join(name))?;
     }
     fs::copy(output.join("SHA256SUMS"), release_assets.join("SHA256SUMS"))?;
@@ -312,7 +310,7 @@ fn cli_keeps_nonconsecutive_ubuntu_versions_on_one_asset_row() -> Result<(), Box
     let staging = temporary.path().join("staging");
     let output = temporary.path().join("output");
     fs::create_dir(&staging)?;
-    let package_name = "DiskUnfold-0.1.0-x64.tar.gz";
+    let package_name = "DiskUnfold-0.0.1-x64.tar.gz";
     let executable_name = "diskunfold";
     let package = b"Ubuntu tarball fixture";
     let executable = b"Ubuntu executable fixture";
@@ -320,10 +318,10 @@ fn cli_keeps_nonconsecutive_ubuntu_versions_on_one_asset_row() -> Result<(), Box
     fs::write(staging.join(executable_name), executable)?;
     let manifest = json!({
         "product_name": "DiskUnfold",
-        "version": "0.1.0",
+        "version": "0.0.1",
         "rows": [{
             "file_name": package_name,
-            "version": "0.1.0",
+            "version": "0.0.1",
             "os": {
                 "family": "ubuntu",
                 "supported_versions": ["26.04", "24.04"]

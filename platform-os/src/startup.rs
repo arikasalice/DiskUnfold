@@ -22,6 +22,8 @@ mod webkit_gtk;
 #[cfg(target_os = "windows")]
 #[allow(unsafe_code)]
 mod webview2;
+#[cfg(any(target_os = "windows", test))]
+mod webview2_dialog;
 #[cfg(any(
     target_os = "windows",
     all(any(target_os = "linux", target_os = "macos"), feature = "webview"),

@@ -2,8 +2,8 @@ use super::*;
 use crate::{
     link_list::detect,
     release_inventory::{
-        BundledComponent, Cpu, DistributionChannel, DistributionRow, OsFamily, OsRange, OsVersion,
-        OsVersionScope, Sha256Digest, SignatureMethod, StagedFile, WEBVIEW2_COMPONENT,
+        Cpu, DistributionChannel, DistributionRow, OsFamily, OsRange, OsVersion, OsVersionScope,
+        Sha256Digest, SignatureMethod, StagedFile,
     },
 };
 use tempfile::TempDir;
@@ -25,7 +25,7 @@ fn write(root: &Path, relative: &str, bytes: &[u8]) -> TestResult {
 fn tree_for(format: PackageFormat) -> Result<TempDir, Box<dyn std::error::Error>> {
     let dir = tempfile::tempdir()?;
     let prefix = match format {
-        PackageFormat::TarGz => "DiskUnfold-0.1.0-linux-x86_64/",
+        PackageFormat::TarGz => "DiskUnfold-0.0.1-linux-x86_64/",
         PackageFormat::Deb => "usr/share/doc/diskunfold/",
         _ => "",
     };
@@ -36,7 +36,7 @@ fn tree_for(format: PackageFormat) -> Result<TempDir, Box<dyn std::error::Error>
 }
 
 fn scan(format: PackageFormat, tree: &Path) -> Result<(), GateFailure> {
-    scan_package("pkg", format, tree, "diskunfold", LICENSE, NOTICES, &[])
+    scan_package("pkg", format, tree, "diskunfold", LICENSE, NOTICES)
 }
 
 const FORMATS: [PackageFormat; 5] = [
@@ -117,7 +117,7 @@ fn a_tar_whose_only_top_level_entry_is_a_link_to_a_folder_fails() -> TestResult 
     let real = tree_for(PackageFormat::TarGz)?;
     let tree = tempfile::tempdir()?;
     let folder = fs::read_dir(real.path())?.next().ok_or("folder")??.path();
-    std::os::unix::fs::symlink(&folder, tree.path().join("DiskUnfold-0.1.0-linux-x86_64"))?;
+    std::os::unix::fs::symlink(&folder, tree.path().join("DiskUnfold-0.0.1-linux-x86_64"))?;
     let failure = scan(PackageFormat::TarGz, tree.path())
         .err()
         .ok_or("must fail")?;
@@ -259,73 +259,23 @@ fn permissive_member_names_are_not_flagged() -> TestResult {
 }
 
 #[test]
-fn msi_tree_with_the_recorded_installer_passes() -> TestResult {
-    let installer = b"MZ microsoft signed installer".as_slice();
+fn msi_tree_with_only_its_documents_passes_and_a_bundled_installer_is_denied() -> TestResult {
     let tree = tree_for(PackageFormat::Msi)?;
-    write(tree.path(), BUNDLED_INSTALLER_FILE, installer)?;
-    let bundled = [recorded(installer)?];
-    scan_msi(tree.path(), &bundled)?;
+    scan(PackageFormat::Msi, tree.path())?;
+    // The MSI no longer carries the WebView2 installer; a binary of any name is refused.
+    write(tree.path(), "WebView2-Installer.exe", b"MZ installer")?;
+    let failure = scan(PackageFormat::Msi, tree.path())
+        .err()
+        .ok_or("accepted")?;
+    assert_eq!(failure.reason_key, "release.license_denied");
+    assert!(failure.detail.contains("WebView2-Installer.exe"));
     Ok(())
 }
-
-#[test]
-fn msi_fails_closed_without_the_recorded_installer() -> TestResult {
-    let installer = b"MZ microsoft signed installer".as_slice();
-    let bundled = [recorded(installer)?];
-    let missing = tree_for(PackageFormat::Msi)?;
-    let failure = scan_msi(missing.path(), &bundled).err().ok_or("accepted")?;
-    assert_eq!(failure.reason_key, NOTICE_MISMATCH);
-    let swapped = tree_for(PackageFormat::Msi)?;
-    write(swapped.path(), BUNDLED_INSTALLER_FILE, b"MZ another binary")?;
-    assert!(scan_msi(swapped.path(), &bundled).is_err());
-    assert!(scan_msi(missing.path(), &[]).is_err());
-    Ok(())
-}
-
-#[test]
-fn only_the_recorded_installer_name_and_digest_are_allowed_to_be_a_binary() -> TestResult {
-    let installer = b"MZ microsoft signed installer".as_slice();
-    let bundled = [recorded(installer)?];
-    let tree = tree_for(PackageFormat::Msi)?;
-    write(tree.path(), BUNDLED_INSTALLER_FILE, installer)?;
-    write(tree.path(), "other.exe", installer)?;
-    let failure = scan_msi(tree.path(), &bundled).err().ok_or("accepted")?;
-    assert!(failure.detail.contains("other.exe"));
-    Ok(())
-}
-
-fn scan_msi(tree: &Path, bundled: &[BundledComponent]) -> Result<(), GateFailure> {
-    scan_package(
-        "pkg",
-        PackageFormat::Msi,
-        tree,
-        "diskunfold",
-        LICENSE,
-        NOTICES,
-        bundled,
-    )
-}
-
-fn recorded(bytes: &[u8]) -> Result<BundledComponent, Box<dyn std::error::Error>> {
-    use sha2::{Digest, Sha256};
-    let digest: String = Sha256::digest(bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect();
-    Ok(BundledComponent {
-        name: WEBVIEW2_COMPONENT.into(),
-        version: "1.3.315.17".into(),
-        sha256: Sha256Digest::parse(&digest)?,
-        signer: "CN=Microsoft Corporation".into(),
-        source: "https://go.microsoft.com/fwlink/?linkid=2124701".into(),
-    })
-}
-
 fn row(name: &str, format: PackageFormat) -> Result<DistributionRow, Box<dyn std::error::Error>> {
     let digest = Sha256Digest::parse(&"b".repeat(64))?;
     Ok(DistributionRow {
         file_name: name.into(),
-        version: "0.1.0".into(),
+        version: "0.0.1".into(),
         os: OsRange {
             family: OsFamily::Ubuntu,
             versions: OsVersionScope::Range {
@@ -343,14 +293,13 @@ fn row(name: &str, format: PackageFormat) -> Result<DistributionRow, Box<dyn std
         executable_sha256: digest,
         run_instructions: "run".into(),
         sbom_file_name: None,
-        bundled_components: Vec::new(),
     })
 }
 
 fn manifest_for(rows: Vec<DistributionRow>, executables: &[&str]) -> ReleaseManifest {
     ReleaseManifest {
         product_name: "DiskUnfold".into(),
-        version: "0.1.0".into(),
+        version: "0.0.1".into(),
         staged_files: rows
             .iter()
             .zip(executables)
@@ -456,7 +405,7 @@ fn the_scan_reads_the_link_list_of_the_staged_executable() -> TestResult {
 
 #[test]
 fn package_file_names_must_be_plain_names() {
-    for good in ["a.deb", "DiskUnfold-0.1.0-x64.msix"] {
+    for good in ["a.deb", "DiskUnfold-0.0.1-x64.msix"] {
         assert!(plain_file_name(good), "{good}");
     }
     for bad in ["", ".", "..", "a/b", "a\\b", "C:evil", "../x"] {

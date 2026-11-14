@@ -188,14 +188,14 @@ dependencies = [
 
 [[package]]
 name = "du-analysis-index"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "du-core-contracts",
 ]
 
 [[package]]
 name = "du-app-db"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "blake3",
  "du-core-contracts",
@@ -207,7 +207,7 @@ dependencies = [
 
 [[package]]
 name = "du-app-host"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "du-app-db",
  "du-core-contracts",
@@ -224,7 +224,7 @@ dependencies = [
 
 [[package]]
 name = "du-arch-check"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "proc-macro2",
  "serde",
@@ -235,15 +235,15 @@ dependencies = [
 
 [[package]]
 name = "du-change-executor"
-version = "0.1.0"
+version = "0.0.1"
 
 [[package]]
 name = "du-change-planner"
-version = "0.1.0"
+version = "0.0.1"
 
 [[package]]
 name = "du-cli"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "du-app-db",
  "du-core-contracts",
@@ -255,7 +255,7 @@ dependencies = [
 
 [[package]]
 name = "du-core-contracts"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "base64",
  "chrono",
@@ -267,7 +267,7 @@ dependencies = [
 
 [[package]]
 name = "du-duplicate-engine"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "blake3",
  "du-core-contracts",
@@ -276,7 +276,7 @@ dependencies = [
 
 [[package]]
 name = "du-engine-api"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "blake3",
  "du-analysis-index",
@@ -292,25 +292,25 @@ dependencies = [
 
 [[package]]
 name = "du-export-render"
-version = "0.1.0"
+version = "0.0.1"
 
 [[package]]
 name = "du-guidance-rules"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "du-core-contracts",
 ]
 
 [[package]]
 name = "du-job-runtime"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "du-core-contracts",
 ]
 
 [[package]]
 name = "du-launcher"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "du-app-host",
  "du-cli",
@@ -320,11 +320,11 @@ dependencies = [
 
 [[package]]
 name = "du-mcp-gateway"
-version = "0.1.0"
+version = "0.0.1"
 
 [[package]]
 name = "du-platform-os"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "block2",
  "du-core-contracts",
@@ -345,7 +345,7 @@ dependencies = [
 
 [[package]]
 name = "du-release-tools"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "du-app-db",
  "du-snapshot-store",
@@ -359,7 +359,7 @@ dependencies = [
 
 [[package]]
 name = "du-scan-engine"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "blake3",
  "du-analysis-index",
@@ -368,7 +368,7 @@ dependencies = [
 
 [[package]]
 name = "du-share-policy"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "du-core-contracts",
  "serde",
@@ -377,14 +377,14 @@ dependencies = [
 
 [[package]]
 name = "du-snapshot-files"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "du-core-contracts",
 ]
 
 [[package]]
 name = "du-snapshot-store"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "blake3",
  "du-analysis-index",
@@ -395,7 +395,7 @@ dependencies = [
 
 [[package]]
 name = "du-user-env"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "blake3",
  "du-core-contracts",

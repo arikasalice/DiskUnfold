@@ -44,7 +44,7 @@ file's Upstream-Contact field.
 
     bash release-packaging/linux/package-linux.sh \
       --binary target/x86_64-unknown-linux-gnu/release/diskunfold \
-      --version 0.1.0 \
+      --version 0.0.1 \
       --cpu x64 \
       --notices /path/to/verified/THIRD-PARTY-NOTICES.txt \
       --debian-copyright /path/to/verified/debian-copyright.txt \
@@ -61,9 +61,12 @@ staging directories created by that invocation, after checking their directory
 identity.
 
 The .deb registers /usr/bin/diskunfold and derives Depends from the executable's
-dynamic library links. WebKitGTK remains a system package dependency. The tar.gz
-contains one top-level folder with exactly diskunfold, LICENSE, and
-THIRD-PARTY-NOTICES.txt. It includes no WebKitGTK, GTK, GLib, or other system
+dynamic library links. WebKitGTK remains a system package dependency, which the
+.deb installs automatically. The tar.gz contains one top-level folder with
+exactly diskunfold, LICENSE, THIRD-PARTY-NOTICES.txt, the install-form marker and
+a README.txt that lists the runtime packages (the .deb's dependencies, such as
+libgtk-4-1 and libwebkitgtk-6.0-4) and the `sudo apt install` command. It
+includes no WebKitGTK, GTK, GLib, or other system
 libraries. Both formats are unsigned by this script. `SHA256SUMS` covers the
 package files and `EXECUTABLE-SHA256.json` covers the package executables; these
 digests do not authenticate a publisher or establish build provenance.

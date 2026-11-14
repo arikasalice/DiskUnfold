@@ -19,7 +19,7 @@ fn row(
     let digest = Sha256Digest::parse(&"a".repeat(64))?;
     Ok(DistributionRow {
         file_name: name.into(),
-        version: "0.1.0".into(),
+        version: "0.0.1".into(),
         os: OsRange {
             family,
             versions: OsVersionScope::Range {
@@ -37,17 +37,6 @@ fn row(
         executable_sha256: digest,
         run_instructions: "run".into(),
         sbom_file_name: None,
-        bundled_components: if format == PackageFormat::Msi {
-            vec![crate::release_inventory::BundledComponent {
-                name: crate::release_inventory::WEBVIEW2_COMPONENT.into(),
-                version: "1.3.315.17".into(),
-                sha256: Sha256Digest::parse(&"b".repeat(64))?,
-                signer: "CN=Microsoft Corporation, O=Microsoft Corporation".into(),
-                source: "https://go.microsoft.com/fwlink/?linkid=2124701".into(),
-            }]
-        } else {
-            Vec::new()
-        },
     })
 }
 
@@ -62,7 +51,7 @@ fn manifest(rows: Vec<DistributionRow>) -> ReleaseManifest {
         .collect();
     ReleaseManifest {
         product_name: "DiskUnfold".into(),
-        version: "0.1.0".into(),
+        version: "0.0.1".into(),
         rows,
         channel_references: Vec::new(),
         staged_files,
@@ -85,21 +74,21 @@ fn full_set(signature: SignatureMethod) -> Result<ReleaseManifest, Box<dyn std::
 
 #[test]
 fn accepts_only_stable_three_part_tags() -> TestResult {
-    assert_eq!(parse_release_tag("v0.1.0")?.version(), "0.1.0");
+    assert_eq!(parse_release_tag("v0.0.1")?.version(), "0.0.1");
     assert_eq!(parse_release_tag("v10.20.30")?.version(), "10.20.30");
     for bad in [
         "",
-        "0.1.0",
+        "0.0.1",
         "v0.1",
-        "v0.1.0.1",
+        "v0.0.1.1",
         "v01.1.0",
-        "v0.1.0-rc.1",
-        "v0.1.0+b",
-        "V0.1.0",
-        "refs/tags/v0.1.0",
+        "v0.0.1-rc.1",
+        "v0.0.1+b",
+        "V0.0.1",
+        "refs/tags/v0.0.1",
         "v0.1.x",
         "v-1.0.0",
-        "v0.1.0 ",
+        "v0.0.1 ",
         "v1..0",
     ] {
         let failure = parse_release_tag(bad).err().ok_or(bad)?;
@@ -110,8 +99,8 @@ fn accepts_only_stable_three_part_tags() -> TestResult {
 
 #[test]
 fn tag_version_must_match_workspace_version() -> TestResult {
-    let tag = parse_release_tag("v0.1.0")?;
-    check_tag_version(&tag, "0.1.0")?;
+    let tag = parse_release_tag("v0.0.1")?;
+    check_tag_version(&tag, "0.0.1")?;
     let failure = check_tag_version(&tag, "0.1.1").err().ok_or("accepted")?;
     assert_eq!(failure.reason_key, TAG_VERSION_MISMATCH);
     Ok(())

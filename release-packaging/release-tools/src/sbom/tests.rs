@@ -38,11 +38,10 @@ fn packages() -> Vec<NoticePackage> {
 
 const SUBJECT: SbomSubject<'static> = SbomSubject {
     product_name: "DiskUnfold",
-    version: "0.1.0",
-    file_name: "DiskUnfold-0.1.0-linux-x86_64.tar.gz",
+    version: "0.0.1",
+    file_name: "DiskUnfold-0.0.1-linux-x86_64.tar.gz",
     sha256: "aa11aa11aa11aa11aa11aa11aa11aa11aa11aa11aa11aa11aa11aa11aa11aa11",
     rust_targets: &["x86_64-unknown-linux-gnu"],
-    bundled: &[],
 };
 
 fn render(packages: &[NoticePackage]) -> Result<String, serde_json::Error> {
@@ -258,7 +257,6 @@ fn each_package_is_built_for_its_own_rust_targets() -> TestResult {
 fn the_serial_number_depends_on_targets_and_build_tools() -> TestResult {
     let other = SbomSubject {
         rust_targets: &["aarch64-unknown-linux-gnu"],
-        bundled: &[],
         ..SUBJECT
     };
     let tool = [BuildTool {
@@ -294,36 +292,18 @@ fn notice_identities_stop_at_the_first_license_text() -> TestResult {
 #[test]
 fn sbom_file_names_follow_the_package_name() {
     assert_eq!(
-        sbom_file_name("DiskUnfold-0.1.0-x64.msi"),
-        "DiskUnfold-0.1.0-x64.msi.cdx.json"
+        sbom_file_name("DiskUnfold-0.0.1-x64.msi"),
+        "DiskUnfold-0.0.1-x64.msi.cdx.json"
     );
 }
 
 #[test]
-fn bundled_components_are_listed_with_digest_and_version_outside_the_notices_comparison()
--> TestResult {
-    let component = crate::release_inventory::BundledComponent {
-        name: crate::release_inventory::WEBVIEW2_COMPONENT.into(),
-        version: "1.3.315.17".into(),
-        sha256: crate::release_inventory::Sha256Digest::parse(&"d".repeat(64))?,
-        signer: "CN=Microsoft Corporation".into(),
-        source: "https://go.microsoft.com/fwlink/?linkid=2124701".into(),
-    };
-    let bundled = [component];
-    let subject = SbomSubject {
-        bundled: &bundled,
-        ..SUBJECT
-    };
-    let text = render_cyclonedx(&subject, &packages(), &[])?;
-    let listed = sbom_bundled(&text)?;
-    assert!(listed.contains(&(
-        crate::release_inventory::WEBVIEW2_COMPONENT.to_owned(),
-        "1.3.315.17".to_owned(),
-        "d".repeat(64)
-    )));
-    // The bundled file is neither a cargo/npm identity nor required in THIRD-PARTY-NOTICES.
-    let notices = render_notices(&packages());
-    check_sbom_coverage(&text, &notices, None).map_err(|failure| failure.detail)?;
-    assert!(sbom_bundled(&render(&packages())?)?.is_empty());
+fn the_sbom_holds_no_microsoft_download_link() -> TestResult {
+    let text = render(&packages())?;
+    assert_eq!(
+        crate::release_inventory::microsoft_download_reference(&text),
+        None
+    );
+    assert!(!text.contains("WebView2 Evergreen"));
     Ok(())
 }

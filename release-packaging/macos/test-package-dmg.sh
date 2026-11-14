@@ -200,9 +200,9 @@ NOTICE
 notices_path="$test_root/THIRD-PARTY-NOTICES.fixture.txt"
 
 package_dir="$test_root/package"
-"$package_script" --binary "$test_root/diskunfold-universal" --version 0.1.0 \
+"$package_script" --binary "$test_root/diskunfold-universal" --version 0.0.1 \
     --notices "$notices_path" --output-dir "$package_dir"
-dmg="$package_dir/DiskUnfold-0.1.0-universal.dmg"
+dmg="$package_dir/DiskUnfold-0.0.1-universal.dmg"
 manifest="$package_dir/manifest.json"
 [[ -f "$dmg" && -f "$manifest" && -x "$package_dir/unpacked/macos-universal/diskunfold" ]]
 
@@ -215,7 +215,7 @@ import sys
 manifest_path, dmg_path, executable_path = map(pathlib.Path, sys.argv[1:])
 data = json.loads(manifest_path.read_text(encoding="utf-8"))
 assert set(data) == {"product_name", "version", "rows", "channel_references", "staged_files"}
-assert data["product_name"] == "DiskUnfold" and data["version"] == "0.1.0"
+assert data["product_name"] == "DiskUnfold" and data["version"] == "0.0.1"
 assert data["channel_references"] == []
 assert len(data["rows"]) == 1
 row = data["rows"][0]
@@ -265,7 +265,7 @@ attach_attempted=0
 mount_image=''
 
 before=$(shasum -a 256 "$dmg" | awk '{print $1}')
-if "$package_script" --binary "$test_root/diskunfold-universal" --version 0.1.0 \
+if "$package_script" --binary "$test_root/diskunfold-universal" --version 0.0.1 \
     --bundle-id com.diskunfold.app --notices "$notices_path" --output-dir "$package_dir" >/dev/null 2>&1; then
     printf 'test-package-dmg: existing output directory was accepted\n' >&2
     exit 1
@@ -274,7 +274,7 @@ after=$(shasum -a 256 "$dmg" | awk '{print $1}')
 [[ "$before" == "$after" ]]
 
 thin_dir="$test_root/thin-package"
-if "$package_script" --binary "$test_root/diskunfold-arm64" --version 0.1.0 \
+if "$package_script" --binary "$test_root/diskunfold-arm64" --version 0.0.1 \
     --bundle-id com.diskunfold.app --notices "$notices_path" --output-dir "$thin_dir" >/dev/null 2>&1; then
     printf 'test-package-dmg: thin binary was accepted\n' >&2
     exit 1
@@ -282,7 +282,7 @@ fi
 [[ ! -e "$thin_dir" && ! -L "$thin_dir" ]]
 
 ln -s "$test_root/diskunfold-universal" "$test_root/binary-link"
-if "$package_script" --binary "$test_root/binary-link" --version 0.1.0 \
+if "$package_script" --binary "$test_root/binary-link" --version 0.0.1 \
     --bundle-id com.diskunfold.app --notices "$notices_path" --output-dir "$test_root/binary-link-package" >/dev/null 2>&1; then
     printf 'test-package-dmg: binary symlink was accepted\n' >&2
     exit 1
@@ -290,7 +290,7 @@ fi
 [[ ! -e "$test_root/binary-link-package" ]]
 
 ln -s "$notices_path" "$test_root/notices-link"
-if "$package_script" --binary "$test_root/diskunfold-universal" --version 0.1.0 \
+if "$package_script" --binary "$test_root/diskunfold-universal" --version 0.0.1 \
     --bundle-id com.diskunfold.app --notices "$test_root/notices-link" \
     --output-dir "$test_root/notices-link-package" >/dev/null 2>&1; then
     printf 'test-package-dmg: notices symlink was accepted\n' >&2
@@ -299,7 +299,7 @@ fi
 [[ ! -e "$test_root/notices-link-package" ]]
 
 : > "$test_root/empty-notices.txt"
-if "$package_script" --binary "$test_root/diskunfold-universal" --version 0.1.0 \
+if "$package_script" --binary "$test_root/diskunfold-universal" --version 0.0.1 \
     --bundle-id com.diskunfold.app --notices "$test_root/empty-notices.txt" \
     --output-dir "$test_root/empty-notices-package" >/dev/null 2>&1; then
     printf 'test-package-dmg: empty notices input was accepted\n' >&2
@@ -310,7 +310,7 @@ fi
 mkdir "$test_root/output-link-target"
 printf 'preserve this file\n' > "$test_root/output-link-target/sentinel.txt"
 ln -s "$test_root/output-link-target" "$test_root/output-link"
-if "$package_script" --binary "$test_root/diskunfold-universal" --version 0.1.0 \
+if "$package_script" --binary "$test_root/diskunfold-universal" --version 0.0.1 \
     --bundle-id com.diskunfold.app --notices "$notices_path" \
     --output-dir "$test_root/output-link" >/dev/null 2>&1; then
     printf 'test-package-dmg: output symlink was accepted\n' >&2
@@ -333,7 +333,7 @@ chmod 0755 "$wrapper_dir/hdiutil"
 attach_failure_dir="$test_root/attach-failure-package"
 attach_log="$test_root/attach-failure.log"
 if REAL_HDIUTIL="$real_hdiutil" PATH="$wrapper_dir:$PATH" "$package_script" \
-    --binary "$test_root/diskunfold-universal" --version 0.1.0 \
+    --binary "$test_root/diskunfold-universal" --version 0.0.1 \
     --bundle-id com.diskunfold.app --notices "$notices_path" \
     --output-dir "$attach_failure_dir" >"$attach_log" 2>&1; then
     printf 'test-package-dmg: attach failure injection unexpectedly succeeded\n' >&2
@@ -381,7 +381,7 @@ chmod 0755 "$alternate_wrapper_dir/hdiutil"
 alternate_output="$test_root/alternate-mount-package"
 alternate_log="$test_root/alternate-mount.log"
 if ALT_MOUNT="$alternate_mount" REAL_HDIUTIL="$real_hdiutil" PATH="$alternate_wrapper_dir:$PATH" \
-    "$package_script" --binary "$test_root/diskunfold-universal" --version 0.1.0 \
+    "$package_script" --binary "$test_root/diskunfold-universal" --version 0.0.1 \
     --bundle-id com.diskunfold.app --notices "$notices_path" \
     --output-dir "$alternate_output" >"$alternate_log" 2>&1; then
     printf 'test-package-dmg: unexpected-mountpoint injection unexpectedly succeeded\n' >&2
@@ -393,7 +393,7 @@ work_dirs=("$test_root"/.work.*)
 [[ ${#work_dirs[@]} -eq 1 && -d "${work_dirs[0]}" && ! -L "${work_dirs[0]}" ]]
 preserved_work=${work_dirs[0]}
 preserved_identity=$(stat -f '%d:%i' "$preserved_work")
-preserved_image="$preserved_work/DiskUnfold-0.1.0-universal.dmg"
+preserved_image="$preserved_work/DiskUnfold-0.0.1-universal.dmg"
 image_is_mounted_at "$preserved_image" "$alternate_mount"
 attach_attempted=1
 mounted=1
@@ -432,14 +432,14 @@ race_output="$test_root/raced-output"
 race_log="$test_root/race-publish.log"
 if TEST_ROOT="$test_root" RACE_OUTPUT="$race_output" REAL_PYTHON3="$real_python3" \
     PATH="$race_wrapper_dir:$PATH" "$package_script" \
-    --binary "$test_root/diskunfold-universal" --version 0.1.0 \
+    --binary "$test_root/diskunfold-universal" --version 0.0.1 \
     --bundle-id com.diskunfold.app --notices "$notices_path" \
     --output-dir "$race_output" >"$race_log" 2>&1; then
     printf 'test-package-dmg: output race injection unexpectedly succeeded\n' >&2
     exit 1
 fi
 [[ -f "$race_output/sentinel.txt" && "$(cat "$race_output/sentinel.txt")" == 'external actor sentinel' ]]
-[[ ! -e "$race_output/manifest.json" && ! -e "$race_output/DiskUnfold-0.1.0-universal.dmg" ]]
+[[ ! -e "$race_output/manifest.json" && ! -e "$race_output/DiskUnfold-0.0.1-universal.dmg" ]]
 grep -q 'could not atomically publish the complete package directory' "$race_log"
 if compgen -G "$test_root/.work.*" >/dev/null; then
     printf 'test-package-dmg: output race left staging files behind\n' >&2
@@ -489,10 +489,10 @@ lipo -create "$test_root/second-arm64" "$test_root/second-x86_64" -output "$test
 requirement_of() { codesign --display --requirements - "$1" 2>&1 | grep 'designated =>'; }
 first_signed="$test_root/signed-1"
 second_signed="$test_root/signed-2"
-"$package_script" --binary "$test_root/diskunfold-universal" --version 0.1.0 \
+"$package_script" --binary "$test_root/diskunfold-universal" --version 0.0.1 \
     --signing-identity "$identity_name" --keychain "$test_keychain" \
     --notices "$notices_path" --output-dir "$first_signed" >/dev/null
-"$package_script" --binary "$test_root/second-universal" --version 0.1.0 \
+"$package_script" --binary "$test_root/second-universal" --version 0.0.1 \
     --signing-identity "$identity_name" --keychain "$test_keychain" \
     --notices "$notices_path" --output-dir "$second_signed" >/dev/null
 first_requirement=$(requirement_of "$first_signed/unpacked/macos-universal/diskunfold")
@@ -518,7 +518,7 @@ PY
 
 # The ad-hoc requirement of the same two builds does differ, which is why grants were lost.
 adhoc_second="$test_root/adhoc-2"
-"$package_script" --binary "$test_root/second-universal" --version 0.1.0 \
+"$package_script" --binary "$test_root/second-universal" --version 0.0.1 \
     --notices "$notices_path" --output-dir "$adhoc_second" >/dev/null
 adhoc_first_requirement=$(requirement_of "$package_dir/unpacked/macos-universal/diskunfold")
 adhoc_second_requirement=$(requirement_of "$adhoc_second/unpacked/macos-universal/diskunfold")
@@ -526,7 +526,7 @@ printf '%s\n' "$adhoc_first_requirement" | grep -Eiq 'cdhash'
 [[ "$adhoc_first_requirement" != "$adhoc_second_requirement" ]]
 
 # An identity that is not in the keychain stops the packager and leaves no output.
-if "$package_script" --binary "$test_root/diskunfold-universal" --version 0.1.0 \
+if "$package_script" --binary "$test_root/diskunfold-universal" --version 0.0.1 \
     --signing-identity 'DiskUnfold Missing Identity' --keychain "$test_keychain" \
     --notices "$notices_path" --output-dir "$test_root/missing-identity" >/dev/null 2>&1; then
     printf 'test-package-dmg: a missing signing identity was accepted\n' >&2

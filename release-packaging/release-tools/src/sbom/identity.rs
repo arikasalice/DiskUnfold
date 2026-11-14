@@ -1,6 +1,6 @@
 //! Reads component identities back from an SBOM and from THIRD-PARTY-NOTICES.
 
-use super::{BUNDLED_ECOSYSTEM, ComponentId, mismatch};
+use super::{ComponentId, mismatch};
 use crate::release_gate::GateFailure;
 use serde_json::Value;
 use std::collections::BTreeSet;
@@ -33,10 +33,7 @@ pub fn sbom_components(sbom_text: &str) -> Result<BTreeSet<ComponentId>, GateFai
         .as_array()
         .ok_or_else(|| mismatch("SBOM has no components list"))?;
     let mut ids = BTreeSet::new();
-    for component in components
-        .iter()
-        .filter(|c| c["scope"] == "required" && ecosystem(c) != Some(BUNDLED_ECOSYSTEM))
-    {
+    for component in components.iter().filter(|c| c["scope"] == "required") {
         let identity = (
             ecosystem(component),
             component["name"].as_str(),
@@ -50,41 +47,6 @@ pub fn sbom_components(sbom_text: &str) -> Result<BTreeSet<ComponentId>, GateFai
         ids.insert((kind.to_owned(), name.to_owned(), version.to_owned()));
     }
     Ok(ids)
-}
-
-/// Returns the bundled files of an SBOM as (name, version, SHA-256).
-///
-/// # Errors
-/// Returns `release.notice_mismatch` when the document is not a CycloneDX SBOM or a bundled
-/// component has no version or SHA-256.
-pub fn sbom_bundled(sbom_text: &str) -> Result<BTreeSet<(String, String, String)>, GateFailure> {
-    let value = parse(sbom_text)?;
-    let components = value["components"]
-        .as_array()
-        .ok_or_else(|| mismatch("SBOM has no components list"))?;
-    let mut found = BTreeSet::new();
-    for component in components
-        .iter()
-        .filter(|c| ecosystem(c) == Some(BUNDLED_ECOSYSTEM))
-    {
-        let digest = component["hashes"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .find(|hash| hash["alg"] == "SHA-256")
-            .and_then(|hash| hash["content"].as_str());
-        let (Some(name), Some(version), Some(digest)) = (
-            component["name"].as_str(),
-            component["version"].as_str(),
-            digest,
-        ) else {
-            return Err(mismatch(format!(
-                "bundled SBOM component {component} lacks a name, version or SHA-256"
-            )));
-        };
-        found.insert((name.to_owned(), version.to_owned(), digest.to_owned()));
-    }
-    Ok(found)
 }
 
 /// Returns the SHA-256 recorded for the package the SBOM describes.

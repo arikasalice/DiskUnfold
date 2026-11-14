@@ -18,7 +18,7 @@ fn validates_channel_links_and_reverifies_package_and_executable() -> Result<(),
     let manifest = sample_manifest(staging.path())?;
     let (inventory, verified) = prepare_inventory(manifest, staging.path())?;
 
-    assert_eq!(inventory.rows[0].file_name, "DiskUnfold-0.1.0-x64.msi");
+    assert_eq!(inventory.rows[0].file_name, "DiskUnfold-0.0.1-x64.msi");
     assert_eq!(
         inventory.channel_references[0].channel,
         UpdateChannel::Winget
@@ -34,7 +34,7 @@ fn sorts_rows_by_format_then_os_then_cpu_deterministically() -> Result<(), Box<d
     let staging = TempDir::new()?;
     let mut manifest = sample_manifest(staging.path())?;
     let mut mac = manifest.rows[0].clone();
-    mac.file_name = "DiskUnfold-0.1.0-universal.dmg".into();
+    mac.file_name = "DiskUnfold-0.0.1-universal.dmg".into();
     mac.os = OsRange {
         family: OsFamily::Macos,
         versions: OsVersionScope::Range {
@@ -44,10 +44,9 @@ fn sorts_rows_by_format_then_os_then_cpu_deterministically() -> Result<(), Box<d
     };
     mac.cpu = Cpu::Universal;
     mac.format = PackageFormat::Dmg;
-    mac.bundled_components.clear();
     manifest.rows.push(mac.clone());
     let mut deb = mac.clone();
-    deb.file_name = "DiskUnfold-0.1.0-arm64.deb".into();
+    deb.file_name = "DiskUnfold-0.0.1-arm64.deb".into();
     deb.os = OsRange {
         family: OsFamily::Ubuntu,
         versions: OsVersionScope::Exact {
@@ -56,11 +55,10 @@ fn sorts_rows_by_format_then_os_then_cpu_deterministically() -> Result<(), Box<d
     };
     deb.cpu = Cpu::Arm64;
     deb.format = PackageFormat::Deb;
-    deb.bundled_components.clear();
     manifest.rows.push(deb);
 
     let mut ubuntu_x64 = mac.clone();
-    ubuntu_x64.file_name = "DiskUnfold-0.1.0-x86_64.tar.gz".into();
+    ubuntu_x64.file_name = "DiskUnfold-0.0.1-x86_64.tar.gz".into();
     ubuntu_x64.os = OsRange {
         family: OsFamily::Ubuntu,
         versions: OsVersionScope::Exact {
@@ -69,16 +67,15 @@ fn sorts_rows_by_format_then_os_then_cpu_deterministically() -> Result<(), Box<d
     };
     ubuntu_x64.cpu = Cpu::X64;
     ubuntu_x64.format = PackageFormat::TarGz;
-    ubuntu_x64.bundled_components.clear();
     manifest.rows.push(ubuntu_x64.clone());
 
     let mut ubuntu_arm64 = ubuntu_x64.clone();
-    ubuntu_arm64.file_name = "DiskUnfold-0.1.0-aarch64.tar.gz".into();
+    ubuntu_arm64.file_name = "DiskUnfold-0.0.1-aarch64.tar.gz".into();
     ubuntu_arm64.cpu = Cpu::Arm64;
     manifest.rows.push(ubuntu_arm64.clone());
 
     let mut windows_arm64 = ubuntu_arm64;
-    windows_arm64.file_name = "DiskUnfold-0.1.0-arm64.tar.gz".into();
+    windows_arm64.file_name = "DiskUnfold-0.0.1-arm64.tar.gz".into();
     windows_arm64.os = OsRange {
         family: OsFamily::Windows,
         versions: OsVersionScope::Range {
@@ -147,7 +144,7 @@ fn renders_exact_os_versions_without_implying_intermediate_support() -> Result<(
     let staging = TempDir::new()?;
     let mut manifest = sample_manifest(staging.path())?;
     manifest.channel_references.clear();
-    manifest.rows[0].file_name = "DiskUnfold-0.1.0-x64.tar.gz".into();
+    manifest.rows[0].file_name = "DiskUnfold-0.0.1-x64.tar.gz".into();
     manifest.rows[0].os = OsRange {
         family: OsFamily::Ubuntu,
         versions: OsVersionScope::Exact {
@@ -155,7 +152,6 @@ fn renders_exact_os_versions_without_implying_intermediate_support() -> Result<(
         },
     };
     manifest.rows[0].format = PackageFormat::TarGz;
-    manifest.rows[0].bundled_components.clear();
     manifest.rows[0].signature = SignatureMethod::Unsigned;
     for staged in &mut manifest.staged_files {
         staged.artifact_file_name = manifest.rows[0].file_name.clone();
@@ -193,7 +189,7 @@ fn renders_exact_os_versions_without_implying_intermediate_support() -> Result<(
 
     let markdown = render_markdown(&inventory);
     assert!(markdown.contains("| File | Version | OS support |"));
-    assert!(markdown.contains("| DiskUnfold-0.1.0-x64.tar.gz | 0.1.0 | ubuntu 24.04, 26.04 |"));
+    assert!(markdown.contains("| DiskUnfold-0.0.1-x64.tar.gz | 0.0.1 | ubuntu 24.04, 26.04 |"));
     assert!(!markdown.contains("24.04–26.04"));
     Ok(())
 }
@@ -245,7 +241,7 @@ fn rejects_ambiguous_empty_and_duplicate_os_version_scopes() -> Result<(), Box<d
 fn accepts_published_cpu_filename_aliases() -> Result<(), Box<dyn Error>> {
     let staging = TempDir::new()?;
     let mut manifest = sample_manifest(staging.path())?;
-    manifest.rows[0].file_name = "DiskUnfold-0.1.0-x86_64.msi".into();
+    manifest.rows[0].file_name = "DiskUnfold-0.0.1-x86_64.msi".into();
     manifest.channel_references[0].artifact_file_name = manifest.rows[0].file_name.clone();
     for staged in &mut manifest.staged_files {
         staged.artifact_file_name = manifest.rows[0].file_name.clone();
@@ -255,7 +251,7 @@ fn accepts_published_cpu_filename_aliases() -> Result<(), Box<dyn Error>> {
     }
     validate_and_sort(&mut manifest)?;
 
-    manifest.rows[0].file_name = "DiskUnfold-0.1.0-x640.msi".into();
+    manifest.rows[0].file_name = "DiskUnfold-0.0.1-x640.msi".into();
     manifest.channel_references[0].artifact_file_name = manifest.rows[0].file_name.clone();
     for staged in &mut manifest.staged_files {
         staged.artifact_file_name = manifest.rows[0].file_name.clone();
@@ -323,7 +319,7 @@ fn renders_table_without_local_staging_paths() -> Result<(), Box<dyn Error>> {
     let staging = TempDir::new()?;
     let (inventory, _) = prepare_inventory(sample_manifest(staging.path())?, staging.path())?;
     let markdown = render_markdown(&inventory);
-    assert!(markdown.contains("DiskUnfold-0.1.0-x64.msi"));
+    assert!(markdown.contains("DiskUnfold-0.0.1-x64.msi"));
     assert!(markdown.contains("channel command"));
     assert!(markdown.contains("not verified or created by this tool"));
     assert!(markdown.contains("not a release gate"));
@@ -338,7 +334,7 @@ fn renders_each_artifact_signature_scope_and_escapes_table_delimiters() -> Resul
     let mut manifest = sample_manifest(staging.path())?;
     let package = b"macOS package fixture";
     let executable = b"macOS executable fixture";
-    let package_name = "DiskUnfold-0.1.0-universal.dmg";
+    let package_name = "DiskUnfold-0.0.1-universal.dmg";
     let executable_name = "DiskUnfold.app";
     let executable_path = "unpacked/macos/DiskUnfold.app";
     let signature_scope = "The app bundle is ad-hoc signed; the DMG is unsigned | not notarized";
@@ -363,7 +359,6 @@ fn renders_each_artifact_signature_scope_and_escapes_table_delimiters() -> Resul
     macos.executable_file_name = executable_name.into();
     macos.executable_sha256 = Sha256Digest::parse(&sha256(executable))?;
     macos.run_instructions = "Open the disk image, then launch DiskUnfold.".into();
-    macos.bundled_components.clear();
     manifest.rows.push(macos);
     manifest.staged_files.extend([
         StagedFile {
@@ -386,7 +381,7 @@ fn renders_each_artifact_signature_scope_and_escapes_table_delimiters() -> Resul
     ));
     assert!(markdown.contains("| SignPath | Authenticode identity and signed package integrity |"));
     let expected_macos_row = format!(
-        "| {package_name} | 0.1.0 | macos 15–open | universal | dmg | direct | Hardened Runtime ad-hoc | The app bundle is ad-hoc signed; the DMG is unsigned \\| not notarized | {} | {package_name}.cdx.json | Open the disk image, then launch DiskUnfold. |",
+        "| {package_name} | 0.0.1 | macos 15–open | universal | dmg | direct | Hardened Runtime ad-hoc | The app bundle is ad-hoc signed; the DMG is unsigned \\| not notarized | {} | {package_name}.cdx.json | Open the disk image, then launch DiskUnfold. |",
         sha256(package),
     );
     assert!(markdown.contains(&expected_macos_row));
@@ -406,7 +401,7 @@ fn a_fuzz_gate_record_is_published_in_the_json_and_the_markdown()
 -> Result<(), Box<dyn std::error::Error>> {
     let inventory = ReleaseInventory {
         product_name: "DiskUnfold".into(),
-        version: "0.1.0".into(),
+        version: "0.0.1".into(),
         rows: Vec::new(),
         channel_references: Vec::new(),
         fuzz_gate: None,

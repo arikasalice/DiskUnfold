@@ -63,7 +63,7 @@ done
     usage >&2
     fail '--binary, --version, --notices and --output-dir are required'
 }
-[[ "$version" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]] || fail 'version must be numeric, such as 0.1.0'
+[[ "$version" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]] || fail 'version must be numeric, such as 0.0.1'
 [[ "$bundle_id" =~ ^[A-Za-z][A-Za-z0-9-]*(\.[A-Za-z][A-Za-z0-9-]*)+$ ]] || \
     fail 'bundle identifier must be reverse-DNS text; the project identifier is com.diskunfold.app'
 [[ "$binary" == /* ]] || binary="$PWD/$binary"

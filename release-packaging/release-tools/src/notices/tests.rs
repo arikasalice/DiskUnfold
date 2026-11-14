@@ -44,29 +44,17 @@ fn rendering_is_deterministic_and_order_independent() {
 }
 
 #[test]
-fn notices_end_with_the_webview2_section() {
+fn notices_carry_no_webview2_section_because_the_runtime_is_not_distributed() {
     let notices = render_notices(&[package("a", Some("MIT"), Some("MIT text\n"))]);
-    let section = notices
-        .split_once("WebView2 Runtime (Windows)")
-        .map(|(_, rest)| rest)
-        .unwrap_or_default();
-    assert!(section.contains(
-        "licensed to you\nby Microsoft Corporation under the Microsoft Software License Terms"
-    ));
-    assert!(section.contains("not made, endorsed or supported by Microsoft"));
-    assert!(section.contains("you will defend and hold Microsoft harmless"));
-    assert!(section.contains("will not use Microsoft's trademarks"));
-    assert!(!section.contains("Retrieved 2026"));
-    assert!(section.contains("Microsoft Defender SmartScreen"));
-    assert!(
-        section.contains("MICROSOFT SOFTWARE LICENSE TERMS\n\nMICROSOFT EDGE WEBVIEW2 RUNTIME")
+    assert!(!notices.contains("WebView2 Runtime (Windows)"));
+    assert!(!notices.contains("SmartScreen"));
+    assert_eq!(
+        crate::release_inventory::microsoft_download_reference(&notices),
+        None
     );
-    assert!(section.contains("REQUIRED NOTICES TO END USERS"));
     assert!(notices.ends_with('\n') && !notices.ends_with("\n\n"));
-    // The MIT license text is still counted once and the Microsoft terms are not a package license.
     assert_eq!(notices.matches("License text ").count(), 1);
 }
-
 #[test]
 fn policy_rejects_unknown_denied_and_banned_packages() -> Result<(), String> {
     let policy = policy()?;

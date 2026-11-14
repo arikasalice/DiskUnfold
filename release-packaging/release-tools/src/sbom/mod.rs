@@ -12,7 +12,7 @@
 use crate::{
     notices::{Ecosystem, NoticePackage},
     release_gate::GateFailure,
-    release_inventory::{BundledComponent, Cpu, OsFamily},
+    release_inventory::{Cpu, OsFamily},
 };
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -24,7 +24,6 @@ mod set;
 #[cfg(test)]
 mod tests;
 
-pub use identity::sbom_bundled;
 pub use identity::{notice_identities, sbom_components, sbom_subject_sha256};
 pub use set::check_sbom_set;
 
@@ -47,9 +46,6 @@ pub struct SbomSubject<'a> {
     pub sha256: &'a str,
     /// Rust target triples the package is built for; empty when the SBOM lists every target.
     pub rust_targets: &'a [&'a str],
-    /// Third-party files the package carries unmodified (the WebView2 installer in an MSI). They
-    /// are listed with their SHA-256 and version and are not part of the notices comparison.
-    pub bundled: &'a [BundledComponent],
 }
 
 /// A build-phase tool recorded in the SBOM with scope `excluded`.
@@ -120,27 +116,6 @@ fn license_entry(expression: &str) -> Value {
     }
 }
 
-/// Ecosystem label of a bundled file in the SBOM; such components are compared with the manifest
-/// row, not with THIRD-PARTY-NOTICES or the cargo/npm sets.
-pub const BUNDLED_ECOSYSTEM: &str = "bundled";
-
-fn bundled_component(component: &BundledComponent) -> Value {
-    let reference = format!("bundled:{}@{}", component.name, component.version);
-    json!({
-        "type": "file",
-        "bom-ref": reference,
-        "name": component.name,
-        "version": component.version,
-        "scope": "required",
-        "hashes": [{ "alg": "SHA-256", "content": component.sha256.as_str() }],
-        "externalReferences": [{ "type": "distribution", "url": component.source }],
-        "properties": [
-            { "name": "du:ecosystem", "value": BUNDLED_ECOSYSTEM },
-            { "name": "du:signer", "value": component.signer }
-        ]
-    })
-}
-
 fn component(package: &NoticePackage) -> Value {
     let reference = purl(package.ecosystem, &package.name, &package.version);
     let mut value = json!({
@@ -204,7 +179,6 @@ pub fn render_cyclonedx(
         (a.ecosystem, &a.name, &a.version).cmp(&(b.ecosystem, &b.name, &b.version))
     });
     let mut components: Vec<Value> = sorted.iter().map(|package| component(package)).collect();
-    components.extend(subject.bundled.iter().map(bundled_component));
     let depends_on: Vec<Value> = components.iter().map(|c| c["bom-ref"].clone()).collect();
     for tool in build_tools {
         components.push(json!({

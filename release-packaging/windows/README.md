@@ -15,7 +15,7 @@ Then choose x64 or arm64 to match the native executable:
 
     $params = @{
         BinaryPath = 'target\release\diskunfold.exe'
-        Version = '0.1.0'
+        Version = '0.0.1'
         Architecture = 'x64'
         Format = 'portable-exe'
         OutputDirectory = 'C:\diskunfold-output\portable-x64'
@@ -30,7 +30,7 @@ test-package-windows-development.ps1 uses the supplied native executable under a
 
 Pass -NoticesPath with the THIRD-PARTY-NOTICES file written by build-product-resources to ship it as THIRD-PARTY-NOTICES.txt next to LICENSE (inside the package for MSIX). Add -Release to make the packager stop when -NoticesPath is missing, unreadable or empty. The Linux and macOS packagers already require --notices.
 
-F15 HLD 116 and DLD 70 specify the MSI, portable EXE and Store MSIX formats. The architecture HLD 229 selects user-scoped MSI installation with an offline WebView2 runtime, SignPath Authenticode signing for EXE and MSI, and Store signing for MSIX. It also requires the Store publisher identity, Windows MFT helper, notices, SBOM, support table, release provenance and per-architecture native validation.
+F15 HLD 116 and DLD 70 specify the MSI, portable EXE and Store MSIX formats. The architecture HLD 229 selects user-scoped MSI installation without bundling the WebView2 runtime (Windows 11 ships it), SignPath Authenticode signing for EXE and MSI, and Store signing for MSIX. It also requires the Store publisher identity, Windows MFT helper, notices, SBOM, support table, release provenance and per-architecture native validation.
 
 The MSI uses the WiX Toolset pinned in wix-tool.json (see Windows MSI below). SignTool.exe being installed does not establish a valid product identity or approval. This branch has no approved SignPath credentials or Store publisher identity.
 
@@ -53,22 +53,19 @@ package-windows-msi.ps1 builds the per-user MSI (F15 FR9.HD1, install form `msi`
 | `DiskUnfold.wxs` | WiX source. Per-user scope, no elevation and no WiX extension. |
 | `package-windows-msi.ps1` | Verifies inputs, builds the MSI, opens it with `msiexec /a`, compares its contents with the inputs and writes `manifest.json`. |
 | `wix-tool.json`, `install-wix.ps1` | WiX 6.0.2 as an isolated .NET tool: the package is refused unless its SHA-256 matches the pin, and NuGet packages stay under the chosen tool path. |
-| `fetch-webview2.ps1` | Downloads the WebView2 Evergreen Standalone Installer from Microsoft's permanent link and checks its signature. |
 | `test-package-windows-msi.ps1` | Packager tests (no install). |
 
 Build locally from a release build of the launcher and the notices from `build-product-resources`:
 
     $wix = .\release-packaging\windows\install-wix.ps1 -ToolPath D:\tools
-    .\release-packaging\windows\fetch-webview2.ps1 -Architecture x64 -OutputPath D:\webview2\MicrosoftEdgeWebView2RuntimeInstallerX64.exe
-    .\release-packaging\windows\package-windows-msi.ps1 -BinaryPath target\release\diskunfold.exe -Version 0.1.0 -Architecture x64 `
-        -NoticesPath release-resources\THIRD-PARTY-NOTICES -WebView2InstallerPath D:\webview2\MicrosoftEdgeWebView2RuntimeInstallerX64.exe `
+    .\release-packaging\windows\package-windows-msi.ps1 -BinaryPath target\release\diskunfold.exe -Version 0.0.1 -Architecture x64 `
+        -NoticesPath release-resources\THIRD-PARTY-NOTICES `
         -WixPath $wix -OutputDirectory D:\out\msi-x64
 
 What the MSI does:
 
-- Installs diskunfold.exe, LICENSE, THIRD-PARTY-NOTICES.txt, WEBVIEW2-NOTICE.txt and a one-line `install-form` marker (`msi`) to `%LOCALAPPDATA%\Programs\DiskUnfold` without administrator rights, and appends that folder to the user PATH so `diskunfold` runs from a terminal. platform-os reports install form `msi` from the marker. Uninstall removes the files and the PATH entry and keeps the data folder.
-- Carries the WebView2 Evergreen Standalone Installer unmodified in the Binary table. A deferred custom action runs it with `/silent /install` only when neither `HKLM\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}` nor the `HKCU` key has a `pv` value other than empty or 0.0.0.0 (Microsoft's documented check). The installer ships only inside this MSI.
-- Before packaging, the packager requires a valid Authenticode signature with the subject CN=Microsoft Corporation on the installer, and the file name Microsoft uses for the architecture (both standalone installers are 32-bit wrappers, so the PE header cannot tell them apart). It records the installer's SHA-256 and version in the manifest row (`bundled_components`), which flows into the release inventory and `DISTRIBUTION.md`. The digest is not pinned because Microsoft replaces the file.
-- Licensing: the WebView2 Runtime is licensed by Microsoft. release-tools/data holds DiskUnfold's end-user notice (webview2-notice.txt) and Microsoft's terms (webview2-license.txt, the official text from the download dialog, with its source URL and retrieval date in a header). THIRD-PARTY-NOTICES ends with a WebView2 section made of both, and the MSI installs the same text as WEBVIEW2-NOTICE.txt. Section 2(b)(ii) of the terms makes DiskUnfold require its end users to agree to terms that protect Microsoft, so an interactive install shows a license dialog (notice plus Microsoft terms) and cannot continue until the box is checked; quiet installs (/qn, /qb) skip dialogs. The notice also covers the endorsement (2(c)(i)) and indemnity (2(b)(iv)) clauses. These texts require the owner's legal review: 2(b)(ii), 2(b)(iv), 2(c)(i), 2(c)(iii), 3(b) and 9(a) of Microsoft's terms, and the end-user agreement and indemnity wording in the notice.
+- Installs diskunfold.exe, LICENSE, THIRD-PARTY-NOTICES.txt and a one-line `install-form` marker (`msi`) to `%LOCALAPPDATA%\Programs\DiskUnfold` without administrator rights, and appends that folder to the user PATH so `diskunfold` runs from a terminal. platform-os reports install form `msi` from the marker. Uninstall removes the files and the PATH entry and keeps the data folder.
+- Does not carry the Microsoft Edge WebView2 Runtime. Windows 11 ships it, and this release supports Windows 11 only. The MSI has no custom action, no license dialog and no embedded installer.
+- When the runtime is missing anyway (for example, it was removed), the startup check stops before the window and a native dialog, in Korean or English by the system UI language, says that the Microsoft Edge WebView2 Runtime is required. Its Yes button opens Microsoft's public WebView2 page (https://developer.microsoft.com/microsoft-edge/webview2/) in the default browser; no direct download link is used.
+- Because DiskUnfold does not distribute the runtime, the manifest row has no bundled components, THIRD-PARTY-NOTICES has no WebView2 section, and no published artifact contains a Microsoft download URL (a release-tools test enforces this).
 
-`package-windows-msi.ps1` accepts two test-only switches (`-TestOnlyWebView2ClientKey`, `-TestOnlySkipWebView2Signature`) that let an installer test point the runtime probe at a missing key and embed a stub. They are refused unless used together and never write a manifest.

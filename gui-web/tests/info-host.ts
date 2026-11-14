@@ -50,7 +50,7 @@ export const SHA = "ab".repeat(32);
 
 export function productInfo(overrides: Partial<ProductInfo> = {}): ProductInfo {
   return {
-    productVersion: "0.1.0",
+    productVersion: "0.0.1",
     buildKind: "official",
     commit: "6cd1a30c9f",
     builtAtUtc: "2026-11-12T01:02:03Z",

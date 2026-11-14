@@ -98,12 +98,12 @@ else
 fi
 maintainer='DiskUnfold Maintainers <arikasalice@gmail.com>'
 
-"$package_script" --binary "$binary" --version 0.1.0 --cpu "$cpu" \
+"$package_script" --binary "$binary" --version 0.0.1 --cpu "$cpu" \
     --notices "$notices" \
     --debian-copyright "$debian_copyright" --output-dir "$output"
 
-deb_name="DiskUnfold_0.1.0_${cpu}.deb"
-tar_name="DiskUnfold-0.1.0-linux-${cpu}.tar.gz"
+deb_name="DiskUnfold_0.0.1_${cpu}.deb"
+tar_name="DiskUnfold-0.0.1-linux-${cpu}.tar.gz"
 [[ -f "$output/$deb_name" && -f "$output/$tar_name" ]]
 [[ -f "$output/SHA256SUMS" && -f "$output/EXECUTABLE-SHA256.json" && -f "$output/manifest.json" ]]
 [[ -f "$output/unpacked/linux-$cpu/diskunfold" && ! -L "$output/unpacked/linux-$cpu/diskunfold" ]]
@@ -138,24 +138,31 @@ cpu_rows=$(grep -c "\"cpu\": \"$cpu\"" "$release_tools_output/release-inventory.
 
 dpkg_arch=$(dpkg --print-architecture)
 [[ "$(dpkg-deb -f "$output/$deb_name" Package)" == diskunfold ]]
-[[ "$(dpkg-deb -f "$output/$deb_name" Version)" == 0.1.0 ]]
+[[ "$(dpkg-deb -f "$output/$deb_name" Version)" == 0.0.1 ]]
 [[ "$(dpkg-deb -f "$output/$deb_name" Architecture)" == "$dpkg_arch" ]]
 [[ "$(dpkg-deb -f "$output/$deb_name" Maintainer)" == "$maintainer" ]]
 [[ "$(dpkg-deb -f "$output/$deb_name" Depends)" == *libwebkitgtk-6.0-4* ]]
 
 tar --list --file "$output/$tar_name" --gzip | LC_ALL=C sort > "$test_root/tar-members"
 printf '%s\n' \
-    "DiskUnfold-0.1.0-linux-${cpu}/" \
-    "DiskUnfold-0.1.0-linux-${cpu}/LICENSE" \
-    "DiskUnfold-0.1.0-linux-${cpu}/install-form" \
-    "DiskUnfold-0.1.0-linux-${cpu}/THIRD-PARTY-NOTICES.txt" \
-    "DiskUnfold-0.1.0-linux-${cpu}/diskunfold" | LC_ALL=C sort > "$test_root/tar-members.expected"
+    "DiskUnfold-0.0.1-linux-${cpu}/" \
+    "DiskUnfold-0.0.1-linux-${cpu}/LICENSE" \
+    "DiskUnfold-0.0.1-linux-${cpu}/README.txt" \
+    "DiskUnfold-0.0.1-linux-${cpu}/install-form" \
+    "DiskUnfold-0.0.1-linux-${cpu}/THIRD-PARTY-NOTICES.txt" \
+    "DiskUnfold-0.0.1-linux-${cpu}/diskunfold" | LC_ALL=C sort > "$test_root/tar-members.expected"
 cmp -s "$test_root/tar-members.expected" "$test_root/tar-members" || \
     fail 'tar.gz contains unexpected entries'
-tar -xOzf "$output/$tar_name" "DiskUnfold-0.1.0-linux-${cpu}/THIRD-PARTY-NOTICES.txt" | \
+tar -xOzf "$output/$tar_name" "DiskUnfold-0.0.1-linux-${cpu}/THIRD-PARTY-NOTICES.txt" | \
     cmp - "$notices" || fail 'tar.gz notices differ from the explicit input'
 # The app reports TarGz only when this marker names the form.
-[[ "$(tar -xOzf "$output/$tar_name" "DiskUnfold-0.1.0-linux-${cpu}/install-form" | tr -d '[:space:]')" == tar_gz ]] || \
+readme=$(tar -xOzf "$output/$tar_name" "DiskUnfold-0.0.1-linux-${cpu}/README.txt")
+[[ "$readme" == *'sudo apt install '*libwebkitgtk-6.0-4* ]] || \
+    fail 'tar.gz README must give the apt command with the WebKitGTK package'
+[[ "$readme" == *libgtk-4-1* && "$readme" == *'installs all of these automatically'* ]] || \
+    fail 'tar.gz README must list GTK 4 and say the deb installs the libraries'
+[[ "$readme" != *'go.microsoft.com'* ]] || fail 'tar.gz README must not link to Microsoft downloads'
+[[ "$(tar -xOzf "$output/$tar_name" "DiskUnfold-0.0.1-linux-${cpu}/install-form" | tr -d '[:space:]')" == tar_gz ]] || \
     fail 'tar.gz install-form marker is missing or wrong'
 # The Debian package is recognized from dpkg records, so it ships no marker.
 if dpkg-deb --fsys-tarfile "$output/$deb_name" | tar -tf - | grep -q 'install-form'; then
@@ -169,7 +176,7 @@ dpkg-deb --fsys-tarfile "$output/$deb_name" | \
     cmp - "$debian_copyright" || fail 'Debian copyright differs from the explicit input'
 
 package_digest_before=$(sha256sum "$output/$deb_name" | awk '{ print $1 }')
-if "$package_script" --binary "$binary" --version 0.1.0 --cpu "$cpu" \
+if "$package_script" --binary "$binary" --version 0.0.1 --cpu "$cpu" \
     --maintainer "$maintainer" --notices "$notices" \
     --debian-copyright "$debian_copyright" --output-dir "$output" >/dev/null 2>&1; then
     fail 'existing output directory was accepted'
@@ -179,7 +186,7 @@ package_digest_after=$(sha256sum "$output/$deb_name" | awk '{ print $1 }')
     fail 'collision attempt changed the existing package'
 
 ln -s "$notices" "$test_root/notices-link"
-if "$package_script" --binary "$binary" --version 0.1.0 --cpu "$cpu" \
+if "$package_script" --binary "$binary" --version 0.0.1 --cpu "$cpu" \
     --maintainer "$maintainer" --notices "$test_root/notices-link" \
     --debian-copyright "$debian_copyright" \
     --output-dir "$test_root/symlink-output" >/dev/null 2>&1; then
@@ -189,13 +196,13 @@ fi
     fail 'invalid notices input created a package output directory'
 
 : > "$test_root/empty-notices.txt"
-if "$package_script" --binary "$binary" --version 0.1.0 --cpu "$cpu" \
+if "$package_script" --binary "$binary" --version 0.0.1 --cpu "$cpu" \
     --maintainer "$maintainer" --notices "$test_root/empty-notices.txt" \
     --debian-copyright "$debian_copyright" \
     --output-dir "$test_root/empty-notices-output" >/dev/null 2>&1; then
     fail 'empty notices input was accepted'
 fi
-if "$package_script" --binary "$binary" --version 0.1.0 --cpu "$cpu" \
+if "$package_script" --binary "$binary" --version 0.0.1 --cpu "$cpu" \
     --maintainer "$maintainer" \
     --debian-copyright "$debian_copyright" \
     --output-dir "$test_root/missing-notices-output" >/dev/null 2>&1; then
@@ -205,7 +212,7 @@ fi
     fail 'rejected notices input created a package output directory'
 
 ln -s "$debian_copyright" "$test_root/copyright-link"
-if "$package_script" --binary "$binary" --version 0.1.0 --cpu "$cpu" \
+if "$package_script" --binary "$binary" --version 0.0.1 --cpu "$cpu" \
     --maintainer "$maintainer" --notices "$notices" \
     --debian-copyright "$test_root/copyright-link" \
     --output-dir "$test_root/symlink-copyright-output" >/dev/null 2>&1; then
@@ -215,7 +222,7 @@ fi
     fail 'invalid Debian copyright input created a package output directory'
 
 printf 'Format: invalid\n' > "$test_root/invalid-copyright.fixture.txt"
-if "$package_script" --binary "$binary" --version 0.1.0 --cpu "$cpu" \
+if "$package_script" --binary "$binary" --version 0.0.1 --cpu "$cpu" \
     --maintainer "$maintainer" --notices "$notices" \
     --debian-copyright "$test_root/invalid-copyright.fixture.txt" \
     --output-dir "$test_root/invalid-copyright-output" >/dev/null 2>&1; then
@@ -224,7 +231,7 @@ fi
 [[ ! -e "$test_root/invalid-copyright-output" && ! -L "$test_root/invalid-copyright-output" ]] || \
     fail 'invalid Debian copyright input created a package output directory'
 
-if "$package_script" --binary "$binary" --version 0.1.0 --cpu "$other_cpu" \
+if "$package_script" --binary "$binary" --version 0.0.1 --cpu "$other_cpu" \
     --maintainer "$maintainer" --notices "$notices" \
     --debian-copyright "$debian_copyright" \
     --output-dir "$test_root/wrong-cpu-output" >/dev/null 2>&1; then
@@ -235,7 +242,7 @@ fi
 
 mkdir "$test_root/pre-existing-output"
 printf 'keep\n' > "$test_root/pre-existing-output/sentinel"
-if "$package_script" --binary "$binary" --version 0.1.0 --cpu "$cpu" \
+if "$package_script" --binary "$binary" --version 0.0.1 --cpu "$cpu" \
     --maintainer "$maintainer" --notices "$notices" \
     --debian-copyright "$debian_copyright" \
     --output-dir "$test_root/pre-existing-output" >/dev/null 2>&1; then
@@ -265,7 +272,7 @@ exec /usr/bin/mv "$@"
 MOVE_WRAPPER
 chmod 0755 "$mv_wrapper_dir/mv"
 if PATH="$mv_wrapper_dir:$PATH" DISKUNFOLD_RACE_OUTPUT="$race_output" \
-    "$package_script" --binary "$binary" --version 0.1.0 --cpu "$cpu" \
+    "$package_script" --binary "$binary" --version 0.0.1 --cpu "$cpu" \
     --maintainer "$maintainer" --notices "$notices" \
     --debian-copyright "$debian_copyright" \
     --output-dir "$race_output" >/dev/null 2>&1; then

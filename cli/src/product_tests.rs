@@ -40,7 +40,7 @@ impl SupportEnvironmentPort for FixedEnvironment {
 fn info() -> EmbeddedProductInfo {
     EmbeddedProductInfo {
         build: ProductBuildInfo {
-            product_version: Some("0.1.0-test".to_owned()),
+            product_version: Some("0.0.1-test".to_owned()),
             build_kind: BuildKind::Developer,
             commit: None,
             built_at_utc: None,
@@ -207,7 +207,7 @@ fn version_prints_build_provenance_without_opening_settings() {
         assert_eq!(stored_reads, 0);
         assert!(output.contains(expected), "{output}");
         assert!(output.contains(expected_commit), "{output}");
-        assert!(output.contains("0.1.0-test"), "{output}");
+        assert!(output.contains("0.0.1-test"), "{output}");
     }
 }
 

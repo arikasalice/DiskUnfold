@@ -18,7 +18,9 @@ Usage:
 
 Creates one Debian package and one tar.gz for the native Ubuntu runner. The
 output directory must not exist. The tar.gz contains exactly the executable,
-LICENSE, and the explicitly supplied THIRD-PARTY-NOTICES.txt. The .deb also
+LICENSE, the explicitly supplied THIRD-PARTY-NOTICES.txt, the install-form
+marker and a README.txt that lists the runtime packages to install with apt
+(the same dependencies the .deb declares). The .deb also
 requires an explicit Debian copyright file. The staging directory includes a
 du-release-tools manifest and executable copy, plus package and executable
 checksums.
@@ -64,7 +66,7 @@ done
     usage >&2
     fail 'all options except --maintainer are required'
 }
-[[ "$version" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]] || fail 'version must be numeric, such as 0.1.0'
+[[ "$version" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]] || fail 'version must be numeric, such as 0.0.1'
 [[ "$maintainer" != *$'\n'* && "$maintainer" != *$'\r'* ]] || fail 'maintainer must fit on one control-file line'
 [[ "$maintainer" == *"<"*"@"*">" ]] || fail 'maintainer must use the form Name <email>'
 case "$cpu" in
@@ -226,6 +228,29 @@ depends=${shlibs_output#shlibs:Depends=}
     fail 'the computed Debian dependencies include libdbus, which is not allowed'
 
 installed_size=$(du -sk -- "$deb_root/usr" | awk '{ print $1 }')
+
+# The tar.gz has no package manager to pull in libraries, so its README names them. The list is the
+# dependency set computed for the .deb: each entry without its version constraint, first alternative.
+runtime_packages=$(printf '%s\n' "$depends" | tr ',' '\n' | sed -e 's/^ *//' -e 's/ *|.*$//' -e 's/ *(.*$//' | \
+    LC_ALL=C sort -u | tr '\n' ' ' | sed 's/ *$//')
+[[ -n "$runtime_packages" ]] || fail 'could not derive the runtime package list'
+cat > "$tar_root_path/README.txt" <<README
+DiskUnfold $version (tar.gz, Linux)
+
+Run ./diskunfold from this folder. Unlike the .deb, this archive does not install
+the libraries DiskUnfold needs. Install them first on Ubuntu or Debian:
+
+    sudo apt update
+    sudo apt install $runtime_packages
+
+The graphical interface needs GTK 4 (libgtk-4-1) and WebKitGTK 6.0
+(libwebkitgtk-6.0-4). The .deb package installs all of these automatically
+(sudo apt install ./DiskUnfold_${version}_<cpu>.deb), so prefer it when you can.
+
+LICENSE and THIRD-PARTY-NOTICES.txt in this folder cover DiskUnfold and the
+components it includes.
+README
+chmod 0644 "$tar_root_path/README.txt"
 cat > "$deb_root/DEBIAN/control" <<CONTROL
 Package: diskunfold
 Version: $version
@@ -272,6 +297,7 @@ tar -tzf "$stage/$tar_name" | LC_ALL=C sort > "$work/tar-members"
 printf '%s\n' \
     "$tar_root/" \
     "$tar_root/LICENSE" \
+    "$tar_root/README.txt" \
     "$tar_root/install-form" \
     "$tar_root/THIRD-PARTY-NOTICES.txt" \
     "$tar_root/diskunfold" | LC_ALL=C sort > "$work/tar-members.expected"

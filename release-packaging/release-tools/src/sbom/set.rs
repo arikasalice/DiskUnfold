@@ -2,7 +2,7 @@
 
 use super::{
     ComponentId, check_sbom_coverage, expected::expected_components, mismatch, rust_targets,
-    sbom_bundled, sbom_file_name, sbom_subject_sha256,
+    sbom_file_name, sbom_subject_sha256,
 };
 use crate::{release_gate::GateFailure, release_inventory::ReleaseManifest};
 use std::{
@@ -57,23 +57,6 @@ pub fn check_sbom_set(
         };
         check_sbom_coverage(&text, notices_text, expected)
             .map_err(|failure| mismatch(format!("{name}: {}", failure.detail)))?;
-        let listed = sbom_bundled(&text)?;
-        let recorded: BTreeSet<(String, String, String)> = row
-            .bundled_components
-            .iter()
-            .map(|component| {
-                (
-                    component.name.clone(),
-                    component.version.clone(),
-                    component.sha256.as_str().to_owned(),
-                )
-            })
-            .collect();
-        if listed != recorded {
-            return Err(mismatch(format!(
-                "SBOM {name} lists bundled components {listed:?} but the inventory records {recorded:?}"
-            )));
-        }
     }
     Ok(manifest.rows.len())
 }
