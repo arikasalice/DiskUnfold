@@ -20,6 +20,7 @@ mod isolation;
 use gate::{Gate, Opened};
 mod lending;
 mod measure;
+mod moves;
 mod order;
 mod priority;
 mod remote;
