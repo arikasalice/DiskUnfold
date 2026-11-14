@@ -24,11 +24,19 @@
 //! depth first, so no push waits for room and a stack stays within the tree
 //! depth. Scope roots are queued before collection starts without that bound.
 //!
-//! A claim reads the class heads of the worker's stack and lane queue, removes
-//! one item and compares index keys whose number grows with the logarithm of
-//! the distinct depths and roots queued. A steal reads one class head per other
-//! worker of the lane, and joining a lane reads each lane's counters once. No
-//! claim visits queued items, with or without a marked area.
+//! A claim reads the class heads of the worker's stack and lane queue and
+//! removes one item. Each class of a lane queue keeps a depth index whose
+//! shallowest entry is taken without comparing keys, and per depth a root
+//! index that a claim searches up to three times: for the root after the last
+//! one served, for that root's items and to remove them once empty. A search
+//! compares keys along one B-tree path, at most eleven per node and one node
+//! per level, so a claim compares a number of keys that grows with the
+//! logarithm of the distinct roots queued at that depth; returning an item
+//! searches the depth index and one root index. With a single root each
+//! search compares one key. A claim from a stack compares none, a steal reads
+//! one class head per other worker of the lane, and joining a lane reads each
+//! lane's counters once. No claim visits queued items, with or without a
+//! marked area.
 mod lending;
 mod ready;
 use super::{

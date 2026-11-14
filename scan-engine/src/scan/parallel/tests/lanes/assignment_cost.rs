@@ -5,6 +5,12 @@
 //! do not fit and release the claimed slot. The index key comparisons, items
 //! inspected and time of each claim are grouped by the work held in the lane
 //! when the claim was made. Run with `--nocapture` to print the table.
+//!
+//! The tree has one root, so each depth's root index holds one key: a claim
+//! from the lane queue compares at most three keys, one per root-index search,
+//! and a claim from a stack compares none. With several roots a search compares
+//! keys along one B-tree path, whose length grows with the logarithm of the
+//! distinct roots queued at that depth (see the lanes module).
 use super::*;
 use crate::scan::parallel::lanes::{Origin, cost};
 
@@ -134,13 +140,13 @@ fn claim_cost_does_not_grow_with_held_work() {
                 );
             }
             // A claim pops one item, or reads one stack head per other worker
-            // of the lane when it steals. Key comparisons depend on the
-            // distinct depths and roots queued, never on the held items.
+            // of the lane when it steals. With one root, a claim makes at most
+            // three root-index searches of one key each, whatever is held.
             let steal = workers.saturating_sub(1).max(1) as u64;
             let mut largest = 0;
             for (bound, label, group) in &used {
                 assert!(group.most_inspected <= steal, "{workers}/{label}");
-                assert!(group.most_compared <= 16, "{workers}/{label}");
+                assert!(group.most_compared <= 3, "{workers}/{label}");
                 largest = largest.max(*bound);
             }
             if capacity == DIRECTORIES {
