@@ -1041,9 +1041,12 @@ function Select-GroupOption($fieldName, $key, $expected) {
       $pattern.Current.Value -ceq $expected
   }
 }
+# Files keep their size and write time; folders are compared by name only, because NTFS may
+# update a folder's write time shortly after a file inside it was created.
 function Get-FixtureState($path) {
   Get-ChildItem -LiteralPath $path -Recurse -Force | Sort-Object FullName | ForEach-Object {
-    '{0}|{1}|{2}' -f $_.FullName.Substring($path.Length), $(if ($_.PSIsContainer) { 'dir' } else { $_.Length }), $_.LastWriteTimeUtc.Ticks
+    if ($_.PSIsContainer) { '{0}|dir' -f $_.FullName.Substring($path.Length) }
+    else { '{0}|{1}|{2}' -f $_.FullName.Substring($path.Length), $_.Length, $_.LastWriteTimeUtc.Ticks }
   }
 }
 # Close the app and open it again on the same isolated data folder.
@@ -1246,7 +1249,12 @@ function Test-VirtualGroups {
       Write-Warning $deferred[-1]
     }
     if ($deferred.Count -eq 0) { 'F36 native return: focus is on "View as virtual groups"' }
-    if (((Get-FixtureState $fixture) -join [Environment]::NewLine) -ne $before) { throw 'The fixture changed during classification' }
+    $after = (Get-FixtureState $fixture) -join [Environment]::NewLine
+    if ($after -ne $before) {
+      $changes = Compare-Object ($before -split [Environment]::NewLine) ($after -split [Environment]::NewLine) |
+        ForEach-Object { '{0} {1}' -f $_.SideIndicator, $_.InputObject }
+      throw "The fixture changed during classification: $($changes -join '; ')"
+    }
     $files = @(Get-ChildItem -LiteralPath $fixture -Recurse -File | ForEach-Object { '{0}={1}' -f $_.FullName.Substring($fixture.Length + 1), $_.Length } | Sort-Object)
     if (($files -join ',') -ne 'a.mp4=10,b.mp4=20,c.txt=5,sub\d.mp4=7') { throw "Unexpected fixture files: $($files -join ',')" }
     'F36 fixture unchanged: ' + ($files -join ', ')
