@@ -89,7 +89,7 @@ fn invalid_explicit_language_value_is_not_reinterpreted_as_a_denied_option() {
     assert_eq!(stored_reads, 0);
     assert_eq!(os_reads, 0);
     assert!(stdout.is_empty());
-    assert_eq!(stderr, b"DiskUnfold: locale.unsupported\n");
+    assert_eq!(stderr, LOCALE_UNSUPPORTED_LINE);
 }
 
 #[test]
@@ -118,5 +118,5 @@ fn duplicate_explicit_language_fails_before_settings_or_os_lookup() {
     assert_eq!(stored_reads, 0);
     assert_eq!(os_reads, 0);
     assert!(stdout.is_empty());
-    assert_eq!(stderr, b"DiskUnfold: locale.unsupported\n");
+    assert_eq!(stderr, LOCALE_UNSUPPORTED_LINE);
 }

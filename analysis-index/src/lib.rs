@@ -1,6 +1,7 @@
 //! In-memory result publication and conservative per-subtree space aggregation.
 mod aggregation_rule;
 pub mod browse;
+mod current_pin;
 mod directory_case;
 mod forest;
 pub mod freshness;
@@ -13,6 +14,8 @@ pub mod query;
 mod replacement;
 mod result_path;
 mod result_read;
+mod scope_header;
+pub use scope_header::ScopeHeader;
 pub mod source_registry;
 mod space;
 pub mod space_detail;
@@ -56,10 +59,12 @@ use origin::ResultOrigin;
 pub struct ResultVersion {
     version_id: Id,
     origin: ResultOrigin,
+    data_source: du_core_contracts::data_source::DataSource,
     base_version_id: Option<Id>,
     viz_models: Mutex<visualization::live_models::OwnedModels>,
     scope_version_id: Id,
     lineage_id: Option<Id>,
+    scope_fingerprint: Option<String>,
     completeness: ResultCompleteness,
     size_rule: RegisteredRule,
     items: Vec<ResultItem>,
@@ -99,31 +104,6 @@ impl IngestSink {
             state: Arc::default(),
             events: Arc::new(PublicationEvents::new(publisher)),
         }
-    }
-    /// Pins the current version only if its identifier still matches the admitted request.
-    pub fn pin_current(&self, expected: &Id) -> Result<Arc<ResultVersion>, QueryError> {
-        let state = self.state.lock().map_err(|_| QueryError::Unavailable)?;
-        state.pin_current(expected)
-    }
-    /// Pins the most recently published current result, when present.
-    pub fn pin(&self) -> Result<Option<Arc<ResultVersion>>, BuildError> {
-        Ok(self
-            .state
-            .lock()
-            .map_err(|_| BuildError::Unavailable)?
-            .pin())
-    }
-    /// Returns the stable current-analysis lineage for a canonical scope fingerprint.
-    /// The caller supplies a unique candidate ID; an existing binding is reused.
-    pub fn bind_current_analysis(
-        &self,
-        fingerprint: &str,
-        candidate: Id,
-    ) -> Result<Id, BuildError> {
-        self.state
-            .lock()
-            .map_err(|_| BuildError::Unavailable)?
-            .bind(fingerprint, candidate)
     }
     pub fn open(&self, scope_version_id: Id) -> Result<BuildHandle, BuildError> {
         self.begin(scope_version_id, Vec::new(), None)
@@ -176,10 +156,12 @@ impl IngestSink {
             expected_base: None,
             reserved: true,
             origin: ResultOrigin::Scan,
+            data_source: du_core_contracts::data_source::DataSource::Real,
             published: false,
             size_rule: RegisteredRule::default_registration(),
             shared_table_limit: physical::IDENTITY_LIMIT,
             scope_version_id,
+            scope_fingerprint: None,
             roots,
             gaps: Vec::new(),
             observations: BTreeMap::new(),
@@ -199,10 +181,12 @@ pub struct BuildHandle {
     expected_base: Option<Id>,
     reserved: bool,
     origin: ResultOrigin,
+    data_source: du_core_contracts::data_source::DataSource,
     published: bool,
     size_rule: RegisteredRule,
     shared_table_limit: usize,
     scope_version_id: Id,
+    scope_fingerprint: Option<String>,
     roots: Vec<ResultScopeRoot>,
     gaps: Vec<ResultScopeGap>,
     observations: BTreeMap<(u32, Vec<Vec<u8>>), StoredObservation>,
@@ -424,10 +408,12 @@ impl BuildHandle {
         let result = Arc::new(ResultVersion {
             version_id,
             origin: self.origin,
+            data_source: self.data_source,
             base_version_id: self.expected_base.clone(),
             viz_models: Mutex::default(),
             scope_version_id: self.scope_version_id.clone(),
             lineage_id: self.lineage.clone(),
+            scope_fingerprint: self.scope_fingerprint.clone(),
             completeness: result_completeness,
             size_rule: self.size_rule,
             items: built.items,

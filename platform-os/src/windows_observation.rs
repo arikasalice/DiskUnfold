@@ -3,6 +3,7 @@ pub mod case_sensitivity;
 mod enumeration;
 #[cfg(test)]
 mod filter_tests;
+mod metadata;
 mod recall;
 pub mod recent_probe;
 mod scope;
@@ -179,6 +180,14 @@ pub(crate) fn final_path(
     path.truncate(length);
     Ok(path)
 }
+/// The kind reported for the attributes of an entry or an opened handle.
+///
+/// Every reparse point, including a volume mount point, is a `Link`, never an
+/// `ObservedKind::MountPoint`. Junctions and volume mount points share the tag
+/// `IO_REPARSE_TAG_MOUNT_POINT`; only the reparse data's target tells them
+/// apart, and reading it is another `FSCTL_GET_REPARSE_POINT` call per entry.
+/// Entries are opened with `FILE_OPEN_REPARSE_POINT`, so a mount point is
+/// observed on its parent's volume and is not entered either way.
 fn kind(attributes: u32) -> ObservedKind {
     if attributes & FILE_ATTRIBUTE_REPARSE_POINT.0 != 0 {
         ObservedKind::Link
@@ -291,51 +300,6 @@ impl WindowsDirectory {
             volume: u64::from(value.dwVolumeSerialNumber),
             file_id: identity(&value),
         })
-    }
-
-    fn observe(&self, name: Vec<u8>, inode: u64, attributes: u32) -> ObservedEntry {
-        #[cfg(test)]
-        PROBES.with(|count| count.set(count.get() + 1));
-        let metadata = recall::observe_if_safe(attributes, || {
-            wide(&name)
-                .and_then(|name| relative(&self.handle, &name, false, false))
-                .and_then(|file| {
-                    let value = info(&file)?;
-                    recall::check_handle_attributes(value.dwFileAttributes)?;
-                    if u64::from(value.dwVolumeSerialNumber) != self.volume {
-                        return Err(invalid());
-                    }
-                    let size =
-                        (u64::from(value.nFileSizeHigh) << 32) | u64::from(value.nFileSizeLow);
-                    let observed_kind = kind(value.dwFileAttributes);
-                    let (modified_at, native) = timestamps::observe(&file);
-                    let (facts, native_modified_at) = if observed_kind == ObservedKind::File {
-                        (
-                            space::read(&file, &value, &self.volume_guid)?,
-                            timestamps::matched_native(&file, &value, native),
-                        )
-                    } else {
-                        (space::Facts::default(), None)
-                    };
-                    Ok(MetadataObservation {
-                        kind: observed_kind,
-                        device: self.volume,
-                        inode: identity(&value),
-                        size: Ok(size),
-                        modified_at,
-                        native_modified_at,
-                        allocated: facts.allocated,
-                        link_count: facts.link_count,
-                        space_identity: facts.identity,
-                    })
-                })
-        });
-        ObservedEntry {
-            name,
-            enumerated_inode: inode,
-            enumerated_kind: kind(attributes),
-            metadata,
-        }
     }
 
     fn fill(
@@ -488,6 +452,10 @@ impl AnchoredDirectory for WindowsDirectory {
 
     fn ancestor_file_ids(&self) -> Option<&[Vec<u8>]> {
         self.ancestors.as_ref().map(|chain| chain.ids.as_slice())
+    }
+
+    fn observed_identity(&self) -> Option<du_core_contracts::scan_observation::HandleIdentity> {
+        self.handle_identity()
     }
 }
 

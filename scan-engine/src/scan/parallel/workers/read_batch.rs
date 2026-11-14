@@ -1,4 +1,7 @@
 //! Read one bounded batch under the selected metadata filter policy.
+//!
+//! The frozen exclusion rules are the first admission row. A name they cannot
+//! decide is withheld from the adapter and returned in `undecided`.
 use super::*;
 
 pub(super) enum ReadFailure {
@@ -10,6 +13,7 @@ pub(super) fn next_entries(
     frame: &mut Frame,
     context: &dyn JobContext,
     policy: Policy<'_>,
+    undecided: &mut Vec<Vec<u8>>,
 ) -> Result<Option<Vec<TimedObservedEntry>>, ReadFailure> {
     let Policy::BeforeMetadata(include) = policy else {
         return frame
@@ -20,9 +24,14 @@ pub(super) fn next_entries(
     };
     let mut decide = |name: &[u8]| {
         if context.checkpoint() == Checkpoint::Cancel {
+            // Stops this enumeration; the frame is dropped as cancelled.
             du_core_contracts::scan_observation::FilterDecision::Undecidable
         } else {
-            include(frame.root_index, &frame.path, name)
+            admission::exclusion(
+                include(frame.root_index, &frame.path, name),
+                name,
+                undecided,
+            )
         }
     };
     let batch = frame

@@ -32,6 +32,7 @@ fn test_hook_retains_initial_shared_ready_peak_for_each_scan()
             context: &context,
             limit: 1,
             policy: Policy::Legacy(&|_| true),
+            scan_control: None,
         };
         let mut counts = JobCounts::default();
         let devices = DevicePlan {

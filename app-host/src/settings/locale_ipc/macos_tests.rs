@@ -55,6 +55,22 @@ fn fixture() -> Result<Fixture, Box<dyn std::error::Error>> {
     })
 }
 
+/// Status the profile must report for this machine's own time zone.
+///
+/// Hosted runners use a fixed `GMT` zone, which stays offset-only by design;
+/// a Mac set to a named zone reports `identified`. The name classification is
+/// pinned by the platform-os unit tests.
+fn expected_time_zone_status() -> &'static str {
+    let Some(now) = du_core_contracts::Timestamp::from_unix_millis(current_time_ms()) else {
+        return "unavailable";
+    };
+    match MacOsTimeZone.observe(&now) {
+        Ok(observation) if observation.identity.is_some() => "identified",
+        Ok(_) => "offset_only",
+        Err(_) => "unavailable",
+    }
+}
+
 fn call(engine: &Engine, name: &str, body: Value) -> Result<Value, Box<dyn std::error::Error>> {
     let correlation_id = Id::parse("0195f856-ab83-7a59-9343-10d29775c9a9")?;
     let envelope = CallEnvelope {
@@ -90,7 +106,10 @@ fn mac_startup_serves_saved_locale_read_only_through_gui_ipc()
     assert_eq!(profile["body"]["displayLanguage"], "ko");
     assert_eq!(profile["body"]["languageSource"], "stored");
     assert_eq!(profile["body"]["profileRevision"], "1");
-    assert_eq!(profile["body"]["localTimeZoneStatus"], "offset_only");
+    assert_eq!(
+        profile["body"]["localTimeZoneStatus"],
+        expected_time_zone_status()
+    );
 
     let bundle = call(&engine, "i18n.get_bundle", json!({"language":"ko"}))?;
     assert!(bundle["error"].is_null(), "bundle query failed: {bundle}");

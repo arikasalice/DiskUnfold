@@ -1,0 +1,167 @@
+{
+  "schema": "diskunfold.accessibility-review",
+  "schemaVersion": 1,
+  "designItem": "NFR3.HD1.gui-web.DD1",
+  "entryPointsAsOf": "3fbdcbf7",
+  "measure": {
+    "id": "tasks_blocked_by_input_means",
+    "description": "입력 수단 때문에 완료하지 못한 작업 수 (작업 × 조합 쌍의 수)",
+    "passThreshold": 0,
+    "unverifiedCountsAsPass": false
+  },
+  "tasks": [
+    {
+      "id": "scope-select",
+      "label": "범위 선택",
+      "ownerFeature": "F01",
+      "entryPoint": {
+        "present": true,
+        "evidence": "gui-web/src/features/analysis/TargetPicker.tsx, RecentScopePicker.tsx (AnalysisPanel이 App에서 마운트됨)"
+      }
+    },
+    {
+      "id": "browse",
+      "label": "탐색",
+      "ownerFeature": "F05",
+      "entryPoint": {
+        "present": true,
+        "evidence": "gui-web/src/features/browse/BrowsePanel.tsx (App에서 마운트됨)"
+      }
+    },
+    {
+      "id": "search",
+      "label": "검색",
+      "ownerFeature": "F04",
+      "entryPoint": {
+        "present": false,
+        "evidence": "gui-web/src/features에 검색·필터 화면이 없음"
+      }
+    },
+    {
+      "id": "locale-settings",
+      "label": "설정 언어·형식 변경",
+      "ownerFeature": "F13",
+      "entryPoint": {
+        "present": true,
+        "evidence": "gui-web/src/features/settings/LocaleSettings.tsx (App에서 마운트됨)"
+      }
+    },
+    {
+      "id": "plan-review",
+      "label": "계획 검토",
+      "ownerFeature": "F10",
+      "entryPoint": {
+        "present": false,
+        "evidence": "gui-web/src/features/planning/PlanReviewPresenter.tsx는 App에서 마운트되지 않음"
+      }
+    },
+    {
+      "id": "approve",
+      "label": "승인",
+      "ownerFeature": "F28",
+      "entryPoint": {
+        "present": false,
+        "evidence": "gui-web/src/features/approval/ApprovalReviewPresenter.tsx는 App에서 마운트되지 않음"
+      }
+    },
+    {
+      "id": "cancel",
+      "label": "취소",
+      "ownerFeature": "F24",
+      "entryPoint": {
+        "present": false,
+        "evidence": "gui-web/src/features/jobs/JobCenterPresenter.tsx는 App에서 마운트되지 않음; 분석 화면의 '선택 취소'는 범위 선택 취소임"
+      }
+    },
+    {
+      "id": "result-review",
+      "label": "결과 확인",
+      "ownerFeature": "F30",
+      "entryPoint": {
+        "present": false,
+        "evidence": "정리 효과 확인 화면이 gui-web/src/features에 없음"
+      }
+    }
+  ],
+  "axes": {
+    "assistiveTechnology": [
+      {
+        "id": "windows-narrator",
+        "os": "windows",
+        "name": "Narrator"
+      },
+      {
+        "id": "macos-voiceover",
+        "os": "macos",
+        "name": "VoiceOver"
+      },
+      {
+        "id": "ubuntu-orca",
+        "os": "linux",
+        "name": "Orca"
+      }
+    ],
+    "language": [
+      "ko",
+      "en"
+    ],
+    "keyboardLayout": [
+      "ko-2set",
+      "en-us"
+    ],
+    "appScale": [
+      150,
+      175,
+      200
+    ],
+    "window": [
+      "1024x700"
+    ]
+  },
+  "checks": [
+    {
+      "id": "name-role-state",
+      "label": "이름·역할·상태 전달"
+    },
+    {
+      "id": "focus-visible-order",
+      "label": "초점 보임·순서"
+    },
+    {
+      "id": "color-independent",
+      "label": "색 비의존"
+    },
+    {
+      "id": "composition-no-execute",
+      "label": "조합 확정 비실행"
+    },
+    {
+      "id": "truncated-text-full",
+      "label": "잘린 문구 전체 확인"
+    },
+    {
+      "id": "primary-action-reachable",
+      "label": "주요 조작 도달"
+    }
+  ],
+  "resultFormat": {
+    "schema": "diskunfold.accessibility-review-results",
+    "schemaVersion": 1,
+    "results": [
+      "pass",
+      "fail",
+      "unverified",
+      "not_applicable"
+    ],
+    "recordFields": {
+      "task": "tasks[].id",
+      "combination": "axes의 다섯 축에서 하나씩 고른 값 (assistiveTechnology는 id)",
+      "check": "checks[].id",
+      "result": "results 중 하나",
+      "productVersion": "검수한 제품 판 (비어 있지 않은 문자열)",
+      "osVersion": "검수한 OS 판 (비어 있지 않은 문자열)",
+      "evidence": "근거: 기록·화면 캡처·시험 번호 (unverified 외에는 필수)",
+      "blocksTask": "result가 fail일 때 필수. true면 이 입력 수단으로 작업을 끝내지 못함"
+    }
+  }
+}

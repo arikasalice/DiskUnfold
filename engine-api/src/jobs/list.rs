@@ -43,12 +43,7 @@ fn project(row: JobListEntry) -> AnalysisJobListRow {
         kind: snapshot.kind_id,
         scope_summary: row.scope_summary,
         state: snapshot.state,
-        wait_reason: match row.wait_reason {
-            JobWaitReason::None => AnalysisJobWaitReason::None,
-            JobWaitReason::Paused => AnalysisJobWaitReason::Paused,
-            JobWaitReason::QueueFull => AnalysisJobWaitReason::QueueFull,
-            JobWaitReason::Unknown => AnalysisJobWaitReason::Unknown,
-        },
+        wait_reason: wait_reason(row.wait_reason),
         priority: match row.priority {
             JobPriority::High => AnalysisJobPriority::High,
             JobPriority::Normal => AnalysisJobPriority::Normal,
@@ -57,5 +52,15 @@ fn project(row: JobListEntry) -> AnalysisJobListRow {
         supported_controls: row.supported_controls,
         sequence: snapshot.sequence,
         terminal: snapshot.terminal.map(project_terminal),
+    }
+}
+
+/// Maps a runtime wait reason to the value shared by the job table and events.
+pub(crate) fn wait_reason(reason: JobWaitReason) -> AnalysisJobWaitReason {
+    match reason {
+        JobWaitReason::None => AnalysisJobWaitReason::None,
+        JobWaitReason::Paused => AnalysisJobWaitReason::Paused,
+        JobWaitReason::QueueFull => AnalysisJobWaitReason::QueueFull,
+        JobWaitReason::Unknown => AnalysisJobWaitReason::Unknown,
     }
 }

@@ -1,6 +1,13 @@
 //! Bounded handle-based workers and a single result publisher.
-use super::{PreMetadataFilter, ResultIds, record_at};
+use super::{
+    PreMetadataFilter, ResultIds,
+    admission::{self, Admission, Boundary, Visited},
+    record_at,
+};
+mod control;
 mod queue;
+pub(crate) use control::ScanControlSession;
+pub use control::{ScanControlError, ScanControlHandle, ScanPriorityOutcome};
 use du_analysis_index::{BuildError, BuildHandle, publication_cadence::PublicationCadence};
 use du_core_contracts::{
     Id,
@@ -23,6 +30,8 @@ use std::{
 };
 
 mod disconnect;
+mod preparation;
+mod scheduler;
 mod volume_reports;
 
 const QUEUED_DIRECTORIES: usize = 64;
@@ -45,6 +54,7 @@ struct Frame {
     root_published: bool,
     batch_pending: bool,
     case_observed: bool,
+    boundary: Boundary,
 }
 struct Queue {
     ready: VecDeque<Frame>,
@@ -54,6 +64,8 @@ struct Queue {
     /// counter is updated only when diagnostics are enabled.
     ready_high_water: Option<usize>,
     last_root: Option<u32>,
+    priority: Option<queue::PriorityRegion>,
+    outstanding: Option<queue::OutstandingPaths>,
     remaining: usize,
     root_remaining: Vec<usize>,
     root_groups: Vec<usize>,
@@ -63,10 +75,12 @@ struct Queue {
 }
 
 struct Shared {
-    queue: Mutex<Queue>,
-    wake: Condvar,
+    queue: Arc<Mutex<Queue>>,
+    wake: Arc<Condvar>,
     abort: AtomicBool,
     disconnects: disconnect::Disconnects,
+    track_priority_paths: bool,
+    visited: Visited,
 }
 impl Shared {
     /// Stops all scan flows after an internal failure, without requesting user cancellation.
@@ -78,7 +92,9 @@ impl Shared {
     }
 }
 enum Event {
-    Item(u32, Vec<Vec<u8>>, Box<TimedObservedEntry>),
+    Item(u32, Vec<Vec<u8>>, Box<TimedObservedEntry>, Admission),
+    /// A name withheld by an undecidable exclusion rule; it was never observed.
+    Undecided(u32, Vec<Vec<u8>>),
     DirectoryCase(u32, Vec<Vec<u8>>, DirectoryCaseEvidence),
     Failure {
         root_index: u32,
@@ -99,6 +115,7 @@ struct Control<'a> {
     context: &'a dyn JobContext,
     limit: usize,
     policy: Policy<'a>,
+    scan_control: Option<&'a ScanControlSession>,
 }
 
 #[derive(Clone, Copy)]
@@ -172,7 +189,7 @@ pub(crate) fn collect_open_forest_with_groups(
         context,
         limit,
         Policy::Legacy(include),
-        (devices, None),
+        (devices, None, None),
     )
 }
 
@@ -192,7 +209,7 @@ pub(crate) fn collect_open_forest_filtered(
         context,
         limit,
         Policy::BeforeMetadata(include),
-        (devices, None),
+        (devices, None, None),
     )
 }
 
@@ -203,7 +220,11 @@ pub(crate) fn collect_open_forest_diagnostic(
     context: &dyn JobContext,
     limit: usize,
     filter: Option<&PreMetadataFilter<'_>>,
-    options: (DevicePlan, Option<&crate::scan_job::ScanDiagnostics>),
+    options: (
+        DevicePlan,
+        Option<&crate::scan_job::ScanDiagnostics>,
+        Option<&ScanControlSession>,
+    ),
 ) -> JobOutcome {
     let include = |_: &[Vec<u8>]| true;
     let policy = filter.map_or(Policy::Legacy(&include), Policy::BeforeMetadata);
@@ -217,22 +238,36 @@ fn collect_with_policy(
     context: &dyn JobContext,
     limit: usize,
     policy: Policy<'_>,
-    options: (DevicePlan, Option<&crate::scan_job::ScanDiagnostics>),
+    options: (
+        DevicePlan,
+        Option<&crate::scan_job::ScanDiagnostics>,
+        Option<&ScanControlSession>,
+    ),
 ) -> JobOutcome {
-    let (devices, diagnostics) = options;
+    struct FinishControl<'a>(Option<&'a ScanControlSession>);
+    impl Drop for FinishControl<'_> {
+        fn drop(&mut self) {
+            if let Some(control) = self.0 {
+                control.finish();
+            }
+        }
+    }
+    let (devices, diagnostics, scan_control) = options;
+    let _finish_control = FinishControl(scan_control);
     let mut counts = JobCounts::default();
-    let control = Control {
+    let worker_control = Control {
         ids,
         context,
         limit,
         policy,
+        scan_control,
     };
     let clock = ContextClock(context);
     let result = build.and_then(|build| {
         run(
             build,
             roots,
-            control,
+            worker_control,
             &mut counts,
             devices,
             &clock,
@@ -272,10 +307,8 @@ fn run(
         context,
         limit,
         policy,
+        scan_control,
     } = control;
-    if !devices.valid(roots.len()) {
-        return Err(BuildError::Unavailable);
-    }
     let root_count = roots.len();
     let volumes = build.root_volumes();
     let disconnects = disconnect::Disconnects::new(root_count, &volumes);
@@ -289,16 +322,17 @@ fn run(
         build.seal(id.clone(), ResultCompleteness::Cancelled)?;
         return Ok((id, true, root_count));
     }
-    match reports.prepare_start(&roots, context, &disconnects) {
-        Ok(()) => {}
+    let prepared = match preparation::prepare(&mut reports, roots, context, &disconnects) {
+        Ok(prepared) => prepared,
         Err(JobFlowError::Cancelled) => {
             let id = ids.next_id();
             build.seal(id.clone(), ResultCompleteness::Cancelled)?;
             return Ok((id, true, root_count));
         }
         Err(_) => return Err(BuildError::Unavailable),
-    }
+    };
     build.set_volume_reports(reports.snapshot())?;
+    preparation::record_starts(&mut build, &prepared.starts, &disconnects, counts, context)?;
     let flows = match acquire_flows(context, limit) {
         Ok(flows) => flows,
         Err(JobFlowError::Cancelled) => {
@@ -308,37 +342,7 @@ fn run(
         }
         Err(_) => return Err(BuildError::Unavailable),
     };
-    let shared = Shared {
-        queue: Mutex::new(Queue {
-            ready_high_water: diagnostics.map(|_| root_count),
-            ready: roots
-                .into_iter()
-                .enumerate()
-                .map(|(index, root)| Frame {
-                    root_index: index as u32,
-                    path: Vec::new(),
-                    directory: root,
-                    entries: VecDeque::new(),
-                    deferred: VecDeque::new(),
-                    root: true,
-                    first_batch: false,
-                    root_published: false,
-                    batch_pending: false,
-                    case_observed: false,
-                })
-                .collect(),
-            remaining: root_count,
-            root_remaining: vec![1; root_count],
-            root_groups: devices.groups,
-            active_groups: vec![0; root_count],
-            device_limit: devices.limit,
-            last_root: None,
-            started: false,
-        }),
-        wake: Condvar::new(),
-        abort: AtomicBool::new(false),
-        disconnects,
-    };
+    let shared = scheduler::create(prepared, devices, diagnostics, disconnects, scan_control)?;
     let (sender, receiver) = mpsc::sync_channel(BUFFERED_OBSERVATIONS);
     let mut progress = Progress {
         failed_roots: vec![false; root_count],

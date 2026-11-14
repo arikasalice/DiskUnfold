@@ -1,0 +1,81 @@
+.du-fit {
+  position: relative;
+  min-inline-size: 0;
+  max-inline-size: 100%;
+}
+
+.du-fit--block {
+  display: block;
+}
+
+.du-fit--line {
+  display: flex;
+}
+
+.du-clamp {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--du-clamp-lines, 2);
+  line-clamp: var(--du-clamp-lines, 2);
+  min-inline-size: 0;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+.du-middle {
+  display: flex;
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  white-space: nowrap;
+}
+
+.du-middle__head {
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.du-middle__tail {
+  flex: none;
+}
+
+.du-visually-hidden {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.du-fit[tabindex]:focus-visible {
+  outline: 2px solid var(--du-focus);
+  outline-offset: 2px;
+}
+
+/* The full text of a cut text: shown on focus or hover, hidden by Escape. */
+.du-fit__full {
+  display: none;
+  position: absolute;
+  inset-block-start: 100%;
+  inset-inline-start: 0;
+  z-index: 10;
+  box-sizing: border-box;
+  inline-size: max-content;
+  max-inline-size: min(32rem, 90vw);
+  margin-block-start: 4px;
+  padding: 6px 10px;
+  border: 1px solid var(--du-border);
+  border-radius: 6px;
+  background: var(--du-surface);
+  color: var(--du-text);
+  box-shadow: var(--du-shadow);
+  font-size: 13px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.du-fit:is(:focus-visible, :hover):not([data-dismissed]) > .du-fit__full {
+  display: block;
+}

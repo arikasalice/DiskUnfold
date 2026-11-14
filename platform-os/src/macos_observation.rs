@@ -23,7 +23,8 @@ use du_core_contracts::{
     Timestamp,
     ports::PortError,
     scan_observation::{
-        AnchoredDirectory, ObservedEntry, ObservedKind, TimedObservedEntry, VolumeSpaceReader,
+        AnchoredDirectory, HandleIdentity, ObservedEntry, ObservedKind, TimedObservedEntry,
+        VolumeSpaceReader,
     },
 };
 use std::{
@@ -111,5 +112,11 @@ impl AnchoredDirectory for MacDirectory {
 
     fn ancestor_file_ids(&self) -> Option<&[Vec<u8>]> {
         self.ancestors.as_ref().map(scope::Ancestors::ids)
+    }
+
+    /// Reports the device and inode this descriptor was verified with when it
+    /// was opened; an open descriptor keeps referring to that directory.
+    fn observed_identity(&self) -> Option<HandleIdentity> {
+        scope::handle_identity(self.device, self.inode, self.ancestor_file_ids())
     }
 }

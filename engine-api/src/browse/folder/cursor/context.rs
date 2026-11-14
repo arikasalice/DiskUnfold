@@ -29,6 +29,7 @@ pub(super) fn page_context(page: &Page) -> Result<Option<BrowseContext>, super::
     let metadata = page.metadata();
     project_context(
         ResultOrigin("scan".into()),
+        version.data_source(),
         location,
         breadcrumbs,
         metadata.sorts,
@@ -40,6 +41,7 @@ pub(super) fn page_context(page: &Page) -> Result<Option<BrowseContext>, super::
 /// Projects location and strategy evidence consistently for open and page responses.
 pub(in super::super) fn project_context(
     origin: ResultOrigin,
+    data_source: du_core_contracts::data_source::DataSource,
     location: Option<ItemRef>,
     breadcrumbs: Vec<super::super::Breadcrumb>,
     sorts: &[du_analysis_index::query::SortSpec],
@@ -53,6 +55,7 @@ pub(in super::super) fn project_context(
     };
     Ok(BrowseContext {
         origin,
+        data_source: Some(data_source),
         location,
         breadcrumbs: breadcrumbs
             .into_iter()

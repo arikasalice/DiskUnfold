@@ -4,7 +4,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use du_analysis_index::IngestSink;
+use du_analysis_index::{IngestSink, ScopeHeader};
 use du_core_contracts::{
     Id,
     job::{
@@ -15,7 +15,10 @@ use du_core_contracts::{
     scan_observation::OpenedScopeRoot,
 };
 
-use crate::scan::{DevicePlan, PreMetadataFilter, ResultIds, collect_open_forest_diagnostic};
+use crate::scan::{
+    DevicePlan, PreMetadataFilter, ResultIds, ScanControlHandle, ScanControlSession,
+    collect_open_forest_diagnostic,
+};
 
 type DeviceRoots = Vec<(OpenedScopeRoot, Option<Vec<u8>>)>;
 
@@ -66,11 +69,14 @@ pub struct MetadataScan {
     roots: Mutex<Option<DeviceRoots>>,
     store: IngestSink,
     scope: Id,
+    scope_fingerprint: Option<String>,
     lineage: Option<Id>,
     ids: Arc<dyn ResultIds>,
     filter: Option<Arc<PreMetadataFilter<'static>>>,
     shared_table_limit: Option<usize>,
     diagnostics: Option<Arc<ScanDiagnostics>>,
+    root_count: usize,
+    control: Option<Arc<ScanControlSession>>,
 }
 
 impl MetadataScan {
@@ -110,20 +116,33 @@ impl MetadataScan {
         scope: Id,
         ids: Arc<dyn ResultIds>,
     ) -> Self {
+        let root_count = roots.len();
         Self {
             roots: Mutex::new(Some(roots)),
             store,
             scope,
+            scope_fingerprint: None,
             lineage: None,
             ids,
             filter: None,
             shared_table_limit: None,
             diagnostics: None,
+            root_count,
+            control: None,
         }
     }
     /// Binds this scan to the stable lineage of its verified scope and source.
     pub fn with_lineage(mut self, lineage: Id) -> Self {
         self.lineage = Some(lineage);
+        self
+    }
+
+    /// Carries the fingerprint of the frozen scope in every result header.
+    ///
+    /// The caller passes the canonical fingerprint computed for the same scope
+    /// version that this scan collects (FR1.HD1.app-host.DD1).
+    pub fn with_scope_fingerprint(mut self, fingerprint: String) -> Self {
+        self.scope_fingerprint = Some(fingerprint);
         self
     }
 
@@ -137,6 +156,27 @@ impl MetadataScan {
     pub fn with_diagnostics(mut self, diagnostics: Arc<ScanDiagnostics>) -> Self {
         self.diagnostics = Some(diagnostics);
         self
+    }
+
+    /// Enables directory-priority control for this metadata job.
+    ///
+    /// The opt-in allocates bounded outstanding-path accounting for the live
+    /// scheduler. Jobs that do not expose priority control avoid that work.
+    pub fn with_priority_control(mut self) -> Self {
+        if self.control.is_none() {
+            self.control = Some(Arc::new(ScanControlSession::new(self.root_count)));
+        }
+        self
+    }
+
+    /// Returns a weak control handle bound to this scan's worker scheduler.
+    ///
+    /// Store the handle with the admitted job reference. A caller must resolve
+    /// each region from the same scan's current pinned result before forwarding
+    /// its root index and raw relative components. The handle cannot extend the
+    /// job or scheduler lifetime.
+    pub fn control_handle(&self) -> Option<ScanControlHandle> {
+        self.control.as_ref().map(ScanControlSession::handle)
     }
 
     /// Installs an immutable pre-metadata decision for every root of this job.
@@ -172,13 +212,21 @@ impl JobBody for MetadataScan {
                         )
                     })
                     .unzip();
-                let build = match &self.lineage {
-                    Some(lineage) => self.store.open_forest_in_lineage(
+                let build = match (&self.scope_fingerprint, &self.lineage) {
+                    (Some(fingerprint), lineage) => self.store.open_scoped_forest(
+                        ScopeHeader {
+                            version_id: self.scope.clone(),
+                            fingerprint: fingerprint.clone(),
+                        },
+                        observed,
+                        lineage.clone(),
+                    ),
+                    (None, Some(lineage)) => self.store.open_forest_in_lineage(
                         self.scope.clone(),
                         observed,
                         lineage.clone(),
                     ),
-                    None => self.store.open_forest(self.scope.clone(), observed),
+                    (None, None) => self.store.open_forest(self.scope.clone(), observed),
                 };
                 let build = build.and_then(|mut build| {
                     if let Some(limit) = self.shared_table_limit {
@@ -194,16 +242,25 @@ impl JobBody for MetadataScan {
                     &*context,
                     DEFAULT_SCAN_WORKERS,
                     self.filter.as_deref(),
-                    (devices, self.diagnostics.as_deref()),
+                    (
+                        devices,
+                        self.diagnostics.as_deref(),
+                        self.control.as_deref(),
+                    ),
                 )
             }
-            _ => JobOutcome {
-                counts: Default::default(),
-                completed_scope: false,
-                failure_reason_key: Some("support.internal_error".into()),
-                unprocessed_summary: None,
-                result_version_id: None,
-            },
+            _ => {
+                if let Some(control) = &self.control {
+                    control.finish();
+                }
+                JobOutcome {
+                    counts: Default::default(),
+                    completed_scope: false,
+                    failure_reason_key: Some("support.internal_error".into()),
+                    unprocessed_summary: None,
+                    result_version_id: None,
+                }
+            }
         }
     }
 }
@@ -267,6 +324,10 @@ mod device_tests {
         }
     }
     impl AnchoredDirectory for Empty {
+        // Device grouping never collects, so identity is not supported here.
+        fn observed_identity(&self) -> Option<du_core_contracts::scan_observation::HandleIdentity> {
+            None
+        }
         fn open_child(&self, _: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError> {
             Err(PortError {
                 kind: PortErrorKind::Unsupported,

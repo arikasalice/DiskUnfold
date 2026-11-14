@@ -10,6 +10,7 @@ mod rows;
 mod test_gate;
 use rows::project;
 mod wire;
+pub(crate) use admission::lower_condition;
 pub use admission::{AdmissionError, LiveOpen};
 use std::sync::Arc;
 
@@ -106,6 +107,8 @@ pub struct FolderPage {
 pub struct Opened {
     /// Absent at the virtual top of a multi-root result.
     pub location: Option<ItemRef>,
+    /// Data source of the pinned version.
+    pub data_source: du_core_contracts::data_source::DataSource,
     pub breadcrumbs: Vec<Breadcrumb>,
     /// Sort strategies pinned to the query in priority order.
     pub sort_strategies: Vec<query::SortSpec>,
@@ -147,6 +150,7 @@ impl AdmittedOpen {
         let metadata = self.page.metadata();
         Ok(Opened {
             location: self.location,
+            data_source: self.page.version().data_source(),
             breadcrumbs: self.breadcrumbs,
             sort_strategies: metadata.sorts.to_vec(),
             predicate_strategies: metadata.predicate_strategies.to_vec(),

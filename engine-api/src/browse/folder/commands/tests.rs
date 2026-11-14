@@ -117,6 +117,7 @@ fn registered_gui_commands_open_and_continue_with_the_same_registry()
     assert!(opened.error.is_none(), "{:?}", opened.error);
     assert_eq!(opened.body["kind"], "opened");
     assert_eq!(opened.body["requestSeq"], 4);
+    assert_eq!(opened.body["dataSource"], "real");
     let first = &opened.body["page"];
     assert!(first.get("browseContext").is_none());
     let next = call(

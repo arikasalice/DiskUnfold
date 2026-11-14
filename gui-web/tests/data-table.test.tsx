@@ -7,8 +7,28 @@ import {
 } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { DataTable } from "../src/components";
+import { LocaleTextContext } from "../src/i18n/presentation";
 
 afterEach(cleanup);
+
+test("scroll region name resolves through the current language", () => {
+  const korean = (
+    key: string,
+    fallback: string,
+    values?: Record<string, unknown>,
+  ) =>
+    key === "ui.common.scroll_area"
+      ? `${String(values?.name)} 스크롤 영역`
+      : fallback;
+  render(
+    <LocaleTextContext.Provider value={korean}>
+      {table(1)}
+    </LocaleTextContext.Provider>,
+  );
+  expect(
+    screen.getByRole("region", { name: "History 스크롤 영역" }),
+  ).toBeDefined();
+});
 
 function table(size: number, renderCells = (row: string[]) => row) {
   return (

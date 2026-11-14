@@ -2,6 +2,7 @@
 
 use std::{
     collections::VecDeque,
+    sync::atomic::Ordering,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -45,6 +46,14 @@ impl Registry {
             .unwrap_or_default()
     }
 
+    /// Returns how many oldest missing-translation records were discarded after the
+    /// session list reached [`MISSING_MESSAGE_CAPACITY`].
+    ///
+    /// Duplicate reports, unregistered languages and invalid keys never increase it.
+    pub fn dropped_missing_messages(&self) -> u64 {
+        self.dropped_missing_messages.load(Ordering::Relaxed)
+    }
+
     pub(super) fn report_missing_at(
         &self,
         request: &LocaleReportMissingRequest,
@@ -77,6 +86,8 @@ impl Registry {
             });
             if records.len() > MISSING_MESSAGE_CAPACITY {
                 let _ = records.pop_front();
+                self.dropped_missing_messages
+                    .fetch_add(1, Ordering::Relaxed);
             }
         }
     }

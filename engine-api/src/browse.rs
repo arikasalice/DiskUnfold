@@ -74,6 +74,7 @@ fn project(
         created_at: unknown("ref.unavailable"),
         observed_at: field(version.observed_at().cloned(), "ref.unavailable"),
         origin: BrowseOrigin::Scan,
+        data_source: Some(version.data_source()),
         completeness: version.completeness(),
         // The current scan model cannot establish a live correspondence from observation alone.
         current_correspondence: false,

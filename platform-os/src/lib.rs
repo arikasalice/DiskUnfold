@@ -22,7 +22,7 @@ pub mod macos_instance_lock;
 pub mod macos_observation;
 #[cfg(all(target_os = "macos", feature = "webview"))]
 pub mod macos_time_zone;
-#[cfg(all(target_os = "macos", feature = "webview"))]
+#[cfg(target_os = "macos")]
 pub mod macos_ui_language;
 pub mod os_release;
 pub mod self_executable;

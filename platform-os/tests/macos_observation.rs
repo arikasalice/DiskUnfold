@@ -166,6 +166,40 @@ fn normal_tree_reports_sizes_times_and_identities() -> TestResult {
     Ok(())
 }
 
+/// The collector compares a handle identity with the entries of that handle.
+#[test]
+fn handle_identity_shares_the_identity_space_of_listed_entries() -> TestResult {
+    let (_guard, path) = fixture()?;
+    fs::create_dir(path.join("inner"))?;
+    let mut root = open(&path)?;
+    let identity = root
+        .directory
+        .observed_identity()
+        .ok_or("the root reported no identity")?;
+    assert_eq!(identity.inode, fs::metadata(&path)?.ino());
+    assert_eq!(root.file_id, identity.inode.to_le_bytes());
+    let retained: Vec<u64> = root
+        .directory
+        .ancestor_file_ids()
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|id| <[u8; 8]>::try_from(id.as_slice()).ok())
+        .map(u64::from_le_bytes)
+        .collect();
+    assert_eq!(identity.ancestors, retained);
+    let entries = all(&mut *root.directory)?;
+    let entry = find(&entries, b"inner")?;
+    let listed = meta(entry)?;
+    assert_eq!(listed.device, identity.device);
+    let inner = child(&*root.directory, entry)?
+        .observed_identity()
+        .ok_or("the child reported no identity")?;
+    assert_eq!((inner.device, inner.inode), (identity.device, listed.inode));
+    assert_eq!(inner.inode, fs::metadata(path.join("inner"))?.ino());
+    assert!(inner.ancestors.is_empty(), "a child handle retains none");
+    Ok(())
+}
+
 #[test]
 fn large_directories_return_bounded_batches_across_bulk_calls() -> TestResult {
     let (_guard, path) = fixture()?;
@@ -333,6 +367,19 @@ fn firmlinks_and_mount_points_are_links_that_are_never_entered() -> TestResult {
     assert_eq!(
         library.directory.ancestor_file_ids().map(<[Vec<u8>]>::len),
         Some(2)
+    );
+    let ancestors = |directory: &dyn AnchoredDirectory| {
+        directory
+            .observed_identity()
+            .map(|identity| identity.ancestors)
+    };
+    assert_eq!(ancestors(&*system.directory), Some(Vec::new()));
+    assert_eq!(
+        ancestors(&*library.directory),
+        Some(vec![
+            fs::metadata("/")?.ino(),
+            fs::metadata("/System")?.ino()
+        ])
     );
     Ok(())
 }

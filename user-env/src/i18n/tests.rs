@@ -281,3 +281,36 @@ fn missing_report_filters_keys_deduplicates_and_keeps_only_the_newest_thousand()
     assert_eq!(retained[999].key, "ui.fixture.item_1001");
     Ok(())
 }
+
+#[test]
+fn dropped_missing_count_tracks_only_evictions() -> Result<(), RegistrationError> {
+    let registry = register(&[resource("en", EN), resource("ko", KO)], &[], &[])?;
+    let report = |language: &str, keys: Vec<String>| {
+        registry.report_missing(&LocaleReportMissingRequest {
+            language: language.into(),
+            entries: keys
+                .into_iter()
+                .map(|key| LocaleMissingEntry {
+                    key,
+                    marker: LocaleMissingMarker::Fallback,
+                })
+                .collect(),
+        });
+    };
+    let key = |index: usize| format!("ui.fixture.item_{index:04}");
+    report("en", (1..=1_000).map(key).collect());
+    assert_eq!(registry.dropped_missing_messages(), 0);
+    report("en", vec![key(1), key(500)]);
+    report("fr", vec!["ui.fixture.other".into()]);
+    report("en", vec!["../bad".into(), "Bad".into()]);
+    assert_eq!(registry.dropped_missing_messages(), 0);
+    report("en", (1_001..=1_003).map(key).collect());
+    assert_eq!(registry.dropped_missing_messages(), 3);
+    let retained = registry.missing_messages();
+    assert_eq!(retained.len(), MISSING_MESSAGE_CAPACITY);
+    assert_eq!(retained[0].key, key(4));
+    // The same key in another registered language is a distinct entry.
+    report("ko", vec![key(1_003)]);
+    assert_eq!(registry.dropped_missing_messages(), 4);
+    Ok(())
+}

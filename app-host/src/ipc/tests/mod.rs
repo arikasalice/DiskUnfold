@@ -67,6 +67,14 @@ fn selects_only_exact_valid_route_names() {
             JobControl,
         ),
         (
+            r#"{"command":"du_call","args":{"envelope":{"name":"scan.prioritize"}}}"#,
+            JobControl,
+        ),
+        (
+            r#"{"command":"du_call","args":{"envelope":{"name":"scan.start"}}}"#,
+            Ordered,
+        ),
+        (
             r#"{"command":"du_call","args":{"envelope":{"name":"job.pause.extra"}}}"#,
             Ordered,
         ),

@@ -17,6 +17,9 @@ impl AnchoredDirectory for AncestorDirectory {
     fn ancestor_file_ids(&self) -> Option<&[Vec<u8>]> {
         Some(&self.ancestors)
     }
+    fn observed_identity(&self) -> Option<du_core_contracts::scan_observation::HandleIdentity> {
+        self.inner.observed_identity()
+    }
 }
 impl ScopeRootPort for AncestorRoots {
     fn open_root(&self, path: &[u8]) -> Result<OpenedScopeRoot, PortError> {
@@ -54,6 +57,7 @@ fn exclusion_inside_absorbed_root_stays_bound_to_retained_root()
         read_handles: Arc::new(Mutex::new(Vec::new())),
         release: Arc::new(Mutex::new(receiver)),
         finish_gate: None,
+        priority: None,
     })));
     let _release = release;
     let comparison: Arc<dyn PathComparison> = Arc::new(ProvenComparison);

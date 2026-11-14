@@ -62,7 +62,11 @@ pub fn project(
     })
 }
 
-fn row(version: &ResultVersion, reference: &ItemRef) -> Result<SearchQueryRow, ProjectionError> {
+/// Projects one observed item of a pinned result for display.
+pub(crate) fn row(
+    version: &ResultVersion,
+    reference: &ItemRef,
+) -> Result<SearchQueryRow, ProjectionError> {
     let item = version
         .detail(reference)
         .map_err(ProjectionError::Item)?

@@ -1,6 +1,9 @@
 //! Record parsing, classification and thread policy checks without fixture files.
-use super::{bulk, dataless, errors, volume};
-use du_core_contracts::{ports::PortErrorKind, scan_observation::ObservedKind};
+use super::{bulk, dataless, errors, scope, volume};
+use du_core_contracts::{
+    ports::PortErrorKind,
+    scan_observation::{HandleIdentity, ObservedKind},
+};
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
@@ -209,6 +212,27 @@ fn timestamps_floor_to_milliseconds() {
         Some("1970-01-01T00:00:00.000Z")
     );
     assert_eq!(text(i64::MAX, 0), None);
+}
+
+#[test]
+fn handle_identity_needs_an_inode_and_keeps_ancestor_order() {
+    let ancestors = [2u64.to_le_bytes().to_vec(), 9u64.to_le_bytes().to_vec()];
+    assert_eq!(scope::handle_identity(7, 0, Some(&ancestors)), None);
+    assert_eq!(
+        scope::handle_identity(7, 42, Some(&ancestors)),
+        Some(HandleIdentity {
+            device: 7,
+            inode: 42,
+            ancestors: vec![2, 9],
+        })
+    );
+    // Missing evidence and a confirmed volume root both retain no ancestor.
+    for none in [None, Some(&[][..])] {
+        assert_eq!(
+            scope::handle_identity(7, 42, none).map(|identity| identity.ancestors),
+            Some(Vec::new())
+        );
+    }
 }
 
 #[test]

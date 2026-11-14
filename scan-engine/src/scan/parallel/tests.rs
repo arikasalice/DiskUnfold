@@ -9,6 +9,7 @@ use du_core_contracts::{
     scan_observation::{DirectoryObservations, MetadataObservation, OpenedScopeRoot},
 };
 use std::sync::{Arc, atomic::AtomicUsize};
+mod admission_table;
 mod directory_case;
 mod disconnect;
 mod filtered;
@@ -64,6 +65,9 @@ impl DirectoryObservations for SmallRoot {
     }
 }
 impl AnchoredDirectory for SmallRoot {
+    fn observed_identity(&self) -> Option<du_core_contracts::scan_observation::HandleIdentity> {
+        crate::scan::test_identity(self)
+    }
     fn open_child(&self, _: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError> {
         Err(PortError {
             kind: PortErrorKind::Unsupported,
@@ -281,6 +285,9 @@ fn cancellation_after_one_root_releases_flow_and_counts_only_unfinished_roots()
         }
     }
     impl AnchoredDirectory for StopRoot {
+        fn observed_identity(&self) -> Option<du_core_contracts::scan_observation::HandleIdentity> {
+            crate::scan::test_identity(self)
+        }
         fn open_child(&self, _: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError> {
             Err(PortError {
                 kind: PortErrorKind::Unsupported,
@@ -413,6 +420,9 @@ impl DirectoryObservations for Root {
     }
 }
 impl AnchoredDirectory for Root {
+    fn observed_identity(&self) -> Option<du_core_contracts::scan_observation::HandleIdentity> {
+        crate::scan::test_identity(self)
+    }
     fn open_child(&self, _: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError> {
         Err(PortError {
             kind: PortErrorKind::Unsupported,
@@ -438,11 +448,14 @@ fn ready_roots_take_turns_even_when_one_has_many_frames() {
         root_published: false,
         batch_pending: false,
         case_observed: false,
+        boundary: Boundary::Unknown,
     };
     let mut queue = Queue {
         ready: VecDeque::from([frame(0), frame(0), frame(1), frame(2), frame(0), frame(1)]),
         ready_high_water: Some(6),
         last_root: None,
+        priority: None,
+        outstanding: None,
         remaining: 6,
         root_remaining: vec![3, 2, 1],
         root_groups: vec![0, 1, 2],
@@ -460,5 +473,6 @@ fn ready_roots_take_turns_even_when_one_has_many_frames() {
 mod cadence;
 mod device;
 mod panic_boundary;
+mod priority;
 
 mod spawn;

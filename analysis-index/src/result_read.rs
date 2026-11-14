@@ -41,6 +41,11 @@ impl ResultVersion {
     pub fn size_rule(&self) -> crate::SizeRuleIdentity {
         self.size_rule.identity()
     }
+
+    /// Returns the collector's observation time for this result, when it was supplied.
+    pub fn observed_at(&self) -> Option<&Timestamp> {
+        self.observed_at.as_ref()
+    }
     /// Reads historical metadata flags, never a current locality guarantee.
     pub fn item_placeholder_observation(
         &self,
@@ -321,6 +326,10 @@ impl ResultVersionRead for ResultVersion {
 
     fn observed_roots(&self) -> &[ResultScopeRoot] {
         &self.roots
+    }
+
+    fn data_source(&self) -> du_core_contracts::data_source::DataSource {
+        self.data_source
     }
 
     fn scope_gaps(&self) -> &[du_core_contracts::result::ResultScopeGap] {

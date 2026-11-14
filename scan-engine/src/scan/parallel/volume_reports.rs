@@ -2,7 +2,7 @@
 use super::disconnect::{self, Disconnects};
 use du_analysis_index::{VolumeReport, VolumeReportPoint};
 use du_core_contracts::{
-    job::{Checkpoint, JobContext, JobCounts, JobFlow, JobFlowError},
+    job::{Checkpoint, JobContext, JobCounts, JobFlow},
     ports::{PortError, PortErrorKind},
     scan_observation::{AnchoredDirectory, VolumeSpaceReader},
 };
@@ -39,20 +39,7 @@ impl Reports {
                 .collect(),
         )
     }
-    /// Runs initial volume probes under one independently registered flow.
-    pub(super) fn prepare_start(
-        &mut self,
-        roots: &[Box<dyn AnchoredDirectory>],
-        context: &dyn JobContext,
-        disconnects: &Disconnects,
-    ) -> Result<(), JobFlowError> {
-        let mut flows = super::acquire_flows(context, 1)?;
-        if let Some(flow) = flows.pop() {
-            self.start(roots, context, &*flow, disconnects);
-            flow.finish(JobCounts::default());
-        }
-        Ok(())
-    }
+    /// Runs initial volume probes under the caller's preparation flow.
     pub(super) fn start(
         &mut self,
         roots: &[Box<dyn AnchoredDirectory>],
