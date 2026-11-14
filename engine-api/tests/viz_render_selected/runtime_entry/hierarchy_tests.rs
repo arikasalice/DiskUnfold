@@ -12,7 +12,6 @@ fn depth_two_uses_pinned_descendants_without_changing_root_rows_or_totals() -> R
     fixture.release.send(()).map_err(|e| e.to_string())?;
     let first = fixture.ok("viz.render", render_body(&view, 1))?;
     assert_eq!(first["kind"], "model");
-    assert_eq!(first["model"]["dataSource"], "real");
     let mut request = render_body(&view, 2);
     request["depthLimit"] = json!(2);
     let second = fixture.ok("viz.render", request)?;

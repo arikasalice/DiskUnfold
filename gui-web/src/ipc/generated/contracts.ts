@@ -883,7 +883,10 @@ export type PublishedCompleteness = "complete" | "partial" | "unknown";
 export type DataSource = "real" | "sample";
 export type ResultVersionChanged = { lineageId: Id, sourceRef: Id, origin: string,
 /**
- * Data source of the pinned version; absent means a sample (F32 FR2.HD1).
+ * Data source of the lineage's versions; absent means a sample (F32 FR2.HD1).
+ *
+ * Sample results never publish this notice, so producers send `real` today.
+ * Consumers must not use this value to decide which lineages they track.
  */
 dataSource?: DataSource, sequence: number, change: ResultVersionChange, previousResultVersion?: Id, completeness?: PublishedCompleteness, observedAt?: Timestamp, };
 export type TargetKind = "internal" | "external" | "network_mount" | "folder_mount";
@@ -1079,7 +1082,11 @@ export type SpacePlaceholderState = "none" | "partial" | "full";
 export type SpaceAuxiliary = { size: SizeValue, includedInAllocated: boolean | null, };
 export type SpaceCapabilityState = "supported" | "partial" | "unsupported";
 export type SpaceDetailCapability = { key: string, state: SpaceCapabilityState, reasonKey: string | null, };
-export type SpaceDetail = { item: ItemRef, logical: BrowseValue<SpaceDetailSize>, allocated: BrowseValue<SpaceDetailSize>, uniquePhysical: BrowseValue<SpaceDetailSize>, exclusive: BrowseValue<SpaceDetailSize>, shared: BrowseValue<SpaceDetailSize>, linkGroup: BrowseValue<SpaceLinkGroup>, placeholderLocalState?: BrowseValue<SpacePlaceholderState>, auxiliary: BrowseValue<SpaceAuxiliary>, exclusiveDecision: SpaceExclusiveDecision, observedAt: BrowseValue<Timestamp>, capabilities: BrowseValue<Array<SpaceDetailCapability>>, };
+export type SpaceDetail = { item: ItemRef, logical: BrowseValue<SpaceDetailSize>, allocated: BrowseValue<SpaceDetailSize>, uniquePhysical: BrowseValue<SpaceDetailSize>, exclusive: BrowseValue<SpaceDetailSize>, shared: BrowseValue<SpaceDetailSize>, linkGroup: BrowseValue<SpaceLinkGroup>, placeholderLocalState?: BrowseValue<SpacePlaceholderState>, auxiliary: BrowseValue<SpaceAuxiliary>, exclusiveDecision: SpaceExclusiveDecision, observedAt: BrowseValue<Timestamp>, capabilities: BrowseValue<Array<SpaceDetailCapability>>,
+/**
+ * Data source of the pinned version; absent means a sample (F32 FR9.HD1).
+ */
+dataSource?: DataSource, };
 export type SampleSessionState = "preparing" | "active" | "resetting" | "unavailable" | "closed";
 export type SampleEventState = "inactive" | "loading" | "active" | "failed";
 export type SampleOpenRequest = Record<symbol, never>;
