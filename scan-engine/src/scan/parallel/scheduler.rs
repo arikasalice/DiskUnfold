@@ -40,6 +40,7 @@ pub(super) fn create(
                     root_published: false,
                     batch_pending: false,
                     case_observed: false,
+                    boundary: Boundary::Pending,
                 })
                 .collect(),
             remaining: root_count,
@@ -56,6 +57,7 @@ pub(super) fn create(
         abort: AtomicBool::new(false),
         disconnects,
         track_priority_paths: control.is_some(),
+        visited: Visited::default(),
     };
     if let Some(control) = control {
         control.attach(&shared.queue, &shared.wake);

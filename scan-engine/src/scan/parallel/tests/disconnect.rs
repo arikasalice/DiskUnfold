@@ -214,6 +214,7 @@ fn a_batch_already_in_flight_is_drained_after_another_root_disconnects()
                     root_published: false,
                     batch_pending: false,
                     case_observed: false,
+                    boundary: Boundary::Pending,
                 })
                 .collect(),
             last_root: None,
@@ -230,6 +231,7 @@ fn a_batch_already_in_flight_is_drained_after_another_root_disconnects()
         abort: AtomicBool::new(false),
         disconnects: super::super::disconnect::Disconnects::new(2, &[vec![1], vec![1]]),
         track_priority_paths: false,
+        visited: Default::default(),
     };
     let context = Context {
         completed: Arc::new(AtomicUsize::new(0)),
@@ -257,7 +259,7 @@ fn a_batch_already_in_flight_is_drained_after_another_root_disconnects()
     assert_eq!(reads.load(Ordering::Acquire), 1);
     let rest: Vec<_> = received.try_iter().collect();
     assert!(rest.iter().any(
-        |event| matches!(event, Event::Item(0, path, _) if path == &vec![native("in-flight")])
+        |event| matches!(event, Event::Item(0, path, _, _) if path == &vec![native("in-flight")])
     ));
     assert!(rest.iter().any(|event| matches!(
         event,

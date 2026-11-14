@@ -1,5 +1,9 @@
 //! Bounded handle-based workers and a single result publisher.
-use super::{PreMetadataFilter, ResultIds, record_at};
+use super::{
+    PreMetadataFilter, ResultIds,
+    admission::{self, Admission, Boundary, Visited},
+    record_at,
+};
 mod control;
 mod queue;
 pub(crate) use control::ScanControlSession;
@@ -49,6 +53,7 @@ struct Frame {
     root_published: bool,
     batch_pending: bool,
     case_observed: bool,
+    boundary: Boundary,
 }
 struct Queue {
     ready: VecDeque<Frame>,
@@ -74,6 +79,7 @@ struct Shared {
     abort: AtomicBool,
     disconnects: disconnect::Disconnects,
     track_priority_paths: bool,
+    visited: Visited,
 }
 impl Shared {
     /// Stops all scan flows after an internal failure, without requesting user cancellation.
@@ -85,7 +91,9 @@ impl Shared {
     }
 }
 enum Event {
-    Item(u32, Vec<Vec<u8>>, Box<TimedObservedEntry>),
+    Item(u32, Vec<Vec<u8>>, Box<TimedObservedEntry>, Admission),
+    /// A name withheld by an undecidable exclusion rule; it was never observed.
+    Undecided(u32, Vec<Vec<u8>>),
     DirectoryCase(u32, Vec<Vec<u8>>, DirectoryCaseEvidence),
     Failure {
         root_index: u32,

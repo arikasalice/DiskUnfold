@@ -27,6 +27,7 @@ fn frame(name: &[u8], marker: bool) -> Frame {
         root_published: false,
         batch_pending: false,
         case_observed: false,
+        boundary: Boundary::Unknown,
     }
 }
 
@@ -53,6 +54,7 @@ fn shared(shared_path: &[u8], priority_path: &[u8]) -> Shared {
         abort: AtomicBool::new(false),
         disconnects: disconnect::Disconnects::new(1, &[vec![1]]),
         track_priority_paths: true,
+        visited: Default::default(),
     }
 }
 

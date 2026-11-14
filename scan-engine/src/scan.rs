@@ -1,6 +1,8 @@
 //! Sequential collection from already verified directory handles.
+mod admission;
 mod issues;
 mod parallel;
+use admission::{Admission, Boundary, Visited};
 use du_analysis_index::{
     BuildError, BuildHandle, FileIdentity, IngestSink, Observation, SharingEvidence,
     SpaceObservation,
@@ -24,7 +26,8 @@ pub trait ResultIds: Send + Sync {
 }
 
 /// A frozen decision over a root, parent path and native child name.
-/// An undecidable match must be returned as `Undecidable`, never `Exclude`.
+/// An undecidable match must be returned as `Undecidable`, never `Exclude`;
+/// the collector then records that name as unread and never observes it.
 pub type PreMetadataFilter<'a> = dyn Fn(u32, &[Vec<u8>], &[u8]) -> du_core_contracts::scan_observation::FilterDecision
     + Send
     + Sync
@@ -85,6 +88,7 @@ struct Frame {
     dir: Box<dyn AnchoredDirectory>,
     entries: VecDeque<ObservedEntry>,
     recorded_directories: VecDeque<ObservedEntry>,
+    boundary: Boundary,
 }
 
 /// Collects one root on the caller's worker thread, with no path-based reopen.
@@ -139,11 +143,14 @@ fn run(
 ) -> Result<(Id, bool), BuildError> {
     let mut build = sink.open(scope)?;
     build.add_directory(Vec::new())?;
-    let first_batch = record_root_batch(&mut build, &mut *root, checkpoint, include, counts)?;
+    let visited = Visited::default();
+    let first_batch = record_root_batch(
+        &mut build, &mut *root, checkpoint, include, counts, &visited,
+    )?;
     let cancelled = match first_batch {
         RootBatch::Cancelled => true,
         RootBatch::Exhausted => false,
-        RootBatch::Ready(recorded_directories) => {
+        RootBatch::Ready(recorded_directories, boundary) => {
             build.publish_partial(ids.next_id())?;
             walk(
                 &mut build,
@@ -152,10 +159,12 @@ fn run(
                     dir: root,
                     entries: VecDeque::new(),
                     recorded_directories,
+                    boundary,
                 },
                 checkpoint,
                 include,
                 counts,
+                &visited,
             )?
         }
     };
@@ -174,7 +183,7 @@ fn run(
 enum RootBatch {
     Cancelled,
     Exhausted,
-    Ready(VecDeque<ObservedEntry>),
+    Ready(VecDeque<ObservedEntry>, Boundary),
 }
 
 /// Records the first root batch without retaining an open handle for every child.
@@ -184,6 +193,7 @@ fn record_root_batch(
     checkpoint: &mut dyn FnMut() -> Checkpoint,
     include: &mut dyn FnMut(&[Vec<u8>]) -> bool,
     counts: &mut JobCounts,
+    visited: &Visited,
 ) -> Result<RootBatch, BuildError> {
     if checkpoint() == Checkpoint::Cancel {
         return Ok(RootBatch::Cancelled);
@@ -191,6 +201,7 @@ fn record_root_batch(
     if let Some(evidence) = root.observe_directory_case(&|| None) {
         build.set_directory_case_evidence(0, &[], evidence)?;
     }
+    let boundary = visited.observe_root(root);
     let entries = match root.next_batch() {
         Ok(entries) if entries.len() <= 8192 => entries,
         _ => {
@@ -207,11 +218,13 @@ fn record_root_batch(
             return Ok(RootBatch::Cancelled);
         }
         let path = [entry.name.clone()];
-        if include(&path) && record(build, &entry, &path, counts)? {
+        if record_entry(build, &entry, &path, (boundary, visited), include, counts)?
+            == Admission::Enter
+        {
             directories.push_back(entry);
         }
     }
-    Ok(RootBatch::Ready(directories))
+    Ok(RootBatch::Ready(directories, boundary))
 }
 
 /// Returns true when traversal stopped at a cancellation checkpoint.
@@ -221,6 +234,7 @@ fn walk(
     checkpoint: &mut dyn FnMut() -> Checkpoint,
     include: &mut dyn FnMut(&[Vec<u8>]) -> bool,
     counts: &mut JobCounts,
+    visited: &Visited,
 ) -> Result<bool, BuildError> {
     let mut stack = vec![root];
     while let Some(frame) = stack.last_mut() {
@@ -237,10 +251,15 @@ fn walk(
         if let Some(entry) = frame.entries.pop_front() {
             let mut path = frame.path.clone();
             path.push(entry.name.clone());
-            if !include(&path) {
-                continue;
-            }
-            if record(build, &entry, &path, counts)?
+            let admission = record_entry(
+                build,
+                &entry,
+                &path,
+                (frame.boundary, visited),
+                include,
+                counts,
+            )?;
+            if admission == Admission::Enter
                 && let Some(child) =
                     open_child(build, &*frame.dir, &entry, path, counts, checkpoint)?
             {
@@ -274,13 +293,23 @@ fn walk(
     Ok(false)
 }
 
-fn record(
+/// Applies the admission table to one sequentially enumerated entry and records it.
+fn record_entry(
     build: &mut BuildHandle,
     entry: &ObservedEntry,
     path: &[Vec<u8>],
+    (boundary, visited): (Boundary, &Visited),
+    include: &mut dyn FnMut(&[Vec<u8>]) -> bool,
     counts: &mut JobCounts,
-) -> Result<bool, BuildError> {
-    record_at(build, 0, entry, path, counts, None)
+) -> Result<Admission, BuildError> {
+    let row = admission::decide(!include(path), entry, boundary, visited);
+    if row.unentered() {
+        counts.completed += 1;
+        admission::record_unentered(build, 0, entry, path, None)?;
+    } else if row != Admission::Excluded {
+        record_at(build, 0, entry, path, counts, None)?;
+    }
+    Ok(row)
 }
 
 /// Records only the timestamp supplied with the metadata observation.
@@ -424,6 +453,7 @@ fn open_child(
                 dir,
                 entries: VecDeque::new(),
                 recorded_directories: VecDeque::new(),
+                boundary: Boundary::child(entry),
             }))
         }
         Err(error) => {

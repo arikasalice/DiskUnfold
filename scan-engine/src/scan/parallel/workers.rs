@@ -98,30 +98,14 @@ fn process(
         return disconnected::close_frame(frame, shared, sender, context, policy);
     }
     if context.checkpoint() == Checkpoint::Cancel {
-        return cancel_drain::frame(frame, sender, policy);
+        return cancel_drain::frame(frame, &shared.visited, sender, policy);
     }
-    if !frame.case_observed {
-        frame.case_observed = true;
-        if let Some(evidence) = frame
-            .directory
-            .observe_directory_case(&|| context.utc_now())
-        {
-            if sender
-                .send(Event::DirectoryCase(
-                    frame.root_index,
-                    frame.path.clone(),
-                    evidence,
-                ))
-                .is_err()
-            {
-                return false;
-            }
-            if context.checkpoint() == Checkpoint::Cancel {
-                return cancel_drain::frame(frame, sender, policy);
-            }
-            if shared.disconnects.closed(frame.root_index) {
-                return disconnected::close_frame(frame, shared, sender, context, policy);
-            }
+    match observe_once(&mut frame, shared, sender, context) {
+        Observed::Ready => {}
+        Observed::SendFailed => return false,
+        Observed::Cancelled => return cancel_drain::frame(frame, &shared.visited, sender, policy),
+        Observed::Disconnected => {
+            return disconnected::close_frame(frame, shared, sender, context, policy);
         }
     }
     let recorded = frame.root_published && !frame.deferred.is_empty();
@@ -153,13 +137,70 @@ fn process(
         return true;
     }
     if context.checkpoint() == Checkpoint::Cancel {
-        return cancel_drain::frame(frame, sender, policy);
+        return cancel_drain::frame(frame, &shared.visited, sender, policy);
     }
     if shared.disconnects.closed(frame.root_index) {
         return disconnected::close_frame(frame, shared, sender, context, policy);
     }
-    let outcome = next_entries(&mut frame, context, policy);
+    let mut undecided = Vec::new();
+    let outcome = next_entries(&mut frame, context, policy, &mut undecided);
+    if !send_undecided(&frame, undecided, sender) {
+        return false;
+    }
     process_batch(frame, shared, sender, context, local, outcome)
+}
+
+enum Observed {
+    Ready,
+    SendFailed,
+    Cancelled,
+    Disconnected,
+}
+
+/// Observes per-directory facts once, before the first enumeration.
+///
+/// A root first reports its own identity so that the admission table can
+/// compare child volumes with it. Both calls run under the claimed permit.
+fn observe_once(
+    frame: &mut Frame,
+    shared: &Shared,
+    sender: &SyncSender<Event>,
+    context: &dyn JobContext,
+) -> Observed {
+    if frame.boundary == Boundary::Pending {
+        frame.boundary = shared.visited.observe_root(&*frame.directory);
+    }
+    if frame.case_observed {
+        return Observed::Ready;
+    }
+    frame.case_observed = true;
+    let Some(evidence) = frame
+        .directory
+        .observe_directory_case(&|| context.utc_now())
+    else {
+        return Observed::Ready;
+    };
+    let event = Event::DirectoryCase(frame.root_index, frame.path.clone(), evidence);
+    if sender.send(event).is_err() {
+        Observed::SendFailed
+    } else if context.checkpoint() == Checkpoint::Cancel {
+        Observed::Cancelled
+    } else if shared.disconnects.closed(frame.root_index) {
+        Observed::Disconnected
+    } else {
+        Observed::Ready
+    }
+}
+
+/// Reports names withheld by an undecidable exclusion as unread ranges.
+fn send_undecided(frame: &Frame, names: Vec<Vec<u8>>, sender: &SyncSender<Event>) -> bool {
+    names.into_iter().all(|name| {
+        let mut path = frame.path.clone();
+        path.push(name);
+        sender
+            .send(Event::Undecided(frame.root_index, path))
+            .is_ok()
+    })
 }
 
 fn process_batch(
@@ -281,13 +322,19 @@ fn requeue(shared: &Shared, frame: Frame, local: &mut Vec<Frame>, context: &dyn 
     local.push(frame);
 }
 
-fn eligible_directory(entry: &du_core_contracts::scan_observation::ObservedEntry) -> bool {
-    entry.metadata.as_ref().is_ok_and(|m| {
-        m.kind == ObservedKind::Directory
-            && m.inode != 0
-            && m.inode == entry.enumerated_inode
-            && (entry.enumerated_kind == ObservedKind::Unknown || entry.enumerated_kind == m.kind)
-    })
+/// Applies the admission table to an entry returned for this frame.
+///
+/// A legacy path predicate is the exclusion row; entries filtered before
+/// metadata already passed it inside the adapter.
+fn admit(
+    frame: &Frame,
+    entry: &ObservedEntry,
+    path: &[Vec<u8>],
+    visited: &Visited,
+    policy: Policy<'_>,
+) -> Admission {
+    let excluded = matches!(policy, Policy::Legacy(include) if !include(path));
+    admission::decide(excluded, entry, frame.boundary, visited)
 }
 fn schedule(
     shared: &Shared,

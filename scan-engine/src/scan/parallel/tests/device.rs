@@ -17,6 +17,7 @@ fn default_four_per_key_does_not_block_a_distinct_key() {
         root_published: false,
         batch_pending: false,
         case_observed: false,
+        boundary: Boundary::Unknown,
     };
     let mut queue = Queue {
         ready_high_water: Some(6),

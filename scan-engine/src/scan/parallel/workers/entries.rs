@@ -19,19 +19,24 @@ pub(super) fn process_entry(
     let entry = &timed.entry;
     let mut path = frame.path.clone();
     path.push(entry.name.clone());
-    if !recorded
-        && let Policy::Legacy(include) = policy
-        && !include(&path)
-    {
+    // Deferred root entries were admitted, reserved and sent in the first pass.
+    let admission = if recorded {
+        Admission::Enter
+    } else {
+        admit(frame, entry, &path, &shared.visited, policy)
+    };
+    if admission == Admission::Excluded {
         return Ok(None);
     }
-    let reservation = reserve_child(frame, entry, &path, recorded, shared, context)?;
+    let enter = admission == Admission::Enter;
+    let reservation = reserve_child(frame, enter, &path, recorded, shared, context)?;
     if !recorded {
         sender
             .send(Event::Item(
                 frame.root_index,
                 path.clone(),
                 Box::new(timed.clone()),
+                admission,
             ))
             .map_err(|_| ())?;
     }
@@ -55,13 +60,12 @@ pub(super) fn process_entry(
 
 fn reserve_child(
     frame: &Frame,
-    entry: &ObservedEntry,
+    eligible: bool,
     path: &[Vec<u8>],
     recorded: bool,
     shared: &Shared,
     context: &dyn JobContext,
 ) -> Result<ChildReservation, ()> {
-    let eligible = eligible_directory(entry);
     let can_descend = eligible
         && context.checkpoint() != Checkpoint::Cancel
         && !shared.disconnects.closed(frame.root_index);
@@ -124,6 +128,7 @@ fn open_and_schedule(
                 root_published: false,
                 batch_pending: false,
                 case_observed: false,
+                boundary: Boundary::child(entry),
             },
             registered,
         )),

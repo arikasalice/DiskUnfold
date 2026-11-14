@@ -2,17 +2,27 @@
 use super::*;
 
 /// Drains only still-owned returned entries; deferred entries were sent already.
-pub(super) fn frame(mut frame: Frame, sender: &SyncSender<Event>, policy: Policy<'_>) -> bool {
+/// Each entry keeps its admission row; no drained directory is opened.
+pub(super) fn frame(
+    mut frame: Frame,
+    visited: &Visited,
+    sender: &SyncSender<Event>,
+    policy: Policy<'_>,
+) -> bool {
     while let Some(entry) = frame.entries.pop_front() {
         let mut path = frame.path.clone();
         path.push(entry.entry.name.clone());
-        if let Policy::Legacy(include) = policy
-            && !include(&path)
-        {
+        let admission = super::admit(&frame, &entry.entry, &path, visited, policy);
+        if admission == Admission::Excluded {
             continue;
         }
         if sender
-            .send(Event::Item(frame.root_index, path, Box::new(entry)))
+            .send(Event::Item(
+                frame.root_index,
+                path,
+                Box::new(entry),
+                admission,
+            ))
             .is_err()
         {
             return false;
@@ -47,7 +57,7 @@ pub(super) fn drain(
         };
         match next {
             Some(owned) => {
-                if !frame(owned, sender, policy) {
+                if !frame(owned, &shared.visited, sender, policy) {
                     return false;
                 }
             }
@@ -117,6 +127,7 @@ mod tests {
             root_published: false,
             batch_pending: false,
             case_observed: false,
+            boundary: Boundary::Unknown,
         };
         let shared = Shared {
             queue: Arc::new(Mutex::new(Queue {
@@ -136,6 +147,7 @@ mod tests {
             abort: AtomicBool::new(false),
             disconnects: disconnect::Disconnects::new(1, &[]),
             track_priority_paths: false,
+            visited: Default::default(),
         };
         let context = Flip(std::sync::atomic::AtomicUsize::new(0));
         let (sender, receiver) = mpsc::sync_channel(4);
@@ -190,8 +202,14 @@ mod tests {
             root_published: false,
             batch_pending: false,
             case_observed: false,
+            boundary: Boundary::Unknown,
         };
-        assert!(frame(pending, &sender, Policy::Legacy(&|_| true)));
+        assert!(frame(
+            pending,
+            &Visited::default(),
+            &sender,
+            Policy::Legacy(&|_| true)
+        ));
         assert!(receiver.try_recv().is_err());
         Ok(())
     }
@@ -225,10 +243,16 @@ mod tests {
             root_published: false,
             batch_pending: false,
             case_observed: false,
+            boundary: Boundary::Unknown,
         };
         let (done_tx, done_rx) = mpsc::channel();
         let worker = std::thread::spawn(move || {
-            let ok = frame(item, &sender, Policy::Legacy(&|_| true));
+            let ok = frame(
+                item,
+                &Visited::default(),
+                &sender,
+                Policy::Legacy(&|_| true),
+            );
             let _ = done_tx.send(ok);
         });
         assert!(done_rx.recv_timeout(Duration::from_millis(100)).is_err());
@@ -319,6 +343,7 @@ mod tests {
             root_published: false,
             batch_pending: false,
             case_observed: false,
+            boundary: Boundary::Unknown,
         };
         let (entered, started) = mpsc::channel();
         let (finished, done) = mpsc::channel();
@@ -341,6 +366,7 @@ mod tests {
                 abort: AtomicBool::new(false),
                 disconnects: disconnect::Disconnects::new(1, &[]),
                 track_priority_paths: false,
+                visited: Default::default(),
             };
             let cancelled = Flip(std::sync::atomic::AtomicUsize::new(1));
             let _ = entered.send(());
@@ -373,7 +399,7 @@ mod tests {
         let events: Vec<_> = remaining
             .iter()
             .filter_map(|event| match event {
-                Event::Item(_, _, entry) => Some(entry),
+                Event::Item(_, _, entry, _) => Some(entry),
                 _ => None,
             })
             .collect();

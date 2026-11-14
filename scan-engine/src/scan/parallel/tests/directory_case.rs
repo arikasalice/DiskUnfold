@@ -5,6 +5,7 @@ use du_core_contracts::scan_observation::{
 
 struct CaseDir {
     step: usize,
+    device: u64,
     root: bool,
     state: Option<DirectoryCaseState>,
     root_calls: Arc<AtomicUsize>,
@@ -34,12 +35,12 @@ impl DirectoryObservations for CaseDir {
         }
         Ok(FilteredBatch::Entries(vec![ObservedEntry {
             name: name.to_vec(),
-            enumerated_inode: 7,
+            enumerated_inode: 6 + self.step as u64,
             enumerated_kind: ObservedKind::Directory,
             metadata: Ok(MetadataObservation {
                 kind: ObservedKind::Directory,
-                device: 1,
-                inode: 7,
+                device: self.device,
+                inode: 6 + self.step as u64,
                 size: Ok(0),
                 allocated: None,
                 link_count: None,
@@ -51,6 +52,14 @@ impl DirectoryObservations for CaseDir {
     }
 }
 impl AnchoredDirectory for CaseDir {
+    fn observed_identity(&self) -> Option<du_core_contracts::scan_observation::HandleIdentity> {
+        self.root
+            .then(|| du_core_contracts::scan_observation::HandleIdentity {
+                device: self.device,
+                inode: 1,
+                ancestors: Vec::new(),
+            })
+    }
     fn open_child(&self, entry: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError> {
         if entry.name == b"failed" {
             return Err(PortError {
@@ -61,6 +70,7 @@ impl AnchoredDirectory for CaseDir {
         }
         Ok(Box::new(CaseDir {
             step: 0,
+            device: self.device,
             root: false,
             state: Some(DirectoryCaseState::Failed),
             root_calls: self.root_calls.clone(),
@@ -93,9 +103,11 @@ fn filtered_forest_retains_case_evidence_only_for_opened_directories()
     let children_seen = Arc::new(AtomicUsize::new(0));
     let roots = [Some(DirectoryCaseState::Sensitive), None]
         .into_iter()
-        .map(|state| {
+        .zip([1, 2])
+        .map(|(state, device)| {
             Box::new(CaseDir {
                 step: 0,
+                device,
                 root: true,
                 state,
                 root_calls: roots_seen.clone(),
@@ -179,6 +191,7 @@ fn serial_collector_records_evidence_from_opened_root_and_child()
     let children_seen = Arc::new(AtomicUsize::new(0));
     let root = CaseDir {
         step: 0,
+        device: 1,
         root: true,
         state: Some(DirectoryCaseState::Insensitive),
         root_calls: roots_seen.clone(),
@@ -241,6 +254,7 @@ fn cancelled_before_collection_does_not_observe_root_case() -> Result<(), Box<dy
     let children_seen = Arc::new(AtomicUsize::new(0));
     let root = CaseDir {
         step: 0,
+        device: 1,
         root: true,
         state: Some(DirectoryCaseState::Sensitive),
         root_calls: roots_seen.clone(),
@@ -359,6 +373,7 @@ fn case_query_failure_does_not_change_collection_counts_or_completeness()
     let sink = IngestSink::default();
     let root = CaseDir {
         step: 0,
+        device: 1,
         root: false,
         state: Some(DirectoryCaseState::Failed),
         root_calls: Arc::new(AtomicUsize::new(0)),
