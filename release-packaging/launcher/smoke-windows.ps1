@@ -1024,8 +1024,12 @@ function Find-EditByLabel($fieldName) {
 }
 # Wait-UI owns a $label parameter, so these helpers use $fieldName inside their probes.
 function Set-GroupField($fieldName, $value) {
-  $field = Wait-UI "field $fieldName" { Find-EditByLabel $fieldName }
-  $field.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern).SetValue($value)
+  # A field re-rendered between lookup and input can fail SetValue once; find it again.
+  for ($attempt = 1; ; $attempt++) {
+    $field = Wait-UI "field $fieldName" { Find-EditByLabel $fieldName }
+    try { $field.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern).SetValue($value); break }
+    catch { if ($attempt -ge 3) { throw }; Start-Sleep -Milliseconds 500 }
+  }
   $null = Wait-UI "value of $fieldName" {
     $current = Find-EditByLabel $fieldName
     $current -and $current.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern).Current.Value -ceq $value
