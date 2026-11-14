@@ -14,7 +14,9 @@ mod assignment_cost;
 mod bounds;
 mod control;
 mod determinism;
+mod gate;
 mod isolation;
+use gate::{Gate, Opened};
 mod lending;
 mod order;
 mod priority;
@@ -73,6 +75,8 @@ struct Probe {
     live: AtomicUsize,
     peak: AtomicUsize,
     returned: AtomicUsize,
+    /// Opens and reads that started and did not yet return or fail.
+    in_flight: AtomicUsize,
     opens: Vec<AtomicUsize>,
     reads: Vec<AtomicUsize>,
     finished: Vec<AtomicUsize>,
@@ -87,6 +91,7 @@ impl Probe {
             live: AtomicUsize::new(0),
             peak: AtomicUsize::new(0),
             returned: AtomicUsize::new(0),
+            in_flight: AtomicUsize::new(0),
             opens: counters(),
             reads: counters(),
             finished: counters(),
@@ -121,6 +126,22 @@ fn sum(counters: &[AtomicUsize]) -> usize {
         .iter()
         .map(|count| count.load(Ordering::SeqCst))
         .sum()
+}
+
+/// Counts one OS call of a synthetic directory as in flight until dropped.
+struct InFlight<'a>(&'a AtomicUsize);
+
+impl<'a> InFlight<'a> {
+    fn enter(calls: &'a AtomicUsize) -> Self {
+        calls.fetch_add(1, Ordering::SeqCst);
+        Self(calls)
+    }
+}
+
+impl Drop for InFlight<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
 }
 
 /// FNV-1a over the root and path; never zero and clear of `test_identity`.
@@ -208,6 +229,7 @@ impl Drop for Synthetic {
 
 impl DirectoryObservations for Synthetic {
     fn next_batch(&mut self) -> Result<Vec<ObservedEntry>, PortError> {
+        let _call = InFlight::enter(&self.probe.in_flight);
         (self.probe.hook)(self.root, &self.path, Call::Read)?;
         let names = self.names();
         let end = (self.next + self.probe.shape.batch).min(names.len());
@@ -236,6 +258,7 @@ impl AnchoredDirectory for Synthetic {
     }
 
     fn open_child(&self, entry: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError> {
+        let _call = InFlight::enter(&self.probe.in_flight);
         let mut path = self.path.clone();
         path.push(entry.name.clone());
         (self.probe.hook)(self.root, &path, Call::Open)?;
@@ -245,73 +268,6 @@ impl AnchoredDirectory for Synthetic {
             self.root,
             path,
         )))
-    }
-}
-
-/// Blocks hooked calls until released and counts how many wait at once.
-#[derive(Default)]
-struct Gate {
-    state: Mutex<GateState>,
-    changed: Condvar,
-}
-
-#[derive(Default)]
-struct GateState {
-    released: bool,
-    waiting: usize,
-    most: usize,
-    entered: usize,
-}
-
-impl Gate {
-    fn wait(&self) -> Result<(), PortError> {
-        let mut state = self.state.lock().map_err(|_| io_error("test.gate"))?;
-        state.entered += 1;
-        state.waiting += 1;
-        state.most = state.most.max(state.waiting);
-        self.changed.notify_all();
-        while !state.released {
-            state = self
-                .changed
-                .wait(state)
-                .map_err(|_| io_error("test.gate"))?;
-        }
-        state.waiting -= 1;
-        Ok(())
-    }
-
-    fn release(&self) {
-        if let Ok(mut state) = self.state.lock() {
-            state.released = true;
-        }
-        self.changed.notify_all();
-    }
-
-    /// Waits until `ready` holds for the gate state.
-    fn until(&self, ready: impl Fn(&GateState) -> bool) -> Result<(), TestError> {
-        let state = self.state.lock().map_err(|_| "gate lock")?;
-        let (state, _) = self
-            .changed
-            .wait_timeout_while(state, Duration::from_secs(10), |state| !ready(state))
-            .map_err(|_| "gate lock")?;
-        if ready(&state) {
-            Ok(())
-        } else {
-            Err("gate condition was not reached".into())
-        }
-    }
-
-    fn most(&self) -> usize {
-        self.state.lock().map_or(usize::MAX, |state| state.most)
-    }
-}
-
-/// Releases the gate when a test returns early, so no worker stays blocked.
-struct Opened(Arc<Gate>);
-
-impl Drop for Opened {
-    fn drop(&mut self) {
-        self.0.release();
     }
 }
 
@@ -470,21 +426,35 @@ fn run_workers<R>(
         completed: Arc::new(AtomicUsize::new(0)),
         abandoned: Arc::new(AtomicUsize::new(0)),
     };
+    run_workers_in(shared, workers, channel, &context, |receiver, sender| {
+        drop(sender);
+        consume(receiver)
+    })
+}
+
+/// Like [`run_workers`] under `context`; `consume` also gets a clone of the
+/// workers' sender, which it must drop before waiting for the channel to end.
+fn run_workers_in<R>(
+    shared: &Shared,
+    workers: usize,
+    channel: usize,
+    context: &dyn JobContext,
+    consume: impl FnOnce(mpsc::Receiver<Event>, SyncSender<Event>) -> R,
+) -> Result<R, TestError> {
     let include = |_: &[Vec<u8>]| true;
     let (sender, receiver) = mpsc::sync_channel(channel);
     thread::scope(|scope| {
-        let flows = acquire_flows(&context, workers).map_err(|error| format!("{error:?}"))?;
+        let flows = acquire_flows(context, workers).map_err(|error| format!("{error:?}"))?;
         spawn_workers(
             scope,
             flows,
             shared,
             &sender,
-            &context,
+            context,
             Policy::Legacy(&include),
         )
         .and_then(|()| start_queue(shared))
         .map_err(|error| format!("{error:?}"))?;
-        drop(sender);
-        Ok(consume(receiver))
+        Ok(consume(receiver, sender))
     })
 }
