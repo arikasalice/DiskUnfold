@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { scanPriorityFailure } from "../ipc";
-import type { AnalysisClient, ItemRef, ScanPriorityOutcome } from "../ipc";
+import type {
+  AnalysisClient,
+  ItemRef,
+  ScanPriorityAnnouncement,
+  ScanPriorityOutcome,
+} from "../ipc";
 
 /**
  * A running scan this window started and its newest partial result version.
@@ -20,11 +25,9 @@ export const SCAN_PRIORITY_NOTICE_MS = 4_000;
  * One outcome to announce; `id` changes for every announcement and `jobRef`
  * names the scan the request was sent to.
  */
-export type ScanPriorityNotice = {
+export type ScanPriorityNotice = ScanPriorityAnnouncement & {
   id: number;
   jobRef: string;
-  outcome: ScanPriorityOutcome;
-  name: string;
 };
 
 /**
@@ -45,8 +48,15 @@ export type ScanPriority = {
   notice: ScanPriorityNotice | undefined;
 };
 
-type Request = { seq: number; jobRef: string; item: ItemRef };
-type Marked = Omit<Request, "seq"> & { applied: boolean };
+/** `previous` names the folder shown as requested when this request replaced it. */
+type Request = {
+  seq: number;
+  jobRef: string;
+  item: ItemRef;
+  name: string;
+  previous: string | undefined;
+};
+type Marked = Request & { applied: boolean };
 
 function sameItem(left: ItemRef, right: ItemRef): boolean {
   return (
@@ -75,6 +85,10 @@ function outcomeOf(result: string): ScanPriorityOutcome {
  * The row reads "analyzing first" only after a response names the folder as
  * the applied priority area and while the scan is running.
  *
+ * The notice says what the response confirmed: whether the folder is the
+ * applied area, whether the scan was paused, and which requested folder the
+ * request replaced.
+ *
  * An outcome is offered for announcement only for a short time and only while
  * no other scan is current, so a view that mounts later, or a later scan, does
  * not announce it again.
@@ -88,17 +102,23 @@ export function useScanPriority(
   const sequence = useRef(0);
   const notices = useRef(0);
   const pending = useRef<Request>(undefined);
-  const current = useRef(context);
+  const shown = useRef<Marked>(undefined);
+  const current = useRef<ScanPriorityContext>(undefined);
   const jobRef = context?.jobRef;
   const resultVersion = context?.resultVersion;
   const scanning = context?.scanning === true;
   useEffect(() => {
     current.current =
-      jobRef && resultVersion ? { jobRef, resultVersion } : undefined;
-  }, [jobRef, resultVersion]);
+      jobRef && resultVersion ? { jobRef, resultVersion, scanning } : undefined;
+  }, [jobRef, resultVersion, scanning]);
+
+  const mark = useCallback((next: Marked | undefined) => {
+    shown.current = next;
+    setMarked(next);
+  }, []);
 
   const settle = useCallback(
-    (owner: Request, outcome: ScanPriorityOutcome, name: string) => {
+    (owner: Request, outcome: ScanPriorityOutcome, applied: boolean) => {
       if (sequence.current !== owner.seq) return;
       pending.current = undefined;
       const now = current.current;
@@ -113,7 +133,10 @@ export function useScanPriority(
         id: ++notices.current,
         jobRef: owner.jobRef,
         outcome,
-        name,
+        name: owner.name,
+        applied,
+        paused: now !== undefined && now.scanning !== true,
+        previous: owner.previous,
       });
     },
     [],
@@ -130,18 +153,14 @@ export function useScanPriority(
   }, [noticeId]);
 
   /** Updates the mark only if it still belongs to this request. */
-  const remark = useCallback((owner: Request, applied: boolean | undefined) => {
-    setMarked((shown) => {
-      if (
-        !shown ||
-        shown.jobRef !== owner.jobRef ||
-        !sameItem(shown.item, owner.item) ||
-        sequence.current !== owner.seq
-      )
-        return shown;
-      return applied === undefined ? undefined : { ...shown, applied };
-    });
-  }, []);
+  const remark = useCallback(
+    (owner: Request, applied: boolean | undefined) => {
+      const now = shown.current;
+      if (now?.seq !== owner.seq) return;
+      mark(applied === undefined ? undefined : { ...now, applied });
+    },
+    [mark],
+  );
 
   const request = useCallback(
     (item: ItemRef, name: string) => {
@@ -154,9 +173,21 @@ export function useScanPriority(
         sameItem(inFlight.item, item)
       )
         return;
-      const owner = { seq: ++sequence.current, jobRef: scan.jobRef, item };
+      const before = shown.current;
+      const replaced =
+        before !== undefined &&
+        before.jobRef === scan.jobRef &&
+        before.item.resultVersion === item.resultVersion &&
+        !sameItem(before.item, item);
+      const owner: Request = {
+        seq: ++sequence.current,
+        jobRef: scan.jobRef,
+        item,
+        name,
+        previous: replaced ? before.name : undefined,
+      };
       pending.current = owner;
-      setMarked({ jobRef: owner.jobRef, item, applied: false });
+      mark({ ...owner, applied: false });
       client
         .call("scan.prioritize", { jobRef: owner.jobRef, priorityArea: item })
         .then(
@@ -167,15 +198,15 @@ export function useScanPriority(
             const keep =
               outcome === "accepted" || (outcome === "no_effect" && isApplied);
             remark(owner, keep ? isApplied : undefined);
-            settle(owner, outcome, name);
+            settle(owner, outcome, isApplied);
           },
           (failure: unknown) => {
             remark(owner, undefined);
-            settle(owner, scanPriorityFailure(failure), name);
+            settle(owner, scanPriorityFailure(failure), false);
           },
         );
     },
-    [client, settle, remark],
+    [client, settle, remark, mark],
   );
 
   const mine = (item: ItemRef) =>

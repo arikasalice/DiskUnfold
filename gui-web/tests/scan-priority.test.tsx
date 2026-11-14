@@ -11,7 +11,9 @@ import {
 import { afterEach, expect, test, vi } from "vitest";
 import { BrowsePanel } from "../src/features/browse/BrowsePanel";
 import type { BrowsePort } from "../src/features/browse/BrowsePanel";
-import { AnalysisError } from "../src/ipc";
+import { interpolate } from "../src/i18n/presentation";
+import type { LocaleText } from "../src/i18n/presentation";
+import { AnalysisError, scanPriorityText } from "../src/ipc";
 import type {
   AnalysisClient,
   BrowseOpenResponse,
@@ -222,7 +224,7 @@ test("F02 FR8.HD1: a request marks the row before the response, sends once and a
   expect(rowAction("Photos")).toBeNull();
   expect(answers).toHaveLength(1);
   expect(answers[0]?.request).toEqual({ jobRef: "scan", priorityArea: ref(1) });
-  expect(screen.queryByText("Analyzing ‘Photos’ first")).toBeNull();
+  expect(screen.queryByText("‘Photos’ is analyzed first")).toBeNull();
 
   await act(async () =>
     answers[0]?.resolve({
@@ -230,7 +232,7 @@ test("F02 FR8.HD1: a request marks the row before the response, sends once and a
       appliedPriorityArea: ref(1),
     }),
   );
-  expect(screen.getAllByText("Analyzing ‘Photos’ first")).toHaveLength(1);
+  expect(screen.getAllByText("‘Photos’ is analyzed first")).toHaveLength(1);
   expect(within(gridRow("Photos")).getByText("Analyzing first")).toBeDefined();
 });
 
@@ -397,7 +399,7 @@ test("F02 FR8.HD1: superseded and late responses are discarded", async () => {
     within(gridRow("Photos")).queryByText("Analyze first requested"),
   ).toBeNull();
   await act(async () => answers[0]?.resolve({ controlResult: "accepted" }));
-  expect(screen.queryByText("Analyzing ‘Photos’ first")).toBeNull();
+  expect(screen.queryByText(/‘Photos’/)).toBeNull();
   expect(
     within(gridRow("Videos")).getByText("Analyze first requested"),
   ).toBeDefined();
@@ -405,7 +407,64 @@ test("F02 FR8.HD1: superseded and late responses are discarded", async () => {
   // A newer partial result replaced the pinned one before the answer arrived.
   rerender({ jobRef: "scan", resultVersion: newer });
   await act(async () => answers[1]?.resolve({ controlResult: "accepted" }));
-  expect(screen.queryByText("Analyzing ‘Videos’ first")).toBeNull();
+  expect(screen.queryByText(/‘Videos’/)).toBeNull();
+});
+
+const fallbackText: LocaleText = (_key, fallback, values) =>
+  interpolate(fallback, (name) => String(values?.[name] ?? ""));
+
+test("F02 FR8.HD1: a notice says only what the response confirmed", async () => {
+  const { client, answers } = priorityClient();
+  const hook = renderHook(
+    (context: ScanPriorityContext | undefined) =>
+      useScanPriority(client, context),
+    { initialProps: running as ScanPriorityContext | undefined },
+  );
+  const ask = async (
+    itemNo: number,
+    name: string,
+    answer: (reply: Answer) => void,
+  ) => {
+    act(() => hook.result.current.request(ref(itemNo), name));
+    await act(async () => answer(answers.at(-1)!));
+    const notice = hook.result.current.notice;
+    return notice && scanPriorityText(notice, fallbackText);
+  };
+  const receipt = (reply: Answer) =>
+    reply.resolve({ controlResult: "accepted" });
+  const applied = (itemNo: number) => (reply: Answer) =>
+    reply.resolve({
+      controlResult: "accepted",
+      appliedPriorityArea: ref(itemNo),
+    });
+
+  expect(await ask(1, "Photos", receipt)).toBe(
+    "Requested to analyze ‘Photos’ first",
+  );
+  // Receipt alone does not say the replaced folder changed its order.
+  expect(await ask(2, "Videos", receipt)).toBe(
+    "Requested to analyze ‘Videos’ first. This replaces the request for ‘Photos’.",
+  );
+  expect(await ask(1, "Photos", applied(1))).toBe(
+    "‘Photos’ is now analyzed first. ‘Videos’ returns to its normal order.",
+  );
+
+  // A paused scan applies the area when it continues.
+  hook.rerender({ ...running, scanning: false });
+  expect(await ask(2, "Videos", applied(2))).toBe(
+    "‘Videos’ will be analyzed first when the scan continues. ‘Photos’ returns to its normal order.",
+  );
+  // A failed request leaves no requested folder for the next one to replace.
+  expect(
+    await ask(3, "Music", (reply) => reply.reject(new Error("closed"))),
+  ).toBe("This folder could not be analyzed first.");
+  expect(await ask(4, "Games", applied(4))).toBe(
+    "‘Games’ will be analyzed first when the scan continues",
+  );
+  hook.rerender(running);
+  expect(await ask(5, "Books", applied(5))).toBe(
+    "‘Books’ is now analyzed first. ‘Games’ returns to its normal order.",
+  );
 });
 
 test("F02 FR8.HD1: the row menu offers Analyze first by right click and by keyboard", async () => {

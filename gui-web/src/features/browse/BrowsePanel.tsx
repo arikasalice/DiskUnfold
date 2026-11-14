@@ -367,7 +367,7 @@ function PriorityToast({ priority }: { priority: ScanPriority }) {
       message={
         notice && {
           id: notice.id,
-          text: scanPriorityText(notice.outcome, notice.name, text),
+          text: scanPriorityText(notice, text),
         }
       }
     />

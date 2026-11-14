@@ -467,6 +467,41 @@ export function rejectedScopeReviewText(
 export type ScanPriorityOutcome =
   "accepted" | "no_effect" | "already_terminal" | "stale_version" | "failed";
 
+/**
+ * What a "scan first" notice may say about one answered request.
+ *
+ * `applied` is true only when the response named this folder as the applied
+ * priority area; "accepted" alone confirms receipt. `paused` is true when the
+ * scan was not running as the answer arrived. `previous` names the folder
+ * whose request this one replaced, only if that folder was shown as requested.
+ */
+export type ScanPriorityAnnouncement = {
+  outcome: ScanPriorityOutcome;
+  name: string;
+  applied: boolean;
+  paused: boolean;
+  previous?: string | undefined;
+};
+
+/** The kind of mark shown with a "scan first" notice. */
+export type ScanPriorityTone = "success" | "info" | "error";
+
+/** A receipt succeeds, an answer without effect informs and any failure is an error. */
+export function scanPriorityTone(
+  outcome: ScanPriorityOutcome,
+): ScanPriorityTone {
+  switch (outcome) {
+    case "accepted":
+      return "success";
+    case "no_effect":
+    case "already_terminal":
+      return "info";
+    case "stale_version":
+    case "failed":
+      return "error";
+  }
+}
+
 /** Classifies a failed scan.prioritize call; only a replaced result is distinct. */
 export function scanPriorityFailure(failure: unknown): ScanPriorityOutcome {
   return failure instanceof AnalysisError && failure.code === "STALE_VERSION"
@@ -474,17 +509,60 @@ export function scanPriorityFailure(failure: unknown): ScanPriorityOutcome {
     : "failed";
 }
 
-/** Explains the outcome of a "scan first" request for the named folder. */
-export function scanPriorityText(
-  outcome: ScanPriorityOutcome,
-  name: string,
+/**
+ * Explains an accepted request without claiming more than the response
+ * confirmed: the applied area is "analyzed first" only while the scan runs and
+ * "will be analyzed first" while it is paused. A receipt that does not name
+ * the area says that it was requested. Only a confirmed area tells the
+ * replaced folder that it returns to its normal order.
+ */
+function acceptedText(
+  { name, applied, paused, previous }: ScanPriorityAnnouncement,
   text: LocaleText,
 ): string {
-  switch (outcome) {
-    case "accepted":
-      return text("ui.analysis.priority_accepted", "Analyzing ‘{name}’ first", {
+  if (!applied)
+    return previous === undefined
+      ? text(
+          "ui.analysis.priority_accepted",
+          "Requested to analyze ‘{name}’ first",
+          { name },
+        )
+      : text(
+          "ui.analysis.priority_accepted_switched",
+          "Requested to analyze ‘{name}’ first. This replaces the request for ‘{previous}’.",
+          { name, previous },
+        );
+  if (paused)
+    return previous === undefined
+      ? text(
+          "ui.analysis.priority_paused",
+          "‘{name}’ will be analyzed first when the scan continues",
+          { name },
+        )
+      : text(
+          "ui.analysis.priority_paused_switched",
+          "‘{name}’ will be analyzed first when the scan continues. ‘{previous}’ returns to its normal order.",
+          { name, previous },
+        );
+  return previous === undefined
+    ? text("ui.analysis.priority_applied", "‘{name}’ is analyzed first", {
         name,
-      });
+      })
+    : text(
+        "ui.analysis.priority_applied_switched",
+        "‘{name}’ is now analyzed first. ‘{previous}’ returns to its normal order.",
+        { name, previous },
+      );
+}
+
+/** Explains the outcome of a "scan first" request for the named folder. */
+export function scanPriorityText(
+  announcement: ScanPriorityAnnouncement,
+  text: LocaleText,
+): string {
+  switch (announcement.outcome) {
+    case "accepted":
+      return acceptedText(announcement, text);
     case "no_effect":
       return text(
         "ui.analysis.priority_no_effect",

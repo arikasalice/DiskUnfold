@@ -247,6 +247,11 @@ ui.analysis.progress_items_remaining percent:count count:count
 ui.analysis.progress_bytes size:size
 ui.analysis.progress_bytes_remaining percent:count size:size
 ui.analysis.priority_accepted name:name
+ui.analysis.priority_accepted_switched name:name previous:name
+ui.analysis.priority_applied name:name
+ui.analysis.priority_applied_switched name:name previous:name
+ui.analysis.priority_paused name:name
+ui.analysis.priority_paused_switched name:name previous:name
 ui.analysis.priority_no_effect
 ui.analysis.priority_ended
 ui.analysis.priority_stale
