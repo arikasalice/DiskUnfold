@@ -40,7 +40,7 @@ fn a_nested_root_is_collected_only_by_itself_in_any_order_and_timing() -> Result
     let (items, issues, _) = &baseline;
     // The outer root reaches the inner root and leaves it as a revisit.
     assert!(items.contains(&(0, path(&["a"]), ResultItemKind::Directory, false)));
-    assert!(issues.contains(&unread(0, &["a"])));
+    assert!(issues.contains(&revisit(0, &["a"])));
     assert!(
         !items
             .iter()
@@ -48,7 +48,7 @@ fn a_nested_root_is_collected_only_by_itself_in_any_order_and_timing() -> Result
     );
     // The inner root collects its own entries; its path back up is a revisit.
     assert!(items.contains(&(1, path(&["deep.txt"]), ResultItemKind::File, true)));
-    assert!(issues.contains(&unread(1, &["loop"])));
+    assert!(issues.contains(&revisit(1, &["loop"])));
     assert!(items.contains(&(0, path(&["b", "b.txt"]), ResultItemKind::File, true)));
     for inner_first in [false, true] {
         for (workers, seed) in RUNS {
@@ -87,7 +87,7 @@ fn an_ancestor_of_a_nested_root_stays_collectable_by_the_outer_root() -> Result<
         let (items, issues, _) = filtered_forest(roots(&tree), workers)?.summary;
         assert!(items.contains(&(0, path(&["a", "deep.txt"]), ResultItemKind::File, true)));
         assert!(items.contains(&(1, path(&["b.txt"]), ResultItemKind::File, true)));
-        assert!(issues.contains(&unread(0, &["b"])) && issues.contains(&unread(0, &["twin"])));
+        assert!(issues.contains(&revisit(0, &["b"])) && issues.contains(&revisit(0, &["twin"])));
         assert_eq!(tree.enumerated(101), 1, "workers={workers} seed={seed}");
         assert_eq!(tree.enumerated(102), 1, "workers={workers} seed={seed}");
     }
@@ -122,10 +122,11 @@ fn a_repeated_root_is_a_revisit_and_the_lower_index_collects() -> Result<(), Str
             [&(1, Vec::new(), ResultItemKind::Directory, false)]
         );
         let repeat_issues: Vec<_> = issues.iter().filter(|issue| issue.0 == 1).collect();
-        assert_eq!(repeat_issues, [&unread(1, &[])]);
-        assert!(gaps.contains(&(1, Vec::new(), "scan.unclassified".into())));
+        assert_eq!(repeat_issues, [&revisit(1, &[])]);
+        // A revisit is listed only: no gap and no failure for the repeated root.
+        assert_eq!(gaps, [unverifiable_gap(0, &["odd"])]);
         assert_eq!(tree.enumerated(ROOT), 1);
-        assert_eq!(run.outcome.counts.failed, 0);
+        assert_eq!(run.outcome.counts.failed, 1);
     }
     Ok(())
 }
@@ -169,12 +170,12 @@ fn an_aliased_directory_is_entered_once_and_one_worker_is_deterministic() -> Res
         let via_q = entered(&["q", "alias", "s.txt"]);
         // Exactly one parent enters; the other keeps a revisit unread range.
         assert!(via_p != via_q, "workers={workers} seed={seed}");
-        let revisit = if via_p {
-            unread(0, &["q", "alias"])
+        let blocked = if via_p {
+            revisit(0, &["q", "alias"])
         } else {
-            unread(0, &["p", "shared"])
+            revisit(0, &["p", "shared"])
         };
-        assert!(issues.contains(&revisit));
+        assert!(issues.contains(&blocked));
         // Across parents the first reservation wins, so only a single worker
         // reproduces one result for every delay order.
         if workers == 1 {
