@@ -354,6 +354,7 @@ mod history_receipt;
 mod lifecycle;
 mod listing;
 mod multiflow;
+mod progress;
 mod publication;
 mod race;
 
