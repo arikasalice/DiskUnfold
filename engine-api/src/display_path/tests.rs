@@ -198,4 +198,6 @@ fn recent_open_projection_covers_draft_targets_proposals_and_review() {
     assert_eq!(open.targets[0].path, windows_path(r"\\?\C:\Fixture"));
 }
 
+#[cfg(windows)]
+mod os;
 mod rules;
