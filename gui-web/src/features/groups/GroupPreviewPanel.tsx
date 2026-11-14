@@ -113,7 +113,7 @@ export function GroupPreviewPanel({
           shown && counts
             ? text(
                 "ui.groups.preview_overlap",
-                "In several groups {overlap} \u00b7 Cannot decide {undecided}",
+                "Overlap with other groups {overlap} \u00b7 Cannot decide {undecided}",
                 {
                   overlap: counts.overlap,
                   undecided: countText(shown.row.undecidableCount, false, text),

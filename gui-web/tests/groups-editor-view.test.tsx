@@ -204,7 +204,7 @@ test("F36 FR3: a condition with no value is marked, Save is blocked with its rea
   const editor = await screen.findByRole("region", {
     name: "Edit group rules",
   });
-  expect(screen.getByText("Not applied yet")).toBeDefined();
+  expect(screen.getByText("Not saved")).toBeDefined();
   expect(
     screen
       .getByRole("button", { name: "Back to folders" })
@@ -295,7 +295,7 @@ test("F36 FR3: the preview starts from the applied result, recalculates a change
   await within(preview).findByText("Members 3 items \u00b7 3.0 MiB");
   expect(
     within(preview).getByText(
-      "In several groups 1 items \u00b7 Cannot decide 0 items",
+      "Overlap with other groups 1 items \u00b7 Cannot decide 0 items",
     ),
   ).toBeDefined();
   expect(
