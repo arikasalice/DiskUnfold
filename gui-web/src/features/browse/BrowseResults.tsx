@@ -163,6 +163,8 @@ export function BrowseResults({
   canRead,
   focusPanel,
   barFocus,
+  openFailures,
+  retryOpen,
   openFolder,
   openItem,
   copyPath,
@@ -182,6 +184,10 @@ export function BrowseResults({
   focusPanel: () => void;
   /** Whether the selection action bar holds focus; outlives this list. */
   barFocus: RefObject<boolean>;
+  /** Counts failed openings of a new list; see {@link SelectionAnalyzeFirst}. */
+  openFailures: number;
+  /** Opens the list the panel failed to open, again. */
+  retryOpen: () => void;
   openFolder: (item: ItemRef) => void;
   openItem:
     ((row: FolderQueryRow, trigger: Element | null) => void) | undefined;
@@ -292,6 +298,8 @@ export function BrowseResults({
           readOnly={readOnly}
           focusList={focusList}
           barFocus={barFocus}
+          openFailures={openFailures}
+          retryOpen={retryOpen}
         />
         {pages.count === 0 && (
           <Text>

@@ -89,6 +89,9 @@ export function BrowsePanel({
   const [view, setView] = useState<View>();
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<"error" | "job">();
+  // Counts openings that ended without a new list, so a selection action bar
+  // waiting for "Show latest result" learns that the switch failed.
+  const [openFailures, setOpenFailures] = useState(0);
   const sequence = useRef(0);
   const opening = useRef<AbortController | undefined>(undefined);
   const lastAttempt = useRef<{
@@ -147,10 +150,12 @@ export function BrowsePanel({
               : response.page.resultVersion !== pinned))
         ) {
           setMessage("error");
+          setOpenFailures((count) => count + 1);
           return;
         }
         if (response.kind === "job") {
           setMessage("job");
+          setOpenFailures((count) => count + 1);
           return;
         }
         const pages = new BrowsePages(response.page);
@@ -173,7 +178,12 @@ export function BrowsePanel({
         opening.current = undefined;
         setBusy(false);
         setMessage("error");
+        setOpenFailures((count) => count + 1);
       });
+  }
+
+  function retry() {
+    navigate(lastAttempt.current?.location, lastAttempt.current?.pinned, true);
   }
 
   useEffect(() => {
@@ -258,16 +268,7 @@ export function BrowsePanel({
               "ui.browse.open_folder_failed",
               "Could not open this folder.",
             )}{" "}
-            <Action
-              isPending={busy}
-              onPress={() =>
-                navigate(
-                  lastAttempt.current?.location,
-                  lastAttempt.current?.pinned,
-                  true,
-                )
-              }
-            >
+            <Action isPending={busy} onPress={retry}>
               {busy
                 ? text("ui.browse.retrying", "Retrying…")
                 : text("ui.browse.retry", "Retry")}
@@ -334,6 +335,8 @@ export function BrowsePanel({
             canRead={() => opening.current === undefined && !previousResult}
             focusPanel={() => panel.current?.focus({ preventScroll: true })}
             barFocus={barFocus}
+            openFailures={openFailures}
+            retryOpen={retry}
             openFolder={(item) => navigate(item, page.resultVersion)}
             openItem={inspectItem ? openItem : undefined}
             copyPath={

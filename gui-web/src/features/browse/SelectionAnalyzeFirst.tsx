@@ -176,13 +176,15 @@ function noticeText(
 /**
  * Whether the bar shows. It shows for the running scan's current result, an
  * earlier result of that scan or a pending outcome, and stays ("held") while
- * "Show latest result" switches the read-only list to the newest result.
+ * "Show latest result" switches the read-only list to the newest result. When
+ * that switch fails, the bar stays on the read-only list ("retry") so that
+ * "Show latest result" can be pressed again.
  */
 function barState(
   first: FolderQueryRow | undefined,
   priority: ScanPriority | undefined,
   readOnly: boolean,
-  switching: boolean,
+  switching: Switching,
 ) {
   const behind =
     first !== undefined && priority?.superseded(first.item) === true;
@@ -193,19 +195,41 @@ function barState(
     (priority.canRequest(first.item) ||
       behind ||
       priority.notice !== undefined);
-  const held =
-    switching && readOnly && priority !== undefined && first !== undefined;
-  return { behind, held, visible: live || held };
+  const waiting = readOnly && priority !== undefined && first !== undefined;
+  const held = switching === "switching" && waiting;
+  const retry = switching === "failed" && waiting;
+  return { behind, held, retry, visible: live || held || retry };
+}
+
+/** Where "Show latest result" stands: not pressed, switching, or failed to switch. */
+type Switching = "idle" | "switching" | "failed";
+
+/**
+ * Releases a held bar when the list owner reports another failed opening, so
+ * "Show latest result" becomes available again.
+ */
+function useSwitchFailure(
+  openFailures: number,
+  setSwitching: (update: (current: Switching) => Switching) => void,
+) {
+  const seen = useRef(openFailures);
+  useLayoutEffect(() => {
+    if (seen.current === openFailures) return;
+    seen.current = openFailures;
+    setSwitching((current) => (current === "switching" ? "failed" : current));
+  }, [openFailures, setSwitching]);
 }
 
 /**
  * Keeps focus out of large areas when the bar comes and goes. A bar that goes
  * away while it holds focus sends it to the list. A bar mounted for a list
- * that replaced one whose bar held focus takes it on "Analyze first", or
- * sends it to the list when it does not show.
+ * that replaced one whose bar held focus keeps it on "Show latest result"
+ * when the new bar offers it again, takes it on "Analyze first" otherwise, or
+ * sends it to the list when the bar does not show.
  */
 function useBarFocus(
   bar: RefObject<HTMLDivElement | null>,
+  showLatest: RefObject<HTMLButtonElement | null>,
   analyzeFirst: RefObject<HTMLButtonElement | null>,
   barFocus: RefObject<boolean>,
   visible: boolean,
@@ -226,8 +250,8 @@ function useBarFocus(
     if (!barFocus.current) return;
     barFocus.current = false;
     if (document.activeElement !== document.body) return;
-    if (analyzeFirst.current)
-      analyzeFirst.current.focus({ preventScroll: true });
+    const action = showLatest.current ?? analyzeFirst.current;
+    if (action) action.focus({ preventScroll: true });
     else focusList();
     // Runs once per list: the owner remounts the bar with each new list.
   }, []);
@@ -256,8 +280,13 @@ function useBarFocus(
  *
  * "Show latest result" keeps the bar while the list switches: both actions
  * stay focusable but unavailable until the newest result replaces the list.
- * When a list replaces the one whose bar held focus, as `barFocus` records
- * across the remount, focus moves to the new bar's "Analyze first", or to the
+ * If the switch fails, as `openFailures` reports, the bar stays on the
+ * earlier list and "Show latest result" is available again; pressing it opens
+ * the scan's newest result, or retries the failed opening through
+ * `retryOpen` when that is still the newest. When a list replaces the one
+ * whose bar held focus, as `barFocus` records across the remount, focus stays
+ * on "Show latest result" if the new bar offers it again (the scan published
+ * another result meanwhile), moves to "Analyze first" otherwise, or to the
  * list when the new result shows no bar. No large area takes the focus frame.
  *
  * The bar also shows the outcome of the last request in place of its summary
@@ -272,6 +301,8 @@ export function SelectionAnalyzeFirst({
   readOnly,
   focusList,
   barFocus,
+  openFailures,
+  retryOpen,
 }: {
   pages: BrowsePages;
   selection: Selection;
@@ -284,33 +315,52 @@ export function SelectionAnalyzeFirst({
    * survives the remount of the bar when a new list replaces it.
    */
   barFocus: RefObject<boolean>;
+  /** Counts the list owner's failed openings; a new failure releases a held bar. */
+  openFailures: number;
+  /** Opens the result the list owner failed to open, again. */
+  retryOpen: () => void;
 }) {
   const text = useLocaleText();
   const summaryId = useId();
   const bar = useRef<HTMLDivElement>(null);
+  const showLatestAction = useRef<HTMLButtonElement>(null);
   const analyzeFirst = useRef<HTMLButtonElement>(null);
-  const [switching, setSwitching] = useState(false);
+  const [switching, setSwitching] = useState<Switching>("idle");
   const first = pages.row(0);
   const notice = priority?.notice;
-  const { behind, held, visible } = barState(
+  const { behind, held, retry, visible } = barState(
     first,
     priority,
     readOnly,
     switching,
   );
-  useBarFocus(bar, analyzeFirst, barFocus, visible, focusList);
+  useSwitchFailure(openFailures, setSwitching);
+  useBarFocus(
+    bar,
+    showLatestAction,
+    analyzeFirst,
+    barFocus,
+    visible,
+    focusList,
+  );
   if (!visible || !priority) return null;
   const count = selection === "all" ? pages.count : selection.size;
   const row = selectedRow(pages, selection);
   const target =
     row && canAnalyzeFirst(row, priority, readOnly) ? row : undefined;
-  const showLatest = behind && !held ? priority.showLatest : undefined;
+  const showLatest = held
+    ? undefined
+    : retry
+      ? (priority.showLatest ?? retryOpen)
+      : behind
+        ? priority.showLatest
+        : undefined;
   return (
     <SelectionActions
       ref={bar}
       label={text("ui.browse.selection_actions", "Selection actions")}
       summary={
-        behind || held
+        behind || held || retry
           ? newerResultReason(text)
           : summaryText(count, row, priority, text)
       }
@@ -325,12 +375,13 @@ export function SelectionAnalyzeFirst({
     >
       {(showLatest || held) && (
         <Action
+          ref={showLatestAction}
           {...(showLatest === undefined
             ? { "aria-disabled": true, "aria-describedby": summaryId }
             : {})}
           onPress={() => {
             if (!showLatest) return;
-            setSwitching(true);
+            setSwitching("switching");
             showLatest();
           }}
         >
