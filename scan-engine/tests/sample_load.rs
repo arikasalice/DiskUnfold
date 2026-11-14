@@ -216,6 +216,18 @@ fn a_failing_point_discards_the_whole_session() -> TestResult {
     assert_eq!(run.report.end(), Some(SampleLoadEnd::Failed));
     assert!(run.report.observations().is_empty());
     let issued = run.ids.issued.lock().map_err(|_| "poisoned")?.clone();
+    // The second point's root was admitted, and counted, before its build
+    // failed; what that point did not reach stays unprocessed, in the same
+    // unit as the total.
+    let points = run.bundle.observations();
+    let first = points[0].items.len() as u64 + 1;
+    let total = run.job.progress_total();
+    let processed = outcome.counts.completed + outcome.counts.failed;
+    assert!(
+        processed > first && processed < total,
+        "processed={processed}"
+    );
+    assert_eq!(outcome.counts.unprocessed, total - processed);
     for version_id in issued {
         assert!(run.sink.pin_current(&version_id).is_err());
     }

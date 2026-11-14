@@ -15,6 +15,7 @@ use std::sync::atomic::{AtomicBool, Ordering::SeqCst};
 mod fixture;
 mod nested;
 mod root_counts;
+mod spread;
 use fixture::*;
 
 const WORKERS: [usize; 4] = [1, 2, 4, 8];
