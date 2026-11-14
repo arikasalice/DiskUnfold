@@ -1,13 +1,16 @@
 //! Linux scope review, scan, results and failures through the real adapters.
-use super::*;
+use super::{
+    ipc_calls::{finished, logical, read},
+    *,
+};
 use du_core_contracts::{
-    EventEnvelope, Id, PathBytes, ResultEnvelope, SizeAmount, SizeBasis,
+    PathBytes,
     analysis_ipc::{AnalysisJobStatus, ScanStart, ScopeReview, SpaceTotal, TargetAccess},
     job::JobState,
     scan_failures::ScanFailures,
 };
 use du_engine_api::desktop::SharedTableLimit;
-use serde_json::{Value, json};
+use serde_json::json;
 use std::{
     ffi::OsStr,
     fs,
@@ -16,68 +19,9 @@ use std::{
         fs::{PermissionsExt, symlink},
     },
     path::Path,
-    time::{Duration, Instant},
 };
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
-
-fn ipc(
-    engine: &Engine,
-    name: &str,
-    body: Value,
-) -> Result<ResultEnvelope, Box<dyn std::error::Error>> {
-    let id = Id::from_v7_bytes([42; 16]);
-    let message = json!({
-        "command": "du_call",
-        "args": {"envelope": {
-            "name": name, "contractVersion": 1, "correlationId": id, "body": body
-        }}
-    });
-    let response = crate::ipc::dispatch(engine, &message.to_string()).ok_or("no response")?;
-    Ok(serde_json::from_str(&response)?)
-}
-
-fn read<T: serde::de::DeserializeOwned>(
-    engine: &Engine,
-    name: &str,
-    body: Value,
-) -> Result<T, Box<dyn std::error::Error>> {
-    let response = ipc(engine, name, body)?;
-    if let Some(error) = response.error {
-        return Err(format!("{name}: {error:?}").into());
-    }
-    Ok(serde_json::from_value(response.body)?)
-}
-
-fn finished(events: &DesktopEvents, job: &Id) -> Result<EventEnvelope, Box<dyn std::error::Error>> {
-    let deadline = Instant::now() + Duration::from_secs(20);
-    while Instant::now() < deadline {
-        match events.next_json() {
-            Some(json) => {
-                let event: EventEnvelope = serde_json::from_str(&json)?;
-                if event.topic == "job.finished" && event.job_ref.as_ref() == Some(job) {
-                    return Ok(event);
-                }
-            }
-            None => std::thread::sleep(Duration::from_millis(5)),
-        }
-    }
-    Err("timed out waiting for the scan to finish".into())
-}
-
-/// Returns the logical bytes and whether the total is exact rather than a lower bound.
-fn logical(total: &SpaceTotal) -> Result<(u64, bool), Box<dyn std::error::Error>> {
-    let size = total
-        .sizes
-        .iter()
-        .find(|value| value.size.basis == SizeBasis::Logical)
-        .ok_or("missing logical size")?;
-    match &size.size.amount {
-        SizeAmount::Exact { bytes } => Ok((bytes.as_str().parse()?, true)),
-        SizeAmount::LowerBound { bytes } => Ok((bytes.as_str().parse()?, false)),
-        other => Err(format!("unexpected logical size: {other:?}").into()),
-    }
-}
 
 /// Builds the scope: 135 readable bytes, two links and an optional denied folder.
 fn fixture(base: &Path, denied: bool) -> TestResult {

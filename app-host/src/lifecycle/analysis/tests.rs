@@ -44,3 +44,9 @@ fn platform_adapters_register_scanning_once() -> TestResult {
 fn linux_supplies_its_own_collection_adapters() {
     assert!(scan_ports().is_some());
 }
+
+#[cfg(target_os = "macos")]
+#[test]
+fn macos_supplies_its_own_collection_adapters() {
+    assert!(scan_ports().is_some());
+}

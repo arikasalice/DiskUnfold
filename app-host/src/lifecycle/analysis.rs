@@ -18,7 +18,6 @@ use crate::{
 
 /// Read-only collection adapters that one platform supplies to the analysis flow.
 #[derive(Clone)]
-#[cfg_attr(target_os = "macos", allow(dead_code))]
 struct ScanPorts {
     roots: Arc<dyn ScopeRootPort>,
     volumes: Arc<dyn VolumePort>,
@@ -49,11 +48,12 @@ fn scan_ports() -> Option<ScanPorts> {
             volumes: Arc::new(du_platform_os::volume::LinuxVolumes),
         })
     }
-    // macOS: return the platform-os scope root and volume adapters here once
-    // they exist; no other assembly change is needed to register scanning.
     #[cfg(target_os = "macos")]
     {
-        None
+        Some(ScanPorts {
+            roots: Arc::new(du_platform_os::macos_observation::MacScopeRoots),
+            volumes: Arc::new(du_platform_os::volume::MacVolumes),
+        })
     }
 }
 
@@ -231,7 +231,11 @@ pub(super) fn register_history_reads(
         .map_err(report)
 }
 
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+mod ipc_calls;
 #[cfg(all(test, target_os = "linux"))]
 mod linux_scan_tests;
+#[cfg(all(test, target_os = "macos"))]
+mod macos_scan_tests;
 #[cfg(test)]
 mod tests;
