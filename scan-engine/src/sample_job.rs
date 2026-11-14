@@ -28,7 +28,7 @@ use du_core_contracts::{
 
 use crate::sample_bundle::{SampleObservationState, ValidatedBundle};
 use crate::sample_source::{SAMPLE_ROOT_PATH, SampleScope};
-use crate::scan::{DevicePlan, ResultIds, collect_open_forest_diagnostic};
+use crate::scan::{DevicePlan, ResultIds, collect_open_forest_diagnostic, unpublished_counts};
 use context::SampleContext;
 
 /// Job kind that publishes the sample observations of a validated bundle.
@@ -275,6 +275,8 @@ impl JobBody for SampleLoad {
         if end != SampleLoadEnd::Done {
             self.discard();
             counts.unprocessed = total.saturating_sub(counts.completed + counts.failed);
+            // The session's versions were released, so no counted item is usable.
+            counts = unpublished_counts(counts);
         }
         self.report.with(|state| state.end = Some(end));
         let unprocessed = counts.unprocessed;

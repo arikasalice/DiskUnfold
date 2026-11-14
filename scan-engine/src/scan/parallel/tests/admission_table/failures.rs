@@ -8,7 +8,8 @@
 //! at a point that does not depend on worker scheduling. Every result counts
 //! each item once, the scope root included (NFR5.HD1.app-host.DD1): `failed`
 //! equals the number of paths with a scope gap, and `completed + failed` the
-//! number of items.
+//! number of items. A collection that publishes no result counts no item as
+//! completed (see `unpublished`).
 use super::*;
 use du_core_contracts::result::SpaceAggregate;
 use std::sync::atomic::{AtomicBool, Ordering::SeqCst};
@@ -16,6 +17,7 @@ mod fixture;
 mod nested;
 mod root_counts;
 mod spread;
+mod unpublished;
 use fixture::*;
 mod cancel_disconnect;
 
@@ -170,13 +172,19 @@ fn parallel_seeded(
     Ok((pinned(outcome, &sink)?, faults))
 }
 
-/// Checks that a published result counted each of its items exactly once.
+/// Checks that a published result counted each of its items exactly once,
+/// and that a collection without a result counted none as completed.
 ///
 /// A root whose unverifiable start was counted and whose read then failed
 /// keeps two gap rows at one path, so gaps are counted by path.
 fn assert_counted_once(collected: &Collected, label: &str) {
-    let (items, _, gaps) = &collected.run.summary;
     let counts = &collected.run.outcome.counts;
+    if !collected.published {
+        // The pinned summary is the older result, which this job did not build.
+        assert_eq!(counts.completed, 0, "{label}: no result, nothing completed");
+        return;
+    }
+    let (items, _, gaps) = &collected.run.summary;
     let paths: std::collections::BTreeSet<_> = gaps.iter().map(|gap| (gap.0, &gap.1)).collect();
     assert_eq!(
         counts.failed,

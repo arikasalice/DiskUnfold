@@ -92,6 +92,10 @@ pub struct JobDescriptor {
 /// A root that later could not be read moves from completed to failed. So
 /// `completed + failed` equals the number of items of the result, unless the
 /// job was cancelled before its roots were admitted; then nothing is counted.
+/// When `scan.metadata` ends without publishing a result, `completed` is 0 and
+/// the items it counted are reported as `unprocessed`, so its terminal
+/// `completed + failed` can be lower than its last progress report. The sample
+/// load (`scan.sample`) does the same when it releases its versions.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct JobCounts {
     pub completed: u64,

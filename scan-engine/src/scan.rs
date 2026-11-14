@@ -108,6 +108,8 @@ pub fn collect_parallel_filtered(
 /// Each item is counted once, as completed or as failed, the root included
 /// (NFR5.HD1.app-host.DD1).
 /// A failed first root read leaves no result unless it reports a disconnection.
+/// A collection that ends without a result reports its counted items as
+/// unprocessed, as described at [`unpublished_counts`].
 pub fn collect(
     sink: &IngestSink,
     scope: Id,
@@ -135,12 +137,33 @@ pub fn collect(
             unprocessed_summary: (!complete).then(|| "unprocessed_roots=1".into()),
             result_version_id: Some(id),
         },
-        Err(_) => JobOutcome {
-            counts,
-            completed_scope: false,
-            failure_reason_key: Some("support.internal_error".into()),
-            unprocessed_summary: None,
-            result_version_id: None,
-        },
+        Err(_) => internal_failure(counts),
+    }
+}
+
+/// Moves the items a collection counted as completed to `unprocessed` when
+/// it ends without publishing a result (NFR5.HD1.app-host.DD1).
+///
+/// None of those items is usable, because no result keeps them. `failed`
+/// still counts the scope gaps the collection met, and each unit stays in
+/// exactly one field. With `completed` at zero the runtime reports the job as
+/// failed instead of partial. A cancelled scan publishes a cancelled result
+/// and keeps its counts; the sample load releases its versions on any end
+/// other than done, cancellation included, and applies this rule then. The
+/// terminal `completed + failed` can be lower than the last progress report.
+pub(crate) fn unpublished_counts(mut counts: JobCounts) -> JobCounts {
+    counts.unprocessed = counts.unprocessed.saturating_add(counts.completed);
+    counts.completed = 0;
+    counts
+}
+
+/// The outcome of a collection that failed internally and published no result.
+pub(crate) fn internal_failure(counts: JobCounts) -> JobOutcome {
+    JobOutcome {
+        counts: unpublished_counts(counts),
+        completed_scope: false,
+        failure_reason_key: Some("support.internal_error".into()),
+        unprocessed_summary: None,
+        result_version_id: None,
     }
 }
