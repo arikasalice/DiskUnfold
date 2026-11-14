@@ -44,22 +44,140 @@ pub(crate) fn prepare<'a>(
     }
     match condition {
         Condition::Predicate(predicate) => {
-            let (id, revision) = predicate.strategy();
-            if matches!(predicate, Predicate::Registered { .. })
-                && matches!(id, "pred.name" | "pred.type" | "pred.size")
-            {
-                return Err(Error::UnknownPredicate);
-            }
-            let evaluate = registry
-                .predicates
-                .get(&(id.to_owned(), revision))
-                .ok_or(Error::UnknownPredicate)?;
-            Ok(Plan::Leaf(predicate, *evaluate))
+            Ok(Plan::Leaf(predicate, resolve_leaf(registry, predicate)?))
         }
         Condition::All(children) => Ok(Plan::All(prepare_children(registry, children, depth)?)),
         Condition::Any(children) => Ok(Plan::Any(prepare_children(registry, children, depth)?)),
         Condition::Not(child) => Ok(Plan::Not(Box::new(prepare(registry, child, depth + 1)?))),
     }
+}
+
+/// Finds the evaluator for one leaf. A registered predicate cannot shadow a built-in ID.
+fn resolve_leaf(registry: &Registry, predicate: &Predicate) -> Result<PredicateEvaluator, Error> {
+    let (id, revision) = predicate.strategy();
+    if matches!(predicate, Predicate::Registered { .. })
+        && matches!(id, "pred.name" | "pred.type" | "pred.size")
+    {
+        return Err(Error::UnknownPredicate);
+    }
+    registry
+        .predicates
+        .get(&(id.to_owned(), revision))
+        .copied()
+        .ok_or(Error::UnknownPredicate)
+}
+
+/// The decision of one condition node in a diagnostic walk of a single record.
+pub(crate) struct NodeTruth {
+    /// Child indices from the condition root; the root's path is empty.
+    pub(crate) path: Vec<u32>,
+    /// Strategy ID and revision, present only for a leaf.
+    pub(crate) predicate: Option<(String, u32)>,
+    /// `None` when the node depends on a predicate the registry does not hold.
+    pub(crate) truth: Option<Truth>,
+}
+
+/// Evaluates every node of `condition` for one record, in pre-order (a node precedes its
+/// children, children follow their order in the condition). Unlike `Plan::evaluate` it does
+/// not stop at a decisive child, so each node has a decision; the combined decision of a node
+/// is the same F04 three-valued result. A node whose subtree holds an unregistered predicate
+/// has no decision, because the rule as a whole cannot be evaluated.
+pub(crate) fn explain(
+    registry: &Registry,
+    condition: &Condition,
+    record: &Record<'_>,
+) -> Result<Vec<NodeTruth>, Error> {
+    let mut nodes = Vec::new();
+    explain_node(registry, condition, record, &mut Vec::new(), &mut nodes, 0)?;
+    Ok(nodes)
+}
+
+fn explain_node(
+    registry: &Registry,
+    condition: &Condition,
+    record: &Record<'_>,
+    path: &mut Vec<u32>,
+    nodes: &mut Vec<NodeTruth>,
+    depth: usize,
+) -> Result<Option<Truth>, Error> {
+    if depth > MAX_DEPTH {
+        return Err(Error::InvalidCondition);
+    }
+    let slot = nodes.len();
+    nodes.push(NodeTruth {
+        path: path.clone(),
+        predicate: None,
+        truth: None,
+    });
+    let truth = match condition {
+        Condition::Predicate(predicate) => {
+            let (id, revision) = predicate.strategy();
+            if let Some(node) = nodes.get_mut(slot) {
+                node.predicate = Some((id.to_owned(), revision));
+            }
+            match resolve_leaf(registry, predicate) {
+                Ok(evaluate) => Some(evaluate(record, predicate)),
+                Err(Error::UnknownPredicate) => None,
+                Err(error) => return Err(error),
+            }
+        }
+        Condition::All(children) | Condition::Any(children) => {
+            let all = matches!(condition, Condition::All(_));
+            let mut truths = Vec::with_capacity(children.len());
+            for (index, child) in children.iter().enumerate() {
+                path.push(u32::try_from(index).map_err(|_| Error::InvalidCondition)?);
+                truths.push(explain_node(
+                    registry,
+                    child,
+                    record,
+                    path,
+                    nodes,
+                    depth + 1,
+                )?);
+                path.pop();
+            }
+            fold(all, &truths)
+        }
+        Condition::Not(child) => {
+            path.push(0);
+            let inner = explain_node(registry, child, record, path, nodes, depth + 1)?;
+            path.pop();
+            inner.map(|truth| match truth {
+                Truth::Match => Truth::NoMatch,
+                Truth::NoMatch => Truth::Match,
+                Truth::Unknown => Truth::Unknown,
+            })
+        }
+    };
+    if let Some(node) = nodes.get_mut(slot) {
+        node.truth = truth;
+    }
+    Ok(truth)
+}
+
+/// Combines already evaluated children like `combine`: a decisive child wins, otherwise
+/// any unknown child makes the group unknown. A missing child decision leaves the group
+/// without a decision.
+fn fold(all: bool, truths: &[Option<Truth>]) -> Option<Truth> {
+    let mut unknown = false;
+    let mut decisive = false;
+    for truth in truths {
+        match (*truth)? {
+            Truth::NoMatch if all => decisive = true,
+            Truth::Match if !all => decisive = true,
+            Truth::Unknown => unknown = true,
+            _ => {}
+        }
+    }
+    Some(if decisive {
+        if all { Truth::NoMatch } else { Truth::Match }
+    } else if unknown {
+        Truth::Unknown
+    } else if all {
+        Truth::Match
+    } else {
+        Truth::NoMatch
+    })
 }
 
 /// Checks registered operands through the exact selected revision's validator.
@@ -184,6 +302,112 @@ mod tests {
     }
     fn rejects(_: &Record<'_>, _: &Predicate) -> Truth {
         Truth::NoMatch
+    }
+    fn unknown(_: &Record<'_>, _: &Predicate) -> Truth {
+        Truth::Unknown
+    }
+    fn leaf(id: &str) -> Condition {
+        Condition::Predicate(Predicate::Registered {
+            id: id.into(),
+            revision: 1,
+            operand: vec![],
+        })
+    }
+    fn three_valued_registry() -> Result<Registry, String> {
+        let mut registry = Registry::default();
+        for (id, evaluate) in [
+            ("pred.m", matches as PredicateEvaluator),
+            ("pred.n", rejects),
+            ("pred.u", unknown),
+        ] {
+            registry
+                .register_predicate(id, 1, evaluate)
+                .map_err(|e| format!("{e:?}"))?;
+        }
+        Ok(registry)
+    }
+    fn root_version() -> Result<std::sync::Arc<crate::ResultVersion>, String> {
+        let id = |n| Id::parse(&format!("018f0000-0000-7000-8000-{n:012x}"));
+        let sink = IngestSink::default();
+        let mut build = sink.open(id(1)?).map_err(|e| format!("{e:?}"))?;
+        build.add_directory(vec![]).map_err(|e| format!("{e:?}"))?;
+        build
+            .seal(id(2)?, ResultCompleteness::Complete)
+            .map_err(|e| format!("{e:?}"))
+    }
+    fn shapes(depth: usize) -> Vec<Condition> {
+        let mut all = vec![
+            leaf("pred.m"),
+            leaf("pred.n"),
+            leaf("pred.u"),
+            Condition::All(vec![]),
+            Condition::Any(vec![]),
+        ];
+        for _ in 0..depth {
+            let previous = all.clone();
+            for a in &previous {
+                all.push(Condition::Not(Box::new(a.clone())));
+                for b in &previous {
+                    all.push(Condition::All(vec![a.clone(), b.clone()]));
+                    all.push(Condition::Any(vec![a.clone(), b.clone()]));
+                }
+            }
+        }
+        all
+    }
+
+    #[test]
+    fn explanation_root_equals_plan_evaluation_for_every_shape() -> Result<(), String> {
+        let registry = three_valued_registry()?;
+        let version = root_version()?;
+        let item = version.items().first().ok_or("missing root")?;
+        let record = Record {
+            item,
+            path: &[],
+            version: &version,
+        };
+        for condition in shapes(2) {
+            let plan = prepare(&registry, &condition, 0).map_err(|e| format!("{e:?}"))?;
+            let nodes = explain(&registry, &condition, &record).map_err(|e| format!("{e:?}"))?;
+            let root = nodes.first().ok_or("missing root node")?;
+            assert_eq!(root.truth, Some(plan.evaluate(&record)), "{condition:?}");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn explanation_is_pre_order_and_unregistered_subtrees_have_no_decision() -> Result<(), String> {
+        let registry = three_valued_registry()?;
+        let version = root_version()?;
+        let item = version.items().first().ok_or("missing root")?;
+        let record = Record {
+            item,
+            path: &[],
+            version: &version,
+        };
+        let condition = Condition::All(vec![
+            Condition::Not(Box::new(leaf("pred.m"))),
+            Condition::Any(vec![leaf("pred.absent"), leaf("pred.u")]),
+        ]);
+        let nodes = explain(&registry, &condition, &record).map_err(|e| format!("{e:?}"))?;
+        let observed: Vec<_> = nodes
+            .iter()
+            .map(|node| (node.path.clone(), node.truth))
+            .collect();
+        assert_eq!(
+            observed,
+            [
+                (vec![], None),
+                (vec![0], Some(Truth::NoMatch)),
+                (vec![0, 0], Some(Truth::Match)),
+                (vec![1], None),
+                (vec![1, 0], None),
+                (vec![1, 1], Some(Truth::Unknown)),
+            ]
+        );
+        assert_eq!(nodes[4].predicate, Some(("pred.absent".to_owned(), 1)));
+        assert_eq!(nodes[1].predicate, None);
+        Ok(())
     }
 
     #[test]
