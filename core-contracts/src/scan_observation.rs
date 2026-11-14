@@ -147,12 +147,19 @@ pub struct DirectoryCaseEvidence {
 ///
 /// Values are adapter-scoped and comparable only with the `device` and
 /// `inode` that the same adapter reports in [`MetadataObservation`].
+///
+/// On Windows the pair is the 32-bit volume serial number and the 64-bit file
+/// index. Two volumes that report the same serial number cannot be told
+/// apart, and a file ID that needs 128 bits cannot be represented.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HandleIdentity {
+    /// Volume of the handle in the adapter's `MetadataObservation::device` space.
     pub device: u64,
+    /// File identity of the handle on `device`, never zero when reported.
     pub inode: u64,
     /// Same-volume ancestor identities verified while opening this handle, in
-    /// the `inode` space. Empty when the adapter retained none.
+    /// the `inode` space. Empty when the adapter retained none. The Windows
+    /// adapter omits retained ancestor IDs that are not exactly 8 bytes.
     pub ancestors: Vec<u64>,
 }
 
@@ -288,9 +295,18 @@ pub enum NativeModifiedTime {
     WindowsFiletime(std::num::NonZeroU64),
 }
 
+/// Metadata observed for one enumerated entry through a relative handle.
+///
+/// `device` may differ from the volume of the enumerated parent directory.
+/// Such an entry carries its own `device`, `inode` and `kind` only: `size`
+/// is an error, and the times, allocation, link count and space identity are
+/// `None`. When the parent's volume is known, the collector classifies the
+/// entry outside the boundary. It never enters such an entry and never uses a
+/// size reported for it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MetadataObservation {
     pub kind: ObservedKind,
+    /// Volume of the entry; see the type documentation for another volume.
     pub device: u64,
     pub inode: u64,
     pub size: Result<u64, PortError>,

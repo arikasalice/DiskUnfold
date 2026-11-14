@@ -6,8 +6,8 @@ impl WindowsDirectory {
     /// Observes one enumerated entry through a relative metadata handle.
     ///
     /// An entry on another volume is reported with that volume's serial number
-    /// so that the collector can classify it outside the boundary. No time or
-    /// space facts are read from that volume.
+    /// so that the collector can classify it outside the boundary. Its size,
+    /// time and space facts are withheld, as `MetadataObservation` requires.
     pub(super) fn observe(&self, name: Vec<u8>, inode: u64, attributes: u32) -> ObservedEntry {
         #[cfg(test)]
         PROBES.with(|count| count.set(count.get() + 1));
@@ -27,22 +27,12 @@ impl WindowsDirectory {
     fn metadata(&self, file: &File) -> Result<MetadataObservation, PortError> {
         let value = info(file)?;
         recall::check_handle_attributes(value.dwFileAttributes)?;
-        let size = (u64::from(value.nFileSizeHigh) << 32) | u64::from(value.nFileSizeLow);
         let observed_kind = kind(value.dwFileAttributes);
         let device = u64::from(value.dwVolumeSerialNumber);
         if device != self.volume {
-            return Ok(MetadataObservation {
-                kind: observed_kind,
-                device,
-                inode: identity(&value),
-                size: Ok(size),
-                modified_at: None,
-                native_modified_at: None,
-                allocated: None,
-                link_count: None,
-                space_identity: None,
-            });
+            return Ok(other_volume(observed_kind, device, identity(&value)));
         }
+        let size = (u64::from(value.nFileSizeHigh) << 32) | u64::from(value.nFileSizeLow);
         let (modified_at, native) = timestamps::observe(file);
         let (facts, native_modified_at) = if observed_kind == ObservedKind::File {
             (
@@ -71,25 +61,58 @@ impl WindowsDirectory {
     /// volume yields `None`, so the collector does not enter child directories.
     pub(super) fn handle_identity(&self) -> Option<HandleIdentity> {
         let value = info(&self.handle).ok()?;
-        let device = u64::from(value.dwVolumeSerialNumber);
-        let inode = identity(&value);
-        if inode == 0 || device != self.volume {
-            return None;
-        }
-        let ancestors = self.ancestors.as_ref().map_or_else(Vec::new, |chain| {
-            chain
-                .ids
-                .iter()
-                .filter_map(|id| <[u8; 8]>::try_from(id.as_slice()).ok())
-                .map(u64::from_le_bytes)
-                .collect()
-        });
-        Some(HandleIdentity {
-            device,
-            inode,
-            ancestors,
-        })
+        verified_identity(
+            self.volume,
+            u64::from(value.dwVolumeSerialNumber),
+            identity(&value),
+            self.ancestors.as_ref().map(|chain| chain.ids.as_slice()),
+        )
     }
+}
+
+/// The entry of another volume: identity and kind only, without its size.
+fn other_volume(kind: ObservedKind, device: u64, inode: u64) -> MetadataObservation {
+    MetadataObservation {
+        kind,
+        device,
+        inode,
+        size: Err(PortError {
+            kind: PortErrorKind::Unsupported,
+            reason_key: "os.unsupported".into(),
+            os_code: None,
+        }),
+        modified_at: None,
+        native_modified_at: None,
+        allocated: None,
+        link_count: None,
+        space_identity: None,
+    }
+}
+
+/// Accepts a handle identity only on the opened volume with a nonzero index.
+///
+/// Retained ancestor IDs that are not 8 bytes cannot be compared with the
+/// 64-bit index and are omitted.
+fn verified_identity(
+    opened_volume: u64,
+    device: u64,
+    inode: u64,
+    ancestors: Option<&[Vec<u8>]>,
+) -> Option<HandleIdentity> {
+    if inode == 0 || device != opened_volume {
+        return None;
+    }
+    let ancestors = ancestors.map_or_else(Vec::new, |ids| {
+        ids.iter()
+            .filter_map(|id| <[u8; 8]>::try_from(id.as_slice()).ok())
+            .map(u64::from_le_bytes)
+            .collect()
+    });
+    Some(HandleIdentity {
+        device,
+        inode,
+        ancestors,
+    })
 }
 
 #[cfg(test)]
