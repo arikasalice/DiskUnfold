@@ -198,7 +198,7 @@ fn a_batch_already_in_flight_is_drained_after_another_root_disconnects()
         }),
     ];
     let shared = Shared {
-        queue: Mutex::new(Queue {
+        queue: Arc::new(Mutex::new(Queue {
             ready_high_water: Some(2),
             ready: roots
                 .into_iter()
@@ -217,16 +217,19 @@ fn a_batch_already_in_flight_is_drained_after_another_root_disconnects()
                 })
                 .collect(),
             last_root: None,
+            priority: None,
+            outstanding: None,
             remaining: 2,
             root_remaining: vec![1; 2],
             root_groups: vec![0; 2],
             active_groups: vec![0; 2],
             device_limit: 2,
             started: true,
-        }),
-        wake: Condvar::new(),
+        })),
+        wake: Arc::new(Condvar::new()),
         abort: AtomicBool::new(false),
         disconnects: super::super::disconnect::Disconnects::new(2, &[vec![1], vec![1]]),
+        track_priority_paths: false,
     };
     let context = Context {
         completed: Arc::new(AtomicUsize::new(0)),

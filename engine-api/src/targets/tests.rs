@@ -315,3 +315,47 @@ fn unclassified_target_is_listed_and_delivers_probe_then_terminal_on_the_desktop
     assert!(events.next_json().is_none());
     Ok(())
 }
+
+#[test]
+fn desktop_composition_registers_scan_priority_for_the_gui_only()
+-> Result<(), Box<dyn std::error::Error>> {
+    let mut builder = EngineBuilder::default();
+    crate::desktop::register(
+        &mut builder,
+        Arc::new(NoRoots),
+        Arc::new(Volumes(None)),
+        Arc::new(Fixture),
+        &Fixture,
+    )?;
+    let engine = builder.build()?;
+    let correlation = caller().correlation_id;
+    let reference = Id::from_v7_bytes([7; 16]);
+    let reason = |channel| {
+        engine
+            .call(
+                CallEnvelope {
+                    name: "scan.prioritize".into(),
+                    contract_version: ENVELOPE_VERSION,
+                    correlation_id: correlation.clone(),
+                    body: serde_json::json!({
+                        "jobRef": reference,
+                        "priorityArea": {"resultVersion": reference, "itemNo": 0}
+                    }),
+                },
+                &CallerCtx::new(channel, correlation.clone(), None),
+            )
+            .error
+            .map(|error| error.reason_key)
+    };
+    // The GUI reaches the registered use case; other channels never see it.
+    assert_eq!(reason(Channel::Gui).as_deref(), Some("job.not_found"));
+    assert_eq!(
+        reason(Channel::Cli).as_deref(),
+        Some("command.not_provided")
+    );
+    assert_eq!(
+        reason(Channel::Mcp).as_deref(),
+        Some("command.not_provided")
+    );
+    Ok(())
+}

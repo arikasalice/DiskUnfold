@@ -53,6 +53,8 @@ import type {
   ResultEnvelope,
   ScanFailures,
   ScanFailuresRequest,
+  ScanPriorityRequest,
+  ScanPriorityResponse,
   ScanStart,
   ScanStartRequest,
   SettingsRestoreRequest,
@@ -155,6 +157,8 @@ export type {
   ScanFailureStage,
   ScanFailures,
   ScanFailuresRequest,
+  ScanPriorityRequest,
+  ScanPriorityResponse,
   ScanStart,
   SettingsRestoreStatus,
   ScopeDraft,
@@ -242,6 +246,7 @@ type Commands = {
   "scope.recent_open": [RecentScopeOpenRequest, RecentScopeOpen];
   "scan.start": [ScanStartRequest, ScanStart];
   "scan.failures": [ScanFailuresRequest, ScanFailures];
+  "scan.prioritize": [ScanPriorityRequest, ScanPriorityResponse];
   "job.get": [AnalysisJobRequest, AnalysisJobStatus];
   "job.list": [AnalysisJobListRequest, AnalysisJobListRow[]];
   "job.pause": [AnalysisJobRequest, AnalysisJobControl];

@@ -50,6 +50,10 @@ bash release-packaging/launcher/smoke-linux.sh target/debug/diskunfold
 
 The quality workflow publishes test, structure, duplication, and coverage reports. The 80% line coverage target is tracked separately for Rust and the GUI. See [quality tools](release-packaging/quality/README.md) for local reporting commands and the target matrix.
 
+## Accessibility review
+
+The product accessibility review list (`release-packaging/quality/accessibility-review.json`) names the main tasks, the assistive technology, language, keyboard layout, scale and window combinations, and the checks each release must record. Run `node release-packaging/quality/accessibility-review.mjs --check` to validate the list and `--results <file>` to evaluate a release review. The pass threshold is zero tasks blocked by an input means, and unverified cells never count as a pass. See [quality tools](release-packaging/quality/README.md#accessibility-review-list).
+
 ## Architecture and feature handoff
 
 DiskUnfold 0.1 feature integration starts from AIDA architecture BL-HLD-1.17 (revision 220) and BL-DLD-1.6 (revision 1335). The native webview, Windows launcher and license gate decisions were recorded against the foundation at commit `4cfb134` in BL-HLD-1.15 and BL-DLD-1.5. Cargo crates correspond to the design targets. Entry points and composition are separate from domain logic. DLD sections 3.2 and 3.4 record the implementation and verification scope.

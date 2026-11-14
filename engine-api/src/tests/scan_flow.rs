@@ -16,6 +16,8 @@ use std::{
     sync::{Arc, Mutex, mpsc},
     time::Duration,
 };
+mod roots;
+use roots::{PriorityState, Roots};
 
 struct Ids {
     next: AtomicUsize,
@@ -61,148 +63,6 @@ impl JobEvents for Events {
 
 impl crate::desktop::scan_completion::ProgressEvents for Events {}
 
-struct Roots {
-    file_id: AtomicUsize,
-    opens: AtomicUsize,
-    reads: Arc<AtomicUsize>,
-    recent_observations: Arc<AtomicUsize>,
-    recent_opens: Arc<AtomicUsize>,
-    recent_live_handles: Arc<AtomicUsize>,
-    recent_unavailable: std::sync::atomic::AtomicBool,
-    read_handles: Arc<Mutex<Vec<usize>>>,
-    release: Arc<Mutex<mpsc::Receiver<()>>>,
-    finish_gate: Option<Arc<Mutex<mpsc::Receiver<()>>>>,
-}
-
-impl ScopeRootPort for Roots {
-    fn open_root(&self, path: &[u8]) -> Result<OpenedScopeRoot, PortError> {
-        let handle = self.opens.fetch_add(1, Ordering::Relaxed) + 1;
-        if path.first() == Some(&b'Z') {
-            return Err(PortError {
-                kind: PortErrorKind::PermissionDenied,
-                reason_key: "scan.path_denied".into(),
-                os_code: None,
-            });
-        }
-        let identity = self.file_id.load(Ordering::Acquire);
-        let identity = if path.first() == Some(&b'D') {
-            identity + 100
-        } else {
-            identity
-        };
-        Ok(OpenedScopeRoot {
-            canonical_path: OsPath {
-                encoding: PathEncoding::WindowsUtf16le,
-                raw: PathBytes::from_bytes(path),
-                display: "C:\\Fixture".into(),
-                lossy: false,
-            },
-            volume_id: vec![1],
-            file_id: identity.to_le_bytes().to_vec(),
-            directory: Box::new(Directory {
-                handle,
-                read_handles: self.read_handles.clone(),
-                reads: self.reads.clone(),
-                release: Some(self.release.clone()),
-                finish_gate: self.finish_gate.clone(),
-            }),
-        })
-    }
-
-    fn open_root_with_recent(
-        &self,
-        path: &[u8],
-    ) -> Result<
-        (
-            OpenedScopeRoot,
-            du_core_contracts::scan_observation::OptionalRecentScopeObserver,
-        ),
-        PortError,
-    > {
-        recent::open_with_observer(self, path)
-    }
-}
-
-struct Directory {
-    handle: usize,
-    read_handles: Arc<Mutex<Vec<usize>>>,
-    reads: Arc<AtomicUsize>,
-    release: Option<Arc<Mutex<mpsc::Receiver<()>>>>,
-    finish_gate: Option<Arc<Mutex<mpsc::Receiver<()>>>>,
-}
-
-impl DirectoryObservations for Directory {
-    fn next_filtered(
-        &mut self,
-        decide: &mut dyn FnMut(&[u8]) -> du_core_contracts::scan_observation::FilterDecision,
-    ) -> Result<du_core_contracts::scan_observation::FilteredBatch, PortError> {
-        use du_core_contracts::scan_observation::{FilterDecision, FilteredBatch};
-        if self.release.is_none() {
-            return Ok(FilteredBatch::End);
-        }
-        match decide(&[b'f', 0]) {
-            FilterDecision::Admit => self.next_batch().map(FilteredBatch::Entries),
-            FilterDecision::Exclude => {
-                self.release.take();
-                Ok(FilteredBatch::Progress)
-            }
-            FilterDecision::Undecidable => Ok(FilteredBatch::Undecidable),
-        }
-    }
-    fn next_batch(&mut self) -> Result<Vec<ObservedEntry>, PortError> {
-        self.read_handles
-            .lock()
-            .map_err(|_| io_error())?
-            .push(self.handle);
-        self.reads.fetch_add(1, Ordering::Relaxed);
-        let Some(release) = self.release.take() else {
-            if let Some(gate) = self.finish_gate.take() {
-                gate.lock()
-                    .map_err(|_| io_error())?
-                    .recv_timeout(Duration::from_secs(5))
-                    .map_err(|_| io_error())?;
-            }
-            return Ok(Vec::new());
-        };
-        release
-            .lock()
-            .map_err(|_| io_error())?
-            .recv_timeout(Duration::from_secs(5))
-            .map_err(|_| io_error())?;
-        Ok(vec![ObservedEntry {
-            name: vec![b'f', 0],
-            enumerated_inode: 2,
-            enumerated_kind: ObservedKind::File,
-            metadata: Ok(MetadataObservation {
-                kind: ObservedKind::File,
-                device: 1,
-                inode: 2,
-                size: Ok(64),
-                allocated: None,
-                link_count: None,
-                space_identity: None,
-                modified_at: du_core_contracts::Timestamp::parse("2020-01-02T03:04:05.006Z").ok(),
-                native_modified_at: std::num::NonZeroU64::new(132_224_078_450_060_001)
-                    .map(du_core_contracts::scan_observation::NativeModifiedTime::WindowsFiletime),
-            }),
-        }])
-    }
-}
-
-impl AnchoredDirectory for Directory {
-    fn open_child(&self, _: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError> {
-        Err(io_error())
-    }
-}
-
-fn io_error() -> PortError {
-    PortError {
-        kind: PortErrorKind::Io,
-        reason_key: "os.query_failed".into(),
-        os_code: None,
-    }
-}
-
 struct ScanHarness {
     engine: Engine,
     roots: Arc<Roots>,
@@ -211,6 +71,11 @@ struct ScanHarness {
     versions: du_analysis_index::IngestSink,
     completed_scans: crate::desktop::CompletedScanSource,
     recent_scope_admissions: Option<crate::desktop::RecentScopeAdmissions>,
+    priority_opened: Option<mpsc::Receiver<()>>,
+    priority_visit_entered: Option<mpsc::Receiver<()>>,
+    priority_visit_release: Option<mpsc::Sender<()>>,
+    priority_b_completed: Option<mpsc::Receiver<()>>,
+    priority_visits: Option<mpsc::Receiver<&'static str>>,
 }
 
 fn scan_harness() -> Result<ScanHarness, Box<dyn std::error::Error>> {
@@ -218,6 +83,7 @@ fn scan_harness() -> Result<ScanHarness, Box<dyn std::error::Error>> {
 }
 
 mod fixture;
+mod priority;
 mod recent;
 mod settings;
 mod terminal;

@@ -23,6 +23,7 @@ use crate::{
 };
 
 pub use du_core_contracts::settings::SharedTableLimit;
+mod priority;
 
 /// Creates in-process scan diagnostics for one submission attempt.
 pub type ScanDiagnosticsFactory =
@@ -31,7 +32,8 @@ pub type ScanDiagnosticsFactory =
 /// Reads an already validated setting snapshot when a new scan is admitted.
 pub type SharedTableLimitSource = Arc<dyn Fn() -> SharedTableLimit + Send + Sync>;
 
-/// Registers the metadata job and the query sharing its immutable result store.
+/// Registers the metadata job, its GUI priority control and the query sharing
+/// its immutable result store.
 pub(crate) fn register_with_limit(
     builder: &mut EngineBuilder,
     workers: Arc<Workers>,
@@ -50,10 +52,12 @@ pub(crate) fn register_with_limit(
             limit,
             diagnostics,
             admissions: None,
+            priority_control: true,
         },
     )
 }
 
+/// Registers the desktop scan flow with recent-scope admissions and GUI priority control.
 pub(crate) fn register_with_admissions(
     builder: &mut EngineBuilder,
     workers: Arc<Workers>,
@@ -73,6 +77,7 @@ pub(crate) fn register_with_admissions(
             limit,
             diagnostics,
             admissions: Some(admissions),
+            priority_control: true,
         },
     )
 }
@@ -95,6 +100,30 @@ pub(crate) fn register_with_comparison(
             limit: Arc::new(SharedTableLimit::default),
             diagnostics: None,
             admissions: None,
+            priority_control: false,
+        },
+    )
+    .map(|sets| sets.source())
+}
+
+#[cfg(test)]
+pub(crate) fn register_with_priority(
+    builder: &mut EngineBuilder,
+    workers: Arc<Workers>,
+    roots: Arc<dyn ScopeRootPort>,
+    ids: Arc<dyn JobIdentity>,
+) -> Result<IngestSink, RuntimeError> {
+    register_with_options(
+        builder,
+        workers,
+        roots,
+        ids,
+        ScanRegistrationOptions {
+            comparison: None,
+            limit: Arc::new(SharedTableLimit::default),
+            diagnostics: None,
+            admissions: None,
+            priority_control: true,
         },
     )
     .map(|sets| sets.source())
@@ -105,6 +134,7 @@ struct ScanRegistrationOptions {
     limit: SharedTableLimitSource,
     diagnostics: Option<ScanDiagnosticsFactory>,
     admissions: Option<crate::recent_scope::RecentScopeAdmissionPublisher>,
+    priority_control: bool,
 }
 
 fn register_with_options(
@@ -123,17 +153,23 @@ fn register_with_options(
     space::detail::register(builder, store.clone());
     space::volume_gap::register(builder, store.clone());
     browse::register(builder, store.clone());
+    let admitted = Arc::new(Mutex::new(None));
+    let priority_control = options.priority_control;
     builder.register(StartScan {
         roots,
         ids: Arc::new(ScanIds(ids)),
-        workers,
+        workers: workers.clone(),
         store: store.clone(),
-        admitted: Mutex::new(None),
+        admitted: admitted.clone(),
         comparison: options.comparison,
         limit: options.limit,
         diagnostics: options.diagnostics,
         admissions: options.admissions,
+        priority_control,
     });
+    if priority_control {
+        priority::register(builder, admitted, workers, store.clone());
+    }
     Ok(sets)
 }
 
@@ -150,17 +186,30 @@ struct StartScan {
     ids: Arc<ScanIds>,
     workers: Arc<Workers>,
     store: IngestSink,
-    admitted: Mutex<Option<Admitted>>,
+    admitted: Arc<Mutex<Option<Admitted>>>,
     comparison: Option<Arc<dyn scope::exclusion::PathComparison>>,
     limit: SharedTableLimitSource,
     diagnostics: Option<ScanDiagnosticsFactory>,
     admissions: Option<crate::recent_scope::RecentScopeAdmissionPublisher>,
+    priority_control: bool,
 }
 
 /// Retains the review identity alongside the reusable receipt while a scan is active.
 struct Admitted {
     receipt: ScanStart,
     review_fingerprint: String,
+    root_count: usize,
+    control: Option<du_scan_engine::scan::ScanControlHandle>,
+}
+
+struct ScanAdmission {
+    scope_version: Id,
+    lineage: Id,
+    scope_fingerprint: String,
+    review_fingerprint: String,
+    root_count: usize,
+    recent: Option<PendingRecentScope>,
+    control: Option<du_scan_engine::scan::ScanControlHandle>,
 }
 
 struct PendingRecentScope {
@@ -220,6 +269,12 @@ impl UseCase for StartScan {
         if let Some(factory) = &self.diagnostics {
             job = job.with_diagnostics(factory());
         }
+        let control = if self.priority_control {
+            job = job.with_priority_control();
+            Some(job.control_handle().ok_or_else(internal)?)
+        } else {
+            None
+        };
         if let Some(filter) = verified.filter {
             job = job.with_pre_metadata_filter(filter);
         }
@@ -244,11 +299,15 @@ impl UseCase for StartScan {
         };
         self.admit(
             submission,
-            scope_version,
-            lineage,
-            scope_fingerprint,
-            request.review_fingerprint,
-            recent,
+            ScanAdmission {
+                scope_version,
+                lineage,
+                scope_fingerprint,
+                review_fingerprint: request.review_fingerprint,
+                root_count,
+                recent,
+                control,
+            },
         )
     }
 }
@@ -257,12 +316,17 @@ impl StartScan {
     fn admit(
         &self,
         submission: Submission,
-        scope_version: Id,
-        lineage: Id,
-        scope_fingerprint: String,
-        review_fingerprint: String,
-        recent: Option<PendingRecentScope>,
+        admission: ScanAdmission,
     ) -> Result<ScanStart, EngineError> {
+        let ScanAdmission {
+            scope_version,
+            lineage,
+            scope_fingerprint,
+            review_fingerprint,
+            root_count,
+            recent,
+            control,
+        } = admission;
         let mut admitted = self.admitted.lock().map_err(|_| internal())?;
         // A stable scope key can outlive a replaced root. Reuse is allowed only
         // if the caller reviewed the same actual roots as the active job.
@@ -296,6 +360,8 @@ impl StartScan {
                 *admitted = Some(Admitted {
                     receipt: receipt.clone(),
                     review_fingerprint,
+                    root_count,
+                    control,
                 });
                 // A scan can retain its root even when recent-scope observation is unavailable.
                 if let (Some(publisher), Some(recent)) = (&self.admissions, recent) {

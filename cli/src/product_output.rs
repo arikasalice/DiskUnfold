@@ -148,22 +148,6 @@ pub(crate) fn write_version(
     Ok(())
 }
 
-pub(crate) fn write_support_json(
-    stdout: &mut impl Write,
-    report: &SupportReport,
-) -> io::Result<()> {
-    serde_json::to_writer(
-        &mut *stdout,
-        &serde_json::json!({
-            "schema": "diskunfold.cli",
-            "schemaVersion": 1,
-            "command": "support",
-            "result": report,
-        }),
-    )?;
-    writeln!(stdout)
-}
-
 pub(crate) fn write_support_text(
     stdout: &mut impl Write,
     message: &Messages<'_>,
