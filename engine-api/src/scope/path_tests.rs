@@ -23,11 +23,23 @@ fn unix_paths_are_absolute_raw_bytes_without_nul() {
         checked.map(|p| p.raw),
         Some(PathBytes::from_bytes(b"/home/a\xff"))
     );
-    for raw in [&b""[..], b"relative/a", b"/with\0nul"] {
+    for raw in [
+        &b""[..],
+        b"relative/a",
+        b"/with\0nul",
+        b"/..",
+        b"/home/../etc",
+        b"/home/a/..",
+    ] {
         assert!(
             native_path(&path(PathEncoding::Unix, raw)).is_err(),
             "{raw:?}"
         );
+    }
+    // Empty and `.` names stay as given; the adapter and the keys skip them.
+    for raw in [&b"//home/./a/"[..], b"/home/a/.", b"/home/..a/b.."] {
+        let checked = native_path(&path(PathEncoding::Unix, raw)).map(|p| p.raw);
+        assert_eq!(checked, Ok(PathBytes::from_bytes(raw)), "{raw:?}");
     }
 }
 

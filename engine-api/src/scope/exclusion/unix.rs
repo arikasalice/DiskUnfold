@@ -60,9 +60,10 @@ pub(super) struct UnixRules(Vec<Rule>);
 impl UnixRules {
     /// Validates every rule without filesystem access.
     ///
-    /// A malformed path keeps `path.unresolvable`. A path in another encoding
-    /// or with a `.` or `..` name, and an empty pattern or one containing `/`
-    /// or NUL, are `scope.exclude_invalid`.
+    /// A malformed path, including one with a `..` name, keeps
+    /// `path.unresolvable`. A path in another encoding, and an empty pattern
+    /// or one containing `/` or NUL, are `scope.exclude_invalid`. Empty and
+    /// `.` names are skipped, as the Linux scope root adapter skips them.
     pub(super) fn admit(rules: &[ScopeExclusion]) -> Result<Self, EngineError> {
         rules
             .iter()
@@ -207,14 +208,15 @@ fn canonical_names(path: &OsPath) -> Option<Vec<Vec<u8>>> {
     names(&path.raw.bytes().ok()?)
 }
 
-/// Splits an absolute path into its names, ignoring empty ones.
+/// Splits an absolute path into its names with the scope root adapter's rule.
 ///
-/// `.` and `..` are rejected so a rule never depends on resolving links.
+/// Empty and `.` names are skipped and `..` is rejected, so a rule never
+/// depends on resolving links and every spelling of a path has one key.
 fn names(raw: &[u8]) -> Option<Vec<Vec<u8>>> {
     raw.strip_prefix(b"/")?
         .split(|&byte| byte == b'/')
-        .filter(|name| !name.is_empty())
-        .map(|name| (name != b"." && name != b"..").then(|| name.to_vec()))
+        .filter(|name| !name.is_empty() && *name != b".")
+        .map(|name| (name != b"..").then(|| name.to_vec()))
         .collect()
 }
 

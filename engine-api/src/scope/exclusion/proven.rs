@@ -68,9 +68,19 @@ pub(crate) fn prepare(
 ) -> Option<FrozenExclusions> {
     let checked = rules
         .iter()
-        .map(|original| Some((original.clone(), crate::scope::windows_path(original).ok()?)))
+        .map(|original| Some((original.clone(), windows_rule(original).ok()?)))
         .collect::<Option<Vec<_>>>()?;
     prepare_checked(evidence, roots, &checked)
+}
+
+/// Validates one path rule with `native_path` and keeps only the Windows
+/// encoding that this owner compares; another encoding is `scope.exclude_invalid`.
+fn windows_rule(path: &OsPath) -> Result<OsPath, EngineError> {
+    let checked = native_path(path)?;
+    if checked.encoding != PathEncoding::WindowsUtf16le {
+        return Err(invalid());
+    }
+    Ok(checked)
 }
 
 fn prepare_checked(
@@ -196,13 +206,7 @@ impl ProvenRules {
         let rules = rules
             .iter()
             .map(|rule| match rule {
-                ScopeExclusion::Path { path } => {
-                    let checked = native_path(path)?;
-                    if checked.encoding != PathEncoding::WindowsUtf16le {
-                        return Err(invalid());
-                    }
-                    Ok((path.clone(), checked))
-                }
+                ScopeExclusion::Path { path } => Ok((path.clone(), windows_rule(path)?)),
                 ScopeExclusion::NamePattern { .. } => Err(invalid()),
             })
             .collect::<Result<_, _>>()?;

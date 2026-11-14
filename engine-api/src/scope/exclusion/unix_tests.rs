@@ -73,9 +73,16 @@ fn path_rules_compare_raw_names_exactly_below_the_root() -> Result<(), String> {
 
 #[test]
 fn spellings_of_one_path_share_a_key_and_roots_follow_key_order() -> Result<(), String> {
-    let frozen = freeze(&[path(b"//data///Private/")], &[b"/data/b", b"/data/a"])?;
+    let frozen = freeze(
+        &[path(b"//data///Private/"), path(b"/data/./Private/.")],
+        &[b"/data/b", b"/data/a"],
+    )?;
     assert_eq!(
         raw_key(&frozen.rules[0].key),
+        Some(b"/data/Private".to_vec())
+    );
+    assert_eq!(
+        raw_key(&frozen.rules[1].key),
         Some(b"/data/Private".to_vec())
     );
     assert_eq!(
@@ -155,7 +162,7 @@ fn name_patterns_exclude_at_any_depth_and_withhold_uncountable_names() -> Result
 #[test]
 fn admission_rejects_malformed_and_foreign_rules() {
     let reason = |rule: ScopeExclusion| UnixRules::admit(&[rule]).err();
-    for raw in [&b""[..], b"relative/x", b"/data/\0x"] {
+    for raw in [&b""[..], b"relative/x", b"/data/\0x", b"/data/../x", b"/.."] {
         assert_eq!(
             reason(path(raw)),
             Some(EngineError::reason("path.unresolvable")),
@@ -175,18 +182,10 @@ fn admission_rejects_malformed_and_foreign_rules() {
         },
     };
     let invalid = Some(EngineError::reason("scope.exclude_invalid"));
-    for rule in [
-        path(b"/data/../x"),
-        path(b"/data/./x"),
-        path(b"/.."),
-        windows,
-        name(""),
-        name("a/b"),
-        name("a\0b"),
-    ] {
+    for rule in [windows, name(""), name("a/b"), name("a\0b")] {
         assert_eq!(reason(rule.clone()), invalid, "{rule:?}");
     }
-    assert!(UnixRules::admit(&[path(b"/"), name("*")]).is_ok());
+    assert!(UnixRules::admit(&[path(b"/"), path(b"/data/./x"), name("*")]).is_ok());
 }
 
 #[test]

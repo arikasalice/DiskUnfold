@@ -255,8 +255,11 @@ pub(crate) fn windows_path(path: &OsPath) -> Result<OsPath, EngineError> {
 /// Validates a scope path in its declared native encoding.
 ///
 /// Windows paths are nonempty UTF-16LE code units and Unix paths are absolute raw
-/// bytes; neither may contain NUL. Only the scope root adapter decides whether
-/// the platform can open a path, so a foreign encoding fails when it is opened.
+/// bytes without a `..` name; neither may contain NUL. Empty and `.` Unix names
+/// are kept as given: the scope root adapter skips them when it walks the path,
+/// and Unix comparison keys use the same canonical names. Only the scope root
+/// adapter decides whether the platform can open a path, so a foreign encoding
+/// fails when it is opened.
 pub(crate) fn native_path(path: &OsPath) -> Result<OsPath, EngineError> {
     match path.encoding {
         PathEncoding::WindowsUtf16le => windows_path(path),
@@ -267,7 +270,11 @@ pub(crate) fn native_path(path: &OsPath) -> Result<OsPath, EngineError> {
 fn unix_path(path: &OsPath) -> Result<OsPath, EngineError> {
     let invalid = || EngineError::reason("path.unresolvable");
     let raw = path.raw.bytes().map_err(|_| invalid())?;
-    if raw.first() != Some(&b'/') || raw.contains(&0) {
+    // A `..` name would need link resolution, which the adapter refuses as well.
+    if raw.first() != Some(&b'/')
+        || raw.contains(&0)
+        || raw.split(|&byte| byte == b'/').any(|name| name == b"..")
+    {
         return Err(invalid());
     }
     let display = String::from_utf8(raw);

@@ -9,24 +9,46 @@ struct UnixRoots {
     opens: AtomicUsize,
 }
 
+/// Canonicalizes as the Linux scope root adapter does: empty and `.` names
+/// are skipped. Validation has already rejected `..` names.
+fn canonical(path: &[u8]) -> Vec<u8> {
+    let mut raw = Vec::new();
+    for name in path.split(|&byte| byte == b'/') {
+        if !name.is_empty() && name != b"." {
+            raw.push(b'/');
+            raw.extend_from_slice(name);
+        }
+    }
+    if raw.is_empty() {
+        raw.push(b'/');
+    }
+    raw
+}
+
 impl ScopeRootPort for UnixRoots {
     fn open_root(&self, path: &[u8]) -> Result<OpenedScopeRoot, PortError> {
-        self.opens.fetch_add(1, Ordering::Relaxed);
+        let opened = self.opens.fetch_add(1, Ordering::Relaxed);
+        let path = canonical(path);
         Ok(OpenedScopeRoot {
             canonical_path: OsPath {
                 encoding: PathEncoding::Unix,
-                raw: PathBytes::from_bytes(path),
-                display: String::from_utf8_lossy(path).into_owned(),
+                raw: PathBytes::from_bytes(&path),
+                display: String::from_utf8_lossy(&path).into_owned(),
                 lossy: false,
             },
             volume_id: b"linux:8:1:0".to_vec(),
-            file_id: path.to_vec(),
-            directory: Box::new(Empty),
+            file_id: path,
+            directory: Box::new(Empty {
+                inode: 1_000 + opened as u64,
+            }),
         })
     }
 }
 
-struct Empty;
+/// An empty root; every open has its own identity on one volume.
+struct Empty {
+    inode: u64,
+}
 
 impl DirectoryObservations for Empty {
     fn next_batch(&mut self) -> Result<Vec<ObservedEntry>, PortError> {
@@ -35,6 +57,14 @@ impl DirectoryObservations for Empty {
 }
 
 impl AnchoredDirectory for Empty {
+    fn observed_identity(&self) -> Option<du_core_contracts::scan_observation::HandleIdentity> {
+        Some(du_core_contracts::scan_observation::HandleIdentity {
+            device: 1,
+            inode: self.inode,
+            ancestors: Vec::new(),
+        })
+    }
+
     fn open_child(&self, _: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError> {
         Err(PortError {
             kind: PortErrorKind::Io,
@@ -96,6 +126,28 @@ fn unix_review_binds_byte_exact_rules_to_start_without_a_provider()
     spelled["exclusions"][0]["path"] = unix(b"/data//Private/");
     let same: ScopeReview = serde_json::from_value(review(&spelled)?.body)?;
     assert_eq!(same.review_fingerprint, reviewed.review_fingerprint);
+    // Empty and `.` names are hashed by their canonical names, roots included.
+    spelled["includes"][0] = unix(b"//data/./");
+    spelled["exclusions"][0]["path"] = unix(b"/data/./Private/.");
+    let dotted: ScopeReview = serde_json::from_value(review(&spelled)?.body)?;
+    assert_eq!(dotted.review_fingerprint, reviewed.review_fingerprint);
+    let dotted_draft: ScopeDraft = serde_json::from_value(spelled.clone())?;
+    assert!(
+        crate::scope::verify(
+            &dotted_draft,
+            &reviewed.review_fingerprint,
+            &*roots,
+            None,
+            false
+        )
+        .is_ok()
+    );
+    let mut parent = spelled.clone();
+    parent["exclusions"][0]["path"] = unix(b"/data/x/../Private");
+    assert_eq!(
+        review(&parent)?.error.map(|error| error.reason_key),
+        Some("path.unresolvable".to_owned())
+    );
     let parsed: ScopeDraft = serde_json::from_value(requested)?;
     let verified =
         crate::scope::verify(&parsed, &reviewed.review_fingerprint, &*roots, None, false)
@@ -179,7 +231,7 @@ fn unix_rules_remove_roots_and_rejected_rules_open_nothing()
         ),
         (
             json!({"kind": "path", "path": unix(b"/data/../x")}),
-            "scope.exclude_invalid",
+            "path.unresolvable",
         ),
         (
             json!({"kind": "name_pattern", "pattern": "a/b"}),
