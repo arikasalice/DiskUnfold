@@ -108,6 +108,12 @@ fn backfills_links_and_advances_sequence_from_existing_summaries() -> TestResult
         &HISTORY_DEFINITIONS,
     )
     .map_err(|error| format!("{error:?}"))?;
+    migration::apply_next(
+        &path,
+        &dir.path().join("before-group-rules.db"),
+        &HISTORY_DEFINITIONS,
+    )
+    .map_err(|error| format!("{error:?}"))?;
     let mut db = AppDb::open_gui_with_history(&path).map_err(|error| format!("{error:?}"))?;
     let mut statement = db.connection.prepare(
         "SELECT link.job_id, link.record_seq, link.reckon_at_ms, link.record_origin
