@@ -22,6 +22,7 @@ fn confirmed_replacement_supersedes_earlier_access_but_uncertainty_does_not() {
     let context = Context {
         cancelled: AtomicBool::new(false),
         events: Arc::new(Mutex::new(Vec::new())),
+        finished: None,
     };
     let supported = Capability {
         state: CapabilityState::Supported,
