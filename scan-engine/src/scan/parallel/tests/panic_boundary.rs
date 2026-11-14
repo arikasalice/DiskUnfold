@@ -32,6 +32,13 @@ impl DirectoryObservations for PanickingRoot {
     }
 }
 impl AnchoredDirectory for PanickingRoot {
+    fn observed_identity(&self) -> Option<du_core_contracts::scan_observation::HandleIdentity> {
+        Some(du_core_contracts::scan_observation::HandleIdentity {
+            device: 1,
+            inode: 1,
+            ancestors: Vec::new(),
+        })
+    }
     fn open_child(&self, _: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError> {
         std::panic::resume_unwind(Box::new("open_child panic"));
     }

@@ -113,6 +113,11 @@ fn sort(key: BrowseSortKey) -> Result<Sort, AdmissionError> {
     })
 }
 
+/// Lowers one F04 wire condition to the analysis condition model.
+pub(crate) fn lower_condition(node: QueryCondition) -> Result<Condition, AdmissionError> {
+    lower(node, 0)
+}
+
 fn lower(node: QueryCondition, depth: usize) -> Result<Condition, AdmissionError> {
     if depth > 64 {
         return Err(AdmissionError::InvalidCondition);

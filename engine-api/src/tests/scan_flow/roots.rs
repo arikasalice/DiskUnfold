@@ -180,6 +180,15 @@ impl DirectoryObservations for Directory {
 }
 
 impl AnchoredDirectory for Directory {
+    /// A same-volume identity distinct from every fixture entry.
+    fn observed_identity(&self) -> Option<du_core_contracts::scan_observation::HandleIdentity> {
+        Some(du_core_contracts::scan_observation::HandleIdentity {
+            device: 1,
+            inode: 1_000 + self.handle as u64,
+            ancestors: Vec::new(),
+        })
+    }
+
     fn open_child(&self, entry: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError> {
         if let Some(priority) = &self.priority {
             let (label, wait) = if entry.name == b"A\0" {

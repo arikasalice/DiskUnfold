@@ -17,6 +17,7 @@ fn default_four_per_key_does_not_block_a_distinct_key() {
         root_published: false,
         batch_pending: false,
         case_observed: false,
+        boundary: Boundary::Unknown,
     };
     let mut queue = Queue {
         ready_high_water: Some(6),
@@ -78,6 +79,9 @@ fn saturated_device_does_not_block_other_device_and_releases_on_return()
         }
     }
     impl AnchoredDirectory for GateRoot {
+        fn observed_identity(&self) -> Option<du_core_contracts::scan_observation::HandleIdentity> {
+            crate::scan::test_identity(self)
+        }
         fn open_child(&self, _: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError> {
             Err(PortError {
                 kind: PortErrorKind::Unsupported,

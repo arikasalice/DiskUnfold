@@ -1,9 +1,9 @@
 //! The CLI reads stored settings without creating, repairing or migrating the database.
 
-#[cfg(any(windows, target_os = "linux"))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 use crate::startup_locale::stored_language_in_directory;
 
-#[cfg(any(windows, target_os = "linux"))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 #[test]
 fn old_schema_uses_unavailable_settings_without_migration() {
     let snapshot = du_core_contracts::settings::SettingsSnapshot {
@@ -17,7 +17,7 @@ fn old_schema_uses_unavailable_settings_without_migration() {
 }
 
 /// Names, lengths, a byte checksum and modification times of every entry in a directory.
-#[cfg(any(windows, target_os = "linux"))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 fn directory_state(
     directory: &std::path::Path,
 ) -> std::io::Result<Vec<(std::ffi::OsString, usize, u64, std::time::SystemTime)>> {
@@ -40,7 +40,7 @@ fn directory_state(
 }
 
 /// Creates a current-format database in `directory`, returning its path and bytes.
-#[cfg(any(windows, target_os = "linux"))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 fn current_database(
     directory: &std::path::Path,
 ) -> Result<(std::path::PathBuf, Vec<u8>), Box<dyn std::error::Error>> {
@@ -50,7 +50,7 @@ fn current_database(
     Ok((path, bytes))
 }
 
-#[cfg(any(windows, target_os = "linux"))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 fn fixture_directory() -> Result<std::path::PathBuf, std::io::Error> {
     use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -65,7 +65,7 @@ fn fixture_directory() -> Result<std::path::PathBuf, std::io::Error> {
 }
 
 /// AGENTS.md: the CLI never creates, repairs or migrates the database.
-#[cfg(any(windows, target_os = "linux"))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 #[test]
 fn reading_stored_language_leaves_missing_older_and_newer_rollback_journal_databases_untouched()
 -> Result<(), Box<dyn std::error::Error>> {
@@ -99,7 +99,7 @@ fn reading_stored_language_leaves_missing_older_and_newer_rollback_journal_datab
 
 /// A WAL database that its writer closed cleanly has no `-wal` or `-shm` file;
 /// reading the stored language must not create them.
-#[cfg(any(windows, target_os = "linux"))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 #[test]
 fn reading_stored_language_leaves_a_wal_database_untouched()
 -> Result<(), Box<dyn std::error::Error>> {
@@ -113,7 +113,7 @@ fn reading_stored_language_leaves_a_wal_database_untouched()
 }
 /// FR8.HD1.app-host.DD1: no CLI read touches a database of any earlier schema version (built
 /// through the real migration steps) or of a newer one.
-#[cfg(any(windows, target_os = "linux"))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 #[test]
 fn reading_stored_language_never_migrates_any_historical_or_newer_version()
 -> Result<(), Box<dyn std::error::Error>> {

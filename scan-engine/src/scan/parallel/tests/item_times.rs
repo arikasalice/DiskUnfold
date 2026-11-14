@@ -88,6 +88,9 @@ impl DirectoryObservations for TimedRoot {
     }
 }
 impl AnchoredDirectory for TimedRoot {
+    fn observed_identity(&self) -> Option<du_core_contracts::scan_observation::HandleIdentity> {
+        crate::scan::test_identity(self)
+    }
     fn open_child(&self, _: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError> {
         Err(PortError {
             kind: PortErrorKind::Unsupported,
@@ -356,6 +359,9 @@ impl DirectoryObservations for CachedModifiedRoot {
     }
 }
 impl AnchoredDirectory for CachedModifiedRoot {
+    fn observed_identity(&self) -> Option<du_core_contracts::scan_observation::HandleIdentity> {
+        crate::scan::test_identity(self)
+    }
     fn open_child(&self, _: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError> {
         Err(PortError {
             kind: PortErrorKind::Unsupported,

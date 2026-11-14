@@ -1172,9 +1172,13 @@ export type GroupReasonCount = { reasonKey: string, count: number, };
 export type GroupLimitation = { key: string, count?: number, };
 export type GroupSummary = { classificationRef: Id, resultVersion: Id,
 /**
- * Result origin, such as `scan` or `incremental`.
+ * Result origin of the pinned version, as published by browse and search.
  */
-sourceKind: string, observedAt?: Timestamp, completeness: ResultCompleteness,
+origin: ResultOrigin,
+/**
+ * Data source of the pinned version, always set by the producer; absent means a sample (F32 FR2.HD2).
+ */
+dataSource?: DataSource, observedAt?: Timestamp, completeness: ResultCompleteness,
 /**
  * Classified folder; absent when the whole result (every scope root) was classified.
  */
@@ -1187,7 +1191,11 @@ rulesetVersion: number, rulesetFingerprint: string, referenceTime?: Timestamp, g
  * Whether scope = matched + unclassified + undecidable held at registration.
  */
 reconciled: boolean, undecidableReasons: Array<GroupReasonCount>, limitations: Array<GroupLimitation>, predicates: Array<QueryStrategy>, };
-export type GroupClassifyResponse = { "kind": "summary", requestSeq: number, summary: GroupSummary, } | { "kind": "job", requestSeq: number, jobRef: Id, classificationRef: Id, resultVersion: Id, } | { "kind": "not_applicable", requestSeq: number, reasonKey: string, };
+export type GroupClassifyResponse = { "kind": "summary", requestSeq: number, summary: GroupSummary, } | { "kind": "job", requestSeq: number, jobRef: Id, classificationRef: Id, resultVersion: Id,
+/**
+ * Data source of the pinned version; absent means a sample (F32 FR2.HD2).
+ */
+dataSource?: DataSource, } | { "kind": "not_applicable", requestSeq: number, reasonKey: string, };
 export type GroupSummaryRequest = { classificationRef: Id, };
 export type GroupCancelRequest = { "kind": "view", viewRef: Id, requestSeq: number, } | { "kind": "job", jobRef: Id, };
 export type GroupCancelOutcome = "accepted" | "no_effect" | "already_terminal";
@@ -1207,15 +1215,27 @@ displayPath: BrowseValue<string>, logicalSize: BrowseValue<SizeValue>, allocated
  * Matched groups in rule display order.
  */
 groups: Array<Id>, undecidableReasonKeys: Array<string>, };
-export type GroupMembers = { classificationRef: Id, resultVersion: Id, start: number, total: number, rows: Array<GroupMemberRow>, sort: QueryStrategy, };
+export type GroupMembers = { classificationRef: Id, resultVersion: Id,
+/**
+ * Data source of the pinned version, always set by the producer; absent means a sample (F32 FR2.HD2).
+ */
+dataSource?: DataSource, start: number, total: number, rows: Array<GroupMemberRow>, sort: QueryStrategy, };
 export type GroupExplainRequest = { classificationRef: Id, item: ItemRef, };
 export type GroupDecision = "match" | "no_match" | "undecidable";
 export type GroupConditionNode = { path: Array<number>, predicate?: QueryStrategy, decision: GroupDecision, };
 export type GroupRuleDecision = { groupId: Id, decision: GroupDecision, reasonKey?: string, nodes: Array<GroupConditionNode>, };
-export type GroupExplanation = { classificationRef: Id, item: ItemRef, displayPath: BrowseValue<string>, observedAt?: Timestamp, rules: Array<GroupRuleDecision>, };
+export type GroupExplanation = { classificationRef: Id, item: ItemRef,
+/**
+ * Data source of the pinned version, always set by the producer; absent means a sample (F32 FR2.HD2).
+ */
+dataSource?: DataSource, displayPath: BrowseValue<string>, observedAt?: Timestamp, rules: Array<GroupRuleDecision>, };
 export type GroupTotalsRequest = { classificationRef: Id, groupIds: Array<Id>, };
 export type GroupTotal = { sizes: Array<SpaceTotalSize>, completeness: ResultCompleteness, };
 export type GroupTotalRow = { groupId: Id, total: GroupTotal, };
 export type GroupRatio = { "state": "value", basis: SizeBasis, numerator: ByteSize, denominator: ByteSize, } | { "state": "undefined", basis: SizeBasis, reasonKey: string, };
-export type GroupTotals = { classificationRef: Id, resultVersion: Id, groups: Array<GroupTotalRow>, union: GroupTotal, overlap: GroupTotal, overlapCount: number, unclassified: GroupTotal, undecidable: GroupTotal, scope: GroupTotal, ratios: Array<GroupRatio>, sizeRule: QueryStrategy, };
+export type GroupTotals = { classificationRef: Id, resultVersion: Id,
+/**
+ * Data source of the pinned version, always set by the producer; absent means a sample (F32 FR2.HD2).
+ */
+dataSource?: DataSource, groups: Array<GroupTotalRow>, union: GroupTotal, overlap: GroupTotal, overlapCount: number, unclassified: GroupTotal, undecidable: GroupTotal, scope: GroupTotal, ratios: Array<GroupRatio>, sizeRule: QueryStrategy, };
 export const SIZE_UNIT_RULES = {"decimalPlaces":1,"iec":{"base":1024,"symbols":["B","KiB","MiB","GiB","TiB","PiB"]},"revision":1,"si":{"base":1000,"symbols":["B","kB","MB","GB","TB","PB"]}} as const;

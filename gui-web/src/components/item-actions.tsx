@@ -7,6 +7,7 @@ import {
   MenuTrigger,
   Popover,
 } from "react-aria-components";
+import { isImeProcessingKey } from "./ime-composition";
 import "../theme/item-actions.css";
 
 export type ItemAction = {
@@ -50,7 +51,7 @@ export function ItemActions({
     const key = (event: Event) => {
       if (
         !(event instanceof KeyboardEvent) ||
-        event.isComposing ||
+        isImeProcessingKey(event) ||
         event.repeat ||
         !(
           (event.shiftKey && event.key === "F10") ||
@@ -84,7 +85,7 @@ export function ItemActions({
       onKeyDown={(event) => {
         if (rowScope) return;
         if (
-          !event.nativeEvent.isComposing &&
+          !isImeProcessingKey(event.nativeEvent) &&
           !event.repeat &&
           ((event.shiftKey && event.key === "F10") ||
             event.key === "ContextMenu")

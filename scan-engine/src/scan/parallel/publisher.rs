@@ -89,34 +89,15 @@ impl Progress {
                 self.cadence.changed();
                 Ok(())
             }
-            Event::Item(root_index, path, timed) => {
-                let entry = &timed.entry;
-                let gap = entry_gap(entry);
-                record_at(
-                    build,
-                    root_index,
-                    entry,
-                    &path,
-                    counts,
-                    timed.observed_at.as_ref(),
-                )?;
-                if gap.is_none()
-                    && entry
-                        .metadata
-                        .as_ref()
-                        .is_ok_and(|meta| meta.kind == ObservedKind::File)
-                    && let Some(observation) = timed.placeholder_observation
-                {
-                    build.retain_placeholder_observation(root_index, &path, observation)?;
-                }
-                if gap.is_none()
-                    && let Some(time) = &timed.observed_at
-                {
-                    build.set_item_observed_at(root_index, &path, time.clone())?;
-                }
-                if let Some(reason) = gap {
-                    build.record_gap_at(root_index, path, reason.into(), context.utc_now())?;
-                }
+            Event::Item(root_index, path, timed, row) => {
+                record_item(build, counts, context, (root_index, path, *timed), row)?;
+                self.cadence.changed();
+                Ok(())
+            }
+            Event::Undecided(root_index, path) => {
+                // The source supplied no observation time for a withheld name.
+                let unread = admission::Unread::Unverifiable;
+                admission::record_unread(build, (root_index, path), unread, counts, None)?;
                 self.cadence.changed();
                 Ok(())
             }
@@ -184,6 +165,49 @@ impl Progress {
 
 pub(super) fn reason(error: &PortError) -> &'static str {
     super::super::issues::reason(error)
+}
+
+/// Records one admitted entry; an unentered row keeps only an unread range.
+fn record_item(
+    build: &mut BuildHandle,
+    counts: &mut JobCounts,
+    context: &dyn JobContext,
+    (root_index, path, timed): (u32, Vec<Vec<u8>>, TimedObservedEntry),
+    row: Admission,
+) -> Result<(), BuildError> {
+    let entry = &timed.entry;
+    if let Some(unread) = row.unread() {
+        let observed_at = timed.observed_at.as_ref();
+        let range = (root_index, path.as_slice());
+        return admission::record_unentered(build, range, entry, unread, counts, observed_at);
+    }
+    let gap = entry_gap(entry);
+    record_at(
+        build,
+        root_index,
+        entry,
+        &path,
+        counts,
+        timed.observed_at.as_ref(),
+    )?;
+    if gap.is_none()
+        && entry
+            .metadata
+            .as_ref()
+            .is_ok_and(|meta| meta.kind == ObservedKind::File)
+        && let Some(observation) = timed.placeholder_observation
+    {
+        build.retain_placeholder_observation(root_index, &path, observation)?;
+    }
+    if gap.is_none()
+        && let Some(time) = &timed.observed_at
+    {
+        build.set_item_observed_at(root_index, &path, time.clone())?;
+    }
+    if let Some(reason) = gap {
+        build.record_gap_at(root_index, path, reason.into(), context.utc_now())?;
+    }
+    Ok(())
 }
 
 fn entry_gap(entry: &ObservedEntry) -> Option<&'static str> {
