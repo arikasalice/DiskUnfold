@@ -164,6 +164,83 @@ fn a_request_during_cancellation_assigns_no_more_work() -> Result<(), TestError>
     Ok(())
 }
 
+const RACE_TEST: &str = "requests_racing_the_end_of_the_job_neither_panic_nor_block_nor_leak";
+const RACE_ROUNDS: u32 = 40;
+/// Time for every round together. A round normally ends in milliseconds; one
+/// shared limit lets a round slowed by a loaded runner use the time the other
+/// rounds did not need, so only a job or racer that really blocks exhausts it.
+const RACE_LIMIT: Duration = Duration::from_secs(120);
+
+/// Names the test, the round and the time since the first round started.
+fn race_point(round: u32, started: Instant) -> String {
+    format!(
+        "{RACE_TEST}: round {round} after {:?} (limit {RACE_LIMIT:?} for {RACE_ROUNDS} rounds)",
+        started.elapsed()
+    )
+}
+
+/// Requests one racer made before it observed the end of the job.
+#[derive(Clone, Copy, Default)]
+struct Raced {
+    /// Answered by the attached scheduler.
+    live: usize,
+    /// Made before the scan body attached its scheduler.
+    early: usize,
+}
+
+/// Sends requests until the job reports its end, yielding after each one so
+/// the racer shares its core with the workers it races.
+fn race(
+    handle: &ScanControlHandle,
+    round: u32,
+    racer: u32,
+    started: Instant,
+) -> Result<Raced, String> {
+    let mut raced = Raced::default();
+    loop {
+        if started.elapsed() >= RACE_LIMIT {
+            let point = race_point(round, started);
+            return Err(format!("{point}: racer {racer} never observed the end"));
+        }
+        let pick = (round + racer + (raced.live + raced.early) as u32) % 4;
+        let path = if pick == 3 {
+            Vec::new()
+        } else {
+            d(&format!("d{pick}"))
+        };
+        match handle.prioritize(pick % 2, path) {
+            Ok(_) => raced.live += 1,
+            Err(ScanControlError::NotActive) => raced.early += 1,
+            Err(ScanControlError::AlreadyTerminal) => return Ok(raced),
+            Err(error) => {
+                let point = race_point(round, started);
+                return Err(format!("{point}: racer {racer} got {error:?}"));
+            }
+        }
+        thread::yield_now();
+    }
+}
+
+/// Joins `thread` once it finishes, failing when the shared limit runs out.
+fn join_in_time<T>(
+    thread: thread::JoinHandle<T>,
+    what: &str,
+    round: u32,
+    started: Instant,
+) -> Result<T, String> {
+    while !thread.is_finished() {
+        if started.elapsed() >= RACE_LIMIT {
+            return Err(format!(
+                "{}: {what} did not finish",
+                race_point(round, started)
+            ));
+        }
+        thread::sleep(Duration::from_millis(1));
+    }
+    let joined = thread.join();
+    joined.map_err(|_| format!("{}: {what} panicked", race_point(round, started)))
+}
+
 #[test]
 fn requests_racing_the_end_of_the_job_neither_panic_nor_block_nor_leak() -> Result<(), TestError> {
     let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "worker test lock")?;
@@ -173,7 +250,8 @@ fn requests_racing_the_end_of_the_job_neither_panic_nor_block_nor_leak() -> Resu
         files: 2,
         batch: 2,
     };
-    for round in 0..40_u32 {
+    let (started, mut live_rounds, mut total) = (Instant::now(), 0, Raced::default());
+    for round in 0..RACE_ROUNDS {
         let probe = Probe::quiet(shape, 2);
         let context = Arc::new(Context {
             completed: Arc::new(AtomicUsize::new(0)),
@@ -183,41 +261,44 @@ fn requests_racing_the_end_of_the_job_neither_panic_nor_block_nor_leak() -> Resu
         let racers: Vec<_> = (0..2_u32)
             .map(|racer| {
                 let handle = handle.clone();
-                thread::spawn(move || -> Result<usize, ScanControlError> {
-                    let deadline = Instant::now() + Duration::from_secs(20);
-                    let mut requests = 0;
-                    while Instant::now() < deadline {
-                        let pick = (round + racer + requests as u32) % 4;
-                        let path = if pick == 3 {
-                            Vec::new()
-                        } else {
-                            d(&format!("d{pick}"))
-                        };
-                        match handle.prioritize(pick % 2, path) {
-                            Ok(_) | Err(ScanControlError::NotActive) => requests += 1,
-                            Err(ScanControlError::AlreadyTerminal) => return Ok(requests),
-                            Err(error) => return Err(error),
-                        }
-                    }
-                    Err(ScanControlError::Unavailable)
-                })
+                thread::spawn(move || race(&handle, round, racer, started))
             })
             .collect();
-        let run = collector.join().map_err(|_| "collector panicked")??;
+        let run = join_in_time(collector, "collector", round, started)??;
+        let mut live = 0;
         for racer in racers {
-            racer
-                .join()
-                .map_err(|_| "racer panicked")?
-                .map_err(|error| format!("{error:?}"))?;
+            let raced = join_in_time(racer, "racer", round, started)??;
+            live += raced.live;
+            total.live += raced.live;
+            total.early += raced.early;
         }
-        assert!(run.outcome.completed_scope, "round {round}");
-        assert_eq!(run.completeness, ResultCompleteness::Complete);
-        assert_eq!(run.rows.len(), 2 * shape.items(), "round {round}");
-        assert_eq!(probe.live.load(Ordering::SeqCst), 0, "round {round}");
+        live_rounds += usize::from(live > 0);
+        let point = || race_point(round, started);
+        assert!(run.outcome.completed_scope, "{}", point());
+        assert_eq!(
+            run.completeness,
+            ResultCompleteness::Complete,
+            "{}",
+            point()
+        );
+        assert_eq!(run.rows.len(), 2 * shape.items(), "{}", point());
+        assert_eq!(probe.live.load(Ordering::SeqCst), 0, "{}", point());
         assert_eq!(
             handle.prioritize(0, Vec::new()),
-            Err(ScanControlError::AlreadyTerminal)
+            Err(ScanControlError::AlreadyTerminal),
+            "{}",
+            point()
         );
     }
+    // Every racer saw the end. A round raced it only if the attached scheduler
+    // answered a request first; a loaded runner can start both racers of a
+    // round late, so the test requires at least one such round.
+    assert!(
+        live_rounds > 0,
+        "{RACE_TEST}: no round raced the end after {:?}: {} live and {} early requests",
+        started.elapsed(),
+        total.live,
+        total.early
+    );
     Ok(())
 }

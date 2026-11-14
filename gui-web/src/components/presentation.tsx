@@ -258,6 +258,19 @@ export function Progress({
   );
 }
 
+/**
+ * Labelled values, one label and its value per line.
+ *
+ * The label keeps its width and never wraps. The value takes the rest of the
+ * line and wraps inside it. Once less than 12 characters of width would remain
+ * for a value that does not fit, the value moves below its label and starts at
+ * the left. A value that fits stands at the end of the label's line.
+ *
+ * Prose values break between words. Mark a row `identifier` when its value is
+ * a digest, commit, source or other identifier that may break between any two
+ * characters. Pass a path as `<NameText path />`, which breaks after its
+ * separators first.
+ */
 export function Readout({
   label,
   rows,
@@ -266,7 +279,7 @@ export function Readout({
   rows: {
     label: string;
     value: ReactNode;
-    wideValue?: boolean;
+    identifier?: boolean;
     emphasized?: boolean;
     notes?: readonly string[];
   }[];
@@ -279,7 +292,7 @@ export function Readout({
           key={row.label}
           className={
             [
-              row.wideValue && "du-readout__wide-value",
+              row.identifier && "du-readout__identifier",
               row.emphasized && "du-readout__emphasized",
             ]
               .filter(Boolean)

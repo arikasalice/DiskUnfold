@@ -57,7 +57,7 @@ function SecuritySupport({
             {
               label: copy.securitySource,
               value: basis.source ?? copy.notDetected,
-              wideValue: true,
+              identifier: basis.source !== null,
             },
             {
               label: copy.securityChecked,

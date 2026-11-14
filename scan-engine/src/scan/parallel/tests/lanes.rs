@@ -7,6 +7,7 @@ use super::*;
 use du_core_contracts::{job::JobOutcome, result::ResultItem, scan_observation::HandleIdentity};
 use std::{
     collections::HashMap,
+    panic::Location,
     time::{Duration, Instant},
 };
 
@@ -19,6 +20,7 @@ mod isolation;
 use gate::{Gate, Opened};
 mod lending;
 mod measure;
+mod moves;
 mod order;
 mod priority;
 mod remote;
@@ -280,11 +282,17 @@ fn io_error(reason: &str) -> PortError {
     }
 }
 
+/// Polls `ready` until it holds; a timeout names the caller and the time waited.
+#[track_caller]
 fn wait_until(mut ready: impl FnMut() -> bool) -> Result<(), TestError> {
-    let deadline = Instant::now() + Duration::from_secs(20);
+    let (awaited, limit, started) = (Location::caller(), Duration::from_secs(20), Instant::now());
     while !ready() {
-        if Instant::now() >= deadline {
-            return Err("condition was not reached in time".into());
+        if started.elapsed() >= limit {
+            let elapsed = started.elapsed();
+            let message = format!(
+                "condition awaited at {awaited} was not reached after {elapsed:?} (limit {limit:?})"
+            );
+            return Err(message.into());
         }
         thread::sleep(Duration::from_millis(2));
     }

@@ -2,6 +2,7 @@ import { useState } from "react";
 import {
   Action,
   DataTable,
+  NameText,
   Notice,
   Progress,
   SelectField,
@@ -164,8 +165,11 @@ function issueCells(
 ) {
   return [
     <Text kind="path" key="path">
-      {row.displayPath ??
-        text("ui.analysis.issue_path_unavailable", "Path unavailable")}
+      {row.displayPath !== undefined ? (
+        <NameText path name={row.displayPath} />
+      ) : (
+        text("ui.analysis.issue_path_unavailable", "Path unavailable")
+      )}
     </Text>,
     scanIssueKindText(row.kind, text),
     scanIssueStageText(row.stage, text),

@@ -1,0 +1,40 @@
+/* Paths break after a separator first; a component wider than the line still
+   wraps. Korean components stay whole like words. */
+.du-path {
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
+/* The real edge white space stays in the text for copying and takes no room;
+   the marks stand in its place. */
+.du-name__space {
+  font-size: 0;
+  white-space: pre;
+}
+
+.du-name__mark {
+  color: var(--du-muted);
+  font-family: var(--du-font-symbol);
+  user-select: none;
+}
+
+.du-name .du-visually-hidden {
+  user-select: none;
+}
+
+.du-name-hint {
+  display: grid;
+  gap: 2px;
+  box-sizing: border-box;
+  max-inline-size: min(24rem, 90vw);
+  padding: 6px 10px;
+  border: 1px solid var(--du-border);
+  border-radius: 6px;
+  background: var(--du-surface);
+  color: var(--du-text);
+  box-shadow: var(--du-shadow);
+  font-size: 13px;
+  font-weight: 400;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}

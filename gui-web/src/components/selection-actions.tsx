@@ -4,11 +4,15 @@ import { Icon } from "./presentation";
 import type { IconName } from "./presentation";
 import "../theme/selection-actions.css";
 
-/** An outcome shown in place of the summary; a new `id` announces it again. */
+/**
+ * An outcome shown in place of the summary; a new `id` announces it again.
+ * `text` may draw names with `NameText`, so the status region reads the real
+ * name and its explanation while the marks stay on screen only.
+ */
 export type SelectionNotice = {
   id: number;
   tone: "success" | "info" | "error";
-  text: string;
+  text: ReactNode;
 };
 
 const noticeIcons = {
@@ -62,7 +66,7 @@ export function SelectionActions({
               data-tone={notice.tone}
             >
               <Icon name={noticeIcons[notice.tone]} />
-              {notice.text}
+              <span>{notice.text}</span>
             </span>
           )}
         </span>

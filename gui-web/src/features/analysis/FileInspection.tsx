@@ -5,6 +5,7 @@ import { useTimestampText } from "../../i18n/regional-format";
 import {
   DetailDisclosure,
   ExampleBadge,
+  NameText,
   Notice,
   Progress,
   Readout,
@@ -109,15 +110,18 @@ function attributes(
         itemKind === "file"
           ? text("ui.inspection.file_name", "File name")
           : text("ui.inspection.folder_name", "Folder name"),
-      wideValue: true,
       value:
         detail.displayName.state === "present" ? (
           <div className="du-inspection-name">
-            <Text>{detail.displayName.value}</Text>
+            <Text>
+              <NameText name={detail.displayName.value} />
+            </Text>
             <DetailDisclosure
               title={text("ui.inspection.full_name", "Full name")}
             >
-              <Text focusable>{detail.displayName.value}</Text>
+              <Text focusable>
+                <NameText name={detail.displayName.value} />
+              </Text>
             </DetailDisclosure>
           </div>
         ) : (
@@ -160,7 +164,6 @@ function attributes(
     },
     {
       label: text("ui.inspection.path", "Path"),
-      wideValue: true,
       value: (
         <CopyPath
           client={client}

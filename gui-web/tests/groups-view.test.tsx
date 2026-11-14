@@ -104,6 +104,31 @@ test("F36 FR6: a file in two groups is one row with a group-count badge and both
   expect(within(single).queryByText(/^0/)).toBeNull();
 });
 
+test("F02: a member name marks its edge spaces and its button reads the real name", async () => {
+  await classified({
+    "group.members": (body: Body) => ({
+      classificationRef: CLASSIFICATION,
+      resultVersion: RESULT,
+      start: body.start,
+      total: 2,
+      rows: [
+        memberRow(1, { displayName: { state: "present", value: " 보고서 " } }),
+        memberRow(2, { displayName: { state: "present", value: "보고서" } }),
+      ],
+      sort: { id: "size", revision: 1 },
+    }),
+  });
+  const spaced = await screen.findByRole("button", {
+    name: /^\s*보고서\s*, The name starts with 1 space, The name ends with 1 space$/,
+  });
+  expect(spaced.querySelectorAll(".du-name__mark")).toHaveLength(2);
+  const plain = screen.getByRole("button", { name: "보고서" });
+  expect(plain.querySelectorAll(".du-name__mark")).toHaveLength(0);
+  expect(plain.textContent).toBe("보고서");
+  // The original path column keeps the full path as it was recorded.
+  expect(screen.getByText("C:\\Videos\\file-1.mp4")).toBeDefined();
+});
+
 test("F36 FR7: totals read lower bounds as 'or more', unknown as unknown, and an undefined ratio as not calculable", async () => {
   const lower = {
     sizes: [

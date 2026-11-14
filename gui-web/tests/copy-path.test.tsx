@@ -114,7 +114,9 @@ test("full path is available by disclosure and copy feedback can be dismissed", 
   expect(screen.queryByText(fullPath)).toBeNull();
   const disclosure = screen.getByRole("button", { name: /Full path/ });
   fireEvent.click(disclosure);
-  expect(screen.getByText(fullPath).getAttribute("tabindex")).toBe("0");
+  expect(
+    screen.getByText(fullPath).closest(".du-text")?.getAttribute("tabindex"),
+  ).toBe("0");
   const copy = screen.getByRole("button", { name: "Copy path" });
   fireEvent.click(copy);
   await screen.findByText("Could not copy to the clipboard.");

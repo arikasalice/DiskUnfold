@@ -88,6 +88,16 @@ fn worker_panics_abort_other_flows_and_restore_previous_result()
             .recv_timeout(Duration::from_secs(3))
             .map_err(|_| "worker panic did not finish")?;
         assert!(outcome.result_version_id.is_none());
+        // No result was published, so the admitted root and any item counted
+        // before the panic are unprocessed (NFR5.HD1.app-host.DD1).
+        let counts = &outcome.counts;
+        assert_eq!(counts.completed, 0, "at_open={at_open}");
+        let processed = counts.failed + counts.unprocessed;
+        if at_open {
+            assert!(processed >= 1, "at_open={at_open}");
+        } else {
+            assert_eq!(processed, 1, "only the root was counted");
+        }
         assert_eq!(finished.load(Ordering::Acquire), 3);
         assert_eq!(abandoned.load(Ordering::Acquire), 0);
         assert_eq!(

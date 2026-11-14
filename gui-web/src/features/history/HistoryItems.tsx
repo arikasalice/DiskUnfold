@@ -4,6 +4,7 @@ import {
   DataTable,
   DetailDisclosure,
   Heading,
+  NameText,
   Notice,
   Progress,
   Readout,
@@ -346,8 +347,11 @@ function RecordedItemDetails({
               {
                 label: text("ui.history.name", "Name"),
                 value:
-                  displaced.name ??
-                  text("ui.history.unavailable", "Unavailable"),
+                  displaced.name === null ? (
+                    text("ui.history.unavailable", "Unavailable")
+                  ) : (
+                    <NameText name={displaced.name} />
+                  ),
               },
               {
                 label: text(

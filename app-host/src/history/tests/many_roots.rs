@@ -90,14 +90,15 @@ fn windows_sixty_five_roots_pass_desktop_admission_and_keep_exact_pinned_totals(
         })
         .ok_or("missing finish")?;
     assert_eq!(finish.body["state"], "done");
-    assert_eq!(finish.body["completed"], 65);
+    // Each root and its one file are completed.
+    assert_eq!(finish.body["completed"], 2 * ROOTS);
     for key in ["failed", "skipped", "unprocessed"] {
         assert_eq!(finish.body[key], 0, "{key}");
     }
     let status: AnalysisJobStatus = read(&engine, "job.get", json!({"jobRef":start.job_ref}))?;
     assert_eq!(status.state, JobState::Done);
     let terminal = status.terminal.as_ref().ok_or("missing terminal")?;
-    assert_eq!(terminal.completed, ROOTS as u64);
+    assert_eq!(terminal.completed, 2 * ROOTS as u64);
     assert_eq!(
         (terminal.failed, terminal.skipped, terminal.unprocessed),
         (0, 0, 0)
@@ -108,7 +109,7 @@ fn windows_sixty_five_roots_pass_desktop_admission_and_keep_exact_pinned_totals(
     assert_eq!(status.result_version.as_ref(), Some(&version));
     verify_pinned_totals(&engine, &version)?;
     eprintln!(
-        "F02_WINDOWS_ROOTS reviewed=65 completed=65 total_bytes=2145 unique_root_totals={ROOTS} shared_ready_peak={:?}",
+        "F02_WINDOWS_ROOTS reviewed=65 completed=130 total_bytes=2145 unique_root_totals={ROOTS} shared_ready_peak={:?}",
         diagnostics.shared_ready_peak()
     );
     Ok(())
