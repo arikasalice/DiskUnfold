@@ -6,7 +6,7 @@ import {
   useState,
 } from "react";
 import type { ReactNode } from "react";
-import { Action, Notice, Progress } from "../components";
+import { Action, LiveStatus, Notice, Progress } from "../components";
 import { LocaleTextContext, useLocaleText } from "../i18n/presentation";
 import { RegionalFormatContext } from "../i18n/regional-format";
 import type { RegionalFormat } from "../i18n/regional-format";
@@ -19,8 +19,11 @@ import { makeLocaleReporter } from "../state/locale-missing";
 import { useLocale } from "../state/use-locale";
 import type { LocaleView } from "../state/use-locale";
 import { applyPresentation } from "../theme/presentation-settings";
+import "../theme/locale.css";
 import { App } from "./App";
 import { SupportRequestContext } from "./support-request";
+import { LocaleSettings } from "../features/settings/LocaleSettings";
+import type { LocaleSettingsProps } from "../features/settings/LocaleSettings";
 import { ClosingGuard } from "../features/shutdown/ClosingGuard";
 import { StartupGate } from "../features/startup/StartupGate";
 
@@ -75,6 +78,10 @@ export function DesktopLocale({
   analysisEnabled?: boolean;
   /** Shows the non-blocking startup banner above the analysis shell. */
   startupBanner?: boolean;
+  /**
+   * A screen that replaces the app shell (the startup screen where analysis is off). It is shown
+   * under the language and display entry, which opens the same settings dialog as the shell header.
+   */
   children?: ReactNode;
 }) {
   const fallbackText = useLocaleText();
@@ -141,26 +148,33 @@ export function DesktopLocale({
     cause: text(meta?.causeKey ?? "ui.common.error_generic", ""),
     ...(meta && { action: text(meta.actionKey, "") }),
   };
+  const locale: LocaleSettingsProps = {
+    profile: view.profile,
+    text: (key) => text(key, ""),
+    save,
+    ...(errorKey && { errorKey }),
+    ...(issue && { issue }),
+  };
   const shell = (
     <App
       {...(analysisEnabled ? { analysis: client } : {})}
       nativeLocaleHost={!analysisEnabled}
       infoClient={client}
-      locale={{
-        profile: view.profile,
-        text: (key) => text(key, ""),
-        save,
-        ...(errorKey && { errorKey }),
-        ...(issue && { issue }),
-      }}
+      locale={locale}
     />
   );
+  // A caller's own screen has no shell header, so it gets the same locale entry the header
+  // would show (F13 FR3.HD1.gui-web.DD1, FR11, FR12).
+  const hosted =
+    children != null ? (
+      <LocaleEntryScreen locale={locale}>{children}</LocaleEntryScreen>
+    ) : undefined;
   return (
     <LocaleTextContext.Provider value={text}>
       <RegionalFormatContext.Provider value={format}>
         <SupportRequestContext.Provider value={supportRequests}>
           <ClosingGuard client={client}>
-            {children ??
+            {hosted ??
               (startupBanner ? (
                 <StartupGate client={client} onOpenSupport={openSupport}>
                   {shell}
@@ -172,5 +186,26 @@ export function DesktopLocale({
         </SupportRequestContext.Provider>
       </RegionalFormatContext.Provider>
     </LocaleTextContext.Provider>
+  );
+}
+
+/** Puts the language and display entry above a screen that has no shell header. */
+function LocaleEntryScreen({
+  locale,
+  children,
+}: {
+  locale: LocaleSettingsProps;
+  children: ReactNode;
+}) {
+  return (
+    <>
+      <header className="du-locale-entry">
+        <LocaleSettings {...locale} />
+        {locale.errorKey === "ui.locale.failed" && (
+          <LiveStatus>{locale.text(locale.errorKey)}</LiveStatus>
+        )}
+      </header>
+      {children}
+    </>
   );
 }
