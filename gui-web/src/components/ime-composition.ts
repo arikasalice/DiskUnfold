@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef } from "react";
+import { createContext, useContext, useRef } from "react";
 import type { KeyboardEvent } from "react";
 
 type CompositionState = "idle" | "composing" | "just-ended";
@@ -126,64 +126,89 @@ const EnterPolicyContext = createContext<EnterPolicy>("run");
  */
 export const EnterPolicyProvider = EnterPolicyContext.Provider;
 
+/** Keys that never end a just-ended mark: they carry no text or action. */
+const MODIFIER_KEYS = new Set([
+  "Alt",
+  "AltGraph",
+  "CapsLock",
+  "Control",
+  "Meta",
+  "NumLock",
+  "Shift",
+]);
+
 /**
  * Keeps IME composition keys from becoming application actions.
  *
  * `onEnter` runs once for an Enter that the table classifies as `idle-enter-run`
  * and is skipped for held-key repeats. The returned handlers go on the input.
+ *
+ * The mark that follows a composition has no timer. WebView2 and WKWebView
+ * deliver `compositionend` inside the key press that ends the composition,
+ * but WebKitGTK with ibus or fcitx may deliver it and the Enter keydown in
+ * different tasks, so any delay could expire before that Enter arrives. The
+ * mark stays until one of these happens: the release of the key that ended the
+ * composition, a second separate Enter press, another non-modifier key press,
+ * a new composition, or blur. The first Enter press while the mark is set is
+ * consumed (row `just-ended-enter`), so at most one Enter is lost.
  */
 export function useImeComposition(
   onCompositionChange?: (composing: boolean) => void,
   options: { onEnter?: () => void; enter?: EnterPolicy } = {},
 ) {
   const state = useRef<CompositionState>("idle");
-  const resetTimer = useRef<number | undefined>(undefined);
+  // True once the mark has consumed an Enter press that has not been released.
+  const enterConsumed = useRef(false);
+  // The physical key of the latest key press, to pair it with its release.
+  const lastKeyCode = useRef<string | undefined>(undefined);
   const contextPolicy = useContext(EnterPolicyContext);
   const policy = options.enter ?? contextPolicy;
 
-  function clearResetTimer() {
-    if (resetTimer.current !== undefined) {
-      window.clearTimeout(resetTimer.current);
-      resetTimer.current = undefined;
-    }
+  function setState(next: CompositionState) {
+    state.current = next;
+    enterConsumed.current = false;
   }
 
-  useEffect(
-    () => () => {
-      if (resetTimer.current !== undefined)
-        window.clearTimeout(resetTimer.current);
-    },
-    [],
-  );
-
   function onCompositionStart() {
-    clearResetTimer();
-    state.current = "composing";
+    setState("composing");
     onCompositionChange?.(true);
   }
 
   function onCompositionUpdate() {
-    clearResetTimer();
-    state.current = "composing";
+    setState("composing");
     onCompositionChange?.(true);
   }
 
   function onCompositionEnd() {
-    clearResetTimer();
-    state.current = "just-ended";
+    setState("just-ended");
     onCompositionChange?.(false);
-    // The just-ended mark also clears on the next key release or task turn.
-    resetTimer.current = window.setTimeout(() => {
-      state.current = "idle";
-      resetTimer.current = undefined;
-    }, 0);
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLInputElement>) {
-    if (event.key !== "Enter" && event.key !== "Escape") return;
+    const processing = isImeProcessingKey(event.nativeEvent);
+    const modifier = MODIFIER_KEYS.has(event.key);
+    if (!modifier) lastKeyCode.current = event.nativeEvent.code || undefined;
+    if (event.key !== "Enter" && event.key !== "Escape") {
+      if (!processing && !modifier) setState("idle");
+      return;
+    }
+    // A second, separate Enter press means the first one's release was lost.
+    if (
+      state.current === "just-ended" &&
+      enterConsumed.current &&
+      event.key === "Enter" &&
+      !event.repeat &&
+      !processing
+    )
+      setState("idle");
 
     const keyState = classifyImeKeyState(state.current, event.nativeEvent);
     const { outcome } = decideImeKey(keyState, event.key, policy);
+    if (keyState === "just-ended") {
+      // The consumed Enter keeps the mark until its release; Escape ends it now.
+      if (event.key === "Enter") enterConsumed.current = true;
+      else setState("idle");
+    }
     if (outcome === "pass") {
       if (event.key === "Enter" && !event.repeat) options.onEnter?.();
       return;
@@ -192,15 +217,16 @@ export function useImeComposition(
     if (outcome === "swallow") event.preventDefault();
   }
 
-  function onKeyUp() {
-    if (state.current !== "just-ended") return;
-    clearResetTimer();
-    state.current = "idle";
+  function onKeyUp(event: KeyboardEvent<HTMLInputElement>) {
+    if (state.current !== "just-ended" || MODIFIER_KEYS.has(event.key)) return;
+    // The release of some other key does not end the mark.
+    const code = event.nativeEvent.code;
+    if (code && lastKeyCode.current && code !== lastKeyCode.current) return;
+    setState("idle");
   }
 
   function onBlur() {
-    clearResetTimer();
-    state.current = "idle";
+    setState("idle");
     onCompositionChange?.(false);
   }
 

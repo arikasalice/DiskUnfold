@@ -184,19 +184,25 @@ test.each(["path", "review"] as const)(
   },
 );
 
-test("clears the just-ended guard on the next task when no keyup arrives", async () => {
+test("keeps the just-ended guard across tasks and drops it with the first Enter's release", async () => {
   const { input, onAction } = renderInput("path");
   fireEvent.compositionEnd(input);
 
   await act(async () => {
-    await new Promise((resolve) => window.setTimeout(resolve, 0));
+    await new Promise((resolve) => window.setTimeout(resolve, 50));
   });
 
-  const nextEnter = keyboardEvent("Enter", false, 13);
-  let nextDispatch = false;
+  const late = keyboardEvent("Enter", false, 13);
   act(() => {
-    nextDispatch = input.dispatchEvent(nextEnter);
+    input.dispatchEvent(late);
   });
-  expect(nextDispatch).toBe(true);
+  expect(late.defaultPrevented).toBe(true);
+  fireEvent.keyUp(input, { key: "Enter", code: "Enter" });
+
+  const next = keyboardEvent("Enter", false, 13);
+  act(() => {
+    input.dispatchEvent(next);
+  });
+  expect(next.defaultPrevented).toBe(false);
   expect(onAction).toHaveBeenCalledTimes(1);
 });
