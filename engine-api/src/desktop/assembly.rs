@@ -90,6 +90,8 @@ pub struct DesktopServices {
     pub completed_scans: CompletedScanSource,
     /// Internal app-host worker queue. Only newly admitted GUI scans are sent.
     pub recent_scope_admissions: Option<RecentScopeAdmissions>,
+    /// F36 group use cases; app-host registers them with its rule store.
+    pub groups: crate::group::GroupAssembly,
 }
 
 struct DesktopRegistrationOptions {
@@ -216,6 +218,7 @@ fn register_services_inner(
         )?,
     };
     let store = sets.source();
+    let groups = crate::group::compose(&store, &runtime, &workers, ids.clone());
     let completed_scans = scan_events.bind(store.clone())?;
     let visualization = VisualizationServices::new(store.clone(), ids.clone(), workers.clone());
     let search = crate::browse::folder::commands::register(builder, sets, ids, workers, random)?;
@@ -229,6 +232,7 @@ fn register_services_inner(
         visualization,
         completed_scans,
         recent_scope_admissions,
+        groups,
     })
 }
 

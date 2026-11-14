@@ -3,7 +3,7 @@ use super::{MacDirectory, dataless, errors, volume};
 use du_core_contracts::{
     OsPath, PathBytes, PathEncoding,
     ports::PortError,
-    scan_observation::{OpenedScopeRoot, ScopeRootPort},
+    scan_observation::{HandleIdentity, OpenedScopeRoot, ScopeRootPort},
 };
 use rustix::{
     fs::{FileType, Mode, OFlags, Stat, fstat, getpath, open, openat},
@@ -109,6 +109,32 @@ fn directory_stat(fd: &OwnedFd) -> Result<Stat, PortError> {
 /// Device number in the form enumeration records report it.
 pub(super) fn device(stat: &Stat) -> u64 {
     u64::from(stat.st_dev.cast_unsigned())
+}
+
+/// Identity of a verified directory in the space enumeration records report.
+///
+/// A zero inode identifies no directory, so no identity is reported for it.
+/// `ancestors` are the little-endian inodes [`Ancestors`] retains; a handle
+/// without that evidence reports none.
+pub(super) fn handle_identity(
+    device: u64,
+    inode: u64,
+    ancestors: Option<&[Vec<u8>]>,
+) -> Option<HandleIdentity> {
+    if inode == 0 {
+        return None;
+    }
+    let ancestors = ancestors.map_or_else(Vec::new, |ids| {
+        ids.iter()
+            .filter_map(|id| <[u8; 8]>::try_from(id.as_slice()).ok())
+            .map(u64::from_le_bytes)
+            .collect()
+    });
+    Some(HandleIdentity {
+        device,
+        inode,
+        ancestors,
+    })
 }
 
 /// Validates one native name as a single path component.

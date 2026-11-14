@@ -309,6 +309,15 @@ fn legacy_settings_survive_desktop_migrations_and_scan_append() -> TestResult {
             &HISTORY_DEFINITIONS
         )
         .map_err(|error| format!("{error:?}"))?,
+        5
+    );
+    assert_eq!(
+        apply_next(
+            &path,
+            &dir.path().join("before-group-rules.db"),
+            &HISTORY_DEFINITIONS
+        )
+        .map_err(|error| format!("{error:?}"))?,
         HISTORY_SCHEMA_VERSION
     );
     let mut db = AppDb::open_gui_with_history(&path).map_err(|error| format!("{error:?}"))?;
