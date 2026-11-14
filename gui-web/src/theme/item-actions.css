@@ -41,6 +41,9 @@
   border-radius: 5px;
   outline: none;
   cursor: pointer;
+  /* The menu renders outside the screen; its labels and reasons are prose. */
+  word-break: keep-all;
+  overflow-wrap: anywhere;
 }
 .du-item-menu [data-focused] {
   background: var(--du-selected-surface);

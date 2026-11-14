@@ -129,6 +129,72 @@ fn busy_workers_move_to_the_marked_lane_after_one_turn_and_return_when_it_ends()
     Ok(())
 }
 
+/// Lanes with a free worker seat and work a joining worker could claim.
+fn joinable(queue: &Queue) -> Vec<usize> {
+    (0..queue.lanes.lanes.len())
+        .filter(|&lane| {
+            let state = &queue.lanes.lanes[lane];
+            queue.lanes.free_seats(lane) > 0
+                && (!state.ready.is_empty() || queue.lanes.stacked(lane) != 0)
+        })
+        .collect()
+}
+
+/// A move frees a seat in the lane it leaves without waking anyone. In the
+/// order where the move comes between the area lane's wake and the woken
+/// worker's claim, the woken worker takes that seat and no lane is left with
+/// both a free seat and claimable work.
+///
+/// This drives the queue directly: each step stands for a worker turn, and
+/// the wakes are the ones the comments name. It does not run `notify_one`,
+/// the wake count of `handoff::requeue` or the timed wait of
+/// `dispatch::take`, so it fixes the queue state after this order, not that
+/// a sleeping thread is woken. See the module documentation of
+/// `lanes::lending` for the bound on a missed wake.
+#[test]
+fn a_move_between_a_wake_and_the_woken_claim_leaves_no_work_unclaimed() -> Result<(), TestError> {
+    let mut queue = Queue::for_test(vec![0, 1], 2);
+    queue_work(&mut queue, 0, &[&["a0"], &["a1"], &["a2"]]);
+    let seats: Vec<usize> = (0..4).map(|_| queue.lanes.register_seat()).collect();
+    let (s0, s1, s2, s3) = (seats[0], seats[1], seats[2], seats[3]);
+    let a0 = queue.claim_for(s0).ok_or("no lane 0 work")?;
+    let _a1 = queue.claim_for(s1).ok_or("no lane 0 work")?;
+    // Worker 0 holds a child on its stack; leaving lane 0 returns it there.
+    queue.stack(s0, 0, frame(0, path(&["a0", "s"])));
+    queue_work(&mut queue, 1, &[&["b"]]);
+    let b = queue.claim_for(s2).ok_or("no lane 1 work")?;
+    assert_eq!((b.lane, members(&queue)), (1, vec![2, 1]));
+    // Lane 0 is full and lane 1 has a seat but nothing to claim: worker 3
+    // finds nothing and waits.
+    assert!(queue.claim_for(s3).is_none());
+    assert!(joinable(&queue).is_empty());
+    // The area is marked (the request wakes every worker; nothing changes).
+    mark(&mut queue, Some((1, &[])));
+    assert!(queue.claim_for(s3).is_none());
+    // Worker 2 returns the marked item. Lane 1 has one free seat, so the
+    // return wakes one waiting worker: worker 3.
+    queue.requeue(s2, b.lane, b.origin == Origin::Ready, b.frame);
+    assert_eq!(queue.lanes.free_seats(1), 1);
+    assert_eq!(joinable(&queue), [1]);
+    // Before worker 3 claims, worker 0 ends its turn and moves to lane 1.
+    // The move frees a lane 0 seat and returns the stacked child to lane 0
+    // without a wake of its own.
+    let moved = turn(&mut queue, s0, a0)?;
+    assert_eq!(moved.lane, 1);
+    assert_eq!(queue.lanes.moves.lent, 1);
+    assert_eq!(joinable(&queue), [0]);
+    // The woken worker 3 finds lane 1 full and takes the freed lane 0 seat.
+    let woken = queue.claim_for(s3).ok_or("woken worker found nothing")?;
+    assert_eq!(woken.lane, 0);
+    // Worker 2 lost its item to worker 0 and finds nothing; it waits while
+    // no lane holds work that a waiting worker could join.
+    assert!(queue.claim_for(s2).is_none());
+    assert!(joinable(&queue).is_empty());
+    assert_eq!(members(&queue), [2, 1]);
+    assert_lanes_hold_only_their_roots(&queue);
+    Ok(())
+}
+
 #[test]
 fn a_marked_lane_at_its_limit_takes_no_worker_until_one_leaves() -> Result<(), TestError> {
     let mut queue = Queue::for_test(vec![0, 1], 2);

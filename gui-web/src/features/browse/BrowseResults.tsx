@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, useState } from "react";
+import type { RefObject } from "react";
 import {
   Action,
   BrowseGrid,
@@ -9,7 +10,7 @@ import {
   RowAction,
   Text,
 } from "../../components";
-import type { ItemAction } from "../../components";
+import type { BrowseGridFocus, ItemAction } from "../../components";
 import type {
   FolderQueryRow,
   BrowseCopyPathOutcome,
@@ -161,6 +162,7 @@ export function BrowseResults({
   navigationSeq,
   canRead,
   focusPanel,
+  barFocus,
   openFolder,
   openItem,
   copyPath,
@@ -178,6 +180,8 @@ export function BrowseResults({
   navigationSeq: () => number;
   canRead: () => boolean;
   focusPanel: () => void;
+  /** Whether the selection action bar holds focus; outlives this list. */
+  barFocus: RefObject<boolean>;
   openFolder: (item: ItemRef) => void;
   openItem:
     ((row: FolderQueryRow, trigger: Element | null) => void) | undefined;
@@ -199,6 +203,7 @@ export function BrowseResults({
   ];
   const scrollRoot = useRef<HTMLDivElement>(null);
   const [selection, setSelection] = useState<Selection>(() => new Set());
+  const [rowFocus, setRowFocus] = useState<BrowseGridFocus>();
   const copy = useBrowseCopy(
     copyPath,
     navigationEpoch,
@@ -242,6 +247,41 @@ export function BrowseResults({
       paging.retryButton.current?.focus({ preventScroll: true });
     }
   }, [paging.failure, paging.retryButton]);
+  /**
+   * Focuses a row, the element keyboard navigation of the list focuses: the
+   * first selected row shown, else the first row shown. A list that has not
+   * drawn its rows yet focuses its first row once drawn, unless focus has
+   * moved elsewhere than the panel by then. Only a list without rows falls
+   * back to the panel.
+   */
+  function focusList() {
+    const rows = scrollRoot.current;
+    const row =
+      rows?.querySelector<HTMLElement>('[data-row][aria-selected="true"]') ??
+      rows?.querySelector<HTMLElement>("[data-row]");
+    if (row) {
+      row.focus({ preventScroll: true });
+      return;
+    }
+    if (pages.count === 0) {
+      focusPanel();
+      return;
+    }
+    const request: BrowseGridFocus = {
+      index: 0,
+      eligible: () => {
+        const active = document.activeElement;
+        return (
+          active === null ||
+          active === document.body ||
+          (active !== scrollRoot.current && active.contains(scrollRoot.current))
+        );
+      },
+      finish: () =>
+        setRowFocus((current) => (current === request ? undefined : current)),
+    };
+    setRowFocus(request);
+  }
   return (
     <div className="du-browse-results">
       <div className="du-browse-controls">
@@ -250,7 +290,8 @@ export function BrowseResults({
           selection={selection}
           priority={priority}
           readOnly={readOnly}
-          focusPanel={focusPanel}
+          focusList={focusList}
+          barFocus={barFocus}
         />
         {pages.count === 0 && (
           <Text>
@@ -319,7 +360,7 @@ export function BrowseResults({
         count={pages.count}
         rowCount={pages.rowCount}
         busy={paging.pending}
-        focusRequest={paging.focusRequest}
+        focusRequest={paging.focusRequest ?? rowFocus}
         onMove={paging.move}
         onOpen={(row) => {
           if (readOnly) return;

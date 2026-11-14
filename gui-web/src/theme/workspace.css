@@ -116,6 +116,19 @@ body {
   color: var(--du-muted);
 }
 
+/* Descriptions, reasons and notices are prose: Korean breaks between words
+   instead of between any two syllables, and only a word longer than the line
+   breaks inside it. Paths and identifiers keep their own rules. */
+.du-text--muted,
+.du-notice,
+.du-field [slot="description"],
+.du-field [slot="errorMessage"],
+.du-choice__description,
+.du-readout__note {
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
 .du-text--eyebrow {
   color: var(--du-info-text);
   font-size: 11px;
@@ -272,6 +285,11 @@ label.du-field > span {
   border-color: var(--du-disabled-border);
   background: var(--du-disabled-surface);
   color: var(--du-disabled-text);
+}
+
+/* A disabled action keeps the edge it has when enabled, so a quiet one stays borderless. */
+.du-action--quiet[data-disabled] {
+  border-color: transparent;
 }
 
 .du-field input:disabled::placeholder,

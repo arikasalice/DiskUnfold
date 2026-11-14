@@ -81,20 +81,27 @@ const rows = [
   }),
 ];
 
-function port(): BrowsePort {
-  const response: BrowseOpenResponse = {
+/** The opened root of the fixture's folder, as a result of the given version. */
+export function openedRoot(
+  resultVersion: string,
+  requestSeq: number,
+): BrowseOpenResponse {
+  return {
     kind: "opened",
-    requestSeq: 1,
+    requestSeq,
     origin: "scan",
-    location: { resultVersion: version, itemNo: 0 },
+    location: { resultVersion, itemNo: 0 },
     breadcrumbs: [],
     rootKind: "scope_root",
     currentCorrespondence: false,
     page: {
       rowKind: "folder",
-      queryRef: version,
-      resultVersion: version,
-      rows,
+      queryRef: resultVersion,
+      resultVersion,
+      rows: rows.map((shown) => ({
+        ...shown,
+        item: { ...shown.item, resultVersion },
+      })),
       total: { state: "exact", count: rows.length },
       unknownCount: 0,
       observedAt: null,
@@ -104,9 +111,14 @@ function port(): BrowsePort {
     sortStrategies: [],
     predicateStrategies: [],
   };
+}
+
+function port(): BrowsePort {
   return {
     open: vi.fn((request) =>
-      Promise.resolve({ ...response, requestSeq: request.requestSeq }),
+      Promise.resolve(
+        openedRoot(request.resultVersion ?? version, request.requestSeq),
+      ),
     ),
     page: vi.fn(),
     copyPath: vi.fn(),
