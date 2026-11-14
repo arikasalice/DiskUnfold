@@ -173,6 +173,10 @@ reason.locale.profile_modified.cause
 reason.locale.profile_modified.action
 reason.locale.bundle_unavailable.cause
 reason.locale.bundle_unavailable.action
+reason.locale.registration_failed.cause
+reason.locale.registration_failed.action
+reason.locale.translation_fallback.cause
+reason.locale.translation_fallback.action
 reason.i18n.bundle_integrity_failed.action
 ui.app.history
 ui.app.back_to_analysis
