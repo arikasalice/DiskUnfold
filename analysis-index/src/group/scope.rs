@@ -19,22 +19,6 @@ pub(super) struct ScopeFiles {
     pub(super) coverage_complete: bool,
 }
 
-/// Counts the files that a classification of the same scope would evaluate.
-///
-/// `root` is `None` for the whole result (every scope root, including a forest) or a folder
-/// of this result version. The count is the progress total of a classification.
-///
-/// # Errors
-/// Returns [`Error::InvalidRoot`] when `root` is not a folder of `version`.
-pub fn scope_file_count(version: &ResultVersion, root: Option<&ItemRef>) -> Result<u64, Error> {
-    let mut count = 0u64;
-    walk(version, root, |item| {
-        count += u64::from(item.kind == ResultItemKind::File);
-        Ok(())
-    })?;
-    Ok(count)
-}
-
 /// Checks that the scope root is acceptable without visiting any item.
 pub(super) fn validate_root(version: &ResultVersion, root: Option<&ItemRef>) -> Result<(), Error> {
     starting_items(version, root).map(|_| ())

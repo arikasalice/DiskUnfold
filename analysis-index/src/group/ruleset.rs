@@ -136,7 +136,7 @@ pub fn plan_save(
     now_ms: i64,
     new_id: &mut dyn FnMut() -> Id,
 ) -> SavePlan {
-    let issues = review_drafts(current, &drafts, registry, limits);
+    let issues = review(current, &drafts, registry, limits);
     if !issues.is_empty() {
         return SavePlan::Rejected(issues);
     }
@@ -171,7 +171,12 @@ pub fn plan_save(
     })
 }
 
-fn review_drafts(
+/// Reviews draft rules in the fixed order of [`plan_save`] without planning a write.
+///
+/// A group ID must name a rule of `current` and appear once. A classification of
+/// unsaved drafts uses the same checks as a save, so a preview cannot exceed the limits
+/// that a save enforces. Returns each rejected rule with its first failing check.
+pub fn review(
     current: &Ruleset,
     drafts: &[RuleDraft],
     registry: &Registry,
