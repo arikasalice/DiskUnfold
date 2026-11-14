@@ -20,6 +20,9 @@ const RESULT: &str = "F02_MEASURE_RESULT";
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Mode {
     Full,
+    /// `Full` without a monotonic clock, so only the first partial result
+    /// and the sealed result are published.
+    FullUntimed,
     Collector,
     /// No collection: the test harness and process baseline.
     Idle,
@@ -44,6 +47,7 @@ impl Config {
     fn render(&self) -> String {
         let mode = match self.mode {
             Mode::Full => "full",
+            Mode::FullUntimed => "full_untimed",
             Mode::Collector => "collector",
             Mode::Idle => "idle",
         };
@@ -70,6 +74,7 @@ impl Config {
         let number = |key: &str| -> Result<u64, TestError> { Ok(get(key)?.parse()?) };
         let mode = match get("mode")? {
             "full" => Mode::Full,
+            "full_untimed" => Mode::FullUntimed,
             "collector" => Mode::Collector,
             "idle" => Mode::Idle,
             other => return Err(format!("unknown mode {other}").into()),
@@ -105,6 +110,8 @@ struct Report {
 /// Job context of a full run: production-like publication cadence and progress.
 struct Clocked {
     started: Instant,
+    /// Without a clock the publisher makes no timed partial publications.
+    timed: bool,
     source: Arc<Source>,
     flows: Context,
 }
@@ -117,7 +124,7 @@ impl JobContext for Clocked {
         self.flows.try_start_flow()
     }
     fn monotonic_now(&self) -> Option<Duration> {
-        Some(self.started.elapsed())
+        self.timed.then(|| self.started.elapsed())
     }
     fn report_progress(&self, progress: du_core_contracts::job::JobProgress) {
         self.source
@@ -134,8 +141,11 @@ fn flows() -> Context {
 }
 
 /// Collects through the production forest entry point into a result index.
-/// Returns (recorded items without the roots, lane queue peak).
-fn full(config: &Config, source: &Arc<Source>) -> Result<(u64, Option<usize>), TestError> {
+/// Returns (recorded items without the roots, lane queue peak, partial publications).
+fn full(
+    config: &Config,
+    source: &Arc<Source>,
+) -> Result<(u64, Option<usize>, Option<u64>), TestError> {
     let ids = Ids(AtomicUsize::new(1));
     let sink = IngestSink::default();
     let roots = (0..config.lanes)
@@ -145,6 +155,7 @@ fn full(config: &Config, source: &Arc<Source>) -> Result<(u64, Option<usize>), T
     let diagnostics = crate::scan_job::ScanDiagnostics::default();
     let context = Clocked {
         started: Instant::now(),
+        timed: config.mode == Mode::Full,
         source: source.clone(),
         flows: flows(),
     };
@@ -178,7 +189,9 @@ fn full(config: &Config, source: &Arc<Source>) -> Result<(u64, Option<usize>), T
         .into());
     }
     let items = version.items().len().saturating_sub(config.lanes) as u64;
-    Ok((items, diagnostics.shared_ready_peak()))
+    // Identifiers went to the scope, every partial publication and the seal.
+    let partials = (ids.0.load(Ordering::SeqCst) as u64).saturating_sub(3);
+    Ok((items, diagnostics.shared_ready_peak(), Some(partials)))
 }
 
 /// Runs the production workers over the lanes with a counting consumer.
@@ -216,10 +229,13 @@ fn run(config: &Config) -> Result<Report, TestError> {
     let expected = roots * (dirs + files - 1);
     cost::take_stack_peaks();
     let started = Instant::now();
-    let (items, ready_peak) = match config.mode {
-        Mode::Full => full(config, &source)?,
-        Mode::Collector => collector(config, &source)?,
-        Mode::Idle => (0, None),
+    let (items, ready_peak, partials) = match config.mode {
+        Mode::Full | Mode::FullUntimed => full(config, &source)?,
+        Mode::Collector => {
+            let (items, peak) = collector(config, &source)?;
+            (items, peak, None)
+        }
+        Mode::Idle => (0, None, None),
     };
     let secs = started.elapsed().as_secs_f64();
     if config.mode != Mode::Idle && items != expected {
@@ -258,6 +274,10 @@ fn run(config: &Config) -> Result<Report, TestError> {
         ),
         ("reads", reads.to_string()),
         ("delay_eff_us", format!("{delay_eff_us:.1}")),
+        (
+            "partials",
+            partials.map_or("na".into(), |count| count.to_string()),
+        ),
         (
             "peak_bytes",
             peak_memory().map_or("na".into(), |bytes| bytes.to_string()),
