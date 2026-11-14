@@ -7,6 +7,8 @@ pub(super) struct Switches {
     pub(super) cancelled: bool,
     pub(super) active: usize,
     pub(super) parked: usize,
+    /// Safe points reached by each flow, in the order the flows started.
+    pub(super) safe_points: Vec<usize>,
 }
 
 /// Pause and cancel switches with the flows they park.
@@ -35,6 +37,11 @@ impl Remote {
             Err("flows did not reach the expected state".into())
         }
     }
+
+    /// Reads one value of the current state.
+    pub(super) fn read<T>(&self, value: impl FnOnce(&Switches) -> T) -> Result<T, TestError> {
+        Ok(value(&*self.state.lock().map_err(|_| "remote lock")?))
+    }
 }
 
 /// Cancels and unparks every flow when a test returns early.
@@ -47,7 +54,7 @@ impl Drop for Unpark {
 }
 
 pub(super) struct RemoteContext(pub(super) Arc<Remote>);
-struct RemoteFlow(Arc<Remote>);
+struct RemoteFlow(Arc<Remote>, usize);
 
 impl JobContext for RemoteContext {
     fn checkpoint(&self) -> Checkpoint {
@@ -68,7 +75,9 @@ impl JobContext for RemoteContext {
             return Err(JobFlowError::Cancelled);
         }
         state.active += 1;
-        Ok(Box::new(RemoteFlow(self.0.clone())))
+        state.safe_points.push(0);
+        let index = state.safe_points.len() - 1;
+        Ok(Box::new(RemoteFlow(self.0.clone(), index)))
     }
 }
 
@@ -77,6 +86,8 @@ impl JobFlow for RemoteFlow {
         let Ok(mut state) = self.0.state.lock() else {
             return Checkpoint::Cancel;
         };
+        state.safe_points[self.1] += 1;
+        self.0.changed.notify_all();
         if state.paused && !state.cancelled {
             state.parked += 1;
             self.0.changed.notify_all();

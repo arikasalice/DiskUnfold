@@ -3,8 +3,9 @@
 //! Work is kept per priority class (inside the marked area, its ancestors,
 //! everything else). A lane queue orders each class by depth, then takes roots
 //! in turn, then arrival. A worker stack keeps each class in arrival order.
-//! Claiming touches one item and a logarithmic number of index keys; only a
-//! change of the marked area moves items between classes.
+//! Claiming touches one item and searches one root index up to three times
+//! (see the lanes module); only a change of the marked area moves items
+//! between classes.
 use super::super::{
     Frame,
     queue::{CLASSES, NORMAL},
@@ -238,6 +239,11 @@ pub(in crate::scan::parallel) struct Stack {
 impl Stack {
     pub(in crate::scan::parallel) fn best_class(&self) -> Option<usize> {
         self.classes.iter().position(|items| !items.is_empty())
+    }
+
+    /// Items on the stack, read from the per-class lengths.
+    pub(in crate::scan::parallel) fn len(&self) -> usize {
+        self.classes.iter().map(VecDeque::len).sum()
     }
 
     /// Every stacked item, for structural checks in tests.

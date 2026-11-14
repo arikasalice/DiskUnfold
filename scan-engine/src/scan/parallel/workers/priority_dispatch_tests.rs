@@ -268,7 +268,8 @@ fn marked_claims_and_steals_do_not_visit_queued_work() {
     for &(count, reclassified, claims, steals) in &costs {
         // A claim inspects one item; a steal also reads one class head per
         // other worker of the lane. Key comparisons grow only with the
-        // logarithm of the distinct depths and roots, not with queued items.
+        // logarithm of the distinct roots queued at the claimed depth, not
+        // with queued items.
         assert!(claims.1 <= 1, "{count}: claim inspected {} items", claims.1);
         assert!(claims.0 <= 48, "{count}: claim compared {} keys", claims.0);
         assert!(steals.1 <= 2, "{count}: steal inspected {} items", steals.1);
