@@ -48,9 +48,12 @@ impl<'de> Deserialize<'de> for ScanPriorityRequest {
 }
 
 /// Acknowledges priority admission without claiming that work has completed.
+///
+/// Responses accept unknown fields so that a later contract revision can add
+/// optional values without breaking an older reader.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct ScanPriorityResponse {
     /// The existing job-control result vocabulary.
     pub control_result: JobControlOutcome,
@@ -131,6 +134,17 @@ mod tests {
             }
         });
         assert!(serde_json::from_value::<ScanPriorityRequest>(value).is_err());
+    }
+
+    #[test]
+    fn priority_response_accepts_unknown_fields() -> Result<(), serde_json::Error> {
+        let response = serde_json::from_value::<ScanPriorityResponse>(json!({
+            "controlResult": "no_effect",
+            "addedLater": true
+        }))?;
+        assert_eq!(response.control_result, JobControlOutcome::NoEffect);
+        assert_eq!(response.applied_priority_area, None);
+        Ok(())
     }
 
     #[test]

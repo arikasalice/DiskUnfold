@@ -6,9 +6,7 @@ use std::{
     time::UNIX_EPOCH,
 };
 
-#[cfg(windows)]
 use du_engine_api::desktop::SharedTableLimitSource;
-#[cfg(windows)]
 use du_user_env::space::restore_shared_table_limit;
 use du_user_env::{
     Registry, locale,
@@ -73,7 +71,6 @@ impl StartupSettings {
     }
 
     /// Supplies the validated setting when a scan is admitted.
-    #[cfg(windows)]
     pub(super) fn scan_limit_source(self: Arc<Self>) -> SharedTableLimitSource {
         Arc::new(move || {
             self.service
