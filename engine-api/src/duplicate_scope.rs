@@ -11,6 +11,8 @@ use du_core_contracts::{
 };
 use std::sync::Arc;
 
+use crate::{api::Channel, source_exposure::pin_current_for};
+
 /// A duplicate scope resolved to observed item references by a trusted caller.
 pub struct Scope<'a> {
     /// The current scan result the caller used to resolve every reference.
@@ -183,19 +185,22 @@ pub enum Error {
 /// prefixes cannot expand the scope. Overlapping roots select each item once.
 /// This entry requires a complete source with verified root observations and
 /// returns historical evidence for later live identity checks.
+/// A result whose source `channel` may not see is reported as a missing version.
 ///
 /// # Errors
 /// Returns an error for cancellation, a missing or stale result, invalid or
 /// foreign references, or unavailable source evidence.
 pub fn select_scope(
     source: &IngestSink,
+    channel: Channel,
     scope: Scope<'_>,
     mut cancelled: impl FnMut() -> bool,
 ) -> Result<Selection, Error> {
     if cancelled() {
         return Err(Error::Cancelled);
     }
-    let version = source.pin_current(scope.version).map_err(source_error)?;
+    let version = pin_current_for(source, scope.version, channel)
+        .map_err(|error| source_error(error.query()))?;
     verify_source(&version)?;
     for (index, root) in version.scope_roots().iter().enumerate() {
         if cancelled() {
@@ -220,8 +225,10 @@ pub fn select_scope(
 /// This narrow entry point does not accept arbitrary paths or scope item refs.
 /// A caller translating a broader request must reject unsupported roots or
 /// exclusions rather than dropping them before calling this function.
+/// A result whose source `channel` may not see is reported as a missing version.
 pub fn select_whole_scan(
     source: &IngestSink,
+    channel: Channel,
     expected: &Id,
     min_bytes: u64,
     mut cancelled: impl FnMut() -> bool,
@@ -229,7 +236,8 @@ pub fn select_whole_scan(
     if cancelled() {
         return Err(Error::Cancelled);
     }
-    let version = source.pin_current(expected).map_err(source_error)?;
+    let version =
+        pin_current_for(source, expected, channel).map_err(|error| source_error(error.query()))?;
     verify_source(&version)?;
     let [scope_root] = version.scope_roots() else {
         return Err(Error::Unavailable);
@@ -285,7 +293,8 @@ fn select(
     if cancelled() {
         return Err(Error::Cancelled);
     }
-    let version = source.pin_current(scope.version).map_err(source_error)?;
+    let version = pin_current_for(source, scope.version, Channel::Gui)
+        .map_err(|error| source_error(error.query()))?;
     select_pinned(version, scope, &mut cancelled)
 }
 

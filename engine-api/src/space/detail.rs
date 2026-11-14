@@ -15,7 +15,6 @@ use du_core_contracts::{
 use crate::{
     api::{CallerCtx, Channel, EngineBuilder, UseCase},
     error::EngineError,
-    source_exposure::admit_version_source,
 };
 
 const UNAVAILABLE: &str = "space.data_insufficient";
@@ -43,8 +42,7 @@ impl UseCase for Query {
         request: Self::Request,
         caller: &CallerCtx,
     ) -> Result<SpaceDetail, EngineError> {
-        let version = super::pin(&self.0, Some(&request.result_version))?;
-        admit_version_source(version.as_ref(), caller)?;
+        let version = super::pin(&self.0, Some(&request.result_version), caller.channel)?;
         let facts = version
             .space_detail(&request.item)
             .map_err(super::query_error)?;

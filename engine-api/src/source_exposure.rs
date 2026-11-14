@@ -1,10 +1,20 @@
-//! Source exposure table for external channels (FR2.HD4.app-host.DD1, IF-18).
+//! Source exposure table and the version pins that apply it (FR2.HD4.app-host.DD1, IF-18).
 //!
 //! The GUI shows sample results labelled as samples. CLI and MCP callers must
 //! not learn that a sample result exists, so a pinned sample version is
 //! reported as `ref.unavailable` on those channels.
+//!
+//! Every use case that pins a result version of the shared store pins it through
+//! [`pin_current_for`], [`pin_latest_for`] or [`pin_scan_for`]. The pin and the source check
+//! happen in one call, so a hidden version never reaches the caller and a new use case cannot
+//! forget the check. A hidden version fails as [`PinError::Hidden`], which each caller reports
+//! with the reason it uses for a missing reference. The `pin_guard` test lists the files that
+//! still pin directly and why.
 
-use du_core_contracts::{data_source::DataSource, result::ResultVersionRead};
+use std::sync::Arc;
+
+use du_analysis_index::{BuildError, IngestSink, QueryError, ResultVersion};
+use du_core_contracts::{Id, data_source::DataSource, result::ResultVersionRead};
 
 use crate::{
     api::{CallerCtx, Channel},
@@ -45,6 +55,74 @@ pub(crate) fn admit_version_source(
     caller: &CallerCtx,
 ) -> Result<(), EngineError> {
     admit_source(version.data_source(), caller)
+}
+
+/// Why a pin for a channel produced no version.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PinError {
+    /// The store refused the pin.
+    Query(QueryError),
+    /// The version exists but its source is hidden from the channel.
+    Hidden,
+}
+
+impl PinError {
+    /// The store's view of the failure: a hidden version reads as a missing one.
+    ///
+    /// Use it where the caller maps `QueryError` to `ref.unavailable` for a missing version.
+    pub(crate) fn query(self) -> QueryError {
+        match self {
+            Self::Query(error) => error,
+            Self::Hidden => QueryError::NotFound,
+        }
+    }
+}
+
+impl From<QueryError> for PinError {
+    fn from(error: QueryError) -> Self {
+        Self::Query(error)
+    }
+}
+
+/// Applies the exposure table to the outcome of a pin.
+pub(crate) fn admit_pinned(
+    pinned: Result<Arc<ResultVersion>, QueryError>,
+    channel: Channel,
+) -> Result<Arc<ResultVersion>, PinError> {
+    let version = pinned?;
+    match exposure(version.data_source(), channel) {
+        Exposure::Allow => Ok(version),
+        Exposure::Hide => Err(PinError::Hidden),
+    }
+}
+
+/// Pins the current version `expected` of `store` for a caller on `channel`.
+pub(crate) fn pin_current_for(
+    store: &IngestSink,
+    expected: &Id,
+    channel: Channel,
+) -> Result<Arc<ResultVersion>, PinError> {
+    admit_pinned(store.pin_current(expected), channel)
+}
+
+/// Pins an exact scan revision, or the latest current scan, for a caller on `channel`.
+pub(crate) fn pin_scan_for(
+    store: &IngestSink,
+    lineage: Option<&Id>,
+    revision: Option<&Id>,
+    channel: Channel,
+) -> Result<Arc<ResultVersion>, PinError> {
+    admit_pinned(store.pin_scan(lineage, revision), channel)
+}
+
+/// Pins the latest published result for a caller on `channel`; a hidden one reads as none.
+pub(crate) fn pin_latest_for(
+    store: &IngestSink,
+    channel: Channel,
+) -> Result<Option<Arc<ResultVersion>>, BuildError> {
+    Ok(store
+        .pin()?
+        .filter(|version| exposure(version.data_source(), channel) == Exposure::Allow))
 }
 
 #[cfg(test)]
@@ -155,3 +233,8 @@ mod tests {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod pin_guard;
+#[cfg(test)]
+mod pin_tests;

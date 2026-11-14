@@ -46,8 +46,12 @@ impl UseCase for Rows {
     fn execute(
         &self,
         request: Self::Request,
-        _: &CallerCtx,
+        caller: &CallerCtx,
     ) -> Result<Self::Response, EngineError> {
+        self.0
+            .pages
+            .refuse_hidden(&request.result_revision, caller.channel)
+            .map_err(rows_error)?;
         self.0.rows(&request).map_err(rows_error)
     }
 }
@@ -65,8 +69,12 @@ impl UseCase for Locate {
     fn execute(
         &self,
         request: Self::Request,
-        _: &CallerCtx,
+        caller: &CallerCtx,
     ) -> Result<Self::Response, EngineError> {
+        self.0
+            .pages
+            .refuse_hidden(&request.item_ref.result_version, caller.channel)
+            .map_err(rows_error)?;
         match self
             .0
             .locate(&request.model_ref, &request.item_ref)
@@ -95,11 +103,15 @@ impl UseCase for GroupRows {
     fn execute(
         &self,
         request: Self::Request,
-        _: &CallerCtx,
+        caller: &CallerCtx,
     ) -> Result<Self::Response, EngineError> {
         if request.validate().is_err() {
             return Err(EngineError::reason("command.body_invalid"));
         }
+        self.0
+            .pages
+            .refuse_hidden_model(&request.model_ref, caller.channel)
+            .map_err(rows_error)?;
         let page = self
             .0
             .group_rows(

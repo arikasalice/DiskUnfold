@@ -15,8 +15,7 @@ impl Runtime {
         self.regions
             .validate_region(&self.owner, &request.view_channel, ())
             .map_err(|_| unavailable())?;
-        let source = self.pin_source(&request)?;
-        crate::source_exposure::admit_version_source(source.version().as_ref(), caller)?;
+        let source = self.pin_source(&request, caller.channel)?;
         validate_scope(&request, &source)?;
         let max_shapes = validate_viewport(&request, &self.assembly.policy)?;
         let strategy = request.strategy.as_ref().map(|s| LayoutStrategyKey {
@@ -99,6 +98,7 @@ impl Runtime {
         Ok(Admitted {
             request,
             source,
+            channel: caller.channel,
             facts,
             key,
             descriptor,
@@ -108,7 +108,12 @@ impl Runtime {
             required_data,
         })
     }
-    fn pin_source(&self, request: &VizRenderRequest) -> Result<CurrentAnalysis, EngineError> {
+    /// Pins the source for `channel`; a source it may not see fails as `ref.unavailable`.
+    fn pin_source(
+        &self,
+        request: &VizRenderRequest,
+        channel: crate::api::Channel,
+    ) -> Result<CurrentAnalysis, EngineError> {
         if let Some(selection) = &self.selection {
             let selected = selection
                 .selected_result_revision(&request.view_channel)
@@ -118,6 +123,7 @@ impl Runtime {
                 &self.assembly.source,
                 &selected,
                 request.result_revision.as_ref(),
+                channel,
             )
             .map_err(source_error)?;
             if let Some(reference) = &request.source_ref {
@@ -139,6 +145,7 @@ impl Runtime {
             &self.assembly.source,
             lineage,
             request.result_revision.as_ref(),
+            channel,
         )
         .map_err(source_error)
     }
