@@ -1,5 +1,7 @@
 //! File membership and category totals from one immutable analysis result.
 
+pub mod ruleset;
+
 use std::{collections::BTreeMap, sync::Arc};
 
 use du_core_contracts::{
