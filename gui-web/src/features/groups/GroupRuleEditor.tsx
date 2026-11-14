@@ -15,6 +15,7 @@ import type { SizeDisplay } from "../../i18n/bytes";
 import { useLocaleText } from "../../i18n/presentation";
 import type { LocaleText } from "../../i18n/presentation";
 import type { GroupSummary, GroupTotals } from "../../ipc";
+import { trimGroupName } from "../../state/groups-conditions";
 import type { DraftRule } from "../../state/groups-conditions";
 import type { ReadState, TotalsKey } from "../../state/groups-details";
 import type {
@@ -118,11 +119,12 @@ function RuleFields({
         description={
           issue
             ? reasonLabel(issue, text)
-            : rule.displayName.trim() === ""
+            : trimGroupName(rule.displayName) === ""
               ? text("ui.groups.problem_empty_name", "Enter a group name.")
               : ""
         }
         onChange={(name) => editor.rename(rule.key, name)}
+        onBlur={() => editor.trimName(rule.key)}
       />
       <GroupConditionFields
         rule={rule}
@@ -152,7 +154,7 @@ function GroupList({
   const unnamed = text("ui.groups.unnamed_rule", "(unnamed group)");
   const selected = state.drafts.find((rule) => rule.key === state.selected);
   const index = state.drafts.findIndex((rule) => rule.key === state.selected);
-  const label = selected?.displayName || unnamed;
+  const label = trimGroupName(selected?.displayName ?? "") || unnamed;
   return (
     <section
       className="du-groups-manage"
@@ -164,7 +166,7 @@ function GroupList({
           value={state.selected ?? ""}
           options={state.drafts.map((rule) => ({
             value: rule.key,
-            label: rule.displayName || unnamed,
+            label: trimGroupName(rule.displayName) || unnamed,
           }))}
           onChange={(key) => !saving && editor.select(key)}
         />

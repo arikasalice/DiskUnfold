@@ -5,6 +5,7 @@ import {
   newRow,
   ruleProblems,
   toRuleDraft,
+  trimGroupName,
 } from "./groups-conditions";
 import type {
   ConditionRow,
@@ -183,6 +184,24 @@ export class GroupRuleEditor {
 
   rename(key: string, displayName: string): void {
     this.edit(key, (rule) => ({ ...rule, displayName }));
+  }
+
+  /**
+   * Trims surrounding white space from a group name once its field loses focus.
+   * Requests already carry the trimmed name, so review results stay valid.
+   */
+  trimName(key: string): void {
+    if (!this.editable()) return;
+    const rule = this.state.drafts.find((draft) => draft.key === key);
+    if (!rule) return;
+    const displayName = trimGroupName(rule.displayName);
+    if (displayName === rule.displayName) return;
+    this.change(
+      this.state.drafts.map((draft) =>
+        draft.key === key ? { ...draft, displayName } : draft,
+      ),
+      this.state.selected,
+    );
   }
 
   addRow(key: string, kind: ConditionRow["kind"]): void {

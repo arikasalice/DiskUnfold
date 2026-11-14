@@ -329,6 +329,8 @@ pub struct AnalysisJobTerminal {
     /// Per-job sequence of the terminal event.
     #[cfg_attr(feature = "typescript", ts(type = "number"))]
     pub sequence: u64,
+    /// 0 when the job ended without a result: its counted units are then in
+    /// `unprocessed`, so `completed + failed` can be below its last progress.
     #[cfg_attr(feature = "typescript", ts(type = "number"))]
     pub completed: u64,
     #[cfg_attr(feature = "typescript", ts(type = "number"))]

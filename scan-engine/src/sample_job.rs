@@ -28,7 +28,7 @@ use du_core_contracts::{
 
 use crate::sample_bundle::{SampleObservationState, ValidatedBundle};
 use crate::sample_source::{SAMPLE_ROOT_PATH, SampleScope};
-use crate::scan::{DevicePlan, ResultIds, collect_open_forest_diagnostic};
+use crate::scan::{DevicePlan, ResultIds, collect_open_forest_diagnostic, unpublished_counts};
 use context::SampleContext;
 
 /// Job kind that publishes the sample observations of a validated bundle.
@@ -132,9 +132,14 @@ impl SampleLoad {
         }
     }
 
-    /// The progress total: the item count the bundle header declares.
+    /// The progress total in the unit the collector counts: the item count the
+    /// bundle header declares plus the scope root of each observation point.
     pub fn progress_total(&self) -> u64 {
-        self.bundle.header().declared_item_count
+        let roots = self.bundle.observation_count() as u64;
+        self.bundle
+            .header()
+            .declared_item_count
+            .saturating_add(roots)
     }
 
     fn load(&self, context: &Arc<dyn JobContext>, counts: &mut JobCounts) -> SampleLoadEnd {
@@ -194,8 +199,8 @@ impl SampleLoad {
                 None,
             ),
         );
-        // The collector counts each bundle item once and never the scope root
-        // directory that was read without a gap (NFR5.HD1.app-host.DD1).
+        // The collector counts each bundle item and the scope root directory
+        // once (NFR5.HD1.app-host.DD1).
         counts.completed += outcome.counts.completed;
         counts.failed += outcome.counts.failed;
         if outcome.failure_reason_key.is_some() {
@@ -270,6 +275,8 @@ impl JobBody for SampleLoad {
         if end != SampleLoadEnd::Done {
             self.discard();
             counts.unprocessed = total.saturating_sub(counts.completed + counts.failed);
+            // The session's versions were released, so no counted item is usable.
+            counts = unpublished_counts(counts);
         }
         self.report.with(|state| state.end = Some(end));
         let unprocessed = counts.unprocessed;

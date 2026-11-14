@@ -17,7 +17,7 @@ use du_core_contracts::{
 
 use crate::scan::{
     DevicePlan, PreMetadataFilter, ResultIds, ScanControlHandle, ScanControlSession,
-    collect_open_forest_diagnostic,
+    collect_open_forest_diagnostic, internal_failure,
 };
 
 type DeviceRoots = Vec<(OpenedScopeRoot, Option<Vec<u8>>)>;
@@ -254,13 +254,7 @@ impl JobBody for MetadataScan {
                 if let Some(control) = &self.control {
                     control.finish();
                 }
-                JobOutcome {
-                    counts: Default::default(),
-                    completed_scope: false,
-                    failure_reason_key: Some("support.internal_error".into()),
-                    unprocessed_summary: None,
-                    result_version_id: None,
-                }
+                internal_failure(Default::default())
             }
         }
     }
