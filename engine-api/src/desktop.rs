@@ -10,7 +10,7 @@ pub use crate::recent_scope::{
     RecentScopeAdmission, RecentScopeAdmissions, RecentScopeDelivery, RecentScopeDeliveryReceipt,
 };
 use du_core_contracts::{
-    ENVELOPE_VERSION, EventEnvelope, Id, Timestamp,
+    ENVELOPE_VERSION, EventEnvelope, Timestamp,
     analysis_ipc::{TargetProbeEvent, TargetStatusChanged},
     history_ipc::{HISTORY_CHANGED, HistoryChangedBody},
     job::{HistoryChangeReason, HistoryChanged, HistoryRecovery, JobHistory},
@@ -19,18 +19,21 @@ use du_core_contracts::{
     scan_observation::ScopeRootPort,
     volume::VolumePort,
 };
-use du_job_runtime::{FlowLimits, JobClock, JobEvent, JobEvents, JobIdentity, JobRuntime};
+use du_job_runtime::{FlowLimits, JobEvent, JobEvents, JobRuntime};
 use serde_json::json;
 
+mod sample_sink;
 pub(crate) mod scan_completion;
 mod shutdown;
 #[cfg(feature = "shutdown-test-support")]
 pub mod shutdown_fixture;
+mod system;
 mod visualization;
 pub use crate::scan::{ScanDiagnosticsFactory, SharedTableLimit, SharedTableLimitSource};
-use crate::{api::EngineBuilder, jobs, scan, scope, targets, workers::Workers};
+use crate::{api::EngineBuilder, jobs, sample, scan, scope, targets, workers::Workers};
 pub use du_scan_engine::scan_job::ScanDiagnostics;
 pub use scan_completion::CompletedScanSource;
+use system::{SystemClock, SystemIdentity};
 pub use visualization::{VisualizationPreview, VisualizationServices};
 
 // Provisional until the target probe deadline is measured across supported devices.
@@ -188,11 +191,12 @@ fn register_services_inner(
     let clock = Arc::new(SystemClock(Instant::now()));
     let events = Arc::new(DesktopEvents::default());
     let scan_events = Arc::new(scan_completion::ScanEvents::new(events.clone()));
+    let sample_events = Arc::new(sample::SampleEvents::new(scan_events.clone()));
     let runtime = Arc::new(JobRuntime::new_with_limits(
         ids.clone(),
         clock.clone(),
         history,
-        scan_events.clone(),
+        sample_events.clone(),
         FlowLimits {
             metadata_io: 16,
             queued_items: 64,
@@ -240,6 +244,15 @@ fn register_services_inner(
     };
     let store = sets.source();
     let completed_scans = scan_events.bind(store.clone())?;
+    let sample_ids = ids.clone();
+    sample_sink::bind(
+        &sample_events,
+        builder,
+        &workers,
+        store.clone(),
+        sample_ids,
+        &events,
+    )?;
     let visualization = VisualizationServices::new(store.clone(), ids.clone(), workers.clone());
     let search = crate::browse::folder::commands::register(builder, sets, ids, workers, random)?;
     crate::scan_failures::register(builder, store.clone(), random);
@@ -253,26 +266,6 @@ fn register_services_inner(
         completed_scans,
         recent_scope_admissions,
     })
-}
-
-struct SystemIdentity;
-
-impl JobIdentity for SystemIdentity {
-    fn next_id(&self) -> Id {
-        Id::from_v7_bytes(*uuid::Uuid::now_v7().as_bytes())
-    }
-}
-
-struct SystemClock(Instant);
-
-impl JobClock for SystemClock {
-    fn monotonic_now(&self) -> Option<Duration> {
-        Some(self.0.elapsed())
-    }
-
-    fn now_ms(&self) -> i64 {
-        utc_now_ms()
-    }
 }
 
 fn utc_now_ms() -> i64 {
@@ -296,6 +289,8 @@ fn utc_now_timestamp() -> Option<Timestamp> {
 
 #[cfg(test)]
 mod delivery_failure_tests;
+#[cfg(test)]
+mod sample_tests;
 #[cfg(test)]
 mod tests;
 
