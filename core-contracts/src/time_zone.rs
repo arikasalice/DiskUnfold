@@ -9,6 +9,8 @@ pub enum TimeZoneId {
     Windows(String),
     /// The zone identifier returned by the Linux system time library.
     Linux(String),
+    /// The zone identifier returned by Foundation (`NSTimeZone`), not asserted to be an IANA name.
+    MacOs(String),
 }
 
 /// A successful local offset observation, optionally with an OS identifier.

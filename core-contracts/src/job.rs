@@ -47,10 +47,24 @@ pub enum HistoryMode {
     Summary,
     None,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// The unit in which a job kind counts its progress.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
 pub enum ProgressUnit {
     Items,
     Bytes,
+}
+
+/// One progress report from a job body to its runtime (F24 IF-13).
+///
+/// Amounts use the unit declared by the job kind's descriptor.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct JobProgress {
+    /// Units processed so far.
+    pub completed: u64,
+    /// The confirmed total, or none while the total is not established.
+    pub total: Option<u64>,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct JobDescriptor {
@@ -220,6 +234,13 @@ pub trait JobContext: Send + Sync {
     fn monotonic_now(&self) -> Option<std::time::Duration> {
         None
     }
+    /// Reports the body's latest progress without blocking (F24 IF-13).
+    ///
+    /// A later report replaces an earlier one. The runtime publishes at most one
+    /// value per job and batch interval, so intermediate values may be skipped,
+    /// and it discards reports that arrive after the job's terminal state. The
+    /// default ignores the report for contexts that do not deliver progress.
+    fn report_progress(&self, _progress: JobProgress) {}
     /// Returns Busy rather than spawning or waiting when no metadata I/O permit is available.
     /// Returns UnsupportedResource when metadata I/O is disabled or not declared for the job.
     fn try_start_flow(&self) -> Result<Box<dyn JobFlow>, JobFlowError>;

@@ -18,6 +18,7 @@ fn frame(root_index: u32, path: Vec<Vec<u8>>) -> Frame {
         root_published: false,
         batch_pending: false,
         case_observed: false,
+        boundary: Boundary::Unknown,
     }
 }
 

@@ -3,6 +3,7 @@ use crate::{ByteSize, Id, ItemRef, OsPath, SizeValue, Timestamp};
 use serde::{Deserialize, Serialize};
 
 mod f03_request;
+mod job_progress;
 mod recent_scope;
 use f03_request::F03RequestItemRef;
 
@@ -10,6 +11,7 @@ pub(crate) use f03_request::{
     deserialize_f03_request_item_ref, deserialize_f03_request_object,
     deserialize_optional_f03_request_item_ref,
 };
+pub use job_progress::{AnalysisJobProgress, JOB_PROGRESS};
 pub use recent_scope::{
     RecentScopeList, RecentScopeListRequest, RecentScopeListRow, RecentScopeOpen,
     RecentScopeOpenRequest, RecentScopeOpenTarget, RecentScopeTargetState,

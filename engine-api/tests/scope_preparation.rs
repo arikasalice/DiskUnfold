@@ -57,6 +57,10 @@ impl AnchoredDirectory for Handle {
     fn ancestor_file_ids(&self) -> Option<&[Vec<u8>]> {
         self.ancestors.as_deref()
     }
+    // Scope preparation never collects, so handle identity is not supported.
+    fn observed_identity(&self) -> Option<du_core_contracts::scan_observation::HandleIdentity> {
+        None
+    }
 }
 
 type Ancestors = BTreeMap<Vec<u8>, Option<Vec<Vec<u8>>>>;

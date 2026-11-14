@@ -8,6 +8,9 @@ use du_core_contracts::{
 use du_job_runtime::{JobEvent, JobEvents};
 use std::sync::{Arc, OnceLock};
 
+mod progress;
+pub(crate) use progress::ProgressEvents;
+
 /// Read-only admission for a current scan proposed as a comparison source.
 pub struct CompletedScanSource(IngestSink);
 
@@ -19,12 +22,13 @@ impl CompletedScanSource {
 }
 
 pub(crate) struct ScanEvents {
-    downstream: Arc<dyn JobEvents>,
+    downstream: Arc<dyn ProgressEvents>,
     source: OnceLock<IngestSink>,
 }
 
 impl ScanEvents {
-    pub(crate) fn new(downstream: Arc<dyn JobEvents>) -> Self {
+    /// Wraps the runtime's event sink, which also relays batched job progress.
+    pub(crate) fn new(downstream: Arc<impl ProgressEvents + 'static>) -> Self {
         Self {
             downstream,
             source: OnceLock::new(),
@@ -59,6 +63,10 @@ impl JobEvents for ScanEvents {
 
     fn publish_history_changed(&self, change: HistoryChanged) {
         self.downstream.publish_history_changed(change);
+    }
+
+    fn publish_progress(&self, event: du_job_runtime::JobProgressEvent) {
+        self.downstream.relay_progress(event);
     }
 
     fn retire_job(&self, id: &Id) {

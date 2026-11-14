@@ -143,6 +143,9 @@ impl DirectoryObservations for FilteredRoot {
     }
 }
 impl AnchoredDirectory for FilteredRoot {
+    fn observed_identity(&self) -> Option<du_core_contracts::scan_observation::HandleIdentity> {
+        crate::scan::test_identity(self)
+    }
     fn open_child(&self, _: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError> {
         Err(PortError {
             kind: PortErrorKind::Unsupported,
@@ -309,10 +312,20 @@ impl AnchoredDirectory for PartialRoot {
             probes: self.probes.clone(),
         }))
     }
+
+    fn observed_identity(&self) -> Option<du_core_contracts::scan_observation::HandleIdentity> {
+        Some(du_core_contracts::scan_observation::HandleIdentity {
+            device: 1,
+            inode: 1,
+            ancestors: Vec::new(),
+        })
+    }
 }
 
+/// An undecidable exclusion keeps only that name unread (FR1.HD1.app-host.DD1).
+/// An adapter that cannot apply the filter still withdraws the collection.
 #[test]
-fn undecidable_or_unsupported_after_partial_withdraws_the_publication()
+fn undecidable_name_stays_unread_and_unsupported_after_partial_withdraws()
 -> Result<(), Box<dyn std::error::Error>> {
     let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
     for unsupported in [false, true] {
@@ -354,15 +367,26 @@ fn undecidable_or_unsupported_after_partial_withdraws_the_publication()
             },
         );
         assert!(saw_partial.load(Ordering::SeqCst));
-        assert!(outcome.result_version_id.is_none());
         assert_eq!(probes.load(Ordering::SeqCst), 0);
+        let current = sink
+            .pin()
+            .map_err(|e| format!("{e:?}"))?
+            .ok_or("missing result")?;
+        if unsupported {
+            assert!(outcome.result_version_id.is_none());
+            assert_eq!(current.version_id(), baseline.version_id());
+            continue;
+        }
         assert_eq!(
-            sink.pin()
-                .map_err(|e| format!("{e:?}"))?
-                .ok_or("missing baseline")?
-                .version_id(),
-            baseline.version_id()
+            outcome.result_version_id.as_ref(),
+            Some(current.version_id())
         );
+        let unread = vec![b"folder".to_vec(), b"unknown".to_vec()];
+        assert_eq!(current.scope_gaps().len(), 1);
+        assert_eq!(current.scope_gaps()[0].path, unread);
+        assert_eq!(current.scan_issues().len(), 1);
+        assert_eq!(current.scan_issues()[0].relative, unread);
+        assert!(current.items().iter().all(|item| item.name != b"unknown"));
     }
     Ok(())
 }

@@ -56,6 +56,9 @@ impl JobEvents for Fanout {
     fn publish_history_changed(&self, event: HistoryChanged) {
         self.downstream.publish_history_changed(event);
     }
+    fn publish_progress(&self, event: crate::JobProgressEvent) {
+        self.downstream.publish_progress(event);
+    }
     fn retire_job(&self, id: &Id) {
         if !self.bus.retire_job(id) {
             self.failed.store(true, Ordering::Release);
