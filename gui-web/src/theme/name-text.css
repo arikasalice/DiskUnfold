@@ -1,3 +1,10 @@
+/* Paths break after a separator first; a component wider than the line still
+   wraps. Korean components stay whole like words. */
+.du-path {
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
 /* The real edge white space stays in the text for copying and takes no room;
    the marks stand in its place. */
 .du-name__space {

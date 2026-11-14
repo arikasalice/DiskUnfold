@@ -183,7 +183,6 @@ export function ObservationSummary({
                     ).map((entry) => entry.label)}
                   />
                 ),
-                wideValue: true,
               },
               {
                 label: text("ui.browse.source", "Source"),
@@ -194,7 +193,6 @@ export function ObservationSummary({
                 value:
                   page.observedAt ??
                   text("ui.browse.unavailable", "Unavailable"),
-                wideValue: true,
               },
               {
                 label: text("ui.browse.result", "Result"),

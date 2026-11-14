@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ContextType, RefObject } from "react";
+import type { ContextType, ReactNode, RefObject } from "react";
 import { Tooltip, TooltipTriggerStateContext } from "react-aria-components";
 import { useLocaleText } from "../i18n/presentation";
 import type { LocaleText } from "../i18n/presentation";
@@ -127,6 +127,22 @@ function Edge({ characters, count }: { characters: string; count: number }) {
 }
 
 /**
+ * A path with a line break opportunity after each separator. The `<wbr>`
+ * elements hold no text, so the text content and a copy stay the path.
+ */
+function breakAfterSeparators(path: string): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  let start = 0;
+  for (let index = 0; index < path.length; index += 1) {
+    if (path[index] !== "/" && path[index] !== "\\") continue;
+    nodes.push(path.slice(start, index + 1), <wbr key={index} />);
+    start = index + 1;
+  }
+  nodes.push(path.slice(start));
+  return nodes;
+}
+
+/**
  * A file or folder name, or a path whose last component is a name, with its
  * edge white space made visible.
  *
@@ -146,6 +162,8 @@ function Edge({ characters, count }: { characters: string; count: number }) {
  * With `path`, only the last component is treated as a name. The name takes
  * its own direction from its first strong character, so the marks of a
  * right-to-left name stand at its logical start and end.
+ * A path also breaks after its separators before it breaks inside a
+ * component, without changing its text.
  */
 export function NameText({
   name,
@@ -162,16 +180,21 @@ export function NameText({
     : { head: "", name: nameEdges(name), tail: "" };
   const hints = edgeHints(parts.name, text);
   const hint = useNameHint(ref, hints.length > 0);
-  if (hints.length === 0) return name;
+  if (hints.length === 0)
+    return path ? (
+      <span className="du-path">{breakAfterSeparators(name)}</span>
+    ) : (
+      name
+    );
   const edges = parts.name;
   return (
     <span
       ref={ref}
-      className={path ? "du-name du-name--path" : "du-name"}
+      className={path ? "du-name du-path" : "du-name"}
       onPointerEnter={hint.enter}
       onPointerLeave={hint.leave}
     >
-      {parts.head}
+      {breakAfterSeparators(parts.head)}
       <span className="du-name__text" dir="auto">
         <Edge characters={edges.leading} count={edges.leadingCount} />
         {edges.middle}

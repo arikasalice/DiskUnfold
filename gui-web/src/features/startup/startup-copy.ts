@@ -226,7 +226,6 @@ export function checkRows(
     .map((check, index) => ({
       label: checkLabel(check, copy),
       value: outcomeLabel(check, copy),
-      wideValue: true,
       emphasized:
         check.check === "full_disk_access" && check.result === "blocked",
       key: `${check.check}-${index}`,

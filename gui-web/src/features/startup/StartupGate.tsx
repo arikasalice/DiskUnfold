@@ -103,7 +103,6 @@ export function StartupGate({
               rows={rows.map((check) => ({
                 label: checkLabel(check, copy),
                 value: outcomeLabel(check, copy),
-                wideValue: true,
               }))}
             />
             <div className="du-startup__actions">

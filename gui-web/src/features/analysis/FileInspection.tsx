@@ -110,7 +110,6 @@ function attributes(
         itemKind === "file"
           ? text("ui.inspection.file_name", "File name")
           : text("ui.inspection.folder_name", "Folder name"),
-      wideValue: true,
       value:
         detail.displayName.state === "present" ? (
           <div className="du-inspection-name">
@@ -165,7 +164,6 @@ function attributes(
     },
     {
       label: text("ui.inspection.path", "Path"),
-      wideValue: true,
       value: (
         <CopyPath
           client={client}

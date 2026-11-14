@@ -593,7 +593,6 @@ function PinnedResult({
             return {
               label: basisLabels[size.basis],
               value,
-              wideValue: true,
               notes: [
                 ...(raw && raw !== value ? [raw] : []),
                 displayMeasurement(size, completeness, text),
