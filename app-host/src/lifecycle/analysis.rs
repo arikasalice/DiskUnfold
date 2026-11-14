@@ -5,8 +5,8 @@ use du_core_contracts::{
     scan_observation::ScopeRootPort, startup::StartupCapabilitiesPort, volume::VolumePort,
 };
 use du_engine_api::{
-    api::EngineBuilder,
-    desktop::{self, DesktopEvents},
+    api::{Engine, EngineBuilder},
+    desktop::{self, DesktopEvents, DesktopServices, SharedTableLimitSource},
 };
 
 #[cfg(windows)]
@@ -17,11 +17,18 @@ use crate::{
 };
 
 /// Read-only collection adapters that one platform supplies to the analysis flow.
-#[cfg_attr(not(windows), allow(dead_code))]
+#[derive(Clone)]
+#[cfg_attr(target_os = "macos", allow(dead_code))]
 struct ScanPorts {
     roots: Arc<dyn ScopeRootPort>,
     volumes: Arc<dyn VolumePort>,
 }
+
+/// Use cases that must exist once the analysis flow is registered.
+///
+/// FR1.HD2.app-host.DD1: engine-api registers the `scan.metadata` job kind in
+/// the same step as `scan.start`, which supplies its job bodies.
+const REQUIRED_USE_CASES: [&str; 2] = ["scan.start", "scan.failures"];
 
 /// The single per-platform injection point for scan collection adapters.
 ///
@@ -35,7 +42,16 @@ fn scan_ports() -> Option<ScanPorts> {
             volumes: Arc::new(du_platform_os::volume::WindowsVolumes),
         })
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "linux")]
+    {
+        Some(ScanPorts {
+            roots: Arc::new(du_platform_os::linux_observation::LinuxScopeRoots),
+            volumes: Arc::new(du_platform_os::volume::LinuxVolumes),
+        })
+    }
+    // macOS: return the platform-os scope root and volume adapters here once
+    // they exist; no other assembly change is needed to register scanning.
+    #[cfg(target_os = "macos")]
     {
         None
     }
@@ -70,9 +86,6 @@ pub(super) fn register_desktop(
             recent_worker: None,
         });
     };
-    let history = Arc::new(database.history(crate::settings::current_time_ms));
-    let random = &du_platform_os::entropy::OsRandom;
-    let scan_limit = settings.clone().scan_limit_source();
     #[cfg(windows)]
     let recent_capacity = recent.as_ref().map(|_| {
         crate::recent_scope_open::register(
@@ -87,25 +100,13 @@ pub(super) fn register_desktop(
     });
     #[cfg(not(windows))]
     let recent_capacity = None;
-    let services = match recent_capacity {
-        Some(capacity) => desktop::register_services_with_recent_scope_worker(
-            builder,
-            ports.roots,
-            ports.volumes,
-            history,
-            random,
-            scan_limit,
-            capacity,
-        ),
-        None => desktop::register_services(
-            builder,
-            ports.roots,
-            ports.volumes,
-            history,
-            random,
-            scan_limit,
-        ),
-    }
+    let services = register_analysis(
+        builder,
+        ports,
+        database,
+        settings.clone().scan_limit_source(),
+        recent_capacity,
+    )
     .map_err(|error| report_pre_window_error(capabilities, error))?;
     #[cfg(windows)]
     let recent_worker = recent
@@ -134,6 +135,60 @@ pub(super) fn register_desktop(
         #[cfg(windows)]
         recent_worker,
     })
+}
+
+/// Registers the engine analysis flow once with this platform's adapters.
+///
+/// The job history writer shares the GUI database connection.
+fn register_analysis(
+    builder: &mut EngineBuilder,
+    ports: ScanPorts,
+    database: &SharedDatabase,
+    scan_limit: SharedTableLimitSource,
+    recent_capacity: Option<std::num::NonZeroUsize>,
+) -> Result<DesktopServices, Box<dyn std::error::Error>> {
+    let history = Arc::new(database.history(crate::settings::current_time_ms));
+    let random = &du_platform_os::entropy::OsRandom;
+    match recent_capacity {
+        Some(capacity) => desktop::register_services_with_recent_scope_worker(
+            builder,
+            ports.roots,
+            ports.volumes,
+            history,
+            random,
+            scan_limit,
+            capacity,
+        ),
+        None => desktop::register_services(
+            builder,
+            ports.roots,
+            ports.volumes,
+            history,
+            random,
+            scan_limit,
+        ),
+    }
+}
+
+/// Stops startup when a registered analysis flow lacks a required use case.
+///
+/// Duplicate registrations already fail in engine-api or when the engine is built.
+pub(super) fn verify_registered(
+    engine: &Engine,
+    analysis_registered: bool,
+) -> Result<(), std::io::Error> {
+    if !analysis_registered {
+        return Ok(());
+    }
+    match REQUIRED_USE_CASES
+        .iter()
+        .find(|name| !engine.has_use_case(name))
+    {
+        Some(name) => Err(std::io::Error::other(format!(
+            "startup.registration_failed: missing use case {name}"
+        ))),
+        None => Ok(()),
+    }
 }
 
 /// Marks jobs left running by an earlier session as interrupted.
@@ -175,3 +230,8 @@ pub(super) fn register_history_reads(
         .map_err(|error| std::io::Error::other(format!("history.storage_unavailable: {error:?}")))
         .map_err(report)
 }
+
+#[cfg(all(test, target_os = "linux"))]
+mod linux_scan_tests;
+#[cfg(test)]
+mod tests;

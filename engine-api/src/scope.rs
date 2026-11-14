@@ -1,6 +1,8 @@
 //! Review a desktop scope using evidence obtained from the opened directory.
 mod digest;
 pub mod exclusion;
+#[cfg(test)]
+mod path_tests;
 pub mod preparation;
 pub mod recent;
 
@@ -32,6 +34,10 @@ pub fn recent_scope_fingerprint_v1(conditions: &ScopeDraft) -> Result<[u8; 32], 
 }
 
 /// Registers read-only review for local directories, each on its current volume.
+///
+/// Exclusion rules are accepted only for Unix-encoded scopes, whose raw names
+/// are compared byte for byte. Windows scopes with exclusions need
+/// [`register_review_with_comparison`].
 pub fn register_review(
     builder: &mut EngineBuilder,
     roots: Arc<dyn ScopeRootPort>,
@@ -45,6 +51,9 @@ pub fn register_review(
 }
 
 /// Registers scope review with a verified path-comparison capability.
+///
+/// The capability compares Windows UTF-16LE path rules; Unix-encoded scopes
+/// keep their byte-exact comparison.
 pub fn register_review_with_comparison(
     builder: &mut EngineBuilder,
     roots: Arc<dyn ScopeRootPort>,
@@ -87,22 +96,20 @@ impl UseCase for Review {
                 request.request_seq,
                 &*self.roots,
                 &*self.clock,
-                self.comparison
-                    .clone()
-                    .ok_or_else(|| EngineError::reason("scope.exclude_invalid"))?,
+                self.comparison.clone(),
             );
         }
         let [single] = draft.includes.as_slice() else {
             return review_multiple(draft, request.request_seq, &*self.roots, &*self.clock);
         };
-        let mut path = windows_path(single)?;
+        let mut path = native_path(single)?;
         let raw = path
             .raw
             .bytes()
             .map_err(|_| EngineError::reason("path.unresolvable"))?;
         let opened = self.roots.open_root(&raw);
         if let Ok(root) = &opened {
-            path = windows_path(&root.canonical_path)?;
+            path = native_path(&root.canonical_path)?;
         }
         draft.includes = vec![path.clone()];
         let (_, review_fingerprint) = fingerprints(&draft, &path, opened.as_ref().ok())?;
@@ -127,16 +134,8 @@ impl UseCase for Review {
 }
 
 fn validate(draft: &ScopeDraft, has_comparison: bool) -> Result<(), EngineError> {
-    if !draft.exclusions.is_empty()
-        && (!has_comparison
-            || draft.exclusions.iter().any(|rule| {
-                !matches!(
-                    rule,
-                    du_core_contracts::analysis_ipc::ScopeExclusion::Path { .. }
-                )
-            }))
-    {
-        return Err(EngineError::reason("scope.exclude_invalid"));
+    if !draft.exclusions.is_empty() {
+        exclusion::check(draft, has_comparison)?;
     }
     if draft.includes.is_empty() {
         return Err(EngineError::reason("scope.empty"));
@@ -253,6 +252,34 @@ pub(crate) fn windows_path(path: &OsPath) -> Result<OsPath, EngineError> {
     })
 }
 
+/// Validates a scope path in its declared native encoding.
+///
+/// Windows paths are nonempty UTF-16LE code units and Unix paths are absolute raw
+/// bytes; neither may contain NUL. Only the scope root adapter decides whether
+/// the platform can open a path, so a foreign encoding fails when it is opened.
+pub(crate) fn native_path(path: &OsPath) -> Result<OsPath, EngineError> {
+    match path.encoding {
+        PathEncoding::WindowsUtf16le => windows_path(path),
+        PathEncoding::Unix => unix_path(path),
+    }
+}
+
+fn unix_path(path: &OsPath) -> Result<OsPath, EngineError> {
+    let invalid = || EngineError::reason("path.unresolvable");
+    let raw = path.raw.bytes().map_err(|_| invalid())?;
+    if raw.first() != Some(&b'/') || raw.contains(&0) {
+        return Err(invalid());
+    }
+    let display = String::from_utf8(raw);
+    Ok(OsPath {
+        encoding: PathEncoding::Unix,
+        raw: path.raw.clone(),
+        lossy: display.is_err(),
+        display: display
+            .unwrap_or_else(|error| String::from_utf8_lossy(error.as_bytes()).into_owned()),
+    })
+}
+
 /// An anchored scope and its identity-independent fingerprint.
 pub(crate) struct VerifiedScope {
     pub roots: Vec<OpenedScopeRoot>,
@@ -295,13 +322,7 @@ pub(crate) fn verify(
 ) -> Result<VerifiedScope, EngineError> {
     validate(draft, comparison.is_some())?;
     if !draft.exclusions.is_empty() {
-        return exclusion::verify(
-            draft,
-            expected,
-            roots,
-            comparison.ok_or_else(|| EngineError::reason("scope.exclude_invalid"))?,
-            include_recent,
-        );
+        return exclusion::verify(draft, expected, roots, comparison, include_recent);
     }
     let [single] = draft.includes.as_slice() else {
         let prepared = preparation::prepare_with_recent(
@@ -328,7 +349,7 @@ pub(crate) fn verify(
             filter: None,
         });
     };
-    let path = windows_path(single)?;
+    let path = native_path(single)?;
     let raw = path
         .raw
         .bytes()
@@ -340,7 +361,7 @@ pub(crate) fn verify(
     }
     .map_err(|_| EngineError::reason("scope.changed"))?;
     let mut normalized = draft.clone();
-    let canonical = windows_path(&root.canonical_path)?;
+    let canonical = native_path(&root.canonical_path)?;
     normalized.includes = vec![canonical.clone()];
     let (scope_fingerprint, review) = fingerprints(&normalized, &canonical, Some(&root))?;
     if review != expected {

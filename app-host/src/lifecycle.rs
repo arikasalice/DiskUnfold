@@ -205,6 +205,10 @@ fn run_app(
         )
     })?);
     #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+    analysis::verify_registered(&engine, analysis_registered).map_err(|error| {
+        crate::startup_checks::report_pre_window_error(capabilities.as_ref(), error)
+    })?;
+    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
     let database_owner = database;
     let engine_owner = Arc::new(Mutex::new(Some(engine)));
     let database_owner = Arc::new(Mutex::new(Some(database_owner)));
