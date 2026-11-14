@@ -16,7 +16,7 @@ fn runtime_publishes_first_and_reused_results_with_separate_history() -> Result<
         .seal(id(4), ResultCompleteness::Complete)
         .map_err(|e| format!("{e:?}"))?;
     assert!(matches!(
-        select_whole_scan(&h.source, &id(2), 0, || false),
+        select_whole_scan(&h.source, Channel::Gui, &id(2), 0, || false),
         Err(du_engine_api::duplicate_scope::Error::StaleVersion)
     ));
     assert_eq!(h.selection.version(), &id(2));
@@ -215,8 +215,8 @@ impl du_engine_api::duplicate_assembly::Preflight for PlatformEvidence {
     }
 }
 fn submit_assembled_raw(h: &Harness, result: u8, supported: bool) -> Result<SubmitResult, String> {
-    let selection =
-        select_whole_scan(&h.source, &id(2), 0, || false).map_err(|e| format!("{e:?}"))?;
+    let selection = select_whole_scan(&h.source, Channel::Gui, &id(2), 0, || false)
+        .map_err(|e| format!("{e:?}"))?;
     let identities = selection
         .files()
         .iter()
@@ -311,8 +311,8 @@ fn assembled_unregistered_runtime_rejects_without_content_open() -> Result<(), S
         1,
     )
     .map_err(|e| format!("{e:?}"))?;
-    let selection =
-        select_whole_scan(&h.source, &id(2), 0, || false).map_err(|e| format!("{e:?}"))?;
+    let selection = select_whole_scan(&h.source, Channel::Gui, &id(2), 0, || false)
+        .map_err(|e| format!("{e:?}"))?;
     let port = Port {
         selected: BTreeMap::new(),
         stats: h.stats.clone(),

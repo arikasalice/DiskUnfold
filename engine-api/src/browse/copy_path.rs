@@ -5,7 +5,7 @@ use du_core_contracts::{
     result::ResultNativePath,
 };
 
-use crate::error::EngineError;
+use crate::{api::Channel, error::EngineError, source_exposure::pin_current_for};
 
 /// Reads exactly the requested revision from the desktop's result store.
 pub struct PathCopy(pub(crate) IngestSink);
@@ -35,21 +35,22 @@ fn validate(request: &BrowseCopyPathRequest) -> Result<(), EngineError> {
 mod tests;
 
 impl PathCopy {
-    /// Pins the revision and collects observed paths in the result's item order.
+    /// Pins the revision for `channel` and collects observed paths in the result's item order.
+    ///
+    /// A revision whose source `channel` may not see is refused as an unavailable reference.
     ///
     /// The adapter supplies exact native text conversion. A single unsupported
     /// path or ambiguous multi-line path refuses the complete batch.
     pub fn prepare(
         &self,
         mut request: BrowseCopyPathRequest,
+        channel: Channel,
         line_ending: &'static str,
         mut path_text: impl FnMut(&ResultNativePath) -> Option<String>,
     ) -> Result<Result<PreparedPathCopy, BrowseCopyPathRefusal>, EngineError> {
         validate(&request)?;
-        let version = self
-            .0
-            .pin_current(&request.result_version)
-            .map_err(super::reason)?;
+        let version = pin_current_for(&self.0, &request.result_version, channel)
+            .map_err(|error| super::reason(error.query()))?;
         request.items.sort_unstable_by_key(|item| item.item_no);
         // Establish every reference before constructing a platform payload.
         for item in &request.items {

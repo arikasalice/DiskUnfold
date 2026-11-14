@@ -9,6 +9,11 @@ use std::sync::Arc;
 use du_analysis_index::{IngestSink, QueryError, ResultVersion};
 use du_core_contracts::{Id, result::ResultVersionRead};
 
+use crate::{
+    api::Channel,
+    source_exposure::{PinError, pin_current_for, pin_scan_for},
+};
+
 /// An immutable current-analysis result and the identifiers retained by its producer.
 #[derive(Clone)]
 pub struct CurrentAnalysis {
@@ -44,33 +49,38 @@ pub enum Error {
 ///
 /// `selected` is a result revision, not a scope, lineage, job, or source ref.
 /// An optional requested revision must match it. No result is silently substituted.
+/// A revision whose source `channel` may not see fails as `Error::UnsupportedSource`.
 /// The returned Arc remains valid for the admitted calculation after replacement.
 pub fn admit_selected(
     source: &IngestSink,
     selected: &Id,
     requested_revision: Option<&Id>,
+    channel: Channel,
 ) -> Result<CurrentAnalysis, Error> {
     if requested_revision.is_some_and(|revision| revision != selected) {
         return Err(Error::StaleVersion);
     }
-    let version = source.pin_current(selected).map_err(pin_error)?;
+    let version = pin_current_for(source, selected, channel).map_err(pin_error)?;
     bind_lineage(version)
 }
 
 /// Admits a visualization request against the current scan result store.
-/// An explicit revision is never substituted with a newer one.
+/// An explicit revision is never substituted with a newer one. A scan whose source
+/// `channel` may not see fails as `Error::UnsupportedSource`.
 pub(crate) fn admit_scan(
     source: &IngestSink,
     lineage: Option<&Id>,
     revision: Option<&Id>,
+    channel: Channel,
 ) -> Result<CurrentAnalysis, Error> {
-    bind_lineage(source.pin_scan(lineage, revision).map_err(pin_error)?)
+    bind_lineage(pin_scan_for(source, lineage, revision, channel).map_err(pin_error)?)
 }
 
-fn pin_error(error: QueryError) -> Error {
+fn pin_error(error: PinError) -> Error {
     match error {
-        QueryError::NotFound => Error::NoSource,
-        QueryError::StaleVersion => Error::StaleVersion,
+        PinError::Hidden => Error::UnsupportedSource,
+        PinError::Query(QueryError::NotFound) => Error::NoSource,
+        PinError::Query(QueryError::StaleVersion) => Error::StaleVersion,
         _ => Error::Unavailable,
     }
 }
