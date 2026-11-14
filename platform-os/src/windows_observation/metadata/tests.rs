@@ -69,3 +69,32 @@ fn root_identity_is_comparable_with_child_metadata_and_keeps_ancestors()
     assert!(child_identity.ancestors.is_empty());
     Ok(())
 }
+
+#[test]
+fn root_ancestors_run_from_the_volume_root_down_to_the_parent()
+-> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempfile::tempdir()?;
+    let child = dir.path().join("parent").join("child");
+    std::fs::create_dir_all(&child)?;
+    let inode = |path: &std::path::Path| -> Result<u64, String> {
+        let directory = open_verified(path).map_err(|e| format!("{e:?}"))?;
+        Ok(directory
+            .observed_identity()
+            .ok_or("identity unavailable")?
+            .inode)
+    };
+    // Every directory from the drive root down to the parent, in that order.
+    let mut expected = child
+        .ancestors()
+        .skip(1)
+        .map(inode)
+        .collect::<Result<Vec<_>, _>>()?;
+    expected.reverse();
+    let identity = open_verified(&child)
+        .map_err(|e| format!("{e:?}"))?
+        .observed_identity()
+        .ok_or("identity unavailable")?;
+    assert_eq!(identity.ancestors, expected);
+    assert_eq!(identity.ancestors.len(), child.ancestors().count() - 1);
+    Ok(())
+}
