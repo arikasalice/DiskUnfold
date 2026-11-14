@@ -36,7 +36,10 @@ pub(in crate::scan::parallel) mod cost {
     }
     /// Returns and clears (index key comparisons, items inspected).
     pub(in crate::scan::parallel) fn take() -> (u64, u64) {
-        (COMPARED.with(|c| c.replace(0)), INSPECTED.with(|c| c.replace(0)))
+        (
+            COMPARED.with(|c| c.replace(0)),
+            INSPECTED.with(|c| c.replace(0)),
+        )
     }
 }
 
@@ -102,6 +105,17 @@ impl ReadyQueue {
         self.len == 0
     }
 
+    /// Every queued item, for structural checks in tests.
+    #[cfg(test)]
+    pub(in crate::scan::parallel) fn frames(&self) -> impl Iterator<Item = &Frame> {
+        self.tiers
+            .iter()
+            .flat_map(BTreeMap::values)
+            .flat_map(BTreeMap::values)
+            .flatten()
+            .map(|(_, frame)| frame)
+    }
+
     /// The lowest class that holds work.
     pub(in crate::scan::parallel) fn best_class(&self) -> Option<usize> {
         self.tiers.iter().position(|tier| !tier.is_empty())
@@ -149,7 +163,11 @@ impl ReadyQueue {
     }
 
     /// Removes every item of `root` from `classes`, visiting only those items.
-    pub(in crate::scan::parallel) fn take_root(&mut self, classes: &[usize], root: u32) -> Vec<Arrival> {
+    pub(in crate::scan::parallel) fn take_root(
+        &mut self,
+        classes: &[usize],
+        root: u32,
+    ) -> Vec<Arrival> {
         let mut taken = Vec::new();
         for &class in classes {
             self.tiers[class.min(NORMAL)].retain(|_, roots| {
@@ -224,6 +242,12 @@ impl Stack {
         self.classes.iter().position(|items| !items.is_empty())
     }
 
+    /// Every stacked item, for structural checks in tests.
+    #[cfg(test)]
+    pub(in crate::scan::parallel) fn frames(&self) -> impl Iterator<Item = &Frame> {
+        self.classes.iter().flatten().map(|(_, frame)| frame)
+    }
+
     pub(in crate::scan::parallel) fn push(&mut self, class: usize, arrival: Arrival) {
         inspected(1);
         self.classes[class.min(NORMAL)].push_back(arrival);
@@ -255,7 +279,11 @@ impl Stack {
     ///
     /// A stack is normally one depth-first chain of a single root, so the pass
     /// mostly visits items of that root.
-    pub(in crate::scan::parallel) fn take_root(&mut self, classes: &[usize], root: u32) -> Vec<Arrival> {
+    pub(in crate::scan::parallel) fn take_root(
+        &mut self,
+        classes: &[usize],
+        root: u32,
+    ) -> Vec<Arrival> {
         let mut taken = Vec::new();
         for &class in classes {
             let items = &mut self.classes[class.min(NORMAL)];
