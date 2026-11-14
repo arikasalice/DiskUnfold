@@ -101,8 +101,10 @@ pub fn collect_parallel_filtered(
 /// Failures, scope gaps, counts and completeness have the parallel collector's
 /// meaning (FR12.HD1.app-host.DD1): a directory that could not be opened or
 /// enumerated, and an entry whose metadata could not be established, is a
-/// scope gap. An explicit disconnection closes the unfinished directories, and
-/// a cancellation records the entries already returned without opening any.
+/// scope gap. An explicit disconnection closes the directory that reported it;
+/// directories already being read are read to their end without opening any
+/// more, and each enumerated directory left unread is a gap of its own. A
+/// cancellation records the entries already returned without opening any.
 /// Each item is counted once, as completed or as failed (NFR5.HD1.app-host.DD1).
 /// A failed first root read leaves no result unless it reports a disconnection.
 pub fn collect(

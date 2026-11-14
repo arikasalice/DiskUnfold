@@ -5,11 +5,10 @@
 //! collector with 1, 2, 4 and 8 workers, with the legacy predicate and with
 //! the pre-metadata filter, must record the same items, failure list, scope
 //! gaps, counts and completeness. Disconnection and cancellation cases stop
-//! at a point that does not depend on worker scheduling, except the nested
-//! disconnections, where the parallel result is a subset of the sequential.
-//! Every result counts each item once (NFR5.HD1.app-host.DD1): `failed`
-//! equals the number of scope gaps, and `completed + failed` the number of
-//! items other than a root that was read without a gap.
+//! at a point that does not depend on worker scheduling. Every result counts
+//! each item once (NFR5.HD1.app-host.DD1): `failed` equals the number of
+//! scope gaps, and `completed + failed` the number of items other than a root
+//! that was read without a gap.
 use super::*;
 use du_core_contracts::result::SpaceAggregate;
 use std::sync::atomic::{AtomicBool, Ordering::SeqCst};
@@ -137,9 +136,19 @@ fn parallel(
     filtered: bool,
     cancel: bool,
 ) -> Result<(Collected, Arc<Faults>), String> {
+    parallel_seeded(listings, (workers, 0), filtered, cancel)
+}
+
+/// Like [`parallel`], with the fixture's seed-dependent delays.
+fn parallel_seeded(
+    listings: HashMap<u64, Listing>,
+    (workers, seed): (usize, u64),
+    filtered: bool,
+    cancel: bool,
+) -> Result<(Collected, Arc<Faults>), String> {
     let ids = Ids(AtomicUsize::new(1));
     let sink = sink_with_result(&ids)?;
-    let (faults, root) = FaultDir::root(listings);
+    let (faults, root) = FaultDir::seeded(listings, seed);
     let context = Cancelling {
         flag: cancel.then(|| Arc::clone(&faults.cancel)),
         inner: context(),
@@ -323,12 +332,18 @@ fn a_disconnected_root_is_a_gap_in_both_collectors() -> Result<(), String> {
     let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
     let reason = "scan.disconnected";
     let baseline = compare(root_batch_disconnects, false)?;
+    // The returned directory is not opened, so it is a gap of its own.
     assert_eq!(
         baseline.run.summary.2,
-        [gap(&[], reason), gap(&["lost"], reason)]
+        [
+            gap(&[], reason),
+            gap(&["folder"], reason),
+            gap(&["lost"], reason)
+        ]
     );
     let issues = [
         range(&[], Stage::Enumerate, reason),
+        range(&["folder"], Stage::Enumerate, reason),
         entry_issue(&["lost"], Kind::CollectionFailed, reason),
     ];
     assert_eq!(baseline.run.summary.1, issues);
@@ -348,8 +363,8 @@ fn a_disconnected_root_is_a_gap_in_both_collectors() -> Result<(), String> {
             path(&["lost"])
         ]
     );
-    assert_eq!(baseline.run.outcome.counts.failed, 2);
-    assert_eq!(baseline.run.outcome.counts.completed, 2);
+    assert_eq!(baseline.run.outcome.counts.failed, 3);
+    assert_eq!(baseline.run.outcome.counts.completed, 1);
     assert!(baseline.run.outcome.completed_scope);
     assert_eq!(baseline.run.completeness, ResultCompleteness::Missing);
     let (_, faults) = parallel(root_batch_disconnects(), 4, false, false)?;
