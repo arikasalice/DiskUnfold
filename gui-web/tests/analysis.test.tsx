@@ -2427,8 +2427,9 @@ test("F02 NFR5: a burst of status events results in one read per frame", async (
 
 test("F02 NFR5.HD1: the progress card counts checked items without claiming a percentage until the total is known", async () => {
   let state: AnalysisJobStatus["state"] = "running";
+  let sequence = 3;
   const { client, listeners } = fixture({
-    readStatus: (base) => ({ ...base, state, resultVersion: null }),
+    readStatus: (base) => ({ ...base, state, sequence, resultVersion: null }),
   });
   await startFixtureScan(client);
   await screen.findByText("Scanning");
@@ -2470,6 +2471,8 @@ test("F02 NFR5.HD1: the progress card counts checked items without claiming a pe
   ).toBe("1500");
 
   state = "paused";
+  // A status read after the change reports at least the notified sequence.
+  sequence = 7;
   act(() => {
     for (const listener of listeners)
       listener({
