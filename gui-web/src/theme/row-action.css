@@ -1,7 +1,14 @@
-/* Shown only on the hovered or focused row; hidden rows keep their height. */
-.du-row-action {
+/*
+ * Shown only on the hovered or focused row. The action overlays the end of the
+ * status text instead of taking a share of its width, so a hidden action does
+ * not wrap the text and a shown one moves neither the row height nor any cell.
+ */
+.du-row-status > .du-row-action {
   visibility: hidden;
-  flex: none;
+  position: absolute;
+  inset-block-start: 50%;
+  inset-inline-end: 0;
+  transform: translateY(-50%);
   min-block-size: 30px;
   padding-block: 3px;
 }
@@ -12,14 +19,7 @@
 }
 
 .du-row-status {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  min-inline-size: 0;
-}
-
-.du-row-status > :first-child {
+  position: relative;
   min-inline-size: 0;
 }
 
