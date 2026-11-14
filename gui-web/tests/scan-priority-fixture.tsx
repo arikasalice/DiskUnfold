@@ -16,7 +16,10 @@ import type {
   ScanPriorityResponse,
 } from "../src/ipc";
 import { useScanPriority } from "../src/state/scan-priority";
-import type { ScanPriorityContext } from "../src/state/scan-priority";
+import type {
+  ScanPriorityContext,
+  ScanPriorityView,
+} from "../src/state/scan-priority";
 
 /*
  * A folder list of the running scan's current result and a scan.prioritize
@@ -134,12 +137,14 @@ function Harness({
   client,
   context,
   browsePort,
+  view,
 }: {
   client: AnalysisClient;
   context: ScanPriorityContext | undefined;
   browsePort: BrowsePort;
+  view: ScanPriorityView | undefined;
 }) {
-  const priority = useScanPriority(client, context);
+  const priority = useScanPriority(client, context, view);
   return (
     <BrowsePanel
       port={browsePort}
@@ -158,16 +163,30 @@ export const running = {
 
 export async function setup(
   context: ScanPriorityContext | undefined = running,
+  shown?: ScanPriorityView,
 ) {
   const { client, answers } = priorityClient();
   const browsePort = port();
-  const view = render(
-    <Harness client={client} context={context} browsePort={browsePort} />,
+  const rendered = render(
+    <Harness
+      client={client}
+      context={context}
+      browsePort={browsePort}
+      view={shown}
+    />,
   );
   await screen.findByText("Photos");
-  const rerender = (next: ScanPriorityContext | undefined) =>
-    view.rerender(
-      <Harness client={client} context={next} browsePort={browsePort} />,
+  const rerender = (
+    next: ScanPriorityContext | undefined,
+    nextShown: ScanPriorityView | undefined = shown,
+  ) =>
+    rendered.rerender(
+      <Harness
+        client={client}
+        context={next}
+        browsePort={browsePort}
+        view={nextShown}
+      />,
     );
   return { answers, browsePort, rerender };
 }

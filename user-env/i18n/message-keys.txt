@@ -670,6 +670,7 @@ ui.browse.analyze_first_folders_only
 ui.browse.analyze_first_excluded
 ui.browse.analyze_first_collected
 ui.browse.analyze_first_requested
+ui.browse.analyze_first_newer_result
 ui.browse.item_actions name:name
 ui.browse.item_count count:count
 ui.browse.item_count_at_least count:count

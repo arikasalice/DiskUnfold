@@ -95,7 +95,7 @@ test("F02 FR8.HD1: the row reads analyzing first only for the applied area of a 
   expect(within(gridRow("Videos")).getByText("Analyzing first")).toBeDefined();
 
   // A paused scan is not working on the folder.
-  rerender({ ...running, scanning: false });
+  rerender({ ...running, scanning: false, paused: true });
   await waitFor(() =>
     expect(
       within(gridRow("Videos")).getByText("Analyze first requested"),
@@ -473,7 +473,7 @@ test("F02 FR8.HD1: a notice says only what the response confirmed", async () => 
   );
 
   // A paused scan applies the area when it continues.
-  hook.rerender({ ...running, scanning: false });
+  hook.rerender({ ...running, scanning: false, paused: true });
   expect(await ask(2, "Videos", applied(2))).toBe(
     "‘Videos’ will be analyzed first when the scan continues. ‘Photos’ returns to its normal order.",
   );
@@ -492,7 +492,7 @@ test("F02 FR8.HD1: a notice says only what the response confirmed", async () => 
 
 test("F02 FR8.HD1: an outcome for a paused scan is withdrawn when the scan continues", async () => {
   const { client, answers } = priorityClient();
-  const paused = { ...running, scanning: false };
+  const paused = { ...running, scanning: false, paused: true };
   const hook = renderHook(
     (context: ScanPriorityContext | undefined) =>
       useScanPriority(client, context),

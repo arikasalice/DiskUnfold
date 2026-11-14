@@ -29,7 +29,9 @@ import { useBrowsePaging } from "./use-browse-paging";
 import { useBrowseCopy } from "./use-browse-copy";
 import {
   canAnalyzeFirst,
+  newerResultReason,
   SelectionAnalyzeFirst,
+  waitsForNewerResult,
 } from "./SelectionAnalyzeFirst";
 import type { Selection } from "./SelectionAnalyzeFirst";
 
@@ -69,17 +71,32 @@ function availability(
   return found.join(" · ") || text("ui.browse.not_reported", "Not reported");
 }
 
+/**
+ * "Analyze first" in the row menu: available for a folder of the running
+ * scan's current result, and unavailable with its reason while the list shows
+ * an earlier result of that scan.
+ */
 function analyzeFirstActions(
   row: FolderQueryRow,
   priority: ScanPriority | undefined,
   readOnly: boolean,
   text: ReturnType<typeof useLocaleText>,
 ): ItemAction[] {
+  const label = text("ui.browse.analyze_first", "Analyze first");
+  if (waitsForNewerResult(row, priority, readOnly))
+    return [
+      {
+        id: "analyze-first",
+        label,
+        onAction: () => undefined,
+        disabledReason: newerResultReason(text),
+      },
+    ];
   if (!canAnalyzeFirst(row, priority, readOnly)) return [];
   return [
     {
       id: "analyze-first",
-      label: text("ui.browse.analyze_first", "Analyze first"),
+      label,
       onAction: () =>
         priority.request(row.item, browseDisplayName(row.displayName, text)),
     },

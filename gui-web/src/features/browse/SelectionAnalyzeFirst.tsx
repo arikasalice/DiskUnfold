@@ -45,6 +45,34 @@ export function canAnalyzeFirst(
   );
 }
 
+/**
+ * Whether the row would offer "Analyze first" but belongs to an earlier result
+ * of the running scan, so the action stays unavailable until the list shows
+ * the scan's newest result.
+ */
+export function waitsForNewerResult(
+  row: FolderQueryRow,
+  priority: ScanPriority | undefined,
+  readOnly: boolean,
+): boolean {
+  return (
+    priority !== undefined &&
+    !readOnly &&
+    row.kind === "directory" &&
+    !excluded(row) &&
+    !collected(row) &&
+    priority.superseded(row.item)
+  );
+}
+
+/** Why "Analyze first" is unavailable while the list shows an earlier result. */
+export function newerResultReason(text: LocaleText): string {
+  return text(
+    "ui.browse.analyze_first_newer_result",
+    "A newer result is available · Switch to it to analyze a folder first",
+  );
+}
+
 /** Why one selected row cannot be analyzed first, when the row itself is the reason. */
 function rowReason(
   row: FolderQueryRow,
@@ -114,6 +142,11 @@ function summaryText(
  * running scan's current result. It acts only on one selected folder that the
  * row action would also offer; otherwise the summary says why.
  *
+ * While the list shows an earlier result of the running scan, the bar stays
+ * with "Analyze first" unavailable and its summary says that a newer result
+ * is available, ahead of any reason about the selection. When the host can
+ * switch the list, the bar also offers "Show latest result".
+ *
  * An unavailable action stays focusable through `aria-disabled` and refers to
  * the summary for its reason, so pressing it by keyboard keeps focus in the
  * bar while the folder becomes requested. If the bar goes away while it holds
@@ -143,11 +176,13 @@ export function SelectionAnalyzeFirst({
   const holdsFocus = useRef(false);
   const first = pages.row(0);
   const notice = priority?.notice;
+  const behind =
+    first !== undefined && priority?.superseded(first.item) === true;
   const visible =
     priority !== undefined &&
     !readOnly &&
     first !== undefined &&
-    (priority.canRequest(first.item) || notice !== undefined);
+    (priority.canRequest(first.item) || behind || notice !== undefined);
   useLayoutEffect(() => {
     function track(event: FocusEvent) {
       holdsFocus.current =
@@ -167,11 +202,16 @@ export function SelectionAnalyzeFirst({
   const row = selectedRow(pages, selection);
   const target =
     row && canAnalyzeFirst(row, priority, readOnly) ? row : undefined;
+  const showLatest = behind ? priority.showLatest : undefined;
   return (
     <SelectionActions
       ref={bar}
       label={text("ui.browse.selection_actions", "Selection actions")}
-      summary={summaryText(count, row, priority, text)}
+      summary={
+        behind
+          ? newerResultReason(text)
+          : summaryText(count, row, priority, text)
+      }
       summaryId={summaryId}
       notice={
         notice && {
@@ -193,6 +233,11 @@ export function SelectionAnalyzeFirst({
         }
       }
     >
+      {showLatest && (
+        <Action onPress={showLatest}>
+          {text("ui.analysis.show_latest", "Show latest result")}
+        </Action>
+      )}
       <Action
         {...(target === undefined
           ? { "aria-disabled": true, "aria-describedby": summaryId }
