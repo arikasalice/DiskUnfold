@@ -192,7 +192,7 @@ fn unregistered_language_keeps_the_existing_usage_error() {
     assert_eq!(stored_reads, 0);
     assert_eq!(os_reads, 0);
     assert!(stdout.is_empty());
-    assert_eq!(stderr, b"DiskUnfold: locale.unsupported\n");
+    assert_eq!(stderr, LOCALE_UNSUPPORTED_LINE);
 }
 
 #[cfg(windows)]

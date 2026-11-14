@@ -75,6 +75,7 @@ pub struct Registry {
     configured_languages: Vec<String>,
     integrity_warnings: Vec<String>,
     missing_messages: missing::MissingMessageQueue,
+    dropped_missing_messages: std::sync::atomic::AtomicU64,
 }
 
 impl Registry {
@@ -197,6 +198,7 @@ impl Registry {
                 .collect(),
             integrity_warnings: warnings,
             missing_messages: missing::MissingMessageQueue::default(),
+            dropped_missing_messages: std::sync::atomic::AtomicU64::new(0),
         })
     }
 
@@ -331,3 +333,6 @@ pub fn parameter_mismatches(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod reason_tests;
