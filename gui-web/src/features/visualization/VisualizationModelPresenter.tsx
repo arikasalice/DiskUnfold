@@ -19,6 +19,7 @@ import type {
   VizRowsRequest,
 } from "../../ipc";
 import { adaptVizModel, selectionKey } from "./model-adapter";
+import { RowName } from "./RowName";
 import type {
   ModelResponse,
   ModelRowsPage,
@@ -291,7 +292,7 @@ export function ModelRows({
           renderCells={(row) => {
             let trigger: HTMLButtonElement | null = null;
             return [
-              row.displayName,
+              <RowName name={row.displayName} item={row.itemRef !== null} />,
               ...(hasOpenableGroups
                 ? [
                     row.groupRef !== null &&

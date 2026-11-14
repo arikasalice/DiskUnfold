@@ -12,7 +12,7 @@
 /* Only identifiers (the digest, paths, commit and source values) may break
    inside a word; prose keeps its words whole. */
 .du-info-screen .du-text--path,
-.du-info-screen .du-readout > .du-readout__wide-value dd {
+.du-info-screen .du-readout > .du-readout__identifier dd {
   overflow-wrap: anywhere;
 }
 
@@ -61,7 +61,8 @@
 
 .du-info-areas .du-readout > div {
   display: grid;
-  grid-template-columns: minmax(0, 12rem) minmax(0, 1fr);
+  /* The area name never wraps, so its column is at least as wide as it. */
+  grid-template-columns: minmax(max-content, 12rem) minmax(0, 1fr);
   align-items: start;
   column-gap: var(--du-space-3);
   padding-block: var(--du-space-3);

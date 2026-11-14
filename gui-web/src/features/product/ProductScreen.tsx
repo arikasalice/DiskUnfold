@@ -77,7 +77,7 @@ export function ProductScreen({ client }: { client: AnalysisClient }) {
             {
               label: copy.commit,
               value: missing(data.commit),
-              wideValue: data.commit !== null,
+              identifier: data.commit !== null,
             },
             { label: copy.builtAt, value: missing(data.builtAtUtc) },
             { label: copy.target, value: target },
