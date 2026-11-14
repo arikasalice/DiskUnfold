@@ -1,95 +1,48 @@
 import { useState } from "react";
 import {
   Action,
+  DataTable,
   Notice,
   Progress,
-  Readout,
   SelectField,
   Text,
 } from "../../components";
 import { useLocaleText } from "../../i18n/presentation";
+import type { LocaleText } from "../../i18n/presentation";
 import { useTimestampText } from "../../i18n/regional-format";
-import type { AnalysisClient, ScanFailureKind } from "../../ipc";
+import {
+  SCAN_ISSUE_FILTERS,
+  scanIssueKindText,
+  scanIssueReasonText,
+  scanIssueStageText,
+  scanIssuesProblemText,
+  scanIssuesRecoveryText,
+} from "../../ipc";
+import type {
+  AnalysisClient,
+  ResultReadProblem,
+  ScanFailureKind,
+  ScanFailureRow,
+  ScanIssueFilter,
+} from "../../ipc";
 import { useScanFailures } from "../../state/scan-failures";
 
-const filters = [
-  { value: "all", key: "ui.analysis.issues_all", fallback: "All issues" },
-  {
-    value: "collection_failed",
-    key: "ui.analysis.issues_collection_failures",
-    fallback: "Collection failures",
-  },
-  {
-    value: "unread_range",
-    key: "ui.analysis.issues_unread_ranges",
-    fallback: "Unread ranges",
-  },
-  {
-    value: "uncertain",
-    key: "ui.analysis.issues_uncertain_entries",
-    fallback: "Uncertain entries",
-  },
-  {
-    value: "untraversed_link",
-    key: "ui.analysis.issues_untraversed_links",
-    fallback: "Untraversed links",
-  },
-] as const;
-const kinds = new Map<string, readonly [key: string, fallback: string]>(
-  filters.map(({ value, key, fallback }) => [value, [key, fallback]]),
-);
-const stages = new Map<string, readonly [key: string, fallback: string]>([
-  ["metadata", ["ui.analysis.issue_stage_metadata", "Metadata"]],
-  [
-    "open_directory",
-    ["ui.analysis.issue_stage_open_directory", "Opening a folder"],
-  ],
-  ["enumerate", ["ui.analysis.issue_stage_enumerate", "Listing a folder"]],
-  ["traverse", ["ui.analysis.issue_stage_traverse", "Link traversal"]],
-]);
-const reasons = new Map<string, readonly [key: string, fallback: string]>([
-  [
-    "scan.path_denied",
-    ["ui.analysis.issue_reason_access_denied", "Access denied"],
-  ],
-  [
-    "scan.path_vanished",
-    [
-      "ui.analysis.issue_reason_path_missing",
-      "The item was no longer available",
-    ],
-  ],
-  [
-    "scan.unclassified",
-    ["ui.analysis.issue_reason_unverified", "The item could not be verified"],
-  ],
-  [
-    "scan.link_untraversed",
-    ["ui.analysis.issue_reason_link_skipped", "The link target was skipped"],
-  ],
-]);
-
-type IssueFilter = (typeof filters)[number]["value"];
-type IssueSource = { client: AnalysisClient; resultVersion: string };
-
-function mappedLabel(
-  entries: ReadonlyMap<string, readonly [key: string, fallback: string]>,
-  code: string,
-  unknownKey: string,
-  unknownFallback: string,
-  text: ReturnType<typeof useLocaleText>,
-) {
-  const message = entries.get(code);
-  return message
-    ? text(message[0], message[1])
-    : text(unknownKey, unknownFallback);
-}
+type IssueSource = {
+  client: AnalysisClient;
+  resultVersion: string;
+  /** Asks the result view to pin its latest result; never called automatically. */
+  onReopenLatest: () => void;
+};
 
 /** Exposes issues for the displayed result without changing the analysis scope. */
-export function ScanIssues({ client, resultVersion }: IssueSource) {
+export function ScanIssues({
+  client,
+  resultVersion,
+  onReopenLatest,
+}: IssueSource) {
   const text = useLocaleText();
   const [open, setOpen] = useState(false);
-  const [filter, setFilter] = useState<IssueFilter>("all");
+  const [filter, setFilter] = useState<ScanIssueFilter>("all");
   return (
     <section
       className="du-results"
@@ -111,17 +64,17 @@ export function ScanIssues({ client, resultVersion }: IssueSource) {
           <SelectField
             label={text("ui.analysis.issue_type", "Issue type")}
             value={filter}
-            options={filters.map(({ value, key, fallback }) => ({
+            options={SCAN_ISSUE_FILTERS.map(({ value, key, fallback }) => ({
               value,
               label: text(key, fallback),
             }))}
             onChange={setFilter}
           />
           <IssuePages
-            key={filter}
             client={client}
             resultVersion={resultVersion}
             kind={filter === "all" ? undefined : filter}
+            onReopenLatest={onReopenLatest}
           />
         </>
       )}
@@ -133,32 +86,42 @@ function IssuePages({
   client,
   resultVersion,
   kind,
+  onReopenLatest,
 }: IssueSource & { kind: ScanFailureKind | undefined }) {
   const text = useLocaleText();
-  const timestamp = useTimestampText();
-  const { page, pending, error, readMore } = useScanFailures(
-    client,
-    resultVersion,
-    kind,
-  );
+  const list = useScanFailures(client, resultVersion, kind);
+  const { rows, totalCount, problem } = list;
   return (
     <>
-      {pending && (
+      {list.pending && (
         <Progress
           label={text("ui.analysis.issues_reading", "Reading scan issues")}
         />
       )}
-      {error && <Notice tone="error">{error}</Notice>}
-      {page && (
+      {problem && (
+        <IssueProblem
+          problem={problem}
+          pending={list.pending}
+          onRecover={
+            problem === "failed"
+              ? list.retry
+              : () => {
+                  onReopenLatest();
+                  list.retry();
+                }
+          }
+        />
+      )}
+      {totalCount !== undefined && (
         <Text kind="muted">
           {text(
             "ui.analysis.issues_count",
             "Showing {shown} of {total} issues",
-            { shown: BigInt(page.rows.length), total: BigInt(page.totalCount) },
+            { shown: BigInt(rows.length), total: BigInt(totalCount) },
           )}
         </Text>
       )}
-      {page?.totalCount === 0 && (
+      {totalCount === 0 && (
         <Text>
           {text(
             "ui.analysis.issues_none",
@@ -166,67 +129,84 @@ function IssuePages({
           )}
         </Text>
       )}
-      {page && (
-        <Readout
-          label={text("ui.analysis.issue_entries", "Scan issue entries")}
-          rows={page.rows.map((row, index) => ({
-            label: text("ui.analysis.issue_number", "Issue {number}", {
-              number: BigInt(index + 1),
-            }),
-            value: (
-              <>
-                <Text kind="path">
-                  {row.displayPath ??
-                    text(
-                      "ui.analysis.issue_path_unavailable",
-                      "Path unavailable",
-                    )}
-                </Text>
-                <Text>
-                  {mappedLabel(
-                    kinds,
-                    row.kind,
-                    "ui.analysis.issue_unknown_kind",
-                    "Unknown issue",
-                    text,
-                  )}
-                  {" · "}
-                  {mappedLabel(
-                    stages,
-                    row.stage,
-                    "ui.analysis.issue_unknown_stage",
-                    "Unknown stage",
-                    text,
-                  )}
-                  {" · "}
-                  {mappedLabel(
-                    reasons,
-                    row.reasonKey,
-                    "ui.analysis.issue_unknown_reason",
-                    "Unknown reason",
-                    text,
-                  )}
-                </Text>
-                {row.observedAt && (
-                  <Text kind="muted">
-                    {timestamp(
-                      Date.parse(row.observedAt),
-                      () => row.observedAt ?? "",
-                    )}
-                  </Text>
-                )}
-              </>
-            ),
-          }))}
-        />
-      )}
-      {(page?.nextCursor || error) && (
-        <Action isDisabled={pending} onPress={readMore}>
-          {error
-            ? text("ui.analysis.issues_retry", "Retry scan issues")
-            : text("ui.analysis.issues_load_more", "Load more issues")}
+      {rows.length > 0 && <IssueTable rows={rows} totalCount={totalCount} />}
+      {list.nextCursor && !problem && (
+        <Action isDisabled={list.pending} onPress={list.readMore}>
+          {text("ui.analysis.issues_load_more", "Load more issues")}
         </Action>
       )}
     </>
+  );
+}
+
+function IssueProblem({
+  problem,
+  pending,
+  onRecover,
+}: {
+  problem: ResultReadProblem;
+  pending: boolean;
+  onRecover: () => void;
+}) {
+  const text = useLocaleText();
+  return (
+    <>
+      <Notice tone="error">{scanIssuesProblemText(problem, text)}</Notice>
+      <Action isDisabled={pending} onPress={onRecover}>
+        {scanIssuesRecoveryText(problem, text)}
+      </Action>
+    </>
+  );
+}
+
+function issueCells(
+  row: ScanFailureRow,
+  text: LocaleText,
+  timestamp: ReturnType<typeof useTimestampText>,
+) {
+  return [
+    <Text kind="path" key="path">
+      {row.displayPath ??
+        text("ui.analysis.issue_path_unavailable", "Path unavailable")}
+    </Text>,
+    scanIssueKindText(row.kind, text),
+    scanIssueStageText(row.stage, text),
+    scanIssueReasonText(row.reasonKey, text),
+    row.observedAt
+      ? timestamp(Date.parse(row.observedAt), () => row.observedAt ?? "")
+      : text("ui.analysis.issue_observed_unknown", "Not recorded"),
+  ];
+}
+
+function IssueTable({
+  rows,
+  totalCount,
+}: {
+  rows: readonly ScanFailureRow[];
+  totalCount: number | undefined;
+}) {
+  const text = useLocaleText();
+  const timestamp = useTimestampText();
+  return (
+    <DataTable
+      label={text("ui.analysis.issue_entries", "Scan issue entries")}
+      columns={[
+        text("ui.analysis.issue_path", "Path"),
+        text("ui.analysis.issue_kind", "Issue"),
+        text("ui.analysis.issue_stage", "Stage"),
+        text("ui.analysis.issue_reason", "Reason"),
+        text("ui.analysis.issue_observed", "Observed"),
+      ]}
+      columnWidths={[320, 180, 180, 240, 200]}
+      density="compact"
+      rows={rows}
+      {...(totalCount !== undefined && { totalRows: totalCount })}
+      getRowLabel={(_, index) =>
+        text("ui.analysis.issue_number", "Issue {number}", {
+          number: BigInt(index + 1),
+        })
+      }
+      renderCells={(row) => issueCells(row, text, timestamp)}
+    />
   );
 }
