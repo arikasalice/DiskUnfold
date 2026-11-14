@@ -1,6 +1,6 @@
 //! Bounded worker synchronization for asynchronous search tests.
 use du_core_contracts::Id;
-use std::sync::{Arc, Mutex, OnceLock, mpsc};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError, mpsc};
 use std::time::Duration;
 
 const WAIT: Duration = Duration::from_secs(10);
@@ -58,8 +58,16 @@ type GateState = Mutex<Option<(Id, Arc<Gate>)>>;
 static GATE: OnceLock<GateState> = OnceLock::new();
 static CANCEL_GATE: OnceLock<GateState> = OnceLock::new();
 static TEST_LOCK: Mutex<()> = Mutex::new(());
+/// Serializes tests that use the process-wide search gates.
+///
+/// A test that panics while holding the lock poisons it. Later tests recover
+/// the lock and start with both gates cleared, so one failure is reported once
+/// and cannot leave a gate that pauses another test's job.
 pub(super) fn serial() -> Result<std::sync::MutexGuard<'static, ()>, &'static str> {
-    TEST_LOCK.lock().map_err(|_| "test lock poisoned")
+    let guard = TEST_LOCK.lock().unwrap_or_else(PoisonError::into_inner);
+    set(None)?;
+    set_cancel_gate(None)?;
+    Ok(guard)
 }
 pub(super) fn set(gate: Option<(Id, Arc<Gate>)>) -> Result<(), &'static str> {
     *GATE

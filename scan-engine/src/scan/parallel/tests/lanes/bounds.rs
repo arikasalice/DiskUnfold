@@ -1,8 +1,9 @@
 //! A stopped consumer stalls collection within fixed bounds; tight limits
 //! never deadlock (NFR3.HD1.app-host.DD1).
 use super::*;
+use std::sync::mpsc::TrySendError;
 
-/// Lane state read under the queue lock while every worker is blocked.
+/// Lane state read under the queue lock once collection has stalled.
 struct Snapshot {
     /// Items in each lane queue plus the slots reserved by claimed items.
     held_slots: Vec<usize>,
@@ -10,14 +11,17 @@ struct Snapshot {
     stacked: usize,
     /// Returned entries that queued or stacked frames still hold.
     held_entries: usize,
+    /// Entries the OS returned, read under the same lock.
+    returned: usize,
+    /// Probe events that the test itself put in the channel while waiting.
+    probes: usize,
 }
 
-fn snapshot(shared: &Shared) -> Result<Snapshot, TestError> {
-    let queue = shared.queue.lock().map_err(|_| "queue lock")?;
+fn snapshot(queue: &Queue, probe: &Probe, probes: usize) -> Snapshot {
     let lanes = &queue.lanes;
     let stacked_frames = lanes.seats.iter().flat_map(|seat| seat.stack.frames());
     let queued_frames = lanes.lanes.iter().flat_map(|lane| lane.ready.frames());
-    Ok(Snapshot {
+    Snapshot {
         held_slots: lanes
             .lanes
             .iter()
@@ -29,24 +33,47 @@ fn snapshot(shared: &Shared) -> Result<Snapshot, TestError> {
             .chain(stacked_frames)
             .map(|frame| frame.entries.len())
             .sum(),
-    })
+        returned: probe.returned.load(Ordering::SeqCst),
+        probes,
+    }
 }
 
-/// Waits until no open or read returned for `quiet`.
-fn wait_quiet(probe: &Probe, quiet: Duration) -> Result<(), TestError> {
+/// Waits until collection is stalled on the full observation channel and
+/// returns the lane state read under the queue lock at that moment.
+///
+/// Stalled means, all at once: no open or read is in flight, every worker
+/// holds a claimed directory, at least `floor` returned entries have left
+/// their frames, and the channel is full, so a worker's next send blocks. The
+/// fullness check is a `try_send` on a clone of the workers' sender; the
+/// events it adds while the channel still had room are counted in the result.
+fn wait_stalled(
+    shared: &Shared,
+    probe: &Probe,
+    workers: usize,
+    floor: usize,
+    sender: &SyncSender<Event>,
+) -> Result<Snapshot, TestError> {
     let deadline = Instant::now() + Duration::from_secs(30);
-    let mut last = (probe.calls(), Instant::now());
-    while last.1.elapsed() < quiet {
+    let mut probes = 0;
+    loop {
+        {
+            let queue = shared.queue.lock().map_err(|_| "queue lock")?;
+            let current = snapshot(&queue, probe, probes);
+            let in_hand = queue.remaining - current.queued - current.stacked;
+            let left = current.returned - current.held_entries;
+            if probe.in_flight.load(Ordering::SeqCst) == 0 && in_hand == workers && left >= floor {
+                match sender.try_send(Event::RootBatch(0, None, None)) {
+                    Err(TrySendError::Full(_)) => return Ok(current),
+                    Ok(()) => probes += 1,
+                    Err(TrySendError::Disconnected(_)) => return Err("channel closed".into()),
+                }
+            }
+        }
         if Instant::now() >= deadline {
             return Err("collection did not stall".into());
         }
-        thread::sleep(Duration::from_millis(10));
-        let calls = probe.calls();
-        if calls != last.0 {
-            last = (calls, Instant::now());
-        }
+        thread::sleep(Duration::from_millis(2));
     }
-    Ok(())
 }
 
 #[test]
@@ -61,23 +88,39 @@ fn a_stopped_consumer_bounds_observations_queued_work_and_open_handles() -> Resu
     let (roots, lanes, workers) = (2, 2, 4);
     let probe = Probe::quiet(shape, roots);
     let shared = shared_for(&probe, vec![0, 1], 4, QUEUED_DIRECTORIES)?;
-    let (stalled, items) = run_workers(&shared, workers, BUFFERED_OBSERVATIONS, |receiver| {
-        // Nothing is received until collection has stalled on the full channel.
-        let stalled = wait_quiet(&probe, Duration::from_millis(500))
-            .and_then(|()| snapshot(&shared))
-            .map(|snapshot| (snapshot, probe.returned.load(Ordering::SeqCst)));
-        let items = receiver
-            .iter()
-            .filter(|event| matches!(event, Event::Item(..)))
-            .count();
-        (stalled, items)
-    })?;
-    let (snapshot, returned) = stalled?;
+    let context = Context {
+        completed: Arc::new(AtomicUsize::new(0)),
+        abandoned: Arc::new(AtomicUsize::new(0)),
+    };
+    // Entries out of their frames when the channel is nearly full: every
+    // buffered event but the root batches, less what the workers hold.
+    let floor = BUFFERED_OBSERVATIONS - roots - workers * (shape.batch + 1);
+    let (stalled, items) = run_workers_in(
+        &shared,
+        workers,
+        BUFFERED_OBSERVATIONS,
+        &context,
+        |receiver, sender| {
+            // Nothing is received until collection has stalled on the full channel.
+            let stalled = wait_stalled(&shared, &probe, workers, floor, &sender);
+            drop(sender);
+            let items = receiver
+                .iter()
+                .filter(|event| matches!(event, Event::Item(..)))
+                .count();
+            (stalled, items)
+        },
+    )?;
+    let snapshot = stalled?;
     // Entries the OS returned beyond those still held by queued or stacked
-    // frames are in the channel, minus at most two root batch events, or held
-    // by a worker blocked on a send, which owns at most one frame's batch.
-    let unconsumed = returned - snapshot.held_entries;
-    assert!(unconsumed >= BUFFERED_OBSERVATIONS - roots, "{unconsumed}");
+    // frames are in the full channel, minus at most two root batch events and
+    // the test's own probe events, or held by a worker, which owns at most one
+    // frame's batch.
+    let unconsumed = snapshot.returned - snapshot.held_entries;
+    assert!(
+        unconsumed + snapshot.probes >= BUFFERED_OBSERVATIONS - roots,
+        "{unconsumed}"
+    );
     assert!(
         unconsumed <= BUFFERED_OBSERVATIONS + workers * (shape.batch + 1),
         "{unconsumed}"
