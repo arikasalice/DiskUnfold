@@ -86,7 +86,12 @@ fn timed_publications_pin_independent_versions_and_failed_build_rolls_back()
     let path = vec![native("same")];
     progress
         .record(
-            Event::Item(0, path.clone(), Box::new(file_entry(&path[0], 7).into())),
+            Event::Item(
+                0,
+                path.clone(),
+                Box::new(file_entry(&path[0], 7).into()),
+                Admission::Record,
+            ),
             &mut build,
             &mut JobCounts::default(),
             &context,
@@ -125,7 +130,12 @@ fn timed_publications_pin_independent_versions_and_failed_build_rolls_back()
     assert!(
         progress
             .record(
-                Event::Item(0, path.clone(), Box::new(file_entry(&path[0], 7).into())),
+                Event::Item(
+                    0,
+                    path.clone(),
+                    Box::new(file_entry(&path[0], 7).into()),
+                    Admission::Record
+                ),
                 &mut build,
                 &mut JobCounts::default(),
                 &context,
@@ -218,6 +228,7 @@ fn publishes_after_deadline_without_another_observation() -> Result<(), Box<dyn 
             0,
             path.clone(),
             Box::new(file_entry(&path[0], 7).into()),
+            Admission::Record,
         ))
         .map_err(|_| "send item")?;
     assert_eq!(signal_rx.recv_timeout(Duration::from_secs(2))?, 4);

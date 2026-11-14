@@ -2,17 +2,27 @@
 use super::*;
 
 /// Drains only still-owned returned entries; deferred entries were sent already.
-pub(super) fn frame(mut frame: Frame, sender: &SyncSender<Event>, policy: Policy<'_>) -> bool {
+/// Each entry keeps its admission row; no drained directory is opened or reserved.
+pub(super) fn frame(
+    mut frame: Frame,
+    visited: &Visited,
+    sender: &SyncSender<Event>,
+    policy: Policy<'_>,
+) -> bool {
     while let Some(entry) = frame.entries.pop_front() {
         let mut path = frame.path.clone();
         path.push(entry.entry.name.clone());
-        if let Policy::Legacy(include) = policy
-            && !include(&path)
-        {
+        let admission = super::admit(&frame, &entry.entry, &path, visited, policy, false);
+        if admission == Admission::Excluded {
             continue;
         }
         if sender
-            .send(Event::Item(frame.root_index, path, Box::new(entry)))
+            .send(Event::Item(
+                frame.root_index,
+                path,
+                Box::new(entry),
+                admission,
+            ))
             .is_err()
         {
             return false;
@@ -47,7 +57,7 @@ pub(super) fn drain(
         };
         match next {
             Some(owned) => {
-                if !frame(owned, sender, policy) {
+                if !frame(owned, &shared.visited, sender, policy) {
                     return false;
                 }
             }
@@ -71,6 +81,10 @@ mod tests {
         }
     }
     impl AnchoredDirectory for Empty {
+        // Placed in a frame directly; root identities are never queried here.
+        fn observed_identity(&self) -> Option<du_core_contracts::scan_observation::HandleIdentity> {
+            None
+        }
         fn open_child(&self, _: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError> {
             Err(PortError {
                 kind: PortErrorKind::Unsupported,
@@ -117,6 +131,7 @@ mod tests {
             root_published: false,
             batch_pending: false,
             case_observed: false,
+            boundary: Boundary::Unknown,
         };
         let shared = Shared {
             queue: Arc::new(Mutex::new(Queue {
@@ -136,6 +151,7 @@ mod tests {
             abort: AtomicBool::new(false),
             disconnects: disconnect::Disconnects::new(1, &[]),
             track_priority_paths: false,
+            visited: Default::default(),
         };
         let context = Flip(std::sync::atomic::AtomicUsize::new(0));
         let (sender, receiver) = mpsc::sync_channel(4);
@@ -190,9 +206,65 @@ mod tests {
             root_published: false,
             batch_pending: false,
             case_observed: false,
+            boundary: Boundary::Unknown,
         };
-        assert!(frame(pending, &sender, Policy::Legacy(&|_| true)));
+        assert!(frame(
+            pending,
+            &Visited::default(),
+            &sender,
+            Policy::Legacy(&|_| true)
+        ));
         assert!(receiver.try_recv().is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn drained_directory_is_reported_without_being_reserved() -> Result<(), String> {
+        let directory = ObservedEntry {
+            name: b"never-opened".to_vec(),
+            enumerated_inode: 9,
+            enumerated_kind: ObservedKind::Directory,
+            metadata: Ok(du_core_contracts::scan_observation::MetadataObservation {
+                kind: ObservedKind::Directory,
+                device: 1,
+                inode: 9,
+                size: Ok(0),
+                allocated: None,
+                link_count: None,
+                space_identity: None,
+                modified_at: None,
+                native_modified_at: None,
+            }),
+        };
+        let pending = Frame {
+            root_index: 0,
+            path: Vec::new(),
+            directory: Box::new(Empty),
+            entries: VecDeque::from([TimedObservedEntry::from(directory.clone())]),
+            deferred: VecDeque::new(),
+            root: true,
+            first_batch: false,
+            root_published: false,
+            batch_pending: false,
+            case_observed: false,
+            boundary: Boundary::Volume(1),
+        };
+        let (sender, receiver) = mpsc::sync_channel(1);
+        let visited = Visited::default();
+        assert!(frame(pending, &visited, &sender, Policy::Legacy(&|_| true)));
+        assert!(matches!(
+            receiver.try_recv(),
+            Ok(Event::Item(_, _, _, Admission::Enter))
+        ));
+        // A later admission of the same identity may still enter it.
+        let parent = admission::Parent {
+            root: 0,
+            boundary: Boundary::Volume(1),
+        };
+        assert_eq!(
+            admission::decide(false, &directory, parent, &visited),
+            Admission::Enter
+        );
         Ok(())
     }
 
@@ -225,10 +297,16 @@ mod tests {
             root_published: false,
             batch_pending: false,
             case_observed: false,
+            boundary: Boundary::Unknown,
         };
         let (done_tx, done_rx) = mpsc::channel();
         let worker = std::thread::spawn(move || {
-            let ok = frame(item, &sender, Policy::Legacy(&|_| true));
+            let ok = frame(
+                item,
+                &Visited::default(),
+                &sender,
+                Policy::Legacy(&|_| true),
+            );
             let _ = done_tx.send(ok);
         });
         assert!(done_rx.recv_timeout(Duration::from_millis(100)).is_err());
@@ -319,6 +397,7 @@ mod tests {
             root_published: false,
             batch_pending: false,
             case_observed: false,
+            boundary: Boundary::Unknown,
         };
         let (entered, started) = mpsc::channel();
         let (finished, done) = mpsc::channel();
@@ -341,6 +420,7 @@ mod tests {
                 abort: AtomicBool::new(false),
                 disconnects: disconnect::Disconnects::new(1, &[]),
                 track_priority_paths: false,
+                visited: Default::default(),
             };
             let cancelled = Flip(std::sync::atomic::AtomicUsize::new(1));
             let _ = entered.send(());
@@ -373,7 +453,7 @@ mod tests {
         let events: Vec<_> = remaining
             .iter()
             .filter_map(|event| match event {
-                Event::Item(_, _, entry) => Some(entry),
+                Event::Item(_, _, entry, _) => Some(entry),
                 _ => None,
             })
             .collect();

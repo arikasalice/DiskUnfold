@@ -10,6 +10,10 @@ impl DirectoryObservations for EmptyDirectory {
 }
 
 impl AnchoredDirectory for EmptyDirectory {
+    // Placed in a frame directly; root identities are never queried here.
+    fn observed_identity(&self) -> Option<du_core_contracts::scan_observation::HandleIdentity> {
+        None
+    }
     fn open_child(&self, _: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError> {
         Ok(Box::new(Self))
     }
@@ -27,6 +31,7 @@ fn frame(name: &[u8], marker: bool) -> Frame {
         root_published: false,
         batch_pending: false,
         case_observed: false,
+        boundary: Boundary::Unknown,
     }
 }
 
@@ -53,6 +58,7 @@ fn shared(shared_path: &[u8], priority_path: &[u8]) -> Shared {
         abort: AtomicBool::new(false),
         disconnects: disconnect::Disconnects::new(1, &[vec![1]]),
         track_priority_paths: true,
+        visited: Default::default(),
     }
 }
 

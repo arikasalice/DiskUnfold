@@ -304,7 +304,7 @@ fn capped_warnings_keep_the_exit_code_and_output_and_carry_no_parameter_values()
 }
 
 /// Stored display language ko or en, read from an isolated data directory.
-#[cfg(any(windows, target_os = "linux"))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 #[test]
 fn stored_language_does_not_change_json_bytes_but_changes_text() -> Result<(), String> {
     use du_core_contracts::settings::{

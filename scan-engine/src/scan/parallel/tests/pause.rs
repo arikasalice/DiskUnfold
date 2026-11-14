@@ -119,6 +119,9 @@ impl DirectoryObservations for BlockedBatch {
     }
 }
 impl AnchoredDirectory for BlockedBatch {
+    fn observed_identity(&self) -> Option<du_core_contracts::scan_observation::HandleIdentity> {
+        crate::scan::test_identity(self)
+    }
     fn open_child(&self, _: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError> {
         Err(fail())
     }
@@ -307,6 +310,9 @@ impl DirectoryObservations for VolumeRoot {
     }
 }
 impl AnchoredDirectory for VolumeRoot {
+    fn observed_identity(&self) -> Option<du_core_contracts::scan_observation::HandleIdentity> {
+        crate::scan::test_identity(self)
+    }
     fn open_child(&self, _: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError> {
         Err(fail())
     }
@@ -407,6 +413,9 @@ impl DirectoryObservations for PanickingBatch {
     }
 }
 impl AnchoredDirectory for PanickingBatch {
+    fn observed_identity(&self) -> Option<du_core_contracts::scan_observation::HandleIdentity> {
+        crate::scan::test_identity(self)
+    }
     fn open_child(&self, _: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError> {
         Err(fail())
     }

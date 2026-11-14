@@ -77,6 +77,14 @@ impl DirectoryObservations for PriorityRoot {
 }
 
 impl AnchoredDirectory for PriorityRoot {
+    fn observed_identity(&self) -> Option<du_core_contracts::scan_observation::HandleIdentity> {
+        Some(du_core_contracts::scan_observation::HandleIdentity {
+            device: 1,
+            inode: 1,
+            ancestors: Vec::new(),
+        })
+    }
+
     fn open_child(&self, entry: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError> {
         if entry.name == b"A\0" {
             self.gate.block()?;
@@ -117,6 +125,10 @@ impl DirectoryObservations for PriorityChild {
 }
 
 impl AnchoredDirectory for PriorityChild {
+    // Only root identities are queried; this double is opened as a child.
+    fn observed_identity(&self) -> Option<du_core_contracts::scan_observation::HandleIdentity> {
+        None
+    }
     fn open_child(&self, _: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError> {
         Err(test_io_error())
     }

@@ -85,6 +85,10 @@ fn opening_a_replaced_volume_cannot_produce_a_review_fingerprint() {
                 os_code: None,
             })
         }
+        // Review never collects, so handle identity is not supported.
+        fn observed_identity(&self) -> Option<du_core_contracts::scan_observation::HandleIdentity> {
+            None
+        }
     }
     struct Roots(OsPath);
     impl ScopeRootPort for Roots {

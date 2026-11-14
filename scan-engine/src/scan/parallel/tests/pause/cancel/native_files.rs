@@ -78,6 +78,9 @@ impl DirectoryObservations for WindowsFiles {
     }
 }
 impl AnchoredDirectory for WindowsFiles {
+    fn observed_identity(&self) -> Option<du_core_contracts::scan_observation::HandleIdentity> {
+        crate::scan::test_identity(self)
+    }
     fn open_child(&self, _: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError> {
         Err(fail())
     }
