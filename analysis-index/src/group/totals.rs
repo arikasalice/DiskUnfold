@@ -39,13 +39,12 @@ pub(super) struct TotalsCache {
     recent: Vec<(Vec<bool>, Totals)>,
 }
 
-/// The item numbers of every set, gathered in one walk over the files.
-struct Sets {
-    groups: Vec<Vec<u32>>,
-    union: Vec<u32>,
-    overlap: Vec<u32>,
-    unclassified: Vec<u32>,
-    undecidable: Vec<u32>,
+/// Totals that do not depend on the selection.
+struct Base {
+    groups: Vec<SpaceAggregate>,
+    unclassified: SpaceAggregate,
+    undecidable: SpaceAggregate,
+    scope: SpaceAggregate,
 }
 
 impl Classification {
@@ -56,11 +55,10 @@ impl Classification {
     /// scope total do not depend on it. Files sharing one OS file identity, such as hard links
     /// in two groups, contribute once to a set that holds them both.
     ///
-    /// The sets are gathered in one walk over the files and summed one after another, so
-    /// the cost is one pass plus the sums, and the gathered numbers take at most as many
-    /// entries as the files times the matched groups and a few more. The totals of the
-    /// default selection are calculated when the classification is built, and the last few
-    /// other selections are cached.
+    /// The totals of the default selection are calculated when the classification is
+    /// built, one group set at a time, so gathered item numbers never exceed two entries per
+    /// file. Another selection reuses the selection-independent totals and walks the files
+    /// once for its union and overlap. The last few other selections are cached.
     ///
     /// # Errors
     /// Returns [`Error::InvalidSelection`] for an index without a rule,
@@ -96,68 +94,92 @@ impl Classification {
         enabled: &[bool],
         cancelled: &mut impl FnMut() -> bool,
     ) -> Result<Totals, Error> {
-        let sets = self.gather_sets(enabled, cancelled)?;
-        let mut sum = |numbers: &[u32]| self.sum_set(numbers, &mut *cancelled);
-        let mut groups = Vec::with_capacity(sets.groups.len());
-        for numbers in &sets.groups {
-            groups.push(sum(numbers)?);
-        }
+        let base = match self.default_totals()? {
+            Some(totals) => Base {
+                groups: totals.groups,
+                unclassified: totals.unclassified,
+                undecidable: totals.undecidable,
+                scope: totals.scope,
+            },
+            None => self.base_totals(cancelled)?,
+        };
+        let mut union = Vec::new();
+        let mut overlap = Vec::new();
+        self.walk(cancelled, |row, item_no| {
+            let selected = row
+                .iter()
+                .zip(enabled)
+                .filter(|(decision, on)| **on && **decision == Decision::Match)
+                .count();
+            if selected > 0 {
+                union.push(item_no);
+            }
+            if selected > 1 {
+                overlap.push(item_no);
+            }
+        })?;
         Ok(Totals {
-            groups,
-            union: sum(&sets.union)?,
-            overlap: sum(&sets.overlap)?,
-            overlap_count: sets.overlap.len(),
-            unclassified: sum(&sets.unclassified)?,
-            undecidable: sum(&sets.undecidable)?,
-            scope: sum(&self.files)?,
+            groups: base.groups,
+            union: self.sum_set(&union, cancelled)?,
+            overlap_count: overlap.len(),
+            overlap: self.sum_set(&overlap, cancelled)?,
+            unclassified: base.unclassified,
+            undecidable: base.undecidable,
+            scope: base.scope,
         })
     }
 
-    /// Walks the files once and sorts each into every set it belongs to.
-    fn gather_sets(
+    /// Sums each group set in its own walk, then the unclassified and undecidable sets in
+    /// one walk, so at most one group set or two disjoint sets are held at a time.
+    fn base_totals(&self, cancelled: &mut impl FnMut() -> bool) -> Result<Base, Error> {
+        let mut groups = Vec::with_capacity(self.rules.len());
+        for rule in 0..self.rules.len() {
+            let mut members = Vec::new();
+            self.walk(cancelled, |row, item_no| {
+                if row.get(rule) == Some(&Decision::Match) {
+                    members.push(item_no);
+                }
+            })?;
+            groups.push(self.sum_set(&members, cancelled)?);
+        }
+        let mut unclassified = Vec::new();
+        let mut undecidable = Vec::new();
+        self.walk(cancelled, |row, item_no| {
+            let tally = Tally::of(row);
+            if tally.matches == 0 {
+                if tally.undecided() {
+                    undecidable.push(item_no);
+                } else {
+                    unclassified.push(item_no);
+                }
+            }
+        })?;
+        Ok(Base {
+            groups,
+            unclassified: self.sum_set(&unclassified, cancelled)?,
+            undecidable: self.sum_set(&undecidable, cancelled)?,
+            scope: self.sum_set(&self.files, cancelled)?,
+        })
+    }
+
+    /// Visits every file's decisions in path order, checking for cancellation regularly.
+    fn walk(
         &self,
-        enabled: &[bool],
         cancelled: &mut impl FnMut() -> bool,
-    ) -> Result<Sets, Error> {
-        let mut sets = Sets {
-            groups: vec![Vec::new(); self.rules.len()],
-            union: Vec::new(),
-            overlap: Vec::new(),
-            unclassified: Vec::new(),
-            undecidable: Vec::new(),
-        };
+        mut visit: impl FnMut(&[Decision], u32),
+    ) -> Result<(), Error> {
         for (index, &item_no) in self.files.iter().enumerate() {
             if index % CHECK_INTERVAL == 0 && cancelled() {
                 return Err(Error::Cancelled);
             }
-            let row = self.row(index);
-            let mut selected = 0usize;
-            for (rule, decision) in row.iter().enumerate() {
-                if *decision == Decision::Match {
-                    sets.groups
-                        .get_mut(rule)
-                        .ok_or(Error::InvalidSelection)?
-                        .push(item_no);
-                    selected += usize::from(enabled.get(rule) == Some(&true));
-                }
-            }
-            if selected > 0 {
-                sets.union.push(item_no);
-            }
-            if selected > 1 {
-                sets.overlap.push(item_no);
-            }
-            let tally = Tally::of(row);
-            if tally.matches == 0 {
-                let rest = if tally.undecided() {
-                    &mut sets.undecidable
-                } else {
-                    &mut sets.unclassified
-                };
-                rest.push(item_no);
-            }
+            visit(self.row(index), item_no);
         }
-        Ok(sets)
+        Ok(())
+    }
+
+    fn default_totals(&self) -> Result<Option<Totals>, Error> {
+        let cache = self.totals.lock().map_err(|_| Error::Unavailable)?;
+        Ok(cache.default.clone())
     }
 
     fn sum_set(
