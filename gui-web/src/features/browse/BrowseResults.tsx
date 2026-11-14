@@ -6,7 +6,6 @@ import {
   ActionFeedback,
   Notice,
   RowAction,
-  SelectionActions,
   Text,
 } from "../../components";
 import type { ItemAction } from "../../components";
@@ -24,9 +23,14 @@ import { formatByteUnit } from "../../i18n/bytes";
 import type { SizeDisplay } from "../../i18n/bytes";
 import { useTimestampText } from "../../i18n/regional-format";
 import { useLocaleText } from "../../i18n/presentation";
-import { SIZE_UNIT_RULES, scanPriorityText, scanPriorityTone } from "../../ipc";
+import { SIZE_UNIT_RULES } from "../../ipc";
 import { useBrowsePaging } from "./use-browse-paging";
 import { useBrowseCopy } from "./use-browse-copy";
+import {
+  canAnalyzeFirst,
+  SelectionAnalyzeFirst,
+} from "./SelectionAnalyzeFirst";
+import type { Selection } from "./SelectionAnalyzeFirst";
 
 function size(
   value: FolderQueryRow["logicalSize"],
@@ -62,36 +66,6 @@ function availability(
   if (flags.some((flag) => flag.state === "unknown"))
     found.push(text("ui.browse.availability_unknown", "Availability unknown"));
   return found.join(" · ") || text("ui.browse.not_reported", "Not reported");
-}
-
-/**
- * An exact folder size means every item below it was counted, so the folder
- * needs no further collection. A running scan's partial result reports lower
- * bounds, so this does not yet identify folders finished during the scan.
- */
-function collected(row: FolderQueryRow): boolean {
-  return (
-    row.logicalSize.state === "present" &&
-    row.logicalSize.value.state === "exact"
-  );
-}
-
-/** "Analyze first" is offered only for uncollected in-scope folders of the scan's current result. */
-function canAnalyzeFirst(
-  row: FolderQueryRow,
-  priority: ScanPriority | undefined,
-  readOnly: boolean,
-): priority is ScanPriority {
-  const excluded = row.flags.excluded;
-  return (
-    priority !== undefined &&
-    !readOnly &&
-    row.kind === "directory" &&
-    !(excluded?.state === "present" && excluded.value) &&
-    !collected(row) &&
-    priority.canRequest(row.item) &&
-    !priority.requested(row.item)
-  );
 }
 
 function analyzeFirstActions(
@@ -142,85 +116,6 @@ function StatusCell({
         />
       )}
     </div>
-  );
-}
-
-type Selection = "all" | ReadonlySet<string>;
-
-/**
- * The selection action bar offers "Analyze first" while the list shows the
- * running scan's current result. It is enabled only for one selected folder
- * that the row action would also offer.
- *
- * The bar also shows the outcome of the last request in place of its summary
- * for as long as the scan priority state offers it, and stays while it does,
- * so an outcome such as "The analysis has finished." is not removed with the
- * bar when the scan ends.
- */
-function SelectionAnalyzeFirst({
-  pages,
-  selection,
-  priority,
-  readOnly,
-}: {
-  pages: BrowsePages;
-  selection: Selection;
-  priority: ScanPriority | undefined;
-  readOnly: boolean;
-}) {
-  const text = useLocaleText();
-  const first = pages.row(0);
-  const notice = priority?.notice;
-  if (
-    !priority ||
-    readOnly ||
-    !first ||
-    (!priority.canRequest(first.item) && !notice)
-  )
-    return null;
-  const count = selection === "all" ? pages.count : selection.size;
-  const key =
-    selection !== "all" && selection.size === 1 ? [...selection][0] : undefined;
-  const row =
-    key === undefined
-      ? undefined
-      : pages.findRow((candidate) => rowKey(candidate.item) === key);
-  const target =
-    row && canAnalyzeFirst(row, priority, readOnly) ? row : undefined;
-  return (
-    <SelectionActions
-      label={text("ui.browse.selection_actions", "Selection actions")}
-      notice={
-        notice && {
-          id: notice.id,
-          tone: scanPriorityTone(notice.outcome),
-          text: scanPriorityText(notice, text),
-        }
-      }
-      summary={
-        count === 0
-          ? text(
-              "ui.browse.no_selection",
-              "Select one folder to analyze it first",
-            )
-          : text("ui.browse.selected_count", "{count} selected", {
-              count: BigInt(count),
-            })
-      }
-    >
-      <Action
-        isDisabled={target === undefined}
-        onPress={() =>
-          target &&
-          priority.request(
-            target.item,
-            browseDisplayName(target.displayName, text),
-          )
-        }
-      >
-        {text("ui.browse.analyze_first", "Analyze first")}
-      </Action>
-    </SelectionActions>
   );
 }
 
@@ -337,6 +232,7 @@ export function BrowseResults({
           selection={selection}
           priority={priority}
           readOnly={readOnly}
+          focusPanel={focusPanel}
         />
         {pages.count === 0 && (
           <Text>

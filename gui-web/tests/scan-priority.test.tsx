@@ -2,197 +2,37 @@ import {
   act,
   cleanup,
   fireEvent,
-  render,
   renderHook,
   screen,
   waitFor,
   within,
 } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
-import { BrowsePanel } from "../src/features/browse/BrowsePanel";
-import type { BrowsePort } from "../src/features/browse/BrowsePanel";
 import { interpolate } from "../src/i18n/presentation";
 import type { LocaleText } from "../src/i18n/presentation";
 import { AnalysisError, scanPriorityText } from "../src/ipc";
-import type {
-  AnalysisClient,
-  BrowseOpenResponse,
-  FolderQueryRow,
-  ScanPriorityRequest,
-  ScanPriorityResponse,
-} from "../src/ipc";
 import {
   SCAN_PRIORITY_NOTICE_MS,
   useScanPriority,
 } from "../src/state/scan-priority";
 import type { ScanPriorityContext } from "../src/state/scan-priority";
+import {
+  gridRow,
+  newer,
+  priorityClient,
+  ref,
+  requestFirst,
+  rowAction,
+  running,
+  setup,
+  version,
+} from "./scan-priority-fixture";
+import type { Answer } from "./scan-priority-fixture";
 
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
 });
-
-const version = "018f0000-0000-7000-8000-0000000000a1";
-const newer = "018f0000-0000-7000-8000-0000000000a2";
-const ref = (itemNo: number) => ({ resultVersion: version, itemNo });
-const unknown = { state: "unknown", reasonKey: "ref.unavailable" } as const;
-
-function row(
-  itemNo: number,
-  name: string,
-  kind: FolderQueryRow["kind"] = "directory",
-  excluded = false,
-  logicalSize: FolderQueryRow["logicalSize"] = unknown,
-): FolderQueryRow {
-  return {
-    item: ref(itemNo),
-    displayName: { state: "present", value: name },
-    kind,
-    logicalSize,
-    allocatedSize: { state: "absent" },
-    modifiedAt: { state: "absent" },
-    hasChildFolder: unknown,
-    flags: {
-      unenumerated: { state: "absent" },
-      excluded: excluded
-        ? { state: "present", value: true }
-        : { state: "absent" },
-    },
-    correspondence: unknown,
-  };
-}
-
-const rows = [
-  row(1, "Photos"),
-  row(2, "Videos"),
-  row(3, "memo.txt", "file"),
-  row(4, "Skipped", "directory", true),
-  row(5, "Documents", "directory", false, {
-    state: "present",
-    value: {
-      basis: "logical",
-      evidence: "os_reported",
-      state: "exact",
-      bytes: "4096",
-    },
-  }),
-  row(6, "Downloads", "directory", false, {
-    state: "present",
-    value: {
-      basis: "logical",
-      evidence: "os_reported",
-      state: "lower_bound",
-      bytes: "4096",
-    },
-  }),
-];
-
-function port(): BrowsePort {
-  const response: BrowseOpenResponse = {
-    kind: "opened",
-    requestSeq: 1,
-    origin: "scan",
-    location: { resultVersion: version, itemNo: 0 },
-    breadcrumbs: [],
-    rootKind: "scope_root",
-    currentCorrespondence: false,
-    page: {
-      rowKind: "folder",
-      queryRef: version,
-      resultVersion: version,
-      rows,
-      total: { state: "exact", count: rows.length },
-      unknownCount: 0,
-      observedAt: null,
-      completeness: "partial",
-      nextCursor: null,
-    },
-    sortStrategies: [],
-    predicateStrategies: [],
-  };
-  return {
-    open: vi.fn((request) =>
-      Promise.resolve({ ...response, requestSeq: request.requestSeq }),
-    ),
-    page: vi.fn(),
-    copyPath: vi.fn(),
-  };
-}
-
-type Answer = {
-  request: ScanPriorityRequest;
-  resolve: (response: ScanPriorityResponse) => void;
-  reject: (reason: unknown) => void;
-};
-
-function priorityClient() {
-  const answers: Answer[] = [];
-  const client: AnalysisClient = {
-    call: ((name: string, body: unknown) => {
-      if (name !== "scan.prioritize") throw new Error(`Unexpected ${name}`);
-      return new Promise((resolve, reject) =>
-        answers.push({ request: body as ScanPriorityRequest, resolve, reject }),
-      );
-    }) as AnalysisClient["call"],
-    subscribe: () => () => undefined,
-  };
-  return { client, answers };
-}
-
-function Harness({
-  client,
-  context,
-  browsePort,
-}: {
-  client: AnalysisClient;
-  context: ScanPriorityContext | undefined;
-  browsePort: BrowsePort;
-}) {
-  const priority = useScanPriority(client, context);
-  return (
-    <BrowsePanel
-      port={browsePort}
-      resultVersion={version}
-      priority={priority}
-      inspectItem={() => "Details"}
-    />
-  );
-}
-
-const running = { jobRef: "scan", resultVersion: version, scanning: true };
-
-async function setup(context: ScanPriorityContext | undefined = running) {
-  const { client, answers } = priorityClient();
-  const browsePort = port();
-  const view = render(
-    <Harness client={client} context={context} browsePort={browsePort} />,
-  );
-  await screen.findByText("Photos");
-  const rerender = (next: ScanPriorityContext | undefined) =>
-    view.rerender(
-      <Harness client={client} context={next} browsePort={browsePort} />,
-    );
-  return { answers, browsePort, rerender };
-}
-
-function gridRow(name: string) {
-  return screen.getByText(name).closest<HTMLElement>('[role="row"]')!;
-}
-
-function rowAction(name: string) {
-  return within(gridRow(name)).queryByRole("button", { name: "Analyze first" });
-}
-
-async function requestFirst(name: string) {
-  const button = rowAction(name);
-  if (!button) throw new Error(`No Analyze first action for ${name}`);
-  fireEvent.click(button);
-  await waitFor(() =>
-    expect(
-      within(gridRow(name)).getByText("Analyze first requested"),
-    ).toBeDefined(),
-  );
-}
 
 test("F02 FR8.HD1: Analyze first appears only on in-scope folders of the running scan's current result", async () => {
   const { rerender } = await setup();
@@ -288,30 +128,50 @@ function selectionAction() {
   return within(bar).getByRole("button", { name: "Analyze first" });
 }
 
-test("F02 FR8.HD1: the selection action bar analyzes one selected folder first", async () => {
+function unavailable() {
+  return selectionAction().getAttribute("aria-disabled") === "true";
+}
+
+test("F02 FR8.HD1: the selection action bar analyzes one selected folder first and says why it cannot", async () => {
   const { answers, rerender } = await setup();
   expect(
     screen.getByText("Select one folder to analyze it first"),
   ).toBeDefined();
-  expect(selectionAction().hasAttribute("disabled")).toBe(true);
+  expect(unavailable()).toBe(true);
 
   toggle("memo.txt");
-  await screen.findByText("1 selected");
-  expect(selectionAction().hasAttribute("disabled")).toBe(true);
+  await screen.findByText(
+    "1 item selected · Only folders can be analyzed first",
+  );
+  expect(unavailable()).toBe(true);
   toggle("memo.txt");
 
   toggle("Documents");
-  await screen.findByText("1 selected");
-  expect(selectionAction().hasAttribute("disabled")).toBe(true);
+  await screen.findByText(
+    "1 item selected · This folder is already fully analyzed",
+  );
+  expect(unavailable()).toBe(true);
   toggle("Documents");
+
+  toggle("Skipped");
+  await screen.findByText(
+    "1 item selected · Excluded folders cannot be analyzed first",
+  );
+  expect(unavailable()).toBe(true);
+  toggle("Skipped");
 
   toggle("Photos");
   toggle("Videos");
-  await screen.findByText("2 selected");
-  expect(selectionAction().hasAttribute("disabled")).toBe(true);
+  const many = await screen.findByText(
+    "2 items selected · Select one folder to analyze it first",
+  );
+  expect(unavailable()).toBe(true);
+  // The unavailable action refers to the summary for its reason.
+  expect(selectionAction().getAttribute("aria-describedby")).toBe(many.id);
   toggle("Videos");
-  await screen.findByText("1 selected");
-  expect(selectionAction().hasAttribute("disabled")).toBe(false);
+  await screen.findByText("1 item selected");
+  expect(selectionAction().hasAttribute("aria-disabled")).toBe(false);
+  expect(selectionAction().hasAttribute("aria-describedby")).toBe(false);
 
   fireEvent.click(selectionAction());
   await waitFor(() => expect(answers).toHaveLength(1));
@@ -320,7 +180,10 @@ test("F02 FR8.HD1: the selection action bar analyzes one selected folder first",
     within(gridRow("Photos")).getByText("Analyze first requested"),
   ).toBeDefined();
   // The requested folder is not offered again.
-  expect(selectionAction().hasAttribute("disabled")).toBe(true);
+  expect(screen.getByText("1 item selected · Already requested")).toBeDefined();
+  expect(unavailable()).toBe(true);
+  fireEvent.click(selectionAction());
+  expect(answers).toHaveLength(1);
 
   // Outside the running scan's current result there is no bar.
   rerender(undefined);
@@ -328,6 +191,45 @@ test("F02 FR8.HD1: the selection action bar analyzes one selected folder first",
     expect(
       screen.queryByRole("toolbar", { name: "Selection actions" }),
     ).toBeNull(),
+  );
+});
+
+test("F02 FR8.HD1: pressing Analyze first by keyboard keeps focus in the bar", async () => {
+  const { answers } = await setup();
+  toggle("Photos");
+  await screen.findByText("1 item selected");
+  const button = selectionAction();
+  act(() => button.focus());
+  fireEvent.keyDown(button, { key: "Enter" });
+  fireEvent.keyUp(button, { key: "Enter" });
+  await waitFor(() => expect(answers).toHaveLength(1));
+  expect(unavailable()).toBe(true);
+  expect(document.activeElement).toBe(button);
+  expect(
+    screen
+      .getByRole("toolbar", { name: "Selection actions" })
+      .contains(document.activeElement),
+  ).toBe(true);
+  await act(async () =>
+    answers[0]?.resolve({
+      controlResult: "accepted",
+      appliedPriorityArea: ref(1),
+    }),
+  );
+  // The outcome replaces the summary without moving focus.
+  expect(within(selectionBar()!).getByRole("status").textContent).toBe(
+    "‘Photos’ is analyzed first",
+  );
+  expect(document.activeElement).toBe(button);
+});
+
+test("F02 FR8.HD1: focus moves to the panel when the bar goes away while holding it", async () => {
+  const { rerender } = await setup();
+  act(() => selectionAction().focus());
+  rerender(undefined);
+  await waitFor(() => expect(selectionBar()).toBeNull());
+  expect(document.activeElement).toBe(
+    screen.getByRole("region", { name: "Folder navigation" }),
   );
 });
 

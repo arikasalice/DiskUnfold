@@ -57,3 +57,22 @@
   min-block-size: 32px;
   padding-block: 4px;
 }
+
+/* An unavailable action stays focusable; it looks disabled without hover feedback. */
+.du-selection-actions
+  .du-selection-actions__items
+  .du-action[aria-disabled="true"] {
+  border-color: var(--du-disabled-border);
+  background: var(--du-disabled-surface);
+  color: var(--du-disabled-text);
+  cursor: default;
+}
+
+@media (forced-colors: active) {
+  .du-selection-actions
+    .du-selection-actions__items
+    .du-action[aria-disabled="true"] {
+    border-color: GrayText;
+    color: GrayText;
+  }
+}
