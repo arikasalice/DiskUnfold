@@ -10,8 +10,24 @@ import { useLocaleText } from "../../i18n/presentation";
 import type { BrowseOpenResponse, ItemRef } from "../../ipc";
 import { folderPath, rowKey } from "./browse-display";
 import type { InspectedItem } from "./use-item-inspection";
+import type { LocaleText } from "../../i18n/presentation";
 
 export type Opened = Extract<BrowseOpenResponse, { kind: "opened" }>;
+
+/**
+ * Names the origin of a result in the reader's language. The origin is an
+ * open identifier, so a value without copy is shown as reported.
+ */
+function originText(origin: string, text: LocaleText): string {
+  switch (origin) {
+    case "scan":
+      return text("ui.browse.origin_scan", "Scan");
+    case "incremental":
+      return text("ui.browse.origin_incremental", "Incremental update");
+    default:
+      return origin;
+  }
+}
 export type ParentLocation = { item?: ItemRef };
 export type InspectItem = (
   item: ItemRef,
@@ -105,16 +121,17 @@ export function ObservationSummary({
   return (
     <div className="du-browse-observation">
       <Text kind="muted">
-        {opened.origin} ·{" "}
+        {originText(opened.origin, text)} ·{" "}
         {page.observedAt?.slice(0, 10) ??
           text("ui.browse.unavailable", "Unavailable")}{" "}
         ·{" "}
         {page.total.state === "lower_bound"
-          ? `${text("ui.browse.at_least", "At least")} `
-          : ""}
-        {text("ui.browse.item_count", "{count} items", {
-          count: String(page.total.count),
-        })}
+          ? text("ui.browse.item_count_at_least", "At least {count} items", {
+              count: String(page.total.count),
+            })
+          : text("ui.browse.item_count", "{count} items", {
+              count: String(page.total.count),
+            })}
         {page.completeness === "complete"
           ? ` · ${text("ui.browse.complete", "Complete")}`
           : ""}
@@ -153,7 +170,7 @@ export function ObservationSummary({
               },
               {
                 label: text("ui.browse.source", "Source"),
-                value: opened.origin,
+                value: originText(opened.origin, text),
               },
               {
                 label: text("ui.browse.observed", "Observed"),

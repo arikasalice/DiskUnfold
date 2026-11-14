@@ -29,7 +29,7 @@ pub(super) fn create(
         })
         .collect();
     let options = LaneOptions {
-        capacity: QUEUED_DIRECTORIES,
+        capacity: lane_capacity(),
         track_peak: diagnostics.is_some(),
         track_paths: control.is_some(),
     };
@@ -47,6 +47,25 @@ pub(super) fn create(
     }
     Ok(shared)
 }
+
+/// Lane queue capacity of a scan: [`QUEUED_DIRECTORIES`] outside tests.
+fn lane_capacity() -> usize {
+    #[cfg(test)]
+    {
+        let capacity = TEST_LANE_CAPACITY.load(Ordering::Acquire);
+        if capacity != 0 {
+            return capacity;
+        }
+    }
+    QUEUED_DIRECTORIES
+}
+
+/// Replaces the lane queue capacity of later scans while not zero.
+///
+/// Process-wide; only a measurement process that runs a single test sets it.
+#[cfg(test)]
+pub(super) static TEST_LANE_CAPACITY: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
 
 /// Lane queue capacity and the optional accounting of one scheduler.
 #[derive(Clone, Copy)]

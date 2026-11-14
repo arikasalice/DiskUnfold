@@ -41,16 +41,20 @@ mod scheduler;
 mod volume_reports;
 
 /// Directory work held in one lane queue, counting items claimed from it that
-/// will be returned to it (NFR3.HD1.app-host.DD1).
+/// will be returned to it (NFR3.HD1.app-host.DD1). Work that does not fit
+/// stays on the finding worker's stack.
 ///
-/// Provisional value. The F02 DLD fixes the 8,192-entry stage channel but no
-/// lane queue size. 64 matches the largest worker count of one lane, the SSD
-/// device permit and [`MAX_WORKERS`], so every worker of a full lane can find
-/// shared work without stealing. A queued directory holds at most one returned
-/// batch, and a pending child shares its parent's handle, so open handles stay
-/// within twice the queued, stacked and running directories. Work that does
-/// not fit stays on the finding worker's stack. Confirm the value by
-/// measurement before it is published in the design.
+/// Measured (release-packaging/quality/f02-queue-capacity-measurement.md):
+/// 8 to 1,024 give the same throughput with 1-16 workers, 1 or 4 lanes and
+/// read delays up to 1 ms; unbounded was slower. 64 is kept: no value was
+/// faster and the shallowest-first share it sets was not measured.
+///
+/// With `L` lanes, `W` workers, depth `D` and read batch `B` (at most 8,192;
+/// adapters return 256), lane queues hold `L * QUEUED_DIRECTORIES` items plus
+/// the roots, stacks `W * (D + 2)`, each worker one claimed item and a child.
+/// An item keeps its last batch until its next read, so held entries stay
+/// within `(L * QUEUED_DIRECTORIES + W * (D + 4) + roots) * B`, 89 % reached
+/// with 16 lanes of 8,192 (1.9 GiB). Handles stay within twice the items.
 const QUEUED_DIRECTORIES: usize = 64;
 const BUFFERED_OBSERVATIONS: usize = 8192;
 const MAX_WORKERS: usize = 64;
