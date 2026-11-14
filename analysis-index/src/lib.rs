@@ -1,6 +1,7 @@
 //! In-memory result publication and conservative per-subtree space aggregation.
 mod aggregation_rule;
 pub mod browse;
+mod current_pin;
 mod directory_case;
 mod forest;
 pub mod freshness;
@@ -103,31 +104,6 @@ impl IngestSink {
             state: Arc::default(),
             events: Arc::new(PublicationEvents::new(publisher)),
         }
-    }
-    /// Pins the current version only if its identifier still matches the admitted request.
-    pub fn pin_current(&self, expected: &Id) -> Result<Arc<ResultVersion>, QueryError> {
-        let state = self.state.lock().map_err(|_| QueryError::Unavailable)?;
-        state.pin_current(expected)
-    }
-    /// Pins the most recently published current result, when present.
-    pub fn pin(&self) -> Result<Option<Arc<ResultVersion>>, BuildError> {
-        Ok(self
-            .state
-            .lock()
-            .map_err(|_| BuildError::Unavailable)?
-            .pin())
-    }
-    /// Returns the stable current-analysis lineage for a canonical scope fingerprint.
-    /// The caller supplies a unique candidate ID; an existing binding is reused.
-    pub fn bind_current_analysis(
-        &self,
-        fingerprint: &str,
-        candidate: Id,
-    ) -> Result<Id, BuildError> {
-        self.state
-            .lock()
-            .map_err(|_| BuildError::Unavailable)?
-            .bind(fingerprint, candidate)
     }
     pub fn open(&self, scope_version_id: Id) -> Result<BuildHandle, BuildError> {
         self.begin(scope_version_id, Vec::new(), None)
