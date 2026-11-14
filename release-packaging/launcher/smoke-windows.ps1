@@ -982,10 +982,13 @@ function Test-LocaleSwitch {
 }
 # Save the window as a PNG under %TEMP% when the interactive desktop allows it.
 function Save-SmokeCapture($name) {
+  $restore = $null
   try {
-    # Review captures show the whole window at the screen's full size.
+    # Review captures show the whole window at the screen's full size; the size is restored
+    # afterwards so later steps see the layout they were written for.
     $windowPattern = $window.GetCurrentPattern([Windows.Automation.WindowPattern]::Pattern)
     if ($windowPattern.Current.WindowVisualState -ne [Windows.Automation.WindowVisualState]::Maximized) {
+      $restore = $windowPattern.Current.WindowVisualState
       $windowPattern.SetWindowVisualState([Windows.Automation.WindowVisualState]::Maximized)
       Start-Sleep -Milliseconds 800
     }
@@ -1004,6 +1007,12 @@ function Save-SmokeCapture($name) {
     } finally { $graphics.Dispose(); $bitmap.Dispose() }
     "Capture: $path"
   } catch { Write-Warning "Capture '$name' failed: $($_.Exception.Message)" }
+  finally {
+    if ($null -ne $restore) {
+      try { $windowPattern.SetWindowVisualState($restore); Start-Sleep -Milliseconds 500 }
+      catch { Write-Warning "Restoring the window after '$name' failed: $($_.Exception.Message)" }
+    }
+  }
 }
 function Get-UINames($within = $window) {
   @($within.FindAll($scopeTree, [Windows.Automation.Condition]::TrueCondition) |
@@ -1166,6 +1175,13 @@ function Test-VirtualGroupsSample {
   Start-Sleep -Milliseconds 800
   if (Find-UI 'Edit rules' $button) { throw 'The disabled sample entry opened the virtual group screen' }
   'F36 native sample: "View as virtual groups" stays disabled in the sample with "Not available in the sample yet" beside it'
+  # End the experience (and confirm if asked) so the later steps start on the analysis screen.
+  $null = Wait-UI 'sample ended' {
+    $entry = Find-UI 'Try sample data first' $button
+    if ($entry -and -not $entry.Current.IsOffscreen) { return $entry }
+    $end = Find-UI 'End experience' $button
+    if ($end -and $end.Current.IsEnabled) { try { Invoke-UI $end } catch { Write-Warning "End experience: $($_.Exception.Message)" } }
+  } 60
 }
 # Captures follow the review list: 01 entry, 02 result with a selected row, 03 no saved rules,
 # 04 editor with an empty value, 05 discard dialog, 06 members and reasons, 07 running (optional),
