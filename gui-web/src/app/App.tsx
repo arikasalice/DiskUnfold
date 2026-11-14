@@ -31,6 +31,9 @@ import type {
   BrowseOpenLocation,
   BrowsePort,
 } from "../features/browse/BrowsePanel";
+import { GroupsEntryAction } from "../features/groups/GroupsEntry";
+import { GroupsSurface } from "../features/groups/GroupsSurface";
+import { useGroupsEntry } from "../features/groups/use-groups-entry";
 import { HistoryPanel } from "../features/history/HistoryPanel";
 import { SettingsRestoration } from "../features/settings/SettingsRestoration";
 import { LocaleSettings } from "../features/settings/LocaleSettings";
@@ -52,10 +55,16 @@ const desktop = createAnalysisClient();
 /** Screen name for the window title bar, or nothing while there is no desktop connection. */
 function screenLabel(
   text: LocaleText,
-  screen: { connected: boolean; history: boolean; browsing: boolean },
+  screen: {
+    connected: boolean;
+    history: boolean;
+    browsing: boolean;
+    groups: boolean;
+  },
 ) {
   if (!screen.connected) return undefined;
   if (screen.history) return text("ui.app.history", "Operation history");
+  if (screen.groups) return text("ui.app.screen_groups", "Group by my rules");
   if (screen.browsing) return text("ui.app.screen_browse", "Browse folders");
   return text("ui.app.screen_analysis", "Analysis");
 }
@@ -95,6 +104,7 @@ export function App({
   const [visualizationOpen, setVisualizationOpen] = useState(false);
   const { version: browseVersion, choice: browseChoice } =
     browseState(browseSelection);
+  const groups = useGroupsEntry(browseVersion);
   const browseTrigger = useRef<HTMLButtonElement>(null);
   // Names the screen for the window title bar: operation history, folder browsing or analysis.
   useTitleBarContext(
@@ -102,6 +112,7 @@ export function App({
       connected: Boolean(client),
       history,
       browsing: Boolean(browseVersion),
+      groups: groups.open,
     }),
   );
   const restoreBrowseFocus = useRef(false);
@@ -138,6 +149,11 @@ export function App({
     }
   }, [visualizationOpen]);
   const analysisOpen = client && !history && browseVersion === undefined;
+  const controls = browseControls(
+    Boolean(browseVersion),
+    visualizationOpen,
+    groups.open,
+  );
   const chosenDisplay = effectiveDisplay(browseChoice, preferences.display);
   const browseDisplay = withRegionalFormat(chosenDisplay, regional);
   const onSizeBasisChange = useCallback(
@@ -161,7 +177,7 @@ export function App({
           <LocaleControls locale={locale} />
           <InfoEntry client={client} fallbackClient={infoClient} />
           <BrowseReturn
-            visible={Boolean(browseVersion) && !visualizationOpen}
+            visible={controls.backVisible}
             autoFocus={!restoreVisualizationFocus.current}
             onPress={() => {
               restoreBrowseFocus.current = true;
@@ -171,7 +187,7 @@ export function App({
             }}
           />
           <BrowseVisualizationActions
-            visible={Boolean(browseVersion)}
+            visible={controls.visualizationVisible}
             open={visualizationOpen}
             available={Boolean(visualization.assembly)}
             trigger={visualizationTrigger}
@@ -180,6 +196,11 @@ export function App({
               restoreVisualizationFocus.current = true;
               setVisualizationOpen(false);
             }}
+          />
+          <GroupsEntryAction
+            visible={groups.entryVisible(visualizationOpen)}
+            trigger={groups.trigger}
+            onOpen={groups.show}
           />
           {client && (
             <SettingsRestoration
@@ -242,9 +263,10 @@ export function App({
         port={browsePort}
         resultVersion={browseVersion}
         display={browseDisplay}
-        hidden={visualizationOpen}
+        hidden={controls.listHidden}
         onOpening={visualization.invalidate}
-        onOpened={(version, opened) =>
+        onOpened={(version, opened) => {
+          groups.onBrowsed(version, opened);
           visualization.opened(
             basisSelection?.version === version
               ? browseSelectionFromOpen(
@@ -254,14 +276,20 @@ export function App({
                   basisSelection.basis,
                 )
               : undefined,
-          )
-        }
+          );
+        }}
       />
       <BrowseVisualizationView
         client={client}
         open={visualizationOpen}
         selection={visualization.selection}
         assembly={visualization.assembly}
+      />
+      <GroupsSurface
+        client={client}
+        browseVersion={browseVersion}
+        entry={groups}
+        display={browseDisplay}
       />
       {client && history && (
         <HistoryPanel
@@ -392,6 +420,20 @@ function effectiveDisplay(
   fallback: SizeDisplay,
 ): SizeDisplay {
   return choice ?? fallback;
+}
+
+/** Which browse controls show while the space view or the virtual-group view is open. */
+function browseControls(
+  browsing: boolean,
+  visualizationOpen: boolean,
+  groupsOpen: boolean,
+) {
+  const overlayOpen = visualizationOpen || groupsOpen;
+  return {
+    backVisible: browsing && !overlayOpen,
+    visualizationVisible: browsing && !groupsOpen,
+    listHidden: overlayOpen,
+  };
 }
 
 function browseState(

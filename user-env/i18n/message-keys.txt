@@ -1117,3 +1117,205 @@ ui.support.security_unknown
 ui.info.product_open
 ui.info.support_open
 ui.info.nav
+ui.groups.name_op_equal
+ui.groups.name_op_contains
+ui.groups.name_op_starts_with
+ui.groups.name_op_ends_with
+ui.groups.type_file
+ui.groups.type_directory
+ui.groups.type_link
+ui.groups.size_op_at_least
+ui.groups.size_op_greater_than
+ui.groups.size_op_at_most
+ui.groups.size_op_less_than
+ui.groups.basis_logical
+ui.groups.basis_allocated
+ui.groups.cond_type_summary value:name
+ui.groups.cond_registered id:name
+ui.groups.cond_name_summary op:name text:name
+ui.groups.cond_binary
+ui.groups.cond_size_summary basis:name op:name size:name
+ui.groups.cond_not condition:name
+ui.groups.cond_and
+ui.groups.cond_or
+ui.groups.size_unknown
+ui.groups.size_at_least size:name
+ui.groups.percent_under value:number
+ui.groups.percent value:number
+ui.groups.basis_unique
+ui.groups.limit_observed_record
+ui.groups.limit_partial
+ui.groups.limit_stale
+ui.groups.limit_undecidable
+ui.groups.limit_role_unconfirmed
+ui.groups.limit_size_bound
+ui.groups.limit_timezone
+ui.groups.limit_ruleset_changed
+ui.groups.reason_unknown
+ui.groups.reason_rule_invalid
+ui.groups.reason_name_duplicate
+ui.groups.reason_rule_limit
+ui.groups.reason_rules_modified
+ui.groups.reason_result_expired
+ui.groups.reason_source_unsupported
+ui.groups.reason_rule_unevaluable
+ui.groups.reason_value_unknown
+ui.groups.reason_ratio_undefined
+ui.groups.reason_ratio_inexact
+ui.groups.reason_busy
+ui.groups.reason_internal
+ui.groups.limit_unknown key:name
+ui.groups.limit_with_count count:count label:name
+ui.groups.reason_none
+ui.groups.reason_generic key:name
+ui.groups.items_count count:count
+ui.groups.tab_groups
+ui.groups.tab_groups_desc
+ui.groups.tab_overlap
+ui.groups.tab_overlap_desc
+ui.groups.tab_unclassified
+ui.groups.tab_unclassified_desc
+ui.groups.tab_undecidable
+ui.groups.tab_undecidable_desc
+ui.groups.tabs_label
+ui.groups.problem_invalid_name
+ui.groups.problem_invalid_size
+ui.groups.cond_size_basis
+ui.groups.cond_size_op
+ui.groups.cond_size_amount
+ui.groups.cond_size_hint
+ui.groups.cond_size_unit
+ui.groups.cond_name_op
+ui.groups.cond_name_text
+ui.groups.cond_name_hint
+ui.groups.cond_type
+ui.groups.conditions_title
+ui.groups.readonly_unregistered_badge
+ui.groups.readonly_unsupported_badge
+ui.groups.readonly_unregistered_note
+ui.groups.readonly_unsupported_note
+ui.groups.conditions_note
+ui.groups.problem_empty_condition
+ui.groups.condition_number number:count
+ui.groups.remove_condition_number number:count
+ui.groups.remove_condition
+ui.groups.add_condition_name
+ui.groups.add_condition_type
+ui.groups.add_condition_size
+ui.groups.decision_match
+ui.groups.decision_no_match
+ui.groups.decision_undecidable
+ui.groups.node_root
+ui.groups.node path:name
+ui.groups.group_missing
+ui.groups.explain_title
+ui.groups.explain_close
+ui.groups.explain_loading
+ui.groups.explain_failed
+ui.groups.retry
+ui.groups.explain_rules
+ui.groups.explain_nodes
+ui.groups.limits_label
+ui.groups.no_group
+ui.groups.col_path
+ui.groups.col_groups
+ui.groups.members_label
+ui.groups.members_failed
+ui.groups.members_empty
+ui.groups.members_loading
+ui.groups.members_grid
+ui.groups.explain_action
+ui.groups.badge_action badge:name
+ui.groups.group_count_badge count:count
+ui.groups.blocked_unchanged
+ui.groups.blocked_empty_name
+ui.groups.blocked_empty_condition
+ui.groups.blocked_invalid
+ui.groups.blocked_conflict
+ui.groups.rule_needs_review
+ui.groups.conditions_count count:count
+ui.groups.conflict_notice
+ui.groups.save_failed
+ui.groups.save_rejected
+ui.groups.unnamed_rule
+ui.groups.rule_details name:name
+ui.groups.rule_name
+ui.groups.problem_empty_name
+ui.groups.rule_name_hint
+ui.groups.move_up name:name
+ui.groups.move_up_short
+ui.groups.move_down name:name
+ui.groups.move_down_short
+ui.groups.remove_rule name:name
+ui.groups.remove_rule_short
+ui.groups.editor_title
+ui.groups.editor_version
+ui.groups.rules_version_label
+ui.groups.editor_saved_at
+ui.groups.editor_never_saved
+ui.groups.conflict_reload
+ui.groups.conflict_keep
+ui.groups.rule_list
+ui.groups.virtual_badge
+ui.groups.add_rule
+ui.groups.saving
+ui.groups.save
+ui.groups.cancel_edit
+ui.groups.discard_title
+ui.groups.discard_confirm
+ui.groups.discard_keep
+ui.groups.discard_body
+ui.groups.open
+ui.groups.rules_changed
+ui.groups.requery_expired
+ui.groups.requery_version
+ui.groups.failed
+ui.groups.cancelled
+ui.groups.reclassify
+ui.groups.start
+ui.groups.requesting
+ui.groups.working
+ui.groups.cancel
+ui.groups.updatable
+ui.groups.not_applicable
+ui.groups.previous_version
+ui.groups.previous_classification
+ui.groups.status_label
+ui.groups.decision_unclassified
+ui.groups.decision_unevaluable
+ui.groups.decision_undecided count:count
+ui.groups.decision_ok
+ui.groups.col_group
+ui.groups.col_members
+ui.groups.col_size
+ui.groups.col_overlap
+ui.groups.col_decision
+ui.groups.table_label
+ui.groups.select_group name:name
+ui.groups.selected_badge
+ui.groups.rules_label
+ui.groups.rules_none
+ui.groups.rules_loading
+ui.groups.rules_failed
+ui.groups.edit_rules
+ui.groups.scope_label
+ui.groups.scope_folder
+ui.groups.scope_result
+ui.groups.context_label
+ui.groups.members_of name:name
+ui.groups.unevaluable_notice
+ui.groups.empty
+ui.groups.title
+ui.groups.subtitle
+ui.groups.back_to_folders
+ui.groups.members_action
+ui.groups.ratio_unavailable reason:name
+ui.groups.totals_union basis:name
+ui.groups.total_incomplete
+ui.groups.totals_overlap
+ui.groups.ratio_label basis:name
+ui.groups.totals_title
+ui.groups.totals_loading
+ui.groups.totals_failed
+ui.groups.totals_note
+ui.app.screen_groups

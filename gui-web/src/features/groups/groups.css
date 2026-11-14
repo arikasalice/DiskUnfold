@@ -1,0 +1,147 @@
+.du-groups {
+  display: grid;
+  gap: 16px;
+  min-inline-size: 0;
+}
+
+.du-groups:focus-visible,
+.du-groups-editor:focus-visible,
+.du-groups-members:focus-visible {
+  outline: 2px solid var(--du-focus);
+  outline-offset: 2px;
+}
+
+.du-groups-status,
+.du-groups-limits,
+.du-groups-rules-line,
+.du-groups-members,
+.du-groups-explain,
+.du-groups-totals,
+.du-groups-editor,
+.du-groups-editor__body,
+.du-groups-rule,
+.du-groups-condition {
+  display: grid;
+  gap: 12px;
+  min-inline-size: 0;
+}
+
+.du-groups-rules-line > .du-action,
+.du-groups-status > .du-action,
+.du-groups-status > .du-badge {
+  justify-self: start;
+}
+
+.du-groups-explain,
+.du-groups-totals,
+.du-groups-editor {
+  padding: 16px;
+  background: var(--du-surface);
+  border: 1px solid var(--du-border);
+  border-radius: var(--du-radius);
+}
+
+.du-groups-badges,
+.du-groups-name,
+.du-groups-memberships {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-inline-size: 0;
+}
+
+.du-groups-explain__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.du-groups-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
+  gap: 12px;
+}
+
+.du-groups-condition__row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr));
+  gap: 8px;
+  align-items: start;
+  padding: 12px;
+  border: 1px solid var(--du-border);
+  border-radius: var(--du-radius);
+}
+
+.du-groups-cell {
+  display: grid;
+  gap: 4px;
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+
+.du-groups-cell__label {
+  display: none;
+  color: var(--du-muted);
+  font-size: 12px;
+}
+
+/* The member grid has five columns, with the original path getting the most room. */
+@container (min-width: 641px) {
+  .du-groups-members .du-browse-grid__header [role="row"],
+  .du-groups-members .du-browse-grid__row {
+    grid-template-columns:
+      minmax(0, 22fr) minmax(0, 34fr) repeat(2, minmax(0, 11fr))
+      minmax(0, 22fr);
+  }
+}
+
+.du-groups .du-table-viewport {
+  max-block-size: none;
+  overflow-x: hidden;
+}
+
+.du-groups .du-table-cell {
+  block-size: auto !important;
+  min-block-size: 0;
+}
+
+.du-groups .du-data-table {
+  min-inline-size: 0 !important;
+  inline-size: 100%;
+  table-layout: fixed;
+}
+
+/* Narrow windows and large zoom: one column, each cell names its column. */
+@media (max-width: 44rem) {
+  .du-groups .du-data-table,
+  .du-groups .du-data-table tbody,
+  .du-groups .du-data-table tr,
+  .du-groups .du-data-table td {
+    display: block;
+    inline-size: 100%;
+  }
+
+  .du-groups .du-data-table col {
+    display: none;
+  }
+
+  .du-groups .du-data-table thead {
+    position: absolute;
+    inline-size: 1px;
+    block-size: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+
+  .du-groups .du-data-table tr {
+    padding-block: 8px;
+    border-block-end: 1px solid var(--du-border);
+  }
+
+  .du-groups-cell__label {
+    display: block;
+  }
+}
