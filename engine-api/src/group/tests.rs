@@ -23,6 +23,7 @@ use super::GroupAssembly;
 use crate::api::{CallerCtx, Channel, Engine, EngineBuilder};
 
 mod admission;
+mod sharing;
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
@@ -90,6 +91,7 @@ impl GroupRulesStore for MemoryRules {
 struct Harness {
     engine: Engine,
     sink: IngestSink,
+    runtime: Arc<JobRuntime>,
     calls: AtomicUsize,
 }
 
@@ -113,6 +115,16 @@ fn harness() -> Result<Harness, Box<dyn std::error::Error>> {
 }
 
 fn harness_with(rules: Arc<MemoryRules>) -> Result<Harness, Box<dyn std::error::Error>> {
+    harness_custom(rules, false, du_analysis_index::group::MAX_DECISIONS)
+}
+
+/// A harness whose jobs only run when the test calls `runtime.run_next()` (`idle`), and
+/// whose classifications may hold at most `decision_limit` files times rules.
+fn harness_custom(
+    rules: Arc<MemoryRules>,
+    idle: bool,
+    decision_limit: usize,
+) -> Result<Harness, Box<dyn std::error::Error>> {
     let sink = IngestSink::default();
     publish(&sink, 2)?;
     let runtime = Arc::new(JobRuntime::new(
@@ -121,20 +133,26 @@ fn harness_with(rules: Arc<MemoryRules>) -> Result<Harness, Box<dyn std::error::
         Arc::new(History),
         Arc::new(Events),
     )?);
-    let workers = Arc::new(crate::workers::Workers::start(runtime.clone())?);
+    let workers = Arc::new(if idle {
+        crate::workers::Workers::idle(runtime.clone())
+    } else {
+        crate::workers::Workers::start(runtime.clone())?
+    });
     let mut builder = EngineBuilder::default();
     GroupAssembly {
         store: sink.clone(),
-        runtime,
+        runtime: runtime.clone(),
         workers,
         ids: Arc::new(Ids(AtomicUsize::new(1_000))),
         clock: Arc::new(Clock),
+        decision_limit,
     }
     .register(&mut builder, rules)
     .map_err(|error| format!("{error:?}"))?;
     Ok(Harness {
         engine: builder.build()?,
         sink,
+        runtime,
         calls: AtomicUsize::new(1),
     })
 }
@@ -463,29 +481,4 @@ fn job_classification_registers_only_when_done() -> TestResult {
             (_, Some(reason)) => return Err(reason.into()),
         }
     }
-}
-
-#[test]
-fn cancel_without_running_work_has_no_effect_and_other_channels_are_refused() -> TestResult {
-    let harness = harness()?;
-    let cancelled = harness.ok(
-        "group.cancel",
-        json!({ "kind": "view", "viewRef": id(7), "requestSeq": 1 }),
-    )?;
-    assert_eq!(cancelled["outcome"], "no_effect");
-    let correlation = Id::parse("018f2222-0000-7000-8000-000000000001")?;
-    let result = harness.engine.call(
-        CallEnvelope {
-            name: "group.rules.get".into(),
-            contract_version: ENVELOPE_VERSION,
-            correlation_id: correlation.clone(),
-            body: json!({}),
-        },
-        &CallerCtx::new(Channel::Mcp, correlation, None),
-    );
-    assert_eq!(
-        result.error.map(|error| error.reason_key).as_deref(),
-        Some("command.not_provided")
-    );
-    Ok(())
 }

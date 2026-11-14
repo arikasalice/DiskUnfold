@@ -58,6 +58,17 @@ impl Workers {
         }
     }
 
+    /// Workers that never run a job, so a test decides when queued jobs make progress by
+    /// calling `JobRuntime::run_next` itself.
+    #[cfg(test)]
+    pub(crate) fn idle(runtime: Arc<JobRuntime>) -> Self {
+        Self {
+            runtime,
+            wake: Mutex::new(None),
+            threads: Mutex::new(Vec::new()),
+        }
+    }
+
     /// Closes the worker mailbox and joins every idle worker thread.
     ///
     /// Call after the job runtime has no nonterminal work. Closing the sender

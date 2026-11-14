@@ -5,7 +5,7 @@ use std::{collections::VecDeque, sync::Arc};
 use du_core_contracts::{ItemRef, result::ResultVersionRead};
 
 use super::{
-    Classification, Decision, Error, REASON_RULE_UNEVALUABLE, REASON_VALUE_UNKNOWN,
+    Classification, Control, Decision, Error, REASON_RULE_UNEVALUABLE, REASON_VALUE_UNKNOWN,
     summary::{Tally, belongs},
 };
 use crate::query::{
@@ -17,6 +17,16 @@ use crate::query::{
 const MAX_CACHED_ORDERS: usize = 16;
 /// Files are examined this many apart between cancellation checks while ordering.
 const CANCEL_INTERVAL: usize = 1024;
+
+/// The member sort whose order of the whole scope is built with the classification:
+/// logical size, largest first, ties in observed path order. A request with exactly this
+/// sort selects its rows from that order and sorts nothing.
+pub const DEFAULT_MEMBER_SORT: Sort<'static> = Sort {
+    id: "sort.size",
+    revision: 1,
+    basis: Basis::Logical,
+    descending: true,
+};
 
 /// A member category derived from the rule decisions of one classification.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -86,10 +96,13 @@ impl Classification {
     /// Reads `count` rows of `category` starting at position `start`.
     ///
     /// Rows follow `sorts` in priority order, and the last key is always the observed path
-    /// order, so repeated requests return the same order. The order of a (category, sorts)
-    /// pair is calculated on its first request and kept in this classification; the sorts are
-    /// resolved from `registry` at that time, and an unknown strategy is rejected. A start
-    /// beyond the end returns no rows and the unchanged total.
+    /// order, so repeated requests return the same order. [`DEFAULT_MEMBER_SORT`] reads the
+    /// order of the whole scope that was built with the classification: the rows are
+    /// filtered from it by category, without sorting, and the total is the category count of
+    /// the summary. The order of any other (category, sorts) pair is calculated on its first
+    /// request and kept in this classification; the sorts are resolved from `registry` at
+    /// that time, and an unknown strategy is rejected. A start beyond the end returns no
+    /// rows and the unchanged total.
     ///
     /// # Errors
     /// Returns [`Error::InvalidSelection`] for a group index without a rule,
@@ -106,6 +119,11 @@ impl Classification {
         if matches!(category, Category::Group(index) if index >= self.rules.len()) {
             return Err(Error::InvalidSelection);
         }
+        if sorts == [DEFAULT_MEMBER_SORT]
+            && let Some(order) = &self.default_order
+        {
+            return self.default_page(category, order, (start, count), &mut cancelled);
+        }
         let order = self.member_order(category, sorts, registry, &mut cancelled)?;
         let end = start.saturating_add(count).min(order.len());
         let rows = order
@@ -118,6 +136,77 @@ impl Classification {
             total: order.len(),
             rows,
         })
+    }
+
+    /// Selects a page of `category` from the order of the whole scope.
+    fn default_page(
+        &self,
+        category: Category,
+        order: &[u32],
+        (start, count): (usize, usize),
+        cancelled: &mut impl FnMut() -> bool,
+    ) -> Result<Page, Error> {
+        let total = self.category_count(category)?;
+        let mut rows = Vec::new();
+        let mut seen = 0usize;
+        if count > 0 && start < total {
+            for (scanned, &position) in order.iter().enumerate() {
+                if scanned > 0 && scanned.is_multiple_of(CANCEL_INTERVAL) && cancelled() {
+                    return Err(Error::Cancelled);
+                }
+                let position = position as usize;
+                if !belongs(category, self.row(position)) {
+                    continue;
+                }
+                if seen >= start {
+                    rows.push(self.page_row(position)?);
+                    if rows.len() >= count {
+                        break;
+                    }
+                }
+                seen += 1;
+            }
+        }
+        Ok(Page { total, rows })
+    }
+
+    /// Files in `category`, from the counts calculated with the classification.
+    fn category_count(&self, category: Category) -> Result<usize, Error> {
+        let count = match category {
+            Category::Group(index) => {
+                self.summary
+                    .groups
+                    .get(index)
+                    .ok_or(Error::InvalidSelection)?
+                    .members
+            }
+            Category::Overlap => self.summary.overlap,
+            Category::Unclassified => self.summary.unclassified,
+            Category::Undecidable => self.summary.undecidable,
+        };
+        Ok(count as usize)
+    }
+
+    /// Builds what the first reads need: the totals of the default selection and the
+    /// default member order. Only a cancellation is an error; a total or an order that
+    /// cannot be built is calculated again, with its error, when it is requested.
+    pub(super) fn prepare_reads(
+        &mut self,
+        registry: &Registry,
+        control: &dyn Control,
+    ) -> Result<(), Error> {
+        if let Err(Error::Cancelled) = self.prime_totals(|| control.cancelled()) {
+            return Err(Error::Cancelled);
+        }
+        let everything = |_: usize| true;
+        match self.order_by(everything, &[DEFAULT_MEMBER_SORT], registry, &mut || {
+            control.cancelled()
+        }) {
+            Ok(order) => self.default_order = Some(order.into()),
+            Err(Error::Cancelled) => return Err(Error::Cancelled),
+            Err(_) => {}
+        }
+        Ok(())
     }
 
     fn page_row(&self, position: usize) -> Result<PageRow, Error> {
@@ -186,13 +275,25 @@ impl Classification {
         registry: &Registry,
         cancelled: &mut impl FnMut() -> bool,
     ) -> Result<Vec<u32>, Error> {
+        let member = |position: usize| belongs(category, self.row(position));
+        self.order_by(member, sorts, registry, cancelled)
+    }
+
+    /// Orders the files at the positions that pass `member`.
+    fn order_by(
+        &self,
+        member: impl Fn(usize) -> bool,
+        sorts: &[Sort<'_>],
+        registry: &Registry,
+        cancelled: &mut impl FnMut() -> bool,
+    ) -> Result<Vec<u32>, Error> {
         let order = Order::resolve(registry, sorts).map_err(Error::InvalidSort)?;
         let mut keyed: Vec<(Option<OrderKeys>, u32)> = Vec::new();
         for (position, &item_no) in self.files.iter().enumerate() {
             if position.is_multiple_of(CANCEL_INTERVAL) && cancelled() {
                 return Err(Error::Cancelled);
             }
-            if !belongs(category, self.row(position)) {
+            if !member(position) {
                 continue;
             }
             let keys = if sorts.is_empty() {
