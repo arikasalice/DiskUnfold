@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import {
   DetailDisclosure,
   InspectionDialog,
+  NameText,
   Notice,
   Readout,
   Text,
@@ -106,6 +107,20 @@ export function PreviousResultNotice({ previous }: { previous: boolean }) {
   );
 }
 
+/** The location hierarchy on one line; the current location is drawn as a name. */
+function LocationHierarchy({ labels }: { labels: readonly string[] }) {
+  const current = labels.at(-1);
+  return (
+    <>
+      {labels
+        .slice(0, -1)
+        .map((label) => `${label} / `)
+        .join("")}
+      {current !== undefined && <NameText name={current} />}
+    </>
+  );
+}
+
 /** The origin, observation time, count and details of the folder being shown. */
 export function ObservationSummary({
   opened,
@@ -157,16 +172,17 @@ export function ObservationSummary({
                   "ui.browse.location_hierarchy",
                   "Location hierarchy",
                 ),
-                value: folderPath(
-                  opened,
-                  hasVirtualRoot,
-                  () => undefined,
-                  text,
-                  rootLabel,
-                )
-                  .map((entry) => entry.label)
-                  .join(" / "),
-                wideValue: true,
+                value: (
+                  <LocationHierarchy
+                    labels={folderPath(
+                      opened,
+                      hasVirtualRoot,
+                      () => undefined,
+                      text,
+                      rootLabel,
+                    ).map((entry) => entry.label)}
+                  />
+                ),
               },
               {
                 label: text("ui.browse.source", "Source"),
@@ -177,7 +193,6 @@ export function ObservationSummary({
                 value:
                   page.observedAt ??
                   text("ui.browse.unavailable", "Unavailable"),
-                wideValue: true,
               },
               {
                 label: text("ui.browse.result", "Result"),

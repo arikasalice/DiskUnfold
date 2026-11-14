@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { Action, DetailDisclosure, LiveStatus, Text } from "../../components";
+import {
+  Action,
+  DetailDisclosure,
+  LiveStatus,
+  NameText,
+  Text,
+} from "../../components";
 import { useLocaleText } from "../../i18n/presentation";
 import type {
   AnalysisClient,
@@ -178,12 +184,14 @@ function CopyPathForItem({
       <div className="du-copy-path">
         {path.state === "present" ? (
           <div className="du-inspection-path">
-            <Text kind="path">{abbreviate(path.value)}</Text>
+            <Text kind="path">
+              <NameText path name={abbreviate(path.value)} />
+            </Text>
             <DetailDisclosure
               title={text("ui.analysis.full_path", "Full path")}
             >
               <Text kind="path" focusable>
-                {path.value}
+                <NameText path name={path.value} />
               </Text>
             </DetailDisclosure>
           </div>

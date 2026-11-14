@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties, ReactNode, RefObject } from "react";
+import { graphemes } from "./graphemes";
 import { isImeProcessingKey } from "./ime-composition";
 import "../theme/text-fit.css";
 
@@ -9,20 +10,6 @@ const MIDDLE_TAIL_LIMIT = 16;
 const TAIL_NAME_LIMIT = 32;
 /** The tail also keeps the parent folder while it stays within this many characters. */
 const TAIL_FOLDER_BUDGET = 24;
-
-/**
- * Splits text into user-perceived characters (extended grapheme clusters), so
- * a base letter and its combining marks, a conjoining Hangul jamo sequence, a
- * ZWJ emoji or a surrogate pair is never cut in the middle. Without
- * `Intl.Segmenter` it falls back to code points.
- */
-function graphemes(text: string): string[] {
-  if (typeof Intl !== "undefined" && typeof Intl.Segmenter === "function") {
-    const segmenter = new Intl.Segmenter("und", { granularity: "grapheme" });
-    return Array.from(segmenter.segment(text), (part) => part.segment);
-  }
-  return Array.from(text);
-}
 
 function isSeparator(unit: string | undefined): boolean {
   return unit === "/" || unit === "\\";

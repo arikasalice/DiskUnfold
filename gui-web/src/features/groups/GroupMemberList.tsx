@@ -4,6 +4,7 @@ import {
   Action,
   BrowseGrid,
   ItemActions,
+  NameText,
   Notice,
   Progress,
   StatusBadge,
@@ -145,7 +146,11 @@ export function GroupMemberList({
                   ]}
                 >
                   <Action excludeFromTabOrder onPress={() => onExplain(row)}>
-                    {name}
+                    {row.displayName.state === "present" ? (
+                      <NameText name={row.displayName.value} />
+                    ) : (
+                      name
+                    )}
                   </Action>
                 </ItemActions>,
                 <Text key="path" kind="path">

@@ -231,7 +231,8 @@
 
 .du-history-detail .du-readout > div {
   display: grid;
-  grid-template-columns: minmax(7rem, 27%) minmax(0, 1fr);
+  /* Labels never wrap, so the label column is at least as wide as its label. */
+  grid-template-columns: minmax(max-content, 27%) minmax(0, 1fr);
 }
 
 .du-history-detail .du-readout dd {
