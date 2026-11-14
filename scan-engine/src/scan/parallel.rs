@@ -124,6 +124,8 @@ enum Policy<'a> {
 struct Progress {
     failed_roots: Vec<bool>,
     root_published: Vec<bool>,
+    /// Roots whose item was already counted, so a failure counts them once.
+    counted_roots: Vec<bool>,
     published: bool,
     cadence: PublicationCadence,
 }
@@ -330,7 +332,8 @@ fn run(
         Err(_) => return Err(BuildError::Unavailable),
     };
     build.set_volume_reports(reports.snapshot())?;
-    preparation::record_starts(&mut build, &prepared.starts, &disconnects, counts, context)?;
+    let counted_roots =
+        preparation::record_starts(&mut build, &prepared.starts, &disconnects, counts, context)?;
     let flows = match acquire_flows(context, limit) {
         Ok(flows) => flows,
         Err(JobFlowError::Cancelled) => {
@@ -345,6 +348,7 @@ fn run(
     let mut progress = Progress {
         failed_roots: vec![false; root_count],
         root_published: vec![false; root_count],
+        counted_roots,
         published: false,
         cadence: PublicationCadence::default(),
     };

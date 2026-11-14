@@ -210,6 +210,7 @@ fn target(mount: VolumeMount, identity_supported: bool) -> Option<AnalysisTarget
         display: mount.display_path,
         lossy: false,
     })
+    .map(crate::display_path::os_path)
     .ok()?;
     let volume_id = mount
         .volume_id
