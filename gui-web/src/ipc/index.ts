@@ -336,6 +336,8 @@ export {
   scanIssuesProblemText,
   scanIssuesRecoveryText,
   scanJobReasonText,
+  scanPriorityFailure,
+  scanPriorityText,
   scanProblemText,
   scopeErrorText,
   scopeNoticeText,
@@ -345,6 +347,7 @@ export type {
   ResultReadProblem,
   ScanControl,
   ScanIssueFilter,
+  ScanPriorityOutcome,
   ScanProblem,
 } from "./scan-text";
 

@@ -245,6 +245,11 @@ ui.analysis.progress_items count:count
 ui.analysis.progress_items_of_total count:count total:count
 ui.analysis.progress_bytes size:size
 ui.analysis.progress_bytes_of_total size:size total:size
+ui.analysis.priority_accepted name:name
+ui.analysis.priority_no_effect
+ui.analysis.priority_ended
+ui.analysis.priority_stale
+ui.analysis.priority_failed
 ui.analysis.reading_totals_pending
 ui.analysis.reading_totals
 ui.analysis.waiting_scan
@@ -644,6 +649,8 @@ ui.browse.folders_and_files
 ui.browse.full_location_observation
 ui.browse.incomplete
 ui.browse.inspect
+ui.browse.analyze_first
+ui.browse.priority_requested
 ui.browse.item_actions name:name
 ui.browse.item_count count:count
 ui.browse.list_end_unknown

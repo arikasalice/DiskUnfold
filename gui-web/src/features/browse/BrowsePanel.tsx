@@ -13,7 +13,9 @@ import {
   Notice,
   Progress,
   Text,
+  Toast,
 } from "../../components";
+import { scanPriorityText } from "../../ipc";
 import type {
   BrowseOpenRequest,
   BrowseOpenResponse,
@@ -24,6 +26,7 @@ import type {
   QueryPageResponse,
 } from "../../ipc";
 import { BROWSE_PAGE_SIZE, BrowsePages } from "../../state/browse-pages";
+import type { ScanPriority } from "../../state/scan-priority";
 import { folderPath, rowKey } from "./browse-display";
 import { BrowseResults } from "./BrowseResults";
 import { useItemInspection } from "./use-item-inspection";
@@ -127,6 +130,7 @@ export function BrowsePanel({
   onOpening,
   onOpened,
   display = { system: "iec", unit: "auto" },
+  priority,
 }: {
   port: BrowsePort;
   resultVersion?: string;
@@ -134,6 +138,8 @@ export function BrowsePanel({
   onOpening?: () => void;
   onOpened?: (opened: BrowseOpenLocation) => void;
   display?: SizeDisplay;
+  /** "Analyze first" for a running scan's current partial result, when available. */
+  priority?: ScanPriority;
 }) {
   const text = useLocaleText();
   const [view, setView] = useState<View>();
@@ -371,6 +377,7 @@ export function BrowsePanel({
             openFolder={(item) => navigate(item, page.resultVersion)}
             openItem={inspectItem ? openItem : undefined}
             copyPath={port.copyPath}
+            priority={priority}
             reopen={() =>
               navigate(
                 view.opened.location ?? undefined,
@@ -386,7 +393,23 @@ export function BrowsePanel({
         inspectItem={inspectItem}
         close={inspection.close}
       />
+      {priority && <PriorityToast priority={priority} />}
     </section>
+  );
+}
+
+function PriorityToast({ priority }: { priority: ScanPriority }) {
+  const text = useLocaleText();
+  const notice = priority.notice;
+  return (
+    <Toast
+      message={
+        notice && {
+          id: notice.id,
+          text: scanPriorityText(notice.outcome, notice.name, text),
+        }
+      }
+    />
   );
 }
 

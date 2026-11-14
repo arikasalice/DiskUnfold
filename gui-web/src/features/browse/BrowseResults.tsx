@@ -5,8 +5,10 @@ import {
   ItemActions,
   ActionFeedback,
   Notice,
+  RowAction,
   Text,
 } from "../../components";
+import type { ItemAction } from "../../components";
 import type {
   FolderQueryRow,
   BrowseCopyPathOutcome,
@@ -15,6 +17,7 @@ import type {
   QueryPageResponse,
 } from "../../ipc";
 import type { BrowsePages } from "../../state/browse-pages";
+import type { ScanPriority } from "../../state/scan-priority";
 import { browseDisplayName, rowKey } from "./browse-display";
 import { formatByteUnit } from "../../i18n/bytes";
 import type { SizeDisplay } from "../../i18n/bytes";
@@ -60,6 +63,72 @@ function availability(
   return found.join(" · ") || text("ui.browse.not_reported", "Not reported");
 }
 
+/** "Analyze first" is offered only for in-scope folders of the scan's current result. */
+function canAnalyzeFirst(
+  row: FolderQueryRow,
+  priority: ScanPriority | undefined,
+  readOnly: boolean,
+): priority is ScanPriority {
+  const excluded = row.flags.excluded;
+  return (
+    priority !== undefined &&
+    !readOnly &&
+    row.kind === "directory" &&
+    !(excluded?.state === "present" && excluded.value) &&
+    priority.canRequest(row.item) &&
+    !priority.requested(row.item)
+  );
+}
+
+function analyzeFirstActions(
+  row: FolderQueryRow,
+  priority: ScanPriority | undefined,
+  readOnly: boolean,
+  text: ReturnType<typeof useLocaleText>,
+): ItemAction[] {
+  if (!canAnalyzeFirst(row, priority, readOnly)) return [];
+  return [
+    {
+      id: "analyze-first",
+      label: text("ui.browse.analyze_first", "Analyze first"),
+      onAction: () =>
+        priority.request(row.item, browseDisplayName(row.displayName, text)),
+    },
+  ];
+}
+
+/** The row's collection status; a requested folder shows that instead. */
+function StatusCell({
+  row,
+  priority,
+  readOnly,
+}: {
+  row: FolderQueryRow;
+  priority: ScanPriority | undefined;
+  readOnly: boolean;
+}) {
+  const text = useLocaleText();
+  const requested =
+    row.kind === "directory" && priority?.requested(row.item) === true;
+  return (
+    <div className="du-row-status" data-requested={requested || undefined}>
+      <Text>
+        {requested
+          ? text("ui.browse.priority_requested", "Analyze first requested")
+          : availability(row, text)}
+      </Text>
+      {canAnalyzeFirst(row, priority, readOnly) && (
+        <RowAction
+          label={text("ui.browse.analyze_first", "Analyze first")}
+          onPress={() =>
+            priority.request(row.item, browseDisplayName(row.displayName, text))
+          }
+        />
+      )}
+    </div>
+  );
+}
+
 export function BrowseResults({
   pages,
   display,
@@ -75,6 +144,7 @@ export function BrowseResults({
   openItem,
   copyPath,
   reopen,
+  priority,
 }: {
   pages: BrowsePages;
   display: SizeDisplay;
@@ -91,6 +161,7 @@ export function BrowseResults({
     ((row: FolderQueryRow, trigger: Element | null) => void) | undefined;
   copyPath: ((item: ItemRef) => Promise<BrowseCopyPathOutcome>) | undefined;
   reopen: () => void;
+  priority?: ScanPriority | undefined;
 }) {
   const text = useLocaleText();
   const timestamp = useTimestampText();
@@ -253,6 +324,7 @@ export function BrowseResults({
                     },
                   ]
                 : []),
+              ...analyzeFirstActions(row, priority, readOnly, text),
               {
                 id: "copy",
                 label: text("ui.browse.copy_path", "Copy path"),
@@ -316,7 +388,7 @@ export function BrowseResults({
                 ? text("ui.browse.not_recorded", "Not recorded")
                 : text("ui.browse.unavailable", "Unavailable")}
           </Text>,
-          <Text>{availability(row, text)}</Text>,
+          <StatusCell row={row} priority={priority} readOnly={readOnly} />,
         ]}
       />
       <ActionFeedback

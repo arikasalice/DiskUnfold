@@ -435,3 +435,45 @@ export function rejectedScopeReviewText(
     "One or more selected paths could not be verified. Review all paths before starting.",
   );
 }
+
+/** How a "scan first" request ended, from its response or error envelope. */
+export type ScanPriorityOutcome =
+  "accepted" | "no_effect" | "already_terminal" | "stale_version" | "failed";
+
+/** Classifies a failed scan.prioritize call; only a replaced result is distinct. */
+export function scanPriorityFailure(failure: unknown): ScanPriorityOutcome {
+  return failure instanceof AnalysisError && failure.code === "STALE_VERSION"
+    ? "stale_version"
+    : "failed";
+}
+
+/** Explains the outcome of a "scan first" request for the named folder. */
+export function scanPriorityText(
+  outcome: ScanPriorityOutcome,
+  name: string,
+  text: LocaleText,
+): string {
+  switch (outcome) {
+    case "accepted":
+      return text("ui.analysis.priority_accepted", "Analyzing ‘{name}’ first", {
+        name,
+      });
+    case "no_effect":
+      return text(
+        "ui.analysis.priority_no_effect",
+        "This folder is already analyzed or is already being analyzed first.",
+      );
+    case "already_terminal":
+      return text("ui.analysis.priority_ended", "The analysis has finished.");
+    case "stale_version":
+      return text(
+        "ui.analysis.priority_stale",
+        "The results changed. Select the folder again in the new results.",
+      );
+    case "failed":
+      return text(
+        "ui.analysis.priority_failed",
+        "This folder could not be analyzed first.",
+      );
+  }
+}

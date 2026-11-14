@@ -24,6 +24,7 @@ import type {
   ScopeReview,
 } from "../../ipc";
 import { useScanResult } from "../../state/analysis-scan";
+import type { ScanPriorityContext } from "../../state/scan-priority";
 import { useTargets } from "../../state/analysis-targets";
 import {
   ResultActions,
@@ -148,6 +149,7 @@ export function AnalysisPanel({
   onBrowse,
   onSizeBasisChange,
   browseTrigger,
+  onScanContext,
 }: {
   client: AnalysisClient;
   preferences: AnalysisDisplayPreferences;
@@ -155,6 +157,8 @@ export function AnalysisPanel({
   onSizeBasisChange?:
     ((version: string, basis: SizeBasisFilter) => void) | undefined;
   browseTrigger?: Ref<HTMLButtonElement>;
+  /** Reports the running scan this panel started and its newest partial result. */
+  onScanContext?: (context: ScanPriorityContext | undefined) => void;
 }) {
   const targets = useTargets(client);
   const text = useLocaleText();
@@ -204,6 +208,15 @@ export function AnalysisPanel({
   );
   const scan = useScanResult(client, receipt);
   const running = scan.running;
+  const scanJob = receipt?.jobRef;
+  const priorityVersion = running ? scan.currentVersion : undefined;
+  useEffect(() => {
+    onScanContext?.(
+      scanJob && priorityVersion
+        ? { jobRef: scanJob, resultVersion: priorityVersion }
+        : undefined,
+    );
+  }, [onScanContext, scanJob, priorityVersion]);
   const restoredIsCurrent = restoredInput?.revision === editRevision.current;
   const dropEnabled = client.subscribeFolderDrop !== undefined;
   const pathDescription =
