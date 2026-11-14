@@ -365,6 +365,7 @@ dependencies = [
  "blake3",
  "du-analysis-index",
  "du-core-contracts",
+ "du-job-runtime",
  "serde",
  "serde_json",
 ]
