@@ -1059,4 +1059,81 @@ export type SpaceAuxiliary = { size: SizeValue, includedInAllocated: boolean | n
 export type SpaceCapabilityState = "supported" | "partial" | "unsupported";
 export type SpaceDetailCapability = { key: string, state: SpaceCapabilityState, reasonKey: string | null, };
 export type SpaceDetail = { item: ItemRef, logical: BrowseValue<SpaceDetailSize>, allocated: BrowseValue<SpaceDetailSize>, uniquePhysical: BrowseValue<SpaceDetailSize>, exclusive: BrowseValue<SpaceDetailSize>, shared: BrowseValue<SpaceDetailSize>, linkGroup: BrowseValue<SpaceLinkGroup>, placeholderLocalState?: BrowseValue<SpacePlaceholderState>, auxiliary: BrowseValue<SpaceAuxiliary>, exclusiveDecision: SpaceExclusiveDecision, observedAt: BrowseValue<Timestamp>, capabilities: BrowseValue<Array<SpaceDetailCapability>>, };
+export type GroupRuleReview = "ok" | "converted" | "predicate_unregistered";
+export type GroupRule = { groupId: Id, displayName: string, displayOrder: number, condition: QueryCondition, conditionModelVersion: number, predicates: Array<QueryStrategy>, review: GroupRuleReview, };
+export type GroupRuleDraft = { groupId?: Id, displayName: string, condition: QueryCondition, };
+export type GroupRuleset = { rulesetVersion: number, revision: number,
+/**
+ * Lower-case hexadecimal fingerprint of the canonical rule content.
+ */
+fingerprint: string, updatedAt?: Timestamp, rules: Array<GroupRule>, };
+export type GroupRulesGetRequest = Record<symbol, never>;
+export type GroupRulesSaveRequest = { expectedRevision: number, rules: Array<GroupRuleDraft>, };
+export type GroupRuleIssue = { index: number, reasonKey: string, };
+export type GroupRulesSaveResponse = { "outcome": "saved", ruleset: GroupRuleset, } | { "outcome": "rejected", reasonKey: string, issues: Array<GroupRuleIssue>, };
+export type GroupRuleSource = { "kind": "saved", rulesetVersion: number, } | { "kind": "draft", rules: Array<GroupRuleDraft>, };
+export type GroupClassifyRequest = {
+/**
+ * GUI view channel; a larger sequence on the same channel cancels earlier work.
+ */
+viewRef: Id, requestSeq: number, resultVersion?: Id, scope?: ItemRef, rules: GroupRuleSource, };
+export type GroupSummaryRow = { groupId: Id, displayName: string, displayOrder: number, memberCount: number,
+/**
+ * Members that also matched another group.
+ */
+overlapMemberCount: number,
+/**
+ * Files this rule could not decide.
+ */
+undecidableCount: number,
+/**
+ * The rule uses a predicate that is not registered.
+ */
+ruleUnevaluable: boolean, };
+export type GroupReasonCount = { reasonKey: string, count: number, };
+export type GroupLimitation = { key: string, count?: number, };
+export type GroupSummary = { classificationRef: Id, resultVersion: Id,
+/**
+ * Result origin, such as `scan` or `incremental`.
+ */
+sourceKind: string, observedAt?: Timestamp, completeness: ResultCompleteness, scope: ItemRef,
+/**
+ * Zero when the rules came from an unsaved draft.
+ */
+rulesetVersion: number, rulesetFingerprint: string, referenceTime?: Timestamp, groups: Array<GroupSummaryRow>, scopeFileCount: number, matchedCount: number, overlapCount: number, unclassifiedCount: number, undecidableCount: number,
+/**
+ * Whether scope = matched + unclassified + undecidable held at registration.
+ */
+reconciled: boolean, undecidableReasons: Array<GroupReasonCount>, limitations: Array<GroupLimitation>, predicates: Array<QueryStrategy>, };
+export type GroupClassifyResponse = { "kind": "summary", requestSeq: number, summary: GroupSummary, } | { "kind": "job", requestSeq: number, jobRef: Id, classificationRef: Id, resultVersion: Id, } | { "kind": "not_applicable", requestSeq: number, reasonKey: string, };
+export type GroupSummaryRequest = { classificationRef: Id, };
+export type GroupCancelRequest = { "kind": "view", viewRef: Id, requestSeq: number, } | { "kind": "job", jobRef: Id, };
+export type GroupCancelOutcome = "accepted" | "no_effect" | "already_terminal";
+export type GroupCancelResponse = { outcome: GroupCancelOutcome, };
+export type GroupCategory = { "kind": "group", groupId: Id, } | { "kind": "overlap", } | { "kind": "unclassified", } | { "kind": "undecidable", };
+export type GroupMembersRequest = { classificationRef: Id, resultVersion: Id, category: GroupCategory,
+/**
+ * Defaults to descending logical size; the path order always breaks ties.
+ */
+sort?: BrowseSortKey, start: number, count: number, };
+export type GroupMemberRow = { item: ItemRef, displayName: BrowseValue<string>,
+/**
+ * Original observed path; a group name never appears here.
+ */
+displayPath: BrowseValue<string>, logicalSize: BrowseValue<SizeValue>, allocatedSize: BrowseValue<SizeValue>,
+/**
+ * Matched groups in rule display order.
+ */
+groups: Array<Id>, undecidableReasonKeys: Array<string>, };
+export type GroupMembers = { classificationRef: Id, resultVersion: Id, start: number, total: number, rows: Array<GroupMemberRow>, sort: QueryStrategy, };
+export type GroupExplainRequest = { classificationRef: Id, item: ItemRef, };
+export type GroupDecision = "match" | "no_match" | "undecidable";
+export type GroupConditionNode = { path: Array<number>, predicate?: QueryStrategy, decision: GroupDecision, };
+export type GroupRuleDecision = { groupId: Id, decision: GroupDecision, reasonKey?: string, nodes: Array<GroupConditionNode>, };
+export type GroupExplanation = { classificationRef: Id, item: ItemRef, displayPath: BrowseValue<string>, observedAt?: Timestamp, rules: Array<GroupRuleDecision>, };
+export type GroupTotalsRequest = { classificationRef: Id, groupIds: Array<Id>, };
+export type GroupTotal = { sizes: Array<SpaceTotalSize>, completeness: ResultCompleteness, };
+export type GroupTotalRow = { groupId: Id, total: GroupTotal, };
+export type GroupRatio = { "state": "value", basis: SizeBasis, numerator: ByteSize, denominator: ByteSize, } | { "state": "undefined", basis: SizeBasis, reasonKey: string, };
+export type GroupTotals = { classificationRef: Id, resultVersion: Id, groups: Array<GroupTotalRow>, union: GroupTotal, overlap: GroupTotal, overlapCount: number, unclassified: GroupTotal, undecidable: GroupTotal, scope: GroupTotal, ratios: Array<GroupRatio>, sizeRule: QueryStrategy, };
 export const SIZE_UNIT_RULES = {"decimalPlaces":1,"iec":{"base":1024,"symbols":["B","KiB","MiB","GiB","TiB","PiB"]},"revision":1,"si":{"base":1000,"symbols":["B","kB","MB","GB","TB","PB"]}} as const;
