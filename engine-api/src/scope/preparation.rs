@@ -215,7 +215,7 @@ fn observe_all(
             )
         };
         let canonical_path =
-            super::windows_path(&root.canonical_path).map_err(|_| Error::InvalidPath)?;
+            super::native_path(&root.canonical_path).map_err(|_| Error::InvalidPath)?;
         let canonical = raw(&canonical_path)?;
         if root.volume_id.is_empty() || root.file_id.is_empty() {
             return Err(Error::InvalidEvidence);
@@ -278,7 +278,7 @@ fn observe_all(
 }
 
 fn raw(path: &OsPath) -> Result<Vec<u8>, Error> {
-    super::windows_path(path)
+    super::native_path(path)
         .map_err(|_| Error::InvalidPath)?
         .raw
         .bytes()
