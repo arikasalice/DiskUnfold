@@ -9,6 +9,7 @@ pub mod desktop;
 pub mod duplicate_assembly;
 pub mod duplicate_scope;
 pub mod error;
+pub mod group;
 pub mod history;
 pub mod jobs;
 mod pipeline;

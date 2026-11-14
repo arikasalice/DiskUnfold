@@ -177,6 +177,11 @@ fn version_four_data_survives_migration_five() -> TestResult {
             .map_err(|e| format!("{e:?}"))?,
         5
     );
+    assert_eq!(
+        migration::apply_next(&path, &dir.path().join("6.bak"), &HISTORY_DEFINITIONS)
+            .map_err(|e| format!("{e:?}"))?,
+        6
+    );
     let db = AppDb::open_gui_with_history(&path).map_err(|e| format!("{e:?}"))?;
     let saved: String = db.connection.query_row(
         "SELECT value_json FROM user_env_setting WHERE setting_key='example'",
