@@ -20,9 +20,12 @@
   --du-focus: var(--du-accent);
   --du-capacity-track: #dfe2e7;
   --du-capacity-fill: #2f5fc5;
-  --du-disabled-surface: #eceef0;
-  --du-disabled-text: #656b75;
-  --du-disabled-border: #bcc1c9;
+  /* A disabled control has no fill and a divider-coloured edge, so it stays distinct from an
+     enabled one on white and grey surfaces alike. The dark themes override only the text: the
+     edge follows their own --du-border. */
+  --du-disabled-surface: transparent;
+  --du-disabled-text: #8a9099;
+  --du-disabled-border: var(--du-border);
   --du-info-surface: #ecedef;
   --du-info-text: #315aa8;
   --du-success-surface: #e2f5ed;
@@ -80,9 +83,7 @@
     --du-capacity-fill: #94b5ff;
     --du-selected-surface: #2c3d59;
     --du-selected-text: #d5e1ff;
-    --du-disabled-surface: #292c31;
-    --du-disabled-text: #8f959f;
-    --du-disabled-border: #4d535e;
+    --du-disabled-text: #6f747c;
     --du-info-surface: #292c31;
     --du-info-text: #b5c9ef;
     --du-success-surface: #173d36;
@@ -114,9 +115,7 @@
   --du-capacity-fill: #94b5ff;
   --du-selected-surface: #2c3d59;
   --du-selected-text: #d5e1ff;
-  --du-disabled-surface: #292c31;
-  --du-disabled-text: #8f959f;
-  --du-disabled-border: #4d535e;
+  --du-disabled-text: #6f747c;
   --du-info-surface: #292c31;
   --du-info-text: #b5c9ef;
   --du-success-surface: #173d36;
