@@ -318,9 +318,8 @@ fn record_entry(
 ) -> Result<Admission, BuildError> {
     let parent = Parent { root: 0, boundary };
     let row = admission::decide(!include(path), entry, parent, visited);
-    if row.unentered() {
-        counts.completed += 1;
-        admission::record_unentered(build, 0, entry, path, None)?;
+    if let Some(unread) = row.unread() {
+        admission::record_unentered(build, (0, path), entry, unread, counts, None)?;
     } else if row != Admission::Excluded {
         record_at(build, 0, entry, path, counts, None)?;
     }
@@ -371,7 +370,8 @@ fn record_at(
         ObservedKind::Directory => build.add_directory_at(root_index, path.to_vec())?,
         ObservedKind::Link => build.add_untraversed_link_at(root_index, path.to_vec())?,
         ObservedKind::File => record_file(build, root_index, meta, path.to_vec(), counts)?,
-        ObservedKind::Unknown | ObservedKind::Other => {
+        // The admission table never records a consistent mount point here.
+        ObservedKind::MountPoint | ObservedKind::Unknown | ObservedKind::Other => {
             counts.failed += 1;
             build.add_at(
                 root_index,
