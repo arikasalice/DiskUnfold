@@ -1,21 +1,23 @@
 import { useEffect, useRef, useState } from "react";
-import { AnalysisError } from "../ipc";
+import { AnalysisError, resultReadProblem } from "../ipc";
 import { watchJobBaseline } from "./job-baseline";
 import type {
   AnalysisClient,
   AnalysisJobStatus,
   EventEnvelope,
   JobState,
+  ScanControl,
+  ScanProblem,
   ScanStart,
   SpaceTotal,
 } from "../ipc";
+
+export type { ScanControl } from "../ipc";
 
 /** Determines whether a status may still transition. */
 export function isRunning(state: JobState): boolean {
   return !["done", "partial", "failed", "cancelled"].includes(state);
 }
-
-export type ScanControl = "pause" | "resume" | "cancel";
 
 function canControl(
   command: ScanControl,
@@ -43,22 +45,21 @@ function controlObserved(command: ScanControl, state: JobState): boolean {
   }
 }
 
-const controlLabels = {
-  pause: {
-    unavailable: "Pausing is unavailable for this scan.",
-    action: "paused",
-  },
-  resume: {
-    unavailable: "Resuming is unavailable for this scan.",
-    action: "resumed",
-  },
-  cancel: {
-    unavailable: "Cancellation is unavailable for this scan.",
-    action: "cancelled",
-  },
-} satisfies Record<ScanControl, { unavailable: string; action: string }>;
+function controlProblem(
+  command: ScanControl,
+  outcome: string | undefined,
+): ScanProblem {
+  if (outcome === "already_terminal") return { kind: "already_ended" };
+  return outcome === undefined || outcome === "unsupported"
+    ? { kind: "control_unavailable", command }
+    : { kind: "control_rejected", command };
+}
 
-type ControlView = { jobRef: string; command?: ScanControl; message?: string };
+type ControlView = {
+  jobRef: string;
+  command?: ScanControl;
+  problem?: ScanProblem;
+};
 
 function controlsForJob(
   jobRef: string | undefined,
@@ -74,7 +75,7 @@ function controlsForJob(
   return {
     running,
     control: current?.command,
-    controlError: current?.message,
+    controlError: current?.problem,
   };
 }
 
@@ -109,7 +110,7 @@ export function useScanResult(
   const [switchingJob, setSwitchingJob] = useState<string>();
   const [error, setError] = useState<{
     jobRef: string;
-    message: string;
+    problem: ScanProblem;
     unavailable: boolean;
   }>();
   const [control, setControl] = useState<ControlView>();
@@ -182,29 +183,18 @@ export function useScanResult(
           owner.acknowledged = response.sequence;
         } else {
           clearControl();
-          const labels = controlLabels[command];
           setControl({
             jobRef: scanJob,
-            message:
-              response.outcome === "unsupported"
-                ? labels.unavailable
-                : response.outcome === "already_terminal"
-                  ? "This scan has already ended."
-                  : `The scan could not be ${labels.action} in its current state.`,
+            problem: controlProblem(command, response.outcome),
           });
         }
         void refresh();
-      } catch (failure) {
+      } catch {
         if (!alive || terminal || pending !== owner) return;
         clearControl();
         setControl({
           jobRef: scanJob,
-          message:
-            failure instanceof AnalysisError
-              ? controlLabels[command].unavailable
-              : failure instanceof Error
-                ? failure.message
-                : controlLabels[command].unavailable,
+          problem: controlProblem(command, undefined),
         });
       }
     }
@@ -233,7 +223,10 @@ export function useScanResult(
           result.requestSeq !== requestSeq ||
           result.resultVersion !== version
         ) {
-          throw new Error("The space totals do not match this scan's result.");
+          rejected = version;
+          displayLatest = false;
+          recordProblem({ kind: "totals_mismatch" }, false);
+          return "totals" as const;
         }
         displayed = version;
         displayLatest = false;
@@ -261,14 +254,14 @@ export function useScanResult(
     }
 
     function recordError(failure: unknown, unavailable: boolean) {
-      setError({
-        jobRef: scanJob,
+      recordProblem(
+        { kind: "read", problem: resultReadProblem(failure) },
         unavailable,
-        message:
-          failure instanceof Error
-            ? failure.message
-            : "Analysis could not be read",
-      });
+      );
+    }
+
+    function recordProblem(problem: ScanProblem, unavailable: boolean) {
+      setError({ jobRef: scanJob, unavailable, problem });
     }
 
     function matchesLineage(result: AnalysisJobStatus["scanResult"]) {
@@ -482,7 +475,7 @@ export function useScanResult(
       latest?.version !== currentTotal.resultVersion,
     showLatest: () => showLatest.current?.(),
     switchingResult: switchingJob !== undefined && switchingJob === jobRef,
-    error: currentError?.message,
+    error: currentError?.problem,
     unavailable,
   };
 }
