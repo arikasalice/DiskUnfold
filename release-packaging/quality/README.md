@@ -88,5 +88,5 @@ node release-packaging/quality/accessibility-review.mjs --results path/to/result
 node --test release-packaging/quality/
 ```
 
-`--check` validates the list definition without release results; the measure is then null (not available), not zero. `--results` evaluates a results file and exits 0 only when the review passes. Both modes write `quality-output/accessibility-review-report.json`. The merge stage runs `--check` and the tests. The combination review runs on the release tag. This tool does not drive assistive technology; a person or a separate automated run produces the results file. No workflow runs the release review yet.
+`--check` validates the list definition without release results; the measure is then null (not available), not zero. `--results` evaluates a results file and exits 0 only when the review passes. Both modes write `quality-output/accessibility-review-report.json`. Today a person runs `--check` and the tests by hand; no workflow under `.github` runs either of them, and no workflow runs the release review. Connecting `--check` and the tests to the merge stage and the combination review to the release tag is release owner work. This tool does not drive assistive technology; a person or a separate automated run produces the results file.
 
