@@ -2,7 +2,7 @@
 
 Penpot 파일 `e280b017-e522-80cb-8008-e0ee2a1f5e75`의 보드를 내보내기 API로 1배율 PNG로 받았다. 그림은 편집하지 않았다.
 
-**한계부터 밝힌다.** Penpot에는 이 기능의 화면 보드가 테마별로 한 장씩만 있다. 상태별 보드(불러오는 중, 빈 결과, 오류 등)는 그려져 있지 않다. 아래 "상태와 배치" 절은 발행 HLD의 화면 계약과 Penpot의 UX 계약 문구, 기존 공통 컴포넌트를 근거로 디자인팀이 글로 정한 것이며, 그림으로 검증된 내용이 아니다. 보드의 수치와 이름은 예시 데이터다. 왼쪽 탐색 메뉴가 있는 1440×960 셸은 현재 제품 셸과 다르므로 본문 영역의 구성만 기준으로 삼는다.
+(2026-11-14 추가: 일부 상태는 아래 "상태 보드" 절에 그림으로 보완했다. 이 문단은 그 전의 한계를 적은 것이다.) **한계부터 밝힌다.** Penpot에는 이 기능의 화면 보드가 테마별로 한 장씩만 있다. 상태별 보드(불러오는 중, 빈 결과, 오류 등)는 그려져 있지 않다. 아래 "상태와 배치" 절은 발행 HLD의 화면 계약과 Penpot의 UX 계약 문구, 기존 공통 컴포넌트를 근거로 디자인팀이 글로 정한 것이며, 그림으로 검증된 내용이 아니다. 보드의 수치와 이름은 예시 데이터다. 왼쪽 탐색 메뉴가 있는 1440×960 셸은 현재 제품 셸과 다르므로 본문 영역의 구성만 기준으로 삼는다.
 
 ## 파일
 
@@ -13,6 +13,20 @@ Penpot 파일 `e280b017-e522-80cb-8008-e0ee2a1f5e75`의 보드를 내보내기 A
 | 공통 컴포넌트 | [Light](components-common-light.png) · [Dark](components-common-dark.png) | [Penpot Light](http://192.168.1.210:9001/#/workspace?team-id=e280b017-e522-80cb-8008-e0eb195b43ab&file-id=e280b017-e522-80cb-8008-e0ee2a1f5e75&page-id=b330ca3c-df1a-80f0-8008-e10c961f5601&board-id=b330ca3c-df1a-80f0-8008-e10f064233bc) · [Dark](http://192.168.1.210:9001/#/workspace?team-id=e280b017-e522-80cb-8008-e0eb195b43ab&file-id=e280b017-e522-80cb-8008-e0ee2a1f5e75&page-id=b330ca3c-df1a-80f0-8008-e10c961f5601&board-id=b330ca3c-df1a-80f0-8008-e10f07beb07b) |
 | 확인 대화상자 예시 | [Light](dialog-confirm-light.png) · [Dark](dialog-confirm-dark.png) | [Penpot Light](http://192.168.1.210:9001/#/workspace?team-id=e280b017-e522-80cb-8008-e0eb195b43ab&file-id=e280b017-e522-80cb-8008-e0ee2a1f5e75&page-id=b330ca3c-df1a-80f0-8008-e10c961e9d5a&board-id=b330ca3c-df1a-80f0-8008-e10f4b84b94e) · [Dark](http://192.168.1.210:9001/#/workspace?team-id=e280b017-e522-80cb-8008-e0eb195b43ab&file-id=e280b017-e522-80cb-8008-e0ee2a1f5e75&page-id=b330ca3c-df1a-80f0-8008-e10c961f2e17&board-id=b330ca3c-df1a-80f0-8008-e10f683db782) |
 | UX 계약 11 · 공통 상태·접근성·모션 | [PNG](ux-contract-11-common-states.png) | [Penpot](http://192.168.1.210:9001/#/workspace?team-id=e280b017-e522-80cb-8008-e0eb195b43ab&file-id=e280b017-e522-80cb-8008-e0ee2a1f5e75&page-id=b330ca3c-df1a-80f0-8008-e10c961fff7f&board-id=b330ca3c-df1a-80f0-8008-e10e86b29e39) |
+
+## 상태 보드 (2026-11-14 추가)
+
+디자인팀이 Penpot 「12 · 상태 보완 F32·F13·F36·F02 · 2026-11-14」 페이지에 직접 그린 보드다. 아래 "글로 정함" 절과 그림이 다르면 그림을 따른다. 1440×960 셸의 왼쪽 탐색 메뉴는 현재 제품 셸과 다르므로 본문 영역의 구성만 기준으로 삼는다.
+
+| 보드 | PNG | Penpot |
+| --- | --- | --- |
+| settings · 저장과 보관 · 경로와 검토 대기 (F13) | [Light](state-settings-%EC%A0%80%EC%9E%A5%EA%B3%BC_%EB%B3%B4%EA%B4%80-light.png) · [Dark](state-settings-%EC%A0%80%EC%9E%A5%EA%B3%BC_%EB%B3%B4%EA%B4%80-dark.png) | [Light](http://192.168.1.210:9001/#/workspace?team-id=e280b017-e522-80cb-8008-e0eb195b43ab&file-id=e280b017-e522-80cb-8008-e0ee2a1f5e75&page-id=a8bd9f9b-9539-8020-8008-f186014f327f&board-id=a8bd9f9b-9539-8020-8008-f1879475a297) · [Dark](http://192.168.1.210:9001/#/workspace?team-id=e280b017-e522-80cb-8008-e0eb195b43ab&file-id=e280b017-e522-80cb-8008-e0ee2a1f5e75&page-id=a8bd9f9b-9539-8020-8008-f186014f327f&board-id=a8bd9f9b-9539-8020-8008-f1879b91fcea) |
+| settings · 모양과 언어 전체 행 (F13) | [Light](state-settings-%EB%AA%A8%EC%96%91%EA%B3%BC_%EC%96%B8%EC%96%B4_%EC%A0%84%EC%B2%B4_%ED%96%89-light.png) · [Dark](state-settings-%EB%AA%A8%EC%96%91%EA%B3%BC_%EC%96%B8%EC%96%B4_%EC%A0%84%EC%B2%B4_%ED%96%89-dark.png) | [Light](http://192.168.1.210:9001/#/workspace?team-id=e280b017-e522-80cb-8008-e0eb195b43ab&file-id=e280b017-e522-80cb-8008-e0ee2a1f5e75&page-id=a8bd9f9b-9539-8020-8008-f186014f327f&board-id=bbd3d9fd-83b3-8030-8008-f1a897528256) · [Dark](http://192.168.1.210:9001/#/workspace?team-id=e280b017-e522-80cb-8008-e0eb195b43ab&file-id=e280b017-e522-80cb-8008-e0ee2a1f5e75&page-id=a8bd9f9b-9539-8020-8008-f186014f327f&board-id=bbd3d9fd-83b3-8030-8008-f1a8a572b1eb) |
+| components · 추가 부품 (띠·표지·탭·경로·진행) | [Light](state-components-%EC%B6%94%EA%B0%80_%EB%B6%80%ED%92%88-light.png) · [Dark](state-components-%EC%B6%94%EA%B0%80_%EB%B6%80%ED%92%88-dark.png) | [Light](http://192.168.1.210:9001/#/workspace?team-id=e280b017-e522-80cb-8008-e0eb195b43ab&file-id=e280b017-e522-80cb-8008-e0ee2a1f5e75&page-id=a8bd9f9b-9539-8020-8008-f186014f327f&board-id=bbd3d9fd-83b3-8030-8008-f1a8ba901c32) · [Dark](http://192.168.1.210:9001/#/workspace?team-id=e280b017-e522-80cb-8008-e0eb195b43ab&file-id=e280b017-e522-80cb-8008-e0ee2a1f5e75&page-id=a8bd9f9b-9539-8020-8008-f186014f327f&board-id=bbd3d9fd-83b3-8030-8008-f1a8c166cf80) |
+
+- "모양과 언어" 보드에 표시 언어, 날짜 형식, 숫자 형식, 시간대, 화면 배율, 모션, 용량 단위, 기본 보기 행을 모두 그렸다. 번역 미확인 띠와 "일부 미확인" 표지, 화면 배율의 "이전 값 · 되돌리기"가 들어 있다.
+- "저장과 보관" 보드에 가운데 줄임 경로, 전체 경로 말풍선, "변경 대기" 행, 쓸 수 없는 위치의 오류 행, 적용 대기 띠를 그렸다.
+- 그림이 없는 것: 긴 문구가 단추와 표 셀에서 줄바꿈되는 예, 644×461 창과 300% 확대 배치.
 
 ## 보드에 그려진 것
 

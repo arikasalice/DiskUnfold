@@ -2,7 +2,7 @@
 
 Penpot 파일 `e280b017-e522-80cb-8008-e0ee2a1f5e75`의 보드를 내보내기 API로 1배율 PNG로 받았다. 그림은 편집하지 않았다.
 
-**한계부터 밝힌다.** Penpot에는 이 기능의 화면 보드가 테마별로 한 장씩만 있다. 상태별 보드(불러오는 중, 빈 결과, 오류 등)는 그려져 있지 않다. 아래 "상태와 배치" 절은 발행 HLD의 화면 계약과 Penpot의 UX 계약 문구, 기존 공통 컴포넌트를 근거로 디자인팀이 글로 정한 것이며, 그림으로 검증된 내용이 아니다. 보드의 수치와 이름은 예시 데이터다. 왼쪽 탐색 메뉴가 있는 1440×960 셸은 현재 제품 셸과 다르므로 본문 영역의 구성만 기준으로 삼는다.
+(2026-11-14 추가: 일부 상태는 아래 "상태 보드" 절에 그림으로 보완했다. 이 문단은 그 전의 한계를 적은 것이다.) **한계부터 밝힌다.** Penpot에는 이 기능의 화면 보드가 테마별로 한 장씩만 있다. 상태별 보드(불러오는 중, 빈 결과, 오류 등)는 그려져 있지 않다. 아래 "상태와 배치" 절은 발행 HLD의 화면 계약과 Penpot의 UX 계약 문구, 기존 공통 컴포넌트를 근거로 디자인팀이 글로 정한 것이며, 그림으로 검증된 내용이 아니다. 보드의 수치와 이름은 예시 데이터다. 왼쪽 탐색 메뉴가 있는 1440×960 셸은 현재 제품 셸과 다르므로 본문 영역의 구성만 기준으로 삼는다.
 
 ## 파일
 
@@ -13,6 +13,21 @@ Penpot 파일 `e280b017-e522-80cb-8008-e0ee2a1f5e75`의 보드를 내보내기 A
 | 공통 컴포넌트 | [Light](components-common-light.png) · [Dark](components-common-dark.png) | [Penpot Light](http://192.168.1.210:9001/#/workspace?team-id=e280b017-e522-80cb-8008-e0eb195b43ab&file-id=e280b017-e522-80cb-8008-e0ee2a1f5e75&page-id=b330ca3c-df1a-80f0-8008-e10c961f5601&board-id=b330ca3c-df1a-80f0-8008-e10f064233bc) · [Dark](http://192.168.1.210:9001/#/workspace?team-id=e280b017-e522-80cb-8008-e0eb195b43ab&file-id=e280b017-e522-80cb-8008-e0ee2a1f5e75&page-id=b330ca3c-df1a-80f0-8008-e10c961f5601&board-id=b330ca3c-df1a-80f0-8008-e10f07beb07b) |
 | 확인 대화상자 예시 | [Light](dialog-confirm-light.png) · [Dark](dialog-confirm-dark.png) | [Penpot Light](http://192.168.1.210:9001/#/workspace?team-id=e280b017-e522-80cb-8008-e0eb195b43ab&file-id=e280b017-e522-80cb-8008-e0ee2a1f5e75&page-id=b330ca3c-df1a-80f0-8008-e10c961e9d5a&board-id=b330ca3c-df1a-80f0-8008-e10f4b84b94e) · [Dark](http://192.168.1.210:9001/#/workspace?team-id=e280b017-e522-80cb-8008-e0eb195b43ab&file-id=e280b017-e522-80cb-8008-e0ee2a1f5e75&page-id=b330ca3c-df1a-80f0-8008-e10c961f2e17&board-id=b330ca3c-df1a-80f0-8008-e10f683db782) |
 | UX 계약 11 · 공통 상태·접근성·모션 | [PNG](ux-contract-11-common-states.png) | [Penpot](http://192.168.1.210:9001/#/workspace?team-id=e280b017-e522-80cb-8008-e0eb195b43ab&file-id=e280b017-e522-80cb-8008-e0ee2a1f5e75&page-id=b330ca3c-df1a-80f0-8008-e10c961fff7f&board-id=b330ca3c-df1a-80f0-8008-e10e86b29e39) |
+
+## 상태 보드 (2026-11-14 추가)
+
+디자인팀이 Penpot 「12 · 상태 보완 F32·F13·F36·F02 · 2026-11-14」 페이지에 직접 그린 보드다. 아래 "글로 정함" 절과 그림이 다르면 그림을 따른다. 1440×960 셸의 왼쪽 탐색 메뉴는 현재 제품 셸과 다르므로 본문 영역의 구성만 기준으로 삼는다.
+
+| 보드 | PNG | Penpot |
+| --- | --- | --- |
+| groups · 규칙 편집 (F36) | [Light](state-groups-%EA%B7%9C%EC%B9%99_%ED%8E%B8%EC%A7%91-light.png) · [Dark](state-groups-%EA%B7%9C%EC%B9%99_%ED%8E%B8%EC%A7%91-dark.png) | [Light](http://192.168.1.210:9001/#/workspace?team-id=e280b017-e522-80cb-8008-e0eb195b43ab&file-id=e280b017-e522-80cb-8008-e0ee2a1f5e75&page-id=a8bd9f9b-9539-8020-8008-f186014f327f&board-id=a8bd9f9b-9539-8020-8008-f187b5af2872) · [Dark](http://192.168.1.210:9001/#/workspace?team-id=e280b017-e522-80cb-8008-e0eb195b43ab&file-id=e280b017-e522-80cb-8008-e0ee2a1f5e75&page-id=a8bd9f9b-9539-8020-8008-f186014f327f&board-id=a8bd9f9b-9539-8020-8008-f187c1b4605a) |
+| groups · 결과와 표지 (F36) | [Light](state-groups-%EA%B2%B0%EA%B3%BC%EC%99%80_%ED%91%9C%EC%A7%80-light.png) · [Dark](state-groups-%EA%B2%B0%EA%B3%BC%EC%99%80_%ED%91%9C%EC%A7%80-dark.png) | [Light](http://192.168.1.210:9001/#/workspace?team-id=e280b017-e522-80cb-8008-e0eb195b43ab&file-id=e280b017-e522-80cb-8008-e0ee2a1f5e75&page-id=a8bd9f9b-9539-8020-8008-f186014f327f&board-id=bbd3d9fd-83b3-8030-8008-f1a8ae798069) · [Dark](http://192.168.1.210:9001/#/workspace?team-id=e280b017-e522-80cb-8008-e0eb195b43ab&file-id=e280b017-e522-80cb-8008-e0ee2a1f5e75&page-id=a8bd9f9b-9539-8020-8008-f186014f327f&board-id=bbd3d9fd-83b3-8030-8008-f1a8b3b9d986) |
+| components · 추가 부품 (띠·표지·탭·경로·진행) | [Light](state-components-%EC%B6%94%EA%B0%80_%EB%B6%80%ED%92%88-light.png) · [Dark](state-components-%EC%B6%94%EA%B0%80_%EB%B6%80%ED%92%88-dark.png) | [Light](http://192.168.1.210:9001/#/workspace?team-id=e280b017-e522-80cb-8008-e0eb195b43ab&file-id=e280b017-e522-80cb-8008-e0ee2a1f5e75&page-id=a8bd9f9b-9539-8020-8008-f186014f327f&board-id=bbd3d9fd-83b3-8030-8008-f1a8ba901c32) · [Dark](http://192.168.1.210:9001/#/workspace?team-id=e280b017-e522-80cb-8008-e0eb195b43ab&file-id=e280b017-e522-80cb-8008-e0ee2a1f5e75&page-id=a8bd9f9b-9539-8020-8008-f186014f327f&board-id=bbd3d9fd-83b3-8030-8008-f1a8c166cf80) |
+
+- 결과 보드에서 "탐색으로 돌아가기"는 머리 오른쪽에 하나만 둔다. 아래 동작 줄에는 "구성원 목록"만 남긴다. 글로 정한 영역 표의 9번과 다르며 그림을 따른다.
+- 범주 탭은 개수를 함께 보이고 선택은 굵기와 밑줄로 표시한다. 표지는 "가상", "2개 그룹 소속", "제한됨"이다. 선택된 행에서는 표지 바탕을 표면색으로 바꿔 보이게 한다.
+- 규칙 편집은 같은 화면 오른쪽의 편집 영역이다. 편집 중에는 왼쪽에 지금 적용된 결과를 그대로 두고 "탐색으로 돌아가기"는 비활성이다. 값이 빈 조건이 있으면 "적용"은 비활성이고 사유를 단추 위에 적는다.
+- 그림이 없는 것: 분류 전, 분류 중, 빈 결과, 판정할 수 없는 규칙 띠, 갱신 가능, 재조회 필요, 적용 불가, 오류 상태와 구성원 목록, 분류 근거 패널. 이 상태들은 아래 글의 규칙을 따른다.
 
 ## 보드에 그려진 것
 

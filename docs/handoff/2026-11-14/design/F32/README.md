@@ -2,7 +2,7 @@
 
 Penpot 파일 `e280b017-e522-80cb-8008-e0ee2a1f5e75`의 보드를 내보내기 API로 1배율 PNG로 받았다. 그림은 편집하지 않았다.
 
-**한계부터 밝힌다.** Penpot에는 이 기능의 화면 보드가 테마별로 한 장씩만 있다. 상태별 보드(불러오는 중, 빈 결과, 오류 등)는 그려져 있지 않다. 아래 "상태와 배치" 절은 발행 HLD의 화면 계약과 Penpot의 UX 계약 문구, 기존 공통 컴포넌트를 근거로 디자인팀이 글로 정한 것이며, 그림으로 검증된 내용이 아니다. 보드의 수치와 이름은 예시 데이터다. 왼쪽 탐색 메뉴가 있는 1440×960 셸은 현재 제품 셸과 다르므로 본문 영역의 구성만 기준으로 삼는다.
+(2026-11-14 추가: 일부 상태는 아래 "상태 보드" 절에 그림으로 보완했다. 이 문단은 그 전의 한계를 적은 것이다.) **한계부터 밝힌다.** Penpot에는 이 기능의 화면 보드가 테마별로 한 장씩만 있다. 상태별 보드(불러오는 중, 빈 결과, 오류 등)는 그려져 있지 않다. 아래 "상태와 배치" 절은 발행 HLD의 화면 계약과 Penpot의 UX 계약 문구, 기존 공통 컴포넌트를 근거로 디자인팀이 글로 정한 것이며, 그림으로 검증된 내용이 아니다. 보드의 수치와 이름은 예시 데이터다. 왼쪽 탐색 메뉴가 있는 1440×960 셸은 현재 제품 셸과 다르므로 본문 영역의 구성만 기준으로 삼는다.
 
 ## 파일
 
@@ -13,6 +13,23 @@ Penpot 파일 `e280b017-e522-80cb-8008-e0ee2a1f5e75`의 보드를 내보내기 A
 | 공통 컴포넌트 | [Light](components-common-light.png) · [Dark](components-common-dark.png) | [Penpot Light](http://192.168.1.210:9001/#/workspace?team-id=e280b017-e522-80cb-8008-e0eb195b43ab&file-id=e280b017-e522-80cb-8008-e0ee2a1f5e75&page-id=b330ca3c-df1a-80f0-8008-e10c961f5601&board-id=b330ca3c-df1a-80f0-8008-e10f064233bc) · [Dark](http://192.168.1.210:9001/#/workspace?team-id=e280b017-e522-80cb-8008-e0eb195b43ab&file-id=e280b017-e522-80cb-8008-e0ee2a1f5e75&page-id=b330ca3c-df1a-80f0-8008-e10c961f5601&board-id=b330ca3c-df1a-80f0-8008-e10f07beb07b) |
 | 확인 대화상자 예시 | [Light](dialog-confirm-light.png) · [Dark](dialog-confirm-dark.png) | [Penpot Light](http://192.168.1.210:9001/#/workspace?team-id=e280b017-e522-80cb-8008-e0eb195b43ab&file-id=e280b017-e522-80cb-8008-e0ee2a1f5e75&page-id=b330ca3c-df1a-80f0-8008-e10c961e9d5a&board-id=b330ca3c-df1a-80f0-8008-e10f4b84b94e) · [Dark](http://192.168.1.210:9001/#/workspace?team-id=e280b017-e522-80cb-8008-e0eb195b43ab&file-id=e280b017-e522-80cb-8008-e0ee2a1f5e75&page-id=b330ca3c-df1a-80f0-8008-e10c961f2e17&board-id=b330ca3c-df1a-80f0-8008-e10f683db782) |
 | UX 계약 11 · 공통 상태·접근성·모션 | [PNG](ux-contract-11-common-states.png) | [Penpot](http://192.168.1.210:9001/#/workspace?team-id=e280b017-e522-80cb-8008-e0eb195b43ab&file-id=e280b017-e522-80cb-8008-e0ee2a1f5e75&page-id=b330ca3c-df1a-80f0-8008-e10c961fff7f&board-id=b330ca3c-df1a-80f0-8008-e10e86b29e39) |
+
+## 상태 보드 (2026-11-14 추가)
+
+디자인팀이 Penpot 「12 · 상태 보완 F32·F13·F36·F02 · 2026-11-14」 페이지에 직접 그린 보드다. 아래 "글로 정함" 절과 그림이 다르면 그림을 따른다. 1440×960 셸의 왼쪽 탐색 메뉴는 현재 제품 셸과 다르므로 본문 영역의 구성만 기준으로 삼는다.
+
+| 보드 | PNG | Penpot |
+| --- | --- | --- |
+| new · 샘플 체험 진입·준비·불가 (F32) | [Light](state-new-%EC%83%98%ED%94%8C_%EC%B2%B4%ED%97%98_%EC%A7%84%EC%9E%85_%EC%A4%80%EB%B9%84_%EB%B6%88%EA%B0%80-light.png) · [Dark](state-new-%EC%83%98%ED%94%8C_%EC%B2%B4%ED%97%98_%EC%A7%84%EC%9E%85_%EC%A4%80%EB%B9%84_%EB%B6%88%EA%B0%80-dark.png) | [Light](http://192.168.1.210:9001/#/workspace?team-id=e280b017-e522-80cb-8008-e0eb195b43ab&file-id=e280b017-e522-80cb-8008-e0ee2a1f5e75&page-id=a8bd9f9b-9539-8020-8008-f186014f327f&board-id=a8bd9f9b-9539-8020-8008-f186be5ed035) · [Dark](http://192.168.1.210:9001/#/workspace?team-id=e280b017-e522-80cb-8008-e0eb195b43ab&file-id=e280b017-e522-80cb-8008-e0ee2a1f5e75&page-id=a8bd9f9b-9539-8020-8008-f186014f327f&board-id=a8bd9f9b-9539-8020-8008-f186d2af644c) |
+| sample · 체험 중 띠와 결과 (F32) | [Light](state-sample-%EC%B2%B4%ED%97%98_%EC%A4%91_%EB%9D%A0%EC%99%80_%EA%B2%B0%EA%B3%BC-light.png) · [Dark](state-sample-%EC%B2%B4%ED%97%98_%EC%A4%91_%EB%9D%A0%EC%99%80_%EA%B2%B0%EA%B3%BC-dark.png) | [Light](http://192.168.1.210:9001/#/workspace?team-id=e280b017-e522-80cb-8008-e0eb195b43ab&file-id=e280b017-e522-80cb-8008-e0ee2a1f5e75&page-id=a8bd9f9b-9539-8020-8008-f186014f327f&board-id=bbd3d9fd-83b3-8030-8008-f1a856191aa4) · [Dark](http://192.168.1.210:9001/#/workspace?team-id=e280b017-e522-80cb-8008-e0eb195b43ab&file-id=e280b017-e522-80cb-8008-e0ee2a1f5e75&page-id=a8bd9f9b-9539-8020-8008-f186014f327f&board-id=a8bd9f9b-9539-8020-8008-f18753bbc027) |
+| sample · 체험 종료 확인 (F32) | [Light](state-sample-%EC%B2%B4%ED%97%98_%EC%A2%85%EB%A3%8C_%ED%99%95%EC%9D%B8-light.png) · [Dark](state-sample-%EC%B2%B4%ED%97%98_%EC%A2%85%EB%A3%8C_%ED%99%95%EC%9D%B8-dark.png) | [Light](http://192.168.1.210:9001/#/workspace?team-id=e280b017-e522-80cb-8008-e0eb195b43ab&file-id=e280b017-e522-80cb-8008-e0ee2a1f5e75&page-id=a8bd9f9b-9539-8020-8008-f186014f327f&board-id=bbd3d9fd-83b3-8030-8008-f1a88a6d4c18) · [Dark](http://192.168.1.210:9001/#/workspace?team-id=e280b017-e522-80cb-8008-e0eb195b43ab&file-id=e280b017-e522-80cb-8008-e0ee2a1f5e75&page-id=a8bd9f9b-9539-8020-8008-f186014f327f&board-id=bbd3d9fd-83b3-8030-8008-f1a88e7f5a01) |
+| components · 추가 부품 (띠·표지·탭·경로·진행) | [Light](state-components-%EC%B6%94%EA%B0%80_%EB%B6%80%ED%92%88-light.png) · [Dark](state-components-%EC%B6%94%EA%B0%80_%EB%B6%80%ED%92%88-dark.png) | [Light](http://192.168.1.210:9001/#/workspace?team-id=e280b017-e522-80cb-8008-e0eb195b43ab&file-id=e280b017-e522-80cb-8008-e0ee2a1f5e75&page-id=a8bd9f9b-9539-8020-8008-f186014f327f&board-id=bbd3d9fd-83b3-8030-8008-f1a8ba901c32) · [Dark](http://192.168.1.210:9001/#/workspace?team-id=e280b017-e522-80cb-8008-e0eb195b43ab&file-id=e280b017-e522-80cb-8008-e0ee2a1f5e75&page-id=a8bd9f9b-9539-8020-8008-f186014f327f&board-id=bbd3d9fd-83b3-8030-8008-f1a8c166cf80) |
+
+- 진입 단추 "샘플로 먼저 체험"은 범위 입력 아래의 보조 단추다. 준비 중, 체험 불가, 제공하지 않음 상태는 같은 보드에 위에서 아래로 그렸다.
+- 체험 중 띠는 본문 맨 위에 고정한다. 띠 안의 순서는 문구, "실제 분석 시작", "샘플 닫기"다. 제목 옆에 "예시" 표지를 둔다.
+- 선택 동작 줄의 파일 변경 단추는 비활성이고 사유를 옆에 적는다.
+- 종료 확인 대화상자의 처음 초점은 "계속 체험"이다.
+- 그림이 없는 것: 실제 분석으로 전환한 직후의 "새 분석" 화면(기존 new 보드와 같다).
 
 ## 보드에 그려진 것
 

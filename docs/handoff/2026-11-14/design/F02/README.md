@@ -2,7 +2,22 @@
 
 대상: Penpot 11번 페이지 「11 · F02 수집 조건·처리 흐름 · 2026-11-14」의 보드 8개(Light 4, Dark 4). 같은 폴더의 PNG는 REST 내보내기로 받은 사본이다.
 
-판정: 담긴 정보 항목은 받아들인다. 배치와 문구는 승인하지 않는다. 디자인팀이 다시 그린 뒤 승인본을 알린다. 그때까지 F02는 데이터 연결과 계약 작업만 진행하고 화면 배치는 확정하지 않는다.
+판정: 담긴 정보 항목은 받아들인다. 11번 페이지의 배치와 문구는 승인하지 않는다. 디자인팀이 12번 페이지에 다시 그린 아래 승인안을 구현 기준으로 삼는다.
+
+## 승인안 (2026-11-14, Penpot 12번 페이지)
+
+| 보드 | PNG | Penpot |
+| --- | --- | --- |
+| scan · 실시간 그래프 우선 (F02 · 디자인팀 승인안) | [Light](state-scan-%EC%8B%A4%EC%8B%9C%EA%B0%84_%EA%B7%B8%EB%9E%98%ED%94%84_%EC%9A%B0%EC%84%A0-light.png) · [Dark](state-scan-%EC%8B%A4%EC%8B%9C%EA%B0%84_%EA%B7%B8%EB%9E%98%ED%94%84_%EC%9A%B0%EC%84%A0-dark.png) | [Light](http://192.168.1.210:9001/#/workspace?team-id=e280b017-e522-80cb-8008-e0eb195b43ab&file-id=e280b017-e522-80cb-8008-e0ee2a1f5e75&page-id=a8bd9f9b-9539-8020-8008-f186014f327f&board-id=bbd3d9fd-83b3-8030-8008-f1a8d8e41efe) · [Dark](http://192.168.1.210:9001/#/workspace?team-id=e280b017-e522-80cb-8008-e0eb195b43ab&file-id=e280b017-e522-80cb-8008-e0ee2a1f5e75&page-id=a8bd9f9b-9539-8020-8008-f186014f327f&board-id=a8bd9f9b-9539-8020-8008-f188136c094a) |
+| components · 추가 부품 (띠·표지·탭·경로·진행) | [Light](state-components-%EC%B6%94%EA%B0%80_%EB%B6%80%ED%92%88-light.png) · [Dark](state-components-%EC%B6%94%EA%B0%80_%EB%B6%80%ED%92%88-dark.png) | [Light](http://192.168.1.210:9001/#/workspace?team-id=e280b017-e522-80cb-8008-e0eb195b43ab&file-id=e280b017-e522-80cb-8008-e0ee2a1f5e75&page-id=a8bd9f9b-9539-8020-8008-f186014f327f&board-id=bbd3d9fd-83b3-8030-8008-f1a8ba901c32) · [Dark](http://192.168.1.210:9001/#/workspace?team-id=e280b017-e522-80cb-8008-e0eb195b43ab&file-id=e280b017-e522-80cb-8008-e0ee2a1f5e75&page-id=a8bd9f9b-9539-8020-8008-f186014f327f&board-id=bbd3d9fd-83b3-8030-8008-f1a8c166cf80) |
+| scope · 수집 조건 (F02 · 디자인팀 승인안) | [Light](state-scope-%EC%88%98%EC%A7%91_%EC%A1%B0%EA%B1%B4-light.png) · [Dark](state-scope-%EC%88%98%EC%A7%91_%EC%A1%B0%EA%B1%B4-dark.png) | [Light](http://192.168.1.210:9001/#/workspace?team-id=e280b017-e522-80cb-8008-e0eb195b43ab&file-id=e280b017-e522-80cb-8008-e0ee2a1f5e75&page-id=a8bd9f9b-9539-8020-8008-f186014f327f&board-id=bbd3d9fd-83b3-8030-8008-f1a8c867d4dc) · [Dark](http://192.168.1.210:9001/#/workspace?team-id=e280b017-e522-80cb-8008-e0eb195b43ab&file-id=e280b017-e522-80cb-8008-e0ee2a1f5e75&page-id=a8bd9f9b-9539-8020-8008-f186014f327f&board-id=bbd3d9fd-83b3-8030-8008-f1a8d0f505b7) |
+| browse · 먼저 분석 (F02 · 디자인팀 승인안) | [Light](state-browse-%EB%A8%BC%EC%A0%80_%EB%B6%84%EC%84%9D-light.png) · [Dark](state-browse-%EB%A8%BC%EC%A0%80_%EB%B6%84%EC%84%9D-dark.png) | [Light](http://192.168.1.210:9001/#/workspace?team-id=e280b017-e522-80cb-8008-e0eb195b43ab&file-id=e280b017-e522-80cb-8008-e0ee2a1f5e75&page-id=a8bd9f9b-9539-8020-8008-f186014f327f&board-id=bbd3d9fd-83b3-8030-8008-f1a8e125b961) · [Dark](http://192.168.1.210:9001/#/workspace?team-id=e280b017-e522-80cb-8008-e0eb195b43ab&file-id=e280b017-e522-80cb-8008-e0ee2a1f5e75&page-id=a8bd9f9b-9539-8020-8008-f186014f327f&board-id=bbd3d9fd-83b3-8030-8008-f1a8e6adff60) |
+
+- scope: "분석 시작"을 수집 조건보다 위에 둔다. 수집 조건의 처음 상태는 접힘이며 요약 한 줄과 "수집 조건 바꾸기"만 보인다. 보드 오른쪽은 펼친 상태, 왼쪽 아래 카드는 접힌 상태다.
+- scan: 진행 카드 아래의 주인공은 읽는 대로 자라는 그래프다. 저장소별 진행은 오른쪽의 접을 수 있는 영역이고 기본 열은 저장소, 상태, 남은 폴더, 읽지 못함이다. paused 화면은 같은 배치에서 제목과 상태 문구, "계속 분석" 단추만 바뀐다(별도 보드 없음).
+- browse: "먼저 분석"은 포인터나 초점이 간 행과 오른쪽 클릭 메뉴에 둔다. 요청하면 그 행의 상태 문구가 바뀌고 짧은 알림을 한 번 띄운다.
+- **미정 (사용자 결정 대기)**: 새 결과를 자동으로 반영할지, 발행 설계 FR3.HD1.gui-web.DD1대로 사용자가 갱신을 고를 때 반영할지. browse 보드는 자동 반영으로 그렸다. 결정 전에는 발행 설계를 따른다.
+- 그래프의 색과 모양은 예시다. 실제 시각화는 F06의 규칙을 따른다.
 
 ## 공통
 
