@@ -108,46 +108,154 @@ fn prioritize(
     job_ref: &Id,
     channel: Channel,
 ) -> Result<ResultEnvelope, Box<dyn std::error::Error>> {
+    prioritize_body(
+        run,
+        json!({"jobRef": job_ref, "priorityArea": area}),
+        channel,
+    )
+}
+
+fn prioritize_body(
+    run: &PriorityRun,
+    body: serde_json::Value,
+    channel: Channel,
+) -> Result<ResultEnvelope, Box<dyn std::error::Error>> {
     Ok(call(
         &run.harness.engine,
         "scan.prioritize",
         channel,
         ENVELOPE_VERSION,
-        json!({"jobRef": job_ref, "priorityArea": area}),
+        body,
     )?)
 }
 
-fn assert_invalid_priority_requests(run: &PriorityRun) -> Result<(), Box<dyn std::error::Error>> {
-    let unknown = prioritize(run, &run.area_a, &Id::from_v7_bytes([9; 16]), Channel::Gui)?;
-    assert_eq!(
-        unknown.error.ok_or("unknown job was accepted")?.reason_key,
-        "job.not_found"
-    );
-    let stale = ItemRef {
-        result_version: Id::from_v7_bytes([8; 16]),
-        item_no: run.area_b.item_no,
+/// Publishes two results in an unrelated lineage of the same store and
+/// returns a folder from the superseded and from the current result.
+fn other_lineage_areas(
+    versions: &du_analysis_index::IngestSink,
+) -> Result<(ItemRef, ItemRef), Box<dyn std::error::Error>> {
+    use du_core_contracts::result::{
+        ResultCompleteness, ResultItemKind, ResultNativePath, ResultScopeRoot,
     };
-    assert_eq!(
-        prioritize(run, &stale, &run.started.job_ref, Channel::Gui)?
+    let lineage = versions
+        .bind_current_analysis("priority-other-lineage", Id::from_v7_bytes([0x51; 16]))
+        .map_err(|error| format!("bind other lineage: {error:?}"))?;
+    let publish = |scope: u8, version: u8| -> Result<ItemRef, Box<dyn std::error::Error>> {
+        let root = ResultScopeRoot {
+            path: ResultNativePath {
+                encoding: PathEncoding::WindowsUtf16le,
+                raw: PathBytes::from_bytes(&[b'Q', 0]),
+            },
+            volume_id: vec![1],
+            file_id: vec![scope],
+        };
+        let mut build = versions
+            .open_forest_in_lineage(Id::from_v7_bytes([scope; 16]), vec![root], lineage.clone())
+            .map_err(|error| format!("open other lineage: {error:?}"))?;
+        build
+            .add_directory_at(0, Vec::new())
+            .map_err(|error| format!("add other root: {error:?}"))?;
+        let version = build
+            .seal(
+                Id::from_v7_bytes([version; 16]),
+                ResultCompleteness::Partial,
+            )
+            .map_err(|error| format!("publish other lineage: {error:?}"))?;
+        let item = version
+            .items()
+            .iter()
+            .find(|item| item.kind == ResultItemKind::Directory)
+            .ok_or("missing other lineage folder")?;
+        Ok(ItemRef {
+            result_version: version.version_id().clone(),
+            item_no: item.item_no,
+        })
+    };
+    let superseded = publish(0x52, 0x53)?;
+    let current = publish(0x54, 0x55)?;
+    Ok((superseded, current))
+}
+
+fn assert_invalid_priority_requests(run: &PriorityRun) -> Result<(), Box<dyn std::error::Error>> {
+    let (superseded, other_lineage) = other_lineage_areas(&run.harness.versions)?;
+    let opens = run.harness.roots.opens.load(Ordering::Acquire);
+    let reads = run.harness.roots.reads.load(Ordering::Acquire);
+    let job = &run.started.job_ref;
+    let area = &run.area_a;
+    let missing_item = ItemRef {
+        result_version: area.result_version.clone(),
+        item_no: 9_999,
+    };
+    let random_version = ItemRef {
+        result_version: Id::from_v7_bytes([8; 16]),
+        item_no: area.item_no,
+    };
+    let cases = [
+        (
+            json!({"jobRef": Id::from_v7_bytes([9; 16]), "priorityArea": area}),
+            Channel::Gui,
+            "job.not_found",
+        ),
+        (
+            json!({"jobRef": job, "priorityArea": random_version}),
+            Channel::Gui,
+            "result.version_stale",
+        ),
+        (
+            json!({"jobRef": job, "priorityArea": superseded}),
+            Channel::Gui,
+            "result.version_stale",
+        ),
+        (
+            json!({"jobRef": job, "priorityArea": other_lineage}),
+            Channel::Gui,
+            "scan.priority_out_of_scope",
+        ),
+        (
+            json!({"jobRef": job, "priorityArea": run.file}),
+            Channel::Gui,
+            "scan.priority_out_of_scope",
+        ),
+        (
+            json!({"jobRef": job, "priorityArea": missing_item}),
+            Channel::Gui,
+            "scan.priority_out_of_scope",
+        ),
+        (
+            json!({"jobRef": job, "priorityArea": area, "path": "C:/untrusted"}),
+            Channel::Gui,
+            "command.body_invalid",
+        ),
+        (
+            json!({"jobRef": 7, "priorityArea": area}),
+            Channel::Gui,
+            "command.body_invalid",
+        ),
+        (
+            json!({"jobRef": job, "priorityArea": area}),
+            Channel::Cli,
+            "command.not_provided",
+        ),
+        (
+            json!({"jobRef": job, "priorityArea": area}),
+            Channel::Mcp,
+            "command.not_provided",
+        ),
+    ];
+    for (body, channel, reason) in cases {
+        let reply = prioritize_body(run, body.clone(), channel)?;
+        let error = reply
             .error
-            .ok_or("stale result version was accepted")?
-            .reason_key,
-        "result.version_stale"
-    );
-    assert_eq!(
-        prioritize(run, &run.file, &run.started.job_ref, Channel::Gui)?
-            .error
-            .ok_or("file priority area was accepted")?
-            .reason_key,
-        "scan.priority_out_of_scope"
-    );
-    assert_eq!(
-        prioritize(run, &run.area_b, &run.started.job_ref, Channel::Cli)?
-            .error
-            .ok_or("non-GUI priority call was accepted")?
-            .reason_key,
-        "command.not_provided"
-    );
+            .ok_or_else(|| format!("invalid priority request was accepted: {body}"))?;
+        assert_eq!(error.reason_key, reason, "{body}");
+        if reason == "scan.priority_out_of_scope" || reason == "command.body_invalid" {
+            assert_eq!(error.code, du_core_contracts::ErrorCode::InvalidArgument);
+        }
+    }
+    // Rejected requests neither query the file system nor reach the control
+    // handle: the first valid request for area A is still a new signal.
+    assert_eq!(run.harness.roots.opens.load(Ordering::Acquire), opens);
+    assert_eq!(run.harness.roots.reads.load(Ordering::Acquire), reads);
     Ok(())
 }
 
