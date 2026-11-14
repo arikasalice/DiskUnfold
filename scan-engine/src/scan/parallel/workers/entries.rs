@@ -110,16 +110,21 @@ fn continue_child(
 /// Opens a claimed child relative to its parent handle.
 ///
 /// Returns `None` when the child is open and processing continues in this
-/// turn. A rejected open is recorded as an open-stage failure of the child and
-/// completes its outstanding work; `Some(false)` stops the worker.
+/// turn, or when cancellation or an abort stopped the wait for its parent
+/// handle; the child is then still pending. A rejected open is recorded as an
+/// open-stage failure of the child and completes its outstanding work;
+/// `Some(false)` stops the worker.
 pub(super) fn open_pending(
     frame: &mut Frame,
     shared: &Shared,
     sender: &SyncSender<Event>,
     context: &dyn JobContext,
 ) -> Option<bool> {
-    let error = match frame.directory.open() {
+    let stop =
+        || context.checkpoint() == Checkpoint::Cancel || shared.abort.load(Ordering::Acquire);
+    let error = match frame.directory.open(&stop) {
         Ok(()) => return None,
+        Err(OpenFailure::Stopped) => return None,
         Err(OpenFailure::Unavailable) => return Some(false),
         Err(OpenFailure::Port(error)) => error,
     };

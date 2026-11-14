@@ -138,14 +138,7 @@ fn process(
         return cancel_drain::frame(frame, &shared.visited, sender, policy);
     }
     if frame.directory.is_pending() {
-        if let Some(finished) = open_pending(&mut frame, shared, sender, context) {
-            return finished;
-        }
-        // The open is this turn's only OS call. The opened directory goes back
-        // to its lane, so an area prioritized while the open was in flight
-        // applies to the next assignment (FR8.HD1.app-host.DD1).
-        requeue(shared, turn, frame, None, context);
-        return true;
+        return open_turn(frame, shared, sender, context, policy, turn);
     }
     match observe_once(&mut frame, shared, sender, context) {
         Observed::Ready => {}
@@ -190,6 +183,30 @@ fn process(
         return false;
     }
     process_batch(frame, shared, sender, context, turn, outcome)
+}
+
+/// Opens a claimed pending child as a turn of its own.
+fn open_turn(
+    mut frame: Frame,
+    shared: &Shared,
+    sender: &SyncSender<Event>,
+    context: &dyn JobContext,
+    policy: Policy<'_>,
+    turn: &mut Turn<'_>,
+) -> bool {
+    if let Some(finished) = open_pending(&mut frame, shared, sender, context) {
+        return finished;
+    }
+    if frame.directory.is_pending() {
+        // Waiting for the parent handle stopped; nothing was opened.
+        return shared.abort.load(Ordering::Acquire)
+            || cancel_drain::frame(frame, &shared.visited, sender, policy);
+    }
+    // The open is this turn's only OS call. The opened directory goes back
+    // to its lane, so an area prioritized while the open was in flight
+    // applies to the next assignment (FR8.HD1.app-host.DD1).
+    requeue(shared, turn, frame, None, context);
+    true
 }
 
 enum Observed {
