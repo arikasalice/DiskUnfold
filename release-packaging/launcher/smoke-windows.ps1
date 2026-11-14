@@ -24,7 +24,8 @@ param(
   [switch]$VerifyRecentScope,
   [switch]$VerifyNativeFolderDrop,
   [switch]$VerifyVirtualGroups,
-  [switch]$VerifyVirtualGroupsProgress
+  [switch]$VerifyVirtualGroupsProgress,
+  [switch]$VerifyVirtualGroupsSample
 )
 
 $ErrorActionPreference = 'Stop'
@@ -988,6 +989,8 @@ function Save-SmokeCapture($name) {
       $windowPattern.SetWindowVisualState([Windows.Automation.WindowVisualState]::Maximized)
       Start-Sleep -Milliseconds 800
     }
+    # Let entrance transitions (dialogs, panels) finish painting before the pixels are copied.
+    Start-Sleep -Milliseconds 700
     Add-Type -AssemblyName System.Drawing
     $bounds = $window.Current.BoundingRectangle
     $directory = Join-Path ([IO.Path]::GetTempPath()) 'diskunfold-virtual-groups-captures'
@@ -1151,6 +1154,19 @@ function Test-VirtualGroupsProgress {
   Invoke-UI (Wait-Enabled 'Back to analysis' $true)
 }
 # F36: classify a real scan with two user rules; files stay unchanged and rules persist.
+# F36 (until codex/f36-sample-rules ships): in the sample experience the virtual-group entry is
+# shown disabled with its reason beside it, and pressing it opens nothing. Capture 08.
+function Test-VirtualGroupsSample {
+  Invoke-UI (Wait-Enabled 'Try sample data first' $true)
+  $null = Wait-UI 'sample browse' { Find-UI 'Sample data' $null } 120
+  $entry = Wait-UI 'sample virtual group entry' { Find-UI 'View as virtual groups' $button } 60
+  $null = Wait-UI 'sample entry reason' { Find-UI 'Not available in the sample yet' $null }
+  $null = Save-SmokeCapture '08-sample-entry-disabled'
+  try { Invoke-UI $entry } catch { Write-Warning "Disabled entry press: $($_.Exception.Message)" }
+  Start-Sleep -Milliseconds 800
+  if (Find-UI 'Edit rules' $button) { throw 'The disabled sample entry opened the virtual group screen' }
+  'F36 native sample: "View as virtual groups" stays disabled in the sample with "Not available in the sample yet" beside it'
+}
 # Captures follow the review list: 01 entry, 02 result with a selected row, 03 no saved rules,
 # 04 editor with an empty value, 05 discard dialog, 06 members and reasons, 07 running (optional),
 # 09 editor beside the applied result, 10 after restart. 08 (the sample's disabled entry) cannot be
@@ -1335,6 +1351,7 @@ function Test-VirtualGroups {
   }
   if ($VerifyNativeFolderDrop) { Test-NativeFolderDrop }
   if ($VerifyAutomaticScopeReview) { Test-AutomaticScopeReview }
+  if ($VerifyVirtualGroupsSample) { Test-VirtualGroupsSample }
   if ($VerifyVirtualGroups -or $VerifyVirtualGroupsProgress) { Test-VirtualGroups }
   if ($VerifyDeniedSubtree) { Test-DeniedSubtree }
   if ($VerifyJunctionBoundary) { Test-JunctionBoundary }
@@ -1455,7 +1472,7 @@ function Test-VirtualGroups {
   Test-ScaledFileInspection
   if ($VerifyPhysicalAccounting) { Test-PhysicalAccounting }
 } catch {
-  if ($VerifyVirtualGroups -or $VerifyVirtualGroupsProgress) {
+  if ($VerifyVirtualGroups -or $VerifyVirtualGroupsProgress -or $VerifyVirtualGroupsSample) {
     $treePath = try { Write-UITree 'failure' } catch { '<tree unavailable>' }
     Write-Warning "UI tree at failure: $treePath"
   }
