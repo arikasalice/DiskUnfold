@@ -19,6 +19,8 @@
   line-clamp: var(--du-clamp-lines, 2);
   min-inline-size: 0;
   overflow: hidden;
+  /* Korean prose breaks between words; a word longer than the line still wraps. */
+  word-break: keep-all;
   overflow-wrap: anywhere;
 }
 
@@ -29,14 +31,25 @@
   white-space: nowrap;
 }
 
-.du-middle__head {
+/* Both parts are bidi isolates that keep the direction the container took from the whole text. */
+.du-middle__head,
+.du-middle__tail {
   min-inline-size: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  unicode-bidi: isolate;
 }
 
+/* The tail keeps its size until it alone is wider than the line. */
 .du-middle__tail {
   flex: none;
+  max-inline-size: 100%;
+}
+
+/* The copies of the text are not selectable, so a selection copies the path once. */
+.du-fit .du-visually-hidden,
+.du-fit__full {
+  user-select: none;
 }
 
 .du-visually-hidden {
@@ -54,7 +67,7 @@
   outline-offset: 2px;
 }
 
-/* The full text of a cut text: shown on focus or hover, hidden by Escape. */
+/* The full text of a cut text: shown on focus or hover, hidden by Escape from either. */
 .du-fit__full {
   display: none;
   position: absolute;
@@ -73,9 +86,10 @@
   box-shadow: var(--du-shadow);
   font-size: 13px;
   white-space: normal;
+  word-break: keep-all;
   overflow-wrap: anywhere;
 }
 
-.du-fit:is(:focus-visible, :hover):not([data-dismissed]) > .du-fit__full {
+.du-fit:is(:focus, :hover):not([data-dismissed]) > .du-fit__full {
   display: block;
 }

@@ -7,7 +7,7 @@ import {
   render,
   screen,
 } from "@testing-library/react";
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { ClampedText, MiddleEllipsisText } from "../src/components";
 import { splitForMiddleEllipsis } from "../src/components/text-fit";
 
@@ -150,4 +150,215 @@ test("the tail keeps the extension and short names are not split", () => {
   const korean = splitForMiddleEllipsis(PATHS[1]!);
   expect(korean.head + korean.tail).toBe(PATHS[1]);
   expect(korean.tail.endsWith(".tar.gz")).toBe(true);
+});
+
+/** Every offset at which a user-perceived character begins or ends. */
+function graphemeBoundaries(text: string): Set<number> {
+  const offsets = new Set<number>([text.length]);
+  const segmenter = new Intl.Segmenter("und", { granularity: "grapheme" });
+  for (const part of segmenter.segment(text)) offsets.add(part.index);
+  return offsets;
+}
+
+function expectCleanSplit(text: string) {
+  const { head, tail } = splitForMiddleEllipsis(text);
+  expect(head + tail).toBe(text);
+  expect(graphemeBoundaries(text).has(head.length)).toBe(true);
+  return { head, tail };
+}
+
+const NFD_NAME = "\u1112\u1161\u11AB\u1100\u1173\u11AF.txt";
+const FAMILY = "\u{1F468}\u200D\u{1F469}\u200D\u{1F467}";
+
+test.each([
+  ["Windows", "C:\\Users\\someone\\Documents\\Projects\\2026\\", "\\"],
+  ["POSIX", "/home/someone/Documents/Projects/2026/", "/"],
+])(
+  "%s path: the whole file name stays in the tail, after its separator",
+  (_system, folder, separator) => {
+    for (const name of [
+      NFD_NAME,
+      "e\u0301-report.txt",
+      `${FAMILY}.png`,
+      "\u{20BB7}\u{20BB7}.md",
+      "\u0645\u0644\u0641-\u0627\u0644\u062A\u0642\u0631\u064A\u0631.pdf",
+      "\u05D3\u05D5\u05D7-\u05E9\u05E0\u05EA\u05D9.docx",
+    ]) {
+      const { head, tail } = expectCleanSplit(folder + name);
+      expect(tail.endsWith(name)).toBe(true);
+      expect(tail.startsWith(separator)).toBe(true);
+      expect(head.startsWith(folder.slice(0, 3))).toBe(true);
+    }
+  },
+);
+
+test("a short parent folder stays with the file name and a long one does not", () => {
+  const near = expectCleanSplit(
+    "/Users/someone/Documents/DiskUnfold/snapshots",
+  );
+  expect(near.tail).toBe("/DiskUnfold/snapshots");
+  const far = expectCleanSplit(
+    "C:\\Users\\someone\\AppData\\Local\\DiskUnfold\\data\\workspace-01\\snapshots",
+  );
+  expect(far.tail).toBe("\\workspace-01\\snapshots");
+  expect(far.head.startsWith("C:\\Users")).toBe(true);
+});
+
+test("a trailing separator, mixed separators and a root path are handled", () => {
+  expect(
+    expectCleanSplit("/var/lib/some/deep/folder/location/archive/").tail,
+  ).toBe("/location/archive/");
+  expect(expectCleanSplit("C:\\data\\a/b\\c/some-long-folder-name").tail).toBe(
+    "\\c/some-long-folder-name",
+  );
+  const root = expectCleanSplit("/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+  expect(root.head.length).toBeGreaterThan(0);
+});
+
+test("a last component longer than the tail limit is cut between whole characters", () => {
+  for (const unit of [
+    "\u1112\u1161\u11AB",
+    "e\u0301",
+    FAMILY,
+    "\u{20BB7}",
+    "\u05D3",
+  ]) {
+    const name = unit.repeat(30) + ".tar.gz";
+    for (const text of [name, "/Users/someone/" + name, "C:\\x\\" + name]) {
+      const { tail } = expectCleanSplit(text);
+      expect(tail.endsWith(".tar.gz")).toBe(true);
+      expect(Array.from(tail).length).toBeGreaterThan(1);
+    }
+  }
+});
+
+test("text of sixteen characters or fewer is not split, even with combining marks", () => {
+  expect(splitForMiddleEllipsis("e\u0301".repeat(16))).toEqual({
+    head: "e\u0301".repeat(16),
+    tail: "",
+  });
+});
+
+test("the visible parts keep the direction of the whole text and isolate each other", () => {
+  const arabic =
+    "/home/someone/documents/\u0645\u0644\u0641-\u0627\u0644\u062A\u0642\u0631\u064A\u0631.pdf";
+  const { container } = render(<MiddleEllipsisText text={arabic} />);
+  expect(container.querySelector(".du-middle")?.getAttribute("dir")).toBe(
+    "auto",
+  );
+  expect(
+    container.querySelector(".du-visually-hidden")?.getAttribute("dir"),
+  ).toBe("auto");
+  const shown = Array.from(
+    container.querySelectorAll('.du-middle [aria-hidden="true"]'),
+  )
+    .map((node) => node.textContent)
+    .join("");
+  expect(shown).toBe(arabic);
+  const css = readFileSync("src/theme/text-fit.css", "utf8");
+  expect(css).toMatch(
+    /\.du-middle__head,\n\.du-middle__tail \{[^}]*unicode-bidi: isolate/,
+  );
+});
+
+test("neither part of a path can push the line wider than its container", () => {
+  const css = readFileSync("src/theme/text-fit.css", "utf8");
+  const shared =
+    css.match(/\.du-middle__head,\n\.du-middle__tail \{[^}]*\}/)?.[0] ?? "";
+  expect(shared).toMatch(/min-inline-size: 0/);
+  expect(shared).toMatch(/overflow: hidden/);
+  expect(shared).toMatch(/text-overflow: ellipsis/);
+  const tail =
+    [...css.matchAll(/^\.du-middle__tail \{[^}]*\}/gm)].at(-1)?.[0] ?? "";
+  expect(tail).toMatch(/max-inline-size: 100%/);
+});
+
+test("Korean prose breaks between words and long paths still wrap", () => {
+  const css = readFileSync("src/theme/text-fit.css", "utf8");
+  const rule = css.match(/^\.du-clamp \{[^}]*\}/m)?.[0] ?? "";
+  expect(rule).toMatch(/word-break: keep-all/);
+  expect(rule).toMatch(/overflow-wrap: anywhere/);
+});
+
+test("text that is not cut has no tab stop, role or full-text aid", () => {
+  overflowing(false);
+  const { container } = render(<MiddleEllipsisText text={PATHS[0]!} />);
+  expect(container.querySelector("[tabindex]")).toBeNull();
+  expect(container.querySelector("[role]")).toBeNull();
+  expect(container.querySelector(".du-fit__full")).toBeNull();
+});
+
+test("a cut text is a focusable note whose content is its full text", async () => {
+  overflowing(true);
+  const { container } = render(<MiddleEllipsisText text={PATHS[0]!} />);
+  await act(async () => {});
+  const frame = container.querySelector(".du-fit") as HTMLElement;
+  expect(frame.getAttribute("role")).toBe("note");
+  expect(frame.getAttribute("tabindex")).toBe("0");
+  expect((await axe.run(container)).violations).toEqual([]);
+});
+
+test("a pointer-opened full text closes with Escape and returns on the next hover", async () => {
+  overflowing(true);
+  const outside = vi.fn();
+  document.body.addEventListener("keydown", outside);
+  const { container } = render(<MiddleEllipsisText text={PATHS[0]!} />);
+  await act(async () => {});
+  const frame = container.querySelector(".du-fit") as HTMLElement;
+  fireEvent.mouseEnter(frame);
+  // Focus is elsewhere: the key goes to the body, not to the frame.
+  fireEvent.keyDown(document.body, { key: "Escape" });
+  expect(frame.hasAttribute("data-dismissed")).toBe(true);
+  expect(outside).not.toHaveBeenCalled();
+  fireEvent.mouseLeave(frame);
+  expect(frame.hasAttribute("data-dismissed")).toBe(false);
+  fireEvent.mouseEnter(frame);
+  expect(frame.hasAttribute("data-dismissed")).toBe(false);
+  document.body.removeEventListener("keydown", outside);
+});
+
+test("Escape that the input method is processing leaves the full text open", async () => {
+  overflowing(true);
+  const { container } = render(<ClampedText text={LONG_TEXT[0][1]} />);
+  await act(async () => {});
+  const frame = container.querySelector(".du-fit") as HTMLElement;
+  fireEvent.mouseEnter(frame);
+  fireEvent.keyDown(document.body, { key: "Escape", keyCode: 229 });
+  expect(frame.hasAttribute("data-dismissed")).toBe(false);
+});
+
+test("copying a selection inside a cut path puts the full path on the clipboard once", async () => {
+  overflowing(true);
+  const path = PATHS[0]!;
+  const { container } = render(<MiddleEllipsisText text={path} />);
+  await act(async () => {});
+  const frame = container.querySelector(".du-fit") as HTMLElement;
+  window.getSelection()?.selectAllChildren(frame);
+  const setData = vi.fn();
+  const notCancelled = fireEvent.copy(frame, { clipboardData: { setData } });
+  expect(setData).toHaveBeenCalledTimes(1);
+  expect(setData).toHaveBeenCalledWith("text/plain", path);
+  expect(notCancelled).toBe(false);
+  const css = readFileSync("src/theme/text-fit.css", "utf8");
+  expect(css).toMatch(
+    /\.du-fit \.du-visually-hidden,\n\.du-fit__full \{[^}]*user-select: none/,
+  );
+});
+
+test("a selection that is collapsed or outside the path is copied as the browser does", async () => {
+  overflowing(true);
+  const { container } = render(
+    <div>
+      <p id="other">other</p>
+      <MiddleEllipsisText text={PATHS[0]!} />
+    </div>,
+  );
+  await act(async () => {});
+  const frame = container.querySelector(".du-fit") as HTMLElement;
+  const setData = vi.fn();
+  window.getSelection()?.removeAllRanges();
+  fireEvent.copy(frame, { clipboardData: { setData } });
+  window.getSelection()?.selectAllChildren(container.querySelector("#other")!);
+  fireEvent.copy(frame, { clipboardData: { setData } });
+  expect(setData).not.toHaveBeenCalled();
 });
