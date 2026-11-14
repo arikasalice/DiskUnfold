@@ -1,4 +1,4 @@
-//! Engine IPC calls and result readers shared by the platform scan tests.
+//! Engine IPC calls and result readers for the macOS scan tests.
 use super::*;
 use du_core_contracts::{
     EventEnvelope, Id, ResultEnvelope, SizeAmount, SizeBasis, analysis_ipc::SpaceTotal,

@@ -1,187 +1,101 @@
-//! Preparing path exclusions from injected, verified comparison capabilities.
+//! Exclusion rules prepared by the comparison owner of the draft's encoding.
+//!
+//! Windows UTF-16LE drafts need an injected, verified comparison provider and
+//! accept only path rules. Unix drafts compare raw names byte for byte and also
+//! accept name patterns. Rules whose encoding differs from the included paths
+//! are rejected.
 mod prefix;
 #[cfg(test)]
 mod proof_tests;
+mod proven;
+mod unix;
+#[cfg(test)]
+mod unix_tests;
 
 use super::{
     EngineError, ScopeCorrespondence, ScopeDraft, ScopeReview, TargetAccess, Timestamp, digest,
     preparation,
 };
-use du_core_contracts::{OsPath, scan_observation::FilterDecision};
 use du_core_contracts::{
+    OsPath,
     analysis_ipc::ScopeExclusion,
     scan_observation::{OpenedScopeRoot, ScopeRootPort},
 };
 use du_job_runtime::JobClock;
 use du_scan_engine::scan::PreMetadataFilter;
-use prefix::PrefixFilter;
 use std::sync::Arc;
 
-/// Comparison identity and deterministic serialized key supplied by an adapter.
-#[derive(Clone, Debug)]
-pub struct ComparisonPath {
-    pub volume: Vec<u8>,
-    pub components: Vec<Vec<u8>>,
-    pub serialized_key: OsPath,
-}
-
-/// Supplies verified, volume-aware path and child-name comparison keys.
-///
-/// Implementations must be immutable snapshots, provide the same normalization
-/// for path components and child names, and include volume identity in serialized
-/// keys. Returning no evidence must never be interpreted as a non-match.
-pub trait PathComparison: Send + Sync {
-    fn path(&self, path: &OsPath) -> Option<ComparisonPath>;
-    fn component(&self, root: &ComparisonPath, parent: &[Vec<u8>], raw: &[u8]) -> Option<Vec<u8>>;
-}
-
-/// An original native exclusion and the comparison evidence obtained for it.
-///
-/// Both values come from one provider call; the key is not an OS path and
-/// must not be substituted for the original when restoring a scope.
-#[derive(Clone, Debug)]
-pub(crate) struct VerifiedExclusion {
-    original: OsPath,
-    comparison: ComparisonPath,
-}
-
+pub use proven::{ComparisonPath, PathComparison};
 #[cfg(test)]
-impl VerifiedExclusion {
-    pub(crate) fn original(&self) -> &OsPath {
-        &self.original
-    }
-    pub(crate) fn comparison(&self) -> &ComparisonPath {
-        &self.comparison
-    }
+pub(crate) use proven::{VerifiedExclusion, prepare};
+
+/// One admitted rule as requested and as hashed, taken from one preparation.
+///
+/// The key is a comparison input, not an OS path, and must not replace the
+/// original when a scope is restored.
+#[derive(Clone, Debug)]
+pub(crate) struct BoundRule {
+    original: ScopeExclusion,
+    key: ScopeExclusion,
 }
 
-/// Freezes verified exclusions in the same order as the retained roots.
-pub(crate) struct FrozenExclusions {
-    pub roots: Vec<usize>,
-    pub root_keys: Vec<OsPath>,
+/// Rules frozen against the normalized roots by one comparison owner.
+struct Frozen {
+    /// Retained candidate indices, ordered by their comparison keys.
+    roots: Vec<usize>,
+    /// Comparison keys of the retained roots, aligned with `roots`.
+    root_keys: Vec<OsPath>,
     /// All rules, including ineffective and repeated rules, in input order.
-    pub(crate) rules: Vec<VerifiedExclusion>,
-    /// At least one rule is disjoint from every normalized inclusion.
-    pub ineffective_rule: bool,
-    pub filter: Arc<PreMetadataFilter<'static>>,
+    rules: Vec<BoundRule>,
+    /// At least one path rule is disjoint from every normalized inclusion.
+    ineffective_rule: bool,
+    filter: Arc<PreMetadataFilter<'static>>,
 }
 
-/// Resolves all paths before producing a filter; missing evidence rejects preparation.
-#[cfg(test)]
-pub(crate) fn prepare(
-    evidence: Arc<dyn PathComparison>,
-    roots: &[(OsPath, Vec<u8>)],
-    rules: &[OsPath],
-) -> Option<FrozenExclusions> {
-    let checked = rules
-        .iter()
-        .map(|original| Some((original.clone(), super::windows_path(original).ok()?)))
-        .collect::<Option<Vec<_>>>()?;
-    prepare_checked(evidence, roots, &checked)
+/// Comparison keys and a frozen pre-metadata filter for admitted rules.
+///
+/// Implementations are immutable. `None` means missing evidence and must
+/// never be treated as a non-match.
+trait RuleKeys {
+    /// Freezes the rules against normalized roots given as canonical path and volume.
+    fn freeze(&self, roots: &[(OsPath, Vec<u8>)]) -> Option<Frozen>;
+    /// Returns the comparison key of an opened root's canonical path on `volume`.
+    fn root_key(&self, canonical: &OsPath, volume: &[u8]) -> Option<OsPath>;
 }
 
-fn prepare_checked(
-    evidence: Arc<dyn PathComparison>,
-    roots: &[(OsPath, Vec<u8>)],
-    rules: &[(OsPath, OsPath)],
-) -> Option<FrozenExclusions> {
-    let root_keys = roots
-        .iter()
-        .map(|(path, volume)| {
-            let key = evidence.path(path)?;
-            (!key.volume.is_empty() && &key.volume == volume).then_some(key)
-        })
-        .collect::<Option<Vec<_>>>()?;
-    let bound_rules = rules
-        .iter()
-        .map(|(original, checked)| {
-            Some(VerifiedExclusion {
-                original: original.clone(),
-                comparison: evidence.path(checked)?,
-            })
-        })
-        .collect::<Option<Vec<_>>>()?;
-    if root_keys.iter().zip(roots).any(|(key, (path, _))| {
-        key.serialized_key.encoding != path.encoding
-            || key
-                .serialized_key
-                .raw
-                .bytes()
-                .map_or(true, |bytes| bytes.is_empty())
-    }) || bound_rules.iter().any(|rule| {
-        let key = &rule.comparison;
-        let path = &rule.original;
-        key.volume.is_empty()
-            || key.serialized_key.encoding != path.encoding
-            || key
-                .serialized_key
-                .raw
-                .bytes()
-                .map_or(true, |bytes| bytes.is_empty())
-    }) {
-        return None;
+fn invalid() -> EngineError {
+    EngineError::reason("scope.exclude_invalid")
+}
+
+/// Rejects rules that the draft's comparison owner cannot apply, before any I/O.
+pub(super) fn check(draft: &ScopeDraft, has_comparison: bool) -> Result<(), EngineError> {
+    if unix::applies(draft) {
+        return unix::UnixRules::admit(&draft.exclusions).map(|_| ());
     }
-    let mut roots: Vec<_> = root_keys
-        .iter()
-        .enumerate()
-        .filter(|(_, root)| {
-            !bound_rules.iter().any(|rule| {
-                let rule = &rule.comparison;
-                rule.volume == root.volume && root.components.starts_with(&rule.components)
-            })
-        })
-        .map(|(index, _)| index)
-        .collect();
-    let ineffective_rule = bound_rules.iter().any(|rule| {
-        let rule = &rule.comparison;
-        !root_keys.iter().any(|root| {
-            root.volume == rule.volume
-                && (root.components.starts_with(&rule.components)
-                    || rule.components.starts_with(&root.components))
-        })
-    });
-    let sort_keys = root_keys
-        .iter()
-        .map(|root| root.serialized_key.raw.bytes().ok())
-        .collect::<Option<Vec<_>>>()?;
-    roots.sort_by(|&a, &b| sort_keys[a].cmp(&sort_keys[b]));
-    let kept: Vec<_> = roots
-        .iter()
-        .map(|&index| root_keys[index].clone())
-        .collect();
-    let per_root: Vec<_> = kept
-        .iter()
-        .map(|root| {
-            PrefixFilter::new(bound_rules.iter().filter_map(|rule| {
-                let rule = &rule.comparison;
-                (rule.volume == root.volume)
-                    .then(|| rule.components.strip_prefix(root.components.as_slice()))
-                    .flatten()
-            }))
-        })
-        .collect();
-    let output_roots = kept
-        .iter()
-        .map(|root| root.serialized_key.clone())
-        .collect();
-    let filter = Arc::new(move |index: u32, parent: &[Vec<u8>], name: &[u8]| {
-        let Some(root) = kept.get(index as usize) else {
-            return FilterDecision::Undecidable;
-        };
-        let Some(rules) = per_root.get(index as usize) else {
-            return FilterDecision::Undecidable;
-        };
-        rules.decide(parent, name, |index, raw| {
-            evidence.component(root, &parent[..index], raw)
-        })
-    });
-    Some(FrozenExclusions {
-        roots,
-        root_keys: output_roots,
-        rules: bound_rules,
-        ineffective_rule,
-        filter,
-    })
+    if !has_comparison
+        || draft
+            .exclusions
+            .iter()
+            .any(|rule| !matches!(rule, ScopeExclusion::Path { .. }))
+    {
+        return Err(invalid());
+    }
+    Ok(())
+}
+
+/// Selects the comparison owner and validates every rule before roots are opened.
+fn admit(
+    draft: &ScopeDraft,
+    comparison: Option<Arc<dyn PathComparison>>,
+) -> Result<Box<dyn RuleKeys>, EngineError> {
+    if unix::applies(draft) {
+        return Ok(Box::new(unix::UnixRules::admit(&draft.exclusions)?));
+    }
+    let evidence = comparison.ok_or_else(invalid)?;
+    Ok(Box::new(proven::ProvenRules::admit(
+        evidence,
+        &draft.exclusions,
+    )?))
 }
 
 struct PreparedScope {
@@ -197,7 +111,7 @@ struct PreparedScope {
 /// Immutable rule provenance and the exact comparison conditions that were hashed.
 pub(crate) struct BoundScopeProof {
     root_pairs: Vec<(OsPath, OsPath)>,
-    rules: Vec<VerifiedExclusion>,
+    rules: Vec<BoundRule>,
     boundary: du_core_contracts::analysis_ipc::ScopeBoundary,
     included_mounts: Vec<OsPath>,
     source: du_core_contracts::analysis_ipc::ScopeSource,
@@ -214,12 +128,12 @@ impl BoundScopeProof {
             exclusions: self
                 .rules
                 .iter()
-                .map(|rule| ScopeExclusion::Path {
-                    path: if keys {
-                        rule.comparison.serialized_key.clone()
+                .map(|rule| {
+                    if keys {
+                        rule.key.clone()
                     } else {
                         rule.original.clone()
-                    },
+                    }
                 })
                 .collect(),
             boundary: self.boundary,
@@ -237,20 +151,11 @@ impl BoundScopeProof {
 fn prepare_scope(
     draft: &ScopeDraft,
     roots: &dyn ScopeRootPort,
-    evidence: Arc<dyn PathComparison>,
+    keys: &dyn RuleKeys,
     include_recent: bool,
 ) -> Result<PreparedScope, EngineError> {
+    let unavailable = || EngineError::reason("scope.target_unavailable");
     let mut plain = draft.clone();
-    let rules = plain
-        .exclusions
-        .iter()
-        .map(|rule| match rule {
-            ScopeExclusion::Path { path } => {
-                super::windows_path(path).map(|checked| (path.clone(), checked))
-            }
-            _ => Err(EngineError::reason("scope.exclude_invalid")),
-        })
-        .collect::<Result<Vec<_>, _>>()?;
     plain.exclusions.clear();
     let prepared = preparation::prepare_with_recent(
         &plain,
@@ -273,8 +178,7 @@ fn prepare_scope(
         .iter()
         .map(super::notice_key)
         .collect::<std::collections::BTreeSet<_>>();
-    let frozen = prepare_checked(evidence.clone(), &candidates, &rules)
-        .ok_or_else(|| EngineError::reason("scope.target_unavailable"))?;
+    let frozen = keys.freeze(&candidates).ok_or_else(unavailable)?;
     if frozen.roots.is_empty() {
         return Err(EngineError::reason("scope.empty"));
     }
@@ -301,14 +205,11 @@ fn prepare_scope(
     let witnesses = prepared
         .selected_roots()
         .map(|root| {
-            let key = evidence
-                .path(root.canonical_path)
-                .ok_or_else(|| EngineError::reason("scope.target_unavailable"))?;
-            if key.volume != root.volume_id {
-                return Err(EngineError::reason("scope.target_unavailable"));
-            }
+            let key = keys
+                .root_key(root.canonical_path, root.volume_id)
+                .ok_or_else(unavailable)?;
             Ok((
-                key.serialized_key,
+                key,
                 root.volume_id.to_vec(),
                 root.file_id.to_vec(),
                 root.canonical_path.clone(),
@@ -319,29 +220,20 @@ fn prepare_scope(
     let mut witness_keys: std::collections::BTreeMap<Vec<u8>, &OsPath> =
         std::collections::BTreeMap::new();
     for (key, _, _, path) in &witnesses {
-        let raw = path
-            .raw
-            .bytes()
-            .map_err(|_| EngineError::reason("scope.target_unavailable"))?;
+        let raw = path.raw.bytes().map_err(|_| unavailable())?;
         if let Some(previous) = witness_keys.insert(raw, key)
             && (previous.encoding != key.encoding || previous.raw != key.raw)
         {
-            return Err(EngineError::reason("scope.target_unavailable"));
+            return Err(unavailable());
         }
     }
     // The reviewed root evidence must use the same comparison key as the
     // frozen filter and scope digest. An inconsistent provider is not proof.
     for (&index, expected) in frozen.roots.iter().zip(&frozen.root_keys) {
-        let path = candidates[index]
-            .0
-            .raw
-            .bytes()
-            .map_err(|_| EngineError::reason("scope.target_unavailable"))?;
-        let actual = witness_keys
-            .get(&path)
-            .ok_or_else(|| EngineError::reason("scope.target_unavailable"))?;
+        let path = candidates[index].0.raw.bytes().map_err(|_| unavailable())?;
+        let actual = witness_keys.get(&path).ok_or_else(unavailable)?;
         if actual.encoding != expected.encoding || actual.raw != expected.raw {
-            return Err(EngineError::reason("scope.target_unavailable"));
+            return Err(unavailable());
         }
     }
     let refs = witnesses
@@ -396,9 +288,10 @@ pub(super) fn review(
     seq: u32,
     roots: &dyn ScopeRootPort,
     clock: &dyn JobClock,
-    evidence: Arc<dyn PathComparison>,
+    comparison: Option<Arc<dyn PathComparison>>,
 ) -> Result<ScopeReview, EngineError> {
-    let prepared = prepare_scope(&draft, roots, evidence, false)?;
+    let keys = admit(&draft, comparison)?;
+    let prepared = prepare_scope(&draft, roots, &*keys, false)?;
     Ok(ScopeReview {
         scope: prepared.proof.draft(false),
         notices: prepared.notices,
@@ -414,13 +307,14 @@ pub(super) fn verify(
     draft: &ScopeDraft,
     expected: &str,
     roots: &dyn ScopeRootPort,
-    evidence: Arc<dyn PathComparison>,
+    comparison: Option<Arc<dyn PathComparison>>,
     include_recent: bool,
 ) -> Result<super::VerifiedScope, EngineError> {
-    let prepared = prepare_scope(draft, roots, evidence, include_recent)
-        .map_err(|_| EngineError::reason("scope.changed"))?;
+    let changed = || EngineError::reason("scope.changed");
+    let keys = admit(draft, comparison).map_err(|_| changed())?;
+    let prepared = prepare_scope(draft, roots, &*keys, include_recent).map_err(|_| changed())?;
     if prepared.review != expected {
-        return Err(EngineError::reason("scope.changed"));
+        return Err(changed());
     }
     Ok(super::VerifiedScope {
         roots: prepared.roots,

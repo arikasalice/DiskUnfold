@@ -134,18 +134,22 @@ pub(super) fn volume_id(fd: impl AsFd, device: u64) -> Vec<u8> {
 fn same_mount_ancestors(walked: Vec<(OwnedFd, Facts)>, root: &Facts) -> Option<AncestorChain> {
     root.mount?;
     let mut handles = Vec::new();
-    let mut ids = Vec::new();
+    let mut inodes = Vec::new();
     for (handle, facts) in walked.into_iter().rev() {
         if facts.device != root.device || facts.mount != root.mount {
             break;
         }
-        ids.push(facts.inode?.to_le_bytes().to_vec());
+        inodes.push(facts.inode.filter(|&inode| inode != 0)?);
         handles.push(handle);
     }
-    ids.reverse();
+    inodes.reverse();
     handles.reverse();
     Some(AncestorChain {
         _handles: handles,
-        ids,
+        ids: inodes
+            .iter()
+            .map(|inode| inode.to_le_bytes().to_vec())
+            .collect(),
+        inodes,
     })
 }

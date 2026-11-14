@@ -34,6 +34,10 @@ pub fn recent_scope_fingerprint_v1(conditions: &ScopeDraft) -> Result<[u8; 32], 
 }
 
 /// Registers read-only review for local directories, each on its current volume.
+///
+/// Exclusion rules are accepted only for Unix-encoded scopes, whose raw names
+/// are compared byte for byte. Windows scopes with exclusions need
+/// [`register_review_with_comparison`].
 pub fn register_review(
     builder: &mut EngineBuilder,
     roots: Arc<dyn ScopeRootPort>,
@@ -47,6 +51,9 @@ pub fn register_review(
 }
 
 /// Registers scope review with a verified path-comparison capability.
+///
+/// The capability compares Windows UTF-16LE path rules; Unix-encoded scopes
+/// keep their byte-exact comparison.
 pub fn register_review_with_comparison(
     builder: &mut EngineBuilder,
     roots: Arc<dyn ScopeRootPort>,
@@ -89,9 +96,7 @@ impl UseCase for Review {
                 request.request_seq,
                 &*self.roots,
                 &*self.clock,
-                self.comparison
-                    .clone()
-                    .ok_or_else(|| EngineError::reason("scope.exclude_invalid"))?,
+                self.comparison.clone(),
             );
         }
         let [single] = draft.includes.as_slice() else {
@@ -129,16 +134,8 @@ impl UseCase for Review {
 }
 
 fn validate(draft: &ScopeDraft, has_comparison: bool) -> Result<(), EngineError> {
-    if !draft.exclusions.is_empty()
-        && (!has_comparison
-            || draft.exclusions.iter().any(|rule| {
-                !matches!(
-                    rule,
-                    du_core_contracts::analysis_ipc::ScopeExclusion::Path { .. }
-                )
-            }))
-    {
-        return Err(EngineError::reason("scope.exclude_invalid"));
+    if !draft.exclusions.is_empty() {
+        exclusion::check(draft, has_comparison)?;
     }
     if draft.includes.is_empty() {
         return Err(EngineError::reason("scope.empty"));
@@ -258,8 +255,11 @@ pub(crate) fn windows_path(path: &OsPath) -> Result<OsPath, EngineError> {
 /// Validates a scope path in its declared native encoding.
 ///
 /// Windows paths are nonempty UTF-16LE code units and Unix paths are absolute raw
-/// bytes; neither may contain NUL. Only the scope root adapter decides whether
-/// the platform can open a path, so a foreign encoding fails when it is opened.
+/// bytes without a `..` name; neither may contain NUL. Empty and `.` Unix names
+/// are kept as given: the scope root adapter skips them when it walks the path,
+/// and Unix comparison keys use the same canonical names. Only the scope root
+/// adapter decides whether the platform can open a path, so a foreign encoding
+/// fails when it is opened.
 pub(crate) fn native_path(path: &OsPath) -> Result<OsPath, EngineError> {
     match path.encoding {
         PathEncoding::WindowsUtf16le => windows_path(path),
@@ -270,7 +270,11 @@ pub(crate) fn native_path(path: &OsPath) -> Result<OsPath, EngineError> {
 fn unix_path(path: &OsPath) -> Result<OsPath, EngineError> {
     let invalid = || EngineError::reason("path.unresolvable");
     let raw = path.raw.bytes().map_err(|_| invalid())?;
-    if raw.first() != Some(&b'/') || raw.contains(&0) {
+    // A `..` name would need link resolution, which the adapter refuses as well.
+    if raw.first() != Some(&b'/')
+        || raw.contains(&0)
+        || raw.split(|&byte| byte == b'/').any(|name| name == b"..")
+    {
         return Err(invalid());
     }
     let display = String::from_utf8(raw);
@@ -325,13 +329,7 @@ pub(crate) fn verify(
 ) -> Result<VerifiedScope, EngineError> {
     validate(draft, comparison.is_some())?;
     if !draft.exclusions.is_empty() {
-        return exclusion::verify(
-            draft,
-            expected,
-            roots,
-            comparison.ok_or_else(|| EngineError::reason("scope.exclude_invalid"))?,
-            include_recent,
-        );
+        return exclusion::verify(draft, expected, roots, comparison, include_recent);
     }
     let [single] = draft.includes.as_slice() else {
         let prepared = preparation::prepare_with_recent(

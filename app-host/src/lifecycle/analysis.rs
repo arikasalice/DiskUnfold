@@ -232,7 +232,7 @@ pub(super) fn register_history_reads(
         .map_err(report)
 }
 
-#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+#[cfg(all(test, target_os = "macos"))]
 mod ipc_calls;
 #[cfg(all(test, target_os = "linux"))]
 mod linux_scan_tests;

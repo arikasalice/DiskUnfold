@@ -18,7 +18,8 @@ use du_core_contracts::{
     Timestamp,
     ports::PortError,
     scan_observation::{
-        AnchoredDirectory, ObservedEntry, ObservedKind, TimedObservedEntry, VolumeSpaceReader,
+        AnchoredDirectory, HandleIdentity, ObservedEntry, ObservedKind, TimedObservedEntry,
+        VolumeSpaceReader,
     },
 };
 use errors::{errno, invalid};
@@ -56,7 +57,10 @@ struct Anchor {
 /// Same-mount ancestor descriptors, retained while their IDs are offered as evidence.
 struct AncestorChain {
     _handles: Vec<OwnedFd>,
+    /// Little-endian inode bytes, nearest ancestor last.
     ids: Vec<Vec<u8>>,
+    /// The same inodes in the `MetadataObservation::inode` space.
+    inodes: Vec<u64>,
 }
 
 /// One verified, open directory. Entry names are the raw directory entry bytes.
@@ -143,6 +147,9 @@ impl AnchoredDirectory for LinuxDirectory {
     }
 
     fn observed_modified_at(&self) -> Option<Timestamp> {
+        // The port has no error channel here: a failed query on this already
+        // verified handle leaves the time unknown, as does a time the kernel
+        // omits. Nothing else is derived from the failure.
         metadata::handle(&*self.anchor.fd)
             .ok()
             .and_then(|facts| facts.modified_at())
@@ -159,5 +166,27 @@ impl AnchoredDirectory for LinuxDirectory {
 
     fn ancestor_file_ids(&self) -> Option<&[Vec<u8>]> {
         self.ancestors.as_ref().map(|chain| chain.ids.as_slice())
+    }
+
+    /// Reads the device and inode of this descriptor with one `statx` call.
+    ///
+    /// The identity is withheld when the query fails, the inode is missing or
+    /// zero, or the descriptor no longer reports the device and mount it was
+    /// verified on. Ancestors are the same-mount directories retained while a
+    /// scope root was walked; a child handle retains none.
+    fn observed_identity(&self) -> Option<HandleIdentity> {
+        let facts = metadata::handle(&*self.anchor.fd).ok()?;
+        let inode = facts.inode.filter(|&inode| inode != 0)?;
+        if facts.device != self.anchor.device || !same_mount(facts.mount, self.anchor.mount) {
+            return None;
+        }
+        Some(HandleIdentity {
+            device: facts.device,
+            inode,
+            ancestors: self
+                .ancestors
+                .as_ref()
+                .map_or_else(Vec::new, |chain| chain.inodes.clone()),
+        })
     }
 }
