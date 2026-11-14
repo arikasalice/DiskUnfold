@@ -5,7 +5,7 @@
 mod deferred_selected;
 mod selected;
 use super::{ModelInput, production::RowPresentation};
-use crate::browse;
+use crate::display_path;
 pub use deferred_selected::{
     DeferredSelectedPages, HistogramBinFrame, HistogramFrame, HistogramStatus,
 };
@@ -149,7 +149,7 @@ fn assemble(
                 .version
                 .observed_root_for(&p.item)
                 .map_err(|_| Error::Source)?;
-            let name = browse::display(&root.path.encoding, &item.name).ok_or(Error::Source)?;
+            let name = display_path::name(&root.path.encoding, &item.name).ok_or(Error::Source)?;
             let size = request
                 .version
                 .item_size(*item_no, request.size_basis.clone())
