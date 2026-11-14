@@ -17,7 +17,13 @@ import {
   Text,
 } from "../../components";
 import { SIZE_UNIT_RULES, scanJobReasonText, scanProblemText } from "../../ipc";
-import type { AnalysisClient, JobState, OsPath, SpaceTotal } from "../../ipc";
+import type {
+  AnalysisClient,
+  AnalysisJobProgress,
+  JobState,
+  OsPath,
+  SpaceTotal,
+} from "../../ipc";
 import type { ScanControl, useScanResult } from "../../state/analysis-scan";
 import { ScanIssues } from "./ScanIssues";
 import { FileInspection } from "./FileInspection";
@@ -234,14 +240,22 @@ function ScanOutputHeader({
         />
         {actions}
       </div>
-      {running && (cancelling || scan.status?.state !== "paused") && (
-        <Progress
-          label={
-            cancelling
-              ? text("ui.analysis.waiting_cancel", "Waiting for cancellation")
-              : text("ui.analysis.scanning_folder", "Scanning folder")
-          }
-        />
+      {running && (
+        <div className="du-scan-progress">
+          <Progress
+            label={
+              cancelling
+                ? text("ui.analysis.waiting_cancel", "Waiting for cancellation")
+                : text("ui.analysis.scanning_folder", "Scanning folder")
+            }
+            paused={!cancelling && scan.status?.state === "paused"}
+            {...determinateProgress(scan.progress)}
+          />
+          {/* Not a live region: a running count would be read on every frame. */}
+          {scan.progress && (
+            <Text kind="muted">{progressText(scan.progress, text)}</Text>
+          )}
+        </div>
       )}
       {awaitingTotals && (
         <div className="du-result__loading">
@@ -259,6 +273,59 @@ function ScanOutputHeader({
         </div>
       )}
     </header>
+  );
+}
+
+/** A bar claims a share of the work only when the total is confirmed. */
+function determinateProgress(progress: AnalysisJobProgress | undefined) {
+  if (!progress?.totalKnown || progress.total === undefined) return {};
+  return { value: progress.completed, maxValue: progress.total };
+}
+
+/**
+ * With a confirmed total, the share is rounded down so the card never reads
+ * 100% before the work is done, and the rest is what job.progress still owes.
+ * Integer arithmetic keeps byte counts above 2^53 / 100 exact.
+ */
+function progressShare(completed: number, total: number) {
+  const whole = BigInt(Math.trunc(total));
+  const done = BigInt(Math.trunc(Math.min(completed, total)));
+  return {
+    percent: whole === 0n ? 100n : (done * 100n) / whole,
+    remaining: whole - done,
+  };
+}
+
+function progressText(progress: AnalysisJobProgress, text: LocaleText) {
+  const completed = BigInt(progress.completed);
+  const total = progress.totalKnown ? progress.total : undefined;
+  if (total !== undefined) {
+    const { percent, remaining } = progressShare(progress.completed, total);
+    return progress.unit === "bytes"
+      ? text(
+          "ui.analysis.progress_bytes_remaining",
+          "{percent}% · {size} left",
+          {
+            percent,
+            size: remaining,
+          },
+        )
+      : text(
+          "ui.analysis.progress_items_remaining",
+          "{percent}% · {count} items left",
+          { percent, count: remaining },
+        );
+  }
+  if (progress.unit === "bytes")
+    return text(
+      "ui.analysis.progress_bytes",
+      "{size} checked · Total size not yet known",
+      { size: completed },
+    );
+  return text(
+    "ui.analysis.progress_items",
+    "{count} items checked · Counting all items",
+    { count: completed },
   );
 }
 
@@ -497,7 +564,9 @@ function PinnedResult({
         <Metric
           label={basisLabel}
           detail={
-            lead ? displayMeasurement(lead.size, lead.completeness) : undefined
+            lead
+              ? displayMeasurement(lead.size, lead.completeness, text)
+              : undefined
           }
         >
           {lead ? displaySize(lead.size, display, text) : unavailable}
@@ -516,7 +585,7 @@ function PinnedResult({
               wideValue: true,
               notes: [
                 ...(raw && raw !== value ? [raw] : []),
-                displayMeasurement(size, completeness),
+                displayMeasurement(size, completeness, text),
                 ...measurementLimits.map(displayMeasurementLimit),
               ],
             };

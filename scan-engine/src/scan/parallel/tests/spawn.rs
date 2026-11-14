@@ -37,6 +37,10 @@ fn failed_second_spawn_closes_channels_and_finishes_all_flows()
     assert!(TEST_WORKER_STARTED.load(Ordering::Acquire));
     assert_eq!(reads.load(Ordering::Relaxed), 0);
     assert!(result.result_version_id.is_none());
+    // The root was admitted before the spawn failed; without a result it is
+    // unprocessed, not completed (NFR5.HD1.app-host.DD1).
+    assert_eq!(result.counts.completed, 0);
+    assert_eq!(result.counts.failed + result.counts.unprocessed, 1);
     assert_eq!(context.completed.load(Ordering::SeqCst), 4);
     assert_eq!(context.abandoned.load(Ordering::SeqCst), 0);
     assert_eq!(

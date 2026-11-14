@@ -8,7 +8,10 @@
 //!
 //! NFR5.HD1.app-host.DD1 progress counts every recorded item once: an entry
 //! adds one to either `completed` or `failed`, never to both. A failed item
-//! is one that leaves a scope gap, so `failed` equals the number of gaps.
+//! is one that leaves a scope gap, so `failed` equals the number of paths
+//! with a gap. A scope root is an item too: it is counted when the collector
+//! admits it, and a later failure of the root moves it from completed to
+//! failed, so `completed + failed` equals the number of result items.
 use super::{
     admission::{self, Admission, Unread},
     issues,
@@ -26,17 +29,64 @@ use du_core_contracts::{
 /// Supplies the observation time of a scope gap, evaluated only for a gap.
 pub(super) type GapClock<'a> = &'a dyn Fn() -> Option<Timestamp>;
 
+/// The failed ranges of one collection, so that each range fails once.
+///
+/// A directory below a root was counted as completed when its entry was
+/// recorded, and fails at most once. A root was counted when it was admitted;
+/// an unverifiable root starts as failed and keeps one count however many of
+/// its reads fail. Debug and test builds also remember every failed path and
+/// stop on a second failure of one path, which would otherwise move another
+/// item's completed count.
+pub(super) struct FailedRanges {
+    roots: Vec<bool>,
+    #[cfg(debug_assertions)]
+    paths: std::collections::HashSet<(u32, Vec<Vec<u8>>)>,
+}
+
+impl FailedRanges {
+    /// `roots[index]` tells whether that root was already counted as failed.
+    pub(super) fn new(roots: Vec<bool>) -> Self {
+        Self {
+            roots,
+            #[cfg(debug_assertions)]
+            paths: std::collections::HashSet::new(),
+        }
+    }
+
+    /// How the range at `path` was counted before this failure, which this
+    /// call records.
+    pub(super) fn counted(&mut self, root_index: u32, path: &[Vec<u8>]) -> Counted {
+        if !path.is_empty() {
+            #[cfg(debug_assertions)]
+            {
+                let first = self.paths.insert((root_index, path.to_vec()));
+                debug_assert!(first, "a range below a root failed twice");
+            }
+            return Counted::Completed;
+        }
+        let earlier = usize::try_from(root_index)
+            .ok()
+            .and_then(|index| self.roots.get_mut(index))
+            .is_some_and(|failed| std::mem::replace(failed, true));
+        if earlier {
+            Counted::Failed
+        } else {
+            Counted::Completed
+        }
+    }
+}
+
 /// How the directory of a failed range was counted before the failure.
 ///
 /// The failure keeps the directory counted once, as failed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Counted {
-    /// A scope root that was not counted yet; the failure counts it.
-    Uncounted,
-    /// A directory counted as completed when it was enumerated; the failure
-    /// moves that count to failed.
+    /// A directory counted as completed when it was enumerated, or a root
+    /// counted as completed when it was admitted; the failure moves that
+    /// count to failed.
     Completed,
-    /// A root already counted as failed, such as an unverifiable root.
+    /// A root already counted as failed, such as an unverifiable root or a
+    /// root whose failure was already recorded.
     Failed,
 }
 
@@ -94,6 +144,13 @@ pub(super) fn record_item(
 /// counted once as a failure according to `counted` and kept as a scope gap.
 /// `observed_at` is the time of the failure and `gap_at` the time recorded
 /// with the gap.
+///
+/// A range fails at most once, after its directory was counted as completed:
+/// its entry was recorded before the directory was queued, and a root is
+/// counted when it is admitted. A move without a completed count would mean
+/// a second failure of one range. Debug and test builds stop on it; release
+/// builds keep `completed` from wrapping and still count the gap, so the
+/// result and `failed` keep agreeing on the recorded gaps.
 pub(super) fn record_failure(
     build: &mut BuildHandle,
     counts: &mut JobCounts,
@@ -103,8 +160,11 @@ pub(super) fn record_failure(
     counted: Counted,
 ) -> Result<(), BuildError> {
     match counted {
-        Counted::Uncounted => counts.failed += 1,
         Counted::Completed => {
+            debug_assert!(
+                counts.completed > 0,
+                "a failed range must have been counted as completed first"
+            );
             counts.completed = counts.completed.saturating_sub(1);
             counts.failed += 1;
         }
@@ -264,3 +324,6 @@ fn os_size(basis: SizeBasis, bytes: u64) -> SizeValue {
         },
     }
 }
+
+#[cfg(test)]
+mod tests;

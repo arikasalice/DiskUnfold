@@ -12,9 +12,13 @@
 //! readability, while a removed one could name a different file.
 
 /// `MAX_PATH` in UTF-16 code units, counting the terminating NUL, so the
-/// longest plain form shown is 259 units. Win32 also limits created folder
-/// paths to 248 units; that limit governs creation, not which path the text
-/// names, so the display rule uses this single bound.
+/// longest plain form shown is 259 units.
+///
+/// Some directory functions accept at most 248 units without the prefix
+/// (`MAX_PATH` less room for an 8.3 file name), so a shown directory path of
+/// 248 to 259 units may fail to open there. The rule keeps this single bound
+/// because the text is only read: the module contract forbids reopening a path
+/// from it, and path copy and file changes start from the raw bytes.
 const MAX_PATH: usize = 260;
 
 /// Device names reserved in every component, compared without regard to ASCII case.

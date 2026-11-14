@@ -56,7 +56,9 @@ pub(crate) fn path(encoding: &PathEncoding, bytes: &[u8]) -> Option<String> {
 /// Removes the Win32 extended-length prefix when the plain form names the same path.
 ///
 /// `\\?\C:\x` becomes `C:\x` and `\\?\UNC\server\share\x` becomes
-/// `\\server\share\x`; the `UNC` marker is matched without regard to case.
+/// `\\server\share\x`. The `UNC` marker is matched without regard to case
+/// because Win32 file functions resolve `\??\UNC` that way, so
+/// `\\?\unc\server\share` names the same share as `\\server\share`.
 /// The prefix stays when Win32 would read the plain form differently: a
 /// component ending in `.` or space, a `.` or `..` component, an empty
 /// component, a reserved device name, a character that Win32 treats as a

@@ -40,6 +40,8 @@ import { LocaleSettings } from "../features/settings/LocaleSettings";
 import type { LocaleSettingsProps } from "../features/settings/LocaleSettings";
 import { createAnalysisClient, hasWindowsAnalysisBridge } from "../ipc";
 import type { AnalysisClient } from "../ipc";
+import { useScanPriority } from "../state/scan-priority";
+import type { ScanPriority, ScanPriorityContext } from "../state/scan-priority";
 import { createBrowsePort } from "./browse-port";
 import { InfoEntry } from "./InfoEntry";
 import { SampleContext, SampleEntrySlot } from "./SampleBrowse";
@@ -118,6 +120,8 @@ export function App({
     basis: SizeBasisFilter;
   }>();
   const [visualizationOpen, setVisualizationOpen] = useState(false);
+  const [scanContext, setScanContext] = useState<ScanPriorityContext>();
+  const priority = useScanPriority(client, scanContext);
   const flow = useSampleFlow(client);
   const { sampleOpen, analysisKey, analysisSlot } = flow;
   const { version: browseVersion, choice: browseChoice } =
@@ -294,6 +298,7 @@ export function App({
               setBrowseSelection({ version, choice });
             }}
             browseTrigger={browseTrigger}
+            onScanContext={setScanContext}
             startAlternative={<SampleEntrySlot flow={flow} />}
           />
         </div>
@@ -304,6 +309,7 @@ export function App({
         resultVersion={browseVersion}
         display={browseDisplay}
         hidden={controls.listHidden}
+        priority={priority}
         onOpening={visualization.invalidate}
         onOpened={(version, opened) => {
           groups.onBrowsed(version, opened);
@@ -417,6 +423,7 @@ function BrowseSurface({
   resultVersion,
   display,
   hidden,
+  priority,
   onOpening,
   onOpened,
 }: {
@@ -425,6 +432,7 @@ function BrowseSurface({
   resultVersion: string | undefined;
   display: SizeDisplay;
   hidden: boolean;
+  priority: ScanPriority;
   onOpening: () => void;
   onOpened: (resultVersion: string, opened: BrowseOpenLocation) => void;
 }) {
@@ -439,6 +447,7 @@ function BrowseSurface({
         port={port}
         resultVersion={resultVersion}
         display={display}
+        priority={priority}
         onOpening={onOpening}
         onOpened={(opened) => onOpened(resultVersion, opened)}
         inspectItem={(item, kind) => (
