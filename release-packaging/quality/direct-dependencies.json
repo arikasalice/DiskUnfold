@@ -1,6 +1,17 @@
 [
   {
     "ecosystem": "cargo",
+    "owner": "du-analysis-index",
+    "name": "blake3",
+    "version": "1.8.3",
+    "source": "registry+https://github.com/rust-lang/crates.io-index",
+    "license": "CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Fingerprint the canonical F36 virtual-group ruleset content"
+  },
+  {
+    "ecosystem": "cargo",
     "owner": "du-app-db",
     "name": "blake3",
     "version": "1.8.3",
