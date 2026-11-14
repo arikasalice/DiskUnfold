@@ -21,7 +21,19 @@ use std::{
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
+mod boundary;
 mod exclusions;
+mod trace;
+
+/// A Unix scope path as the GUI sends it, raw bytes first.
+fn unix_path(path: &Path) -> Value {
+    json!({
+        "encoding": "unix",
+        "raw": PathBytes::from_bytes(path.as_os_str().as_bytes()),
+        "display": path.to_string_lossy(),
+        "lossy": false
+    })
+}
 
 fn ipc(
     engine: &Engine,
@@ -122,13 +134,7 @@ fn scan(base: &Path, profile: &Path, denied: bool) -> TestResult {
     let services = register_analysis(&mut builder, ports, &database, limit, None)?;
     let engine = builder.build()?;
     verify_registered(&engine, true)?;
-    let include = json!({
-        "encoding": "unix",
-        "raw": PathBytes::from_bytes(base.as_os_str().as_bytes()),
-        "display": base.to_string_lossy(),
-        "lossy": false
-    });
-    let draft = json!({"includes":[include],"exclusions":[],"boundary":"current_volume","includedMounts":[],"source":"gui"});
+    let draft = json!({"includes":[unix_path(base)],"exclusions":[],"boundary":"current_volume","includedMounts":[],"source":"gui"});
     let review: ScopeReview = read(
         &engine,
         "scope.review",
