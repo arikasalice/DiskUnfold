@@ -22,6 +22,7 @@ use crate::error::EngineError;
 mod embedded;
 mod engine;
 mod flow;
+mod progress;
 mod real;
 mod structure;
 

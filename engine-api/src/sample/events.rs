@@ -3,7 +3,7 @@
 use std::sync::{Arc, OnceLock};
 
 use du_core_contracts::{Id, job::HistoryChanged};
-use du_job_runtime::{JobEvent, JobEvents};
+use du_job_runtime::{JobEvent, JobEvents, JobProgressEvent};
 
 use super::{KIND, SampleSessions};
 
@@ -45,6 +45,10 @@ impl JobEvents for SampleEvents {
 
     fn publish_history_changed(&self, change: HistoryChanged) {
         self.downstream.publish_history_changed(change);
+    }
+
+    fn publish_progress(&self, event: JobProgressEvent) {
+        self.downstream.publish_progress(event);
     }
 
     fn retire_job(&self, id: &Id) {
