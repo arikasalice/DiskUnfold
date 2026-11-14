@@ -127,6 +127,9 @@ function answeredState(
  * request replaced. An outcome is offered for announcement for
  * {@link SCAN_PRIORITY_NOTICE_MS} and only while no other scan is current, so
  * a view that mounts later, or a later scan, does not announce it again.
+ * An outcome that says the area applies when the paused scan continues is
+ * withdrawn once the scan continues, and stays withdrawn if the scan then
+ * ends while it would still be shown.
  */
 export function useScanPriority(
   client: AnalysisClient | undefined,
@@ -184,6 +187,11 @@ export function useScanPriority(
     );
     return () => window.clearTimeout(timer);
   }, [noticeId]);
+
+  // A paused outcome no longer describes a scan that has continued.
+  useEffect(() => {
+    if (scanning) setNotice((shown) => (shown?.paused ? undefined : shown));
+  }, [scanning]);
 
   const received = marked?.state === "received" ? marked.seq : undefined;
   useEffect(() => {

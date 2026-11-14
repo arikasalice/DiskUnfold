@@ -490,6 +490,43 @@ test("F02 FR8.HD1: a notice says only what the response confirmed", async () => 
   );
 });
 
+test("F02 FR8.HD1: an outcome for a paused scan is withdrawn when the scan continues", async () => {
+  const { client, answers } = priorityClient();
+  const paused = { ...running, scanning: false };
+  const hook = renderHook(
+    (context: ScanPriorityContext | undefined) =>
+      useScanPriority(client, context),
+    { initialProps: paused as ScanPriorityContext | undefined },
+  );
+  act(() => hook.result.current.request(ref(1), "Photos"));
+  await act(async () =>
+    answers.at(-1)!.resolve({
+      controlResult: "accepted",
+      appliedPriorityArea: ref(1),
+    }),
+  );
+  expect(hook.result.current.notice?.paused).toBe(true);
+  hook.rerender(running);
+  expect(hook.result.current.notice).toBeUndefined();
+  // The folder itself stays marked; the row reads that it is analyzed first.
+  expect(hook.result.current.status(ref(1))).toBe("analyzing");
+  // A scan that ends right after continuing does not bring it back.
+  hook.rerender(undefined);
+  expect(hook.result.current.notice).toBeUndefined();
+  hook.rerender(running);
+
+  // An outcome received while running stays when the scan pauses.
+  act(() => hook.result.current.request(ref(2), "Videos"));
+  await act(async () =>
+    answers.at(-1)!.resolve({
+      controlResult: "accepted",
+      appliedPriorityArea: ref(2),
+    }),
+  );
+  hook.rerender(paused);
+  expect(hook.result.current.notice?.name).toBe("Videos");
+});
+
 test("F02 FR8.HD1: the row menu offers Analyze first by right click and by keyboard", async () => {
   const { answers } = await setup();
   fireEvent.contextMenu(gridRow("memo.txt"));
