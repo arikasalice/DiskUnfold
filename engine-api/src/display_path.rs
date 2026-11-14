@@ -3,7 +3,15 @@
 //! Every complete path shown to a person passes through this module. Only
 //! display text changes: raw bytes, comparison keys, fingerprints, exclusion
 //! keys, stored bodies and item references keep their native form, and no
-//! caller may reopen a path from the text returned here.
+//! caller may reopen or compare a path from the text returned here.
+//!
+//! A Windows path loses its `\\?\` prefix only when the plain form names the
+//! same path under Win32 rules: restoring the prefix gives back the original
+//! text, and Win32 normalization leaves the plain form unchanged. Every other
+//! path is shown with its prefix; the `win32` submodule lists the rules.
+//!
+//! CLI and MCP outputs never reuse this text. When they export paths, they
+//! derive their own channel form from the raw bytes.
 use std::borrow::Cow;
 
 use du_core_contracts::{
@@ -13,6 +21,8 @@ use du_core_contracts::{
 
 const VERBATIM: &str = r"\\?\";
 const UNC: &str = r"UNC\";
+
+mod win32;
 
 /// Decodes one native name component for display, without path rules.
 ///
@@ -43,13 +53,20 @@ pub(crate) fn path(encoding: &PathEncoding, bytes: &[u8]) -> Option<String> {
     })
 }
 
-/// Removes the Win32 extended-length prefix when a drive or UNC form exists.
+/// Removes the Win32 extended-length prefix when the plain form names the same path.
 ///
 /// `\\?\C:\x` becomes `C:\x` and `\\?\UNC\server\share\x` becomes
 /// `\\server\share\x`; the `UNC` marker is matched without regard to case.
-/// Volume GUID, `GLOBALROOT`, `\\.\` device and every other form stay
-/// unchanged. Characters after the prefix are kept as given, including `/`,
-/// which the extended form treats as an ordinary character.
+/// The prefix stays when Win32 would read the plain form differently: a
+/// component ending in `.` or space, a `.` or `..` component, an empty
+/// component, a reserved device name, a character that Win32 treats as a
+/// separator, wildcard or stream marker, or a plain form of `MAX_PATH` UTF-16
+/// units or more. Volume GUID, `GLOBALROOT`, `\\.\` device and every other
+/// form stay unchanged.
+///
+/// Guarantee: when the result differs from `text`, adding the prefix back
+/// yields `text` (with `UNC` in its canonical case) and both forms name the
+/// same path. The result is display text; callers must not reopen it.
 pub(crate) fn windows(text: &str) -> Cow<'_, str> {
     let Some(rest) = text.strip_prefix(VERBATIM) else {
         return Cow::Borrowed(text);
@@ -57,15 +74,27 @@ pub(crate) fn windows(text: &str) -> Cow<'_, str> {
     if let [letter, b':', b'\\', ..] = rest.as_bytes()
         && letter.is_ascii_alphabetic()
     {
-        return Cow::Borrowed(rest);
+        return plain_if_same(text, Cow::Borrowed(rest), &rest[3..]);
     }
     let network = rest
         .get(..UNC.len())
         .filter(|marker| marker.eq_ignore_ascii_case(UNC))
         .map(|_| &rest[UNC.len()..]);
     match network {
-        Some(network) if server_and_share(network) => Cow::Owned(format!(r"\\{network}")),
+        Some(network) if server_and_share(network) => {
+            plain_if_same(text, Cow::Owned(format!(r"\\{network}")), network)
+        }
         _ => Cow::Borrowed(text),
+    }
+}
+
+/// Returns `plain` when it names the same path as `original`; `names` holds
+/// the components after the drive root or the leading `\\` of a UNC path.
+fn plain_if_same<'a>(original: &'a str, plain: Cow<'a, str>, names: &str) -> Cow<'a, str> {
+    if win32::same_without_prefix(&plain, names) {
+        plain
+    } else {
+        Cow::Borrowed(original)
     }
 }
 

@@ -212,3 +212,23 @@ fn extended_root_failures_show_the_drive_form_and_keep_raw_references() -> Resul
     );
     Ok(())
 }
+
+#[test]
+fn failures_keep_the_prefix_for_trailing_dots_and_long_paths() -> Result<(), String> {
+    // The long root is 255 units without the prefix; its failure reaches 262.
+    let long = format!(r"\\?\C:\{}", "g".repeat(252));
+    for root in [r"\\?\C:\trailing.", long.as_str()] {
+        let (store, version) = fixture_at(root)?;
+        let engine = engine(store, true)?;
+        let page = page(
+            &engine,
+            json!({"resultVersion":version, "kind":"unread_range"}),
+        )?;
+        assert!(page.error.is_none());
+        assert_eq!(
+            page.body["rows"][0]["displayPath"],
+            format!(r"{root}\denied")
+        );
+    }
+    Ok(())
+}

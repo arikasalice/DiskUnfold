@@ -219,11 +219,24 @@ fn proposals_and_unverifiable_results_preserve_draft_and_never_admit_a_review() 
 
 #[test]
 fn restored_extended_paths_are_shown_without_changing_the_stored_row() -> TestResult {
+    check_restored(r"\\?\C:\Fixture", r"C:\Fixture")
+}
+
+#[test]
+fn restored_paths_keep_the_prefix_for_trailing_dots_and_long_paths() -> TestResult {
+    check_restored(r"\\?\C:\trailing.", r"\\?\C:\trailing.")?;
+    let long = format!(r"\\?\C:\{}\{}", "d".repeat(130), "e".repeat(130));
+    check_restored(&long, &long)
+}
+
+/// Opens a stored scope applied at `applied` and checks that the folder is
+/// shown as `expected` while the stored row stays byte-identical.
+fn check_restored(applied: &str, expected: &str) -> TestResult {
     let dir = tempfile::tempdir()?;
     let path_on_disk = dir.path().join("scope.db");
     let db = AppDb::create_gui_with_history(&path_on_disk).map_err(|e| format!("{e:?}"))?;
     let sql = Connection::open(&path_on_disk)?;
-    store_fixture_at(&sql, r"\\?\C:\Fixture", r"\\?\C:\")?;
+    store_fixture_at(&sql, applied, r"\\?\C:\")?;
     let read_body = || -> rusqlite::Result<String> {
         sql.query_row("SELECT scope_body FROM user_env_recent_scope", [], |row| {
             row.get(0)
@@ -249,14 +262,10 @@ fn restored_extended_paths_are_shown_without_changing_the_stored_row() -> TestRe
     );
     let response = ipc(&builder.build()?, id(1))?;
     assert!(response.error.is_none(), "{:?}", response.error);
-    let folder = path(r"\\?\C:\Fixture");
+    let folder = path(applied);
     for (shown, display, native) in [
-        (
-            &response.body["draft"]["includes"][0],
-            r"C:\Fixture",
-            &folder,
-        ),
-        (&response.body["targets"][0]["path"], r"C:\Fixture", &folder),
+        (&response.body["draft"]["includes"][0], expected, &folder),
+        (&response.body["targets"][0]["path"], expected, &folder),
         (
             &response.body["targets"][0]["proposedEntry"],
             r"D:\",

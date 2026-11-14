@@ -12,13 +12,11 @@ fn wide(text: &str) -> Vec<u8> {
     text.encode_utf16().flat_map(u16::to_le_bytes).collect()
 }
 
-const ROOT: &str = r"\\?\C:\data";
-
-fn publish(sink: &IngestSink) -> TestResult {
+fn publish(sink: &IngestSink, root: &str) -> TestResult {
     let root = ResultScopeRoot {
         path: ResultNativePath {
             encoding: PathEncoding::WindowsUtf16le,
-            raw: PathBytes::from_bytes(&wide(ROOT)),
+            raw: PathBytes::from_bytes(&wide(root)),
         },
         volume_id: vec![1],
         file_id: vec![1],
@@ -43,10 +41,11 @@ fn publish(sink: &IngestSink) -> TestResult {
     Ok(())
 }
 
-#[test]
-fn member_and_explanation_paths_drop_the_prefix_and_keep_item_refs() -> TestResult {
+/// Checks member and explanation paths of a result rooted at `root`; each
+/// member is shown as `{shown}\{name}`.
+fn check(root: &str, shown: &str) -> TestResult {
     let sink = IngestSink::default();
-    publish(&sink)?;
+    publish(&sink, root)?;
     let harness = harness_from(sink, std::sync::Arc::new(MemoryRules::default()), false, 64)?;
     harness.ok(
         "group.rules.save",
@@ -71,7 +70,7 @@ fn member_and_explanation_paths_drop_the_prefix_and_keep_item_refs() -> TestResu
     ] {
         let page = members(category)?;
         let row = &page["rows"][0];
-        assert_eq!(row["displayPath"]["value"], format!(r"C:\data\{name}"));
+        assert_eq!(row["displayPath"]["value"], format!(r"{shown}\{name}"));
         assert_eq!(row["displayName"]["value"], name);
         let item = row["item"].clone();
         let pinned = harness
@@ -84,7 +83,7 @@ fn member_and_explanation_paths_drop_the_prefix_and_keep_item_refs() -> TestResu
             .map_err(|error| format!("{error:?}"))?;
         assert_eq!(
             native.raw,
-            PathBytes::from_bytes(&wide(&format!(r"{ROOT}\{name}")))
+            PathBytes::from_bytes(&wide(&format!(r"{root}\{name}")))
         );
         let explained = harness.ok(
             "group.explain",
@@ -94,4 +93,17 @@ fn member_and_explanation_paths_drop_the_prefix_and_keep_item_refs() -> TestResu
         assert_eq!(explained["displayPath"], row["displayPath"]);
     }
     Ok(())
+}
+
+#[test]
+fn member_and_explanation_paths_drop_the_prefix_and_keep_item_refs() -> TestResult {
+    check(r"\\?\C:\data", r"C:\data")
+}
+
+#[test]
+fn member_paths_keep_the_prefix_for_trailing_dots_and_long_paths() -> TestResult {
+    check(r"\\?\C:\trailing.", r"\\?\C:\trailing.")?;
+    // 255 units without the prefix, so every member path reaches MAX_PATH.
+    let long = format!(r"\\?\C:\{}", "g".repeat(252));
+    check(&long, &long)
 }

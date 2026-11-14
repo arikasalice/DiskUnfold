@@ -17,17 +17,9 @@ fn extended_drive_and_unc_paths_lose_only_the_prefix() {
         (r"\\?\UNC\server\share", r"\\server\share"),
         (r"\\?\unc\server\share\x", r"\\server\share\x"),
         (r"\\?\Unc\server\share", r"\\server\share"),
-        (r"\\?\C:\mixed/slash\x", r"C:\mixed/slash\x"),
     ] {
         assert_eq!(windows(input), expected, "{input}");
     }
-}
-
-#[test]
-fn long_extended_paths_are_shown_without_the_prefix() {
-    let tail = "a".repeat(300);
-    let input = format!(r"\\?\C:\{tail}");
-    assert_eq!(windows(&input), format!(r"C:\{tail}"));
 }
 
 #[test]
@@ -205,3 +197,5 @@ fn recent_open_projection_covers_draft_targets_proposals_and_review() {
     );
     assert_eq!(open.targets[0].path, windows_path(r"\\?\C:\Fixture"));
 }
+
+mod rules;
