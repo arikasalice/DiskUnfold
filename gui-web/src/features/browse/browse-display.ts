@@ -48,6 +48,12 @@ export function folderPath(
     return [...entries, unavailable];
 
   const ancestors = breadcrumbs.slice(0, -1);
+  // A supplied root label names the single scope root (for example, sample data)
+  // instead of its native path; multi-root results already show it at the virtual root.
+  const crumbLabel = (index: number, value: BrowseValue<string>) =>
+    rootLabel !== undefined && !knownVirtualRoot && index === 0
+      ? rootLabel
+      : browseDisplayName(value, text);
   if (
     ancestors.some(
       ({ item }) =>
@@ -57,17 +63,17 @@ export function folderPath(
   ) {
     entries.push(unavailable);
   } else {
-    for (const crumb of ancestors) {
+    for (const [index, crumb] of ancestors.entries()) {
       entries.push({
         id: rowKey(crumb.item),
-        label: browseDisplayName(crumb.displayName, text),
+        label: crumbLabel(index, crumb.displayName),
         onPress: () => open(crumb.item),
       });
     }
   }
   entries.push({
     id: rowKey(current.item),
-    label: browseDisplayName(current.displayName, text),
+    label: crumbLabel(breadcrumbs.length - 1, current.displayName),
     current: true,
   });
   return entries;
