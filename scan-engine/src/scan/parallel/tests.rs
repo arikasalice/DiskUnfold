@@ -6,7 +6,7 @@ use du_core_contracts::{
     job::{JobBody, JobFlowError},
     ports::{PortError, PortErrorKind},
     result::{ResultNativePath, ResultScopeRoot, ResultVersionRead},
-    scan_observation::{DirectoryObservations, MetadataObservation, OpenedScopeRoot},
+    scan_observation::{DirectoryObservations, MetadataObservation, ObservedKind, OpenedScopeRoot},
 };
 use std::sync::{Arc, atomic::AtomicUsize};
 mod admission_table;

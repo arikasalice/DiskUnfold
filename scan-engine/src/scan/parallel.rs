@@ -2,7 +2,7 @@
 use super::{
     PreMetadataFilter, ResultIds,
     admission::{self, Admission, Boundary, Visited},
-    record_at,
+    record,
 };
 mod control;
 mod frame;
@@ -17,7 +17,7 @@ use du_core_contracts::{
     ports::{PortError, PortErrorKind},
     result::ResultCompleteness,
     scan_observation::{
-        AnchoredDirectory, DirectoryCaseEvidence, ObservedEntry, ObservedKind, TimedObservedEntry,
+        AnchoredDirectory, DirectoryCaseEvidence, ObservedEntry, TimedObservedEntry,
     },
 };
 #[cfg(test)]
