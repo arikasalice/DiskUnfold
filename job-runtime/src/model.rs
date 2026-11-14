@@ -1,13 +1,13 @@
 use du_core_contracts::{
     Id,
-    job::{HistoryChanged, JobBody, JobDescriptor, JobState, JobSummary},
+    job::{HistoryChanged, JobBody, JobDescriptor, JobProgress, JobState, JobSummary},
     result_events::ResultVersionNotice,
 };
 use std::{
     collections::HashMap,
     sync::{
         Arc, Condvar, Mutex,
-        atomic::{AtomicBool, AtomicUsize},
+        atomic::{AtomicBool, AtomicU64, AtomicUsize},
         mpsc,
     },
     thread::JoinHandle,
@@ -28,6 +28,12 @@ pub trait JobEvents: Send + Sync {
 
     /// Deliver a committed history invalidation to interested subscribers.
     fn publish_history_changed(&self, _event: HistoryChanged) {}
+
+    /// Deliver one job's latest batched progress in its job-sequence order.
+    ///
+    /// Called on the delivery thread like `publish`. Progress values may be
+    /// skipped, so a sink that does not relay progress may ignore them.
+    fn publish_progress(&self, _event: crate::JobProgressEvent) {}
 
     /// Reports expiry after all earlier delivery for this job has finished.
     fn retire_job(&self, _id: &Id) {}
@@ -170,6 +176,28 @@ pub(crate) struct Entry {
     pub(crate) summary: Option<JobSummary>,
     pub(crate) terminal: Option<TerminalOutcome>,
     pub(crate) order: u64,
+    pub(crate) progress: ProgressSlot,
+}
+/// Per-job progress state kept in the job table.
+#[derive(Default)]
+pub(crate) struct ProgressSlot {
+    /// The cell shared with the running body, created when the body starts.
+    pub(crate) cell: Option<Arc<ProgressCell>>,
+    /// The last value queued for delivery.
+    pub(crate) published: Option<JobProgress>,
+}
+/// One job's latest progress report, written by its body without locks.
+#[derive(Default)]
+pub(crate) struct ProgressCell {
+    pub(crate) completed: AtomicU64,
+    /// The confirmed total, or `u64::MAX` while it is unknown.
+    pub(crate) total: AtomicU64,
+    pub(crate) reported: AtomicBool,
+    /// Set when the job reaches its terminal state; later reports are dropped.
+    pub(crate) closed: AtomicBool,
+    pub(crate) late_logged: AtomicBool,
+    /// Set while a value from this cell waits in the delivery queue.
+    pub(crate) in_flight: AtomicBool,
 }
 pub(crate) struct TerminalOutcome {
     pub(crate) sequence: u64,
@@ -214,6 +242,8 @@ pub(crate) struct Table {
     pub(crate) shutdown_delivery_started: bool,
     pub(crate) next_order: u64,
     pub(crate) sender: Option<mpsc::Sender<Delivery>>,
+    /// Monotonic time of the next progress tick, once a tick has run.
+    pub(crate) progress_due: Option<std::time::Duration>,
 }
 
 pub struct JobRuntime {
@@ -229,6 +259,7 @@ pub struct JobRuntime {
 pub(crate) enum Delivery {
     Event(JobEvent),
     Item(JobEvent, Arc<AtomicUsize>),
+    Progress(Box<crate::JobProgressEvent>, Arc<ProgressCell>),
     Terminal {
         summary: Box<JobSummary>,
         sequence: u64,

@@ -88,6 +88,10 @@ impl ErrorEnvelope {
             | "path.unresolvable"
             | "sample.mixed_source"
             | "snapshot.sample_source"
+            | "group.unknown"
+            | "group.rule_invalid"
+            | "group.name_duplicate"
+            | "group.rule_limit"
             | "startup.shutting_down" => ErrorCode::InvalidArgument,
             "cursor.stale"
             | "cursor.expired"
@@ -95,6 +99,7 @@ impl ErrorEnvelope {
             | "result.version_stale"
             | "scope.changed"
             | "result.requery_required"
+            | "group.rules_modified"
             | "history.version_changed" => ErrorCode::StaleVersion,
             "locale.profile_modified" => ErrorCode::StaleVersion,
             "ref.unavailable"
@@ -104,6 +109,7 @@ impl ErrorEnvelope {
             | "history.removed"
             | "viz.model_expired"
             | "sample.session_closed"
+            | "group.result_expired"
             | "locale.bundle_unavailable" => ErrorCode::NotFound,
             "command.window_denied" => ErrorCode::OriginDenied,
             "path.outside_scope" | "path.link_escape" => ErrorCode::ScopeDenied,
