@@ -13,9 +13,16 @@ export type ScanPriorityContext = {
   scanning?: boolean;
 };
 
-/** One outcome to announce; `id` changes for every announcement. */
+/** How long an outcome stays available to announce, the notice display time. */
+export const SCAN_PRIORITY_NOTICE_MS = 4_000;
+
+/**
+ * One outcome to announce; `id` changes for every announcement and `jobRef`
+ * names the scan the request was sent to.
+ */
 export type ScanPriorityNotice = {
   id: number;
+  jobRef: string;
   outcome: ScanPriorityOutcome;
   name: string;
 };
@@ -67,6 +74,10 @@ function outcomeOf(result: string): ScanPriorityOutcome {
  *
  * The row reads "analyzing first" only after a response names the folder as
  * the applied priority area and while the scan is running.
+ *
+ * An outcome is offered for announcement only for a short time and only while
+ * no other scan is current, so a view that mounts later, or a later scan, does
+ * not announce it again.
  */
 export function useScanPriority(
   client: AnalysisClient | undefined,
@@ -98,10 +109,25 @@ export function useScanPriority(
           now.resultVersion !== owner.item.resultVersion)
       )
         return;
-      setNotice({ id: ++notices.current, outcome, name });
+      setNotice({
+        id: ++notices.current,
+        jobRef: owner.jobRef,
+        outcome,
+        name,
+      });
     },
     [],
   );
+
+  const noticeId = notice?.id;
+  useEffect(() => {
+    if (noticeId === undefined) return;
+    const timer = window.setTimeout(
+      () => setNotice((shown) => (shown?.id === noticeId ? undefined : shown)),
+      SCAN_PRIORITY_NOTICE_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [noticeId]);
 
   /** Updates the mark only if it still belongs to this request. */
   const remark = useCallback((owner: Request, applied: boolean | undefined) => {
@@ -169,6 +195,10 @@ export function useScanPriority(
           ? "analyzing"
           : "requested",
     request,
-    notice,
+    // An ended scan leaves no current job and still announces its outcome.
+    notice:
+      notice && (jobRef === undefined || notice.jobRef === jobRef)
+        ? notice
+        : undefined,
   };
 }

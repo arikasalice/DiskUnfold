@@ -3,6 +3,7 @@ import {
   cleanup,
   fireEvent,
   render,
+  renderHook,
   screen,
   waitFor,
   within,
@@ -18,10 +19,16 @@ import type {
   ScanPriorityRequest,
   ScanPriorityResponse,
 } from "../src/ipc";
-import { useScanPriority } from "../src/state/scan-priority";
+import {
+  SCAN_PRIORITY_NOTICE_MS,
+  useScanPriority,
+} from "../src/state/scan-priority";
 import type { ScanPriorityContext } from "../src/state/scan-priority";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 
 const version = "018f0000-0000-7000-8000-0000000000a1";
 const newer = "018f0000-0000-7000-8000-0000000000a2";
@@ -425,4 +432,40 @@ test("F02 FR8.HD1: the row menu offers Analyze first by right click and by keybo
   expect(
     within(gridRow("Photos")).getByText("Analyze first requested"),
   ).toBeDefined();
+});
+
+test("F02 FR8.HD1: an outcome is offered for a short time and only to its own scan", async () => {
+  vi.useFakeTimers();
+  const { client, answers } = priorityClient();
+  const hook = renderHook(
+    (context: ScanPriorityContext | undefined) =>
+      useScanPriority(client, context),
+    { initialProps: running as ScanPriorityContext | undefined },
+  );
+  const ask = async () => {
+    act(() => hook.result.current.request(ref(1), "Photos"));
+    await act(async () =>
+      answers.at(-1)?.resolve({
+        controlResult: "accepted",
+        appliedPriorityArea: ref(1),
+      }),
+    );
+  };
+
+  await ask();
+  expect(hook.result.current.notice?.name).toBe("Photos");
+  // A view that mounts after the display time finds nothing to announce.
+  act(() => {
+    vi.advanceTimersByTime(SCAN_PRIORITY_NOTICE_MS);
+  });
+  expect(hook.result.current.notice).toBeUndefined();
+
+  await ask();
+  expect(hook.result.current.notice?.jobRef).toBe("scan");
+  // A later scan does not announce the outcome of an earlier one.
+  hook.rerender({ jobRef: "later", resultVersion: version, scanning: true });
+  expect(hook.result.current.notice).toBeUndefined();
+  // Without a current scan the outcome of the ended one is still announced.
+  hook.rerender(undefined);
+  expect(hook.result.current.notice?.name).toBe("Photos");
 });
