@@ -54,6 +54,7 @@ export type {
 
 export { ActionFeedback } from "./action-feedback";
 export { RowAction } from "./row-action";
+export { SelectionActions } from "./selection-actions";
 export { Toast } from "./toast";
 export type { ToastMessage } from "./toast";
 export { TextDocument } from "./text-document";

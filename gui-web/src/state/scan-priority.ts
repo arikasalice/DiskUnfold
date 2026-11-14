@@ -2,8 +2,16 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { scanPriorityFailure } from "../ipc";
 import type { AnalysisClient, ItemRef, ScanPriorityOutcome } from "../ipc";
 
-/** A running scan this window started and its newest partial result version. */
-export type ScanPriorityContext = { jobRef: string; resultVersion: string };
+/**
+ * A running scan this window started and its newest partial result version.
+ * `scanning` is true only while the job state is `running`; a paused or
+ * pausing scan is not working on any folder.
+ */
+export type ScanPriorityContext = {
+  jobRef: string;
+  resultVersion: string;
+  scanning?: boolean;
+};
 
 /** One outcome to announce; `id` changes for every announcement. */
 export type ScanPriorityNotice = {
@@ -12,17 +20,26 @@ export type ScanPriorityNotice = {
   name: string;
 };
 
+/**
+ * How a folder's "Analyze first" request is shown: sent and not yet confirmed
+ * as the applied area, or confirmed while the scan is running.
+ */
+export type ScanPriorityStatus = "requested" | "analyzing";
+
 /** The "scan first" view state offered to a folder list. */
 export type ScanPriority = {
   /** Whether this item belongs to the running scan's current partial result. */
   canRequest: (item: ItemRef) => boolean;
   /** Whether this item is the folder last requested for the running scan. */
   requested: (item: ItemRef) => boolean;
+  /** The request state shown for this item, if it is the requested folder. */
+  status: (item: ItemRef) => ScanPriorityStatus | undefined;
   request: (item: ItemRef, name: string) => void;
   notice: ScanPriorityNotice | undefined;
 };
 
 type Request = { seq: number; jobRef: string; item: ItemRef };
+type Marked = Omit<Request, "seq"> & { applied: boolean };
 
 function sameItem(left: ItemRef, right: ItemRef): boolean {
   return (
@@ -47,12 +64,15 @@ function outcomeOf(result: string): ScanPriorityOutcome {
  * request for the same folder is not sent while one is in flight. A response
  * is dropped when a later request superseded it or the result it was pinned to
  * has been replaced in the same scan.
+ *
+ * The row reads "analyzing first" only after a response names the folder as
+ * the applied priority area and while the scan is running.
  */
 export function useScanPriority(
   client: AnalysisClient | undefined,
   context: ScanPriorityContext | undefined,
 ): ScanPriority {
-  const [marked, setMarked] = useState<Omit<Request, "seq">>();
+  const [marked, setMarked] = useState<Marked>();
   const [notice, setNotice] = useState<ScanPriorityNotice>();
   const sequence = useRef(0);
   const notices = useRef(0);
@@ -60,6 +80,7 @@ export function useScanPriority(
   const current = useRef(context);
   const jobRef = context?.jobRef;
   const resultVersion = context?.resultVersion;
+  const scanning = context?.scanning === true;
   useEffect(() => {
     current.current =
       jobRef && resultVersion ? { jobRef, resultVersion } : undefined;
@@ -82,15 +103,18 @@ export function useScanPriority(
     [],
   );
 
-  const unmark = useCallback((owner: Request) => {
-    setMarked((shown) =>
-      shown &&
-      shown.jobRef === owner.jobRef &&
-      sameItem(shown.item, owner.item) &&
-      sequence.current === owner.seq
-        ? undefined
-        : shown,
-    );
+  /** Updates the mark only if it still belongs to this request. */
+  const remark = useCallback((owner: Request, applied: boolean | undefined) => {
+    setMarked((shown) => {
+      if (
+        !shown ||
+        shown.jobRef !== owner.jobRef ||
+        !sameItem(shown.item, owner.item) ||
+        sequence.current !== owner.seq
+      )
+        return shown;
+      return applied === undefined ? undefined : { ...shown, applied };
+    });
   }, []);
 
   const request = useCallback(
@@ -106,39 +130,44 @@ export function useScanPriority(
         return;
       const owner = { seq: ++sequence.current, jobRef: scan.jobRef, item };
       pending.current = owner;
-      setMarked({ jobRef: owner.jobRef, item });
+      setMarked({ jobRef: owner.jobRef, item, applied: false });
       client
         .call("scan.prioritize", { jobRef: owner.jobRef, priorityArea: item })
         .then(
           (response) => {
             const outcome = outcomeOf(response.controlResult);
             const applied = response.appliedPriorityArea;
+            const isApplied = applied !== undefined && sameItem(applied, item);
             const keep =
-              outcome === "accepted" ||
-              (outcome === "no_effect" &&
-                applied !== undefined &&
-                sameItem(applied, item));
-            if (!keep) unmark(owner);
+              outcome === "accepted" || (outcome === "no_effect" && isApplied);
+            remark(owner, keep ? isApplied : undefined);
             settle(owner, outcome, name);
           },
           (failure: unknown) => {
-            unmark(owner);
+            remark(owner, undefined);
             settle(owner, scanPriorityFailure(failure), name);
           },
         );
     },
-    [client, settle, unmark],
+    [client, settle, remark],
   );
 
+  const mine = (item: ItemRef) =>
+    marked !== undefined &&
+    marked.jobRef === jobRef &&
+    sameItem(marked.item, item);
   return {
     canRequest: (item) =>
       client !== undefined &&
       resultVersion !== undefined &&
       item.resultVersion === resultVersion,
-    requested: (item) =>
-      marked !== undefined &&
-      marked.jobRef === jobRef &&
-      sameItem(marked.item, item),
+    requested: mine,
+    status: (item) =>
+      !mine(item)
+        ? undefined
+        : marked?.applied && scanning
+          ? "analyzing"
+          : "requested",
     request,
     notice,
   };

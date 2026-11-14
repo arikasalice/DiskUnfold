@@ -33,12 +33,13 @@ function row(
   name: string,
   kind: FolderQueryRow["kind"] = "directory",
   excluded = false,
+  logicalSize: FolderQueryRow["logicalSize"] = unknown,
 ): FolderQueryRow {
   return {
     item: ref(itemNo),
     displayName: { state: "present", value: name },
     kind,
-    logicalSize: unknown,
+    logicalSize,
     allocatedSize: { state: "absent" },
     modifiedAt: { state: "absent" },
     hasChildFolder: unknown,
@@ -57,6 +58,24 @@ const rows = [
   row(2, "Videos"),
   row(3, "memo.txt", "file"),
   row(4, "Skipped", "directory", true),
+  row(5, "Documents", "directory", false, {
+    state: "present",
+    value: {
+      basis: "logical",
+      evidence: "os_reported",
+      state: "exact",
+      bytes: "4096",
+    },
+  }),
+  row(6, "Downloads", "directory", false, {
+    state: "present",
+    value: {
+      basis: "logical",
+      evidence: "os_reported",
+      state: "lower_bound",
+      bytes: "4096",
+    },
+  }),
 ];
 
 function port(): BrowsePort {
@@ -131,7 +150,7 @@ function Harness({
   );
 }
 
-const running = { jobRef: "scan", resultVersion: version };
+const running = { jobRef: "scan", resultVersion: version, scanning: true };
 
 async function setup(context: ScanPriorityContext | undefined = running) {
   const { client, answers } = priorityClient();
@@ -205,9 +224,102 @@ test("F02 FR8.HD1: a request marks the row before the response, sends once and a
     }),
   );
   expect(screen.getAllByText("Analyzing ‘Photos’ first")).toHaveLength(1);
+  expect(within(gridRow("Photos")).getByText("Analyzing first")).toBeDefined();
+});
+
+test("F02 FR8.HD1: the row reads analyzing first only for the applied area of a running scan", async () => {
+  const { answers, rerender } = await setup();
+  await requestFirst("Photos");
+  await act(async () => answers[0]?.resolve({ controlResult: "accepted" }));
+  // Receipt alone does not name the applied area.
   expect(
     within(gridRow("Photos")).getByText("Analyze first requested"),
   ).toBeDefined();
+
+  await requestFirst("Videos");
+  await act(async () =>
+    answers[1]?.resolve({
+      controlResult: "accepted",
+      appliedPriorityArea: ref(2),
+    }),
+  );
+  expect(within(gridRow("Videos")).getByText("Analyzing first")).toBeDefined();
+
+  // A paused scan is not working on the folder.
+  rerender({ ...running, scanning: false });
+  await waitFor(() =>
+    expect(
+      within(gridRow("Videos")).getByText("Analyze first requested"),
+    ).toBeDefined(),
+  );
+});
+
+test("F02 FR8.HD1: a folder with an exact size is collected and offers no Analyze first", async () => {
+  await setup();
+  expect(rowAction("Documents")).toBeNull();
+  expect(rowAction("Downloads")).not.toBeNull();
+  fireEvent.contextMenu(gridRow("Documents"));
+  const menu = await screen.findByRole("menu", {
+    name: "Actions for Documents",
+  });
+  expect(
+    within(menu).queryByRole("menuitem", { name: "Analyze first" }),
+  ).toBeNull();
+});
+
+function toggle(name: string) {
+  const target = gridRow(name);
+  act(() => target.focus());
+  fireEvent.keyDown(target, { key: " ", code: "Space" });
+  fireEvent.keyUp(target, { key: " ", code: "Space" });
+}
+
+function selectionAction() {
+  const bar = screen.getByRole("toolbar", { name: "Selection actions" });
+  return within(bar).getByRole("button", { name: "Analyze first" });
+}
+
+test("F02 FR8.HD1: the selection action bar analyzes one selected folder first", async () => {
+  const { answers, rerender } = await setup();
+  expect(
+    screen.getByText("Select one folder to analyze it first"),
+  ).toBeDefined();
+  expect(selectionAction().hasAttribute("disabled")).toBe(true);
+
+  toggle("memo.txt");
+  await screen.findByText("1 selected");
+  expect(selectionAction().hasAttribute("disabled")).toBe(true);
+  toggle("memo.txt");
+
+  toggle("Documents");
+  await screen.findByText("1 selected");
+  expect(selectionAction().hasAttribute("disabled")).toBe(true);
+  toggle("Documents");
+
+  toggle("Photos");
+  toggle("Videos");
+  await screen.findByText("2 selected");
+  expect(selectionAction().hasAttribute("disabled")).toBe(true);
+  toggle("Videos");
+  await screen.findByText("1 selected");
+  expect(selectionAction().hasAttribute("disabled")).toBe(false);
+
+  fireEvent.click(selectionAction());
+  await waitFor(() => expect(answers).toHaveLength(1));
+  expect(answers[0]?.request.priorityArea).toEqual(ref(1));
+  expect(
+    within(gridRow("Photos")).getByText("Analyze first requested"),
+  ).toBeDefined();
+  // The requested folder is not offered again.
+  expect(selectionAction().hasAttribute("disabled")).toBe(true);
+
+  // Outside the running scan's current result there is no bar.
+  rerender(undefined);
+  await waitFor(() =>
+    expect(
+      screen.queryByRole("toolbar", { name: "Selection actions" }),
+    ).toBeNull(),
+  );
 });
 
 test("F02 FR8.HD1: no effect keeps the mark only when the folder remains the applied area", async () => {
@@ -224,9 +336,7 @@ test("F02 FR8.HD1: no effect keeps the mark only when the folder remains the app
       "This folder is already analyzed or is already being analyzed first.",
     ),
   ).toBeDefined();
-  expect(
-    within(gridRow("Photos")).getByText("Analyze first requested"),
-  ).toBeDefined();
+  expect(within(gridRow("Photos")).getByText("Analyzing first")).toBeDefined();
 
   await requestFirst("Videos");
   await act(async () => answers[1]?.resolve({ controlResult: "no_effect" }));

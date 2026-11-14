@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import {
   Action,
   BrowseGrid,
@@ -6,6 +6,7 @@ import {
   ActionFeedback,
   Notice,
   RowAction,
+  SelectionActions,
   Text,
 } from "../../components";
 import type { ItemAction } from "../../components";
@@ -63,7 +64,19 @@ function availability(
   return found.join(" · ") || text("ui.browse.not_reported", "Not reported");
 }
 
-/** "Analyze first" is offered only for in-scope folders of the scan's current result. */
+/**
+ * An exact folder size means every item below it was counted, so the folder
+ * needs no further collection. A running scan's partial result reports lower
+ * bounds, so this does not yet identify folders finished during the scan.
+ */
+function collected(row: FolderQueryRow): boolean {
+  return (
+    row.logicalSize.state === "present" &&
+    row.logicalSize.value.state === "exact"
+  );
+}
+
+/** "Analyze first" is offered only for uncollected in-scope folders of the scan's current result. */
 function canAnalyzeFirst(
   row: FolderQueryRow,
   priority: ScanPriority | undefined,
@@ -75,6 +88,7 @@ function canAnalyzeFirst(
     !readOnly &&
     row.kind === "directory" &&
     !(excluded?.state === "present" && excluded.value) &&
+    !collected(row) &&
     priority.canRequest(row.item) &&
     !priority.requested(row.item)
   );
@@ -108,14 +122,16 @@ function StatusCell({
   readOnly: boolean;
 }) {
   const text = useLocaleText();
-  const requested =
-    row.kind === "directory" && priority?.requested(row.item) === true;
+  const status =
+    row.kind === "directory" ? priority?.status(row.item) : undefined;
   return (
-    <div className="du-row-status" data-requested={requested || undefined}>
+    <div className="du-row-status" data-requested={status ? "" : undefined}>
       <Text>
-        {requested
-          ? text("ui.browse.priority_requested", "Analyze first requested")
-          : availability(row, text)}
+        {status === "analyzing"
+          ? text("ui.browse.priority_analyzing", "Analyzing first")
+          : status === "requested"
+            ? text("ui.browse.priority_requested", "Analyze first requested")
+            : availability(row, text)}
       </Text>
       {canAnalyzeFirst(row, priority, readOnly) && (
         <RowAction
@@ -126,6 +142,67 @@ function StatusCell({
         />
       )}
     </div>
+  );
+}
+
+type Selection = "all" | ReadonlySet<string>;
+
+/**
+ * The selection action bar offers "Analyze first" while the list shows the
+ * running scan's current result. It is enabled only for one selected folder
+ * that the row action would also offer.
+ */
+function SelectionAnalyzeFirst({
+  pages,
+  selection,
+  priority,
+  readOnly,
+}: {
+  pages: BrowsePages;
+  selection: Selection;
+  priority: ScanPriority | undefined;
+  readOnly: boolean;
+}) {
+  const text = useLocaleText();
+  const first = pages.row(0);
+  if (!priority || readOnly || !first || !priority.canRequest(first.item))
+    return null;
+  const count = selection === "all" ? pages.count : selection.size;
+  const key =
+    selection !== "all" && selection.size === 1 ? [...selection][0] : undefined;
+  const row =
+    key === undefined
+      ? undefined
+      : pages.findRow((candidate) => rowKey(candidate.item) === key);
+  const target =
+    row && canAnalyzeFirst(row, priority, readOnly) ? row : undefined;
+  return (
+    <SelectionActions
+      label={text("ui.browse.selection_actions", "Selection actions")}
+      summary={
+        count === 0
+          ? text(
+              "ui.browse.no_selection",
+              "Select one folder to analyze it first",
+            )
+          : text("ui.browse.selected_count", "{count} selected", {
+              count: BigInt(count),
+            })
+      }
+    >
+      <Action
+        isDisabled={target === undefined}
+        onPress={() =>
+          target &&
+          priority.request(
+            target.item,
+            browseDisplayName(target.displayName, text),
+          )
+        }
+      >
+        {text("ui.browse.analyze_first", "Analyze first")}
+      </Action>
+    </SelectionActions>
   );
 }
 
@@ -174,6 +251,7 @@ export function BrowseResults({
     text("ui.browse.column_availability", "Availability"),
   ];
   const scrollRoot = useRef<HTMLDivElement>(null);
+  const [selection, setSelection] = useState<Selection>(() => new Set());
   const copy = useBrowseCopy(
     copyPath,
     navigationEpoch,
@@ -220,6 +298,12 @@ export function BrowseResults({
   return (
     <div className="du-browse-results">
       <div className="du-browse-controls">
+        <SelectionAnalyzeFirst
+          pages={pages}
+          selection={selection}
+          priority={priority}
+          readOnly={readOnly}
+        />
         {pages.count === 0 && (
           <Text>
             {text("ui.browse.no_items", "No observed items in this folder.")}
@@ -299,6 +383,7 @@ export function BrowseResults({
         onLayoutScroll={paging.recordLayoutScroll}
         getRow={(index) => pages.row(index)}
         getKey={(row) => rowKey(row.item)}
+        onSelectionChange={setSelection}
         renderCells={(row) => [
           <ItemActions
             rowScope

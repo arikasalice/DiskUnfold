@@ -210,13 +210,14 @@ export function AnalysisPanel({
   const running = scan.running;
   const scanJob = receipt?.jobRef;
   const priorityVersion = running ? scan.currentVersion : undefined;
+  const scanning = scan.status?.state === "running";
   useEffect(() => {
     onScanContext?.(
       scanJob && priorityVersion
-        ? { jobRef: scanJob, resultVersion: priorityVersion }
+        ? { jobRef: scanJob, resultVersion: priorityVersion, scanning }
         : undefined,
     );
-  }, [onScanContext, scanJob, priorityVersion]);
+  }, [onScanContext, scanJob, priorityVersion, scanning]);
   const restoredIsCurrent = restoredInput?.revision === editRevision.current;
   const dropEnabled = client.subscribeFolderDrop !== undefined;
   const pathDescription =

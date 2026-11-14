@@ -653,6 +653,10 @@ ui.browse.incomplete
 ui.browse.inspect
 ui.browse.analyze_first
 ui.browse.priority_requested
+ui.browse.priority_analyzing
+ui.browse.selection_actions
+ui.browse.no_selection
+ui.browse.selected_count count:count
 ui.browse.item_actions name:name
 ui.browse.item_count count:count
 ui.browse.list_end_unknown
