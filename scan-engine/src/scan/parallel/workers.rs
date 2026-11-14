@@ -1,4 +1,7 @@
-//! Worker turns over lane work and bounded per-directory processing.
+//! Worker turns over lane work.
+//!
+//! One turn opens one claimed child, reads one batch of one directory or
+//! handles one returned entry, then returns the directory to its lane.
 //!
 //! Each worker parks outside the scheduler lock after transferring an item or
 //! returned batch into owned state. An in-flight adapter call is allowed to

@@ -20,6 +20,11 @@ use du_core_contracts::{
         AnchoredDirectory, DirectoryCaseEvidence, ObservedEntry, ObservedKind, TimedObservedEntry,
     },
 };
+#[cfg(test)]
+use frame::Directory;
+use frame::Frame;
+#[cfg(test)]
+use std::collections::VecDeque;
 use std::{
     sync::{
         Arc, Condvar, Mutex,
@@ -29,18 +34,23 @@ use std::{
     thread,
     time::Duration,
 };
-#[cfg(test)]
-use frame::Directory;
-use frame::Frame;
-#[cfg(test)]
-use std::collections::VecDeque;
 
 mod disconnect;
 mod preparation;
 mod scheduler;
 mod volume_reports;
 
-/// Queued directory work per lane, counting items claimed from the lane queue.
+/// Directory work held in one lane queue, counting items claimed from it that
+/// will be returned to it (NFR3.HD1.app-host.DD1).
+///
+/// Provisional value. The F02 DLD fixes the 8,192-entry stage channel but no
+/// lane queue size. 64 matches the largest worker count of one lane, the SSD
+/// device permit and [`MAX_WORKERS`], so every worker of a full lane can find
+/// shared work without stealing. A queued directory holds at most one returned
+/// batch, and a pending child shares its parent's handle, so open handles stay
+/// within twice the queued, stacked and running directories. Work that does
+/// not fit stays on the finding worker's stack. Confirm the value by
+/// measurement before it is published in the design.
 const QUEUED_DIRECTORIES: usize = 64;
 const BUFFERED_OBSERVATIONS: usize = 8192;
 const MAX_WORKERS: usize = 64;

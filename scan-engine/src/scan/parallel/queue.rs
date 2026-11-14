@@ -138,8 +138,10 @@ impl OutstandingPaths {
 impl Queue {
     /// Changes only the next scheduling order. The caller resolves scope authority.
     ///
-    /// Accepting a new or replacement area moves the held items of the old and
-    /// new area roots between priority classes once; claims never scan items.
+    /// Accepting a new or replacement area moves the items of the old and new
+    /// area roots between priority classes once. The work grows with the items
+    /// of those roots in their lanes' queues and with their lanes' worker
+    /// stacks, not with other roots or lanes; claims never scan items.
     pub(super) fn prioritize(&mut self, region: PriorityRegion) -> PriorityDecision {
         let Some(outstanding) = self.outstanding.as_ref() else {
             return PriorityDecision::NoEffect {

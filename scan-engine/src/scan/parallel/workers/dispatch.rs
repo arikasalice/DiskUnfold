@@ -1,4 +1,8 @@
 //! Claims the next item of a worker's lane, waiting outside the lock if none.
+//!
+//! Each attempt holds the scheduler lock for one claim, whose cost does not
+//! grow with queued work (see the lanes module). A worker without claimable
+//! work releases the lock and reaches its safe point at least every 25 ms.
 use super::*;
 use crate::scan::parallel::lanes::{Origin, Taken};
 

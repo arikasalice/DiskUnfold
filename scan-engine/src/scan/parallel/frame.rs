@@ -147,17 +147,18 @@ impl Frame {
         entry: ObservedEntry,
     ) -> Self {
         let boundary = Boundary::child(&entry);
-        let mut frame = Self::with_directory(
-            root_index,
-            path,
-            Directory::pending(parent, entry),
-            false,
-        );
+        let mut frame =
+            Self::with_directory(root_index, path, Directory::pending(parent, entry), false);
         frame.boundary = boundary;
         frame
     }
 
-    fn with_directory(root_index: u32, path: Vec<Vec<u8>>, directory: Directory, root: bool) -> Self {
+    fn with_directory(
+        root_index: u32,
+        path: Vec<Vec<u8>>,
+        directory: Directory,
+        root: bool,
+    ) -> Self {
         Self {
             root_index,
             path,

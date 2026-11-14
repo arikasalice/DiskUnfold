@@ -2,6 +2,9 @@
 use super::{Queue, queue};
 use std::sync::{Arc, Condvar, Mutex, Weak};
 
+/// Why a scan control request was not recorded by the live scheduler.
+///
+/// An error leaves the scheduling order unchanged.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ScanControlError {
     /// The scan body has not attached its live scheduler yet.
@@ -14,13 +17,28 @@ pub enum ScanControlError {
     Unavailable,
 }
 
+/// How the live scheduler recorded a priority request.
+///
+/// `Accepted` acknowledges the request; it does not report that any directory
+/// of the area was assigned, opened or read. The area applies from the next
+/// directory assignment: a directory call already in progress is not
+/// interrupted, a paused scan applies it from its first assignment after
+/// resuming, and a scan whose cancellation was requested assigns no further
+/// directory, so an accepted area can end without any effect.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ScanPriorityOutcome {
-    /// The target was installed for subsequent directory assignment.
-    Accepted { remaining_directories: usize },
-    /// The request repeated the current area or the area has no outstanding work.
+    /// The area replaced any previous area for later directory assignments.
+    Accepted {
+        /// Directories at or below the area that were queued or running when
+        /// the request was recorded. Directories found later are not counted.
+        remaining_directories: usize,
+    },
+    /// The scheduling order was left unchanged.
     NoEffect {
+        /// True when the request repeated the current area; false when the
+        /// area has no queued or running directory work.
         same_region: bool,
+        /// Directories at or below the area that are queued or running.
         remaining_directories: usize,
     },
 }
@@ -139,6 +157,11 @@ impl ScanControlHandle {
     /// currently known below the target. The caller must validate the result
     /// version, scope version and folder kind before calling this method. The
     /// raw relative components are consumed by the call.
+    ///
+    /// Recording a new area moves the queued and stacked work of the previous
+    /// and the new area root, in that root's lane, between priority classes
+    /// once under the scheduler lock; later claims never scan queued work.
+    /// See [`ScanPriorityOutcome`] for what an acknowledgement means.
     ///
     /// # Errors
     /// Returns [`ScanControlError::NotActive`] before the job body attaches,

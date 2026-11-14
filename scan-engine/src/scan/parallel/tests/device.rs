@@ -31,7 +31,9 @@ fn default_four_per_key_does_not_block_a_distinct_key() {
     assert_eq!(queue.lanes.seats[seats[5]].lane, None);
     // A lane 0 worker continues with its own lane's remaining root.
     assert_eq!(
-        queue.claim_for(seats[0]).map(|taken| taken.frame.root_index),
+        queue
+            .claim_for(seats[0])
+            .map(|taken| taken.frame.root_index),
         Some(4)
     );
     // Lane 1's worker finds no more work there and leaves; nothing is left

@@ -12,7 +12,13 @@
 //! items claimed from it that will be returned to it. A newly found child that
 //! does not fit stays on the finding worker's stack, which that worker continues
 //! depth first, so no push waits for room and a stack stays within the tree
-//! depth. Claims read only class heads, one item and logarithmic index keys.
+//! depth. Scope roots are queued before collection starts without that bound.
+//!
+//! A claim reads the class heads of the worker's stack and lane queue, removes
+//! one item and compares index keys whose number grows with the logarithm of
+//! the distinct depths and roots queued. A steal reads one class head per other
+//! worker of the lane, and joining a lane reads each lane's counters once. No
+//! claim visits queued items, with or without a marked area.
 mod ready;
 use super::{
     Frame, Queue,
@@ -20,8 +26,8 @@ use super::{
 };
 #[cfg(test)]
 pub(super) use ready::cost;
-pub(super) use ready::{CLASSES, NORMAL};
 use ready::{Arrival, ReadyQueue, Stack};
+pub(super) use ready::{CLASSES, NORMAL};
 use std::collections::HashMap;
 
 /// Classes that mark the prioritized area and its ancestors.

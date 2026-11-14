@@ -83,7 +83,10 @@ pub(super) fn queue_for(
         priority: None,
         outstanding: None,
         remaining: boundaries.iter().flatten().count(),
-        root_remaining: boundaries.iter().map(|b| usize::from(b.is_some())).collect(),
+        root_remaining: boundaries
+            .iter()
+            .map(|b| usize::from(b.is_some()))
+            .collect(),
         started: false,
     };
     for (index, (root, boundary)) in roots.into_iter().zip(boundaries).enumerate() {

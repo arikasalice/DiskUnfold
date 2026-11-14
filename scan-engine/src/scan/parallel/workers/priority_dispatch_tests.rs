@@ -95,8 +95,14 @@ fn equal_class_continues_the_own_stack_newest_first() {
         claim(&mut queue, seat),
         Some((0, path(&[b"X", b"Y"]), Origin::Stack))
     );
-    assert_eq!(claim(&mut queue, seat), Some((0, path(&[b"X"]), Origin::Stack)));
-    assert_eq!(claim(&mut queue, seat), Some((0, path(&[b"A"]), Origin::Ready)));
+    assert_eq!(
+        claim(&mut queue, seat),
+        Some((0, path(&[b"X"]), Origin::Stack))
+    );
+    assert_eq!(
+        claim(&mut queue, seat),
+        Some((0, path(&[b"A"]), Origin::Ready))
+    );
 }
 
 #[test]
@@ -158,7 +164,10 @@ fn idle_worker_steals_only_by_joining_the_same_lane_within_its_limit() {
 
     // Lane 1 has nothing; the idle worker becomes a lane 0 worker and steals
     // the oldest, shallowest item from the stack of that lane's worker.
-    assert_eq!(claim(&mut queue, idle), Some((0, path(&[b"s"]), Origin::Stack)));
+    assert_eq!(
+        claim(&mut queue, idle),
+        Some((0, path(&[b"s"]), Origin::Stack))
+    );
     assert_eq!(queue.lanes.seats[idle].lane, Some(0));
     assert_eq!(queue.lanes.lanes[1].members, 0);
     assert_eq!(queue.lanes.stacked(0), 1);
@@ -180,7 +189,10 @@ fn idle_worker_steals_only_by_joining_the_same_lane_within_its_limit() {
     queue.priority = Some(region(0, &[b"hot"]));
     assert!(queue.push_root(frame(0, &[b"hot"])));
     assert!(queue.push_root(frame(1, &[b"cold"])));
-    assert_eq!(claim(&mut queue, worker), Some((1, path(&[b"cold"]), Origin::Ready)));
+    assert_eq!(
+        claim(&mut queue, worker),
+        Some((1, path(&[b"cold"]), Origin::Ready))
+    );
     assert_eq!(queue.lanes.seats[worker].lane, Some(1));
 }
 
@@ -255,14 +267,18 @@ fn marked_claims_and_steals_do_not_visit_queued_work() {
     }
     for &(count, reclassified, claims, steals) in &costs {
         // A claim inspects one item; a steal also reads one class head per
-        // other worker of the lane. Key comparisons stay bounded.
+        // other worker of the lane. Key comparisons grow only with the
+        // logarithm of the distinct depths and roots, not with queued items.
         assert!(claims.1 <= 1, "{count}: claim inspected {} items", claims.1);
         assert!(claims.0 <= 48, "{count}: claim compared {} keys", claims.0);
         assert!(steals.1 <= 2, "{count}: steal inspected {} items", steals.1);
         assert_eq!(steals.0, 0, "{count}: steal compared keys");
         // Marking is one pass: the marked root's lane-queue items and one pass
         // over the worker stack, never the other roots' lane-queue items.
-        assert!(reclassified as usize <= count + count / 64 + 2, "{count}: {reclassified}");
+        assert!(
+            reclassified as usize <= count + count / 64 + 2,
+            "{count}: {reclassified}"
+        );
     }
     // Forty times more queued work does not raise the cost of one claim.
     assert!(costs[1].2.0 <= costs[0].2.0 + 8, "{costs:?}");
