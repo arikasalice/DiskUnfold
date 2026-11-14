@@ -257,9 +257,11 @@ export function GroupRuleEditorArea({
         <Heading level={3}>
           {text("ui.groups.editor_title", "Edit group rules")}
         </Heading>
-        <StatusBadge tone="warning">
-          {text("ui.groups.not_applied_badge", "Not saved")}
-        </StatusBadge>
+        {state.dirty && (
+          <StatusBadge tone="warning">
+            {text("ui.groups.not_applied_badge", "Not saved")}
+          </StatusBadge>
+        )}
       </div>
       <EditorNotices state={state} />
       {state.phase === "conflict" && (

@@ -1,5 +1,7 @@
 .du-groups {
   display: grid;
+  /* Rows keep their own height; extra space stays below the content. */
+  align-content: start;
   gap: 16px;
   min-inline-size: 0;
 }

@@ -204,7 +204,8 @@ test("F36 FR3: a condition with no value is marked, Save is blocked with its rea
   const editor = await screen.findByRole("region", {
     name: "Edit group rules",
   });
-  expect(screen.getByText("Not saved")).toBeDefined();
+  // The "Not saved" badge appears only once the rules differ from the saved ones.
+  expect(screen.queryByText("Not saved")).toBeNull();
   expect(
     screen
       .getByRole("button", { name: "Back to folders" })
@@ -213,6 +214,7 @@ test("F36 FR3: a condition with no value is marked, Save is blocked with its rea
   fireEvent.click(
     within(editor).getByRole("button", { name: "Add name condition" }),
   );
+  expect(within(editor).getByText("Not saved")).toBeDefined();
   // The text is the field's description and a visible copy under the row.
   expect(
     within(editor).getAllByText("Enter a value for the name condition."),
