@@ -25,9 +25,11 @@ use std::{
 /// root belongs to the volume of the final directory.
 ///
 /// The canonical path is read back from the opened descriptor. `volume_id` is
-/// `uuid:` and the volume UUID, or `dev:` and the hexadecimal device number when
-/// the file system reports no UUID; `file_id` is the inode as little-endian
-/// bytes. Ancestor identities are available only when every ancestor up to a
+/// `uuid:` and the volume UUID, or `dev:` and the hexadecimal device number of
+/// the file system ID when the volume reports no UUID. It is the same for every
+/// directory on one volume and matches the identity `MacVolumes` lists for its
+/// mount. `file_id` is the inode as little-endian bytes. Ancestor identities
+/// are available only when every ancestor up to a
 /// confirmed volume root is on the same volume; an APFS firmlink such as
 /// `/Users` leaves them unavailable. Pass the returned directory to the
 /// collector unchanged; reopening the canonical path is not equivalent.
@@ -53,6 +55,32 @@ impl ScopeRootPort for MacScopeRoots {
 }
 
 fn open_verified(path: &[u8]) -> Result<MacDirectory, PortError> {
+    let (current, walked) = walk(path)?;
+    let stat = directory_stat(&current)?;
+    let volume_id: Arc<[u8]> = volume::identity(current.as_fd())?.into();
+    // An unreadable mount status leaves the ancestors unavailable rather than
+    // guessing whether the opened directory is a volume root.
+    let ancestors = volume::is_mount_root(current.as_fd())
+        .ok()
+        .and_then(|root| Ancestors::collect(&volume_id, root, walked));
+    Ok(MacDirectory::new(
+        current,
+        (device(&stat), stat.st_ino),
+        volume_id,
+        ancestors,
+    ))
+}
+
+/// Opens a directory path the way scope roots are opened: from `/`, one
+/// component at a time, refusing links and dataless directories.
+pub(crate) fn open_path(path: &[u8]) -> Result<OwnedFd, PortError> {
+    let (directory, _) = walk(path)?;
+    directory_stat(&directory)?;
+    Ok(directory)
+}
+
+/// Returns the final directory and every directory opened on the way to it.
+fn walk(path: &[u8]) -> Result<(OwnedFd, Vec<OwnedFd>), PortError> {
     let names = components(path)?;
     let mut current =
         dataless::without_materialization(|| retry(|| open("/", flags(), Mode::empty())))?
@@ -62,16 +90,7 @@ fn open_verified(path: &[u8]) -> Result<MacDirectory, PortError> {
         let (next, _) = open_directory(current.as_fd(), name)?;
         walked.push(std::mem::replace(&mut current, next));
     }
-    let stat = directory_stat(&current)?;
-    let volume_id: Arc<[u8]> = volume::identity(current.as_fd())?.into();
-    let root = volume::is_mount_root(current.as_fd()).unwrap_or(false);
-    let ancestors = Ancestors::collect(&volume_id, root, walked);
-    Ok(MacDirectory::new(
-        current,
-        (device(&stat), stat.st_ino),
-        volume_id,
-        ancestors,
-    ))
+    Ok((current, walked))
 }
 
 fn flags() -> OFlags {
@@ -83,7 +102,7 @@ fn flags() -> OFlags {
 ///
 /// A link reports `ENOTDIR`. A dataless directory is refused, because reading it
 /// would ask its file provider to materialize the listing.
-pub(super) fn open_directory(
+pub(crate) fn open_directory(
     parent: BorrowedFd<'_>,
     name: &CStr,
 ) -> Result<(OwnedFd, Stat), PortError> {
@@ -114,8 +133,19 @@ pub(super) fn device(stat: &Stat) -> u64 {
 /// Identity of a verified directory in the space enumeration records report.
 ///
 /// A zero inode identifies no directory, so no identity is reported for it.
-/// `ancestors` are the little-endian inodes [`Ancestors`] retains; a handle
-/// without that evidence reports none.
+/// `ancestors` are the little-endian inodes [`Ancestors`] retains, from the
+/// volume root down to the parent.
+///
+/// `HandleIdentity::ancestors` cannot tell missing evidence (`None`) from a
+/// confirmed volume root (`Some(&[])`): both report no ancestor. Missing
+/// evidence is common on macOS. Every root reached through a firmlink, such
+/// as one below `/Users`, `/Applications` or `/private`, has a parent chain
+/// that leaves its volume at the firmlink, and child handles retain none. The
+/// collector uses ancestors only to refuse entering one of them again from
+/// below the root. Without them it may enter such a directory once, but the
+/// root itself is reserved before enumeration, so the walk back down stops
+/// there as a revisit and no directory is read twice. APFS creates no
+/// directory hard links, so on APFS no child leads back to an ancestor.
 pub(super) fn handle_identity(
     device: u64,
     inode: u64,
@@ -165,6 +195,12 @@ fn retry<T>(mut call: impl FnMut() -> rustix::io::Result<T>) -> rustix::io::Resu
 }
 
 /// Verified same-volume ancestors, kept open so their identities stay meaningful.
+///
+/// Identities run from the volume root down to the parent of the opened
+/// directory. They exist only when every directory on that chain is on the
+/// volume of the opened directory, which a firmlink on the path breaks: for
+/// `/Users/name` the chain reaches `/` on the system volume and is dropped.
+/// `/System/Library` keeps `/` and `/System`, in that order.
 pub(super) struct Ancestors {
     _handles: Vec<OwnedFd>,
     ids: Vec<Vec<u8>>,
