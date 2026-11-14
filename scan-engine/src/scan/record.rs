@@ -5,8 +5,12 @@
 //! and every directory they could not open or enumerate through these
 //! functions, so one input yields the same failure list, scope gaps, counts
 //! and completeness from either collector.
+//!
+//! NFR5.HD1.app-host.DD1 progress counts every recorded item once: an entry
+//! adds one to either `completed` or `failed`, never to both. A failed item
+//! is one that leaves a scope gap, so `failed` equals the number of gaps.
 use super::{
-    admission::{self, Admission},
+    admission::{self, Admission, Unread},
     issues,
 };
 use du_analysis_index::{
@@ -21,6 +25,20 @@ use du_core_contracts::{
 
 /// Supplies the observation time of a scope gap, evaluated only for a gap.
 pub(super) type GapClock<'a> = &'a dyn Fn() -> Option<Timestamp>;
+
+/// How the directory of a failed range was counted before the failure.
+///
+/// The failure keeps the directory counted once, as failed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Counted {
+    /// A scope root that was not counted yet; the failure counts it.
+    Uncounted,
+    /// A directory counted as completed when it was enumerated; the failure
+    /// moves that count to failed.
+    Completed,
+    /// A root already counted as failed, such as an unverifiable root.
+    Failed,
+}
 
 /// Records one enumerated entry with its admission row.
 ///
@@ -73,16 +91,25 @@ pub(super) fn record_item(
 /// Records a directory that could not be opened or completely enumerated.
 ///
 /// Its contents are unknown, so the range is listed as unread at `stage`,
-/// counted as a failure and kept as a scope gap. `observed_at` is the time of
-/// the failure and `gap_at` the time recorded with the gap.
+/// counted once as a failure according to `counted` and kept as a scope gap.
+/// `observed_at` is the time of the failure and `gap_at` the time recorded
+/// with the gap.
 pub(super) fn record_failure(
     build: &mut BuildHandle,
     counts: &mut JobCounts,
     (root_index, path): (u32, Vec<Vec<u8>>),
     (stage, reason): (ScanFailureStage, &str),
     (observed_at, gap_at): (Option<Timestamp>, Option<Timestamp>),
+    counted: Counted,
 ) -> Result<(), BuildError> {
-    counts.failed += 1;
+    match counted {
+        Counted::Uncounted => counts.failed += 1,
+        Counted::Completed => {
+            counts.completed = counts.completed.saturating_sub(1);
+            counts.failed += 1;
+        }
+        Counted::Failed => {}
+    }
     build.record_scan_issue(ScanIssue {
         root_index,
         relative: path.clone(),
@@ -147,16 +174,24 @@ fn record_at(
         ObservedKind::Directory => build.add_directory_at(root_index, path.to_vec())?,
         ObservedKind::Link => build.add_untraversed_link_at(root_index, path.to_vec())?,
         ObservedKind::File => record_file(build, root_index, meta, path.to_vec(), counts)?,
-        // The admission table never records a consistent mount point here.
-        ObservedKind::MountPoint | ObservedKind::Unknown | ObservedKind::Other => {
+        // Unreachable through the admission table, which leaves every
+        // consistent mount point outside the boundary; an inconsistent one
+        // fails the check above and is a gap. A boundary is not a failure.
+        ObservedKind::MountPoint => {
+            let range = (root_index, path);
+            let unread = Unread::OtherVolume;
+            return admission::record_unentered(build, range, entry, unread, counts, observed_at);
+        }
+        // An unclassified kind is a listed failure and a gap, counted once.
+        ObservedKind::Unknown | ObservedKind::Other => {
             counts.failed += 1;
-            build.add_at(
+            return build.add_at(
                 root_index,
                 Observation {
                     path: path.to_vec(),
                     size: None,
                 },
-            )?;
+            );
         }
     }
     if meta.kind == ObservedKind::File
@@ -174,11 +209,16 @@ fn record_at(
     {
         build.set_native_modified_at(root_index, path, time)?;
     }
-    counts.completed += 1;
+    let sized = meta.kind != ObservedKind::File || meta.size.is_ok();
+    if sized {
+        counts.completed += 1;
+    }
     Ok(())
 }
 
 /// Records only facts observed from the file handle retained by the adapter.
+///
+/// A file whose size could not be read is counted by the caller as failed.
 fn record_file(
     build: &mut BuildHandle,
     root_index: u32,

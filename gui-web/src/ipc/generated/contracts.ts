@@ -981,7 +981,9 @@ sequence: number,
  */
 unit: ProgressUnit,
 /**
- * Units processed so far.
+ * Units processed so far: the completed and the failed count of the job
+ * added together (see [`crate::job::JobCounts`]). Each unit is counted
+ * once, and the value never decreases within a job.
  */
 completed: number,
 /**
