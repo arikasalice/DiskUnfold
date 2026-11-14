@@ -6,6 +6,7 @@ use du_core_contracts::{
     result::{ResultCompleteness, ResultNativePath, ResultScopeRoot},
     scan_failures::{ScanFailureKind, ScanFailureStage, ScanIssue},
 };
+mod admission;
 
 struct TestRandom(bool);
 
