@@ -80,6 +80,13 @@ pub struct Engine {
 }
 
 impl Engine {
+    /// Reports whether a use case with this name was registered at assembly.
+    ///
+    /// Composition roots use it to stop startup when a required use case is missing.
+    pub fn has_use_case(&self, name: &str) -> bool {
+        self.registry.get(name).is_some()
+    }
+
     /// Retires query regions when the owning desktop window session ends.
     pub fn retire_window_session(&self) {
         if let Some(retire) = &self.session_retire {
