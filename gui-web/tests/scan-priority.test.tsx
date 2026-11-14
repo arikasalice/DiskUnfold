@@ -413,6 +413,65 @@ test("F02 FR8.HD1: superseded and late responses are discarded", async () => {
 const fallbackText: LocaleText = (_key, fallback, values) =>
   interpolate(fallback, (name) => String(values?.[name] ?? ""));
 
+test("F02 FR8.HD1: a receipt without the applied area can be sent again and returns to neutral", async () => {
+  vi.useFakeTimers();
+  const { client, answers } = priorityClient();
+  const hook = renderHook(
+    (context: ScanPriorityContext | undefined) =>
+      useScanPriority(client, context),
+    { initialProps: running as ScanPriorityContext | undefined },
+  );
+  const photos = ref(1);
+  const ask = () => act(() => hook.result.current.request(photos, "Photos"));
+  const receipt = () =>
+    act(async () => answers.at(-1)?.resolve({ controlResult: "accepted" }));
+  const status = () => hook.result.current.status(photos);
+
+  ask();
+  ask();
+  // An unanswered request is not sent again.
+  expect(answers).toHaveLength(1);
+  expect(hook.result.current.requested(photos)).toBe(true);
+  await receipt();
+  expect(status()).toBe("requested");
+  expect(hook.result.current.requested(photos)).toBe(false);
+
+  // The answer allows a new request at once; the mark then lasts the notice time.
+  ask();
+  expect(answers).toHaveLength(2);
+  await receipt();
+  act(() => {
+    vi.advanceTimersByTime(SCAN_PRIORITY_NOTICE_MS - 1);
+  });
+  expect(status()).toBe("requested");
+  act(() => {
+    vi.advanceTimersByTime(1);
+  });
+  expect(status()).toBeUndefined();
+
+  // A replaced result ends the mark before the time is up.
+  ask();
+  await receipt();
+  hook.rerender({ ...running, resultVersion: newer });
+  expect(status()).toBeUndefined();
+  hook.rerender(running);
+
+  // An applied area keeps its mark and is not sent again.
+  ask();
+  await act(async () =>
+    answers.at(-1)?.resolve({
+      controlResult: "accepted",
+      appliedPriorityArea: photos,
+    }),
+  );
+  act(() => {
+    vi.advanceTimersByTime(SCAN_PRIORITY_NOTICE_MS * 2);
+  });
+  expect(status()).toBe("analyzing");
+  ask();
+  expect(answers).toHaveLength(4);
+});
+
 test("F02 FR8.HD1: a notice says only what the response confirmed", async () => {
   const { client, answers } = priorityClient();
   const hook = renderHook(
@@ -501,17 +560,17 @@ test("F02 FR8.HD1: an outcome is offered for a short time and only to its own sc
       useScanPriority(client, context),
     { initialProps: running as ScanPriorityContext | undefined },
   );
-  const ask = async () => {
-    act(() => hook.result.current.request(ref(1), "Photos"));
+  const ask = async (itemNo: number, name: string) => {
+    act(() => hook.result.current.request(ref(itemNo), name));
     await act(async () =>
       answers.at(-1)?.resolve({
         controlResult: "accepted",
-        appliedPriorityArea: ref(1),
+        appliedPriorityArea: ref(itemNo),
       }),
     );
   };
 
-  await ask();
+  await ask(1, "Photos");
   expect(hook.result.current.notice?.name).toBe("Photos");
   // A view that mounts after the display time finds nothing to announce.
   act(() => {
@@ -519,12 +578,12 @@ test("F02 FR8.HD1: an outcome is offered for a short time and only to its own sc
   });
   expect(hook.result.current.notice).toBeUndefined();
 
-  await ask();
+  await ask(2, "Videos");
   expect(hook.result.current.notice?.jobRef).toBe("scan");
   // A later scan does not announce the outcome of an earlier one.
   hook.rerender({ jobRef: "later", resultVersion: version, scanning: true });
   expect(hook.result.current.notice).toBeUndefined();
   // Without a current scan the outcome of the ended one is still announced.
   hook.rerender(undefined);
-  expect(hook.result.current.notice?.name).toBe("Photos");
+  expect(hook.result.current.notice?.name).toBe("Videos");
 });

@@ -18,7 +18,10 @@ export type ScanPriorityContext = {
   scanning?: boolean;
 };
 
-/** How long an outcome stays available to announce, the notice display time. */
+/**
+ * How long an outcome stays available to announce, which is the time a view
+ * shows it, and how long an unconfirmed receipt keeps its "requested" mark.
+ */
 export const SCAN_PRIORITY_NOTICE_MS = 4_000;
 
 /**
@@ -40,7 +43,10 @@ export type ScanPriorityStatus = "requested" | "analyzing";
 export type ScanPriority = {
   /** Whether this item belongs to the running scan's current partial result. */
   canRequest: (item: ItemRef) => boolean;
-  /** Whether this item is the folder last requested for the running scan. */
+  /**
+   * Whether this folder's request is still unanswered or confirmed as the
+   * applied area, so "Analyze first" is not offered for it again.
+   */
   requested: (item: ItemRef) => boolean;
   /** The request state shown for this item, if it is the requested folder. */
   status: (item: ItemRef) => ScanPriorityStatus | undefined;
@@ -56,7 +62,12 @@ type Request = {
   name: string;
   previous: string | undefined;
 };
-type Marked = Request & { applied: boolean };
+
+/**
+ * `pending` is unanswered, `received` was accepted without naming the folder
+ * as the applied area and `applied` names it as that area.
+ */
+type Marked = Request & { state: "pending" | "received" | "applied" };
 
 function sameItem(left: ItemRef, right: ItemRef): boolean {
   return (
@@ -72,26 +83,50 @@ function outcomeOf(result: string): ScanPriorityOutcome {
     : "failed";
 }
 
+/** The mark a response leaves on its folder, or none. */
+function answeredState(
+  outcome: ScanPriorityOutcome,
+  applied: boolean,
+): Marked["state"] | undefined {
+  if (applied && (outcome === "accepted" || outcome === "no_effect"))
+    return "applied";
+  return outcome === "accepted" ? "received" : undefined;
+}
+
 /**
  * Sends scan.prioritize for a folder of the running scan's current partial
  * result (F02 FR8.HD1, HLD IF-03).
  *
  * The row is marked as requested before the response. "accepted" only confirms
- * receipt; the engine applies the area from its next assignment. A repeated
- * request for the same folder is not sent while one is in flight. A response
- * is dropped when a later request superseded it or the result it was pinned to
- * has been replaced in the same scan.
+ * receipt; the engine applies the area from its next assignment. The row reads
+ * "analyzing first" only after a response names the folder as the applied
+ * priority area and while the scan is running.
  *
- * The row reads "analyzing first" only after a response names the folder as
- * the applied priority area and while the scan is running.
+ * One rule decides when a folder can be requested again. While its request is
+ * unanswered, or after a response named it as the applied area, it is not sent
+ * again. A receipt that does not name the area keeps the "requested" mark
+ * until {@link SCAN_PRIORITY_NOTICE_MS} after the answer, the time its notice
+ * is shown, or until the scan's current result is replaced, whichever comes
+ * first, and then returns to neutral; the folder can be requested again as
+ * soon as the answer arrives. A mark is shown only on rows of the result it
+ * was requested in.
+ *
+ * Requests for different folders are sent as they are made, and the engine
+ * keeps the last one it receives as the scan's single priority area. The
+ * native bridge posts each call when it is made; the Windows host dispatches
+ * scan.prioritize on one FIFO job-control lane, and the Linux and macOS hosts
+ * dispatch messages one at a time on the main thread. The engine therefore
+ * receives requests in the order they were made. A response to a request
+ * that a later one replaced is dropped without a notice, even a failure or a
+ * stale result: the later request decides the area, and its own response
+ * reports the outcome the user is waiting for. A response is also dropped
+ * when the result it was pinned to has been replaced in the same scan.
  *
  * The notice says what the response confirmed: whether the folder is the
  * applied area, whether the scan was paused, and which requested folder the
- * request replaced.
- *
- * An outcome is offered for announcement only for a short time and only while
- * no other scan is current, so a view that mounts later, or a later scan, does
- * not announce it again.
+ * request replaced. An outcome is offered for announcement for
+ * {@link SCAN_PRIORITY_NOTICE_MS} and only while no other scan is current, so
+ * a view that mounts later, or a later scan, does not announce it again.
  */
 export function useScanPriority(
   client: AnalysisClient | undefined,
@@ -101,7 +136,6 @@ export function useScanPriority(
   const [notice, setNotice] = useState<ScanPriorityNotice>();
   const sequence = useRef(0);
   const notices = useRef(0);
-  const pending = useRef<Request>(undefined);
   const shown = useRef<Marked>(undefined);
   const current = useRef<ScanPriorityContext>(undefined);
   const jobRef = context?.jobRef;
@@ -120,7 +154,6 @@ export function useScanPriority(
   const settle = useCallback(
     (owner: Request, outcome: ScanPriorityOutcome, applied: boolean) => {
       if (sequence.current !== owner.seq) return;
-      pending.current = undefined;
       const now = current.current;
       // A replaced result in the same or another scan makes the answer obsolete.
       if (
@@ -152,12 +185,26 @@ export function useScanPriority(
     return () => window.clearTimeout(timer);
   }, [noticeId]);
 
+  const received = marked?.state === "received" ? marked.seq : undefined;
+  useEffect(() => {
+    if (received === undefined) return;
+    const timer = window.setTimeout(() => {
+      if (shown.current?.seq === received) mark(undefined);
+    }, SCAN_PRIORITY_NOTICE_MS);
+    return () => window.clearTimeout(timer);
+  }, [received, mark]);
+  useEffect(() => {
+    const now = shown.current;
+    if (now?.state === "received" && now.item.resultVersion !== resultVersion)
+      mark(undefined);
+  }, [resultVersion, mark]);
+
   /** Updates the mark only if it still belongs to this request. */
   const remark = useCallback(
-    (owner: Request, applied: boolean | undefined) => {
+    (owner: Request, state: Marked["state"] | undefined) => {
       const now = shown.current;
       if (now?.seq !== owner.seq) return;
-      mark(applied === undefined ? undefined : { ...now, applied });
+      mark(state === undefined ? undefined : { ...now, state });
     },
     [mark],
   );
@@ -166,39 +213,35 @@ export function useScanPriority(
     (item: ItemRef, name: string) => {
       const scan = current.current;
       if (!client || !scan || item.resultVersion !== scan.resultVersion) return;
-      const inFlight = pending.current;
-      if (
-        inFlight &&
-        inFlight.jobRef === scan.jobRef &&
-        sameItem(inFlight.item, item)
-      )
-        return;
       const before = shown.current;
-      const replaced =
+      const sameScan =
         before !== undefined &&
         before.jobRef === scan.jobRef &&
-        before.item.resultVersion === item.resultVersion &&
-        !sameItem(before.item, item);
+        before.item.resultVersion === item.resultVersion;
+      if (
+        sameScan &&
+        sameItem(before.item, item) &&
+        before.state !== "received"
+      )
+        return;
       const owner: Request = {
         seq: ++sequence.current,
         jobRef: scan.jobRef,
         item,
         name,
-        previous: replaced ? before.name : undefined,
+        previous:
+          sameScan && !sameItem(before.item, item) ? before.name : undefined,
       };
-      pending.current = owner;
-      mark({ ...owner, applied: false });
+      mark({ ...owner, state: "pending" });
       client
         .call("scan.prioritize", { jobRef: owner.jobRef, priorityArea: item })
         .then(
           (response) => {
             const outcome = outcomeOf(response.controlResult);
-            const applied = response.appliedPriorityArea;
-            const isApplied = applied !== undefined && sameItem(applied, item);
-            const keep =
-              outcome === "accepted" || (outcome === "no_effect" && isApplied);
-            remark(owner, keep ? isApplied : undefined);
-            settle(owner, outcome, isApplied);
+            const area = response.appliedPriorityArea;
+            const applied = area !== undefined && sameItem(area, item);
+            remark(owner, answeredState(outcome, applied));
+            settle(owner, outcome, applied);
           },
           (failure: unknown) => {
             remark(owner, undefined);
@@ -209,7 +252,7 @@ export function useScanPriority(
     [client, settle, remark, mark],
   );
 
-  const mine = (item: ItemRef) =>
+  const mine = (item: ItemRef): boolean =>
     marked !== undefined &&
     marked.jobRef === jobRef &&
     sameItem(marked.item, item);
@@ -218,13 +261,13 @@ export function useScanPriority(
       client !== undefined &&
       resultVersion !== undefined &&
       item.resultVersion === resultVersion,
-    requested: mine,
-    status: (item) =>
-      !mine(item)
-        ? undefined
-        : marked?.applied && scanning
-          ? "analyzing"
-          : "requested",
+    requested: (item) => mine(item) && marked?.state !== "received",
+    status: (item) => {
+      if (!mine(item)) return undefined;
+      return marked?.state === "applied" && scanning
+        ? "analyzing"
+        : "requested";
+    },
     request,
     // An ended scan leaves no current job and still announces its outcome.
     notice:
