@@ -2,6 +2,7 @@ import type {
   StartupAccessState,
   StartupCheckResult,
   StartupGrade,
+  StartupStatus,
 } from "../../ipc";
 import type { LocaleText } from "../../i18n/presentation";
 
@@ -11,6 +12,10 @@ export function startupCopy(text: LocaleText) {
     introduction: text(
       "ui.startup.introduction",
       "Review startup checks and Full Disk Access for this Mac. Disk analysis is not enabled in this build.",
+    ),
+    introductionOther: text(
+      "ui.startup.introduction_other",
+      "Review startup checks for this computer. Disk analysis is not enabled in this build.",
     ),
     loading: text("ui.startup.loading", "Loading startup checks"),
     loadFailed: text(
@@ -51,7 +56,7 @@ export function startupCopy(text: LocaleText) {
     ),
     notApplicableNotice: text(
       "ui.startup.not_applicable_notice",
-      "Full Disk Access does not apply to this operation. This build provides startup checks and permission controls only; disk analysis is not enabled.",
+      "This build provides startup checks only; disk analysis is not enabled.",
     ),
     openSettings: text(
       "ui.startup.open_settings",
@@ -178,4 +183,52 @@ export function outcomeLabel(result: StartupCheckResult, copy: StartupCopy) {
 
 export function checkLabel(check: StartupCheckResult, copy: StartupCopy) {
   return copy.checkNames[check.check] ?? copy.unknown;
+}
+
+/** The notice at the top of the status panel, chosen from the permission and analysis state. */
+export function startupNotice(status: StartupStatus, copy: StartupCopy) {
+  if (status.access === "denied") return copy.deniedNotice;
+  if (!status.analysisAllowed) return copy.analysisBlockedNotice;
+  if (status.access === "confirmed") return copy.confirmedNotice;
+  if (status.access === "not_applicable") return copy.notApplicableNotice;
+  return copy.unknownNotice;
+}
+
+/**
+ * Rows of the status panel. The Full Disk Access row is a macOS permission, so it is left out
+ * where the permission does not apply.
+ */
+export function statusRows(
+  status: StartupStatus,
+  copy: StartupCopy,
+  permissionApplies: boolean,
+) {
+  return [
+    { label: copy.grade, value: gradeLabel(status.grade, copy) },
+    ...(permissionApplies
+      ? [{ label: copy.access, value: accessLabel(status.access, copy) }]
+      : []),
+    {
+      label: copy.analysis,
+      value: status.analysisAllowed ? copy.allowed : copy.blocked,
+    },
+  ];
+}
+
+/** Rows of the checks panel, without the Full Disk Access check where it does not apply. */
+export function checkRows(
+  status: StartupStatus,
+  copy: StartupCopy,
+  permissionApplies: boolean,
+) {
+  return status.checks
+    .filter((check) => permissionApplies || check.check !== "full_disk_access")
+    .map((check, index) => ({
+      label: checkLabel(check, copy),
+      value: outcomeLabel(check, copy),
+      wideValue: true,
+      emphasized:
+        check.check === "full_disk_access" && check.result === "blocked",
+      key: `${check.check}-${index}`,
+    }));
 }

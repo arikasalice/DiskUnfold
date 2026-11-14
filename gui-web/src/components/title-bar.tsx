@@ -7,9 +7,17 @@ type Setter = (label: string | undefined) => void;
 const ContextLabel = createContext<string | undefined>(undefined);
 const ContextSetter = createContext<Setter>(() => undefined);
 
-/** Holds the label that the title bar shows next to the app name. */
+/**
+ * Holds the label that the title bar shows next to the app name.
+ *
+ * The document title carries the same words ("DiskUnfold — Screen"), so the system window
+ * caption (Windows) and header bar (Linux) name the screen the same way the page bar does.
+ */
 export function TitleBarProvider({ children }: { children: ReactNode }) {
   const [label, setLabel] = useState<string>();
+  useEffect(() => {
+    document.title = label ? `DiskUnfold — ${label}` : "DiskUnfold";
+  }, [label]);
   return (
     <ContextSetter.Provider value={setLabel}>
       <ContextLabel.Provider value={label}>{children}</ContextLabel.Provider>
@@ -18,7 +26,7 @@ export function TitleBarProvider({ children }: { children: ReactNode }) {
 }
 
 /** Names the screen that is shown, for the title bar. The label clears when the screen leaves. */
-export function useTitleBarContext(label: string) {
+export function useTitleBarContext(label: string | undefined) {
   const set = useContext(ContextSetter);
   useEffect(() => {
     set(label);

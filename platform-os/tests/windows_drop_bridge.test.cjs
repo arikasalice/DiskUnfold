@@ -5,8 +5,10 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 
 function bootstrap() {
+  // windows.rs embeds this file with include_str!("windows/bridge.js").
   const rust = readFileSync(join(__dirname, '../src/webview/windows.rs'), 'utf8');
-  const script = rust.match(/const BRIDGE: &str = r#"([\s\S]*?)"#;/)?.[1];
+  assert.match(rust, /const BRIDGE: &str = include_str!\("windows\/bridge\.js"\);/);
+  const script = readFileSync(join(__dirname, '../src/webview/windows/bridge.js'), 'utf8');
   assert.ok(script);
   const handlers = {};
   const events = [];

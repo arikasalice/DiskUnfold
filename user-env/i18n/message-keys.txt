@@ -117,6 +117,7 @@ ui.locale.save_failed
 ui.locale.modified
 ui.startup.title
 ui.startup.introduction
+ui.startup.introduction_other
 ui.startup.loading
 ui.startup.load_failed
 ui.startup.action_failed
@@ -175,6 +176,8 @@ reason.locale.bundle_unavailable.action
 reason.i18n.bundle_integrity_failed.action
 ui.app.history
 ui.app.back_to_analysis
+ui.app.screen_analysis
+ui.app.screen_browse
 ui.analysis.folder_path
 ui.analysis.folder_paths
 ui.analysis.add_path

@@ -7,7 +7,7 @@ license.workspace = true
 
 [features]
 fake = []
-webview = ["dep:gtk4", "dep:webkit6", "dep:block2", "dep:objc2", "dep:objc2-app-kit", "dep:objc2-foundation", "dep:objc2-web-kit", "dep:webview2-com", "windows/Win32_System_Com", "windows/Win32_System_LibraryLoader", "windows/Win32_UI_Shell", "windows/Win32_UI_WindowsAndMessaging", "dep:windows-window"]
+webview = ["dep:gtk4", "dep:webkit6", "dep:block2", "dep:objc2", "dep:objc2-app-kit", "dep:objc2-foundation", "dep:objc2-web-kit", "dep:webview2-com", "windows/Win32_System_Com", "windows/Win32_Graphics_Dwm", "windows/Win32_UI_Accessibility", "windows/Win32_System_LibraryLoader", "windows/Win32_UI_Shell", "windows/Win32_UI_WindowsAndMessaging", "dep:windows-window"]
 windows-console = ["windows/Win32_System_Console"]
 
 [dependencies]
