@@ -9,6 +9,7 @@ import {
 } from "../../components";
 import type { VizRow } from "../../ipc";
 import type { VizText } from "./model-text";
+import { RowName } from "./RowName";
 
 export type GroupMembersPresenterProps = {
   /** The label of the group selected in the parent visualization. */
@@ -202,7 +203,7 @@ function GroupRows({
       rows={rows}
       getRowKey={rowKey}
       renderCells={(row) => [
-        row.displayName,
+        <RowName name={row.displayName} item={row.itemRef !== null} />,
         row.quantity ? text.quantity(row.quantity) : text.size(row.size),
       ]}
     />

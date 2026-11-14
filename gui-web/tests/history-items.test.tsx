@@ -170,6 +170,33 @@ test("retains missing information across pages and focuses displaced details", a
   );
 });
 
+test.each([
+  ["보고서 ", 1, "보고서 , The name ends with 1 space"],
+  ["보고서", 0, "보고서"],
+])(
+  "F02: the displaced item name %j marks its edge spaces",
+  async (name, count, heard) => {
+    const withName = page("named");
+    withName.rows[0]!.result!.displaced!.name = name;
+    render(
+      <HistoryItems
+        client={client(vi.fn().mockResolvedValue(withName))}
+        jobRef="job"
+      />,
+    );
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "View displaced item details, item 0",
+      }),
+    );
+    const value = screen.getByText("Name").closest("div")!.querySelector("dd")!;
+    expect(value.querySelectorAll(".du-name__mark")).toHaveLength(count);
+    const real = value.cloneNode(true) as Element;
+    real.querySelectorAll(".du-name__mark").forEach((mark) => mark.remove());
+    expect(real.textContent).toBe(heard);
+  },
+);
+
 test("distinguishes an empty filter from an unavailable summary", async () => {
   const empty = { ...page("unused"), rows: [] };
   const call = vi.fn().mockResolvedValue(empty);

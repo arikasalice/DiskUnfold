@@ -1353,6 +1353,50 @@ test("duplicate source rows do not establish a previous item name", async () => 
   expect(screen.queryByText(/Previous item:/)).toBeNull();
 });
 
+test("F02: a lost selection marks the edge spaces of the previous item name", async () => {
+  const first = frame(1),
+    second = frame(2, "new-result");
+  const source = modelFixture().page.response;
+  const row = { ...source.rows[0]!, displayName: "Observed directory " };
+  const controller = new VisualizationController({
+    render: vi.fn().mockResolvedValueOnce(first).mockResolvedValueOnce(second),
+    rows: vi.fn().mockResolvedValue({ ...source, rows: [row] }),
+    cancel: vi.fn(),
+    canDisplay: () => true,
+  });
+  render(
+    <ControlledVisualization controller={controller} text={fixtureText} />,
+  );
+  await act(async () => controller.render(request(1)));
+  await act(async () =>
+    controller.rows({
+      modelRef: first.model.modelRef,
+      resultRevision: revision,
+      start: 0,
+      count: 10,
+    }),
+  );
+  const shape = first.model.shapes[0]!;
+  act(() =>
+    controller.select({
+      kind: "item",
+      itemRef: shape.itemRef!,
+      matchKey: shape.matchKey,
+      modelRef: first.model.modelRef,
+      resultRevision: revision,
+    }),
+  );
+  await act(async () => controller.render(request(2, "new-result")));
+  expect(controller.getSnapshot().previousSelectionEvidence?.name).toBe(
+    "Observed directory ",
+  );
+  const previous = screen.getByText(/Previous item:/);
+  expect(previous.querySelectorAll(".du-name__mark")).toHaveLength(1);
+  expect(previous.textContent).toBe(
+    "Previous item: Observed directory \u2423, The name ends with 1 space",
+  );
+});
+
 test.each(["en", "ko"] as const)(
   "unmatched focus reaches the actual graph reselection control in %s",
   async (language) => {

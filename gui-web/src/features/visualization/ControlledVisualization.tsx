@@ -28,6 +28,7 @@ import type { VizText } from "./model-text";
 import { matchingRowsPage } from "./model-adapter";
 import { visualizationFormatName, visualizationReason } from "./messages";
 import { GroupView } from "./GroupView";
+import { RowName } from "./RowName";
 import type { GroupController } from "./group-controller";
 import type { GroupOrigin } from "./group-navigation";
 import {
@@ -395,7 +396,10 @@ function VisualizationStatus({
           {state.previousSelectionEvidence?.name && (
             <Text>
               {text.message("previousName")}{" "}
-              {state.previousSelectionEvidence.name}
+              <RowName
+                name={state.previousSelectionEvidence.name}
+                item={state.previousSelection?.kind === "item"}
+              />
             </Text>
           )}
           {state.previousSelectionEvidence && (
