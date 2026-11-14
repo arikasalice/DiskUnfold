@@ -107,6 +107,7 @@ pub(super) fn register_desktop(
         ),
     }
     .map_err(|error| report_pre_window_error(capabilities, error))?;
+    crate::group_rules_store::register(builder, services.groups, database, capabilities)?;
     #[cfg(windows)]
     let recent_worker = recent
         .map(|options| {

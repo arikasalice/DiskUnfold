@@ -10,6 +10,7 @@ mod rows;
 mod test_gate;
 use rows::project;
 mod wire;
+pub(crate) use admission::lower_condition;
 pub use admission::{AdmissionError, LiveOpen};
 use std::sync::Arc;
 

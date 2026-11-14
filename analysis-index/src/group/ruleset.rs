@@ -113,10 +113,12 @@ pub fn normalize_name(name: &str) -> String {
 pub fn review_stored(registry: &Registry, rules: &[Rule]) -> Vec<RuleReview> {
     rules
         .iter()
-        .map(|rule| match query::plan::prepare(registry, &rule.condition, 0) {
-            Err(query::Error::UnknownPredicate) => RuleReview::PredicateUnregistered,
-            _ => RuleReview::Ok,
-        })
+        .map(
+            |rule| match query::plan::prepare(registry, &rule.condition, 0) {
+                Err(query::Error::UnknownPredicate) => RuleReview::PredicateUnregistered,
+                _ => RuleReview::Ok,
+            },
+        )
         .collect()
 }
 
@@ -249,7 +251,10 @@ pub fn fingerprint(rules: &[Rule]) -> [u8; 32] {
     hash.update(&(rules.len() as u64).to_le_bytes());
     for rule in rules {
         field(&mut hash, rule.display_name.as_bytes());
-        field(&mut hash, &canonical_bytes(&rule.condition.clone().normalize()));
+        field(
+            &mut hash,
+            &canonical_bytes(&rule.condition.clone().normalize()),
+        );
         hash.update(&CONDITION_MODEL_VERSION.to_le_bytes());
         hash.update(&(rule.predicates.len() as u64).to_le_bytes());
         for (id, revision) in &rule.predicates {
@@ -275,7 +280,11 @@ fn canonical_bytes(condition: &Condition) -> Vec<u8> {
     let mut out = Vec::new();
     match condition {
         Condition::All(children) | Condition::Any(children) => {
-            out.push(if matches!(condition, Condition::All(_)) { 1 } else { 2 });
+            out.push(if matches!(condition, Condition::All(_)) {
+                1
+            } else {
+                2
+            });
             let mut parts: Vec<_> = children.iter().map(canonical_bytes).collect();
             parts.sort();
             out.extend((parts.len() as u64).to_le_bytes());
@@ -347,4 +356,3 @@ fn predicate_bytes(out: &mut Vec<u8>, predicate: &Predicate) {
 
 #[cfg(test)]
 mod tests;
-

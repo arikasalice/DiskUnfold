@@ -15,12 +15,12 @@ pub enum DuplicateTerminal {
 
 pub(super) fn valid(descriptor: &JobDescriptor, publication: Option<&Publication>) -> bool {
     match (descriptor.kind_id.as_str(), publication) {
-        ("query.evaluate", Some(Publication::Query(_)))
+        ("query.evaluate" | "group.classify", Some(Publication::Query(_)))
         | ("viz.compute", Some(Publication::Visualization { .. })) => {
             descriptor.history == HistoryMode::None
                 && descriptor.resource_classes.as_slice() == [ResourceClass::Compute]
         }
-        ("query.evaluate" | "viz.compute", _) => false,
+        ("query.evaluate" | "viz.compute" | "group.classify", _) => false,
         ("duplicate.check", Some(Publication::DuplicateTerminal { .. })) => {
             descriptor.version == 1
                 && descriptor.history == HistoryMode::Summary
