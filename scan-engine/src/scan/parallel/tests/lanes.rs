@@ -15,6 +15,7 @@ mod bounds;
 mod control;
 mod determinism;
 mod isolation;
+mod measure;
 mod order;
 mod priority;
 mod remote;
@@ -427,7 +428,16 @@ fn shared_for(
     limit: usize,
     capacity: usize,
 ) -> Result<Shared, TestError> {
-    let roots = probe.roots();
+    shared_over(probe.roots(), groups, limit, capacity)
+}
+
+/// Builds an unstarted scheduler over `roots` with every root identity reserved.
+fn shared_over(
+    roots: Vec<Box<dyn AnchoredDirectory>>,
+    groups: Vec<usize>,
+    limit: usize,
+    capacity: usize,
+) -> Result<Shared, TestError> {
     let count = roots.len();
     let identities = roots.iter().map(|root| root.observed_identity()).collect();
     let (visited, starts) = admission::Visited::reserve_roots(identities);
