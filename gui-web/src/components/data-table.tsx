@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { ReactNode, UIEvent } from "react";
+import { useLocaleText } from "../i18n/presentation";
 const ROW_HEIGHT = 144;
 const VIEW_ROWS = 4;
 const OVERSCAN = 3;
@@ -25,9 +26,10 @@ export function DataTable<Row>({
   /** Total known rows, or -1 when only a lower bound is known. */
   totalRows?: number;
   getRowKey?: (row: Row) => string;
-  /** Name of the scrollable region. Defaults to the English "<label> scroll area". */
+  /** Name of the scrollable region. Defaults to the localized "<label> scroll area". */
   scrollLabel?: string;
 }) {
+  const text = useLocaleText();
   const [scrollTop, setScrollTop] = useState(0);
   const rowHeight = density === "compact" ? 64 : ROW_HEIGHT;
   const viewRows = density === "compact" ? 10 : VIEW_ROWS;
@@ -45,7 +47,10 @@ export function DataTable<Row>({
     <div
       className="du-table-viewport"
       role="region"
-      aria-label={scrollLabel ?? `${label} scroll area`}
+      aria-label={
+        scrollLabel ??
+        text("ui.common.scroll_area", "{name} scroll area", { name: label })
+      }
       tabIndex={0}
       onScroll={onScroll}
     >

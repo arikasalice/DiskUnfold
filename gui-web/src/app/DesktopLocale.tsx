@@ -18,6 +18,7 @@ import {
 import { makeLocaleReporter } from "../state/locale-missing";
 import { useLocale } from "../state/use-locale";
 import type { LocaleView } from "../state/use-locale";
+import { applyPresentation } from "../theme/presentation-settings";
 import { App } from "./App";
 import { SupportRequestContext } from "./support-request";
 import { ClosingGuard } from "../features/shutdown/ClosingGuard";
@@ -52,21 +53,13 @@ function useLocalePresentation(view: LocaleView | undefined) {
     const root = document.documentElement;
     const previousLanguage = root.lang;
     root.lang = language;
-    root.style.setProperty("--du-app-scale", String(scale / 100));
-    const media =
-      typeof matchMedia === "function"
-        ? matchMedia("(prefers-reduced-motion: reduce)")
-        : undefined;
-    function setMotion() {
-      root.dataset.duMotion =
-        motion === "reduce" || media?.matches ? "reduce" : "standard";
-    }
-    setMotion();
-    media?.addEventListener("change", setMotion);
+    // Motion level and scale are decided in one place: the theme module.
+    const removePresentation = applyPresentation(root, {
+      motion: motion ?? "follow_os",
+      appScale: scale,
+    });
     return () => {
-      media?.removeEventListener("change", setMotion);
-      delete root.dataset.duMotion;
-      root.style.removeProperty("--du-app-scale");
+      removePresentation();
       root.lang = previousLanguage;
     };
   }, [language, motion, scale]);

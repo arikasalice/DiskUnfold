@@ -51,3 +51,9 @@
 | FR10.HD2 | 해소 | `components/confirm-dialog.tsx`(입력란 Enter 기본 동작 차단, 승인 입력란 정책 `never`, 마운트 뒤 취소 단추에 초점), `tests/confirm-dialog-keys.test.tsx`. 실제 승인 화면의 입력란은 아직 없다. |
 | FR11.HD1·FR12.HD1 | theme 모듈 해소, 호출 교체는 남음 | `theme/presentation-settings.ts`(`resolveMotionLevel`·`scaleFactor`·`applyPresentation`), `tests/presentation-settings.test.ts`(네 조합, 질의 불가, 변경 통지, 여섯 배율, 허용 밖 값 100%). `app/DesktopLocale.tsx`가 아직 같은 판정을 자체 구현하고 있어 한 줄 호출로 바꿔야 한다(소유 경로 밖). |
 | NFR2.HD1 | 변경 없음 | 범위 밖. |
+
+## 3단계 처리 결과 (후속 작업)
+
+- FR11.HD1·FR12.HD1: `app/DesktopLocale.tsx`가 자체 판정 대신 `theme/presentation-settings.ts`의 `applyPresentation`을 호출한다. 움직임·배율 판정은 theme 한 곳에만 있다. 기존 `locale-workspace` 시험 통과.
+- FR8.HD2: `BrowsePanel`의 `Alt+ArrowUp` 처리가 키 배정 표 행 `go_up`을 `dispatchKey`로 조회하는 경로로 바뀌었다. 동작·기존 시험은 그대로.
+- 문구 키: `ui.browse.keys.<action>` 11개와 `ui.common.scroll_area name:name`을 `user-env/i18n/{en,ko}.json`·`message-keys.txt`에 추가했다. `DataTable`의 스크롤 영역 이름은 `scrollLabel`이 없으면 이 키를 현재 언어로 해석한다. 묶음 해시는 `user-env/build.rs`가 빌드 때 다시 계산하므로 별도 갱신이 없다.
