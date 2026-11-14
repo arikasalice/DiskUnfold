@@ -475,6 +475,17 @@
   {
     "ecosystem": "cargo",
     "owner": "du-release-tools",
+    "name": "blake3",
+    "version": "1.8.3",
+    "source": "registry+https://github.com/rust-lang/crates.io-index",
+    "license": "CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception",
+    "role": "runtime",
+    "distributed": false,
+    "reason": "Verify the digest of the built-in sample bundle for the release record"
+  },
+  {
+    "ecosystem": "cargo",
+    "owner": "du-release-tools",
     "name": "serde_json",
     "version": "1.0.154",
     "source": "registry+https://github.com/rust-lang/crates.io-index",
@@ -552,17 +563,6 @@
   {
     "ecosystem": "cargo",
     "owner": "du-scan-engine",
-    "name": "serde",
-    "version": "1.0.229",
-    "source": "registry+https://github.com/rust-lang/crates.io-index",
-    "license": "MIT OR Apache-2.0",
-    "role": "runtime",
-    "distributed": true,
-    "reason": "Decode the built-in sample bundle records"
-  },
-  {
-    "ecosystem": "cargo",
-    "owner": "du-scan-engine",
     "name": "serde_json",
     "version": "1.0.154",
     "source": "registry+https://github.com/rust-lang/crates.io-index",
@@ -573,14 +573,14 @@
   },
   {
     "ecosystem": "cargo",
-    "owner": "du-release-tools",
-    "name": "blake3",
-    "version": "1.8.3",
+    "owner": "du-scan-engine",
+    "name": "serde",
+    "version": "1.0.229",
     "source": "registry+https://github.com/rust-lang/crates.io-index",
-    "license": "CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception",
+    "license": "MIT OR Apache-2.0",
     "role": "runtime",
-    "distributed": false,
-    "reason": "Verify the digest of the built-in sample bundle for the release record"
+    "distributed": true,
+    "reason": "Decode the built-in sample bundle records"
   },
   {
     "ecosystem": "cargo",
