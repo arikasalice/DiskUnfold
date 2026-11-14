@@ -12,13 +12,12 @@ use std::{
     path::Path,
 };
 
-/// A mount point below a directory on `parent_device`: the mounted volume's
-/// identity and kind only, without size, times, allocation or space facts.
-fn outside(item: &ObservedEntry, parent_device: u64) -> bool {
+/// A mount point: the mounted root's identity and kind only, without size,
+/// times, allocation or space facts.
+fn mount_point(item: &ObservedEntry) -> bool {
     item.metadata.as_ref().is_ok_and(|meta| {
-        meta.device != parent_device
-            && meta.inode != 0
-            && meta.kind == ObservedKind::Directory
+        meta.inode != 0
+            && meta.kind == ObservedKind::MountPoint
             && meta.size.is_err()
             && meta.modified_at.is_none()
             && meta.native_modified_at.is_none()
@@ -26,6 +25,15 @@ fn outside(item: &ObservedEntry, parent_device: u64) -> bool {
             && meta.link_count.is_none()
             && meta.space_identity.is_none()
     })
+}
+
+/// A mount point below a directory on `parent_device`, on another device.
+fn outside(item: &ObservedEntry, parent_device: u64) -> bool {
+    mount_point(item)
+        && item
+            .metadata
+            .as_ref()
+            .is_ok_and(|meta| meta.device != parent_device)
 }
 
 /// Claims the hidden mount point is an ordinary directory on the parent volume.
@@ -230,7 +238,83 @@ fn system_mount_points_report_their_own_volume_and_are_not_entered() -> TestResu
     Ok(())
 }
 
-/// Uses a file system the test script mounted at `$DU_TEST_MOUNT_PARENT/mnt`.
+/// Names of the mounts directly below `/proc`, from this process's mount table.
+fn proc_children() -> Result<Vec<Vec<u8>>, Box<dyn std::error::Error>> {
+    let table = fs::read_to_string("/proc/self/mountinfo")?;
+    let mut names: Vec<Vec<u8>> = table
+        .lines()
+        .filter_map(|line| line.split(' ').nth(4)?.strip_prefix("/proc/"))
+        .filter(|name| !name.is_empty() && !name.contains(['/', '\\']))
+        .map(|name| name.as_bytes().to_vec())
+        .collect();
+    names.sort();
+    names.dedup();
+    Ok(names)
+}
+
+/// Uses the mounts a container runtime places below `/proc`: directories bound
+/// from `/proc` itself (same device, same inode as the covered directory),
+/// tmpfs directories and file mounts such as `/proc/kcore`.
+#[test]
+fn bind_mounts_below_proc_are_mount_points_and_file_mounts_are_not() -> TestResult {
+    let proc_device = fs::metadata("/proc")?.dev();
+    let names = proc_children()?;
+    if names.is_empty() {
+        eprintln!("F02_LINUX no mount below /proc; bind mount case not observed");
+        return Ok(());
+    }
+    let mut proc = open(Path::new("/proc"))?;
+    let mut include = |name: &[u8]| {
+        if names.iter().any(|candidate| candidate == name) {
+            FilterDecision::Admit
+        } else {
+            FilterDecision::Exclude
+        }
+    };
+    let mut items = Vec::new();
+    loop {
+        match proc.directory.next_filtered(&mut include).map_err(fail)? {
+            FilteredBatch::Entries(batch) => items.extend(batch),
+            FilteredBatch::Progress => {}
+            FilteredBatch::End => break,
+            FilteredBatch::Undecidable => return Err("undecidable".into()),
+        }
+    }
+    let (mut same_device, mut other_device, mut files) = (0, 0, 0);
+    for item in &items {
+        let path = Path::new("/proc").join(std::str::from_utf8(&item.name)?);
+        let mounted = fs::metadata(&path)?;
+        if !mounted.is_dir() {
+            assert!(!mount_point(item), "{path:?}: {:?}", item.metadata);
+            files += 1;
+            continue;
+        }
+        assert!(mount_point(item), "{path:?}: {:?}", item.metadata);
+        assert_eq!(
+            item.metadata.as_ref().map(|meta| meta.device),
+            Ok(mounted.dev())
+        );
+        assert!(proc.directory.open_child(item).is_err());
+        assert!(
+            proc.directory
+                .open_child(&forged(item, proc_device))
+                .is_err()
+        );
+        if mounted.dev() == proc_device {
+            same_device += 1;
+        } else {
+            other_device += 1;
+        }
+    }
+    eprintln!(
+        "F02_LINUX proc_mounts same_device_dirs={same_device} other_device_dirs={other_device} files={files}"
+    );
+    Ok(())
+}
+
+/// Uses a file system the test script mounted at `$DU_TEST_MOUNT_PARENT/mnt`
+/// and, when present, a bind mount of another directory of the parent's own
+/// device at `$DU_TEST_MOUNT_PARENT/bind`.
 #[test]
 fn prepared_mount_point_is_a_boundary() -> TestResult {
     let Some(parent) = std::env::var_os("DU_TEST_MOUNT_PARENT") else {
@@ -248,6 +332,19 @@ fn prepared_mount_point_is_a_boundary() -> TestResult {
     assert_ne!(inner.volume_id, root.volume_id);
     if let Some(ids) = inner.directory.ancestor_file_ids() {
         assert!(ids.is_empty(), "a mount root has no same-mount ancestors");
+    }
+    if let Ok(bind) = entry(&entries, b"bind") {
+        let mounted = fs::metadata(parent.join("bind"))?;
+        assert!(mount_point(bind), "{:?}", bind.metadata);
+        assert_eq!(mounted.dev(), device);
+        assert_eq!(
+            bind.metadata.as_ref().map(|meta| (meta.device, meta.inode)),
+            Ok((device, mounted.ino()))
+        );
+        assert_ne!(bind.enumerated_inode, mounted.ino());
+        assert!(root.directory.open_child(bind).is_err());
+        assert!(root.directory.open_child(&forged(bind, device)).is_err());
+        eprintln!("F02_LINUX prepared_bind_mount=checked");
     }
     eprintln!("F02_LINUX prepared_mount_boundary=checked");
     Ok(())
