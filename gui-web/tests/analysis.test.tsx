@@ -826,7 +826,8 @@ test.each(["manual review", "path edit"])(
       name: "Windows folder path",
     });
     fireEvent.change(input, { target: { value: path.display } });
-    await screen.findByText("Review unavailable");
+    // Transport messages are not shown; the review falls back to general copy.
+    await screen.findByText("The operation failed");
     await new Promise((resolve) => window.setTimeout(resolve, 400));
     expect(calls.filter(({ name }) => name === "scope.review")).toHaveLength(1);
 
@@ -1395,12 +1396,12 @@ test("F24: a failed baseline retries and recovers a completed scan without polli
     }),
   });
   await startFixtureScan(client);
-  await screen.findByText("list unavailable");
+  await screen.findByText("Analysis could not be read.");
   expect(calls.filter(({ name }) => name === "job.get")).toHaveLength(0);
   await screen.findByText("Scan cancelled", {}, { timeout: 4_000 });
   expect(attempts).toBe(2);
   expect(calls.filter(({ name }) => name === "job.get")).toHaveLength(1);
-  expect(screen.queryByText("list unavailable")).toBeNull();
+  expect(screen.queryByText("Analysis could not be read.")).toBeNull();
 });
 
 test("F02: result changes recover while the job list is still resynchronizing", async () => {
@@ -1677,7 +1678,7 @@ test("F24: a failed resync keeps the last scan until automatic recovery", async 
   const before = calls.filter(({ name }) => name === "job.get").length;
   done = true;
   notifyResult(listeners, "job.resync_required", {});
-  await screen.findByText("resync unavailable");
+  await screen.findByText("Analysis could not be read.");
   expect(screen.getByText("Scanning")).toBeDefined();
   await new Promise((resolve) => setTimeout(resolve, 600));
   expect(calls.filter(({ name }) => name === "job.get")).toHaveLength(
@@ -3014,7 +3015,7 @@ test("F02: a failed switch retains the interim totals and can be retried after f
   );
   fail();
   await within(await screen.findByRole("alert")).findByText(
-    "Could not read newer totals.",
+    "Analysis could not be read.",
   );
   expect(screen.getByText("Result version: Interim")).toBeDefined();
   expect(screen.getByText("At least 42 bytes")).toBeDefined();
@@ -3032,7 +3033,7 @@ test("F02: a failed switch retains the interim totals and can be retried after f
   finish();
   await screen.findByText("Result version: Final with scan gaps");
   expect(document.activeElement).toBe(browse);
-  expect(screen.queryByText("Could not read newer totals.")).toBeNull();
+  expect(screen.queryByText("Analysis could not be read.")).toBeNull();
 });
 
 test("F02 IF-23: a contradictory result at the same lineage sequence cannot replace a publication", async () => {
@@ -3444,6 +3445,130 @@ test("F02 IF-05: pages within the displayed result and discards a late page afte
   ]);
 });
 
+test("F02 FR3.HD1.gui-web.DD1: a newer result keeps the pinned issue list until the user switches", async () => {
+  let published = false;
+  const { client, calls, listeners } = fixture({
+    lineageId: "lineage",
+    readStatus: (base) => ({
+      ...base,
+      state: "running",
+      resultVersion: null,
+      scanResult: {
+        lineageId: "lineage",
+        sequence: published ? 2 : 1,
+        resultVersion: published ? "final" : "part",
+      },
+    }),
+    readTotals: (result) => ({ ...result, completeness: "partial" }),
+    readFailures: ({ resultVersion }) => ({
+      resultVersion,
+      totalCount: 1,
+      rows: [
+        {
+          kind: "unread_range",
+          stage: "enumerate",
+          pathRef: { rootIndex: 0, relative: [] },
+          reasonKey: "scan.path_denied",
+          displayPath: "C:\\" + resultVersion,
+        },
+      ],
+    }),
+  });
+  const failureReads = () =>
+    calls
+      .filter(({ name }) => name === "scan.failures")
+      .map(({ body }) => body);
+  await startFixtureScan(client);
+  fireEvent.click(
+    await screen.findByRole("button", { name: "View scan issues" }),
+  );
+  await screen.findByText("C:\\part");
+  published = true;
+  notifyResult(listeners, "results.version_changed", {
+    lineageId: "lineage",
+    sequence: 2,
+  });
+  const latest = await screen.findByRole("button", {
+    name: "Show latest result",
+  });
+  expect(screen.getByText("C:\\part")).toBeDefined();
+  expect(failureReads()).toEqual([{ resultVersion: "part" }]);
+  fireEvent.click(latest);
+  await screen.findByText("C:\\final");
+  expect(screen.queryByText("C:\\part")).toBeNull();
+  expect(failureReads()).toEqual([
+    { resultVersion: "part" },
+    { resultVersion: "final" },
+  ]);
+});
+
+test("F02 NFR5.HD1.gui-web.DD1: a hidden window pauses status reads and catches up once when shown", async () => {
+  let hidden = false;
+  Object.defineProperty(document, "hidden", {
+    configurable: true,
+    get: () => hidden,
+  });
+  const polls: (() => void)[] = [];
+  const scheduleInterval = window.setInterval.bind(window);
+  vi.spyOn(window, "setInterval").mockImplementation(((
+    handler: TimerHandler,
+    timeout?: number,
+    ...args: unknown[]
+  ) => {
+    if (timeout !== 500) return scheduleInterval(handler, timeout, ...args);
+    polls.push(handler as () => void);
+    return 0;
+  }) as typeof window.setInterval);
+  try {
+    const { client, calls, listeners } = fixture({
+      readStatus: (base) => ({
+        ...base,
+        state: "running",
+        resultVersion: null,
+      }),
+    });
+    await startFixtureScan(client);
+    await screen.findByText("Scanning");
+    const reads = () => calls.filter(({ name }) => name === "job.get").length;
+    const poll = () => act(async () => polls.at(-1)?.());
+    await poll();
+    await waitFor(() => expect(reads()).toBeGreaterThan(1));
+    const before = reads();
+    const frames: FrameRequestCallback[] = [];
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) =>
+      frames.push(callback),
+    );
+    hidden = true;
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await poll();
+    await act(async () => {
+      for (const listener of listeners)
+        listener({
+          topic: "job.progress",
+          contractVersion: 1,
+          jobRef: "scan",
+          seq: 20,
+          occurredAt: timestamp,
+          body: { sequence: 20 },
+        });
+    });
+    expect(frames).toHaveLength(0);
+    expect(reads()).toBe(before);
+    hidden = false;
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await waitFor(() => expect(reads()).toBe(before + 1));
+    expect(frames).toHaveLength(0);
+    await poll();
+    await waitFor(() => expect(reads()).toBe(before + 2));
+  } finally {
+    delete (document as { hidden?: boolean }).hidden;
+  }
+});
+
 test("ANFR5: the analysis workspace exposes labelled controls and valid ARIA roles", async () => {
   const { client } = fixture();
   const { container } = render(<App analysis={client} />);
@@ -3812,7 +3937,7 @@ test.each(["finished", "rejected"] as const)(
       notifyResult(listeners, "job.resync_required", {});
       await screen.findByText("Scan finished");
     } else {
-      await screen.findByText("Scan was not started.");
+      await screen.findByText("The operation failed");
     }
 
     expect(screen.queryByText("Checking dropped folder…")).toBeNull();

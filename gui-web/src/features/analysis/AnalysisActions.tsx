@@ -8,73 +8,11 @@ import {
   Readout,
   Text,
 } from "../../components";
+import { scopeNoticeText } from "../../ipc";
 import type { JobState, ScopeDraft, ScopeReview } from "../../ipc";
 import type { ScanControl } from "../../state/analysis-scan";
 import { useLocaleText } from "../../i18n/presentation";
 import type { LocaleText } from "../../i18n/presentation";
-
-export function scopeNoticeText(
-  key: string,
-  text: LocaleText = (messageKey, fallback) => fallback || messageKey,
-): string {
-  switch (key) {
-    case "scope.overlap_merged":
-      return text(
-        "ui.analysis.scope_overlap",
-        "Duplicate paths were combined.",
-      );
-    case "scope.alias_merged":
-      return text(
-        "ui.analysis.scope_alias",
-        "Paths to the same location were combined.",
-      );
-    case "scope.descendant_absorbed":
-      return text(
-        "ui.analysis.scope_descendant",
-        "A selected folder is already inside another selected folder.",
-      );
-    case "scope.correspondence_unknown":
-      return text(
-        "ui.analysis.scope_uncertain",
-        "Some path relationships could not be confirmed.",
-      );
-    case "scope.excluded":
-      return text(
-        "ui.analysis.scope_excluded",
-        "An exclusion removed a selected folder from the scan.",
-      );
-    case "scope.exclusion_ineffective":
-      return text(
-        "ui.analysis.scope_exclusion_outside",
-        "An exclusion falls outside the selected folders.",
-      );
-    case "scan.path_vanished":
-      return text(
-        "ui.analysis.scope_missing",
-        "A selected folder no longer exists. Check the path and review the scope again.",
-      );
-    case "scan.path_denied":
-      return text(
-        "ui.analysis.scope_denied",
-        "Access to a selected folder was denied. Check its permissions and review the scope again.",
-      );
-    case "scan.disconnected":
-      return text(
-        "ui.analysis.scope_disconnected",
-        "A selected drive was disconnected. Reconnect it and review the scope again.",
-      );
-    case "path.unresolvable":
-      return text(
-        "ui.analysis.scope_unresolvable",
-        "A selected folder path could not be resolved. Check the path and review the scope again.",
-      );
-    default:
-      return text(
-        "ui.analysis.scope_needs_review",
-        "A selected path needs attention. Check the folder paths and review the scope again.",
-      );
-  }
-}
 
 function ReviewNotices({
   review,
