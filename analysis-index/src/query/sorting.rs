@@ -85,7 +85,18 @@ pub(super) fn prepare<'a>(
 
 /// Missing values always follow known values; fully tied rows use native path and item number.
 pub(super) fn compare(a: &Row, b: &Row, sorts: &[Prepared<'_>]) -> Ordering {
-    for ((left, right), sort) in a.keys.iter().zip(b.keys.iter()).zip(sorts) {
+    compare_values(a.keys.iter(), b.keys.iter(), sorts)
+        .then_with(|| a.path.cmp(&b.path))
+        .then_with(|| a.item_no.cmp(&b.item_no))
+}
+
+/// Orders two key lists by the selected sorts; missing values follow known values.
+fn compare_values<'v>(
+    a: impl Iterator<Item = &'v SortValue>,
+    b: impl Iterator<Item = &'v SortValue>,
+    sorts: &[Prepared<'_>],
+) -> Ordering {
+    for ((left, right), sort) in a.zip(b).zip(sorts) {
         let order = match (left, right) {
             (SortValue::Missing, SortValue::Missing) => Ordering::Equal,
             (SortValue::Missing, _) => Ordering::Greater,
@@ -97,7 +108,40 @@ pub(super) fn compare(a: &Row, b: &Row, sorts: &[Prepared<'_>]) -> Ordering {
             return order;
         }
     }
-    a.path.cmp(&b.path).then_with(|| a.item_no.cmp(&b.item_no))
+    Ordering::Equal
+}
+
+/// Sort keys of one record, in the order of the selected sorts.
+pub(crate) struct OrderKeys(Vec<SortValue>);
+
+/// Sort strategies resolved once for ordering records that are not rows of a query result.
+/// A caller that needs a total order supplies its own final tie-break.
+pub(crate) struct Order<'a> {
+    prepared: Vec<Prepared<'a>>,
+}
+
+impl<'a> Order<'a> {
+    /// Resolves each exact registered revision; an unknown strategy is rejected.
+    pub(crate) fn resolve(registry: &Registry, sorts: &[Sort<'a>]) -> Result<Self, Error> {
+        Ok(Self {
+            prepared: prepare(registry, sorts)?,
+        })
+    }
+
+    /// Evaluates every selected sort key for one record.
+    pub(crate) fn keys(&self, record: &Record<'_>) -> OrderKeys {
+        OrderKeys(
+            self.prepared
+                .iter()
+                .map(|sort| (sort.evaluate)(record, sort.spec.basis))
+                .collect(),
+        )
+    }
+
+    /// Compares two key lists; missing values always follow known values.
+    pub(crate) fn compare(&self, a: &OrderKeys, b: &OrderKeys) -> Ordering {
+        compare_values(a.0.iter(), b.0.iter(), &self.prepared)
+    }
 }
 
 /// Avoids starting a potentially expensive sort after cancellation and checks again before returning rows.
