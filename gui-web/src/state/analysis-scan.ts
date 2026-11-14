@@ -55,6 +55,11 @@ function controlProblem(
     : { kind: "control_rejected", command };
 }
 
+/** Whether the document is hidden, so polling and frame work can pause. */
+function documentHidden(): boolean {
+  return typeof document !== "undefined" && document.hidden;
+}
+
 type ControlView = {
   jobRef: string;
   command?: ScanControl;
@@ -151,6 +156,7 @@ export function useScanResult(
     let staleFailure: AnalysisError | undefined;
     let statusReadFailed = false;
     let statusFrame: number | undefined;
+    let hiddenWork = false;
 
     function clearControl() {
       pending = undefined;
@@ -410,6 +416,11 @@ export function useScanResult(
     // Notifications invalidate status. Read it once for all events in this frame.
     function scheduleStatusRead(resultOnly = false) {
       scheduledResult ||= resultOnly;
+      // A hidden window renders no frames; catch up when it becomes visible.
+      if (documentHidden()) {
+        hiddenWork = true;
+        return;
+      }
       if (statusFrame !== undefined) return;
       statusFrame = window.requestAnimationFrame(() => {
         statusFrame = undefined;
@@ -417,6 +428,26 @@ export function useScanResult(
         scheduledResult = false;
         void refresh(readResult);
       });
+    }
+
+    function pollDue() {
+      return baseline.ready() && (!terminal || terminalPending);
+    }
+
+    function visibilityChanged() {
+      if (documentHidden()) {
+        if (statusFrame === undefined) return;
+        window.cancelAnimationFrame(statusFrame);
+        statusFrame = undefined;
+        hiddenWork = true;
+        return;
+      }
+      const due = hiddenWork || pollDue();
+      hiddenWork = false;
+      if (!due || statusFrame !== undefined) return;
+      const readResult = scheduledResult;
+      scheduledResult = false;
+      void refresh(readResult);
     }
 
     const baseline = watchJobBaseline(
@@ -440,13 +471,14 @@ export function useScanResult(
     });
     const timer = window.setInterval(() => {
       if (
-        baseline.ready() &&
+        !documentHidden() &&
         !inFlight &&
         statusFrame === undefined &&
-        (!terminal || terminalPending)
+        pollDue()
       )
         void refresh();
     }, 500);
+    document.addEventListener("visibilitychange", visibilityChanged);
     void refresh();
     return () => {
       finishSwitch();
@@ -454,6 +486,7 @@ export function useScanResult(
       showLatest.current = undefined;
       issueControl.current = undefined;
       window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", visibilityChanged);
       if (statusFrame !== undefined) window.cancelAnimationFrame(statusFrame);
       baseline.dispose();
       unsubscribe();

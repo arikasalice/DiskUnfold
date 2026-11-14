@@ -3502,6 +3502,73 @@ test("F02 FR3.HD1.gui-web.DD1: a newer result keeps the pinned issue list until 
   ]);
 });
 
+test("F02 NFR5.HD1.gui-web.DD1: a hidden window pauses status reads and catches up once when shown", async () => {
+  let hidden = false;
+  Object.defineProperty(document, "hidden", {
+    configurable: true,
+    get: () => hidden,
+  });
+  const polls: (() => void)[] = [];
+  const scheduleInterval = window.setInterval.bind(window);
+  vi.spyOn(window, "setInterval").mockImplementation(((
+    handler: TimerHandler,
+    timeout?: number,
+    ...args: unknown[]
+  ) => {
+    if (timeout !== 500) return scheduleInterval(handler, timeout, ...args);
+    polls.push(handler as () => void);
+    return 0;
+  }) as typeof window.setInterval);
+  try {
+    const { client, calls, listeners } = fixture({
+      readStatus: (base) => ({
+        ...base,
+        state: "running",
+        resultVersion: null,
+      }),
+    });
+    await startFixtureScan(client);
+    await screen.findByText("Scanning");
+    const reads = () => calls.filter(({ name }) => name === "job.get").length;
+    const poll = () => act(async () => polls.at(-1)?.());
+    await poll();
+    await waitFor(() => expect(reads()).toBeGreaterThan(1));
+    const before = reads();
+    const frames: FrameRequestCallback[] = [];
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) =>
+      frames.push(callback),
+    );
+    hidden = true;
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await poll();
+    await act(async () => {
+      for (const listener of listeners)
+        listener({
+          topic: "job.progress",
+          contractVersion: 1,
+          jobRef: "scan",
+          seq: 20,
+          occurredAt: timestamp,
+          body: { sequence: 20 },
+        });
+    });
+    expect(frames).toHaveLength(0);
+    expect(reads()).toBe(before);
+    hidden = false;
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await waitFor(() => expect(reads()).toBe(before + 1));
+    expect(frames).toHaveLength(0);
+    await poll();
+    await waitFor(() => expect(reads()).toBe(before + 2));
+  } finally {
+    delete (document as { hidden?: boolean }).hidden;
+  }
+});
+
 test("ANFR5: the analysis workspace exposes labelled controls and valid ARIA roles", async () => {
   const { client } = fixture();
   const { container } = render(<App analysis={client} />);
