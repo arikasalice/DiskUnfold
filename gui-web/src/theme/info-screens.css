@@ -6,7 +6,6 @@
   gap: var(--du-space-3);
   min-inline-size: 0;
   overflow-wrap: normal;
-  word-break: keep-all;
 }
 
 /* Only identifiers (the digest, paths, commit and source values) may break

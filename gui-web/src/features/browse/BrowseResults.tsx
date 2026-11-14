@@ -5,10 +5,12 @@ import {
   BrowseGrid,
   ItemActions,
   ActionFeedback,
+  Moment,
   NameText,
   Notice,
   RowAction,
   Text,
+  Unbroken,
 } from "../../components";
 import type { BrowseGridFocus, ItemAction } from "../../components";
 import type {
@@ -23,7 +25,7 @@ import type { ScanPriority } from "../../state/scan-priority";
 import { browseDisplayName, rowKey } from "./browse-display";
 import { formatByteUnit } from "../../i18n/bytes";
 import type { SizeDisplay } from "../../i18n/bytes";
-import { useTimestampText } from "../../i18n/regional-format";
+import { useTimestampParts } from "../../i18n/regional-format";
 import { useLocaleText } from "../../i18n/presentation";
 import { SIZE_UNIT_RULES } from "../../ipc";
 import { useBrowsePaging } from "./use-browse-paging";
@@ -216,7 +218,7 @@ export function BrowseResults({
   priority?: ScanPriority | undefined;
 }) {
   const text = useLocaleText();
-  const timestamp = useTimestampText();
+  const timestamp = useTimestampParts();
   const columns = [
     text("ui.browse.column_name", "Name"),
     text("ui.browse.column_type", "Type"),
@@ -508,15 +510,22 @@ export function BrowseResults({
                       )
                     : text("ui.browse.type_unavailable", "Unavailable")}
           </Text>,
-          <Text>{size(row.logicalSize, display, text)}</Text>,
-          <Text>{size(row.allocatedSize, display, text)}</Text>,
+          <Text>
+            <Unbroken>{size(row.logicalSize, display, text)}</Unbroken>
+          </Text>,
+          <Text>
+            <Unbroken>{size(row.allocatedSize, display, text)}</Unbroken>
+          </Text>,
           <Text>
             {row.modifiedAt.state === "present"
-              ? timestamp(Date.parse(row.modifiedAt.value), () =>
-                  row.modifiedAt.state === "present"
-                    ? row.modifiedAt.value
-                    : "",
-                )
+              ? (() => {
+                  const modified = row.modifiedAt.value;
+                  return (
+                    <Moment
+                      {...timestamp(Date.parse(modified), () => modified)}
+                    />
+                  );
+                })()
               : row.modifiedAt.state === "absent"
                 ? text("ui.browse.not_recorded", "Not recorded")
                 : text("ui.browse.unavailable", "Unavailable")}

@@ -35,6 +35,5 @@
   box-shadow: var(--du-shadow);
   font-size: 13px;
   font-weight: 400;
-  word-break: keep-all;
   overflow-wrap: anywhere;
 }

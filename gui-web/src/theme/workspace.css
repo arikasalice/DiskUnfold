@@ -10,6 +10,13 @@ body {
   color: var(--du-text);
   font-size: 14px;
   line-height: 1.5;
+  /* The default for all text, including menus, popovers and dialogs drawn
+     under body: Korean breaks between words instead of between any two
+     syllables, and only a word longer than its line breaks inside it.
+     break-word leaves the min-content width of tables and flex items as it
+     was; paths and identifiers keep their own anywhere rules. */
+  word-break: keep-all;
+  overflow-wrap: break-word;
 }
 
 .du-app {
@@ -121,17 +128,10 @@ body {
   color: var(--du-muted);
 }
 
-/* Descriptions, reasons and notices are prose: Korean breaks between words
-   instead of between any two syllables, and only a word longer than the line
-   breaks inside it. Paths and identifiers keep their own rules. */
-.du-text--muted,
-.du-notice,
-.du-field [slot="description"],
-.du-field [slot="errorMessage"],
-.du-choice__description,
-.du-readout__note {
-  word-break: keep-all;
-  overflow-wrap: anywhere;
+/* A size with its unit or a date with its time: one piece that never wraps
+   inside. */
+.du-unbroken {
+  white-space: nowrap;
 }
 
 .du-text--eyebrow {
