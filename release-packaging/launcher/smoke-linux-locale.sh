@@ -225,8 +225,10 @@ def assert_showing(node, description):
 
 
 def visible_window_ids():
+    # The page title names the screen ("DiskUnfold — Startup and privacy") and the native window
+    # caption follows it (F15), so match the app name with or without a screen label.
     result = run(
-        ["xdotool", "search", "--onlyvisible", "--name", "^DiskUnfold$"],
+        ["xdotool", "search", "--onlyvisible", "--name", "^DiskUnfold($| )"],
         timeout=5,
         check=False,
     )
@@ -260,7 +262,7 @@ def app_frame_count():
     return sum(
         1
         for node in tree_snapshot()
-        if role_name(node) in ("frame", "window") and node_name(node) == "DiskUnfold"
+        if role_name(node) in ("frame", "window") and node_name(node).startswith("DiskUnfold")
     )
 
 
@@ -344,6 +346,23 @@ def selector_value(language, field, node):
 
 def window_activate(window_id):
     run(["xdotool", "windowactivate", "--sync", window_id], timeout=5)
+
+
+def reveal(language, field, proc=None):
+    """Moves focus to a dialog control, as Tab does, and requires it to be showing.
+
+    The dialog body scrolls when the styled page is taller than the window, as it is at 200% app
+    scale, so a control outside the visible part counts once focus scrolls it into view.
+    """
+    windows = visible_window_ids()
+    if windows:
+        window_activate(windows[0])
+
+    def focused_and_showing():
+        control = combo(language, field, proc)
+        return control if control.queryComponent().grabFocus() and is_showing(control) else None
+
+    return wait_for(f"the {field} control to scroll into view", focused_and_showing, proc, seconds=5)
 
 
 def keyboard_select(window_id, selector, edge):
@@ -496,16 +515,38 @@ def assert_no_duplicate_instance(proc, window_id):
         start_new_session=True,
     )
     processes.append(duplicate)
+    duplicate.log_path = duplicate_log.name
     try:
         duplicate.wait(timeout=10)
     except subprocess.TimeoutExpired as exc:
-        duplicate.terminate()
-        raise AssertionError("a second invocation remained running beside the first instance") from exc
+        # F15 IF-08: a pre-window startup error is a modal dialog that stays until the user
+        # acknowledges it. The second invocation reports "already running" that way.
+        try:
+            acknowledge = wait_for(
+                "the duplicate invocation's error dialog OK button",
+                lambda: next(iter(find_named("OK", ("push button", "button"))), None),
+                duplicate,
+                seconds=10,
+            )
+            activate(acknowledge)
+            duplicate.wait(timeout=10)
+        except (TimeoutError, subprocess.TimeoutExpired):
+            duplicate.terminate()
+            raise AssertionError(
+                "a second invocation remained running beside the first instance"
+            ) from exc
     duplicate_log.close()
     if proc.poll() is not None:
         raise AssertionError("the first app instance exited when a second invocation was started")
-    if visible_window_ids() != [window_id]:
-        raise AssertionError("a second visible DiskUnfold window appeared for a duplicate invocation")
+    # The error dialog's window leaves the screen a moment after the process exits.
+    deadline = time.monotonic() + 5
+    while visible_window_ids() != [window_id] and time.monotonic() < deadline:
+        time.sleep(0.2)
+    remaining = visible_window_ids()
+    if remaining != [window_id]:
+        raise AssertionError(
+            f"a second visible DiskUnfold window appeared for a duplicate invocation: {remaining}"
+        )
     print(
         f"PASS: duplicate invocation exited with status {duplicate.returncode}; exactly one native app window remained"
     )
@@ -558,9 +599,8 @@ def main():
     open_locale("en", third)
     scale = combo("en", "scale")
     keyboard_select(window, scale, "End")
-    language_control = combo("en", "language")
-    assert_showing(language_control, "display-language control at 200% app scale")
-    scale = combo("en", "scale")
+    reveal("en", "language", third)
+    scale = reveal("en", "scale", third)
     selected_scale = selector_value("en", "scale", scale)
     if selected_scale != "200%":
         raise AssertionError(f"App scale selector did not report 200% after keyboard selection: {selected_scale}")
