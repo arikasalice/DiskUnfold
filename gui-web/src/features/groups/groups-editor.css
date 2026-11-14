@@ -17,6 +17,11 @@
   container: du-groups-editor / inline-size;
 }
 
+/* The border above already marks the editor; taking the focus by script adds no second frame. */
+.du-groups-editor:focus {
+  outline: none;
+}
+
 .du-groups-editor__head {
   display: flex;
   flex-wrap: wrap;
@@ -129,8 +134,8 @@
 
 .du-groups-manage {
   gap: 8px;
-  padding-block-start: 12px;
-  border-block-start: 1px solid var(--du-border);
+  padding-block-end: 12px;
+  border-block-end: 1px solid var(--du-border);
 }
 
 .du-groups-editor__actions {

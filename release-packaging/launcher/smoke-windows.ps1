@@ -1124,8 +1124,11 @@ function Get-RowCounts($names, $start, $stops) {
   }
   @($names[$index..($end - 1)] | Where-Object { $_ -match '^\d+ items?$' })
 }
-# The count a category tab shows: the first number after the tab's name.
+# The count a category tab shows. The categories are a tab list ("Categories", UIA Tab) of tab
+# items named by their label; the count is the first number after the item's name, or part of
+# the name itself ("Overlaps 2") if the host composes the name from the tab's content.
 function Get-TabCount($names, $tab) {
+  foreach ($candidate in $names) { if ($candidate -match ('^' + [regex]::Escape($tab) + '\s+(\d+)$')) { return [int]$Matches[1] } }
   $index = [Array]::IndexOf($names, $tab)
   if ($index -lt 0) { throw "Category '$tab' was not found in: $($names -join ' / ')" }
   foreach ($candidate in $names[($index + 1)..($names.Count - 1)]) { if ($candidate -match '^\d+$') { return [int]$candidate } }
@@ -1207,8 +1210,10 @@ function Test-VirtualGroups {
     # No saved rules yet: "Edit rules" is the next step and "Back to folders" is drawn once.
     $null = Wait-UI 'no saved rules' { Find-UI 'No rules are saved yet.' $null }
     if ((Get-ButtonCount 'Back to folders') -ne 1) { throw "Expected one 'Back to folders' button, found $(Get-ButtonCount 'Back to folders')" }
+    # With no saved rules there is nothing to classify: "Edit rules" is the only next step.
+    if (Find-UI 'Start classifying' $button) { throw "'Start classifying' was offered although no rules are saved" }
     $null = Save-SmokeCapture '03-no-saved-rules'
-    'F36 native no-rules screen: "No rules are saved yet.", one "Back to folders"'
+    'F36 native no-rules screen: "No rules are saved yet.", one "Back to folders", no "Start classifying"'
 
     Invoke-UI (Wait-Enabled 'Edit rules' $true)
     $null = Wait-UI 'rule editor' { Find-UI 'Edit group rules' $null }

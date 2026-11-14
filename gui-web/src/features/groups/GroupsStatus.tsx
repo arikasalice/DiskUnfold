@@ -17,8 +17,8 @@ type Props = {
   snapshot: GroupsSnapshot;
   onClassify: () => void;
   onCancel: () => void;
-  /** No rules are saved: the rule editor is the next step, so starting is not emphasized. */
-  quietStart?: boolean;
+  /** No rules are saved: there is nothing to classify, so no start action is offered. */
+  noRules?: boolean;
 };
 
 function staleMessage(snapshot: GroupsSnapshot, text: LocaleText): string {
@@ -91,7 +91,7 @@ function Banner({
   snapshot,
   onClassify,
   onCancel,
-  quietStart = false,
+  noRules = false,
 }: Props): ReactNode {
   const text = useLocaleText();
   const again = (
@@ -101,11 +101,9 @@ function Banner({
   );
   switch (snapshot.phase) {
     case "idle":
-      return (
-        <Action
-          {...(quietStart ? {} : { variant: "primary" as const })}
-          onPress={onClassify}
-        >
+      // Without rules the only next step is "Edit rules", which the rules line offers.
+      return noRules ? null : (
+        <Action variant="primary" onPress={onClassify}>
           {text("ui.groups.start", "Start classifying")}
         </Action>
       );

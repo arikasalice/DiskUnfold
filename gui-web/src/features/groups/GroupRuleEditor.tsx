@@ -278,6 +278,7 @@ export function GroupRuleEditorArea({
         </div>
       )}
       <div inert={saving || undefined} className="du-groups-editor__body">
+        <GroupList state={state} editor={editor} />
         {selected ? (
           <RuleFields
             rule={selected}
@@ -300,7 +301,6 @@ export function GroupRuleEditorArea({
           totals={totals}
           display={display}
         />
-        <GroupList state={state} editor={editor} />
       </div>
       <div className="du-groups-editor__actions">
         <Action isDisabled={saving} onPress={() => editor.requestClose()}>

@@ -67,21 +67,25 @@ function ResultContext({
   );
 }
 
-/** Focus goes to the editor when it opens and back to the screen when it closes. */
+/**
+ * Focus goes to the screen title when the screen opens, to the editor when it
+ * opens and back to the title when it closes. The title and the editor take
+ * the focus without a frame around the screen.
+ */
 function useEditorFocus(
   editing: boolean,
-  root: RefObject<HTMLElement | null>,
+  title: RefObject<HTMLElement | null>,
   editorArea: RefObject<HTMLElement | null>,
 ) {
   const wasEditing = useRef(false);
   useEffect(() => {
-    root.current?.focus();
-  }, [root]);
+    title.current?.focus();
+  }, [title]);
   useEffect(() => {
     if (editing && !wasEditing.current) editorArea.current?.focus();
-    if (!editing && wasEditing.current) root.current?.focus();
+    if (!editing && wasEditing.current) title.current?.focus();
     wasEditing.current = editing;
-  }, [editing, root, editorArea]);
+  }, [editing, title, editorArea]);
 }
 
 function Screen({
@@ -110,14 +114,14 @@ function Screen({
     tab: "groups",
     groupId: undefined,
   });
-  const root = useRef<HTMLDivElement>(null);
+  const title = useRef<HTMLHeadingElement>(null);
   const editorArea = useRef<HTMLElement>(null);
   const membersRef = useRef<HTMLElement>(null);
   const editing = editor.phase !== "viewing";
   const summary = snapshot.summary;
   const classificationRef = summary?.classificationRef;
   const resultVersion = summary?.resultVersion;
-  useEditorFocus(editing, root, editorArea);
+  useEditorFocus(editing, title, editorArea);
   // The table sizes and the editor's applied preview both read these totals.
   useEffect(() => {
     if (classificationRef !== undefined && resultVersion !== undefined)
@@ -138,14 +142,13 @@ function Screen({
   const noRules = snapshot.ruleset?.rules.length === 0;
   return (
     <div
-      ref={root}
-      tabIndex={-1}
       className="du-groups"
       onKeyDown={onKeyDown}
       data-editing={editing || undefined}
     >
       <ReviewSurface
         title={text("ui.groups.title", "Group by my rules")}
+        titleRef={title}
         description={text(
           "ui.groups.subtitle",
           "Virtual groups do not change where files are.",
@@ -178,7 +181,7 @@ function Screen({
         )}
         <GroupsStatus
           snapshot={snapshot}
-          quietStart={noRules}
+          noRules={noRules}
           onClassify={() => void session.controller.classify()}
           onCancel={() => void session.controller.cancel()}
         />

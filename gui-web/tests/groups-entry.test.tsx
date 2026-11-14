@@ -186,14 +186,14 @@ test("F36 FR2: Back to folders appears once in the head, and only Member list is
   expect(labels).toEqual(["Member list"]);
 });
 
-test("F36 FR3: with no saved rule the next step is Edit rules, and starting is not the emphasized action", async () => {
+test("F36 #29 design review (1): with no saved rule the only next step is Edit rules and Start classifying is not offered", async () => {
   mount({ "group.rules.get": () => ruleset({ rules: [] }) });
   await screen.findByText("No rules are saved yet.");
   const edit = screen.getByRole("button", { name: "Edit rules" });
   expect(edit.className).toContain("du-action--primary");
   expect(
-    screen.getByRole("button", { name: "Start classifying" }).className,
-  ).not.toContain("du-action--primary");
+    screen.queryByRole("button", { name: "Start classifying" }),
+  ).toBeNull();
   fireEvent.click(edit);
   await screen.findByRole("region", { name: "Edit group rules" });
   expect(screen.getByText("There are no groups. Add one.")).toBeDefined();

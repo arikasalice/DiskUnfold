@@ -65,18 +65,32 @@ export function BrandMark({ src }: { src: string }) {
   );
 }
 
+/**
+ * A heading of the page outline. `ref` with `programmaticFocus` lets a screen
+ * move the focus to its title when it opens; that focus stop is reachable only
+ * by script and draws no frame around the text.
+ */
 export function Heading({
   level,
   children,
   id,
+  ref,
+  programmaticFocus = false,
 }: {
   level: 1 | 2 | 3;
   children: ReactNode;
   id?: string;
+  ref?: Ref<HTMLHeadingElement>;
+  programmaticFocus?: boolean;
 }) {
   const Tag = `h${level}` as const;
   return (
-    <Tag id={id} className={`du-heading du-heading--${level}`}>
+    <Tag
+      id={id}
+      ref={ref}
+      tabIndex={programmaticFocus ? -1 : undefined}
+      className={`du-heading du-heading--${level}`}
+    >
       {children}
     </Tag>
   );
