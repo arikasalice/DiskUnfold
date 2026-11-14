@@ -178,7 +178,9 @@ export function App({
           <InfoEntry client={client} fallbackClient={infoClient} />
           <BrowseReturn
             visible={controls.backVisible}
-            autoFocus={!restoreVisualizationFocus.current}
+            autoFocus={
+              !restoreVisualizationFocus.current && !groups.restoringFocus()
+            }
             onPress={() => {
               restoreBrowseFocus.current = true;
               visualization.invalidate();
