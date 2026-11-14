@@ -49,7 +49,7 @@ impl Channels {
         };
         if seq > channel.last || position.is_none() {
             if let Some((_, handle)) = channel.handle.take() {
-                cancel(&handle, runtime);
+                release(&handle, &channels, runtime);
             }
             channel.last = seq;
         }
@@ -87,7 +87,8 @@ impl Channels {
         }
     }
 
-    /// Cancels the channel's work for this exact sequence.
+    /// Cancels the channel's work for this exact sequence. A job that another view
+    /// still waits for keeps running; only this view's interest is released.
     pub(super) fn cancel(
         &self,
         view: &Id,
@@ -98,14 +99,28 @@ impl Channels {
         let Some(channel) = channels.iter_mut().find(|channel| &channel.view == view) else {
             return Ok(GroupCancelOutcome::NoEffect);
         };
-        match channel.handle.take() {
-            Some((known, handle)) if known == seq => Ok(cancel(&handle, runtime)),
+        let handle = match channel.handle.take() {
+            Some((known, handle)) if known == seq => handle,
             other => {
                 channel.handle = other;
-                Ok(GroupCancelOutcome::NoEffect)
+                return Ok(GroupCancelOutcome::NoEffect);
             }
-        }
+        };
+        Ok(release(&handle, &channels, runtime))
     }
+}
+
+/// Cancels released work unless a channel in `others` holds the same job, so that views
+/// sharing one deduplicated job do not cancel each other.
+fn release(handle: &Handle, others: &[Channel], runtime: &JobRuntime) -> GroupCancelOutcome {
+    if let Handle::Job(job) = handle
+        && others
+            .iter()
+            .any(|other| matches!(&other.handle, Some((_, Handle::Job(known))) if known == job))
+    {
+        return GroupCancelOutcome::Accepted;
+    }
+    cancel(handle, runtime)
 }
 
 fn cancel(handle: &Handle, runtime: &JobRuntime) -> GroupCancelOutcome {

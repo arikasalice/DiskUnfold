@@ -27,10 +27,9 @@ mod summary;
 mod totals;
 
 pub use classification::{Classification, Reconciliation};
-pub use classify::{Control, Parallelism, classify_scope};
+pub use classify::{Control, MAX_DECISIONS, Parallelism, classify_scope};
 pub use explain::{NodeDecision, RuleExplanation};
 pub use page::{Category, Page, PageRow};
-pub use scope::scope_file_count;
 pub use store::ClassificationStore;
 pub use summary::{GroupCounts, Summary};
 pub use totals::Totals;
@@ -90,6 +89,8 @@ pub enum Error {
     InvalidRoot,
     /// A rule exceeds the condition limits.
     InvalidRule(query::Error),
+    /// Files times rules exceeds [`MAX_DECISIONS`]; nothing was evaluated.
+    ScopeTooLarge,
     /// A requested sort uses a strategy the registry does not hold.
     InvalidSort(query::Error),
     /// A group index or category refers to a rule that does not exist.
