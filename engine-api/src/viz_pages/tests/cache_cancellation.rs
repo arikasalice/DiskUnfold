@@ -135,6 +135,7 @@ fn cancelled_during_cached_source_admission_preserves_existing_model() -> Result
         Request {
             selected_revision: &parent.result_version,
             requested_revision: None,
+            channel: crate::api::Channel::Gui,
             parent,
             basis: SizeBasis::Logical,
             bounds: Rect {

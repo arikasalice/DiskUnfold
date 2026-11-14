@@ -3,7 +3,10 @@ use du_core_contracts::{
     Id, ItemRef, PathBytes, PathEncoding, Timestamp,
     result::{ResultCompleteness, ResultNativePath, ResultScopeRoot},
 };
-use du_engine_api::current_analysis::{Error, admit_selected};
+use du_engine_api::{
+    api::Channel,
+    current_analysis::{Error, admit_selected},
+};
 
 fn id(n: u32) -> Result<Id, String> {
     Id::parse(&format!("018f0000-0000-7000-8000-{n:012x}"))
@@ -61,7 +64,7 @@ fn publish_empty_scope(
 fn selected_scope_is_pinned_without_using_other_lineages_latest() -> Result<(), String> {
     let store = IngestSink::default();
     assert_eq!(
-        admit_selected(&store, &id(3)?, None).err(),
+        admit_selected(&store, &id(3)?, None, Channel::Gui).err(),
         Some(Error::NoSource)
     );
     let a = store
@@ -72,27 +75,28 @@ fn selected_scope_is_pinned_without_using_other_lineages_latest() -> Result<(), 
         .map_err(|e| format!("{e:?}"))?;
     publish(&store, &a, id(2)?, id(3)?)?;
     publish(&store, &b, id(5)?, id(6)?)?;
-    let pinned = admit_selected(&store, &id(3)?, Some(&id(3)?)).map_err(|e| format!("{e:?}"))?;
+    let pinned = admit_selected(&store, &id(3)?, Some(&id(3)?), Channel::Gui)
+        .map_err(|e| format!("{e:?}"))?;
     assert_eq!(pinned.lineage(), &a);
     assert_eq!(pinned.scope_version(), &id(2)?);
     assert_eq!(pinned.result_version(), &id(3)?);
     assert_eq!(
-        admit_selected(&store, &id(3)?, Some(&id(6)?)).err(),
+        admit_selected(&store, &id(3)?, Some(&id(6)?), Channel::Gui).err(),
         Some(Error::StaleVersion)
     );
     assert_eq!(
-        admit_selected(&store, &id(3)?, Some(&id(2)?)).err(),
+        admit_selected(&store, &id(3)?, Some(&id(2)?), Channel::Gui).err(),
         Some(Error::StaleVersion)
     );
     publish(&store, &a, id(7)?, id(8)?)?;
     assert_eq!(
-        admit_selected(&store, &id(3)?, None).err(),
+        admit_selected(&store, &id(3)?, None, Channel::Gui).err(),
         Some(Error::StaleVersion)
     );
     assert_eq!(pinned.result_version(), &id(3)?);
     assert_eq!(pinned.scope_version(), &id(2)?);
     assert_eq!(
-        admit_selected(&store, &id(8)?, None)
+        admit_selected(&store, &id(8)?, None, Channel::Gui)
             .map_err(|e| format!("{e:?}"))?
             .lineage(),
         &a
@@ -109,7 +113,7 @@ fn unbound_legacy_version_is_not_claimed_as_current_analysis() -> Result<(), Str
         .seal(id(2)?, ResultCompleteness::Complete)
         .map_err(|e| format!("{e:?}"))?;
     assert_eq!(
-        admit_selected(&store, &id(2)?, None).err(),
+        admit_selected(&store, &id(2)?, None, Channel::Gui).err(),
         Some(Error::UnsupportedSource)
     );
     Ok(())
@@ -132,7 +136,7 @@ fn pinned_empty_scope_children_do_not_establish_observation_completeness() -> Re
             id(version_number)?,
             completeness,
         )?;
-        let source = admit_selected(&store, &id(version_number)?, None)
+        let source = admit_selected(&store, &id(version_number)?, None, Channel::Gui)
             .map_err(|error| format!("pin empty result: {error:?}"))?;
         let scope = ItemRef {
             result_version: source.result_version().clone(),

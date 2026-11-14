@@ -11,6 +11,7 @@ use du_core_contracts::{
 use crate::{
     api::{CallerCtx, Channel, EngineBuilder, UseCase},
     error::EngineError,
+    source_exposure::pin_current_for,
 };
 
 /// Registers local detail reads against the live scan publication point.
@@ -33,11 +34,13 @@ impl UseCase for Detail {
         Ok(())
     }
 
-    fn execute(&self, request: Self::Request, _: &CallerCtx) -> Result<BrowseDetail, EngineError> {
-        let version = self
-            .0
-            .pin_current(&request.result_version)
-            .map_err(reason)?;
+    fn execute(
+        &self,
+        request: Self::Request,
+        caller: &CallerCtx,
+    ) -> Result<BrowseDetail, EngineError> {
+        let version = pin_current_for(&self.0, &request.result_version, caller.channel)
+            .map_err(|error| reason(error.query()))?;
         project(&version, request)
     }
 }

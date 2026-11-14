@@ -21,6 +21,7 @@ use du_job_runtime::{JobEvent, JobEvents};
 use serde_json::json;
 
 mod assembly;
+mod sample_sink;
 pub(crate) mod scan_completion;
 mod shutdown;
 #[cfg(feature = "shutdown-test-support")]
@@ -65,6 +66,8 @@ fn utc_now_timestamp() -> Option<Timestamp> {
 
 #[cfg(test)]
 mod delivery_failure_tests;
+#[cfg(test)]
+mod sample_tests;
 #[cfg(test)]
 mod tests;
 

@@ -7,7 +7,7 @@ import {
   useState,
 } from "react";
 import { flushSync } from "react-dom";
-import type { Ref } from "react";
+import type { ReactNode, Ref } from "react";
 import { Action, Heading, Text } from "../../components";
 import { useLocaleText } from "../../i18n/presentation";
 import {
@@ -148,6 +148,7 @@ export function AnalysisPanel({
   onBrowse,
   onSizeBasisChange,
   browseTrigger,
+  startAlternative,
 }: {
   client: AnalysisClient;
   preferences: AnalysisDisplayPreferences;
@@ -155,6 +156,8 @@ export function AnalysisPanel({
   onSizeBasisChange?:
     ((version: string, basis: SizeBasisFilter) => void) | undefined;
   browseTrigger?: Ref<HTMLButtonElement>;
+  /** Another way to begin, such as the sample experience, offered before a scan starts. */
+  startAlternative?: ReactNode;
 }) {
   const targets = useTargets(client);
   const text = useLocaleText();
@@ -616,6 +619,7 @@ export function AnalysisPanel({
               primaryPathRef={firstPath}
             />
           </div>
+          {!resultActive && !recentOpen && startAlternative}
         </section>
         {!recentOpen && (
           <ScopeActions

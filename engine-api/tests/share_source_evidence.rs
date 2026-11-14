@@ -7,7 +7,10 @@ use du_core_contracts::{
     ByteSize, Id, ItemRef, PathBytes, PathEncoding, SizeAmount, SizeBasis, SizeEvidence, SizeValue,
     result::{ResultCompleteness, ResultNativePath, ResultScopeRoot},
 };
-use du_engine_api::current_analysis::{Error, admit_selected};
+use du_engine_api::{
+    api::Channel,
+    current_analysis::{Error, admit_selected},
+};
 
 fn id(n: u32) -> Result<Id, String> {
     Id::parse(&format!("018f0000-0000-7000-8000-{n:012x}"))
@@ -120,7 +123,7 @@ fn pinned_source_retains_its_own_item_path_and_volume_after_replacement() -> Res
         .bind_current_analysis("fixture", id(1)?)
         .map_err(|e| format!("{e:?}"))?;
     publish(&store, &lineage, id(2)?, id(3)?, 1, b"/first")?;
-    let old = admit_selected(&store, &id(3)?, None).map_err(|e| format!("{e:?}"))?;
+    let old = admit_selected(&store, &id(3)?, None, Channel::Gui).map_err(|e| format!("{e:?}"))?;
     let old_item = ItemRef {
         result_version: id(3)?,
         item_no: 1,
@@ -141,9 +144,9 @@ fn pinned_source_retains_its_own_item_path_and_volume_after_replacement() -> Res
     );
 
     publish(&store, &lineage, id(4)?, id(5)?, 2, b"/second")?;
-    let new = admit_selected(&store, &id(5)?, None).map_err(|e| format!("{e:?}"))?;
+    let new = admit_selected(&store, &id(5)?, None, Channel::Gui).map_err(|e| format!("{e:?}"))?;
     assert_eq!(
-        admit_selected(&store, &id(3)?, None).err(),
+        admit_selected(&store, &id(3)?, None, Channel::Gui).err(),
         Some(Error::StaleVersion)
     );
     assert_eq!(
@@ -188,7 +191,7 @@ fn pinned_source_retains_its_own_item_path_and_volume_after_replacement() -> Res
 fn pinned_item_sizes_keep_basis_specific_unknown_lower_bound_and_none() -> Result<(), String> {
     let store = IngestSink::default();
     let revision = publish_size_evidence(&store)?;
-    let source = admit_selected(&store, &revision, Some(&revision))
+    let source = admit_selected(&store, &revision, Some(&revision), Channel::Gui)
         .map_err(|error| format!("pin basis evidence: {error:?}"))?;
     let find_file = |name: &[u8]| {
         source

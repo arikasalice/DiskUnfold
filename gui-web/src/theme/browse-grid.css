@@ -311,3 +311,10 @@
     block-size: max(18rem, 50dvh);
   }
 }
+
+.du-browse-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--du-space-2) var(--du-space-3);
+}
