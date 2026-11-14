@@ -90,7 +90,9 @@ impl Progress {
                 Ok(())
             }
             Event::Item(root_index, path, timed, row) => {
-                record_item(build, counts, context, (root_index, path, *timed), row)?;
+                let gap_at = || context.utc_now();
+                let item = (root_index, path, &*timed);
+                record::record_item(build, counts, &gap_at, item, row)?;
                 self.cadence.changed();
                 Ok(())
             }
@@ -109,19 +111,11 @@ impl Progress {
                 stage,
                 observed_at,
             } => {
-                counts.failed += 1;
                 if root && !self.root_published[root_index as usize] {
                     self.failed_roots[root_index as usize] = true;
                 }
-                build.record_scan_issue(du_core_contracts::scan_failures::ScanIssue {
-                    root_index,
-                    relative: path.clone(),
-                    kind: du_core_contracts::scan_failures::ScanFailureKind::UnreadRange,
-                    stage,
-                    reason_key: reason.into(),
-                    observed_at: observed_at.clone(),
-                })?;
-                build.record_gap_at(root_index, path, reason.into(), context.utc_now())?;
+                let times = (observed_at, context.utc_now());
+                record::record_failure(build, counts, (root_index, path), (stage, reason), times)?;
                 self.cadence.changed();
                 Ok(())
             }
@@ -165,66 +159,4 @@ impl Progress {
 
 pub(super) fn reason(error: &PortError) -> &'static str {
     super::super::issues::reason(error)
-}
-
-/// Records one admitted entry; an unentered row keeps only an unread range.
-fn record_item(
-    build: &mut BuildHandle,
-    counts: &mut JobCounts,
-    context: &dyn JobContext,
-    (root_index, path, timed): (u32, Vec<Vec<u8>>, TimedObservedEntry),
-    row: Admission,
-) -> Result<(), BuildError> {
-    let entry = &timed.entry;
-    if let Some(unread) = row.unread() {
-        let observed_at = timed.observed_at.as_ref();
-        let range = (root_index, path.as_slice());
-        return admission::record_unentered(build, range, entry, unread, counts, observed_at);
-    }
-    let gap = entry_gap(entry);
-    record_at(
-        build,
-        root_index,
-        entry,
-        &path,
-        counts,
-        timed.observed_at.as_ref(),
-    )?;
-    if gap.is_none()
-        && entry
-            .metadata
-            .as_ref()
-            .is_ok_and(|meta| meta.kind == ObservedKind::File)
-        && let Some(observation) = timed.placeholder_observation
-    {
-        build.retain_placeholder_observation(root_index, &path, observation)?;
-    }
-    if gap.is_none()
-        && let Some(time) = &timed.observed_at
-    {
-        build.set_item_observed_at(root_index, &path, time.clone())?;
-    }
-    if let Some(reason) = gap {
-        build.record_gap_at(root_index, path, reason.into(), context.utc_now())?;
-    }
-    Ok(())
-}
-
-fn entry_gap(entry: &ObservedEntry) -> Option<&'static str> {
-    match &entry.metadata {
-        Err(error) => Some(reason(error)),
-        Ok(meta)
-            if entry.enumerated_inode == 0
-                || entry.enumerated_inode != meta.inode
-                || (entry.enumerated_kind != ObservedKind::Unknown
-                    && entry.enumerated_kind != meta.kind) =>
-        {
-            Some("scan.unclassified")
-        }
-        Ok(meta) if matches!(meta.kind, ObservedKind::Unknown | ObservedKind::Other) => {
-            Some("scan.unclassified")
-        }
-        Ok(meta) if meta.kind == ObservedKind::File => meta.size.as_ref().err().map(reason),
-        _ => None,
-    }
 }

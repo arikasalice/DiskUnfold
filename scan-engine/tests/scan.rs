@@ -112,17 +112,36 @@ fn disconnected_metadata_stays_a_failure_not_zero_or_general_io()
         || Checkpoint::Continue,
         |_| true,
     );
-    assert_eq!(result.counts.failed, 2);
+    // Both entries, and the root closed by the disconnection (DEC-006).
+    assert_eq!(result.counts.failed, 3);
     let version = sink
         .pin()
         .map_err(|e| format!("{e:?}"))?
         .ok_or("missing result")?;
     let issues = version.scan_issues();
-    assert!(issues.iter().any(|issue| issue.relative[0] == b"removed" && issue.reason_key == "scan.disconnected"));
-    assert!(
+    let listed = |name: &[u8], reason: &str| {
         issues
             .iter()
-            .any(|issue| issue.relative[0] == b"io" && issue.reason_key == "scan.unclassified")
+            .any(|issue| issue.relative == [name.to_vec()] && issue.reason_key == reason)
+    };
+    assert!(listed(b"removed", "scan.disconnected"));
+    assert!(listed(b"io", "scan.unclassified"));
+    assert!(issues.iter().any(|issue| issue.relative.is_empty()
+        && issue.stage == du_core_contracts::scan_failures::ScanFailureStage::Enumerate
+        && issue.reason_key == "scan.disconnected"));
+    let mut gaps: Vec<_> = version
+        .scope_gaps()
+        .iter()
+        .map(|gap| (gap.path.clone(), gap.reason_key.as_str()))
+        .collect();
+    gaps.sort();
+    assert_eq!(
+        gaps,
+        [
+            (Vec::new(), "scan.disconnected"),
+            (vec![b"io".to_vec()], "scan.unclassified"),
+            (vec![b"removed".to_vec()], "scan.disconnected"),
+        ]
     );
     assert_eq!(version.completeness(), ResultCompleteness::Missing);
     assert!(
@@ -206,7 +225,20 @@ fn publishes_tree_and_records_failures_without_zeroing() -> Result<(), Box<dyn s
         )
     );
     assert!(facts.iter().all(|fact| fact.observed_at.is_none()));
-    assert!(result.scope_gaps().is_empty());
+    // The refused directory and the file without metadata are unread ranges.
+    let mut gaps: Vec<_> = result
+        .scope_gaps()
+        .iter()
+        .map(|gap| (gap.path.clone(), gap.reason_key.as_str()))
+        .collect();
+    gaps.sort();
+    assert_eq!(
+        gaps,
+        [
+            (vec![b"denied".to_vec()], "scan.path_denied"),
+            (vec![b"unknown".to_vec()], "scan.path_denied"),
+        ]
+    );
     assert_eq!(result.completeness(), ResultCompleteness::Missing);
     assert_eq!(result.items().len(), 5);
     assert_eq!(result.items()[0].kind, ResultItemKind::Directory);

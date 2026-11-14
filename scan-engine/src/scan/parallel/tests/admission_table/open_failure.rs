@@ -6,9 +6,8 @@
 //! path to the same directory found after the failure is a revisit and is not
 //! opened either.
 //!
-//! The parallel collector also keeps the refused range as a scope gap. The
-//! sequential collector lists the same failure without a gap, so only items
-//! and listed failures are compared with it.
+//! Both collectors keep the refused range as a scope gap, so the result has
+//! missing ranges (DEC-006), and the sequential result is compared whole.
 use super::*;
 use std::{
     sync::atomic::{AtomicBool, Ordering::SeqCst},
@@ -177,16 +176,22 @@ fn a_failed_open_keeps_the_admitted_identity_reserved() -> Result<(), String> {
     let baseline = sequential(Refusing::root(&tree, &refusals))?;
     check(&baseline, &tree, &refusals, "sequential");
     let gaps = [(0, path(&["a"]), "scan.path_denied".to_string())];
+    assert_eq!(baseline.summary.2, gaps);
+    assert_eq!(baseline.completeness, ResultCompleteness::Missing);
     for (workers, seed) in RUNS {
         let label = format!("workers={workers} seed={seed}");
         let tree = tree_of(aliased(), seed);
         let refusals = Arc::new(Refusals::default());
         let run = filtered_forest(vec![Refusing::root(&tree, &refusals)], workers)?;
         check(&run, &tree, &refusals, &label);
-        assert_eq!(run.summary.0, baseline.summary.0, "{label}");
-        assert_eq!(run.summary.1, baseline.summary.1, "{label}");
-        assert_eq!(run.summary.2, gaps, "{label}");
-        assert_eq!(run.completeness, ResultCompleteness::Missing, "{label}");
+        assert_eq!(run.summary, baseline.summary, "{label}");
+        assert_eq!(run.completeness, baseline.completeness, "{label}");
+        let counts = (run.outcome.counts.failed, run.outcome.counts.completed);
+        let expected = (
+            baseline.outcome.counts.failed,
+            baseline.outcome.counts.completed,
+        );
+        assert_eq!(counts, expected, "{label}");
     }
     Ok(())
 }

@@ -1,30 +1,17 @@
 //! Collection shutdown keys are distinct from device concurrency groups.
-use du_core_contracts::{
-    ports::{PortError, PortErrorKind},
-    scan_observation::ObservedEntry,
-};
 use std::{
     collections::HashMap,
     sync::atomic::{AtomicBool, Ordering},
+};
+// The sequential collector closes its directories on the same evidence.
+pub(super) use super::super::issues::{
+    DISCONNECTED as REASON, disconnected as is_error, disconnected_entry as is_entry,
 };
 
 /// Stops only the confirmed volume, or the reporting root if identity is unknown.
 pub(super) struct Disconnects {
     lanes: Vec<usize>,
     stopped: Vec<AtomicBool>,
-}
-
-pub(super) const REASON: &str = "scan.disconnected";
-
-pub(super) fn is_error(error: &PortError) -> bool {
-    error.kind == PortErrorKind::Io && error.reason_key == REASON
-}
-
-pub(super) fn is_entry(entry: &ObservedEntry) -> bool {
-    match &entry.metadata {
-        Err(error) => is_error(error),
-        Ok(metadata) => metadata.size.as_ref().is_err_and(is_error),
-    }
 }
 
 impl Disconnects {
