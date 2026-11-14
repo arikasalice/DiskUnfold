@@ -223,14 +223,13 @@ test("F02 FR8.HD1: pressing Analyze first by keyboard keeps focus in the bar", a
   expect(document.activeElement).toBe(button);
 });
 
-test("F02 FR8.HD1: focus moves to the panel when the bar goes away while holding it", async () => {
+test("F02 FR8.HD1: focus moves to the list when the bar goes away while holding it", async () => {
   const { rerender } = await setup();
   act(() => selectionAction().focus());
   rerender(undefined);
   await waitFor(() => expect(selectionBar()).toBeNull());
-  expect(document.activeElement).toBe(
-    screen.getByRole("region", { name: "Folder navigation" }),
-  );
+  // A row, so no frame is drawn around the panel.
+  expect(document.activeElement).toBe(gridRow("Photos"));
 });
 
 test("F02 FR8.HD1: no effect keeps the mark only when the folder remains the applied area", async () => {

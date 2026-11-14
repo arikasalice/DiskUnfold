@@ -98,6 +98,9 @@ export function BrowsePanel({
   const virtualRootVersion = useRef<string>(undefined);
   const panel = useRef<HTMLElement>(null);
   const focusAfterUpdate = useRef<Element>(undefined);
+  // Survives the remount of the results, so a new list's selection action
+  // bar can take over the focus its predecessor held.
+  const barFocus = useRef(false);
   const inspection = useItemInspection(
     resultVersion ?? view?.opened.page.resultVersion,
     panel,
@@ -330,6 +333,7 @@ export function BrowsePanel({
             navigationSeq={() => sequence.current}
             canRead={() => opening.current === undefined && !previousResult}
             focusPanel={() => panel.current?.focus({ preventScroll: true })}
+            barFocus={barFocus}
             openFolder={(item) => navigate(item, page.resultVersion)}
             openItem={inspectItem ? openItem : undefined}
             copyPath={
