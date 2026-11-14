@@ -24,7 +24,7 @@
      enabled one on white and grey surfaces alike. The dark themes override only the text: the
      edge follows their own --du-border. */
   --du-disabled-surface: transparent;
-  --du-disabled-text: #8a9099;
+  --du-disabled-text: #7f858e;
   --du-disabled-border: var(--du-border);
   --du-info-surface: #ecedef;
   --du-info-text: #315aa8;
@@ -83,7 +83,7 @@
     --du-capacity-fill: #94b5ff;
     --du-selected-surface: #2c3d59;
     --du-selected-text: #d5e1ff;
-    --du-disabled-text: #6f747c;
+    --du-disabled-text: #838890;
     --du-info-surface: #292c31;
     --du-info-text: #b5c9ef;
     --du-success-surface: #173d36;
@@ -115,7 +115,7 @@
   --du-capacity-fill: #94b5ff;
   --du-selected-surface: #2c3d59;
   --du-selected-text: #d5e1ff;
-  --du-disabled-text: #6f747c;
+  --du-disabled-text: #838890;
   --du-info-surface: #292c31;
   --du-info-text: #b5c9ef;
   --du-success-surface: #173d36;
