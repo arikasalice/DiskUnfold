@@ -45,6 +45,9 @@ pub struct Classification {
     pub(super) summary: Summary,
     pub(super) orders: Mutex<OrderCache>,
     pub(super) totals: Mutex<TotalsCache>,
+    /// File positions of the whole scope in [`DEFAULT_MEMBER_SORT`] order, when it could
+    /// be built.
+    pub(super) default_order: Option<Arc<[u32]>>,
 }
 
 /// Recount of the observed files across all rules, independent of group selection.
@@ -81,6 +84,7 @@ impl Classification {
             summary,
             orders: Mutex::default(),
             totals: Mutex::default(),
+            default_order: None,
         }
     }
 

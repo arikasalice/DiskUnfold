@@ -181,15 +181,30 @@ fn cancelling_at_any_check_returns_no_classification() -> Result<(), String> {
 fn a_cancelled_read_of_totals_pages_and_reconciliation_returns_nothing() -> Result<(), String> {
     let (_, version) = version(1)?;
     let read = classify(&version, None, rules(), parallel(4, 2)?)?;
-    assert_eq!(read.totals(&[], || true).map(|_| ()), Err(Error::Cancelled));
+    // The default selection was calculated with the classification and needs no polling.
+    assert!(read.totals(&[], || true).is_ok());
+    assert_eq!(
+        read.totals(&[1], || true).map(|_| ()),
+        Err(Error::Cancelled)
+    );
     assert_eq!(read.reconcile(|| true).map(|_| ()), Err(Error::Cancelled));
     let page = read.page(Category::Overlap, &[], &registry()?, 0, 10, || true);
     assert_eq!(page.map(|_| ()), Err(Error::Cancelled));
-    let mut polls = 0;
-    let midway = read.totals(&[], || {
-        polls += 1;
-        polls == 20
-    });
-    assert_eq!(midway.map(|_| ()), Err(Error::Cancelled));
+    // A selection that is not cached stops at every one of its checks.
+    let totals_polled = |stop: Option<usize>| -> Result<_, String> {
+        let read = classify(&version, None, rules(), parallel(4, 2)?)?;
+        let mut polls = 0;
+        let outcome = read.totals(&[1], || {
+            polls += 1;
+            stop.is_some_and(|from| polls >= from)
+        });
+        Ok((outcome, polls))
+    };
+    let (full, polls) = totals_polled(None)?;
+    assert!(full.is_ok() && polls >= 2, "polls {polls}");
+    for from in 1..=polls {
+        let (outcome, _) = totals_polled(Some(from))?;
+        assert_eq!(outcome.map(|_| ()), Err(Error::Cancelled), "from {from}");
+    }
     Ok(())
 }
