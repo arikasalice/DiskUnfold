@@ -103,6 +103,7 @@ pub fn collect_parallel_filtered(
 /// enumerated, and an entry whose metadata could not be established, is a
 /// scope gap. An explicit disconnection closes the unfinished directories, and
 /// a cancellation records the entries already returned without opening any.
+/// Each item is counted once, as completed or as failed (NFR5.HD1.app-host.DD1).
 /// A failed first root read leaves no result unless it reports a disconnection.
 pub fn collect(
     sink: &IngestSink,

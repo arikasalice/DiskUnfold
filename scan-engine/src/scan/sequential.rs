@@ -8,7 +8,8 @@
 use super::{
     ResultIds,
     admission::{self, Admission, Boundary, Parent, RootStart, Visited},
-    issues, record,
+    issues,
+    record::{self, Counted},
 };
 use du_analysis_index::{BuildError, BuildHandle, IngestSink};
 use du_core_contracts::{
@@ -96,6 +97,8 @@ pub(super) fn run(
             include,
             checkpoint,
             visited,
+            // An unverifiable root was already counted as failed at its start.
+            root_counted: root.boundary == Boundary::Unknown,
         };
         walk.root(root, ids)?
     };
@@ -132,6 +135,8 @@ struct Walk<'a> {
     include: &'a mut dyn FnMut(&[Vec<u8>]) -> bool,
     checkpoint: &'a mut dyn FnMut() -> Checkpoint,
     visited: Visited,
+    /// The root item was counted, so a later root failure is not counted again.
+    root_counted: bool,
 }
 
 impl Walk<'_> {
@@ -285,7 +290,15 @@ impl Walk<'_> {
         Ok((row, timed.entry))
     }
 
+    /// Records an unread range; the directory stays counted once, as failed.
     fn fail(&mut self, path: Vec<Vec<u8>>, stage: Stage, reason: &str) -> Result<(), BuildError> {
+        let counted = if !path.is_empty() {
+            Counted::Completed
+        } else if std::mem::replace(&mut self.root_counted, true) {
+            Counted::Failed
+        } else {
+            Counted::Uncounted
+        };
         let range = (0, path);
         record::record_failure(
             self.build,
@@ -293,6 +306,7 @@ impl Walk<'_> {
             range,
             (stage, reason),
             (None, None),
+            counted,
         )
     }
 

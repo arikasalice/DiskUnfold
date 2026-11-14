@@ -7,6 +7,9 @@
 //! gaps, counts and completeness. Disconnection and cancellation cases stop
 //! at a point that does not depend on worker scheduling, except the nested
 //! disconnections, where the parallel result is a subset of the sequential.
+//! Every result counts each item once (NFR5.HD1.app-host.DD1): `failed`
+//! equals the number of scope gaps, and `completed + failed` the number of
+//! items other than a root that was read without a gap.
 use super::*;
 use du_core_contracts::result::SpaceAggregate;
 use std::sync::atomic::{AtomicBool, Ordering::SeqCst};
@@ -155,9 +158,20 @@ fn parallel(
     Ok((pinned(outcome, &sink)?, faults))
 }
 
+/// Checks that a published result counted each of its items exactly once.
+fn assert_counted_once(collected: &Collected, label: &str) {
+    let (items, _, gaps) = &collected.run.summary;
+    let counts = &collected.run.outcome.counts;
+    assert_eq!(counts.failed, gaps.len() as u64, "{label}: failed = gaps");
+    let uncounted_root = !gaps.iter().any(|gap| gap.1.is_empty());
+    let counted = items.len() as u64 - u64::from(uncounted_root);
+    assert_eq!(counts.completed + counts.failed, counted, "{label}: once");
+}
+
 /// Runs every parallel variant and compares it with the sequential baseline.
 fn compare(listings: fn() -> HashMap<u64, Listing>, cancel: bool) -> Result<Collected, String> {
     let baseline = sequential(listings(), cancel)?;
+    assert_counted_once(&baseline, "sequential");
     for workers in WORKERS {
         for filtered in [false, true] {
             let label = format!("workers={workers} filtered={filtered}");
@@ -242,8 +256,10 @@ fn every_failure_kind_gives_one_result_from_both_collectors() -> Result<(), Stri
     gaps.sort();
     assert_eq!(baseline.run.summary.2, gaps);
     assert_eq!(baseline.run.outcome.counts.failed, 10);
-    // Unknown, other and the file without a size are also recorded items.
-    assert_eq!(baseline.run.outcome.counts.completed, 15);
+    // Each failed entry or directory counts once, as failed; the unknown and
+    // other kinds, the file without a size and the five unread directories
+    // are not completed as well.
+    assert_eq!(baseline.run.outcome.counts.completed, 7);
     assert_eq!(baseline.run.completeness, ResultCompleteness::Missing);
     let root = baseline.root.ok_or("missing root aggregate")?;
     assert_eq!(root.completeness, ResultCompleteness::Missing);
@@ -333,6 +349,7 @@ fn a_disconnected_root_is_a_gap_in_both_collectors() -> Result<(), String> {
         ]
     );
     assert_eq!(baseline.run.outcome.counts.failed, 2);
+    assert_eq!(baseline.run.outcome.counts.completed, 2);
     assert!(baseline.run.outcome.completed_scope);
     assert_eq!(baseline.run.completeness, ResultCompleteness::Missing);
     let (_, faults) = parallel(root_batch_disconnects(), 4, false, false)?;
