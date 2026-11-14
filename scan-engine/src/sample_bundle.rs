@@ -30,15 +30,27 @@ const MIN_OBSERVATIONS: usize = 1;
 const BLAKE3_ALGORITHM: &str = "blake3";
 
 /// Neutral validation outcome exposed to the caller.
+///
+/// The variants say which stage stopped the validation without exposing any bundle content.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BundleFailure {
+    /// The source returned no bundle body, so there was nothing to validate.
     Missing,
+    /// No registered reader recognizes the format marker of the body.
     UnsupportedFormat,
+    /// The body is malformed or fails an integrity or limit check: header, digest algorithm
+    /// or digest value, size or item limit, record decoding, scenario reference or
+    /// observation count.
     Corrupt,
 }
 
 /// Reads the embedded asset once and returns the immutable byte body.
 pub trait BundleSourcePort {
+    /// Returns the complete bundle body, or `None` when the asset is absent.
+    ///
+    /// The returned bytes must stay immutable for the whole validation, because the digest,
+    /// the header range and the decoded records all refer to this one body. Callers read it
+    /// once and do not retry.
     fn read_bundle(&self) -> Option<Arc<[u8]>>;
 }
 
@@ -62,18 +74,28 @@ pub trait BundleFormatReader {
     ) -> Result<DecodedBundleRecords, FormatReaderError>;
 }
 
+/// A format reader could not parse the body or the verified payload.
+///
+/// It carries no detail on purpose: the validator reports every such failure as
+/// [`BundleFailure::Corrupt`] and never exposes a partially decoded bundle.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FormatReaderError;
 
 /// Format-neutral metadata needed by the validator and the sample source.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BundleHeader {
+    /// Version label of the bundle; the sample session uses it in its job deduplication key.
     pub bundle_version: String,
+    /// Name of the digest algorithm; only `blake3` is accepted.
     pub digest_algorithm: String,
+    /// Expected digest of the payload slice.
     pub digest: [u8; 32],
     /// Format-specific body interval, excluding the header digest stored in the asset.
     pub payload_range: Range<usize>,
+    /// Number of items the header declares across all observation points; the decoded item
+    /// count must match it and stay within [`MAX_BUNDLE_ITEMS`].
     pub declared_item_count: u64,
+    /// Scenario identifiers the header declares; every decoded item must reference one.
     pub scenario_ids: Vec<String>,
 }
 
@@ -83,10 +105,12 @@ pub struct RecordScenarioReference {
     pub scenario_id: String,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 /// Hard caps that a format reader must apply before retaining decoded entries.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BundleDecodeLimits {
+    /// Most items the reader may retain across all observation points.
     pub max_items: usize,
+    /// Most observation points the reader may retain.
     pub max_observations: usize,
 }
 

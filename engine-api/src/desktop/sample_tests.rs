@@ -23,6 +23,8 @@ use serde_json::json;
 
 use crate::api::{CallerCtx, Channel, Engine, EngineBuilder};
 
+mod progress;
+
 struct NoRoots;
 
 impl ScopeRootPort for NoRoots {

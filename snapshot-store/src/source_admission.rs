@@ -6,6 +6,10 @@
 //! alone, so a caller runs them before any work or write for the request.
 //! Snapshot-store has no entry point that accepts a result version yet; the
 //! owner of the first one calls these functions before it starts work.
+//!
+//! Not wired yet: no entry point calls these checks today. The feature that owns the
+//! entry point (F07 snapshots) must connect them as the first check of that entry point,
+//! before any work or write. Until then they only document and test the decision.
 
 use du_core_contracts::{
     data_source::{DataSource, MixedSource},

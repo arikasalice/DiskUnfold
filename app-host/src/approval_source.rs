@@ -1,4 +1,8 @@
 //! Data source check for approval requests (FR4.HD2.app-host.DD1).
+//!
+//! Not wired yet: no approval entry point calls this check today. The feature that owns the
+//! entry point (F28 approval) must connect it as the first check of approval review and
+//! grant. Until then it only documents and tests the decision.
 
 use du_core_contracts::{data_source::DataSource, sample_ipc::APPROVAL_SAMPLE_SOURCE_DENIED};
 

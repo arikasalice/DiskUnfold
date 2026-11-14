@@ -1,4 +1,8 @@
 //! Plan readiness decisions (FR4.HD1.app-host.DD1).
+//!
+//! Not wired yet: no entry point evaluates this table today. The feature that owns the
+//! entry point (F10 plans) must connect it as the first row of its readiness evaluation.
+//! Until then it only documents and tests the decision.
 
 use du_core_contracts::data_source::DataSource;
 
