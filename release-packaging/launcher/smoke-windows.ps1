@@ -982,6 +982,12 @@ function Test-LocaleSwitch {
 # Save the window as a PNG under %TEMP% when the interactive desktop allows it.
 function Save-SmokeCapture($name) {
   try {
+    # Review captures show the whole window at the screen's full size.
+    $windowPattern = $window.GetCurrentPattern([Windows.Automation.WindowPattern]::Pattern)
+    if ($windowPattern.Current.WindowVisualState -ne [Windows.Automation.WindowVisualState]::Maximized) {
+      $windowPattern.SetWindowVisualState([Windows.Automation.WindowVisualState]::Maximized)
+      Start-Sleep -Milliseconds 800
+    }
     Add-Type -AssemblyName System.Drawing
     $bounds = $window.Current.BoundingRectangle
     $directory = Join-Path ([IO.Path]::GetTempPath()) 'diskunfold-virtual-groups-captures'
@@ -1068,10 +1074,22 @@ function Restart-SmokeApplication {
 function Open-VirtualGroups($path, $total) {
   Set-Scope $path
   Invoke-UI (Wait-Enabled 'Review scope' $true)
-  Invoke-UI (Wait-Enabled 'Start scan' $true)
+  # A busy WebView can fail the UIA invoke of a large scan's start although the scan began.
+  try { Invoke-UI (Wait-Enabled 'Start scan' $true) }
+  catch {
+    $failure = $_
+    try { $null = Wait-UI 'scan running after a failed start invoke' { Find-UI 'Pause scan' $button } 30 }
+    catch { throw $failure }
+    Write-Warning "Start scan reported '$($failure.Exception.Message)' but the scan is running"
+  }
   if ($total) { $null = Wait-FinalLogicalSize $total }
   else {
-    $null = Wait-UI 'large scan finished' { (Find-UI 'Scan finished' $textType) -and (Find-ResultVersionLabel 'Final') } 900
+    # A large scan can keep the interim result on screen until the latest one is requested.
+    $null = Wait-UI 'large scan finished' {
+      $latest = Find-UI 'Show latest result' $button
+      if ($latest -and $latest.Current.IsEnabled) { try { Invoke-UI $latest } catch { Write-Warning "Show latest result: $($_.Exception.Message)" } }
+      (Find-UI 'Scan finished' $textType) -and (Find-ResultVersionLabel 'Final')
+    } 900
   }
   Invoke-UI (Wait-Enabled 'Browse folders' $true)
   Wait-UI 'virtual group entry' {
@@ -1203,6 +1221,7 @@ function Test-VirtualGroups {
     'F36 native summary: Video 3 items, Big 2 items; overlaps 2, unclassified 1 (sizes: {0})' -f (($names | Where-Object { $_ -match ' bytes$' }) -join ', ')
     Invoke-UI (Wait-Enabled 'Show members of Big' $true)
     $null = Wait-UI 'members of Big' { Find-UI 'Members: Big' $null }
+    $null = Wait-UI 'member rows of Big' { Find-UI 'b.mp4' $button }
     $null = Save-SmokeCapture '02-result-row-selected'
     if ((Get-ButtonCount 'Back to folders') -ne 1 -or -not (Find-UI 'Member list' $button)) {
       throw "Expected one 'Back to folders' and the 'Member list' action on the result screen"
