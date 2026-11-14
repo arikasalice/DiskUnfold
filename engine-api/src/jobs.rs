@@ -16,6 +16,7 @@ use crate::{
 
 mod list;
 mod suspension;
+pub(crate) use list::wait_reason;
 
 /// Registers job status and cooperative controls for the composed GUI runtime.
 pub fn register(builder: &mut EngineBuilder, runtime: Arc<JobRuntime>) {

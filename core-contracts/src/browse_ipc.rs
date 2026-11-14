@@ -112,6 +112,10 @@ pub struct BrowseDetail {
     pub created_at: BrowseValue<Timestamp>,
     pub observed_at: BrowseValue<Timestamp>,
     pub origin: BrowseOrigin,
+    /// Data source of the pinned version; absent means a sample (F32 FR2.HD2).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub data_source: Option<crate::data_source::DataSource>,
     pub completeness: ResultCompleteness,
     pub current_correspondence: bool,
     pub observation_only: bool,

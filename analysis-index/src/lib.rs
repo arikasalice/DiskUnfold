@@ -58,6 +58,7 @@ use origin::ResultOrigin;
 pub struct ResultVersion {
     version_id: Id,
     origin: ResultOrigin,
+    data_source: du_core_contracts::data_source::DataSource,
     base_version_id: Option<Id>,
     viz_models: Mutex<visualization::live_models::OwnedModels>,
     scope_version_id: Id,
@@ -179,6 +180,7 @@ impl IngestSink {
             expected_base: None,
             reserved: true,
             origin: ResultOrigin::Scan,
+            data_source: du_core_contracts::data_source::DataSource::Real,
             published: false,
             size_rule: RegisteredRule::default_registration(),
             shared_table_limit: physical::IDENTITY_LIMIT,
@@ -203,6 +205,7 @@ pub struct BuildHandle {
     expected_base: Option<Id>,
     reserved: bool,
     origin: ResultOrigin,
+    data_source: du_core_contracts::data_source::DataSource,
     published: bool,
     size_rule: RegisteredRule,
     shared_table_limit: usize,
@@ -429,6 +432,7 @@ impl BuildHandle {
         let result = Arc::new(ResultVersion {
             version_id,
             origin: self.origin,
+            data_source: self.data_source,
             base_version_id: self.expected_base.clone(),
             viz_models: Mutex::default(),
             scope_version_id: self.scope_version_id.clone(),

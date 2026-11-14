@@ -39,7 +39,7 @@ pub struct ActiveJobCounts {
     pub change: usize,
 }
 
-fn wait_reason(state: JobState) -> JobWaitReason {
+pub(crate) fn wait_reason(state: JobState) -> JobWaitReason {
     match state {
         JobState::Paused => JobWaitReason::Paused,
         JobState::Queued => JobWaitReason::QueueFull,

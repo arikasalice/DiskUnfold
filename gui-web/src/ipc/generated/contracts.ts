@@ -815,7 +815,11 @@ export type VizMatchKey = { "state": "present", value: CorrespondenceKey, } | { 
 export type VizShape = { itemRef: ItemRef | null, groupRef: string | null, matchKey: VizMatchKey, geometry: VizGeometry, size: SizeValue, quantity?: VizQuantity, legendClassKey: string, displayFlags: Array<string>, shapeRef?: string, parentShapeRef?: string | null, visibleDepth?: number, rootBranchRef?: ItemRef | null, };
 export type VizLegendEntry = { key: string, labelKey: string, itemCount: VizQuantity, total: VizTotal, condition: QueryCondition | null, };
 export type VizSummary = { groupedItems: VizQuantity, omittedItems: VizQuantity, unknownItems: VizQuantity, reasonKeys: Array<string>, };
-export type VizModel = { modelRef: string, conditionFingerprint: string, aggregateScopeRef: ItemRef, navigationScopeRef: ItemRef, focusItemRef: ItemRef | null, origin: ResultOrigin, staleness: VizStaleness, representation: VizRepresentation, denominator: VizDenominator, totals: VizTotals, shapes: Array<VizShape>, relationships: Array<VizRelationship>, legend: Array<VizLegendEntry>, summary: VizSummary, strategy: QueryStrategy, tableRevisions: VizTableRevisions, };
+export type VizModel = { modelRef: string, conditionFingerprint: string, aggregateScopeRef: ItemRef, navigationScopeRef: ItemRef, focusItemRef: ItemRef | null, origin: ResultOrigin,
+/**
+ * Data source of the pinned version; absent means a sample (F32 FR2.HD2).
+ */
+dataSource?: DataSource, staleness: VizStaleness, representation: VizRepresentation, denominator: VizDenominator, totals: VizTotals, shapes: Array<VizShape>, relationships: Array<VizRelationship>, legend: Array<VizLegendEntry>, summary: VizSummary, strategy: QueryStrategy, tableRevisions: VizTableRevisions, };
 export type VizRenderModelResponse = { "kind": "model", requestSeq: number, resultRevision: Id, observedAt: Timestamp | null, completeness: ResultCompleteness, model: VizModel, };
 export type VizRenderResponse = VizRenderModelResponse | VizRenderNonModelResponse;
 export type VizPoint = { x: number, y: number, };
@@ -876,7 +880,15 @@ export type ResultEnvelope = { name: string, contractVersion: number, correlatio
 export type EventEnvelope = { topic: string, contractVersion: number, seq: number, correlationId?: Id, jobRef?: Id, resultVersion?: Id, occurredAt: Timestamp, body: unknown, };
 export type ResultVersionChange = "published" | "withdrawn";
 export type PublishedCompleteness = "complete" | "partial" | "unknown";
-export type ResultVersionChanged = { lineageId: Id, sourceRef: Id, origin: string, sequence: number, change: ResultVersionChange, previousResultVersion?: Id, completeness?: PublishedCompleteness, observedAt?: Timestamp, };
+export type DataSource = "real" | "sample";
+export type ResultVersionChanged = { lineageId: Id, sourceRef: Id, origin: string,
+/**
+ * Data source of the lineage's versions; absent means a sample (F32 FR2.HD1).
+ *
+ * Sample results never publish this notice, so producers send `real` today.
+ * Consumers must not use this value to decide which lineages they track.
+ */
+dataSource?: DataSource, sequence: number, change: ResultVersionChange, previousResultVersion?: Id, completeness?: PublishedCompleteness, observedAt?: Timestamp, };
 export type TargetKind = "internal" | "external" | "network_mount" | "folder_mount";
 export type IdentitySource = "confirmed" | "estimated" | "unavailable";
 export type TargetAccess = "checking" | "accessible" | "denied" | "disconnected" | "missing" | "unresponsive" | "unknown";
@@ -946,6 +958,36 @@ supportedControls: Array<JobControl>, sequence: number,
 terminal?: AnalysisJobTerminal, };
 export type JobResyncReason = "subscriber_queue_limit" | "subscriber_delivery_failed";
 export type JobResyncRequired = { reason: JobResyncReason, discardedEvents: number, observedAt: Timestamp, };
+export type ProgressUnit = "items" | "bytes";
+export type AnalysisJobProgress = {
+/**
+ * Per-job sequence shared with state changes and the terminal event.
+ */
+sequence: number,
+/**
+ * The progress unit declared by the job kind.
+ */
+unit: ProgressUnit,
+/**
+ * Units processed so far.
+ */
+completed: number,
+/**
+ * The confirmed total, omitted while the total is not established.
+ */
+total?: number,
+/**
+ * Whether `total` is confirmed.
+ */
+totalKnown: boolean,
+/**
+ * The wait reason observed with this value.
+ */
+waitReason: AnalysisJobWaitReason,
+/**
+ * UTC time at which the runtime observed this value.
+ */
+observedAt: Timestamp, };
 export type ScanResult = { lineageId: Id, sequence: number, resultVersion?: Id, };
 export type AnalysisJobTerminal = { state: JobState,
 /**
@@ -1023,14 +1065,26 @@ export type SearchQueryPage = { rowKind: SearchRowKind, queryRef: Id, resultVers
 export type QueryPageResponse = FolderQueryPage | SearchQueryPage;
 export type BrowseBreadcrumb = { item: ItemRef, displayName: BrowseValue<string>, };
 export type BrowseRootKind = "virtual_root" | "scope_root" | "folder";
-export type BrowseContext = { origin: ResultOrigin, location: ItemRef | null, breadcrumbs: Array<BrowseBreadcrumb>, rootKind: BrowseRootKind, currentCorrespondence: boolean, sortStrategies: Array<QueryStrategy>, predicateStrategies: Array<QueryStrategy>, };
-export type BrowseOpenResponse = { "kind": "opened", requestSeq: number, origin: ResultOrigin, location: ItemRef | null, breadcrumbs: Array<BrowseBreadcrumb>, rootKind: BrowseRootKind, currentCorrespondence: boolean, page: FolderQueryPage, sortStrategies: Array<QueryStrategy>, predicateStrategies: Array<QueryStrategy>, } | { "kind": "job", requestSeq: number, jobRef: Id,
+export type BrowseContext = { origin: ResultOrigin,
+/**
+ * Data source of the pinned version; absent means a sample (F32 FR2.HD2).
+ */
+dataSource?: DataSource, location: ItemRef | null, breadcrumbs: Array<BrowseBreadcrumb>, rootKind: BrowseRootKind, currentCorrespondence: boolean, sortStrategies: Array<QueryStrategy>, predicateStrategies: Array<QueryStrategy>, };
+export type BrowseOpenResponse = { "kind": "opened", requestSeq: number, origin: ResultOrigin,
+/**
+ * Data source of the pinned version; absent means a sample (F32 FR2.HD2).
+ */
+dataSource?: DataSource, location: ItemRef | null, breadcrumbs: Array<BrowseBreadcrumb>, rootKind: BrowseRootKind, currentCorrespondence: boolean, page: FolderQueryPage, sortStrategies: Array<QueryStrategy>, predicateStrategies: Array<QueryStrategy>, } | { "kind": "job", requestSeq: number, jobRef: Id,
 /**
  * Source result version pinned when the request was admitted.
  */
 resultVersion: Id, };
 export type BrowseDetailRequest = { resultVersion: Id, item: ItemRef, };
-export type BrowseDetail = { item: ItemRef, displayPath: BrowseValue<string>, displayName: BrowseValue<string>, kind: BrowseValue<ResultItemKind>, logicalSize: BrowseValue<SizeValue>, allocatedSize: BrowseValue<SizeValue>, modifiedAt: BrowseValue<Timestamp>, createdAt: BrowseValue<Timestamp>, observedAt: BrowseValue<Timestamp>, origin: BrowseOrigin, completeness: ResultCompleteness, currentCorrespondence: boolean, observationOnly: boolean, };
+export type BrowseDetail = { item: ItemRef, displayPath: BrowseValue<string>, displayName: BrowseValue<string>, kind: BrowseValue<ResultItemKind>, logicalSize: BrowseValue<SizeValue>, allocatedSize: BrowseValue<SizeValue>, modifiedAt: BrowseValue<Timestamp>, createdAt: BrowseValue<Timestamp>, observedAt: BrowseValue<Timestamp>, origin: BrowseOrigin,
+/**
+ * Data source of the pinned version; absent means a sample (F32 FR2.HD2).
+ */
+dataSource?: DataSource, completeness: ResultCompleteness, currentCorrespondence: boolean, observationOnly: boolean, };
 export type BrowseCopyPathRequest = { resultVersion: Id, items: Array<ItemRef>, };
 export type BrowseCopyPathRefusal = "path.unrepresentable" | "path.multiline" | "clipboard.unsupported" | "clipboard.failed";
 export type BrowseCopyPathOutcome = { "outcome": "copied", count: number, } | { "outcome": "refused", reasonKey: BrowseCopyPathRefusal, };
@@ -1059,4 +1113,109 @@ export type SpaceAuxiliary = { size: SizeValue, includedInAllocated: boolean | n
 export type SpaceCapabilityState = "supported" | "partial" | "unsupported";
 export type SpaceDetailCapability = { key: string, state: SpaceCapabilityState, reasonKey: string | null, };
 export type SpaceDetail = { item: ItemRef, logical: BrowseValue<SpaceDetailSize>, allocated: BrowseValue<SpaceDetailSize>, uniquePhysical: BrowseValue<SpaceDetailSize>, exclusive: BrowseValue<SpaceDetailSize>, shared: BrowseValue<SpaceDetailSize>, linkGroup: BrowseValue<SpaceLinkGroup>, placeholderLocalState?: BrowseValue<SpacePlaceholderState>, auxiliary: BrowseValue<SpaceAuxiliary>, exclusiveDecision: SpaceExclusiveDecision, observedAt: BrowseValue<Timestamp>, capabilities: BrowseValue<Array<SpaceDetailCapability>>, };
+export type SampleSessionState = "preparing" | "active" | "resetting" | "unavailable" | "closed";
+export type SampleEventState = "inactive" | "loading" | "active" | "failed";
+export type SampleOpenRequest = Record<symbol, never>;
+export type SampleSessionRequest = { sessionRef: Id, };
+export type SampleObservationRef = {
+/**
+ * Zero-based observation order in the bundle.
+ */
+index: number, resultVersion: Id, observedAt?: Timestamp, };
+export type SampleSession = { sessionRef: Id, state: SampleSessionState,
+/**
+ * Monotonic per session; equals the sequence of the latest state event.
+ */
+sequence: number, bundleVersion?: string, jobRef?: Id,
+/**
+ * Sample result versions in observation order; empty until loading completes.
+ */
+observations: Array<SampleObservationRef>,
+/**
+ * Sample plan versions kept in this session.
+ */
+plans: Array<Id>, unavailableReason?: string, realAnalysisAction?: string, };
+export type SampleClosed = { sessionRef: Id, state: SampleSessionState, releasedVersions: number, };
+export type SampleStateChanged = { sessionRef: Id, state: SampleEventState, previousState: SampleEventState, reasonKey?: string, jobRef?: Id, sequence: number, observedAt: Timestamp, };
+export type GroupRuleReview = "ok" | "converted" | "predicate_unregistered";
+export type GroupRule = { groupId: Id, displayName: string, displayOrder: number, condition: QueryCondition, conditionModelVersion: number, predicates: Array<QueryStrategy>, review: GroupRuleReview, };
+export type GroupRuleDraft = { groupId?: Id, displayName: string, condition: QueryCondition, };
+export type GroupRuleset = { rulesetVersion: number, revision: number,
+/**
+ * Lower-case hexadecimal fingerprint of the canonical rule content.
+ */
+fingerprint: string, updatedAt?: Timestamp, rules: Array<GroupRule>, };
+export type GroupRulesGetRequest = Record<symbol, never>;
+export type GroupRulesSaveRequest = { expectedRevision: number, rules: Array<GroupRuleDraft>, };
+export type GroupRuleIssue = { index: number, reasonKey: string, };
+export type GroupRulesSaveResponse = { "outcome": "saved", ruleset: GroupRuleset, } | { "outcome": "rejected", reasonKey: string, issues: Array<GroupRuleIssue>, };
+export type GroupRuleSource = { "kind": "saved", rulesetVersion: number, } | { "kind": "draft", rules: Array<GroupRuleDraft>, };
+export type GroupClassifyRequest = {
+/**
+ * GUI view channel; a larger sequence on the same channel cancels earlier work.
+ */
+viewRef: Id, requestSeq: number, resultVersion?: Id, scope?: ItemRef, rules: GroupRuleSource, };
+export type GroupSummaryRow = { groupId: Id, displayName: string, displayOrder: number, memberCount: number,
+/**
+ * Members that also matched another group.
+ */
+overlapMemberCount: number,
+/**
+ * Files this rule could not decide.
+ */
+undecidableCount: number,
+/**
+ * The rule uses a predicate that is not registered.
+ */
+ruleUnevaluable: boolean, };
+export type GroupReasonCount = { reasonKey: string, count: number, };
+export type GroupLimitation = { key: string, count?: number, };
+export type GroupSummary = { classificationRef: Id, resultVersion: Id,
+/**
+ * Result origin, such as `scan` or `incremental`.
+ */
+sourceKind: string, observedAt?: Timestamp, completeness: ResultCompleteness,
+/**
+ * Classified folder; absent when the whole result (every scope root) was classified.
+ */
+scope?: ItemRef,
+/**
+ * Zero when the rules came from an unsaved draft.
+ */
+rulesetVersion: number, rulesetFingerprint: string, referenceTime?: Timestamp, groups: Array<GroupSummaryRow>, scopeFileCount: number, matchedCount: number, overlapCount: number, unclassifiedCount: number, undecidableCount: number,
+/**
+ * Whether scope = matched + unclassified + undecidable held at registration.
+ */
+reconciled: boolean, undecidableReasons: Array<GroupReasonCount>, limitations: Array<GroupLimitation>, predicates: Array<QueryStrategy>, };
+export type GroupClassifyResponse = { "kind": "summary", requestSeq: number, summary: GroupSummary, } | { "kind": "job", requestSeq: number, jobRef: Id, classificationRef: Id, resultVersion: Id, } | { "kind": "not_applicable", requestSeq: number, reasonKey: string, };
+export type GroupSummaryRequest = { classificationRef: Id, };
+export type GroupCancelRequest = { "kind": "view", viewRef: Id, requestSeq: number, } | { "kind": "job", jobRef: Id, };
+export type GroupCancelOutcome = "accepted" | "no_effect" | "already_terminal";
+export type GroupCancelResponse = { outcome: GroupCancelOutcome, };
+export type GroupCategory = { "kind": "group", groupId: Id, } | { "kind": "overlap", } | { "kind": "unclassified", } | { "kind": "undecidable", };
+export type GroupMembersRequest = { classificationRef: Id, resultVersion: Id, category: GroupCategory,
+/**
+ * Defaults to descending logical size; the path order always breaks ties.
+ */
+sort?: BrowseSortKey, start: number, count: number, };
+export type GroupMemberRow = { item: ItemRef, displayName: BrowseValue<string>,
+/**
+ * Original observed path; a group name never appears here.
+ */
+displayPath: BrowseValue<string>, logicalSize: BrowseValue<SizeValue>, allocatedSize: BrowseValue<SizeValue>,
+/**
+ * Matched groups in rule display order.
+ */
+groups: Array<Id>, undecidableReasonKeys: Array<string>, };
+export type GroupMembers = { classificationRef: Id, resultVersion: Id, start: number, total: number, rows: Array<GroupMemberRow>, sort: QueryStrategy, };
+export type GroupExplainRequest = { classificationRef: Id, item: ItemRef, };
+export type GroupDecision = "match" | "no_match" | "undecidable";
+export type GroupConditionNode = { path: Array<number>, predicate?: QueryStrategy, decision: GroupDecision, };
+export type GroupRuleDecision = { groupId: Id, decision: GroupDecision, reasonKey?: string, nodes: Array<GroupConditionNode>, };
+export type GroupExplanation = { classificationRef: Id, item: ItemRef, displayPath: BrowseValue<string>, observedAt?: Timestamp, rules: Array<GroupRuleDecision>, };
+export type GroupTotalsRequest = { classificationRef: Id, groupIds: Array<Id>, };
+export type GroupTotal = { sizes: Array<SpaceTotalSize>, completeness: ResultCompleteness, };
+export type GroupTotalRow = { groupId: Id, total: GroupTotal, };
+export type GroupRatio = { "state": "value", basis: SizeBasis, numerator: ByteSize, denominator: ByteSize, } | { "state": "undefined", basis: SizeBasis, reasonKey: string, };
+export type GroupTotals = { classificationRef: Id, resultVersion: Id, groups: Array<GroupTotalRow>, union: GroupTotal, overlap: GroupTotal, overlapCount: number, unclassified: GroupTotal, undecidable: GroupTotal, scope: GroupTotal, ratios: Array<GroupRatio>, sizeRule: QueryStrategy, };
 export const SIZE_UNIT_RULES = {"decimalPlaces":1,"iec":{"base":1024,"symbols":["B","KiB","MiB","GiB","TiB","PiB"]},"revision":1,"si":{"base":1000,"symbols":["B","kB","MB","GB","TB","PB"]}} as const;

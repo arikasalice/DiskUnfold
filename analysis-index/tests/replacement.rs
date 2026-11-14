@@ -87,6 +87,11 @@ fn replacement_keeps_old_pins_and_publishes_once_after_seal() -> Result<(), Stri
     assert_eq!(notices.len(), 2);
     assert_eq!(notices[1].body.change, ResultVersionChange::Published);
     assert_eq!(notices[1].body.origin, "incremental");
+    // Producers always state the source; an incremental replacement inherits it.
+    assert_eq!(
+        notices[1].body.data_source,
+        Some(du_core_contracts::data_source::DataSource::Real)
+    );
     assert_eq!(notices[1].body.source_ref, lineage);
     assert_eq!(notices[1].body.previous_result_version, Some(id(42)?));
     assert_eq!(notices[1].result_version, Some(id(43)?));

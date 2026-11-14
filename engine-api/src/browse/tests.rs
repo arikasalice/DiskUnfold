@@ -272,6 +272,7 @@ fn check_item(
     assert_eq!(body["createdAt"]["state"], "unknown");
     assert_eq!(body["observedAt"]["state"], "unknown");
     assert_eq!(body["observationOnly"], true);
+    assert_eq!(body["dataSource"], "real");
     assert!(!body.to_string().contains("\"raw\""));
     Ok(())
 }
