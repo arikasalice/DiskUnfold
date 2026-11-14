@@ -2425,6 +2425,69 @@ test("F02 NFR5: a burst of status events results in one read per frame", async (
   }
 });
 
+test("F02 NFR5.HD1: the progress card counts checked items without claiming a percentage until the total is known", async () => {
+  let state: AnalysisJobStatus["state"] = "running";
+  const { client, listeners } = fixture({
+    readStatus: (base) => ({ ...base, state, resultVersion: null }),
+  });
+  await startFixtureScan(client);
+  await screen.findByText("Scanning");
+  const send = (sequence: number, completed: number, total?: number) =>
+    act(() => {
+      for (const listener of listeners)
+        listener({
+          topic: "job.progress",
+          contractVersion: 1,
+          jobRef: "scan",
+          seq: sequence,
+          occurredAt: timestamp,
+          body: {
+            sequence,
+            unit: "items",
+            completed,
+            ...(total === undefined ? {} : { total }),
+            totalKnown: total !== undefined,
+            waitReason: "none",
+            observedAt: timestamp,
+          },
+        });
+    });
+  send(5, 128420);
+  const count = await screen.findByText(
+    "128420 items checked · Counting all items",
+  );
+  expect(count.closest('[role="status"],[aria-live]')).toBeNull();
+  const bar = screen.getByRole("progressbar", { name: "Scanning folder" });
+  expect(bar.getAttribute("aria-valuenow")).toBeNull();
+  expect(screen.queryByText(/%/)).toBeNull();
+
+  send(6, 1500, 2000);
+  await screen.findByText("1500 of 2000 items checked");
+  expect(
+    screen
+      .getByRole("progressbar", { name: "Scanning folder" })
+      .getAttribute("aria-valuenow"),
+  ).toBe("1500");
+
+  state = "paused";
+  act(() => {
+    for (const listener of listeners)
+      listener({
+        topic: "job.state_changed",
+        contractVersion: 1,
+        jobRef: "scan",
+        seq: 7,
+        occurredAt: timestamp,
+        body: { sequence: 7 },
+      });
+  });
+  await screen.findByText("Scan paused");
+  expect(screen.getByText("1500 of 2000 items checked")).toBeDefined();
+  expect(
+    screen.queryByRole("progressbar", { name: "Scanning folder" }),
+  ).toBeNull();
+});
+
 test("F02 FR10: cancellation is announced before acknowledgement and a rejection clears it", async () => {
   let acknowledge: ((response: AnalysisJobControl) => void) | undefined;
   const { client, calls } = fixture({

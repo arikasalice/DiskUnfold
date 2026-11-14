@@ -17,7 +17,13 @@ import {
   Text,
 } from "../../components";
 import { SIZE_UNIT_RULES, scanJobReasonText, scanProblemText } from "../../ipc";
-import type { AnalysisClient, JobState, OsPath, SpaceTotal } from "../../ipc";
+import type {
+  AnalysisClient,
+  AnalysisJobProgress,
+  JobState,
+  OsPath,
+  SpaceTotal,
+} from "../../ipc";
 import type { ScanControl, useScanResult } from "../../state/analysis-scan";
 import { ScanIssues } from "./ScanIssues";
 import { FileInspection } from "./FileInspection";
@@ -234,14 +240,22 @@ function ScanOutputHeader({
         />
         {actions}
       </div>
-      {running && (cancelling || scan.status?.state !== "paused") && (
-        <Progress
-          label={
-            cancelling
-              ? text("ui.analysis.waiting_cancel", "Waiting for cancellation")
-              : text("ui.analysis.scanning_folder", "Scanning folder")
-          }
-        />
+      {running && (
+        <div className="du-scan-progress">
+          <Progress
+            label={
+              cancelling
+                ? text("ui.analysis.waiting_cancel", "Waiting for cancellation")
+                : text("ui.analysis.scanning_folder", "Scanning folder")
+            }
+            paused={!cancelling && scan.status?.state === "paused"}
+            {...determinateProgress(scan.progress)}
+          />
+          {/* Not a live region: a running count would be read on every frame. */}
+          {scan.progress && (
+            <Text kind="muted">{progressText(scan.progress, text)}</Text>
+          )}
+        </div>
       )}
       {awaitingTotals && (
         <div className="du-result__loading">
@@ -260,6 +274,44 @@ function ScanOutputHeader({
       )}
     </header>
   );
+}
+
+/** A bar claims a share of the work only when the total is confirmed. */
+function determinateProgress(progress: AnalysisJobProgress | undefined) {
+  if (!progress?.totalKnown || progress.total === undefined) return {};
+  return { value: progress.completed, maxValue: progress.total };
+}
+
+function progressText(progress: AnalysisJobProgress, text: LocaleText) {
+  const completed = BigInt(progress.completed);
+  const known = progress.totalKnown && progress.total !== undefined;
+  const total = BigInt(progress.total ?? 0);
+  if (progress.unit === "bytes")
+    return known
+      ? text(
+          "ui.analysis.progress_bytes_of_total",
+          "{size} of {total} checked",
+          {
+            size: completed,
+            total,
+          },
+        )
+      : text(
+          "ui.analysis.progress_bytes",
+          "{size} checked · Total size not yet known",
+          { size: completed },
+        );
+  return known
+    ? text(
+        "ui.analysis.progress_items_of_total",
+        "{count} of {total} items checked",
+        { count: completed, total },
+      )
+    : text(
+        "ui.analysis.progress_items",
+        "{count} items checked · Counting all items",
+        { count: completed },
+      );
 }
 
 function ScanStatus({
