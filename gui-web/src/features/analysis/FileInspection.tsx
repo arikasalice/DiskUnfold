@@ -4,6 +4,7 @@ import type { LocaleText } from "../../i18n/presentation";
 import { useTimestampText } from "../../i18n/regional-format";
 import {
   DetailDisclosure,
+  ExampleBadge,
   Notice,
   Progress,
   Readout,
@@ -17,6 +18,7 @@ import type {
   ItemRef,
 } from "../../ipc";
 import { CopyPath } from "./CopyPath";
+import { isSampleSource } from "../../state/sample-session";
 import { ItemSpaceDetails } from "./ItemSpaceDetails";
 import {
   displaySizeParts,
@@ -99,6 +101,7 @@ function attributes(
   item: ItemRef,
   text: LocaleText,
   renderTime: (value: string) => string,
+  actionsDisabledReason?: string,
 ) {
   return [
     {
@@ -139,14 +142,35 @@ function attributes(
     },
     {
       label: text("ui.inspection.source", "Source"),
-      value: detail.observationOnly
-        ? text("ui.inspection.scan_record", "Scan record")
-        : text("ui.inspection.scan", "Scan"),
+      value: (
+        <>
+          {detail.observationOnly
+            ? text("ui.inspection.scan_record", "Scan record")
+            : text("ui.inspection.scan", "Scan")}
+          {isSampleSource(detail.dataSource) && (
+            <>
+              {" "}
+              <ExampleBadge>
+                {text("ui.sample.example_badge", "Example")}
+              </ExampleBadge>
+            </>
+          )}
+        </>
+      ),
     },
     {
       label: text("ui.inspection.path", "Path"),
       wideValue: true,
-      value: <CopyPath client={client} item={item} path={detail.displayPath} />,
+      value: (
+        <CopyPath
+          client={client}
+          item={item}
+          path={detail.displayPath}
+          {...(actionsDisabledReason === undefined
+            ? {}
+            : { disabledReason: actionsDisabledReason })}
+        />
+      ),
     },
     {
       label: text("ui.inspection.kind", "Kind"),
@@ -161,11 +185,14 @@ export function FileInspection({
   item,
   itemKind = "file",
   display = windowsSizeDisplay,
+  actionsDisabledReason,
 }: {
   client: AnalysisClient;
   item: ItemRef;
   itemKind?: "file" | "folder";
   display?: SizeDisplay;
+  /** Turns off the actions that act on a real path and shows this reason (the sample experience). */
+  actionsDisabledReason?: string;
 }) {
   const [detail, setDetail] = useState<BrowseDetail>();
   const [problem, setProblem] = useState<
@@ -252,6 +279,7 @@ export function FileInspection({
                   item,
                   text,
                   renderTime,
+                  actionsDisabledReason,
                 )}
               />
             </div>

@@ -1112,7 +1112,11 @@ export type SpacePlaceholderState = "none" | "partial" | "full";
 export type SpaceAuxiliary = { size: SizeValue, includedInAllocated: boolean | null, };
 export type SpaceCapabilityState = "supported" | "partial" | "unsupported";
 export type SpaceDetailCapability = { key: string, state: SpaceCapabilityState, reasonKey: string | null, };
-export type SpaceDetail = { item: ItemRef, logical: BrowseValue<SpaceDetailSize>, allocated: BrowseValue<SpaceDetailSize>, uniquePhysical: BrowseValue<SpaceDetailSize>, exclusive: BrowseValue<SpaceDetailSize>, shared: BrowseValue<SpaceDetailSize>, linkGroup: BrowseValue<SpaceLinkGroup>, placeholderLocalState?: BrowseValue<SpacePlaceholderState>, auxiliary: BrowseValue<SpaceAuxiliary>, exclusiveDecision: SpaceExclusiveDecision, observedAt: BrowseValue<Timestamp>, capabilities: BrowseValue<Array<SpaceDetailCapability>>, };
+export type SpaceDetail = { item: ItemRef, logical: BrowseValue<SpaceDetailSize>, allocated: BrowseValue<SpaceDetailSize>, uniquePhysical: BrowseValue<SpaceDetailSize>, exclusive: BrowseValue<SpaceDetailSize>, shared: BrowseValue<SpaceDetailSize>, linkGroup: BrowseValue<SpaceLinkGroup>, placeholderLocalState?: BrowseValue<SpacePlaceholderState>, auxiliary: BrowseValue<SpaceAuxiliary>, exclusiveDecision: SpaceExclusiveDecision, observedAt: BrowseValue<Timestamp>, capabilities: BrowseValue<Array<SpaceDetailCapability>>,
+/**
+ * Data source of the pinned version; absent means a sample (F32 FR9.HD1).
+ */
+dataSource?: DataSource, };
 export type SampleSessionState = "preparing" | "active" | "resetting" | "unavailable" | "closed";
 export type SampleEventState = "inactive" | "loading" | "active" | "failed";
 export type SampleOpenRequest = Record<symbol, never>;

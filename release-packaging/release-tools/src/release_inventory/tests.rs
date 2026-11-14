@@ -121,6 +121,7 @@ fn sorts_rows_by_format_then_os_then_cpu_deterministically() -> Result<(), Box<d
         rows: manifest.rows.clone(),
         channel_references: manifest.channel_references.clone(),
         fuzz_gate: None,
+        sample_bundle: None,
     };
     let json = render_json(&output)?;
     assert_eq!(json, render_json(&output)?);
@@ -167,6 +168,7 @@ fn renders_exact_os_versions_without_implying_intermediate_support() -> Result<(
         rows: manifest.rows,
         channel_references: manifest.channel_references,
         fuzz_gate: None,
+        sample_bundle: None,
     };
     let json = render_json(&inventory)?;
     let output: serde_json::Value = serde_json::from_str(&json)?;
@@ -405,6 +407,7 @@ fn a_fuzz_gate_record_is_published_in_the_json_and_the_markdown()
         rows: Vec::new(),
         channel_references: Vec::new(),
         fuzz_gate: None,
+        sample_bundle: None,
     };
     assert!(!render_json(&inventory)?.contains("fuzz_gate"));
     assert!(!render_markdown(&inventory).contains("## Fuzz gate"));

@@ -14,6 +14,7 @@ use crate::{
     api::{CallerCtx, Channel, EngineBuilder, UseCase},
     display_path,
     error::EngineError,
+    source_exposure::pin_current_for,
 };
 
 pub(crate) fn register(builder: &mut EngineBuilder, store: IngestSink, random: &dyn Random) {
@@ -42,17 +43,15 @@ impl UseCase for Failures {
     fn execute(
         &self,
         request: Self::Request,
-        _: &CallerCtx,
+        caller: &CallerCtx,
     ) -> Result<Self::Response, EngineError> {
         let count = request.count.unwrap_or(200);
         if !(1..=1_000).contains(&count) {
             return Err(EngineError::reason("cursor.limit_exceeded"));
         }
         let start = cursor::start(&self.key, &request)?;
-        let version = self
-            .store
-            .pin_current(&request.result_version)
-            .map_err(query_error)?;
+        let version = pin_current_for(&self.store, &request.result_version, caller.channel)
+            .map_err(|error| query_error(error.query()))?;
         let issues = version.scan_issues();
         let matching = issues
             .iter()

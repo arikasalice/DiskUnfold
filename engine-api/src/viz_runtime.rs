@@ -253,6 +253,7 @@ type RankedWork = (Candidate, Option<VizModel>, u64, Option<(String, u32)>);
 struct Admitted {
     request: VizRenderRequest,
     source: CurrentAnalysis,
+    channel: crate::api::Channel,
     facts: SourceFacts,
     key: String,
     descriptor: du_core_contracts::visualization::LayoutDescriptor,
