@@ -1,0 +1,311 @@
+.du-groups {
+  display: grid;
+  /* Rows keep their own height; extra space stays below the content. */
+  align-content: start;
+  gap: 16px;
+  min-inline-size: 0;
+}
+
+/* The screen title takes the focus when the screen opens; the page is not framed. The editor
+   is already drawn with its own border, so it takes the focus without a second frame. */
+.du-groups-members:focus-visible {
+  outline: 2px solid var(--du-focus);
+  outline-offset: 2px;
+}
+
+/* The member-list action sits at the right end of the action row. */
+.du-groups > .du-review-surface > footer.du-review-actions {
+  justify-content: flex-end;
+}
+
+.du-groups-status,
+.du-groups-limits,
+.du-groups-members,
+.du-groups-explain,
+.du-groups-totals,
+.du-groups-layout,
+.du-groups-results,
+.du-groups-applied,
+.du-groups-editor,
+.du-groups-editor__body,
+.du-groups-rule,
+.du-groups-condition,
+.du-groups-guide,
+.du-groups-manage,
+.du-groups-preview {
+  display: grid;
+  gap: 12px;
+  min-inline-size: 0;
+}
+
+.du-groups-layout,
+.du-groups-results {
+  gap: 16px;
+}
+
+.du-groups-status > .du-action,
+.du-groups-status > .du-badge {
+  justify-self: start;
+}
+
+.du-groups-explain,
+.du-groups-totals,
+.du-groups-guide {
+  padding: 16px;
+  background: var(--du-surface);
+  border: 1px solid var(--du-border);
+  border-radius: var(--du-radius);
+}
+
+.du-groups-badges,
+.du-groups-name,
+.du-groups-memberships {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-inline-size: 0;
+}
+
+.du-groups-explain__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.du-groups-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
+  gap: 12px;
+}
+
+/* Text for assistive technology only. */
+.du-groups-sr,
+.du-groups-cond__row label.du-field > span:first-child,
+.du-groups-cond__row .du-field > label,
+.du-groups-cond__row .du-field [slot="description"] {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Bands: a message with up to two actions on a tinted strip. */
+.du-groups .du-notice {
+  padding: 12px 16px;
+  font-weight: 600;
+}
+
+.du-groups .du-notice--info {
+  background: var(--du-selected-surface);
+  color: var(--du-selected-text);
+}
+
+.du-groups .du-notice > div {
+  flex: 1;
+  min-inline-size: 0;
+}
+
+.du-groups-band {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+
+/*
+ * The entry button on the browse screen. For a sample result it is disabled but
+ * keeps focus (aria-disabled), with its reason always shown to its left.
+ */
+.du-groups-entry {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px 12px;
+  min-inline-size: 0;
+  max-inline-size: 100%;
+}
+
+.du-groups-entry__reason {
+  min-inline-size: 0;
+  text-align: end;
+}
+
+.du-groups-entry .du-action[aria-disabled="true"],
+.du-groups-entry .du-action[aria-disabled="true"][data-hovered],
+.du-groups-entry .du-action[aria-disabled="true"][data-pressed] {
+  border-color: var(--du-disabled-border);
+  background: var(--du-disabled-surface);
+  color: var(--du-disabled-text);
+  cursor: default;
+}
+
+/* The rule line: label, names, meta and the edit action. */
+.du-groups-rules-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 24px;
+  padding: 16px 24px;
+  background: var(--du-surface);
+  border: 1px solid var(--du-border);
+  border-radius: var(--du-radius);
+  min-inline-size: 0;
+}
+
+.du-groups-rules-line__names {
+  display: flex;
+  flex: 1 1 18rem;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 24px;
+  min-inline-size: 0;
+}
+
+.du-groups-rules-line .du-text--path {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.du-groups-edit-rules {
+  margin-inline-start: auto;
+  max-inline-size: 100%;
+  min-inline-size: 0;
+}
+
+@media (max-width: 44rem) {
+  .du-groups-edit-rules {
+    margin-inline-start: 0;
+  }
+}
+
+.du-groups-cell {
+  display: grid;
+  gap: 4px;
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+
+.du-groups-cell__label {
+  display: none;
+  color: var(--du-muted);
+  font-size: 12px;
+}
+
+/* The member grid has five columns, with the original path getting the most room. */
+@container (min-width: 641px) {
+  .du-groups-members .du-browse-grid__header [role="row"],
+  .du-groups-members .du-browse-grid__row {
+    grid-template-columns:
+      minmax(0, 22fr) minmax(0, 34fr) repeat(2, minmax(0, 11fr))
+      minmax(0, 22fr);
+  }
+}
+
+/* The summary table: a tinted header, white rows and a selected row with a bar and bold name. */
+.du-groups .du-table-viewport {
+  max-block-size: none;
+  overflow-x: hidden;
+}
+
+.du-groups .du-table-cell {
+  display: grid;
+  align-content: center;
+  block-size: auto !important;
+  min-block-size: 48px;
+}
+
+.du-groups .du-data-table {
+  min-inline-size: 0 !important;
+  inline-size: 100%;
+  table-layout: fixed;
+}
+
+.du-groups .du-data-table th {
+  background: var(--du-subtle);
+}
+
+.du-groups .du-data-table th:first-child {
+  border-start-start-radius: 8px;
+}
+
+.du-groups .du-data-table th:last-child {
+  border-start-end-radius: 8px;
+}
+
+.du-groups .du-data-table td {
+  background: var(--du-surface);
+}
+
+.du-groups .du-data-table tbody tr:has([data-selected]) td {
+  background: var(--du-selected-surface);
+}
+
+.du-groups .du-data-table tbody tr:has([data-selected]) td:first-child {
+  box-shadow: inset 3px 0 0 var(--du-accent);
+}
+
+.du-groups .du-data-table tbody tr:has([data-selected]) .du-badge {
+  background: var(--du-surface);
+}
+
+.du-groups-name .du-action--quiet {
+  min-block-size: 0;
+  padding: 2px 4px;
+  margin-inline-start: -4px;
+  justify-content: flex-start;
+  color: var(--du-text);
+  font-weight: 600;
+  text-align: start;
+}
+
+.du-groups-name[data-selected] .du-action--quiet {
+  font-weight: 700;
+}
+
+.du-groups .du-badge {
+  padding: 2px 10px;
+  border-radius: 999px;
+}
+
+/* Narrow windows and large zoom: one column, each cell names its column. */
+@media (max-width: 44rem) {
+  .du-groups .du-data-table,
+  .du-groups .du-data-table tbody,
+  .du-groups .du-data-table tr,
+  .du-groups .du-data-table td {
+    display: block;
+    inline-size: 100%;
+  }
+
+  .du-groups .du-data-table col {
+    display: none;
+  }
+
+  .du-groups .du-data-table thead {
+    position: absolute;
+    inline-size: 1px;
+    block-size: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+
+  .du-groups .du-data-table tr {
+    padding-block: 8px;
+    border-block-end: 1px solid var(--du-border);
+  }
+
+  .du-groups-cell__label {
+    display: block;
+  }
+
+  .du-groups-rules-line {
+    padding: 12px 16px;
+  }
+}
