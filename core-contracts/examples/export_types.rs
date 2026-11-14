@@ -1,5 +1,6 @@
 use du_core_contracts::browse_open_ipc::*;
 use du_core_contracts::browse_page_ipc::*;
+use du_core_contracts::group_ipc::*;
 use du_core_contracts::history_ipc::*;
 use du_core_contracts::locale_bundle::*;
 use du_core_contracts::locale_ipc::*;
@@ -358,6 +359,39 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         SpaceCapabilityState::decl(&config),
         SpaceDetailCapability::decl(&config),
         SpaceDetail::decl(&config),
+        GroupRuleReview::decl(&config),
+        GroupRule::decl(&config),
+        GroupRuleDraft::decl(&config),
+        GroupRuleset::decl(&config),
+        GroupRulesGetRequest::decl(&config),
+        GroupRulesSaveRequest::decl(&config),
+        GroupRuleIssue::decl(&config),
+        GroupRulesSaveResponse::decl(&config),
+        GroupRuleSource::decl(&config),
+        GroupClassifyRequest::decl(&config),
+        GroupSummaryRow::decl(&config),
+        GroupReasonCount::decl(&config),
+        GroupLimitation::decl(&config),
+        GroupSummary::decl(&config),
+        GroupClassifyResponse::decl(&config),
+        GroupSummaryRequest::decl(&config),
+        GroupCancelRequest::decl(&config),
+        GroupCancelOutcome::decl(&config),
+        GroupCancelResponse::decl(&config),
+        GroupCategory::decl(&config),
+        GroupMembersRequest::decl(&config),
+        GroupMemberRow::decl(&config),
+        GroupMembers::decl(&config),
+        GroupExplainRequest::decl(&config),
+        GroupDecision::decl(&config),
+        GroupConditionNode::decl(&config),
+        GroupRuleDecision::decl(&config),
+        GroupExplanation::decl(&config),
+        GroupTotalsRequest::decl(&config),
+        GroupTotal::decl(&config),
+        GroupTotalRow::decl(&config),
+        GroupRatio::decl(&config),
+        GroupTotals::decl(&config),
     ];
     let output = declarations
         .into_iter()
