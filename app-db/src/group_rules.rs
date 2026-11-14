@@ -3,6 +3,9 @@
 //! The adapter persists the single group ruleset as one header row and its rule
 //! rows. It checks the optimistic write revision and the structure of the stored
 //! values; version numbers, fingerprints and rule meaning belong to the caller.
+//! The schema allows one header row (`singleton = 1`). Rows are returned as stored,
+//! including a `format_version` this build does not define; the caller decides
+//! whether it can interpret them.
 
 use du_core_contracts::{
     Id,
@@ -51,7 +54,7 @@ impl AppDb {
             .query_row(
                 "SELECT ruleset_id, format_version, version_no, revision, fingerprint,
                         created_at_ms, updated_at_ms
-                 FROM analysis_index_group_ruleset LIMIT 1",
+                 FROM analysis_index_group_ruleset WHERE singleton = 1",
                 [],
                 |row| {
                     Ok(RawHead {
@@ -99,12 +102,16 @@ impl AppDb {
     /// `Busy`; any other failure, including input that is structurally invalid or a ruleset
     /// identity that differs from the stored one, rolls back and reports `Failed`.
     /// The call is never retried. The caller computes `version_no`, `revision` and the
-    /// fingerprint.
+    /// fingerprint; `next.revision` must be exactly `expected_revision + 1`, otherwise
+    /// nothing is written and the result is `Failed`.
     pub fn replace_group_ruleset(
         &mut self,
         expected_revision: u32,
         next: &StoredGroupRuleset,
     ) -> GroupRulesSaveOutcome {
+        if expected_revision.checked_add(1) != Some(next.revision) {
+            return GroupRulesSaveOutcome::Failed;
+        }
         let Some(encoded) = Encoded::new(next) else {
             return GroupRulesSaveOutcome::Failed;
         };
@@ -284,7 +291,7 @@ fn write_ruleset(
     if updated == 0 {
         let stored: Option<(Vec<u8>, i64)> = tx
             .query_row(
-                "SELECT ruleset_id, revision FROM analysis_index_group_ruleset LIMIT 1",
+                "SELECT ruleset_id, revision FROM analysis_index_group_ruleset WHERE singleton = 1",
                 [],
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )

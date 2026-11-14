@@ -201,7 +201,7 @@ fn review_reports_the_first_failure_of_each_rule() {
         vec![
             (1, "predicate.unknown"),
             (2, "group.name_duplicate"),
-            (3, "group.name_invalid"),
+            (3, "group.rule_limit"),
             (4, "group.rule_limit"),
             (5, "group.rule_limit"),
         ]

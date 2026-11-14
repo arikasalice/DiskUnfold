@@ -185,7 +185,8 @@ fn review_drafts(
         let reason = review_condition(registry, &draft.condition)
             .or_else(|| {
                 let chars = name.chars().count();
-                (chars == 0 || chars > limits.max_name_chars).then_some("group.name_invalid")
+                // A name outside 1..=max_name_chars breaks the name length limit (DLD Q3).
+                (chars == 0 || chars > limits.max_name_chars).then_some("group.rule_limit")
             })
             .or_else(|| (!names.insert(name.to_lowercase())).then_some("group.name_duplicate"))
             .or_else(|| (index >= limits.max_rules).then_some("group.rule_limit"))

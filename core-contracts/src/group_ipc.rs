@@ -5,7 +5,8 @@ use crate::{
     analysis_ipc::SpaceTotalSize,
     browse_ipc::BrowseValue,
     browse_open_ipc::{BrowseSortKey, QueryCondition},
-    browse_page_ipc::QueryStrategy,
+    browse_page_ipc::{QueryStrategy, ResultOrigin},
+    data_source::DataSource,
     result::ResultCompleteness,
 };
 use serde::{Deserialize, Serialize};
@@ -26,7 +27,7 @@ pub enum GroupRuleReview {
 /// A stored rule with its pinned predicate strategies.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct GroupRule {
     pub group_id: Id,
     pub display_name: String,
@@ -52,7 +53,7 @@ pub struct GroupRuleDraft {
 /// The stored ruleset. Version and revision are zero before the first save.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct GroupRuleset {
     pub ruleset_version: u32,
     pub revision: u32,
@@ -82,7 +83,7 @@ pub struct GroupRulesSaveRequest {
 /// One failed review check for a draft rule at its zero-based list index.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct GroupRuleIssue {
     pub index: u32,
     pub reason_key: String,
@@ -145,7 +146,7 @@ pub struct GroupClassifyRequest {
 /// Per-group counts in rule display order.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct GroupSummaryRow {
     pub group_id: Id,
     pub display_name: String,
@@ -162,7 +163,7 @@ pub struct GroupSummaryRow {
 /// Count for one known reason.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct GroupReasonCount {
     pub reason_key: String,
     pub count: u32,
@@ -171,7 +172,7 @@ pub struct GroupReasonCount {
 /// One limitation of the classification evidence. Keys form an open set.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct GroupLimitation {
     pub key: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -194,12 +195,16 @@ pub mod limitation {
 /// A registered classification bound to its pinned inputs.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct GroupSummary {
     pub classification_ref: Id,
     pub result_version: Id,
-    /// Result origin, such as `scan` or `incremental`.
-    pub source_kind: String,
+    /// Result origin of the pinned version, as published by browse and search.
+    pub origin: ResultOrigin,
+    /// Data source of the pinned version, always set by the producer; absent means a sample (F32 FR2.HD2).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub data_source: Option<DataSource>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "typescript", ts(optional))]
     pub observed_at: Option<Timestamp>,
@@ -246,6 +251,10 @@ pub enum GroupClassifyResponse {
         job_ref: Id,
         classification_ref: Id,
         result_version: Id,
+        /// Data source of the pinned version; absent means a sample (F32 FR2.HD2).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "typescript", ts(optional))]
+        data_source: Option<DataSource>,
     },
     NotApplicable {
         request_seq: u32,
@@ -285,7 +294,7 @@ pub enum GroupCancelOutcome {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct GroupCancelResponse {
     pub outcome: GroupCancelOutcome,
 }
@@ -325,7 +334,7 @@ pub struct GroupMembersRequest {
 /// One observed file. A file in several groups is one row with several group IDs.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct GroupMemberRow {
     pub item: ItemRef,
     pub display_name: BrowseValue<String>,
@@ -340,10 +349,14 @@ pub struct GroupMemberRow {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct GroupMembers {
     pub classification_ref: Id,
     pub result_version: Id,
+    /// Data source of the pinned version, always set by the producer; absent means a sample (F32 FR2.HD2).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub data_source: Option<DataSource>,
     pub start: u32,
     pub total: u32,
     pub rows: Vec<GroupMemberRow>,
@@ -371,7 +384,7 @@ pub enum GroupDecision {
 /// Decision of one condition node. `path` lists child indices from the rule root.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct GroupConditionNode {
     pub path: Vec<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -382,7 +395,7 @@ pub struct GroupConditionNode {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct GroupRuleDecision {
     pub group_id: Id,
     pub decision: GroupDecision,
@@ -395,10 +408,14 @@ pub struct GroupRuleDecision {
 /// Why one file is (or is not) in each group, re-evaluated with the pinned rules.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct GroupExplanation {
     pub classification_ref: Id,
     pub item: ItemRef,
+    /// Data source of the pinned version, always set by the producer; absent means a sample (F32 FR2.HD2).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub data_source: Option<DataSource>,
     pub display_path: BrowseValue<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "typescript", ts(optional))]
@@ -418,7 +435,7 @@ pub struct GroupTotalsRequest {
 /// Independent F03 set total for each basis (logical, allocated, unique physical).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct GroupTotal {
     pub sizes: Vec<SpaceTotalSize>,
     pub completeness: ResultCompleteness,
@@ -426,7 +443,7 @@ pub struct GroupTotal {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct GroupTotalRow {
     pub group_id: Id,
     pub total: GroupTotal,
@@ -438,8 +455,7 @@ pub struct GroupTotalRow {
 #[serde(
     tag = "state",
     rename_all = "snake_case",
-    rename_all_fields = "camelCase",
-    deny_unknown_fields
+    rename_all_fields = "camelCase"
 )]
 pub enum GroupRatio {
     Value {
@@ -456,10 +472,14 @@ pub enum GroupRatio {
 /// Totals over category sets. No total is derived from another by arithmetic.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct GroupTotals {
     pub classification_ref: Id,
     pub result_version: Id,
+    /// Data source of the pinned version, always set by the producer; absent means a sample (F32 FR2.HD2).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub data_source: Option<DataSource>,
     pub groups: Vec<GroupTotalRow>,
     pub union: GroupTotal,
     pub overlap: GroupTotal,

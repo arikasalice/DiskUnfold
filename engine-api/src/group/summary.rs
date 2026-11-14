@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use du_core_contracts::{
     Id,
-    browse_page_ipc::QueryStrategy,
+    browse_page_ipc::{QueryStrategy, ResultOrigin},
     group_ipc::{
         GroupCancelOutcome, GroupCancelRequest, GroupCancelResponse, GroupClassifyResponse,
         GroupReasonCount, GroupSummary, GroupSummaryRequest, GroupSummaryRow,
@@ -81,7 +81,8 @@ fn build_summary(services: &Services, reference: &Id) -> Result<GroupSummary, En
     Ok(GroupSummary {
         classification_ref: reference.clone(),
         result_version: version.version_id().clone(),
-        source_kind: version.origin().into(),
+        origin: ResultOrigin(version.origin().into()),
+        data_source: Some(version.data_source()),
         observed_at: version.observed_at().cloned(),
         completeness: version.completeness(),
         scope: classification.root().cloned(),

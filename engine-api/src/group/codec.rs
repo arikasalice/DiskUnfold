@@ -32,7 +32,13 @@ pub(super) fn load(store: &dyn GroupRulesStore) -> Result<Loaded, EngineError> {
     }
 }
 
+/// Decodes a stored ruleset. A format this build does not define (written by a newer
+/// build, or an older format without a conversion) is refused with `db.schema_mismatch`,
+/// so it is neither shown as empty nor overwritten by a save.
 fn decode(stored: StoredGroupRuleset) -> Result<Loaded, EngineError> {
+    if stored.format_version != du_analysis_index::group::ruleset::RULESET_FORMAT_VERSION {
+        return Err(EngineError::reason("db.schema_mismatch"));
+    }
     let mut rules = Vec::with_capacity(stored.rules.len());
     let mut wire = Vec::with_capacity(stored.rules.len());
     for row in stored.rules {

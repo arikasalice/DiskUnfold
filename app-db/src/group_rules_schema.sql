@@ -1,5 +1,6 @@
 CREATE TABLE analysis_index_group_ruleset (
  ruleset_id BLOB PRIMARY KEY CHECK(length(ruleset_id) = 16),
+ singleton INTEGER NOT NULL DEFAULT 1 UNIQUE CHECK(singleton = 1),
  format_version INTEGER NOT NULL CHECK(format_version >= 1),
  version_no INTEGER NOT NULL CHECK(version_no >= 1),
  revision INTEGER NOT NULL CHECK(revision >= 1),

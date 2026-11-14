@@ -139,6 +139,7 @@ impl UseCase for Members {
         Ok(GroupMembers {
             classification_ref: request.classification_ref,
             result_version: request.result_version,
+            data_source: Some(classification.version().data_source()),
             start: request.start,
             total: u32::try_from(page.total).map_err(|_| internal())?,
             rows,
@@ -199,6 +200,7 @@ impl UseCase for Explain {
         let version = classification.version();
         let projected = search_page::row(version, &request.item).map_err(|_| internal())?;
         Ok(GroupExplanation {
+            data_source: Some(version.data_source()),
             observed_at: version
                 .item_observed_at(request.item.item_no)
                 .or(version.observed_at())
@@ -268,6 +270,7 @@ impl UseCase for Totals {
         Ok(GroupTotals {
             classification_ref: request.classification_ref,
             result_version: version.version_id().clone(),
+            data_source: Some(version.data_source()),
             groups: meta
                 .group_ids
                 .iter()
