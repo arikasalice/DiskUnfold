@@ -70,7 +70,7 @@ mod tests {
     use super::*;
     use du_core_contracts::{
         ports::{PortError, PortErrorKind},
-        scan_observation::DirectoryObservations,
+        scan_observation::{DirectoryObservations, ObservedKind},
     };
     use std::{sync::mpsc, time::Duration};
     struct Empty;
