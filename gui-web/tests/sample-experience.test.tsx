@@ -22,11 +22,25 @@ const panel = vi.hoisted(() => ({ mounts: 0 }));
 vi.mock("../src/features/analysis/AnalysisPanel", async () => {
   const { useEffect, useState } = await import("react");
   return {
-    AnalysisPanel: ({ startAlternative }: { startAlternative?: unknown }) => {
+    AnalysisPanel: ({
+      startAlternative,
+      onScanContext,
+    }: {
+      startAlternative?: unknown;
+      onScanContext?: (context: unknown) => void;
+    }) => {
       const [draft, setDraft] = useState("");
       useEffect(() => {
         panel.mounts += 1;
       }, []);
+      // A real scan of the sample's result version is running.
+      useEffect(() => {
+        onScanContext?.({
+          jobRef: "scan",
+          resultVersion: "rv1",
+          scanning: true,
+        });
+      }, [onScanContext]);
       return (
         <div>
           <input
@@ -49,12 +63,14 @@ vi.mock("../src/features/browse/BrowsePanel", () => ({
     rootLabel?: string;
     titleBadge?: unknown;
     actionsDisabledReason?: string;
+    priority?: unknown;
   }) => (
     <div
       data-testid="sample-browse"
       data-version={props.resultVersion}
       data-root={props.rootLabel}
       data-reason={props.actionsDisabledReason}
+      data-priority={props.priority === undefined ? undefined : ""}
     >
       {props.titleBadge as never}
     </div>
@@ -150,6 +166,15 @@ test("an active session browses its latest observation under the sample root and
   });
   browse = screen.getByTestId("sample-browse");
   expect(browse.dataset.version).toBe("rv0");
+});
+
+test("F02 FR8.HD1: the sample browser never offers Analyze first, even beside a running scan", async () => {
+  await start(openedFixture());
+  const browse = await screen.findByTestId("sample-browse");
+  // The analysis screen reported a running scan of the same version.
+  expect(browse.dataset.version).toBe("rv1");
+  expect(browse.dataset.priority).toBeUndefined();
+  expect(screen.queryByRole("button", { name: "Analyze first" })).toBeNull();
 });
 
 test("starting while a request is pending sends one command and disables the entry", async () => {

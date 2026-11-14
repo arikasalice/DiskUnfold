@@ -1,0 +1,78 @@
+.du-selection-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px var(--du-space-2);
+  min-block-size: 40px;
+  padding: 4px 8px 4px 12px;
+  border: 1px solid var(--du-border);
+  border-radius: var(--du-radius);
+  background: var(--du-subtle);
+}
+
+.du-selection-actions__message {
+  display: flex;
+  min-inline-size: 0;
+  align-items: center;
+}
+
+.du-selection-actions__summary {
+  min-inline-size: 0;
+  color: var(--du-muted);
+  font-size: 0.875em;
+}
+
+.du-selection-actions__notice {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--du-text);
+  font-size: 0.875em;
+  font-weight: 600;
+}
+
+.du-selection-actions__notice svg {
+  flex: none;
+}
+
+.du-selection-actions__notice[data-tone="success"] svg {
+  color: var(--du-success-text);
+}
+
+.du-selection-actions__notice[data-tone="info"] svg {
+  color: var(--du-info-text);
+}
+
+.du-selection-actions__notice[data-tone="error"] svg {
+  color: var(--du-danger-text);
+}
+
+.du-selection-actions__items {
+  display: flex;
+  gap: var(--du-space-2);
+}
+
+.du-selection-actions .du-action {
+  min-block-size: 32px;
+  padding-block: 4px;
+}
+
+/* An unavailable action stays focusable; it looks disabled without hover feedback. */
+.du-selection-actions
+  .du-selection-actions__items
+  .du-action[aria-disabled="true"] {
+  border-color: var(--du-disabled-border);
+  background: var(--du-disabled-surface);
+  color: var(--du-disabled-text);
+  cursor: default;
+}
+
+@media (forced-colors: active) {
+  .du-selection-actions
+    .du-selection-actions__items
+    .du-action[aria-disabled="true"] {
+    border-color: GrayText;
+    color: GrayText;
+  }
+}

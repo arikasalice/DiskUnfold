@@ -6,6 +6,7 @@ import {
   screen,
   within,
 } from "@testing-library/react";
+import { useState } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 import { ScanIssues } from "../src/features/analysis/ScanIssues";
 import { AnalysisError } from "../src/ipc";
@@ -156,11 +157,35 @@ test.each([
     fireEvent.click(screen.getByRole("button", { name: action }));
     expect(reopen).toHaveBeenCalledTimes(1);
     await screen.findByText(message);
-    expect(requests.every((request) => request.resultVersion === "v1")).toBe(
-      true,
-    );
+    // Reopening never asks again for the version that was just refused.
+    expect(requests).toEqual([{ resultVersion: "v1" }]);
   },
 );
+
+test("F02 IF-05: reopening with the new result reads only the new result version", async () => {
+  const { client, requests } = issuesClient(async ({ resultVersion }) => {
+    if (resultVersion === "v1")
+      throw new AnalysisError("STALE_VERSION", "result.requery_required");
+    return { resultVersion, totalCount: 1, rows: [row("C:\\v2")] };
+  });
+  function Reopening() {
+    const [version, setVersion] = useState("v1");
+    return (
+      <ScanIssues
+        client={client}
+        resultVersion={version}
+        onReopenLatest={() => setVersion("v2")}
+      />
+    );
+  }
+  render(<Reopening />);
+  openIssues();
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Reopen with the new result" }),
+  );
+  await screen.findByText("C:\\v2");
+  expect(requests).toEqual([{ resultVersion: "v1" }, { resultVersion: "v2" }]);
+});
 
 test("F02 IF-05: other failures use general copy and retry the same page", async () => {
   let attempts = 0;

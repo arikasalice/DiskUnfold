@@ -266,11 +266,14 @@ pub(super) fn record_unread(
     build.record_gap_at(root_index, path, reason_key.into(), observed_at.cloned())
 }
 
-/// Records how a root starts, before any of its entries is observed.
+/// Records how a root starts and counts its item once, before any of its
+/// entries is observed.
 ///
 /// A root without a verified identity is an unverifiable range, because none
-/// of its child directories can be entered. A root that repeats an earlier
-/// root is a revisit and is never enumerated.
+/// of its child directories can be entered, and counts as failed. A root that
+/// repeats an earlier root is a revisit, is never enumerated and counts as
+/// completed. A verified root counts as completed; a later failure of its own
+/// read moves it to failed (NFR5.HD1.app-host.DD1).
 pub(super) fn record_root_start(
     build: &mut BuildHandle,
     root_index: u32,
@@ -279,7 +282,10 @@ pub(super) fn record_root_start(
     observed_at: Option<&Timestamp>,
 ) -> Result<(), BuildError> {
     let unread = match start {
-        RootStart::Collect(Boundary::Volume(_)) => return Ok(()),
+        RootStart::Collect(Boundary::Volume(_)) => {
+            counts.completed += 1;
+            return Ok(());
+        }
         RootStart::Collect(Boundary::Unknown) => Unread::Unverifiable,
         RootStart::Revisit => Unread::Revisit,
     };

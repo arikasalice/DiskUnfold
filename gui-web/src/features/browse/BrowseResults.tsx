@@ -1,12 +1,14 @@
-import { useLayoutEffect, useRef } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import {
   Action,
   BrowseGrid,
   ItemActions,
   ActionFeedback,
   Notice,
+  RowAction,
   Text,
 } from "../../components";
+import type { ItemAction } from "../../components";
 import type {
   FolderQueryRow,
   BrowseCopyPathOutcome,
@@ -15,6 +17,7 @@ import type {
   QueryPageResponse,
 } from "../../ipc";
 import type { BrowsePages } from "../../state/browse-pages";
+import type { ScanPriority } from "../../state/scan-priority";
 import { browseDisplayName, rowKey } from "./browse-display";
 import { formatByteUnit } from "../../i18n/bytes";
 import type { SizeDisplay } from "../../i18n/bytes";
@@ -23,6 +26,11 @@ import { useLocaleText } from "../../i18n/presentation";
 import { SIZE_UNIT_RULES } from "../../ipc";
 import { useBrowsePaging } from "./use-browse-paging";
 import { useBrowseCopy } from "./use-browse-copy";
+import {
+  canAnalyzeFirst,
+  SelectionAnalyzeFirst,
+} from "./SelectionAnalyzeFirst";
+import type { Selection } from "./SelectionAnalyzeFirst";
 
 function size(
   value: FolderQueryRow["logicalSize"],
@@ -56,8 +64,59 @@ function availability(
   if (flags[1]?.state === "present" && flags[1].value)
     found.push(text("ui.browse.excluded", "Excluded"));
   if (flags.some((flag) => flag.state === "unknown"))
-    found.push(text("ui.browse.availability_unknown", "Availability unknown"));
+    found.push(text("ui.browse.availability_unknown", "Unknown"));
   return found.join(" · ") || text("ui.browse.not_reported", "Not reported");
+}
+
+function analyzeFirstActions(
+  row: FolderQueryRow,
+  priority: ScanPriority | undefined,
+  readOnly: boolean,
+  text: ReturnType<typeof useLocaleText>,
+): ItemAction[] {
+  if (!canAnalyzeFirst(row, priority, readOnly)) return [];
+  return [
+    {
+      id: "analyze-first",
+      label: text("ui.browse.analyze_first", "Analyze first"),
+      onAction: () =>
+        priority.request(row.item, browseDisplayName(row.displayName, text)),
+    },
+  ];
+}
+
+/** The row's collection status; a requested folder shows that instead. */
+function StatusCell({
+  row,
+  priority,
+  readOnly,
+}: {
+  row: FolderQueryRow;
+  priority: ScanPriority | undefined;
+  readOnly: boolean;
+}) {
+  const text = useLocaleText();
+  const status =
+    row.kind === "directory" ? priority?.status(row.item) : undefined;
+  return (
+    <div className="du-row-status" data-requested={status ? "" : undefined}>
+      <Text>
+        {status === "analyzing"
+          ? text("ui.browse.priority_analyzing", "Analyzing first")
+          : status === "requested"
+            ? text("ui.browse.priority_requested", "Analyze first requested")
+            : availability(row, text)}
+      </Text>
+      {canAnalyzeFirst(row, priority, readOnly) && (
+        <RowAction
+          label={text("ui.browse.analyze_first", "Analyze first")}
+          onPress={() =>
+            priority.request(row.item, browseDisplayName(row.displayName, text))
+          }
+        />
+      )}
+    </div>
+  );
 }
 
 /** The disabled reason of the copy action: the host's reason first, else "Unavailable now". */
@@ -89,6 +148,7 @@ export function BrowseResults({
   copyPath,
   copyDisabledReason,
   reopen,
+  priority,
 }: {
   pages: BrowsePages;
   display: SizeDisplay;
@@ -107,6 +167,7 @@ export function BrowseResults({
   /** Why copying the path is off for every row, when the host turned it off. */
   copyDisabledReason: string | undefined;
   reopen: () => void;
+  priority?: ScanPriority | undefined;
 }) {
   const text = useLocaleText();
   const timestamp = useTimestampText();
@@ -119,6 +180,7 @@ export function BrowseResults({
     text("ui.browse.column_availability", "Availability"),
   ];
   const scrollRoot = useRef<HTMLDivElement>(null);
+  const [selection, setSelection] = useState<Selection>(() => new Set());
   const copy = useBrowseCopy(
     copyPath,
     navigationEpoch,
@@ -165,6 +227,13 @@ export function BrowseResults({
   return (
     <div className="du-browse-results">
       <div className="du-browse-controls">
+        <SelectionAnalyzeFirst
+          pages={pages}
+          selection={selection}
+          priority={priority}
+          readOnly={readOnly}
+          focusPanel={focusPanel}
+        />
         {pages.count === 0 && (
           <Text>
             {text("ui.browse.no_items", "No observed items in this folder.")}
@@ -244,6 +313,7 @@ export function BrowseResults({
         onLayoutScroll={paging.recordLayoutScroll}
         getRow={(index) => pages.row(index)}
         getKey={(row) => rowKey(row.item)}
+        onSelectionChange={setSelection}
         renderCells={(row) => [
           <ItemActions
             rowScope
@@ -269,6 +339,7 @@ export function BrowseResults({
                     },
                   ]
                 : []),
+              ...analyzeFirstActions(row, priority, readOnly, text),
               {
                 id: "copy",
                 label: text("ui.browse.copy_path", "Copy path"),
@@ -329,7 +400,7 @@ export function BrowseResults({
                 ? text("ui.browse.not_recorded", "Not recorded")
                 : text("ui.browse.unavailable", "Unavailable")}
           </Text>,
-          <Text>{availability(row, text)}</Text>,
+          <StatusCell row={row} priority={priority} readOnly={readOnly} />,
         ]}
       />
       <ActionFeedback

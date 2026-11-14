@@ -387,20 +387,6 @@ export function scanJobReasonText(reasonKey: string, text: LocaleText): string {
   );
 }
 
-/** Explains a scope review or scan start failure. */
-export function scopeErrorText(error: unknown, text: LocaleText): string {
-  if (error instanceof AnalysisError) {
-    if (error.code === "STALE_VERSION")
-      return text(
-        "ui.analysis.target_or_result_changed",
-        "The target or result changed. Review the scope again.",
-      );
-    if (scopeNotices.has(error.reasonKey))
-      return scopeNoticeText(error.reasonKey, text);
-  }
-  return text("ui.analysis.operation_failed", "The operation failed");
-}
-
 const reviewReasons = new Map<string, Message>([
   [
     "path.unresolvable",
@@ -418,13 +404,57 @@ const reviewReasons = new Map<string, Message>([
   ],
 ]);
 
-/** Explains a failed scope review request. */
+/**
+ * The job reasons scan.start reports when it cannot admit the scan. A start
+ * request is never cancelled, so "The scan was cancelled." is not among them.
+ */
+const startJobReasons = new Map(
+  [...jobReasons].filter(([key]) => key !== "job.cancelled"),
+);
+
+/**
+ * A stale version asks for a new review; otherwise the first table that has
+ * display copy for the reason key explains it, and every other failure uses
+ * the general message.
+ */
+function failureText(
+  error: unknown,
+  tables: readonly ReadonlyMap<string, Message>[],
+  text: LocaleText,
+): string {
+  if (error instanceof AnalysisError) {
+    if (error.code === "STALE_VERSION")
+      return text(
+        "ui.analysis.target_or_result_changed",
+        "The target or result changed. Review the scope again.",
+      );
+    for (const table of tables) {
+      const message = table.get(error.reasonKey);
+      if (message) return text(...message);
+    }
+  }
+  return text("ui.analysis.operation_failed", "The operation failed");
+}
+
+/**
+ * Explains a scan start failure: a scope notice or target reason for a
+ * selection that changed since its review, then a review reason, then an
+ * admission reason such as a full job queue or a closing application.
+ */
+export function scopeErrorText(error: unknown, text: LocaleText): string {
+  return failureText(
+    error,
+    [scopeNotices, reviewReasons, startJobReasons],
+    text,
+  );
+}
+
+/**
+ * Explains a failed scope review request: a review reason first, then a scope
+ * notice. A review is not a job, so job reasons are not looked up.
+ */
 export function scopeReviewErrorText(error: unknown, text: LocaleText): string {
-  const message =
-    error instanceof AnalysisError
-      ? reviewReasons.get(error.reasonKey)
-      : undefined;
-  return message ? text(...message) : scopeErrorText(error, text);
+  return failureText(error, [reviewReasons, scopeNotices], text);
 }
 
 /** The target evidence a rejected scope review reports. */
@@ -452,4 +482,124 @@ export function rejectedScopeReviewText(
     "ui.analysis.review_unverified_paths",
     "One or more selected paths could not be verified. Review all paths before starting.",
   );
+}
+
+/** How a "scan first" request ended, from its response or error envelope. */
+export type ScanPriorityOutcome =
+  "accepted" | "no_effect" | "already_terminal" | "stale_version" | "failed";
+
+/**
+ * What a "scan first" notice may say about one answered request.
+ *
+ * `applied` is true only when the response named this folder as the applied
+ * priority area; "accepted" alone confirms receipt. `paused` is true when the
+ * scan was not running as the answer arrived. `previous` names the folder
+ * whose request this one replaced, only if that folder was shown as requested.
+ */
+export type ScanPriorityAnnouncement = {
+  outcome: ScanPriorityOutcome;
+  name: string;
+  applied: boolean;
+  paused: boolean;
+  previous?: string | undefined;
+};
+
+/** The kind of mark shown with a "scan first" notice. */
+export type ScanPriorityTone = "success" | "info" | "error";
+
+/** A receipt succeeds, an answer without effect informs and any failure is an error. */
+export function scanPriorityTone(
+  outcome: ScanPriorityOutcome,
+): ScanPriorityTone {
+  switch (outcome) {
+    case "accepted":
+      return "success";
+    case "no_effect":
+    case "already_terminal":
+      return "info";
+    case "stale_version":
+    case "failed":
+      return "error";
+  }
+}
+
+/** Classifies a failed scan.prioritize call; only a replaced result is distinct. */
+export function scanPriorityFailure(failure: unknown): ScanPriorityOutcome {
+  return failure instanceof AnalysisError && failure.code === "STALE_VERSION"
+    ? "stale_version"
+    : "failed";
+}
+
+/**
+ * Explains an accepted request without claiming more than the response
+ * confirmed: the applied area is "analyzed first" only while the scan runs and
+ * "will be analyzed first" while it is paused. A receipt that does not name
+ * the area says that it was requested. Only a confirmed area tells the
+ * replaced folder that it returns to its normal order.
+ */
+function acceptedText(
+  { name, applied, paused, previous }: ScanPriorityAnnouncement,
+  text: LocaleText,
+): string {
+  if (!applied)
+    return previous === undefined
+      ? text(
+          "ui.analysis.priority_accepted",
+          "Requested to analyze ‘{name}’ first",
+          { name },
+        )
+      : text(
+          "ui.analysis.priority_accepted_switched",
+          "Requested to analyze ‘{name}’ first. This replaces the request for ‘{previous}’.",
+          { name, previous },
+        );
+  if (paused)
+    return previous === undefined
+      ? text(
+          "ui.analysis.priority_paused",
+          "‘{name}’ will be analyzed first when the scan continues",
+          { name },
+        )
+      : text(
+          "ui.analysis.priority_paused_switched",
+          "‘{name}’ will be analyzed first when the scan continues. ‘{previous}’ returns to its normal order.",
+          { name, previous },
+        );
+  return previous === undefined
+    ? text("ui.analysis.priority_applied", "‘{name}’ is analyzed first", {
+        name,
+      })
+    : text(
+        "ui.analysis.priority_applied_switched",
+        "‘{name}’ is now analyzed first. ‘{previous}’ returns to its normal order.",
+        { name, previous },
+      );
+}
+
+/** Explains the outcome of a "scan first" request for the named folder. */
+export function scanPriorityText(
+  announcement: ScanPriorityAnnouncement,
+  text: LocaleText,
+): string {
+  switch (announcement.outcome) {
+    case "accepted":
+      return acceptedText(announcement, text);
+    case "no_effect":
+      return text(
+        "ui.analysis.priority_no_effect",
+        "This folder is already analyzed or is already being analyzed first.",
+      );
+    case "already_terminal":
+      return text("ui.analysis.priority_ended", "The analysis has finished.");
+    case "stale_version":
+      return text(
+        "ui.analysis.priority_stale",
+        "The results changed. Select the folder again in the new results.",
+      );
+    case "failed":
+      return text(
+        "ui.analysis.priority_failed",
+        "This folder could not be analyzed first.",
+      );
+  }
 }
