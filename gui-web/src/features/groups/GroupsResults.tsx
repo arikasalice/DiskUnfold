@@ -130,7 +130,7 @@ export function GroupResults({
     [classificationRef, resultVersion, summary.groups, tab, groupId],
   );
   const viewKey = view
-    ? `${view.classificationRef}|${view.category.kind}|${view.category.kind === "group" ? view.category.groupId : ""}|${view.count}`
+    ? `${view.classificationRef}|${view.resultVersion}|${view.category.kind}|${view.category.kind === "group" ? view.category.groupId : ""}|${view.count}`
     : "";
   useEffect(() => {
     session.members.setView(view);
@@ -167,45 +167,48 @@ export function GroupResults({
         summary={summary}
         value={tab}
         onChange={(next) => onSelect({ tab: next, groupId })}
-      />
-      {tab === "groups" && (
-        <GroupSummaryTable
-          summary={summary}
-          totals={totals}
-          display={display}
-          selected={
-            view?.category.kind === "group" ? view.category.groupId : undefined
-          }
-          selectable
-          onSelect={(next) => onSelect({ tab, groupId: next })}
-        />
-      )}
-      <MembersHeading summary={summary} selection={selection} />
-      <GroupMemberList
-        reader={session.members}
-        groupNames={names}
-        display={display}
-        onExplain={explainRow}
-        containerRef={membersRef}
-      />
-      {explained && (
-        <GroupExplainPanel
-          key={memberRowKey(explained)}
-          state={explain}
+      >
+        {tab === "groups" && (
+          <GroupSummaryTable
+            summary={summary}
+            totals={totals}
+            display={display}
+            selected={
+              view?.category.kind === "group"
+                ? view.category.groupId
+                : undefined
+            }
+            selectable
+            onSelect={(next) => onSelect({ tab, groupId: next })}
+          />
+        )}
+        <MembersHeading summary={summary} selection={selection} />
+        <GroupMemberList
+          reader={session.members}
           groupNames={names}
-          onRetry={() => session.explain.retry()}
-          onClose={() => {
-            setExplained(undefined);
-            session.explain.clear();
-            membersRef.current?.focus();
-          }}
+          display={display}
+          onExplain={explainRow}
+          containerRef={membersRef}
         />
-      )}
-      <GroupTotalsLine
-        state={totals}
-        display={display}
-        onRetry={() => session.totals.retry()}
-      />
+        {explained && (
+          <GroupExplainPanel
+            key={memberRowKey(explained)}
+            state={explain}
+            groupNames={names}
+            onRetry={() => session.explain.retry()}
+            onClose={() => {
+              setExplained(undefined);
+              session.explain.clear();
+              membersRef.current?.focus();
+            }}
+          />
+        )}
+        <GroupTotalsLine
+          state={totals}
+          display={display}
+          onRetry={() => session.totals.retry()}
+        />
+      </GroupCategoryTabs>
     </>
   );
 }

@@ -1,9 +1,8 @@
-import type { ComponentProps } from "react";
-import { Choice, ChoiceGroup } from "../../components";
+import type { ReactNode } from "react";
+import { Tabs } from "../../components";
+import type { TabsItem } from "../../components";
 import { useLocaleText } from "../../i18n/presentation";
 import type { GroupSummary } from "../../ipc";
-
-type IconName = ComponentProps<typeof Choice>["icon"];
 
 /** The member categories a classification offers as tabs. */
 export type CategoryTab = "groups" | "overlap" | "unclassified" | "undecidable";
@@ -21,33 +20,38 @@ export function asCategoryTab(value: string): CategoryTab | undefined {
 }
 
 /**
- * Category tabs with their counts, built from the common choice group because
- * there is no tab component yet. The stylesheet draws them as tabs: the
- * selected one is bold with an underline, so the selection is not shown by
- * colour alone. The description stays in the page for assistive technology.
+ * Category tabs with their counts, on the common tab part. The part draws the
+ * selected tab bold with an underline and keeps the selection off colour alone.
+ * `children` is the tab panel: the summary, members and totals of the chosen
+ * category, labelled by the selected tab.
  */
 export function GroupCategoryTabs({
   summary,
   value,
   onChange,
+  children,
 }: {
   summary: GroupSummary;
   value: CategoryTab;
   onChange: (tab: CategoryTab) => void;
+  children?: ReactNode;
 }) {
   const text = useLocaleText();
-  const details: Record<
-    CategoryTab,
-    { label: string; description: string; count: number; icon: IconName }
-  > = {
+  const count = (tab: CategoryTab): number =>
+    tab === "groups"
+      ? summary.groups.length
+      : tab === "overlap"
+        ? summary.overlapCount
+        : tab === "unclassified"
+          ? summary.unclassifiedCount
+          : summary.undecidableCount;
+  const details: Record<CategoryTab, { label: string; description: string }> = {
     groups: {
       label: text("ui.groups.tab_groups", "Groups"),
       description: text(
         "ui.groups.tab_groups_desc",
         "The groups of your rules",
       ),
-      count: summary.groups.length,
-      icon: "layers",
     },
     overlap: {
       label: text("ui.groups.tab_overlap", "Overlaps"),
@@ -55,8 +59,6 @@ export function GroupCategoryTabs({
         "ui.groups.tab_overlap_desc",
         "Files in more than one group",
       ),
-      count: summary.overlapCount,
-      icon: "copy",
     },
     unclassified: {
       label: text("ui.groups.tab_unclassified", "Unclassified"),
@@ -64,8 +66,6 @@ export function GroupCategoryTabs({
         "ui.groups.tab_unclassified_desc",
         "Files no rule matched",
       ),
-      count: summary.unclassifiedCount,
-      icon: "folder",
     },
     undecidable: {
       label: text("ui.groups.tab_undecidable", "Cannot decide"),
@@ -73,38 +73,24 @@ export function GroupCategoryTabs({
         "ui.groups.tab_undecidable_desc",
         "Files a rule could not decide",
       ),
-      count: summary.undecidableCount,
-      icon: "alert",
     },
   };
+  const items: readonly TabsItem<CategoryTab>[] = TABS.map((tab) => ({
+    key: tab,
+    label: details[tab].label,
+    description: details[tab].description,
+    count: text("ui.groups.tab_count", "{count}", {
+      count: String(count(tab)),
+    }),
+  }));
   return (
-    <div className="du-groups-tabs">
-      <ChoiceGroup
-        id="du-groups-categories"
-        label={text("ui.groups.tabs_label", "Categories")}
-        value={value}
-        isDisabled={false}
-        onChange={(next) => {
-          const tab = asCategoryTab(next);
-          if (tab) onChange(tab);
-        }}
-      >
-        {TABS.map((tab) => (
-          <Choice
-            key={tab}
-            value={tab}
-            label={details[tab].label}
-            description={details[tab].description}
-            icon={details[tab].icon}
-            status={{
-              text: text("ui.groups.tab_count", "{count}", {
-                count: String(details[tab].count),
-              }),
-              tone: "neutral",
-            }}
-          />
-        ))}
-      </ChoiceGroup>
-    </div>
+    <Tabs
+      label={text("ui.groups.tabs_label", "Categories")}
+      items={items}
+      value={value}
+      onChange={onChange}
+    >
+      {children}
+    </Tabs>
   );
 }

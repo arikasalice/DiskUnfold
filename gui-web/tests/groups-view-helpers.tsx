@@ -35,9 +35,9 @@ export function mount(
   return { fake, ...view };
 }
 
-/** The tab (label element) of a category: the radio input holds no text of its own. */
+/** The tab of a category, found by its tab role. */
 export function tab(name: string): HTMLElement {
-  return screen.getByRole("radio", { name }).closest("label")!;
+  return screen.getByRole("tab", { name });
 }
 
 export async function classified(
