@@ -299,22 +299,27 @@ fn powershell(query: &str) -> Option<String> {
 
 /// Host CPU load: Windows processor load percent, Linux one-minute load average.
 fn host_load() -> String {
-    #[cfg(windows)]
-    let load = powershell(
+    observed_load().unwrap_or_else(|| "load=na".into())
+}
+
+#[cfg(windows)]
+fn observed_load() -> Option<String> {
+    powershell(
         "(Get-CimInstance Win32_Processor | Measure-Object -Property LoadPercentage -Average).Average",
     )
-    .map(|text| format!("cpu_percent={}", text.trim()));
-    #[cfg(target_os = "linux")]
-    let load = std::fs::read_to_string("/proc/loadavg")
-        .ok()
-        .and_then(|text| {
-            text.split_whitespace()
-                .next()
-                .map(|load| format!("loadavg1={load}"))
-        });
-    #[cfg(not(any(windows, target_os = "linux")))]
-    let load: Option<String> = None;
-    load.unwrap_or_else(|| "load=na".into())
+    .map(|text| format!("cpu_percent={}", text.trim()))
+}
+
+#[cfg(target_os = "linux")]
+fn observed_load() -> Option<String> {
+    let text = std::fs::read_to_string("/proc/loadavg").ok()?;
+    let load = text.split_whitespace().next()?;
+    Some(format!("loadavg1={load}"))
+}
+
+#[cfg(not(any(windows, target_os = "linux")))]
+fn observed_load() -> Option<String> {
+    None
 }
 
 #[test]
