@@ -274,7 +274,11 @@ impl JobBody for SampleLoad {
         let end = self.load(&context, &mut counts);
         if end != SampleLoadEnd::Done {
             self.discard();
-            counts.unprocessed = total.saturating_sub(counts.completed + counts.failed);
+            // The progress total covers every item of every point, so a load
+            // that stops early has counted no more than the total.
+            let counted = counts.completed + counts.failed;
+            debug_assert!(counted <= total, "sample load counted {counted} of {total}");
+            counts.unprocessed = total.saturating_sub(counted);
             // The session's versions were released, so no counted item is usable.
             counts = unpublished_counts(counts);
         }
