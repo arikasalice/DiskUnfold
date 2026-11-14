@@ -74,6 +74,17 @@ export class BrowsePages {
     return this.pages.get(start)?.rows[index - start];
   }
 
+  /** The first cached row that matches, if its page is still held. */
+  findRow(
+    matches: (row: FolderQueryRow) => boolean,
+  ): FolderQueryRow | undefined {
+    for (const page of this.pages.values()) {
+      const row = page.rows.find(matches);
+      if (row) return row;
+    }
+    return undefined;
+  }
+
   nextCursor(start: number): string | null | undefined {
     return this.pages.get(start)?.nextCursor;
   }

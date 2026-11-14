@@ -26,6 +26,7 @@ type ActionProps = Pick<
   | "aria-expanded"
   | "aria-controls"
   | "aria-disabled"
+  | "aria-describedby"
 > & {
   variant?: "primary" | "secondary" | "quiet";
   compact?: boolean;

@@ -30,7 +30,10 @@ import { useScanFailures } from "../../state/scan-failures";
 type IssueSource = {
   client: AnalysisClient;
   resultVersion: string;
-  /** Asks the result view to pin its latest result; never called automatically. */
+  /**
+   * Asks the result view to pin its latest result; never called automatically.
+   * The list reads the first page of the new result version when it arrives.
+   */
   onReopenLatest: () => void;
 };
 
@@ -102,14 +105,9 @@ function IssuePages({
         <IssueProblem
           problem={problem}
           pending={list.pending}
-          onRecover={
-            problem === "failed"
-              ? list.retry
-              : () => {
-                  onReopenLatest();
-                  list.retry();
-                }
-          }
+          // Reopening changes the result version, which starts a new first-page
+          // read; retrying here would ask again for the replaced version.
+          onRecover={problem === "failed" ? list.retry : onReopenLatest}
         />
       )}
       {totalCount !== undefined && (

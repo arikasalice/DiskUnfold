@@ -24,6 +24,7 @@ import type {
   ScopeReview,
 } from "../../ipc";
 import { useScanResult } from "../../state/analysis-scan";
+import type { ScanPriorityContext } from "../../state/scan-priority";
 import { useTargets } from "../../state/analysis-targets";
 import {
   ResultActions,
@@ -148,6 +149,7 @@ export function AnalysisPanel({
   onBrowse,
   onSizeBasisChange,
   browseTrigger,
+  onScanContext,
   startAlternative,
 }: {
   client: AnalysisClient;
@@ -156,6 +158,8 @@ export function AnalysisPanel({
   onSizeBasisChange?:
     ((version: string, basis: SizeBasisFilter) => void) | undefined;
   browseTrigger?: Ref<HTMLButtonElement>;
+  /** Reports the running scan this panel started and its newest partial result. */
+  onScanContext?: (context: ScanPriorityContext | undefined) => void;
   /** Another way to begin, such as the sample experience, offered before a scan starts. */
   startAlternative?: ReactNode;
 }) {
@@ -207,6 +211,18 @@ export function AnalysisPanel({
   );
   const scan = useScanResult(client, receipt);
   const running = scan.running;
+  const scanJob = receipt?.jobRef;
+  const priorityVersion = running ? scan.currentVersion : undefined;
+  const scanning = scan.status?.state === "running";
+  useEffect(() => {
+    onScanContext?.(
+      scanJob && priorityVersion
+        ? { jobRef: scanJob, resultVersion: priorityVersion, scanning }
+        : undefined,
+    );
+  }, [onScanContext, scanJob, priorityVersion, scanning]);
+  // A panel that goes away no longer offers its scan to "Analyze first".
+  useEffect(() => () => onScanContext?.(undefined), [onScanContext]);
   const restoredIsCurrent = restoredInput?.revision === editRevision.current;
   const dropEnabled = client.subscribeFolderDrop !== undefined;
   const pathDescription =
