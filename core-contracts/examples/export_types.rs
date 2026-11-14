@@ -1,5 +1,6 @@
 use du_core_contracts::browse_open_ipc::*;
 use du_core_contracts::browse_page_ipc::*;
+use du_core_contracts::data_source::DataSource;
 use du_core_contracts::group_ipc::*;
 use du_core_contracts::history_ipc::*;
 use du_core_contracts::locale_bundle::*;
@@ -15,6 +16,7 @@ use du_core_contracts::query_region_ipc::*;
 use du_core_contracts::result_events::{
     PublishedCompleteness, ResultVersionChange, ResultVersionChanged,
 };
+use du_core_contracts::sample_ipc::*;
 use du_core_contracts::scan_failures::*;
 use du_core_contracts::scan_priority::{ScanPriorityRequest, ScanPriorityResponse};
 use du_core_contracts::settings_events::*;
@@ -238,6 +240,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         EventEnvelope::decl(&config),
         ResultVersionChange::decl(&config),
         PublishedCompleteness::decl(&config),
+        DataSource::decl(&config),
         ResultVersionChanged::decl(&config),
         TargetKind::decl(&config),
         IdentitySource::decl(&config),
@@ -359,6 +362,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         SpaceCapabilityState::decl(&config),
         SpaceDetailCapability::decl(&config),
         SpaceDetail::decl(&config),
+        SampleSessionState::decl(&config),
+        SampleEventState::decl(&config),
+        SampleOpenRequest::decl(&config),
+        SampleSessionRequest::decl(&config),
+        SampleObservationRef::decl(&config),
+        SampleSession::decl(&config),
+        SampleClosed::decl(&config),
+        SampleStateChanged::decl(&config),
         GroupRuleReview::decl(&config),
         GroupRule::decl(&config),
         GroupRuleDraft::decl(&config),

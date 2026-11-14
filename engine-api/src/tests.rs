@@ -10,6 +10,7 @@ use crate::{
 };
 
 mod analysis;
+mod object_body;
 mod scan_failures;
 mod scan_flow;
 
@@ -139,7 +140,7 @@ fn rejects_in_pipeline_order_and_hides_unavailable_use_cases() -> Result<(), Str
 }
 
 #[test]
-fn validates_object_request_bodies_for_gui_without_changing_cli_or_mcp() -> Result<(), String> {
+fn validates_object_request_bodies_on_every_channel() -> Result<(), String> {
     static FILTER_CALLS: AtomicUsize = AtomicUsize::new(0);
     let mut builder = EngineBuilder::default();
     builder.register(Query::<false>);
@@ -156,23 +157,21 @@ fn validates_object_request_bodies_for_gui_without_changing_cli_or_mcp() -> Resu
     assert_eq!(gui_object.error, None);
     assert_eq!(gui_object.body, json!({"count": 3, "path": "local"}));
 
-    let gui_array = call(
-        &engine,
-        "test.query",
-        Channel::Gui,
-        ENVELOPE_VERSION,
-        json!([true]),
-    )?;
-    assert_eq!(
-        gui_array
-            .error
-            .ok_or("expected an invalid GUI body")?
-            .reason_key,
-        "command.body_invalid"
-    );
-    assert!(gui_array.body.is_null());
-
     for channel in [Channel::Cli, Channel::Mcp] {
+        let object = call(
+            &engine,
+            "test.query",
+            channel,
+            ENVELOPE_VERSION,
+            json!({"in_scope": true}),
+        )?;
+        assert_eq!(object.error, None);
+        assert_eq!(object.body, json!({"count": 3}));
+    }
+    assert_eq!(FILTER_CALLS.load(Ordering::Relaxed), 2);
+
+    // A positional array is rejected before execution and before the outbound filter.
+    for channel in [Channel::Gui, Channel::Cli, Channel::Mcp] {
         let response = call(
             &engine,
             "test.query",
@@ -180,8 +179,11 @@ fn validates_object_request_bodies_for_gui_without_changing_cli_or_mcp() -> Resu
             ENVELOPE_VERSION,
             json!([true]),
         )?;
-        assert_eq!(response.error, None);
-        assert_eq!(response.body, json!({"count": 3}));
+        assert_eq!(
+            response.error.ok_or("expected an invalid body")?.reason_key,
+            "command.body_invalid"
+        );
+        assert!(response.body.is_null());
     }
     assert_eq!(FILTER_CALLS.load(Ordering::Relaxed), 2);
     Ok(())

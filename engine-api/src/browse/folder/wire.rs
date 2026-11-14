@@ -18,6 +18,7 @@ impl LiveOpen {
         let opened = self.page.opened;
         let BrowseContext {
             origin,
+            data_source,
             location,
             breadcrumbs,
             root_kind,
@@ -26,6 +27,7 @@ impl LiveOpen {
             predicate_strategies,
         } = super::cursor::context::project_context(
             origin,
+            opened.data_source,
             opened.location,
             opened.breadcrumbs,
             &opened.sort_strategies,
@@ -36,6 +38,7 @@ impl LiveOpen {
         Ok(BrowseOpenResponse::Opened {
             request_seq: self.request_seq,
             origin,
+            data_source,
             location,
             breadcrumbs,
             root_kind,

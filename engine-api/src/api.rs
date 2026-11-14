@@ -189,4 +189,10 @@ impl Engine {
             caller,
         )
     }
+
+    /// Lists the registered commands and their channels for composition tests.
+    #[cfg(test)]
+    pub(crate) fn registered_commands(&self) -> Vec<(&'static str, &'static [Channel])> {
+        self.registry.commands()
+    }
 }
