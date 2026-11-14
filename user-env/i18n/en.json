@@ -1148,12 +1148,12 @@
     ["ui.info.support_open","Support information",[]],
     ["ui.info.nav","Product and support",[]],
     ["ui.sample.banner_label","Sample experience",[]],
-    ["ui.sample.banner_statement","Sample experience · Separate from your files · Changes cannot run",[]],
+    ["ui.sample.banner_statement","Sample experience · Separate from your files · Changes can't be run",[]],
     ["ui.sample.end","End experience",[]],
-    ["ui.sample.close","Close sample",[]],
+    ["ui.sample.close","End experience",[]],
     ["ui.sample.real_analysis","Start real analysis",[]],
     ["ui.sample.entry","Try sample data first",[]],
-    ["ui.sample.entry_hint","Look around with example data. Your files are not read.",[]],
+    ["ui.sample.entry_hint","You can look around with example data first. Your disk is not analyzed.",[]],
     ["ui.sample.screen","Sample experience",[]],
     ["ui.sample.heading","Sample data experience",[]],
     ["ui.sample.root_name","Sample data",[]],
@@ -1186,9 +1186,9 @@
     ["ui.sample.confirm_end_title","End the sample experience?",[]],
     ["ui.sample.confirm_reset_title","Reset the sample experience?",[]],
     ["ui.sample.confirm_real_title","Leave the sample and start real analysis?",[]],
-    ["ui.sample.confirm_body","Items you selected and view settings from this experience are not saved and will be lost.",[]],
-    ["ui.sample.confirm_files_safe","Your real files are not changed.",[]],
-    ["ui.sample.cancel","Continue experience",[]],
+    ["ui.sample.confirm_body","Only the sample state is discarded.",[]],
+    ["ui.sample.confirm_files_safe","Your real analysis results, plans and settings stay as they are.",[]],
+    ["ui.sample.cancel","Cancel",[]],
     ["ui.sample.dismiss","Dismiss notice",[]]
   ]
 ]

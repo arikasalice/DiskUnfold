@@ -17,7 +17,7 @@ pub const SAMPLE_VOLUME_PREFIX: &[u8] = b"du-sample\0";
 /// Index of the root node.
 pub(super) const ROOT: usize = 0;
 /// Device number reported for every sample entry.
-const SAMPLE_DEVICE: u64 = 1;
+pub(super) const SAMPLE_DEVICE: u64 = 1;
 
 /// One directory or item of the tree. The root has no item.
 pub(super) struct Node {

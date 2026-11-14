@@ -75,10 +75,10 @@ const announced = () =>
 
 async function confirmDialog(name: string) {
   const dialog = await screen.findByRole("alertdialog");
+  expect(dialog.textContent).toContain("Only the sample state is discarded.");
   expect(dialog.textContent).toContain(
-    "Items you selected and view settings from this experience are not saved and will be lost.",
+    "Your real analysis results, plans and settings stay as they are.",
   );
-  expect(dialog.textContent).toContain("Your real files are not changed.");
   fireEvent.click(within(dialog).getByRole("button", { name }));
 }
 
@@ -121,7 +121,7 @@ const progressEvent = (jobRef: string, completed: number): EventEnvelope => ({
 test("the strip pins its words, then real analysis, then closing, with an icon and no bundle version", async () => {
   await start(openedFixture());
   expect(strip().textContent).toContain(
-    "Sample experience · Separate from your files · Changes cannot run",
+    "Sample experience · Separate from your files · Changes can't be run",
   );
   expect(strip().textContent).not.toContain("2026.1");
   expect(strip().querySelector("svg")).not.toBeNull();
@@ -129,9 +129,9 @@ test("the strip pins its words, then real analysis, then closing, with an icon a
     ...strip().querySelectorAll<HTMLElement>("[tabindex='0'], button"),
   ];
   expect(stops.map((stop) => stop.textContent)).toEqual([
-    "Sample experience · Separate from your files · Changes cannot run",
+    "Sample experience · Separate from your files · Changes can't be run",
     "Start real analysis",
-    "Close sample",
+    "End experience",
   ]);
   // The strip is the first thing in the page body after the header.
   expect(strip().closest(".du-app")?.querySelector("section")).toBe(strip());
@@ -376,10 +376,10 @@ test("a retry from the unavailable notice shows progress at the entry", async ()
   await screen.findByRole("region", { name: "Sample experience" });
 });
 
-test("the end confirmation names what is lost, starts on Continue and returns to Close sample", async () => {
+test("the end confirmation names what is lost, starts on Cancel and returns to End experience", async () => {
   const fake = openedFixture();
   await start(fake);
-  const opener = button("Close sample");
+  const opener = button("End experience");
   act(() => opener.focus());
   fireEvent.click(opener);
   const dialog = await screen.findByRole("alertdialog");
@@ -392,13 +392,11 @@ test("the end confirmation names what is lost, starts on Continue and returns to
     within(dialog)
       .getAllByRole("button")
       .map((b) => b.textContent),
-  ).toEqual(["Continue experience", "End experience"]);
+  ).toEqual(["Cancel", "End experience"]);
   expect(document.activeElement).toBe(
-    within(dialog).getByRole("button", { name: "Continue experience" }),
+    within(dialog).getByRole("button", { name: "Cancel" }),
   );
-  fireEvent.click(
-    within(dialog).getByRole("button", { name: "Continue experience" }),
-  );
+  fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
   await waitFor(() => expect(document.activeElement).toBe(opener));
   expect(fake.count("sample.close")).toBe(0);
 });
@@ -406,7 +404,7 @@ test("the end confirmation names what is lost, starts on Continue and returns to
 test("ending the experience returns the focus to the entry button", async () => {
   const fake = openedFixture();
   await start(fake);
-  fireEvent.click(button("Close sample"));
+  fireEvent.click(button("End experience"));
   await confirmDialog("End experience");
   await waitFor(() => expect(fake.count("sample.close")).toBe(1));
   await waitFor(() =>
@@ -465,7 +463,7 @@ test("an INTERNAL warning on close still ends the sample", async () => {
     },
   });
   await start(fake);
-  fireEvent.click(button("Close sample"));
+  fireEvent.click(button("End experience"));
   await confirmDialog("End experience");
   await waitFor(() =>
     expect(
@@ -513,7 +511,7 @@ test("buttons stay disabled while a command runs", async () => {
     within(dialog).getByRole("button", { name: "Reset experience" }),
   );
   await waitFor(() => expect(fake.count("sample.reset")).toBe(1));
-  for (const name of ["Continue experience", "Reset experience"]) {
+  for (const name of ["Cancel", "Reset experience"]) {
     expect(
       (within(dialog).getByRole("button", { name }) as HTMLButtonElement)
         .disabled,
@@ -521,6 +519,6 @@ test("buttons stay disabled while a command runs", async () => {
   }
   await act(async () => gate.resolve(sampleSession({ sequence: 2 })));
   await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
-  expect((button("Close sample") as HTMLButtonElement).disabled).toBe(false);
+  expect((button("End experience") as HTMLButtonElement).disabled).toBe(false);
   expect(fake.count("sample.reset")).toBe(1);
 });

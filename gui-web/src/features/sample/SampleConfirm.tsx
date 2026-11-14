@@ -64,7 +64,7 @@ export function useSampleConfirm(
     <ConfirmDialog
       title={copy(asked, text).title}
       confirmLabel={copy(asked, text).action}
-      cancelLabel={text("ui.sample.cancel", "Continue experience")}
+      cancelLabel={text("ui.sample.cancel", "Cancel")}
       isPending={working}
       onCancel={finish}
       onConfirm={() => {
@@ -76,15 +76,12 @@ export function useSampleConfirm(
       }}
     >
       <Text>
-        {text(
-          "ui.sample.confirm_body",
-          "Items you selected and view settings from this experience are not saved and will be lost.",
-        )}
+        {text("ui.sample.confirm_body", "Only the sample state is discarded.")}
       </Text>
       <Text>
         {text(
           "ui.sample.confirm_files_safe",
-          "Your real files are not changed.",
+          "Your real analysis results, plans and settings stay as they are.",
         )}
       </Text>
     </ConfirmDialog>

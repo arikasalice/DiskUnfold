@@ -98,6 +98,14 @@ impl AnchoredDirectory for Held {
     fn open_child(&self, _: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError> {
         Err(io_error())
     }
+
+    fn observed_identity(&self) -> Option<du_core_contracts::scan_observation::HandleIdentity> {
+        Some(du_core_contracts::scan_observation::HandleIdentity {
+            device: 1,
+            inode: 1,
+            ancestors: Vec::new(),
+        })
+    }
 }
 
 fn io_error() -> PortError {

@@ -75,7 +75,11 @@ impl UseCase for Classify {
         let services = &self.0;
         let seq = request.request_seq;
         let resolved = resolve(services, request.rules)?;
-        let version = pin(&services.assembly.store, request.result_version.as_ref())?;
+        let version = pin(
+            &services.assembly.store,
+            request.result_version.as_ref(),
+            caller.channel,
+        )?;
         if !tables::source_allowed(version.origin()) {
             return Ok(GroupClassifyResponse::NotApplicable {
                 request_seq: seq,
@@ -244,15 +248,24 @@ fn meta(
     }
 }
 
-fn pin(store: &IngestSink, id: Option<&Id>) -> Result<Arc<ResultVersion>, EngineError> {
+/// Pins the requested (or latest) result through the channel exposure wrappers,
+/// so a source hidden from the channel reads as a missing version.
+fn pin(
+    store: &IngestSink,
+    id: Option<&Id>,
+    channel: Channel,
+) -> Result<Arc<ResultVersion>, EngineError> {
     match id {
-        Some(id) => store.pin_current(id).map_err(|error| match error {
-            QueryError::StaleVersion => EngineError::reason("result.version_stale"),
-            QueryError::NotFound => EngineError::reason("result.version_not_found"),
-            _ => internal(),
-        }),
-        None => store
-            .pin()
+        Some(id) => {
+            crate::source_exposure::pin_current_for(store, id, channel).map_err(|error| match error
+                .query()
+            {
+                QueryError::StaleVersion => EngineError::reason("result.version_stale"),
+                QueryError::NotFound => EngineError::reason("result.version_not_found"),
+                _ => internal(),
+            })
+        }
+        None => crate::source_exposure::pin_latest_for(store, channel)
             .map_err(|_| internal())?
             .ok_or_else(|| EngineError::reason("result.version_not_found")),
     }

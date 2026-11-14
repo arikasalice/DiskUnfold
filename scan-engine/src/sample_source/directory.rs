@@ -5,12 +5,12 @@ use du_core_contracts::{
     Timestamp,
     ports::{PortError, PortErrorKind},
     scan_observation::{
-        AnchoredDirectory, DirectoryObservations, FilterDecision, FilteredBatch, ObservedEntry,
-        ObservedKind,
+        AnchoredDirectory, DirectoryObservations, FilterDecision, FilteredBatch, HandleIdentity,
+        ObservedEntry, ObservedKind,
     },
 };
 
-use super::tree::{ROOT, SampleTree};
+use super::tree::{ROOT, SAMPLE_DEVICE, SampleTree};
 use crate::sample_bundle::SampleObservationState;
 
 /// Entries returned per batch; an empty batch ends the directory.
@@ -128,6 +128,28 @@ impl AnchoredDirectory for SampleDirectory {
             &[]
         } else {
             node.ancestors.as_slice()
+        })
+    }
+
+    /// Reports the sample handle in the same device and inode space as its entries.
+    ///
+    /// Every sample entry is on [`SAMPLE_DEVICE`], so the collector never sees a
+    /// volume change below a sample root. Identities that are not 8 bytes are absent.
+    fn observed_identity(&self) -> Option<HandleIdentity> {
+        let id = |bytes: &Vec<u8>| {
+            <[u8; 8]>::try_from(bytes.as_slice())
+                .ok()
+                .map(u64::from_le_bytes)
+        };
+        let node = &self.tree.nodes[self.node];
+        let inode = id(&node.file_id).filter(|inode| *inode != 0)?;
+        let ancestors = self
+            .ancestor_file_ids()
+            .map_or_else(Vec::new, |ids| ids.iter().filter_map(id).collect());
+        Some(HandleIdentity {
+            device: SAMPLE_DEVICE,
+            inode,
+            ancestors,
         })
     }
 }

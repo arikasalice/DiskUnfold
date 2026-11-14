@@ -631,7 +631,9 @@ test("F32: the sample entry sits inside the target card below the path input and
   const entry = screen.getByRole("button", { name: "Try sample data first" });
   expect(card.contains(entry)).toBe(true);
   expect(
-    screen.getByText("Look around with example data. Your files are not read."),
+    screen.getByText(
+      "You can look around with example data first. Your disk is not analyzed.",
+    ),
   ).toBeDefined();
 });
 test("F01: slow drive listing leaves direct folder review available", async () => {

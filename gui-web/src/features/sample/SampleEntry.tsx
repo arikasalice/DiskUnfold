@@ -63,7 +63,7 @@ export function SampleEntry(props: SampleEntryProps) {
         <Text kind="muted">
           {text(
             "ui.sample.entry_hint",
-            "Look around with example data. Your files are not read.",
+            "You can look around with example data first. Your disk is not analyzed.",
           )}
         </Text>
       </div>

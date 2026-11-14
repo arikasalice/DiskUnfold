@@ -135,13 +135,13 @@ function SampleStrip({ busy, ask }: { busy: boolean; ask: Ask }) {
           isDisabled={busy}
           onPress={(event) => ask("end", event.target)}
         >
-          {text("ui.sample.close", "Close sample")}
+          {text("ui.sample.close", "End experience")}
         </Action>,
       ]}
     >
       {text(
         "ui.sample.banner_statement",
-        "Sample experience · Separate from your files · Changes cannot run",
+        "Sample experience · Separate from your files · Changes can't be run",
       )}
     </Band>
   );
