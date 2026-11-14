@@ -5,17 +5,15 @@
 //! in turn, then arrival. A worker stack keeps each class in arrival order.
 //! Claiming touches one item and a logarithmic number of index keys; only a
 //! change of the marked area moves items between classes.
-use super::super::Frame;
+use super::super::{
+    Frame,
+    queue::{CLASSES, NORMAL},
+};
 use std::{
     cmp::Ordering,
     collections::{BTreeMap, HashMap, VecDeque},
     ops::Bound,
 };
-
-/// Number of priority classes; lower classes are claimed first.
-pub(in crate::scan::parallel) const CLASSES: usize = 3;
-/// The class of every item while no area is marked.
-pub(in crate::scan::parallel) const NORMAL: usize = CLASSES - 1;
 
 /// An item with the order in which it entered its current queue or stack.
 pub(in crate::scan::parallel) type Arrival = (u64, Frame);

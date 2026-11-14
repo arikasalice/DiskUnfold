@@ -1,6 +1,11 @@
 //! Priority areas over outstanding directory work and optional peak accounting.
-use super::{lanes::NORMAL, *};
+use super::*;
 use std::collections::HashMap;
+
+/// Number of priority classes; lower classes are claimed first.
+pub(super) const CLASSES: usize = 3;
+/// The class of every item while no area is marked; see [`rank_in`].
+pub(super) const NORMAL: usize = CLASSES - 1;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct PriorityRegion {

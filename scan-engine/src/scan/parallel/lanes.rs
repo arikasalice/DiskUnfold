@@ -22,12 +22,11 @@
 mod ready;
 use super::{
     Frame, Queue,
-    queue::{PriorityRegion, rank_in},
+    queue::{CLASSES, NORMAL, PriorityRegion, rank_in},
 };
 #[cfg(test)]
 pub(super) use ready::cost;
 use ready::{Arrival, ReadyQueue, Stack};
-pub(super) use ready::{CLASSES, NORMAL};
 use std::collections::HashMap;
 
 /// Classes that mark the prioritized area and its ancestors.
