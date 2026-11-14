@@ -282,36 +282,49 @@ function determinateProgress(progress: AnalysisJobProgress | undefined) {
   return { value: progress.completed, maxValue: progress.total };
 }
 
+/**
+ * With a confirmed total, the share is rounded down so the card never reads
+ * 100% before the work is done, and the rest is what job.progress still owes.
+ */
+function progressShare(completed: number, total: number) {
+  const done = Math.min(completed, total);
+  return {
+    percent: BigInt(total === 0 ? 100 : Math.floor((done * 100) / total)),
+    remaining: BigInt(total - done),
+  };
+}
+
 function progressText(progress: AnalysisJobProgress, text: LocaleText) {
   const completed = BigInt(progress.completed);
-  const known = progress.totalKnown && progress.total !== undefined;
-  const total = BigInt(progress.total ?? 0);
-  if (progress.unit === "bytes")
-    return known
+  const total = progress.totalKnown ? progress.total : undefined;
+  if (total !== undefined) {
+    const { percent, remaining } = progressShare(progress.completed, total);
+    return progress.unit === "bytes"
       ? text(
-          "ui.analysis.progress_bytes_of_total",
-          "{size} of {total} checked",
+          "ui.analysis.progress_bytes_remaining",
+          "{percent}% · {size} left",
           {
-            size: completed,
-            total,
+            percent,
+            size: remaining,
           },
         )
       : text(
-          "ui.analysis.progress_bytes",
-          "{size} checked · Total size not yet known",
-          { size: completed },
+          "ui.analysis.progress_items_remaining",
+          "{percent}% · {count} items left",
+          { percent, count: remaining },
         );
-  return known
-    ? text(
-        "ui.analysis.progress_items_of_total",
-        "{count} of {total} items checked",
-        { count: completed, total },
-      )
-    : text(
-        "ui.analysis.progress_items",
-        "{count} items checked · Counting all items",
-        { count: completed },
-      );
+  }
+  if (progress.unit === "bytes")
+    return text(
+      "ui.analysis.progress_bytes",
+      "{size} checked · Total size not yet known",
+      { size: completed },
+    );
+  return text(
+    "ui.analysis.progress_items",
+    "{count} items checked · Counting all items",
+    { count: completed },
+  );
 }
 
 function ScanStatus({

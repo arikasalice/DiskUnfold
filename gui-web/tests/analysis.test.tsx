@@ -2463,29 +2463,33 @@ test("F02 NFR5.HD1: the progress card counts checked items without claiming a pe
   expect(screen.queryByText(/%/)).toBeNull();
 
   send(6, 1500, 2000);
-  await screen.findByText("1500 of 2000 items checked");
+  // The share and the rest come from job.progress alone.
+  await screen.findByText("75% · 500 items left");
   expect(
     screen
       .getByRole("progressbar", { name: "Scanning folder" })
       .getAttribute("aria-valuenow"),
   ).toBe("1500");
+  // Rounded down: the card does not read 100% while work remains.
+  send(7, 1999, 2000);
+  await screen.findByText("99% · 1 items left");
 
   state = "paused";
   // A status read after the change reports at least the notified sequence.
-  sequence = 7;
+  sequence = 8;
   act(() => {
     for (const listener of listeners)
       listener({
         topic: "job.state_changed",
         contractVersion: 1,
         jobRef: "scan",
-        seq: 7,
+        seq: 8,
         occurredAt: timestamp,
-        body: { sequence: 7 },
+        body: { sequence: 8 },
       });
   });
   await screen.findByText("Scan paused");
-  expect(screen.getByText("1500 of 2000 items checked")).toBeDefined();
+  expect(screen.getByText("99% · 1 items left")).toBeDefined();
   expect(
     screen.queryByRole("progressbar", { name: "Scanning folder" }),
   ).toBeNull();

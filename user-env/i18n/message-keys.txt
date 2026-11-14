@@ -243,9 +243,9 @@ ui.analysis.progress_heading
 ui.analysis.waiting_cancel
 ui.analysis.scanning_folder
 ui.analysis.progress_items count:count
-ui.analysis.progress_items_of_total count:count total:count
+ui.analysis.progress_items_remaining percent:count count:count
 ui.analysis.progress_bytes size:size
-ui.analysis.progress_bytes_of_total size:size total:size
+ui.analysis.progress_bytes_remaining percent:count size:size
 ui.analysis.priority_accepted name:name
 ui.analysis.priority_no_effect
 ui.analysis.priority_ended
