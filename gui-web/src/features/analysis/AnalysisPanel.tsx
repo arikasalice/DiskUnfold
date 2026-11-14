@@ -10,8 +10,12 @@ import { flushSync } from "react-dom";
 import type { ReactNode, Ref } from "react";
 import { Action, Heading, Text } from "../../components";
 import { useLocaleText } from "../../i18n/presentation";
-import type { LocaleText } from "../../i18n/presentation";
-import { AnalysisError } from "../../ipc";
+import {
+  AnalysisError,
+  rejectedScopeReviewText,
+  scopeErrorText,
+  scopeReviewErrorText,
+} from "../../ipc";
 import type {
   AnalysisClient,
   OsPath,
@@ -25,7 +29,6 @@ import {
   ResultActions,
   ScopeActions,
   ScopeReviewFeedback,
-  scopeNoticeText,
 } from "./AnalysisActions";
 import { ScanOutput } from "./AnalysisViews";
 import { RecentScopePicker } from "./RecentScopePicker";
@@ -33,59 +36,6 @@ import { TargetPicker } from "./TargetPicker";
 import type { SizeDisplay } from "../../i18n/bytes";
 import type { SizeBasisFilter } from "./space-format";
 import type { AnalysisDisplayPreferences } from "./use-display-preferences";
-
-function errorText(error: unknown, text: LocaleText): string {
-  if (error instanceof AnalysisError && error.code === "STALE_VERSION") {
-    return text(
-      "ui.analysis.target_or_result_changed",
-      "The target or result changed. Review the scope again.",
-    );
-  }
-  return error instanceof Error
-    ? error.message
-    : text("ui.analysis.operation_failed", "The operation failed");
-}
-
-function reviewErrorText(error: unknown, text: LocaleText): string {
-  if (error instanceof AnalysisError) {
-    switch (error.reasonKey) {
-      case "scope.target_unavailable":
-        return text(
-          "ui.analysis.review_accessible_paths",
-          "Check that every selected path is an accessible local folder, then review the scope again.",
-        );
-      case "path.unresolvable":
-        return text(
-          "ui.analysis.review_valid_path",
-          "Enter a valid local folder path, then review the scope again.",
-        );
-    }
-  }
-  return errorText(error, text);
-}
-
-function rejectedReviewText(review: ScopeReview, text: LocaleText): string {
-  const reason = review.targets.find(
-    (target) => target.access !== "accessible" && target.reasonKey,
-  )?.reasonKey;
-  if (reason === "path.unresolvable")
-    return text(
-      "ui.analysis.review_valid_path",
-      "Enter a valid local folder path, then review the scope again.",
-    );
-  if (reason === "scope.target_unavailable")
-    return text(
-      "ui.analysis.review_accessible_paths",
-      "Check that every selected path is an accessible local folder, then review the scope again.",
-    );
-  if (reason) return scopeNoticeText(reason, text);
-  if (review.targets.some((target) => target.access === "denied"))
-    return scopeNoticeText("scan.path_denied", text);
-  return text(
-    "ui.analysis.review_unverified_paths",
-    "One or more selected paths could not be verified. Review all paths before starting.",
-  );
-}
 
 function draft(paths: OsPath[], saved?: ScopeDraft): ScopeDraft {
   return {
@@ -465,7 +415,7 @@ export function AnalysisPanel({
           setReviewProblem(undefined);
         } else {
           setRejectedRevision(submittedRevision);
-          setReviewProblem(rejectedReviewText(response, text));
+          setReviewProblem(rejectedScopeReviewText(response, text));
           suppressAutomaticRetry(automatic, failedAutoDraft, submittedDraft);
         }
       } else if (request.current === requestSeq) {
@@ -485,7 +435,7 @@ export function AnalysisPanel({
               "ui.analysis.review_failed_keep_last",
               "Review failed. The last successful review remains available; the current paths were not accepted.",
             )
-          : reviewErrorText(failure, text);
+          : scopeReviewErrorText(failure, text);
         setReviewProblem(message);
         if (failure instanceof AnalysisError)
           setRejectedRevision(submittedRevision);
@@ -587,7 +537,7 @@ export function AnalysisPanel({
           );
         }
       }
-      setError(errorText(failure, text));
+      setError(scopeErrorText(failure, text));
     } finally {
       setWorking(false);
     }

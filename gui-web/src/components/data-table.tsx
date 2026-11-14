@@ -14,6 +14,7 @@ export function DataTable<Row>({
   density = "comfortable",
   totalRows,
   getRowKey,
+  getRowLabel,
 }: {
   label: string;
   columns: string[];
@@ -24,6 +25,8 @@ export function DataTable<Row>({
   /** Total known rows, or -1 when only a lower bound is known. */
   totalRows?: number;
   getRowKey?: (row: Row) => string;
+  /** Accessible row name, for rows whose cells alone do not identify them. */
+  getRowLabel?: (row: Row, index: number) => string;
 }) {
   const [scrollTop, setScrollTop] = useState(0);
   const rowHeight = density === "compact" ? 64 : ROW_HEIGHT;
@@ -84,6 +87,7 @@ export function DataTable<Row>({
             <tr
               key={getRowKey?.(row) ?? start + index}
               aria-rowindex={start + index + 2}
+              aria-label={getRowLabel?.(row, start + index)}
             >
               {renderCells(row, start + index).map((cell, column) => (
                 <td key={column}>

@@ -22,6 +22,8 @@ fn default_four_per_key_does_not_block_a_distinct_key() {
         ready_high_water: Some(6),
         ready: (0..6).map(frame).collect(),
         last_root: None,
+        priority: None,
+        outstanding: None,
         remaining: 6,
         root_remaining: vec![1; 6],
         root_groups: vec![0, 0, 0, 0, 0, 1],

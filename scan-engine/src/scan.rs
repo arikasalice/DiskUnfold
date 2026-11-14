@@ -12,8 +12,10 @@ use du_core_contracts::{
     scan_observation::{AnchoredDirectory, MetadataObservation, ObservedEntry, ObservedKind},
 };
 pub(crate) use parallel::{
-    DevicePlan, collect_open_build, collect_open_forest_diagnostic, collect_open_forest_filtered,
+    DevicePlan, ScanControlSession, collect_open_build, collect_open_forest_diagnostic,
+    collect_open_forest_filtered,
 };
+pub use parallel::{ScanControlError, ScanControlHandle, ScanPriorityOutcome};
 use std::collections::VecDeque;
 
 /// Supplies distinct result identifiers for partial and terminal publications.

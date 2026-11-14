@@ -916,6 +916,24 @@ export type ScanFailurePathRef = { rootIndex: number, relative: Array<PathBytes>
 export type ScanFailureRow = { kind: ScanFailureKind, stage: ScanFailureStage, pathRef: ScanFailurePathRef, reasonKey: string, observedAt?: Timestamp, displayPath?: string, };
 export type ScanFailuresRequest = { resultVersion: Id, kind?: ScanFailureKind, cursor?: string, count?: number, };
 export type ScanFailures = { resultVersion: Id, rows: Array<ScanFailureRow>, totalCount: number, nextCursor?: string, };
+export type ScanPriorityRequest = {
+/**
+ * Job reference returned when the scan was admitted.
+ */
+jobRef: Id,
+/**
+ * Existing item reference selected from the scan's current partial result.
+ */
+priorityArea: ItemRef, };
+export type ScanPriorityResponse = {
+/**
+ * The existing job-control result vocabulary.
+ */
+controlResult: JobControlOutcome,
+/**
+ * Present when the request remains the applied priority area.
+ */
+appliedPriorityArea?: ItemRef, };
 export type JobState = "queued" | "running" | "pause_requested" | "paused" | "cancel_requested" | "done" | "partial" | "failed" | "cancelled";
 export type JobControl = "pause" | "resume" | "cancel" | "set_priority";
 export type AnalysisJobRequest = { jobRef: Id, };

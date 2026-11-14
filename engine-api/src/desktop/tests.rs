@@ -1,8 +1,10 @@
 use super::*;
+use du_core_contracts::Id;
 use du_core_contracts::result_events::{
     PublishedCompleteness, ResultVersionChange, ResultVersionChanged, ResultVersionNotice,
 };
-use du_core_contracts::{Id, OsPath, PathBytes, PathEncoding, analysis_ipc::TargetAccess};
+use du_core_contracts::{OsPath, PathBytes, PathEncoding, analysis_ipc::TargetAccess};
+use std::time::Duration;
 
 fn observation(observed_at: Timestamp) -> TargetStatusChanged {
     TargetStatusChanged {

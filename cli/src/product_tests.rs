@@ -228,6 +228,7 @@ fn confirmed_full_disk_access_denial_stops_scan_with_exit_two_and_no_stdout() {
         ),
         "{line}"
     );
+    assert!(line.ends_with(" [INVALID_ARGUMENT]\n"), "{line}");
 }
 
 #[test]

@@ -191,6 +191,7 @@ impl SampleLoad {
                     limit: 4,
                 },
                 None,
+                None,
             ),
         );
         // The collector also counts the scope root directory, which is not a bundle item.
