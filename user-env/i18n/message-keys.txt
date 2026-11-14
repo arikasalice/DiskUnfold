@@ -886,6 +886,9 @@ ui.analysis.issue_reason_access_denied
 ui.analysis.issue_reason_path_missing
 ui.analysis.issue_reason_unverified
 ui.analysis.issue_reason_link_skipped
+ui.analysis.issue_reason_other_volume
+ui.analysis.issue_reason_already_covered
+ui.analysis.issue_reason_range_unconfirmed
 ui.analysis.issues_region
 ui.analysis.issues_hide
 ui.analysis.issues_view
