@@ -1,6 +1,7 @@
 use super::*;
 mod invalid;
 mod retained;
+mod unix;
 use crate::scope::exclusion::{ComparisonPath, PathComparison};
 use du_core_contracts::analysis_ipc::ScopeReview;
 
