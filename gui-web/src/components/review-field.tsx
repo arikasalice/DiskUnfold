@@ -5,6 +5,7 @@ export function ReviewField({
   label,
   value,
   onChange,
+  onBlur,
   description,
   isDisabled = false,
   error,
@@ -12,6 +13,8 @@ export function ReviewField({
   label: string;
   value: string;
   onChange: (value: string) => void;
+  /** Called when the field loses focus. */
+  onBlur?: () => void;
   description: string;
   isDisabled?: boolean;
   /** Linked to the input as its error message and announced once. */
@@ -24,6 +27,7 @@ export function ReviewField({
       className="du-field"
       value={value}
       onChange={onChange}
+      {...(onBlur ? { onBlur: () => onBlur() } : {})}
       isDisabled={isDisabled}
       isInvalid={error !== undefined}
     >

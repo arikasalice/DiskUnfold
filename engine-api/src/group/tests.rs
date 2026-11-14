@@ -24,6 +24,7 @@ use crate::api::{CallerCtx, Channel, Engine, EngineBuilder};
 
 mod admission;
 mod display;
+mod names;
 mod sharing;
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
