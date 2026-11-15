@@ -30,7 +30,7 @@ test("explains the missing connection and reports an unsuccessful recheck", () =
   expect(document.activeElement).toBe(retry);
   fireEvent.click(retry);
   expect(screen.getByRole("status").textContent).toContain("still unavailable");
-  expect(screen.queryByRole("button", { name: /start scan/i })).toBeNull();
+  expect(screen.queryByRole("button", { name: /start analysis/i })).toBeNull();
   expect(screen.queryByText("Connected analysis")).toBeNull();
 });
 

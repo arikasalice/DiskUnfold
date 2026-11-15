@@ -158,7 +158,7 @@ test("F02 FR8.HD1: the selection action bar analyzes one selected folder first a
 
   toggle("Documents");
   await screen.findByText(
-    "1 item selected · This folder is already fully analyzed",
+    "1 item selected · This folder is already fully scanned",
   );
   expect(unavailable()).toBe(true);
   toggle("Documents");
@@ -253,7 +253,7 @@ test("F02 FR8.HD1: no effect keeps the mark only when the folder remains the app
   );
   expect(
     screen.getByText(
-      "This folder is already analyzed or is already being analyzed first.",
+      "This folder is already scanned or is already being analyzed first.",
     ),
   ).toBeDefined();
   expect(
@@ -274,7 +274,7 @@ test("F02 FR8.HD1: an ended scan, a replaced result and other failures clear the
   await act(async () =>
     answers[0]?.resolve({ controlResult: "already_terminal" }),
   );
-  expect(screen.getByText("The analysis has finished.")).toBeDefined();
+  expect(screen.getByText("The scan has already finished.")).toBeDefined();
   expect(rowAction("Photos")).not.toBeNull();
 
   await requestFirst("Photos");
@@ -377,7 +377,7 @@ test("F02 FR8.HD1: the bar stays while an outcome shows after the scan ended, th
   );
   const ended = selectionBar()!;
   expect(within(ended).getByRole("status").textContent).toBe(
-    "The analysis has finished.",
+    "The scan has already finished.",
   );
   expect(
     within(ended).getByRole("status").querySelector('[data-tone="info"] svg'),

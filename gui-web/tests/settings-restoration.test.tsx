@@ -51,7 +51,7 @@ test("F14 FR6 and F01 Q8 name restored settings and identify unknown settings an
   for (const label of [
     "Size unit",
     "Unit system",
-    "Remember recent scan scopes",
+    "Remember recent scopes",
     "Recent scope limit",
     "Default size basis",
     "Unrecognized setting 1",
