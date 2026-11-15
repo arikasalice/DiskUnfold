@@ -1,4 +1,10 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react";
 import axe from "axe-core";
 import { useState } from "react";
 import { afterEach, expect, test, vi } from "vitest";
@@ -7,6 +13,21 @@ import { GeometryRenderer } from "../src/components/charts/geometry-renderer";
 import type { GeometryRendererProps } from "../src/components/charts/geometry-renderer";
 
 afterEach(cleanup);
+
+test("the shape buttons are one scrolling row, and a focused button is brought into view", () => {
+  const base = props();
+  const scrolled = vi.fn();
+  HTMLElement.prototype.scrollIntoView = scrolled;
+  const { container } = render(<GeometryRenderer {...base} relations={[]} />);
+  const row = container.querySelector(".du-geometry-buttons");
+  expect(row?.getAttribute("role")).toBe("group");
+  const first = row!.querySelector("button")!;
+  act(() => first.focus());
+  expect(scrolled).toHaveBeenCalledWith({
+    block: "nearest",
+    inline: "nearest",
+  });
+});
 
 function labelled(width: number, name: string, value?: string) {
   const base = props();

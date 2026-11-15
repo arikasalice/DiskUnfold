@@ -17,6 +17,7 @@ import { VisualizationSession } from "../features/visualization/VisualizationSes
 import {
   ChartAreaContext,
   chartHeight,
+  DEFAULT_BUTTON_ROW_HEIGHT,
 } from "../features/visualization/chart-area";
 import { useProductionVizText } from "../viz";
 import type { ModelResponse, VisualizationViewRequest } from "../viz";
@@ -249,13 +250,19 @@ export function BrowseVisualizationView({
   const [viewport, setViewport] = useState<
     VisualizationViewRequest["viewport"] | undefined
   >();
-  const [chartOffset, setChartOffset] = useState(DEFAULT_CHART_OFFSET);
+  const [chartParts, setChartParts] = useState({
+    offset: DEFAULT_CHART_OFFSET,
+    row: DEFAULT_BUTTON_ROW_HEIGHT,
+  });
   const area = useMemo(
     () => ({
       element: viewportElement,
-      reportOffset: (offset: number) =>
-        setChartOffset((current) =>
-          Math.abs(current - offset) < 1 ? current : Math.round(offset),
+      reportOffset: (offset: number, row: number) =>
+        setChartParts((current) =>
+          Math.abs(current.offset - offset) < 1 &&
+          Math.abs(current.row - row) < 1
+            ? current
+            : { offset: Math.round(offset), row: Math.round(row) },
         ),
     }),
     [],
@@ -361,7 +368,11 @@ export function BrowseVisualizationView({
                 ...assembly.request,
                 viewport: {
                   ...viewport,
-                  height: chartHeight(viewport.height, chartOffset),
+                  height: chartHeight(
+                    viewport.height,
+                    chartParts.offset,
+                    chartParts.row,
+                  ),
                 },
               }}
               canDisplay={(frame) =>

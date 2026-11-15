@@ -412,19 +412,30 @@ export function GeometryRenderer(props: GeometryRendererProps) {
           ))}
         </g>
       </svg>
-      <div role="group" aria-label={props.label} onKeyDown={moveFocus}>
+      <div
+        className="du-geometry-buttons"
+        role="group"
+        aria-label={props.label}
+        onKeyDown={moveFocus}
+      >
         {visible.map(({ shape }) => (
           <Action
             key={`${modelRef}:${resultRevision}:${shape.shapeRef}`}
-            onFocus={({ currentTarget }) =>
+            onFocus={({ currentTarget }) => {
               props.onShapeFocus?.(
                 shape.rowRef,
                 shape.shapeRef,
                 currentTarget instanceof HTMLElement
                   ? currentTarget
                   : undefined,
-              )
-            }
+              );
+              // The row scrolls sideways; the focused button must be in view.
+              if (currentTarget instanceof HTMLElement)
+                currentTarget.scrollIntoView?.({
+                  block: "nearest",
+                  inline: "nearest",
+                });
+            }}
             onBlur={() => {
               restoreFocus.current = false;
             }}
