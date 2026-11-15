@@ -7,7 +7,7 @@ use du_core_contracts::{
 use rusqlite::Connection;
 use std::{path::PathBuf, time::Duration};
 
-use crate::{AppDb, HISTORY_DEFINITIONS, HISTORY_SCHEMA_VERSION, migration};
+use crate::{AppDb, HISTORY_DEFINITIONS, migration};
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
@@ -332,7 +332,7 @@ fn version_five_database_upgrades_to_six_and_keeps_existing_data() -> TestResult
     let dir = tempfile::tempdir()?;
     let path = dir.path().join("app.db");
     drop(AppDb::create_gui(&path).map_err(|e| format!("{e:?}"))?);
-    let before_group_rules = HISTORY_SCHEMA_VERSION - 1;
+    let before_group_rules = 5;
     for step in HISTORY_DEFINITIONS
         .steps
         .iter()
@@ -369,8 +369,17 @@ fn version_five_database_upgrades_to_six_and_keeps_existing_data() -> TestResult
             .map_err(|e| format!("{e:?}"))?,
         6
     );
+    assert_eq!(
+        migration::apply_next(
+            &path,
+            &dir.path().join("before-scope-observation.db"),
+            &HISTORY_DEFINITIONS
+        )
+        .map_err(|e| format!("{e:?}"))?,
+        7
+    );
     let mut db = AppDb::open_gui_with_history(&path).map_err(|e| format!("{e:?}"))?;
-    assert_eq!(db.schema_version()?, 6);
+    assert_eq!(db.schema_version()?, 7);
     let kept: (String, i64, i64) = db.connection.query_row(
         "SELECT (SELECT value_json FROM user_env_setting WHERE setting_key = 'locale.display_language'),
                 (SELECT settings_version FROM user_env_setting_version),
