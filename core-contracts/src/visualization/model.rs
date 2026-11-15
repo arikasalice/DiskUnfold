@@ -125,7 +125,38 @@ pub struct VizTotal {
     pub source_size: Option<SizeValue>,
 }
 
-/// Separate aggregate, rendered, grouped, and filtered quantities.
+/// The totals of one model. They have one definition for every format.
+///
+/// - `scope` is the original aggregate of the pinned scope, never derived from geometry.
+/// - `drawn` is the sum of the item shapes, the shapes that each stand for one item. A
+///   group shape is not in it, and a shape nested inside a drawn folder lies within that
+///   folder's value and is never added again. A format whose shapes are all groups, such
+///   as the histogram, has no item shape: its `drawn` total is zero.
+/// - `grouped` is the sum of every group, whether the group has a shape or only a table
+///   row. For the histogram it is the sum of the items in its intervals.
+/// - `filtered_out` is the sum of what the request's condition removed.
+///
+/// The three sums never overlap. What none of them holds is the `remainder`.
+///
+/// The `remainder` is what the scope holds beyond `drawn`, `grouped` and `filtered_out`:
+/// siblings left out because they are below the minimum area or lack coordinate
+/// precision, and the share of the scope that no single item can carry, such as a file
+/// shared between siblings that the scope counts once. The engine computes it and a
+/// consumer displays it; a consumer never computes it. It is exact only when the scope
+/// and the other three totals are exact, and an exact remainder is never negative.
+/// Otherwise it is unknown, with a reason, because a difference of lower bounds is not a
+/// value. A model without the field is valid and says nothing about the remainder.
+///
+/// `remainder_reason_keys` says what the remainder holds, with
+/// [`REMAINDER_TOO_SMALL`] and [`REMAINDER_UNATTRIBUTED`]. A producer omits it when the
+/// remainder is absent or exactly zero and lists at least one key when the remainder is
+/// exact and not zero. When the remainder is unknown it lists the causes it knows or
+/// omits the list; why the remainder is unknown is said by the reason of its quantity.
+/// The list is valid only with `remainder`, its keys are not empty, sorted and without
+/// duplicates, and a key that is not registered is preserved.
+///
+/// [`VizModel::validate_revision`] adds the five values only when they are all exact and
+/// in one unit, so the totals of a model that counts items are never added to bytes.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
@@ -134,6 +165,20 @@ pub struct VizTotals {
     pub drawn: VizTotal,
     pub grouped: VizTotal,
     pub filtered_out: VizTotal,
+    #[serde(
+        default,
+        deserialize_with = "optional_present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub remainder: Option<VizTotal>,
+    #[serde(
+        default,
+        deserialize_with = "optional_present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub remainder_reason_keys: Option<Vec<String>>,
 }
 
 /// Revisions of the tables and size rule fixed for the model.
@@ -328,6 +373,7 @@ impl VizModel {
             &self.totals.filtered_out,
         ]
         .into_iter()
+        .chain(self.totals.remainder.as_ref())
         .chain(self.legend.iter().map(|entry| &entry.total));
         let size_basis =
             (self.representation.measure == "size").then_some(&self.representation.size_basis);
@@ -444,3 +490,6 @@ impl VizTotal {
 
 #[cfg(test)]
 mod tests;
+mod totals;
+
+pub use totals::{REMAINDER_TOO_SMALL, REMAINDER_UNATTRIBUTED};

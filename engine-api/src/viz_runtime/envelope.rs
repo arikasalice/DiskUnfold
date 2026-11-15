@@ -258,6 +258,8 @@ pub(super) fn build_model(
                 projection.totals.filtered_bytes,
                 false,
             )?,
+            remainder: None,
+            remainder_reason_keys: None,
         },
         shapes,
         relationships: projection.relationships.clone(),

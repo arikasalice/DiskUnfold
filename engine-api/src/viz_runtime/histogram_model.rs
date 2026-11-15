@@ -131,6 +131,8 @@ pub(super) fn build(
             drawn: drawn_total,
             grouped: grouped_total,
             filtered_out: filtered_total,
+            remainder: None,
+            remainder_reason_keys: None,
         },
         shapes,
         relationships: vec![],
