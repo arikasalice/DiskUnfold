@@ -24,11 +24,11 @@ import type {
 } from "./controller";
 import type { VizRow, VizRowsRequest } from "../../ipc";
 import type { createChartRenderers } from "../../components";
-import type { VizText } from "./model-text";
-import { matchingRowsPage } from "./model-adapter";
-import { visualizationFormatName, visualizationReason } from "./messages";
+import type { VizText } from "../../viz";
+import { matchingRowsPage } from "../../viz";
+import { visualizationFormatName, visualizationReason } from "../../viz";
 import { GroupView } from "./GroupView";
-import { RowName } from "./RowName";
+import { RowName } from "../../viz";
 import type { GroupController } from "./group-controller";
 import type { GroupOrigin } from "./group-navigation";
 import {

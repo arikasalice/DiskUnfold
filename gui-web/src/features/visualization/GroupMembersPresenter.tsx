@@ -8,8 +8,8 @@ import {
   Text,
 } from "../../components";
 import type { VizRow } from "../../ipc";
-import type { VizText } from "./model-text";
-import { RowName } from "./RowName";
+import type { VizText } from "../../viz";
+import { RowName } from "../../viz";
 
 export type GroupMembersPresenterProps = {
   /** The label of the group selected in the parent visualization. */

@@ -1,8 +1,8 @@
 import { useId, useLayoutEffect, useRef } from "react";
 import type { KeyboardEvent, ReactNode } from "react";
-import { Action } from "./controls";
-import { isImeProcessingKey } from "./ime-composition";
-import { Notice } from "./presentation";
+import { Action } from "../controls";
+import { isImeProcessingKey } from "../ime-composition";
+import { Notice } from "../presentation";
 import "./geometry-renderer.css";
 
 /** Presentation coordinates; the caller adapts the generated model at its boundary. */

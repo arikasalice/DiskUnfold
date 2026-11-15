@@ -9,9 +9,9 @@ import type { RefObject } from "react";
 import { Action, LiveStatus, Notice } from "../../components";
 import { GroupMembersPresenter } from "./GroupMembersPresenter";
 import type { GroupController, GroupFrame } from "./group-controller";
-import type { ModelResponse, VizSelection } from "./model-adapter";
-import { visualizationShapeRef } from "./model-adapter";
-import type { VizText } from "./model-text";
+import type { ModelResponse, VizSelection } from "../../viz";
+import { visualizationShapeRef } from "../../viz";
+import type { VizText } from "../../viz";
 import type { GroupOrigin } from "./group-navigation";
 
 export function GroupView({
