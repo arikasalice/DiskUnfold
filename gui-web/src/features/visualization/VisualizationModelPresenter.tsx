@@ -22,6 +22,7 @@ import { ModelEvidence, shapeLabels, vizMessage } from "../../viz";
 import type { VizText } from "../../viz";
 import { EmptyResult } from "./EmptyResult";
 import { ModelStatus } from "./ModelStatus";
+import { useChartOffset } from "./chart-area";
 
 const defaultChartRenderer = createChartRenderers([]);
 type ModelViewProps = {
@@ -62,6 +63,9 @@ type ModelViewProps = {
 export function VisualizationModelPresenter(props: ModelViewProps) {
   const { frame, page, view, selected, text } = props;
   const visualizationRef = useRef<HTMLElement>(null);
+  const chartBox = useRef<HTMLDivElement>(null);
+  const contextRef = useRef<HTMLDivElement>(null);
+  useChartOffset(chartBox, contextRef);
   const ChartRenderer = (props.resolveRenderer ?? defaultChartRenderer)(
     frame.model.representation.format,
   );
@@ -110,73 +114,77 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
       tabIndex={-1}
       aria-label={text.message("storageVisualization")}
     >
-      <div className="du-review-context">
+      <div ref={contextRef} className="du-review-context">
         <ModelStatus frame={frame} text={text} />
       </div>
-      <ChartRenderer
-        modelRef={frame.model.modelRef}
-        resultRevision={frame.resultRevision}
-        label={text.message("spaceDistribution")}
-        selectedText={text.message("selected")}
-        fallbackNotice={text.message("graphFallback")}
-        missingFallbackNotice={text.message("graphRowsUnavailable")}
-        width={view.viewport.width}
-        height={view.viewport.height}
-        viewport={view.visibleWindow}
-        shapes={adapted.shapes}
-        relations={adapted.relations}
-        selectedRowRef={selected ? selectionKey(selected, frame) : null}
-        focusedRowRef={
-          props.focus && props.focus.resultVersion === frame.resultRevision
-            ? JSON.stringify([
-                "item",
-                props.focus.resultVersion,
-                props.focus.itemNo,
-              ])
-            : null
-        }
-        {...(props.onFocusAvailability
-          ? { onFocusAvailability: props.onFocusAvailability }
-          : {})}
-        {...(props.focusFirstRequest === undefined
-          ? {}
-          : { focusFirstRequest: props.focusFirstRequest })}
-        {...(props.onFocusTargetMissing
-          ? { onFocusTargetMissing: props.onFocusTargetMissing }
-          : {})}
-        onShapeFocus={(rowRef, shapeRef, control) => {
-          const shape = eventShape(adapted, shapeRef, rowRef);
-          const target = shape
-            ? (adapted.targetsByShape.get(shapeRef) ?? null)
-            : null;
-          if (target)
-            props.onFocusItem?.(target.kind === "item" ? target.itemRef : null);
-          props.onFocusedGroupShape?.(
-            target,
-            shapeRef,
-            control && visualizationRef.current?.contains(control)
-              ? control
-              : null,
-            shape?.accessibleLabel,
-            visualizationRef.current,
-          );
-        }}
-        onSelect={(rowRef, shapeRef) => {
-          if (!eventShape(adapted, shapeRef, rowRef)) return;
-          const selection = adapted.targetsByShape.get(shapeRef);
-          if (selection) props.onSelect(selection, shapeRef);
-        }}
-        fallback={{
-          modelRef: frame.model.modelRef,
-          resultRevision: frame.resultRevision,
-          content:
-            frame.model.shapes.length === 0 ? (
-              <EmptyResult frame={frame} text={text} />
-            ) : (
-              rows
-            ),
-        }}
-      />
+      <div ref={chartBox}>
+        <ChartRenderer
+          modelRef={frame.model.modelRef}
+          resultRevision={frame.resultRevision}
+          label={text.message("spaceDistribution")}
+          selectedText={text.message("selected")}
+          fallbackNotice={text.message("graphFallback")}
+          missingFallbackNotice={text.message("graphRowsUnavailable")}
+          width={view.viewport.width}
+          height={view.viewport.height}
+          viewport={view.visibleWindow}
+          shapes={adapted.shapes}
+          relations={adapted.relations}
+          selectedRowRef={selected ? selectionKey(selected, frame) : null}
+          focusedRowRef={
+            props.focus && props.focus.resultVersion === frame.resultRevision
+              ? JSON.stringify([
+                  "item",
+                  props.focus.resultVersion,
+                  props.focus.itemNo,
+                ])
+              : null
+          }
+          {...(props.onFocusAvailability
+            ? { onFocusAvailability: props.onFocusAvailability }
+            : {})}
+          {...(props.focusFirstRequest === undefined
+            ? {}
+            : { focusFirstRequest: props.focusFirstRequest })}
+          {...(props.onFocusTargetMissing
+            ? { onFocusTargetMissing: props.onFocusTargetMissing }
+            : {})}
+          onShapeFocus={(rowRef, shapeRef, control) => {
+            const shape = eventShape(adapted, shapeRef, rowRef);
+            const target = shape
+              ? (adapted.targetsByShape.get(shapeRef) ?? null)
+              : null;
+            if (target)
+              props.onFocusItem?.(
+                target.kind === "item" ? target.itemRef : null,
+              );
+            props.onFocusedGroupShape?.(
+              target,
+              shapeRef,
+              control && visualizationRef.current?.contains(control)
+                ? control
+                : null,
+              shape?.accessibleLabel,
+              visualizationRef.current,
+            );
+          }}
+          onSelect={(rowRef, shapeRef) => {
+            if (!eventShape(adapted, shapeRef, rowRef)) return;
+            const selection = adapted.targetsByShape.get(shapeRef);
+            if (selection) props.onSelect(selection, shapeRef);
+          }}
+          fallback={{
+            modelRef: frame.model.modelRef,
+            resultRevision: frame.resultRevision,
+            content:
+              frame.model.shapes.length === 0 ? (
+                <EmptyResult frame={frame} text={text} />
+              ) : (
+                rows
+              ),
+          }}
+        />
+      </div>
       <ModelEvidence frame={frame} text={text} />
     </section>
   );
