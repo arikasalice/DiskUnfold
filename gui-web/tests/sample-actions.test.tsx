@@ -55,7 +55,9 @@ const openedPage = {
 } as unknown as BrowseOpenResponse;
 
 async function rowMenu(reason: string | undefined) {
-  const copyPath = vi.fn();
+  const copyPath = vi
+    .fn<NonNullable<BrowsePort["copyPath"]>>()
+    .mockResolvedValue({ outcome: "copied", count: 1 });
   const port: BrowsePort = {
     open: vi.fn().mockResolvedValue(openedPage),
     page: vi.fn(),
@@ -93,6 +95,9 @@ test("a real result keeps copying a path available", async () => {
   expect(item.getAttribute("aria-disabled")).not.toBe("true");
   fireEvent.click(item);
   expect(copyPath).toHaveBeenCalledTimes(1);
+  expect((await screen.findByRole("status")).textContent).toBe(
+    "Copied 1 path for clip.mp4.",
+  );
 });
 
 function detail(): BrowseDetail {
