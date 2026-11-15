@@ -146,6 +146,14 @@ test("F02 FR3.HD1.gui-web.DD1: the analysis screen polls at 500 ms and stops aft
     async call(name: string, body: unknown): Promise<unknown> {
       calls.push({ name, body });
       switch (name) {
+        case "settings.restore_status":
+          return {
+            items: [],
+            storedSchema: 1,
+            appSchema: 1,
+            migrated: false,
+            writeLocked: false,
+          };
         case "space.display_preferences":
           return {
             settingsRevision: "0",
@@ -235,6 +243,9 @@ test("F02 FR3.HD1.gui-web.DD1: the analysis screen polls at 500 ms and stops aft
 
   render(<App analysis={client} />);
   await advance(0);
+  expect(calls.some(({ name }) => name === "settings.restore_status")).toBe(
+    true,
+  );
   fireEvent.click(screen.getByRole("radio", { name: path.display }));
   fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
   await advance(0);
