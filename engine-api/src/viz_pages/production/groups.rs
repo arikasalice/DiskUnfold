@@ -176,7 +176,7 @@ pub(super) fn member_count(count: usize) -> Result<VizQuantity, Error> {
 
 // A label key is the message key of the name, and the display name is required, so it
 // carries the same string for a consumer that does not read the key.
-fn usable(other: Option<&OtherPresentation>) -> Result<&OtherPresentation, Error> {
+pub(super) fn usable(other: Option<&OtherPresentation>) -> Result<&OtherPresentation, Error> {
     other
         .filter(|other| {
             !other.display_name.is_empty()

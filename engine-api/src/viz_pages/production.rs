@@ -19,10 +19,13 @@ use std::{
     sync::Arc,
 };
 
+mod folder_table;
 mod groups;
+pub(crate) use folder_table::rows as folder_table_rows;
 pub(crate) use groups::nested_group_rows;
 
 /// Classification and flags already evaluated by their owning producer for one item.
+#[derive(Clone)]
 pub struct RowPresentation {
     pub item: ItemRef,
     pub legend_class_key: String,
