@@ -333,6 +333,16 @@ fn the_new_values_accept_unknown_fields() -> TestResult {
 #[test]
 fn scan_in_progress_is_a_value_reason_and_not_an_error_envelope_reason() -> TestResult {
     let correlation = Id::parse(ID)?;
-    assert!(ErrorEnvelope::from_reason("scan.in_progress", correlation, Vec::new()).is_none());
+    assert_eq!(FolderFlags::REASON_SCAN_IN_PROGRESS, "scan.in_progress");
+    assert_eq!(
+        FolderFlags::REASON_DATA_INSUFFICIENT,
+        "space.data_insufficient"
+    );
+    let envelope = ErrorEnvelope::from_reason(
+        FolderFlags::REASON_SCAN_IN_PROGRESS,
+        correlation,
+        Vec::new(),
+    );
+    assert!(envelope.is_none());
     Ok(())
 }

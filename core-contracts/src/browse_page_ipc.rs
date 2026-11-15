@@ -121,6 +121,14 @@ pub struct FolderFlags {
     pub boundary: Option<BrowseValue<FolderBoundary>>,
 }
 
+impl FolderFlags {
+    /// Reason key of an unknown fact while the scan of the result version has not
+    /// ended. It travels inside values only.
+    pub const REASON_SCAN_IN_PROGRESS: &'static str = "scan.in_progress";
+    /// Reason key of an unknown fact the result version does not hold.
+    pub const REASON_DATA_INSUFFICIENT: &'static str = "space.data_insufficient";
+}
+
 /// One observed folder-query row.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
