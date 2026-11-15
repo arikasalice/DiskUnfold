@@ -15,6 +15,9 @@ fn model_rule(assembled: &Assembled) -> Result<Value, Failure> {
 
 #[test]
 fn a_stored_registered_rule_id_reaches_the_pinned_scan_result() -> Result<(), Failure> {
+    // The production bundle currently has one rule, so this confirms its ID reaches
+    // the result through StartupSettings and register_desktop; a second rule is needed
+    // to distinguish selection from an unconditional default.
     let assembled = assemble_with_stored_rule("size.agg.subtree-unique")?;
     assert_eq!(
         model_rule(&assembled)?,

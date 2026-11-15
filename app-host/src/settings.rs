@@ -67,7 +67,7 @@ impl StartupSettings {
     }
 
     /// Opens the settings with the size rule IDs the composition root registered.
-    #[cfg(test)]
+    #[cfg(all(test, windows))]
     pub(super) fn open_with_size_rule_ids(
         database: &SharedDatabase,
         timestamp_ms: i64,

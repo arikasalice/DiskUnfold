@@ -71,6 +71,7 @@ impl StartupSettings {
 mod tests {
     use super::*;
     use serde_json::json;
+    use std::panic::{AssertUnwindSafe, catch_unwind};
 
     fn registered() -> Vec<String> {
         vec![DEFAULT_SIZE_RULE_ID.to_owned(), "size.agg.other".to_owned()]
@@ -107,6 +108,26 @@ mod tests {
             registered_ids(&rules),
             vec![DEFAULT_SIZE_RULE_ID.to_owned()]
         );
+        Ok(())
+    }
+
+    #[test]
+    fn a_poisoned_settings_lock_uses_the_default_rule() -> Result<(), Box<dyn std::error::Error>> {
+        let directory = tempfile::tempdir()?;
+        let database = du_app_db::AppDb::open_or_create_gui(&directory.path().join("settings.db"))
+            .map_err(|error| io::Error::other(format!("{error:?}")))?;
+        let database = crate::shared_database::SharedDatabase::new(database, None);
+        let settings = Arc::new(StartupSettings::open(&database, 1, &["en", "ko"])?);
+        let source = settings.clone().size_rule_source();
+
+        let panic = catch_unwind(AssertUnwindSafe(|| {
+            if let Ok(_service) = settings.service.lock() {
+                std::panic::resume_unwind(Box::new("intentional test unwind"));
+            }
+        }));
+        assert!(panic.is_err());
+        assert!(settings.service.is_poisoned());
+        assert_eq!(source(), DEFAULT_SIZE_RULE_ID);
         Ok(())
     }
 }
