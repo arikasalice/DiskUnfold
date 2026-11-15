@@ -297,7 +297,7 @@ fn project_inner(
         result_revision: version.version_id().clone(),
         parent: parent.clone(),
         basis,
-        completeness: version.completeness(),
+        completeness: crate::space::folder_completeness(version, parent.item_no),
         observed_at: version.observed_at().cloned(),
         strategy: selected.descriptor,
         rows,
