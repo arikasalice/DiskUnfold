@@ -90,9 +90,10 @@ test("the browse header names the scan origin and a lower-bound count in Korean"
   ).toBeDefined();
 });
 
-test("an origin without copy is shown as reported", async () => {
+test("an origin without copy reads as unknown and is not shown", async () => {
   await browse("imported");
-  expect(screen.getByText(/^imported · /)).toBeDefined();
+  expect(screen.getByText(/^알 수 없음 · /)).toBeDefined();
+  expect(screen.queryByText(/imported/)).toBeNull();
 });
 
 test("an availability that could not be read says only that it is unknown", async () => {
