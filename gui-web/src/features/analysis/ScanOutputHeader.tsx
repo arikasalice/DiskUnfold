@@ -280,36 +280,30 @@ function ResultVersionSummary({
       className="du-result-version"
       data-result={total ? "" : undefined}
     >
-      <LiveStatus ref={summary} focusTarget={total !== undefined}>
-        {total && (
-          <Text kind="muted">
-            {text("ui.analysis.result_version", "Result version: {status}", {
-              status: resultVersionLabel(total.completeness, text),
-            })}
-          </Text>
-        )}
-        {total && live && (
-          <Text kind="muted">
-            {live === "updating"
-              ? text(
-                  "ui.analysis.values_update_live",
-                  "Values update as the scan runs",
-                )
-              : text("ui.analysis.result_so_far", "Result so far")}
-          </Text>
-        )}
-        {offerLatest && (
-          <Text>{newerResultMessage(finished, total, text)}</Text>
-        )}
-        {!offerLatest && shownLatest && (
-          <Text>
-            {text(
-              "ui.analysis.latest_visible",
-              "Now showing the latest result.",
-            )}
-          </Text>
-        )}
-      </LiveStatus>
+      <div>
+        <LiveStatus ref={summary} focusTarget={total !== undefined}>
+          {total && (
+            <Text kind="muted">
+              {text("ui.analysis.result_version", "Result version: {status}", {
+                status: resultVersionLabel(total.completeness, text),
+              })}
+            </Text>
+          )}
+          {offerLatest && (
+            <Text>{newerResultMessage(finished, total, text)}</Text>
+          )}
+          {!offerLatest && shownLatest && (
+            <Text>
+              {text(
+                "ui.analysis.latest_visible",
+                "Now showing the latest result.",
+              )}
+            </Text>
+          )}
+        </LiveStatus>
+        {/* Outside the status region: the scan state badge already announces pause and resume. */}
+        {total && live && <LiveResultLine live={live} />}
+      </div>
       {version && (offerLatest || waitingToSwitch) && (
         <Action
           ref={button}
@@ -325,6 +319,21 @@ function ResultVersionSummary({
         </Action>
       )}
     </div>
+  );
+}
+
+/** Says how the shown values relate to the scan still in progress. */
+function LiveResultLine({ live }: { live: LiveResult }) {
+  const text = useLocaleText();
+  return (
+    <Text kind="muted">
+      {live === "updating"
+        ? text(
+            "ui.analysis.values_update_live",
+            "Values update as the scan runs",
+          )
+        : text("ui.analysis.result_so_far", "Result so far")}
+    </Text>
   );
 }
 

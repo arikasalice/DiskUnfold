@@ -296,6 +296,16 @@ test("F02 FR3.HD1.gui-web.DD1: a running scan's newer result replaces the summar
   const scan = await startPanel();
   expect(logical().getByText("100 bytes")).toBeDefined();
   expect(screen.getByText("Values update as the scan runs")).toBeDefined();
+  // Neither the changing values nor the line about them is a live region;
+  // the state badge alone announces scan state changes.
+  expect(
+    logical().getByText("100 bytes").closest('[role="status"], [aria-live]'),
+  ).toBeNull();
+  expect(
+    screen
+      .getByText("Values update as the scan runs")
+      .closest('[role="status"], [aria-live]'),
+  ).toBeNull();
   expect(
     screen.queryByRole("button", { name: "Show latest result" }),
   ).toBeNull();
