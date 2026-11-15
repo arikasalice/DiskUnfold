@@ -520,7 +520,8 @@ export function BrowseResults({
                         "ui.browse.type_untraversed_link",
                         "Link (not followed)",
                       )
-                    : text("ui.browse.type_unavailable", "Unavailable")}
+                    : // A kind this screen has no name for; the kind was decided.
+                      text("ui.common.unknown", "Unknown")}
           </Text>,
           <Text>
             <Unbroken>{size(row.logicalSize, display, text)}</Unbroken>
