@@ -51,6 +51,11 @@ pub const MATCH_KEY_REASON: &str = "ref.unavailable";
 pub const INTERPRETATION_TABLE_REVISION: u32 = 1;
 /// Revision of the interim single-class legend rule; FR6 replaces it with the rule table.
 pub const LEGEND_RULE_REVISION: u32 = 1;
+/// Reason carried by the unknown freshness of every model.
+///
+/// Interim, pending standardization review: no freshness ledger exists yet; replace
+/// with the ledger's state when results.freshness_changed is available.
+pub const STALENESS_UNTRACKED_REASON: &str = "viz.staleness.untracked";
 
 /// The catalog policy the product advertises; it lists only what render serves.
 pub fn catalog_policy() -> viz_catalog::Policy {
@@ -66,15 +71,17 @@ pub fn catalog_policy() -> viz_catalog::Policy {
 
 /// The owner-bound facts of a pinned result; the F03 rule is taken from the result.
 ///
-/// The pinned result is the current result of its lineage, so it is `Current`.
+/// Freshness says whether the file system changed after the observation, which the
+/// pinned result cannot tell, and being the current result of its lineage is a
+/// different fact. With no freshness ledger the state stays `Unknown`.
 pub(super) fn source_policy(
     view_policy_revision: u32,
     available_formats: Vec<String>,
 ) -> SourcePolicyFacts {
     SourcePolicyFacts {
         staleness: VizStaleness {
-            state: VizStalenessState::Current,
-            reason_key: None,
+            state: VizStalenessState::Unknown,
+            reason_key: Some(STALENESS_UNTRACKED_REASON.to_owned()),
         },
         interpretation_revision: INTERPRETATION_TABLE_REVISION,
         required_data_revision: required_data::TABLE_REVISION,

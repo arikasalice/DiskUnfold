@@ -4,7 +4,9 @@ use du_core_contracts::{
     Id, ItemRef, PathBytes, PathEncoding, SizeAmount, SizeBasis, SizeEvidence, SizeValue,
     result::{ResultCompleteness, ResultNativePath, ResultScopeRoot, ResultVersionRead},
     size_units::{IEC_UNITS, SI_UNITS},
-    visualization::{request::VizRenderRequest, rows::VizDenominatorBasis},
+    visualization::{
+        model::VizStalenessState, request::VizRenderRequest, rows::VizDenominatorBasis,
+    },
 };
 use serde_json::json;
 use std::sync::Arc;
@@ -222,6 +224,23 @@ fn an_unlisted_color_criterion_is_rejected_as_measure_unknown() -> TestResult {
         accepted
             .classes
             .contains_key(policy::LEGEND_CLASS_UNCLASSIFIED)
+    );
+    Ok(())
+}
+
+#[test]
+fn freshness_is_never_asserted_because_no_ledger_exists() -> TestResult {
+    let source = publish(&[(b'a', Some(10))])?;
+    let facts = producer(&SI_UNITS)
+        .source_policy_facts(&source, &request(policy::COLOR_CRITERION_NONE, "treemap")?)
+        .map_err(|error| format!("{error:?}"))?
+        .ok_or("missing policy facts")?;
+    // Being the current result of its lineage says nothing about the file system.
+    assert_ne!(facts.staleness.state, VizStalenessState::Current);
+    assert_eq!(facts.staleness.state, VizStalenessState::Unknown);
+    assert_eq!(
+        facts.staleness.reason_key.as_deref(),
+        Some(policy::STALENESS_UNTRACKED_REASON)
     );
     Ok(())
 }
