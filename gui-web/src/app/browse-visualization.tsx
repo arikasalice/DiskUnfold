@@ -296,7 +296,15 @@ export function BrowseVisualizationView({
   );
 }
 
-function supportsBrowseVisualization(
+/**
+ * Whether the owner's request fits the pinned Browse selection and the catalog.
+ *
+ * A request that leaves `strategy` out is accepted: the engine then pins the
+ * highest registered revision for the format and reports it in the model, so the
+ * screen never invents a strategy id. A request that names a strategy must name
+ * one the catalog lists.
+ */
+export function supportsBrowseVisualization(
   assembly: BrowseVisualizationAssembly,
   catalog: VizCatalog,
   selection: BrowseVisualizationSelection,
@@ -317,12 +325,12 @@ function supportsBrowseVisualization(
     catalog.measures.includes(request.measure) &&
     catalog.colorCriteria.includes(request.colorCriterion) &&
     catalog.denominatorCriteria.includes(request.denominatorBasis) &&
-    strategy !== undefined &&
-    catalog.strategies.some(
-      (candidate) =>
-        candidate.id === strategy.id &&
-        candidate.revision === strategy.revision,
-    )
+    (strategy === undefined ||
+      catalog.strategies.some(
+        (candidate) =>
+          candidate.id === strategy.id &&
+          candidate.revision === strategy.revision,
+      ))
   );
 }
 
