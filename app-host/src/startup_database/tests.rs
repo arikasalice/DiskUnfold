@@ -60,7 +60,7 @@ fn startup_migrates_preserves_settings_and_keeps_lock_until_last_writer() -> Tes
     )?;
     assert_eq!(counts, (1, 1, 0));
     let backups = dir.path().join("db-backups");
-    assert_eq!(fs::read_dir(&backups)?.count(), 5);
+    assert_eq!(fs::read_dir(&backups)?.count(), 6);
     let original = Connection::open_with_flags(
         backups
             .join("backup-00000000000000000001")
@@ -290,8 +290,8 @@ fn startup_upgrades_v4_to_current_and_preserves_existing_settings() -> TestResul
     let settings = crate::settings::StartupSettings::load(&database, &["en", "ko"])?;
     assert_eq!(settings.scan_limit_source()().entries(), 200_000);
     let reader = AppDb::open_read_only(&path).map_err(open_error)?;
-    assert_eq!(reader.schema_version()?, 6);
-    assert_eq!(fs::read_dir(dir.path().join("db-backups"))?.count(), 2);
+    assert_eq!(reader.schema_version()?, 7);
+    assert_eq!(fs::read_dir(dir.path().join("db-backups"))?.count(), 3);
     assert!(
         reader
             .latest_ruleset()

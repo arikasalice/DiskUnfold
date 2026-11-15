@@ -70,6 +70,7 @@ struct ScanHarness {
     terminal: mpsc::Receiver<JobEvent>,
     versions: du_analysis_index::IngestSink,
     completed_scans: crate::desktop::CompletedScanSource,
+    scan_events: Arc<crate::desktop::scan_completion::ScanEvents>,
     recent_scope_admissions: Option<crate::desktop::RecentScopeAdmissions>,
     priority_opened: Option<mpsc::Receiver<()>>,
     priority_visit_entered: Option<mpsc::Receiver<()>>,
@@ -84,6 +85,7 @@ fn scan_harness() -> Result<ScanHarness, Box<dyn std::error::Error>> {
 
 mod display;
 mod fixture;
+mod observation;
 mod priority;
 mod recent;
 mod settings;

@@ -1,5 +1,6 @@
 use super::*;
 mod invalid;
+mod receipt;
 mod retained;
 mod unix;
 use crate::scope::exclusion::{ComparisonPath, PathComparison};
