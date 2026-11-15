@@ -45,7 +45,7 @@ test("opens the selected group and uses an announcement when no origin was verif
       text={fixtureText}
     />,
   );
-  const open = screen.getByRole("button", { name: "View group members" });
+  const open = screen.getByRole("button", { name: "View combined items" });
   fireEvent.click(open);
   expect(rows).toHaveBeenCalledWith({
     modelRef: frame.model.modelRef,
@@ -53,14 +53,14 @@ test("opens the selected group and uses an announcement when no origin was verif
     start: 0,
     count: 100,
   });
-  await screen.findByRole("button", { name: "Back to visualization" });
-  const back = screen.getByRole("button", { name: "Back to visualization" });
+  await screen.findByRole("button", { name: "Back to chart" });
+  const back = screen.getByRole("button", { name: "Back to chart" });
   back.focus();
   fireEvent.click(back);
   await screen.findByText(
-    "The original group target is no longer available. Return to the visualization.",
+    "The original combined items are no longer available. Return to the chart.",
   );
-  expect(document.activeElement).toBe(screen.getByLabelText("Other members"));
+  expect(document.activeElement).toBe(screen.getByLabelText("Other items"));
   await act(async () =>
     resolve({
       rows: [],
@@ -73,9 +73,7 @@ test("opens the selected group and uses an announcement when no origin was verif
     }),
   );
   await waitFor(() => expect(controller.getSnapshot().status).toBe("closed"));
-  expect(
-    screen.queryByRole("button", { name: "Back to visualization" }),
-  ).toBeNull();
+  expect(screen.queryByRole("button", { name: "Back to chart" })).toBeNull();
 });
 
 test.each([
@@ -156,7 +154,7 @@ test.each([
       />,
     );
     expect(
-      screen.getByRole("table", { name: "Group members" }).textContent,
+      screen.getByRole("table", { name: "Combined items" }).textContent,
     ).toContain(rowName());
 
     fireEvent.click(screen.getByRole("button", { name: "Next range" }));
@@ -165,11 +163,13 @@ test.each([
     if (showsRetry) {
       expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
       expect(
-        screen.getByRole("table", { name: "Group members" }).textContent,
+        screen.getByRole("table", { name: "Combined items" }).textContent,
       ).toContain(rowName());
     } else {
       expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
-      expect(screen.queryByRole("table", { name: "Group members" })).toBeNull();
+      expect(
+        screen.queryByRole("table", { name: "Combined items" }),
+      ).toBeNull();
     }
     expect(controller.getSnapshot().canRetry).toBe(showsRetry);
     expect(calls).toBe(2);
@@ -208,8 +208,8 @@ test("a stale frame never returns focus to its old group origin", async () => {
       />
     </>,
   );
-  fireEvent.click(screen.getByRole("button", { name: "View group members" }));
-  await screen.findByRole("button", { name: "Back to visualization" });
+  fireEvent.click(screen.getByRole("button", { name: "View combined items" }));
+  await screen.findByRole("button", { name: "Back to chart" });
   const external = screen.getByRole("button", { name: "External control" });
   external.focus();
   rerender(
@@ -237,7 +237,7 @@ test("a replaced frame returns a focused group panel to the new view title", asy
   oldTitle.tabIndex = -1;
   const newTitle = document.createElement("section");
   newTitle.tabIndex = -1;
-  newTitle.setAttribute("aria-label", "Storage visualization");
+  newTitle.setAttribute("aria-label", "Storage chart");
   document.body.append(oldTitle, newTitle);
   const returnTargetRef = { current: oldTitle as HTMLElement | null };
   const controller = new GroupController({
@@ -280,7 +280,7 @@ test("a replaced frame returns a focused group panel to the new view title", asy
     />,
   );
   const back = await screen.findByRole("button", {
-    name: "Back to visualization",
+    name: "Back to chart",
   });
   back.focus();
   returnTargetRef.current = newTitle;
@@ -304,11 +304,11 @@ test("a replaced frame returns a focused group panel to the new view title", asy
     />,
   );
   await screen.findByText(
-    "The original group target is no longer available. Return to the visualization.",
+    "The original combined items are no longer available. Return to the chart.",
   );
   expect(
     screen
-      .getAllByLabelText("Storage visualization")
+      .getAllByLabelText("Storage chart")
       .find((element) => element.querySelector('[role="status"]')),
   ).toBeTruthy();
   expect(document.activeElement).toBe(newTitle);
@@ -361,7 +361,7 @@ test("a virtualized away table row keeps the group open and closes to a safe not
     />,
   );
   expect(
-    await screen.findByRole("button", { name: "Back to visualization" }),
+    await screen.findByRole("button", { name: "Back to chart" }),
   ).toBeTruthy();
   origin.remove();
   rerender(
@@ -381,13 +381,13 @@ test("a virtualized away table row keeps the group open and closes to a safe not
       text={fixtureText}
     />,
   );
-  const back = screen.getByRole("button", { name: "Back to visualization" });
+  const back = screen.getByRole("button", { name: "Back to chart" });
   back.focus();
   fireEvent.click(back);
   await screen.findByText(
-    "The original group target is no longer available. Return to the visualization.",
+    "The original combined items are no longer available. Return to the chart.",
   );
-  expect(document.activeElement).toBe(screen.getByLabelText("Other members"));
+  expect(document.activeElement).toBe(screen.getByLabelText("Other items"));
 });
 
 test("a connected but disabled original target falls back to the group notice", async () => {
@@ -433,12 +433,12 @@ test("a connected but disabled original target falls back to the group notice", 
     />,
   );
   const back = await screen.findByRole("button", {
-    name: "Back to visualization",
+    name: "Back to chart",
   });
   back.focus();
   fireEvent.click(back);
   await screen.findByText(
-    "The original group target is no longer available. Return to the visualization.",
+    "The original combined items are no longer available. Return to the chart.",
   );
-  expect(document.activeElement).toBe(screen.getByLabelText("Other members"));
+  expect(document.activeElement).toBe(screen.getByLabelText("Other items"));
 });

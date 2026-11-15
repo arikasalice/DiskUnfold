@@ -6,7 +6,13 @@ import type {
   VizRenderResponse,
   VizRowsRequest,
 } from "../../ipc";
-import { matchingRowsPage, sameItem, VizModelLoader } from "../../viz";
+import {
+  matchingRowsPage,
+  plainRowName,
+  readRowsPages,
+  sameItem,
+  VizModelLoader,
+} from "../../viz";
 import { fallbackReference, fallbackRowsMatch } from "./fallback-table";
 import type {
   ModelResponse,
@@ -86,8 +92,7 @@ function selectionEvidence(
         )
       : [];
   return {
-    name:
-      rows.length === 1 && rows[0]!.displayName ? rows[0]!.displayName : null,
+    name: rows.length === 1 ? plainRowName(rows[0]!) || null : null,
     observedAt: frame.observedAt,
     sizeBasis: frame.model.representation.sizeBasis,
     origin: frame.model.origin,
@@ -429,7 +434,10 @@ export class VisualizationController {
     const seq = ++this.rowsSeq;
     this.update({ pendingRows: request, failedRows: null });
     try {
-      const response = await this.port.rows(request);
+      const response = await readRowsPages(
+        (page) => this.port.rows(page),
+        request,
+      );
       const page = { request, response };
       if (seq !== this.rowsSeq || this.state.table !== frame) return;
       if (!pageFor(frame, page)) {

@@ -2175,7 +2175,7 @@ test("F06: explicit catalog-backed assembly opens from the pinned Browse locatio
 
   mismatchedAggregate = true;
   fireEvent.click(entry);
-  await screen.findByText("Visualization could not be updated.");
+  await screen.findByText("The chart could not be updated.");
   expect(
     screen.queryByRole("group", { name: "Space distribution" }),
   ).toBeNull();
@@ -2194,7 +2194,7 @@ test("F06: explicit catalog-backed assembly opens from the pinned Browse locatio
 
   mismatchedModelBasis = true;
   fireEvent.click(entry);
-  await screen.findByText("Visualization could not be updated.");
+  await screen.findByText("The chart could not be updated.");
   expect(
     document
       .querySelector<HTMLElement>(".du-visualization-viewport")

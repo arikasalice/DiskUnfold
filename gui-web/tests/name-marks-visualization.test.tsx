@@ -70,12 +70,12 @@ test("F02: graph rows mark the edge spaces of item names only", () => {
       onOpenGroup={vi.fn()}
     />,
   );
-  fireEvent.click(screen.getByRole("button", { name: "Rows from this graph" }));
-  const table = screen.getByRole("table", { name: "Loaded graph rows" });
+  fireEvent.click(screen.getByRole("button", { name: "Rows from this chart" }));
+  const table = screen.getByRole("table", { name: "Loaded chart rows" });
   expectMarked(nameCells(table));
   // The members action of the group keeps the label it was given.
   expect(
-    within(table).getByRole("button", { name: "View members of Other" }),
+    within(table).getByRole("button", { name: "View items in Other" }),
   ).toBeDefined();
 });
 
@@ -98,5 +98,7 @@ test("F02: group members mark the edge spaces of item names only", () => {
       onRetry={vi.fn()}
     />,
   );
-  expectMarked(nameCells(screen.getByRole("table", { name: "Group members" })));
+  expectMarked(
+    nameCells(screen.getByRole("table", { name: "Combined items" })),
+  );
 });

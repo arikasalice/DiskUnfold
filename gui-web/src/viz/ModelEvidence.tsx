@@ -1,6 +1,6 @@
 import { DetailDisclosure, Notice, Readout } from "../components";
 import type { ModelResponse } from "./model-adapter";
-import { visualizationReason } from "./messages";
+import { explainReason } from "./reason-text";
 import { rawSourceSize } from "./model-text";
 import type { VizText } from "./model-text";
 
@@ -94,12 +94,10 @@ export function ModelEvidence({
         ]}
       />
       {model.summary.reasonKeys.map((key) => (
-        <Notice key={key}>{text.key(key)}</Notice>
+        <Notice key={key}>{explainReason(key, text)}</Notice>
       ))}
       {model.staleness.reasonKey && (
-        <Notice>
-          {visualizationReason(model.staleness.reasonKey, text.message)}
-        </Notice>
+        <Notice>{explainReason(model.staleness.reasonKey, text)}</Notice>
       )}
     </DetailDisclosure>
   );

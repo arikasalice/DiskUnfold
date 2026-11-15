@@ -779,7 +779,9 @@ ui.visualization.graphFallback
 ui.visualization.graphRowsStatus
 ui.visualization.graphRowsUnavailable
 ui.visualization.graphUpdated
-ui.visualization.group.other
+ui.visualization.group.other count:count
+ui.visualization.group.other_at_least count:count
+ui.visualization.group.other_unknown
 ui.visualization.groupMeasurementContext
 ui.visualization.groupMembers
 ui.visualization.groupMissing
@@ -832,8 +834,6 @@ ui.visualization.observedAtUnknown
 ui.visualization.omittedItems
 ui.visualization.openFailed
 ui.visualization.originScan
-ui.visualization.otherItems
-ui.visualization.otherMembers
 ui.visualization.previousBasis
 ui.visualization.previousMeasure
 ui.visualization.previousName

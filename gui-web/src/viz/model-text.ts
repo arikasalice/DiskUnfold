@@ -1,4 +1,5 @@
 import type { VisualizationMessageKey } from "./messages";
+import { rowName } from "./row-text";
 import { interpolate } from "../i18n/presentation";
 import type {
   SizeValue,
@@ -18,6 +19,11 @@ export type VizText = {
   quantity: (value: VizQuantity) => string;
   size: (value: SizeValue) => string;
   observedAt: (value: string | null) => string;
+  /**
+   * Words a reason key the collector reported (`scan.*`). Optional: without it
+   * such a key gets the general "reason unavailable" phrase.
+   */
+  scanReason?: (key: string) => string;
 };
 
 /** Applies placeholders even for injected text functions that only accept keys. */
@@ -70,7 +76,9 @@ export function shapeLabels(
     (entry) => entry.key === shape.legendClassKey,
   );
   const denominator = row?.denominator ?? model.denominator;
-  const name = row?.displayName ?? text.message("itemNamePending");
+  const name = row
+    ? rowName(row, model, text)
+    : text.message("itemNamePending");
   const value = shape.quantity
     ? text.quantity(shape.quantity)
     : text.size(shape.size);
@@ -86,8 +94,11 @@ export function shapeLabels(
   ].join(" · ");
   return {
     accessibleLabel,
-    displayLabel:
-      model.representation.labelMode === "name_only"
+    // A shape whose row has not arrived is named for assistive technology only;
+    // the drawing carries no label rather than a placeholder.
+    displayLabel: !row
+      ? ""
+      : model.representation.labelMode === "name_only"
         ? name
         : `${name} · ${value}`,
   };

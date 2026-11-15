@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { SIZE_UNIT_RULES } from "../ipc";
+import { SIZE_UNIT_RULES, scanIssueReasonText } from "../ipc";
 import type { SizeValue, VizQuantity } from "../ipc";
 import { formatByteUnit } from "../i18n/bytes";
 import type { SizeDisplay } from "../i18n/bytes";
@@ -19,6 +19,7 @@ const WHOLE_NUMBER = /^[0-9]+$/;
 export function createProductionVizText(
   message: VizText["message"],
   display: SizeDisplay,
+  scanReason?: (key: string) => string,
 ): VizText {
   const unrecognized = () => message("unrecognizedValue");
   const bytes = (value: string, lowerBound: boolean) => {
@@ -61,6 +62,7 @@ export function createProductionVizText(
     quantity,
     size,
     observedAt,
+    ...(scanReason ? { scanReason } : {}),
   };
 }
 
@@ -68,7 +70,10 @@ export function createProductionVizText(
 export function useProductionVizText(display: SizeDisplay): VizText {
   const localeText = useLocaleText();
   return useMemo(
-    () => createProductionVizText(bindVizMessage(localeText), display),
+    () =>
+      createProductionVizText(bindVizMessage(localeText), display, (key) =>
+        scanIssueReasonText(key, localeText),
+      ),
     [localeText, display],
   );
 }
