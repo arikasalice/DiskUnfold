@@ -325,6 +325,33 @@ fn assert_recovered_views(
             .any(|event| event.topic == "results.version_changed"
                 && event.result_version.as_ref() == Some(version))
     );
+    // The sealed scan also settles its freshness ledger, relayed through the same stream
+    // after the version change and keeping the ledger's own sequence.
+    let version_at = committed
+        .iter()
+        .position(|event| event.topic == "results.version_changed")
+        .ok_or("missing version change")?;
+    let settled = committed
+        .iter()
+        .rposition(|event| {
+            event.topic == "results.freshness_changed"
+                && event.result_version.as_ref() == Some(version)
+        })
+        .ok_or("missing freshness change")?;
+    assert!(settled > version_at);
+    assert_eq!(
+        committed[settled].body["summary"]["representative"],
+        "unwatched"
+    );
+    assert_eq!(
+        committed[settled].body["lineageId"],
+        result.lineage_id.as_str()
+    );
+    assert!(
+        committed[settled].body["sequence"]
+            .as_u64()
+            .is_some_and(|seq| seq >= 1)
+    );
     let totals = ipc(
         engine,
         "space.total",

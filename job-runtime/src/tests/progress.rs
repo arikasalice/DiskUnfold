@@ -77,7 +77,9 @@ impl JobEvents for Recorder {
             JobEvent::Finished {
                 summary, sequence, ..
             } => self.push(Seen::Finished(summary.state, sequence)),
-            JobEvent::ItemResult { .. } | JobEvent::ResultVersionChanged(_) => {}
+            JobEvent::ItemResult { .. }
+            | JobEvent::ResultVersionChanged(_)
+            | JobEvent::ResultFreshnessChanged(_) => {}
         }
     }
     fn publish_progress(&self, event: JobProgressEvent) {

@@ -16,6 +16,10 @@ use du_core_contracts::query_region_ipc::*;
 use du_core_contracts::result_events::{
     PublishedCompleteness, ResultVersionChange, ResultVersionChanged,
 };
+use du_core_contracts::result_freshness::{
+    FreshnessChanged, FreshnessCounts, FreshnessRange, FreshnessState, FreshnessSummary,
+    ResultFreshnessChanged,
+};
 use du_core_contracts::sample_ipc::*;
 use du_core_contracts::scan_failures::*;
 use du_core_contracts::scan_priority::{ScanPriorityRequest, ScanPriorityResponse};
@@ -242,6 +246,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         PublishedCompleteness::decl(&config),
         DataSource::decl(&config),
         ResultVersionChanged::decl(&config),
+        FreshnessState::decl(&config),
+        FreshnessCounts::decl(&config),
+        FreshnessSummary::decl(&config),
+        FreshnessRange::decl(&config),
+        FreshnessChanged::decl(&config),
+        ResultFreshnessChanged::decl(&config),
         TargetKind::decl(&config),
         IdentitySource::decl(&config),
         TargetAccess::decl(&config),
