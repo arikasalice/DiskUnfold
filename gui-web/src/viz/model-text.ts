@@ -55,10 +55,8 @@ export function rawSourceSize(
     size.state === "unknown"
       ? format("unavailableValue")
       : size.state === "lower_bound"
-        ? format("lowerBound", {
-            value: format("byteCount", { count: size.bytes }),
-          })
-        : format("byteCount", { count: size.bytes });
+        ? format("rawBytesAtLeast", { count: size.bytes })
+        : format("rawBytes", { count: size.bytes });
   return `${value} · ${evidence}`;
 }
 

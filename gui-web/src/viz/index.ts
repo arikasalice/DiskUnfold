@@ -45,4 +45,9 @@ export type {
   VisualizationPort,
 } from "./visualization-port";
 export { useLocalizedVizText } from "./use-viz-text";
+export {
+  createProductionVizText,
+  useProductionVizText,
+} from "./production-text";
+export { createVizKeyText } from "./key-text";
 export type { VisualizationViewRequest } from "./view-request";
