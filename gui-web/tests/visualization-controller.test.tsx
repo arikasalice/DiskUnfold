@@ -299,7 +299,6 @@ test("a removed graph group row returns to its rows title with an explanation", 
       count: 100,
     }),
   );
-  fireEvent.click(screen.getByRole("button", { name: "Rows from this chart" }));
   fireEvent.click(
     screen.getByRole("button", { name: "View items in Other items" }),
   );

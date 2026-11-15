@@ -513,6 +513,11 @@ label.du-field > span {
   overflow: auto;
 }
 
+/* A flat table is as tall as its rows and only scrolls sideways. */
+.du-table-viewport--flat {
+  max-block-size: none;
+}
+
 .du-data-table {
   border-collapse: separate;
   border-spacing: 0;

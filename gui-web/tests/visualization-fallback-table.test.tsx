@@ -101,7 +101,6 @@ test("an unavailable answer with a fallback shows the notice and the fallback ro
     start: 0,
     count: 100,
   });
-  fireEvent.click(tableButton()!);
   const table = screen.getByRole("table", {
     name: visualizationMessage("en", "loadedGraphRows"),
   });

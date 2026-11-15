@@ -1,27 +1,18 @@
-import { useLayoutEffect, useMemo, useRef } from "react";
-import {
-  Action,
-  DataTable,
-  DetailDisclosure,
-  createChartRenderers,
-  Notice,
-  Progress,
-  Text,
-} from "../../components";
+import { useMemo, useRef } from "react";
+import { createChartRenderers, Notice, Progress } from "../../components";
 import type {
   ItemRef,
-  VizModel,
   VizRenderRequest,
   VizRow,
   VizRowsRequest,
 } from "../../ipc";
 import { adaptVizModel, selectionKey } from "../../viz";
-import { RowName, plainRowName, rowName } from "../../viz";
 import type { ModelResponse, ModelRowsPage, VizSelection } from "../../viz";
-import { ModelEvidence, shapeLabels, vizMessage } from "../../viz";
+import { ModelEvidence, shapeLabels } from "../../viz";
 import type { VizText } from "../../viz";
 import { EmptyResult } from "./EmptyResult";
 import { ModelStatus } from "./ModelStatus";
+import { ModelRows } from "./ModelRows";
 import { useChartOffset } from "./chart-area";
 
 const defaultChartRenderer = createChartRenderers([]);
@@ -85,6 +76,7 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
         page={page}
         model={frame.model}
         text={text}
+        expanded
         returnTargetRef={props.rowsReturnTargetRef}
         {...(props.onOpenGroup ? { onOpenGroup: props.onOpenGroup } : {})}
         {...(props.onPage ? { onPage: props.onPage } : {})}
@@ -201,156 +193,4 @@ function eventShape(
   return matches.length === 1 && shape?.rowRef === rowRef ? shape : null;
 }
 
-export function ModelRows({
-  page,
-  model,
-  text,
-  onPage,
-  onOpenGroup,
-  returnTargetRef,
-  title,
-}: {
-  page: ModelRowsPage;
-  /** Absent for a fallback table, which has no model of its own to look classes up in. */
-  model?: VizModel | undefined;
-  text: VizText;
-  onPage?: (request: VizRowsRequest) => void;
-  onOpenGroup?: (
-    groupRef: string,
-    size: VizRow["size"],
-    origin: HTMLElement,
-    groupLabel: string,
-    returnTarget: HTMLElement | null,
-  ) => void;
-  returnTargetRef?: { current: HTMLElement | null } | undefined;
-  title?: string;
-}) {
-  const rowTitle = title ?? text.message("rowsFromGraph");
-  const rowsRegion = useRef<HTMLElement>(null);
-  const { request, response } = page;
-  const next = request.start + response.rows.length;
-  const hasOpenableGroups =
-    onOpenGroup !== undefined &&
-    response.rows.some((row) => row.groupRef !== null && row.itemRef === null);
-  useLayoutEffect(() => {
-    if (returnTargetRef) returnTargetRef.current = rowsRegion.current;
-  }, [
-    request.modelRef,
-    request.resultRevision,
-    request.start,
-    response.rows,
-    returnTargetRef,
-  ]);
-  return (
-    <div
-      ref={(element) => {
-        rowsRegion.current = element;
-        if (returnTargetRef) returnTargetRef.current = element;
-      }}
-      {...(returnTargetRef
-        ? { role: "group", tabIndex: -1, "aria-label": rowTitle }
-        : {})}
-    >
-      <DetailDisclosure
-        title={rowTitle}
-        key={`${request.modelRef}:${request.resultRevision}`}
-      >
-        <Text>
-          {response.rows.length === 0
-            ? text.message("noRowsInPage")
-            : vizMessage(text, "rowRange", {
-                start: String(request.start + 1),
-                end: String(next),
-                total: String(response.totalCount),
-              })}
-        </Text>
-        <DataTable
-          label={text.message("loadedGraphRows")}
-          density="compact"
-          columns={[
-            text.message("name"),
-            ...(hasOpenableGroups ? [text.message("actions")] : []),
-            text.message("value"),
-            text.message("ratio"),
-            text.message("denominator"),
-            text.message("classification"),
-            text.message("flags"),
-          ]}
-          rows={response.rows}
-          getRowKey={(row) => JSON.stringify([row.itemRef, row.groupRef])}
-          renderCells={(row) => {
-            let trigger: HTMLButtonElement | null = null;
-            // A fallback table has no model, so a group row keeps only a name it carries itself.
-            const name = model
-              ? rowName(row, model, text)
-              : (plainRowName(row) ?? text.message("group.other_unknown"));
-            return [
-              <RowName name={name} item={row.itemRef !== null} />,
-              ...(hasOpenableGroups
-                ? [
-                    row.groupRef !== null &&
-                    row.itemRef === null &&
-                    onOpenGroup ? (
-                      <Action
-                        ref={(element) => {
-                          trigger = element;
-                        }}
-                        onPress={() => {
-                          if (trigger && row.groupRef !== null)
-                            onOpenGroup(
-                              row.groupRef,
-                              row.size,
-                              trigger,
-                              name,
-                              returnTargetRef?.current ?? rowsRegion.current,
-                            );
-                        }}
-                        aria-label={vizMessage(text, "viewMembersOf", {
-                          name,
-                        })}
-                      >
-                        {text.message("viewMembers")}
-                      </Action>
-                    ) : null,
-                  ]
-                : []),
-              row.quantity ? text.quantity(row.quantity) : text.size(row.size),
-              row.ratio
-                ? (text.ratio?.(row.ratio) ?? row.ratio)
-                : text.message("unavailableValue"),
-              `${text.quantity(row.denominator.value)} · ${text.key(row.denominator.basis)}`,
-              text.key(
-                model?.legend.find((entry) => entry.key === row.legendClassKey)
-                  ?.labelKey ?? row.legendClassKey,
-              ),
-              row.displayFlags.map(text.key).join(" · "),
-            ];
-          }}
-        />
-        {onPage && (
-          <div className="du-review-actions">
-            <Action
-              isDisabled={request.start === 0}
-              onPress={() =>
-                onPage({
-                  ...request,
-                  start: Math.max(0, request.start - request.count),
-                })
-              }
-            >
-              {text.message("previousRows")}
-            </Action>
-            <Action
-              isDisabled={
-                next >= response.totalCount || response.rows.length === 0
-              }
-              onPress={() => onPage({ ...request, start: next })}
-            >
-              {text.message("nextRows")}
-            </Action>
-          </div>
-        )}
-      </DetailDisclosure>
-    </div>
-  );
-}
+export { ModelRows };

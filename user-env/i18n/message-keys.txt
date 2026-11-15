@@ -841,6 +841,7 @@ ui.visualization.previousRange
 ui.visualization.previousRows
 ui.visualization.ratio
 ui.visualization.ratioBelowMinimum value:name
+ui.visualization.ratioDenominator value:name
 ui.visualization.ratioPercent value:name
 ui.visualization.ratioUnavailable
 ui.visualization.rawBytes count:count
@@ -857,6 +858,7 @@ ui.visualization.retryingRows
 ui.visualization.reviewNewer
 ui.visualization.revisionStale
 ui.visualization.revisionUnverified
+ui.visualization.rowNotes
 ui.visualization.rowRange start:count end:count total:count
 ui.visualization.rowsFailed
 ui.visualization.rowsFromGraph
