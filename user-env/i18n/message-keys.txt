@@ -857,6 +857,7 @@ ui.visualization.previousRows
 ui.visualization.ratio
 ui.visualization.ratioBelowMinimum value:name
 ui.visualization.ratioDenominator value:name
+ui.visualization.ratioNegativeBelowMinimum lower:name upper:name
 ui.visualization.ratioPercent value:name
 ui.visualization.ratioUnavailable
 ui.visualization.rawBytes count:count

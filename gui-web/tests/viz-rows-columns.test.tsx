@@ -141,6 +141,17 @@ test("the ratio of an exact row is a percentage and a missing ratio is unavailab
   expect(rowRatioText({ ...exact, ratio: null }, text)).toBe("Unavailable");
 });
 
+test("a small negative exact ratio keeps its sign in the row", () => {
+  show((input) => {
+    input.page.response.rows[0]!.ratio = "-0.00004";
+  });
+  expect(
+    within(screen.getByRole("table", { name: "Loaded chart rows" })).getByText(
+      "Greater than -0.1% and less than 0%",
+    ),
+  ).toBeTruthy();
+});
+
 test("one page says how many items there are and several pages keep the range", () => {
   show(
     (input) => {

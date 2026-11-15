@@ -112,7 +112,8 @@ function rowsFor(
           : (names[index - 1] ?? "Item"),
         ...(otherGroup && { labelKey: OTHER_GROUP_LABEL }),
         size: shape.size,
-        ratio: fixture.page.response.rows[index]!.ratio,
+        ratio:
+          index === 1 ? "-0.00004" : fixture.page.response.rows[index]!.ratio,
         denominator: frame.model.denominator,
         legendClassKey: "unclassified",
         displayFlags: [],
@@ -320,6 +321,10 @@ describe.each(["en", "ko"] as const)("the product shell (%s)", (language) => {
     en: ["Final", "Current analysis", "Freshness unknown"],
     ko: ["최종", "현재 분석", "최신 여부 확인 불가"],
   }[language];
+  const smallNegativeRatio = {
+    en: "Greater than -0.1% and less than 0%",
+    ko: "-0.1% 초과 0% 미만",
+  }[language];
 
   test("F06 FR10.HD1.app-host.DD2: after an analysis the folder view opens a treemap from the real provider", async () => {
     const { client, calls } = desktop(language);
@@ -393,6 +398,9 @@ describe.each(["en", "ko"] as const)("the product shell (%s)", (language) => {
     ).toBe(true);
     for (const name of names)
       expect(accessibleLabels.some((label) => label.includes(name))).toBe(true);
+    expect(
+      accessibleLabels.some((label) => label.includes(smallNegativeRatio)),
+    ).toBe(true);
     expect(shown).not.toContain(label("ui.visualization.freshnessUnknown"));
     // The view names itself and the folder it shows.
     expect(shown).toContain(label("ui.visualization.space_distribution"));

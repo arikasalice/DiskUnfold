@@ -874,6 +874,7 @@
     ["ui.visualization.ratio","Ratio",[]],
     ["ui.visualization.ratioBelowMinimum","Less than {value}",[["value","name"]]],
     ["ui.visualization.ratioDenominator","Ratio denominator: {value}",[["value","name"]]],
+    ["ui.visualization.ratioNegativeBelowMinimum","Greater than {lower} and less than {upper}",[["lower","name"],["upper","name"]]],
     ["ui.visualization.ratioPercent","{value}%",[["value","name"]]],
     ["ui.visualization.ratioUnavailable","Ratio unavailable",[]],
     ["ui.visualization.rawBytes","{count} bytes",[["count","count"]]],
