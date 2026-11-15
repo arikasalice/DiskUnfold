@@ -13,7 +13,14 @@ import {
   Unbroken,
 } from "../../components";
 import { SIZE_UNIT_RULES } from "../../ipc";
-import type { AnalysisClient, OsPath, SpaceTotal } from "../../ipc";
+import type {
+  AnalysisClient,
+  OsPath,
+  ScopeExclusion,
+  SpaceTotal,
+} from "../../ipc";
+import type { LocaleText } from "../../i18n/presentation";
+import { ExclusionRules } from "./ExclusionRules";
 import { ScanIssues } from "./ScanIssues";
 import { FileInspection } from "./FileInspection";
 import { SizeDisplayControls } from "./SizeDisplayControls";
@@ -77,6 +84,30 @@ export function RootPaths({ roots }: { roots: readonly OsPath[] }) {
 }
 
 /**
+ * The scanned paths and, below them, the exclusion rules they were scanned
+ * with. A scope known to have no rules shows no exclusions row; an unknown
+ * scope shows the row as unavailable, so its absence never reads as none.
+ */
+function scopeRows(
+  roots: readonly OsPath[],
+  exclusions: readonly ScopeExclusion[] | undefined,
+  text: LocaleText,
+) {
+  const rows = [
+    {
+      label: text("ui.analysis.scanned_paths", "Scanned paths"),
+      value: <RootPaths roots={roots} />,
+    },
+  ];
+  if (exclusions?.length !== 0)
+    rows.push({
+      label: text("ui.analysis.exclusions", "Exclusions"),
+      value: <ExclusionRules rules={exclusions} />,
+    });
+  return rows;
+}
+
+/**
  * Displays the given totals in place. A newer `total` changes the values
  * without remounting the parts around them, so expanded sections, focus and
  * open dialogs stay as they are. Expanded parts follow `total`, and `volume`
@@ -85,6 +116,8 @@ export function RootPaths({ roots }: { roots: readonly OsPath[] }) {
  * `wait` says how `scan`, the scan that still publishes, stands: a logical
  * or allocated size without a value then reads as still to come instead of
  * unavailable, for as long as its results allow (see `useSizeWait`).
+ * `exclusions` are the rules of the scope the result was analyzed with, or
+ * undefined when that scope is not known.
  */
 export function PinnedResult({
   client,
@@ -94,6 +127,7 @@ export function PinnedResult({
   scan,
   wait,
   roots,
+  exclusions,
   preferences,
   displayChoice,
   onDisplayChoice,
@@ -107,6 +141,7 @@ export function PinnedResult({
   scan: string | undefined;
   wait: SizeWait | undefined;
   roots: readonly OsPath[];
+  exclusions: readonly ScopeExclusion[] | undefined;
   preferences: AnalysisDisplayPreferences;
   displayChoice: SizeDisplay | undefined;
   onDisplayChoice: (choice: SizeDisplay) => void;
@@ -146,15 +181,7 @@ export function PinnedResult({
   const leadAwaited = leadWait && displayAwaitedSize(leadWait, text);
   return (
     <div className="du-results">
-      <Readout
-        label={pathsLabel}
-        rows={[
-          {
-            label: pathsLabel,
-            value: <RootPaths roots={roots} />,
-          },
-        ]}
-      />
+      <Readout label={pathsLabel} rows={scopeRows(roots, exclusions, text)} />
       <div className="du-metrics">
         <Metric
           label={basisLabel}

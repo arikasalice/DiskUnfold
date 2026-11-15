@@ -194,6 +194,7 @@ function Summary({
       scan={scan}
       wait={wait}
       roots={[path]}
+      exclusions={[]}
       preferences={preferences}
       displayChoice={undefined}
       onDisplayChoice={() => {}}

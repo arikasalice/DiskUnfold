@@ -198,6 +198,7 @@ function Summary({
       scan={undefined}
       wait={undefined}
       roots={[path]}
+      exclusions={[]}
       preferences={{
         display: { system, unit: "auto" },
         basis: "logical",
