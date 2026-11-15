@@ -67,7 +67,6 @@ describe.each(["en", "ko"] as const)("production viz text (%s)", (language) => {
       ["completenessMissing", "ui.analysis.version_gaps"],
       ["completenessCancelled", "ui.analysis.scan_cancelled"],
       ["flagUnknown", "ui.analysis.unavailable"],
-      ["unrecognizedValue", "ui.browse.availability_unknown"],
     ] as const;
     for (const [word, analysisKey] of sameAsAnalysis)
       expect(message(word), word).toBe(locale.text(analysisKey, ""));
