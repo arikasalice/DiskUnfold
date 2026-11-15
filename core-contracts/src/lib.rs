@@ -19,6 +19,7 @@ pub mod query_page_ipc;
 pub mod query_region_ipc;
 pub mod result;
 pub mod result_events;
+pub mod result_freshness;
 pub mod ruleset;
 pub mod sample_ipc;
 pub mod scan_failures;

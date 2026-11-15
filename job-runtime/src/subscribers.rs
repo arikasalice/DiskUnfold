@@ -42,7 +42,7 @@ impl SubscriberEvent for JobEvent {
             JobEvent::Finished {
                 summary, sequence, ..
             } => Some((&summary.job_id, *sequence)),
-            JobEvent::ResultVersionChanged(_) => None,
+            JobEvent::ResultVersionChanged(_) | JobEvent::ResultFreshnessChanged(_) => None,
         }
     }
     fn current_kind(&self) -> Option<()> {
