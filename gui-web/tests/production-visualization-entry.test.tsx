@@ -37,7 +37,7 @@ const catalog: VizCatalog = {
   requiredDataTableRevision: 1,
   legendRuleRevision: 1,
 };
-const names = ["Videos", OTHER_GROUP_LABEL, "Photos", "Documents"];
+const names = ["Videos", "Photos", "Documents"];
 
 function frameFor(request: VizRenderRequest) {
   const { frame } = modelFixture();
@@ -70,10 +70,25 @@ function frameFor(request: VizRenderRequest) {
       condition: null,
     },
   ];
+  const groupedShape = model.shapes[0]!;
+  if (groupedShape.size.state === "unknown")
+    throw new Error("The grouped fixture needs a known size");
+  model.summary.groupedItems = { state: "exact", value: "1", unit: "items" };
+  model.totals.grouped = {
+    quantity: {
+      state: groupedShape.size.state,
+      value: groupedShape.size.bytes,
+      unit: "bytes",
+    },
+    sourceSize: groupedShape.size,
+  };
   model.shapes.forEach((shape, index) => {
     const otherGroup = index === 0;
     shape.itemRef = otherGroup ? null : ref(index + 1);
     shape.groupRef = otherGroup ? "group-other" : null;
+    shape.matchKey = otherGroup
+      ? { state: "not_applicable" }
+      : { state: "unknown", reasonKey: "fixture.identity_unavailable" };
     shape.rootBranchRef = otherGroup ? null : ref(index + 1);
     shape.legendClassKey = "unclassified";
   });
@@ -84,17 +99,20 @@ function rowsFor(
   request: VizRenderRequest | undefined,
   revision: string,
 ): VizRows {
-  const frame = request ? frameFor(request) : modelFixture().frame;
+  const fixture = modelFixture();
+  const frame = request ? frameFor(request) : fixture.frame;
   return {
     rows: frame.model.shapes.map((shape, index) => {
       const otherGroup = shape.groupRef !== null && shape.itemRef === null;
       return {
         itemRef: shape.itemRef,
         groupRef: shape.groupRef,
-        displayName: otherGroup ? OTHER_GROUP_LABEL : (names[index] ?? "Item"),
+        displayName: otherGroup
+          ? OTHER_GROUP_LABEL
+          : (names[index - 1] ?? "Item"),
         ...(otherGroup && { labelKey: OTHER_GROUP_LABEL }),
         size: shape.size,
-        ratio: "0.25",
+        ratio: fixture.page.response.rows[index]!.ratio,
         denominator: frame.model.denominator,
         legendClassKey: "unclassified",
         displayFlags: [],
@@ -336,9 +354,7 @@ describe.each(["en", "ko"] as const)("the product shell (%s)", (language) => {
         name: label("ui.visualization.rowsFromGraph"),
       }),
     );
-    const groupLabel = language === "en" ? "Other (0)" : "기타 0개";
-    expect(await screen.findAllByText(groupLabel)).not.toHaveLength(0);
-    expect(await screen.findAllByText(OTHER_GROUP_LABEL)).not.toHaveLength(0);
+    const groupLabel = language === "en" ? "Other (1)" : "기타 1개";
 
     const request = calls.find(({ name }) => name === "viz.render");
     expect(request?.body).toMatchObject({
@@ -365,13 +381,18 @@ describe.each(["en", "ko"] as const)("the product shell (%s)", (language) => {
     expect(shell).not.toBeNull();
     const shown = shell?.textContent ?? "";
     for (const word of expected) expect(shown).toContain(word);
+    for (const name of names) expect(shown).toContain(name);
+    expect(shown).toContain(groupLabel);
+    expect(shown).not.toContain(OTHER_GROUP_LABEL);
+    const accessibleLabels = Array.from(
+      shell?.querySelectorAll<HTMLElement>("button[aria-label]") ?? [],
+      (element) => element.getAttribute("aria-label") ?? "",
+    );
     expect(
-      Array.from(
-        shell?.querySelectorAll<HTMLElement>("button[aria-label]") ?? [],
-      ).some((element) =>
-        element.getAttribute("aria-label")?.startsWith(`${groupLabel} ·`),
-      ),
+      accessibleLabels.some((name) => name.startsWith(`${groupLabel} ·`)),
     ).toBe(true);
+    for (const name of names)
+      expect(accessibleLabels.some((label) => label.includes(name))).toBe(true);
     expect(shown).not.toContain(label("ui.visualization.freshnessUnknown"));
     // The view names itself and the folder it shows.
     expect(shown).toContain(label("ui.visualization.space_distribution"));
