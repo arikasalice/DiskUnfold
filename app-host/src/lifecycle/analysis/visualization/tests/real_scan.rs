@@ -163,6 +163,27 @@ fn a_real_scan_feeds_the_treemap_and_its_rows_the_same_totals() -> Result<(), Fa
     Ok(())
 }
 
+/// Characterizes the observed response at baseline `fdae0dc`; it does not define intended behavior.
+#[test]
+fn a_bar_for_a_folder_with_a_subfolder_returns_no_attribution() -> Result<(), Failure> {
+    let assembled = assemble()?;
+    let fixture = tempfile::tempdir()?;
+    fs::create_dir(fixture.path().join("sub"))?;
+    fs::write(fixture.path().join("a.bin"), vec![0_u8; 17])?;
+    fs::write(fixture.path().join("b.bin"), vec![0_u8; 31])?;
+    fs::write(fixture.path().join("sub").join("c.bin"), vec![0_u8; 5])?;
+    let revision = scan(&assembled, fixture.path())?;
+    let view = ok(&assembled.engine, "viz.view.open", json!({}))?["viewChannel"].clone();
+    let answer = render_settled(&assembled, &view, &revision, "bar")?;
+    eprintln!("nested-folder bar response: {answer}");
+    assert_eq!(answer["kind"], "unavailable", "{answer}");
+    assert_eq!(
+        answer["reasonKey"], "viz.unavailable.no_attribution",
+        "{answer}"
+    );
+    Ok(())
+}
+
 /// A flat folder of files with different sizes; the ranked bar needs file children only.
 fn flat_folder() -> Result<tempfile::TempDir, Failure> {
     let folder = tempfile::tempdir()?;
