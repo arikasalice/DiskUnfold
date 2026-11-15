@@ -1,4 +1,4 @@
-use crate::tree::is_structure;
+use crate::item_kind::is_structure;
 use du_core_contracts::result::{ResultCompleteness, ResultItem, ResultItemKind, SpaceAggregate};
 use du_core_contracts::{ByteSize, SizeAmount, SizeBasis, SizeEvidence, SizeValue};
 

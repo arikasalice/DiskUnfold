@@ -1,8 +1,9 @@
 //! Deterministic forest numbering and hierarchy construction.
+use crate::item_kind::is_directory;
 use crate::observation_store::ObservationStore;
 use crate::{BuildError, SpaceObservation, StoredObservation};
 use du_core_contracts::Timestamp;
-use du_core_contracts::result::{ResultItem, ResultItemKind};
+use du_core_contracts::result::ResultItem;
 use du_core_contracts::scan_observation::{NativeModifiedTime, PlaceholderObservation};
 use std::sync::Arc;
 
@@ -86,7 +87,7 @@ fn number_nodes(
         let root_index = u32::try_from(index).map_err(|_| BuildError::CapacityExceeded)?;
         let node = store.root_node(root_index).ok_or(BuildError::InvalidTree)?;
         let root = store.observation(node).ok_or(BuildError::InvalidTree)?;
-        if strict_roots && root.kind != ResultItemKind::Directory {
+        if strict_roots && !is_directory(root.kind) {
             return Err(BuildError::InvalidTree);
         }
         order.push(node);
@@ -188,13 +189,6 @@ impl Columns {
             values.push(observation.observed_at.clone());
         }
     }
-}
-
-pub(crate) fn is_structure(kind: ResultItemKind) -> bool {
-    matches!(
-        kind,
-        ResultItemKind::Directory | ResultItemKind::UnknownStructure
-    )
 }
 
 #[cfg(test)]

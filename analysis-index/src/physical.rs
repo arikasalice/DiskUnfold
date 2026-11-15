@@ -1,4 +1,4 @@
-use crate::tree::is_structure;
+use crate::item_kind::is_structure;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 

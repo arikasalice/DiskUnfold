@@ -17,7 +17,7 @@
 //! that case either way.
 
 use super::*;
-use crate::tree::is_structure;
+use crate::item_kind::is_structure;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::hash::{Hash, Hasher};
