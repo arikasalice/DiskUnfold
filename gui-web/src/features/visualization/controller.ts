@@ -6,7 +6,12 @@ import type {
   VizRenderResponse,
   VizRowsRequest,
 } from "../../ipc";
-import { matchingRowsPage, sameItem, VizModelLoader } from "../../viz";
+import {
+  matchingRowsPage,
+  plainRowName,
+  sameItem,
+  VizModelLoader,
+} from "../../viz";
 import type {
   ModelResponse,
   ModelRowsPage,
@@ -83,8 +88,7 @@ function selectionEvidence(
         )
       : [];
   return {
-    name:
-      rows.length === 1 && rows[0]!.displayName ? rows[0]!.displayName : null,
+    name: rows.length === 1 ? plainRowName(rows[0]!) || null : null,
     observedAt: frame.observedAt,
     sizeBasis: frame.model.representation.sizeBasis,
     origin: frame.model.origin,

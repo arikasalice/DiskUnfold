@@ -40,7 +40,7 @@ test("keeps heading and return action available during the first page load", () 
   );
 
   expect(
-    screen.getByRole("heading", { name: "Other members", level: 2 }),
+    screen.getByRole("heading", { name: "Other items", level: 2 }),
   ).toBeTruthy();
   expect(screen.getByRole("button", { name: "Back to graph" })).toBeTruthy();
   expect(

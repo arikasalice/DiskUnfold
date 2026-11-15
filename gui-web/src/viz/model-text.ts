@@ -1,4 +1,5 @@
 import type { VisualizationMessageKey } from "./messages";
+import { rowName } from "./row-text";
 import { interpolate } from "../i18n/presentation";
 import type {
   SizeValue,
@@ -70,7 +71,9 @@ export function shapeLabels(
     (entry) => entry.key === shape.legendClassKey,
   );
   const denominator = row?.denominator ?? model.denominator;
-  const name = row?.displayName ?? text.message("itemNamePending");
+  const name = row
+    ? rowName(row, model, text)
+    : text.message("itemNamePending");
   const value = shape.quantity
     ? text.quantity(shape.quantity)
     : text.size(shape.size);

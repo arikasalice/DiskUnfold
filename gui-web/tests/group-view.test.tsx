@@ -60,7 +60,7 @@ test("opens the selected group and uses an announcement when no origin was verif
   await screen.findByText(
     "The original group target is no longer available. Return to the visualization.",
   );
-  expect(document.activeElement).toBe(screen.getByLabelText("Other members"));
+  expect(document.activeElement).toBe(screen.getByLabelText("Other items"));
   await act(async () =>
     resolve({
       rows: [],
@@ -387,7 +387,7 @@ test("a virtualized away table row keeps the group open and closes to a safe not
   await screen.findByText(
     "The original group target is no longer available. Return to the visualization.",
   );
-  expect(document.activeElement).toBe(screen.getByLabelText("Other members"));
+  expect(document.activeElement).toBe(screen.getByLabelText("Other items"));
 });
 
 test("a connected but disabled original target falls back to the group notice", async () => {
@@ -440,5 +440,5 @@ test("a connected but disabled original target falls back to the group notice", 
   await screen.findByText(
     "The original group target is no longer available. Return to the visualization.",
   );
-  expect(document.activeElement).toBe(screen.getByLabelText("Other members"));
+  expect(document.activeElement).toBe(screen.getByLabelText("Other items"));
 });
