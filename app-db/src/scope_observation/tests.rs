@@ -11,6 +11,7 @@ use du_core_contracts::{
 };
 use std::{
     path::Path,
+    sync::atomic::{AtomicUsize, Ordering},
     time::{Duration, Instant},
 };
 
@@ -316,22 +317,30 @@ fn rows_cannot_be_updated_and_are_deleted_only_through_the_open_gate() -> TestRe
 
 #[test]
 fn a_busy_database_is_one_bounded_attempt_that_can_be_called_again() -> TestResult {
+    // SQLite calls the handler each time a lock attempt hits a busy database; returning
+    // false makes it give up at once, so the count measures attempts without any waiting.
+    static BUSY_CALLS: AtomicUsize = AtomicUsize::new(0);
+    fn count_and_give_up(_retries: i32) -> bool {
+        BUSY_CALLS.fetch_add(1, Ordering::SeqCst);
+        false
+    }
     let dir = tempfile::tempdir()?;
     let mut db = installed(&dir)?;
     let other =
         AppDb::open_gui_with_history(&dir.path().join("app.db")).map_err(|e| format!("{e:?}"))?;
-    db.connection.busy_timeout(Duration::from_millis(200))?;
+    db.connection.busy_handler(Some(count_and_give_up))?;
     other.connection.execute_batch("BEGIN IMMEDIATE")?;
-    let started = Instant::now();
+    // Baseline: what one plain lock attempt costs in handler calls under this lock.
+    assert!(db.connection.execute_batch("BEGIN IMMEDIATE").is_err());
+    let per_attempt = BUSY_CALLS.swap(0, Ordering::SeqCst);
+    assert!(per_attempt >= 1);
     let row = observation(1, 1, 1_000);
     assert_eq!(
         db.append_scope_observation(&row),
         Err(ScopeObservationWriteError::Busy)
     );
-    // One call waited for the busy timeout once; any retry belongs to the caller.
-    let elapsed = started.elapsed();
-    assert!(elapsed >= Duration::from_millis(150), "{elapsed:?}");
-    assert!(elapsed < Duration::from_millis(1_000), "{elapsed:?}");
+    // One call is exactly one attempt; any retry belongs to the caller.
+    assert_eq!(BUSY_CALLS.load(Ordering::SeqCst), per_attempt);
     other.connection.execute_batch("ROLLBACK")?;
     assert_eq!(count(&other)?, 0);
     assert_eq!(
@@ -339,6 +348,7 @@ fn a_busy_database_is_one_bounded_attempt_that_can_be_called_again() -> TestResu
         Ok(ScopeObservationAppend::Added)
     );
     assert_eq!(count(&other)?, 1);
+    assert_eq!(BUSY_CALLS.load(Ordering::SeqCst), per_attempt);
     Ok(())
 }
 
