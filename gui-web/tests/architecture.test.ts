@@ -85,63 +85,90 @@ test("enforces GUI dependency boundaries", { timeout: 60_000 }, () => {
   });
 });
 
-test(
-  "keeps the visualization model layer between components and features",
-  { timeout: 60_000 },
-  () => {
-    inSandbox(({ write, check }) => {
-      write("src/ipc/index.ts", "export const call = () => undefined;");
-      write("src/components/index.ts", "export const Part = () => null;");
-      write("src/i18n/presentation.ts", "export const text = () => '';");
-      write("src/viz/model.ts", "export const model = 1;");
-      write(
-        "src/viz/index.ts",
-        [
-          'export { model } from "./model";',
-          'export { call } from "../ipc";',
-          'export { Part } from "../components";',
-          'export { text } from "../i18n/presentation";',
-        ].join("\n"),
-      );
-      write("src/features/a/entry.ts", 'export { model } from "../../viz";');
-      write("src/app/entry.ts", 'export { model } from "../viz";');
-      expect(check().status).toBe(0);
+/** A compliant layout of the visualization model layer and its neighbors. */
+function writeCompliantVizLayout(
+  write: (path: string, source: string) => void,
+) {
+  write("src/ipc/index.ts", "export const call = () => undefined;");
+  write("src/components/index.ts", "export const Part = () => null;");
+  write("src/i18n/presentation.ts", "export const text = () => '';");
+  write("src/viz/model.ts", "export const model = 1;");
+  write(
+    "src/viz/index.ts",
+    [
+      'export { model } from "./model";',
+      'export { call } from "../ipc";',
+      'export { Part } from "../components";',
+      'export { text } from "../i18n/presentation";',
+    ].join("\n"),
+  );
+  write("src/features/a/entry.ts", 'export { model } from "../../viz";');
+  write("src/features/a/screen.ts", "export const screen = 1;");
+  write("src/app/entry.ts", 'export { model } from "../viz";');
+  write("src/app/shell.ts", "export const shell = 1;");
+  write("src/state/store.ts", "export const store = 1;");
+}
 
-      write("src/features/a/screen.ts", "export const screen = 1;");
-      write("src/app/shell.ts", "export const shell = 1;");
-      write("src/state/store.ts", "export const store = 1;");
-      write(
-        "src/viz/up.ts",
-        [
-          'export { screen } from "../features/a/screen";',
-          'export { shell } from "../app/shell";',
-          'export { store } from "../state/store";',
-        ].join("\n"),
-      );
-      write("src/components/down.ts", 'export { model } from "../viz";');
-      write("src/state/down.ts", 'export { model } from "../viz";');
-      write("src/ipc/down.ts", 'export { model } from "../viz";');
-      write(
-        "src/features/a/deep.ts",
-        'export { model } from "../../viz/model";',
-      );
+const vizRules = [
+  "viz-layer-direction",
+  "viz-above-lower-layers",
+  "viz-via-index",
+];
+
+/** Violation sets written by the test on top of the compliant layout, one set per rule. */
+const vizViolations: {
+  rule: string;
+  files: Record<string, string>;
+}[] = [
+  {
+    rule: "viz-layer-direction",
+    files: {
+      "src/viz/up-features.ts":
+        'export { screen } from "../features/a/screen";',
+      "src/viz/up-app.ts": 'export { shell } from "../app/shell";',
+      "src/viz/up-state.ts": 'export { store } from "../state/store";',
+    },
+  },
+  {
+    rule: "viz-above-lower-layers",
+    files: {
+      "src/components/down.ts": 'export { model } from "../viz";',
+      "src/state/down.ts": 'export { model } from "../viz";',
+      "src/ipc/down.ts": 'export { model } from "../viz";',
+    },
+  },
+  {
+    rule: "viz-via-index",
+    files: {
+      "src/features/a/deep.ts": 'export { model } from "../../viz/model";',
+    },
+  },
+];
+
+// Each sandbox starts a dependency-cruiser process, so keep the generous timeout.
+test("accepts the compliant visualization layout", { timeout: 60_000 }, () => {
+  inSandbox(({ write, check }) => {
+    writeCompliantVizLayout(write);
+    expect(check().status).toBe(0);
+  });
+});
+
+// One violation set per rule proves that no rule hides another.
+test.each(vizViolations)(
+  "reports only $rule for its own violation set",
+  { timeout: 60_000 },
+  ({ rule, files }) => {
+    inSandbox(({ write, check }) => {
+      writeCompliantVizLayout(write);
+      for (const [path, source] of Object.entries(files)) write(path, source);
       const failed = check();
       expect(failed.status).not.toBe(0);
-      for (const rule of [
-        "viz-layer-direction",
-        "viz-above-lower-layers",
-        "viz-via-index",
-      ]) {
-        expect(failed.output).toContain(rule);
+      expect(failed.output).toContain(rule);
+      for (const other of vizRules.filter((name) => name !== rule)) {
+        expect(failed.output).not.toContain(other);
       }
-      // Every violating file is named, so one rule cannot hide another.
-      for (const file of [
-        "src/viz/up.ts",
-        "src/components/down.ts",
-        "src/state/down.ts",
-        "src/ipc/down.ts",
-        "src/features/a/deep.ts",
-      ]) {
+      // Every violating file is named, one per target or source layer.
+      for (const file of Object.keys(files)) {
         expect(failed.output).toContain(file);
       }
     });
