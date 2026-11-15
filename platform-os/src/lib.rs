@@ -52,6 +52,9 @@ pub mod windows_os_release;
 #[cfg(windows)]
 #[allow(unsafe_code)]
 pub mod windows_package_identity;
+#[cfg(windows)]
+#[allow(unsafe_code)]
+pub mod windows_placeholder_mode;
 #[cfg(target_os = "windows")]
 #[allow(unsafe_code)]
 pub mod windows_snapshot;

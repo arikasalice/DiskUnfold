@@ -353,12 +353,16 @@ fn validate_fallbacks(registry: &Registry) -> Result<(), RegistrationError> {
 }
 
 /// Validates unique presentation keys against every available verified bundle.
+/// A hidden setting has no wording and is skipped.
 fn validate_setting_presentation(
     registry: &Registry,
     descriptors: impl IntoIterator<Item = crate::Descriptor>,
 ) -> Result<(), RegistrationError> {
     let mut keys = std::collections::BTreeSet::new();
-    for descriptor in descriptors {
+    for descriptor in descriptors
+        .into_iter()
+        .filter(|descriptor| !descriptor.presentation.hidden)
+    {
         for key in [
             descriptor.presentation.name_key,
             descriptor.presentation.description_key,
