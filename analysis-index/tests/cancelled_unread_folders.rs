@@ -2,13 +2,13 @@ mod folder_support;
 
 use du_analysis_index::{
     IngestSink, Observation, QueryError, ResultVersion, SampleSessionKey,
-    folder_collection::{UnreadFolderCounts, UnreadReason},
+    folder_collection::UnreadReason,
 };
 use du_core_contracts::{
     ItemRef,
     result::{ResultCompleteness, ResultVersionRead},
 };
-use folder_support::{dirs, err, folder_path, forest, id, item, root};
+use folder_support::{dirs, err, folder_path, forest, gap, id, item, root};
 
 const CANCELLED: UnreadReason = UnreadReason::Cancelled;
 const DISCONNECTED: UnreadReason = UnreadReason::Disconnected;
@@ -52,71 +52,114 @@ fn two_root_build(
 }
 
 #[test]
-fn counts_cover_the_target_itself_and_every_marked_folder_below() -> Result<(), String> {
-    let sink = IngestSink::default();
-    let mut build = two_root_build(&sink, 1)?;
-    mark(&mut build, 0, &["a", "b"], CANCELLED)?;
-    mark(&mut build, 0, &["a", "b", "c"], CANCELLED)?;
-    mark(&mut build, 0, &["e", "f"], CANCELLED)?;
-    mark(&mut build, 0, &["a", "d"], DISCONNECTED)?;
-    mark(&mut build, 1, &[], CANCELLED)?;
-    let version = build
-        .seal(id(2), ResultCompleteness::Cancelled)
-        .map_err(err)?;
-    // The folder itself is counted, nested marks add up, a disconnect is not counted.
-    assert_eq!(below(&version, 0, &["a", "b", "c"])?, Some(1));
-    assert_eq!(below(&version, 0, &["a", "b"])?, Some(2));
-    assert_eq!(below(&version, 0, &["a"])?, Some(2));
-    assert_eq!(below(&version, 0, &["a", "d"])?, Some(0));
-    assert_eq!(below(&version, 0, &["e"])?, Some(1));
-    assert_eq!(below(&version, 0, &["e", "f"])?, Some(1));
-    // A root target counts only its own tree, and a marked root counts itself.
-    assert_eq!(below(&version, 0, &[])?, Some(3));
-    assert_eq!(below(&version, 1, &[])?, Some(1));
+fn a_cancelled_mark_does_not_prove_a_partial_or_cancelled_total() -> Result<(), String> {
+    for (number, completeness) in [
+        (2, ResultCompleteness::Cancelled),
+        (3, ResultCompleteness::Partial),
+    ] {
+        let sink = IngestSink::default();
+        let mut build = two_root_build(&sink, 1)?;
+        mark(&mut build, 0, &["a", "b"], CANCELLED)?;
+        let version = build.seal(id(number), completeness).map_err(err)?;
+
+        assert_eq!(version.unread_folder_counts().cancelled, 1);
+        assert_eq!(version.cancelled_unread_folders_in_scope(), None);
+        assert_eq!(below(&version, 0, &["a", "b"])?, None);
+        assert_eq!(below(&version, 0, &["a"])?, None);
+        assert_eq!(below(&version, 0, &["e"])?, None);
+        assert_eq!(below(&version, 1, &[])?, None);
+    }
     Ok(())
 }
 
 #[test]
-fn the_whole_scope_equals_the_version_wide_cancelled_count() -> Result<(), String> {
-    let sink = IngestSink::default();
-    let mut build = two_root_build(&sink, 1)?;
-    mark(&mut build, 0, &["a", "b"], CANCELLED)?;
-    mark(&mut build, 0, &["a", "b", "c"], CANCELLED)?;
-    mark(&mut build, 0, &["a", "d"], DISCONNECTED)?;
-    mark(&mut build, 1, &[], CANCELLED)?;
-    let version = build
-        .seal(id(2), ResultCompleteness::Cancelled)
-        .map_err(err)?;
-    let counts = version.unread_folder_counts();
-    assert_eq!(
-        counts,
-        UnreadFolderCounts {
-            cancelled: 3,
-            disconnected: 1
+fn a_sealed_complete_or_missing_scan_without_cancelled_marks_confirms_zero() -> Result<(), String> {
+    for (number, expected) in [
+        (2, ResultCompleteness::Complete),
+        (3, ResultCompleteness::Missing),
+    ] {
+        let sink = IngestSink::default();
+        let mut build = two_root_build(&sink, 1)?;
+        if expected == ResultCompleteness::Missing {
+            // Completing with a known gap seals as Missing through the production index path.
+            gap(&mut build, 0, &["a", "d"], "scan.path_denied")?;
         }
-    );
-    assert_eq!(
-        version.cancelled_unread_folders_in_scope(),
-        Some(counts.cancelled)
-    );
-    // The roots partition the scope, so their counts add up to the whole.
-    let roots = below(&version, 0, &[])?.unwrap_or(0) + below(&version, 1, &[])?.unwrap_or(0);
-    assert_eq!(roots, counts.cancelled);
+        let version = build
+            .seal(id(number), ResultCompleteness::Complete)
+            .map_err(err)?;
+
+        assert_eq!(version.completeness(), expected);
+        assert_eq!(version.cancelled_unread_folders_in_scope(), Some(0));
+        assert_eq!(below(&version, 0, &[])?, Some(0));
+        assert_eq!(below(&version, 0, &["a", "d"])?, Some(0));
+        assert_eq!(below(&version, 1, &[])?, Some(0));
+    }
     Ok(())
 }
 
 #[test]
-fn a_sealed_version_without_marks_confirms_zero() -> Result<(), String> {
-    let sink = IngestSink::default();
-    let mut build = two_root_build(&sink, 1)?;
-    mark(&mut build, 0, &["a", "d"], DISCONNECTED)?;
-    let version = build
-        .seal(id(2), ResultCompleteness::Complete)
-        .map_err(err)?;
-    assert_eq!(version.cancelled_unread_folders_in_scope(), Some(0));
-    assert_eq!(below(&version, 0, &[])?, Some(0));
-    assert_eq!(below(&version, 0, &["a", "d"])?, Some(0));
-    assert_eq!(below(&version, 1, &[])?, Some(0));
+fn a_cancelled_mark_contradicts_a_sealed_complete_or_missing_result() -> Result<(), String> {
+    for (number, expected) in [
+        (2, ResultCompleteness::Complete),
+        (3, ResultCompleteness::Missing),
+    ] {
+        let sink = IngestSink::default();
+        let mut build = two_root_build(&sink, 1)?;
+        mark(&mut build, 0, &["a", "b"], CANCELLED)?;
+        if expected == ResultCompleteness::Missing {
+            gap(&mut build, 0, &["a", "d"], "scan.path_denied")?;
+        }
+        let version = build
+            .seal(id(number), ResultCompleteness::Complete)
+            .map_err(err)?;
+
+        assert_eq!(version.completeness(), expected);
+        assert_eq!(version.unread_folder_counts().cancelled, 1);
+        assert_eq!(version.cancelled_unread_folders_in_scope(), None);
+        assert_eq!(below(&version, 0, &[])?, None);
+        assert_eq!(below(&version, 0, &["a", "b"])?, None);
+    }
+    Ok(())
+}
+
+#[test]
+fn a_real_incremental_replacement_cannot_confirm_zero_cancelled_unread() -> Result<(), String> {
+    for (base_version, completeness) in [
+        (20, ResultCompleteness::Complete),
+        (30, ResultCompleteness::Missing),
+    ] {
+        let sink = IngestSink::default();
+        let lineage = sink
+            .bind_current_analysis("cancelled-below-replacement", id(base_version))
+            .map_err(err)?;
+        let mut base = sink
+            .open_forest_in_lineage(id(base_version + 1), vec![root(b"/r")], lineage)
+            .map_err(err)?;
+        base.add_directory_at(0, Vec::new()).map_err(err)?;
+        dirs(&mut base, 0, &[&["a"], &["a", "b"], &["a", "d"]])?;
+        mark(&mut base, 0, &["a", "b"], CANCELLED)?;
+        let base = base
+            .seal(id(base_version + 2), ResultCompleteness::Cancelled)
+            .map_err(err)?;
+
+        let mut replacement = sink.open_replacement(&base).map_err(err)?;
+        replacement.add_directory_at(0, Vec::new()).map_err(err)?;
+        dirs(&mut replacement, 0, &[&["a"], &["a", "b"], &["a", "d"]])?;
+        if completeness == ResultCompleteness::Missing {
+            gap(&mut replacement, 0, &["a", "d"], "scan.path_denied")?;
+        }
+        let version = replacement
+            .seal(id(base_version + 3), completeness)
+            .map_err(err)?;
+
+        assert_eq!(base.origin(), "scan");
+        assert_eq!(version.origin(), "incremental");
+        assert_eq!(version.completeness(), completeness);
+        assert_eq!(version.unread_folder_counts().cancelled, 0);
+        assert_eq!(version.cancelled_unread_folders_in_scope(), None);
+        assert_eq!(below(&version, 0, &[])?, None);
+        assert_eq!(below(&version, 0, &["a", "b"])?, None);
+    }
     Ok(())
 }
 
@@ -140,21 +183,6 @@ fn a_cancelled_or_partial_version_without_cancelled_marks_does_not_confirm_zero(
 }
 
 #[test]
-fn one_cancelled_mark_makes_every_target_count_trustworthy() -> Result<(), String> {
-    let sink = IngestSink::default();
-    let mut build = two_root_build(&sink, 1)?;
-    mark(&mut build, 0, &["a", "b"], CANCELLED)?;
-    let version = build
-        .seal(id(2), ResultCompleteness::Cancelled)
-        .map_err(err)?;
-    assert_eq!(version.cancelled_unread_folders_in_scope(), Some(1));
-    assert_eq!(below(&version, 0, &["a"])?, Some(1));
-    assert_eq!(below(&version, 0, &["e"])?, Some(0));
-    assert_eq!(below(&version, 1, &[])?, Some(0));
-    Ok(())
-}
-
-#[test]
 fn an_unfinished_publication_does_not_provide_the_count() -> Result<(), String> {
     let sink = IngestSink::default();
     let mut build = two_root_build(&sink, 1)?;
@@ -166,8 +194,8 @@ fn an_unfinished_publication_does_not_provide_the_count() -> Result<(), String> 
     let sealed = build
         .seal(id(3), ResultCompleteness::Cancelled)
         .map_err(err)?;
-    assert_eq!(below(&sealed, 0, &["a", "b"])?, Some(1));
-    assert_eq!(sealed.cancelled_unread_folders_in_scope(), Some(1));
+    assert_eq!(below(&sealed, 0, &["a", "b"])?, None);
+    assert_eq!(sealed.cancelled_unread_folders_in_scope(), None);
     // The interim version stays pinned with its own answer.
     assert_eq!(interim.cancelled_unread_folders_in_scope(), None);
     Ok(())
@@ -188,43 +216,6 @@ fn a_sample_does_not_provide_the_count_even_with_marks() -> Result<(), String> {
     assert_eq!(below(&version, 0, &["a"])?, None);
     assert_eq!(below(&version, 0, &[])?, None);
     assert_eq!(version.cancelled_unread_folders_in_scope(), None);
-    Ok(())
-}
-
-#[test]
-fn a_later_record_or_publication_replaces_the_counts() -> Result<(), String> {
-    let sink = IngestSink::default();
-    let lineage = sink
-        .bind_current_analysis("cancelled-below", id(40))
-        .map_err(err)?;
-    let mut base = sink
-        .open_forest_in_lineage(id(41), vec![root(b"/r")], lineage)
-        .map_err(err)?;
-    base.add_directory_at(0, Vec::new()).map_err(err)?;
-    dirs(&mut base, 0, &[&["a"], &["a", "b"], &["c"]])?;
-    mark(&mut base, 0, &["a", "b"], CANCELLED)?;
-    mark(&mut base, 0, &["c"], CANCELLED)?;
-    // The later record for the same folder wins: it is a disconnect now.
-    mark(&mut base, 0, &["c"], DISCONNECTED)?;
-    let old = base
-        .seal(id(42), ResultCompleteness::Cancelled)
-        .map_err(err)?;
-    assert_eq!(below(&old, 0, &[])?, Some(1));
-    assert_eq!(below(&old, 0, &["c"])?, Some(0));
-
-    let mut candidate = sink.open_replacement(&old).map_err(err)?;
-    candidate.add_directory_at(0, Vec::new()).map_err(err)?;
-    dirs(&mut candidate, 0, &[&["a"], &["a", "b"], &["c"]])?;
-    mark(&mut candidate, 0, &["c"], CANCELLED)?;
-    let new = candidate
-        .seal(id(43), ResultCompleteness::Cancelled)
-        .map_err(err)?;
-    // Nothing is inherited from the base, and the base keeps its own counts.
-    assert_eq!(below(&new, 0, &["a", "b"])?, Some(0));
-    assert_eq!(below(&new, 0, &["c"])?, Some(1));
-    assert_eq!(below(&new, 0, &[])?, Some(1));
-    assert_eq!(below(&old, 0, &["a", "b"])?, Some(1));
-    assert_eq!(below(&old, 0, &[])?, Some(1));
     Ok(())
 }
 

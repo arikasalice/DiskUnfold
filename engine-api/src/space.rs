@@ -45,10 +45,11 @@ struct Total {
 /// Serves `space.total` for a scope root, one folder or one admitted query result.
 ///
 /// Every response names the aggregation rule of the pinned version in `sizeRule`. A scope
-/// root and a folder also carry `cancelledUnreadFolders`, the count of cancelled-unread
-/// folders at or below the target in that version (absent when the version does not provide
-/// it). A query result is a set of rows without a single subtree, so it never carries
-/// `cancelledUnreadFolders`.
+/// root and a folder carry `cancelledUnreadFolders` only when the exact count is known: a
+/// sealed real scan with `Complete` or `Missing` status and no cancelled marks reports zero.
+/// A mark alone does not prove total coverage, and a mark in a complete or missing result is
+/// contradictory, so those counts are absent. Replacements do not establish coverage. A query
+/// result is a set of rows without a single subtree, so it never carries `cancelledUnreadFolders`.
 impl UseCase for Total {
     const NAME: &'static str = "space.total";
     const CHANNELS: &'static [Channel] = &[Channel::Gui];

@@ -87,7 +87,7 @@ fn folder(version: &ResultVersion, parts: &[&str]) -> Result<Value, String> {
 }
 
 #[test]
-fn a_sealed_scan_reports_the_rule_and_the_count_of_every_subtree_target() -> TestResult {
+fn a_cancelled_scan_omits_unproven_counts_and_keeps_the_rule() -> TestResult {
     let store = IngestSink::default();
     let version = marked_build(&store)?
         .seal(id(2)?, ResultCompleteness::Cancelled)
@@ -97,43 +97,67 @@ fn a_sealed_scan_reports_the_rule_and_the_count_of_every_subtree_target() -> Tes
 
     let scope = call(&engine, json!({"kind": "scope_root"}), None)?;
     assert_eq!(scope["sizeRule"], rule);
-    assert_eq!(scope["cancelledUnreadFolders"], 1);
-    assert_eq!(
-        scope["cancelledUnreadFolders"],
-        json!(version.unread_folder_counts().cancelled)
-    );
-    for (parts, expected) in [
-        (&[][..], 1),
-        (&["a"], 1),
-        (&["a", "b"], 1),
-        (&["a", "b", "c"], 0),
-        (&["d"], 0),
-    ] {
+    assert_eq!(scope.get("cancelledUnreadFolders"), None);
+    assert_eq!(version.unread_folder_counts().cancelled, 1);
+    for parts in [&[][..], &["a"], &["a", "b"], &["a", "b", "c"], &["d"]] {
         let body = call(
             &engine,
             folder(&version, parts)?,
             Some(version.version_id()),
         )?;
         assert_eq!(body["sizeRule"], rule, "{parts:?}");
-        assert_eq!(body["cancelledUnreadFolders"], expected, "{parts:?}");
+        assert_eq!(body.get("cancelledUnreadFolders"), None, "{parts:?}");
     }
     Ok(())
 }
 
 #[test]
 fn a_sealed_scan_that_was_not_cancelled_confirms_zero() -> TestResult {
-    let store = IngestSink::default();
-    let mut build = store.open(id(1)?).map_err(|e| format!("{e:?}"))?;
-    build
-        .add_directory(path(&[]))
-        .map_err(|e| format!("{e:?}"))?;
-    build
-        .seal(id(2)?, ResultCompleteness::Complete)
-        .map_err(|e| format!("{e:?}"))?;
-    let engine = engine_for(Arc::new(ResultSets::new(store)))?;
-    let body = call(&engine, json!({"kind": "scope_root"}), None)?;
-    assert_eq!(body.get("cancelledUnreadFolders"), Some(&json!(0)));
-    assert!(body.get("sizeRule").is_some());
+    for (version, completeness) in [
+        (2, ResultCompleteness::Complete),
+        (3, ResultCompleteness::Missing),
+    ] {
+        let store = IngestSink::default();
+        let mut build = store.open(id(1)?).map_err(|e| format!("{e:?}"))?;
+        build
+            .add_directory(path(&[]))
+            .map_err(|e| format!("{e:?}"))?;
+        build
+            .seal(id(version)?, completeness)
+            .map_err(|e| format!("{e:?}"))?;
+        let engine = engine_for(Arc::new(ResultSets::new(store)))?;
+        let body = call(&engine, json!({"kind": "scope_root"}), None)?;
+        assert_eq!(
+            body.get("cancelledUnreadFolders"),
+            Some(&json!(0)),
+            "{completeness:?}"
+        );
+        assert!(body.get("sizeRule").is_some());
+    }
+    Ok(())
+}
+
+#[test]
+fn a_cancelled_mark_makes_complete_and_missing_totals_unavailable() -> TestResult {
+    for (number, completeness) in [
+        (2, ResultCompleteness::Complete),
+        (3, ResultCompleteness::Missing),
+    ] {
+        let store = IngestSink::default();
+        let version = marked_build(&store)?
+            .seal(id(number)?, completeness)
+            .map_err(|e| format!("{e:?}"))?;
+        let engine = engine_for(Arc::new(ResultSets::new(store)))?;
+
+        for target in [
+            json!({"kind": "scope_root"}),
+            folder(&version, &["a", "b"])?,
+        ] {
+            let body = call(&engine, target, Some(version.version_id()))?;
+            assert!(body.get("sizeRule").is_some(), "{completeness:?}");
+            assert_eq!(body.get("cancelledUnreadFolders"), None, "{completeness:?}");
+        }
+    }
     Ok(())
 }
 
