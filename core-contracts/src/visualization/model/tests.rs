@@ -70,3 +70,23 @@ fn rejects_missing_nullable_fields_and_bad_summary() -> Result<(), Box<dyn std::
     );
     Ok(())
 }
+
+#[test]
+fn model_response_and_match_keys_accept_unknown_fields() -> Result<(), Box<dyn std::error::Error>> {
+    use crate::visualization::response::VizRenderResponse;
+    let id = "018f0000-0000-7000-8000-000000000001";
+    let mut model = fixture();
+    model["shapes"][0]["matchKey"] = json!({"state":"not_applicable"});
+    let response = json!({"kind":"model","requestSeq":1,"resultRevision":id,"observedAt":null,"completeness":"complete","model":model});
+    let mut extended = response.clone();
+    extended["futureField"] = json!(true);
+    extended["model"]["shapes"][0]["matchKey"]["futureField"] = json!(true);
+    let parsed: VizRenderResponse = serde_json::from_value(extended)?;
+    assert_eq!(serde_json::to_value(parsed)?, response);
+
+    let mut extended = fixture();
+    extended["shapes"][0]["matchKey"]["futureField"] = json!(true);
+    let parsed: VizModel = serde_json::from_value(extended)?;
+    assert_eq!(serde_json::to_value(parsed)?, fixture());
+    Ok(())
+}
