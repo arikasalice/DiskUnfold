@@ -359,14 +359,14 @@ function scanWithSavedScopes(saved: ReturnType<typeof savedScope>[]) {
 
 async function startSaved(number: number, replace: boolean) {
   fireEvent.click(
-    screen.getByRole("button", { name: "Recent analysis ranges" }),
+    screen.getByRole("button", { name: "Recent analysis scopes" }),
   );
   fireEvent.click(
     await screen.findByRole("button", {
-      name: "Review range " + String(number),
+      name: "Review scope " + String(number),
     }),
   );
-  const use = await screen.findByRole("button", { name: "Use this range" });
+  const use = await screen.findByRole("button", { name: "Use this scope" });
   const saved = ruleLines(
     screen.getByRole("region", { name: "Saved conditions" }),
   );
