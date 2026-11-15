@@ -232,7 +232,7 @@ test("an unknown scope keeps the row and reads as unavailable", () => {
 
 test("the label explains the rules on focus, and no other label takes focus", async () => {
   const explanation =
-    "These weren't analyzed. They aren't included in the size or the item count.";
+    "Folders and files matching these weren't analyzed. They aren't included in the size or the item count.";
   showSummary(rules(2));
   const label = rowLabel("Exclusions");
   expect(labelDescription("Exclusions")).toBe(explanation);
@@ -246,21 +246,21 @@ test("the label explains the rules on focus, and no other label takes focus", as
 
 test("the row, its toggle and an unknown scope read in Korean", () => {
   const view = showSummary(rules(5), korean);
-  const value = rowValue("제외 항목");
+  const value = rowValue("제외 규칙");
   const toggle = within(value).getByRole("button", {
-    name: "제외 항목 외 2개",
+    name: "제외 규칙 외 2개",
   });
   expect(toggle.textContent).toBe("외 2개");
   fireEvent.click(toggle);
-  expect(toggle.getAttribute("aria-label")).toBe("제외 항목 접기");
+  expect(toggle.getAttribute("aria-label")).toBe("제외 규칙 접기");
   expect(toggle.textContent).toBe("접기");
-  expect(labelDescription("제외 항목")).toBe(
-    "분석하지 않은 항목입니다. 크기와 항목 수에 들어 있지 않습니다",
+  expect(labelDescription("제외 규칙")).toBe(
+    "이 규칙에 걸린 폴더와 파일은 분석하지 않았습니다. 크기와 항목 수에 들어 있지 않습니다",
   );
   view.unmount();
   showSummary(undefined, korean);
-  expect(rowValue("제외 항목").textContent).toBe("확인 불가");
-  expect(labelDescription("제외 항목")).toBe(
+  expect(rowValue("제외 규칙").textContent).toBe("확인 불가");
+  expect(labelDescription("제외 규칙")).toBe(
     "이 결과를 만든 분석 범위를 지금 확인할 수 없습니다",
   );
 });

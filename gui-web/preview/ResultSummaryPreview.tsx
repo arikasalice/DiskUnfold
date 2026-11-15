@@ -42,7 +42,7 @@ export function ResultSummaryPreview() {
   return (
     <LocaleTextContext.Provider value={koreanText}>
       <SelectField
-        label="제외 규칙"
+        label="제외 규칙 상태"
         value={state}
         options={(Object.keys(exclusionStates) as ExclusionState[]).map(
           (value) => ({ value, label: exclusionStateLabels[value] }),

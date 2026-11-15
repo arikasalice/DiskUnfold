@@ -109,7 +109,7 @@ function scopeRows(
       explanation: exclusions
         ? text(
             "ui.analysis.exclusions_explanation",
-            "These weren't analyzed. They aren't included in the size or the item count.",
+            "Folders and files matching these weren't analyzed. They aren't included in the size or the item count.",
           )
         : text(
             "ui.analysis.exclusions_unknown_explanation",
