@@ -6,7 +6,7 @@ use du_core_contracts::{
 };
 use du_engine_api::{
     api::{Engine, EngineBuilder},
-    desktop::{self, DesktopEvents, DesktopServices, SharedTableLimitSource},
+    desktop::{self, DesktopEvents, DesktopServices, DesktopSources, SharedTableLimitSource},
 };
 
 #[cfg(windows)]
@@ -114,11 +114,14 @@ pub(super) fn register_desktop(
     });
     #[cfg(not(windows))]
     let recent_capacity = None;
-    let services = register_analysis(
+    let size_rules = size_rules::assemble(settings.clone().size_rule_source())
+        .map_err(|error| report_pre_window_error(capabilities, error))?;
+    let services = register_analysis_with_rules(
         builder,
         ports,
         database,
         settings.clone().scan_limit_source(),
+        size_rules,
         recent_capacity,
     )
     .map_err(|error| report_pre_window_error(capabilities, error))?;
@@ -169,7 +172,9 @@ pub(super) fn register_desktop(
 
 /// Registers the engine analysis flow once with this platform's adapters.
 ///
-/// The job history writer shares the GUI database connection.
+/// The job history writer shares the GUI database connection. The size rules are the
+/// default bundle with the default rule ID.
+#[cfg(test)]
 fn register_analysis(
     builder: &mut EngineBuilder,
     ports: ScanPorts,
@@ -177,27 +182,43 @@ fn register_analysis(
     scan_limit: SharedTableLimitSource,
     recent_capacity: Option<std::num::NonZeroUsize>,
 ) -> Result<DesktopServices, Box<dyn std::error::Error>> {
+    let size_rules = size_rules::assemble(du_engine_api::size_rule::default_size_rule_source())?;
+    register_analysis_with_rules(
+        builder,
+        ports,
+        database,
+        scan_limit,
+        size_rules,
+        recent_capacity,
+    )
+}
+
+/// Registers the engine analysis flow once with this platform's adapters and an
+/// already assembled size rule registry.
+///
+/// The job history writer shares the GUI database connection.
+fn register_analysis_with_rules(
+    builder: &mut EngineBuilder,
+    ports: ScanPorts,
+    database: &SharedDatabase,
+    scan_limit: SharedTableLimitSource,
+    size_rules: du_engine_api::size_rule::SizeRules,
+    recent_capacity: Option<std::num::NonZeroUsize>,
+) -> Result<DesktopServices, Box<dyn std::error::Error>> {
     let history = Arc::new(database.history(crate::settings::current_time_ms));
     let random = &du_platform_os::entropy::OsRandom;
-    match recent_capacity {
-        Some(capacity) => desktop::register_services_with_recent_scope_worker(
-            builder,
-            ports.roots,
-            ports.volumes,
-            history,
-            random,
-            scan_limit,
-            capacity,
-        ),
-        None => desktop::register_services(
-            builder,
-            ports.roots,
-            ports.volumes,
-            history,
-            random,
-            scan_limit,
-        ),
-    }
+    desktop::register_services_with_sources(
+        builder,
+        ports.roots,
+        ports.volumes,
+        history,
+        random,
+        DesktopSources {
+            shared_table_limit: scan_limit,
+            size_rules,
+            recent_admission_capacity: recent_capacity,
+        },
+    )
 }
 
 /// Stops startup when a registered analysis flow lacks a required use case.
@@ -267,6 +288,7 @@ mod ipc_calls;
 mod linux_scan_tests;
 #[cfg(all(test, target_os = "macos"))]
 mod macos_scan_tests;
+mod size_rules;
 #[cfg(test)]
 mod tests;
 mod visualization;

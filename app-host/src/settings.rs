@@ -7,7 +7,11 @@ use std::{
 };
 
 use du_core_contracts::size_units::{IEC_UNITS, SI_UNITS};
-use du_engine_api::{desktop::SharedTableLimitSource, viz_production::UnitTableSource};
+use du_engine_api::{
+    desktop::SharedTableLimitSource,
+    size_rule::{SizeRuleSource, default_size_rule_source},
+    viz_production::UnitTableSource,
+};
 use du_user_env::space::restore_shared_table_limit;
 use du_user_env::{
     Registry, locale,
@@ -80,6 +84,15 @@ impl StartupSettings {
                 .and_then(|service| restore_shared_table_limit(service.snapshot()))
                 .unwrap_or_default()
         })
+    }
+
+    /// Supplies the size aggregation rule ID when an analysis is admitted.
+    ///
+    /// The `space.aggregation_rule` setting is not declared yet, so every analysis
+    /// uses the default rule. Reading the stored value here is the only change a
+    /// later declaration needs.
+    pub(super) fn size_rule_source(self: Arc<Self>) -> SizeRuleSource {
+        default_size_rule_source()
     }
 
     /// Supplies the unit table the display setting selects when a request is admitted.

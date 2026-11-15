@@ -3,23 +3,23 @@ use super::*;
 pub(super) fn scan_harness_with_gate(
     finish_gate: Option<Arc<Mutex<mpsc::Receiver<()>>>>,
 ) -> Result<ScanHarness, Box<dyn std::error::Error>> {
-    scan_harness_with_admissions(finish_gate, None, None, false, false)
+    scan_harness_with_admissions(finish_gate, None, None, false, false, None)
 }
 
 pub(super) fn scan_harness_with_priority() -> Result<ScanHarness, Box<dyn std::error::Error>> {
-    scan_harness_with_admissions(None, None, None, false, true)
+    scan_harness_with_admissions(None, None, None, false, true, None)
 }
 
 pub(super) fn scan_harness_with_recent_admissions()
 -> Result<ScanHarness, Box<dyn std::error::Error>> {
-    scan_harness_with_admissions(None, None, None, true, false)
+    scan_harness_with_admissions(None, None, None, true, false, None)
 }
 
 pub(super) fn scan_harness_with_comparison(
     finish_gate: Option<Arc<Mutex<mpsc::Receiver<()>>>>,
     comparison: Option<Arc<dyn crate::scope::exclusion::PathComparison>>,
 ) -> Result<ScanHarness, Box<dyn std::error::Error>> {
-    scan_harness_with_admissions(finish_gate, comparison, None, false, false)
+    scan_harness_with_admissions(finish_gate, comparison, None, false, false, None)
 }
 
 pub(super) fn scan_harness_with_options(
@@ -27,7 +27,14 @@ pub(super) fn scan_harness_with_options(
     comparison: Option<Arc<dyn crate::scope::exclusion::PathComparison>>,
     limit: Option<crate::desktop::SharedTableLimitSource>,
 ) -> Result<ScanHarness, Box<dyn std::error::Error>> {
-    scan_harness_with_admissions(finish_gate, comparison, limit, false, false)
+    scan_harness_with_admissions(finish_gate, comparison, limit, false, false, None)
+}
+
+pub(super) fn scan_harness_with_size_rule_source(
+    source: crate::size_rule::SizeRuleSource,
+) -> Result<ScanHarness, Box<dyn std::error::Error>> {
+    let rules = crate::size_rule::SizeRules::default_bundle(source)?;
+    scan_harness_with_admissions(None, None, None, false, false, Some(rules))
 }
 
 fn scan_harness_with_admissions(
@@ -36,6 +43,7 @@ fn scan_harness_with_admissions(
     limit: Option<crate::desktop::SharedTableLimitSource>,
     recent: bool,
     priority_scenario: bool,
+    size_rules: Option<crate::size_rule::SizeRules>,
 ) -> Result<ScanHarness, Box<dyn std::error::Error>> {
     let ids = Arc::new(Ids {
         next: AtomicUsize::new(1),
@@ -120,6 +128,21 @@ fn scan_harness_with_admissions(
         (None, None)
     };
     let versions = match (limit, recent_publisher) {
+        (None, None) if size_rules.is_some() => crate::scan::register_with_options(
+            &mut builder,
+            workers,
+            roots.clone(),
+            ids,
+            crate::scan::ScanRegistrationOptions {
+                comparison: None,
+                limit: Arc::new(du_core_contracts::settings::SharedTableLimit::default),
+                diagnostics: None,
+                admissions: None,
+                priority_control: false,
+                size_rules,
+            },
+        )?
+        .source(),
         (Some(limit), None) => crate::scan::register_with_limit(
             &mut builder,
             workers,
