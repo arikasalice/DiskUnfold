@@ -91,8 +91,10 @@ impl BuildHandle {
     /// disconnected, without an unread-range row.
     ///
     /// `root` identifies the actual input root and an empty path selects that root.
-    /// The mark is for folders whose entries the collector never read; a folder with a
-    /// recorded gap needs no mark, and a gap's reason wins over the mark. The mark does
+    /// The mark is for folders the collector entered or had to enter but did not read to
+    /// the end: a folder it never opened and a folder whose enumeration it cut short. A
+    /// folder with a recorded gap needs no mark, and a gap's reason wins over the mark. A
+    /// mark is recorded only by a scan that ends cancelled or partial. The mark does
     /// not touch aggregation, so the caller seals the version as `Partial` or
     /// `Cancelled`, which already makes every size a lower bound or unknown. A later
     /// record for the same folder replaces the earlier one in future publications only.
