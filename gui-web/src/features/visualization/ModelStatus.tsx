@@ -23,7 +23,7 @@ const NEUTRAL_NOTE: StatusRow = {
   id: "viz-status-note",
   tone: "neutral",
   shape: "info",
-  messageKey: "ui.visualization.status",
+  messageKey: "viz-status-note",
   colorToken: "--du-muted",
 };
 

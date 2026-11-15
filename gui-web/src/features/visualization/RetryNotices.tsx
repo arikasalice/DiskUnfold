@@ -61,6 +61,8 @@ export function RenderRetry({
   function retry() {
     if (busy.current) return;
     busy.current = true;
+    // A retry the reader asked for says how it ended.
+    applying.current = true;
     setRetained(true);
     void controller.retry().finally(() => setSettled(true));
   }
