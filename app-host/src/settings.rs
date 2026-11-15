@@ -7,11 +7,13 @@ use std::{
 };
 
 use du_core_contracts::size_units::{IEC_UNITS, SI_UNITS};
-use du_engine_api::{desktop::SharedTableLimitSource, viz_production::UnitTableSource};
+use du_engine_api::{
+    desktop::SharedTableLimitSource, size_rule::SizeRules, viz_production::UnitTableSource,
+};
 use du_user_env::space::restore_shared_table_limit;
 use du_user_env::{
     Registry, locale,
-    settings::{RestoreStatus, SettingsService, builtin_descriptors},
+    settings::{RestoreStatus, SettingsService, builtin_descriptors_with_size_rules},
 };
 
 use crate::shared_database::{SharedDatabase, SharedSettings};
@@ -21,12 +23,16 @@ mod display_ipc;
 mod locale_ipc;
 #[cfg(windows)]
 mod restore_ipc;
+mod size_rule;
 pub(super) use locale_ipc::LocaleRuntime;
 
 /// Owns the restored service and immutable startup report for the desktop lifetime.
 pub(super) struct StartupSettings {
     service: Mutex<SettingsService<SharedSettings>>,
     status: RestoreStatus,
+    /// Rule IDs and scan execution share this assembled size rule registry.
+    size_rule_ids: Vec<String>,
+    size_rules: SizeRules,
 }
 
 impl StartupSettings {
@@ -49,11 +55,50 @@ impl StartupSettings {
         timestamp_ms: i64,
         configured_languages: &[&str],
     ) -> Result<Self, io::Error> {
-        let service = restore_settings(database, timestamp_ms, configured_languages)?;
+        let size_rules = size_rule::assemble()?;
+        let size_rule_ids = size_rule::registered_ids(&size_rules);
+        Self::open_with_registration(
+            database,
+            timestamp_ms,
+            configured_languages,
+            size_rule_ids,
+            size_rules,
+        )
+    }
+
+    /// Opens the settings with the size rule IDs the composition root registered.
+    #[cfg(all(test, windows))]
+    pub(super) fn open_with_size_rule_ids(
+        database: &SharedDatabase,
+        timestamp_ms: i64,
+        configured_languages: &[&str],
+        size_rule_ids: Vec<String>,
+    ) -> Result<Self, io::Error> {
+        let size_rules = size_rule::assemble()?;
+        Self::open_with_registration(
+            database,
+            timestamp_ms,
+            configured_languages,
+            size_rule_ids,
+            size_rules,
+        )
+    }
+
+    fn open_with_registration(
+        database: &SharedDatabase,
+        timestamp_ms: i64,
+        configured_languages: &[&str],
+        size_rule_ids: Vec<String>,
+        size_rules: SizeRules,
+    ) -> Result<Self, io::Error> {
+        let service =
+            restore_settings(database, timestamp_ms, configured_languages, &size_rule_ids)?;
         let status = service.restore_status().clone();
         Ok(Self {
             service: Mutex::new(service),
             status,
+            size_rule_ids,
+            size_rules,
         })
     }
 
@@ -105,8 +150,9 @@ fn restore_settings(
     database: &SharedDatabase,
     timestamp_ms: i64,
     configured_languages: &[&str],
+    size_rule_ids: &[String],
 ) -> Result<SettingsService<SharedSettings>, io::Error> {
-    let descriptors = builtin_descriptors(configured_languages)
+    let descriptors = builtin_descriptors_with_size_rules(configured_languages, size_rule_ids)
         .map_err(|error| io::Error::other(error.reason_key()))?;
     let registry = Registry::new(descriptors)
         .map_err(|error| io::Error::other(format!("settings.registration_failed: {error:?}")))?;

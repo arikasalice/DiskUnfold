@@ -55,7 +55,7 @@ export function useRecentScopes(
       if (mounted.current && request.current === sequence)
         setList({
           kind: "error",
-          message: "Recent analysis ranges could not be loaded.",
+          message: "Recent analysis scopes could not be loaded.",
         });
     }
   }, [client]);
@@ -76,7 +76,7 @@ export function useRecentScopes(
               kind: "error",
               row,
               missing: false,
-              message: "The scope changed. Check the saved range again.",
+              message: "The scope changed. Check the saved scope again.",
             });
             return;
           }
@@ -85,7 +85,7 @@ export function useRecentScopes(
               kind: "error",
               row,
               missing: false,
-              message: "The scope review changed. Open the saved range again.",
+              message: "The scope review changed. Open the saved scope again.",
             });
           } else setDetail({ kind: "ready", row, value });
         }
@@ -99,7 +99,7 @@ export function useRecentScopes(
             kind: "error",
             row,
             missing: false,
-            message: "The scope changed. Check the saved range again.",
+            message: "The scope changed. Check the saved scope again.",
           });
         } else if (mounted.current && request.current === sequence)
           setDetail({
@@ -109,8 +109,8 @@ export function useRecentScopes(
               error instanceof AnalysisError && error.code === "NOT_FOUND",
             message:
               error instanceof AnalysisError && error.code === "NOT_FOUND"
-                ? "This saved range is no longer available. Refresh the list and choose another range."
-                : "This saved range could not be opened. It may be damaged or from an unsupported version.",
+                ? "This saved scope is no longer available. Refresh the list and choose another scope."
+                : "This saved scope could not be opened. It may be damaged or from an unsupported version.",
           });
       }
     },
