@@ -571,10 +571,10 @@ function Test-RecentScopeReopen {
   $transform = $window.GetCurrentPattern([Windows.Automation.TransformPattern]::Pattern)
   $transform.Resize(640, 460)
   try {
-    Expand-UI (Wait-Enabled 'Recent analysis ranges' $true)
-    Invoke-UI (Wait-Enabled 'Review range 1' $true)
+    Expand-UI (Wait-Enabled 'Recent analysis scopes' $true)
+    Invoke-UI (Wait-Enabled 'Review scope 1' $true)
     $null = Wait-UI 'stored volume matched' { Find-UI 'Volume matched' $textType }
-    Invoke-UI (Wait-Enabled 'Use this range' $true)
+    Invoke-UI (Wait-Enabled 'Use this scope' $true)
     $null = Wait-UI 'visible focused replacement in small window' {
       $focused = $ae::FocusedElement
       if ($focused.Current.Name -eq 'Replace current scope' -and -not $focused.Current.IsOffscreen) { $focused }
@@ -582,7 +582,7 @@ function Test-RecentScopeReopen {
     Invoke-UI (Wait-Enabled 'Keep editing' $true)
     $use = Wait-UI 'visible focused apply action after keeping edits' {
       $focused = $ae::FocusedElement
-      if ($focused.Current.Name -eq 'Use this range' -and -not $focused.Current.IsOffscreen) { $focused }
+      if ($focused.Current.Name -eq 'Use this scope' -and -not $focused.Current.IsOffscreen) { $focused }
     }
     Invoke-UI $use
     $confirm = Wait-Enabled 'Replace current scope' $true

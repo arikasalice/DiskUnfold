@@ -98,7 +98,7 @@ const issueReasons = new Map<string, Message>([
     "scan.boundary_unverifiable",
     [
       "ui.analysis.issue_reason_range_unconfirmed",
-      "Could not confirm that this item is in the selected range",
+      "Could not confirm that this item is in the selected scope",
     ],
   ],
 ]);
