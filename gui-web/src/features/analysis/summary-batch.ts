@@ -89,7 +89,7 @@ const CLOSED: VolumeView = { state: "closed" };
 const READING: VolumeView = { state: "reading" };
 const MISMATCH: Message = [
   "ui.analysis.volume_response_mismatch",
-  "The response does not match this scan result.",
+  "The response does not match this analysis result.",
 ];
 
 /** A finished volume read; `replaced` when a newer result refused it. */
