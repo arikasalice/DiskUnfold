@@ -28,18 +28,27 @@ fn expand(
 }
 
 #[test]
-fn expanding_one_folder_counts_its_small_children_and_changes_nothing_else() {
+fn expanding_one_folder_groups_its_small_children_and_changes_nothing_else() {
     let version = tree();
     let mut model = project(&version, SizeBasis::Logical, 16).unwrap();
     assert_eq!(model.shapes.len(), 2);
     let before = model.clone();
     expand(&mut model, &version, 0, 16).unwrap();
     finish_child_partitions(&model, &mut || false).unwrap();
-    // Nested groups need their member rows registered, so a nested tail is only
-    // counted for now; the folder keeps its hidden children.
-    assert!(model.descendants.is_empty() && model.detail.groups.is_empty());
+    assert!(model.descendants.is_empty());
+    assert_eq!(model.detail.groups.len(), 1);
+    let group = &model.detail.groups[0];
+    assert_eq!(group.members.len(), 100);
+    assert_eq!(bytes_of(&group.total), 1_000);
     let folder = &model.shapes[0];
-    assert_eq!(model.shape_count(), 2);
+    assert_eq!(group.parent, model.rows[folder.row_index].item);
+    assert_eq!(
+        group.meta.parent_shape_ref.as_ref(),
+        Some(&folder.meta.shape_ref)
+    );
+    assert_eq!(group.meta.visible_depth, 2);
+    assert!(group.meta.shape_ref.starts_with('g'));
+    assert_eq!(model.shape_count(), 3);
     // Root shapes, the other branch, the four totals and the scope are untouched.
     assert_eq!(model.shapes, before.shapes);
     assert_eq!(model.totals, before.totals);
@@ -48,6 +57,23 @@ fn expanding_one_folder_counts_its_small_children_and_changes_nothing_else() {
         before.rows[before.shapes[1].row_index]
     );
     assert_eq!(before.rows[folder.row_index].omitted_children, 100);
+    // The members are in the group, no longer hidden children of the folder.
+    assert_eq!(model.rows[folder.row_index].omitted_children, 0);
+    // The other folder gets its own group in its own box.
+    expand(&mut model, &version, 1, 16).unwrap();
+    assert_eq!(model.detail.groups.len(), 2);
+    assert_eq!(model.totals, before.totals);
+    assert_eq!(model.shapes, before.shapes);
+}
+
+#[test]
+fn without_group_tail_an_expanded_tail_is_only_counted() {
+    let version = tree();
+    let mut model = project_with(&version, SizeBasis::Logical, 16, false).unwrap();
+    expand(&mut model, &version, 0, 16).unwrap();
+    assert!(model.descendants.is_empty() && model.detail.groups.is_empty());
+    assert_eq!(model.shape_count(), 2);
+    let folder = &model.shapes[0];
     assert_eq!(model.rows[folder.row_index].omitted_children, 100);
 }
 

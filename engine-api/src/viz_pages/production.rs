@@ -20,6 +20,7 @@ use std::{
 };
 
 mod groups;
+pub(crate) use groups::nested_group_rows;
 
 /// Classification and flags already evaluated by their owning producer for one item.
 pub struct RowPresentation {

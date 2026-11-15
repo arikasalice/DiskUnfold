@@ -469,6 +469,7 @@ fn valid_different_condition_retires_only_the_replaced_channel() -> Result<(), S
 mod fallback_location;
 mod hierarchy_tests;
 mod histogram_runtime;
+mod nested_group_tests;
 mod replacement;
 mod source_selection;
 mod unattributed_tests;

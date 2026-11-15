@@ -211,6 +211,7 @@ pub(super) fn build(
         totals,
         detail: Detail {
             min_area,
+            group_tail: options.group_tail,
             groups,
             unknown_items,
             omitted_items,
