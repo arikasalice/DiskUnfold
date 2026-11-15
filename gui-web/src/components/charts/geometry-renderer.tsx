@@ -20,6 +20,9 @@ type Shape = {
   geometry: DisplayGeometry;
   accessibleLabel: string;
   displayLabel?: string;
+  /** The drawn name and value apart, so a label that does not fit drops the value whole. */
+  displayName?: string;
+  displayValue?: string;
 };
 type Relation = {
   fromShapeRef: string;
@@ -229,6 +232,31 @@ function moveFocus(event: KeyboardEvent<HTMLDivElement>) {
   buttons[next]?.focus();
 }
 
+/** A text cut to `limit` characters, with an ellipsis when it was cut. */
+function shorten(text: string, limit: number) {
+  const characters = Array.from(text);
+  return characters.length > limit
+    ? characters.slice(0, limit - 1).join("") + "…"
+    : text;
+}
+
+/**
+ * The label that fits `limit` characters. A shape that gives its name and
+ * value apart shows both, or, when they do not fit, the name alone and shortened
+ * if need be; the value is never cut in the middle.
+ */
+function fitLabel(shape: Shape, limit: number) {
+  if (shape.displayName === undefined)
+    return shorten(shape.displayLabel ?? shape.accessibleLabel, limit);
+  const whole =
+    shape.displayValue === undefined
+      ? shape.displayName
+      : `${shape.displayName} · ${shape.displayValue}`;
+  return Array.from(whole).length <= limit
+    ? whole
+    : shorten(shape.displayName, limit);
+}
+
 function rectangleLabel(
   shape: Shape,
   view: Viewport,
@@ -243,12 +271,7 @@ function rectangleLabel(
   const available = Math.min(end.x, width) - left;
   if (available < 70 || Math.min(end.y, height) - top < 36) return null;
   const limit = Math.max(4, Math.floor((available - 24) / 14));
-  const displayLabel = shape.displayLabel ?? shape.accessibleLabel;
-  const label = Array.from(displayLabel);
-  const visible =
-    label.length > limit
-      ? label.slice(0, limit - 1).join("") + "…"
-      : displayLabel;
+  const visible = fitLabel(shape, limit);
   return (
     <text className="du-geometry-label" x={left + 12} y={top + 24}>
       {visible}

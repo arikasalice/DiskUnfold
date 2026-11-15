@@ -108,5 +108,13 @@ export function shapeLabels(
       : model.representation.labelMode === "name_only"
         ? name
         : `${name} · ${value}`,
+    ...(row
+      ? {
+          displayName: name,
+          ...(model.representation.labelMode === "name_only"
+            ? {}
+            : { displayValue: value }),
+        }
+      : {}),
   };
 }

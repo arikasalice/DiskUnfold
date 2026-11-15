@@ -7,6 +7,52 @@ import { GeometryRenderer } from "../src/components/charts/geometry-renderer";
 import type { GeometryRendererProps } from "../src/components/charts/geometry-renderer";
 
 afterEach(cleanup);
+
+function labelled(width: number, name: string, value?: string) {
+  const base = props();
+  const { container } = render(
+    <GeometryRenderer
+      {...base}
+      width={width}
+      height={200}
+      relations={[]}
+      shapes={[
+        {
+          shapeRef: "label-shape",
+          rowRef: "label-row",
+          accessibleLabel: `${name} ${value ?? ""}`,
+          displayLabel: value === undefined ? name : `${name} · ${value}`,
+          displayName: name,
+          ...(value === undefined ? {} : { displayValue: value }),
+          geometry: {
+            primitive: "rect",
+            points: [
+              { x: 0, y: 0 },
+              { x: 500_000, y: 1_000_000 },
+            ],
+          },
+        },
+      ]}
+    />,
+  );
+  return container.querySelector(".du-geometry-label")?.textContent;
+}
+
+test.each([
+  // Half of 600 px leaves room for 19 characters.
+  [600, "Music", "5.7 MiB", "Music · 5.7 MiB"],
+  // Half of 300 px leaves room for 9: the value goes whole, then the name is cut.
+  [300, "Music", "5.7 MiB", "Music"],
+  [300, "LongFolderName", "5.7 MiB", "LongFold…"],
+  [300, "Ab", "1 MiB", "Ab"],
+  // Without a value the name is the label.
+  [300, "Notes", undefined, "Notes"],
+])(
+  "a %s px chart labels %s with %s as %s, never cutting the value",
+  (width, name, value, expected) => {
+    expect(labelled(width, name, value)).toBe(expected);
+  },
+);
 const rows = (
   <table>
     <caption>Same model rows</caption>
