@@ -233,6 +233,21 @@ fn the_group_row_stands_in_for_its_members_and_carries_the_supplied_name() {
 }
 
 #[test]
+fn a_model_without_a_group_carries_no_label_key_on_any_row() {
+    // Only the three large files: no tail, so no group and no presentation is needed.
+    let case = case(&[], ResultCompleteness::Complete);
+    assert!(case.model.detail.groups.is_empty());
+    let pages = pages(&case);
+    let reference = register(&pages, &case, None).unwrap();
+    let rows = table(&pages, &case, &reference);
+    assert_eq!(rows.len(), 3);
+    assert!(
+        rows.iter()
+            .all(|row| row.item_ref.is_some() && row.label_key.is_none())
+    );
+}
+
+#[test]
 fn group_members_are_read_in_order_by_position_with_the_boundary_counts() {
     let case = case(&small_sizes(), ResultCompleteness::Complete);
     let group = &case.model.detail.groups[0];
