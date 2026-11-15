@@ -6,7 +6,8 @@ use std::{
 };
 
 use du_core_contracts::{
-    Id, job::JobHistory, ports::Random, scan_observation::ScopeRootPort, volume::VolumePort,
+    Id, job::JobHistory, ports::Random, scan_observation::ScopeRootPort,
+    scope_observation_log::ScopeObservationLog, volume::VolumePort,
 };
 use du_job_runtime::{FlowLimits, JobClock, JobIdentity, JobRuntime};
 
@@ -96,6 +97,22 @@ pub struct DesktopServices {
     pub recent_scope_admissions: Option<RecentScopeAdmissions>,
     /// F36 group use cases; app-host registers them with its rule store.
     pub groups: crate::group::GroupAssembly,
+    scan_events: Arc<scan_completion::ScanEvents>,
+}
+
+impl DesktopServices {
+    /// Binds the log that stores one observation of the scope totals per finished GUI scan.
+    ///
+    /// Bind it once, before the first scan starts. The log is written after the scan's
+    /// terminal history record, in its own transaction, and a failure there is reported
+    /// as a diagnostic without changing the scan. A desktop without a bound log records
+    /// nothing.
+    pub fn bind_scope_observation_log(
+        &self,
+        log: Arc<dyn ScopeObservationLog>,
+    ) -> Result<(), &'static str> {
+        self.scan_events.bind_observation_log(log)
+    }
 }
 
 struct DesktopRegistrationOptions {
@@ -184,7 +201,11 @@ fn register_services_inner(
         },
     )?);
     let workers = Arc::new(Workers::start(runtime.clone())?);
-    builder.on_shutdown_hooks(shutdown::hooks(runtime.clone(), workers.clone()));
+    builder.on_shutdown_hooks(shutdown::hooks(
+        runtime.clone(),
+        workers.clone(),
+        scan_events.clone(),
+    ));
     scope::register_review(builder, roots.clone(), clock.clone());
     targets::register_with_probe(
         builder,
@@ -246,6 +267,7 @@ fn register_services_inner(
         completed_scans,
         recent_scope_admissions,
         groups,
+        scan_events,
     })
 }
 

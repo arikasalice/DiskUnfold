@@ -19,6 +19,8 @@ pub(super) struct Entry {
     pub(super) result: Arc<ResultVersion>,
     order: u64,
     pub(super) completion: Option<Arc<OnceLock<ScanCompletion>>>,
+    /// True for the final publication of a build; false for interim publications.
+    pub(super) sealed: bool,
 }
 
 #[derive(Default)]
@@ -155,6 +157,7 @@ impl State {
                 result,
                 order,
                 completion,
+                sealed: finish,
             },
         );
         if finish && reserved {
