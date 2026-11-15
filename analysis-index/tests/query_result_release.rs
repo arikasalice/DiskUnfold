@@ -8,6 +8,7 @@ use du_core_contracts::result::{
     ResultCompleteness, ResultNativePath, ResultScopeRoot, ResultVersionRead,
 };
 use du_core_contracts::{Id, PathBytes, PathEncoding};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Weak};
 
 fn id(n: u64) -> Result<Id, String> {
@@ -255,5 +256,135 @@ fn publication_after_dropping_a_registry_still_releases_for_the_others() -> Resu
     build
         .seal(id(4)?, ResultCompleteness::Complete)
         .map_err(fail)?;
+    Ok(())
+}
+
+#[test]
+fn abort_without_a_baseline_releases_the_withdrawn_partial() -> Result<(), String> {
+    let sink = IngestSink::default();
+    let sets = ResultSets::new(sink.clone());
+    let mut build = new_build(&sink, 1)?;
+    file(&mut build, 1)?;
+    let partial = build.publish_partial(id(2)?).map_err(fail)?;
+    register_folder(&sets, &partial, 10)?;
+    let weak_partial = Arc::downgrade(&partial);
+    drop(partial);
+    assert!(sink.pin().map_err(fail)?.is_some());
+
+    build.abort();
+    assert!(!alive(&weak_partial));
+    assert!(is_stale(&sets, 10, &id(2)?)?);
+    assert!(sink.pin().map_err(fail)?.is_none());
+    Ok(())
+}
+
+#[test]
+fn plain_seal_without_partials_leaves_results_registrable() -> Result<(), String> {
+    let sink = IngestSink::default();
+    let sets = ResultSets::new(sink.clone());
+    let mut build = new_build(&sink, 1)?;
+    file(&mut build, 1)?;
+    let sealed = build
+        .seal(id(2)?, ResultCompleteness::Complete)
+        .map_err(fail)?;
+    register_folder(&sets, &sealed, 10)?;
+    let page = sets.open_page(&id(10)?, &id(2)?, 0, None).map_err(fail)?;
+    assert_eq!(page.items().len(), 1);
+    assert!(sink.pin().map_err(fail)?.is_some());
+    Ok(())
+}
+
+#[test]
+fn a_failed_publication_withdraws_the_build_and_releases_the_previous_partial() -> Result<(), String>
+{
+    let sink = IngestSink::default();
+    let sets = ResultSets::new(sink.clone());
+    let mut build = new_build(&sink, 1)?;
+    file(&mut build, 1)?;
+    let first = build.publish_partial(id(2)?).map_err(fail)?;
+    register_folder(&sets, &first, 10)?;
+    let weak_first = Arc::downgrade(&first);
+    drop(first);
+
+    build
+        .add_file(Observation {
+            path: vec![b"missing".to_vec(), b"child".to_vec()],
+            size: None,
+        })
+        .map_err(fail)?;
+    let failed = build.publish_partial(id(3)?);
+    assert!(
+        matches!(failed, Err(du_analysis_index::BuildError::InvalidTree)),
+        "publication must fail with InvalidTree"
+    );
+    assert!(!alive(&weak_first));
+    assert!(is_stale(&sets, 10, &id(2)?)?);
+    assert!(sink.pin().map_err(fail)?.is_none());
+    Ok(())
+}
+
+#[test]
+fn concurrent_publication_and_registration_release_every_replaced_version() -> Result<(), String> {
+    const PARTIALS: u64 = 200;
+    let sink = IngestSink::default();
+    let sets = Arc::new(ResultSets::new(sink.clone()));
+    let done = Arc::new(AtomicBool::new(false));
+
+    let reader = {
+        let (sink, sets, done) = (sink.clone(), Arc::clone(&sets), Arc::clone(&done));
+        std::thread::spawn(move || -> Result<(), String> {
+            let mut query = 10_000_u64;
+            while !done.load(Ordering::Acquire) {
+                let Some(version) = sink.pin().map_err(fail)? else {
+                    continue;
+                };
+                query += 1;
+                match register_folder(&sets, &version, query) {
+                    Ok(_) => {}
+                    Err(error) if error == fail(PageError::StaleVersion) => continue,
+                    Err(error) => return Err(error),
+                }
+                match sets.open_page(&id(query)?, version.version_id(), 0, None) {
+                    Ok(_) | Err(PageError::StaleVersion) => {}
+                    Err(error) => return Err(fail(error)),
+                }
+            }
+            Ok(())
+        })
+    };
+    let writer = {
+        let (sink, done) = (sink.clone(), Arc::clone(&done));
+        std::thread::spawn(
+            move || -> Result<(Vec<Weak<ResultVersion>>, Arc<ResultVersion>), String> {
+                let outcome = (|| {
+                    let mut build = new_build(&sink, 1)?;
+                    let mut weak = Vec::new();
+                    for n in 0..PARTIALS {
+                        file(&mut build, n)?;
+                        let version = build.publish_partial(id(1_000 + n)?).map_err(fail)?;
+                        weak.push(Arc::downgrade(&version));
+                    }
+                    let sealed = build
+                        .seal(id(5_000)?, ResultCompleteness::Complete)
+                        .map_err(fail)?;
+                    Ok((weak, sealed))
+                })();
+                done.store(true, Ordering::Release);
+                outcome
+            },
+        )
+    };
+    let (weak, sealed) = writer
+        .join()
+        .map_err(|_| "writer thread panicked".to_owned())??;
+    reader
+        .join()
+        .map_err(|_| "reader thread panicked".to_owned())??;
+
+    assert!(weak.iter().all(|version| !alive(version)));
+    assert_eq!(
+        sink.pin().map_err(fail)?.map(|v| v.version_id().clone()),
+        Some(sealed.version_id().clone())
+    );
     Ok(())
 }

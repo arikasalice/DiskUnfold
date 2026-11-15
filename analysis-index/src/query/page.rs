@@ -139,7 +139,9 @@ impl ResultSets {
         if !Arc::ptr_eq(&current, &result.version) {
             return Err(PageError::StaleVersion);
         }
-        state.insert(id, result, None);
+        let (_, evicted) = state.insert(id, result, None);
+        drop(state);
+        drop(evicted);
         Ok(())
     }
 
@@ -203,7 +205,9 @@ impl ResultSets {
         if state.used.contains(&id) {
             return Err(PageError::DuplicateId);
         }
-        state.insert(id.clone(), result, Some(key));
+        let (_, evicted) = state.insert(id.clone(), result, Some(key));
+        drop(state);
+        drop(evicted);
         Ok(id)
     }
 
@@ -300,17 +304,22 @@ impl ResultSets {
 
     /// Withdraws all registered results derived from a released source version.
     pub fn release_source(&self, version: &Id) -> Result<(), PageError> {
-        let mut state = self.state.lock().map_err(|_| PageError::Unavailable)?;
-        state.released_sources.insert(version.clone());
-        state.drop_source(version);
+        let dropped = {
+            let mut state = self.state.lock().map_err(|_| PageError::Unavailable)?;
+            state.released_sources.insert(version.clone());
+            state.drop_source(version)
+        };
+        drop(dropped);
         Ok(())
     }
 
     /// Releases one registered result while allowing admitted pages to finish.
     pub fn release(&self, id: &Id) -> Result<(), PageError> {
-        let mut state = self.state.lock().map_err(|_| PageError::Unavailable)?;
-        state.entries.remove(id);
-        state.lru.retain(|candidate| candidate != id);
+        let removed = {
+            let mut state = self.state.lock().map_err(|_| PageError::Unavailable)?;
+            state.remove(id)
+        };
+        drop(removed);
         Ok(())
     }
 }

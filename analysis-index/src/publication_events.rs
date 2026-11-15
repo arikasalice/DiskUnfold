@@ -96,7 +96,8 @@ impl BuildHandle {
     /// `previous` is what the store replaced and `was_published` is whether this build had
     /// published before. A first, non-final publication replaces the baseline, which an
     /// abort restores, so it stays. Sealing is irreversible and retires the baseline too.
-    /// Called while holding the order guard; the store lock must not be held.
+    /// Call after the order guard and the store lock are released, and before the replaced
+    /// entry is dropped.
     pub(super) fn retire_replaced(
         &self,
         previous: Option<&Entry>,

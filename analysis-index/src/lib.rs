@@ -467,7 +467,6 @@ impl BuildHandle {
         }
         let sequence = state.next_event_sequence(self.lineage.as_ref());
         drop(state);
-        self.retire_replaced(previous.as_ref(), was_published, finish);
         self.events.notify(
             self.lineage.as_ref(),
             sequence,
@@ -476,6 +475,9 @@ impl BuildHandle {
             Some(&result),
         );
         drop(order);
+        // Retiring raises no notification and the replaced version is already not current,
+        // so registrations of it fail as stale; it needs no place in the publication order.
+        self.retire_replaced(previous.as_ref(), was_published, finish);
         drop(previous);
         Ok(result)
     }
