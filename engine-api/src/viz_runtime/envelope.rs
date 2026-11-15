@@ -217,6 +217,27 @@ pub(super) fn build_model(
         });
     }
     let scope = original_total(&projection.totals.scope)?;
+    let drawn = derived_total(
+        &projection.totals.scope,
+        projection.totals.drawn_bytes,
+        projection.totals.drawn_lower_bound,
+    )?;
+    let grouped = derived_total(
+        &projection.totals.scope,
+        projection.totals.grouped_bytes,
+        projection.totals.grouped_lower_bound,
+    )?;
+    let filtered_out = derived_total(
+        &projection.totals.scope,
+        projection.totals.filtered_bytes,
+        false,
+    )?;
+    let remainder = super::remainder::compute(
+        &scope,
+        [&drawn, &grouped, &filtered_out],
+        projection.detail.remainder_causes,
+        REMAINDER_UNKNOWN_REASON,
+    )?;
     let model = VizModel {
         model_ref: rendered.model_ref.clone(),
         condition_fingerprint: admitted.key.clone(),
@@ -243,23 +264,11 @@ pub(super) fn build_model(
         },
         totals: VizTotals {
             scope,
-            drawn: derived_total(
-                &projection.totals.scope,
-                projection.totals.drawn_bytes,
-                projection.totals.drawn_lower_bound,
-            )?,
-            grouped: derived_total(
-                &projection.totals.scope,
-                projection.totals.grouped_bytes,
-                projection.totals.grouped_lower_bound,
-            )?,
-            filtered_out: derived_total(
-                &projection.totals.scope,
-                projection.totals.filtered_bytes,
-                false,
-            )?,
-            remainder: None,
-            remainder_reason_keys: None,
+            drawn,
+            grouped,
+            filtered_out,
+            remainder: Some(remainder.total),
+            remainder_reason_keys: remainder.reason_keys,
         },
         shapes,
         relationships: projection.relationships.clone(),
@@ -298,6 +307,9 @@ pub(super) fn build_model(
         .map_err(|_| internal())?;
     Ok(model)
 }
+/// The reason of an unknown remainder: F03's reason for a size that cannot be stated.
+/// A scope or a total that is a lower bound leaves no value to subtract from.
+const REMAINDER_UNKNOWN_REASON: &str = "space.data_insufficient";
 fn bytes(size: &SizeValue) -> Result<u64, EngineError> {
     match &size.amount {
         SizeAmount::Exact { bytes } | SizeAmount::LowerBound { bytes } => Ok(bytes.get()),

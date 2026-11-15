@@ -30,6 +30,9 @@ pub(super) fn prepare(
         return fallback(work, presentations, evidence.len() as u64, cancelled);
     }
     let other = admitted.ranked_other.clone().ok_or_else(unavailable)?;
+    // The members of the group are expanded into bars without a shape below; only the bars
+    // that were left out of the ranking itself are siblings that went missing.
+    let omitted = super::ranked_projection::precision_omitted(&selected.output.bars);
     let (expanded, group_index, group_size, group_geometry, group_count) =
         expand(selected, cancelled)?;
     let layout = super::ranked_projection::to_projection(admitted, expanded, cancelled)?;
@@ -40,6 +43,8 @@ pub(super) fn prepare(
     // The group is a group, not an item shape: its bytes are in the grouped total only,
     // and the drawn total stays the sum of the item bars.
     layout.totals.grouped_bytes = group_bytes;
+    layout.detail.omitted_items = omitted;
+    layout.detail.remainder_causes.too_small = omitted > 0;
     // Reuse the existing envelope from the same source rows, then append the
     // model-local group shape; F03 attribution is rechecked before reservation.
     let preview = render::Rendered {
