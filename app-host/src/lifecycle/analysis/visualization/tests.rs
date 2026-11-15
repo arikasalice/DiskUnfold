@@ -17,6 +17,8 @@ use serde_json::{Value, json};
 mod real_scan;
 #[cfg(any(windows, target_os = "linux"))]
 mod real_scan_allocated;
+#[cfg(windows)]
+mod real_scan_links;
 
 type Failure = Box<dyn std::error::Error>;
 
