@@ -432,6 +432,7 @@ fn nested_unprovable_partition_suppresses_children_without_redistributing() {
     assert!(branch.children.iter().all(|child| !child.area_attributed
         && child.value.amount == size(SizeBasis::Allocated, 10).amount));
 }
+
 // The link count is the observed total, links outside the scope included. A file whose
 // other links lie outside the scope is seen fewer times than its count, and F03 still
 // adds it once to the folder, so it is attributed.
