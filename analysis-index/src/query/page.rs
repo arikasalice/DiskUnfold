@@ -1,20 +1,22 @@
 //! Session-only immutable query results and admitted, pinned page reads.
 mod admission;
 pub use admission::{SearchAdmission, SourceAdmission, ValidatedSearch};
-use std::collections::{HashMap, HashSet, VecDeque};
+mod state;
+use state::State;
+use std::collections::{HashSet, VecDeque};
 use std::ops::Range;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 
 use du_core_contracts::result::{ResultCompleteness, ResultVersionRead};
 use du_core_contracts::{Id, ItemRef, Timestamp};
 
 use super::{Basis, Condition, FolderLocation, QueryResult};
+use crate::publication_events::RetiredVersions;
 use crate::{IngestSink, QueryError};
 
 /// Default page size and maximum accepted page size.
 pub const DEFAULT_PAGE_SIZE: u32 = 200;
 pub const MAX_PAGE_SIZE: u32 = 1_000;
-const MAX_RESULTS: usize = 16;
 
 /// Session result or page admission failure; transport error mapping is a caller concern.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -45,51 +47,6 @@ pub enum RowKind {
     Folder,
     /// A search or a refinement of an earlier result set.
     Search,
-}
-
-#[derive(Default)]
-struct State {
-    entries: HashMap<Id, Entry>,
-    lru: VecDeque<Id>,
-    used: HashSet<Id>,
-    released_sources: HashSet<Id>,
-}
-
-struct Entry {
-    result: Arc<QueryResult>,
-    folder_key: Option<MultiFolderKey>,
-}
-
-impl State {
-    fn folder_id(&self, key: &MultiFolderKey) -> Option<Id> {
-        self.entries
-            .iter()
-            .find_map(|(id, entry)| (entry.folder_key.as_ref() == Some(key)).then(|| id.clone()))
-    }
-
-    fn insert(
-        &mut self,
-        id: Id,
-        result: QueryResult,
-        folder_key: Option<MultiFolderKey>,
-    ) -> Arc<QueryResult> {
-        if self.entries.len() == MAX_RESULTS
-            && let Some(oldest) = self.lru.pop_front()
-        {
-            self.entries.remove(&oldest);
-        }
-        self.used.insert(id.clone());
-        self.lru.push_back(id.clone());
-        let result = Arc::new(result);
-        self.entries.insert(
-            id,
-            Entry {
-                result: Arc::clone(&result),
-                folder_key,
-            },
-        );
-        result
-    }
 }
 
 /// Identity of a normalized immediate-child query, including its view mode.
@@ -134,19 +91,25 @@ impl From<&FolderKey> for MultiFolderKey {
 
 /// In-memory result registry bound to one live source. Dropping it releases its entries.
 ///
-/// A caller releasing a source version must also invoke [`Self::release_source`].
+/// The registry drops the results of a source version as soon as a publication replaces that
+/// version for good, so superseded versions are not kept alive. Callers may still release a
+/// version earlier with [`Self::release_source`]. Readers that already hold a result finish
+/// reading it.
 pub struct ResultSets {
     source: IngestSink,
-    state: Mutex<State>,
+    state: Arc<Mutex<State>>,
     identity: Arc<()>,
 }
 
 impl ResultSets {
     /// Creates an empty session registry for the supplied source publication point.
     pub fn new(source: IngestSink) -> Self {
+        let state = Arc::new(Mutex::new(State::default()));
+        let subscriber: Weak<dyn RetiredVersions> = Arc::<Mutex<State>>::downgrade(&state);
+        source.events.subscribe(subscriber);
         Self {
             source,
-            state: Mutex::new(State::default()),
+            state,
             identity: Arc::new(()),
         }
     }
@@ -339,11 +302,7 @@ impl ResultSets {
     pub fn release_source(&self, version: &Id) -> Result<(), PageError> {
         let mut state = self.state.lock().map_err(|_| PageError::Unavailable)?;
         state.released_sources.insert(version.clone());
-        state
-            .entries
-            .retain(|_, entry| entry.result.version.version_id() != version);
-        let valid: HashSet<Id> = state.entries.keys().cloned().collect();
-        state.lru.retain(|id| valid.contains(id));
+        state.drop_source(version);
         Ok(())
     }
 

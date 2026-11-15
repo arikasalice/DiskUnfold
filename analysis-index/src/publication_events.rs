@@ -1,5 +1,6 @@
 //! Orders result version notifications independently of read admission.
-use crate::ResultVersion;
+use crate::version_store::Entry;
+use crate::{BuildHandle, ResultVersion};
 use du_core_contracts::{
     Id, SizeAmount,
     result::ResultCompleteness,
@@ -8,12 +9,22 @@ use du_core_contracts::{
         ResultVersionPublisher,
     },
 };
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
+
+/// A holder of results derived from published versions that must drop them on retirement.
+///
+/// A version is retired once it can never become current again. Implementations run with
+/// no result-store lock held and may take their own locks.
+pub(crate) trait RetiredVersions: Send + Sync {
+    /// Drops everything derived from `version`; readers that already pinned it keep reading.
+    fn retire(&self, version: &Id);
+}
 
 #[derive(Default)]
 pub(super) struct PublicationEvents {
     pub order: Mutex<()>,
     publisher: Option<Arc<dyn ResultVersionPublisher>>,
+    subscribers: Mutex<Vec<Weak<dyn RetiredVersions>>>,
 }
 
 impl PublicationEvents {
@@ -21,6 +32,30 @@ impl PublicationEvents {
         Self {
             order: Mutex::new(()),
             publisher: Some(publisher),
+            subscribers: Mutex::default(),
+        }
+    }
+
+    /// Registers a holder for retirement calls; it is forgotten once its last `Arc` is gone.
+    pub(super) fn subscribe(&self, subscriber: Weak<dyn RetiredVersions>) {
+        if let Ok(mut subscribers) = self.subscribers.lock() {
+            subscribers.retain(|existing| existing.strong_count() != 0);
+            subscribers.push(subscriber);
+        }
+    }
+
+    /// Tells every live subscriber that `version` can never become current again.
+    pub(super) fn retire(&self, version: &Id) {
+        // Call outside the list lock so a subscriber may take its own locks freely.
+        let live: Vec<Arc<dyn RetiredVersions>> = match self.subscribers.lock() {
+            Ok(mut subscribers) => {
+                subscribers.retain(|existing| existing.strong_count() != 0);
+                subscribers.iter().filter_map(Weak::upgrade).collect()
+            }
+            Err(_) => return,
+        };
+        for subscriber in live {
+            subscriber.retire(version);
         }
     }
 
@@ -52,6 +87,32 @@ impl PublicationEvents {
                 observed_at: current.and_then(|result| result.observed_at.clone()),
             },
         });
+    }
+}
+
+impl BuildHandle {
+    /// Retires the versions a publication made unreachable, after the store lock is released.
+    ///
+    /// `previous` is what the store replaced and `was_published` is whether this build had
+    /// published before. A first, non-final publication replaces the baseline, which an
+    /// abort restores, so it stays. Sealing is irreversible and retires the baseline too.
+    /// Called while holding the order guard; the store lock must not be held.
+    pub(super) fn retire_replaced(
+        &self,
+        previous: Option<&Entry>,
+        was_published: bool,
+        finish: bool,
+    ) {
+        let previous = previous.map(|entry| &entry.result.version_id);
+        if let Some(id) = previous.filter(|_| was_published || finish) {
+            self.events.retire(id);
+        }
+        if finish && let Some(base) = &self.baseline {
+            let id = &base.result.version_id;
+            if previous != Some(id) {
+                self.events.retire(id);
+            }
+        }
     }
 }
 

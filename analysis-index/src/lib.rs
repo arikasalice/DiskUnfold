@@ -461,12 +461,13 @@ impl BuildHandle {
                 return Err(error);
             }
         };
-        self.published = true;
+        let was_published = std::mem::replace(&mut self.published, true);
         if finish {
             self.finished = true;
         }
         let sequence = state.next_event_sequence(self.lineage.as_ref());
         drop(state);
+        self.retire_replaced(previous.as_ref(), was_published, finish);
         self.events.notify(
             self.lineage.as_ref(),
             sequence,

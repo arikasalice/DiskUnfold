@@ -24,6 +24,10 @@ impl BuildHandle {
                 .as_ref()
                 .and_then(|_| state.next_event_sequence(self.lineage.as_ref()));
             drop(state);
+            if let Some(entry) = &withdrawn {
+                // The withdrawn partial can never be current again; the baseline stays.
+                self.events.retire(&entry.result.version_id);
+            }
             self.events.notify(
                 self.lineage.as_ref(),
                 sequence,
