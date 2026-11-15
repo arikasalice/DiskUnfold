@@ -7,10 +7,7 @@ import type {
   VizGroupRowsRequest,
   VizRenderRequest,
 } from "../src/ipc";
-import {
-  createVisualizationPort,
-  observeVisualizationJob,
-} from "../src/features/visualization/visualization-port";
+import { createVisualizationPort, observeVisualizationJob } from "../src/viz";
 import { VisualizationController } from "../src/features/visualization/controller";
 import { modelFixture } from "../preview/model-fixture";
 

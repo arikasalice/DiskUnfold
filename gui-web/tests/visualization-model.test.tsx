@@ -7,12 +7,9 @@ import {
 } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { fixtureText, modelFixture } from "../preview/model-fixture";
-import {
-  adaptVizModel,
-  selectionKey,
-} from "../src/features/visualization/model-adapter";
-import type { ModelRowsPage } from "../src/features/visualization/model-adapter";
-import { shapeLabels } from "../src/features/visualization/model-text";
+import { adaptVizModel, selectionKey } from "../src/viz";
+import type { ModelRowsPage } from "../src/viz";
+import { shapeLabels } from "../src/viz";
 import {
   ModelRows,
   VisualizationModelPresenter,

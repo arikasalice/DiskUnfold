@@ -52,13 +52,13 @@ export { ReviewField, ReviewCheck } from "./review-field";
 export { Tabs } from "./tabs";
 export type { TabsItem } from "./tabs";
 
-export { createChartRenderers } from "./chart-renderers";
-export { GeometryRenderer } from "./geometry-renderer";
+export { createChartRenderers } from "./charts/chart-renderers";
+export { GeometryRenderer } from "./charts/geometry-renderer";
 export type {
   DisplayGeometry,
   DisplayPoint,
   GeometryRendererProps,
-} from "./geometry-renderer";
+} from "./charts/geometry-renderer";
 
 export { ActionFeedback } from "./action-feedback";
 export { RowAction } from "./row-action";

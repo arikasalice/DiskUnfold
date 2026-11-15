@@ -2,9 +2,9 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import axe from "axe-core";
 import { useState } from "react";
 import { afterEach, expect, test, vi } from "vitest";
-import { createChartRenderers } from "../src/components/chart-renderers";
-import { GeometryRenderer } from "../src/components/geometry-renderer";
-import type { GeometryRendererProps } from "../src/components/geometry-renderer";
+import { createChartRenderers } from "../src/components/charts/chart-renderers";
+import { GeometryRenderer } from "../src/components/charts/geometry-renderer";
+import type { GeometryRendererProps } from "../src/components/charts/geometry-renderer";
 
 afterEach(cleanup);
 const rows = (
