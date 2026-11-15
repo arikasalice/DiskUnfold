@@ -18,6 +18,7 @@ use crate::viz_production::policy;
 enum Entry {
     Dir(&'static str),
     File(&'static str, u64),
+    ByteFile(u8, u64),
     Link(&'static str),
     Unread(&'static str),
 }
@@ -54,6 +55,16 @@ fn publish(
             Entry::Dir(at) => scan.add_directory(path(at)),
             Entry::File(at, bytes) => scan.add_file(Observation {
                 path: path(at),
+                size: Some(SizeValue {
+                    basis: SizeBasis::Logical,
+                    evidence: SizeEvidence::Measured,
+                    amount: SizeAmount::Exact {
+                        bytes: (*bytes).into(),
+                    },
+                }),
+            }),
+            Entry::ByteFile(name, bytes) => scan.add_file(Observation {
+                path: vec![vec![*name]],
                 size: Some(SizeValue {
                     basis: SizeBasis::Logical,
                     evidence: SizeEvidence::Measured,
@@ -254,5 +265,37 @@ fn a_scope_with_an_unread_entry_is_a_model_with_the_gap_reason_and_the_state_of_
     let (state, drawn) = total(model, "drawn")?;
     assert_eq!(state == "lower_bound", any_lower);
     assert_eq!(drawn, 150);
+    Ok(())
+}
+
+#[test]
+fn a_lower_bound_other_group_shape_carries_both_size_and_group_flags() -> TestResult {
+    let harness = Harness::product(4)?;
+    let mut entries = vec![
+        Entry::File("a", 1_200),
+        Entry::File("b", 1_200),
+        Entry::Dir("zz"),
+        Entry::File("zz/fz", 40),
+        Entry::Link("zz/lz"),
+    ];
+    entries.extend(
+        (b'c'..=b'z')
+            .chain(b'A'..=b'P')
+            .map(|name| Entry::ByteFile(name, 40)),
+    );
+    publish(&harness.sink, &entries, ResultCompleteness::Complete, &[])?;
+    let view = harness.open_view()?;
+    let answer = render_in(&harness, &view, 1, 0)?;
+    let model = &answer["model"];
+    let group = model["shapes"]
+        .as_array()
+        .and_then(|shapes| shapes.iter().find(|shape| !shape["groupRef"].is_null()))
+        .ok_or("no Other shape")?;
+
+    assert_eq!(group["size"]["state"], "lower_bound");
+    assert_eq!(
+        group["displayFlags"],
+        json!([policy::FLAG_LOWER_BOUND, policy::FLAG_OTHER_GROUP])
+    );
     Ok(())
 }
