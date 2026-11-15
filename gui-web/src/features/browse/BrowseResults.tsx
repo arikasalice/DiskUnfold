@@ -320,18 +320,14 @@ export function BrowseResults({
   }
   /**
    * The entry of a newly opened folder: its first row, or "Up" when it is
-   * empty. The first row is focused once drawn while focus still rests on the
-   * control that opened the folder, or was lost with it.
+   * empty. The first row is focused once the grid has drawn and positioned
+   * it, while focus still rests on the control that opened the folder or was
+   * lost with it. A row that is in the document but not yet positioned does
+   * not take focus, so the grid's own request decides when it can.
    */
   function focusEntry(origin: Element) {
     if (pages.count === 0) {
       focusEmpty();
-      return;
-    }
-    const row =
-      scrollRoot.current?.querySelector<HTMLElement>('[data-row="0"]');
-    if (row) {
-      row.focus({ preventScroll: true });
       return;
     }
     requestRow(0, () => {

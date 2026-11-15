@@ -157,6 +157,63 @@ test("Retry succeeding and going away focuses the first row of the list", async 
   expect(document.activeElement).toBe(gridRow("First"));
 });
 
+test("Up pressed by keyboard focuses the first row of the parent folder", async () => {
+  const open = vi
+    .fn()
+    .mockResolvedValueOnce(folder(1, [1, 2], [row(3, "Child")]))
+    .mockImplementationOnce((request) =>
+      Promise.resolve(
+        folder(request.requestSeq, [1, 2, 3].slice(0, 2), [
+          row(2, "Parent A"),
+          row(5, "Parent B"),
+        ]),
+      ),
+    );
+  render(<BrowsePanel port={{ open, page: vi.fn() }} resultVersion={id} />);
+  await screen.findByText("Child");
+  const up = screen.getByRole("button", { name: "Up" });
+  await act(async () => pressKey(up));
+  await screen.findByText("Parent A");
+  expect(document.activeElement).toBe(gridRow("Parent A"));
+});
+
+test("Up that becomes disabled at the top still hands focus to the first row", async () => {
+  // In Chromium a disabled control is never the active element: disabling
+  // the focused "Up" moves focus to the body during the commit. jsdom keeps
+  // it focused, so the test reads the active element the way Chromium does.
+  let owner: object | null = document;
+  while (owner && !Object.getOwnPropertyDescriptor(owner, "activeElement"))
+    owner = Object.getPrototypeOf(owner) as object | null;
+  const read = Object.getOwnPropertyDescriptor(owner!, "activeElement")!.get!;
+  const active = vi
+    .spyOn(document, "activeElement", "get")
+    .mockImplementation(function (this: Document) {
+      const element = read.call(this) as Element | null;
+      return element instanceof HTMLButtonElement && element.disabled
+        ? this.body
+        : element;
+    });
+  try {
+    const open = vi
+      .fn()
+      .mockResolvedValueOnce(folder(1, [1, 2], [row(3, "Child")]))
+      .mockImplementationOnce((request) =>
+        Promise.resolve(
+          folder(request.requestSeq, [1], [row(2, "Top A"), row(5, "Top B")]),
+        ),
+      );
+    render(<BrowsePanel port={{ open, page: vi.fn() }} resultVersion={id} />);
+    await screen.findByText("Child");
+    const up = screen.getByRole("button", { name: "Up" }) as HTMLButtonElement;
+    await act(async () => pressKey(up));
+    await screen.findByText("Top A");
+    expect(up.disabled).toBe(true);
+    expect(document.activeElement).toBe(gridRow("Top A"));
+  } finally {
+    active.mockRestore();
+  }
+});
+
 test("an empty folder focuses Up", async () => {
   const open = vi
     .fn()

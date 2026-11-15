@@ -226,10 +226,14 @@ export function BrowsePanel({
   useLayoutEffect(() => {
     const focus = focusAfterUpdate.current;
     focusAfterUpdate.current = undefined;
+    // Focus was lost with the control that opened the folder when that control
+    // went away, or became disabled ("Up" at the top), which the browser
+    // answers by moving focus to the body.
     if (
       focus &&
       (document.activeElement === focus ||
-        (!focus.isConnected && document.activeElement === document.body))
+        (document.activeElement === document.body &&
+          (!focus.isConnected || focus.matches(":disabled"))))
     )
       listEntry.current?.(focus);
   }, [view]);
