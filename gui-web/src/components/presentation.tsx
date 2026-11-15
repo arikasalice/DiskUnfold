@@ -309,6 +309,8 @@ export function Readout({
     value: ReactNode;
     identifier?: boolean;
     emphasized?: boolean;
+    /** Marks text that stands in for a value still to come; it takes the secondary text colour. */
+    pending?: boolean;
     notes?: readonly string[];
   }[];
 }) {
@@ -322,6 +324,7 @@ export function Readout({
             [
               row.identifier && "du-readout__identifier",
               row.emphasized && "du-readout__emphasized",
+              row.pending && "du-readout__pending",
             ]
               .filter(Boolean)
               .join(" ") || undefined
@@ -342,22 +345,29 @@ export function Readout({
   );
 }
 
-/** Groups a displayed value and its supporting evidence under one label. */
+/**
+ * Groups a displayed value and its supporting evidence under one label.
+ * `pending` marks text that stands in for a value still to come: it keeps
+ * the place and size of a value and takes the secondary text colour.
+ */
 export function Metric({
   label,
   children,
   detail,
   prominent = false,
+  pending = false,
 }: {
   label: string;
   children: ReactNode;
   detail?: string | undefined;
   prominent?: boolean;
+  pending?: boolean;
 }) {
   return (
     <div
       className="du-metric"
       data-prominent={prominent || undefined}
+      data-pending={pending || undefined}
       role="group"
       aria-label={label}
     >

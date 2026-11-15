@@ -277,6 +277,7 @@ ui.analysis.empty_result
 ui.analysis.result_version status:name
 ui.analysis.latest_visible
 ui.analysis.reading_latest
+ui.analysis.reading_final
 ui.analysis.show_latest
 ui.analysis.newer_available
 ui.analysis.still_interim
@@ -296,6 +297,10 @@ ui.analysis.display_options
 ui.analysis.folder_details
 ui.analysis.view_folder_details
 ui.analysis.size_lower_bound value:name
+ui.analysis.size_calculating
+ui.analysis.size_calculating_detail
+ui.analysis.size_no_value_yet
+ui.analysis.size_no_value_yet_detail
 ui.analysis.scope_overlap
 ui.analysis.scope_alias
 ui.analysis.scope_descendant
@@ -322,6 +327,8 @@ ui.analysis.included_mounts
 ui.analysis.exclusions
 ui.analysis.size_basis
 ui.analysis.unit_system
+ui.analysis.unit_system_binary
+ui.analysis.unit_system_decimal
 ui.analysis.size_unit
 ui.analysis.copying_path
 ui.analysis.copied_paths count:count
@@ -344,6 +351,7 @@ ui.analysis.space_data_insufficient
 ui.analysis.space_aggregation_overflow
 ui.analysis.space_allocated_not_collected
 ui.analysis.space_observation_detail_insufficient
+ui.analysis.space_hardlink_identity_unknown
 ui.analysis.space_measurement_limit_reported
 ui.analysis.space_not_applicable
 ui.analysis.space_observed_logical
@@ -422,6 +430,7 @@ ui.common.close_details
 ui.common.name_leading_spaces count:count
 ui.common.name_trailing_spaces count:count
 ui.common.details
+ui.common.unknown
 ui.common.dismiss
 ui.common.scroll_area name:name
 ui.unit.byte
@@ -429,6 +438,7 @@ ui.inspection.unavailable_in_scan
 ui.inspection.name
 ui.inspection.path
 ui.inspection.kind
+ui.inspection.kind_untraversed_link
 ui.inspection.modified
 ui.inspection.created
 ui.inspection.published
@@ -442,6 +452,9 @@ ui.inspection.scan
 ui.inspection.file
 ui.inspection.folder
 ui.inspection.reasons
+ui.inspection.reason_line field:name reason:name
+ui.inspection.reason_not_in_result
+ui.inspection.reason_unknown key:name
 ui.inspection.more
 ui.inspection.observed_hint
 ui.inspection.loading kind:name
@@ -986,6 +999,7 @@ ui.analysis.volume_not_attempted
 ui.analysis.volume_time_unavailable
 ui.analysis.volume_time time:timestamp
 ui.analysis.volume_unavailable_at time:name
+ui.analysis.volume_report_unavailable
 ui.analysis.volume_capacity_label point:name
 ui.analysis.volume_used_label point:name
 ui.analysis.volume_free_label point:name
