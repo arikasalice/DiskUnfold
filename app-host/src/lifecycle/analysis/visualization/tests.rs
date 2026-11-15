@@ -229,3 +229,6 @@ fn the_visualization_message_keys_are_translated_in_both_languages() -> Result<(
     }
     Ok(())
 }
+
+#[cfg(any(windows, target_os = "linux"))]
+mod real_scan_allocated;
