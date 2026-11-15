@@ -264,7 +264,7 @@ impl BuildHandle {
             StoredObservation {
                 size: observation.size,
                 kind: ResultItemKind::File,
-                physical: Some(Box::new(space)),
+                physical: Some(std::sync::Arc::new(space)),
                 modified_at: None,
                 native_modified_at: None,
                 enumerated_inode: None,
