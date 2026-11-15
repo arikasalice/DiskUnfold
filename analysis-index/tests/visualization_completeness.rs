@@ -1,5 +1,5 @@
-//! Visualization models keep the version-wide completeness while folder values stay exact
-//! for a fully read folder (F03 FR5.HD1; the screen compares model and frame completeness).
+//! Visualization models keep version-wide completeness and bounded folder values when coverage
+//! is unproven (F03 FR5.HD1; the screen compares model and frame completeness).
 use du_analysis_index::{
     BuildHandle, IngestSink, Observation, ResultVersion,
     visualization::{
@@ -33,6 +33,11 @@ fn exact(bytes: u64) -> SizeAmount {
         bytes: ByteSize::from(bytes),
     }
 }
+fn lower(bytes: u64) -> SizeAmount {
+    SizeAmount::LowerBound {
+        bytes: ByteSize::from(bytes),
+    }
+}
 fn add(build: &mut BuildHandle, parts: &[&str], bytes: u64) -> Test {
     build
         .add_file(Observation {
@@ -46,7 +51,7 @@ fn add(build: &mut BuildHandle, parts: &[&str], bytes: u64) -> Test {
         .map_err(e)
 }
 
-/// A version sealed Missing: folder "a" has an unreadable child, folder "s" was fully read.
+/// A Missing version with a gap and sibling observations without separate coverage evidence.
 fn missing_version() -> Result<Arc<ResultVersion>, String> {
     let root = ResultScopeRoot {
         path: ResultNativePath {
@@ -93,7 +98,7 @@ fn bounds() -> Rect {
 }
 
 #[test]
-fn treemap_projection_of_a_fully_read_folder_keeps_the_version_completeness() -> Test {
+fn treemap_missing_lower_bound_requires_attribution_proof() -> Test {
     let version = missing_version()?;
     let parent = reference(&version, "s")?;
     let descriptor = typed_layout::treemap_descriptor();
@@ -102,7 +107,7 @@ fn treemap_projection_of_a_fully_read_folder_keeps_the_version_completeness() ->
         .register(descriptor.clone(), Box::new(typed_layout::Treemap))
         .map_err(e)?;
     let dispatcher = Dispatcher::new(builder.build(&[descriptor]).map_err(e)?);
-    let model = projection::project(
+    let result = projection::project(
         Source {
             version: &version,
             parent: &parent,
@@ -116,16 +121,17 @@ fn treemap_projection_of_a_fully_read_folder_keeps_the_version_completeness() ->
             max_shapes: 10,
         },
         &mut || false,
-    )
-    .map_err(e)?;
+    );
     assert_eq!(version.completeness(), ResultCompleteness::Missing);
-    assert_eq!(model.completeness, version.completeness());
-    assert_eq!(model.totals.scope.amount, exact(25));
+    assert_eq!(
+        result.err(),
+        Some(projection::Error::UnavailableAttribution)
+    );
     Ok(())
 }
 
 #[test]
-fn ranked_bar_of_a_fully_read_folder_keeps_the_version_completeness() -> Test {
+fn ranked_bar_keeps_version_completeness_and_lower_bound_values() -> Test {
     let version = missing_version()?;
     let scope = reference(&version, "s")?;
     let ranking = bar_projection::project_children(
@@ -143,18 +149,18 @@ fn ranked_bar_of_a_fully_read_folder_keeps_the_version_completeness() -> Test {
     .map_err(e)?;
     assert_eq!(ranking.completeness, version.completeness());
     assert_eq!(ranking.completeness, ResultCompleteness::Missing);
-    assert_eq!(ranking.scope_total.size.amount, exact(25));
+    assert_eq!(ranking.scope_total.size.amount, lower(25));
     Ok(())
 }
 
 #[test]
-fn hierarchy_of_a_fully_read_folder_keeps_the_version_completeness() -> Test {
+fn hierarchy_keeps_version_completeness_and_lower_bound_values() -> Test {
     let version = missing_version()?;
     let folder = reference(&version, "s")?;
     let model = hierarchy(&version, &folder, &folder, SizeBasis::Logical, 1, &[]).map_err(e)?;
     assert_eq!(model.completeness, version.completeness());
     assert_eq!(model.completeness, ResultCompleteness::Missing);
     let root = model.rows.first().ok_or("root row")?;
-    assert_eq!(root.value.amount, exact(25));
+    assert_eq!(root.value.amount, lower(25));
     Ok(())
 }

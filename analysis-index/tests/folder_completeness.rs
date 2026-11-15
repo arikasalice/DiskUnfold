@@ -1,4 +1,4 @@
-//! A result sealed Missing keeps the folders it fully read exact (F03 FR5.HD1).
+//! A Missing result does not promote folders without coverage evidence (F03 FR5.HD1).
 use du_analysis_index::query::{self, page::ResultSets};
 use du_analysis_index::{
     BuildHandle, FileIdentity, IngestSink, Observation, ResultVersion, SharingEvidence,
@@ -130,9 +130,9 @@ fn assert_lowered(a: &SpaceAggregate, ranges: u64) {
 }
 
 #[test]
-fn unreadable_folder_lowers_only_itself_and_its_ancestors() -> Test {
+fn missing_version_with_a_known_gap_keeps_unproven_folders_missing() -> Test {
     let mut b = builder(&[root(b"/r", 1)])?;
-    for parts in [&["a"][..], &["a", "bad"], &["s"]] {
+    for parts in [&["a"][..], &["a", "bad"], &["s"], &["empty"]] {
         dir(&mut b, 0, parts)?;
     }
     file(&mut b, 0, &["a", "af"], 10, Some(1))?;
@@ -140,12 +140,24 @@ fn unreadable_folder_lowers_only_itself_and_its_ancestors() -> Test {
     gap(&mut b, 0, &["a", "bad"])?;
     let result = b.seal(id(2)?, ResultCompleteness::Missing).map_err(e)?;
     assert_eq!(result.completeness(), ResultCompleteness::Missing);
-    assert_exact(space(&result, "s")?, 20);
-    assert_exact(space(&result, "sf")?, 20);
-    assert_exact(space(&result, "af")?, 10);
+    for (name, bytes) in [("s", 20), ("sf", 20), ("af", 10)] {
+        let aggregate = space(&result, name)?;
+        assert_eq!(completeness(aggregate), [ResultCompleteness::Missing; 3]);
+        assert_eq!(aggregate.logical.amount, lower(bytes));
+        for value in [
+            &aggregate.logical,
+            &aggregate.allocated,
+            &aggregate.unique_physical,
+        ] {
+            assert!(!matches!(value.amount, SizeAmount::Exact { .. }), "{name}");
+        }
+    }
     let bad = space(&result, "bad")?;
     assert_lowered(bad, 1);
     assert_eq!(bad.logical.amount, SizeAmount::Unknown);
+    let empty = space(&result, "empty")?;
+    assert_eq!(completeness(empty), [ResultCompleteness::Missing; 3]);
+    assert_eq!(empty.logical.amount, SizeAmount::Unknown);
     let a = space(&result, "a")?;
     assert_lowered(a, 1);
     assert_eq!(a.logical.amount, lower(10));
@@ -159,7 +171,7 @@ fn unreadable_folder_lowers_only_itself_and_its_ancestors() -> Test {
 }
 
 #[test]
-fn gap_on_an_unobserved_child_marks_only_the_parent_chain() -> Test {
+fn gap_on_an_unobserved_child_does_not_complete_other_folders() -> Test {
     let mut b = builder(&[root(b"/r", 1)])?;
     for parts in [&["a"][..], &["a", "sub"], &["s"]] {
         dir(&mut b, 0, parts)?;
@@ -168,15 +180,18 @@ fn gap_on_an_unobserved_child_marks_only_the_parent_chain() -> Test {
     file(&mut b, 0, &["s", "y"], 7, Some(2))?;
     gap(&mut b, 0, &["a", "ghost"])?;
     let result = b.seal(id(2)?, ResultCompleteness::Missing).map_err(e)?;
-    assert_exact(space(&result, "sub")?, 5);
-    assert_exact(space(&result, "s")?, 7);
+    for (name, bytes) in [("sub", 5), ("s", 7)] {
+        let aggregate = space(&result, name)?;
+        assert_eq!(aggregate.completeness, ResultCompleteness::Missing);
+        assert_eq!(aggregate.logical.amount, lower(bytes));
+    }
     assert_lowered(space(&result, "a")?, 1);
     assert_lowered(result.space(0).ok_or("root")?, 1);
     Ok(())
 }
 
 #[test]
-fn an_item_without_a_size_lowers_its_folder_and_ancestors_only() -> Test {
+fn a_missing_size_and_gap_keep_an_unproven_sibling_missing() -> Test {
     let mut b = builder(&[root(b"/r", 1)])?;
     for parts in [&["u"][..], &["s"], &["g"]] {
         dir(&mut b, 0, parts)?;
@@ -193,7 +208,9 @@ fn an_item_without_a_size_lowers_its_folder_and_ancestors_only() -> Test {
     file(&mut b, 0, &["s", "sf"], 20, Some(2))?;
     gap(&mut b, 0, &["g"])?;
     let result = b.seal(id(2)?, ResultCompleteness::Missing).map_err(e)?;
-    assert_exact(space(&result, "s")?, 20);
+    let sibling = space(&result, "s")?;
+    assert_eq!(sibling.completeness, ResultCompleteness::Missing);
+    assert_eq!(sibling.logical.amount, lower(20));
     let u = space(&result, "u")?;
     assert_eq!(u.logical.amount, lower(10));
     assert_eq!(u.completeness, ResultCompleteness::Missing);
@@ -207,7 +224,7 @@ fn an_item_without_a_size_lowers_its_folder_and_ancestors_only() -> Test {
 }
 
 #[test]
-fn a_root_without_gaps_stays_exact_and_the_scope_total_is_a_lower_bound() -> Test {
+fn a_root_without_a_gap_stays_missing_when_another_root_has_one() -> Test {
     let mut b = builder(&[root(b"/a", 1), root(b"/b", 2)])?;
     dir(&mut b, 1, &["bad"])?;
     file(&mut b, 0, &["af"], 10, Some(1))?;
@@ -216,7 +233,9 @@ fn a_root_without_gaps_stays_exact_and_the_scope_total_is_a_lower_bound() -> Tes
     let result = b.seal(id(2)?, ResultCompleteness::Missing).map_err(e)?;
     assert_eq!(result.completeness(), ResultCompleteness::Missing);
     let roots: Vec<u32> = result.scope_roots().iter().map(|r| r.item_no).collect();
-    assert_exact(result.space(roots[0]).ok_or("root a")?, 10);
+    let first = result.space(roots[0]).ok_or("root a")?;
+    assert_eq!(first.completeness, ResultCompleteness::Missing);
+    assert_eq!(first.logical.amount, lower(10));
     let second = result.space(roots[1]).ok_or("root b")?;
     assert_lowered(second, 1);
     assert_eq!(second.logical.amount, lower(5));
@@ -251,7 +270,30 @@ fn sealed_missing_without_a_gap_keeps_every_folder_missing() -> Test {
 }
 
 #[test]
-#[ignore = "replacement gap coverage is not yet established; see PR #102"]
+fn complete_source_with_a_gap_does_not_complete_unrelated_folders() -> Test {
+    let mut build = builder(&[root(b"/r", 1)])?;
+    dir(&mut build, 0, &["gap"])?;
+    dir(&mut build, 0, &["other"])?;
+    file(&mut build, 0, &["other", "file"], 10, Some(1))?;
+    gap(&mut build, 0, &["gap"])?;
+
+    let result = build
+        .seal(id(2)?, ResultCompleteness::Complete)
+        .map_err(e)?;
+
+    assert_eq!(result.completeness(), ResultCompleteness::Missing);
+    let other = space(&result, "other")?;
+    assert_eq!(completeness(other), [ResultCompleteness::Missing; 3]);
+    assert_eq!(other.logical.amount, lower(10));
+    assert!(!matches!(other.allocated.amount, SizeAmount::Exact { .. }));
+    assert!(!matches!(
+        other.unique_physical.amount,
+        SizeAmount::Exact { .. }
+    ));
+    Ok(())
+}
+
+#[test]
 fn replacement_gap_does_not_prove_other_folders_are_complete() -> Test {
     let sink = IngestSink::default();
     let lineage = sink
@@ -261,6 +303,8 @@ fn replacement_gap_does_not_prove_other_folders_are_complete() -> Test {
         .open_forest_in_lineage(id(1)?, vec![root(b"/r", 1)], lineage)
         .map_err(e)?;
     dir(&mut original, 0, &[])?;
+    dir(&mut original, 0, &["old"])?;
+    file(&mut original, 0, &["old", "file"], 30, Some(3))?;
     let base = original
         .seal(id(2)?, ResultCompleteness::Complete)
         .map_err(e)?;
@@ -273,16 +317,28 @@ fn replacement_gap_does_not_prove_other_folders_are_complete() -> Test {
     let result = replacement
         .seal(id(3)?, ResultCompleteness::Missing)
         .map_err(e)?;
+    assert_eq!(result.completeness(), ResultCompleteness::Missing);
+    assert_eq!(result.base_version_id(), Some(base.version_id()));
+    assert_eq!(result.lineage_id(), base.lineage_id());
+    assert_eq!(result.data_source(), base.data_source());
+    assert!(item(&result, "old").is_err());
+    assert_exact(space(&base, "old")?, 30);
+    assert_eq!(result.scope_gaps().len(), 1);
     let other = space(&result, "other")?;
-    assert_eq!(other.completeness, ResultCompleteness::Missing);
+    assert_eq!(completeness(other), [ResultCompleteness::Missing; 3]);
     assert_eq!(other.logical.amount, lower(10));
+    assert!(!matches!(other.allocated.amount, SizeAmount::Exact { .. }));
+    assert!(!matches!(
+        other.unique_physical.amount,
+        SizeAmount::Exact { .. }
+    ));
     Ok(())
 }
 
 #[test]
 fn partial_and_cancelled_versions_stay_version_wide() -> Test {
     let mut b = builder(&[root(b"/r", 1)])?;
-    for parts in [&["a"][..], &["a", "bad"], &["s"]] {
+    for parts in [&["a"][..], &["a", "bad"], &["s"], &["empty"]] {
         dir(&mut b, 0, parts)?;
     }
     file(&mut b, 0, &["s", "sf"], 20, Some(2))?;
@@ -294,9 +350,9 @@ fn partial_and_cancelled_versions_stay_version_wide() -> Test {
         (&cancelled, ResultCompleteness::Cancelled),
     ] {
         assert_eq!(result.completeness(), state);
-        for name in ["s", "sf", "a"] {
+        for name in ["s", "sf", "a", "empty"] {
             let a = space(result, name)?;
-            assert_eq!(a.completeness, state, "{name}");
+            assert_eq!(completeness(a), [state; 3], "{name}");
             assert!(
                 !matches!(a.logical.amount, SizeAmount::Exact { .. }),
                 "{name}"
@@ -318,15 +374,17 @@ fn shared_identities_and_missing_evidence_stay_lower_bounds() -> Test {
     file(&mut b, 0, &["m", "mf"], 10, None)?;
     gap(&mut b, 0, &["a", "bad"])?;
     let result = b.seal(id(2)?, ResultCompleteness::Missing).map_err(e)?;
-    // The sibling shares an identity with a file under the gap but counts it once itself.
-    assert_exact(space(&result, "s")?, 10);
+    // The sibling counts a shared identity once, but Missing does not prove full coverage.
+    let sibling = space(&result, "s")?;
+    assert_eq!(sibling.completeness, ResultCompleteness::Missing);
+    assert_eq!(sibling.logical.amount, lower(10));
     let a = space(&result, "a")?;
     assert_lowered(a, 1);
     assert_eq!(a.allocated.amount, lower(10));
     // A file without a usable identity keeps its folder's physical bases inexact.
     let m = space(&result, "m")?;
-    assert_eq!(m.logical.amount, exact(10));
-    assert_eq!(m.completeness, ResultCompleteness::Complete);
+    assert_eq!(m.logical.amount, lower(10));
+    assert_eq!(m.completeness, ResultCompleteness::Missing);
     assert!(!matches!(m.allocated.amount, SizeAmount::Exact { .. }));
     assert!(!matches!(
         m.unique_physical.amount,
@@ -362,7 +420,7 @@ fn folder_listings_and_summaries_use_the_folder_state() -> Test {
         })
     };
     for (name, state) in [
-        ("s", ResultCompleteness::Complete),
+        ("s", ResultCompleteness::Missing),
         ("a", ResultCompleteness::Missing),
     ] {
         let summary =
@@ -392,8 +450,7 @@ fn folder_listings_and_summaries_use_the_folder_state() -> Test {
 }
 
 #[test]
-#[ignore = "complete source masks a missing link in folder summary; see PR #102"]
-fn complete_source_does_not_mask_a_folders_missing_link() -> Test {
+fn summary_keeps_source_completeness_separate_from_folder_aggregate() -> Test {
     let mut b = builder(&[root(b"/r", 1)])?;
     dir(&mut b, 0, &["folder"])?;
     b.add_untraversed_link_at(0, path(&["folder", "link"]))
@@ -408,6 +465,16 @@ fn complete_source_does_not_mask_a_folders_missing_link() -> Test {
         ResultCompleteness::Missing
     );
     let summary = statistics_summary::summarize(&result, &folder, &mut || false).map_err(e)?;
-    assert_eq!(summary.result_completeness, ResultCompleteness::Missing);
+    assert_eq!(summary.result_completeness, result.completeness());
+    assert_eq!(summary.result_completeness, ResultCompleteness::Complete);
+    assert_eq!(summary.aggregate.completeness, ResultCompleteness::Missing);
+    assert_eq!(
+        summary.aggregate.allocated_completeness,
+        ResultCompleteness::Missing
+    );
+    assert_eq!(
+        summary.aggregate.unique_physical_completeness,
+        ResultCompleteness::Missing
+    );
     Ok(())
 }

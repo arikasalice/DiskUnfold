@@ -121,7 +121,7 @@ fn summarize_inner(
     Ok(Summary {
         result_version: version.version_id().clone(),
         scope: scope.clone(),
-        result_completeness: crate::space::folder_completeness(version, root.item_no),
+        result_completeness: version.completeness(),
         source_gaps: version.scope_gaps().to_vec(),
         counts,
         aggregate,

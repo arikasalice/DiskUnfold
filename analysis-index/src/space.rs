@@ -3,30 +3,16 @@ use du_core_contracts::{ByteSize, SizeAmount, SizeBasis, SizeEvidence, SizeValue
 
 pub(crate) mod selection;
 
-/// Returns the source state that per-folder aggregates are computed from.
-///
-/// A version sealed Missing whose recorded gaps locate the unread ranges is evaluated
-/// as Complete per folder: the gap marking pass and the missing-size accounting then
-/// lower exactly the unread folders and their ancestors. Without a recorded gap nothing
-/// says where the missing part is, so every folder keeps the version-wide state. Partial
-/// and cancelled sources have no per-folder evidence and stay version-wide.
-pub(crate) fn folder_source(source: ResultCompleteness, has_gaps: bool) -> ResultCompleteness {
-    if source == ResultCompleteness::Missing && has_gaps {
-        ResultCompleteness::Complete
-    } else {
-        source
-    }
-}
-
 /// Returns the completeness of one folder's subtree in a published version.
 ///
-/// For a Missing version with recorded gaps this is the folder aggregate's own state;
-/// otherwise it is the version state. Do not use it for a set that is not a subtree.
+/// A Missing version with recorded gaps consults the folder aggregate, but the gap itself
+/// does not prove complete coverage of any other folder. Other version states stay
+/// version-wide. Do not use this for a set that is not a subtree.
 pub(crate) fn folder_completeness(
     version: &crate::ResultVersion,
     item_no: u32,
 ) -> ResultCompleteness {
-    if folder_source(version.completeness, !version.gaps.is_empty()) == version.completeness {
+    if version.completeness != ResultCompleteness::Missing || version.gaps.is_empty() {
         return version.completeness;
     }
     version

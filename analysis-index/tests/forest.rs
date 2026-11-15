@@ -184,9 +184,13 @@ fn gaps_are_pinned_per_root_and_never_become_zero_or_complete() -> Result<(), St
     );
     assert_eq!(
         result.space(0).ok_or("root")?.logical.amount,
-        SizeAmount::Exact {
+        SizeAmount::LowerBound {
             bytes: ByteSize::from(10)
         }
+    );
+    assert_eq!(
+        result.space(0).ok_or("root")?.completeness,
+        ResultCompleteness::Missing
     );
     assert_eq!(partial.scope_gaps(), result.scope_gaps());
     Ok(())

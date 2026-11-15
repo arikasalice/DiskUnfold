@@ -1,22 +1,20 @@
-//! A fully read folder of a result sealed Missing renders: the model carries the same
-//! version-wide completeness as the response frame and the rows page (F03 FR5.HD1).
+//! A folder without independent coverage evidence stays bounded in a Missing result; the model
+//! carries the same version-wide completeness as the response frame and rows page (F03 FR5.HD1).
 use du_analysis_index::{
     IngestSink, Observation, ResultVersion,
-    visualization::{
-        geometry::Rect,
-        projection::{self, Options, Source},
-        registry,
-        typed_layout::{self, Dispatcher, Strategy, Treemap},
-    },
+    visualization::{bundle, geometry::Rect},
 };
 use du_core_contracts::{
     Id, ItemRef, PathBytes, PathEncoding, SizeAmount, SizeBasis, SizeEvidence, SizeValue,
     result::{ResultCompleteness, ResultNativePath, ResultScopeRoot, ResultVersionRead},
     visualization::rows::VizRowsRequest,
 };
-use du_engine_api::viz_pages::{
-    ModelPages,
-    production::{self, RowPresentation},
+use du_engine_api::{
+    api::Channel,
+    viz_pages::{
+        render::{Error, Request},
+        session::{ChildPolicyEvidence, Session},
+    },
 };
 use du_job_runtime::JobIdentity;
 use std::{
@@ -54,7 +52,7 @@ fn file(bytes: u64) -> Option<SizeValue> {
     })
 }
 
-/// Folder "a" has an unreadable child; folder "s" was fully read. Sealed Missing.
+/// Folder "a" has a gap; folder "s" has observations but no independent coverage evidence.
 fn missing_result(sink: &IngestSink) -> Result<Arc<ResultVersion>, String> {
     let root = ResultScopeRoot {
         path: ResultNativePath {
@@ -64,7 +62,12 @@ fn missing_result(sink: &IngestSink) -> Result<Arc<ResultVersion>, String> {
         volume_id: vec![1],
         file_id: vec![1],
     };
-    let mut b = sink.open_forest(id(1)?, vec![root]).map_err(e)?;
+    let lineage = sink
+        .bind_current_analysis("missing-visualization", id(1)?)
+        .map_err(e)?;
+    let mut b = sink
+        .open_forest_in_lineage(id(2)?, vec![root], lineage)
+        .map_err(e)?;
     b.add_directory_at(0, vec![]).map_err(e)?;
     for parts in [&["a"][..], &["a", "bad"], &["s"]] {
         b.add_directory_at(0, path(parts)).map_err(e)?;
@@ -78,12 +81,11 @@ fn missing_result(sink: &IngestSink) -> Result<Arc<ResultVersion>, String> {
     }
     b.record_gap_at(0, path(&["a", "bad"]), "scan.path_denied".into(), None)
         .map_err(e)?;
-    b.seal(id(2)?, ResultCompleteness::Missing).map_err(e)
+    b.seal(id(3)?, ResultCompleteness::Missing).map_err(e)
 }
 
 #[test]
-fn a_fully_read_folder_of_a_missing_result_registers_with_the_version_completeness()
--> Result<(), String> {
+fn production_viz_uses_same_version_no_attribution_fallback() -> Result<(), String> {
     let sink = IngestSink::default();
     let version = missing_result(&sink)?;
     assert_eq!(version.completeness(), ResultCompleteness::Missing);
@@ -96,15 +98,17 @@ fn a_fully_read_folder_of_a_missing_result_registers_with_the_version_completene
         result_version: version.version_id().clone(),
         item_no: folder.item_no,
     };
-    let desc = typed_layout::treemap_descriptor();
-    let mut builder = registry::Builder::<Box<dyn Strategy>>::default();
-    builder
-        .register(desc.clone(), Box::new(Treemap))
-        .map_err(e)?;
-    let dispatcher = Dispatcher::new(builder.build(&[desc]).map_err(e)?);
-    let model = projection::project(
-        Source {
-            version: &version,
+    let session = Session::new(
+        sink,
+        NonZeroUsize::new(3).ok_or("zero")?,
+        Arc::new(Ids(AtomicU64::new(10))),
+        bundle::implemented_dispatcher().map_err(e)?,
+    );
+    let fallback = match session.render_selected(
+        Request {
+            selected_revision: version.version_id(),
+            requested_revision: None,
+            channel: Channel::Gui,
             parent: &parent,
             basis: SizeBasis::Logical,
             bounds: Rect {
@@ -113,47 +117,27 @@ fn a_fully_read_folder_of_a_missing_result_registers_with_the_version_completene
                 right: 1_000_000,
                 bottom: 1_000_000,
             },
-        },
-        &dispatcher,
-        Options {
             format: "treemap",
             strategy: None,
             max_shapes: 10,
         },
+        |_, _, _| {
+            Ok(ChildPolicyEvidence {
+                path_compare_key: None,
+                legend_class_key: "source.class".into(),
+                display_flags: vec![],
+            })
+        },
         &mut || false,
-    )
-    .map_err(e)?;
-    assert_eq!(model.completeness, version.completeness());
-    assert_eq!(
-        model.totals.scope.amount,
-        SizeAmount::Exact { bytes: 100.into() }
-    );
-    let presentations = model
-        .rows
-        .iter()
-        .map(|r| RowPresentation {
-            item: r.item.clone(),
-            legend_class_key: "source.class".into(),
-            display_flags: vec![],
-        })
-        .collect();
-    let pages = ModelPages::new(
-        sink,
-        NonZeroUsize::new(3).ok_or("zero")?,
-        Arc::new(Ids(AtomicU64::new(10))),
-    );
-    let reference = production::register_projection(
-        &pages,
-        version.clone(),
-        &model,
-        "canonical".into(),
-        presentations,
-        &mut || false,
-    )
-    .map_err(e)?;
-    let page = pages
+    ) {
+        Err(Error::NoAttribution(fallback)) => fallback,
+        Err(error) => return Err(format!("expected no-attribution fallback, got {error:?}")),
+        Ok(_) => return Err("unproven lower bounds unexpectedly received treemap areas".into()),
+    };
+    assert_eq!(fallback.result_revision, *version.version_id());
+    let page = session
         .rows(&VizRowsRequest {
-            model_ref: reference,
+            model_ref: fallback.model_ref,
             result_revision: version.version_id().clone(),
             start: 0,
             count: 10,
@@ -161,5 +145,28 @@ fn a_fully_read_folder_of_a_missing_result_registers_with_the_version_completene
         .map_err(e)?;
     assert_eq!(page.rows.len(), 2);
     assert_eq!(page.completeness, version.completeness());
+    assert_eq!(page.result_revision, *version.version_id());
+    let mut values: Vec<_> = page
+        .rows
+        .iter()
+        .map(|row| (row.display_name.clone(), row.size.amount.clone()))
+        .collect();
+    values.sort_by(|left, right| left.0.cmp(&right.0));
+    assert_eq!(
+        values,
+        vec![
+            ("x".into(), SizeAmount::LowerBound { bytes: 25.into() }),
+            ("y".into(), SizeAmount::LowerBound { bytes: 75.into() }),
+        ]
+    );
+    for row in &page.rows {
+        assert_eq!(
+            row.denominator.size.as_ref(),
+            version
+                .space(parent.item_no)
+                .map(|aggregate| &aggregate.logical)
+        );
+        assert_eq!(row.ratio, None);
+    }
     Ok(())
 }
