@@ -10,6 +10,9 @@ fn locate_request_requires_a_model_and_one_versioned_item() -> Result<(), serde_
     let request: VizLocateRequest = from_value(valid.clone())?;
     assert_eq!(to_value(request)?, valid);
     valid["modelRef"] = json!("");
+    assert!(from_value::<VizLocateRequest>(valid.clone()).is_err());
+    valid["modelRef"] = json!("model-1");
+    valid["futureField"] = json!(true);
     assert!(from_value::<VizLocateRequest>(valid).is_err());
     assert!(from_value::<VizLocateRequest>(json!({ "modelRef": "model-1" })).is_err());
     Ok(())
@@ -44,10 +47,30 @@ fn locate_variants_preserve_only_the_fields_for_their_location() -> Result<(), s
         json!({"location":"shape"}),
         json!({"location":"shape","shapeIndex":-1}),
         json!({"location":"group","groupRef":""}),
-        json!({"location":"outside_scope","shapeIndex":1}),
-        json!({"location":"shape","shapeIndex":1,"groupRef":"wrong"}),
     ] {
         assert!(from_value::<VizLocate>(bad.clone()).is_err(), "{bad}");
+    }
+    Ok(())
+}
+
+#[test]
+fn locate_response_accepts_unknown_fields() -> Result<(), serde_json::Error> {
+    // The location tag selects the variant; another location's field is an unknown field.
+    for (extended, response) in [
+        (
+            json!({"location":"outside_scope","shapeIndex":1}),
+            json!({"location":"outside_scope"}),
+        ),
+        (
+            json!({"location":"shape","shapeIndex":1,"groupRef":"wrong"}),
+            json!({"location":"shape","shapeIndex":1}),
+        ),
+        (
+            json!({"location":"group","groupRef":"group-1","futureField":true}),
+            json!({"location":"group","groupRef":"group-1"}),
+        ),
+    ] {
+        assert_eq!(to_value(from_value::<VizLocate>(extended)?)?, response);
     }
     Ok(())
 }

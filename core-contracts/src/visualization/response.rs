@@ -10,8 +10,7 @@ use std::num::NonZeroU32;
 #[serde(
     tag = "kind",
     rename_all = "snake_case",
-    rename_all_fields = "camelCase",
-    deny_unknown_fields
+    rename_all_fields = "camelCase"
 )]
 pub enum VizRenderModelResponse {
     Model {

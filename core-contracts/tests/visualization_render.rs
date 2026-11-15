@@ -10,10 +10,12 @@ fn fallback_requires_nonempty_model_and_revision() -> Result<(), Box<dyn std::er
         json!({"modelRef":"", "resultRevision":"018f0000-0000-7000-8000-000000000001"}),
         json!({"modelRef":"m"}),
         json!({"modelRef":"m", "resultRevision":null}),
-        json!({"modelRef":"m", "resultRevision":"018f0000-0000-7000-8000-000000000001", "extra": 1}),
     ] {
         assert!(from_value::<VizFallback>(bad).is_err());
     }
+    let mut extended = valid.clone();
+    extended["futureField"] = json!(true);
+    assert_eq!(to_value(from_value::<VizFallback>(extended)?)?, valid);
     Ok(())
 }
 

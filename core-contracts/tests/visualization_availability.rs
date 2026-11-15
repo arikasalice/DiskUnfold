@@ -63,3 +63,30 @@ fn response_keeps_reason_key_required_and_nullable() -> Result<(), Box<dyn std::
     }
     Ok(())
 }
+
+#[test]
+fn response_accepts_and_request_rejects_unknown_fields() -> Result<(), Box<dyn std::error::Error>> {
+    let value = json!({
+        "formats":[{"format":"treemap","available":true,"reasonKey":null}],
+        "requiredDataTableRevision":1
+    });
+    let mut extended = value.clone();
+    extended["futureField"] = json!(true);
+    extended["formats"][0]["futureField"] = json!(true);
+    let decoded: VizAvailabilityResponse = from_value(extended)?;
+    assert_eq!(to_value(decoded)?, value);
+
+    for pointer in ["", "/sourceRef"] {
+        let mut invalid = request();
+        invalid
+            .pointer_mut(pointer)
+            .and_then(Value::as_object_mut)
+            .ok_or(pointer)?
+            .insert("futureField".into(), json!(true));
+        assert!(
+            from_value::<VizAvailabilityRequest>(invalid).is_err(),
+            "{pointer}"
+        );
+    }
+    Ok(())
+}

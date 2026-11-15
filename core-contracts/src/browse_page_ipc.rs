@@ -1,4 +1,8 @@
 //! Published GUI success bodies for folder browsing and query pages.
+//!
+//! Response bodies accept unknown fields so that a later contract revision can
+//! add optional values without breaking an older reader. `QueryStrategy` stays
+//! strict because request bodies and stored group rules also decode it.
 use crate::{
     Id, ItemRef, PathBytes, SizeValue, Timestamp,
     browse_ipc::BrowseValue,
@@ -16,6 +20,10 @@ pub struct ResultOrigin(pub String);
 /// A selected strategy and its published revision.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+// Kept strict: the `viz.render` request (`strategy`) and stored F36 group rules
+// (`analysis_index_group_rule.predicates_json`) decode this shape. Adding a field
+// needs a strict request type split from a response type, and a decision on the
+// stored `analysis_index_group_ruleset.format_version` (`RULESET_FORMAT_VERSION`).
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct QueryStrategy {
     pub id: String,
@@ -25,7 +33,7 @@ pub struct QueryStrategy {
 /// An observed file-identity capability with an optional explanation.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct IdentityCapability {
     pub state: SpaceCapabilityState,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -35,7 +43,7 @@ pub struct IdentityCapability {
 /// Stable correspondence evidence from the pinned observation, not a live check.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct CorrespondenceKey {
     pub volume_id: PathBytes,
     pub path_compare_key: PathBytes,
@@ -47,7 +55,7 @@ pub struct CorrespondenceKey {
 /// Independent evidence for unenumerated and excluded entries.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct FolderFlags {
     pub unenumerated: BrowseValue<bool>,
     pub excluded: BrowseValue<bool>,
@@ -56,7 +64,7 @@ pub struct FolderFlags {
 /// One observed folder-query row.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct FolderQueryRow {
     pub item: ItemRef,
     /// Human-readable display text; never reopen or compare a path from it.
@@ -73,7 +81,7 @@ pub struct FolderQueryRow {
 /// One observed search-query row.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct SearchQueryRow {
     pub item: ItemRef,
     /// Human-readable display text; never reopen or compare a path from it.
@@ -94,7 +102,7 @@ pub struct SearchQueryRow {
 /// Exact or lower-bound number of rows in a pinned query.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
-#[serde(tag = "state", rename_all = "snake_case", deny_unknown_fields)]
+#[serde(tag = "state", rename_all = "snake_case")]
 pub enum QueryTotal {
     Exact { count: u32 },
     LowerBound { count: u32 },
@@ -166,7 +174,7 @@ pub enum QueryPageResponse {
 /// A breadcrumb item and its observed display name.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct BrowseBreadcrumb {
     pub item: ItemRef,
     /// Human-readable display text; never reopen or compare a path from it.
@@ -185,7 +193,7 @@ pub enum BrowseRootKind {
 /// Location and strategy evidence from the same pinned folder query as its page.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct BrowseContext {
     pub origin: ResultOrigin,
     /// Data source of the pinned version; absent means a sample (F32 FR2.HD2).
@@ -207,8 +215,7 @@ pub struct BrowseContext {
 #[serde(
     tag = "kind",
     rename_all = "snake_case",
-    rename_all_fields = "camelCase",
-    deny_unknown_fields
+    rename_all_fields = "camelCase"
 )]
 pub enum BrowseOpenResponse {
     Opened {
