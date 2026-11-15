@@ -128,9 +128,7 @@ fn run_app(
             crate::startup_checks::report_pre_window_error(capabilities.as_ref(), error)
         })?;
         let first_run = opened.first_run;
-        startup_observed.push(crate::startup_checks::data_format_and_open_observation(
-            first_run,
-        ));
+        startup_observed.push(crate::startup_checks::data_format_and_open_observation());
         let database = opened.database;
         let settings =
             crate::settings::StartupSettings::load(&database, &configured).map_err(|error| {
@@ -172,9 +170,7 @@ fn run_app(
             crate::startup_checks::report_pre_window_error(capabilities.as_ref(), error)
         })?;
         let first_run = opened.first_run;
-        startup_observed.push(crate::startup_checks::data_format_and_open_observation(
-            first_run,
-        ));
+        startup_observed.push(crate::startup_checks::data_format_and_open_observation());
         let database = opened.database;
         let settings =
             crate::settings::StartupSettings::load(&database, &configured).map_err(|error| {
@@ -205,9 +201,7 @@ fn run_app(
             crate::startup_checks::report_pre_window_error(capabilities.as_ref(), error)
         })?;
         let first_run = opened.first_run;
-        startup_observed.push(crate::startup_checks::data_format_and_open_observation(
-            first_run,
-        ));
+        startup_observed.push(crate::startup_checks::data_format_and_open_observation());
         let database = opened.database;
         let settings =
             crate::settings::StartupSettings::load(&database, &configured).map_err(|error| {

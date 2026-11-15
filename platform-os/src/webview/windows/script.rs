@@ -6,7 +6,7 @@ use windows::core::{HSTRING, PCWSTR};
 
 pub(super) fn install_script(
     view: &ICoreWebView2,
-    source: &'static str,
+    source: &str,
 ) -> Result<(), webview2_com::Error> {
     let view = view.clone();
     AddScriptToExecuteOnDocumentCreatedCompletedHandler::wait_for_async_operation(
