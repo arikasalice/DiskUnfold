@@ -1,24 +1,23 @@
-//! Single-parent, pinned visualization projection for the admitted layout boundary.
+//! Pinned, level-of-detail visualization projection for the admitted layout boundary.
 //!
 //! This is an internal projection, not the public F06 response: callers must
 //! supply policy, provenance, model identity, paging and IPC contracts separately.
 use super::{
     geometry::{NoArea, Rect},
-    model_links::{ModelLinkError, validate_model_links},
-    ratio,
-    typed_layout::{self, Dispatcher, Input},
+    live_models::SizeRange,
+    model_links::ModelLinkError,
+    typed_layout::{self, Dispatcher},
 };
 use crate::ResultVersion;
 use du_core_contracts::{
-    Id, ItemRef, SizeAmount, SizeBasis, SizeValue, Timestamp,
-    result::{ResultCompleteness, ResultItemKind, ResultVersionRead},
+    Id, ItemRef, SizeBasis, SizeValue, Timestamp,
+    result::{ResultCompleteness, ResultVersionRead},
     visualization::{
         LayoutDescriptor, LayoutStrategyKey,
         geometry::Geometry,
         model::{ShapeMeta, VizRelationship},
     },
 };
-use std::num::NonZeroU64;
 
 /// An original F03 row shared by the drawn shape and fallback list.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -29,14 +28,29 @@ pub struct Row {
     pub root_branch_ref: Option<ItemRef>,
     /// Source value state, independent of whether the row has geometry.
     pub area_value: super::AreaValue,
-    /// Layout omission reason, or `None` when the row has a shape.
+    /// Layout omission reason, or the reason no area could be established. A row
+    /// without a shape of its own may also have none: see [lod](Self::lod).
     pub omission: Option<NoArea>,
     /// Immediate children outside this single-level projection, not a recursive count.
     pub omitted_children: usize,
     /// Ratio to the admitted parent's exact value in the selected size basis.
     pub ratio: Option<String>,
+    /// How the level-of-detail policy represents this row.
+    pub lod: Lod,
 }
-/// A format-independent shape referring to an entry in `rows`.
+
+/// How the level-of-detail policy represents a sibling.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Lod {
+    /// The strategy decided: the row has a shape, or its omission says why not.
+    Drawn,
+    /// A member of the group at this index of [Detail::groups].
+    Grouped(usize),
+    /// Below the minimum area with no group to join; counted but not drawn.
+    Omitted,
+}
+
+/// A format-independent shape referring to an entry in rows.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Shape {
     pub row_index: usize,
@@ -51,14 +65,59 @@ pub struct DescendantShape {
     pub meta: ShapeMeta,
     pub geometry: Geometry,
 }
-/// Exact byte totals for this unfiltered, ungrouped single-parent projection.
+/// One member of a group, with its original F03 value.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GroupMember {
+    pub item: ItemRef,
+    pub size: SizeValue,
+}
+/// The small siblings of one parent merged into a single shape.
+///
+/// Members keep the sibling order of the admission, the same order the table uses and
+/// the one viz.group_rows pages through.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Group {
+    pub parent: ItemRef,
+    /// Opaque reference valid only inside this model; one group exists per parent.
+    pub group_ref: String,
+    pub meta: ShapeMeta,
+    pub geometry: Geometry,
+    pub members: Vec<GroupMember>,
+    /// Sum of the attributed members; a lower bound whenever a member is.
+    pub total: SizeValue,
+    /// Known only when every member is an exact value in the model's size basis.
+    pub size_range: SizeRange,
+    /// For the navigation-root group: retained rows listed before it in table order.
+    pub slot: usize,
+}
+/// Level-of-detail results that have no place in the row table.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Detail {
+    /// Smallest shape area used for every level of this model; zero when not applied.
+    pub min_area: u64,
+    /// Groups of every drawn level; the navigation-root group, when any, is first.
+    pub groups: Vec<Group>,
+    /// Children without a provable area, at every drawn level.
+    pub unknown_items: u64,
+    /// Navigation-root siblings with neither a shape nor a group. Hidden children of
+    /// drawn folders are counted by [Row::omitted_children] instead.
+    pub omitted_items: u64,
+    /// Reason keys the collector gave for unread ranges inside the scope, sorted.
+    pub reason_keys: Vec<String>,
+}
+/// Exact byte totals for this unfiltered single-parent projection.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Totals {
     /// Original F03 set aggregate, never derived from geometry.
     pub scope: SizeValue,
+    /// Outermost individually drawn siblings; nested shapes are not added again.
     pub drawn_bytes: u64,
+    /// Navigation-root group; nested groups lie inside a drawn shape's bytes.
     pub grouped_bytes: u64,
     pub filtered_bytes: u64,
+    /// True when a summed row is a lower bound, so the sum is one too.
+    pub drawn_lower_bound: bool,
+    pub grouped_lower_bound: bool,
 }
 /// Immutable projection; it does not assign a public model reference.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -75,13 +134,16 @@ pub struct Model {
     pub relationships: Vec<VizRelationship>,
     pub omissions: Vec<typed_layout::Omission>,
     pub totals: Totals,
+    pub detail: Detail,
 }
 
-/// An observed item's location relative to this ungrouped projection.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// An observed item's location relative to this projection.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Location {
     /// Zero-based position in the model's geometry array.
     Shape(usize),
+    /// A member of the group with this model-local reference.
+    Group(String),
     /// Inside the pinned folder scope, with no geometry in this view.
     OutsideView,
     /// Observed in the same result, outside the pinned folder scope.
@@ -89,10 +151,18 @@ pub enum Location {
 }
 
 impl Model {
+    /// Number of shapes at every depth, groups included; the unit of the shape limit.
+    pub fn shape_count(&self) -> usize {
+        self.shapes
+            .len()
+            .saturating_add(self.descendants.len())
+            .saturating_add(self.detail.groups.len())
+    }
+
     /// Locates an exact item reference using only the pinned hierarchy and model.
     ///
     /// # Errors
-    /// Returns `StaleVersion` for another revision and `NotFound` for an unknown item.
+    /// Returns StaleVersion for another revision and NotFound for an unknown item.
     pub fn locate(
         &self,
         version: &ResultVersion,
@@ -115,6 +185,14 @@ impl Model {
             .position(|shape| shape.item == *item)
         {
             return Ok(Location::Shape(self.shapes.len() + index));
+        }
+        if let Some(group) = self
+            .detail
+            .groups
+            .iter()
+            .find(|group| group.members.iter().any(|member| member.item == *item))
+        {
+            return Ok(Location::Group(group.group_ref.clone()));
         }
         Ok(
             if super::descendant(version.items(), item_no, self.parent.item_no) {
@@ -150,7 +228,6 @@ pub enum Error {
     UnavailableAttribution,
     Dispatch(typed_layout::DispatchError),
     InvalidLayout,
-    ShapeLimitExceeded,
     Links(ModelLinkError),
     Cancelled,
 }
@@ -159,7 +236,12 @@ pub enum Error {
 pub struct Options<'a> {
     pub format: &'a str,
     pub strategy: Option<&'a LayoutStrategyKey>,
+    /// Upper bound on shapes at every depth, groups included. It also sets the
+    /// smallest shape area: the bounds divided by this limit.
     pub max_shapes: usize,
+    /// Whether the small siblings of a parent may merge into one group. When false
+    /// they are only counted, so the model needs no group presentation.
+    pub group_tail: bool,
 }
 
 /// One pinned source.
@@ -172,16 +254,18 @@ pub struct Source<'a> {
 
 /// Admits and projects rows once from the same immutable version and parent.
 ///
-/// Scope is exactly the parent, with no filtering or grouping. The limit is a
-/// caller-supplied upper bound, not the complete published level-of-detail policy.
-/// Consumers must not treat this projection as a complete public render response.
+/// Scope is exactly the parent, with no filtering. Siblings whose area would be below
+/// the minimum merge into one group, or are only counted when even the group is below
+/// it, so the shape limit is never an error. Children without a provable area stay in
+/// the rows without a shape. The projection fails only when the parent itself cannot be
+/// partitioned. Consumers must not treat it as a complete public render response.
 pub fn project(
     source: Source<'_>,
     dispatcher: &Dispatcher,
     options: Options<'_>,
     cancelled: &mut dyn FnMut() -> bool,
 ) -> Result<Model, Error> {
-    project_inner(source, dispatcher, options, cancelled, true)
+    root::build(source, dispatcher, options, cancelled, true)
 }
 
 /// Builds an unpublished candidate whose links must be checked after adding branches.
@@ -191,160 +275,16 @@ pub fn project_deferred(
     options: Options<'_>,
     cancelled: &mut dyn FnMut() -> bool,
 ) -> Result<Model, Error> {
-    project_inner(source, dispatcher, options, cancelled, false)
+    root::build(source, dispatcher, options, cancelled, false)
 }
 
-fn project_inner(
-    source: Source<'_>,
-    dispatcher: &Dispatcher,
-    options: Options<'_>,
-    cancelled: &mut dyn FnMut() -> bool,
-    validate_links: bool,
-) -> Result<Model, Error> {
-    if cancelled() {
-        return Err(Error::Cancelled);
-    }
-    let Source {
-        version,
-        parent,
-        basis,
-        bounds,
-    } = source;
-    let input = Input::admit_cancellable(version, parent, basis.clone(), bounds, cancelled)
-        .map_err(|e| match e {
-            super::treemap::AdmissionError::Cancelled => Error::Cancelled,
-            super::treemap::AdmissionError::NoAttribution => Error::UnavailableAttribution,
-            _ => Error::InvalidSource,
-        })?;
-    let parent_value =
-        super::value(version, parent.item_no, &basis).map_err(|_| Error::InvalidSource)?;
-    let selected = dispatcher
-        .execute(options.format, options.strategy, &input, cancelled)
-        .map_err(|error| match error {
-            typed_layout::DispatchError::Layout(typed_layout::Error::Cancelled) => Error::Cancelled,
-            other => Error::Dispatch(other),
-        })?;
-    if selected.output.shapes.len() > options.max_shapes {
-        return Err(Error::ShapeLimitExceeded);
-    }
-    let mut visited = vec![false; input.rows().len()];
-    let mut omission_reasons = vec![None; input.rows().len()];
-    let mut drawn_bytes = 0_u64;
-    let mut shapes = Vec::with_capacity(selected.output.shapes.len());
-    for shape in selected.output.shapes {
-        if cancelled() {
-            return Err(Error::Cancelled);
-        }
-        let row = input
-            .rows()
-            .get(shape.row_index)
-            .ok_or(Error::InvalidLayout)?;
-        if row.bytes() == 0 || std::mem::replace(&mut visited[shape.row_index], true) {
-            return Err(Error::InvalidLayout);
-        }
-        drawn_bytes = drawn_bytes
-            .checked_add(row.bytes())
-            .ok_or(Error::InvalidLayout)?;
-        let kind = &version.items()[row.item().item_no as usize].kind;
-        let visible_depth = 1;
-        shapes.push(Shape {
-            row_index: shape.row_index,
-            meta: ShapeMeta {
-                shape_ref: format!("s{:x}-{visible_depth}", row.item().item_no),
-                parent_shape_ref: None,
-                visible_depth,
-                root_branch_ref: (*kind == ResultItemKind::Directory).then(|| row.item().clone()),
-            },
-            geometry: shape.geometry,
-        });
-    }
-    for omitted in &selected.output.skipped {
-        if cancelled() {
-            return Err(Error::Cancelled);
-        }
-        let row = input
-            .rows()
-            .get(omitted.row_index)
-            .ok_or(Error::InvalidLayout)?;
-        if std::mem::replace(&mut visited[omitted.row_index], true)
-            || !matches!(
-                (omitted.reason, row.bytes()),
-                (NoArea::ExactZero | NoArea::LowerBoundZero, 0)
-                    | (NoArea::CoordinatePrecision, 1..)
-            )
-        {
-            return Err(Error::InvalidLayout);
-        }
-        omission_reasons[omitted.row_index] = Some(omitted.reason);
-    }
-    if visited.iter().any(|v| !v) {
-        return Err(Error::InvalidLayout);
-    }
-    let relationships = Vec::new();
-    if validate_links {
-        validate_model_links(
-            version.version_id(),
-            &shapes.iter().map(|s| s.meta.clone()).collect::<Vec<_>>(),
-            &relationships,
-        )
-        .map_err(Error::Links)?;
-    }
-    let rows = project_rows(version, &input, &parent_value, &omission_reasons, cancelled)?;
-    if cancelled() {
-        return Err(Error::Cancelled);
-    }
-    Ok(Model {
-        result_revision: version.version_id().clone(),
-        parent: parent.clone(),
-        basis,
-        completeness: version.completeness(),
-        observed_at: version.observed_at().cloned(),
-        strategy: selected.descriptor,
-        rows,
-        shapes,
-        descendants: Vec::new(),
-        relationships,
-        omissions: selected.output.skipped,
-        totals: Totals {
-            scope: parent_value,
-            drawn_bytes,
-            grouped_bytes: 0,
-            filtered_bytes: 0,
-        },
-    })
-}
-
-fn project_rows(
-    version: &ResultVersion,
-    input: &Input,
-    parent_value: &SizeValue,
-    omission_reasons: &[Option<NoArea>],
-    cancelled: &mut dyn FnMut() -> bool,
-) -> Result<Vec<Row>, Error> {
-    let denominator = match &parent_value.amount {
-        SizeAmount::Exact { bytes } => NonZeroU64::new(bytes.get()),
-        SizeAmount::LowerBound { .. } => None,
-        SizeAmount::Unknown => return Err(Error::UnavailableAttribution),
-    };
-    let mut rows = Vec::with_capacity(input.rows().len());
-    for (index, row) in input.rows().iter().enumerate() {
-        if cancelled() {
-            return Err(Error::Cancelled);
-        }
-        rows.push(Row {
-            item: row.item().clone(),
-            size: row.value().clone(),
-            root_branch_ref: (version.items()[row.item().item_no as usize].kind
-                == ResultItemKind::Directory)
-                .then(|| row.item().clone()),
-            area_value: super::area(row.value()),
-            omission: omission_reasons[index],
-            omitted_children: version.children(row.item().item_no).len(),
-            ratio: denominator.map(|total| ratio::format_ratio(i128::from(row.bytes()), total)),
-        });
-    }
-    Ok(rows)
-}
-
+mod gaps;
 mod hierarchy;
+mod level;
+mod root;
 pub use hierarchy::{add_child_partition, finish_child_partitions};
+
+/// The model-local reference of the group that merges the small children of a parent.
+fn group_ref(parent: &ItemRef) -> String {
+    format!("g{:x}", parent.item_no)
+}
