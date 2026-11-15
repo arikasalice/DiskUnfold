@@ -53,6 +53,11 @@ pub fn run_with_product_info(
 ) -> ExitCode {
     #[cfg(all(windows, feature = "windows-console"))]
     du_platform_os::windows_console::attach_parent();
+    // Cloud placeholders must look like ordinary entries before any path is
+    // observed. A refused request is not an error: the scan then records the
+    // affected entries as links or unverified entries instead of entering them.
+    #[cfg(windows)]
+    let _ = du_platform_os::windows_placeholder_mode::disguise_placeholders();
 
     run_with_product(
         arguments,
