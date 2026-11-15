@@ -18,7 +18,7 @@ use crate::{
     api::{CallerCtx, Channel, EngineBuilder, UseCase},
     browse,
     error::EngineError,
-    scope, space,
+    scope, size_rule, space,
     workers::Workers,
 };
 
@@ -34,6 +34,7 @@ pub type SharedTableLimitSource = Arc<dyn Fn() -> SharedTableLimit + Send + Sync
 
 /// Registers the metadata job, its GUI priority control and the query sharing
 /// its immutable result store.
+#[cfg(test)]
 pub(crate) fn register_with_limit(
     builder: &mut EngineBuilder,
     workers: Arc<Workers>,
@@ -41,7 +42,7 @@ pub(crate) fn register_with_limit(
     ids: Arc<dyn JobIdentity>,
     limit: SharedTableLimitSource,
     diagnostics: Option<ScanDiagnosticsFactory>,
-) -> Result<Arc<ResultSets>, RuntimeError> {
+) -> Result<Arc<ResultSets>, Box<dyn std::error::Error>> {
     register_with_options(
         builder,
         workers,
@@ -53,11 +54,13 @@ pub(crate) fn register_with_limit(
             diagnostics,
             admissions: None,
             priority_control: true,
+            size_rules: None,
         },
     )
 }
 
 /// Registers the desktop scan flow with recent-scope admissions and GUI priority control.
+#[cfg(test)]
 pub(crate) fn register_with_admissions(
     builder: &mut EngineBuilder,
     workers: Arc<Workers>,
@@ -66,7 +69,7 @@ pub(crate) fn register_with_admissions(
     limit: SharedTableLimitSource,
     diagnostics: Option<ScanDiagnosticsFactory>,
     admissions: crate::recent_scope::RecentScopeAdmissionPublisher,
-) -> Result<Arc<ResultSets>, RuntimeError> {
+) -> Result<Arc<ResultSets>, Box<dyn std::error::Error>> {
     register_with_options(
         builder,
         workers,
@@ -78,6 +81,7 @@ pub(crate) fn register_with_admissions(
             diagnostics,
             admissions: Some(admissions),
             priority_control: true,
+            size_rules: None,
         },
     )
 }
@@ -89,7 +93,7 @@ pub(crate) fn register_with_comparison(
     roots: Arc<dyn ScopeRootPort>,
     ids: Arc<dyn JobIdentity>,
     comparison: Option<Arc<dyn scope::exclusion::PathComparison>>,
-) -> Result<IngestSink, RuntimeError> {
+) -> Result<IngestSink, Box<dyn std::error::Error>> {
     register_with_options(
         builder,
         workers,
@@ -101,6 +105,7 @@ pub(crate) fn register_with_comparison(
             diagnostics: None,
             admissions: None,
             priority_control: false,
+            size_rules: None,
         },
     )
     .map(|sets| sets.source())
@@ -112,7 +117,7 @@ pub(crate) fn register_with_priority(
     workers: Arc<Workers>,
     roots: Arc<dyn ScopeRootPort>,
     ids: Arc<dyn JobIdentity>,
-) -> Result<IngestSink, RuntimeError> {
+) -> Result<IngestSink, Box<dyn std::error::Error>> {
     register_with_options(
         builder,
         workers,
@@ -124,26 +129,35 @@ pub(crate) fn register_with_priority(
             diagnostics: None,
             admissions: None,
             priority_control: true,
+            size_rules: None,
         },
     )
     .map(|sets| sets.source())
 }
 
-struct ScanRegistrationOptions {
-    comparison: Option<Arc<dyn scope::exclusion::PathComparison>>,
-    limit: SharedTableLimitSource,
-    diagnostics: Option<ScanDiagnosticsFactory>,
-    admissions: Option<crate::recent_scope::RecentScopeAdmissionPublisher>,
-    priority_control: bool,
+/// Everything the scan registration composes besides the engine ports.
+pub(crate) struct ScanRegistrationOptions {
+    pub(crate) comparison: Option<Arc<dyn scope::exclusion::PathComparison>>,
+    pub(crate) limit: SharedTableLimitSource,
+    pub(crate) diagnostics: Option<ScanDiagnosticsFactory>,
+    pub(crate) admissions: Option<crate::recent_scope::RecentScopeAdmissionPublisher>,
+    pub(crate) priority_control: bool,
+    /// The rule registry and source; `None` assembles the default bundle with
+    /// the default rule ID.
+    pub(crate) size_rules: Option<size_rule::SizeRules>,
 }
 
-fn register_with_options(
+pub(crate) fn register_with_options(
     builder: &mut EngineBuilder,
     workers: Arc<Workers>,
     roots: Arc<dyn ScopeRootPort>,
     ids: Arc<dyn JobIdentity>,
     options: ScanRegistrationOptions,
-) -> Result<Arc<ResultSets>, RuntimeError> {
+) -> Result<Arc<ResultSets>, Box<dyn std::error::Error>> {
+    let size_rules = match options.size_rules {
+        Some(rules) => rules,
+        None => size_rule::SizeRules::default_bundle(size_rule::default_size_rule_source())?,
+    };
     workers
         .runtime
         .register(du_scan_engine::scan_job::descriptor())?;
@@ -166,6 +180,7 @@ fn register_with_options(
         admitted: admitted.clone(),
         comparison: options.comparison,
         limit: options.limit,
+        size_rules,
         diagnostics: options.diagnostics,
         admissions: options.admissions,
         priority_control,
@@ -184,6 +199,15 @@ impl ResultIds for ScanIds {
     }
 }
 
+/// The `scan.start` use case.
+///
+/// The size aggregation rule is read from the injected source once for each
+/// start that reaches admission and is pinned to the scan it creates. The job
+/// deduplication key names the scope but not the rule, so a duplicate start
+/// while a scan of the same scope runs returns that running job with the rule it
+/// already pinned, even if the source now names another registered ID. A start
+/// whose source names an unregistered ID is rejected before deduplication is
+/// consulted.
 struct StartScan {
     roots: Arc<dyn ScopeRootPort>,
     ids: Arc<ScanIds>,
@@ -192,6 +216,7 @@ struct StartScan {
     admitted: Arc<Mutex<Option<Admitted>>>,
     comparison: Option<Arc<dyn scope::exclusion::PathComparison>>,
     limit: SharedTableLimitSource,
+    size_rules: size_rule::SizeRules,
     diagnostics: Option<ScanDiagnosticsFactory>,
     admissions: Option<crate::recent_scope::RecentScopeAdmissionPublisher>,
     priority_control: bool,
@@ -237,6 +262,9 @@ impl UseCase for StartScan {
         request: Self::Request,
         caller: &CallerCtx,
     ) -> Result<Self::Response, EngineError> {
+        // Pin the rule before anything is opened or created: an unknown ID must
+        // consume no scope root and leave no job or lineage behind.
+        let size_rule = self.size_rules.bind_latest()?;
         let verified = scope::verify(
             &request.draft,
             &request.review_fingerprint,
@@ -269,7 +297,8 @@ impl UseCase for StartScan {
         )
         .with_lineage(lineage.clone())
         .with_scope_fingerprint(scope_fingerprint.clone())
-        .with_shared_table_limit((self.limit)().entries());
+        .with_shared_table_limit((self.limit)().entries())
+        .with_size_rule(size_rule);
         if let Some(factory) = &self.diagnostics {
             job = job.with_diagnostics(factory());
         }
