@@ -121,7 +121,7 @@ fn a_marked_folder_never_reports_an_exact_excluded_count() -> Result<(), String>
     assert_eq!(excluded(&version, &["bare"])?, some(0, false));
     let sink = IngestSink::default();
     let mut build = forest(&sink, 1, 1)?;
-    dirs(&mut build, 0, &[&["marked"], &["bare"]])?;
+    dirs(&mut build, 0, &[&["marked"], &["bare"], &["plain"]])?;
     build
         .set_excluded_children(0, &folder_path(&["marked"]), 2, true)
         .map_err(err)?;
@@ -135,7 +135,10 @@ fn a_marked_folder_never_reports_an_exact_excluded_count() -> Result<(), String>
         .seal(id(3), ResultCompleteness::Cancelled)
         .map_err(err)?;
     assert_eq!(excluded(&cancelled, &["marked"])?, some(2, false));
-    assert_eq!(excluded(&cancelled, &["bare"])?, None);
+    // A marked folder without a record counted nothing: at least zero, also when cancelled.
+    assert_eq!(excluded(&cancelled, &["bare"])?, some(0, false));
+    // A folder without a mark, a gap or a record stays unknown in a cancelled version.
+    assert_eq!(excluded(&cancelled, &["plain"])?, None);
     Ok(())
 }
 
