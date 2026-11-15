@@ -3511,6 +3511,20 @@ test("F02 IF-23: resync after withdrawal removes only this failed scan's partial
 });
 
 test("F02 IF-05: pages within the displayed result and discards a late page after changing the filter", async () => {
+  // Keep periodic status reads separate from the resynchronization read under test.
+  const scheduleInterval = window.setInterval.bind(window);
+  vi.spyOn(window, "setInterval").mockImplementation(((
+    handler: TimerHandler,
+    timeout?: number,
+    ...args: unknown[]
+  ) =>
+    timeout === 500
+      ? 0
+      : scheduleInterval(
+          handler,
+          timeout,
+          ...args,
+        )) as typeof window.setInterval);
   let release = () => {};
   const delayed = new Promise<void>((resolve) => {
     release = resolve;
