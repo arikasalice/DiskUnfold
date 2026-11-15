@@ -18,13 +18,30 @@ pub use restore_status::{RestoreItem, RestoreSource, RestoreStatus};
 pub const EMPTY_SCHEMA_TRANSITIONS: &[(u32, u32)] = &[(1, 2), (2, SETTINGS_SCHEMA_VERSION)];
 
 /// Builds the shared startup catalog from each feature's registered descriptors.
+///
+/// The hidden size rule setting accepts only the default rule; use
+/// [`builtin_descriptors_with_size_rules`] to supply the registered rule IDs.
 pub fn builtin_descriptors(
     configured_languages: &[&str],
+) -> Result<Vec<crate::Descriptor>, crate::locale::DecisionError> {
+    builtin_descriptors_with_size_rules(
+        configured_languages,
+        &[du_core_contracts::size_rule::DEFAULT_SIZE_RULE_ID.to_owned()],
+    )
+}
+
+/// Builds the shared startup catalog with the size rule IDs the composition root registered.
+///
+/// `size_rule_ids` become the accepted values of `space.aggregation_rule`.
+pub fn builtin_descriptors_with_size_rules(
+    configured_languages: &[&str],
+    size_rule_ids: &[String],
 ) -> Result<Vec<crate::Descriptor>, crate::locale::DecisionError> {
     Ok(crate::locale::descriptors(configured_languages)?
         .into_iter()
         .chain(crate::scope::descriptors())
         .chain(crate::space::descriptors())
+        .chain([crate::space::aggregation_rule_descriptor(size_rule_ids)])
         .collect())
 }
 

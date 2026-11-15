@@ -78,12 +78,16 @@ pub struct SettingPlacement {
 /// Message resource keys for a setting's name and description.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SettingPresentation {
-    /// Localized name resource key.
+    /// Localized name resource key; empty for a hidden setting.
     pub name_key: String,
-    /// Localized description resource key.
+    /// Localized description resource key; empty for a hidden setting.
     pub description_key: String,
     /// Published placement, or `None` when no classification is established.
     pub placement: Option<SettingPlacement>,
+    /// True when the setting is registered and stored but never listed on a settings
+    /// screen, in the restoration report or in search. A hidden setting carries no
+    /// message keys.
+    pub hidden: bool,
 }
 
 impl SettingPresentation {
@@ -93,6 +97,20 @@ impl SettingPresentation {
             name_key: format!("settings.{key}.name"),
             description_key: format!("settings.{key}.description"),
             placement: None,
+            hidden: false,
+        }
+    }
+
+    /// Declares a setting that no screen lists and that has no user-facing wording yet.
+    ///
+    /// Replace it with [`Self::for_setting`] and register the message keys when the
+    /// setting becomes visible.
+    pub fn hidden() -> Self {
+        Self {
+            name_key: String::new(),
+            description_key: String::new(),
+            placement: None,
+            hidden: true,
         }
     }
 
