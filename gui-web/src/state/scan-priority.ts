@@ -49,8 +49,15 @@ export type ScanPriorityNotice = ScanPriorityAnnouncement & {
 };
 
 /**
- * How a folder's "Analyze first" request is shown: sent and not yet confirmed
- * as the applied area, or confirmed while the scan is running.
+ * How a folder's "Analyze first" request is shown on its row.
+ *
+ * Only "requested" is produced for now, whether or not a response confirmed
+ * the folder as the applied area. The engine releases the area by itself once
+ * no work remains under the folder, and the window has no way to learn that
+ * until IF-08 scan.lane_status reports the current area, so "analyzing" could
+ * still be shown for a folder whose collection has finished. "analyzing" and
+ * its row text are kept so IF-08 can bring them back while the engine reports
+ * the folder as its current area.
  */
 export type ScanPriorityStatus = "requested" | "analyzing";
 
@@ -148,8 +155,10 @@ function newerResult(
  *
  * The row is marked as requested before the response. "accepted" only confirms
  * receipt; the engine applies the area from its next assignment. The row reads
- * "analyzing first" only after a response names the folder as the applied
- * priority area and while the scan is running.
+ * "requested" even after a response names the folder as the applied area (see
+ * {@link ScanPriorityStatus}). The mark moves to a newly requested folder,
+ * stays while the scan is paused and goes away once the scan ends, when the
+ * host passes no context.
  *
  * One rule decides when a folder can be requested again. While its request is
  * unanswered, or after a response named it as the applied area, it is not sent
@@ -333,12 +342,8 @@ export function useScanPriority(
       item.resultVersion === resultVersion,
     ...newerResult(client, context, view),
     requested: (item) => mine(item) && marked?.state !== "received",
-    status: (item) => {
-      if (!mine(item)) return undefined;
-      return marked?.state === "applied" && scanning
-        ? "analyzing"
-        : "requested";
-    },
+    // "analyzing" waits for IF-08; see ScanPriorityStatus.
+    status: (item) => (mine(item) ? "requested" : undefined),
     request,
     // An ended scan leaves no current job and still announces its outcome.
     notice:

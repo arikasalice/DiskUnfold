@@ -73,18 +73,21 @@ test("F02 FR8.HD1: a request marks the row before the response, sends once and a
     }),
   );
   expect(screen.getAllByText("‘Photos’ is analyzed first")).toHaveLength(1);
-  expect(within(gridRow("Photos")).getByText("Analyzing first")).toBeDefined();
-});
-
-test("F02 FR8.HD1: the row reads analyzing first only for the applied area of a running scan", async () => {
-  const { answers, rerender } = await setup();
-  await requestFirst("Photos");
-  await act(async () => answers[0]?.resolve({ controlResult: "accepted" }));
-  // Receipt alone does not name the applied area.
   expect(
     within(gridRow("Photos")).getByText("Analyze first requested"),
   ).toBeDefined();
+});
 
+test("F02 FR8.HD1: until IF-08 the row reads requested; the mark moves, stays while paused and ends with the scan", async () => {
+  const { answers, rerender } = await setup();
+  const marked = (name: string) =>
+    within(gridRow(name)).queryByText("Analyze first requested") !== null;
+  await requestFirst("Photos");
+  await act(async () => answers[0]?.resolve({ controlResult: "accepted" }));
+  expect(marked("Photos")).toBe(true);
+
+  // The engine may release a confirmed area without telling the window, so a
+  // running scan's applied area still reads requested.
   await requestFirst("Videos");
   await act(async () =>
     answers[1]?.resolve({
@@ -92,15 +95,22 @@ test("F02 FR8.HD1: the row reads analyzing first only for the applied area of a 
       appliedPriorityArea: ref(2),
     }),
   );
-  expect(within(gridRow("Videos")).getByText("Analyzing first")).toBeDefined();
+  expect(marked("Videos")).toBe(true);
+  expect(marked("Photos")).toBe(false);
+  expect(screen.queryByText("Analyzing first")).toBeNull();
 
-  // A paused scan is not working on the folder.
   rerender({ ...running, scanning: false, paused: true });
-  await waitFor(() =>
-    expect(
-      within(gridRow("Videos")).getByText("Analyze first requested"),
-    ).toBeDefined(),
-  );
+  expect(marked("Videos")).toBe(true);
+
+  // Continuing publishes a newer result; the list still shows the earlier one.
+  rerender({ ...running, resultVersion: newer });
+  expect(marked("Videos")).toBe(true);
+  expect(screen.queryByText("Analyzing first")).toBeNull();
+
+  // A completed, cancelled or failed scan leaves the host with no context.
+  rerender(undefined);
+  await waitFor(() => expect(marked("Videos")).toBe(false));
+  expect(marked("Photos")).toBe(false);
 });
 
 test("F02 FR8.HD1: a folder with an exact size is collected and offers no Analyze first", async () => {
@@ -246,7 +256,9 @@ test("F02 FR8.HD1: no effect keeps the mark only when the folder remains the app
       "This folder is already analyzed or is already being analyzed first.",
     ),
   ).toBeDefined();
-  expect(within(gridRow("Photos")).getByText("Analyzing first")).toBeDefined();
+  expect(
+    within(gridRow("Photos")).getByText("Analyze first requested"),
+  ).toBeDefined();
 
   await requestFirst("Videos");
   await act(async () => answers[1]?.resolve({ controlResult: "no_effect" }));
@@ -430,7 +442,7 @@ test("F02 FR8.HD1: a receipt without the applied area can be sent again and retu
   act(() => {
     vi.advanceTimersByTime(SCAN_PRIORITY_NOTICE_MS * 2);
   });
-  expect(status()).toBe("analyzing");
+  expect(status()).toBe("requested");
   ask();
   expect(answers).toHaveLength(4);
 });
@@ -507,8 +519,8 @@ test("F02 FR8.HD1: an outcome for a paused scan is withdrawn when the scan conti
   expect(hook.result.current.notice?.paused).toBe(true);
   hook.rerender(running);
   expect(hook.result.current.notice).toBeUndefined();
-  // The folder itself stays marked; the row reads that it is analyzed first.
-  expect(hook.result.current.status(ref(1))).toBe("analyzing");
+  // The folder itself stays marked as requested.
+  expect(hook.result.current.status(ref(1))).toBe("requested");
   // A scan that ends right after continuing does not bring it back.
   hook.rerender(undefined);
   expect(hook.result.current.notice).toBeUndefined();
