@@ -841,6 +841,7 @@ ui.visualization.sizeBasis
 ui.visualization.sourceSizes
 ui.visualization.spaceDistribution
 ui.visualization.space_distribution
+ui.visualization.stalenessUnwatched
 ui.visualization.storageVisualization
 ui.visualization.treemap
 ui.visualization.trend

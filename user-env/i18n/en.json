@@ -858,6 +858,7 @@
     ["ui.visualization.sourceSizes","Source sizes",[]],
     ["ui.visualization.spaceDistribution","Space distribution",[]],
     ["ui.visualization.space_distribution","Space distribution",[]],
+    ["ui.visualization.stalenessUnwatched","Changes made after the analysis aren't reflected",[]],
     ["ui.visualization.storageVisualization","Storage visualization",[]],
     ["ui.visualization.treemap","Treemap",[]],
     ["ui.visualization.trend","Trend",[]],

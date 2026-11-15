@@ -54,6 +54,7 @@ export const visualizationMessages = {
     noItemSizes: "Item sizes are unavailable",
     negativeFlow: "Negative flow cannot be displayed in this format",
     unknownReason: "The reason is unavailable",
+    stalenessUnwatched: "Changes made after the analysis aren't reflected",
     unknownFormat: "Unknown format",
     treemap: "Treemap",
     bar: "Bar chart",
@@ -189,6 +190,7 @@ export const visualizationMessages = {
     noItemSizes: "항목 크기를 사용할 수 없습니다",
     negativeFlow: "이 형식에서는 음수 흐름을 표시할 수 없습니다",
     unknownReason: "사유를 확인할 수 없습니다",
+    stalenessUnwatched: "분석한 뒤에 바뀐 내용은 반영되지 않습니다",
     unknownFormat: "알 수 없는 형식",
     treemap: "트리맵",
     bar: "막대 그래프",
@@ -297,6 +299,7 @@ const reasons: Record<string, VisualizationMessageKey> = {
   "viz.unavailable.no_attribution": "noAttribution",
   "viz.unavailable.no_item_sizes": "noItemSizes",
   "viz.unavailable.negative_flow": "negativeFlow",
+  "viz.staleness.unwatched": "stalenessUnwatched",
 };
 export function visualizationReason(
   reason: string,
