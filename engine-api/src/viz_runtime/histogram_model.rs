@@ -1,6 +1,7 @@
 //! Produces the existing model envelope from the same fixed histogram rows.
 use super::*;
 use crate::viz_pages::histogram::SelectedCandidate;
+use du_analysis_index::visualization::projection::RemainderCauses;
 use du_core_contracts::{
     ItemRef, SizeAmount, SizeBasis, SizeValue,
     browse_page_ipc::{QueryStrategy, ResultOrigin},
@@ -25,7 +26,6 @@ pub(super) fn build(
     let complete = data.histogram.source_completeness == ResultCompleteness::Complete
         && data.histogram.uncertain_items.is_empty()
         && data.histogram.unclassified_items.is_empty();
-    let mut drawn = Vec::new();
     let mut grouped = Vec::new();
     let mut classes: BTreeMap<String, Vec<ItemRef>> = BTreeMap::new();
     let mut shapes = Vec::new();
@@ -46,7 +46,6 @@ pub(super) fn build(
             .or_default()
             .extend(members.iter().cloned());
         if let Some(rect) = bin.rect {
-            drawn.extend(members);
             let geometry = Geometry::new(
                 "rect",
                 vec![
@@ -91,9 +90,20 @@ pub(super) fn build(
     let total = |size: SizeValue| total(size, &policy.unknown_reason);
     let scope_size = select(data.summary.aggregate.clone(), &request.size_basis);
     let scope = total(scope_size)?;
-    let drawn_total = total(aggregate(&drawn, complete, cancelled)?)?;
+    // Every shape of a histogram is an interval, which is a group: it has no item shape,
+    // so its drawn total is zero and the items of its intervals are the grouped total.
+    let drawn_total = total(aggregate(&[], true, cancelled)?)?;
     let grouped_total = total(aggregate(&grouped, complete, cancelled)?)?;
     let filtered_total = total(aggregate(&[], true, cancelled)?)?;
+    // What the intervals do not hold is the share of items whose size is not known, and
+    // that makes the grouped total, and so the remainder, unknown. A histogram names no
+    // cause for a remainder: an exact one that is not zero would be a mistake.
+    let remainder = super::remainder::compute(
+        &scope,
+        [&drawn_total, &grouped_total, &filtered_total],
+        RemainderCauses::default(),
+        &policy.unknown_reason,
+    )?;
     let mut legend = Vec::new();
     for (key, members) in classes {
         let class = admitted.facts.classes.get(&key).ok_or_else(internal)?;
@@ -131,8 +141,8 @@ pub(super) fn build(
             drawn: drawn_total,
             grouped: grouped_total,
             filtered_out: filtered_total,
-            remainder: None,
-            remainder_reason_keys: None,
+            remainder: Some(remainder.total),
+            remainder_reason_keys: remainder.reason_keys,
         },
         shapes,
         relationships: vec![],
