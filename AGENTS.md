@@ -132,6 +132,8 @@ For a CLI-only development build, use `cargo run --locked -p du-launcher --no-de
 
 **Rust.** Use edition 2024 and workspace versions and lints. Use `rustfmt`, Clippy and typed `Result` errors. Preserve error context and convert errors at the transport boundary. Library code avoids `unwrap`, `expect` and panics. Unsafe code is confined to `platform-os` and requires a reason and safety invariant. Keep files within 500 lines and constructors within four dependencies. The structure checker enforces a maximum of nine direct internal dependencies excluding `core-contracts` and a function complexity limit of 20.
 
+**Language.** Write repository artifacts in English: commit messages, pull request titles and descriptions, review comments, code comments, and documentation comments such as Rustdoc, TSDoc and Javadoc. User-facing strings follow the localization bundles. Conversations between the user and agents, and between agents, use Korean.
+
 **Documentation comments.** Write English Rustdoc or TSDoc for new or changed public interfaces. Describe caller obligations, invariants, and meaningful error or concurrency behavior when applicable. Use brief inline comments for decisions the code cannot express on its own.
 
 **TypeScript and React.** Use strict TypeScript and the configured ESLint, Prettier and dependency-cruiser rules. Keep view components focused, preserve keyboard and screen-reader access, and keep domain decisions in Rust. Use typed IPC from the client and avoid manual copies of Rust types. TypeScript 7 checks the application. The TypeScript 6 dependency supports tools that still require its compiler API.
