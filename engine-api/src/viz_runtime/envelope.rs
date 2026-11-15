@@ -168,6 +168,12 @@ pub(super) fn build_model(
         }
         // A group exists only when its presentation was supplied for this request.
         let other = admitted.ranked_other.as_ref().ok_or_else(internal)?;
+        let mut display_flags = other.display_flags.clone();
+        if matches!(group.total.amount, SizeAmount::LowerBound { .. }) {
+            display_flags.push(crate::viz_production::policy::FLAG_LOWER_BOUND.to_owned());
+        }
+        display_flags.sort_unstable();
+        display_flags.dedup();
         shapes.push(VizShape {
             item_ref: None,
             group_ref: Some(group.group_ref.clone()),
@@ -176,7 +182,7 @@ pub(super) fn build_model(
             size: group.total.clone(),
             quantity: None,
             legend_class_key: other.legend_class_key.clone(),
-            display_flags: other.display_flags.clone(),
+            display_flags,
             shape_ref: Some(group.meta.shape_ref.clone()),
             parent_shape_ref: Some(group.meta.parent_shape_ref.clone()),
             visible_depth: Some(group.meta.visible_depth),
