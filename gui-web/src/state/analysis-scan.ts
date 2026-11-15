@@ -2,11 +2,22 @@ import { useEffect, useRef, useState } from "react";
 import { AnalysisError, resultReadProblem } from "../ipc";
 import { watchJobBaseline } from "./job-baseline";
 import { createReflectCadence } from "./result-cadence";
+import {
+  canControl,
+  controlObserved,
+  controlProblem,
+  controlsForJob,
+  documentHidden,
+  isNewLineageEvent,
+  isRunning,
+  jobValue,
+  runningValue,
+} from "./scan-job-rules";
+import type { ControlView } from "./scan-job-rules";
 import type {
   AnalysisClient,
   AnalysisJobProgress,
   AnalysisJobStatus,
-  EventEnvelope,
   JobState,
   ScanControl,
   ScanProblem,
@@ -15,123 +26,13 @@ import type {
 } from "../ipc";
 
 export type { ScanControl } from "../ipc";
-
-/** Determines whether a status may still transition. */
-export function isRunning(state: JobState): boolean {
-  return !["done", "partial", "failed", "cancelled"].includes(state);
-}
-
-function canControl(
-  command: ScanControl,
-  state: JobState | undefined,
-): boolean {
-  switch (command) {
-    case "pause":
-      return state === "running";
-    case "resume":
-      return state === "pause_requested" || state === "paused";
-    case "cancel":
-      return state !== "cancel_requested";
-  }
-}
-
-function controlObserved(command: ScanControl, state: JobState): boolean {
-  if (state === "cancel_requested") return true;
-  switch (command) {
-    case "pause":
-      return state === "pause_requested" || state === "paused";
-    case "resume":
-      return state === "running";
-    case "cancel":
-      return false;
-  }
-}
-
-function controlProblem(
-  command: ScanControl,
-  outcome: string | undefined,
-): ScanProblem {
-  if (outcome === "already_terminal") return { kind: "already_ended" };
-  return outcome === undefined || outcome === "unsupported"
-    ? { kind: "control_unavailable", command }
-    : { kind: "control_rejected", command };
-}
-
-/** Whether the document is hidden, so polling and frame work can pause. */
-function documentHidden(): boolean {
-  return typeof document !== "undefined" && document.hidden;
-}
-
-type ControlView = {
-  jobRef: string;
-  command?: ScanControl;
-  problem?: ScanProblem;
-};
-
-function controlsForJob(
-  jobRef: string | undefined,
-  status: AnalysisJobStatus | undefined,
-  unavailable: boolean,
-  control: ControlView | undefined,
-) {
-  const running =
-    jobRef !== undefined &&
-    !unavailable &&
-    (!status || isRunning(status.state));
-  const current = running && control?.jobRef === jobRef ? control : undefined;
-  return {
-    running,
-    control: current?.command,
-    controlError: current?.problem,
-  };
-}
-
-function isNewLineageEvent(
-  event: EventEnvelope,
-  lineage: string | undefined,
-  sequence: number,
-): boolean {
-  const body = event.body;
-  return (
-    event.topic === "results.version_changed" &&
-    lineage !== undefined &&
-    body !== null &&
-    typeof body === "object" &&
-    "lineageId" in body &&
-    body.lineageId === lineage &&
-    "sequence" in body &&
-    typeof body.sequence === "number" &&
-    Number.isSafeInteger(body.sequence) &&
-    body.sequence > sequence
-  );
-}
-
-/** Returns a value only when it belongs to the given job. */
-function jobValue<T extends { jobRef: string }>(
-  value: T | undefined,
-  jobRef: string | undefined,
-): T | undefined {
-  return value && value.jobRef === jobRef ? value : undefined;
-}
-
-/** Progress is shown only for the current job while it can still change. */
-function runningValue(
-  progress: { jobRef: string; value: AnalysisJobProgress } | undefined,
-  jobRef: string | undefined,
-  status: AnalysisJobStatus | undefined,
-): AnalysisJobProgress | undefined {
-  return status && isRunning(status.state)
-    ? jobValue(progress, jobRef)?.value
-    : undefined;
-}
+export { isRunning } from "./scan-job-rules";
 
 /**
  * Follows the results a scan publishes and keeps its newest one in the view.
- *
- * The first result is read at once. Each later publication of the same scan,
- * including its final result, replaces the shown totals automatically at the
- * shared reflect cadence (at most one read per second). Only a version whose
- * read failed waits for the user's "Show latest result".
+ * Later publications, including the final one, replace the shown totals at
+ * the shared reflect cadence; only a version whose read failed waits for
+ * "Show latest result".
  */
 export function useScanResult(
   client: AnalysisClient,
@@ -405,11 +306,7 @@ export function useScanResult(
       }
     }
 
-    /**
-     * A newer publication replaces the shown totals without a selection, but
-     * no sooner than the reflect cadence allows. The first result and the
-     * user's explicit selection are read at once.
-     */
+    /** Reads a newer publication at the reflect cadence; the first result and an explicit selection at once. */
     function readWhenDue(version: string) {
       if (displayed && !displayLatest && cadence.remaining() > 0) {
         cadence.defer(() => {
@@ -585,10 +482,7 @@ export function useScanResult(
     ...controlsForJob(jobRef, currentStatus, unavailable, control),
     requestControl: (command: ScanControl) => issueControl.current?.(command),
     total: currentTotal,
-    /**
-     * A newer result exists whose automatic read failed, so the shown totals
-     * stay on an earlier result until the user selects the newest one.
-     */
+    /** A newer result whose automatic read failed; the user may select it. */
     hasNewResult:
       currentTotal !== undefined &&
       latestVersion !== undefined &&
