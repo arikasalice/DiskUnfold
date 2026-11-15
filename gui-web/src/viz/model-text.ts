@@ -19,6 +19,11 @@ export type VizText = {
   quantity: (value: VizQuantity) => string;
   size: (value: SizeValue) => string;
   observedAt: (value: string | null) => string;
+  /**
+   * Words a reason key the collector reported (`scan.*`). Optional: without it
+   * such a key gets the general "reason unavailable" phrase.
+   */
+  scanReason?: (key: string) => string;
 };
 
 /** Applies placeholders even for injected text functions that only accept keys. */
