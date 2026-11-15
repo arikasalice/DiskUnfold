@@ -814,7 +814,7 @@ function Test-DeniedSubtree {
       if ($issues) {
         $names = $issues.FindAll($scopeTree, [Windows.Automation.Condition]::TrueCondition) |
           ForEach-Object { $_.Current.Name }
-        ($names -contains 'Unread ranges') -and ($names -contains 'Opening a folder') -and
+        ($names -contains 'Unread locations') -and ($names -contains 'Opening a folder') -and
           ($names -contains 'Access denied') -and ($names -like '*\denied-child')
       }
     }

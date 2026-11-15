@@ -455,7 +455,7 @@
     ["ui.inspection.full_name", "전체 이름", []],
     ["ui.inspection.source", "출처", []],
     ["ui.inspection.scan_record", "스캔 기록", []],
-    ["ui.inspection.scan", "스캔", []],
+    ["ui.inspection.scan", "분석 결과", []],
     ["ui.inspection.file", "파일", []],
     ["ui.inspection.folder", "폴더", []],
     ["ui.inspection.reasons", "진단 사유", []],

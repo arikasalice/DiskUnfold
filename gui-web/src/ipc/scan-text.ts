@@ -32,7 +32,7 @@ export const SCAN_ISSUE_FILTERS = [
   {
     value: "unread_range",
     key: "ui.analysis.issues_unread_ranges",
-    fallback: "Unread ranges",
+    fallback: "Unread locations",
   },
   {
     value: "uncertain",
