@@ -125,7 +125,7 @@ fn candidate_cannot_be_committed_to_another_registry() -> Result<(), String> {
 }
 
 #[test]
-fn prepared_fallback_is_not_published_until_commit() -> Result<(), String> {
+fn prepared_equal_size_model_without_keys_is_not_published_until_commit() -> Result<(), String> {
     let sink = IngestSink::default();
     publish_sizes(&sink, id(2), id(3), [25, 25])?;
     let pages = ModelPages::new(
@@ -157,14 +157,13 @@ fn prepared_fallback_is_not_published_until_commit() -> Result<(), String> {
         count: 10,
     };
     assert_eq!(pages.rows(&rows), Err(viz_pages::Error::ModelExpired));
-    let fallback = match pages.commit_prepared(candidate, &mut || false) {
-        Ok(CommittedRender::Fallback {
-            reason: FallbackReason::OrderingUnavailable,
-            fallback,
-        }) => fallback,
-        _ => return Err("expected ordering fallback".into()),
+    // The tie that used to need a key now lays out in name order.
+    let rendered = match pages.commit_prepared(candidate, &mut || false) {
+        Ok(CommittedRender::Model(rendered)) => rendered,
+        _ => return Err("expected a geometry model".into()),
     };
-    assert_eq!(fallback.model_ref, rows.model_ref);
+    assert_eq!(rendered.model_ref, rows.model_ref);
+    assert_eq!(rendered.model.shapes.len(), 2);
     assert_eq!(
         pages.rows(&rows).map_err(|e| format!("{e:?}"))?.total_count,
         2
@@ -220,6 +219,13 @@ fn prepared_unattributed_rows_can_be_cancelled_then_published() -> Result<(), St
         pages.commit_prepared(prepare()?, &mut || true),
         Err(Error::Cancelled)
     ));
+    let published = VizRowsRequest {
+        model_ref: id(11).as_str().to_owned(),
+        result_revision: id(3),
+        start: 0,
+        count: 10,
+    };
+    assert_eq!(pages.rows(&published), Err(viz_pages::Error::ModelExpired));
     let fallback = match pages.commit_prepared(prepare()?, &mut || false) {
         Ok(CommittedRender::Fallback {
             reason: FallbackReason::NoAttribution,

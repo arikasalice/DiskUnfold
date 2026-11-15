@@ -175,6 +175,7 @@ fn assemble(
                 denominator: denominator.clone(),
                 legend_class_key: p.legend_class_key,
                 display_flags: p.display_flags,
+                label_key: None,
             };
             row.validate_revision(request.version.version_id())
                 .map_err(|_| Error::MissingPresentation)?;
@@ -221,6 +222,7 @@ fn assemble(
             denominator: denominator.clone(),
             legend_class_key: p.legend_class_key,
             display_flags: p.display_flags,
+            label_key: None,
         };
         row.validate_revision(request.version.version_id())
             .map_err(|_| Error::MissingPresentation)?;

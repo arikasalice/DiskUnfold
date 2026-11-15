@@ -27,10 +27,7 @@ impl ModelPages {
             evidence,
         } = input;
         let normalized = normalize(evidence, source.result_version(), cancelled)?;
-        let presentations = normalized
-            .into_values()
-            .map(|child| split_evidence(child).1)
-            .collect();
+        let presentations = normalized.into_values().map(presentation).collect();
         let input = match &layout {
             Some(model) => production::project_rows(
                 source.version().clone(),

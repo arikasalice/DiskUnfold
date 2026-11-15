@@ -26,6 +26,7 @@ mod admission;
 mod display;
 mod names;
 mod sharing;
+mod stored_versions;
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
