@@ -710,9 +710,48 @@ F05 수정판 확인 (2026-11-15, HLD 작업 판 131, DLD 작업 판 110): 고�
 - 선택 동작 줄의 문구 자리에 다른 "먼저 분석" 알림과 같은 표시 시간 동안 보이고 상태 영역으로 한 번 알린다.
 - 그 행에 "먼저 분석 요청됨" 표지를 달지 않는다. 다른 폴더에 달려 있던 표지는 그대로 둔다. "먼저 분석" 단추는 활성으로 남아 다시 누를 수 있고, 초점은 단추에 남는다.
 - 무엇이 안 됐는지와 스캔이 계속된다는 것을 한 줄에 함께 쓴다. 사용자가 먼저 걱정하는 것은 스캔이 깨졌는지다.
-- 전제(F02 확인 대기): 이 실패 뒤에도 스캔이 원래 순서로 계속되고 이전 우선 영역이 유지된다. 그렇지 않으면 뒤 구절을 뺀다. 스캔 자체가 실패로 끝났으면 이 알림을 띄우지 않는다.
+- 전제(F02가 코드로 확인): 이 실패는 요청을 검사하는 단계에서 나오고, 검사가 모두 끝난 뒤에야 우선 영역이 바뀐다. 그래서 실패 뒤에도 스캔 순서와 이전 우선 영역이 그대로다. F02가 초안에 규칙과 시험으로 넣는다. 구현에서 이 시험이 실패하는 경우가 나오면 뒤 구절을 뺀다. 스캔 자체가 실패로 끝났으면 이 알림을 띄우지 않는다.
 
 용어: "분석"은 사용자가 시작하는 일 전체와 그 결과, "스캔"은 그 안에서 파일 정보를 읽어 들이는 과정으로 구분해 쓴다. F02가 용어 사전 등록안에 함께 넣는다(사전은 아직 없다).
+
+### 23. "분석"과 "스캔"의 구분 (2026-11-15, 용어 정리 2차)
+
+F02가 용어 사전 등록안을 만들다가 물었다. "분석"이 사용자가 시작하는 일 전체라면 "스캔 시작" 단추는 "분석 시작"이 맞지 않느냐는 것이다. PR #73 머리(5bfe080e)의 문구 묶음을 모두 확인했다. 한국어 문구에서 "분석"은 54개, "스캔"은 79개이고 대부분은 아래 구분대로다. 어긋난 곳은 분석을 시작하는 흐름과 "범위"에 붙는 말 20개다. 한 화면에 제목 "분석 대상과 범위"와 단추 "스캔 범위 검토", "스캔 시작"이 함께 있고, 결과 화면에서는 같은 동작이 "다시 분석"이다. 설정에는 같은 설정이 "최근 분석 범위 기억"과 "최근 스캔 범위 기억" 두 이름으로 있다. 영어도 같은 자리에서 섞여 있다.
+
+디자인팀 결정:
+
+- 분석: 사용자가 시작하고 결과를 얻는 일. 시작, 다시 하기, 대상, 범위, 결과에 쓴다(분석 시작, 다시 분석, 분석 대상, 분석 범위, 분석 결과, 먼저 분석).
+- 스캔: 분석 안에서 파일 정보를 읽어 들이는 실행. 진행 상태와 그 제어, 그 실행이 남긴 것에 쓴다(스캔 중, 스캔 일시 중지, 스캔 계속, 스캔 취소, 스캔 완료, 스캔 문제, 스캔한 폴더, 스캔 기록).
+- 예외는 두지 않는다. "분석 시작"을 누르면 상태 표지는 "스캔 중"이다.
+
+바꿀 문구(키는 그대로):
+
+| 키 | 지금 (한국어 / 영어) | 바꿀 문구 (한국어 / 영어) |
+| --- | --- | --- |
+| ui.analysis.scan_target | 드라이브 또는 폴더 스캔 / Scan a drive or folder | 드라이브 또는 폴더 분석 / Analyze a drive or folder |
+| ui.analysis.review_hint | 스캔 전에 이 경로를 검토하세요. / Review this path before scanning. | 분석하기 전에 이 경로를 검토하세요. / Review this path before analyzing. |
+| ui.analysis.choose_hint | …스캔 범위를 검토하세요. / …then review the scope before scanning. | 폴더 경로를 입력하거나 드라이브를 고른 뒤, 분석 범위를 검토하세요. / Enter a folder path or choose a drive, then review the scope before analyzing. |
+| ui.analysis.reviewing | 스캔 범위를 검토하는 중 / Reviewing scope | 분석 범위를 검토하는 중 / (그대로) |
+| ui.analysis.reviewing_pending | 스캔 범위를 검토하는 중… / Reviewing scope… | 분석 범위를 검토하는 중… / (그대로) |
+| ui.analysis.review | 스캔 범위 검토 / Review scope | 분석 범위 검토 / (그대로) |
+| ui.analysis.start | 스캔 시작 / Start scan | 분석 시작 / Start analysis |
+| ui.analysis.starting | 스캔을 시작하는 중 / Starting scan | 분석을 시작하는 중 / Starting analysis |
+| ui.analysis.starting_pending | 스캔을 시작하는 중… / Starting scan… | 분석을 시작하는 중… / Starting analysis… |
+| ui.analysis.scan_targets | 스캔 대상 / Scan targets | 분석 대상 / Analysis targets |
+| ui.analysis.choose_path_or_reopen | 스캔하기 전에 경로를 선택하거나 저장된 범위를 다시 여세요. / …before scanning. | 분석하기 전에 경로를 선택하거나 저장된 범위를 다시 여세요. / Choose a path or reopen the saved range before analyzing. |
+| ui.analysis.reopen_saved_or_select | 스캔하기 전에 저장된 범위를 다시 열거나 경로를 다시 선택하세요. / …before scanning. | 분석하기 전에 저장된 범위를 다시 열거나 경로를 다시 선택하세요. / Reopen the saved range or select its paths again before analyzing. |
+| ui.analysis.coverage_limits | 스캔 범위 제한 / Coverage limits | 분석 범위 제한 / (그대로) |
+| ui.analysis.scope_excluded | 제외 규칙에 따라 선택한 폴더가 스캔에서 빠졌습니다. / An exclusion removed a selected folder from the scan. | 제외 규칙에 따라 선택한 폴더가 분석 범위에서 빠졌습니다. / An exclusion removed a selected folder from the analysis scope. |
+| ui.analysis.space_out_of_range_links | 스캔 범위 밖 링크가 보고되었습니다. / Links outside the scan were reported | 분석 범위 밖 링크가 보고되었습니다. / Links outside the analysis scope were reported |
+| ui.analysis.volume_factor_out_of_scope | 스캔 범위 밖 / Outside the scan scope | 분석 범위 밖 / Outside the analysis scope |
+| ui.analysis.volume_target_outside_scan | 선택한 대상은 이 스캔 범위 밖입니다. 스캔에 포함된 폴더나 볼륨을 선택하세요. / The selected target is outside this scan. Choose a folder or volume included in the scan. | 선택한 대상은 이 분석 범위 밖입니다. 분석 범위에 포함된 폴더나 볼륨을 선택하세요. / The selected target is outside this analysis scope. Choose a folder or volume included in the scope. |
+| ui.analysis.scan_reason_queue_full | …나중에 다시 스캔하세요. / …Try the scan again later. | 대기 중인 작업이 너무 많습니다. 나중에 다시 분석하세요. / Too many jobs are waiting. Try the analysis again later. |
+| ui.settings.remember_recent_scopes | 최근 스캔 범위 기억 / Remember recent scan scopes | 최근 분석 범위 기억 / Remember recent scopes |
+| settings.space.shared_table_max_entries.description | …새 스캔부터 적용됩니다. / …Applies to new scans. | 스캔 식별 표마다 보관할 최대 항목 수입니다. 다음 분석부터 적용됩니다. / Maximum entries in each scan identity table. Applies from the next analysis. |
+
+19번의 1차 표에서 바꾼 것 가운데 다섯 개(스캔 대상, 스캔하기 전에 두 개, 스캔 범위 밖, 이 스캔 범위 밖)가 다시 바뀐다. 1차 표를 낼 때 "분석"과의 관계까지 보지 못했다.
+
+상태: 총괄에 올렸고 담당과 시점의 결정을 기다린다. 이 README의 다른 절과 Penpot 보드에 적힌 "스캔 시작", "스캔 범위"는 변경이 병합될 때 맞춘다.
 
 ## PR #69 검수 (2026-11-15, 초안, 분석 화면 요약의 자동 반영)
 
