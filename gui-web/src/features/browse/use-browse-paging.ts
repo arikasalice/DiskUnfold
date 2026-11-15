@@ -35,11 +35,13 @@ type Failure = { task: Task; stale: boolean };
 type FocusRequest = BrowseGridFocus & { keepLoadButton: boolean };
 type BrowseStatusKey =
   | "additional_items_ready"
+  | "no_more_items"
   | "no_confirmed_items_end_unknown"
   | "list_end_unknown";
 
 const statusFallback: Record<BrowseStatusKey, string> = {
   additional_items_ready: "Additional items are ready.",
+  no_more_items: "No more items",
   no_confirmed_items_end_unknown:
     "No confirmed items. The end of the list is unknown.",
   list_end_unknown: "The end of the list is unknown.",
@@ -54,7 +56,8 @@ type Options = {
   navigationEpoch: number;
   navigationSeq: () => number;
   canRead: () => boolean;
-  focusPanel: () => void;
+  /** Focuses the next step of a list without rows. */
+  focusEmpty: () => void;
 };
 
 export function useBrowsePaging({
@@ -66,7 +69,7 @@ export function useBrowsePaging({
   navigationEpoch,
   navigationSeq,
   canRead,
-  focusPanel,
+  focusEmpty,
 }: Options) {
   const text = useLocaleText();
   const [continuation, setContinuation] = useState<Continuation | null>(() =>
@@ -314,13 +317,39 @@ export function useBrowsePaging({
             active === removed &&
             document.activeElement === removed &&
             originFocus === focusGeneration.current
-          )
-            focusPanel();
+          ) {
+            // "Load more" or "Retry page" went away: the first row the read
+            // loaded is next; when it loaded none, the last row.
+            if (page.length > 0) focusRow(task.start, removed);
+            else if (pages.count > 0) focusRow(pages.count - 1, removed);
+            else focusEmpty();
+          }
           if (retryAttempt) setFailure(undefined);
+        }
+        function focusRow(index: number, removed: Element) {
+          const request: FocusRequest = {
+            index,
+            keepLoadButton: false,
+            eligible: () => {
+              const now = document.activeElement;
+              return (
+                latest() &&
+                (now === removed || now === null || now === document.body)
+              );
+            },
+            finish: () =>
+              setFocusRequest((current) =>
+                current === request ? undefined : current,
+              ),
+          };
+          setFocusRequest(request);
         }
         if (task.continuation) {
           if (page.length > 0 && !keyboard)
             setStatusKey("additional_items_ready");
+          // Announced once: "Load more" goes away with this read.
+          if (page.length === 0 && page.nextCursor === null)
+            setStatusKey("no_more_items");
           setContinuation(
             page.nextCursor
               ? { start: task.start + page.length, cursor: page.nextCursor }

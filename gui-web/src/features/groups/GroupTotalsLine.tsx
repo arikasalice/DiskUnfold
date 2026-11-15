@@ -5,6 +5,7 @@ import {
   Progress,
   Readout,
   Text,
+  Unbroken,
 } from "../../components";
 import type { SizeDisplay } from "../../i18n/bytes";
 import { useLocaleText } from "../../i18n/presentation";
@@ -34,7 +35,7 @@ function ratioValue(ratio: GroupRatio, text: LocaleText): string {
 function sizeRows(total: GroupTotal, display: SizeDisplay, text: LocaleText) {
   return total.sizes.map((entry) => ({
     label: basisLabel(entry.size.basis, text),
-    value: sizeValueText(entry.size, display, text),
+    value: <Unbroken>{sizeValueText(entry.size, display, text)}</Unbroken>,
   }));
 }
 
@@ -66,7 +67,7 @@ function Ready({
                   )
             }
           >
-            {sizeValueText(entry.size, display, text)}
+            <Unbroken>{sizeValueText(entry.size, display, text)}</Unbroken>
           </Metric>
         ))}
       </div>

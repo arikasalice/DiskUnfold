@@ -95,7 +95,3 @@
     }
   }
 }
-/* A title that takes the focus by script when its screen opens draws no frame. */
-.du-review-surface__header .du-heading[tabindex="-1"]:focus {
-  outline: none;
-}

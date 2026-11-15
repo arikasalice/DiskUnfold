@@ -10,6 +10,13 @@ body {
   color: var(--du-text);
   font-size: 14px;
   line-height: 1.5;
+  /* The default for all text, including menus, popovers and dialogs drawn
+     under body: Korean breaks between words instead of between any two
+     syllables, and only a word longer than its line breaks inside it.
+     break-word leaves the min-content width of tables and flex items as it
+     was; paths and identifiers keep their own anywhere rules. */
+  word-break: keep-all;
+  overflow-wrap: break-word;
 }
 
 .du-app {
@@ -94,6 +101,11 @@ body {
   line-height: 1.2;
 }
 
+/* A title that takes the focus by script when its screen opens draws no frame. */
+.du-heading[tabindex="-1"]:focus {
+  outline: none;
+}
+
 .du-heading--1 {
   font-size: 18px;
   font-weight: 690;
@@ -116,17 +128,10 @@ body {
   color: var(--du-muted);
 }
 
-/* Descriptions, reasons and notices are prose: Korean breaks between words
-   instead of between any two syllables, and only a word longer than the line
-   breaks inside it. Paths and identifiers keep their own rules. */
-.du-text--muted,
-.du-notice,
-.du-field [slot="description"],
-.du-field [slot="errorMessage"],
-.du-choice__description,
-.du-readout__note {
-  word-break: keep-all;
-  overflow-wrap: anywhere;
+/* A size with its unit or a date with its time: one piece that never wraps
+   inside. */
+.du-unbroken {
+  white-space: nowrap;
 }
 
 .du-text--eyebrow {
@@ -469,6 +474,19 @@ label.du-field > span {
 
   .du-action[data-hovered]:not([data-disabled]) {
     text-decoration: underline;
+  }
+
+  /* Without the accent colour a quiet action looks like body text, so it
+     draws an edge here only: ButtonText, or GrayText when disabled. These
+     follow the borderless quiet rules above at the same specificity. */
+  .du-action--quiet {
+    --du-action-interaction-border: ButtonText;
+    border-color: ButtonText;
+  }
+
+  .du-action--quiet[data-disabled],
+  .du-action--quiet[aria-disabled="true"] {
+    border-color: GrayText;
   }
 
   .du-field :is(input, select):hover:enabled {
