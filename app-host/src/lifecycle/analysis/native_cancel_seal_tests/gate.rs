@@ -1,5 +1,7 @@
 //! Port-level instrumentation around the real platform directory adapter.
-use super::RelativePath;
+use super::{
+    Engine, FILES_PER_DIRECTORY, GATE_TIMEOUT, Id, RelativePath, WORKER_COUNT, native_name,
+};
 use du_core_contracts::{
     Timestamp,
     ports::{PortError, PortErrorKind},
@@ -10,13 +12,14 @@ use du_core_contracts::{
     },
 };
 use std::{
-    collections::BTreeMap,
-    sync::{Arc, Condvar, Mutex},
+    collections::{BTreeMap, HashSet},
+    sync::{Arc, Condvar, Mutex, PoisonError},
     thread::{self, ThreadId},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
-const GATE_TIMEOUT: Duration = Duration::from_secs(30);
+// Keep worker fallback later than the main barrier, which requires active parked evidence.
+const WORKER_GATE_TIMEOUT: Duration = Duration::from_secs(120);
 
 #[derive(Default)]
 struct State {
@@ -26,7 +29,10 @@ struct State {
     started: Vec<(RelativePath, ThreadId)>,
     returned: Vec<(RelativePath, ThreadId)>,
     parked: Vec<(RelativePath, ThreadId)>,
+    gate_exited: Vec<(RelativePath, ThreadId)>,
+    gate_timeouts: usize,
     entries: BTreeMap<RelativePath, usize>,
+    entry_sizes: BTreeMap<RelativePath, Vec<Option<u64>>>,
 }
 
 #[derive(Default)]
@@ -66,7 +72,14 @@ impl Probe {
             for entry in entries {
                 let mut item_path = path.to_vec();
                 item_path.push(entry.entry.name.clone());
-                *state.entries.entry(item_path).or_default() += 1;
+                *state.entries.entry(item_path.clone()).or_default() += 1;
+                let size = entry
+                    .entry
+                    .metadata
+                    .as_ref()
+                    .ok()
+                    .and_then(|metadata| metadata.size.as_ref().ok().copied());
+                state.entry_sizes.entry(item_path).or_default().push(size);
             }
         }
         self.changed.notify_all();
@@ -76,39 +89,106 @@ impl Probe {
     /// Parks a returned batch inside the wrapper until the caller releases the test gate.
     fn park_after_return(&self, path: &[Vec<u8>]) -> Result<(), PortError> {
         let mut state = self.state.lock().map_err(|_| gate_error())?;
-        state.parked.push((path.to_vec(), thread::current().id()));
+        let worker = thread::current().id();
+        state.parked.push((path.to_vec(), worker));
         self.changed.notify_all();
-        let (state, timeout) = self
+        let (mut state, timeout) = self
             .changed
-            .wait_timeout_while(state, GATE_TIMEOUT, |state| !state.gate_released)
+            .wait_timeout_while(state, WORKER_GATE_TIMEOUT, |state| !state.gate_released)
             .map_err(|_| gate_error())?;
-        if timeout.timed_out() && !state.gate_released {
+        let gate_timed_out = timeout.timed_out() && !state.gate_released;
+        if gate_timed_out {
+            state.gate_timeouts += 1;
+        }
+        state.gate_exited.push((path.to_vec(), worker));
+        self.changed.notify_all();
+        if gate_timed_out {
             return Err(gate_error());
         }
         Ok(())
     }
 
-    pub(super) fn wait_for_two_workers(&self) -> Result<(), String> {
+    pub(super) fn wait_for_four_workers(&self) -> Result<(), String> {
         let state = self.state.lock().map_err(|_| "probe lock")?;
         let (state, timeout) = self
             .changed
-            .wait_timeout_while(state, GATE_TIMEOUT, |state| state.parked.len() < 2)
+            .wait_timeout_while(state, GATE_TIMEOUT, |state| {
+                !state.gate_released && active_workers(state).len() < WORKER_COUNT
+            })
             .map_err(|_| "probe wait")?;
-        if timeout.timed_out() && state.parked.len() < 2 {
-            return Err("fewer than two real adapter reads reached the post-return gate".into());
+        let active = active_parked(&state);
+        let workers = distinct_workers(&active);
+        if timeout.timed_out() || state.gate_released || workers.len() < WORKER_COUNT {
+            return Err(format!(
+                "four-worker evidence is insufficient: {} distinct workers remained actively parked at the barrier timeout or release",
+                workers.len(),
+            ));
         }
-        let first = state.parked.first().ok_or("no gated worker")?.1;
-        if !state.parked.iter().any(|(_, worker)| *worker != first) {
-            return Err("the gated adapter reads did not run on distinct workers".into());
+        if workers.len() != WORKER_COUNT {
+            return Err(format!(
+                "expected exactly {WORKER_COUNT} distinct adapter workers, observed {}",
+                workers.len()
+            ));
         }
-        for (directory, _) in &state.parked {
-            if !state
+        for (directory, _) in &active {
+            let observed: BTreeMap<_, _> = state
                 .entries
-                .keys()
-                .any(|path| path.len() == directory.len() + 1 && path.starts_with(directory))
-            {
-                return Err("a gated native read returned no fixture entries".into());
+                .iter()
+                .filter(|(path, _)| {
+                    path.len() == directory.len() + 1 && path.starts_with(directory)
+                })
+                .filter_map(|(path, count)| path.last().map(|name| (name.clone(), *count)))
+                .collect();
+            let expected: BTreeMap<_, _> = (0..FILES_PER_DIRECTORY)
+                .map(|file| {
+                    let name = format!("item-{file:02}.bin");
+                    (native_name(&name), 1)
+                })
+                .collect();
+            if observed != expected {
+                return Err(format!(
+                    "gated adapter read for fixture directory {directory:?} returned {observed:?}, expected {expected:?}"
+                ));
             }
+            for name in expected.keys() {
+                let mut path = directory.clone();
+                path.push(name.clone());
+                if !matches!(state.entry_sizes.get(&path), Some(sizes) if sizes.len() == 1 && sizes[0] == Some(2))
+                {
+                    return Err(format!(
+                        "gated adapter read for fixture file {path:?} did not return its expected 2-byte metadata"
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub(super) fn wait_for_parked_workers_to_exit(&self, deadline: Instant) -> Result<(), String> {
+        let state = self.state.lock().map_err(|_| "probe lock")?;
+        let timeout = deadline.saturating_duration_since(Instant::now());
+        let (state, timeout) = self
+            .changed
+            .wait_timeout_while(state, timeout, |state| {
+                state.gate_exited.len() < state.parked.len()
+            })
+            .map_err(|_| "probe exit wait")?;
+        if timeout.timed_out() && state.gate_exited.len() < state.parked.len() {
+            return Err(format!(
+                "only {} of {} parked adapter workers exited the test gate before timeout",
+                state.gate_exited.len(),
+                state.parked.len()
+            ));
+        }
+        if state.gate_timeouts != 0 {
+            return Err(format!(
+                "{} adapter workers left the gate on worker timeout instead of test release",
+                state.gate_timeouts
+            ));
+        }
+        let exited: HashSet<_> = state.gate_exited.iter().cloned().collect();
+        if state.parked.iter().any(|worker| !exited.contains(worker)) {
+            return Err("a parked adapter worker has no matching gate-exit observation".into());
         }
         Ok(())
     }
@@ -116,10 +196,9 @@ impl Probe {
     /// Releases parked wrappers. The main test calls this after the `job.cancel` reply, so reads
     /// between the runtime flag update and that reply are outside this observation window.
     pub(super) fn release_test_gate(&self) {
-        if let Ok(mut state) = self.state.lock() {
-            state.gate_released = true;
-            self.changed.notify_all();
-        }
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        state.gate_released = true;
+        self.changed.notify_all();
     }
 
     pub(super) fn snapshot(
@@ -135,12 +214,79 @@ impl Probe {
     }
 }
 
-pub(super) struct ReleaseOnDrop(pub(super) Arc<Probe>);
+pub(super) struct ReleaseOnDrop<'a> {
+    probe: Arc<Probe>,
+    engine: &'a Engine,
+    job: Option<Id>,
+    finished: bool,
+}
 
-impl Drop for ReleaseOnDrop {
-    fn drop(&mut self) {
-        self.0.release_test_gate();
+impl<'a> ReleaseOnDrop<'a> {
+    pub(super) fn new(probe: Arc<Probe>, engine: &'a Engine) -> Self {
+        Self {
+            probe,
+            engine,
+            job: None,
+            finished: false,
+        }
     }
+
+    pub(super) fn track_job(&mut self, job: Id) {
+        self.job = Some(job);
+    }
+
+    pub(super) fn finish(&mut self) -> Result<(), String> {
+        let result = self.cleanup();
+        self.finished = true;
+        result
+    }
+
+    fn cleanup(&mut self) -> Result<(), String> {
+        self.probe.release_test_gate();
+        let deadline = Instant::now() + GATE_TIMEOUT;
+        let mut errors = Vec::new();
+        if let Some(job) = self.job.take()
+            && let Err(error) = super::stop_job_before(self.engine, &job, deadline)
+        {
+            errors.push(format!("scan job cleanup failed: {error}"));
+        }
+        if let Err(error) = self.probe.wait_for_parked_workers_to_exit(deadline) {
+            errors.push(error);
+        }
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors.join("; "))
+        }
+    }
+}
+
+impl Drop for ReleaseOnDrop<'_> {
+    fn drop(&mut self) {
+        if !self.finished {
+            if let Err(error) = self.cleanup() {
+                eprintln!("F02_NATIVE_CANCEL_SEAL cleanup incomplete: {error}");
+            }
+            self.finished = true;
+        }
+    }
+}
+
+fn distinct_workers(parked: &[(RelativePath, ThreadId)]) -> HashSet<ThreadId> {
+    parked.iter().map(|(_, worker)| *worker).collect()
+}
+
+fn active_parked(state: &State) -> Vec<(RelativePath, ThreadId)> {
+    state
+        .parked
+        .iter()
+        .filter(|parked| !state.gate_exited.contains(*parked))
+        .cloned()
+        .collect()
+}
+
+fn active_workers(state: &State) -> HashSet<ThreadId> {
+    distinct_workers(&active_parked(state))
 }
 
 /// Wraps the platform's ScopeRootPort while preserving its native directory handles.

@@ -33,7 +33,8 @@ use std::{
 
 type RelativePath = Vec<Vec<u8>>;
 type TestResult = Result<(), Box<dyn std::error::Error>>;
-const GATE_TIMEOUT: Duration = Duration::from_secs(30);
+const GATE_TIMEOUT: Duration = Duration::from_secs(60);
+const WORKER_COUNT: usize = 4;
 const DIRECTORY_COUNT: usize = 16;
 const FILES_PER_DIRECTORY: usize = 4;
 
@@ -66,7 +67,7 @@ fn native_adapter_multiworker_cancel_seals_returned_entries_once_after_gate_rele
     let limit: SharedTableLimitSource = Arc::new(SharedTableLimit::default);
     let _services = register_analysis(&mut builder, native, &database, limit, None)?;
     let engine = builder.build()?;
-    let _release_on_error = ReleaseOnDrop(probe.clone());
+    let mut release_on_error = ReleaseOnDrop::new(probe.clone(), &engine);
 
     let draft = json!({
         "includes": [scope_path(&scope)],
@@ -86,8 +87,9 @@ fn native_adapter_multiworker_cancel_seals_returned_entries_once_after_gate_rele
         "scan.start",
         json!({"draft": draft, "reviewFingerprint": review.review_fingerprint}),
     )?)?;
+    release_on_error.track_job(start.job_ref.clone());
 
-    probe.wait_for_two_workers()?;
+    probe.wait_for_four_workers()?;
     let cancel: AnalysisJobControl = serde_json::from_value(request(
         &engine,
         "job.cancel",
@@ -119,9 +121,10 @@ fn native_adapter_multiworker_cancel_seals_returned_entries_once_after_gate_rele
         "sealed result differs from returned batches"
     );
     assert!(actual.len() >= 2 * FILES_PER_DIRECTORY);
+    release_on_error.finish()?;
 
     eprintln!(
-        "F02_NATIVE_CANCEL_SEAL os={} arch={} workers>=2 adapter_reads={} returned_entries={} post_release_read_starts={} observation=after_test_gate_release cancel_reply_gap=unmeasured filtered_enumeration=unmeasured gui=not_launched state=cancelled seal={sealed_version:?}",
+        "F02_NATIVE_CANCEL_SEAL os={} arch={} workers={WORKER_COUNT} adapter_reads={} returned_entries={} post_release_read_starts={} observation=after_test_gate_release cancel_reply_gap=unmeasured filtered_enumeration=unmeasured gui=not_launched state=cancelled seal={sealed_version:?}",
         std::env::consts::OS,
         std::env::consts::ARCH,
         returned,
@@ -154,18 +157,50 @@ fn wait_for_cancelled(
     engine: &Engine,
     job: &Id,
 ) -> Result<AnalysisJobStatus, Box<dyn std::error::Error>> {
-    let deadline = Instant::now() + GATE_TIMEOUT;
+    let status = wait_for_terminal(engine, job)?;
+    if status.state != JobState::Cancelled {
+        return Err(format!("scan ended before cancelled seal: {:?}", status.state).into());
+    }
+    Ok(status)
+}
+
+fn wait_for_terminal(
+    engine: &Engine,
+    job: &Id,
+) -> Result<AnalysisJobStatus, Box<dyn std::error::Error>> {
+    wait_for_terminal_before(engine, job, Instant::now() + GATE_TIMEOUT)
+}
+
+fn wait_for_terminal_before(
+    engine: &Engine,
+    job: &Id,
+    deadline: Instant,
+) -> Result<AnalysisJobStatus, Box<dyn std::error::Error>> {
     loop {
         let status: AnalysisJobStatus =
             serde_json::from_value(request(engine, "job.get", json!({"jobRef": job}))?)?;
-        if status.state == JobState::Cancelled {
+        if status.state.is_terminal() {
             return Ok(status);
         }
-        if status.state.is_terminal() || Instant::now() >= deadline {
-            return Err(format!("scan ended before cancelled seal: {:?}", status.state).into());
+        if Instant::now() >= deadline {
+            return Err(format!("scan did not reach a terminal state: {:?}", status.state).into());
         }
         thread::yield_now();
     }
+}
+
+fn stop_job_before(
+    engine: &Engine,
+    job: &Id,
+    deadline: Instant,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let status: AnalysisJobStatus =
+        serde_json::from_value(request(engine, "job.get", json!({"jobRef": job}))?)?;
+    if !status.state.is_terminal() {
+        let _ = request(engine, "job.cancel", json!({"jobRef": job}));
+        wait_for_terminal_before(engine, job, deadline)?;
+    }
+    Ok(())
 }
 
 fn browse_returned_paths(
