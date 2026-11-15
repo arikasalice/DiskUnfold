@@ -1043,7 +1043,8 @@ test("F01–F03: reviewed scope starts a scan and reads its pinned partial resul
     coverage.getByText("Untraversed links").nextElementSibling?.textContent,
   ).toBe("2");
   expect(
-    coverage.getByText("Inaccessible ranges").nextElementSibling?.textContent,
+    coverage.getByText("Inaccessible locations").nextElementSibling
+      ?.textContent,
   ).toBe("Not recorded");
   expect(calls.find((call) => call.name === "scan.start")?.body).toMatchObject({
     reviewFingerprint: "verified",
@@ -1176,7 +1177,9 @@ test("F03: changing size display does not request another result", async () => {
   ).toBeDefined();
   expect(calls.filter(({ name }) => name === "space.total")).toHaveLength(1);
   fireEvent.click(screen.getByRole("button", { name: "Display options" }));
-  expect(screen.getByText("Allocated size · SI · B")).toBeDefined();
+  expect(
+    screen.getByText("Allocated size · Decimal units (kB, MB) · B"),
+  ).toBeDefined();
   fireEvent.click(screen.getByRole("button", { name: "Display options" }));
   expect(
     screen.getByRole<HTMLSelectElement>("combobox", { name: "Size basis" })
@@ -1225,7 +1228,9 @@ test("F03 IF-18: new preferences change presentation without replacing the pinne
       });
     }
   });
-  expect(await screen.findByText("Logical size · SI · kB")).toBeDefined();
+  expect(
+    await screen.findByText("Logical size · Decimal units (kB, MB) · kB"),
+  ).toBeDefined();
   expect(screen.getByText(/Some display preferences/)).toBeDefined();
   await act(async () =>
     resolveOld({
@@ -1237,7 +1242,9 @@ test("F03 IF-18: new preferences change presentation without replacing the pinne
       warningKey: null,
     }),
   );
-  expect(screen.getByText("Logical size · SI · kB")).toBeDefined();
+  expect(
+    screen.getByText("Logical size · Decimal units (kB, MB) · kB"),
+  ).toBeDefined();
   expect(
     screen.getByText("Result version: Final with scan gaps"),
   ).toBeDefined();
@@ -2716,15 +2723,18 @@ test.each(["keep focus", "move focus"] as const)(
       screen.queryByRole("progressbar", { name: "Scanning folder" }),
     ).toBeNull();
     expect(calls.filter(({ name }) => name === "job.cancel")).toHaveLength(1);
-    if (intent === "move focus") browse.focus();
+    const details = screen.getByRole("region", { name: "Result details" });
+    if (intent === "move focus") details.focus();
 
     state = "cancelled";
     sequence = 5;
     notifyResult(listeners, "job.resync_required", {});
-    const status = await screen.findByText("Scan cancelled");
+    await screen.findByText("Scan cancelled");
     expect(screen.queryByRole("button", { name: "Cancel scan" })).toBeNull();
+    // The removed control hands its focus to "Browse folders" in the same
+    // row; focus the user moved elsewhere stays there.
     expect(document.activeElement).toBe(
-      intent === "move focus" ? browse : status.closest('[role="status"]'),
+      intent === "move focus" ? details : browse,
     );
   },
 );
@@ -4534,9 +4544,15 @@ test("F01: pending scan keeps focus and suppresses duplicate starts", async () =
   if (!release) throw new Error("Scan did not start");
   await act(async () => release?.());
   await screen.findByText("At least 42 bytes");
+  // A started analysis leaves the focus on the screen title, not the badge.
   expect(document.activeElement).toBe(
-    screen.getByText("Scan ended with gaps").parentElement,
+    screen.getByRole("heading", { level: 2, name: "Disk space results" }),
   );
+  expect(
+    screen
+      .getByText("Scan ended with gaps")
+      .parentElement?.hasAttribute("tabindex"),
+  ).toBe(false);
   expect(screen.queryByRole("button", { name: "Start analysis" })).toBeNull();
 });
 
