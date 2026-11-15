@@ -147,7 +147,10 @@ fn register_with_options(
     workers
         .runtime
         .register(du_scan_engine::scan_job::descriptor())?;
-    let store = IngestSink::with_version_publisher(workers.runtime.result_version_publisher());
+    let store = IngestSink::with_publishers(
+        workers.runtime.result_version_publisher(),
+        workers.runtime.result_freshness_publisher(),
+    );
     let sets = Arc::new(ResultSets::new(store.clone()));
     space::register_total_with_queries(builder, sets.clone());
     space::detail::register(builder, store.clone());

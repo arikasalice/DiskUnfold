@@ -1,3 +1,4 @@
+use super::freshness_replay::LatestFreshness;
 use du_core_contracts::{
     ENVELOPE_VERSION, EventEnvelope, Timestamp,
     analysis_ipc::{JOB_PROGRESS, JobResyncReason, JobResyncRequired},
@@ -24,6 +25,8 @@ pub(super) struct Pending {
     pub(super) document_suspended: bool,
     pub(super) release_at: Option<Instant>,
     pub(super) ready_count: usize,
+    /// Latest freshness event per scope version; see `freshness_replay`.
+    pub(super) freshness: LatestFreshness,
 }
 
 impl Pending {
@@ -58,6 +61,9 @@ impl Pending {
         observed_at: Timestamp,
         mut next_loss_order: impl FnMut() -> Option<u64>,
     ) {
+        // Record before any discard, so a replay carries the newest event even when
+        // this queue dropped it.
+        self.freshness.record(&event);
         if let Some(discarded) = &mut self.discarded_events {
             *discarded = discarded.saturating_add(1);
             return;
@@ -99,7 +105,41 @@ impl Pending {
         }
     }
 
+    /// Returns the next event. After a `job.resync_required` it queues the retained
+    /// freshness events again, since the window lost events it cannot name.
     pub(super) fn take(&mut self, now: Instant) -> Option<EventEnvelope> {
+        let event = self.take_next(now)?;
+        if event.topic == "job.resync_required" {
+            self.queue_freshness_replays(now);
+        }
+        Some(event)
+    }
+
+    /// Queues requery copies of the retained freshness events behind the current queue.
+    ///
+    /// A replay can be skipped, wholly or in part, and nothing retries it by itself:
+    ///
+    /// - While the queue discards events (`discarded_events` is set) no copy is queued. The
+    ///   queued `job.resync_required` is still to come, and taking it runs this method again,
+    ///   so the receiver gets every copy after that notice.
+    /// - When the queue is within one slot of [`EVENT_LIMIT`] and is not discarding, copies
+    ///   are queued in scope version order until the limit is reached; the rest of this
+    ///   call's copies are dropped. No resync is raised for that, and no later call of this
+    ///   method retries them on its own. The receiver gets the other queued events and the
+    ///   copies that fit; the retained copies stay stored, and are sent again after the next
+    ///   `job.resync_required` (a push that reaches the limit raises one) or document
+    ///   generation. Live events of the skipped scope versions still arrive in the stream.
+    fn queue_freshness_replays(&mut self, now: Instant) {
+        for replay in self.freshness.replays() {
+            if self.discarded_events.is_some() || self.queue.len() + 1 >= EVENT_LIMIT {
+                return;
+            }
+            self.release_at.get_or_insert(now + EVENT_INTERVAL);
+            self.queue.push_back(replay);
+        }
+    }
+
+    fn take_next(&mut self, now: Instant) -> Option<EventEnvelope> {
         if self.delivery_unreportable || self.document_suspended {
             return None;
         }
@@ -166,8 +206,12 @@ impl Pending {
     }
 
     pub(super) fn mark_document_ready(&mut self) {
+        let newly_ready = !self.document_ready;
         self.document_ready = true;
         self.document_suspended = false;
+        if newly_ready {
+            self.queue_freshness_replays(Instant::now());
+        }
     }
 
     pub(super) fn close_document_generation(&mut self) {

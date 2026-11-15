@@ -918,6 +918,48 @@ export type ResultVersionChanged = { lineageId: Id, sourceRef: Id, origin: strin
  * Consumers must not use this value to decide which lineages they track.
  */
 dataSource?: DataSource, sequence: number, change: ResultVersionChange, previousResultVersion?: Id, completeness?: PublishedCompleteness, observedAt?: Timestamp, };
+export type FreshnessState = string;
+export type FreshnessCounts = { observed: number, unwatched: number, change_notified: number, gap_unknown: number, refreshing: number, unverifiable: number, };
+export type FreshnessSummary = {
+/**
+ * The worst state of all rows.
+ *
+ * A summary without rows has no worst state, and its representative is
+ * `unverifiable`; a receiver never assumes `observed` there. A receiver first
+ * reads an event without a current version and with every count zero as the removal
+ * of that scope version's ledger.
+ */
+representative: FreshnessState, counts: FreshnessCounts, };
+export type FreshnessRange = {
+/**
+ * Position in the root list of the event's scope version.
+ */
+rootIndex: number, state: FreshnessState,
+/**
+ * An existing reason key explaining the state, such as a scope gap's reason.
+ */
+reasonKey?: string, };
+export type FreshnessChanged = { "kind": "ranges", ranges: Array<FreshnessRange>, } | { "kind": "requery" } | { "kind": "unknown" };
+export type ResultFreshnessChanged = {
+/**
+ * The lineage whose `results.version_changed` events the receiver tracks.
+ */
+lineageId: Id,
+/**
+ * The scope version whose ledger changed; `rootIndex` refers to its root list.
+ */
+scopeVersionId: Id,
+/**
+ * Rises by one for each change of this scope version's ledger, from 1, below 2^53.
+ * It is not comparable with the lineage sequence of `results.version_changed`.
+ */
+sequence: number, summary: FreshnessSummary, changed: FreshnessChanged,
+/**
+ * The observation time of the result version that caused this change. Omitted when
+ * the change does not come from an observation (a refresh start or a withdrawal) or
+ * that version has no observation time.
+ */
+observedAt?: Timestamp, };
 export type TargetKind = "internal" | "external" | "network_mount" | "folder_mount";
 export type IdentitySource = "confirmed" | "estimated" | "unavailable";
 export type TargetAccess = "checking" | "accessible" | "denied" | "disconnected" | "missing" | "unresponsive" | "unknown";
