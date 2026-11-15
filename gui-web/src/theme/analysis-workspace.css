@@ -270,6 +270,11 @@
   font-weight: 660;
 }
 
+/* Text that stands in for a value still to come does not read as a value. */
+.du-metric[data-pending] .du-metric__value {
+  color: var(--du-muted);
+}
+
 .du-metric__detail {
   font-size: 12px;
 }
