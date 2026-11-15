@@ -4,11 +4,12 @@ use crate::{BuildError, SpaceObservation, StoredObservation};
 use du_core_contracts::Timestamp;
 use du_core_contracts::result::{ResultItem, ResultItemKind};
 use du_core_contracts::scan_observation::{NativeModifiedTime, PlaceholderObservation};
+use std::sync::Arc;
 
 pub(crate) struct BuiltItems {
     pub(crate) items: Vec<ResultItem>,
     pub(crate) structures: Vec<bool>,
-    pub(crate) physical: Option<Vec<Option<SpaceObservation>>>,
+    pub(crate) physical: Option<Vec<Option<Arc<SpaceObservation>>>>,
     pub(crate) modified_times: Option<Vec<Option<Timestamp>>>,
     pub(crate) native_modified_times: Option<Vec<Option<NativeModifiedTime>>>,
     pub(crate) enumerated_inodes: Option<Vec<Option<std::num::NonZeroU64>>>,
@@ -140,7 +141,7 @@ fn group_children(store: &ObservationStore) -> (Vec<u32>, Vec<u32>) {
 
 /// Per-item evidence columns; a column exists only when some item has a value.
 struct Columns {
-    physical: Option<Vec<Option<SpaceObservation>>>,
+    physical: Option<Vec<Option<Arc<SpaceObservation>>>>,
     modified_times: Option<Vec<Option<Timestamp>>>,
     native_modified_times: Option<Vec<Option<NativeModifiedTime>>>,
     enumerated_inodes: Option<Vec<Option<std::num::NonZeroU64>>>,
@@ -173,7 +174,7 @@ impl Columns {
 
     fn push(&mut self, observation: &StoredObservation) {
         if let Some(values) = &mut self.physical {
-            values.push(observation.physical.as_deref().cloned());
+            values.push(observation.physical.clone());
         }
         if let Some(values) = &mut self.modified_times {
             values.push(observation.modified_at.clone());
@@ -199,3 +200,6 @@ fn is_structure(kind: ResultItemKind) -> bool {
         ResultItemKind::Directory | ResultItemKind::UnknownStructure
     )
 }
+
+#[cfg(test)]
+mod tests;
