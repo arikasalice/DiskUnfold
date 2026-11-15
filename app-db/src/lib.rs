@@ -13,6 +13,7 @@ mod read_only;
 pub mod recent_scope;
 mod recent_scope_schema;
 pub mod ruleset;
+pub mod scope_observation;
 mod settings;
 
 pub use history_schema::{HISTORY_DEFINITIONS, HISTORY_SCHEMA_VERSION};
