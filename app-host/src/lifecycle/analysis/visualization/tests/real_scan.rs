@@ -10,6 +10,8 @@ use serde_json::{Value, json};
 
 use super::{Assembled, Failure, assemble, ok};
 
+mod size_rule;
+
 /// A scope path in the encoding this platform's scan adapters read.
 #[cfg(windows)]
 fn native(path: &std::path::Path) -> Value {

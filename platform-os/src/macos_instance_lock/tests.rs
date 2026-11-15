@@ -5,6 +5,12 @@ use std::{
     io::Read,
     os::unix::fs::symlink,
     path::{Path, PathBuf},
+    process::Command,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    thread,
 };
 
 use tempfile::TempDir;
@@ -26,6 +32,48 @@ fn lock_excludes_a_second_gui_and_releases_on_drop() -> Result<(), Box<dyn std::
     ));
     drop(first);
     assert!(MacOsInstanceLock::acquire(&data).is_ok());
+    Ok(())
+}
+
+// A forked child keeps a copy of the sentinel descriptor until it executes. The
+// lock must still be free as soon as the guard is dropped.
+#[test]
+fn lock_is_free_after_drop_while_other_threads_spawn_children()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_temp, data) = data_dir()?;
+    let stop = Arc::new(AtomicBool::new(false));
+    let spawners: Vec<_> = (0..4)
+        .map(|_| {
+            let stop = Arc::clone(&stop);
+            thread::spawn(move || {
+                while !stop.load(Ordering::Relaxed) {
+                    let _ = Command::new("/usr/bin/true").status();
+                }
+            })
+        })
+        .collect();
+    let mut busy_round = None;
+    for round in 0..2_000 {
+        match MacOsInstanceLock::acquire(&data) {
+            Ok(lock) => drop(lock),
+            Err(MacOsInstanceLockError::Busy) => {
+                busy_round = Some(round);
+                break;
+            }
+            Err(error) => {
+                stop.store(true, Ordering::Relaxed);
+                return Err(error.into());
+            }
+        }
+    }
+    stop.store(true, Ordering::Relaxed);
+    for spawner in spawners {
+        spawner.join().map_err(|_| "a spawner thread panicked")?;
+    }
+    assert_eq!(
+        busy_round, None,
+        "the lock was still held after its guard was dropped"
+    );
     Ok(())
 }
 

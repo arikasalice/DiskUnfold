@@ -9,8 +9,7 @@ use crate::{ResultVersion, physical, query::SpaceTotalError, space, tree::BuiltI
 use du_core_contracts::ItemRef;
 use du_core_contracts::result::{ResultCompleteness, SpaceAggregate};
 
-/// ID of the rule a registry must provide and a build uses when none is bound.
-pub const DEFAULT_SIZE_RULE_ID: &str = "size.agg.subtree-unique";
+pub use du_core_contracts::size_rule::DEFAULT_SIZE_RULE_ID;
 
 /// Identity of the implementation that produced a result version's aggregates.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
