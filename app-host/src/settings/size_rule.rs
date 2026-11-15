@@ -47,8 +47,7 @@ impl StartupSettings {
     /// unreadable service yields [`DEFAULT_SIZE_RULE_ID`].
     pub(crate) fn size_rule_source(self: Arc<Self>) -> SizeRuleSource {
         Arc::new(move || {
-            self
-                .service
+            self.service
                 .lock()
                 .ok()
                 .map(|service| {

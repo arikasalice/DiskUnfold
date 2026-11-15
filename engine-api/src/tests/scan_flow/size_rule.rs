@@ -139,11 +139,7 @@ fn unknown_rule_creates_no_job_and_consumes_no_scope_root() -> TestResult {
 
 #[test]
 fn a_duplicate_start_returns_the_running_job_with_its_pinned_rule() -> TestResult {
-    let (source, reads) = scripted(&[
-        DEFAULT_SIZE_RULE_ID,
-        DEFAULT_SIZE_RULE_ID,
-        "size.agg.nope",
-    ]);
+    let (source, reads) = scripted(&[DEFAULT_SIZE_RULE_ID, DEFAULT_SIZE_RULE_ID, "size.agg.nope"]);
     let ScanHarness {
         engine,
         release,
@@ -183,7 +179,10 @@ fn a_duplicate_start_returns_the_running_job_with_its_pinned_rule() -> TestResul
     // Once sealed, the changed unregistered value is still rejected.
     let rejected = start(&engine, &draft, &fingerprint)?;
     assert_eq!(
-        rejected.error.ok_or("the changed rule was admitted")?.reason_key,
+        rejected
+            .error
+            .ok_or("the changed rule was admitted")?
+            .reason_key,
         "space.rule_unknown"
     );
     assert_eq!(reads.load(Ordering::SeqCst), 4);
