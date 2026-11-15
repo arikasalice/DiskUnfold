@@ -24,6 +24,12 @@
 }
 
 .du-visualization-viewport {
+  /*
+   * A containing block for the absolutely placed parts inside (the hidden
+   * status regions). Without it they are placed against the page, lie outside
+   * this scroll area's clip, and make the page itself scroll.
+   */
+  position: relative;
   min-block-size: 0;
   min-inline-size: 0;
   overflow: auto;
