@@ -240,7 +240,7 @@ export function AnalysisPanel({
       ? text(dropMessage.key, dropMessage.fallback)
       : dropEnabled
         ? text("ui.analysis.drop_hint", "Drop a folder here or enter its path.")
-        : text("ui.analysis.review_hint", "Review this path before scanning.");
+        : text("ui.analysis.review_hint", "Review this path before analyzing.");
 
   useLayoutEffect(() => {
     if (focusEditor.current && editorOpen) {
@@ -346,7 +346,7 @@ export function AnalysisPanel({
     setReviewProblem(
       text(
         "ui.analysis.choose_path_or_reopen",
-        "Choose a path or reopen the saved range before scanning.",
+        "Choose a path or reopen the saved range before analyzing.",
       ),
     );
   }
@@ -558,7 +558,7 @@ export function AnalysisPanel({
           setReviewProblem(
             text(
               "ui.analysis.reopen_saved_or_select",
-              "Reopen the saved range or select its paths again before scanning.",
+              "Reopen the saved range or select its paths again before analyzing.",
             ),
           );
         }
@@ -699,7 +699,7 @@ export function AnalysisPanel({
             {resultActive && (
               <header className="du-target-editor__header">
                 <Heading level={3}>
-                  {text("ui.analysis.scan_targets", "Scan targets")}
+                  {text("ui.analysis.scan_targets", "Analysis targets")}
                 </Heading>
                 {receipt !== null && (
                   <Action
@@ -792,7 +792,7 @@ function AnalysisHeader({
         {hasTotal
           ? text("ui.analysis.results", "Disk space results")
           : resultActive
-            ? text("ui.analysis.scan_target", "Scan a drive or folder")
+            ? text("ui.analysis.scan_target", "Analyze a drive or folder")
             : text("ui.analysis.choose_target", "Choose what to analyze")}
       </Heading>
       {hasReceipt && !running && (
@@ -810,7 +810,7 @@ function AnalysisHeader({
         <Text kind="muted">
           {text(
             "ui.analysis.choose_hint",
-            "Enter a folder path or choose a drive, then review the scope before scanning.",
+            "Enter a folder path or choose a drive, then review the scope before analyzing.",
           )}
         </Text>
       )}

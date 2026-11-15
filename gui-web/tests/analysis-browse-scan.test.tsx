@@ -162,7 +162,7 @@ function renderPanel(client: AnalysisClient) {
 
 async function startScan() {
   const start = await screen.findByRole<HTMLButtonElement>("button", {
-    name: "Start scan",
+    name: "Start analysis",
   });
   await waitFor(() => expect(start.disabled).toBe(false));
   fireEvent.click(start);

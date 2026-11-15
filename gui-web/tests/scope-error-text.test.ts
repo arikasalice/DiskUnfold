@@ -22,7 +22,7 @@ test.each([
   [
     "job reason",
     "job.queue_full",
-    "Too many jobs are waiting. Try the scan again later.",
+    "Too many jobs are waiting. Try the analysis again later.",
   ],
   [
     "closing job reason",

@@ -93,7 +93,7 @@ function rowReason(
   if (collected(row))
     return text(
       "ui.browse.analyze_first_collected",
-      "This folder is already fully analyzed",
+      "This folder is already fully scanned",
     );
   if (priority.requested(row.item))
     return text("ui.browse.analyze_first_requested", "Already requested");
@@ -291,7 +291,7 @@ function useBarFocus(
  *
  * The bar also shows the outcome of the last request in place of its summary
  * for as long as the scan priority state offers it, and stays while it does,
- * so an outcome such as "The analysis has finished." is not removed with the
+ * so an outcome such as "The scan has already finished." is not removed with the
  * bar when the scan ends.
  */
 export function SelectionAnalyzeFirst({
