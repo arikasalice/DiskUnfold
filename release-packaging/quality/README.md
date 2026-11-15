@@ -94,6 +94,8 @@ node --test release-packaging/quality/
 
 Hosted macOS jobs can wait 20 to 50 minutes in the queue. The `targets` job reads the repository variable `DU_RUNNER_OVERRIDES`, a JSON object that maps `<os>-<cpu>` to a runner label or a list of labels, and replaces `runner` for those targets. An unset or empty variable keeps the GitHub-hosted runners. An unknown key or an empty value fails the `targets` job. `quality-output/targets.json` records the effective runners.
 
+An invalid `DU_RUNNER_OVERRIDES` value fails the `targets` job; on Windows PowerShell, set it from stdin with `'{"macos-arm64":["self-hosted","macOS","ARM64","du-m1-vm"]}' | gh variable set DU_RUNNER_OVERRIDES -R arikasalice/DiskUnfold` because PowerShell 5 strips the inner quotes of `--body`.
+
 Fork pull requests never use the self-hosted runners: the workflow passes the variable to the `targets` job only for pushes and same-repository pull requests, so fork pull requests always run on GitHub-hosted runners. The repository also requires approval before workflow runs from outside contributors.
 
 Enable:
