@@ -10,6 +10,10 @@ use crate::{OsPath, PathBytes, PathEncoding};
 /// paths are strict. The shared `OsPath` stays open because responses and events
 /// also carry it. `OsPath` has no invariant across its fields; each field keeps
 /// its own validation here, and serde checks that the fields match `OsPath`.
+///
+/// The GUI sends path objects it received in responses back in request drafts, so
+/// a response-only field added to `OsPath` later would make such requests be
+/// refused.
 #[derive(Deserialize)]
 #[serde(remote = "OsPath", rename_all = "camelCase", deny_unknown_fields)]
 struct StrictPath {
