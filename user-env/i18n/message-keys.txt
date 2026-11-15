@@ -325,6 +325,13 @@ ui.analysis.selected_mounts
 ui.analysis.current_volume
 ui.analysis.included_mounts
 ui.analysis.exclusions
+ui.analysis.exclusions_more count:count
+ui.analysis.exclusions_more_label count:count
+ui.analysis.exclusions_less
+ui.analysis.exclusions_less_label
+ui.analysis.exclusions_explanation
+ui.analysis.exclusions_unknown_explanation
+ui.analysis.exclusion_name_pattern
 ui.analysis.size_basis
 ui.analysis.unit_system
 ui.analysis.unit_system_binary

@@ -21,6 +21,7 @@ import {
 import { ProgressBar } from "react-aria-components";
 import { useLocaleText } from "../i18n/presentation";
 import type { TimestampParts } from "../i18n/regional-format";
+import { ExplainedText } from "./explained-text";
 import { STATUS_TONES } from "./status-table";
 import type { StatusRow, StatusShape, StatusTone } from "./status-table";
 import "../theme/status-badge.css";
@@ -306,6 +307,8 @@ export function Readout({
   label: string;
   rows: {
     label: string;
+    /** Explains the label on pointer hover or keyboard focus (see `ExplainedText`). */
+    explanation?: string;
     value: ReactNode;
     identifier?: boolean;
     emphasized?: boolean;
@@ -330,7 +333,15 @@ export function Readout({
               .join(" ") || undefined
           }
         >
-          <dt>{row.label}</dt>
+          <dt>
+            {row.explanation ? (
+              <ExplainedText explanation={row.explanation}>
+                {row.label}
+              </ExplainedText>
+            ) : (
+              row.label
+            )}
+          </dt>
           <dd>
             {row.value}
             {row.notes?.map((note, index) => (

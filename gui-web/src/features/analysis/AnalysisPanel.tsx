@@ -21,6 +21,7 @@ import type {
   OsPath,
   ScanStart,
   ScopeDraft,
+  ScopeExclusion,
   ScopeReview,
 } from "../../ipc";
 import { useScanResult } from "../../state/analysis-scan";
@@ -201,6 +202,8 @@ export function AnalysisPanel({
   const [reviewing, setReviewing] = useState(false);
   const [pathComposing, setPathComposing] = useState(false);
   const [resultRoots, setResultRoots] = useState<OsPath[]>([]);
+  const [resultExclusions, setResultExclusions] =
+    useState<readonly ScopeExclusion[]>();
   const [reviewProblem, setReviewProblem] = useState<string>();
   const [rejectedRevision, setRejectedRevision] = useState<number>();
   const [error, setError] = useState<string>();
@@ -543,7 +546,10 @@ export function AnalysisPanel({
         reviewFingerprint: review.reviewFingerprint,
       });
       if (result.jobRef !== receipt?.jobRef) setDisplayChoice(undefined);
+      // The summary shows the reviewed scope the scan was admitted with.
+      // A scan that is already running is joined only with the same review.
       setResultRoots(review.scope.includes);
+      setResultExclusions(review.scope.exclusions);
       focusResult.current = true;
       setEditorOpen(false);
       setReceipt(result);
@@ -747,6 +753,7 @@ export function AnalysisPanel({
               running={running}
               problem={error}
               roots={resultRoots}
+              exclusions={resultExclusions}
               actions={
                 <ResultActions
                   version={scan.total?.resultVersion}

@@ -4,6 +4,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { afterEach, expect, test } from "vitest";
 import { App } from "../src/app/App";
@@ -107,7 +108,12 @@ test("explicit scan uses the restored native paths, conditions and review", asyn
   ).toBe(path.display);
   expect(screen.getByText("Selected mounts")).toBeDefined();
   expect(screen.getByText("C:\\saved\\mounted")).toBeDefined();
-  expect(screen.getByText("fixture.tmp, C:\\saved\\excluded")).toBeDefined();
+  // Each exclusion rule stands on its own line; a name pattern is marked.
+  expect(
+    within(screen.getByRole("region", { name: "Reviewed scope" }))
+      .getAllByRole("listitem")
+      .map((rule) => rule.textContent),
+  ).toEqual(["Name pattern fixture.tmp", "C:\\saved\\excluded"]);
   fireEvent.click(start);
   await waitFor(() =>
     expect(calls.find(({ name }) => name === "scan.start")?.body).toEqual({
