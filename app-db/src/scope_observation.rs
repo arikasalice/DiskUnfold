@@ -5,8 +5,9 @@
 //! purge gate is open. The retention trim below opens the gate for exactly its own
 //! deletes and closes it before the transaction commits, so a failure rolls both back.
 
-use du_core_contracts::scope_observation_log::{
-    ScopeObservation, ScopeObservationAppend, ScopeObservationWriteError,
+use du_core_contracts::{
+    Id,
+    scope_observation_log::{ScopeObservation, ScopeObservationAppend, ScopeObservationWriteError},
 };
 use rusqlite::{ErrorCode, OptionalExtension, Transaction, TransactionBehavior, params};
 
@@ -119,6 +120,30 @@ impl AppDb {
 /// cleanup of history before a cutoff time must not call this.
 pub fn delete_all_scope_observations(tx: &Transaction<'_>) -> rusqlite::Result<usize> {
     tx.execute("DELETE FROM analysis_index_scope_observation", [])
+}
+
+/// Deletes the observation of one job and returns how many rows went, zero or one.
+///
+/// The caller is the transaction that deletes that job's history because the user asked
+/// for it (F21 `history.delete`). That deletion must call this for every job it removes,
+/// so an analysis the user deleted leaves no point in the trend. The purge gate must
+/// already be open in `tx`, exactly as for the job history rows of the same job, so the
+/// history and the observation go together or not at all. A job without an observation,
+/// or an identifier that is not a job identifier, deletes nothing.
+///
+/// Automatic cleanup of history before a cutoff time (`history.prune`) must not call
+/// this; there the retention limits alone bound the table.
+pub fn delete_scope_observation_of_job(
+    tx: &Transaction<'_>,
+    job_id: &Id,
+) -> rusqlite::Result<usize> {
+    let Some(job) = job_id.v7_bytes() else {
+        return Ok(0);
+    };
+    tx.execute(
+        "DELETE FROM analysis_index_scope_observation WHERE job_id = ?1",
+        params![job.as_slice()],
+    )
 }
 
 /// Deletes rows beyond the per-scope limit, then beyond the total limit, oldest first.
