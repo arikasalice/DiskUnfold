@@ -350,12 +350,16 @@ test("measurement details hide the reasons of an awaited size and show them agai
   for (const label of ["Logical size", "Allocated size"]) {
     const row = within(rowOf(label));
     expect(row.getByText("Calculating…")).toBeDefined();
-    expect(row.getByText("Checking file sizes")).toBeDefined();
+    // What the size waits for is said once, below the lead value.
+    expect(row.queryByText("Checking file sizes")).toBeNull();
+    expect(rowOf(label).querySelector(".du-readout__note")).toBeNull();
     expect(row.queryByText("Partial measurement")).toBeNull();
     for (const reason of reasons) expect(row.queryByText(reason)).toBeNull();
     // The stand-in takes the secondary text colour of the list.
     expect(rowOf(label).classList.contains("du-readout__pending")).toBe(true);
   }
+  expect(screen.getAllByText("Checking file sizes")).toHaveLength(1);
+  expect(within(allocated()).getByText("Checking file sizes")).toBeDefined();
   // The unique physical size is not awaited and keeps its reasons.
   const unique = within(rowOf("Unique physical size"));
   expect(unique.getByText("Unavailable")).toBeDefined();
@@ -370,6 +374,10 @@ test("measurement details hide the reasons of an awaited size and show them agai
   expect(
     within(rowOf("Allocated size")).getByText("No value yet"),
   ).toBeDefined();
+  expect(rowOf("Allocated size").querySelector(".du-readout__note")).toBeNull();
+  expect(
+    screen.getAllByText("It appears when the scan continues"),
+  ).toHaveLength(1);
   for (const reason of reasons)
     expect(within(rowOf("Allocated size")).queryByText(reason)).toBeNull();
 

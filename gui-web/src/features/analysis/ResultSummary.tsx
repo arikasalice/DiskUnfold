@@ -182,14 +182,13 @@ export function PinnedResult({
           label={measurements}
           rows={total.sizes.map(({ size, completeness, measurementLimits }) => {
             const waited = awaitedSize(size, measurementLimits, sizeWait);
-            // An awaited size shows no measurement and none of its limits.
+            // An awaited size shows no measurement and none of its limits;
+            // what it waits for is said once, below the lead value.
             if (waited) {
-              const awaited = displayAwaitedSize(waited, text);
               return {
                 label: basisLabels[size.basis],
-                value: awaited.value,
+                value: displayAwaitedSize(waited, text).value,
                 pending: true,
-                notes: [awaited.detail],
               };
             }
             const value = displaySize(size, display, text);
