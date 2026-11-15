@@ -1,11 +1,23 @@
 import { useEffect, useRef, useState } from "react";
 import { AnalysisError, resultReadProblem } from "../ipc";
 import { watchJobBaseline } from "./job-baseline";
+import { createReflectCadence } from "./result-cadence";
+import {
+  canControl,
+  controlObserved,
+  controlProblem,
+  controlsForJob,
+  documentHidden,
+  isNewLineageEvent,
+  isRunning,
+  jobValue,
+  runningValue,
+} from "./scan-job-rules";
+import type { ControlView } from "./scan-job-rules";
 import type {
   AnalysisClient,
   AnalysisJobProgress,
   AnalysisJobStatus,
-  EventEnvelope,
   JobState,
   ScanControl,
   ScanProblem,
@@ -14,117 +26,14 @@ import type {
 } from "../ipc";
 
 export type { ScanControl } from "../ipc";
+export { isRunning } from "./scan-job-rules";
 
-/** Determines whether a status may still transition. */
-export function isRunning(state: JobState): boolean {
-  return !["done", "partial", "failed", "cancelled"].includes(state);
-}
-
-function canControl(
-  command: ScanControl,
-  state: JobState | undefined,
-): boolean {
-  switch (command) {
-    case "pause":
-      return state === "running";
-    case "resume":
-      return state === "pause_requested" || state === "paused";
-    case "cancel":
-      return state !== "cancel_requested";
-  }
-}
-
-function controlObserved(command: ScanControl, state: JobState): boolean {
-  if (state === "cancel_requested") return true;
-  switch (command) {
-    case "pause":
-      return state === "pause_requested" || state === "paused";
-    case "resume":
-      return state === "running";
-    case "cancel":
-      return false;
-  }
-}
-
-function controlProblem(
-  command: ScanControl,
-  outcome: string | undefined,
-): ScanProblem {
-  if (outcome === "already_terminal") return { kind: "already_ended" };
-  return outcome === undefined || outcome === "unsupported"
-    ? { kind: "control_unavailable", command }
-    : { kind: "control_rejected", command };
-}
-
-/** Whether the document is hidden, so polling and frame work can pause. */
-function documentHidden(): boolean {
-  return typeof document !== "undefined" && document.hidden;
-}
-
-type ControlView = {
-  jobRef: string;
-  command?: ScanControl;
-  problem?: ScanProblem;
-};
-
-function controlsForJob(
-  jobRef: string | undefined,
-  status: AnalysisJobStatus | undefined,
-  unavailable: boolean,
-  control: ControlView | undefined,
-) {
-  const running =
-    jobRef !== undefined &&
-    !unavailable &&
-    (!status || isRunning(status.state));
-  const current = running && control?.jobRef === jobRef ? control : undefined;
-  return {
-    running,
-    control: current?.command,
-    controlError: current?.problem,
-  };
-}
-
-function isNewLineageEvent(
-  event: EventEnvelope,
-  lineage: string | undefined,
-  sequence: number,
-): boolean {
-  const body = event.body;
-  return (
-    event.topic === "results.version_changed" &&
-    lineage !== undefined &&
-    body !== null &&
-    typeof body === "object" &&
-    "lineageId" in body &&
-    body.lineageId === lineage &&
-    "sequence" in body &&
-    typeof body.sequence === "number" &&
-    Number.isSafeInteger(body.sequence) &&
-    body.sequence > sequence
-  );
-}
-
-/** Returns a value only when it belongs to the given job. */
-function jobValue<T extends { jobRef: string }>(
-  value: T | undefined,
-  jobRef: string | undefined,
-): T | undefined {
-  return value && value.jobRef === jobRef ? value : undefined;
-}
-
-/** Progress is shown only for the current job while it can still change. */
-function runningValue(
-  progress: { jobRef: string; value: AnalysisJobProgress } | undefined,
-  jobRef: string | undefined,
-  status: AnalysisJobStatus | undefined,
-): AnalysisJobProgress | undefined {
-  return status && isRunning(status.state)
-    ? jobValue(progress, jobRef)?.value
-    : undefined;
-}
-
-/** Opens a scan's first available result and keeps it pinned in the view. */
+/**
+ * Follows the results a scan publishes and keeps its newest one in the view.
+ * Later publications, including the final one, replace the shown totals at
+ * the shared reflect cadence; only a version whose read failed waits for
+ * "Show latest result".
+ */
 export function useScanResult(
   client: AnalysisClient,
   receipt: ScanStart | null,
@@ -136,6 +45,7 @@ export function useScanResult(
   }>();
   const [total, setTotal] = useState<{ jobRef: string; value: SpaceTotal }>();
   const [latest, setLatest] = useState<{ jobRef: string; version: string }>();
+  const [stalled, setStalled] = useState<{ jobRef: string; version: string }>();
   const [switchingJob, setSwitchingJob] = useState<string>();
   const [error, setError] = useState<{
     jobRef: string;
@@ -183,6 +93,13 @@ export function useScanResult(
     let statusDue = false;
     let queuedProgress: AnalysisJobProgress | undefined;
     let hiddenWork = false;
+    const cadence = createReflectCadence();
+
+    /** Stops automatic reads of a version; the user may still select it. */
+    function reject(version: string) {
+      rejected = version;
+      setStalled({ jobRef: scanJob, version });
+    }
 
     function clearControl() {
       pending = undefined;
@@ -244,6 +161,7 @@ export function useScanResult(
 
     async function readTotals(version: string) {
       const requestSeq = ++sequence.current;
+      cadence.mark();
       try {
         const result = await client.call("space.total", {
           resultVersion: version,
@@ -255,7 +173,7 @@ export function useScanResult(
           result.requestSeq !== requestSeq ||
           result.resultVersion !== version
         ) {
-          rejected = version;
+          reject(version);
           displayLatest = false;
           recordProblem({ kind: "totals_mismatch" }, false);
           return "totals" as const;
@@ -264,11 +182,12 @@ export function useScanResult(
         displayLatest = false;
         rejected = undefined;
         staleFailure = undefined;
+        setStalled(undefined);
         setTotal({ jobRef: scanJob, value: result });
         if (baseline.ready()) setError(undefined);
       } catch (failure) {
         if (!alive) return;
-        rejected = version;
+        reject(version);
         if (
           failure instanceof AnalysisError &&
           (failure.code === "STALE_VERSION" || failure.code === "NOT_FOUND")
@@ -379,17 +298,23 @@ export function useScanResult(
         if (baseline.ready()) setError(undefined);
         return;
       }
-      if (
-        version &&
-        version !== displayed &&
-        version !== rejected &&
-        (!displayed || displayLatest)
-      ) {
-        return readTotals(version);
+      if (version && version !== displayed && version !== rejected) {
+        return readWhenDue(version);
       } else if (terminal && version === rejected && staleFailure) {
         displayLatest = false;
         recordError(staleFailure, false);
       }
+    }
+
+    /** Reads a newer publication at the reflect cadence; the first result and an explicit selection at once. */
+    function readWhenDue(version: string) {
+      if (displayed && !displayLatest && cadence.remaining() > 0) {
+        cadence.defer(() => {
+          if (alive) scheduleStatusRead(true);
+        });
+        return;
+      }
+      return readTotals(version);
     }
 
     function finishSwitch() {
@@ -535,6 +460,7 @@ export function useScanResult(
       showLatest.current = undefined;
       issueControl.current = undefined;
       window.clearInterval(timer);
+      cadence.dispose();
       document.removeEventListener("visibilitychange", visibilityChanged);
       if (frame !== undefined) window.cancelAnimationFrame(frame);
       baseline.dispose();
@@ -546,19 +472,22 @@ export function useScanResult(
   const currentTotal = total?.jobRef === jobRef ? total?.value : undefined;
   const currentStatus = status?.jobRef === jobRef ? status : undefined;
   const unavailable = currentError?.unavailable ?? false;
+  const latestVersion = jobValue(latest, jobRef)?.version;
   return {
     status: currentStatus,
     /** The latest ordered job.progress value while the scan is running. */
     progress: runningValue(progress, jobRef, currentStatus),
     /** The scan's newest published result version, which may not be displayed yet. */
-    currentVersion: jobValue(latest, jobRef)?.version,
+    currentVersion: latestVersion,
     ...controlsForJob(jobRef, currentStatus, unavailable, control),
     requestControl: (command: ScanControl) => issueControl.current?.(command),
     total: currentTotal,
+    /** A newer result whose automatic read failed; the user may select it. */
     hasNewResult:
       currentTotal !== undefined &&
-      latest?.jobRef === jobRef &&
-      latest?.version !== currentTotal.resultVersion,
+      latestVersion !== undefined &&
+      latestVersion !== currentTotal.resultVersion &&
+      jobValue(stalled, jobRef)?.version === latestVersion,
     showLatest: () => showLatest.current?.(),
     switchingResult: switchingJob !== undefined && switchingJob === jobRef,
     error: currentError?.problem,

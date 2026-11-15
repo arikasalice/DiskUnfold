@@ -8,7 +8,7 @@ import {
 import { afterEach, expect, test, vi } from "vitest";
 import { LocaleTextContext } from "../src/i18n/presentation";
 import type { LocaleText } from "../src/i18n/presentation";
-import { VolumeExplanation } from "../src/features/analysis/VolumeExplanation";
+import { SummaryHarness } from "./summary-fixture";
 import { AnalysisError, createAnalysisClient, windowsPath } from "../src/ipc";
 import type { CallEnvelope, VolumeGapResponse } from "../src/ipc";
 
@@ -27,13 +27,13 @@ test("volume problems use the active locale after the request finishes", async (
   const client = createAnalysisClient(transport);
   const props = {
     client,
-    resultVersion: "selected-version",
+    version: "selected-version",
     roots: [windowsPath("C:\\fixture")],
     display: { system: "iec", unit: "auto" } as const,
   };
   const view = render(
     <LocaleTextContext.Provider value={englishText}>
-      <VolumeExplanation {...props} />
+      <SummaryHarness live={false} {...props} />
     </LocaleTextContext.Provider>,
   );
 
@@ -46,7 +46,7 @@ test("volume problems use the active locale after the request finishes", async (
 
   view.rerender(
     <LocaleTextContext.Provider value={localizedText}>
-      <VolumeExplanation {...props} />
+      <SummaryHarness live={false} {...props} />
     </LocaleTextContext.Provider>,
   );
   expect(
@@ -69,9 +69,10 @@ test.each([
       throw new AnalysisError(code, reason);
     });
     render(
-      <VolumeExplanation
+      <SummaryHarness
+        live={false}
         client={createAnalysisClient(transport)}
-        resultVersion="selected-version"
+        version="selected-version"
         roots={[windowsPath("C:\\fixture")]}
         display={{ system: "iec", unit: "auto" }}
       />,
@@ -150,11 +151,15 @@ test("F03 FR9: changing volume display units keeps raw bytes and evidence on the
   );
   const props = {
     client: createAnalysisClient(transport),
-    resultVersion: report.resultVersion,
+    version: report.resultVersion,
     roots: [windowsPath("C:\\fixture")],
   };
   const { rerender } = render(
-    <VolumeExplanation {...props} display={{ system: "si", unit: "auto" }} />,
+    <SummaryHarness
+      live={false}
+      {...props}
+      display={{ system: "si", unit: "auto" }}
+    />,
   );
   fireEvent.click(screen.getByRole("button", { name: "Explain volume usage" }));
   fireEvent.click(
@@ -172,7 +177,11 @@ test("F03 FR9: changing volume display units keeps raw bytes and evidence on the
   ).toBeTruthy();
 
   rerender(
-    <VolumeExplanation {...props} display={{ system: "iec", unit: "auto" }} />,
+    <SummaryHarness
+      live={false}
+      {...props}
+      display={{ system: "iec", unit: "auto" }}
+    />,
   );
   expect(observations.getByText("2.4 KiB · 2,500 bytes")).toBeTruthy();
   expect(
@@ -182,7 +191,11 @@ test("F03 FR9: changing volume display units keeps raw bytes and evidence on the
   ).toBeTruthy();
 
   rerender(
-    <VolumeExplanation {...props} display={{ system: "iec", unit: 0 }} />,
+    <SummaryHarness
+      live={false}
+      {...props}
+      display={{ system: "iec", unit: 0 }}
+    />,
   );
   expect(observations.getByText("2,500 bytes")).toBeTruthy();
   expect(differences.getByText("2,500 bytes · Estimated")).toBeTruthy();

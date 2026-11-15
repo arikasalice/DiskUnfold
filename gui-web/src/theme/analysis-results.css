@@ -11,6 +11,13 @@
   font-size: clamp(18px, 2.5vw, 24px);
 }
 
+/* Values change in place while a scan runs; equal-width digits keep them still. */
+.du-analysis__result .du-readout dd,
+.du-analysis__result .du-readout__note,
+.du-analysis__result .du-metric__detail {
+  font-variant-numeric: tabular-nums;
+}
+
 .du-scan-progress {
   display: grid;
   gap: 6px;
