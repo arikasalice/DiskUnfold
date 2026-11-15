@@ -11,7 +11,7 @@ use du_core_contracts::{
 use serde_json::json;
 use std::sync::Arc;
 
-use super::{ProductionEvidence, UnitTableSource, groups, policy, presentation};
+use super::{ProductionEvidence, UnitTableSource, facts, groups, policy, presentation};
 use crate::{
     api::Channel,
     current_analysis::{CurrentAnalysis, admit_scan},
@@ -74,11 +74,23 @@ fn scope() -> ItemRef {
 }
 
 fn request(color_criterion: &str, format: &str) -> Result<VizRenderRequest, String> {
+    criteria_request(
+        policy::CLASSIFICATION_CRITERION_NONE,
+        color_criterion,
+        format,
+    )
+}
+
+fn criteria_request(
+    classification_criterion: &str,
+    color_criterion: &str,
+    format: &str,
+) -> Result<VizRenderRequest, String> {
     serde_json::from_value(json!({
         "viewChannel": id(9), "requestSeq": 1, "format": format, "resultRevision": id(3),
         "aggregateScopeRef": scope(), "navigationScopeRef": scope(),
         "measure": "size", "sizeBasis": "logical",
-        "classificationCriterion": "none", "colorCriterion": color_criterion,
+        "classificationCriterion": classification_criterion, "colorCriterion": color_criterion,
         "denominatorBasis": "scope", "viewport": {"width": 800, "height": 600, "scale": 1.0},
         "visibleWindow": {"left": 0, "top": 0, "right": 1_000_000, "bottom": 1_000_000},
         "minAreaPx2": 16, "depthLimit": 1,
@@ -225,6 +237,80 @@ fn an_unlisted_color_criterion_is_rejected_as_measure_unknown() -> TestResult {
             .classes
             .contains_key(policy::LEGEND_CLASS_UNCLASSIFIED)
     );
+    Ok(())
+}
+
+#[test]
+fn only_the_none_classification_criterion_is_served() -> TestResult {
+    let source = publish(&[(b'a', Some(10))])?;
+    let producer = producer(&SI_UNITS);
+    for criterion in ["type", "", "None", " none", "fixture.criterion"] {
+        let request = criteria_request(criterion, policy::COLOR_CRITERION_NONE, "treemap")?;
+        assert_eq!(
+            producer.source_policy_facts(&source, &request).err(),
+            Some(crate::error::EngineError::new(
+                "viz.measure_unknown",
+                vec![]
+            )),
+            "{criterion:?}"
+        );
+    }
+    let served = criteria_request(
+        policy::CLASSIFICATION_CRITERION_NONE,
+        policy::COLOR_CRITERION_NONE,
+        "treemap",
+    )?;
+    assert!(
+        producer
+            .source_policy_facts(&source, &served)
+            .map_err(|error| format!("{error:?}"))?
+            .is_some()
+    );
+    Ok(())
+}
+
+#[test]
+fn one_render_request_reads_its_folder_once() -> TestResult {
+    let source = publish(&[(b'a', Some(10)), (b'b', Some(20))])?;
+    let producer = producer(&SI_UNITS);
+    let request = request(policy::COLOR_CRITERION_NONE, "treemap")?;
+    producer
+        .source_policy_facts(&source, &request)
+        .map_err(|error| format!("{error:?}"))?;
+    let rendered = producer
+        .required_data_facts(&source, &request)
+        .map_err(|error| format!("{error:?}"))?;
+    // `viz.availability` asks about the same folder with the logical basis.
+    let scoped = producer
+        .required_data_facts_for_scope(&source, &scope())
+        .map_err(|error| format!("{error:?}"))?;
+    assert_eq!(producer.folder_facts.reads(), 1);
+    let direct = facts::scope_facts(&source, &scope(), &SizeBasis::Logical)
+        .map_err(|error| format!("{error:?}"))?;
+    assert_eq!(rendered, Some(direct.clone()));
+    assert_eq!(scoped, direct);
+    Ok(())
+}
+
+#[test]
+fn a_different_size_basis_is_read_again_and_not_answered_from_memory() -> TestResult {
+    let source = publish(&[(b'a', Some(10)), (b'b', Some(20))])?;
+    let producer = producer(&SI_UNITS);
+    let logical = request(policy::COLOR_CRITERION_NONE, "treemap")?;
+    let mut allocated = logical.clone();
+    allocated.size_basis = SizeBasis::Allocated;
+    let first = producer
+        .required_data_facts(&source, &logical)
+        .map_err(|error| format!("{error:?}"))?;
+    let second = producer
+        .required_data_facts(&source, &allocated)
+        .map_err(|error| format!("{error:?}"))?;
+    assert_eq!(producer.folder_facts.reads(), 2);
+    // The fixture observes logical sizes only, so the two bases give different facts.
+    assert_ne!(first, second);
+    let direct = facts::scope_facts(&source, &scope(), &SizeBasis::Allocated)
+        .map_err(|error| format!("{error:?}"))?;
+    assert_eq!(second, Some(direct));
     Ok(())
 }
 
