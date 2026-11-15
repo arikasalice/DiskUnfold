@@ -37,14 +37,9 @@ pub(super) fn prepare(
         return fallback(work, presentations, evidence.len() as u64, cancelled);
     };
     let group_bytes = super::ranked_projection::exact(&group_size).ok_or_else(internal)?;
+    // The group is a group, not an item shape: its bytes are in the grouped total only,
+    // and the drawn total stays the sum of the item bars.
     layout.totals.grouped_bytes = group_bytes;
-    if group_geometry.is_some() {
-        layout.totals.drawn_bytes = layout
-            .totals
-            .drawn_bytes
-            .checked_add(group_bytes)
-            .ok_or_else(internal)?;
-    }
     // Reuse the existing envelope from the same source rows, then append the
     // model-local group shape; F03 attribution is rechecked before reservation.
     let preview = render::Rendered {

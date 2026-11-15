@@ -136,3 +136,47 @@ fn with_nothing_omitted_or_unknown_the_drawn_total_is_the_scope() -> TestResult 
     );
     Ok(())
 }
+
+/// The sum of the shapes of the model that are, or are not, a group.
+fn shape_bytes(model: &Value, groups: bool) -> Result<u64, String> {
+    let shapes = model["shapes"].as_array().ok_or("no shapes")?;
+    shapes
+        .iter()
+        .filter(|shape| shape["groupRef"].is_null() != groups)
+        .map(|shape| {
+            shape["size"]["bytes"]
+                .as_str()
+                .and_then(|bytes| bytes.parse::<u64>().ok())
+                .ok_or_else(|| format!("no byte size on {shape}"))
+        })
+        .sum()
+}
+
+#[test]
+fn the_other_group_of_a_bar_is_in_the_grouped_total_only() -> TestResult {
+    let harness = Harness::product(4)?;
+    // Eight files of 10 to 80 bytes: the three largest keep a bar, the other five are
+    // the group. Before, the group's 150 bytes were in both totals, so the drawn total
+    // was 360 and the two totals added up to 510 for a scope of 360.
+    let files: Vec<_> = (0..8_u8)
+        .map(|n| (b'a' + n, Some(10 * (u64::from(n) + 1))))
+        .collect();
+    harness.publish(&Publication {
+        files: &files,
+        ..two_files(3)
+    })?;
+    let view = harness.open_view()?;
+    let answer = harness.ok("viz.render", render_body(&view, 1, "bar", 3))?;
+    assert_eq!(answer["kind"], "model", "{answer}");
+    let model = &answer["model"];
+    assert_eq!(total(model, "scope")?, 360);
+    assert_eq!(total(model, "drawn")?, 210);
+    assert_eq!(total(model, "grouped")?, 150);
+    assert_eq!(total(model, "filteredOut")?, 0);
+    // The drawn total is the sum of the item bars and the group is its own shape.
+    assert_eq!(total(model, "drawn")?, shape_bytes(model, false)?);
+    assert_eq!(total(model, "grouped")?, shape_bytes(model, true)?);
+    assert_eq!(count(model, "groupedItems")?, 5);
+    assert_within_scope(model)?;
+    Ok(())
+}
