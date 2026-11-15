@@ -279,10 +279,17 @@ export function ScopeActions({
   );
 }
 
+/**
+ * Keeps the focus in the result when a scan control that holds it goes away
+ * because the scan ended or was cancelled: "Browse folders" in the same row
+ * takes it, or the screen title when the row has no such action. Focus that
+ * is elsewhere stays where it is.
+ */
 function useResultControlFocus(
   running: boolean,
   command: "pause" | "resume" | undefined,
-  statusFocus: RefObject<HTMLDivElement | null>,
+  browse: RefObject<HTMLButtonElement | null>,
+  title: RefObject<HTMLHeadingElement | null>,
 ) {
   const suspend = useRef<HTMLButtonElement>(null);
   const cancel = useRef<HTMLButtonElement>(null);
@@ -296,9 +303,9 @@ function useResultControlFocus(
       ((!running && active === cancel.current) ||
         (!command && active === suspend.current))
     )
-      statusFocus.current?.focus({ preventScroll: true });
+      (browse.current ?? title.current)?.focus({ preventScroll: true });
     setPrevious({ running, command });
-  }, [command, previous, running, statusFocus]);
+  }, [browse, command, previous, running, title]);
 
   // Keep outgoing controls mounted until their focus can be checked.
   return {
@@ -317,21 +324,24 @@ export function ResultActions({
   state,
   pending,
   onControl,
-  statusFocus,
+  title,
 }: {
   version: string | undefined;
   onBrowse: ((version: string) => void) | undefined;
-  trigger: Ref<HTMLButtonElement> | undefined;
+  trigger: RefObject<HTMLButtonElement | null> | undefined;
   running: boolean;
   state: JobState | undefined;
   pending: ScanControl | undefined;
   onControl: (command: ScanControl) => void;
-  statusFocus: RefObject<HTMLDivElement | null>;
+  /** The screen title, which takes the focus when the row has no action for it. */
+  title: RefObject<HTMLHeadingElement | null>;
 }) {
   const text = useLocaleText();
+  const ownBrowse = useRef<HTMLButtonElement>(null);
+  const browseButton = trigger ?? ownBrowse;
   const browse = version && onBrowse && (
     <Action
-      ref={trigger ?? null}
+      ref={browseButton}
       icon="folder"
       variant="primary"
       onPress={() => onBrowse(version)}
@@ -350,7 +360,8 @@ export function ResultActions({
   const { suspend, cancel, showCancel, shownCommand } = useResultControlFocus(
     running,
     command,
-    statusFocus,
+    browseButton,
+    title,
   );
   if (!browse && !showCancel) return null;
   return (
