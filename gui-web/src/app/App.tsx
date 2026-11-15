@@ -139,9 +139,8 @@ export function App({
     }),
   );
   const restoreBrowseFocus = useRef(false);
-  // False during the render that opens the folder list, whose title takes the
-  // focus; "Back to analysis" takes it when it returns later, as after a view
-  // over the list closes without restoring its own trigger.
+  // False while the folder list opens, when its title takes the focus; later
+  // "Back to analysis" takes it, as after a view over the list closes.
   const browseShown = useRef(false);
   useEffect(() => {
     browseShown.current = Boolean(browseVersion);
