@@ -145,6 +145,7 @@ function Summary({ client }: { client: AnalysisClient }) {
       total={total}
       latestVersion={total.resultVersion}
       volume={summary.volume}
+      scan={undefined}
       wait={undefined}
       roots={[path]}
       preferences={{

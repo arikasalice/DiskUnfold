@@ -309,6 +309,8 @@ export function Readout({
     value: ReactNode;
     identifier?: boolean;
     emphasized?: boolean;
+    /** Marks text that stands in for a value still to come; it takes the secondary text colour. */
+    pending?: boolean;
     notes?: readonly string[];
   }[];
 }) {
@@ -322,6 +324,7 @@ export function Readout({
             [
               row.identifier && "du-readout__identifier",
               row.emphasized && "du-readout__emphasized",
+              row.pending && "du-readout__pending",
             ]
               .filter(Boolean)
               .join(" ") || undefined

@@ -11,6 +11,10 @@ import {
 import { afterEach, expect, test, vi } from "vitest";
 import { AnalysisPanel } from "../src/features/analysis/AnalysisPanel";
 import { PinnedResult } from "../src/features/analysis/ResultSummary";
+import {
+  AWAITED_RESULT_LIMIT,
+  lacksReadSizes,
+} from "../src/features/analysis/awaited-sizes";
 import { awaitedSize } from "../src/features/analysis/space-format";
 import type { SizeWait } from "../src/features/analysis/space-format";
 import { useSummaryBatch } from "../src/features/analysis/summary-batch";
@@ -26,9 +30,11 @@ import {
 
 /*
  * A logical or allocated size that has no value while its scan still reads
- * says that the value is to come, not that it is unavailable. The reason
- * lists below are the ones the engine attaches to the first result of a
- * scan whose first batch holds folders only, and to the next result.
+ * says that the value is to come, not that it is unavailable. The results
+ * decide for how long: a value on one of the two sizes, or three results in
+ * a row without either, end the wait. The reason lists below are the ones
+ * the engine attaches to the first result of a scan whose first batch holds
+ * folders only, and to the next result.
  */
 
 afterEach(() => {
@@ -58,6 +64,10 @@ const firstLimits: Record<Basis, string[]> = {
     "space.data_insufficient",
   ],
 };
+const readLimits = [
+  "space.aux_not_included",
+  "space.observation_detail_insufficient",
+];
 const unknown = (basis: Basis): SizeValue => ({
   basis,
   evidence: "unknown",
@@ -70,7 +80,7 @@ const atLeast = (basis: Basis): SizeValue => ({
   bytes: "64",
 });
 
-/** The first result of a scan: no file was read, every size is unknown. */
+/** A result for which no file with a size was read: every size is unknown. */
 function firstResult(version = "v1", requestSeq = 1): SpaceTotal {
   return {
     resultVersion: version,
@@ -90,34 +100,32 @@ function firstResult(version = "v1", requestSeq = 1): SpaceTotal {
 }
 
 /** A later result: files were read, the unique physical size is still unknown. */
-function laterResult(version: string, requestSeq: number): SpaceTotal {
-  const read = [
-    "space.aux_not_included",
-    "space.observation_detail_insufficient",
-  ];
+function laterResult(version: string, requestSeq = 1): SpaceTotal {
+  const base = firstResult(version, requestSeq);
   return {
-    ...firstResult(version, requestSeq),
+    ...base,
     sizes: [
       {
         size: atLeast("logical"),
         completeness: "partial",
-        measurementLimits: read,
+        measurementLimits: readLimits,
       },
       {
         size: atLeast("allocated"),
         completeness: "partial",
-        measurementLimits: read,
+        measurementLimits: readLimits,
       },
-      {
-        size: unknown("unique_physical"),
-        completeness: "partial",
-        measurementLimits: [
-          "space.sharing_not_collected",
-          ...read,
-          "space.data_insufficient",
-        ],
-      },
+      base.sizes[2]!,
     ],
+  };
+}
+
+/** A result with a logical size and no allocated one. */
+function logicalOnly(version: string): SpaceTotal {
+  const base = firstResult(version);
+  return {
+    ...base,
+    sizes: [laterResult(version).sizes[0]!, base.sizes[1]!, base.sizes[2]!],
   };
 }
 
@@ -153,6 +161,12 @@ test("a size that cannot arrive is not awaited", () => {
     ).toBeUndefined();
 });
 
+test("a result lacks its read sizes only while neither of the two has a value", () => {
+  expect(lacksReadSizes(firstResult())).toBe(true);
+  expect(lacksReadSizes(logicalOnly("v1"))).toBe(false);
+  expect(lacksReadSizes(laterResult("v1"))).toBe(false);
+});
+
 const preferences = {
   display: { system: "iec", unit: "auto" },
   basis: "allocated",
@@ -163,10 +177,12 @@ function Summary({
   client,
   total,
   wait,
+  scan = "scan-1",
 }: {
   client: AnalysisClient;
   total: SpaceTotal;
   wait: SizeWait | undefined;
+  scan?: string;
 }) {
   const summary = useSummaryBatch(client, total, false, wait !== undefined);
   return (
@@ -175,6 +191,7 @@ function Summary({
       total={total}
       latestVersion={total.resultVersion}
       volume={summary.volume}
+      scan={scan}
       wait={wait}
       roots={[path]}
       preferences={preferences}
@@ -186,6 +203,7 @@ function Summary({
 }
 
 const allocated = () => screen.getByRole("group", { name: "Allocated size" });
+const awaited = () => within(allocated()).queryByText("Calculating…") !== null;
 
 test("the lead size reads as still to come by how the scan stands", () => {
   const client = liveScan().client;
@@ -195,9 +213,7 @@ test("the lead size reads as still to come by how the scan stands", () => {
   );
   const metric = allocated();
   expect(within(metric).getByText("Calculating…")).toBeDefined();
-  expect(
-    within(metric).getByText("The value appears as the scan runs"),
-  ).toBeDefined();
+  expect(within(metric).getByText("Checking file sizes")).toBeDefined();
   expect(within(metric).queryByText("Unavailable")).toBeNull();
   expect(within(metric).queryByText("Partial measurement")).toBeNull();
   // The stand-in keeps the place of a value and is marked for the theme.
@@ -231,41 +247,150 @@ test("an unknown size with a lasting reason stays unavailable while the scan run
   ];
   render(<Summary client={liveScan().client} total={total} wait="running" />);
   expect(within(allocated()).getByText("Unavailable")).toBeDefined();
-  expect(within(allocated()).queryByText("Calculating…")).toBeNull();
+  expect(awaited()).toBe(false);
   expect(allocated().hasAttribute("data-pending")).toBe(false);
 });
 
-test("measurement details follow the same rule and keep the reported limits", () => {
+test("a size beside a value of the other is unavailable, with its reasons", () => {
   render(
-    <Summary client={liveScan().client} total={firstResult()} wait="running" />,
+    <Summary
+      client={liveScan().client}
+      total={logicalOnly("v1")}
+      wait="running"
+    />,
+  );
+  expect(within(allocated()).getByText("Unavailable")).toBeDefined();
+  expect(within(allocated()).getByText("Partial measurement")).toBeDefined();
+  expect(awaited()).toBe(false);
+  fireEvent.click(screen.getByRole("button", { name: /Measurement details/ }));
+  const rows = within(screen.getByLabelText("Measurement details"));
+  const row = within(
+    rows.getByText("Allocated size").closest("div") as HTMLElement,
+  );
+  expect(row.getByText("Unavailable")).toBeDefined();
+  expect(row.getByText("Allocation data was not collected")).toBeDefined();
+  expect(row.getByText("Some space data could not be verified")).toBeDefined();
+});
+
+test("three results in a row without a size end the wait", () => {
+  expect(AWAITED_RESULT_LIMIT).toBe(3);
+  const client = liveScan().client;
+  const show = (version: string) => (
+    <Summary client={client} total={firstResult(version)} wait="running" />
+  );
+  const { rerender } = render(show("v1"));
+  expect(awaited()).toBe(true);
+  // Showing the same result again does not count it again.
+  rerender(show("v1"));
+  rerender(show("v1"));
+  rerender(show("v2"));
+  expect(awaited()).toBe(true);
+  rerender(show("v3"));
+  expect(awaited()).toBe(false);
+  expect(within(allocated()).getByText("Unavailable")).toBeDefined();
+  expect(within(allocated()).getByText("Partial measurement")).toBeDefined();
+  rerender(show("v4"));
+  expect(awaited()).toBe(false);
+});
+
+test("a result with a size ends the run of results without one", () => {
+  const client = liveScan().client;
+  const show = (total: SpaceTotal) => (
+    <Summary client={client} total={total} wait="running" />
+  );
+  const { rerender } = render(show(firstResult("v1")));
+  rerender(show(firstResult("v2")));
+  rerender(show(laterResult("v3")));
+  expect(within(allocated()).getByText("At least 64 bytes")).toBeDefined();
+  rerender(show(firstResult("v4")));
+  expect(awaited()).toBe(true);
+  rerender(show(firstResult("v5")));
+  expect(awaited()).toBe(true);
+  rerender(show(firstResult("v6")));
+  expect(awaited()).toBe(false);
+});
+
+test("another scan starts a new run", () => {
+  const client = liveScan().client;
+  const show = (version: string, scan: string) => (
+    <Summary
+      client={client}
+      total={firstResult(version)}
+      wait="running"
+      scan={scan}
+    />
+  );
+  const { rerender } = render(show("v1", "scan-1"));
+  rerender(show("v2", "scan-1"));
+  rerender(show("v3", "scan-1"));
+  expect(awaited()).toBe(false);
+  rerender(show("w1", "scan-2"));
+  expect(awaited()).toBe(true);
+  rerender(show("w2", "scan-2"));
+  expect(awaited()).toBe(true);
+  rerender(show("w3", "scan-2"));
+  expect(awaited()).toBe(false);
+});
+
+test("measurement details hide the reasons of an awaited size and show them again", () => {
+  const client = liveScan().client;
+  const { rerender } = render(
+    <Summary client={client} total={firstResult()} wait="running" />,
   );
   fireEvent.click(screen.getByRole("button", { name: /Measurement details/ }));
   const rows = within(screen.getByLabelText("Measurement details"));
-  const row = (label: string) =>
-    within(rows.getByText(label).closest("div") as HTMLElement);
-  for (const label of ["Logical size", "Allocated size"]) {
-    expect(row(label).getByText("Calculating…")).toBeDefined();
-    expect(
-      row(label).getByText("The value appears as the scan runs"),
-    ).toBeDefined();
-    expect(row(label).queryByText("Partial measurement")).toBeNull();
-  }
-  // The limits the first result reports stay listed under the awaited size.
-  for (const limit of [
+  const rowOf = (label: string) =>
+    rows.getByText(label).closest("div") as HTMLElement;
+  const reasons = [
     "Allocation data was not collected",
     "Auxiliary data was not collected",
     "Some observation details are unavailable",
     "Some space data could not be verified",
-  ])
-    expect(row("Allocated size").getByText(limit)).toBeDefined();
-  // The unique physical size is not awaited.
-  expect(row("Unique physical size").getByText("Unavailable")).toBeDefined();
+  ];
+  for (const label of ["Logical size", "Allocated size"]) {
+    const row = within(rowOf(label));
+    expect(row.getByText("Calculating…")).toBeDefined();
+    expect(row.getByText("Checking file sizes")).toBeDefined();
+    expect(row.queryByText("Partial measurement")).toBeNull();
+    for (const reason of reasons) expect(row.queryByText(reason)).toBeNull();
+    // The stand-in takes the secondary text colour of the list.
+    expect(rowOf(label).classList.contains("du-readout__pending")).toBe(true);
+  }
+  // The unique physical size is not awaited and keeps its reasons.
+  const unique = within(rowOf("Unique physical size"));
+  expect(unique.getByText("Unavailable")).toBeDefined();
+  expect(unique.getByText("Partial measurement")).toBeDefined();
+  expect(unique.getByText("Sharing evidence was not collected")).toBeDefined();
   expect(
-    row("Unique physical size").getByText("Partial measurement"),
-  ).toBeDefined();
+    rowOf("Unique physical size").classList.contains("du-readout__pending"),
+  ).toBe(false);
+
+  // While paused the reasons stay hidden.
+  rerender(<Summary client={client} total={firstResult()} wait="paused" />);
   expect(
-    row("Unique physical size").getByText("Sharing evidence was not collected"),
+    within(rowOf("Allocated size")).getByText("No value yet"),
   ).toBeDefined();
+  for (const reason of reasons)
+    expect(within(rowOf("Allocated size")).queryByText(reason)).toBeNull();
+
+  // "Unavailable" shows the reasons again.
+  rerender(<Summary client={client} total={firstResult()} wait={undefined} />);
+  const ended = within(rowOf("Allocated size"));
+  expect(ended.getByText("Unavailable")).toBeDefined();
+  expect(ended.getByText("Partial measurement")).toBeDefined();
+  for (const reason of reasons) expect(ended.getByText(reason)).toBeDefined();
+  expect(
+    rowOf("Allocated size").classList.contains("du-readout__pending"),
+  ).toBe(false);
+
+  // A value shows the limits reported with it.
+  rerender(
+    <Summary client={client} total={laterResult("v2")} wait="running" />,
+  );
+  const valued = within(rowOf("Allocated size"));
+  expect(valued.getByText("At least 64 bytes")).toBeDefined();
+  expect(valued.getByText("Auxiliary data was not collected")).toBeDefined();
+  expect(valued.queryByText("Allocation data was not collected")).toBeNull();
 });
 
 type Entry = [key: string, text: string, parameters: unknown[]];
@@ -289,7 +414,7 @@ test("the awaited size reads in Korean from the bundle", () => {
   );
   const metric = within(screen.getByRole("group", { name: "할당 크기" }));
   expect(metric.getByText("계산 중…")).toBeDefined();
-  expect(metric.getByText("스캔하는 대로 값이 나타납니다")).toBeDefined();
+  expect(metric.getByText("파일 크기를 확인하는 중입니다")).toBeDefined();
   rerender(
     <LocaleTextContext.Provider value={korean}>
       <Summary client={client} total={firstResult()} wait="paused" />
@@ -359,6 +484,25 @@ test("the panel says Calculating while its scan runs, No value yet while paused,
     ),
   ).toBeDefined();
   expect(within(metric).queryByText("Calculating…")).toBeNull();
+});
+
+test("the panel says Unavailable from the third result of its scan without a size", async () => {
+  const { scan } = await startScan();
+  const metric = allocated();
+  expect(within(metric).getByText("Calculating…")).toBeDefined();
+
+  passReflectInterval();
+  scan.publish("v2");
+  await waitFor(() => expect(scan.reads("space.total")).toEqual(["v1", "v2"]));
+  // The second result without a size is still awaited.
+  await new Promise((resolve) => window.setTimeout(resolve, 50));
+  expect(within(metric).getByText("Calculating…")).toBeDefined();
+
+  passReflectInterval();
+  scan.publish("v3");
+  expect(await within(metric).findByText("Unavailable")).toBeDefined();
+  expect(within(metric).getByText("Partial measurement")).toBeDefined();
+  expect(scan.reads("space.total")).toEqual(["v1", "v2", "v3"]);
 });
 
 test.each(["cancel_requested", "cancelled", "failed"] as const)(

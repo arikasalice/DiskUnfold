@@ -176,10 +176,7 @@ const awaitedSizeMessages: Record<
 > = {
   running: {
     value: ["ui.analysis.size_calculating", "Calculating…"],
-    detail: [
-      "ui.analysis.size_calculating_detail",
-      "The value appears as the scan runs",
-    ],
+    detail: ["ui.analysis.size_calculating_detail", "Checking file sizes"],
   },
   paused: {
     value: ["ui.analysis.size_no_value_yet", "No value yet"],

@@ -19,6 +19,7 @@ import { FileInspection } from "./FileInspection";
 import { SizeDisplayControls } from "./SizeDisplayControls";
 import { VolumeExplanation } from "./VolumeExplanation";
 import type { VolumePart } from "./summary-batch";
+import { useSizeWait } from "./awaited-sizes";
 import {
   awaitedSize,
   displayAwaitedSize,
@@ -80,14 +81,16 @@ export function RootPaths({ roots }: { roots: readonly OsPath[] }) {
  * open dialogs stay as they are. Expanded parts follow `total`, and `volume`
  * is the volume part read for the same result (see `useSummaryBatch`);
  * dialogs open on `latestVersion`, the newest result known for the scan.
- * `wait` says how the scan stands that still publishes: a logical or allocated
- * size without a value then reads as still to come instead of unavailable.
+ * `wait` says how `scan`, the scan that still publishes, stands: a logical
+ * or allocated size without a value then reads as still to come instead of
+ * unavailable, for as long as its results allow (see `useSizeWait`).
  */
 export function PinnedResult({
   client,
   total,
   latestVersion,
   volume,
+  scan,
   wait,
   roots,
   preferences,
@@ -100,6 +103,7 @@ export function PinnedResult({
   total: SpaceTotal;
   latestVersion: string;
   volume: VolumePart;
+  scan: string | undefined;
   wait: SizeWait | undefined;
   roots: readonly OsPath[];
   preferences: AnalysisDisplayPreferences;
@@ -135,7 +139,9 @@ export function PinnedResult({
   const basisLabel = basisLabels[basis];
   const pathsLabel = text("ui.analysis.scanned_paths", "Scanned paths");
   const measurements = text("ui.analysis.measurements", "Measurement details");
-  const leadWait = lead && awaitedSize(lead.size, lead.measurementLimits, wait);
+  const sizeWait = useSizeWait(total, scan, wait);
+  const leadWait =
+    lead && awaitedSize(lead.size, lead.measurementLimits, sizeWait);
   const leadAwaited = leadWait && displayAwaitedSize(leadWait, text);
   return (
     <div className="du-results">
@@ -174,17 +180,25 @@ export function PinnedResult({
         <Readout
           label={measurements}
           rows={total.sizes.map(({ size, completeness, measurementLimits }) => {
-            const sizeWait = awaitedSize(size, measurementLimits, wait);
-            const awaited = sizeWait && displayAwaitedSize(sizeWait, text);
-            const value = awaited?.value ?? displaySize(size, display, text);
+            const waited = awaitedSize(size, measurementLimits, sizeWait);
+            // An awaited size shows no measurement and none of its limits.
+            if (waited) {
+              const awaited = displayAwaitedSize(waited, text);
+              return {
+                label: basisLabels[size.basis],
+                value: awaited.value,
+                pending: true,
+                notes: [awaited.detail],
+              };
+            }
+            const value = displaySize(size, display, text);
             const raw = displayRawSize(size, regional, text);
             return {
               label: basisLabels[size.basis],
               value: <Unbroken>{value}</Unbroken>,
               notes: [
                 ...(raw && raw !== value ? [raw] : []),
-                awaited?.detail ?? displayMeasurement(size, completeness, text),
-                // The reported limits stay listed under an awaited size.
+                displayMeasurement(size, completeness, text),
                 ...measurementLimits.map((key) =>
                   displayMeasurementLimit(key, text),
                 ),

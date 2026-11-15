@@ -315,7 +315,7 @@
     ["ui.analysis.view_folder_details", "View folder details", []],
     ["ui.analysis.size_lower_bound", "At least {value}", [["value","name"]]],
     ["ui.analysis.size_calculating", "Calculating…", []],
-    ["ui.analysis.size_calculating_detail", "The value appears as the scan runs", []],
+    ["ui.analysis.size_calculating_detail", "Checking file sizes", []],
     ["ui.analysis.size_no_value_yet", "No value yet", []],
     ["ui.analysis.size_no_value_yet_detail", "It appears when the scan continues", []],
     ["ui.analysis.scope_overlap", "Duplicate paths were combined.", []],

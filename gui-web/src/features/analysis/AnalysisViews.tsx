@@ -33,6 +33,7 @@ export function ScanOutput({
   onDisplayChoice,
   onSizeBasisChange,
   scan,
+  job,
   started,
   running,
   problem,
@@ -46,6 +47,8 @@ export function ScanOutput({
   onSizeBasisChange?:
     ((resultVersion: string, basis: SizeBasisFilter) => void) | undefined;
   scan: ReturnType<typeof useScanResult>;
+  /** The scan whose results are shown; a new scan has another reference. */
+  job: string | undefined;
   started: boolean;
   running: boolean;
   problem: string | undefined;
@@ -102,6 +105,7 @@ export function ScanOutput({
             total={total}
             latestVersion={scan.currentVersion ?? total.resultVersion}
             volume={summary.volume}
+            scan={job}
             wait={sizeWait(running, state)}
             roots={roots}
             preferences={preferences}

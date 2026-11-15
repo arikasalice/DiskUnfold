@@ -742,6 +742,7 @@ export function AnalysisPanel({
               onDisplayChoice={setDisplayChoice}
               onSizeBasisChange={onSizeBasisChange}
               scan={scan}
+              job={scanJob}
               started={receipt !== null}
               running={running}
               problem={error}
