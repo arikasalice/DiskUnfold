@@ -40,10 +40,10 @@ pub struct Session {
 
 /// Policy-owned values for one actual child of the pinned folder.
 ///
-/// The caller must use the registered path-comparison and legend policies;
-/// display names and raw path bytes do not establish a comparison key.
+/// The caller must use the registered legend policy for `legend_class_key`.
 pub struct ChildPolicyEvidence {
-    /// Comparison evidence retained for this exact result, if available.
+    /// No longer used for ordering; kept until its producers are updated.
+    /// Siblings of equal size are ordered by their raw name bytes.
     pub path_compare_key: Option<Vec<u8>>,
     pub legend_class_key: String,
     pub display_flags: Vec<String>,
@@ -197,9 +197,9 @@ impl Session {
 
     /// Renders the pinned folder's actual immediate children and matching table rows.
     ///
-    /// The injected policy supplies keys and flags only; item references and
-    /// membership are derived from the admitted result. Missing comparison
-    /// evidence is represented by None. Classification still needs its policy.
+    /// The injected policy supplies legend classes and flags; item references
+    /// and membership are derived from the admitted result. Siblings of equal
+    /// size are ordered by raw name bytes, so no comparison evidence is needed.
     pub fn render_selected(
         &self,
         request: render::Request<'_>,
@@ -222,7 +222,7 @@ impl Session {
     /// Prepares an unpublished model using this session's frozen dispatcher.
     ///
     /// Membership and item references come from the admitted source; the policy
-    /// supplies only comparison and presentation evidence for each actual child.
+    /// supplies only presentation evidence for each actual child.
     /// No model reference is allocated and no rows are registered by this call.
     pub fn prepare_selected(
         &self,

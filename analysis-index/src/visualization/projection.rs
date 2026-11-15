@@ -6,7 +6,6 @@ use super::{
     geometry::{NoArea, Rect},
     model_links::{ModelLinkError, validate_model_links},
     ratio,
-    treemap::ChildKey,
     typed_layout::{self, Dispatcher, Input},
 };
 use crate::ResultVersion;
@@ -149,7 +148,6 @@ pub fn locate_without_shapes(
 pub enum Error {
     InvalidSource,
     UnavailableAttribution,
-    OrderingUnavailable,
     Dispatch(typed_layout::DispatchError),
     InvalidLayout,
     ShapeLimitExceeded,
@@ -164,13 +162,12 @@ pub struct Options<'a> {
     pub max_shapes: usize,
 }
 
-/// One pinned source and the available immediate-child ordering keys.
+/// One pinned source.
 pub struct Source<'a> {
     pub version: &'a ResultVersion,
     pub parent: &'a ItemRef,
     pub basis: SizeBasis,
     pub bounds: Rect,
-    pub keys: &'a [ChildKey],
 }
 
 /// Admits and projects rows once from the same immutable version and parent.
@@ -212,15 +209,13 @@ fn project_inner(
         parent,
         basis,
         bounds,
-        keys,
     } = source;
-    let input = Input::admit_cancellable(version, parent, basis.clone(), bounds, keys, cancelled)
+    let input = Input::admit_cancellable(version, parent, basis.clone(), bounds, cancelled)
         .map_err(|e| match e {
-        super::treemap::AdmissionError::Cancelled => Error::Cancelled,
-        super::treemap::AdmissionError::NoAttribution => Error::UnavailableAttribution,
-        super::treemap::AdmissionError::OrderingUnavailable => Error::OrderingUnavailable,
-        _ => Error::InvalidSource,
-    })?;
+            super::treemap::AdmissionError::Cancelled => Error::Cancelled,
+            super::treemap::AdmissionError::NoAttribution => Error::UnavailableAttribution,
+            _ => Error::InvalidSource,
+        })?;
     let parent_value =
         super::value(version, parent.item_no, &basis).map_err(|_| Error::InvalidSource)?;
     let selected = dispatcher

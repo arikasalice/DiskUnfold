@@ -52,22 +52,6 @@ fn prepared() -> Result<Input, String> {
         result_version: v.version_id().clone(),
         item_no: 0,
     };
-    let keys: Vec<_> = v
-        .items()
-        .iter()
-        .filter(|i| i.parent == Some(0))
-        .map(|i| treemap::ChildKey {
-            item: ItemRef {
-                result_version: v.version_id().clone(),
-                item_no: i.item_no,
-            },
-            path_compare_key: if i.name == b"a" {
-                b"z".to_vec()
-            } else {
-                i.name.clone()
-            },
-        })
-        .collect();
     Input::admit(
         &v,
         &parent,
@@ -78,7 +62,6 @@ fn prepared() -> Result<Input, String> {
             right: 100,
             bottom: 100,
         },
-        &keys,
     )
     .map_err(|e| format!("{e:?}"))
 }
@@ -127,8 +110,16 @@ impl Strategy for Invalid {
 fn one_pinned_input_has_homogeneous_treemap_and_extension_outputs() -> Result<(), String> {
     let input = prepared()?;
     assert_eq!(input.rows().len(), 3);
-    assert_eq!(input.rows()[0].path_compare_key(), Some(b"b".as_slice()));
-    assert_eq!(input.rows()[1].path_compare_key(), Some(b"z".as_slice()));
+    // The equal-size rows `a` and `b` (items 1 and 2) follow raw name order,
+    // then the zero-size row.
+    assert_eq!(
+        input
+            .rows()
+            .iter()
+            .map(|row| row.item().item_no)
+            .collect::<Vec<_>>(),
+        [1, 2, 3]
+    );
     assert_eq!(input.rows()[0].value().evidence, SizeEvidence::Measured);
     let original = typed_layout::treemap_descriptor();
     let fixture = descriptor("fixture", "fixture.test", 1);
@@ -218,10 +209,6 @@ fn unproven_values_are_not_promoted_to_layout_input() -> Result<(), String> {
         result_version: v.version_id().clone(),
         item_no,
     };
-    let key = treemap::ChildKey {
-        item: reference(1),
-        path_compare_key: b"missing".to_vec(),
-    };
     assert!(matches!(
         Input::admit(
             &v,
@@ -232,8 +219,7 @@ fn unproven_values_are_not_promoted_to_layout_input() -> Result<(), String> {
                 top: 0,
                 right: 100,
                 bottom: 100
-            },
-            &[key]
+            }
         ),
         Err(treemap::AdmissionError::NoAttribution)
     ));
@@ -265,29 +251,19 @@ fn cancellation_is_observed_during_admission_and_before_return() -> Result<(), S
         result_version: version.version_id().clone(),
         item_no,
     };
-    let keys: Vec<_> = version
-        .items()
-        .iter()
-        .filter(|i| i.parent == Some(0))
-        .map(|item| treemap::ChildKey {
-            item: reference(item.item_no),
-            path_compare_key: item.name.clone(),
-        })
-        .collect();
     let parent = reference(0);
     let mut total = 0;
-    treemap::admit_cancellable(&version, &parent, SizeBasis::Logical, &keys, &mut || {
+    treemap::admit_cancellable(&version, &parent, SizeBasis::Logical, &mut || {
         total += 1;
         false
     })
     .map_err(|e| format!("{e:?}"))?;
     for stop in [1, 50, 140, total - 2, total] {
         let mut calls = 0;
-        let result =
-            treemap::admit_cancellable(&version, &parent, SizeBasis::Logical, &keys, &mut || {
-                calls += 1;
-                calls == stop
-            });
+        let result = treemap::admit_cancellable(&version, &parent, SizeBasis::Logical, &mut || {
+            calls += 1;
+            calls == stop
+        });
         assert!(
             matches!(result, Err(treemap::AdmissionError::Cancelled)),
             "stop={stop}, total={total}"
@@ -305,7 +281,6 @@ fn cancellation_is_observed_during_admission_and_before_return() -> Result<(), S
             right: 100,
             bottom: 100,
         },
-        &keys,
         &mut || {
             calls += 1;
             calls == 80
@@ -365,28 +340,15 @@ fn admitted_strategy_matches_existing_layout_parent_geometry() -> Result<(), Str
         result_version: v.version_id().clone(),
         item_no,
     };
-    let keys: Vec<_> = v
-        .items()
-        .iter()
-        .filter(|i| i.parent == Some(0))
-        .map(|i| treemap::ChildKey {
-            item: reference(i.item_no),
-            path_compare_key: if i.name == b"a" {
-                b"z".to_vec()
-            } else {
-                i.name.clone()
-            },
-        })
-        .collect();
     let bounds = Rect {
         left: 0,
         top: 0,
         right: 100,
         bottom: 100,
     };
-    let old = treemap::layout_parent(&v, &reference(0), SizeBasis::Logical, bounds, &keys)
+    let old = treemap::layout_parent(&v, &reference(0), SizeBasis::Logical, bounds)
         .map_err(|e| format!("{e:?}"))?;
-    let input = Input::admit(&v, &reference(0), SizeBasis::Logical, bounds, &keys)
+    let input = Input::admit(&v, &reference(0), SizeBasis::Logical, bounds)
         .map_err(|e| format!("{e:?}"))?;
     let actual = typed_layout::Treemap
         .layout(&input, &mut || false)

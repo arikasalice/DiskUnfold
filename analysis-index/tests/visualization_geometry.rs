@@ -144,10 +144,7 @@ fn adapters_reject_coordinates_outside_normalized_grid() -> Result<(), String> {
 
 #[test]
 fn admitted_treemap_partition_uses_same_geometry_adapter() -> Result<(), String> {
-    use du_analysis_index::{
-        IngestSink, Observation,
-        visualization::treemap::{self, ChildKey},
-    };
+    use du_analysis_index::{IngestSink, Observation, visualization::treemap};
     use du_core_contracts::{
         Id, ItemRef, SizeAmount, SizeBasis, SizeEvidence, SizeValue,
         result::{ResultCompleteness, ResultVersionRead},
@@ -175,11 +172,7 @@ fn admitted_treemap_partition_uses_same_geometry_adapter() -> Result<(), String>
         result_version: version.version_id().clone(),
         item_no,
     };
-    let keys = [ChildKey {
-        item: item(1),
-        path_compare_key: b"a".to_vec(),
-    }];
-    let partition = treemap::layout_parent(&version, &item(0), SizeBasis::Logical, bounds(), &keys)
+    let partition = treemap::layout_parent(&version, &item(0), SizeBasis::Logical, bounds())
         .map_err(|e| format!("{e:?}"))?;
     let geometry = partition
         .layout

@@ -168,27 +168,18 @@ pub(super) fn extend(
         }
         let folder = du_analysis_index::browse::open(source.version(), Some(&item))
             .map_err(|_| render::Error::InvalidEvidence)?;
-        let mut keys = Vec::new();
+        // The caller records the facts each call returns to describe descendant shapes.
         for child in folder.children {
             if cancelled() {
                 return Err(render::Error::Cancelled);
             }
-            if let Some(path_compare_key) = evidence(source, child, cancelled)?.path_compare_key {
-                keys.push(du_analysis_index::visualization::treemap::ChildKey {
-                    item: ItemRef {
-                        result_version: source.result_version().clone(),
-                        item_no: child.item_no,
-                    },
-                    path_compare_key,
-                });
-            }
+            evidence(source, child, cancelled)?;
         }
         let before = model.descendants.len();
         projection::add_child_partition(
             model,
             source.version(),
             index,
-            &keys,
             dispatcher,
             policy.max_shapes,
             cancelled,
