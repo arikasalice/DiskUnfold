@@ -336,7 +336,7 @@ describe.each(["en", "ko"] as const)("the product shell (%s)", (language) => {
         name: label("ui.visualization.rowsFromGraph"),
       }),
     );
-    const groupLabel = language === "en" ? "Other items" : "기타 항목";
+    const groupLabel = language === "en" ? "Other (0)" : "기타 0개";
     expect(await screen.findAllByText(groupLabel)).not.toHaveLength(0);
     expect(await screen.findAllByText(OTHER_GROUP_LABEL)).not.toHaveLength(0);
 
