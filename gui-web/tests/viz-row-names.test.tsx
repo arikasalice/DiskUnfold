@@ -70,6 +70,10 @@ describe.each(["en", "ko"] as const)("row names (%s)", (language) => {
       : `기타 ${n}개${plus ? " 이상" : ""}`;
   const unknownName = language === "en" ? "Other items" : "기타 항목";
 
+  test("the engine's other-group label key resolves as plain localized text", () => {
+    expect(text.key(OTHER)).toBe(unknownName);
+  });
+
   test("F06 FR7.HD1.app-host.DD1: the registered label key reads from the one group's item count", () => {
     const one = modelWith(["g1"], items("exact", "1234"));
     expect(rowName(groupRow(), one, text)).toBe(other("1,234"));

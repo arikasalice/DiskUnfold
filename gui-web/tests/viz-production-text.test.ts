@@ -34,6 +34,7 @@ const wireWords = [
   "viz.flag.other_group",
   "unclassified",
   "ui.visualization.legend.unclassified",
+  "ui.visualization.group.other",
 ];
 
 function productionText(locale: RealLocale, unit: number | "auto" = "auto") {
@@ -103,7 +104,7 @@ describe.each(["en", "ko"] as const)("production viz text (%s)", (language) => {
     const general = message("unrecognizedValue");
     expect(general).not.toContain(marker);
     for (const key of [
-      "ui.visualization.group.other",
+      "ui.visualization.group.future",
       "scan.path_denied",
       "viz.flag.future",
       "constructor",

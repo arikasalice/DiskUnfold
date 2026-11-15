@@ -78,7 +78,7 @@ function otherGroupName(
     WHOLE_NUMBER.test(grouped.value)
   )
     return text.message(
-      grouped.state === "exact" ? "group.other" : "group.other_at_least",
+      grouped.state === "exact" ? "group.other_count" : "group.other_at_least",
       { count: grouped.value },
     );
   return text.message("group.other_unknown");
