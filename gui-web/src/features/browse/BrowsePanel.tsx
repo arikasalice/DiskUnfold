@@ -25,7 +25,7 @@ import { BROWSE_PAGE_SIZE, BrowsePages } from "../../state/browse-pages";
 import type { ScanPriority } from "../../state/scan-priority";
 import { folderPath } from "./browse-display";
 import { BrowseResults } from "./BrowseResults";
-import type { ListEntryFocus } from "./BrowseResults";
+import type { ListEntryFocus, ListRowFocus } from "./BrowseResults";
 import {
   BrowseItemDialog,
   ObservationSummary,
@@ -53,6 +53,11 @@ export type BrowseOpenLocation = Extract<
 >;
 
 type View = { opened: Opened; pages: BrowsePages };
+/**
+ * The control that held focus when a folder was opened; a pressed control
+ * that is still usable afterwards keeps the focus.
+ */
+type FocusOrigin = { origin: Element; pressed: boolean };
 
 /** Isolated folder browser; its host supplies the transport and pinned result. */
 export function BrowsePanel({
@@ -88,7 +93,8 @@ export function BrowsePanel({
   titleBadge?: ReactNode;
   /**
    * Moves focus to the title when the panel mounts, for a host that shows the
-   * panel as its own screen. The title draws no focus frame.
+   * panel as its own screen. The title draws no focus frame; it is also the
+   * last fallback for focus that has no row or "Up" to go to.
    */
   focusTitle?: boolean;
 }) {
@@ -110,19 +116,24 @@ export function BrowsePanel({
   const title = useRef<HTMLHeadingElement>(null);
   const upAction = useRef<HTMLButtonElement>(null);
   const listEntry = useRef<ListEntryFocus>(undefined);
-  const focusAfterUpdate = useRef<Element>(undefined);
+  const listRow = useRef<ListRowFocus>(undefined);
+  const focusAfterUpdate = useRef<FocusOrigin>(undefined);
   // Survives the remount of the results, so a new list's selection action
   // bar can take over the focus its predecessor held.
   const barFocus = useRef(false);
   const inspection = useItemInspection(
     resultVersion ?? view?.opened.page.resultVersion,
-    panel,
+    (index) => {
+      if (listRow.current) listRow.current(index);
+      else if (!focusUp()) focusTitleNow();
+    },
   );
 
   function navigate(
     location?: ItemRef,
     pinned = resultVersion,
     retrying = false,
+    pressed = false,
   ) {
     if (retrying && opening.current) return;
     lastAttempt.current = { location, pinned };
@@ -177,8 +188,8 @@ export function BrowsePanel({
           virtualRootVersion.current = response.page.resultVersion;
         }
         focusAfterUpdate.current =
-          restoreFocus && document.activeElement === active
-            ? (active ?? undefined)
+          restoreFocus && active && document.activeElement === active
+            ? { origin: active, pressed }
             : undefined;
         setMessage(undefined);
         setView({
@@ -207,6 +218,10 @@ export function BrowsePanel({
     return document.activeElement === up;
   }
 
+  function focusTitleNow() {
+    title.current?.focus({ preventScroll: true });
+  }
+
   useEffect(() => {
     if (focusTitle) title.current?.focus({ preventScroll: true });
     // Only the screen's entry moves focus to the title.
@@ -224,18 +239,23 @@ export function BrowsePanel({
   }, [port, resultVersion]);
 
   useLayoutEffect(() => {
-    const focus = focusAfterUpdate.current;
+    const pending = focusAfterUpdate.current;
     focusAfterUpdate.current = undefined;
+    if (!pending) return;
+    const { origin, pressed } = pending;
+    const active = document.activeElement;
+    // A pressed button that is still usable keeps the focus, so "Up" can be
+    // pressed again.
+    if (pressed && active === origin && !origin.matches(":disabled")) return;
     // Focus was lost with the control that opened the folder when that control
     // went away, or became disabled ("Up" at the top), which the browser
     // answers by moving focus to the body.
     if (
-      focus &&
-      (document.activeElement === focus ||
-        (document.activeElement === document.body &&
-          (!focus.isConnected || focus.matches(":disabled"))))
+      active === origin ||
+      (active === document.body &&
+        (!origin.isConnected || origin.matches(":disabled")))
     )
-      listEntry.current?.(focus);
+      listEntry.current?.(origin);
   }, [view]);
 
   const page = view?.opened.page;
@@ -248,9 +268,9 @@ export function BrowsePanel({
     if (!opening.current) inspection.open(row, trigger);
   }
 
-  function goUp() {
+  function goUp(pressed = false) {
     if (parent && page && !opening.current && !previousResult)
-      navigate(parent.item, page.resultVersion);
+      navigate(parent.item, page.resultVersion, false, pressed);
   }
 
   function handleBrowseKey(event: KeyboardEvent<HTMLElement>) {
@@ -282,7 +302,7 @@ export function BrowsePanel({
     >
       <div className="du-browse-header">
         <div className="du-browse-title">
-          <Heading level={2} ref={title} programmaticFocus={focusTitle}>
+          <Heading level={2} ref={title} programmaticFocus>
             {text("ui.browse.folders_and_files", "Folders and files")}
           </Heading>
           {titleBadge}
@@ -322,7 +342,7 @@ export function BrowsePanel({
               <div className="du-card__actions">
                 <Action
                   ref={upAction}
-                  onPress={goUp}
+                  onPress={() => goUp(true)}
                   isDisabled={!parent || previousResult}
                 >
                   {text("ui.browse.up", "Up")}
@@ -367,9 +387,10 @@ export function BrowsePanel({
             navigationEpoch={sequence.current}
             navigationSeq={() => sequence.current}
             canRead={() => opening.current === undefined && !previousResult}
-            focusPanel={() => panel.current?.focus({ preventScroll: true })}
+            focusTitle={focusTitleNow}
             focusUp={focusUp}
             listEntry={listEntry}
+            listRow={listRow}
             barFocus={barFocus}
             openFailures={openFailures}
             retryOpen={retry}

@@ -694,6 +694,7 @@ ui.browse.loading_folder_items
 ui.browse.location_hierarchy
 ui.browse.no_confirmed_items_end_unknown
 ui.browse.no_items
+ui.browse.no_more_items
 ui.browse.not_enumerated
 ui.browse.not_recorded
 ui.browse.not_reported

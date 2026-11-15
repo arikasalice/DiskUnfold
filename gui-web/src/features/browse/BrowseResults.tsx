@@ -45,6 +45,13 @@ import type { Selection } from "./SelectionAnalyzeFirst";
  */
 export type ListEntryFocus = (origin: Element) => void;
 
+/**
+ * Focuses the row at an index once it is drawn, or the last row when the
+ * list has fewer rows; an empty list focuses "Up", else the title. Used when
+ * the row that held focus went away.
+ */
+export type ListRowFocus = (index: number) => void;
+
 function size(
   value: FolderQueryRow["logicalSize"],
   display: SizeDisplay,
@@ -170,9 +177,10 @@ export function BrowseResults({
   navigationEpoch,
   navigationSeq,
   canRead,
-  focusPanel,
+  focusTitle,
   focusUp,
   listEntry,
+  listRow,
   barFocus,
   openFailures,
   retryOpen,
@@ -192,16 +200,14 @@ export function BrowseResults({
   navigationEpoch: number;
   navigationSeq: () => number;
   canRead: () => boolean;
-  /**
-   * Focuses the panel. Used only where no nearer next step exists: an empty
-   * folder without an available "Up", a final page that added no rows, and a
-   * successful page retry.
-   */
-  focusPanel: () => void;
+  /** Focuses the title, the next step of an empty folder without an available "Up". */
+  focusTitle: () => void;
   /** Focuses "Up" when it is available; false when it is not. */
   focusUp: () => boolean;
   /** Receives this list's entry focus, which the panel calls after opening it. */
   listEntry: RefObject<ListEntryFocus | undefined>;
+  /** Receives this list's row focus by index; see {@link ListRowFocus}. */
+  listRow: RefObject<ListRowFocus | undefined>;
   /** Whether the selection action bar holds focus; outlives this list. */
   barFocus: RefObject<boolean>;
   /** Counts failed openings of a new list; see {@link SelectionAnalyzeFirst}. */
@@ -245,7 +251,7 @@ export function BrowseResults({
     navigationEpoch,
     navigationSeq,
     canRead,
-    focusPanel,
+    focusEmpty,
   });
   const loadHasFocus = useRef(false);
   useLayoutEffect(() => {
@@ -286,9 +292,9 @@ export function BrowseResults({
     };
     setRowFocus(request);
   }
-  /** An empty folder's next step is "Up"; without it, the panel. */
+  /** An empty folder's next step is "Up"; without it, the title. */
   function focusEmpty() {
-    if (!focusUp()) focusPanel();
+    if (!focusUp()) focusTitle();
   }
   /**
    * Focuses a row, the element keyboard navigation of the list focuses: the
@@ -337,6 +343,16 @@ export function BrowseResults({
   }
   useLayoutEffect(() => {
     listEntry.current = focusEntry;
+    listRow.current = (index) => {
+      if (pages.count === 0) {
+        focusEmpty();
+        return;
+      }
+      requestRow(Math.min(index, pages.count - 1), () => {
+        const active = document.activeElement;
+        return active === null || active === document.body;
+      });
+    };
   });
   return (
     <div className="du-browse-results">

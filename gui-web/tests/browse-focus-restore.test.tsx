@@ -4,6 +4,8 @@ import {
   fireEvent,
   render,
   screen,
+  waitFor,
+  within,
 } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { BrowsePanel } from "../src/features/browse/BrowsePanel";
@@ -18,8 +20,9 @@ import type {
  * F02 FR8.HD1, design review of PR #60 (follow-up 3): focus never rests on the
  * folder panel; it goes to the nearest next step. The reviewed cases are a
  * folder opened by keyboard, "Load more" going away, "Retry" succeeding, an
- * empty folder and entering the screen. Steps the review does not name keep
- * the panel as their fallback.
+ * empty folder and entering the screen. The review of PR #63 adds a pressed
+ * "Up" that stays usable, a page retry, a final page without rows, an empty
+ * folder without "Up" and closing item details whose row went away.
  */
 
 afterEach(cleanup);
@@ -99,6 +102,14 @@ function pressKey(target: HTMLElement) {
   fireEvent.keyUp(target, { key: "Enter", code: "Enter" });
 }
 
+function pressPointer(target: HTMLElement) {
+  act(() => target.focus());
+  const pointer = { pointerType: "mouse", pointerId: 1, isPrimary: true };
+  fireEvent.pointerDown(target, pointer);
+  fireEvent.pointerUp(target, pointer);
+  fireEvent.click(target, { detail: 1 });
+}
+
 test("a folder opened by keyboard focuses the first row of the new folder", async () => {
   const open = vi
     .fn()
@@ -157,22 +168,55 @@ test("Retry succeeding and going away focuses the first row of the list", async 
   expect(document.activeElement).toBe(gridRow("First"));
 });
 
-test("Up pressed by keyboard focuses the first row of the parent folder", async () => {
+test.each([
+  ["keyboard", pressKey],
+  ["pointer", pressPointer],
+] as const)(
+  "Up pressed by %s keeps the focus while it is still usable",
+  async (_, press) => {
+    const open = vi
+      .fn()
+      .mockResolvedValueOnce(folder(1, [1, 2, 3], [row(4, "Child")]))
+      .mockImplementationOnce((request) =>
+        Promise.resolve(
+          folder(
+            request.requestSeq,
+            [1, 2],
+            [row(3, "Parent A"), row(5, "Parent B")],
+          ),
+        ),
+      );
+    render(<BrowsePanel port={{ open, page: vi.fn() }} resultVersion={id} />);
+    await screen.findByText("Child");
+    const up = screen.getByRole("button", { name: "Up" }) as HTMLButtonElement;
+    await act(async () => press(up));
+    await screen.findByText("Parent A");
+    expect(open).toHaveBeenCalledTimes(2);
+    expect(up.disabled).toBe(false);
+    expect(document.activeElement).toBe(up);
+  },
+);
+
+test("Alt+Up from a row focuses the first row of the parent folder", async () => {
   const open = vi
     .fn()
-    .mockResolvedValueOnce(folder(1, [1, 2], [row(3, "Child")]))
+    .mockResolvedValueOnce(folder(1, [1, 2, 3], [row(4, "Child")]))
     .mockImplementationOnce((request) =>
       Promise.resolve(
-        folder(request.requestSeq, [1, 2, 3].slice(0, 2), [
-          row(2, "Parent A"),
-          row(5, "Parent B"),
-        ]),
+        folder(
+          request.requestSeq,
+          [1, 2],
+          [row(3, "Parent A"), row(5, "Parent B")],
+        ),
       ),
     );
   render(<BrowsePanel port={{ open, page: vi.fn() }} resultVersion={id} />);
   await screen.findByText("Child");
-  const up = screen.getByRole("button", { name: "Up" });
-  await act(async () => pressKey(up));
+  const child = gridRow("Child");
+  act(() => child.focus());
+  await act(async () =>
+    fireEvent.keyDown(child, { key: "ArrowUp", altKey: true }),
+  );
   await screen.findByText("Parent A");
   expect(document.activeElement).toBe(gridRow("Parent A"));
 });
@@ -251,15 +295,16 @@ test("a panel embedded without focusTitle leaves focus where it was", async () =
   render(<BrowsePanel port={{ open, page: vi.fn() }} resultVersion={id} />);
   await screen.findByText("First");
   expect(document.activeElement).toBe(document.body);
+  // The title is a focus fallback reachable only by script.
   expect(
     screen
       .getByRole("heading", { name: "Folders and files" })
-      .hasAttribute("tabindex"),
-  ).toBe(false);
+      .getAttribute("tabindex"),
+  ).toBe("-1");
 });
 
-test("an empty folder without an available Up keeps the panel as the fallback", async () => {
-  // Not a reviewed case: a directly opened scope root has no "Up".
+test("an empty folder without an available Up focuses the title", async () => {
+  // A directly opened scope root has no "Up".
   const open = vi
     .fn()
     .mockRejectedValueOnce(new Error("unavailable"))
@@ -272,5 +317,112 @@ test("an empty folder without an available Up keeps the panel as the fallback", 
   await screen.findByText("No observed items in this folder.");
   const up = screen.getByRole("button", { name: "Up" }) as HTMLButtonElement;
   expect(up.disabled).toBe(true);
-  expect(document.activeElement).toBe(panel());
+  expect(document.activeElement).toBe(
+    screen.getByRole("heading", { name: "Folders and files" }),
+  );
+  expect(document.activeElement).not.toBe(panel());
 });
+
+const entries = (count: number) =>
+  Array.from({ length: count }, (_, index) =>
+    row(index + 10, "Entry " + index),
+  );
+
+test("Retry page succeeding focuses the first row it loaded", async () => {
+  const page_ = vi
+    .fn()
+    .mockRejectedValueOnce(new Error("unavailable"))
+    .mockResolvedValueOnce(
+      page([row(500, "Added 0"), row(501, "Added 1")], null, 202),
+    );
+  const open = vi
+    .fn()
+    .mockResolvedValue(folder(1, [1], entries(200), "next", 202));
+  render(<BrowsePanel port={{ open, page: page_ }} resultVersion={id} />);
+  const load = await screen.findByRole("button", { name: "Load more" });
+  await act(async () => pressPointer(load));
+  const retry = await screen.findByRole("button", { name: "Retry page" });
+  expect(document.activeElement).toBe(retry);
+  await act(async () => pressPointer(retry));
+  expect(retry.isConnected).toBe(false);
+  expect(document.activeElement).toBe(gridRow("Added 0"));
+  expect(document.activeElement).not.toBe(panel());
+});
+
+test.each([
+  ["keyboard", pressKey],
+  ["pointer", pressPointer],
+] as const)(
+  "Load more by %s adding no rows focuses the last row and says so once",
+  async (_, press) => {
+    const open = vi
+      .fn()
+      .mockResolvedValue(
+        folder(1, [1], [row(2, "A"), row(3, "B"), row(4, "C")], "next", 3),
+      );
+    const read = vi.fn().mockResolvedValue(page([], null, 3));
+    render(<BrowsePanel port={{ open, page: read }} resultVersion={id} />);
+    const load = await screen.findByRole("button", { name: "Load more" });
+    await screen.findByText("C");
+    await act(async () => press(load));
+    expect(load.isConnected).toBe(false);
+    expect(document.activeElement).toBe(gridRow("C"));
+    const said = screen
+      .getAllByRole("status")
+      .filter((region) => region.textContent?.includes("No more items"));
+    expect(said).toHaveLength(1);
+    expect(said[0]!.textContent).toBe("No more items");
+  },
+);
+
+test.each([
+  ["the row at the same position", [1, 2], [row(2, "X"), row(5, "Y")], "Y"],
+  ["the last row", [1, 2], [row(2, "X")], "X"],
+  ["Up", [1, 2], [], "Up"],
+  ["the title", [1], [], "title"],
+] as const)(
+  "closing details whose row went away focuses %s",
+  async (_, parent, rows, expected) => {
+    const open = vi
+      .fn()
+      .mockResolvedValueOnce(
+        folder(1, [...parent, 7], [row(8, "Opener A"), row(9, "Opener B")]),
+      )
+      .mockImplementationOnce((request) =>
+        Promise.resolve(folder(request.requestSeq, [...parent], [...rows])),
+      );
+    render(
+      <BrowsePanel
+        port={{ open, page: vi.fn() }}
+        resultVersion={id}
+        inspectItem={() => "Observed folder"}
+      />,
+    );
+    await screen.findByText("Opener B");
+    const opener = gridRow("Opener B");
+    fireEvent.contextMenu(opener);
+    const menu = await screen.findByRole("menu", {
+      name: "Actions for Opener B",
+    });
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Inspect" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "Folder details",
+    });
+    // The folder changes under the dialog, taking the opener's row with it.
+    await act(async () =>
+      fireEvent.click(screen.getByRole("button", { name: "Up", hidden: true })),
+    );
+    await waitFor(() => expect(opener.isConnected).toBe(false));
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Close details" }),
+    );
+    const target = () =>
+      expected === "Up"
+        ? screen.getByRole("button", { name: "Up" })
+        : expected === "title"
+          ? screen.getByRole("heading", { name: "Folders and files" })
+          : gridRow(expected);
+    await waitFor(() => expect(document.activeElement).toBe(target()));
+    expect(document.activeElement).not.toBe(panel());
+  },
+);
