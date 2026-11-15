@@ -4,6 +4,7 @@ import type { FolderQueryRow } from "../../ipc";
 import { useLocaleText } from "../../i18n/presentation";
 import type { LocaleText } from "../../i18n/presentation";
 import type { ScanPriority } from "../../state/scan-priority";
+import type { ScanPriorityStatus } from "../../state/scan-priority";
 import { browseDisplayName } from "./browse-display";
 import {
   canAnalyzeFirst,
@@ -60,20 +61,31 @@ function offersPriority(
   );
 }
 
+/** The request state a row shows as its badge, which is part of its name. */
+export function priorityBadge(
+  row: FolderQueryRow,
+  priority: ScanPriority | undefined,
+): ScanPriorityStatus | undefined {
+  return row.kind === "directory" ? priority?.status(row.item) : undefined;
+}
+
 /**
  * The end of a row's name while the list shows a running or paused scan's
  * result: the requested folder's badge, else "Analyze first" for a folder
  * that offers it. A requested folder offers no action; it was already asked.
- * A finished result keeps no place, so the name gets its width.
+ * A finished result keeps no place, so the name gets its width. The badge
+ * carries `badgeId`, so the row can name itself with it.
  */
 export function PrioritySlot({
   row,
   priority,
   readOnly,
+  badgeId,
 }: {
   row: FolderQueryRow;
   priority: ScanPriority | undefined;
   readOnly: boolean;
+  badgeId: string;
 }) {
   const text = useLocaleText();
   if (!offersPriority(row, priority)) return null;
@@ -83,8 +95,7 @@ export function PrioritySlot({
   );
   const analyzing = text("ui.browse.priority_analyzing", "Analyzing first");
   const action = text("ui.browse.analyze_first", "Analyze first");
-  const status =
-    row.kind === "directory" ? priority.status(row.item) : undefined;
+  const status = priorityBadge(row, priority);
   const offered = !status && canAnalyzeFirst(row, priority, readOnly);
   return (
     <RowSlot
@@ -93,7 +104,7 @@ export function PrioritySlot({
       holds={status ? "badge" : offered ? "action" : undefined}
     >
       {status ? (
-        <StatusBadge tone="info">
+        <StatusBadge tone="info" id={badgeId}>
           {status === "analyzing" ? analyzing : requested}
         </StatusBadge>
       ) : offered ? (

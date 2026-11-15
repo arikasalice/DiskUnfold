@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useId, useLayoutEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
 import {
   Action,
@@ -31,7 +31,11 @@ import { useBrowsePaging } from "./use-browse-paging";
 import { useBrowseCopy } from "./use-browse-copy";
 import { SelectionAnalyzeFirst } from "./SelectionAnalyzeFirst";
 import type { Selection } from "./SelectionAnalyzeFirst";
-import { analyzeFirstActions, PrioritySlot } from "./PrioritySlot";
+import {
+  analyzeFirstActions,
+  priorityBadge,
+  PrioritySlot,
+} from "./PrioritySlot";
 
 /**
  * Focuses the list's entry after a new folder replaced it: its first row, or
@@ -147,6 +151,11 @@ export function BrowseResults({
     text("ui.browse.column_modified", "Modified"),
   ];
   const scrollRoot = useRef<HTMLDivElement>(null);
+  // A row is named by its name and its badge only; the controls beside them
+  // keep their own names.
+  const labels = useId();
+  const nameId = (row: FolderQueryRow) => `${labels}name-${rowKey(row.item)}`;
+  const badgeId = (row: FolderQueryRow) => `${labels}badge-${rowKey(row.item)}`;
   const [selection, setSelection] = useState<Selection>(() => new Set());
   const [rowFocus, setRowFocus] = useState<BrowseGridFocus>();
   const copy = useBrowseCopy(
@@ -359,6 +368,11 @@ export function BrowseResults({
         onLayoutScroll={paging.recordLayoutScroll}
         getRow={(index) => pages.row(index)}
         getKey={(row) => rowKey(row.item)}
+        rowLabelledBy={(row) =>
+          priorityBadge(row, priority)
+            ? `${nameId(row)} ${badgeId(row)}`
+            : nameId(row)
+        }
         onSelectionChange={setSelection}
         renderCells={(row) => [
           <ItemActions
@@ -400,28 +414,35 @@ export function BrowseResults({
             ]}
           >
             <div className="du-browse-name">
-              {row.kind === "directory" ? (
-                <Action
-                  excludeFromTabOrder
-                  isDisabled={readOnly}
-                  onPress={() => openFolder(row.item)}
-                >
-                  <NameText name={browseDisplayName(row.displayName, text)} />
-                </Action>
-              ) : row.kind === "file" && openItem ? (
-                <Action
-                  excludeFromTabOrder
-                  isDisabled={busy}
-                  onPress={(event) => openItem(row, event.target)}
-                >
-                  <NameText name={browseDisplayName(row.displayName, text)} />
-                </Action>
-              ) : (
-                <Text>
-                  <NameText name={browseDisplayName(row.displayName, text)} />
-                </Text>
-              )}
-              <PrioritySlot row={row} priority={priority} readOnly={readOnly} />
+              <div id={nameId(row)}>
+                {row.kind === "directory" ? (
+                  <Action
+                    excludeFromTabOrder
+                    isDisabled={readOnly}
+                    onPress={() => openFolder(row.item)}
+                  >
+                    <NameText name={browseDisplayName(row.displayName, text)} />
+                  </Action>
+                ) : row.kind === "file" && openItem ? (
+                  <Action
+                    excludeFromTabOrder
+                    isDisabled={busy}
+                    onPress={(event) => openItem(row, event.target)}
+                  >
+                    <NameText name={browseDisplayName(row.displayName, text)} />
+                  </Action>
+                ) : (
+                  <Text>
+                    <NameText name={browseDisplayName(row.displayName, text)} />
+                  </Text>
+                )}
+              </div>
+              <PrioritySlot
+                row={row}
+                priority={priority}
+                readOnly={readOnly}
+                badgeId={badgeId(row)}
+              />
             </div>
           </ItemActions>,
           <Text>

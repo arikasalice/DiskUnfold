@@ -155,11 +155,14 @@ export function StatusBadge({
   tone = "neutral",
   status,
   live = false,
+  id,
 }: {
   children?: ReactNode;
   tone?: StatusTone;
   status?: StatusRow;
   live?: boolean;
+  /** Lets another element name itself with this badge. */
+  id?: string;
 }) {
   const text = useLocaleText();
   const shape = status?.shape ?? STATUS_TONES[tone].shape;
@@ -167,6 +170,7 @@ export function StatusBadge({
   const shown = status?.tone ?? tone;
   return (
     <span
+      id={id}
       className={`du-badge du-badge--${shown}`}
       data-status-shape={shape}
       role={live ? "status" : undefined}

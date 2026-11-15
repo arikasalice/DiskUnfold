@@ -75,9 +75,21 @@ test("F02 FR8.HD1: a requested folder shows an info badge in its name, read with
   expect(
     within(gridRow("Photos")).getAllByText("Analyze first requested"),
   ).toHaveLength(1);
+  // The row is named by its name and badge only. The row action and the
+  // menu button stay in the tree under their own names.
   expect(
-    screen.getByRole("row", { name: /Photos.*Analyze first requested/ }),
+    screen.getByRole("row", { name: "Photos Analyze first requested" }),
   ).toBe(gridRow("Photos"));
+  expect(screen.getByRole("row", { name: "Videos" })).toBe(gridRow("Videos"));
+  expect(rowAction("Videos")).not.toBeNull();
+  expect(screen.getByRole("row", { name: "memo.txt" })).toBe(
+    gridRow("memo.txt"),
+  );
+  expect(
+    within(gridRow("Photos")).getByRole("button", {
+      name: "Actions for Photos",
+    }),
+  ).toBeDefined();
   // A receipt the engine did not confirm keeps the badge in the place; the
   // row menu still offers the request again.
   expect(rowAction("Photos")).toBeNull();
@@ -116,9 +128,17 @@ test("F02 FR8.HD1: a folder the engine reports as its current area reads Analyzi
     request: () => undefined,
     notice: undefined,
   };
-  render(<PrioritySlot row={row} priority={priority} readOnly={false} />);
-  expect(screen.getByText("Analyzing first").classList).toContain(
-    "du-badge--info",
+  render(
+    <PrioritySlot
+      row={row}
+      priority={priority}
+      readOnly={false}
+      badgeId="badge"
+    />,
   );
+  const badge = screen.getByText("Analyzing first");
+  expect(badge.classList).toContain("du-badge--info");
+  // The row names itself with this badge the same way as with "requested".
+  expect(badge.id).toBe("badge");
   expect(screen.queryByRole("button")).toBeNull();
 });

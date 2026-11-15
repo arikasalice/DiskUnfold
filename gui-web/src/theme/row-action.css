@@ -16,13 +16,14 @@
 /*
  * The reserved labels and the shown badge or action share one grid area, so
  * the place is as wide as the widest of them. It never shrinks or wraps; the
- * name beside it gives way instead.
+ * name beside it gives way instead. The badge or action stands at the end of
+ * the place, next to the control that follows it.
  */
 .du-row-slot {
   display: inline-grid;
   flex: none;
   align-items: center;
-  justify-items: start;
+  justify-items: end;
   margin-inline-start: auto;
   white-space: nowrap;
 }
