@@ -17,59 +17,55 @@
 //! that case either way.
 
 use super::*;
-use std::collections::HashMap;
-use std::collections::hash_map::Entry;
-use std::hash::{Hash, Hasher};
-
-/// An identity compared by its bytes. `FileIdentity` is a public type and does
-/// not implement `Hash`; this key does so only for the counting pass.
-struct IdentityKey<'a>(&'a FileIdentity);
-
-impl Hash for IdentityKey<'_> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.0.volume.hash(state);
-        self.0.file.hash(state);
-    }
-}
-
-impl PartialEq for IdentityKey<'_> {
-    fn eq(&self, other: &Self) -> bool {
-        self.0 == other.0
-    }
-}
-
-impl Eq for IdentityKey<'_> {}
 
 /// Marks every file whose usable identity also belongs to another file.
 ///
 /// Only files that `Physical::record` would put in an identity table count.
-fn repeated_identities(
+pub(super) fn repeated_identities(
     items: &[ResultItem],
     structures: &[bool],
     observations: &[Option<Arc<SpaceObservation>>],
 ) -> Vec<bool> {
     let mut repeated = vec![false; items.len()];
-    let files = observations.iter().flatten().count();
-    let mut first: HashMap<IdentityKey<'_>, usize> = HashMap::with_capacity(files);
+    let mut identified = Vec::new();
     for item in items {
         let index = item.item_no as usize;
         if structures[index] {
             continue;
         }
-        let Observed::Known(identity, _) = Observed::read(observations[index].as_deref()) else {
-            continue;
-        };
-        match first.entry(IdentityKey(identity)) {
-            Entry::Occupied(earlier) => {
-                repeated[*earlier.get()] = true;
-                repeated[index] = true;
-            }
-            Entry::Vacant(slot) => {
-                slot.insert(index);
-            }
+        if matches!(
+            Observed::read(observations[index].as_deref()),
+            Observed::Known(..)
+        ) {
+            identified.push(item.item_no);
         }
     }
+
+    identified.sort_unstable_by(|left, right| {
+        identity_at(observations, *left).cmp(&identity_at(observations, *right))
+    });
+    let mut start = 0;
+    while start < identified.len() {
+        let identity = identity_at(observations, identified[start]);
+        let mut end = start + 1;
+        while end < identified.len() && identity_at(observations, identified[end]) == identity {
+            end += 1;
+        }
+        if end - start > 1 {
+            for item in &identified[start..end] {
+                repeated[*item as usize] = true;
+            }
+        }
+        start = end;
+    }
     repeated
+}
+
+fn identity_at(observations: &[Option<Arc<SpaceObservation>>], item: u32) -> Option<&FileIdentity> {
+    observations
+        .get(item as usize)
+        .and_then(Option::as_deref)
+        .and_then(|observation| observation.identity.as_ref())
 }
 
 /// Computes the totals of every item from the evidence of its subtree.

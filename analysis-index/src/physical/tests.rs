@@ -1,4 +1,5 @@
 use super::*;
+use du_core_contracts::result::ResultItemKind;
 
 #[test]
 fn configured_capacity_deduplicates_and_rejects_new_identities() {
@@ -131,4 +132,57 @@ fn merge_inserts_only_the_smaller_identity_map() {
     assert_eq!(small.identities.len(), 129);
     assert_eq!(small.insertions, 129);
     assert_eq!(small.total, 130);
+}
+
+#[test]
+fn repeated_identity_detection_matches_full_volume_and_file_bytes() {
+    let value = |volume: &[u8], file: &[u8]| {
+        Some(Arc::new(SpaceObservation {
+            allocated: Some(SizeValue {
+                basis: SizeBasis::Allocated,
+                evidence: SizeEvidence::OsReported,
+                amount: SizeAmount::Exact {
+                    bytes: ByteSize::from(10),
+                },
+            }),
+            identity: Some(FileIdentity {
+                volume: volume.to_vec(),
+                file: file.to_vec(),
+            }),
+            link_count: Some(1),
+            sharing: SharingEvidence::None,
+        }))
+    };
+    let items: Vec<_> = (0..6)
+        .map(|number| ResultItem {
+            item_no: number,
+            parent: None,
+            name: Vec::new(),
+            size: None,
+            kind: if number == 0 {
+                ResultItemKind::Directory
+            } else {
+                ResultItemKind::File
+            },
+        })
+        .collect();
+    let observations = vec![
+        None,
+        value(b"volume-a", b"file-a"),
+        value(b"volume-a", b"file-a"),
+        value(b"volume-b", b"file-a"),
+        value(b"volume-a", b"file-b"),
+        Some(Arc::new(SpaceObservation {
+            link_count: Some(0),
+            ..value(b"volume-a", b"file-a").unwrap().as_ref().clone()
+        })),
+    ];
+    assert_eq!(
+        subtree::repeated_identities(
+            &items,
+            &[true, false, false, false, false, false],
+            &observations
+        ),
+        [false, true, true, false, false, false]
+    );
 }
