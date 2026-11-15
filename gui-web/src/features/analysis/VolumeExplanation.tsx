@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
+import type { ReactNode } from "react";
 import {
   Action,
   DetailDisclosure,
@@ -23,8 +24,17 @@ import {
   observationRows,
   volumeBytes,
 } from "./volume-format";
+import type { Message } from "./volume-format";
 import { isWholeVolume } from "./summary-batch";
-import type { VolumePart } from "./summary-batch";
+import type { VolumePart, VolumeView } from "./summary-batch";
+
+/** The volume the part last showed values for, kept while it shows none. */
+function framedVolumeId(view: VolumeView): string | null {
+  if (view.state === "shown") return view.response.volumeId;
+  return view.state === "updating" || view.state === "failed"
+    ? view.volumeId
+    : null;
+}
 
 /**
  * Explains volume usage as an expanded part of the summary.
@@ -33,7 +43,9 @@ import type { VolumePart } from "./summary-batch";
  * batch changes the two together (see `createSummaryBatch`). While the
  * summary has moved on without it, the part clears its values and says it is
  * updating, keeping its height, its expanded parts and focus. That line is
- * not announced: values that change during a scan are not read out.
+ * not announced: values that change during a scan are not read out. When no
+ * read is due after a failure, the part shows the problem and "Retry" in the
+ * same frame instead.
  */
 export function VolumeExplanation({
   volume,
@@ -46,13 +58,11 @@ export function VolumeExplanation({
 }) {
   const text = useLocaleText();
   const [root, setRoot] = useState("0");
-  const { view, target } = volume;
-  const rootIndex = Number(root);
-  const report = view.state === "shown" ? view.response : undefined;
-  const problem = view.state === "shown" ? view.problem : undefined;
-  const updating = view.state === "updating";
-  const volumeId = updating ? view.volumeId : (report?.volumeId ?? null);
-  const wholeVolume = isWholeVolume(target);
+  const toggle = useRef<HTMLButtonElement>(null);
+  const { view } = volume;
+  const failed = view.state === "failed" ? view : undefined;
+  const framed = failed ? failed.framed : view.state !== "reading";
+  const opened = view.state !== "closed" && view.state !== "reading";
 
   if (roots.length === 0) return null;
   // The admitted result keeps root items in the reviewed canonical order.
@@ -60,6 +70,16 @@ export function VolumeExplanation({
     value: String(index),
     label: path.display,
   }));
+  const problem = failed && (
+    <ReadProblem
+      problem={failed.problem}
+      onRetry={() => {
+        // The pressed action goes away; focus stays in the part.
+        toggle.current?.focus();
+        volume.retry();
+      }}
+    />
+  );
 
   return (
     <section
@@ -77,13 +97,14 @@ export function VolumeExplanation({
         />
       )}
       <Action
+        ref={toggle}
         isDisabled={view.state === "reading"}
         onPress={() => {
-          if (report || updating) volume.close();
-          else volume.open({ root: rootIndex });
+          if (opened) volume.close();
+          else volume.open({ root: Number(root) });
         }}
       >
-        {report || updating
+        {opened
           ? text("ui.analysis.volume_hide", "Hide volume explanation")
           : text("ui.analysis.volume_explain", "Explain volume usage")}
       </Action>
@@ -95,45 +116,96 @@ export function VolumeExplanation({
           )}
         />
       )}
-      {problem && <Notice tone="error">{text(...problem)}</Notice>}
-      {(report || updating) && (
-        <HeldHeight holding={updating}>
-          {report ? (
-            <ReportSummary
-              report={report}
-              wholeVolume={wholeVolume}
-              display={display}
-            />
-          ) : (
-            <Text kind="muted">
-              {text("ui.analysis.volume_updating", "Updating…")}
-            </Text>
-          )}
-          <DetailDisclosure
-            title={text(
-              "ui.analysis.volume_details_title",
-              "Observation and difference details",
-            )}
-          >
-            {report && (
-              <ReportDetails
-                report={report}
-                wholeVolume={wholeVolume}
-                display={display}
-              />
-            )}
-          </DetailDisclosure>
-          {!wholeVolume && roots.length > 1 && volumeId && (
-            <Action onPress={() => volume.open({ volumeId })}>
-              {text(
-                "ui.analysis.volume_compare_all",
-                "Compare all scanned folders on this volume",
-              )}
-            </Action>
-          )}
-        </HeldHeight>
+      {opened && !framed && problem}
+      {opened && framed && (
+        <PartFrame
+          volume={volume}
+          problem={problem}
+          comparable={roots.length > 1}
+          display={display}
+        />
       )}
     </section>
+  );
+}
+
+/** The problem of a failed read with the action that reads again. */
+function ReadProblem({
+  problem,
+  onRetry,
+}: {
+  problem: Message;
+  onRetry: () => void;
+}) {
+  const text = useLocaleText();
+  return (
+    <>
+      <Notice tone="error">{text(...problem)}</Notice>
+      <Action onPress={onRetry}>{text("ui.common.retry", "Retry")}</Action>
+    </>
+  );
+}
+
+/**
+ * The part once it has shown values: the values, or in their place the
+ * updating line or `problem`, above the details and the comparison action.
+ * These stay mounted and the height is held, so what the user expanded or
+ * focused survives a result the part could not read.
+ */
+function PartFrame({
+  volume,
+  problem,
+  comparable,
+  display,
+}: {
+  volume: VolumePart;
+  problem: ReactNode;
+  comparable: boolean;
+  display: SizeDisplay;
+}) {
+  const text = useLocaleText();
+  const { view } = volume;
+  const report = view.state === "shown" ? view.response : undefined;
+  const wholeVolume = isWholeVolume(volume.target);
+  const volumeId = framedVolumeId(view);
+  return (
+    <HeldHeight holding={!report}>
+      {report ? (
+        <ReportSummary
+          report={report}
+          wholeVolume={wholeVolume}
+          display={display}
+        />
+      ) : (
+        (problem ?? (
+          <Text kind="muted">
+            {text("ui.analysis.volume_updating", "Updating…")}
+          </Text>
+        ))
+      )}
+      <DetailDisclosure
+        title={text(
+          "ui.analysis.volume_details_title",
+          "Observation and difference details",
+        )}
+      >
+        {report && (
+          <ReportDetails
+            report={report}
+            wholeVolume={wholeVolume}
+            display={display}
+          />
+        )}
+      </DetailDisclosure>
+      {!wholeVolume && comparable && volumeId && (
+        <Action onPress={() => volume.open({ volumeId })}>
+          {text(
+            "ui.analysis.volume_compare_all",
+            "Compare all scanned folders on this volume",
+          )}
+        </Action>
+      )}
+    </HeldHeight>
   );
 }
 

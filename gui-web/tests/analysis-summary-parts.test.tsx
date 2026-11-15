@@ -2,23 +2,16 @@ import {
   act,
   cleanup,
   fireEvent,
-  render,
   screen,
   waitFor,
   within,
 } from "@testing-library/react";
-import { Profiler } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 import {
-  SUMMARY_PART_WAIT_MS,
   VOLUME_COMPARE_REREAD_MS,
+  volumePartPace,
 } from "../src/features/analysis/summary-batch";
-import { AnalysisError, windowsPath } from "../src/ipc";
-import type {
-  AnalysisClient,
-  VolumeGapRequest,
-  VolumeGapResponse,
-} from "../src/ipc";
+import { AnalysisError } from "../src/ipc";
 import { RESULT_REFLECT_INTERVAL_MS } from "../src/state/result-cadence";
 import {
   clearSelection,
@@ -27,19 +20,21 @@ import {
   resetReflectOffset,
   select,
   startPanel,
-  SummaryHarness,
-  volumeReport,
   watchSummary,
 } from "./summary-fixture";
+import { shownPart, summaryRun, volumeSummary } from "./summary-harness";
 
 /*
  * F02 FR3.HD1.gui-web.DD1 (design review of PR #69, decision on the volume
  * explanation): every value in one summary comes from one result. While the
  * volume explanation or the whole-volume comparison is open, the summary
  * changes together with it, at the pace of the slowest open part, and waits
- * for it at most a second; a late or failed part clears its values and says
- * it is updating.
+ * for it no longer than that pace; a late or failed part clears its values
+ * and says it is updating.
  */
+
+/** How long the summary waits for the explanation of a scanned folder. */
+const EXPLANATION_WAIT_MS = volumePartPace({ root: 0 });
 
 afterEach(() => {
   cleanup();
@@ -48,8 +43,6 @@ afterEach(() => {
   resetReflectOffset();
   document.getSelection()?.removeAllRanges();
 });
-
-const volumeSummary = () => screen.queryByLabelText("Volume usage summary");
 
 test("F02 FR3.HD1.gui-web.DD1: the open volume explanation changes with the summary in the same render and keeps its expanded part and focus", async () => {
   const watch = watchSummary(() =>
@@ -102,113 +95,8 @@ test("F02 FR3.HD1.gui-web.DD1: selecting text holds the volume explanation with 
   expect(logical().getByText("200 bytes")).toBeDefined();
 });
 
-/** Volume reads that the test answers or refuses one at a time. */
-function volumeClient() {
-  const requests: { version: string; at: number; volume: boolean }[] = [];
-  const pending: {
-    version: string;
-    requestSeq: number;
-    resolve: (response: VolumeGapResponse) => void;
-    reject: (failure: unknown) => void;
-  }[] = [];
-  const client = {
-    call: ((name: string, body: never) => {
-      if (name !== "space.volume_gap") throw new Error("Unexpected " + name);
-      const request = body as VolumeGapRequest;
-      requests.push({
-        version: request.resultVersion,
-        at: Date.now(),
-        volume: request.target.volumeId != null,
-      });
-      return new Promise<VolumeGapResponse>((resolve, reject) =>
-        pending.push({
-          version: request.resultVersion,
-          requestSeq: request.requestSeq,
-          resolve,
-          reject,
-        }),
-      );
-    }) as AnalysisClient["call"],
-    subscribe: () => () => {},
-  } satisfies AnalysisClient;
-  return { client, requests, pending };
-}
-
-/** The summary batch with fake timers and a volume part read on demand. */
-async function harness(
-  roots = [windowsPath("C:\\one"), windowsPath("C:\\two")],
-) {
-  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
-  const volume = volumeClient();
-  const watch = watchSummary(() => screen.queryByLabelText("Summary total"));
-  const changes: number[] = [];
-  let last: number | undefined;
-  const onRender = () => {
-    watch.onRender();
-    const total = watch.seen.at(-1)?.[0];
-    if (total !== last) changes.push(Date.now());
-    last = total;
-  };
-  const view = render(
-    <Profiler id="summary" onRender={onRender}>
-      <SummaryHarness client={volume.client} version="v1" roots={roots} />
-    </Profiler>,
-  );
-  const show = (version: string) =>
-    view.rerender(
-      <Profiler id="summary" onRender={onRender}>
-        <SummaryHarness
-          client={volume.client}
-          version={version}
-          roots={roots}
-        />
-      </Profiler>,
-    );
-  const settle = async (ms = 0) => {
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(ms);
-    });
-  };
-  const answer = async () => {
-    const next = volume.pending.shift()!;
-    await act(async () => {
-      next.resolve({
-        ...volumeReport(next.version),
-        requestSeq: next.requestSeq,
-      });
-      await vi.advanceTimersByTimeAsync(0);
-    });
-  };
-  const refuse = async (failure: unknown) => {
-    await act(async () => {
-      volume.pending.shift()!.reject(failure);
-      await vi.advanceTimersByTimeAsync(0);
-    });
-  };
-  const total = () => screen.getByLabelText("Summary total").textContent;
-  const reads = (whole = false) =>
-    volume.requests
-      .filter(({ volume: compared }) => compared === whole)
-      .map(({ version }) => version);
-  fireEvent.click(screen.getByRole("button", { name: "Explain volume usage" }));
-  await answer();
-  return {
-    ...volume,
-    watch,
-    changes,
-    show,
-    settle,
-    answer,
-    refuse,
-    total,
-    reads,
-  };
-}
-
-const shownPart = () => within(volumeSummary()!);
-
 test("F02 FR3.HD1.gui-web.DD1: with the explanation open a newer total waits for the explanation of the same result", async () => {
-  const run = await harness();
+  const run = await summaryRun();
   expect(shownPart().getByText(/^100 bytes/)).toBeDefined();
   run.show("v2");
   await run.settle(RESULT_REFLECT_INTERVAL_MS);
@@ -224,7 +112,7 @@ test("F02 FR3.HD1.gui-web.DD1: with the explanation open a newer total waits for
 });
 
 test("F02 FR3.HD1.gui-web.DD1: with the whole-volume comparison open the summary changes at most every two seconds", async () => {
-  const run = await harness();
+  const run = await summaryRun();
   fireEvent.click(
     screen.getByRole("button", {
       name: "Compare all scanned folders on this volume",
@@ -252,7 +140,7 @@ test("F02 FR3.HD1.gui-web.DD1: with the whole-volume comparison open the summary
 });
 
 test("F02 FR3.HD1.gui-web.DD1: an explanation not read within a second leaves the summary to change alone and says it is updating at the same height", async () => {
-  const run = await harness();
+  const run = await summaryRun();
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
     height: 120,
   } as DOMRect);
@@ -265,7 +153,7 @@ test("F02 FR3.HD1.gui-web.DD1: an explanation not read within a second leaves th
   run.show("v1");
   run.show("v2");
   await run.settle(RESULT_REFLECT_INTERVAL_MS);
-  await run.settle(SUMMARY_PART_WAIT_MS - 1);
+  await run.settle(EXPLANATION_WAIT_MS - 1);
   expect(run.total()).toBe("100 bytes");
 
   await run.settle(1);
@@ -296,7 +184,7 @@ test.each([
 ])(
   "F02 FR3.HD1.gui-web.DD1: an explanation refused for %s leaves the summary to change at once and says it is updating",
   async (_, failure) => {
-    const run = await harness();
+    const run = await summaryRun();
     run.show("v2");
     await run.settle(RESULT_REFLECT_INTERVAL_MS);
     await run.refuse(failure);
@@ -316,7 +204,7 @@ test.each([
 );
 
 test("F02 FR3.HD1.gui-web.DD1: closing the part lets the summary change at once again", async () => {
-  const run = await harness();
+  const run = await summaryRun();
   fireEvent.click(
     screen.getByRole("button", {
       name: "Compare all scanned folders on this volume",
@@ -337,13 +225,13 @@ test("F02 FR3.HD1.gui-web.DD1: closing the part lets the summary change at once 
 });
 
 test("F02 FR3.HD1.gui-web.DD1: volume reads never overlap and a batch reads only the newest result", async () => {
-  const run = await harness();
+  const run = await summaryRun();
   run.show("v2");
   await run.settle(RESULT_REFLECT_INTERVAL_MS);
   run.show("v3");
   run.show("v4");
   // The batch for v2 runs on; v3 and v4 wait for the next one, unread.
-  await run.settle(SUMMARY_PART_WAIT_MS / 2);
+  await run.settle(EXPLANATION_WAIT_MS / 2);
   expect(run.pending).toHaveLength(1);
   await run.answer();
   expect(run.total()).toBe("200 bytes");
@@ -353,5 +241,59 @@ test("F02 FR3.HD1.gui-web.DD1: volume reads never overlap and a batch reads only
   await run.answer();
   expect(run.total()).toBe("400 bytes");
   expect(shownPart().getByText(/^400 bytes/)).toBeDefined();
+  expect(run.watch.mixed()).toEqual([]);
+});
+
+test("F02 FR3.HD1.gui-web.DD1: the whole-volume comparison is waited for two seconds before the summary changes alone", async () => {
+  const run = await summaryRun();
+  fireEvent.click(
+    screen.getByRole("button", {
+      name: "Compare all scanned folders on this volume",
+    }),
+  );
+  await run.answer();
+  run.show("v2");
+  await run.settle(VOLUME_COMPARE_REREAD_MS);
+  expect(run.reads(true)).toEqual(["v1", "v2"]);
+
+  // The explanation's one second is not the comparison's limit.
+  await run.settle(EXPLANATION_WAIT_MS);
+  expect(run.total()).toBe("100 bytes");
+  expect(screen.queryByText("Updating…")).toBeNull();
+  await run.settle(
+    volumePartPace({ volumeId: "AQ" }) - EXPLANATION_WAIT_MS - 1,
+  );
+  expect(run.total()).toBe("100 bytes");
+  expect(shownPart().getByText(/^100 bytes/)).toBeDefined();
+
+  await run.settle(1);
+  expect(run.total()).toBe("200 bytes");
+  expect(screen.getByText("Updating…")).toBeDefined();
+  expect(screen.queryByText(/^100 bytes/)).toBeNull();
+  await run.answer();
+  expect(shownPart().getByText(/^200 bytes/)).toBeDefined();
+  expect(shownPart().getByText(/All scanned folders/)).toBeDefined();
+  expect(run.watch.mixed()).toEqual([]);
+});
+
+test("F02 FR3.HD1.gui-web.DD1: a batch whose part changes to the comparison waits as long as the comparison may take", async () => {
+  const run = await summaryRun();
+  run.show("v2");
+  await run.settle(RESULT_REFLECT_INTERVAL_MS);
+  fireEvent.click(
+    screen.getByRole("button", {
+      name: "Compare all scanned folders on this volume",
+    }),
+  );
+  // The explanation read in flight ends; the comparison of v2 is read next.
+  await run.answer();
+  expect(run.reads(true)).toEqual(["v2"]);
+
+  await run.settle(EXPLANATION_WAIT_MS);
+  expect(run.total()).toBe("100 bytes");
+  await run.settle(VOLUME_COMPARE_REREAD_MS - EXPLANATION_WAIT_MS);
+  expect(run.total()).toBe("200 bytes");
+  await run.answer();
+  expect(shownPart().getByText(/^200 bytes/)).toBeDefined();
   expect(run.watch.mixed()).toEqual([]);
 });

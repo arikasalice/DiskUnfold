@@ -22,7 +22,9 @@ import "../../theme/analysis-results.css";
  * selection began; the hook keeps reading, so releasing the selection shows
  * the newest totals at once. No older result is held by the engine.
  * An open volume part changes together with the totals (see
- * `useSummaryBatch`), so the summary never shows values from two results.
+ * `useSummaryBatch`), so the summary never shows values from two results. A
+ * paused scan publishes nothing further, so the part does not wait for a
+ * next result then.
  */
 export function ScanOutput({
   client,
@@ -56,7 +58,8 @@ export function ScanOutput({
   const body = useRef<HTMLElement>(null);
   const versionSummary = useRef<HTMLDivElement>(null);
   const holding = useSelectionHold([body, versionSummary]);
-  const summary = useSummaryBatch(client, scan.total, holding, running);
+  const publishing = running && scan.status?.state !== "paused";
+  const summary = useSummaryBatch(client, scan.total, holding, publishing);
   const total = summary.total;
   const pathsLabel = running
     ? text("ui.analysis.scanning_paths", "Scanning paths")
