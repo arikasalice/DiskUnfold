@@ -321,8 +321,14 @@ fn closing_writes_the_queued_rows_then_refuses_new_ones() -> TestResult {
 #[test]
 fn closing_an_idle_writer_returns_at_once_and_ends_the_worker() -> TestResult {
     let log = Arc::new(Log::default());
-    let writer = writer(&log, Policy::default())?;
+    // The first close may wait a whole minute for the worker. An idle worker ends as soon
+    // as the queue closes, so a close that used up that wait would take three times the
+    // bound below; the bound is far above any scheduling delay.
+    let writer = writer(&log, policy(0, LONG, Duration::from_secs(60)))?;
+    let started = Instant::now();
     writer.close()?;
+    let elapsed = started.elapsed();
+    assert!(elapsed < Duration::from_secs(20), "{elapsed:?}");
     Ok(())
 }
 

@@ -12,7 +12,7 @@ use du_core_contracts::{
 use std::{
     path::Path,
     sync::atomic::{AtomicUsize, Ordering},
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 mod plan;
