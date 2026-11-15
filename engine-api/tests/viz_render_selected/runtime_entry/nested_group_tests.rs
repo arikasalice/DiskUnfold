@@ -267,6 +267,10 @@ fn the_group_of_lower_bound_folders_inside_an_expanded_folder_is_read_by_positio
     assert_eq!(members["totalCount"], 40);
     assert_eq!(members["groupTotal"], group["size"]);
     assert_eq!(members["sizeRange"]["kind"], "unknown");
+    // The group counts its members exactly although each of them is a lower bound.
+    let count = json!({"unit": "items", "state": "exact", "value": "40"});
+    assert_eq!(group["memberCount"], count);
+    assert_eq!(model["summary"]["groupedItems"], count);
     let rows = members["rows"].as_array().ok_or("no member rows")?;
     assert!(rows.iter().all(|row| {
         row["size"]["state"] == "lower_bound"

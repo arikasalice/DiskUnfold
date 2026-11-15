@@ -115,6 +115,17 @@ pub struct VizRow {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "typescript", ts(optional))]
     pub label_key: Option<String>,
+    /// Number of members of a group row, in items.
+    ///
+    /// Present only on a group row, never on an item row; a row that has one must have
+    /// a group reference and no item reference, and its unit must be items. The engine
+    /// puts it on every group row it makes. An exact count equals the total count of
+    /// that group's `viz.group_rows`. A lower bound or an unknown count (with its reason)
+    /// is reported as such and is never replaced by zero. The field is omitted rather
+    /// than null, and a response without it is valid.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub member_count: Option<VizQuantity>,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -134,6 +145,8 @@ struct RowWire {
     display_flags: Vec<String>,
     #[serde(default, deserialize_with = "optional_present")]
     label_key: Option<String>,
+    #[serde(default, deserialize_with = "optional_present")]
+    member_count: Option<VizQuantity>,
 }
 impl VizRow {
     /// Checks local invariants. The caller must resolve group references in the pinned model.
@@ -158,6 +171,14 @@ impl VizRow {
         // consumer replace that name with message text.
         if self.label_key.is_some() && (self.item_ref.is_some() || self.group_ref.is_none()) {
             return Err("label key on an item row");
+        }
+        if let Some(count) = &self.member_count {
+            if self.item_ref.is_some() || self.group_ref.is_none() {
+                return Err("member count on an item row");
+            }
+            if count.unit() != "items" {
+                return Err("member count is not a count of items");
+            }
         }
         Ok(())
     }
@@ -188,6 +209,7 @@ impl<'de> Deserialize<'de> for VizRow {
             legend_class_key: w.legend_class_key,
             display_flags: w.display_flags,
             label_key: w.label_key,
+            member_count: w.member_count,
         };
         row.validate().map_err(D::Error::custom)?;
         Ok(row)
@@ -204,11 +226,32 @@ pub struct VizRowsRequest {
     pub start: u32,
     #[serde(deserialize_with = "page_count")]
     pub count: u32,
+    /// The shape of an expanded folder in this model, to read that folder's rows.
+    ///
+    /// Omitted, the page is the model's root table, as before. Present, it names a
+    /// shape of the same model, which must be a folder that was expanded: the page then
+    /// holds the drawn children of that folder and the row of its group, if it has
+    /// one, and `totalCount` counts that table. A reference the model does not have
+    /// is refused as not found, and a shape that is no expanded folder (a file, a
+    /// group, a folder that was not expanded) as an invalid argument. Rows and shapes
+    /// correspond by item reference or group reference, never by position. An empty
+    /// string is invalid and the field is omitted rather than null.
+    #[serde(
+        default,
+        deserialize_with = "optional_nonempty",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub parent_shape_ref: Option<String>,
 }
 impl VizRowsRequest {
     /// Checks only local request constraints; model lifetime and membership belong to the engine.
     pub fn validate(&self) -> Result<(), &'static str> {
-        if self.model_ref.is_empty() || self.count == 0 || self.count > MAX_PAGE_COUNT {
+        if self.model_ref.is_empty()
+            || self.count == 0
+            || self.count > MAX_PAGE_COUNT
+            || self.parent_shape_ref.as_deref() == Some("")
+        {
             return Err("invalid rows request");
         }
         Ok(())
@@ -423,6 +466,13 @@ fn nonempty<'de, D: Deserializer<'de>>(d: D) -> Result<String, D::Error> {
         return Err(D::Error::custom("empty model reference"));
     }
     Ok(value)
+}
+fn optional_nonempty<'de, D: Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
+    let value = String::deserialize(d)?;
+    if value.is_empty() {
+        return Err(D::Error::custom("empty shape reference"));
+    }
+    Ok(Some(value))
 }
 fn page_count<'de, D: Deserializer<'de>>(d: D) -> Result<u32, D::Error> {
     let count = u32::deserialize(d)?;

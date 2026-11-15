@@ -5,7 +5,7 @@ use du_core_contracts::{
     browse_page_ipc::{QueryStrategy, ResultOrigin},
     visualization::{
         model::*,
-        quantity::VizQuantity,
+        quantity::{VizAmount, VizQuantity},
         render::VizRenderNonModelResponse,
         response::VizRenderModelResponse,
         rows::{VizDenominator, VizDenominatorBasis},
@@ -39,6 +39,7 @@ pub(super) fn response(
                     result_revision: fallback.result_revision.clone(),
                     start: 0,
                     count: 1,
+                    parent_shape_ref: None,
                 })
                 .map_err(page_error)?;
             VizRenderResponse::NonModel(VizRenderNonModelResponse::Unavailable {
@@ -87,6 +88,7 @@ pub(super) fn response(
                     result_revision: admitted.source.result_version().clone(),
                     start: 0,
                     count: 1,
+                    parent_shape_ref: None,
                 })
                 .map_err(page_error)?;
             VizRenderResponse::Model(VizRenderModelResponse::Model {
@@ -136,6 +138,7 @@ pub(super) fn build_model(
             parent_shape_ref: hierarchy.then(|| shape.meta.parent_shape_ref.clone()),
             visible_depth: hierarchy.then_some(shape.meta.visible_depth),
             root_branch_ref: hierarchy.then(|| shape.meta.root_branch_ref.clone()),
+            member_count: None,
         });
     }
     for shape in &projection.descendants {
@@ -156,6 +159,7 @@ pub(super) fn build_model(
             parent_shape_ref: Some(shape.meta.parent_shape_ref.clone()),
             visible_depth: Some(shape.meta.visible_depth),
             root_branch_ref: Some(shape.meta.root_branch_ref.clone()),
+            member_count: None,
         });
     }
     for group in &projection.detail.groups {
@@ -177,6 +181,7 @@ pub(super) fn build_model(
             parent_shape_ref: Some(group.meta.parent_shape_ref.clone()),
             visible_depth: Some(group.meta.visible_depth),
             root_branch_ref: Some(group.meta.root_branch_ref.clone()),
+            member_count: Some(quantity("items", group.members.len() as u64)?),
         });
     }
     let mut classes = std::collections::BTreeMap::<String, (u64, u64, bool)>::new();
@@ -217,6 +222,7 @@ pub(super) fn build_model(
         });
     }
     let scope = original_total(&projection.totals.scope)?;
+    let grouped_items = grouped_items(&shapes)?;
     let model = VizModel {
         model_ref: rendered.model_ref.clone(),
         condition_fingerprint: admitted.key.clone(),
@@ -263,15 +269,7 @@ pub(super) fn build_model(
         relationships: projection.relationships.clone(),
         legend,
         summary: VizSummary {
-            grouped_items: quantity(
-                "items",
-                projection
-                    .detail
-                    .groups
-                    .iter()
-                    .map(|group| group.members.len() as u64)
-                    .sum(),
-            )?,
+            grouped_items,
             omitted_items: quantity(
                 "items",
                 projection
@@ -304,6 +302,34 @@ fn bytes(size: &SizeValue) -> Result<u64, EngineError> {
 }
 fn quantity(unit: &str, value: u64) -> Result<VizQuantity, EngineError> {
     VizQuantity::exact(unit, i128::from(value)).ok_or_else(internal)
+}
+/// The sum of the member counts of every group shape of the model, nested groups
+/// included: a lower bound as soon as one count is, and unknown when one count is.
+fn grouped_items(shapes: &[VizShape]) -> Result<VizQuantity, EngineError> {
+    let mut sum = 0_u64;
+    let mut lower = false;
+    for count in shapes
+        .iter()
+        .filter_map(|shape| shape.member_count.as_ref())
+    {
+        let value = match count.amount() {
+            VizAmount::Exact { value } => value,
+            VizAmount::LowerBound { value } => {
+                lower = true;
+                value
+            }
+            VizAmount::Unknown { reason_key } => {
+                return VizQuantity::unknown("items", reason_key.clone()).ok_or_else(internal);
+            }
+        };
+        let value = u64::try_from(value.get()).map_err(|_| internal())?;
+        sum = sum.checked_add(value).ok_or_else(internal)?;
+    }
+    if lower {
+        VizQuantity::lower_bound("items", sum).ok_or_else(internal)
+    } else {
+        quantity("items", sum)
+    }
 }
 fn original_total(size: &SizeValue) -> Result<VizTotal, EngineError> {
     Ok(VizTotal {
@@ -343,6 +369,71 @@ pub(super) fn page_error(error: crate::viz_pages::Error) -> EngineError {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use du_core_contracts::visualization::model::{VizMatchKey, VizShape};
+
+    fn shape(count: Option<VizQuantity>) -> Result<VizShape, EngineError> {
+        Ok(VizShape {
+            item_ref: None,
+            group_ref: Some("g".into()),
+            match_key: VizMatchKey::NotApplicable {},
+            geometry: du_core_contracts::visualization::geometry::Geometry::new(
+                "rect",
+                vec![
+                    du_core_contracts::visualization::geometry::Point { x: 0, y: 0 },
+                    du_core_contracts::visualization::geometry::Point { x: 1, y: 1 },
+                ],
+            )
+            .map_err(|_| internal())?,
+            size: SizeValue {
+                basis: du_core_contracts::SizeBasis::Logical,
+                evidence: du_core_contracts::SizeEvidence::Measured,
+                amount: SizeAmount::Exact {
+                    bytes: 1_u64.into(),
+                },
+            },
+            quantity: None,
+            legend_class_key: "class".into(),
+            display_flags: vec![],
+            shape_ref: None,
+            parent_shape_ref: None,
+            visible_depth: None,
+            root_branch_ref: None,
+            member_count: count,
+        })
+    }
+
+    #[test]
+    fn the_grouped_total_adds_the_member_counts_and_keeps_what_is_not_exact()
+    -> Result<(), EngineError> {
+        let exact = |n| VizQuantity::exact("items", n);
+        let sum = |counts: Vec<Option<VizQuantity>>| -> Result<VizQuantity, EngineError> {
+            let shapes = counts
+                .into_iter()
+                .map(shape)
+                .collect::<Result<Vec<_>, _>>()?;
+            grouped_items(&shapes)
+        };
+        // No group is zero items, and a shape without a count (an item) adds nothing.
+        assert_eq!(sum(vec![])?, exact(0).ok_or_else(internal)?);
+        assert_eq!(
+            sum(vec![exact(40), exact(60), None])?,
+            exact(100).ok_or_else(internal)?
+        );
+        // One count that is a lower bound makes the sum a lower bound.
+        assert_eq!(
+            sum(vec![exact(40), VizQuantity::lower_bound("items", 60)])?,
+            VizQuantity::lower_bound("items", 100).ok_or_else(internal)?
+        );
+        // An unknown count makes the sum unknown, with its reason, and is not read as zero.
+        let unknown = VizQuantity::unknown("items", "viz.unavailable.no_attribution".into());
+        assert_eq!(
+            sum(vec![exact(40), unknown.clone()])?,
+            unknown.ok_or_else(internal)?
+        );
+        Ok(())
+    }
+
     #[test]
     fn a_table_only_fallback_publishes_the_no_attribution_key() {
         assert_eq!(

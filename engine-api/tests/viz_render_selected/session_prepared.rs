@@ -63,6 +63,7 @@ fn session_preparation_shares_membership_dispatcher_and_rows_with_sync_and_ipc()
         result_revision: id(3),
         start: 0,
         count: 10,
+        parent_shape_ref: None,
     };
     let expected = session.rows(&request).map_err(|e| format!("{e:?}"))?;
     assert_eq!(expected.total_count, 2);
@@ -191,6 +192,7 @@ fn session_fallback_commit_is_success_and_rows_match_sync() -> Result<(), String
         result_revision: fallback.result_revision,
         start: 0,
         count: 10,
+        parent_shape_ref: None,
     };
     let rows = session.rows(&rows_request).map_err(|e| format!("{e:?}"))?;
     assert_eq!(rows.total_count, 2);

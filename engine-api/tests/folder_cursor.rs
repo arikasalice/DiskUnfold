@@ -165,7 +165,8 @@ fn visualization_registration_collision_preserves_authenticated_folder_cursor() 
                 model_ref: old,
                 result_revision: id(2)?,
                 start: 0,
-                count: 1
+                count: 1,
+                parent_shape_ref: None,
             })
             .is_ok()
     );

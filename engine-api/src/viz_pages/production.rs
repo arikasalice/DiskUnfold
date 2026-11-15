@@ -284,6 +284,7 @@ fn make_row(
         legend_class_key: presentation.legend_class_key,
         display_flags: presentation.display_flags,
         label_key: None,
+        member_count: None,
     };
     projected
         .validate_revision(version.version_id())

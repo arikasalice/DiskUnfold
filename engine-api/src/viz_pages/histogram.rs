@@ -176,6 +176,7 @@ fn assemble(
                 legend_class_key: p.legend_class_key,
                 display_flags: p.display_flags,
                 label_key: None,
+                member_count: None,
             };
             row.validate_revision(request.version.version_id())
                 .map_err(|_| Error::MissingPresentation)?;
@@ -207,6 +208,9 @@ fn assemble(
             Basis::Bytes => ("bytes", source_weight),
         };
         let quantity = quantity(unit, weight, &request.unknown_reason)?;
+        // The count of the bin is exact only while every member was seen, so an exact
+        // count equals the total count of the bin's own page.
+        let member_count = self::quantity("items", bin.item_count, &request.unknown_reason)?;
         let row_ratio = if model.histogram.basis == Basis::Bytes {
             byte_ratio(&quantity, &denominator)?
         } else {
@@ -223,6 +227,7 @@ fn assemble(
             legend_class_key: p.legend_class_key,
             display_flags: p.display_flags,
             label_key: None,
+            member_count: Some(member_count),
         };
         row.validate_revision(request.version.version_id())
             .map_err(|_| Error::MissingPresentation)?;

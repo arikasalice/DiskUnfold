@@ -47,6 +47,7 @@ fn retained_fallback_keeps_its_rows_when_the_source_advances() -> Result<(), Str
         result_revision: id(3),
         start: 0,
         count: 10,
+        parent_shape_ref: None,
     };
     let before = session.rows(&request).map_err(|e| format!("{e:?}"))?;
     let item = before.rows[0].item_ref.clone().ok_or("missing item")?;
@@ -126,6 +127,7 @@ fn explicit_pin_survives_new_publication_and_release_expires_it() -> Result<(), 
         result_revision: id(3),
         start: 0,
         count: 10,
+        parent_shape_ref: None,
     };
     let before = session.rows(&rows).map_err(|e| format!("{e:?}"))?;
     let item = before.rows[0].item_ref.clone().ok_or("missing item")?;

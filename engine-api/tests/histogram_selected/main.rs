@@ -263,7 +263,8 @@ fn check_cancellation(
                 model_ref: deferred.reserved_reference().into(),
                 result_revision: id(2),
                 start: 0,
-                count: 1
+                count: 1,
+                parent_shape_ref: None,
             })
             .is_err()
     );
@@ -298,6 +299,7 @@ fn check_published(
             result_revision: id(2),
             start: 0,
             count: 1,
+            parent_shape_ref: None,
         })
         .map_err(|e| format!("{e:?}"))?;
     assert_eq!(rows.rows[0].group_ref.as_deref(), Some("g0"));
@@ -311,7 +313,8 @@ fn check_absent(pages: &ModelPages, reference: &str) {
                 model_ref: reference.into(),
                 result_revision: id(2),
                 start: 0,
-                count: 1
+                count: 1,
+                parent_shape_ref: None,
             })
             .is_err()
     );

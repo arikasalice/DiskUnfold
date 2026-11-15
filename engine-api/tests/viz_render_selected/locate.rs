@@ -108,6 +108,7 @@ fn locates_exact_items_and_separates_visibility_scope_and_lifetime() -> Result<(
             result_revision: drawn.result_version.clone(),
             start: 0,
             count: 10,
+            parent_shape_ref: None,
         })
         .map_err(|error| format!("{error:?}"))?;
     let row = &page.rows[model.model.shapes[index].row_index];

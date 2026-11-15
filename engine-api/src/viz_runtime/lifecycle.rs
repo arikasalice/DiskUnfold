@@ -176,6 +176,7 @@ impl Runtime {
                 result_revision: fallback.result_revision,
                 start: 0,
                 count: 1,
+                parent_shape_ref: None,
             }) {
             Ok(_) => Ok(true),
             Err(crate::viz_pages::Error::ModelExpired | crate::viz_pages::Error::StaleVersion) => {
