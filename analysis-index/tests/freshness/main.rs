@@ -177,6 +177,11 @@ fn withdrawing_the_only_version_removes_the_ledger_and_the_sequence_continues() 
     assert_eq!(gone.result_version, None);
     assert_eq!(gone.body.sequence, 2);
     assert_eq!(gone.body.summary.counts.total(), 0);
+    assert_eq!(
+        gone.body.summary.representative.as_str(),
+        "unverifiable",
+        "a removed ledger has no rows, so a receiver must not read it as observed"
+    );
     assert_eq!(gone.body.changed, FreshnessChanged::Requery);
     assert_eq!(gone.body.scope_version_id, id(10)?);
     assert_eq!(gone.body.observed_at, None);
@@ -310,6 +315,7 @@ fn a_ledger_goes_when_no_current_version_uses_its_scope_version() -> Check {
     assert_eq!(removed.result_version, None);
     assert_eq!(removed.body.sequence, 2);
     assert_eq!(removed.body.summary.counts.total(), 0);
+    assert_eq!(removed.body.summary.representative.as_str(), "unverifiable");
     let starts = &fresh[fresh.len() - 2];
     assert_eq!(starts.body.scope_version_id, id(11)?);
     assert_eq!(starts.body.sequence, 1);

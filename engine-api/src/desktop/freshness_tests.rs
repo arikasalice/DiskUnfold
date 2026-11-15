@@ -28,7 +28,11 @@ fn notice(
             scope_version_id: id(scope)?,
             sequence,
             summary: FreshnessSummary {
-                representative: FreshnessState::new(FreshnessState::UNWATCHED),
+                representative: FreshnessState::new(if current {
+                    FreshnessState::UNWATCHED
+                } else {
+                    FreshnessState::UNVERIFIABLE
+                }),
                 counts: FreshnessCounts {
                     unwatched: rows,
                     ..FreshnessCounts::default()
@@ -89,6 +93,69 @@ fn freshness_events_keep_their_body_sequence_and_current_version_on_the_wire() -
     );
     assert_eq!(wire["body"]["changed"]["kind"], "requery");
     assert_eq!(wire["body"]["summary"]["counts"]["unwatched"], 0);
+    assert_eq!(
+        wire["body"]["summary"]["representative"], "unverifiable",
+        "a removal has no rows, so its representative is the least certain state"
+    );
+    assert_eq!(wire["body"]["summary"]["counts"]["change_notified"], 0);
+    assert!(
+        wire["body"]["summary"]["counts"]
+            .get("changeNotified")
+            .is_none()
+    );
+    Ok(())
+}
+
+#[test]
+fn the_envelope_seq_is_the_transport_counter_and_a_copy_keeps_the_body_sequence() -> Check {
+    let now = Instant::now();
+    let mut pending = Pending::default();
+    pending.mark_document_ready();
+    push(&mut pending, event(5, 7, true)?, now);
+    let first_window = take_all(&mut pending, now + EVENT_INTERVAL);
+    assert_eq!(first_window[0].seq, 1);
+    // The retained copy holds 0 until a queue hands it out.
+    let retained = pending.freshness.replays();
+    assert_eq!(retained.len(), 1);
+    assert_eq!(retained[0].seq, 0);
+    pending.begin_document_generation();
+    pending.mark_document_ready();
+    let copy = take_all(&mut pending, now + EVENT_INTERVAL * 2);
+    assert_eq!(copy.len(), 1);
+    assert_eq!(
+        copy[0].seq, 2,
+        "the queue assigns the next transport sequence to a copy"
+    );
+    assert_eq!(
+        copy[0].body["sequence"], 7,
+        "the body sequence is unchanged"
+    );
+    // Delivering the copy leaves the retained one at 0 for the next window.
+    assert_eq!(pending.freshness.replays()[0].seq, 0);
+    Ok(())
+}
+
+#[test]
+fn a_queue_that_opens_after_the_events_still_receives_the_last_one_as_a_requery() -> Check {
+    let now = Instant::now();
+    let mut pending = Pending::default();
+    // The scan ends and its events are queued before any window is ready.
+    push(&mut pending, event(5, 7, true)?, now);
+    push(&mut pending, event(5, 8, true)?, now);
+    // A window closes and another opens later, with the old events already gone.
+    pending.mark_document_ready();
+    let _ = take_all(&mut pending, now + EVENT_INTERVAL);
+    pending.close_document_generation();
+    pending.begin_document_generation();
+    pending.mark_document_ready();
+    let late = take_all(&mut pending, now + EVENT_INTERVAL * 2);
+    let copies = freshness_of(&late);
+    assert_eq!(copies.len(), 1);
+    assert_eq!(copies[0].body["sequence"], 8);
+    assert_eq!(
+        copies[0].body["changed"],
+        serde_json::json!({"kind": "requery"})
+    );
     Ok(())
 }
 

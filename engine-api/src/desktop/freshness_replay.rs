@@ -4,6 +4,12 @@
 //! overflows, misses events. The store keeps one event per scope version in session
 //! memory and hands out copies that carry `requery`, because the retained change list
 //! only describes the step before it. A copy keeps the sequence and the summary.
+//!
+//! The envelope `seq` is not used to detect gaps on this topic; gaps and order are judged
+//! only by the body `sequence`. A retained copy holds envelope `seq` 0. The queue that
+//! hands the copy out assigns its own transport sequence, as it does for every event, so
+//! the copy leaves the desktop with a nonzero, rising envelope `seq` and the original body
+//! `sequence`.
 use du_core_contracts::{
     EventEnvelope,
     result_freshness::{FreshnessChanged, RESULT_FRESHNESS_CHANGED, ResultFreshnessChanged},
@@ -47,6 +53,7 @@ impl LatestFreshness {
             return;
         };
         let mut copy = event.clone();
+        // Placeholder only: `Pending::take` overwrites it with the transport sequence.
         copy.seq = 0;
         copy.body = value;
         self.by_scope.insert(key, (sequence, copy));

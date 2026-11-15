@@ -21,11 +21,17 @@ use std::collections::{HashMap, HashSet, VecDeque};
 ///
 /// A scope version that becomes current again continues its sequence, so a receiver that
 /// dropped the removed ledger never sees the sequence go backwards. The list is bounded;
-/// a scope version evicted from it restarts at 1, which receivers handle as a requery
-/// because the removal event already told them the ledger was gone.
+/// a scope version evicted from it restarts at 1. A receiver forgets the last sequence of
+/// a scope version when it receives that scope version's removal event, and accepts the
+/// next event of every scope version after `job.resync_required`, so it handles the
+/// restart as a first event.
 const RETIRED_LIMIT: usize = 64;
 
 const SEQUENCE_LIMIT: u64 = 1_u64 << 53;
+
+/// The representative state of a summary without rows. A receiver must not assume a
+/// state for a ledger that is gone, so it is the least certain one.
+const NO_ROWS_REPRESENTATIVE: &str = FreshnessState::UNVERIFIABLE;
 
 /// A settled state with the reason that explains it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -162,7 +168,7 @@ impl Ledger {
             .rows
             .iter()
             .find(|row| Some(row.summary()) == worst)
-            .map_or(FreshnessState::OBSERVED, Row::name);
+            .map_or(NO_ROWS_REPRESENTATIVE, Row::name);
         FreshnessSummary {
             representative: FreshnessState::new(representative),
             counts,
@@ -256,7 +262,7 @@ impl Ledgers {
                     scope_version_id: scope,
                     sequence: next,
                     summary: FreshnessSummary {
-                        representative: FreshnessState::new(FreshnessState::OBSERVED),
+                        representative: FreshnessState::new(NO_ROWS_REPRESENTATIVE),
                         counts: FreshnessCounts::default(),
                     },
                     changed: FreshnessChanged::Requery,

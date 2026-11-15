@@ -63,7 +63,11 @@ fn freshness(
             scope_version_id: id(2)?,
             sequence,
             summary: FreshnessSummary {
-                representative: FreshnessState::new(FreshnessState::UNWATCHED),
+                representative: FreshnessState::new(if current {
+                    FreshnessState::UNWATCHED
+                } else {
+                    FreshnessState::UNVERIFIABLE
+                }),
                 counts,
             },
             changed: FreshnessChanged::Requery,

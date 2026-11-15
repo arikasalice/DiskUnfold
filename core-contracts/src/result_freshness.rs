@@ -54,13 +54,17 @@ impl FreshnessState {
     }
 }
 
-/// Row counts per state; the unit is ledger rows, not roots.
+/// Row counts per state, a map from state name to row count; the unit is ledger rows,
+/// not roots.
 ///
+/// Each key is the state name itself (`observed`, `unwatched`, `change_notified`,
+/// `gap_unknown`, `refreshing`, `unverifiable`), so a receiver reads `counts[state]`.
 /// A producer always sends all six keys, including zeros. A receiver reads a missing
-/// key as 0 and ignores a key it does not know.
+/// key as 0 and ignores a key it does not know. Only these keys are snake_case; the
+/// other fields of the event body are camelCase.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
-#[serde(rename_all = "camelCase", default)]
+#[serde(rename_all = "snake_case", default)]
 pub struct FreshnessCounts {
     #[cfg_attr(feature = "typescript", ts(type = "number"))]
     pub observed: u64,
@@ -98,7 +102,12 @@ impl FreshnessCounts {
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct FreshnessSummary {
-    /// The worst state of all rows; meaningless when every count is zero.
+    /// The worst state of all rows.
+    ///
+    /// A summary without rows has no worst state, and its representative is
+    /// `unverifiable`; a receiver never assumes `observed` there. A receiver first
+    /// reads an event without a current version and with every count zero as the removal
+    /// of that scope version's ledger.
     pub representative: FreshnessState,
     pub counts: FreshnessCounts,
 }
@@ -120,9 +129,12 @@ pub struct FreshnessRange {
 /// What changed since the previous sequence of the same scope version.
 ///
 /// A receiver applies `ranges` only when the event's `sequence` is exactly the last
-/// sequence it received for that scope version plus one. In every other case, including
-/// a kind it does not know (which deserializes as `unknown` here), it treats the event as
-/// `requery`: it reads the current state again and applies no ranges.
+/// sequence it received for that scope version plus one. In every other case it treats
+/// the event as `requery`: it reads the current state again and applies no ranges.
+///
+/// A receiver branches only on whether `kind` is `"ranges"` and handles every other
+/// value as `requery`. The generated TypeScript lists `"unknown"` for a kind this
+/// version does not know; it is not a value a producer sends.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -145,6 +157,18 @@ pub enum FreshnessChanged {
 /// A receiver drops an event whose sequence is not above the last one it received for the
 /// scope version, but it accepts the same sequence when it never received an event of that
 /// scope version or has just received `job.resync_required`.
+///
+/// The envelope `seq` is not used to detect gaps on this topic. Gaps and order are
+/// judged only by the body `sequence`. The envelope `seq` is the desktop queue's transport
+/// counter, shared with other topics; the queue assigns it when it hands an event out, a
+/// re-sent copy included (the copy kept for re-sending holds 0 until then).
+///
+/// A removal event (no current version, every count zero) ends that scope version's
+/// ledger, and a receiver forgets its last sequence for it. The producer remembers the
+/// sequences of only the 64 most recently removed scope versions, so a scope version
+/// pushed out of that list starts again at 1 when it reappears. After
+/// `job.resync_required` a receiver accepts the next event of each scope version whatever
+/// its sequence.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
@@ -171,7 +195,8 @@ pub struct ResultFreshnessChanged {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ResultFreshnessNotice {
     /// The current result version of the scope version. `None` means the scope version has
-    /// no current version any more; the ledger is gone and every count is zero.
+    /// no current version any more; the ledger is gone, every count is zero and the
+    /// representative is `unverifiable`.
     pub result_version: Option<Id>,
     pub body: ResultFreshnessChanged,
 }
@@ -192,7 +217,10 @@ impl ResultFreshnessNotice {
         let current_ok = if self.result_version.is_some() {
             total > 0
         } else {
-            total == 0 && requery && body.observed_at.is_none()
+            total == 0
+                && requery
+                && body.observed_at.is_none()
+                && body.summary.representative.as_str() == FreshnessState::UNVERIFIABLE
         };
         changed_ok && current_ok && body.sequence > 0 && body.sequence < SEQUENCE_LIMIT
     }

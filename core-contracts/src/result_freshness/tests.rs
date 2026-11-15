@@ -44,8 +44,8 @@ fn wire_shape_is_fixed_and_round_trips() -> Check {
         "summary": {
             "representative": "unverifiable",
             "counts": {
-                "observed": 0, "unwatched": 1, "changeNotified": 0,
-                "gapUnknown": 0, "refreshing": 0, "unverifiable": 1
+                "observed": 0, "unwatched": 1, "change_notified": 0,
+                "gap_unknown": 0, "refreshing": 0, "unverifiable": 1
             }
         },
         "changed": {
@@ -60,6 +60,35 @@ fn wire_shape_is_fixed_and_round_trips() -> Check {
     );
     let requery = serde_json::to_value(body(FreshnessChanged::Requery)?)?;
     assert_eq!(requery["changed"], json!({"kind": "requery"}));
+    Ok(())
+}
+
+#[test]
+fn counts_are_keyed_by_the_state_names_and_other_fields_stay_camel_case() -> Check {
+    let counts = serde_json::to_value(FreshnessCounts::default())?;
+    let keys: Vec<&str> = counts
+        .as_object()
+        .ok_or("counts is not an object")?
+        .keys()
+        .map(String::as_str)
+        .collect();
+    for name in [
+        FreshnessState::OBSERVED,
+        FreshnessState::UNWATCHED,
+        FreshnessState::CHANGE_NOTIFIED,
+        FreshnessState::GAP_UNKNOWN,
+        FreshnessState::REFRESHING,
+        FreshnessState::UNVERIFIABLE,
+    ] {
+        assert!(keys.contains(&name), "missing counts key {name}");
+        assert_eq!(counts[name], 0);
+    }
+    assert_eq!(keys.len(), 6);
+    // A camelCase spelling is an unknown key now and reads as a missing count.
+    let old: FreshnessCounts = serde_json::from_value(json!({"changeNotified": 4}))?;
+    assert_eq!(old.change_notified, 0);
+    let wire = serde_json::to_value(body(FreshnessChanged::Requery)?)?;
+    assert!(wire.get("scopeVersionId").is_some() && wire.get("observedAt").is_none());
     Ok(())
 }
 
@@ -154,5 +183,11 @@ fn validate_bounds_sequence_ranges_and_the_current_version() -> Check {
     };
     assert!(notice(None, &gone)?.validate());
     assert!(!notice(None, &|_| {})?.validate());
+    // A removal's representative is `unverifiable`; a receiver must not read `observed`.
+    let observed_gone = |b: &mut ResultFreshnessChanged| {
+        gone(b);
+        b.summary.representative = FreshnessState::new(FreshnessState::OBSERVED);
+    };
+    assert!(!notice(None, &observed_gone)?.validate());
     Ok(())
 }

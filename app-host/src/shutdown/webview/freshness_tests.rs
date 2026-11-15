@@ -28,8 +28,8 @@ fn freshness_event(sequence: u64) -> Result<EventEnvelope, Box<dyn std::error::E
             "sequence": sequence,
             "summary": {
                 "representative": "unwatched",
-                "counts": {"observed": 0, "unwatched": 2, "changeNotified": 0,
-                           "gapUnknown": 0, "refreshing": 0, "unverifiable": 0}
+                "counts": {"observed": 0, "unwatched": 2, "change_notified": 0,
+                           "gap_unknown": 0, "refreshing": 0, "unverifiable": 0}
             },
             "changed": {"kind": "ranges", "ranges": [
                 {"rootIndex": 1, "state": "unwatched"}
@@ -95,6 +95,7 @@ fn a_window_that_subscribes_late_and_a_window_after_resync_both_get_the_last_eve
     let mut gone = freshness_event(6)?;
     gone.result_version = None;
     gone.body["summary"]["counts"]["unwatched"] = json!(0);
+    gone.body["summary"]["representative"] = json!("unverifiable");
     gone.body["changed"] = json!({"kind": "requery"});
     desktop.publish_host_event(gone);
     assert_eq!(next(&callbacks)?.body["sequence"], 6);
@@ -102,5 +103,42 @@ fn a_window_that_subscribes_late_and_a_window_after_resync_both_get_the_last_eve
     (callbacks.document_ready)();
     std::thread::sleep(Duration::from_millis(300));
     assert!((callbacks.next)().is_none());
+    Ok(())
+}
+
+/// The last freshness event delivered for the scope, after draining the stream.
+fn drain_last(
+    callbacks: &DesktopEventCallbacks,
+) -> Result<EventEnvelope, Box<dyn std::error::Error>> {
+    let mut last = next(callbacks)?;
+    std::thread::sleep(Duration::from_millis(300));
+    while let Some(wire) = (callbacks.next)() {
+        last = serde_json::from_str(&wire)?;
+    }
+    Ok(last)
+}
+
+#[test]
+fn a_window_opened_after_the_scan_finished_receives_the_last_event_as_a_requery() -> Check {
+    // The events are published before the first document exists.
+    let desktop = Arc::new(DesktopEvents::default());
+    let callbacks = DesktopEventCallbacks::new(desktop.clone());
+    desktop.publish_host_event(freshness_event(4)?);
+    desktop.publish_host_event(freshness_event(5)?);
+    (callbacks.document_started)();
+    (callbacks.document_ready)();
+    assert_requery_of(&drain_last(&callbacks)?, 5);
+
+    // The window closes; a newer event arrives with no window; a new window opens.
+    (callbacks.document_closed)();
+    desktop.publish_host_event(freshness_event(6)?);
+    (callbacks.document_started)();
+    (callbacks.document_ready)();
+    assert_requery_of(&drain_last(&callbacks)?, 6);
+
+    // Another window opens after everything was delivered.
+    (callbacks.document_started)();
+    (callbacks.document_ready)();
+    assert_requery_of(&drain_last(&callbacks)?, 6);
     Ok(())
 }

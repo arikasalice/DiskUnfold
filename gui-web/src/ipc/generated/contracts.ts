@@ -904,10 +904,15 @@ export type ResultVersionChanged = { lineageId: Id, sourceRef: Id, origin: strin
  */
 dataSource?: DataSource, sequence: number, change: ResultVersionChange, previousResultVersion?: Id, completeness?: PublishedCompleteness, observedAt?: Timestamp, };
 export type FreshnessState = string;
-export type FreshnessCounts = { observed: number, unwatched: number, changeNotified: number, gapUnknown: number, refreshing: number, unverifiable: number, };
+export type FreshnessCounts = { observed: number, unwatched: number, change_notified: number, gap_unknown: number, refreshing: number, unverifiable: number, };
 export type FreshnessSummary = {
 /**
- * The worst state of all rows; meaningless when every count is zero.
+ * The worst state of all rows.
+ *
+ * A summary without rows has no worst state, and its representative is
+ * `unverifiable`; a receiver never assumes `observed` there. A receiver first
+ * reads an event without a current version and with every count zero as the removal
+ * of that scope version's ledger.
  */
 representative: FreshnessState, counts: FreshnessCounts, };
 export type FreshnessRange = {
