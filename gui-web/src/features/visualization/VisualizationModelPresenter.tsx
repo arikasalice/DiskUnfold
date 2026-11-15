@@ -208,7 +208,8 @@ export function ModelRows({
   title,
 }: {
   page: ModelRowsPage;
-  model: VizModel;
+  /** Absent for a fallback table, which has no model of its own to look classes up in. */
+  model?: VizModel | undefined;
   text: VizText;
   onPage?: (request: VizRowsRequest) => void;
   onOpenGroup?: (
@@ -313,7 +314,7 @@ export function ModelRows({
               row.ratio ?? text.message("unavailableValue"),
               `${text.quantity(row.denominator.value)} · ${text.key(row.denominator.basis)}`,
               text.key(
-                model.legend.find((entry) => entry.key === row.legendClassKey)
+                model?.legend.find((entry) => entry.key === row.legendClassKey)
                   ?.labelKey ?? row.legendClassKey,
               ),
               row.displayFlags.map(text.key).join(" · "),

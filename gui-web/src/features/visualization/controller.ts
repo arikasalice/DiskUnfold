@@ -7,6 +7,7 @@ import type {
   VizRowsRequest,
 } from "../../ipc";
 import { matchingRowsPage, sameItem, VizModelLoader } from "../../viz";
+import { fallbackReference, fallbackRowsMatch } from "./fallback-table";
 import type {
   ModelResponse,
   ModelRowsPage,
@@ -32,6 +33,8 @@ export type VisualizationSnapshot = {
   table: ModelResponse | null;
   graphPage: ModelRowsPage | null;
   tablePage: ModelRowsPage | null;
+  /** Rows of the fallback model while an unavailable answer names one. */
+  fallbackPage: ModelRowsPage | null;
   pendingRows: VizRowsRequest | null;
   failedRows: VizRowsRequest | null;
   selection: VizSelection | null;
@@ -167,6 +170,7 @@ export class VisualizationController {
     table: null,
     graphPage: null,
     tablePage: null,
+    fallbackPage: null,
     pendingRows: null,
     failedRows: null,
     selection: null,
@@ -187,6 +191,7 @@ export class VisualizationController {
   >;
   private focusHasKey = false;
   private rowsSeq = 0;
+  private fallbackSeq = 0;
   private revisionCheckSeq = 0;
   private listeners = new Set<() => void>();
   constructor(private readonly port: VisualizationPort) {
@@ -196,7 +201,7 @@ export class VisualizationController {
         admit: (request, evidence) => this.admit(request, evidence),
         commit: (response, request, evidence) =>
           this.commitPatch(response, request, evidence),
-        publish: (patch, extra) => this.update({ ...extra, ...patch }),
+        publish: (patch, extra) => this.publish(patch, extra),
       },
       [],
     );
@@ -214,6 +219,26 @@ export class VisualizationController {
   private update(patch: Partial<VisualizationSnapshot>) {
     this.state = { ...this.state, ...patch };
     this.listeners.forEach((listener) => listener());
+  }
+  /**
+   * Applies one loader change. A new phase ends the fallback table of the
+   * answer before it, and an unavailable answer drops the row state of the
+   * model it hides; the previous graph itself is kept.
+   */
+  private publish(
+    patch: Partial<VisualizationSnapshot>,
+    extra?: Partial<VisualizationSnapshot>,
+  ) {
+    if (patch.phase === undefined) return this.update({ ...extra, ...patch });
+    this.fallbackSeq++;
+    this.update({
+      ...extra,
+      fallbackPage: null,
+      ...(patch.phase === "unavailable"
+        ? { pendingRows: null, failedRows: null }
+        : {}),
+      ...patch,
+    });
   }
   offerRevision(revision: string) {
     if (revision !== this.state.graph?.frame.resultRevision)
@@ -393,6 +418,7 @@ export class VisualizationController {
     return this.loader.cancelCurrent();
   }
   async rows(request: VizRowsRequest) {
+    if (this.isFallbackRequest(request)) return this.fallbackRows(request);
     const frame = this.state.table;
     if (
       !frame ||
@@ -437,5 +463,33 @@ export class VisualizationController {
       if (seq === this.rowsSeq && this.state.table === frame)
         this.update({ pendingRows: null, failedRows: request, error });
     }
+  }
+  /** Reads rows of the fallback model; a page that arrives after the answer changed is dropped. */
+  private async fallbackRows(request: VizRowsRequest) {
+    const seq = this.fallbackSeq;
+    this.update({ pendingRows: request, failedRows: null });
+    try {
+      const response = await this.port.rows(request);
+      if (seq !== this.fallbackSeq) return;
+      if (!fallbackRowsMatch(request, response)) {
+        this.update({
+          pendingRows: null,
+          failedRows: request,
+          error: new Error("Mismatched visualization rows"),
+        });
+        return;
+      }
+      this.update({ fallbackPage: { request, response }, pendingRows: null });
+    } catch (error) {
+      if (seq === this.fallbackSeq)
+        this.update({ pendingRows: null, failedRows: request, error });
+    }
+  }
+  private isFallbackRequest(request: VizRowsRequest) {
+    const fallback = fallbackReference(this.state);
+    return (
+      fallback?.modelRef === request.modelRef &&
+      fallback.resultRevision === request.resultRevision
+    );
   }
 }

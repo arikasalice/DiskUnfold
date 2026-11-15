@@ -21,7 +21,7 @@ import {
   selectVisualizationGroup,
 } from "./group-navigation";
 import { VisualizationStatus } from "./VisualizationStatus";
-import { UnavailablePanel } from "./UnavailablePanel";
+import { UnavailableView } from "./UnavailableView";
 import type { BackAction } from "./UnavailablePanel";
 import { RowsRetry } from "./RetryNotices";
 import { SeparateModelTable, useFirstRows } from "./NewerModelTable";
@@ -103,8 +103,10 @@ export function ControlledVisualization({
         {...(onApplyRevision ? { onApplyRevision } : {})}
       />
       {unavailable && (
-        <UnavailablePanel
+        <UnavailableView
           reasonKey={unavailable.reasonKey}
+          controller={controller}
+          state={state}
           text={text}
           backAction={backAction}
         />
