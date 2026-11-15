@@ -464,7 +464,7 @@ impl BuildHandle {
                 return Err(error);
             }
         };
-        self.published = true;
+        let was_published = std::mem::replace(&mut self.published, true);
         if finish {
             self.finished = true;
         }
@@ -478,6 +478,9 @@ impl BuildHandle {
             Some(&result),
         );
         drop(order);
+        // Retiring raises no notification and the replaced version is already not current,
+        // so registrations of it fail as stale; it needs no place in the publication order.
+        self.retire_replaced(previous.as_ref(), was_published, finish);
         drop(previous);
         Ok(result)
     }
