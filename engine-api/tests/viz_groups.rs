@@ -316,6 +316,30 @@ fn a_group_of_lower_bound_members_reads_an_unknown_range() {
 }
 
 #[test]
+fn a_label_key_must_be_the_display_name_of_the_group_row() {
+    let case = case(&small_sizes(), ResultCompleteness::Complete);
+    let pages = pages(&case);
+    // The display name is required, so it carries the key for a consumer that does not
+    // read the key; a different name would show one string and look up another.
+    let mut renamed = other(Some("ui.visualization.group.other"));
+    renamed.display_name = "Other".into();
+    assert_eq!(
+        register(&pages, &case, Some(&renamed)).err(),
+        Some(production::Error::MissingGroupPresentation)
+    );
+    // A name the supplier chose has no key, and an equal pair is accepted.
+    assert!(register(&pages, &case, Some(&other(None))).is_ok());
+    assert!(
+        register(
+            &pages,
+            &case,
+            Some(&other(Some("ui.visualization.group.other")))
+        )
+        .is_ok()
+    );
+}
+
+#[test]
 fn a_group_without_a_usable_presentation_or_with_forged_values_is_refused() {
     let case = case(&small_sizes(), ResultCompleteness::Complete);
     let pages = pages(&case);

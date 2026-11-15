@@ -100,13 +100,18 @@ pub(super) fn assemble(
     Ok((table, groups))
 }
 
+// A label key is the message key of the name, and the display name is required, so it
+// carries the same string for a consumer that does not read the key.
 fn usable(other: Option<&OtherPresentation>) -> Result<&OtherPresentation, Error> {
     other
         .filter(|other| {
             !other.display_name.is_empty()
                 && !other.legend_class_key.is_empty()
                 && other.display_flags.iter().all(|flag| !flag.is_empty())
-                && other.label_key.as_ref().is_none_or(|key| !key.is_empty())
+                && other
+                    .label_key
+                    .as_ref()
+                    .is_none_or(|key| !key.is_empty() && *key == other.display_name)
         })
         .ok_or(Error::MissingGroupPresentation)
 }
