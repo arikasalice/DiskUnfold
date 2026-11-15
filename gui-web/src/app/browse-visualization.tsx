@@ -12,9 +12,8 @@ import type { SizeBasisFilter } from "../features/analysis/space-format";
 import type { AnalysisClient, ItemRef, VizCatalog } from "../ipc";
 import type { BrowseOpenLocation } from "../features/browse/BrowsePanel";
 import { VisualizationSession } from "../features/visualization/VisualizationSession";
-import type { VisualizationViewRequest } from "../features/visualization/VisualizationSession";
-import type { ModelResponse } from "../features/visualization/model-adapter";
-import type { VizText } from "../features/visualization/model-text";
+import type { ModelResponse, VisualizationViewRequest } from "../viz";
+import type { VizText } from "../viz";
 import { useLocaleText } from "../i18n/presentation";
 
 export type BrowseVisualizationSelection = {

@@ -1,4 +1,4 @@
-import { NameText } from "../../components";
+import { NameText } from "../components";
 
 /**
  * The name shown for a visualization row. Only an item row carries the name
