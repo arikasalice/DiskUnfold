@@ -187,3 +187,38 @@ macOS와 Linux에서는 경로 오류의 예와 보기 글을 "/로 시작하는
 ## 10. 검수 때 받을 캡처
 
 한국어 Light, Dark는 둘째와 넷째만: 접힌 줄(없음), 규칙 둘이 있는 펼친 모습(종류 경로와 이름 패턴 각각의 입력 줄), 「확인 중…」, 칸의 오류(패턴, 경로), 효과 없음 행, 고치는 중, 추가하지 않은 글이 있을 때 「분석 시작」을 누른 모습, 규칙 일곱 개(목록 안 스크롤), 폭 480 미만, 확대 200%.
+
+## 11. 표준화팀의 계약 결정과 그에 따른 화면 (2026-11-15 밤)
+
+표준화팀이 9번의 1~3을 정했다(범위 검토 코드와 응답 타입을 읽고 정한 것). 총괄도 세 가지를 정했다: 폴더 선택 대화상자는 0.1에 넣고 포함 경로와 제외 경로에 함께 쓴다(담당 F02, 순서는 제외 규칙 엔진 연결 다음). 3번의 "추가하지 않은 글이 있으면 시작하지 않음"을 승인했고 F02가 F01 DLD gui-web 개정에 적는다. 이름표 「제외 규칙」을 승인했다.
+
+알림의 대상(응답의 선택 필드 noticeTargets, 보낸 초안 안의 위치로 가리킴):
+
+| 알림 키 | 대상 | 화면 |
+| --- | --- | --- |
+| scope.exclusion_ineffective | 제외 규칙 | 그 규칙 행에 「효과 없음」(4번) |
+| scope.exclusion_unverified | 제외 규칙 | 그 규칙 행에 「확인 못 함」(4번). 4번 표의 "키는 표준화팀이 정한다"가 이 키다 |
+| scope.excluded | 포함 경로 | 그 포함 경로 행에 「이 폴더는 제외 규칙에 걸려 분석하지 않습니다」 |
+| scope.overlap_unverified | 포함 경로 | 그 포함 경로 행에 정보로 「이 드라이브에서는 경로를 정확히 비교할 수 없어, 다른 포함 폴더와 겹치는지 확인하지 못했습니다」 / "Paths on this drive can't be compared exactly, so it couldn't be confirmed whether this folder overlaps another included folder." |
+
+- 대상이 없거나 그 키의 항목이 없으면 5번의 대체 문구를 목록 아래 한 줄로 쓴다. scope.exclusion_unverified의 대체 문구는 「경로를 정확히 비교할 수 없는 드라이브가 있어, 걸리는지 확인하지 못한 제외 규칙이 있습니다」 / "Paths on a drive can't be compared exactly, so some exclusions couldn't be confirmed."
+- 대상이 잘렸으면(truncated) 행 표시에 더해 목록 아래에 「표시한 것 말고도 해당하는 규칙이 더 있습니다」 / "More rules than the ones marked are affected."를 쓴다.
+- 기존 겹침 알림 셋(합침, 별칭 병합, 하위 흡수)에 대상을 싣는 것은 0.1에 필요하지 않다. 지금 문구("겹치는 포함 경로 2개를 하나로 합쳤습니다")로 뜻이 통하고 포함 경로는 대개 몇 개뿐이다. 포함 경로 행을 다시 그릴 때 함께 본다.
+
+거부의 세부 원인(오류의 선택 필드 argumentIssues, 위치와 원인 키):
+
+| 원인 키 | 한국어 | English |
+| --- | --- | --- |
+| scope.exclude.empty | 값을 넣어 주세요. | Enter a value. |
+| scope.exclude.separator | 이름 패턴에는 \ 나 / 를 넣을 수 없습니다. 특정 위치를 빼려면 종류를 「경로」로 바꾸세요. | A name pattern can't contain \ or /. To exclude a specific location, change the kind to Path. |
+| scope.exclude.not_absolute | 드라이브부터 시작하는 전체 경로를 넣어 주세요. 예: C:\Users\민서\비공개 | Enter a full path starting from the drive, for example C:\Users\Minseo\Private. |
+| scope.exclude.encoding | 이 경로는 이 컴퓨터의 경로 형식이 아닙니다. 경로를 다시 넣어 주세요. | This path isn't in this computer's path format. Enter the path again. |
+| path.unresolvable (제외 규칙에서 난 경우) | 이 경로는 해석할 수 없습니다. ‘..’ 같은 표기 없이 전체 경로를 넣어 주세요. | This path can't be resolved. Enter a full path without parts such as ‘..’. |
+| 원인 키가 없거나 모르는 키 | 5번의 종류별 문구 | |
+
+- 위치가 방금 넣으려던 규칙이면 값 칸 아래에, 목록에 있는 규칙이면 그 행의 둘째 줄에 쓴다. 한 번에 여러 규칙이 거부되면(되살린 초안) 행마다 제 원인을 쓴다.
+- macOS와 Linux에서는 not_absolute의 문구를 "/로 시작하는 전체 경로", 예 "/Users/minseo/Private"로 쓴다.
+
+남는 포함 경로가 없을 때: scope.review는 scope.empty로 거부한다(빈 범위의 성공은 없다). 그래서 4번의 "분석할 폴더가 남지 않았습니다"를 「분석 시작」 위에 쓰는 경우는 없어진다. 규칙을 넣다가 이 거부를 받으면 그 규칙은 목록에 들어가지 않고 값 칸 아래에 「이 규칙을 넣으면 분석할 폴더가 남지 않습니다. 규칙을 바꾸거나 포함할 폴더를 더 골라 주세요」 / "With this rule no folder is left to analyze. Change the rule or include another folder."를 쓴다. 같은 키가 포함 경로를 하나도 넣지 않았을 때에도 나오므로, 오류가 제외 규칙의 위치를 싣고 있을 때만 이 문구를 쓰고 그렇지 않으면 지금의 빈 범위 안내를 쓴다(위치를 실을 수 있는지는 F02가 확인한다).
+
+아직 정해지지 않은 것: Windows 쪽의 검증 규칙("\"도 구분자로 거절, 드라이브부터 시작하는 전체 경로)은 구현 전이고 F02가 확정해 알린다. "*"와 "?"의 뜻은 표준화팀이 이번에 코드로 확인하지 않았다. 5번의 도움말은 발행 DLD 2.3.2의 문법을 따른 것이다.
