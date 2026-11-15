@@ -20,7 +20,12 @@
 .du-visualization-title {
   display: grid;
   gap: 4px;
-  padding-block-end: 8px;
+  padding-block: 10px 8px;
+}
+
+/* The title is the same size as the one of the folder list. */
+.du-visualization-title .du-heading--2 {
+  font-size: 20px;
 }
 
 .du-visualization-viewport {
