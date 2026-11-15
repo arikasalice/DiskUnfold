@@ -88,7 +88,9 @@ async function browse(origin: string, row: FolderQueryRow = folder) {
 
 test("the browse header names the scan origin and a lower-bound count in Korean", async () => {
   await browse("scan");
-  expect(screen.getByText("스캔 · 2026-11-14 · 항목 최소 1개")).toBeDefined();
+  expect(
+    screen.getByText("현재 분석 · 2026-11-14 · 항목 최소 1개"),
+  ).toBeDefined();
 });
 
 test("an origin without copy reads as unknown and is not shown", async () => {

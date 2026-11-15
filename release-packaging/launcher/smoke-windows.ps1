@@ -571,10 +571,10 @@ function Test-RecentScopeReopen {
   $transform = $window.GetCurrentPattern([Windows.Automation.TransformPattern]::Pattern)
   $transform.Resize(640, 460)
   try {
-    Expand-UI (Wait-Enabled 'Recent analysis ranges' $true)
-    Invoke-UI (Wait-Enabled 'Review range 1' $true)
+    Expand-UI (Wait-Enabled 'Recent analysis scopes' $true)
+    Invoke-UI (Wait-Enabled 'Review scope 1' $true)
     $null = Wait-UI 'stored volume matched' { Find-UI 'Volume matched' $textType }
-    Invoke-UI (Wait-Enabled 'Use this range' $true)
+    Invoke-UI (Wait-Enabled 'Use this scope' $true)
     $null = Wait-UI 'visible focused replacement in small window' {
       $focused = $ae::FocusedElement
       if ($focused.Current.Name -eq 'Replace current scope' -and -not $focused.Current.IsOffscreen) { $focused }
@@ -582,7 +582,7 @@ function Test-RecentScopeReopen {
     Invoke-UI (Wait-Enabled 'Keep editing' $true)
     $use = Wait-UI 'visible focused apply action after keeping edits' {
       $focused = $ae::FocusedElement
-      if ($focused.Current.Name -eq 'Use this range' -and -not $focused.Current.IsOffscreen) { $focused }
+      if ($focused.Current.Name -eq 'Use this scope' -and -not $focused.Current.IsOffscreen) { $focused }
     }
     Invoke-UI $use
     $confirm = Wait-Enabled 'Replace current scope' $true
@@ -592,7 +592,7 @@ function Test-RecentScopeReopen {
     $transform.Resize($original.Width, $original.Height)
   }
   $null = Wait-Enabled 'Start analysis' $true
-  if (-not (Find-LogicalSize '18 bytes')) { throw 'Applying the saved range replaced the pinned result' }
+  if (-not (Find-LogicalSize '18 bytes')) { throw 'Applying the saved scope replaced the pinned result' }
   [IO.File]::WriteAllBytes((Join-Path $scanRoot 'root.bin'), [byte[]]::new(16))
   Invoke-UI (Wait-Enabled 'Start analysis' $true)
   $null = Wait-FinalLogicalSize '23 bytes'
@@ -814,7 +814,7 @@ function Test-DeniedSubtree {
       if ($issues) {
         $names = $issues.FindAll($scopeTree, [Windows.Automation.Condition]::TrueCondition) |
           ForEach-Object { $_.Current.Name }
-        ($names -contains 'Unread ranges') -and ($names -contains 'Opening a folder') -and
+        ($names -contains 'Unread locations') -and ($names -contains 'Opening a folder') -and
           ($names -contains 'Access denied') -and ($names -like '*\denied-child')
       }
     }

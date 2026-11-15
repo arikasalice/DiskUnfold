@@ -81,6 +81,7 @@ impl ErrorEnvelope {
             | "viz.measure_unknown"
             | "viz.denominator_invalid"
             | "space.target_out_of_scope"
+            | "space.rule_unknown"
             | "scope.empty"
             | "scope.target_unavailable"
             | "scope.exclude_invalid"
@@ -183,6 +184,21 @@ mod tests {
         let job = ErrorEnvelope::from_reason("job.shutting_down", correlation, Vec::new())
             .ok_or("job.shutting_down is not registered")?;
         assert_eq!(job.code, ErrorCode::Busy);
+        Ok(())
+    }
+
+    #[test]
+    fn unknown_size_rule_is_an_invalid_argument() -> Result<(), Box<dyn std::error::Error>> {
+        let correlation = Id::parse("0195f856-ab83-7a59-9343-10d29775c9a9")?;
+        let envelope = ErrorEnvelope::from_reason(
+            crate::size_rule::SPACE_RULE_UNKNOWN,
+            correlation,
+            Vec::new(),
+        )
+        .ok_or("space.rule_unknown is not registered")?;
+        assert_eq!(envelope.reason_key, "space.rule_unknown");
+        assert_eq!(envelope.code, ErrorCode::InvalidArgument);
+        assert!(!envelope.retryable);
         Ok(())
     }
 
