@@ -1,0 +1,16 @@
+/* A text with an explanation: the frame keeps the hidden copy of the
+   explanation in place, and the text shows where keyboard focus is. */
+.du-explained {
+  position: relative;
+}
+
+.du-explained__text:focus-visible {
+  outline: 2px solid var(--du-focus);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* A selection copies the text without its explanation. */
+.du-explained .du-visually-hidden {
+  user-select: none;
+}
