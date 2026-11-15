@@ -390,3 +390,24 @@ fn folder_listings_and_summaries_use_the_folder_state() -> Test {
     }
     Ok(())
 }
+
+#[test]
+#[ignore = "complete source masks a missing link in folder summary; see PR #102"]
+fn complete_source_does_not_mask_a_folders_missing_link() -> Test {
+    let mut b = builder(&[root(b"/r", 1)])?;
+    dir(&mut b, 0, &["folder"])?;
+    b.add_untraversed_link_at(0, path(&["folder", "link"]))
+        .map_err(e)?;
+    let result = b.seal(id(2)?, ResultCompleteness::Complete).map_err(e)?;
+    let folder = ItemRef {
+        result_version: id(2)?,
+        item_no: item(&result, "folder")?,
+    };
+    assert_eq!(
+        space(&result, "folder")?.completeness,
+        ResultCompleteness::Missing
+    );
+    let summary = statistics_summary::summarize(&result, &folder, &mut || false).map_err(e)?;
+    assert_eq!(summary.result_completeness, ResultCompleteness::Missing);
+    Ok(())
+}
