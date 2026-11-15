@@ -108,8 +108,9 @@ pub(super) fn register_desktop(
             ports.roots.clone(),
             Arc::new(du_platform_os::volume::WindowsVolumes),
         );
-        // Bound retained handles independently from the number of persisted rows.
-        const PENDING_ADMISSIONS: std::num::NonZeroUsize = std::num::NonZeroUsize::new(32).unwrap();
+        // Bound retained handles independently from the number of persisted rows: 32.
+        const PENDING_ADMISSIONS: std::num::NonZeroUsize =
+            std::num::NonZeroUsize::MIN.saturating_add(31);
         PENDING_ADMISSIONS
     });
     #[cfg(not(windows))]

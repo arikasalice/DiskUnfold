@@ -104,7 +104,10 @@ fn scan_harness_with_admissions(
         Arc::new(History),
         events.clone(),
         FlowLimits {
-            metadata_io: 2,
+            // The priority scenario runs one worker. That worker stays in the gated open
+            // of area A, so area B stays queued until the test releases the scan. A second
+            // worker could open and finish B first, and a request for B then has no effect.
+            metadata_io: if priority_scenario { 1 } else { 2 },
             queued_items: 4,
             item_bytes: 1024,
         },
