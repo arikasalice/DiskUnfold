@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { AnalysisError, resultReadProblem } from "../ipc";
 import { watchJobBaseline } from "./job-baseline";
+import { createReflectCadence } from "./result-cadence";
 import type {
   AnalysisClient,
   AnalysisJobProgress,
@@ -124,7 +125,14 @@ function runningValue(
     : undefined;
 }
 
-/** Opens a scan's first available result and keeps it pinned in the view. */
+/**
+ * Follows the results a scan publishes and keeps its newest one in the view.
+ *
+ * The first result is read at once. Each later publication of the same scan,
+ * including its final result, replaces the shown totals automatically at the
+ * shared reflect cadence (at most one read per second). Only a version whose
+ * read failed waits for the user's "Show latest result".
+ */
 export function useScanResult(
   client: AnalysisClient,
   receipt: ScanStart | null,
@@ -136,6 +144,7 @@ export function useScanResult(
   }>();
   const [total, setTotal] = useState<{ jobRef: string; value: SpaceTotal }>();
   const [latest, setLatest] = useState<{ jobRef: string; version: string }>();
+  const [stalled, setStalled] = useState<{ jobRef: string; version: string }>();
   const [switchingJob, setSwitchingJob] = useState<string>();
   const [error, setError] = useState<{
     jobRef: string;
@@ -183,6 +192,13 @@ export function useScanResult(
     let statusDue = false;
     let queuedProgress: AnalysisJobProgress | undefined;
     let hiddenWork = false;
+    const cadence = createReflectCadence();
+
+    /** Stops automatic reads of a version; the user may still select it. */
+    function reject(version: string) {
+      rejected = version;
+      setStalled({ jobRef: scanJob, version });
+    }
 
     function clearControl() {
       pending = undefined;
@@ -244,6 +260,7 @@ export function useScanResult(
 
     async function readTotals(version: string) {
       const requestSeq = ++sequence.current;
+      cadence.mark();
       try {
         const result = await client.call("space.total", {
           resultVersion: version,
@@ -255,7 +272,7 @@ export function useScanResult(
           result.requestSeq !== requestSeq ||
           result.resultVersion !== version
         ) {
-          rejected = version;
+          reject(version);
           displayLatest = false;
           recordProblem({ kind: "totals_mismatch" }, false);
           return "totals" as const;
@@ -264,11 +281,12 @@ export function useScanResult(
         displayLatest = false;
         rejected = undefined;
         staleFailure = undefined;
+        setStalled(undefined);
         setTotal({ jobRef: scanJob, value: result });
         if (baseline.ready()) setError(undefined);
       } catch (failure) {
         if (!alive) return;
-        rejected = version;
+        reject(version);
         if (
           failure instanceof AnalysisError &&
           (failure.code === "STALE_VERSION" || failure.code === "NOT_FOUND")
@@ -379,17 +397,27 @@ export function useScanResult(
         if (baseline.ready()) setError(undefined);
         return;
       }
-      if (
-        version &&
-        version !== displayed &&
-        version !== rejected &&
-        (!displayed || displayLatest)
-      ) {
-        return readTotals(version);
+      if (version && version !== displayed && version !== rejected) {
+        return readWhenDue(version);
       } else if (terminal && version === rejected && staleFailure) {
         displayLatest = false;
         recordError(staleFailure, false);
       }
+    }
+
+    /**
+     * A newer publication replaces the shown totals without a selection, but
+     * no sooner than the reflect cadence allows. The first result and the
+     * user's explicit selection are read at once.
+     */
+    function readWhenDue(version: string) {
+      if (displayed && !displayLatest && cadence.remaining() > 0) {
+        cadence.defer(() => {
+          if (alive) scheduleStatusRead(true);
+        });
+        return;
+      }
+      return readTotals(version);
     }
 
     function finishSwitch() {
@@ -535,6 +563,7 @@ export function useScanResult(
       showLatest.current = undefined;
       issueControl.current = undefined;
       window.clearInterval(timer);
+      cadence.dispose();
       document.removeEventListener("visibilitychange", visibilityChanged);
       if (frame !== undefined) window.cancelAnimationFrame(frame);
       baseline.dispose();
@@ -546,19 +575,25 @@ export function useScanResult(
   const currentTotal = total?.jobRef === jobRef ? total?.value : undefined;
   const currentStatus = status?.jobRef === jobRef ? status : undefined;
   const unavailable = currentError?.unavailable ?? false;
+  const latestVersion = jobValue(latest, jobRef)?.version;
   return {
     status: currentStatus,
     /** The latest ordered job.progress value while the scan is running. */
     progress: runningValue(progress, jobRef, currentStatus),
     /** The scan's newest published result version, which may not be displayed yet. */
-    currentVersion: jobValue(latest, jobRef)?.version,
+    currentVersion: latestVersion,
     ...controlsForJob(jobRef, currentStatus, unavailable, control),
     requestControl: (command: ScanControl) => issueControl.current?.(command),
     total: currentTotal,
+    /**
+     * A newer result exists whose automatic read failed, so the shown totals
+     * stay on an earlier result until the user selects the newest one.
+     */
     hasNewResult:
       currentTotal !== undefined &&
-      latest?.jobRef === jobRef &&
-      latest?.version !== currentTotal.resultVersion,
+      latestVersion !== undefined &&
+      latestVersion !== currentTotal.resultVersion &&
+      jobValue(stalled, jobRef)?.version === latestVersion,
     showLatest: () => showLatest.current?.(),
     switchingResult: switchingJob !== undefined && switchingJob === jobRef,
     error: currentError?.problem,

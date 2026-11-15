@@ -26,6 +26,8 @@ import {
   sizeLabels,
 } from "./space-format";
 import type { SizeBasisFilter, SizeDisplay } from "./space-format";
+import { useDialogResult } from "./use-dialog-result";
+import { DialogUpdateStatus } from "./DialogUpdateStatus";
 import type { AnalysisDisplayPreferences } from "./use-display-preferences";
 
 function Coverage({ total }: { total: SpaceTotal }) {
@@ -69,10 +71,16 @@ export function RootPaths({ roots }: { roots: readonly OsPath[] }) {
   ));
 }
 
-/** Displays the selected result without replacing it on later publications. */
+/**
+ * Displays the given totals in place. A newer `total` changes the values
+ * without remounting the parts around them, so expanded sections, focus and
+ * open dialogs stay as they are. Dialogs open on `latestVersion`, the newest
+ * result known for the scan.
+ */
 export function PinnedResult({
   client,
   total,
+  latestVersion,
   roots,
   preferences,
   displayChoice,
@@ -82,6 +90,7 @@ export function PinnedResult({
 }: {
   client: AnalysisClient;
   total: SpaceTotal;
+  latestVersion: string;
   roots: readonly OsPath[];
   preferences: AnalysisDisplayPreferences;
   displayChoice: SizeDisplay | undefined;
@@ -184,9 +193,8 @@ export function PinnedResult({
         />
       </DetailDisclosure>
       <VolumeExplanation
-        key={`volume:${total.resultVersion}`}
         client={client}
-        resultVersion={total.resultVersion}
+        resultVersion={latestVersion}
         roots={roots}
         display={display}
       />
@@ -196,9 +204,8 @@ export function PinnedResult({
         onReopenLatest={onReopenLatest}
       />
       <ScopeDetails
-        key={total.resultVersion}
         client={client}
-        resultVersion={total.resultVersion}
+        latestVersion={latestVersion}
         multiRoot={roots.length > 1}
         display={display}
       />
@@ -206,19 +213,23 @@ export function PinnedResult({
   );
 }
 
-/** Shows only the observed attributes of the pinned scope root. */
+/**
+ * Shows the observed attributes of the scope root in a dialog that keeps the
+ * result it opened with (see `useDialogResult`).
+ */
 function ScopeDetails({
   client,
-  resultVersion,
+  latestVersion,
   multiRoot,
   display,
 }: {
   client: AnalysisClient;
-  resultVersion: string;
+  latestVersion: string;
   multiRoot: boolean;
   display: SizeDisplay;
 }) {
-  const [open, setOpen] = useState(false);
+  const dialog = useDialogResult(latestVersion);
+  const open = dialog.version !== undefined;
   const text = useLocaleText();
   const title = text("ui.analysis.folder_details", "Folder details");
   const trigger = useRef<HTMLButtonElement>(null);
@@ -234,22 +245,25 @@ function ScopeDetails({
 
   return (
     <section aria-label={title}>
-      <Action ref={trigger} onPress={() => setOpen(true)}>
+      <Action ref={trigger} onPress={dialog.open}>
         {text("ui.analysis.view_folder_details", "View folder details")}
       </Action>
-      {open && (
+      {dialog.version !== undefined && (
         <InspectionDialog
           title={title}
           onClose={() => {
             restore.current = true;
-            setOpen(false);
+            dialog.close();
           }}
         >
+          <DialogUpdateStatus updated={dialog.updated} />
           <FileInspection
+            key={dialog.version}
             client={client}
-            item={{ resultVersion, itemNo: 0 }}
+            item={{ resultVersion: dialog.version, itemNo: 0 }}
             itemKind="folder"
             display={display}
+            onStale={dialog.stale}
           />
         </InspectionDialog>
       )}

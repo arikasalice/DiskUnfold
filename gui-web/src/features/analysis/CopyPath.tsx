@@ -7,6 +7,7 @@ import {
   Text,
 } from "../../components";
 import { useLocaleText } from "../../i18n/presentation";
+import { AnalysisError } from "../../ipc";
 import type {
   AnalysisClient,
   BrowseCopyPathOutcome,
@@ -20,6 +21,8 @@ type CopyPathProps = {
   path: BrowseValue<string>;
   /** Turns the copy action off and shows this reason; the sample experience sets it. */
   disabledReason?: string;
+  /** Told when the copy was refused because the item's result was replaced. */
+  onStale?: (resultVersion: string) => void;
 };
 
 type CopyPathRefusal = Extract<
@@ -136,6 +139,7 @@ function CopyPathForItem({
   item,
   path,
   disabledReason,
+  onStale,
 }: CopyPathProps) {
   const text = useLocaleText();
   const [status, setStatus] = useState<CopyStatus>();
@@ -171,8 +175,14 @@ function CopyPathForItem({
           setStatus({ kind: "refused", reasonKey: result.reasonKey });
         }
       })
-      .catch(() => {
-        if (active.current === generation) setStatus({ kind: "failed" });
+      .catch((failure: unknown) => {
+        if (active.current !== generation) return;
+        setStatus({ kind: "failed" });
+        if (
+          failure instanceof AnalysisError &&
+          failure.code === "STALE_VERSION"
+        )
+          onStale?.(item.resultVersion);
       })
       .finally(() => {
         pending.current = false;

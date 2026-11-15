@@ -281,6 +281,9 @@ ui.analysis.show_latest
 ui.analysis.newer_available
 ui.analysis.still_interim
 ui.analysis.still_earlier
+ui.analysis.values_update_live
+ui.analysis.result_so_far
+ui.analysis.updated_to_latest
 ui.analysis.unavailable
 ui.analysis.automatic
 ui.analysis.logical_size

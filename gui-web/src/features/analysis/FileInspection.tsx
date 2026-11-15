@@ -106,6 +106,7 @@ function attributes(
   text: LocaleText,
   renderTime: (value: string) => ReactNode,
   actionsDisabledReason?: string,
+  onStale?: (resultVersion: string) => void,
 ) {
   return [
     {
@@ -172,6 +173,7 @@ function attributes(
           client={client}
           item={item}
           path={detail.displayPath}
+          {...(onStale === undefined ? {} : { onStale })}
           {...(actionsDisabledReason === undefined
             ? {}
             : { disabledReason: actionsDisabledReason })}
@@ -192,6 +194,7 @@ export function FileInspection({
   itemKind = "file",
   display = windowsSizeDisplay,
   actionsDisabledReason,
+  onStale,
 }: {
   client: AnalysisClient;
   item: ItemRef;
@@ -199,6 +202,11 @@ export function FileInspection({
   display?: SizeDisplay;
   /** Turns off the actions that act on a real path and shows this reason (the sample experience). */
   actionsDisabledReason?: string;
+  /**
+   * Told when a read or copy for `item` was refused because its result was
+   * replaced, so a dialog can move to the newest result.
+   */
+  onStale?: ((resultVersion: string) => void) | undefined;
 }) {
   const [detail, setDetail] = useState<BrowseDetail>();
   const [problem, setProblem] = useState<
@@ -236,15 +244,15 @@ export function FileInspection({
       })
       .catch((failure: unknown) => {
         if (!active) return;
-        setProblem(
-          failure instanceof AnalysisError && failure.code === "STALE_VERSION"
-            ? "stale"
-            : "unavailable",
-        );
+        const stale =
+          failure instanceof AnalysisError && failure.code === "STALE_VERSION";
+        setProblem(stale ? "stale" : "unavailable");
+        if (stale) onStale?.(resultVersion);
       });
     return () => {
       active = false;
     };
+    // onStale only reports; a new callback does not call for another read.
   }, [client, resultVersion, itemNo, itemKind]);
 
   return (
@@ -287,6 +295,7 @@ export function FileInspection({
                   text,
                   renderTime,
                   actionsDisabledReason,
+                  onStale,
                 )}
               />
             </div>
@@ -312,7 +321,12 @@ export function FileInspection({
             </DetailDisclosure>
           </>
         )}
-      <ItemSpaceDetails client={client} item={item} display={display} />
+      <ItemSpaceDetails
+        client={client}
+        item={item}
+        display={display}
+        onStale={onStale}
+      />
     </>
   );
 }

@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import type { ReactNode, Ref } from "react";
 import { useLocaleText } from "../../i18n/presentation";
 import type { LocaleText } from "../../i18n/presentation";
@@ -7,11 +8,19 @@ import type { AnalysisClient, JobState, OsPath } from "../../ipc";
 import type { useScanResult } from "../../state/analysis-scan";
 import { PinnedResult, RootPaths } from "./ResultSummary";
 import { ScanOutputHeader } from "./ScanOutputHeader";
+import { useHeldValue, useSelectionHold } from "./use-selection-hold";
 import type { SizeBasisFilter, SizeDisplay } from "./space-format";
 import type { AnalysisDisplayPreferences } from "./use-display-preferences";
 import "../../theme/analysis-results.css";
 
-/** Shows only totals from the scan's pinned result, with basis and coverage kept separate. */
+/**
+ * Shows the scan's newest totals, with basis and coverage kept separate.
+ *
+ * Values change in place as the scan publishes. While the user selects text
+ * in the summary, the whole summary keeps the result it showed when the
+ * selection began; the hook keeps reading, so releasing the selection shows
+ * the newest totals at once. No older result is held by the engine.
+ */
 export function ScanOutput({
   client,
   preferences,
@@ -41,19 +50,22 @@ export function ScanOutput({
   actions: ReactNode;
 }) {
   const text = useLocaleText();
+  const body = useRef<HTMLElement>(null);
+  const versionSummary = useRef<HTMLDivElement>(null);
+  const holding = useSelectionHold([body, versionSummary]);
+  const total = useHeldValue(scan.total, holding);
   const pathsLabel = running
     ? text("ui.analysis.scanning_paths", "Scanning paths")
     : text("ui.analysis.selected_paths", "Selected paths");
   const error = problem ?? scanErrorText(scan, text);
   const awaitingTotals =
-    !running &&
-    Boolean(scan.status?.resultVersion) &&
-    !scan.total &&
-    !scan.error;
+    !running && Boolean(scan.status?.resultVersion) && !total && !scan.error;
   return (
     <>
       <ScanOutputHeader
         scan={scan}
+        total={total}
+        versionSummary={versionSummary}
         started={started}
         running={running}
         awaitingTotals={awaitingTotals}
@@ -61,12 +73,13 @@ export function ScanOutput({
         actions={actions}
       />
       <section
+        ref={body}
         className="du-result__body"
         aria-label={text("ui.analysis.result_details", "Result details")}
         tabIndex={0}
       >
         {error && <Notice tone="error">{error}</Notice>}
-        {started && !scan.total && (
+        {started && !total && (
           <Readout
             label={pathsLabel}
             rows={[
@@ -77,10 +90,11 @@ export function ScanOutput({
             ]}
           />
         )}
-        {scan.total ? (
+        {total ? (
           <PinnedResult
             client={client}
-            total={scan.total}
+            total={total}
+            latestVersion={scan.currentVersion ?? total.resultVersion}
             roots={roots}
             preferences={preferences}
             displayChoice={displayChoice}

@@ -13,6 +13,19 @@ import {
 import type { AnalysisJobProgress, JobState, SpaceTotal } from "../../ipc";
 import type { ScanControl, useScanResult } from "../../state/analysis-scan";
 
+/** How the shown values relate to a scan that is still in progress. */
+type LiveResult = "updating" | "so_far";
+
+function liveResult(
+  running: boolean,
+  state: JobState | undefined,
+): LiveResult | undefined {
+  if (!running) return undefined;
+  return state === undefined || state === "queued" || state === "running"
+    ? "updating"
+    : "so_far";
+}
+
 function resultVersionLabel(
   state: SpaceTotal["completeness"],
   text: LocaleText,
@@ -32,6 +45,8 @@ function resultVersionLabel(
 /** Heads the scan output with its status, result version, controls and progress. */
 export function ScanOutputHeader({
   scan,
+  total,
+  versionSummary,
   started,
   running,
   awaitingTotals,
@@ -39,6 +54,9 @@ export function ScanOutputHeader({
   actions,
 }: {
   scan: ReturnType<typeof useScanResult>;
+  /** The totals the summary shows, which may be held during a text selection. */
+  total: SpaceTotal | undefined;
+  versionSummary: Ref<HTMLDivElement>;
   started: boolean;
   running: boolean;
   awaitingTotals: boolean;
@@ -52,7 +70,7 @@ export function ScanOutputHeader({
     <header className="du-result__header">
       <div className="du-result__title">
         <Heading level={3}>
-          {scan.total
+          {total
             ? text("ui.analysis.result_heading", "Analysis result")
             : text("ui.analysis.progress_heading", "Scan progress")}
         </Heading>
@@ -66,7 +84,9 @@ export function ScanOutputHeader({
       </div>
       <div className="du-result__toolbar">
         <ResultVersionSummary
-          total={scan.total}
+          ref={versionSummary}
+          total={total}
+          live={liveResult(running, scan.status?.state)}
           hasNewResult={scan.hasNewResult}
           showLatest={scan.showLatest}
           switching={scan.switchingResult}
@@ -209,13 +229,18 @@ function ScanStatus({
 }
 
 function ResultVersionSummary({
+  ref,
   total,
+  live,
   hasNewResult,
   showLatest,
   switching,
   finished,
 }: {
+  ref: Ref<HTMLDivElement>;
   total: SpaceTotal | undefined;
+  /** Set while the shown result belongs to the scan still in progress. */
+  live: LiveResult | undefined;
   hasNewResult: boolean;
   showLatest: () => void;
   switching: boolean;
@@ -230,9 +255,13 @@ function ResultVersionSummary({
   }>();
   const version = total?.resultVersion;
   const waitingToSwitch = selection?.shown === false;
+  // The summary follows its running scan by itself; an explicit choice is
+  // offered only once the scan has stopped and its newest result could not
+  // be shown automatically.
+  const offerLatest = hasNewResult && live === undefined;
 
   useLayoutEffect(() => {
-    if (!waitingToSwitch || hasNewResult || switching) return;
+    if (!waitingToSwitch || offerLatest || switching) return;
     if (!version || version === selection.version) {
       setSelection(undefined);
       return;
@@ -242,11 +271,15 @@ function ResultVersionSummary({
     if (button.current && button.current === document.activeElement)
       summary.current?.focus({ preventScroll: true });
     setSelection({ version, shown: true });
-  }, [hasNewResult, selection, switching, version, waitingToSwitch]);
+  }, [offerLatest, selection, switching, version, waitingToSwitch]);
 
   const shownLatest = selection?.shown && selection.version === version;
   return (
-    <div className="du-result-version" data-result={total ? "" : undefined}>
+    <div
+      ref={ref}
+      className="du-result-version"
+      data-result={total ? "" : undefined}
+    >
       <LiveStatus ref={summary} focusTarget={total !== undefined}>
         {total && (
           <Text kind="muted">
@@ -255,10 +288,20 @@ function ResultVersionSummary({
             })}
           </Text>
         )}
-        {hasNewResult && (
+        {total && live && (
+          <Text kind="muted">
+            {live === "updating"
+              ? text(
+                  "ui.analysis.values_update_live",
+                  "Values update as the scan runs",
+                )
+              : text("ui.analysis.result_so_far", "Result so far")}
+          </Text>
+        )}
+        {offerLatest && (
           <Text>{newerResultMessage(finished, total, text)}</Text>
         )}
-        {!hasNewResult && shownLatest && (
+        {!offerLatest && shownLatest && (
           <Text>
             {text(
               "ui.analysis.latest_visible",
@@ -267,7 +310,7 @@ function ResultVersionSummary({
           </Text>
         )}
       </LiveStatus>
-      {version && (hasNewResult || waitingToSwitch) && (
+      {version && (offerLatest || waitingToSwitch) && (
         <Action
           ref={button}
           isPending={switching}
