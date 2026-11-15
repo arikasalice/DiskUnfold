@@ -90,6 +90,7 @@ export function ScanOutputHeader({
           hasNewResult={scan.hasNewResult}
           showLatest={scan.showLatest}
           switching={scan.switchingResult}
+          trailing={total?.resultVersion !== scan.total?.resultVersion}
           finished={scan.status?.state === "done"}
         />
         {actions}
@@ -235,6 +236,7 @@ function ResultVersionSummary({
   hasNewResult,
   showLatest,
   switching,
+  trailing,
   finished,
 }: {
   ref: Ref<HTMLDivElement>;
@@ -244,6 +246,11 @@ function ResultVersionSummary({
   hasNewResult: boolean;
   showLatest: () => void;
   switching: boolean;
+  /**
+   * Set while `total` is not yet the totals the scan read last: the summary
+   * shows them together with an open part, or holds them during a selection.
+   */
+  trailing: boolean;
   finished: boolean;
 }) {
   const text = useLocaleText();
@@ -255,13 +262,16 @@ function ResultVersionSummary({
   }>();
   const version = total?.resultVersion;
   const waitingToSwitch = selection?.shown === false;
+  // A chosen result is being read until the summary shows it, which can be
+  // after the scan has read its totals.
+  const reading = switching || (waitingToSwitch && trailing);
   // The summary follows its running scan by itself; an explicit choice is
   // offered only once the scan has stopped and its newest result could not
   // be shown automatically.
   const offerLatest = hasNewResult && live === undefined;
 
   useLayoutEffect(() => {
-    if (!waitingToSwitch || offerLatest || switching) return;
+    if (!waitingToSwitch || offerLatest || reading) return;
     if (!version || version === selection.version) {
       setSelection(undefined);
       return;
@@ -271,7 +281,7 @@ function ResultVersionSummary({
     if (button.current && button.current === document.activeElement)
       summary.current?.focus({ preventScroll: true });
     setSelection({ version, shown: true });
-  }, [offerLatest, selection, switching, version, waitingToSwitch]);
+  }, [offerLatest, reading, selection, version, waitingToSwitch]);
 
   const shownLatest = selection?.shown && selection.version === version;
   return (
@@ -307,13 +317,13 @@ function ResultVersionSummary({
       {version && (offerLatest || waitingToSwitch) && (
         <Action
           ref={button}
-          isPending={switching}
+          isPending={reading}
           onPress={() => {
             setSelection({ version, shown: false });
             showLatest();
           }}
         >
-          {switching
+          {reading
             ? text("ui.analysis.reading_latest", "Reading latest result…")
             : text("ui.analysis.show_latest", "Show latest result")}
         </Action>

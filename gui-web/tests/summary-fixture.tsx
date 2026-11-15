@@ -245,7 +245,11 @@ export function liveScan() {
   return { client, job, publish, changeState, reads };
 }
 
-export async function startPanel(onRender: () => void = () => {}) {
+/** Starts a scan in the panel; `onBrowse` gives it the "Browse folders" action. */
+export async function startPanel(
+  onRender: () => void = () => {},
+  onBrowse?: (version: string) => void,
+) {
   const scan = liveScan();
   render(
     <Profiler id="panel" onRender={onRender}>
@@ -256,6 +260,7 @@ export async function startPanel(onRender: () => void = () => {}) {
           basis: "logical",
           warning: undefined,
         }}
+        {...(onBrowse && { onBrowse })}
       />
     </Profiler>,
   );
