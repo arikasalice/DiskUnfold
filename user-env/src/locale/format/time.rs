@@ -155,17 +155,9 @@ struct CivilTime {
 }
 
 fn timestamp_to_civil(timestamp: &Timestamp, offset_seconds: i32) -> Option<CivilTime> {
-    let value = timestamp.as_str();
-    let year = i64::from(parse_component(value, 0, 4)?);
-    let month = parse_component(value, 5, 7)?;
-    let day = parse_component(value, 8, 10)?;
-    let hour = parse_component(value, 11, 13)?;
-    let minute = parse_component(value, 14, 16)?;
-    let second = parse_component(value, 17, 19)?;
-    let days = days_from_civil(year, month, day)?;
-    let seconds = days
-        .checked_mul(86_400)?
-        .checked_add(i64::from(hour) * 3600 + i64::from(minute) * 60 + i64::from(second))?
+    let seconds = timestamp
+        .unix_millis()
+        .div_euclid(1000)
         .checked_add(i64::from(offset_seconds))?;
     let days = seconds.div_euclid(86_400);
     let day_seconds = seconds.rem_euclid(86_400);
@@ -178,23 +170,6 @@ fn timestamp_to_civil(timestamp: &Timestamp, offset_seconds: i32) -> Option<Civi
         minute: ((day_seconds % 3600) / 60) as u32,
         second: (day_seconds % 60) as u32,
     })
-}
-
-fn parse_component(value: &str, start: usize, end: usize) -> Option<u32> {
-    value.get(start..end)?.parse().ok()
-}
-
-fn days_from_civil(year: i64, month: u32, day: u32) -> Option<i64> {
-    if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
-        return None;
-    }
-    let year = year - if month <= 2 { 1 } else { 0 };
-    let era = if year >= 0 { year } else { year - 399 }.div_euclid(400);
-    let year_of_era = year - era * 400;
-    let shifted_month = i64::from(month) + if month > 2 { -3 } else { 9 };
-    let day_of_year = (153 * shifted_month + 2) / 5 + i64::from(day) - 1;
-    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
-    Some(era * 146_097 + day_of_era - 719_468)
 }
 
 fn civil_from_days(days: i64) -> (i64, u32, u32) {

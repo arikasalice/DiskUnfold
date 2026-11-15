@@ -129,7 +129,7 @@ pub(super) fn ratio(
 ) -> GroupRatio {
     fn exact(value: &SizeValue) -> Option<(u64, &du_core_contracts::ByteSize)> {
         match &value.amount {
-            SizeAmount::Exact { bytes } => bytes.as_str().parse::<u64>().ok().map(|n| (n, bytes)),
+            SizeAmount::Exact { bytes } => Some((bytes.get(), bytes)),
             _ => None,
         }
     }

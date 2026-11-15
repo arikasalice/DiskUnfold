@@ -29,14 +29,9 @@ impl Accumulator {
                 return;
             }
         };
-        // ByteSize validates the u64 range at construction and deserialization.
-        if let Ok(bytes) = bytes.as_str().parse::<u64>() {
-            self.merge_bytes(Some(bytes));
-            self.lower_bound |= lower;
-            self.evidence = Some(weaker(self.evidence.take(), value.evidence.clone()));
-        } else {
-            self.missing += 1;
-        }
+        self.merge_bytes(Some(bytes.get()));
+        self.lower_bound |= lower;
+        self.evidence = Some(weaker(self.evidence.take(), value.evidence.clone()));
     }
 
     fn merge_bytes(&mut self, other: Option<u64>) {
@@ -193,7 +188,7 @@ pub(crate) fn scope_total(
 pub(crate) fn mark_inaccessible(aggregate: &mut SpaceAggregate, count: u64) {
     fn mark(value: &mut SizeValue) {
         if let SizeAmount::Exact { bytes } = &value.amount {
-            value.amount = if bytes.as_str() == "0" {
+            value.amount = if bytes.get() == 0 {
                 SizeAmount::Unknown
             } else {
                 SizeAmount::LowerBound {

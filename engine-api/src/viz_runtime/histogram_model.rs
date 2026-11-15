@@ -166,12 +166,8 @@ fn select(aggregate: SpaceAggregate, basis: &SizeBasis) -> SizeValue {
 }
 fn total(size: SizeValue, reason: &str) -> Result<VizTotal, EngineError> {
     let quantity = match &size.amount {
-        SizeAmount::Exact { bytes } => {
-            VizQuantity::exact("bytes", bytes.as_str().parse().map_err(|_| internal())?)
-        }
-        SizeAmount::LowerBound { bytes } => {
-            VizQuantity::lower_bound("bytes", bytes.as_str().parse().map_err(|_| internal())?)
-        }
+        SizeAmount::Exact { bytes } => VizQuantity::exact("bytes", i128::from(bytes.get())),
+        SizeAmount::LowerBound { bytes } => VizQuantity::lower_bound("bytes", bytes.get()),
         SizeAmount::Unknown => VizQuantity::unknown("bytes", reason.into()),
     }
     .ok_or_else(internal)?;

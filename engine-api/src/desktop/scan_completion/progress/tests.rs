@@ -46,7 +46,7 @@ fn the_runtime_sink_relays_progress_as_the_job_progress_event() -> TestResult {
     assert_eq!(first.topic, "job.progress");
     assert_eq!(first.job_ref.as_ref(), Some(&job));
     assert_eq!(first.result_version, None);
-    assert_eq!(first.occurred_at.as_str(), "1970-01-01T00:00:00.000Z");
+    assert_eq!(first.occurred_at.to_string(), "1970-01-01T00:00:00.000Z");
     assert_eq!(
         first.body,
         json!({

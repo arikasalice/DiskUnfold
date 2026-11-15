@@ -98,7 +98,7 @@ mod tests {
         )
         .ok_or("missing successful observation")?;
         assert_eq!(success.access, TargetAccess::Accessible);
-        assert_eq!(success.observed_at.as_str(), "1970-01-01T00:00:00.001Z");
+        assert_eq!(success.observed_at.to_string(), "1970-01-01T00:00:00.001Z");
         assert_eq!(success.total_bytes, Some(100u64.into()));
         assert!(success.aggregation_uncertain);
         let denied = status(

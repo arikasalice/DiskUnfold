@@ -164,7 +164,7 @@ fn a_late_but_returned_call_is_not_counted_as_still_blocking_a_permit()
     assert_eq!(
         events.lock().map_err(|_| "probe events poisoned")?[0]
             .observed_at
-            .as_str(),
+            .to_string(),
         "1970-01-01T00:00:00.005Z"
     );
     Ok(())

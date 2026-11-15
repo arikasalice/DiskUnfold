@@ -53,7 +53,7 @@ fn an_unreadable_clock_still_publishes_each_transition_at_the_epoch() -> Result<
     assert!(
         events
             .iter()
-            .all(|event| event.observed_at.as_str() == EPOCH)
+            .all(|event| event.observed_at.to_string() == EPOCH)
     );
     Ok(())
 }
@@ -79,7 +79,10 @@ fn an_event_without_a_clock_reuses_the_previous_time_of_its_session() -> Result<
     CLOCK_READABLE.store(true, Ordering::SeqCst);
     let events = rig.events();
     assert_eq!(events.len(), 3);
-    assert_eq!(events[0].observed_at.as_str(), "1970-01-01T00:00:05.000Z");
+    assert_eq!(
+        events[0].observed_at.to_string(),
+        "1970-01-01T00:00:05.000Z"
+    );
     assert!(
         events
             .iter()

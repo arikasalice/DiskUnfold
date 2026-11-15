@@ -287,16 +287,8 @@ fn byte_ratio(
 
 fn size_weight(size: &SizeValue) -> Result<Weight, Error> {
     match &size.amount {
-        SizeAmount::Exact { bytes } => bytes
-            .as_str()
-            .parse()
-            .map(Weight::Exact)
-            .map_err(|_| Error::InvalidQuantity),
-        SizeAmount::LowerBound { bytes } => bytes
-            .as_str()
-            .parse()
-            .map(Weight::LowerBound)
-            .map_err(|_| Error::InvalidQuantity),
+        SizeAmount::Exact { bytes } => Ok(Weight::Exact(bytes.get())),
+        SizeAmount::LowerBound { bytes } => Ok(Weight::LowerBound(bytes.get())),
         SizeAmount::Unknown => Ok(Weight::Unknown),
     }
 }

@@ -69,7 +69,8 @@ fn file_ticks(time: &SYSTEMTIME) -> Result<u64, TimeZoneUnavailable> {
 }
 
 fn system_time(instant: &Timestamp) -> Result<SYSTEMTIME, TimeZoneUnavailable> {
-    let value = instant.as_str();
+    let text = instant.to_string();
+    let value = text.as_str();
     let number = |start, end| {
         value
             .get(start..end)

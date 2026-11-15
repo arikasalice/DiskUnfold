@@ -32,7 +32,7 @@ fn root_last_write_comes_from_the_verified_directory_handle()
     let replacement_time = replacement
         .observed_modified_at()
         .ok_or("replacement time missing")?;
-    assert_eq!(original_time.as_str(), "2020-09-13T12:26:40.000Z");
-    assert_eq!(replacement_time.as_str(), "2023-11-14T22:13:20.000Z");
+    assert_eq!(original_time.to_string(), "2020-09-13T12:26:40.000Z");
+    assert_eq!(replacement_time.to_string(), "2023-11-14T22:13:20.000Z");
     Ok(())
 }

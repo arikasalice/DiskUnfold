@@ -327,9 +327,7 @@ fn project_rows(
     cancelled: &mut dyn FnMut() -> bool,
 ) -> Result<Vec<Row>, Error> {
     let denominator = match &parent_value.amount {
-        SizeAmount::Exact { bytes } => {
-            NonZeroU64::new(bytes.as_str().parse().map_err(|_| Error::InvalidSource)?)
-        }
+        SizeAmount::Exact { bytes } => NonZeroU64::new(bytes.get()),
         SizeAmount::LowerBound { .. } => None,
         SizeAmount::Unknown => return Err(Error::UnavailableAttribution),
     };

@@ -284,12 +284,7 @@ fn original_size<'a>(
 }
 
 fn quantity(size: &SizeValue) -> Result<VizQuantity, Error> {
-    let bytes = |bytes: &du_core_contracts::ByteSize| {
-        bytes
-            .as_str()
-            .parse::<u64>()
-            .map_err(|_| Error::InvalidQuantity)
-    };
+    let bytes = |bytes: &du_core_contracts::ByteSize| Ok::<_, Error>(bytes.get());
     let value = match &size.amount {
         SizeAmount::Exact { bytes: value } if size.evidence != SizeEvidence::Unknown => {
             VizQuantity::exact("bytes", i128::from(bytes(value)?))

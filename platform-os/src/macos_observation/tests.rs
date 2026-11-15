@@ -333,9 +333,8 @@ fn errno_values_map_to_neutral_kinds_without_text() {
 
 #[test]
 fn timestamps_floor_to_milliseconds() {
-    let text = |seconds, nanoseconds| {
-        bulk::timestamp(seconds, nanoseconds).map(|time| time.as_str().to_owned())
-    };
+    let text =
+        |seconds, nanoseconds| bulk::timestamp(seconds, nanoseconds).map(|time| time.to_string());
     assert_eq!(
         text(-1, 999_999_999).as_deref(),
         Some("1969-12-31T23:59:59.999Z")

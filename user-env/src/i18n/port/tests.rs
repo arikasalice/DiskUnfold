@@ -52,7 +52,7 @@ impl TimeZonePort for SeasonalZone {
             return Err(TimeZoneUnavailable);
         }
         let summer = instant
-            .as_str()
+            .to_string()
             .get(5..7)
             .is_some_and(|month| ("04"..="09").contains(&month));
         Ok(LocalTimeZone {

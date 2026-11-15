@@ -163,10 +163,7 @@ fn sort_size(record: &Record<'_>, basis: Basis) -> SortValue {
         SizeAmount::Exact { bytes } | SizeAmount::LowerBound { bytes } => bytes,
         SizeAmount::Unknown => return SortValue::Missing,
     };
-    bytes
-        .as_str()
-        .parse()
-        .map_or(SortValue::Missing, SortValue::Number)
+    SortValue::Number(bytes.get())
 }
 
 /// A materialized selection retaining the source snapshot for its entire lifetime.

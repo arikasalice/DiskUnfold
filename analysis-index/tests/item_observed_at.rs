@@ -123,10 +123,11 @@ fn inaccessible_scope_keeps_present_bounds_but_not_complete() -> Result<(), Stri
 }
 
 #[test]
-fn observation_range_orders_equivalent_separator_spellings_by_time() -> Result<(), String> {
+fn observation_range_orders_timestamps_by_time() -> Result<(), String> {
     assert!(Timestamp::parse("2026-01-01T00:00:00Z").is_err());
     assert!(Timestamp::parse("2026-01-01T00:00:00.1Z").is_err());
-    let earlier = Timestamp::parse("2026-01-01t00:00:01.000Z")?;
+    assert!(Timestamp::parse("2026-01-01t00:00:01.000Z").is_err());
+    let earlier = Timestamp::parse("2026-01-01T00:00:01.000Z")?;
     let later = Timestamp::parse("2026-01-01T00:00:02.000Z")?;
     let sink = IngestSink::default();
     let mut build = sink.open(id(40)?).map_err(|e| format!("{e:?}"))?;
