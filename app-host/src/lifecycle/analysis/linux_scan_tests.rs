@@ -132,6 +132,7 @@ fn scan(base: &Path, profile: &Path, denied: bool) -> TestResult {
     let mut builder = EngineBuilder::default();
     let limit: SharedTableLimitSource = Arc::new(SharedTableLimit::default);
     let services = register_analysis(&mut builder, ports, &database, limit, None)?;
+    visualization::register_with_stored_settings(&services.visualization, &mut builder, &database)?;
     let engine = builder.build()?;
     verify_registered(&engine, true)?;
     let draft = json!({"includes":[unix_path(base)],"exclusions":[],"boundary":"current_volume","includedMounts":[],"source":"gui"});
