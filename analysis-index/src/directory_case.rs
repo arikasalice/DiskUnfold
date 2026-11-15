@@ -3,8 +3,6 @@ use crate::{BuildError, BuildHandle, tree::BuiltItems};
 use du_core_contracts::{result::ResultItemKind, scan_observation::DirectoryCaseEvidence};
 use std::collections::BTreeMap;
 
-type PathKey = (u32, Vec<Vec<u8>>);
-
 impl BuildHandle {
     /// Binds an observation to an already registered, confirmed directory.
     ///
@@ -25,26 +23,29 @@ impl BuildHandle {
         if self.finished {
             return Err(BuildError::Unavailable);
         }
-        let key = (root, path.to_vec());
-        if !self.valid_root(root)
-            || self.observations.get(&key).map(|item| item.kind) != Some(ResultItemKind::Directory)
-        {
+        if !self.valid_root(root) {
             return Err(BuildError::InvalidTree);
         }
-        self.directory_case.insert(key, evidence);
+        let node = self
+            .observations
+            .locate(root, path)
+            .filter(|node| {
+                self.observations.observation(*node).map(|item| item.kind)
+                    == Some(ResultItemKind::Directory)
+            })
+            .ok_or(BuildError::InvalidTree)?;
+        self.directory_case.insert(node, evidence);
         Ok(())
     }
 }
 
-/// Resolves only explicitly recorded paths to the item numbers of this publication.
+/// Resolves the recorded directories to the item numbers of this publication.
 pub(crate) fn bind(
     built: &BuiltItems,
-    evidence: &BTreeMap<PathKey, DirectoryCaseEvidence>,
+    evidence: &BTreeMap<u32, DirectoryCaseEvidence>,
 ) -> BTreeMap<u32, DirectoryCaseEvidence> {
-    built
-        .keys
+    evidence
         .iter()
-        .zip(&built.items)
-        .filter_map(|(key, item)| evidence.get(key).map(|value| (item.item_no, value.clone())))
+        .map(|(node, value)| (built.item_of_node[*node as usize], value.clone()))
         .collect()
 }
