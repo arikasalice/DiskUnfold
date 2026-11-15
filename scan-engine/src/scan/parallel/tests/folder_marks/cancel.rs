@@ -91,11 +91,20 @@ fn check(
             log.failed.contains(&inode) || (inode == DENIED && log.opened.contains(&inode));
         let expected = entered && !failed && !log.ended.contains(&inode);
         assert_eq!(marked.contains(&path), expected, "{label}: {path:?}");
-        // Only the root excluded an entry; the others report nothing.
-        let wanted = (inode == ROOT && root_listed).then_some(ExcludedChildren {
-            count: 1,
-            exact: log.ended.contains(&ROOT),
-        });
+        // Only the root counted an exclusion; other unread folders give a zero lower bound.
+        let wanted = if inode == ROOT && root_listed {
+            Some(ExcludedChildren {
+                count: 1,
+                exact: log.ended.contains(&inode) && !failed && !marked.contains(&path),
+            })
+        } else if failed || marked.contains(&path) {
+            Some(ExcludedChildren {
+                count: 0,
+                exact: false,
+            })
+        } else {
+            None
+        };
         let parts: Vec<&str> = path
             .iter()
             .map(|part| std::str::from_utf8(part).unwrap_or(""))

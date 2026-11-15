@@ -65,8 +65,8 @@ fn each_folder_reports_its_direct_exclusions_once_over_all_batches() -> Result<(
     Ok(())
 }
 
-/// In a cancelled version a folder without a report answers `None`, so a
-/// folder that excluded nothing is shown not to be reported.
+/// A folder left unread without a count report answers zero as a lower bound;
+/// a folder read to its end without exclusions remains unreported.
 #[test]
 fn folders_without_exclusions_are_not_reported() -> Result<(), String> {
     let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
@@ -81,7 +81,12 @@ fn folders_without_exclusions_are_not_reported() -> Result<(), String> {
             ResultCompleteness::Cancelled,
             "{label}"
         );
-        assert_eq!(excluded(&version, &[])?, None, "{label}");
+        let root_unread = cancelled(&version)?.contains(&path(&[]));
+        assert_eq!(
+            excluded(&version, &[])?,
+            if root_unread { lower_bound(0) } else { None },
+            "{label}"
+        );
         // `d` was read to its end with nothing excluded: neither marked nor reported.
         assert!(!cancelled(&version)?.contains(&path(&["d"])), "{label}");
         assert_eq!(excluded(&version, &["d"])?, None, "{label}");
