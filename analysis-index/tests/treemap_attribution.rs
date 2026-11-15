@@ -4,7 +4,7 @@ use du_analysis_index::{
     FileIdentity, IngestSink, Observation, ResultVersion, SharingEvidence, SpaceObservation,
     visualization::{
         squarify::Rect,
-        treemap::{self, AdmissionError, ChildKey},
+        treemap::{self, AdmissionError},
     },
 };
 use du_core_contracts::{
@@ -66,18 +66,6 @@ fn layout(v: &ResultVersion, basis: SizeBasis) -> Result<treemap::Partition, Adm
         result_version: v.version_id().clone(),
         item_no: 0,
     };
-    let keys: Vec<_> = v
-        .items()
-        .iter()
-        .filter(|item| item.parent == Some(0))
-        .map(|item| ChildKey {
-            item: ItemRef {
-                result_version: v.version_id().clone(),
-                item_no: item.item_no,
-            },
-            path_compare_key: item.name.clone(),
-        })
-        .collect();
     treemap::layout_parent(
         v,
         &root,
@@ -88,7 +76,6 @@ fn layout(v: &ResultVersion, basis: SizeBasis) -> Result<treemap::Partition, Adm
             right: 100,
             bottom: 100,
         },
-        &keys,
     )
 }
 #[test]
@@ -281,18 +268,6 @@ fn unrelated_recorded_gap_does_not_hide_complete_nested_partition() {
             result_version: v.version_id().clone(),
             item_no: selected.item_no,
         };
-        let keys: Vec<_> = v
-            .items()
-            .iter()
-            .filter(|item| item.parent == Some(selected.item_no))
-            .map(|item| ChildKey {
-                item: ItemRef {
-                    result_version: v.version_id().clone(),
-                    item_no: item.item_no,
-                },
-                path_compare_key: item.name.clone(),
-            })
-            .collect();
         let bounds = Rect {
             left: 0,
             top: 0,
@@ -300,7 +275,7 @@ fn unrelated_recorded_gap_does_not_hide_complete_nested_partition() {
             bottom: 100,
         };
         for basis in [SizeBasis::Logical, SizeBasis::Allocated] {
-            let result = treemap::layout_parent(&v, &parent, basis, bounds, &keys);
+            let result = treemap::layout_parent(&v, &parent, basis, bounds);
             if gap == b"outside" {
                 assert_eq!(result.unwrap().layout.shapes.len(), 2);
             } else {
@@ -350,18 +325,6 @@ fn nested_unprovable_partition_suppresses_children_without_redistributing() {
         result_version: v.version_id().clone(),
         item_no: container.item_no,
     };
-    let keys: Vec<_> = v
-        .items()
-        .iter()
-        .filter(|item| item.parent == Some(container.item_no))
-        .map(|item| ChildKey {
-            item: ItemRef {
-                result_version: v.version_id().clone(),
-                item_no: item.item_no,
-            },
-            path_compare_key: item.name.clone(),
-        })
-        .collect();
     let bounds = Rect {
         left: 0,
         top: 0,
@@ -369,20 +332,12 @@ fn nested_unprovable_partition_suppresses_children_without_redistributing() {
         bottom: 100,
     };
     assert_eq!(
-        treemap::layout_parent(&v, &parent, SizeBasis::Allocated, bounds, &keys).unwrap_err(),
+        treemap::layout_parent(&v, &parent, SizeBasis::Allocated, bounds).unwrap_err(),
         AdmissionError::NoAttribution
     );
-    let branch =
-        treemap::layout_nested_parent(&v, &parent, SizeBasis::Allocated, bounds, &keys).unwrap();
+    let branch = treemap::layout_nested_parent(&v, &parent, SizeBasis::Allocated, bounds).unwrap();
     assert!(branch.layout.shapes.is_empty());
     assert_eq!(branch.children.len(), 2);
     assert!(branch.children.iter().all(|child| !child.area_attributed
         && child.value.amount == size(SizeBasis::Allocated, 10).amount));
-    let mut bad_keys = keys.clone();
-    bad_keys.push(keys[0].clone());
-    assert_eq!(
-        treemap::layout_nested_parent(&v, &parent, SizeBasis::Allocated, bounds, &bad_keys)
-            .unwrap_err(),
-        AdmissionError::InvalidKeys
-    );
 }

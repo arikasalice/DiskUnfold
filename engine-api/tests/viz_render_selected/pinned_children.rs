@@ -1,7 +1,8 @@
 use super::*;
 
 #[test]
-fn missing_tie_key_keeps_the_table_until_pinned_ordering_is_available() -> Result<(), String> {
+fn equal_size_siblings_render_in_name_order_whatever_their_comparison_evidence()
+-> Result<(), String> {
     let sink = IngestSink::default();
     publish_sizes(&sink, id(2), id(3), [25, 25])?;
     let parent = ItemRef {
@@ -14,53 +15,46 @@ fn missing_tie_key_keeps_the_table_until_pinned_ordering_is_available() -> Resul
         Arc::new(Identity(AtomicU8::new(21))),
         bundle::implemented_dispatcher().map_err(|e| format!("{e:?}"))?,
     );
-    let missing = session.render_selected(
-        request(&parent, 1000),
-        |_, item, _| {
-            let mut evidence = policy(item);
-            if item.name == b"a" {
-                evidence.path_compare_key = None;
-            }
-            Ok(evidence)
-        },
-        &mut || false,
-    );
-    let Err(Error::OrderingUnavailable(fallback)) = missing else {
-        return Err("an unresolved tie did not provide the same result table".into());
-    };
-    let page = session
-        .rows(&VizRowsRequest {
-            model_ref: fallback.model_ref,
-            result_revision: fallback.result_revision,
-            start: 0,
-            count: 10,
-        })
-        .map_err(|e| format!("{e:?}"))?;
-    assert_eq!(page.result_revision, id(3));
-    assert_eq!(page.total_count, 2);
-    assert_eq!(
-        page.rows
-            .iter()
-            .map(|row| row.display_name.as_str())
-            .collect::<Vec<_>>(),
-        ["a", "b"]
-    );
-    let rendered = session
-        .render_selected(
-            request(&parent, 1000),
-            |_, item, _| {
-                let mut evidence = policy(item);
-                evidence.path_compare_key = Some(vec![u8::from(item.name == b"a")]);
-                Ok(evidence)
-            },
-            &mut || false,
-        )
-        .map_err(|e| format!("{e:?}"))?;
-    assert_eq!(rendered.model.shapes.len(), 2);
-    assert_eq!(
-        rendered.model.rows[0].item,
-        page.rows[1].item_ref.clone().ok_or("missing b")?
-    );
+    for case in 0..3 {
+        let rendered = session
+            .render_selected(
+                request(&parent, 1000),
+                |_, item, _| {
+                    let mut evidence = policy(item);
+                    evidence.path_compare_key = match case {
+                        // One tied sibling has no key: this input used to fall back to the table.
+                        0 => (item.name != b"a").then(|| item.name.clone()),
+                        // No sibling has a key.
+                        1 => None,
+                        // The keys order the siblings opposite to their names.
+                        _ => Some(vec![u8::from(item.name == b"a")]),
+                    };
+                    Ok(evidence)
+                },
+                &mut || false,
+            )
+            .map_err(|e| format!("{e:?}"))?;
+        assert_eq!(rendered.model.shapes.len(), 2);
+        let page = session
+            .rows(&VizRowsRequest {
+                model_ref: rendered.model_ref.clone(),
+                result_revision: id(3),
+                start: 0,
+                count: 10,
+            })
+            .map_err(|e| format!("{e:?}"))?;
+        assert_eq!(page.total_count, 2);
+        assert_eq!(
+            page.rows
+                .iter()
+                .map(|row| row.display_name.as_str())
+                .collect::<Vec<_>>(),
+            ["a", "b"]
+        );
+        for (row, shown) in rendered.model.rows.iter().zip(&page.rows) {
+            assert_eq!(Some(&row.item), shown.item_ref.as_ref());
+        }
+    }
     Ok(())
 }
 

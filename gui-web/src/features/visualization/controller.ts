@@ -2,29 +2,20 @@ import { AnalysisError } from "../../ipc";
 import type {
   AnalysisJobStatus,
   ItemRef,
-  VizCancelRequest,
-  VizCancelResponse,
   VizRenderRequest,
   VizRenderResponse,
-  VizRows,
   VizRowsRequest,
 } from "../../ipc";
-import { adaptVizModel, matchingRowsPage } from "./model-adapter";
+import { matchingRowsPage, sameItem, VizModelLoader } from "../../viz";
 import type {
   ModelResponse,
   ModelRowsPage,
+  VisualizationPort,
   VizSelection,
-} from "./model-adapter";
+} from "../../viz";
 
 type View = Pick<VizRenderRequest, "viewport" | "visibleWindow">;
 type Committed = { frame: ModelResponse; view: View };
-export type VisualizationPort = {
-  render(request: VizRenderRequest): Promise<VizRenderResponse>;
-  cancel(request: VizCancelRequest): Promise<VizCancelResponse>;
-  rows(request: VizRowsRequest): Promise<VizRows>;
-  /** True only when the whole model is supported by the chosen renderer. */
-  canDisplay(frame: ModelResponse): boolean;
-};
 export type Reconciled = {
   from: ItemRef;
   to: ItemRef;
@@ -62,14 +53,6 @@ export type VisualizationSnapshot = {
   error: unknown;
 };
 
-function sameItem(
-  a: ItemRef | null | undefined,
-  b: ItemRef | null | undefined,
-) {
-  return (
-    !!a && !!b && a.resultVersion === b.resultVersion && a.itemNo === b.itemNo
-  );
-}
 function pageFor(frame: ModelResponse | null, page: ModelRowsPage | null) {
   return !!frame && !!page && matchingRowsPage(frame, page);
 }
@@ -86,13 +69,6 @@ function visibleFrames(
     return [graph];
   return [graph, table];
 }
-function validFrame(frame: ModelResponse) {
-  return adaptVizModel(frame, undefined, () => ({
-    accessibleLabel: "",
-    displayLabel: "",
-  })).validTargets;
-}
-
 function selectionEvidence(
   selection: VizSelection,
   frame: ModelResponse,
@@ -113,13 +89,6 @@ function selectionEvidence(
     sizeBasis: frame.model.representation.sizeBasis,
     origin: frame.model.origin,
   };
-}
-function modelMatchesRequest(frame: ModelResponse, request: VizRenderRequest) {
-  return (
-    validFrame(frame) &&
-    sameItem(frame.model.aggregateScopeRef, request.aggregateScopeRef) &&
-    sameItem(frame.model.navigationScopeRef, request.navigationScopeRef)
-  );
 }
 function selectionPresent(selection: VizSelection, frame: ModelResponse) {
   if (
@@ -212,21 +181,29 @@ export class VisualizationController {
     error: null,
   };
   private selectedEvidence: SelectionEvidence | null = null;
-  private lastCompletedJob: string | null = null;
-  private seq = 0;
-  private channel: string | null = null;
-  private lastRequest: VizRenderRequest | null = null;
-  private lastEvidence: readonly Reconciled[] = [];
+  private readonly loader: VizModelLoader<
+    readonly Reconciled[],
+    Partial<VisualizationSnapshot>
+  >;
   private focusHasKey = false;
   private rowsSeq = 0;
   private revisionCheckSeq = 0;
   private listeners = new Set<() => void>();
-  constructor(private readonly port: VisualizationPort) {}
+  constructor(private readonly port: VisualizationPort) {
+    this.loader = new VizModelLoader(
+      port,
+      {
+        admit: (request, evidence) => this.admit(request, evidence),
+        commit: (response, request, evidence) =>
+          this.commitPatch(response, request, evidence),
+        publish: (patch, extra) => this.update({ ...extra, ...patch }),
+      },
+      [],
+    );
+  }
   getSnapshot = () => this.state;
   nextRequestSequence() {
-    if (this.seq >= 0xffff_ffff)
-      throw new Error("Visualization view sequence exhausted");
-    return this.seq + 1;
+    return this.loader.nextRequestSequence();
   }
   subscribe = (listener: () => void) => {
     this.listeners.add(listener);
@@ -315,68 +292,28 @@ export class VisualizationController {
     this.update({ focus: item });
   }
   /** Evidence is supplied by the owner of browse.reconcile, never inferred from names or positions. */
-  async render(
-    request: VizRenderRequest,
-    evidence: readonly Reconciled[] = [],
-  ) {
-    if (this.channel !== null && this.channel !== request.viewChannel)
-      throw new Error("A controller is bound to one view channel");
-    if (!request.resultRevision || request.requestSeq <= this.seq)
-      throw new Error("A pinned revision and increasing sequence are required");
+  render(request: VizRenderRequest, evidence: readonly Reconciled[] = []) {
+    return this.loader.render(request, evidence);
+  }
+  private admit(request: VizRenderRequest, evidence: readonly Reconciled[]) {
     const initialFocus = this.state.focus;
-    const transfer = (item: ItemRef | null) =>
-      transferItem(item, request.resultRevision!, evidence);
     // A focus request across revisions must be backed by the same evidence.
     if (
       request.focusItemRef &&
       initialFocus &&
-      !sameItem(transfer(initialFocus), request.focusItemRef)
+      !sameItem(
+        transferItem(initialFocus, request.resultRevision!, evidence),
+        request.focusItemRef,
+      )
     )
       throw new Error("Focus lacks correspondence evidence");
-    this.channel = request.viewChannel;
-    this.seq = request.requestSeq;
-    this.lastRequest = request;
-    this.lastEvidence = evidence;
-    const seq = this.seq;
-    this.update({ phase: "loading", response: null, error: null });
-    try {
-      const response = await this.port.render(request);
-      if (seq !== this.seq) return;
-      if (
-        response.requestSeq !== seq ||
-        response.resultRevision !== request.resultRevision
-      ) {
-        this.update({
-          phase: "error",
-          error: new Error("Mismatched visualization response"),
-        });
-        return;
-      }
-      if (response.kind !== "model") {
-        this.update({
-          phase: response.kind,
-          response,
-          job: response.kind === "job" ? response : null,
-        });
-        return;
-      }
-      if (!modelMatchesRequest(response, request)) {
-        this.update({
-          phase: "error",
-          error: new Error("Inconsistent model references"),
-        });
-        return;
-      }
-      this.commitModel(response, request, evidence);
-    } catch (error) {
-      if (seq === this.seq) this.update({ phase: "error", error });
-    }
   }
-  private commitModel(
+  /** Carries selection and focus onto a model the loader accepted; the loader publishes the result. */
+  private commitPatch(
     response: ModelResponse,
     request: VizRenderRequest,
     evidence: readonly Reconciled[],
-  ) {
+  ): Partial<VisualizationSnapshot> {
     const canDisplay = this.port.canDisplay(response);
     const oldSelection = this.state.selection;
     const previousEvidence = this.selectedEvidence;
@@ -422,7 +359,7 @@ export class VisualizationController {
       this.selectedEvidence = selection
         ? selectionEvidence(selection, response, null)
         : null;
-    this.update({
+    return {
       graph,
       table: response,
       graphPage: canDisplay ? null : this.state.graphPage,
@@ -442,80 +379,18 @@ export class VisualizationController {
           ? null
           : this.state.offeredRevision,
       revisionCheck: null,
-      phase: "model",
-      job: null,
-      response,
-    });
+    };
   }
   /** F24 status must come from job.get for the current accepted visualization job. */
   completeJob(status: AnalysisJobStatus) {
-    const job = this.state.job;
-    const request = this.lastRequest;
-    if (
-      this.state.phase !== "job" ||
-      !job ||
-      !request ||
-      status.jobRef !== job.jobRef ||
-      status.kind !== "viz.compute" ||
-      request.requestSeq !== job.requestSeq ||
-      this.seq !== job.requestSeq
-    )
-      return Promise.resolve();
-    if (status.state === "done" && this.seq >= 0xffff_ffff) {
-      this.update({
-        phase: "error",
-        job: null,
-        error: new Error("Visualization view sequence exhausted"),
-      });
-      return Promise.resolve();
-    }
-    if (
-      status.state === "done" &&
-      this.seq < 0xffff_ffff &&
-      this.lastCompletedJob !== status.jobRef
-    ) {
-      this.lastCompletedJob = status.jobRef;
-      return this.render(
-        { ...request, requestSeq: this.seq + 1 },
-        this.lastEvidence,
-      ).catch((error: unknown) => {
-        if (this.state.job?.jobRef === status.jobRef)
-          this.update({ phase: "error", error });
-      });
-    }
-    if (status.state === "cancelled")
-      this.update({ phase: "cancelled", job: null, error: null });
-    else if (["failed", "partial"].includes(status.state))
-      this.update({
-        phase: "error",
-        job: null,
-        error: new Error("Visualization job did not complete"),
-      });
-    return Promise.resolve();
+    return this.loader.completeJob(status);
   }
   retry() {
-    if (
-      this.state.phase !== "error" ||
-      !this.lastRequest ||
-      this.seq >= 0xffff_ffff
-    )
-      return Promise.resolve();
-    return this.render(
-      { ...this.lastRequest, requestSeq: this.seq + 1 },
-      this.lastEvidence,
-    );
+    return this.loader.retry();
   }
   /** Explicit user cancellation or view teardown; never called for a new request. */
   cancelCurrent() {
-    if (!this.channel) return Promise.resolve();
-    const requestSeq =
-      this.state.phase === "loading" ? this.seq : this.state.job?.requestSeq;
-    if (requestSeq === undefined) return Promise.resolve();
-    return this.port
-      .cancel({
-        target: { kind: "subscription", viewChannel: this.channel, requestSeq },
-      })
-      .then(() => undefined);
+    return this.loader.cancelCurrent();
   }
   async rows(request: VizRowsRequest) {
     const frame = this.state.table;

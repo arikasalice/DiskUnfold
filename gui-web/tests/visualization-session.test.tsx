@@ -10,7 +10,7 @@ import { StrictMode } from "react";
 import { afterEach, expect, test } from "vitest";
 import { createChartRenderers } from "../src/components";
 import { VisualizationSession } from "../src/features/visualization/VisualizationSession";
-import type { VisualizationViewRequest } from "../src/features/visualization/VisualizationSession";
+import type { VisualizationViewRequest } from "../src/viz";
 import { fixtureText, modelFixture } from "../preview/model-fixture";
 import { createAnalysisClient } from "../src/ipc";
 import type { CallEnvelope, EventEnvelope } from "../src/ipc";

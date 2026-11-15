@@ -4,7 +4,6 @@ use du_analysis_index::{
         bundle::{self, Error},
         geometry::Rect,
         registry,
-        treemap::ChildKey,
         typed_layout::{self, Input, Strategy, Treemap},
     },
 };
@@ -179,10 +178,6 @@ fn partial_dispatcher_executes_the_actual_treemap() -> Result<(), String> {
         result_version: version.version_id().clone(),
         item_no: n,
     };
-    let keys = vec![ChildKey {
-        item: item(1),
-        path_compare_key: b"a".to_vec(),
-    }];
     let input = Input::admit(
         &version,
         &item(0),
@@ -193,7 +188,6 @@ fn partial_dispatcher_executes_the_actual_treemap() -> Result<(), String> {
             right: 100,
             bottom: 100,
         },
-        &keys,
     )
     .map_err(|e| format!("{e:?}"))?;
     let dispatcher = bundle::implemented_dispatcher().map_err(|e| format!("{e:?}"))?;

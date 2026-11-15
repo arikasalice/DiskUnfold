@@ -7,7 +7,6 @@ use crate::{
         geometry::Rect,
         projection::{self, Options, Source},
         registry,
-        treemap::ChildKey,
     },
 };
 use du_core_contracts::{
@@ -59,7 +58,7 @@ fn descriptor(revision: u32) -> LayoutDescriptor {
         },
     }
 }
-fn source() -> Result<(Arc<ResultVersion>, ItemRef, Vec<ChildKey>), String> {
+fn source() -> Result<(Arc<ResultVersion>, ItemRef), String> {
     let sink = IngestSink::default();
     let mut build = sink
         .open(Id::parse("018f0000-0000-7000-8000-000000000001")?)
@@ -89,21 +88,11 @@ fn source() -> Result<(Arc<ResultVersion>, ItemRef, Vec<ChildKey>), String> {
         result_version: version.version_id().clone(),
         item_no,
     };
-    let keys = version
-        .items()
-        .iter()
-        .filter(|item| item.parent == Some(0))
-        .map(|item| ChildKey {
-            item: reference(item.item_no),
-            path_compare_key: item.name.clone(),
-        })
-        .collect();
-    Ok((version.clone(), reference(0), keys))
+    Ok((version.clone(), reference(0)))
 }
 fn project(
     version: &ResultVersion,
     parent: &ItemRef,
-    keys: &[ChildKey],
     dispatcher: &Dispatcher,
     format: &str,
     strategy: Option<&LayoutStrategyKey>,
@@ -119,7 +108,6 @@ fn project(
                 right: 100,
                 bottom: 100,
             },
-            keys,
         },
         dispatcher,
         Options {
@@ -154,13 +142,12 @@ fn frozen_catalog_selects_extension_and_explicit_versions_into_common_model() ->
     );
     let catalog: Vec<_> = dispatcher.catalog().cloned().collect();
     assert_eq!(catalog, vec![v1.clone(), v2.clone(), first.clone()]);
-    let (version, parent, keys) = source()?;
-    let newest = project(&version, &parent, &keys, &dispatcher, &v1.format, None)
-        .map_err(|e| format!("{e:?}"))?;
+    let (version, parent) = source()?;
+    let newest =
+        project(&version, &parent, &dispatcher, &v1.format, None).map_err(|e| format!("{e:?}"))?;
     let original = project(
         &version,
         &parent,
-        &keys,
         &dispatcher,
         &v1.format,
         Some(&v1.strategy),
@@ -169,7 +156,6 @@ fn frozen_catalog_selects_extension_and_explicit_versions_into_common_model() ->
     let tree = project(
         &version,
         &parent,
-        &keys,
         &dispatcher,
         &first.format,
         Some(&first.strategy),
@@ -197,7 +183,7 @@ fn frozen_catalog_selects_extension_and_explicit_versions_into_common_model() ->
         );
     }
     assert!(matches!(
-        project(&version, &parent, &keys, &dispatcher, "unknown", None),
+        project(&version, &parent, &dispatcher, "unknown", None),
         Err(projection::Error::Dispatch(
             super::DispatchError::Selection(registry::SelectionError::UnknownFormat)
         ))
@@ -206,7 +192,6 @@ fn frozen_catalog_selects_extension_and_explicit_versions_into_common_model() ->
         project(
             &version,
             &parent,
-            &keys,
             &dispatcher,
             &v1.format,
             Some(&descriptor(9).strategy)
@@ -276,18 +261,11 @@ fn selection_failures_never_invoke_a_registered_strategy() -> Result<(), String>
         )
         .map_err(|e| format!("{e:?}"))?;
     let dispatcher = Dispatcher::new(builder.build(&[first]).map_err(|e| format!("{e:?}"))?);
-    let (version, parent, keys) = source()?;
+    let (version, parent) = source()?;
     assert_eq!(dispatcher.resolve(&extension.format, None), Ok(&extension));
     assert_eq!(treemap_calls.load(Ordering::SeqCst), 0);
     assert_eq!(extension_calls.load(Ordering::SeqCst), 0);
-    let unknown_format = project(
-        &version,
-        &parent,
-        &keys,
-        &dispatcher,
-        "fixture.missing",
-        None,
-    );
+    let unknown_format = project(&version, &parent, &dispatcher, "fixture.missing", None);
     assert!(matches!(
         unknown_format,
         Err(projection::Error::Dispatch(
@@ -297,7 +275,6 @@ fn selection_failures_never_invoke_a_registered_strategy() -> Result<(), String>
     let unknown_revision = project(
         &version,
         &parent,
-        &keys,
         &dispatcher,
         &extension.format,
         Some(&descriptor(99).strategy),
@@ -310,15 +287,8 @@ fn selection_failures_never_invoke_a_registered_strategy() -> Result<(), String>
     ));
     assert_eq!(treemap_calls.load(Ordering::SeqCst), 0);
     assert_eq!(extension_calls.load(Ordering::SeqCst), 0);
-    let output = project(
-        &version,
-        &parent,
-        &keys,
-        &dispatcher,
-        &extension.format,
-        None,
-    )
-    .map_err(|e| format!("{e:?}"))?;
+    let output = project(&version, &parent, &dispatcher, &extension.format, None)
+        .map_err(|e| format!("{e:?}"))?;
     assert_eq!(output.strategy, extension);
     assert_eq!(output.shapes[0].geometry.primitive(), "point");
     assert_eq!(treemap_calls.load(Ordering::SeqCst), 0);
@@ -328,7 +298,7 @@ fn selection_failures_never_invoke_a_registered_strategy() -> Result<(), String>
 
 #[test]
 fn legacy_adapter_borrows_rows_without_allocating_common_rows() -> Result<(), String> {
-    let (version, parent, keys) = source()?;
+    let (version, parent) = source()?;
     let input = Input::admit(
         &version,
         &parent,
@@ -339,7 +309,6 @@ fn legacy_adapter_borrows_rows_without_allocating_common_rows() -> Result<(), St
             right: 100,
             bottom: 100,
         },
-        &keys,
     )
     .map_err(|e| format!("{e:?}"))?;
     let adapted = super::CommonInput::from_legacy(&input);
@@ -356,7 +325,7 @@ fn legacy_adapter_borrows_rows_without_allocating_common_rows() -> Result<(), St
 
 #[test]
 fn histogram_rejects_legacy_input_instead_of_drawing_an_empty_result() -> Result<(), String> {
-    let (version, parent, keys) = source()?;
+    let (version, parent) = source()?;
     let input = Input::admit(
         &version,
         &parent,
@@ -367,7 +336,6 @@ fn histogram_rejects_legacy_input_instead_of_drawing_an_empty_result() -> Result
             right: 100,
             bottom: 100,
         },
-        &keys,
     )
     .map_err(|e| format!("{e:?}"))?;
     let mut builder = registry::Builder::<Box<dyn Strategy>>::default();

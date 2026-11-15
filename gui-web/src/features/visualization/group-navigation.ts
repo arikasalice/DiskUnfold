@@ -5,8 +5,8 @@ import type {
   VisualizationSnapshot,
 } from "./controller";
 import type { GroupController } from "./group-controller";
-import { matchingRowsPage } from "./model-adapter";
-import type { ModelResponse, VizSelection } from "./model-adapter";
+import { matchingRowsPage } from "../../viz";
+import type { ModelResponse, VizSelection } from "../../viz";
 
 export type GroupOrigin = {
   element: HTMLElement;

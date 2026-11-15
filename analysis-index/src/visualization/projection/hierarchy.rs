@@ -2,12 +2,11 @@ use super::*;
 
 /// Extends an admitted shape with its immediate children from the same reader.
 /// Root rows and aggregate totals remain unchanged. A branch without attribution
-/// or ordering evidence stays omitted rather than receiving invented geometry.
+/// stays omitted rather than receiving invented geometry.
 pub fn add_child_partition(
     model: &mut Model,
     version: &ResultVersion,
     root_shape: usize,
-    keys: &[ChildKey],
     dispatcher: &Dispatcher,
     max_shapes: usize,
     cancelled: &mut dyn FnMut() -> bool,
@@ -41,14 +40,10 @@ pub fn add_child_partition(
         &parent.item,
         model.basis.clone(),
         bounds,
-        keys,
         cancelled,
     ) {
         Ok(input) => input,
-        Err(
-            crate::visualization::treemap::AdmissionError::NoAttribution
-            | crate::visualization::treemap::AdmissionError::OrderingUnavailable,
-        ) => return Ok(()),
+        Err(crate::visualization::treemap::AdmissionError::NoAttribution) => return Ok(()),
         Err(crate::visualization::treemap::AdmissionError::Cancelled) => {
             return Err(Error::Cancelled);
         }
