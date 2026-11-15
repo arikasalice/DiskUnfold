@@ -78,7 +78,9 @@ impl EvidenceProducer for Producer {
             .filter(|item| item.parent == Some(parent))
             .collect();
         let folder = !children.is_empty();
-        let sizes = !children.is_empty() && children.iter().all(|item| item.size.is_some());
+        // Match production: one sized child makes size-based formats available; the
+        // remaining unknown child values stay visible to the selected layout.
+        let sizes = children.is_empty() || children.iter().any(|item| item.size.is_some());
         Ok(Some(du_engine_api::required_data::FactValues {
             folder_hierarchy: if self.hierarchy_unknown.load(Ordering::Relaxed) {
                 Evidence::Unknown
