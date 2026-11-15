@@ -222,3 +222,21 @@ macOS와 Linux에서는 경로 오류의 예와 보기 글을 "/로 시작하는
 남는 포함 경로가 없을 때: scope.review는 scope.empty로 거부한다(빈 범위의 성공은 없다). 그래서 4번의 "분석할 폴더가 남지 않았습니다"를 「분석 시작」 위에 쓰는 경우는 없어진다. 규칙을 넣다가 이 거부를 받으면 그 규칙은 목록에 들어가지 않고 값 칸 아래에 「이 규칙을 넣으면 분석할 폴더가 남지 않습니다. 규칙을 바꾸거나 포함할 폴더를 더 골라 주세요」 / "With this rule no folder is left to analyze. Change the rule or include another folder."를 쓴다. 같은 키가 포함 경로를 하나도 넣지 않았을 때에도 나오므로, 오류가 제외 규칙의 위치를 싣고 있을 때만 이 문구를 쓰고 그렇지 않으면 지금의 빈 범위 안내를 쓴다(위치를 실을 수 있는지는 F02가 확인한다).
 
 아직 정해지지 않은 것: Windows 쪽의 검증 규칙("\"도 구분자로 거절, 드라이브부터 시작하는 전체 경로)은 구현 전이고 F02가 확정해 알린다. "*"와 "?"의 뜻은 표준화팀이 이번에 코드로 확인하지 않았다. 5번의 도움말은 발행 DLD 2.3.2의 문법을 따른 것이다.
+
+## 12. F02의 확인에 따른 결정 (2026-11-15 밤)
+
+- 제외 칸의 폴더 끌어 놓기는 0.1에 두지 않는다. 끌어 놓기는 창 전체에서 받고 놓은 자리가 화면에 전달되지 않는다. 끌어 놓은 폴더는 지금처럼 포함 경로로 들어간다. 3번 표의 "되면 넣음"은 "0.1 이후"로 읽는다.
+- 포함 경로를 바꿨을 때도 검토를 자동으로 보낸다(발행 HLD 표 29 그대로). 규칙은 자동이고 경로는 단추를 눌러야 하면 한 화면에 두 방식이 섞인다. 보내는 때는 경로가 정해진 때다: 경로 칸에서 Enter, 값이 바뀐 채로 칸을 떠남, 드라이브 고르기, 폴더 끌어 놓기, 폴더 선택 대화상자에서 고름, 경로 추가·제거. 글자를 칠 때마다 보내지 않는다. 「분석 범위 검토」 단추는 남긴다. 드라이브를 다시 꽂았을 때처럼 초안은 그대로인데 다시 확인하려는 경우에 쓴다. 이 변경은 제외 규칙 화면 PR이나 폴더 선택 대화상자 PR에 넣는다(F02가 고른다).
+- 검토가 2초를 넘는 경우(느린 저장소): 「확인 중…」과 도는 표시를 그대로 두고, 2초가 지나면 그 옆에 「드라이브 응답을 기다리는 중」을 더한다. 기다리는 동안에도 칸에 글을 칠 수 있다.
+- "확인 못 함" 두 알림의 문구를 결과까지 말하게 바꾼다(4번과 11번의 문구를 이것으로 바꾼다). 무엇이 달라질 수 있는지 모르면 사용자는 알림을 읽고도 할 일을 알 수 없다.
+
+| 키 | 자리 | 한국어 | English |
+| --- | --- | --- | --- |
+| scope.exclusion_unverified | 규칙 행(범위 편집) | 이 드라이브에서는 경로를 정확히 비교할 수 없습니다. 대소문자나 글자 표기가 다르면 빼려던 것이 분석에 들어올 수 있습니다. | Paths on this drive can't be compared exactly. If the letter case or the spelling form differs, something you meant to exclude may be analyzed. |
+| scope.overlap_unverified | 포함 경로 행(범위 편집) | 이 드라이브에서는 경로를 정확히 비교할 수 없습니다. 포함한 폴더끼리 겹치면 같은 것을 두 번 셀 수 있습니다. | Paths on this drive can't be compared exactly. If included folders overlap, the same items may be counted twice. |
+| scope.exclusion_unverified | 결과 요약의 「제외 규칙」 줄 아래 | 경로를 정확히 비교할 수 없는 드라이브였습니다. 빼려던 것이 결과에 들어 있을 수 있습니다. | Paths on this drive couldn't be compared exactly. Something you meant to exclude may be in the result. |
+| scope.overlap_unverified | 결과 요약의 「스캔한 경로」 줄 아래 | 경로를 정확히 비교할 수 없는 드라이브였습니다. 겹치는 폴더가 있으면 크기가 두 번 세어졌을 수 있습니다. | Paths on this drive couldn't be compared exactly. If folders overlap, sizes may have been counted twice. |
+
+- 한 알림이 목록의 모든 규칙을 가리키고 규칙이 둘 이상이면 행마다 쓰지 않고 목록 아래에 한 번만 쓴다. macOS에서는 0.1 동안 제외 규칙이 있으면 scope.exclusion_unverified가 늘 붙는다(F02). 모든 행에 같은 줄이 반복되면 읽지 않게 된다. 결과 요약의 두 줄은 정보 색조의 보조 글이고 경고 배지로 쓰지 않는다.
+- 거부 위치의 필드 이름은 표준화팀 결정대로 argumentIssues다(위치와 원인 키).
+- F02의 구현 순서: Cloud Files 자리 표시자 변경 → 탐색 행 연결 → 제외 규칙 엔진 → 화면 → 폴더 선택 대화상자.
