@@ -282,8 +282,8 @@ describe.each(["en", "ko"] as const)("the product shell (%s)", (language) => {
   const locale = realLocales[language];
   const label = (key: string) => locale.text(key, "");
   const expected = {
-    en: ["Complete result", "Current analysis", "Freshness unknown"],
-    ko: ["완전한 결과", "현재 분석", "최신 여부 확인 불가"],
+    en: ["Final", "Current analysis", "Freshness unknown"],
+    ko: ["최종", "현재 분석", "최신 여부 확인 불가"],
   }[language];
 
   test("F06 FR10.HD1.app-host.DD2: after an analysis the folder view opens a treemap from the real provider", async () => {
