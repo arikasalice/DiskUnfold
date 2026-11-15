@@ -17,6 +17,7 @@
 //! that case either way.
 
 use super::*;
+use crate::tree::is_structure;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::hash::{Hash, Hasher};
@@ -45,7 +46,6 @@ impl Eq for IdentityKey<'_> {}
 /// Only files that `Physical::record` would put in an identity table count.
 fn repeated_identities(
     items: &[ResultItem],
-    structures: &[bool],
     observations: &[Option<Arc<SpaceObservation>>],
 ) -> Vec<bool> {
     let mut repeated = vec![false; items.len()];
@@ -53,7 +53,7 @@ fn repeated_identities(
     let mut first: HashMap<IdentityKey<'_>, usize> = HashMap::with_capacity(files);
     for item in items {
         let index = item.item_no as usize;
-        if structures[index] {
+        if is_structure(item.kind) {
             continue;
         }
         let Observed::Known(identity, _) = Observed::read(observations[index].as_deref()) else {
@@ -75,22 +75,22 @@ fn repeated_identities(
 /// Computes the totals of every item from the evidence of its subtree.
 pub(crate) fn apply(
     items: &[ResultItem],
-    structures: &[bool],
     observations: Option<&[Option<Arc<SpaceObservation>>]>,
     completeness: ResultCompleteness,
     limit: usize,
     output: &mut [SpaceAggregate],
 ) {
     let Some(observations) = observations else {
-        apply_unobserved(items, structures, completeness, limit, output);
+        apply_unobserved(items, completeness, limit, output);
         return;
     };
-    let repeated = repeated_identities(items, structures, observations);
+    let repeated = repeated_identities(items, observations);
     // Only a folder with observed descendants holds an accumulator.
     let mut sums: Vec<Option<Box<Physical>>> = (0..items.len()).map(|_| None).collect();
     for item in items.iter().rev() {
         let index = item.item_no as usize;
-        let observed = (!structures[index]).then(|| Observed::read(observations[index].as_deref()));
+        let observed =
+            (!is_structure(item.kind)).then(|| Observed::read(observations[index].as_deref()));
         let tabled = repeated[index];
         if let Some(mut sum) = sums[index].take() {
             if let Some(observed) = &observed {
@@ -124,7 +124,6 @@ pub(crate) fn apply(
 /// Without any evidence column, every file below a folder is missing.
 fn apply_unobserved(
     items: &[ResultItem],
-    structures: &[bool],
     completeness: ResultCompleteness,
     limit: usize,
     output: &mut [SpaceAggregate],
@@ -132,7 +131,7 @@ fn apply_unobserved(
     let mut missing = vec![false; items.len()];
     for item in items.iter().rev() {
         let index = item.item_no as usize;
-        missing[index] |= !structures[index];
+        missing[index] |= !is_structure(item.kind);
         Physical {
             missing: missing[index],
             ..Physical::with_limit(limit)

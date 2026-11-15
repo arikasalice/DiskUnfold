@@ -1,3 +1,4 @@
+use crate::tree::is_structure;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -275,7 +276,6 @@ impl Physical {
 /// Computes the scope-wide physical total with one shared identity table.
 pub(crate) fn scope_total(
     items: &[ResultItem],
-    structures: &[bool],
     observations: Option<&[Option<Arc<SpaceObservation>>]>,
     completeness: ResultCompleteness,
     limit: usize,
@@ -284,7 +284,7 @@ pub(crate) fn scope_total(
     let mut sum = Physical::with_limit(limit);
     for item in items {
         let index = item.item_no as usize;
-        if !structures[index] {
+        if !is_structure(item.kind) {
             let _ = sum.observe(observations.and_then(|values| values[index].as_deref()));
         }
     }

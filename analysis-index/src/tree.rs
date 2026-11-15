@@ -8,7 +8,6 @@ use std::sync::Arc;
 
 pub(crate) struct BuiltItems {
     pub(crate) items: Vec<ResultItem>,
-    pub(crate) structures: Vec<bool>,
     pub(crate) physical: Option<Vec<Option<Arc<SpaceObservation>>>>,
     pub(crate) modified_times: Option<Vec<Option<Timestamp>>>,
     pub(crate) native_modified_times: Option<Vec<Option<NativeModifiedTime>>>,
@@ -41,7 +40,6 @@ pub(crate) fn build_items(
             u32::try_from(item).map_err(|_| BuildError::CapacityExceeded)?;
     }
     let mut items = Vec::with_capacity(order.len());
-    let mut structures = Vec::with_capacity(order.len());
     let mut root_indices: Vec<u32> = Vec::with_capacity(order.len());
     let mut columns = Columns::for_store(store, order.len());
     for (item, node) in order.iter().enumerate() {
@@ -60,12 +58,10 @@ pub(crate) fn build_items(
             size: observation.size.clone(),
             kind: observation.kind,
         });
-        structures.push(is_structure(observation.kind));
         columns.push(observation);
     }
     Ok(BuiltItems {
         items,
-        structures,
         physical: columns.physical,
         modified_times: columns.modified_times,
         native_modified_times: columns.native_modified_times,
@@ -194,7 +190,7 @@ impl Columns {
     }
 }
 
-fn is_structure(kind: ResultItemKind) -> bool {
+pub(crate) fn is_structure(kind: ResultItemKind) -> bool {
     matches!(
         kind,
         ResultItemKind::Directory | ResultItemKind::UnknownStructure
