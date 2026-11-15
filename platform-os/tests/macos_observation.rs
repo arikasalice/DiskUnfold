@@ -155,7 +155,10 @@ fn normal_tree_reports_sizes_times_and_identities() -> TestResult {
     assert!(file.allocated.is_some_and(|bytes| bytes > 0));
     assert_eq!(file.link_count, Some(2));
     assert_eq!(
-        file.modified_at.as_ref().map(Timestamp::as_str),
+        file.modified_at
+            .as_ref()
+            .map(Timestamp::to_string)
+            .as_deref(),
         Some("2020-09-13T12:26:40.000Z")
     );
     let identity = file.space_identity.ok_or("missing space identity")?;

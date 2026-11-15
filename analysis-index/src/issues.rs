@@ -1,6 +1,6 @@
 //! Classified scan facts owned by each immutable publication.
 use crate::{BuildError, BuildHandle, ResultVersion};
-use du_core_contracts::scan_failures::ScanIssue;
+use du_core_contracts::{Timestamp, scan_failures::ScanIssue};
 
 impl BuildHandle {
     /// Records a classified observation using its original root-relative bytes.
@@ -35,7 +35,7 @@ pub(crate) fn ordered(issues: &[ScanIssue]) -> Vec<ScanIssue> {
             a.kind,
             a.stage,
             &a.reason_key,
-            a.observed_at.as_ref().map(|t| t.as_str()),
+            a.observed_at.as_ref().map(Timestamp::unix_millis),
         )
             .cmp(&(
                 b.root_index,
@@ -43,7 +43,7 @@ pub(crate) fn ordered(issues: &[ScanIssue]) -> Vec<ScanIssue> {
                 b.kind,
                 b.stage,
                 &b.reason_key,
-                b.observed_at.as_ref().map(|t| t.as_str()),
+                b.observed_at.as_ref().map(Timestamp::unix_millis),
             ))
     });
     result

@@ -215,7 +215,7 @@ fn compare_sizes<'a>(before: Side<'a>, after: Side<'a>, basis: &SizeBasis) -> Ro
 fn exact(side: Side<'_>, basis: &SizeBasis) -> Option<i128> {
     let size = side.size.filter(|size| &size.basis == basis)?;
     match &size.amount {
-        SizeAmount::Exact { bytes } => bytes.as_str().parse::<u64>().ok().map(i128::from),
+        SizeAmount::Exact { bytes } => Some(i128::from(bytes.get())),
         _ => None,
     }
 }

@@ -158,7 +158,7 @@ fn exact(aggregate: &SpaceAggregate, basis: &SizeBasis) -> Option<u64> {
         return None;
     }
     match &value.amount {
-        SizeAmount::Exact { bytes } => bytes.as_str().parse().ok(),
+        SizeAmount::Exact { bytes } => Some(bytes.get()),
         SizeAmount::LowerBound { .. } | SizeAmount::Unknown => None,
     }
 }

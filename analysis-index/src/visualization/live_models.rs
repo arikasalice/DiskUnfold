@@ -125,7 +125,7 @@ fn guard_group_size_range(
 
 fn exact_bytes(size: &SizeValue) -> Option<u64> {
     match &size.amount {
-        SizeAmount::Exact { bytes } => bytes.as_str().parse().ok(),
+        SizeAmount::Exact { bytes } => Some(bytes.get()),
         SizeAmount::LowerBound { .. } | SizeAmount::Unknown => None,
     }
 }

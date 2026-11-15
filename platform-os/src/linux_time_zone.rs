@@ -35,7 +35,7 @@ fn observe_configured(
     if identifier.as_str() != configured {
         return Err(TimeZoneUnavailable);
     }
-    let local = DateTime::from_iso8601(instant.as_str(), None)
+    let local = DateTime::from_iso8601(&instant.to_string(), None)
         .and_then(|value| value.to_timezone(&zone))
         .map_err(|_| TimeZoneUnavailable)?;
     let offset_seconds =

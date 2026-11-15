@@ -351,11 +351,7 @@ impl VizGroupRows {
             if min.evidence == SizeEvidence::Unknown || max.evidence == SizeEvidence::Unknown {
                 return Err("unknown size range evidence");
             }
-            let low = low.as_str().parse::<u64>().map_err(|_| "invalid minimum")?;
-            let high = high
-                .as_str()
-                .parse::<u64>()
-                .map_err(|_| "invalid maximum")?;
+            let (low, high) = (low.get(), high.get());
             if low > high {
                 return Err("reversed size range");
             }

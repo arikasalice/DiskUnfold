@@ -405,8 +405,8 @@ fn partition_bytes(value: &SizeValue, basis: &SizeBasis, allow_lower_bound: bool
         return None;
     }
     match &value.amount {
-        SizeAmount::Exact { bytes } => bytes.as_str().parse().ok(),
-        SizeAmount::LowerBound { bytes } if allow_lower_bound => bytes.as_str().parse().ok(),
+        SizeAmount::Exact { bytes } => Some(bytes.get()),
+        SizeAmount::LowerBound { bytes } if allow_lower_bound => Some(bytes.get()),
         _ => None,
     }
 }

@@ -213,7 +213,7 @@ fn convert(raw: RawPayload) -> Result<DecodedBundleRecords, FormatReaderError> {
     }
     if observations
         .windows(2)
-        .any(|pair| pair[1].observed_at.as_str() <= pair[0].observed_at.as_str())
+        .any(|pair| pair[1].observed_at.unix_millis() <= pair[0].observed_at.unix_millis())
     {
         return Err(FormatReaderError);
     }

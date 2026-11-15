@@ -260,9 +260,7 @@ fn number(value: &SizeValue) -> Option<u64> {
         return None;
     }
     match &value.amount {
-        SizeAmount::Exact { bytes } | SizeAmount::LowerBound { bytes } => {
-            bytes.as_str().parse().ok()
-        }
+        SizeAmount::Exact { bytes } | SizeAmount::LowerBound { bytes } => Some(bytes.get()),
         SizeAmount::Unknown => None,
     }
 }

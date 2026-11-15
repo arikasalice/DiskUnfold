@@ -148,14 +148,8 @@ fn number(value: Option<&SizeValue>, basis: &SizeBasis) -> Result<Number, Error>
         return Ok(Number::Unknown);
     }
     match &value.amount {
-        SizeAmount::Exact { bytes } => Ok(bytes
-            .as_str()
-            .parse()
-            .map_or(Number::Unknown, |n| Number::Known(n, false))),
-        SizeAmount::LowerBound { bytes } => Ok(bytes
-            .as_str()
-            .parse()
-            .map_or(Number::Unknown, |n| Number::Known(n, true))),
+        SizeAmount::Exact { bytes } => Ok(Number::Known(bytes.get(), false)),
+        SizeAmount::LowerBound { bytes } => Ok(Number::Known(bytes.get(), true)),
         SizeAmount::Unknown => Ok(Number::Unknown),
     }
 }

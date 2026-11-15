@@ -257,7 +257,7 @@ fn preserves_lineage_sequence_and_withdrawal_without_a_replacement()
     assert_eq!(published.seq, 1);
     assert_eq!(published.result_version.as_ref(), Some(&partial));
     assert_eq!(published.body["sequence"], 7);
-    assert_eq!(published.body["observedAt"], observed.as_str());
+    assert_eq!(published.body["observedAt"], observed.to_string());
     assert_eq!(published.occurred_at, occurred);
 
     let withdrawn = pending

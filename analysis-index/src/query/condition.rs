@@ -166,9 +166,7 @@ pub(super) fn size(value: Option<&SizeValue>, basis: Basis, boundary: Boundary) 
         SizeAmount::LowerBound { bytes } => (bytes, true),
         SizeAmount::Unknown => return Truth::Unknown,
     };
-    let Ok(n) = bytes.as_str().parse::<u64>() else {
-        return Truth::Unknown;
-    };
+    let n = bytes.get();
     match boundary {
         Boundary::AtLeast(x) if n >= x => Truth::Match,
         Boundary::GreaterThan(x) if n > x => Truth::Match,

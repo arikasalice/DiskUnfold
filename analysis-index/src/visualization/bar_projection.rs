@@ -414,16 +414,8 @@ fn weight(size: &SizeValue) -> Result<Weight, Error> {
         return Ok(Weight::Unknown);
     }
     match &size.amount {
-        SizeAmount::Exact { bytes } => bytes
-            .as_str()
-            .parse()
-            .map(Weight::Exact)
-            .map_err(|_| Error::InvalidEvidence),
-        SizeAmount::LowerBound { bytes } => bytes
-            .as_str()
-            .parse()
-            .map(Weight::LowerBound)
-            .map_err(|_| Error::InvalidEvidence),
+        SizeAmount::Exact { bytes } => Ok(Weight::Exact(bytes.get())),
+        SizeAmount::LowerBound { bytes } => Ok(Weight::LowerBound(bytes.get())),
         SizeAmount::Unknown => Ok(Weight::Unknown),
     }
 }

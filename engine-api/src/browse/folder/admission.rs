@@ -166,10 +166,7 @@ fn lower_predicate(predicate: QueryPredicate) -> Result<Predicate, AdmissionErro
             QueryItemType::Link => Kind::Link,
         }),
         QueryPredicate::Size { basis, op, bytes } => {
-            let bytes = bytes
-                .as_str()
-                .parse()
-                .map_err(|_| AdmissionError::InvalidCondition)?;
+            let bytes = bytes.get();
             let bound = match op {
                 QuerySizeOp::AtLeast => Boundary::AtLeast(bytes),
                 QuerySizeOp::GreaterThan => Boundary::GreaterThan(bytes),

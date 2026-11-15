@@ -101,12 +101,10 @@ impl Physical {
                     SizeAmount::Unknown => None,
                 }
             })
-            .and_then(|(bytes, lower)| {
-                bytes.as_str().parse().ok().map(|bytes| Known {
-                    bytes,
-                    lower,
-                    sharing: input.sharing,
-                })
+            .map(|(bytes, lower)| Known {
+                bytes: bytes.get(),
+                lower,
+                sharing: input.sharing,
             });
         let Some(value) = value else {
             self.missing = true;
@@ -418,8 +416,7 @@ pub(crate) fn selected_scope(
     let SizeAmount::Exact { bytes } = &output.allocated.amount else {
         return None;
     };
-    let allocated = bytes.as_str().parse::<u64>().ok()?;
-    u64::try_from(per_path).ok()?.checked_sub(allocated)
+    u64::try_from(per_path).ok()?.checked_sub(bytes.get())
 }
 
 pub(crate) fn apply(

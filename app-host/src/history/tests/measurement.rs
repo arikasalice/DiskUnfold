@@ -63,7 +63,7 @@ fn verify_pinned_logical_total(
     let SizeAmount::Exact { bytes } = &logical.size.amount else {
         return Err(format!("logical size is not exact: {:?}", logical.size.amount).into());
     };
-    assert_eq!(bytes.as_str().parse::<u64>()?, expected_bytes);
+    assert_eq!(bytes.get(), expected_bytes);
     Ok(())
 }
 
@@ -182,7 +182,7 @@ fn run_native_scan_measurement(
                     first.get_or_insert_with(|| {
                         (
                             sent.elapsed().as_millis(),
-                            event.occurred_at.as_str().to_owned(),
+                            event.occurred_at.to_string(),
                             event.body.clone(),
                         )
                     });
@@ -215,7 +215,7 @@ fn run_native_scan_measurement(
             first.1,
             first.2,
             terminal.0,
-            terminal.1.occurred_at.as_str(),
+            terminal.1.occurred_at,
             terminal.1.body,
             process_peak_working_set()
         );
