@@ -7,6 +7,10 @@ use du_core_contracts::{
         StartupDialogOutcome, WebViewAvailability,
     },
 };
+use du_engine_api::{
+    api::{CallerCtx, Channel, UseCase},
+    error::EngineError,
+};
 use serde_json::{Value, json};
 
 #[cfg(any(windows, target_os = "linux"))]
@@ -150,8 +154,53 @@ fn a_second_visualization_registration_is_an_error_that_stops_startup() -> Resul
         &mut builder,
         settings.unit_table_source(),
     );
-    assert!(second.is_err());
+    assert_eq!(second, Err("visualization job registration failed"));
     Ok(())
+}
+
+#[test]
+fn a_viz_command_registered_by_another_owner_stops_the_engine_build() -> Result<(), Failure> {
+    // `register_desktop` reports a failed visualization registration itself, but no input
+    // makes it fail from outside: the job runtime and the strategies are built inside.
+    // A command name taken by another owner is the failure a caller can cause, and the
+    // engine build refuses it, which the lifecycle reports as a startup failure.
+    let profile = tempfile::tempdir()?;
+    let database = crate::startup_database::open(profile.path())?;
+    let settings = Arc::new(StartupSettings::open(&database, 1, &["en", "ko"])?);
+    let mut builder = EngineBuilder::default();
+    builder.register(Squatter);
+    register_desktop(
+        &mut builder,
+        &Capabilities,
+        &settings,
+        &database,
+        #[cfg(windows)]
+        None,
+    )?;
+    let error = builder
+        .build()
+        .err()
+        .ok_or("a duplicate visualization command was accepted")?;
+    assert_eq!(error.duplicate_name, "viz.catalog");
+    Ok(())
+}
+
+/// A use case that already owns a visualization command name.
+struct Squatter;
+
+impl UseCase for Squatter {
+    const NAME: &'static str = "viz.catalog";
+    const CHANNELS: &'static [Channel] = &[Channel::Gui];
+    type Request = Value;
+    type Response = Value;
+
+    fn check_scope(&self, _: &Value, _: &CallerCtx) -> Result<(), EngineError> {
+        Ok(())
+    }
+
+    fn execute(&self, _: Value, _: &CallerCtx) -> Result<Value, EngineError> {
+        Ok(json!({}))
+    }
 }
 
 #[test]
