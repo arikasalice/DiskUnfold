@@ -56,6 +56,62 @@ fn publish_shared(sink: &IngestSink) -> Result<(), String> {
     Ok(())
 }
 
+fn publish_nested_shared(sink: &IngestSink) -> Result<(), String> {
+    let lineage = sink
+        .bind_current_analysis("scope", id(1))
+        .map_err(|error| format!("{error:?}"))?;
+    let root = ResultScopeRoot {
+        path: ResultNativePath {
+            encoding: PathEncoding::Unix,
+            raw: PathBytes::from_bytes(b"/fixture"),
+        },
+        volume_id: vec![1],
+        file_id: vec![2],
+    };
+    let mut scan = sink
+        .open_forest_in_lineage(id(2), vec![root], lineage)
+        .map_err(|error| format!("{error:?}"))?;
+    for path in [
+        vec![],
+        vec![b"p".to_vec()],
+        vec![b"p".to_vec(), b"x".to_vec()],
+        vec![b"p".to_vec(), b"y".to_vec()],
+    ] {
+        scan.add_directory_at(0, path)
+            .map_err(|error| format!("{error:?}"))?;
+    }
+    for folder in ["x", "y"] {
+        scan.add_with_space_at(
+            0,
+            Observation {
+                path: vec![b"p".to_vec(), folder.as_bytes().to_vec(), b"file".to_vec()],
+                size: Some(SizeValue {
+                    basis: SizeBasis::Logical,
+                    evidence: SizeEvidence::Measured,
+                    amount: SizeAmount::Exact { bytes: 10.into() },
+                }),
+            },
+            SpaceObservation {
+                allocated: Some(SizeValue {
+                    basis: SizeBasis::Allocated,
+                    evidence: SizeEvidence::OsReported,
+                    amount: SizeAmount::Exact { bytes: 10.into() },
+                }),
+                identity: Some(FileIdentity {
+                    volume: vec![1],
+                    file: vec![7],
+                }),
+                link_count: Some(2),
+                sharing: SharingEvidence::None,
+            },
+        )
+        .map_err(|error| format!("{error:?}"))?;
+    }
+    scan.seal(id(3), ResultCompleteness::Complete)
+        .map_err(|error| format!("{error:?}"))?;
+    Ok(())
+}
+
 #[test]
 fn siblings_without_a_provable_area_are_counted_and_the_class_total_is_a_lower_bound()
 -> Result<(), String> {
@@ -109,5 +165,52 @@ fn siblings_without_a_provable_area_are_counted_and_the_class_total_is_a_lower_b
         json!({"modelRef": model["modelRef"], "resultRevision": id(3), "start": 0, "count": 10}),
     )?;
     assert_eq!(rows["totalCount"], 3);
+    Ok(())
+}
+
+#[test]
+fn registered_allocated_depth_two_records_nested_shared_item_counts() -> Result<(), String> {
+    let sink = IngestSink::default();
+    publish_nested_shared(&sink)?;
+    let fixture = Fixture::from_sink(
+        sink,
+        Duration::from_secs(2),
+        NonZeroUsize::MIN.saturating_add(3),
+    )?;
+    let view = fixture.open()?;
+    fixture
+        .release
+        .send(())
+        .map_err(|error| error.to_string())?;
+
+    let mut shallow_request = render_body(&view, 1);
+    shallow_request["sizeBasis"] = json!("allocated");
+    let shallow = fixture.ok("viz.render", shallow_request)?;
+    assert_eq!(shallow["kind"], "model");
+    let shallow_model = &shallow["model"];
+    let shallow_shapes = shallow_model["shapes"]
+        .as_array()
+        .ok_or("no shallow shapes")?;
+    assert_eq!(shallow_shapes.len(), 1);
+    assert_eq!(shallow_shapes[0]["itemRef"]["itemNo"], 1);
+    // The sole parent shape is p, so these two hidden immediate children are its omissions.
+    assert_eq!(shallow_model["summary"]["omittedItems"]["value"], "2");
+    assert_eq!(shallow_model["summary"]["unknownItems"]["value"], "0");
+
+    let mut depth_two_request = render_body(&view, 2);
+    depth_two_request["sizeBasis"] = json!("allocated");
+    depth_two_request["depthLimit"] = json!(2);
+    let rendered = fixture.ok("viz.render", depth_two_request)?;
+    assert_eq!(rendered["kind"], "model");
+    let parsed: VizRenderResponse =
+        serde_json::from_value(rendered.clone()).map_err(|error| error.to_string())?;
+    parsed.validate()?;
+    let model = &rendered["model"];
+    let shapes = model["shapes"].as_array().ok_or("no depth-two shapes")?;
+    assert_eq!(shapes.len(), 1);
+    assert_eq!(shapes[0]["itemRef"]["itemNo"], 1);
+    // Observed on this revision for F06 #83; these values are not asserted as a published contract.
+    assert_eq!(model["summary"]["unknownItems"]["value"], "2");
+    assert_eq!(model["summary"]["omittedItems"]["value"], "0");
     Ok(())
 }
