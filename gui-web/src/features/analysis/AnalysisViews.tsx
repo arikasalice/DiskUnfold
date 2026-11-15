@@ -16,6 +16,7 @@ import {
   Readout,
   StatusBadge,
   Text,
+  Unbroken,
 } from "../../components";
 import { SIZE_UNIT_RULES, scanJobReasonText, scanProblemText } from "../../ipc";
 import type {
@@ -580,7 +581,11 @@ function PinnedResult({
               : undefined
           }
         >
-          {lead ? displaySize(lead.size, display, text) : unavailable}
+          {lead ? (
+            <Unbroken>{displaySize(lead.size, display, text)}</Unbroken>
+          ) : (
+            unavailable
+          )}
         </Metric>
       </div>
       <Coverage total={total} />
@@ -592,7 +597,7 @@ function PinnedResult({
             const raw = displayRawSize(size, regional, text);
             return {
               label: basisLabels[size.basis],
-              value,
+              value: <Unbroken>{value}</Unbroken>,
               notes: [
                 ...(raw && raw !== value ? [raw] : []),
                 displayMeasurement(size, completeness, text),

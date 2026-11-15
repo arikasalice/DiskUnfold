@@ -276,7 +276,8 @@ test("neither part of a path can push the line wider than its container", () => 
 test("Korean prose breaks between words and long paths still wrap", () => {
   const css = readFileSync("src/theme/text-fit.css", "utf8");
   const rule = css.match(/^\.du-clamp \{[^}]*\}/m)?.[0] ?? "";
-  expect(rule).toMatch(/word-break: keep-all/);
+  // Korean words stay whole through body's default (see prose-wrap.test.ts).
+  expect(rule).not.toMatch(/word-break/);
   expect(rule).toMatch(/overflow-wrap: anywhere/);
 });
 

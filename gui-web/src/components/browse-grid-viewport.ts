@@ -3,6 +3,12 @@ import { BrowseRowPositions } from "./browse-row-positions";
 
 const WIDE_ROW = 64;
 const NARROW_ROW = 160;
+/**
+ * The list width at or below which rows are drawn as cards; it matches the
+ * container query in browse-grid.css and only seeds row heights before they
+ * are measured.
+ */
+export const BROWSE_CARD_WIDTH = 700;
 const MAX_MEASUREMENTS = 2048;
 // Keep the native scroll extent bounded even when the registered result is huge.
 const MAX_PHYSICAL_HEIGHT = 8_000_000;
@@ -161,7 +167,7 @@ export function useBrowseGridViewport(
       if (!changed) return;
       const next = new BrowseRowPositions(
         count,
-        nextWidth > 0 && nextWidth <= 640 ? NARROW_ROW : WIDE_ROW,
+        nextWidth > 0 && nextWidth <= BROWSE_CARD_WIDTH ? NARROW_ROW : WIDE_ROW,
         measurements.current,
       );
       const physical = (root.current?.scrollTop ?? 0) - section.offsetTop;

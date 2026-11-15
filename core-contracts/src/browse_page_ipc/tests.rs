@@ -12,6 +12,11 @@ fn folder_page() -> Value {
     }], "total":{"state":"lower_bound","count":1},"unknownCount":0,"observedAt":null,"completeness":"partial","nextCursor":null})
 }
 
+fn search_page() -> Value {
+    let id = "018f0000-0000-7000-8000-000000000001";
+    json!({"rowKind":"search","queryRef":id,"resultVersion":id,"rows":[{"item":{"resultVersion":id,"itemNo":1},"displayName":{"state":"absent"},"displayPath":{"state":"absent"},"kind":"file","logicalSize":{"state":"absent"},"allocatedSize":{"state":"absent"},"modifiedAt":{"state":"absent"},"createdAt":{"state":"absent"},"missingFields":[],"reasonKeys":[]}],"total":{"state":"exact","count":1},"unknownCount":0,"observedAt":null,"completeness":"complete","nextCursor":null})
+}
+
 #[test]
 fn opened_and_job_are_distinct_and_round_trip() -> Result<(), Box<dyn std::error::Error>> {
     let id = "018f0000-0000-7000-8000-000000000001";
@@ -32,12 +37,11 @@ fn opened_and_job_are_distinct_and_round_trip() -> Result<(), Box<dyn std::error
         serde_json::to_value(serde_json::from_value::<BrowseOpenResponse>(job.clone())?)?,
         job
     );
-    assert!(
-        serde_json::from_value::<BrowseOpenResponse>(
-            json!({"kind":"job","requestSeq":1,"jobRef":id,"page":folder_page()})
-        )
-        .is_err()
-    );
+    // The kind tag selects the variant; a page sent with a job reply is an unknown field.
+    let job_with_page = serde_json::from_value::<BrowseOpenResponse>(
+        json!({"kind":"job","requestSeq":1,"jobRef":id,"resultVersion":id,"page":folder_page()}),
+    )?;
+    assert_eq!(serde_json::to_value(job_with_page)?, job);
     let mut missing = opened;
     missing
         .as_object_mut()
@@ -77,8 +81,7 @@ fn page_discriminates_rows_and_requires_nullable_fields() -> Result<(), Box<dyn 
     let mut overflow = page;
     overflow["unknownCount"] = json!(u64::from(u32::MAX) + 1);
     assert!(serde_json::from_value::<QueryPageResponse>(overflow).is_err());
-    let id = "018f0000-0000-7000-8000-000000000001";
-    let search = json!({"rowKind":"search","queryRef":id,"resultVersion":id,"rows":[{"item":{"resultVersion":id,"itemNo":1},"displayName":{"state":"absent"},"displayPath":{"state":"absent"},"kind":"file","logicalSize":{"state":"absent"},"allocatedSize":{"state":"absent"},"modifiedAt":{"state":"absent"},"createdAt":{"state":"absent"},"missingFields":[],"reasonKeys":[]}],"total":{"state":"exact","count":1},"unknownCount":0,"observedAt":null,"completeness":"complete","nextCursor":null});
+    let search = search_page();
     let mut duplicate = search.clone();
     duplicate["rows"][0]["missingFields"] = json!(["size", "size"]);
     assert!(serde_json::from_value::<QueryPageResponse>(duplicate).is_err());
@@ -101,5 +104,46 @@ fn folder_context_round_trips_and_requires_its_nullable_location()
         .ok_or("not an object")?
         .remove("location");
     assert!(serde_json::from_value::<QueryPageResponse>(page).is_err());
+    Ok(())
+}
+
+#[test]
+fn responses_accept_unknown_fields_at_every_level() -> Result<(), Box<dyn std::error::Error>> {
+    let id = "018f0000-0000-7000-8000-000000000001";
+    let added = json!({"addedLater": true});
+    let mut page = folder_page();
+    page["browseContext"] = json!({"origin":"scan","location":null,"breadcrumbs":[{"item":{"resultVersion":id,"itemNo":0},"displayName":{"state":"absent"}}],"rootKind":"scope_root","currentCorrespondence":true,"sortStrategies":[],"predicateStrategies":[]});
+    let mut extended = page.clone();
+    extended["browseContext"]["futureField"] = added.clone();
+    extended["browseContext"]["breadcrumbs"][0]["futureField"] = added.clone();
+    extended["rows"][0]["futureField"] = added.clone();
+    extended["rows"][0]["flags"]["futureField"] = added.clone();
+    extended["rows"][0]["correspondence"]["value"]["futureField"] = added.clone();
+    extended["rows"][0]["correspondence"]["value"]["identityCapability"]["futureField"] =
+        added.clone();
+    extended["total"]["futureField"] = added.clone();
+    let parsed: QueryPageResponse = serde_json::from_value(extended)?;
+    assert_eq!(serde_json::to_value(parsed)?, page);
+
+    let search = search_page();
+    let mut extended = search.clone();
+    extended["rows"][0]["futureField"] = added.clone();
+    extended["total"]["futureField"] = added.clone();
+    let parsed: QueryPageResponse = serde_json::from_value(extended)?;
+    assert_eq!(serde_json::to_value(parsed)?, search);
+
+    let opened = json!({"kind":"opened","requestSeq":1,"origin":"scan","location":null,"breadcrumbs":[{"item":{"resultVersion":id,"itemNo":0},"displayName":{"state":"absent"}}],"rootKind":"scope_root","currentCorrespondence":false,"page":folder_page(),"sortStrategies":[],"predicateStrategies":[]});
+    let mut extended = opened.clone();
+    extended["futureField"] = added.clone();
+    extended["breadcrumbs"][0]["futureField"] = added.clone();
+    extended["page"]["rows"][0]["futureField"] = added.clone();
+    let parsed: BrowseOpenResponse = serde_json::from_value(extended)?;
+    assert_eq!(serde_json::to_value(parsed)?, opened);
+
+    let job = json!({"kind":"job","requestSeq":1,"jobRef":id,"resultVersion":id});
+    let mut extended = job.clone();
+    extended["futureField"] = added;
+    let parsed: BrowseOpenResponse = serde_json::from_value(extended)?;
+    assert_eq!(serde_json::to_value(parsed)?, job);
     Ok(())
 }

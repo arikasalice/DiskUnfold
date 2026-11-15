@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { ProgressBar } from "react-aria-components";
 import { useLocaleText } from "../i18n/presentation";
+import type { TimestampParts } from "../i18n/regional-format";
 import { STATUS_TONES } from "./status-table";
 import type { StatusRow, StatusShape, StatusTone } from "./status-table";
 import "../theme/status-badge.css";
@@ -112,6 +113,33 @@ export function Text({
     >
       {children}
     </p>
+  );
+}
+
+/**
+ * A value that a line never breaks inside, such as a size with its unit
+ * ("At least 390.6 KiB"). Its container wraps around it as a whole.
+ */
+export function Unbroken({ children }: { children: ReactNode }) {
+  return <span className="du-unbroken">{children}</span>;
+}
+
+/**
+ * A timestamp drawn as unbroken pieces: the date with its time, then its time
+ * zone. A line breaks only between them, or before the note.
+ */
+export function Moment({ moment, zone, note }: TimestampParts) {
+  return (
+    <>
+      <Unbroken>{moment}</Unbroken>
+      {zone !== undefined && (
+        <>
+          {" "}
+          <Unbroken>{zone}</Unbroken>
+        </>
+      )}
+      {note !== undefined && ` · ${note}`}
+    </>
   );
 }
 

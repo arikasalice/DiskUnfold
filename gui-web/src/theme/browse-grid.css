@@ -80,9 +80,13 @@
 .du-browse-grid__header [role="row"],
 .du-browse-grid__row {
   display: grid;
+  /* The size and time columns keep room for one unbroken value ("최소 390.6
+     KiB", "2026.11.15 08:55:16"), and the type column for one word, while
+     the name column still fits a short name at the narrowest table. The
+     same tracks in every row keep the columns aligned. */
   grid-template-columns:
-    minmax(0, 32fr) minmax(0, 8fr) repeat(2, minmax(0, 15fr))
-    minmax(0, 16fr) minmax(0, 14fr);
+    minmax(0, 32fr) minmax(4em, 8fr) repeat(2, minmax(8em, 15fr))
+    minmax(10em, 16fr) minmax(0, 14fr);
 }
 
 .du-browse-grid__body {
@@ -137,7 +141,13 @@
   display: none;
 }
 
-@container (max-width: 640px) {
+/* Cards replace the table at a list width of 700px or less, before the name
+   column, the most important one, is squeezed to a sliver. The list is about
+   0.94 x (W - 16) px wide in a window W px wide (window frame and the app's
+   3vw side margins): about 643px in a 700px window, which shows cards, and
+   737px in an 800px window, which keeps the table. Keep this width in step
+   with BROWSE_CARD_WIDTH and the member grid in groups.css. */
+@container (max-width: 700px) {
   .du-browse-grid__header {
     position: absolute;
     inline-size: 1px;

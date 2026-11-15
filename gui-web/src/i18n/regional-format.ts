@@ -102,14 +102,42 @@ export function displayTimestamp(
   };
 }
 
-export function useTimestampText() {
+/**
+ * A displayed timestamp in the pieces a line may break between: the date
+ * with its time, the time zone when it stands apart (" UTC+09:00") and a
+ * note. An ISO 8601 zone joins the time, so it has no separate `zone`.
+ */
+export type TimestampParts = { moment: string; zone?: string; note?: string };
+
+export function useTimestampParts() {
   const regional = useRegionalFormat();
   const text = useLocaleText();
-  return (value: number, fallback: () => string) => {
+  return (value: number, fallback: () => string): TimestampParts => {
     const rendered = regional && displayTimestamp(value, regional);
-    if (!rendered) return fallback();
+    if (!rendered) return { moment: fallback() };
+    const suffix = rendered.text.slice(rendered.date.length);
+    const parts: TimestampParts = suffix.startsWith(" ")
+      ? { moment: rendered.date, zone: suffix.slice(1) }
+      : { moment: rendered.text };
     return rendered.timezoneUnavailable
-      ? `${rendered.text} · ${text("ui.locale.time_zone_unavailable", "Local time zone unavailable")}`
-      : rendered.text;
+      ? {
+          ...parts,
+          note: text(
+            "ui.locale.time_zone_unavailable",
+            "Local time zone unavailable",
+          ),
+        }
+      : parts;
   };
+}
+
+/** The same timestamp as one string, for text that is not drawn in pieces. */
+export function timestampString({ moment, zone, note }: TimestampParts) {
+  return `${moment}${zone === undefined ? "" : ` ${zone}`}${note === undefined ? "" : ` · ${note}`}`;
+}
+
+export function useTimestampText() {
+  const parts = useTimestampParts();
+  return (value: number, fallback: () => string) =>
+    timestampString(parts(value, fallback));
 }

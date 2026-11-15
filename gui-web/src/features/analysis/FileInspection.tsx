@@ -1,15 +1,18 @@
 import { useEffect, useState } from "react";
+import type { ReactNode } from "react";
 import { useLocaleText } from "../../i18n/presentation";
 import type { LocaleText } from "../../i18n/presentation";
-import { useTimestampText } from "../../i18n/regional-format";
+import { useTimestampParts } from "../../i18n/regional-format";
 import {
   DetailDisclosure,
   ExampleBadge,
+  Moment,
   NameText,
   Notice,
   Progress,
   Readout,
   Text,
+  Unbroken,
 } from "../../components";
 import { AnalysisError } from "../../ipc";
 import type {
@@ -32,9 +35,9 @@ import type { SizeDisplay } from "./space-format";
 
 function attribute<T>(
   field: BrowseValue<T>,
-  format: (value: T) => string = String,
+  format: (value: T) => ReactNode = String,
   text?: LocaleText,
-) {
+): ReactNode {
   if (field.state === "present") return format(field.value);
   if (field.state === "absent")
     return text?.("ui.analysis.not_recorded", "Not recorded") ?? "Not recorded";
@@ -87,7 +90,7 @@ function sizeRow(
   return {
     label,
     emphasized: true,
-    value: formatted,
+    value: <Unbroken>{formatted}</Unbroken>,
     notes: [raw, certainty, evidence].filter(
       (note): note is string => note !== undefined,
     ),
@@ -101,7 +104,7 @@ function attributes(
   client: AnalysisClient,
   item: ItemRef,
   text: LocaleText,
-  renderTime: (value: string) => string,
+  renderTime: (value: string) => ReactNode,
   actionsDisabledReason?: string,
 ) {
   return [
@@ -202,9 +205,10 @@ export function FileInspection({
     "mismatch" | "stale" | "unavailable"
   >();
   const text = useLocaleText();
-  const timestamp = useTimestampText();
-  const renderTime = (value: string) =>
-    timestamp(Date.parse(value), () => value);
+  const timestamp = useTimestampParts();
+  const renderTime = (value: string) => (
+    <Moment {...timestamp(Date.parse(value), () => value)} />
+  );
   const kind =
     itemKind === "file"
       ? text("ui.inspection.file", "file")
