@@ -407,7 +407,7 @@ export class VisualizationController {
   }
   /** Reads rows of the fallback model; a page that arrives after the answer changed is dropped. */
   private async fallbackRows(request: VizRowsRequest) {
-    const seq = this.fallbackSeq;
+    const seq = ++this.fallbackSeq;
     this.update({ pendingRows: request, failedRows: null });
     try {
       const response = await this.port.rows(request);

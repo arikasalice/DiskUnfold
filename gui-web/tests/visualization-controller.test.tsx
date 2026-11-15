@@ -67,6 +67,22 @@ function deferred<T>() {
   });
   return { promise, resolve, reject };
 }
+function unavailableFallback(
+  modelRef: string,
+  resultRevision = revision,
+  requestSeq = 1,
+): VizRenderResponse {
+  return {
+    kind: "unavailable",
+    requestSeq,
+    resultRevision,
+    observedAt: null,
+    completeness: "partial",
+    reasonKey: "viz.unavailable.no_baseline",
+    availableFormats: [],
+    fallback: { modelRef, resultRevision },
+  };
+}
 
 test.each(["keyboard", "pointer"] as const)(
   "returns to the actual adapted group shape after %s activation",
@@ -805,6 +821,148 @@ test("the newer fallback table loads its first page from the UI without changing
   expect(controller.getSnapshot().graphPage?.request.modelRef).toBe(
     first.model.modelRef,
   );
+});
+
+test("fallback rows can advance after the previous page finishes", async () => {
+  const source = modelFixture().page.response;
+  const rows = vi.fn().mockResolvedValue(source);
+  const controller = new VisualizationController({
+    render: vi.fn().mockResolvedValue(unavailableFallback("fallback")),
+    rows,
+    cancel: vi.fn(),
+    canDisplay: () => true,
+  });
+  await controller.render(request(1));
+  const first = {
+    modelRef: "fallback",
+    resultRevision: revision,
+    start: 0,
+    count: 1,
+  };
+  const second = { ...first, start: 1 };
+
+  await controller.rows(first);
+  await controller.rows(second);
+
+  expect(controller.getSnapshot().fallbackPage?.request).toEqual(second);
+  expect(rows).toHaveBeenNthCalledWith(1, first);
+  expect(rows).toHaveBeenNthCalledWith(2, second);
+});
+
+test("fallback rows keep the latest requested page when responses finish in reverse order", async () => {
+  const source = modelFixture().page.response;
+  const page0 = deferred<typeof source>();
+  const page1 = deferred<typeof source>();
+  const rows = vi
+    .fn()
+    .mockReturnValueOnce(page0.promise)
+    .mockReturnValueOnce(page1.promise);
+  const controller = new VisualizationController({
+    render: vi.fn().mockResolvedValue(unavailableFallback("fallback")),
+    rows,
+    cancel: vi.fn(),
+    canDisplay: () => true,
+  });
+  await controller.render(request(1));
+
+  const first = controller.rows({
+    modelRef: "fallback",
+    resultRevision: revision,
+    start: 0,
+    count: 1,
+  });
+  const second = controller.rows({
+    modelRef: "fallback",
+    resultRevision: revision,
+    start: 1,
+    count: 1,
+  });
+  page1.resolve(source);
+  await second;
+  page0.resolve(source);
+  await first;
+
+  expect(controller.getSnapshot().fallbackPage?.request.start).toBe(1);
+});
+
+test("replacing a fallback drops its pending page without clearing the replacement request", async () => {
+  const source = modelFixture().page.response;
+  const oldPage = deferred<typeof source>();
+  const newPage = deferred<typeof source>();
+  const rows = vi
+    .fn()
+    .mockReturnValueOnce(oldPage.promise)
+    .mockReturnValueOnce(newPage.promise);
+  const controller = new VisualizationController({
+    render: vi
+      .fn()
+      .mockResolvedValueOnce(unavailableFallback("old-fallback"))
+      .mockResolvedValueOnce(
+        unavailableFallback("new-fallback", "replacement", 2),
+      ),
+    rows,
+    cancel: vi.fn(),
+    canDisplay: () => true,
+  });
+  await controller.render(request(1));
+  const oldRequest = {
+    modelRef: "old-fallback",
+    resultRevision: revision,
+    start: 0,
+    count: 1,
+  };
+  const pendingOld = controller.rows(oldRequest);
+
+  await controller.render(request(2, "replacement"));
+  const newRequest = {
+    modelRef: "new-fallback",
+    resultRevision: "replacement",
+    start: 0,
+    count: 1,
+  };
+  const pendingNew = controller.rows(newRequest);
+  oldPage.resolve(source);
+  await pendingOld;
+  expect(controller.getSnapshot()).toMatchObject({
+    fallbackPage: null,
+    pendingRows: newRequest,
+  });
+
+  newPage.resolve({ ...source, resultRevision: "replacement", rows: [] });
+  await pendingNew;
+  expect(controller.getSnapshot().fallbackPage?.request).toEqual(newRequest);
+});
+
+test("a failed latest fallback page retains the shown page and offers that request for retry", async () => {
+  const source = modelFixture().page.response;
+  const error = new Error("fallback page failed");
+  const rows = vi
+    .fn()
+    .mockResolvedValueOnce(source)
+    .mockRejectedValueOnce(error);
+  const controller = new VisualizationController({
+    render: vi.fn().mockResolvedValue(unavailableFallback("fallback")),
+    rows,
+    cancel: vi.fn(),
+    canDisplay: () => true,
+  });
+  await controller.render(request(1));
+  const first = {
+    modelRef: "fallback",
+    resultRevision: revision,
+    start: 0,
+    count: 1,
+  };
+  const failed = { ...first, start: 1 };
+  await controller.rows(first);
+  await controller.rows(failed);
+
+  expect(controller.getSnapshot()).toMatchObject({
+    fallbackPage: { request: first },
+    pendingRows: null,
+    failedRows: failed,
+    error,
+  });
 });
 
 test.each([false, true])(
