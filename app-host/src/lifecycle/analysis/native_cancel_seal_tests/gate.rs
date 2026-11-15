@@ -21,9 +21,8 @@ const GATE_TIMEOUT: Duration = Duration::from_secs(30);
 #[derive(Default)]
 struct State {
     armed: bool,
-    cancelled: bool,
-    released: bool,
-    late_reads: usize,
+    gate_released: bool,
+    post_release_read_starts: usize,
     started: Vec<(RelativePath, ThreadId)>,
     returned: Vec<(RelativePath, ThreadId)>,
     parked: Vec<(RelativePath, ThreadId)>,
@@ -42,14 +41,14 @@ impl Probe {
         Ok(())
     }
 
-    /// Records entry to the adapter port immediately before its real read call.
+    /// Records a wrapper read-start observation immediately before its real read call.
     fn read_started(&self, path: &[Vec<u8>]) -> Result<bool, PortError> {
         let mut state = self.state.lock().map_err(|_| gate_error())?;
         if !state.armed {
             return Ok(false);
         }
-        if state.cancelled {
-            state.late_reads += 1;
+        if state.gate_released {
+            state.post_release_read_starts += 1;
         }
         state.started.push((path.to_vec(), thread::current().id()));
         Ok(true)
@@ -81,9 +80,9 @@ impl Probe {
         self.changed.notify_all();
         let (state, timeout) = self
             .changed
-            .wait_timeout_while(state, GATE_TIMEOUT, |state| !state.released)
+            .wait_timeout_while(state, GATE_TIMEOUT, |state| !state.gate_released)
             .map_err(|_| gate_error())?;
-        if timeout.timed_out() && !state.released {
+        if timeout.timed_out() && !state.gate_released {
             return Err(gate_error());
         }
         Ok(())
@@ -114,12 +113,11 @@ impl Probe {
         Ok(())
     }
 
-    /// Records the test's cancel point and releases parked wrappers. JobContext cancellation is
-    /// requested separately through app-host's `job.cancel` use case.
-    pub(super) fn cancel_and_release(&self) {
+    /// Releases parked wrappers. The main test calls this after the `job.cancel` reply, so reads
+    /// between the runtime flag update and that reply are outside this observation window.
+    pub(super) fn release_test_gate(&self) {
         if let Ok(mut state) = self.state.lock() {
-            state.cancelled = true;
-            state.released = true;
+            state.gate_released = true;
             self.changed.notify_all();
         }
     }
@@ -131,7 +129,7 @@ impl Probe {
         Ok((
             state.started.len(),
             state.returned.len(),
-            state.late_reads,
+            state.post_release_read_starts,
             state.entries.clone(),
         ))
     }
@@ -141,7 +139,7 @@ pub(super) struct ReleaseOnDrop(pub(super) Arc<Probe>);
 
 impl Drop for ReleaseOnDrop {
     fn drop(&mut self) {
-        self.0.cancel_and_release();
+        self.0.release_test_gate();
     }
 }
 
@@ -203,6 +201,7 @@ impl DirectoryObservations for ObservedDirectory {
         &mut self,
         include: &mut dyn FnMut(&[u8]) -> FilterDecision,
     ) -> Result<FilteredBatch, PortError> {
+        // Filtered enumeration is delegated directly and is not instrumented by this probe.
         self.inner.next_filtered(include)
     }
 

@@ -1,4 +1,12 @@
 //! F02 cancellation and sealing through the platform's real directory adapter.
+//!
+//! The probe counts wrapper read-start observations only after the test gate is released, which
+//! happens after `job.cancel` responds. It cannot observe calls between runtime flag-setting and
+//! that response.
+//! Filtered enumeration is not instrumented, and the test does not launch the GUI.
+//! Follow-up completion tasks:
+//! - Observe the runtime flag transition and cover read starts through the `job.cancel` reply.
+//! - Instrument filtered enumeration and verify its read-start behavior independently.
 mod fixture;
 mod gate;
 
@@ -30,7 +38,8 @@ const DIRECTORY_COUNT: usize = 16;
 const FILES_PER_DIRECTORY: usize = 4;
 
 #[test]
-fn native_adapter_multiworker_cancel_seals_each_returned_entry_once() -> TestResult {
+fn native_adapter_multiworker_cancel_seals_returned_entries_once_after_gate_release() -> TestResult
+{
     let fixture = isolated_tempdir()?;
     let profile = isolated_tempdir()?;
     let scope = fs::canonicalize(fixture.path())?.join("scope");
@@ -86,7 +95,8 @@ fn native_adapter_multiworker_cancel_seals_each_returned_entry_once() -> TestRes
     )?)?;
     assert_eq!(cancel.outcome, JobControlOutcome::Accepted);
     assert_eq!(cancel.state, JobState::CancelRequested);
-    probe.cancel_and_release();
+    // The IPC reply follows the runtime flag update; the interval before this marker is unmeasured.
+    probe.release_test_gate();
 
     let status = wait_for_cancelled(&engine, &start.job_ref)?;
     assert_eq!(status.state, JobState::Cancelled);
@@ -96,9 +106,12 @@ fn native_adapter_multiworker_cancel_seals_each_returned_entry_once() -> TestRes
     let region =
         request(&engine, "query.region.open", json!({"kind": "browse_list"}))?["regionRef"].clone();
     let actual = browse_returned_paths(&engine, &region, &sealed_version)?;
-    let (started, returned, late_reads, native_entries) = probe.snapshot()?;
+    let (started, returned, post_release_read_starts, native_entries) = probe.snapshot()?;
     assert_eq!(started, returned, "a platform adapter call did not return");
-    assert_eq!(late_reads, 0, "a platform adapter read began after cancel");
+    assert_eq!(
+        post_release_read_starts, 0,
+        "a wrapper read-start observation occurred after the test gate was released"
+    );
     assert!(native_entries.values().all(|count| *count == 1));
     assert!(actual.values().all(|count| *count == 1));
     assert_eq!(
@@ -108,12 +121,12 @@ fn native_adapter_multiworker_cancel_seals_each_returned_entry_once() -> TestRes
     assert!(actual.len() >= 2 * FILES_PER_DIRECTORY);
 
     eprintln!(
-        "F02_NATIVE_CANCEL_SEAL os={} arch={} workers>=2 adapter_reads={} returned_entries={} late_reads={} state=cancelled seal={sealed_version:?}",
+        "F02_NATIVE_CANCEL_SEAL os={} arch={} workers>=2 adapter_reads={} returned_entries={} post_release_read_starts={} observation=after_test_gate_release cancel_reply_gap=unmeasured filtered_enumeration=unmeasured gui=not_launched state=cancelled seal={sealed_version:?}",
         std::env::consts::OS,
         std::env::consts::ARCH,
         returned,
         actual.len(),
-        late_reads,
+        post_release_read_starts,
     );
     Ok(())
 }
