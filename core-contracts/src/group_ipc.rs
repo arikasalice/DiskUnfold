@@ -14,6 +14,10 @@ mod totals;
 pub use totals::{GroupRatio, GroupTotal, GroupTotalRow, GroupTotals, GroupTotalsRequest};
 
 /// Current condition-model revision for group rules (the F04 query condition).
+///
+/// This is the only definition. It is stored with every rule, checked when stored
+/// rules are read, reported in `GroupRule`, and hashed into the ruleset fingerprint
+/// next to each rule's condition, so changing it changes every fingerprint.
 pub const GROUP_CONDITION_MODEL_VERSION: u32 = 1;
 
 /// Rule review status attached when a stored ruleset is read.
