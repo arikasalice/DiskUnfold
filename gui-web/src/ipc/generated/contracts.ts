@@ -863,7 +863,22 @@ export type VizRow = { itemRef: ItemRef | null, groupRef: string | null,
 /**
  * Human-readable display text; never reopen or compare a path from it.
  */
-displayName: string, size: SizeValue, quantity?: VizQuantity, ratio: VizRatio | null, denominator: VizDenominator, legendClassKey: string, displayFlags: Array<string>, };
+displayName: string, size: SizeValue, quantity?: VizQuantity, ratio: VizRatio | null, denominator: VizDenominator, legendClassKey: string, displayFlags: Array<string>,
+/**
+ * Message-bundle key for a group row the engine made, such as the merged small
+ * siblings of a treemap.
+ *
+ * Present only on such rows; the value is a key registered in the message
+ * bundle, never a path or file name. A consumer that understands it shows that
+ * message and does not use the display name as the row's name. The display name
+ * is required and carries the same key string, as a fallback for a consumer that
+ * does not know this field. Item rows, and group rows whose name the supplier
+ * gave (for example a histogram bin), omit it. An empty string is invalid; the
+ * field is omitted rather than null. A row that has a label key must be a group
+ * row, with a group reference and no item reference; an item row that carries
+ * one is invalid.
+ */
+labelKey?: string, };
 export type VizRowsRequest = { modelRef: string, resultRevision: Id, start: number, count: number, };
 export type VizGroupRowsRequest = { modelRef: string, groupRef: string, start: number, count: number, };
 export type VizSizeRange = { "kind": "known", min: SizeValue, max: SizeValue, } | { "kind": "unknown" };
