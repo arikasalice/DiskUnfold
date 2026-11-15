@@ -240,7 +240,7 @@ function readProblemText(problem: ResultReadProblem, text: LocaleText) {
     case "not_found":
       return text(
         "ui.analysis.result_not_found",
-        "This scan or its result is no longer available.",
+        "This analysis result is no longer available.",
       );
     case "failed":
       return text("ui.analysis.read_failed", "Analysis could not be read.");
@@ -258,7 +258,7 @@ export function scanProblemText(
     case "totals_mismatch":
       return text(
         "ui.analysis.totals_mismatch",
-        "The space totals do not match this scan's result.",
+        "The space totals do not match this analysis result.",
       );
     case "control_unavailable":
       return text(...controlUnavailable[problem.command]);
@@ -587,10 +587,13 @@ export function scanPriorityText(
     case "no_effect":
       return text(
         "ui.analysis.priority_no_effect",
-        "This folder is already analyzed or is already being analyzed first.",
+        "This folder is already scanned or is already being analyzed first.",
       );
     case "already_terminal":
-      return text("ui.analysis.priority_ended", "The analysis has finished.");
+      return text(
+        "ui.analysis.priority_ended",
+        "The scan has already finished.",
+      );
     case "stale_version":
       return text(
         "ui.analysis.priority_stale",

@@ -1301,7 +1301,9 @@ test("F03 IF-01: a totals response for a different result version is rejected", 
   });
   await waitFor(() => expect(start.disabled).toBe(false));
   fireEvent.click(start);
-  await screen.findByText("The space totals do not match this scan's result.");
+  await screen.findByText(
+    "The space totals do not match this analysis result.",
+  );
   expect(screen.queryByText("At least 42 bytes")).toBeNull();
   expect(
     screen.queryByRole("progressbar", { name: "Reading space totals" }),

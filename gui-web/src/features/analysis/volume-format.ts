@@ -150,7 +150,7 @@ export function lookupProblem(failure: unknown): Message {
       case "NOT_FOUND":
         return [
           "ui.analysis.volume_scan_unavailable",
-          "This scan result is no longer available. Run the analysis again to explain its volume usage.",
+          "This analysis result is no longer available. Run the analysis again to explain its volume usage.",
         ];
       case "INVALID_ARGUMENT":
         if (failure.reasonKey === "space.target_out_of_scope")
