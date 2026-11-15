@@ -7,6 +7,13 @@ const OTHER: &str = "018f0000-0000-7000-8000-000000000002";
 fn row() -> Value {
     json!({"itemRef":{"resultVersion":ID,"itemNo":1},"groupRef":null,"displayName":"a","size":{"basis":"logical","evidence":"measured","state":"exact","bytes":"20"},"ratio":"-0.25","denominator":{"basis":"scope","value":{"unit":"bytes","state":"exact","value":"80"}},"legendClassKey":"future.class","displayFlags":["future.flag"]})
 }
+/// The same row as a group row, which is the only kind that may carry a label key.
+fn group_row() -> Value {
+    let mut group = row();
+    group["itemRef"] = Value::Null;
+    group["groupRef"] = json!("g1");
+    group
+}
 #[test]
 fn preserves_rows_quantities_and_nullable_fields() -> Result<(), Box<dyn std::error::Error>> {
     for quantity in [
@@ -68,6 +75,96 @@ fn rejects_bad_refs_flags_and_missing_or_null_fields() {
         assert!(serde_json::from_value::<VizRow>(v.clone()).is_err(), "{v}");
     }
 }
+#[test]
+fn label_key_round_trips_and_an_old_row_without_it_is_still_read()
+-> Result<(), Box<dyn std::error::Error>> {
+    // A row from before the field existed has no labelKey and writes none back.
+    let old: VizRow = serde_json::from_value(row())?;
+    assert_eq!(old.label_key, None);
+    assert!(serde_json::to_value(&old)?.get("labelKey").is_none());
+    let mut group = group_row();
+    group["displayName"] = json!("ui.visualization.group.other");
+    group["labelKey"] = json!("ui.visualization.group.other");
+    let decoded: VizRow = serde_json::from_value(group.clone())?;
+    assert_eq!(
+        decoded.label_key.as_deref(),
+        Some("ui.visualization.group.other")
+    );
+    assert_eq!(serde_json::to_value(decoded)?, group);
+    // A page carrying such a row keeps it through the page check and a round trip.
+    let page = json!({
+        "rows": [group],
+        "totalCount": 1,
+        "resultRevision": ID,
+        "observedAt": null,
+        "completeness": "complete"
+    });
+    let rows: VizRows = serde_json::from_value(page.clone())?;
+    assert_eq!(serde_json::to_value(rows)?, page);
+    Ok(())
+}
+
+#[test]
+fn label_key_rejects_empty_and_null_and_unknown_fields_stay_accepted() {
+    for bad in [json!(""), Value::Null, json!(1), json!(["k"])] {
+        let mut v = group_row();
+        v["labelKey"] = bad;
+        assert!(serde_json::from_value::<VizRow>(v.clone()).is_err(), "{v}");
+    }
+    let mut v = group_row();
+    v["labelKey"] = json!("ui.visualization.group.other");
+    v["futureField"] = json!({"any": true});
+    assert!(serde_json::from_value::<VizRow>(v).is_ok());
+    let mut empty = serde_json::from_value::<VizRow>(group_row()).ok();
+    if let Some(row) = &mut empty {
+        row.label_key = Some(String::new());
+        assert!(row.validate().is_err());
+        row.label_key = Some("k".into());
+        assert!(row.validate().is_ok());
+    }
+}
+
+#[test]
+fn label_key_is_valid_only_on_a_group_row() -> Result<(), Box<dyn std::error::Error>> {
+    // A group row, which has a group reference and no item reference, may carry it.
+    let mut group = group_row();
+    group["labelKey"] = json!("ui.visualization.group.other");
+    let group: VizRow = serde_json::from_value(group)?;
+    group.validate()?;
+
+    // An item row would show the message text in place of a real file name, so it is
+    // refused on the wire and by the local check.
+    let mut item = row();
+    item["labelKey"] = json!("ui.visualization.group.other");
+    assert!(
+        serde_json::from_value::<VizRow>(item.clone()).is_err(),
+        "{item}"
+    );
+    let mut built: VizRow = serde_json::from_value(row())?;
+    built.validate()?;
+    built.label_key = Some("ui.visualization.group.other".into());
+    assert!(built.validate().is_err());
+    let Some(revision) = built
+        .item_ref
+        .as_ref()
+        .map(|item| item.result_version.clone())
+    else {
+        return Err("the item row has no item reference".into());
+    };
+    assert!(built.validate_revision(&revision).is_err());
+
+    // The check also guards a page: one item row with a key rejects the whole page.
+    let page = json!({
+        "rows": [group_row(), item],
+        "totalCount": 2,
+        "resultRevision": ID,
+        "observedAt": null,
+        "completeness": "complete"
+    });
+    assert!(serde_json::from_value::<VizRows>(page).is_err());
+    Ok(())
+}
+
 #[test]
 fn canonical_ratio_has_no_lossy_or_ambiguous_representation() {
     for v in [
