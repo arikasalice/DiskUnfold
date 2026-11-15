@@ -165,16 +165,7 @@ fn a_real_scan_draws_the_treemap_on_the_allocated_and_the_logical_basis() -> Res
     let revision = scan(&assembled, folder.path())?;
     for (seq, basis) in (1..).zip(["allocated", "logical"]) {
         let answer = render(&assembled, &revision, basis)?;
-        if answer["kind"] != "model" {
-            let rows = rows_of(&assembled, &answer)?;
-            for row in rows["rows"].as_array().ok_or("rows not a list")? {
-                let item = &row["itemRef"];
-                if item.is_object() {
-                    let detail = ok(&assembled.engine, "space.detail", json!({"resultVersion": revision, "item": item}))?;
-                    eprintln!("scan row={} size={} allocated={:?} links={:?}", row["displayName"], row["size"], detail["allocated"], detail["linkGroup"]);
-                }
-            }
-        }        assert_eq!(answer["kind"], "model", "{basis}: {answer}");
+        assert_eq!(answer["kind"], "model", "{basis}: {answer}");
         let model = &answer["model"];
         // One shape for each of the four children, and none counted as unknown.
         assert_eq!(model["shapes"].as_array().map(Vec::len), Some(4), "{basis}");
