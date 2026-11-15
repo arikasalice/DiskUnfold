@@ -80,12 +80,12 @@
 .du-browse-grid__header [role="row"],
 .du-browse-grid__row {
   display: grid;
-  /* The size and time columns keep room for one unbroken value ("At least
-     1023.9 KiB", "2026.11.15 08:55:16"), and the type column for one word;
-     the name and availability columns give way first. The same tracks in
-     every row keep the columns aligned. */
+  /* The size and time columns keep room for one unbroken value ("최소 390.6
+     KiB", "2026.11.15 08:55:16"), and the type column for one word, while
+     the name column still fits a short name at the narrowest table. The
+     same tracks in every row keep the columns aligned. */
   grid-template-columns:
-    minmax(0, 32fr) minmax(4.5em, 8fr) repeat(2, minmax(10em, 15fr))
+    minmax(0, 32fr) minmax(4em, 8fr) repeat(2, minmax(8em, 15fr))
     minmax(10em, 16fr) minmax(0, 14fr);
 }
 
