@@ -11,7 +11,7 @@ import { isImeProcessingKey } from "./ime-composition";
 const ITEM_FOCUS =
   'button, a[href], [role="row"], [role="rowheader"], [role="gridcell"], [role="note"], .du-text[tabindex]';
 
-/** How long a hoverable explanation stays after the pointer left, so the pointer can reach it. */
+/** How long an explanation stays after the pointer left, so the pointer can reach it. */
 const HOVER_GRACE_MS = 300;
 
 type HintState = NonNullable<ContextType<typeof TooltipTriggerStateContext>>;
@@ -21,10 +21,9 @@ type HintState = NonNullable<ContextType<typeof TooltipTriggerStateContext>>;
  * item that holds it, which may be `target` itself. Escape hides it until
  * both have left.
  *
- * With `hoverable`, the pointer can also move onto the explanation: it stays
- * while the pointer is on it and for a short time after the pointer left
- * `target` or the explanation. Without it the explanation closes as soon as
- * the pointer leaves `target`.
+ * The pointer can also move onto the explanation: it stays while the pointer
+ * is on it and for a short time after the pointer left `target` or the
+ * explanation.
  *
  * Put `enter` and `leave` on the pointer events of `target` and give the
  * result to `HintPopup`.
@@ -32,7 +31,6 @@ type HintState = NonNullable<ContextType<typeof TooltipTriggerStateContext>>;
 export function useHint(
   target: RefObject<HTMLElement | null>,
   active: boolean,
-  hoverable = false,
 ) {
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
@@ -53,16 +51,14 @@ export function useHint(
     setHovered(true);
   }, [keep]);
   const leave = useCallback(() => {
-    const end = () => {
+    keep();
+    leaving.current = window.setTimeout(() => {
       leaving.current = undefined;
       hovering.current = false;
       setHovered(false);
       if (!holdsFocus.current) setDismissed(false);
-    };
-    keep();
-    if (hoverable) leaving.current = window.setTimeout(end, HOVER_GRACE_MS);
-    else end();
-  }, [hoverable, keep]);
+    }, HOVER_GRACE_MS);
+  }, [keep]);
   useEffect(() => keep, [keep]);
 
   // The tooltip reads its open state from the trigger context, which this
@@ -73,15 +69,13 @@ export function useHint(
     () => ({
       isOpen: open,
       shouldSkipAnimation: false,
-      open: () => {
-        if (hoverable) enter();
-      },
+      open: enter,
       close: (immediate) => {
-        if (hoverable && !immediate) leave();
-        else setDismissed(true);
+        if (immediate) setDismissed(true);
+        else leave();
       },
     }),
-    [open, hoverable, enter, leave],
+    [open, enter, leave],
   );
 
   useEffect(() => {

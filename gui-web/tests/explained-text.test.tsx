@@ -28,13 +28,18 @@ test("the text is a tab stop that reads as a note with the explanation as its de
   const text = label();
   expect(text.tabIndex).toBe(0);
   expect(screen.queryByRole("button")).toBeNull();
+  // A note takes no name from its content, so the text names itself.
+  expect(
+    screen.getByRole("note", { name: "Exclusions", description: explanation }),
+  ).toBe(text);
   const description = document.getElementById(
     text.getAttribute("aria-describedby")!,
   )!;
   expect(description.textContent).toBe(explanation);
-  // The description is in the document before anything is shown.
+  // The description is in the document before anything is shown, and it is
+  // not rendered, so it is not read as text of its own.
   expect(screen.queryByRole("tooltip")).toBeNull();
-  expect(description.className).toBe("du-visually-hidden");
+  expect(description.hidden).toBe(true);
 });
 
 test("keyboard focus shows the explanation, Escape hides it and focus shows it again", async () => {
