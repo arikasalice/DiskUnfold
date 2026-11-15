@@ -227,7 +227,7 @@ impl ResultVersion {
             .physical
             .as_ref()
             .and_then(|values| values.get(index))
-            .and_then(Option::as_ref);
+            .and_then(|value| value.as_deref());
         Ok(ItemDetail { item, physical })
     }
 
