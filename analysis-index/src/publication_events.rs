@@ -1,6 +1,6 @@
 //! Orders result version notifications independently of read admission.
 use crate::version_store::Entry;
-use crate::{BuildHandle, ResultVersion};
+use crate::{BuildHandle, IngestSink, ResultVersion};
 use du_core_contracts::{
     Id, SizeAmount,
     result::ResultCompleteness,
@@ -8,6 +8,7 @@ use du_core_contracts::{
         PublishedCompleteness, ResultVersionChange, ResultVersionChanged, ResultVersionNotice,
         ResultVersionPublisher,
     },
+    result_freshness::{ResultFreshnessNotice, ResultFreshnessPublisher},
 };
 use std::sync::{Arc, Mutex, Weak};
 
@@ -24,15 +25,34 @@ pub(crate) trait RetiredVersions: Send + Sync {
 pub(super) struct PublicationEvents {
     pub order: Mutex<()>,
     publisher: Option<Arc<dyn ResultVersionPublisher>>,
+    freshness: Option<Arc<dyn ResultFreshnessPublisher>>,
     subscribers: Mutex<Vec<Weak<dyn RetiredVersions>>>,
 }
 
 impl PublicationEvents {
-    pub(super) fn new(publisher: Arc<dyn ResultVersionPublisher>) -> Self {
+    pub(super) fn new(
+        publisher: Arc<dyn ResultVersionPublisher>,
+        freshness: Option<Arc<dyn ResultFreshnessPublisher>>,
+    ) -> Self {
         Self {
             order: Mutex::new(()),
             publisher: Some(publisher),
+            freshness,
             subscribers: Mutex::default(),
+        }
+    }
+
+    /// Whether freshness notices are wanted; a store without a publisher keeps no ledger.
+    pub(super) fn tracks_freshness(&self) -> bool {
+        self.freshness.is_some()
+    }
+
+    /// Sends freshness notices in order, while holding the order guard after the version notice.
+    pub(super) fn notify_freshness(&self, notices: Vec<ResultFreshnessNotice>) {
+        if let Some(publisher) = &self.freshness {
+            for notice in notices {
+                publisher.publish_result_freshness(notice);
+            }
         }
     }
 
@@ -87,6 +107,21 @@ impl PublicationEvents {
                 observed_at: current.and_then(|result| result.observed_at.clone()),
             },
         });
+    }
+}
+
+impl IngestSink {
+    /// Creates the store with a freshness channel beside the version channel.
+    ///
+    /// Only a store with a freshness publisher keeps freshness ledgers.
+    pub fn with_publishers(
+        versions: Arc<dyn ResultVersionPublisher>,
+        freshness: Arc<dyn ResultFreshnessPublisher>,
+    ) -> Self {
+        Self {
+            state: Arc::default(),
+            events: Arc::new(PublicationEvents::new(versions, Some(freshness))),
+        }
     }
 }
 

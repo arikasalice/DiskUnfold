@@ -83,4 +83,6 @@ pub(crate) fn event_source(
 }
 
 #[cfg(all(test, windows))]
+mod freshness_tests;
+#[cfg(all(test, windows))]
 mod tests;

@@ -16,6 +16,7 @@ use du_core_contracts::{
     history_ipc::{HISTORY_CHANGED, HistoryChangedBody},
     job::{HistoryChangeReason, HistoryChanged, HistoryRecovery},
     result_events::RESULT_VERSION_CHANGED,
+    result_freshness::RESULT_FRESHNESS_CHANGED,
 };
 use du_job_runtime::{JobEvent, JobEvents};
 use serde_json::json;
@@ -37,6 +38,7 @@ pub use du_scan_engine::scan_job::ScanDiagnostics;
 pub use scan_completion::CompletedScanSource;
 pub use visualization::{DefaultVisualization, VisualizationPreview, VisualizationServices};
 
+mod freshness_replay;
 mod locale_events;
 mod pending;
 #[cfg(test)]
@@ -66,6 +68,8 @@ fn utc_now_timestamp() -> Option<Timestamp> {
 
 #[cfg(test)]
 mod delivery_failure_tests;
+#[cfg(test)]
+mod freshness_tests;
 #[cfg(test)]
 mod sample_tests;
 #[cfg(test)]
@@ -193,6 +197,13 @@ fn envelope(event: JobEvent, occurred_at: Timestamp) -> Option<EventEnvelope> {
     let (topic, job_ref, correlation_id, result_version, body) = match event {
         JobEvent::ResultVersionChanged(notice) => (
             RESULT_VERSION_CHANGED,
+            None,
+            None,
+            notice.result_version,
+            serde_json::to_value(notice.body).ok()?,
+        ),
+        JobEvent::ResultFreshnessChanged(notice) => (
+            RESULT_FRESHNESS_CHANGED,
             None,
             None,
             notice.result_version,

@@ -2,6 +2,7 @@ use du_core_contracts::{
     Id,
     job::{HistoryChanged, JobBody, JobDescriptor, JobProgress, JobState, JobSummary},
     result_events::ResultVersionNotice,
+    result_freshness::ResultFreshnessNotice,
 };
 use std::{
     collections::HashMap,
@@ -41,6 +42,8 @@ pub trait JobEvents: Send + Sync {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum JobEvent {
     ResultVersionChanged(Box<ResultVersionNotice>),
+    /// A committed change of a scope version's freshness ledger.
+    ResultFreshnessChanged(Box<ResultFreshnessNotice>),
     StateChanged {
         job_id: Id,
         state: JobState,
