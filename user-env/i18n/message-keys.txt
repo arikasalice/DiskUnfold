@@ -438,7 +438,6 @@ ui.inspection.unavailable_in_scan
 ui.inspection.name
 ui.inspection.path
 ui.inspection.kind
-ui.inspection.kind_untraversed_link
 ui.inspection.modified
 ui.inspection.created
 ui.inspection.published

@@ -57,7 +57,7 @@ function kindText(kind: string, text: LocaleText): string {
     case "file":
       return text("ui.browse.type_file", "File");
     case "untraversed_link":
-      return text("ui.inspection.kind_untraversed_link", "Link (not followed)");
+      return text("ui.browse.type_untraversed_link", "Link (not followed)");
     default:
       return text("ui.common.unknown", "Unknown");
   }

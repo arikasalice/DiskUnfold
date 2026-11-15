@@ -518,7 +518,7 @@ export function BrowseResults({
                   : row.kind === "untraversed_link"
                     ? text(
                         "ui.browse.type_untraversed_link",
-                        "Untraversed link",
+                        "Link (not followed)",
                       )
                     : text("ui.browse.type_unavailable", "Unavailable")}
           </Text>,
