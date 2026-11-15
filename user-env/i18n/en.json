@@ -347,6 +347,7 @@
     ["ui.analysis.clipboard_unsupported","The clipboard is not supported.",[]],
     ["ui.analysis.clipboard_failed","Could not copy to the clipboard.",[]],
     ["ui.analysis.copy_path_failed","Could not copy the path.",[]],
+    ["ui.analysis.copy_path_missing","Couldn't copy the path. The item is no longer in the latest result.",[]],
     ["ui.analysis.full_path","Full path",[]],
     ["ui.analysis.dismiss_copy_result","Dismiss copy result",[]],
     ["ui.analysis.space_aux_not_included","Auxiliary data was not collected",[]],

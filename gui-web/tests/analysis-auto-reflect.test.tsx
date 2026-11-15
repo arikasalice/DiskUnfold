@@ -420,12 +420,15 @@ test("F02 FR3.HD1.gui-web.DD1: folder details keep the result they opened with a
   expect(dialog.queryByText("Updated to the latest result")).toBeNull();
   expect(scan.reads("browse.detail")).toEqual(["v1"]);
 
-  // Copying reads the path again; the replaced result moves the dialog.
+  // A copy refused because the result was replaced moves the dialog to the
+  // newest result and copies there once; the user pressed only once.
   fireEvent.click(dialog.getByRole("button", { name: "Copy path" }));
   await dialog.findByText("Updated to the latest result");
   await dialog.findByText("200 bytes");
+  await dialog.findByText("Copied 1 path.");
   expect(dialog.queryByText("100 bytes")).toBeNull();
   expect(scan.reads("browse.detail")).toEqual(["v1", "v2"]);
+  expect(scan.reads("browse.copy_path")).toEqual(["v1", "v2"]);
 
   fireEvent.click(dialog.getByRole("button", { name: "Close details" }));
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
@@ -433,7 +436,71 @@ test("F02 FR3.HD1.gui-web.DD1: folder details keep the result they opened with a
   const reopened = within(await screen.findByRole("dialog"));
   await reopened.findByText("200 bytes");
   expect(reopened.queryByText("Updated to the latest result")).toBeNull();
+  expect(scan.reads("browse.copy_path")).toEqual(["v1", "v2"]);
 });
+
+/** Opens folder details on v1, then lets the scan publish v2 behind it. */
+async function folderDetailsBehindLatest() {
+  const scan = await startPanel();
+  fireEvent.click(screen.getByRole("button", { name: "View folder details" }));
+  const dialog = within(await screen.findByRole("dialog"));
+  await dialog.findByText("100 bytes");
+  passReflectInterval();
+  scan.publish("v2");
+  await waitFor(() => expect(scan.reads("space.total")).toEqual(["v1", "v2"]));
+  return { scan, dialog };
+}
+
+test("F02 FR3.HD1.gui-web.DD1: a continued copy refused again is reported and not continued further", async () => {
+  const { scan, dialog } = await folderDetailsBehindLatest();
+  const call = scan.client.call;
+  scan.client.call = ((name: string, body: { resultVersion?: string }) => {
+    // The continued copy finds yet another result published first.
+    if (name === "browse.copy_path" && body.resultVersion === "v2")
+      scan.job.version = "v3";
+    return call(name as never, body as never);
+  }) as AnalysisClient["call"];
+
+  fireEvent.click(dialog.getByRole("button", { name: "Copy path" }));
+  await dialog.findByText("Could not copy the path.");
+  expect(scan.reads("browse.copy_path")).toEqual(["v1", "v2"]);
+
+  // Learning of v3 neither moves the dialog nor copies again.
+  scan.publish("v3");
+  await act(async () => {});
+  expect(dialog.getByText("Could not copy the path.")).toBeDefined();
+  expect(dialog.getByText("200 bytes")).toBeDefined();
+  expect(scan.reads("browse.detail")).toEqual(["v1", "v2"]);
+  expect(scan.reads("browse.copy_path")).toEqual(["v1", "v2"]);
+});
+
+test.each(["browse.copy_path", "browse.detail"])(
+  "F02 FR3.HD1.gui-web.DD1: a continued copy whose item is not in the latest result says so (%s refuses it)",
+  async (refusing) => {
+    const { scan, dialog } = await folderDetailsBehindLatest();
+    const copies: (string | undefined)[] = [];
+    const call = scan.client.call;
+    scan.client.call = (async (
+      name: string,
+      body: { resultVersion?: string },
+    ) => {
+      if (name === "browse.copy_path") copies.push(body.resultVersion);
+      if (name === refusing && body.resultVersion === "v2")
+        throw new AnalysisError("NOT_FOUND", "ref.unavailable");
+      return call(name as never, body as never);
+    }) as AnalysisClient["call"];
+
+    fireEvent.click(dialog.getByRole("button", { name: "Copy path" }));
+    await dialog.findByText(
+      "Couldn't copy the path. The item is no longer in the latest result.",
+    );
+    await dialog.findByText("Updated to the latest result");
+    expect(copies).toEqual(
+      refusing === "browse.copy_path" ? ["v1", "v2"] : ["v1"],
+    );
+    expect(dialog.queryByText(/^Copied/)).toBeNull();
+  },
+);
 
 test("F02 NFR5.HD1.gui-web.DD1: newer results are read at most once per reflect interval", async () => {
   vi.useFakeTimers({

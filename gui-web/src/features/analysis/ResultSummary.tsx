@@ -219,7 +219,9 @@ export function PinnedResult({
 
 /**
  * Shows the observed attributes of the scope root in a dialog that keeps the
- * result it opened with (see `useDialogResult`).
+ * result it opened with (see `useDialogResult`). The scope root keeps its
+ * item number in every result, so a copy refused because the result was
+ * replaced continues once on the newest result.
  */
 function ScopeDetails({
   client,
@@ -268,6 +270,11 @@ function ScopeDetails({
             itemKind="folder"
             display={display}
             onStale={dialog.stale}
+            copy={{
+              pending: dialog.copy,
+              refused: dialog.staleCopy,
+              done: dialog.copied,
+            }}
           />
         </InspectionDialog>
       )}

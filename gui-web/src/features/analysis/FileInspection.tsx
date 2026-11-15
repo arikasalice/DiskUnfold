@@ -21,7 +21,8 @@ import type {
   BrowseValue,
   ItemRef,
 } from "../../ipc";
-import { CopyPath } from "./CopyPath";
+import { CopyPath, OwedCopyStatus, owedCopyFailure } from "./CopyPath";
+import type { CopyContinuation } from "./CopyPath";
 import { isSampleSource } from "../../state/sample-session";
 import { ItemSpaceDetails } from "./ItemSpaceDetails";
 import {
@@ -97,6 +98,13 @@ function sizeRow(
   };
 }
 
+/** What the path's copy action takes beyond the item and its path. */
+type PathActions = {
+  disabledReason?: string;
+  onStale?: (resultVersion: string) => void;
+  continuation?: CopyContinuation;
+};
+
 function attributes(
   detail: BrowseDetail,
   itemKind: "file" | "folder",
@@ -105,8 +113,7 @@ function attributes(
   item: ItemRef,
   text: LocaleText,
   renderTime: (value: string) => ReactNode,
-  actionsDisabledReason?: string,
-  onStale?: (resultVersion: string) => void,
+  actions: PathActions,
 ) {
   return [
     {
@@ -173,10 +180,7 @@ function attributes(
           client={client}
           item={item}
           path={detail.displayPath}
-          {...(onStale === undefined ? {} : { onStale })}
-          {...(actionsDisabledReason === undefined
-            ? {}
-            : { disabledReason: actionsDisabledReason })}
+          {...actions}
         />
       ),
     },
@@ -195,6 +199,7 @@ export function FileInspection({
   display = windowsSizeDisplay,
   actionsDisabledReason,
   onStale,
+  copy,
 }: {
   client: AnalysisClient;
   item: ItemRef;
@@ -207,11 +212,17 @@ export function FileInspection({
    * replaced, so a dialog can move to the newest result.
    */
   onStale?: ((resultVersion: string) => void) | undefined;
+  /**
+   * A dialog's copy that continues once on this item after a refusal. If
+   * the item's detail cannot be read, the copy is reported as not done.
+   */
+  copy?: CopyContinuation | undefined;
 }) {
   const [detail, setDetail] = useState<BrowseDetail>();
   const [problem, setProblem] = useState<
     "mismatch" | "stale" | "unavailable"
   >();
+  const [owedFailure, setOwedFailure] = useState<"missing" | "failed">();
   const text = useLocaleText();
   const timestamp = useTimestampParts();
   const renderTime = (value: string) => (
@@ -224,6 +235,19 @@ export function FileInspection({
   const reasons = text("ui.inspection.reasons", "Diagnostic reasons");
   const more = text("ui.inspection.more", "More observed attributes");
   const { resultVersion, itemNo } = item;
+  const actions: PathActions = {
+    ...(actionsDisabledReason === undefined
+      ? {}
+      : { disabledReason: actionsDisabledReason }),
+    ...(onStale === undefined ? {} : { onStale }),
+    ...(copy === undefined ? {} : { continuation: copy }),
+  };
+  /** An owed copy cannot run without the path; say so once. */
+  function failOwedCopy(failure: "missing" | "failed") {
+    if (!copy?.pending) return;
+    copy.done();
+    setOwedFailure(failure);
+  }
   useEffect(() => {
     let active = true;
     void client
@@ -238,6 +262,7 @@ export function FileInspection({
           response.item.itemNo !== itemNo
         ) {
           setProblem("mismatch");
+          failOwedCopy("failed");
           return;
         }
         setDetail(response);
@@ -248,11 +273,12 @@ export function FileInspection({
           failure instanceof AnalysisError && failure.code === "STALE_VERSION";
         setProblem(stale ? "stale" : "unavailable");
         if (stale) onStale?.(resultVersion);
+        else failOwedCopy(owedCopyFailure(failure));
       });
     return () => {
       active = false;
     };
-    // onStale only reports; a new callback does not call for another read.
+    // onStale and copy only report; new callbacks do not call for a read.
   }, [client, resultVersion, itemNo, itemKind]);
 
   return (
@@ -268,6 +294,7 @@ export function FileInspection({
           {inspectionProblem(problem, itemKind, kind, text)}
         </Notice>
       )}
+      {copy && <OwedCopyStatus failure={owedFailure} />}
       {!problem && !detail && (
         <Progress
           label={text("ui.inspection.loading", "Reading {kind} attributes", {
@@ -294,8 +321,7 @@ export function FileInspection({
                   item,
                   text,
                   renderTime,
-                  actionsDisabledReason,
-                  onStale,
+                  actions,
                 )}
               />
             </div>

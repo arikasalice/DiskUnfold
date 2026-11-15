@@ -330,6 +330,7 @@ ui.analysis.path_multiline
 ui.analysis.clipboard_unsupported
 ui.analysis.clipboard_failed
 ui.analysis.copy_path_failed
+ui.analysis.copy_path_missing
 ui.analysis.full_path
 ui.analysis.dismiss_copy_result
 ui.analysis.space_aux_not_included

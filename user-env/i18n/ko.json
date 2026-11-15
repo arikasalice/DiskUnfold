@@ -347,6 +347,7 @@
     ["ui.analysis.clipboard_unsupported","클립보드를 지원하지 않습니다.",[]],
     ["ui.analysis.clipboard_failed","클립보드에 복사하지 못했습니다.",[]],
     ["ui.analysis.copy_path_failed","경로를 복사하지 못했습니다.",[]],
+    ["ui.analysis.copy_path_missing","이 항목이 최신 결과에 없어 경로를 복사하지 못했습니다.",[]],
     ["ui.analysis.full_path","전체 경로",[]],
     ["ui.analysis.dismiss_copy_result","복사 결과 닫기",[]],
     ["ui.analysis.space_aux_not_included","보조 데이터가 수집되지 않았습니다.",[]],
