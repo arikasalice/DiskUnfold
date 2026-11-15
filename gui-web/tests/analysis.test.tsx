@@ -1040,7 +1040,7 @@ test("F01–F03: reviewed scope starts a scan and reads its pinned partial resul
     coverage.getByText("Missing items").nextElementSibling?.textContent,
   ).toBe("1");
   expect(
-    coverage.getByText("Untraversed links").nextElementSibling?.textContent,
+    coverage.getByText("Links not followed").nextElementSibling?.textContent,
   ).toBe("2");
   expect(
     coverage.getByText("Inaccessible ranges").nextElementSibling?.textContent,

@@ -55,7 +55,7 @@ function Coverage({ total }: { total: SpaceTotal }) {
       count: total.inaccessibleRanges,
     },
     {
-      label: text("ui.analysis.untraversed_links", "Untraversed links"),
+      label: text("ui.analysis.untraversed_links", "Links not followed"),
       count: total.untraversedLinks,
     },
   ];

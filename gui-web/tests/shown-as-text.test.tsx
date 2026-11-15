@@ -141,10 +141,10 @@ test("diagnostic reasons read as one line per field: its label, then why", async
   expect(screen.queryByText(/이 결과에 값이 없습니다/)).toBeNull();
   fireEvent.click(toggle);
   for (const line of [
-    "폴더 이름: 이 결과에 값이 없습니다",
+    "폴더 이름: 이 결과에 값이 없습니다.",
     "종류: 알 수 없는 사유 (future.reason)",
     "할당 크기: 일부 공간 데이터를 확인할 수 없습니다.",
-    ko("ui.inspection.created") + ": 이 결과에 값이 없습니다",
+    ko("ui.inspection.created") + ": 이 결과에 값이 없습니다.",
   ])
     expect(screen.getByText(line)).toBeDefined();
   // A key with a text is not shown; a key without one shows only here.
@@ -282,6 +282,7 @@ test("details are called 상세 정보 and a link that was not followed has one 
   expect(ko("ui.browse.file_details")).toBe("파일 상세 정보");
   expect(ko("ui.browse.observation_details")).toBe("관측 상세 정보");
   expect(ko("ui.analysis.volume_details_title")).toBe("관측 및 차이 상세 정보");
+  expect(ko("ui.analysis.folder_details")).toBe("폴더 상세 정보");
   expect(
     [...messages].filter(
       ([key, value]) =>
@@ -294,6 +295,20 @@ test("details are called 상세 정보 and a link that was not followed has one 
     ko("ui.analysis.untraversed_links"),
   );
   expect(messages.has("ui.inspection.kind_untraversed_link")).toBe(false);
+});
+
+test("a value that cannot be found out reads 확인 불가, not 사용할 수 없음", () => {
+  expect(ko("ui.analysis.space_total_unavailable")).toBe("합계 확인 불가");
+  expect(ko("ui.analysis.capacity_unavailable")).toBe("용량 확인 불가");
+  expect(ko("ui.analysis.issue_path_unavailable")).toBe("경로 확인 불가");
+  expect(ko("ui.browse.folder_path_unavailable")).toBe("폴더 경로 확인 불가");
+  expect(ko("ui.browse.unavailable")).toBe("확인 불가");
+  expect(ko("ui.browse.type_unavailable")).toBe("확인 불가");
+  // These two say why an action cannot be used and keep their wording.
+  expect(ko("ui.browse.unavailable_now")).toBe("현재 사용할 수 없음");
+  expect(ko("ui.browse.unavailable_while_opening")).toBe(
+    "폴더를 여는 동안 사용할 수 없음",
+  );
 });
 
 const display = { system: "iec", unit: "auto" } as const;

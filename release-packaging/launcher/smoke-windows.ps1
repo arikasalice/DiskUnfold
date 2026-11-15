@@ -849,7 +849,7 @@ function Test-JunctionBoundary {
       ForEach-Object { $_.Current.Name } | Where-Object { $_ })
     $issueText = $names -join ' '
     $issueRows = @(($names -match '^Issue \d+$') | Sort-Object -Unique)
-    if ($issueRows.Count -ne 1 -or $issueText -notmatch 'Untraversed links' -or
+    if ($issueRows.Count -ne 1 -or $issueText -notmatch 'Links not followed' -or
         $issueText -notmatch 'Link traversal' -or $issueText -notmatch 'The link target was skipped' -or
         -not ($names -match '(^|[\\/])redirect$')) {
       throw "Expected one untraversed junction issue, observed: $issueText"

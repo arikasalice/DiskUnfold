@@ -43,7 +43,7 @@ const folder: FolderQueryRow = {
   correspondence: unknown,
 };
 
-function opened(origin: string): BrowseOpenResponse {
+function opened(origin: string, row: FolderQueryRow): BrowseOpenResponse {
   return {
     kind: "opened",
     requestSeq: 1,
@@ -56,7 +56,7 @@ function opened(origin: string): BrowseOpenResponse {
       rowKind: "folder",
       queryRef: version,
       resultVersion: version,
-      rows: [folder],
+      rows: [row],
       total: { state: "lower_bound", count: 1 },
       unknownCount: 0,
       observedAt: "2026-11-14T10:00:00Z",
@@ -68,10 +68,13 @@ function opened(origin: string): BrowseOpenResponse {
   };
 }
 
-async function browse(origin: string) {
+async function browse(origin: string, row: FolderQueryRow = folder) {
   const port: BrowsePort = {
     open: vi.fn((request) =>
-      Promise.resolve({ ...opened(origin), requestSeq: request.requestSeq }),
+      Promise.resolve({
+        ...opened(origin, row),
+        requestSeq: request.requestSeq,
+      }),
     ),
     page: vi.fn(),
   };
@@ -98,6 +101,32 @@ test("an availability that could not be read says only that it is unknown", asyn
   await browse("scan");
   const row = screen.getByText("Photos").closest<HTMLElement>('[role="row"]')!;
   expect(within(row).getByText("알 수 없음")).toBeDefined();
+});
+
+test("a kind that was not decided reads 확인 불가; a kind without a name reads 알 수 없음", async () => {
+  const shown = async (kind: string) => {
+    await browse("scan", { ...folder, kind } as FolderQueryRow);
+    const row = screen
+      .getByText("Photos")
+      .closest<HTMLElement>('[role="row"]')!;
+    const count = (text: string) => within(row).queryAllByText(text).length;
+    const counts = {
+      unavailable: count("확인 불가"),
+      unnamed: count("알 수 없음"),
+    };
+    expect(within(row).queryByText(kind)).toBeNull();
+    cleanup();
+    return counts;
+  };
+  const { unavailable, unnamed } = await shown("directory");
+  // The other cells of the row read the same for every kind.
+  const undecided = { unavailable: unavailable + 1, unnamed };
+  expect(await shown("unknown")).toEqual(undecided);
+  expect(await shown("unknown_structure")).toEqual(undecided);
+  expect(await shown("future_kind")).toEqual({
+    unavailable,
+    unnamed: unnamed + 1,
+  });
 });
 
 test("a partial measurement reported by the file system reads in Korean", () => {
