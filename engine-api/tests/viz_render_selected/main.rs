@@ -140,6 +140,7 @@ fn request(parent: &ItemRef, right: u32) -> Request<'_> {
         format: "treemap",
         strategy: None,
         max_shapes: 10,
+        other: None,
     }
 }
 

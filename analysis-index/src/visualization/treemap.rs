@@ -14,7 +14,13 @@ use du_core_contracts::{
     ItemRef, SizeAmount, SizeBasis, SizeEvidence, SizeValue,
     result::{ResultCompleteness, ResultItemKind, ResultVersionRead},
 };
-use std::{cmp::Ordering, collections::BTreeMap};
+use std::{
+    cmp::Ordering,
+    collections::{BTreeMap, BTreeSet},
+};
+
+mod partial;
+pub(crate) use partial::{Partial, Unattributed, admit_partial_cancellable};
 
 /// Original F03 value and item associated with an index in the resulting layout.
 #[derive(Clone, Debug)]
@@ -71,7 +77,7 @@ pub fn admit_cancellable(
     if gap_covers_parent(version, parent_no, cancelled)? {
         return Err(AdmissionError::NoAttribution);
     }
-    let mut identities = BTreeMap::new();
+    let mut identities = Identities::default();
     let mut rows = Vec::with_capacity(children.len());
     let mut total = 0_u64;
     // Logical bytes are disjoint by observed path even while the scan is open.
@@ -309,8 +315,15 @@ pub fn layout_nested_parent(
     }
 }
 
-// Identity, sibling owner, allocation, link count, observed paths.
-type Identities = BTreeMap<FileIdentity, (u32, u64, u64, u64)>;
+// Identity -> sibling owner, allocation, link count, observed paths.
+type Owners = BTreeMap<FileIdentity, (u32, u64, u64, u64)>;
+
+// Identity ownership, plus every sibling that an identity conflict made unprovable.
+#[derive(Default)]
+struct Identities {
+    owners: Owners,
+    conflicted: BTreeSet<u32>,
+}
 fn inspect_subtree(
     version: &ResultVersion,
     sibling: u32,
@@ -397,14 +410,18 @@ fn physical_file(
         .filter(|v| v.evidence == SizeEvidence::OsReported)
         .and_then(|v| exact(v, &SizeBasis::Allocated))
         .ok_or(AdmissionError::NoAttribution)?;
-    if let Some((owner, previous, links, seen)) = identities.get_mut(identity) {
+    if let Some((owner, previous, links, seen)) = identities.owners.get_mut(identity) {
         if *owner != sibling || *previous != size || *links != count || *seen >= count {
+            // Neither sibling can claim the shared file, whichever was read first.
+            identities.conflicted.extend([*owner, sibling]);
             return Err(AdmissionError::NoAttribution);
         }
         *seen += 1;
         Ok(0)
     } else {
-        identities.insert(identity.clone(), (sibling, size, count, 1));
+        identities
+            .owners
+            .insert(identity.clone(), (sibling, size, count, 1));
         Ok(size)
     }
 }
