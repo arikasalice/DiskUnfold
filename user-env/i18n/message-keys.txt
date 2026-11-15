@@ -736,6 +736,9 @@ ui.browse.up
 ui.visualization.actions
 ui.visualization.backToVisualization
 ui.visualization.back_to_folders
+ui.visualization.badgeCancelled
+ui.visualization.badgeMissing
+ui.visualization.badgePartial
 ui.visualization.bar
 ui.visualization.byteCount count:size
 ui.visualization.cancelled
@@ -753,6 +756,10 @@ ui.visualization.denominatorScope
 ui.visualization.differentRevision
 ui.visualization.drawnTotal
 ui.visualization.estimatedEvidence
+ui.visualization.evidenceCompleteness
+ui.visualization.evidenceFreshness
+ui.visualization.evidenceOrigin
+ui.visualization.evidenceStatus
 ui.visualization.filteredOutTotal
 ui.visualization.flagLowerBound
 ui.visualization.flagOtherGroup

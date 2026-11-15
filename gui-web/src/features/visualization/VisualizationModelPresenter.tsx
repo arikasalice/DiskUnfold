@@ -6,7 +6,6 @@ import {
   createChartRenderers,
   Notice,
   Progress,
-  StatusBadge,
   Text,
   Heading,
 } from "../../components";
@@ -22,6 +21,7 @@ import { RowName } from "../../viz";
 import type { ModelResponse, ModelRowsPage, VizSelection } from "../../viz";
 import { ModelEvidence, shapeLabels, vizMessage } from "../../viz";
 import type { VizText } from "../../viz";
+import { ModelStatus } from "./ModelStatus";
 
 const defaultChartRenderer = createChartRenderers([]);
 type ModelViewProps = {
@@ -115,19 +115,7 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
         {text.message("storageVisualization")}
       </Heading>
       <div className="du-review-context">
-        <StatusBadge
-          tone={frame.completeness === "complete" ? "neutral" : "warning"}
-        >
-          {text.key(frame.completeness)}
-        </StatusBadge>
-        <StatusBadge>{text.key(frame.model.origin)}</StatusBadge>
-        {/* Every product model is unwatched today, and a permanent warning badge reads as "do not trust this result". */}
-        {frame.model.staleness.state === "stale" && (
-          <StatusBadge tone="warning">
-            {text.key(frame.model.staleness.state)}
-          </StatusBadge>
-        )}
-        <Text>{text.observedAt(frame.observedAt)}</Text>
+        <ModelStatus frame={frame} text={text} />
       </div>
       {frame.model.shapes.length === 0 && (
         <Notice>{text.message("noDrawableItems")}</Notice>

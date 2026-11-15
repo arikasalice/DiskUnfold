@@ -43,6 +43,23 @@ export function ModelEvidence({
         ]}
       />
       <Readout
+        label={text.message("evidenceStatus")}
+        rows={[
+          {
+            label: text.message("evidenceCompleteness"),
+            value: text.key(frame.completeness),
+          },
+          {
+            label: text.message("evidenceFreshness"),
+            value: text.key(model.staleness.state),
+          },
+          {
+            label: text.message("evidenceOrigin"),
+            value: text.key(model.origin),
+          },
+        ]}
+      />
+      <Readout
         label={text.message("independentTotals")}
         rows={totals.map(([label, total]) => ({
           label,

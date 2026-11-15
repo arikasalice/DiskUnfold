@@ -38,7 +38,8 @@ test("the unwatched freshness reason shows its wording and never the raw key", (
 
 test("a freshness reason the table does not know shows the generic wording", () => {
   showEvidence("viz.staleness.some_future_reason");
-  expect(screen.getByText(generic)).toBeDefined();
+  // The status line and the evidence table both give the reason.
+  expect(screen.getAllByText(generic)).toHaveLength(2);
   expect(screen.queryByText("viz.staleness.some_future_reason")).toBeNull();
   expect(screen.queryByText(unwatched)).toBeNull();
 });

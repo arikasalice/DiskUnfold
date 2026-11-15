@@ -64,7 +64,7 @@ describe.each(["en", "ko"] as const)("production viz text (%s)", (language) => {
       ["completenessComplete", "ui.analysis.version_final"],
       ["completenessPartial", "ui.analysis.version_interim"],
       ["completenessMissing", "ui.analysis.version_gaps"],
-      ["completenessCancelled", "ui.analysis.scan_cancelled"],
+      ["completenessCancelled", "ui.analysis.version_cancelled"],
       ["flagUnknown", "ui.analysis.unavailable"],
       ["unrecognizedValue", "ui.browse.availability_unknown"],
     ] as const;

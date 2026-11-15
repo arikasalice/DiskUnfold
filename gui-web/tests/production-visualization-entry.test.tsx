@@ -281,9 +281,14 @@ beforeEach(() => {
 describe.each(["en", "ko"] as const)("the product shell (%s)", (language) => {
   const locale = realLocales[language];
   const label = (key: string) => locale.text(key, "");
+  // A complete, current-analysis result has no badge; the unwatched result says so once.
   const expected = {
-    en: ["Final", "Current analysis"],
-    ko: ["최종", "현재 분석"],
+    en: ["Changes made after the analysis aren't reflected"],
+    ko: ["분석한 뒤에 바뀐 내용은 반영되지 않습니다"],
+  }[language];
+  const badgeWords = {
+    en: ["Final", "Current analysis", "Freshness unknown"],
+    ko: ["최종", "현재 분석", "최신 여부 확인 불가"],
   }[language];
 
   test("F06 FR10.HD1.app-host.DD2: after an analysis the folder view opens a treemap from the real provider", async () => {
@@ -341,6 +346,7 @@ describe.each(["en", "ko"] as const)("the product shell (%s)", (language) => {
     const shown = shell?.textContent ?? "";
     for (const word of expected) expect(shown).toContain(word);
     expect(shown).not.toContain(label("ui.visualization.freshnessUnknown"));
+    for (const word of badgeWords) expect(shown).not.toContain(word);
     expect(shown).not.toContain("Translation unverified");
     expect(shown).not.toContain("ui.visualization");
     expect(shown).not.toContain("viz.");
