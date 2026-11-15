@@ -1,4 +1,5 @@
 mod cancel;
+mod cancel_multilane;
 use super::*;
 use std::sync::mpsc;
 use std::time::Duration;
