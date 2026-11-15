@@ -34,11 +34,13 @@
 //!
 //! # Excluded children
 //!
-//! A reported folder answers `count` and `exact = complete && the folder is not unread`,
-//! where unread means a gap or an unread mark on the folder. An unreported folder of a real
-//! sealed Complete or Missing version answers 0, exact unless the folder is unread (its
-//! entries were not read, so 0 is a lower bound). Any other unreported folder answers
-//! `None`.
+//! A sample never provides an excluded count. A reported folder of a real scan answers
+//! `count` and `exact = complete && the folder is not unread`,
+//! where unread means a gap or an unread mark on the folder. An unreported folder that is
+//! unread answers 0 as a lower bound in every sealed version of a real scan, whatever its
+//! completeness: its entries were not read, so nothing was counted. An unreported folder
+//! that is not unread answers exactly 0 in a real sealed Complete or Missing version. Any
+//! other unreported folder answers `None`.
 //!
 //! # Cost
 //!
@@ -110,8 +112,11 @@ impl FolderBoundary {
 pub enum FolderCollection<'a> {
     /// The item is not a directory.
     NotAFolder,
+    /// The item is a directory.
     Folder {
+        /// Whether the collector tried to read the folder's entries and could not.
         unenumerated: Unenumerated<'a>,
+        /// Whether the scope rules deliberately did not enter the folder.
         boundary: FolderBoundary,
     },
 }
@@ -171,6 +176,9 @@ impl ResultVersion {
     ) -> Result<Option<ExcludedChildren>, QueryError> {
         let item = self.detail(item)?.item;
         ensure_directory(item.kind)?;
+        if !self.data_source.is_real() {
+            return Ok(None);
+        }
         let not_read = self.recorded_unread(item.item_no).is_some();
         if let Some(record) = self.folder_marks.excluded(item.item_no) {
             return Ok(Some(ExcludedChildren {
@@ -178,9 +186,17 @@ impl ResultVersion {
                 exact: record.complete && !not_read,
             }));
         }
+        // An unread folder of a finished real scan counted nothing: "at least zero",
+        // also in a version sealed Partial or Cancelled.
+        if not_read && self.data_source.is_real() && self.folder_marks.sealed() {
+            return Ok(Some(ExcludedChildren {
+                count: 0,
+                exact: false,
+            }));
+        }
         Ok(self.sealed_scan().then_some(ExcludedChildren {
             count: 0,
-            exact: !not_read,
+            exact: true,
         }))
     }
 
