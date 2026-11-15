@@ -44,7 +44,7 @@ function Coverage({ total }: { total: SpaceTotal }) {
       count: total.missingItems,
     },
     {
-      label: text("ui.analysis.inaccessible_ranges", "Inaccessible ranges"),
+      label: text("ui.analysis.inaccessible_ranges", "Inaccessible locations"),
       count: total.inaccessibleRanges,
     },
     {
