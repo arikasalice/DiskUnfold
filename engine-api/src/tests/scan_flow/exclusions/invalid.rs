@@ -42,3 +42,48 @@ fn invalid_rule_and_invalid_native_path_keep_existing_reasons()
     );
     Ok(())
 }
+
+/// A path inside a request draft may not carry a field this build does not define.
+#[test]
+fn unknown_fields_in_request_paths_are_an_invalid_body() -> Result<(), Box<dyn std::error::Error>> {
+    let ScanHarness { engine, .. } =
+        fixture::scan_harness_with_comparison(None, Some(Arc::new(ProvenComparison)))?;
+    let review = |draft: &serde_json::Value| {
+        let body = json!({"draft": draft, "requestSeq": 1});
+        call(
+            &engine,
+            "scope.review",
+            Channel::Gui,
+            ENVELOPE_VERSION,
+            body,
+        )
+    };
+    let reason = |draft: &serde_json::Value| review(draft).map(|r| r.error.map(|e| e.reason_key));
+    let reviewed = json!({"includes":[native("C:\\Fixture")],"exclusions":[{"kind":"path","path":native("C:\\Fixture\\F")}],"boundary":"current_volume","includedMounts":[],"source":"gui"});
+    assert_eq!(reason(&reviewed)?, None);
+    let mut with_mount = reviewed.clone();
+    with_mount["boundary"] = json!("include_selected");
+    with_mount["includedMounts"] = json!([native("C:\\Fixture\\M")]);
+    assert_ne!(
+        reason(&with_mount)?.as_deref(),
+        Some("command.body_invalid")
+    );
+    for (draft, pointer) in [
+        (&reviewed, "/includes/0"),
+        (&reviewed, "/exclusions/0/path"),
+        (&with_mount, "/includedMounts/0"),
+    ] {
+        let mut extended = draft.clone();
+        extended
+            .pointer_mut(pointer)
+            .and_then(serde_json::Value::as_object_mut)
+            .ok_or(pointer)?
+            .insert("futureField".into(), json!(true));
+        assert_eq!(
+            reason(&extended)?.as_deref(),
+            Some("command.body_invalid"),
+            "{pointer}"
+        );
+    }
+    Ok(())
+}
