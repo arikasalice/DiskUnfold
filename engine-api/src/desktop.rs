@@ -36,7 +36,7 @@ pub use assembly::{
 };
 pub use du_scan_engine::scan_job::ScanDiagnostics;
 pub use scan_completion::CompletedScanSource;
-pub use visualization::{VisualizationPreview, VisualizationServices};
+pub use visualization::{DefaultVisualization, VisualizationPreview, VisualizationServices};
 
 mod freshness_replay;
 mod locale_events;

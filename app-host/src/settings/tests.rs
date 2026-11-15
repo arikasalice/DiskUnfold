@@ -19,6 +19,7 @@ mod recent_scope;
 mod recent_service;
 mod schema;
 mod search;
+mod unit_table;
 
 fn test_database(path: &Path) -> Result<SharedDatabase, io::Error> {
     let database = AppDb::open_or_create_gui(path)
